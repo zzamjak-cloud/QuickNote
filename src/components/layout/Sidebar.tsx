@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
 import {
   DndContext,
   PointerSensor,
@@ -6,6 +7,7 @@ import {
   useSensors,
   closestCenter,
   type DragEndEvent,
+  type DragMoveEvent,
 } from "@dnd-kit/core";
 import { Plus, Search } from "lucide-react";
 import {
@@ -15,21 +17,76 @@ import {
 import { PageListGroup } from "./PageListGroup";
 import { PageMoveDialog } from "./PageMoveDialog";
 
+/** 드롭 행의 오른쪽 ~55% 구간에 포인터가 있으면 자식으로 넣기 (누적 delta 대신 사용) */
+const CHILD_DROP_WIDTH_RATIO = 0.55;
+
+type DropTarget = { id: string; mode: "child" | "sibling" } | null;
+
 export function Sidebar() {
+  const pointerRef = useRef({ x: 0, y: 0 });
   const [query, setQuery] = useState("");
   const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget>(null);
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      pointerRef.current = { x: e.clientX, y: e.clientY };
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onMove);
+  }, []);
   const tree = usePageStore((s) => filterPageTree(s, query));
   const createPage = usePageStore((s) => s.createPage);
   const movePage = usePageStore((s) => s.movePage);
   const pagesMap = usePageStore((s) => s.pages);
   const dndEnabled = query.trim().length === 0;
 
+  const duplicatePage = usePageStore((s) => s.duplicatePage);
+  const setActivePage = usePageStore((s) => s.setActivePage);
+  const activePageId = usePageStore((s) => s.activePageId);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isEditorFocused =
+        activeEl?.classList.contains("ProseMirror") ||
+        activeEl?.closest(".ProseMirror") !== null;
+      if (isEditorFocused) return;
+
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === "d" || e.key === "D") && activePageId) {
+        e.preventDefault();
+        const newId = duplicatePage(activePageId);
+        if (newId) setActivePage(newId);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activePageId, duplicatePage, setActivePage]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
 
+  const onDragMove = (event: DragMoveEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) {
+      setDropTarget(null);
+      return;
+    }
+    const overRect = over.rect;
+    const relX = pointerRef.current.x - overRect.left;
+    const ratio = relX / Math.max(overRect.width, 1);
+    const overId = String(over.id);
+    setDropTarget({
+      id: overId,
+      mode: ratio >= CHILD_DROP_WIDTH_RATIO ? "child" : "sibling",
+    });
+  };
+
   const onDragEnd = (event: DragEndEvent) => {
-    const { active, over, delta, activatorEvent } = event;
+    const { active, over } = event;
+    setDropTarget(null);
     if (!over || active.id === over.id) return;
     const activeId = String(active.id);
     const overId = String(over.id);
@@ -37,17 +94,12 @@ export function Sidebar() {
     const overPage = pagesMap[overId];
     if (!activePage || !overPage) return;
 
-    // 드롭 시 마우스 X 좌표를 추정해 들여쓰기 의도 판단:
-    // over row 우측 절반에 떨어지면 → over의 자식으로 이동.
-    // 좌측이면 → over와 같은 부모, over 위치에 형제 정렬.
-    const overRect = (over.rect as DOMRect | undefined) ?? null;
-    const startX =
-      activatorEvent && "clientX" in activatorEvent
-        ? (activatorEvent as PointerEvent).clientX
-        : 0;
-    const dropX = startX + delta.x;
+    const overRect = over.rect;
+    const relX = pointerRef.current.x - overRect.left;
+    const ratio = relX / Math.max(overRect.width, 1);
+    const nestAsChild = ratio >= CHILD_DROP_WIDTH_RATIO;
 
-    if (overRect && dropX - overRect.left > overRect.width / 2) {
+    if (nestAsChild) {
       movePage(activeId, overId, Number.MAX_SAFE_INTEGER);
       return;
     }
@@ -98,13 +150,16 @@ export function Sidebar() {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            onDragMove={onDragMove}
             onDragEnd={onDragEnd}
+            onDragCancel={() => setDropTarget(null)}
           >
             <PageListGroup
               nodes={tree}
               depth={0}
               draggable={dndEnabled}
               onMove={setMoveTargetId}
+              dropTarget={dropTarget}
             />
           </DndContext>
         )}

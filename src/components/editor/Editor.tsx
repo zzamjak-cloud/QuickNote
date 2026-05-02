@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, ReactRenderer } from "@tiptap/react";
+import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { NodeRange } from "@tiptap/extension-node-range";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -161,6 +162,27 @@ export function Editor() {
           },
           items: ({ query }) => filterSlashItems(query).slice(0, 24),
           render: createSlashRenderer,
+        },
+      }),
+      Extension.create({
+        name: "blockDuplicate",
+        addKeyboardShortcuts() {
+          return {
+            "Mod-d": () => {
+              const { state, view } = this.editor;
+              const { $from } = state.selection;
+              if ($from.depth < 1) return false;
+
+              const nodeStart = $from.before(1);
+              const node = $from.node(1);
+              if (!node) return false;
+
+              const insertAt = nodeStart + node.nodeSize;
+              const tr = state.tr.insert(insertAt, node.copy(node.content));
+              view.dispatch(tr.scrollIntoView());
+              return true;
+            },
+          };
         },
       }),
     ],
