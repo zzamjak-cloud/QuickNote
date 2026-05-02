@@ -42,8 +42,9 @@ type Props = {
 const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column"]);
 const HANDLE_STRIP_PX = 32;
 const MIN_HANDLE_LEFT = 6;
-const RECT_PAD_X = 16;
-const RECT_PAD_Y = 8;
+const GUTTER_LEFT_PX = 56;
+const RECT_PAD_X = 20;
+const RECT_PAD_Y = 18;
 
 function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | null {
   let best: HoverInfo | null = null;
@@ -147,11 +148,14 @@ export function BlockHandles({ editor }: Props) {
     const onMove = (e: MouseEvent) => {
       if (menuOpen) return;
       setHover((prev) => {
+        const next = computeHover(e);
+        if (next) return next;
+        // computeHover returned null (mouse is in gutter/handle area).
+        // Keep prev if still within the extended sticky zone so the handle stays visible.
         if (prev) {
-          const padLeft = HANDLE_STRIP_PX + 8;
           const { rect } = prev;
           if (
-            e.clientX >= rect.left - padLeft &&
+            e.clientX >= rect.left - GUTTER_LEFT_PX &&
             e.clientX <= rect.right + RECT_PAD_X &&
             e.clientY >= rect.top - RECT_PAD_Y &&
             e.clientY <= rect.bottom + RECT_PAD_Y
@@ -159,7 +163,7 @@ export function BlockHandles({ editor }: Props) {
             return prev;
           }
         }
-        return computeHover(e);
+        return null;
       });
     };
     const onLeave = (e: MouseEvent) => {
