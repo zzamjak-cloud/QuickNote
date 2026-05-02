@@ -17,6 +17,8 @@ import {
   Youtube as YoutubeIcon,
   AtSign,
   FileText,
+  LayoutGrid,
+  Smile,
   type LucideIcon,
 } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
@@ -129,6 +131,18 @@ export const slashItems: SlashItem[] = [
     },
   },
   {
+    title: "이모지",
+    description: "이모지 아이콘 삽입",
+    icon: Smile,
+    keywords: ["emoji", "이모지", "아이콘", "icon", "emoticon"],
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).run();
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("quicknote:open-emoji-picker"));
+      }, 0);
+    },
+  },
+  {
     title: "새 페이지",
     description: "현재 페이지의 하위 페이지를 추가하고 멘션 삽입",
     icon: FileText,
@@ -178,7 +192,7 @@ export const slashItems: SlashItem[] = [
     icon: Lightbulb,
     keywords: ["callout", "info", "tip", "강조", "콜아웃"],
     command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setCallout("💡").run(),
+      editor.chain().focus().deleteRange(range).setCallout("idea").run(),
   },
   {
     title: "토글",
@@ -187,6 +201,54 @@ export const slashItems: SlashItem[] = [
     keywords: ["toggle", "details", "collapse", "토글", "접기"],
     command: ({ editor, range }) =>
       editor.chain().focus().deleteRange(range).setToggle().run(),
+  },
+  {
+    title: "제목 토글 목록 1",
+    description: "큰 제목 스타일 토글",
+    icon: Heading1,
+    keywords: ["toggle h1", "토글 제목1", "heading toggle 1"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setHeadingToggle(1).run(),
+  },
+  {
+    title: "제목 토글 목록 2",
+    description: "중간 제목 스타일 토글",
+    icon: Heading2,
+    keywords: ["toggle h2", "토글 제목2", "heading toggle 2"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setHeadingToggle(2).run(),
+  },
+  {
+    title: "제목 토글 목록 3",
+    description: "작은 제목 스타일 토글",
+    icon: Heading3,
+    keywords: ["toggle h3", "토글 제목3", "heading toggle 3"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setHeadingToggle(3).run(),
+  },
+  {
+    title: "2개의 열",
+    description: "나란히 두 열 레이아웃",
+    icon: LayoutGrid,
+    keywords: ["columns", "2 col", "두 열", "2열", "column"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setColumnLayout(2).run(),
+  },
+  {
+    title: "3개의 열",
+    description: "세 열 레이아웃",
+    icon: LayoutGrid,
+    keywords: ["3 col", "세 열", "3열"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setColumnLayout(3).run(),
+  },
+  {
+    title: "4개의 열",
+    description: "네 열 레이아웃",
+    icon: LayoutGrid,
+    keywords: ["4 col", "네 열", "4열"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setColumnLayout(4).run(),
   },
   {
     title: "유튜브 임베드",

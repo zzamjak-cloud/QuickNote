@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent, ReactRenderer } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { NodeRange } from "@tiptap/extension-node-range";
 import Placeholder from "@tiptap/extension-placeholder";
 import Link from "@tiptap/extension-link";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import Image from "@tiptap/extension-image";
+import { ImageBlock } from "../../lib/tiptapExtensions/imageBlock";
 import HorizontalRule from "@tiptap/extension-horizontal-rule";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { Table } from "@tiptap/extension-table";
@@ -21,7 +22,9 @@ import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
 import "highlight.js/styles/github-dark.css";
 
+import EmojiPickerReact, { EmojiStyle, Theme } from "emoji-picker-react";
 import { usePageStore } from "../../store/pageStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
 import { MoveBlock } from "../../lib/tiptapExtensions/moveBlock";
 import { Callout } from "../../lib/tiptapExtensions/callout";
@@ -30,6 +33,8 @@ import {
   ToggleHeader,
   ToggleContent,
 } from "../../lib/tiptapExtensions/toggle";
+import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
+import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
 import { PageMention } from "../../lib/tiptapExtensions/pageMention";
 import {
   filterSlashItems,
@@ -39,10 +44,52 @@ import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker } from "../common/IconPicker";
 import { BubbleToolbar } from "./BubbleToolbar";
+import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
+import type { JSONContent } from "@tiptap/react";
+import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
 
 const lowlight = createLowlight(common);
 const AUTOSAVE_DEBOUNCE_MS = 300;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** useEditor content 폴백 — 매 렌더 새 객체를 넘기면 옵션 비교 실패 → setOptions 반복 → 무한 업데이트 */
+const EMPTY_EDITOR_DOC: JSONContent = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
+
+function loadImageDimensions(
+  src: string,
+): Promise<{ w: number; h: number } | null> {
+  return new Promise((resolve) => {
+    const im = new Image();
+    im.onload = () =>
+      resolve({ w: im.naturalWidth, h: im.naturalHeight });
+    im.onerror = () => resolve(null);
+    im.src = src;
+  });
+}
+
+/** 로컬 저장 후에도 유지되도록 data URL 로 삽입(blob URL 은 새로고침 시 깨짐). */
+function insertImageFromFile(
+  file: File,
+  insert: (src: string, dim?: { w: number; h: number }) => void,
+): boolean {
+  if (file.size > MAX_IMAGE_BYTES) {
+    alert(
+      `5MB 이하 이미지만 가능합니다 (현재 ${(file.size / 1024 / 1024).toFixed(1)}MB).`,
+    );
+    return false;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const src = String(reader.result);
+    void loadImageDimensions(src).then((dim) => insert(src, dim ?? undefined));
+  };
+  reader.readAsDataURL(file);
+  return true;
+}
 
 export function Editor() {
   const activeId = usePageStore((s) => s.activePageId);
@@ -53,13 +100,30 @@ export function Editor() {
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
 
+  const darkMode = useSettingsStore((s) => s.darkMode);
+
   const titleRef = useRef<HTMLInputElement | null>(null);
   const debounceRef = useRef<number | null>(null);
   const [imageOpen, setImageOpen] = useState(false);
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const emojiInsertPosRef = useRef<number | null>(null);
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({ codeBlock: false }),
+  const extensions = useMemo(
+    () => [
+      NodeRange.configure({}),
+      StarterKit.configure({
+        codeBlock: false,
+        blockquote: false,
+        // 아래는 동일 이름으로 별도 등록하므로 StarterKit 쪽은 끈다.
+        link: false,
+        horizontalRule: false,
+        dropcursor: {
+          color: false,
+          width: 2,
+          class: "qn-dropcursor",
+        },
+      }),
+      BlockquoteNoInput,
       Placeholder.configure({
         placeholder: "/ 를 입력해 명령 보기...",
       }),
@@ -67,26 +131,23 @@ export function Editor() {
       TaskList,
       TaskItem.configure({ nested: true }),
       CodeBlockLowlight.configure({ lowlight, defaultLanguage: "plaintext" }),
-      Image,
+      ImageBlock.configure({ allowBase64: true }),
       HorizontalRule,
       MoveBlock,
-      // 표
       Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
       TableCell,
-      // 인라인 스타일
       TextStyle,
       Color,
       Highlight.configure({ multicolor: true }),
-      // 임베드
       Youtube.configure({ width: 560, height: 315 }),
-      // 커스텀 노드
       Callout,
+      ColumnLayout,
+      Column,
       Toggle,
       ToggleHeader,
       ToggleContent,
-      // 페이지 멘션
       PageMention,
       SlashCommand.configure({
         suggestion: {
@@ -95,27 +156,106 @@ export function Editor() {
           command: ({ editor, range, props }) => {
             (props as SlashItem).command({ editor, range });
           },
-          items: ({ query }) => filterSlashItems(query).slice(0, 12),
+          items: ({ query }) => filterSlashItems(query).slice(0, 24),
           render: createSlashRenderer,
         },
       }),
     ],
-    content: page?.doc ?? { type: "doc", content: [{ type: "paragraph" }] },
-    editorProps: {
+    [],
+  );
+
+  const editorProps = useMemo(
+    () => ({
       attributes: {
         class:
           "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-12 py-8 min-h-[60vh]",
       },
-    },
+      handlePaste: (view: import("@tiptap/pm/view").EditorView, event: ClipboardEvent) => {
+        const items = event.clipboardData?.items;
+        if (!items) return false;
+        for (const item of Array.from(items)) {
+          if (item.type.startsWith("image/")) {
+            const file = item.getAsFile();
+            if (file) {
+              const ok = insertImageFromFile(file, (src, dim) => {
+                view.dispatch(
+                  view.state.tr.replaceSelectionWith(
+                    view.state.schema.nodes.image!.create({
+                      src,
+                      ...(dim
+                        ? { width: dim.w, height: dim.h }
+                        : {}),
+                    }),
+                  ),
+                );
+              });
+              if (ok) {
+                event.preventDefault();
+                return true;
+              }
+            }
+          }
+        }
+        return false;
+      },
+      handleDrop: (
+        view: import("@tiptap/pm/view").EditorView,
+        event: DragEvent,
+        _slice: unknown,
+        moved: boolean,
+      ) => {
+        if (moved) return false;
+        event.preventDefault?.();
+        const dt = event.dataTransfer;
+        const files = dt?.files;
+        if (!files || files.length === 0) return false;
+        const imgFile = Array.from(files).find((f) =>
+          f.type.startsWith("image/"),
+        );
+        if (!imgFile) return false;
+        const coord = view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY,
+        });
+        const ok = insertImageFromFile(imgFile, (src, dim) => {
+          const tr = view.state.tr;
+          const node = view.state.schema.nodes.image!.create({
+            src,
+            ...(dim ? { width: dim.w, height: dim.h } : {}),
+          });
+          if (coord) {
+            tr.insert(coord.pos, node);
+          } else {
+            tr.replaceSelectionWith(node);
+          }
+          view.dispatch(tr.scrollIntoView());
+        });
+        return ok;
+      },
+    }),
+    [],
+  );
+
+  // content 로 store 의 page.doc 를 넘기면 자동저장마다 참조가 바뀌어 setOptions 가 무한 호출됨.
+  // 초기값은 고정 EMPTY 만 넘기고, 실제 문서는 아래 effect 에서만 주입한다.
+  const editor = useEditor({
+    extensions,
+    content: EMPTY_EDITOR_DOC,
+    editorProps,
+    shouldRerenderOnTransaction: false,
   });
 
-  // 활성 페이지 변경 시 본문 동기화
+  // 활성 페이지 변경 시 본문 동기화. page.doc 를 deps 에 넣지 않음(타이핑·저장마다 doc 참조 변경 → setContent 루프·내용 되살림).
   useEffect(() => {
-    if (!editor || !page) return;
+    if (!editor || !page || !activeId) return;
+    const safeDoc = stripStaleBlobImages(page.doc);
+    if (JSON.stringify(safeDoc) !== JSON.stringify(page.doc)) {
+      updateDoc(activeId, safeDoc);
+    }
     const current = editor.getJSON();
-    if (JSON.stringify(current) === JSON.stringify(page.doc)) return;
-    editor.commands.setContent(page.doc, { emitUpdate: false });
-  }, [editor, page?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (JSON.stringify(current) === JSON.stringify(safeDoc)) return;
+    editor.commands.setContent(safeDoc, { emitUpdate: false });
+  }, [editor, page?.id, activeId, updateDoc]); // eslint-disable-line react-hooks/exhaustive-deps -- page.doc 변경 시 재동기화는 id 전환만
 
   // 디바운스 자동 저장
   useEffect(() => {
@@ -145,6 +285,17 @@ export function Editor() {
     return () =>
       window.removeEventListener("quicknote:open-image-upload", open);
   }, []);
+
+  // 이모지 피커 모달 트리거
+  useEffect(() => {
+    const open = () => {
+      if (!editor) return;
+      emojiInsertPosRef.current = editor.state.selection.from;
+      setEmojiPickerOpen(true);
+    };
+    window.addEventListener("quicknote:open-emoji-picker", open);
+    return () => window.removeEventListener("quicknote:open-emoji-picker", open);
+  }, [editor]);
 
   // 새 페이지 생성 시 제목 자동 포커스
   useEffect(() => {
@@ -200,11 +351,64 @@ export function Editor() {
         </div>
       </div>
       <BubbleToolbar editor={editor} />
+      <ImageResizeOverlay editor={editor} />
       <ImageUpload
         open={imageOpen}
         onClose={() => setImageOpen(false)}
         editor={editor}
       />
+      {emojiPickerOpen && (
+        <div
+          className="fixed inset-0 z-50"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setEmojiPickerOpen(false);
+          }}
+        >
+          <div
+            className="absolute"
+            style={{
+              top: (() => {
+                if (!editor || emojiInsertPosRef.current === null) return 200;
+                try {
+                  const coords = editor.view.coordsAtPos(emojiInsertPosRef.current);
+                  return coords.bottom + 8;
+                } catch {
+                  return 200;
+                }
+              })(),
+              left: (() => {
+                if (!editor || emojiInsertPosRef.current === null) return 200;
+                try {
+                  const coords = editor.view.coordsAtPos(emojiInsertPosRef.current);
+                  return coords.left;
+                } catch {
+                  return 200;
+                }
+              })(),
+            }}
+          >
+            <EmojiPickerReact
+              theme={darkMode ? Theme.DARK : Theme.LIGHT}
+              emojiStyle={EmojiStyle.NATIVE}
+              previewConfig={{ showPreview: false }}
+              searchDisabled={false}
+              lazyLoadEmojis
+              width={320}
+              height={380}
+              onEmojiClick={(data) => {
+                if (editor && emojiInsertPosRef.current !== null) {
+                  editor
+                    .chain()
+                    .focus()
+                    .insertContentAt(emojiInsertPosRef.current, data.emoji)
+                    .run();
+                }
+                setEmojiPickerOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -246,6 +450,8 @@ function createSlashRenderer() {
         interactive: true,
         trigger: "manual",
         placement: "bottom-start",
+        theme: "quicknote-suggestion",
+        arrow: false,
       });
     },
     onUpdate: (props: RendererProps) => {
