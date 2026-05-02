@@ -102,6 +102,7 @@ export function Editor() {
   const setIcon = usePageStore((s) => s.setIcon);
 
   const darkMode = useSettingsStore((s) => s.darkMode);
+  const fullWidth = useSettingsStore((s) => s.fullWidth);
 
   const titleRef = useRef<HTMLInputElement | null>(null);
   const debounceRef = useRef<number | null>(null);
@@ -343,7 +344,7 @@ export function Editor() {
 
   return (
     <div className="relative flex flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950">
-      <div className="relative mx-auto w-full max-w-3xl">
+      <div className={`relative mx-auto w-full ${fullWidth ? "max-w-none px-4" : "max-w-3xl"}`}>
         <div className="mt-12 px-12">
           <IconPicker
             current={page.icon}
