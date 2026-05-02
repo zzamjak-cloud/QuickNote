@@ -93,7 +93,7 @@ export const Toggle = Node.create({
       new InputRule({
         find: /^>\s$/,
         handler: ({ chain, range }) => {
-          chain().focus().deleteRange(range).setToggle().run();
+          chain().deleteRange(range).setToggle().run();
         },
       }),
     ];
@@ -104,35 +104,26 @@ export const Toggle = Node.create({
       new Plugin({
         key: new PluginKey("toggleFold"),
         props: {
-          handleClick(view, _pos, event) {
+          handleClick(view, pos, event) {
             const target = event.target as HTMLElement;
-            const summary = target.closest?.("summary.toggle-header");
-            if (!summary) return false;
-            const detailsEl = summary.parentElement;
-            if (!detailsEl || detailsEl.tagName !== "DETAILS") return false;
+            if (!target.closest?.("summary.toggle-header")) return false;
 
-            let nodePos: number | null = null;
-            view.state.doc.descendants((node, pos) => {
-              if (node.type.name === "toggle") {
-                const dom = view.nodeDOM(pos);
-                if (dom === detailsEl) {
-                  nodePos = pos;
-                  return false;
-                }
+            const $pos = view.state.doc.resolve(pos);
+            for (let depth = $pos.depth; depth >= 0; depth--) {
+              const n = $pos.node(depth);
+              if (n.type.name === "toggle") {
+                const nodePos = $pos.before(depth);
+                event.preventDefault();
+                view.dispatch(
+                  view.state.tr.setNodeMarkup(nodePos, undefined, {
+                    ...n.attrs,
+                    open: !n.attrs.open,
+                  })
+                );
+                return true;
               }
-              return true;
-            });
-            if (nodePos === null) return false;
-            const node = view.state.doc.nodeAt(nodePos);
-            if (!node) return false;
-
-            event.preventDefault();
-            const tr = view.state.tr.setNodeMarkup(nodePos, undefined, {
-              ...node.attrs,
-              open: !node.attrs.open,
-            });
-            view.dispatch(tr);
-            return true;
+            }
+            return false;
           },
         },
       }),
