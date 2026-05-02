@@ -24,6 +24,8 @@ type PageStoreActions = {
   setIcon: (id: string, icon: string | null) => void;
   // 페이지를 다른 부모/위치로 이동. parentId=null 이면 루트.
   movePage: (id: string, parentId: string | null, index: number) => void;
+  // 페이지(와 자손)를 복제하여 원본 바로 다음에 삽입. 복제된 루트의 id를 반환.
+  duplicatePage: (id: string) => string;
 };
 
 export type PageStore = PageStoreState & PageStoreActions;
@@ -196,6 +198,59 @@ export const usePageStore = create<PageStore>()(
           };
           return { pages: next };
         });
+      },
+
+      duplicatePage: (id) => {
+        const state = get();
+        const source = state.pages[id];
+        if (!source) return "";
+
+        const cloneMap = new Map<string, string>();
+
+        const cloneSubtree = (pageId: string): void => {
+          const page = state.pages[pageId];
+          if (!page) return;
+          const clonedId = newId();
+          cloneMap.set(pageId, clonedId);
+          const children = Object.values(state.pages).filter(
+            (p) => p.parentId === pageId
+          );
+          for (const child of children) {
+            cloneSubtree(child.id);
+          }
+        };
+        cloneSubtree(id);
+
+        const now = Date.now();
+        const newPages: PageMap = {};
+        for (const [origId, newPageId] of cloneMap.entries()) {
+          const orig = state.pages[origId]!;
+          const isRoot = origId === id;
+          newPages[newPageId] = {
+            ...orig,
+            id: newPageId,
+            title: isRoot ? `${orig.title} (복사본)` : orig.title,
+            parentId: isRoot
+              ? orig.parentId
+              : cloneMap.get(orig.parentId ?? "") ?? orig.parentId,
+            order: isRoot ? orig.order + 0.5 : orig.order,
+            createdAt: now,
+            updatedAt: now,
+          };
+        }
+
+        set((s) => {
+          const merged = { ...s.pages, ...newPages };
+          const siblings = Object.values(merged)
+            .filter((p) => p.parentId === source.parentId)
+            .sort((a, b) => a.order - b.order);
+          siblings.forEach((p, i) => {
+            merged[p.id] = { ...merged[p.id]!, order: i };
+          });
+          return { pages: merged };
+        });
+
+        return cloneMap.get(id) ?? "";
       },
     }),
     {

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { usePageStore, selectSortedPages } from "../store/pageStore";
+import { useSettingsStore } from "../store/settingsStore";
 
 beforeEach(() => {
   localStorage.clear();
@@ -44,5 +45,43 @@ describe("pageStore", () => {
     usePageStore.getState().reorderPages([c, a, b]);
     const sorted = selectSortedPages(usePageStore.getState()).map((p) => p.id);
     expect(sorted).toEqual([c, a, b]);
+  });
+});
+
+describe("settingsStore", () => {
+  it("toggleFullWidth이 fullWidth를 토글한다", () => {
+    useSettingsStore.setState({ fullWidth: false });
+    const store = useSettingsStore.getState();
+    expect(store.fullWidth).toBe(false);
+    store.toggleFullWidth();
+    expect(useSettingsStore.getState().fullWidth).toBe(true);
+    store.toggleFullWidth();
+    expect(useSettingsStore.getState().fullWidth).toBe(false);
+  });
+});
+
+describe("pageStore - duplicatePage", () => {
+  beforeEach(() => {
+    usePageStore.setState({ pages: {}, activePageId: null });
+  });
+
+  it("페이지를 복제하면 원본 바로 다음에 삽입된다", () => {
+    const store = usePageStore.getState();
+    const id = store.createPage("원본");
+    usePageStore.getState().duplicatePage(id);
+    const pages = Object.values(usePageStore.getState().pages);
+    expect(pages).toHaveLength(2);
+    const copy = pages.find((p) => p.id !== id);
+    expect(copy?.title).toBe("원본 (복사본)");
+    expect(copy?.parentId).toBe(null);
+  });
+
+  it("자식 페이지도 함께 복제된다", () => {
+    const store = usePageStore.getState();
+    const parentId = store.createPage("부모");
+    usePageStore.getState().createPage("자식", parentId);
+    usePageStore.getState().duplicatePage(parentId);
+    const pages = Object.values(usePageStore.getState().pages);
+    expect(pages).toHaveLength(4);
   });
 });
