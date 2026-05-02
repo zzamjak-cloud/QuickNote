@@ -13,13 +13,14 @@ import {
   filterPageTree,
 } from "../../store/pageStore";
 import { PageListGroup } from "./PageListGroup";
+import { PageMoveDialog } from "./PageMoveDialog";
 
 export function Sidebar() {
   const [query, setQuery] = useState("");
+  const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
   const tree = usePageStore((s) => filterPageTree(s, query));
   const createPage = usePageStore((s) => s.createPage);
   const movePage = usePageStore((s) => s.movePage);
-  // pages는 부모 추적용으로 직접 접근
   const pagesMap = usePageStore((s) => s.pages);
   const dndEnabled = query.trim().length === 0;
 
@@ -28,15 +29,29 @@ export function Sidebar() {
   );
 
   const onDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
+    const { active, over, delta, activatorEvent } = event;
     if (!over || active.id === over.id) return;
     const activeId = String(active.id);
     const overId = String(over.id);
     const activePage = pagesMap[activeId];
     const overPage = pagesMap[overId];
     if (!activePage || !overPage) return;
-    // 같은 부모를 공유할 때만 형제 재정렬로 처리.
-    // 다른 부모면 over 페이지의 부모로 이동시킨다.
+
+    // 드롭 시 마우스 X 좌표를 추정해 들여쓰기 의도 판단:
+    // over row 우측 절반에 떨어지면 → over의 자식으로 이동.
+    // 좌측이면 → over와 같은 부모, over 위치에 형제 정렬.
+    const overRect = (over.rect as DOMRect | undefined) ?? null;
+    const startX =
+      activatorEvent && "clientX" in activatorEvent
+        ? (activatorEvent as PointerEvent).clientX
+        : 0;
+    const dropX = startX + delta.x;
+
+    if (overRect && dropX - overRect.left > overRect.width / 2) {
+      movePage(activeId, overId, Number.MAX_SAFE_INTEGER);
+      return;
+    }
+
     const targetParent = overPage.parentId;
     const siblings = Object.values(pagesMap)
       .filter((p) => p.parentId === targetParent && p.id !== activeId)
@@ -85,10 +100,19 @@ export function Sidebar() {
             collisionDetection={closestCenter}
             onDragEnd={onDragEnd}
           >
-            <PageListGroup nodes={tree} depth={0} draggable={dndEnabled} />
+            <PageListGroup
+              nodes={tree}
+              depth={0}
+              draggable={dndEnabled}
+              onMove={setMoveTargetId}
+            />
           </DndContext>
         )}
       </div>
+      <PageMoveDialog
+        pageId={moveTargetId}
+        onClose={() => setMoveTargetId(null)}
+      />
     </aside>
   );
 }

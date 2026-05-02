@@ -8,6 +8,7 @@ import {
   Plus,
   Trash2,
   ArrowUpToLine,
+  MoveRight,
 } from "lucide-react";
 import type { PageNode } from "../../store/pageStore";
 import { usePageStore } from "../../store/pageStore";
@@ -18,9 +19,10 @@ type Props = {
   node: PageNode;
   depth: number;
   draggable: boolean;
+  onMove: (id: string) => void;
 };
 
-export function PageListItem({ node, depth, draggable }: Props) {
+export function PageListItem({ node, depth, draggable, onMove }: Props) {
   const setActivePage = usePageStore((s) => s.setActivePage);
   const renamePage = usePageStore((s) => s.renamePage);
   const deletePage = usePageStore((s) => s.deletePage);
@@ -185,6 +187,16 @@ export function PageListItem({ node, depth, draggable }: Props) {
             >
               이름 변경
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                onMove(node.id);
+                setMenuOpen(false);
+              }}
+              className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              <MoveRight size={12} /> 다른 페이지로 이동
+            </button>
             {node.parentId !== null && (
               <button
                 type="button"
@@ -226,6 +238,7 @@ export function PageListItem({ node, depth, draggable }: Props) {
           nodes={node.children}
           depth={depth + 1}
           draggable={draggable}
+          onMove={onMove}
         />
       )}
     </div>

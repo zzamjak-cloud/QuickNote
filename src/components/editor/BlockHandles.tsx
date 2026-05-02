@@ -1,6 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { Editor } from "@tiptap/react";
-import { GripVertical, Plus, Trash2, ArrowUp, ArrowDown, Copy } from "lucide-react";
+import {
+  GripVertical,
+  Plus,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  Copy,
+} from "lucide-react";
 
 type HoverInfo = {
   rect: DOMRect;
@@ -11,21 +18,18 @@ type Props = {
   editor: Editor | null;
 };
 
-// 에디터 DOM에 mousemove를 걸어 최상위 블록 호버 좌표를 추적하고,
-// 좌측 여백에 ⋮⋮ / ➕ 핸들을 절대 위치로 렌더한다.
+// 호버 추적 + 좌측 핸들. 메뉴가 열려 있는 동안에는 hover 추적을 멈춰
+// 핸들이 따라 움직이거나 사라지는 현상을 방지한다.
 export function BlockHandles({ editor }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (!editor) return;
-    const dom = editor.view.dom;
-    const wrapper = containerRef.current?.parentElement;
-    if (!wrapper) return;
-
-    const onMove = (e: MouseEvent) => {
-      // dom.children == 최상위 블록들
+  const computeHover = useCallback(
+    (e: MouseEvent) => {
+      if (!editor) return null;
+      const dom = editor.view.dom;
       const children = Array.from(dom.children) as HTMLElement[];
       let target: HTMLElement | null = null;
       for (const child of children) {
@@ -35,19 +39,43 @@ export function BlockHandles({ editor }: Props) {
           break;
         }
       }
-      if (!target) {
-        setHover(null);
-        return;
-      }
-      // ProseMirror 위치 계산: 자식 인덱스 -> doc 내 시작 위치
+      if (!target) return null;
       const idx = children.indexOf(target);
       let pmPos = 0;
       for (let i = 0; i < idx; i++) {
         pmPos += editor.state.doc.child(i).nodeSize;
       }
-      setHover({ rect: target.getBoundingClientRect(), pos: pmPos });
+      return { rect: target.getBoundingClientRect(), pos: pmPos };
+    },
+    [editor],
+  );
+
+  useEffect(() => {
+    if (!editor) return;
+    const wrapper = containerRef.current?.parentElement;
+    if (!wrapper) return;
+
+    const onMove = (e: MouseEvent) => {
+      // 메뉴가 떠 있는 동안에는 호버 위치를 동결한다.
+      if (menuOpen) return;
+      const next = computeHover(e);
+      setHover((prev) => {
+        if (!next) return null;
+        if (
+          prev &&
+          prev.pos === next.pos &&
+          prev.rect.top === next.rect.top &&
+          prev.rect.left === next.rect.left
+        ) {
+          return prev;
+        }
+        return next;
+      });
     };
-    const onLeave = () => setHover(null);
+    const onLeave = () => {
+      if (menuOpen) return;
+      setHover(null);
+    };
 
     wrapper.addEventListener("mousemove", onMove);
     wrapper.addEventListener("mouseleave", onLeave);
@@ -55,10 +83,27 @@ export function BlockHandles({ editor }: Props) {
       wrapper.removeEventListener("mousemove", onMove);
       wrapper.removeEventListener("mouseleave", onLeave);
     };
-  }, [editor]);
+  }, [editor, computeHover, menuOpen]);
+
+  // 메뉴 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [menuOpen]);
 
   if (!editor || !hover) {
-    return <div ref={containerRef} className="absolute inset-0 pointer-events-none" />;
+    return (
+      <div
+        ref={containerRef}
+        className="pointer-events-none absolute inset-0"
+      />
+    );
   }
 
   const wrapper = containerRef.current?.parentElement;
@@ -68,38 +113,33 @@ export function BlockHandles({ editor }: Props) {
   const left = hover.rect.left - wrapperRect.left - 48;
 
   const insertBelow = () => {
-    const pos = hover.pos + editor.state.doc.resolve(hover.pos + 1).parent.nodeSize;
+    const node = editor.state.doc.nodeAt(hover.pos);
+    if (!node) return;
+    const insertPos = hover.pos + node.nodeSize;
     editor
       .chain()
       .focus()
-      .insertContentAt(pos, { type: "paragraph" })
+      .insertContentAt(insertPos, { type: "paragraph" })
       .run();
-    // 슬래시 명령 트리거: '/' 입력 시뮬
     setTimeout(() => {
-      editor.chain().insertContent("/").run();
+      editor.chain().focus().insertContent("/").run();
     }, 0);
   };
 
   const moveBlock = (dir: "up" | "down") => {
-    const node = editor.state.doc.nodeAt(hover.pos);
-    if (!node) return;
     const idx = childIndexFromPos(editor, hover.pos);
     if (idx === -1) return;
     const sibling = dir === "up" ? idx - 1 : idx + 1;
     if (sibling < 0 || sibling >= editor.state.doc.childCount) return;
     const tr = editor.state.tr;
-    const nodes =
-      dir === "up"
-        ? [editor.state.doc.child(idx), editor.state.doc.child(sibling)]
-        : [editor.state.doc.child(sibling), editor.state.doc.child(idx)];
-    const start =
-      dir === "up"
-        ? hover.pos - editor.state.doc.child(sibling).nodeSize
-        : hover.pos;
+    const cur = editor.state.doc.child(idx);
+    const other = editor.state.doc.child(sibling);
+    const start = dir === "up" ? hover.pos - other.nodeSize : hover.pos;
     const end =
       dir === "up"
-        ? hover.pos + node.nodeSize
-        : hover.pos + node.nodeSize + editor.state.doc.child(sibling).nodeSize;
+        ? hover.pos + cur.nodeSize
+        : hover.pos + cur.nodeSize + other.nodeSize;
+    const nodes = dir === "up" ? [cur, other] : [other, cur];
     tr.replaceWith(start, end, nodes);
     editor.view.dispatch(tr.scrollIntoView());
   };
@@ -117,7 +157,6 @@ export function BlockHandles({ editor }: Props) {
     const node = editor.state.doc.nodeAt(hover.pos);
     if (!node) return;
     if (editor.state.doc.childCount <= 1) {
-      // 마지막 블록은 비우기만
       editor.chain().focus().clearContent().setParagraph().run();
       return;
     }
@@ -144,14 +183,20 @@ export function BlockHandles({ editor }: Props) {
         </button>
         <button
           type="button"
-          onClick={() => setMenuOpen((v) => !v)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuOpen((v) => !v);
+          }}
           title="블록 메뉴"
           className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
         >
           <GripVertical size={14} />
         </button>
         {menuOpen && (
-          <div className="absolute left-12 top-0 z-30 w-44 rounded-md border border-zinc-200 bg-white py-1 text-xs shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+          <div
+            ref={menuRef}
+            className="absolute left-12 top-0 z-50 w-44 rounded-md border border-zinc-200 bg-white py-1 text-xs shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          >
             <BlockMenuItem
               icon={ArrowUp}
               label="위로 이동"

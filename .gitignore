@@ -30,3 +30,6 @@ node_modules/.vitest/
 
 # OMC 내부 상태
 .omc/
+
+# Claude Code 로컬 설정 (개인 권한 등)
+.claude/settings.local.json

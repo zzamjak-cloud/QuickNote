@@ -16,8 +16,10 @@ import {
   ChevronRight,
   Youtube as YoutubeIcon,
   AtSign,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
+import { usePageStore } from "../../store/pageStore";
 
 export type SlashCommandContext = {
   editor: Editor;
@@ -120,7 +122,41 @@ export const slashItems: SlashItem[] = [
     keywords: ["image", "이미지", "사진"],
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run();
-      window.dispatchEvent(new CustomEvent("quicknote:open-image-upload"));
+      // 슬래시 메뉴 dismiss 후 다음 틱에 모달을 연다.
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("quicknote:open-image-upload"));
+      }, 0);
+    },
+  },
+  {
+    title: "새 페이지",
+    description: "현재 페이지의 하위 페이지를 추가하고 멘션 삽입",
+    icon: FileText,
+    keywords: ["page", "subpage", "new", "페이지", "하위"],
+    command: ({ editor, range }) => {
+      const store = usePageStore.getState();
+      const parentId = store.activePageId;
+      const newId = store.createPage("새 페이지", parentId);
+      // 새 페이지를 만들면 activePage가 새 페이지로 이동. 본문 멘션은 부모에서.
+      // 따라서 부모 페이지로 다시 돌아가 멘션을 본문에 삽입.
+      if (parentId) {
+        store.setActivePage(parentId);
+      }
+      // 한 틱 뒤 본문에 mention 노드 삽입
+      setTimeout(() => {
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertContent({
+            type: "mention",
+            attrs: { id: newId, label: "새 페이지" },
+          })
+          .insertContent(" ")
+          .run();
+        // 이후 새 페이지로 활성 전환
+        usePageStore.getState().setActivePage(newId);
+      }, 0);
     },
   },
   {
@@ -171,8 +207,14 @@ export const slashItems: SlashItem[] = [
     icon: AtSign,
     keywords: ["mention", "page", "link", "멘션", "페이지"],
     command: ({ editor, range }) => {
-      // 슬래시는 지우고 '@'를 입력해 멘션 suggestion을 트리거
-      editor.chain().focus().deleteRange(range).insertContent("@").run();
+      // 1) 슬래시 토큰 제거
+      // 2) 다음 틱에 '@' 텍스트 한 번만 dispatch (chain.insertContent로 넣으면
+      //    mention input rule이 두 번 처리되어 @@가 들어가는 문제 회피)
+      editor.chain().focus().deleteRange(range).run();
+      setTimeout(() => {
+        const { from } = editor.state.selection;
+        editor.view.dispatch(editor.state.tr.insertText("@", from));
+      }, 0);
     },
   },
 ];
