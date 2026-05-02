@@ -27,6 +27,11 @@ export default tseslint.config(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+      // dnd-kit의 useSortable 등은 ref/listener를 동기적으로 spread 해야 하므로
+      // 새로 추가된 react-hooks/refs 규칙은 끈다.
+      "react-hooks/refs": "off",
+      // 외부 스토어 변화에 로컬 draft를 재동기화하는 패턴이 필요해 끈다.
+      "react-hooks/set-state-in-effect": "off",
     },
   },
 );
