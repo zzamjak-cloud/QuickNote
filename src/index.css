@@ -59,6 +59,13 @@ body,
   margin: 0;
 }
 
+/* Empty: 아이콘 열 없음 — 편집 영역이 테두리 안 가로 전체를 쓰도록 */
+.callout--empty .callout-body {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
 /* 토글 */
 .toggle-block summary {
   list-style: none;
@@ -82,11 +89,215 @@ body,
   transform: translateY(-50%) rotate(90deg);
 }
 
-/* 페이지 멘션 클릭 시각 표시 */
+/* tippy 기본 검정 박스 제거 — 슬래시/멘션 메뉴는 자체 outline + shadow 사용 */
+.tippy-box {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: inherit !important;
+}
+.tippy-arrow {
+  display: none !important;
+}
+
+/* 페이지 멘션 칩 (실제 @ 문자는 renderHTML에서 한 번만 렌더) */
 .page-mention {
   cursor: pointer;
   font-weight: 500;
 }
-.page-mention::before {
-  content: "@";
+
+/* 블록 드래그(그립) 중 */
+body.quicknote-block-dragging .ProseMirror {
+  cursor: grabbing;
 }
+
+/* Typography prose 기본보다 촘촘한 블록 간격 (Enter 로 생기는 문단 간격 포함) */
+.ProseMirror p {
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+  /* Shift+Enter(하드 브레이크) 줄 간격 — prose 기본 line-height(약 1.75) 보다 촘촘하게 */
+  line-height: 1.42;
+}
+.ProseMirror > p:first-child {
+  margin-top: 0;
+}
+.ProseMirror > p:last-child {
+  margin-bottom: 0;
+}
+
+.ProseMirror h1 {
+  margin-top: 0.75em;
+  margin-bottom: 0.35em;
+}
+.ProseMirror h2 {
+  margin-top: 0.65em;
+  margin-bottom: 0.3em;
+}
+.ProseMirror h3,
+.ProseMirror h4 {
+  margin-top: 0.55em;
+  margin-bottom: 0.25em;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+  padding-left: 1.25rem;
+}
+.ProseMirror li > p {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+  line-height: 1.42;
+}
+
+.ProseMirror blockquote {
+  margin-top: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.ProseMirror pre {
+  margin-top: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+.ProseMirror hr {
+  margin-top: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+/* 이미지: prose 기본 이미지 마진·주변 문단 여백 축소 */
+.ProseMirror img {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+.ProseMirror p:has(> img:only-child) {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+.ProseMirror p:has(> img:only-child) img {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* ── 블록 드래그: 선택 영역 (prosemirror-view 기본 아웃라인 대체) ── */
+.ProseMirror-selectednode {
+  outline: none !important;
+  border-radius: 8px;
+  background-color: rgba(59, 130, 246, 0.11);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+}
+
+.dark .ProseMirror-selectednode {
+  background-color: rgba(96, 165, 250, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
+}
+
+li.ProseMirror-selectednode {
+  outline: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+li.ProseMirror-selectednode::after {
+  content: "";
+  position: absolute;
+  border: none !important;
+  border-radius: 8px;
+  background-color: rgba(59, 130, 246, 0.11);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+  pointer-events: none;
+  left: -28px;
+  right: -4px;
+  top: -3px;
+  bottom: -3px;
+}
+
+.dark li.ProseMirror-selectednode::after {
+  background-color: rgba(96, 165, 250, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
+}
+
+/* NodeRangeSelection 장식 (여러 블록 드래그 시) */
+.ProseMirror .ProseMirror-selectednoderange {
+  border-radius: 8px !important;
+  outline: none !important;
+  background-color: rgba(59, 130, 246, 0.09) !important;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.07);
+}
+
+.dark .ProseMirror .ProseMirror-selectednoderange {
+  background-color: rgba(96, 165, 250, 0.12) !important;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.1);
+}
+
+/*
+ * 드롭 위치 표시 — prosemirror-dropcursor 가 view.dom 이 아니라 offsetParent(편집 영역 래퍼)에 붙어
+ * ProseMirror 의 자식이 아니므로 .ProseMirror 접두 선택자를 쓰면 규칙이 적용되지 않음.
+ */
+.qn-dropcursor {
+  background-color: transparent !important;
+  z-index: 100 !important;
+}
+
+.qn-dropcursor.prosemirror-dropcursor-block {
+  /* 높이가 1~2px 일 때 그라데이션이 안 보이는 브라우저 대비 — 최소 높이 확보 */
+  min-height: 3px !important;
+  background-image: repeating-linear-gradient(
+    to right,
+    rgb(59, 130, 246) 0,
+    rgb(59, 130, 246) 5px,
+    transparent 5px,
+    transparent 10px
+  ) !important;
+  background-size: 100% 100%;
+  border-radius: 2px;
+}
+
+.qn-dropcursor.prosemirror-dropcursor-inline {
+  min-width: 3px !important;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgb(59, 130, 246) 0,
+    rgb(59, 130, 246) 4px,
+    transparent 4px,
+    transparent 8px
+  ) !important;
+  background-size: 100% 100%;
+  border-radius: 2px;
+}
+
+.dark .qn-dropcursor.prosemirror-dropcursor-block {
+  background-image: repeating-linear-gradient(
+    to right,
+    rgb(96, 165, 250) 0,
+    rgb(96, 165, 250) 5px,
+    transparent 5px,
+    transparent 10px
+  ) !important;
+}
+
+.dark .qn-dropcursor.prosemirror-dropcursor-inline {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgb(96, 165, 250) 0,
+    rgb(96, 165, 250) 4px,
+    transparent 4px,
+    transparent 8px
+  ) !important;
+}
+
+/* 컬럼 드롭 인디케이터 */
+.qn-column-drop-indicator {
+  position: fixed;
+  top: 0;
+  width: 2px;
+  background: transparent;
+  border-left: 2px dashed #3b82f6;
+  pointer-events: none;
+  z-index: 100;
+}
+

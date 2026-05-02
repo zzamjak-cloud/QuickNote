@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { NodeSelection } from "@tiptap/pm/state";
 import { useEditor, EditorContent, ReactRenderer } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -110,6 +111,17 @@ export function Editor() {
   const [imageOpen, setImageOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [emojiAnchor, setEmojiAnchor] = useState<{ top: number; left: number; insertPos: number } | null>(null);
+
+  const columnDropRef = useRef<{
+    side: "left" | "right";
+    targetBlockStart: number;
+  } | null>(null);
+
+  const [columnDropIndicator, setColumnDropIndicator] = useState<{
+    x: number;
+    top: number;
+    height: number;
+  } | null>(null);
 
   const extensions = useMemo(
     () => [
@@ -229,19 +241,60 @@ export function Editor() {
         _slice: unknown,
         moved: boolean,
       ) => {
+        // 컬럼 분할 드롭
+        if (moved && columnDropRef.current) {
+          const { side, targetBlockStart } = columnDropRef.current;
+          columnDropRef.current = null;
+          setColumnDropIndicator(null);
+
+          const sel = view.state.selection;
+          if (!(sel instanceof NodeSelection)) return false;
+
+          const draggedStart = sel.from;
+          const draggedNode = sel.node;
+          const targetNode = view.state.doc.nodeAt(targetBlockStart);
+          if (!targetNode || draggedStart === targetBlockStart) return false;
+
+          const { schema } = view.state;
+          if (!schema.nodes.column || !schema.nodes.columnLayout) return false;
+
+          event.preventDefault();
+
+          const pos1 = Math.min(draggedStart, targetBlockStart);
+          const pos2 = Math.max(draggedStart, targetBlockStart);
+          const node1 = view.state.doc.nodeAt(pos1)!;
+          const node2 = view.state.doc.nodeAt(pos2)!;
+
+          const leftNode =
+            side === "left"
+              ? (draggedStart < targetBlockStart ? draggedNode : targetNode)
+              : (draggedStart < targetBlockStart ? targetNode : draggedNode);
+          const rightNode =
+            side === "left"
+              ? (draggedStart < targetBlockStart ? targetNode : draggedNode)
+              : (draggedStart < targetBlockStart ? draggedNode : targetNode);
+
+          const col1 = schema.nodes.column.create({}, leftNode.copy(leftNode.content));
+          const col2 = schema.nodes.column.create({}, rightNode.copy(rightNode.content));
+          const layout = schema.nodes.columnLayout.create({ cols: 2 }, [col1, col2]);
+
+          const tr = view.state.tr;
+          tr.delete(pos2, pos2 + node2.nodeSize);
+          tr.delete(pos1, pos1 + node1.nodeSize);
+          tr.insert(pos1, layout);
+          view.dispatch(tr.scrollIntoView());
+          return true;
+        }
+
+        // 기존 이미지 파일 드롭
         if (moved) return false;
         event.preventDefault?.();
         const dt = event.dataTransfer;
         const files = dt?.files;
         if (!files || files.length === 0) return false;
-        const imgFile = Array.from(files).find((f) =>
-          f.type.startsWith("image/"),
-        );
+        const imgFile = Array.from(files).find((f) => f.type.startsWith("image/"));
         if (!imgFile) return false;
-        const coord = view.posAtCoords({
-          left: event.clientX,
-          top: event.clientY,
-        });
+        const coord = view.posAtCoords({ left: event.clientX, top: event.clientY });
         const ok = insertImageFromFile(imgFile, (src, dim) => {
           const tr = view.state.tr;
           const node = view.state.schema.nodes.image!.create({
@@ -302,6 +355,67 @@ export function Editor() {
       }
     };
   }, [editor, activeId, updateDoc]);
+
+  // 컬럼 분할 드래그오버 감지
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+
+    const clearDrop = () => {
+      columnDropRef.current = null;
+      setColumnDropIndicator(null);
+    };
+
+    const onDragOver = (e: DragEvent) => {
+      if (!document.body.classList.contains("quicknote-block-dragging")) return;
+      e.preventDefault();
+
+      const coords = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
+      if (!coords) { clearDrop(); return; }
+      let $pos;
+      try { $pos = editor.state.doc.resolve(coords.pos); } catch { clearDrop(); return; }
+
+      let targetNode = null;
+      let targetStart = -1;
+      for (let d = $pos.depth; d >= 1; d--) {
+        const n = $pos.node(d);
+        if (n.isBlock && n.type.name !== "doc") {
+          if (d === 1 || $pos.node(d - 1).type.name === "doc") {
+            targetNode = n;
+            targetStart = $pos.before(d);
+            break;
+          }
+        }
+      }
+      if (!targetNode || targetStart < 0) { clearDrop(); return; }
+
+      const domEl = editor.view.nodeDOM(targetStart);
+      const el = domEl instanceof HTMLElement ? domEl : (domEl as Node | null)?.parentElement;
+      if (!el) { clearDrop(); return; }
+      const rect = el.getBoundingClientRect();
+      const relX = e.clientX - rect.left;
+      const pct = relX / rect.width;
+
+      if (pct < 0.3) {
+        columnDropRef.current = { side: "left", targetBlockStart: targetStart };
+        setColumnDropIndicator({ x: rect.left - 1, top: rect.top, height: rect.height });
+      } else if (pct > 0.7) {
+        columnDropRef.current = { side: "right", targetBlockStart: targetStart };
+        setColumnDropIndicator({ x: rect.right - 1, top: rect.top, height: rect.height });
+      } else {
+        clearDrop();
+      }
+    };
+
+    dom.addEventListener("dragover", onDragOver);
+    dom.addEventListener("dragleave", clearDrop);
+    document.addEventListener("dragend", clearDrop);
+    return () => {
+      dom.removeEventListener("dragover", onDragOver);
+      dom.removeEventListener("dragleave", clearDrop);
+      document.removeEventListener("dragend", clearDrop);
+    };
+  }, [editor]);
 
   // 이미지 업로드 모달 트리거
   useEffect(() => {
@@ -383,6 +497,16 @@ export function Editor() {
         <div className="relative">
           <EditorContent editor={editor} />
           <BlockHandles editor={editor} />
+          {columnDropIndicator && (
+            <div
+              className="qn-column-drop-indicator"
+              style={{
+                left: columnDropIndicator.x,
+                top: columnDropIndicator.top,
+                height: columnDropIndicator.height,
+              }}
+            />
+          )}
         </div>
       </div>
       <BubbleToolbar editor={editor} />
