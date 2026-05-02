@@ -266,6 +266,25 @@ export function Editor() {
           const node1 = view.state.doc.nodeAt(pos1)!;
           const node2 = view.state.doc.nodeAt(pos2)!;
 
+          // 기존 columnLayout에 열 추가 (최대 4열)
+          if (targetNode.type.name === "columnLayout") {
+            const existingCols: import("@tiptap/pm/model").Node[] = [];
+            targetNode.content.forEach((col) => existingCols.push(col));
+            if (existingCols.length >= 4) return false;
+            const newCol = schema.nodes.column.create({}, draggedNode.copy(draggedNode.content));
+            const newCols = side === "right"
+              ? [...existingCols, newCol]
+              : [newCol, ...existingCols];
+            const newLayout = schema.nodes.columnLayout.create({ columns: newCols.length }, newCols);
+            const tr = view.state.tr;
+            tr.delete(pos2, pos2 + node2.nodeSize);
+            tr.delete(pos1, pos1 + node1.nodeSize);
+            tr.insert(pos1, newLayout);
+            view.dispatch(tr.scrollIntoView());
+            return true;
+          }
+
+          // 새 2열 레이아웃 생성
           const leftNode =
             side === "left"
               ? (draggedStart < targetBlockStart ? draggedNode : targetNode)
@@ -277,7 +296,7 @@ export function Editor() {
 
           const col1 = schema.nodes.column.create({}, leftNode.copy(leftNode.content));
           const col2 = schema.nodes.column.create({}, rightNode.copy(rightNode.content));
-          const layout = schema.nodes.columnLayout.create({ cols: 2 }, [col1, col2]);
+          const layout = schema.nodes.columnLayout.create({ columns: 2 }, [col1, col2]);
 
           const tr = view.state.tr;
           tr.delete(pos2, pos2 + node2.nodeSize);

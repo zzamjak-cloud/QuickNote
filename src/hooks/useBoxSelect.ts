@@ -19,11 +19,14 @@ export function useBoxSelect(editor: Editor | null) {
   const getTopLevelBlocks = useCallback((): { el: HTMLElement; pos: number }[] => {
     if (!editor) return [];
     const result: { el: HTMLElement; pos: number }[] = [];
-    editor.state.doc.forEach((_node, offset) => {
-      const dom = editor.view.nodeDOM(offset);
-      const el = dom instanceof HTMLElement ? dom : (dom as Node | null)?.parentElement;
-      if (el) result.push({ el, pos: offset });
-    });
+    for (const child of Array.from(editor.view.dom.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      try {
+        const innerPos = editor.view.posAtDOM(child, 0);
+        const blockStart = innerPos - 1;
+        if (blockStart >= 0) result.push({ el: child, pos: blockStart });
+      } catch {}
+    }
     return result;
   }, [editor]);
 
@@ -87,9 +90,10 @@ export function useBoxSelect(editor: Editor | null) {
     };
 
     const onMouseUp = () => {
+      const wasTracking = startRef.current !== null;
       startRef.current = null;
       setDragRect(null);
-      if (!activeRef.current) {
+      if (wasTracking && !activeRef.current) {
         clearSelection();
       }
       activeRef.current = false;

@@ -39,7 +39,7 @@ type Props = {
   editor: Editor | null;
 };
 
-const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column"]);
+const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column", "toggle", "toggleHeader", "toggleContent"]);
 const HANDLE_STRIP_PX = 32;
 const MIN_HANDLE_LEFT = 6;
 const GUTTER_LEFT_PX = 56;
