@@ -36,6 +36,7 @@ import {
 import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
 import { PageMention } from "../../lib/tiptapExtensions/pageMention";
+import { EmojiShortcode } from "../../lib/tiptapExtensions/emojiShortcode";
 import {
   filterSlashItems,
   type SlashItem,
@@ -149,6 +150,7 @@ export function Editor() {
       ToggleHeader,
       ToggleContent,
       PageMention,
+      EmojiShortcode,
       SlashCommand.configure({
         suggestion: {
           char: "/",
