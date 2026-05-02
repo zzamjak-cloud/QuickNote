@@ -106,7 +106,7 @@ export function Editor() {
   const debounceRef = useRef<number | null>(null);
   const [imageOpen, setImageOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const emojiInsertPosRef = useRef<number | null>(null);
+  const [emojiAnchor, setEmojiAnchor] = useState<{ top: number; left: number; insertPos: number } | null>(null);
 
   const extensions = useMemo(
     () => [
@@ -290,12 +290,22 @@ export function Editor() {
   useEffect(() => {
     const open = () => {
       if (!editor) return;
-      emojiInsertPosRef.current = editor.state.selection.from;
+      const insertPos = editor.state.selection.from;
+      let top = 200;
+      let left = 200;
+      try {
+        const coords = editor.view.coordsAtPos(insertPos);
+        top = coords.bottom + 8;
+        left = coords.left;
+      } catch {
+        // 기본값 유지
+      }
+      setEmojiAnchor({ top, left, insertPos });
       setEmojiPickerOpen(true);
     };
     window.addEventListener("quicknote:open-emoji-picker", open);
     return () => window.removeEventListener("quicknote:open-emoji-picker", open);
-  }, [editor]);
+  }, []);
 
   // 새 페이지 생성 시 제목 자동 포커스
   useEffect(() => {
@@ -357,7 +367,7 @@ export function Editor() {
         onClose={() => setImageOpen(false)}
         editor={editor}
       />
-      {emojiPickerOpen && (
+      {emojiPickerOpen && emojiAnchor && (
         <div
           className="fixed inset-0 z-50"
           onMouseDown={(e) => {
@@ -367,24 +377,8 @@ export function Editor() {
           <div
             className="absolute"
             style={{
-              top: (() => {
-                if (!editor || emojiInsertPosRef.current === null) return 200;
-                try {
-                  const coords = editor.view.coordsAtPos(emojiInsertPosRef.current);
-                  return coords.bottom + 8;
-                } catch {
-                  return 200;
-                }
-              })(),
-              left: (() => {
-                if (!editor || emojiInsertPosRef.current === null) return 200;
-                try {
-                  const coords = editor.view.coordsAtPos(emojiInsertPosRef.current);
-                  return coords.left;
-                } catch {
-                  return 200;
-                }
-              })(),
+              top: emojiAnchor.top,
+              left: emojiAnchor.left,
             }}
           >
             <EmojiPickerReact
@@ -396,14 +390,15 @@ export function Editor() {
               width={320}
               height={380}
               onEmojiClick={(data) => {
-                if (editor && emojiInsertPosRef.current !== null) {
+                if (editor && emojiAnchor.insertPos != null) {
                   editor
                     .chain()
                     .focus()
-                    .insertContentAt(emojiInsertPosRef.current, data.emoji)
+                    .insertContentAt(emojiAnchor.insertPos, data.emoji)
                     .run();
                 }
                 setEmojiPickerOpen(false);
+                setEmojiAnchor(null);
               }}
             />
           </div>
