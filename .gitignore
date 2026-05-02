@@ -1,0 +1,32 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Dependencies
+node_modules/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Test
+coverage/
+
+# Vitest cache
+node_modules/.vitest/
+
+# OMC 내부 상태
+.omc/
