@@ -59,7 +59,7 @@ export function useBoxSelect(editor: Editor | null) {
       const target = e.target as HTMLElement;
       const isProseMirrorContent =
         target.closest(".ProseMirror") !== null &&
-        target !== editor.view.dom.parentElement;
+        target !== editor.view.dom;
 
       if (isProseMirrorContent) return;
       if (e.button !== 0) return;

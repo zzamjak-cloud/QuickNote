@@ -42,6 +42,8 @@ type Props = {
 const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column"]);
 const HANDLE_STRIP_PX = 32;
 const MIN_HANDLE_LEFT = 6;
+const RECT_PAD_X = 16;
+const RECT_PAD_Y = 8;
 
 function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | null {
   let best: HoverInfo | null = null;
@@ -144,7 +146,21 @@ export function BlockHandles({ editor }: Props) {
 
     const onMove = (e: MouseEvent) => {
       if (menuOpen) return;
-      setHover(computeHover(e));
+      setHover((prev) => {
+        if (prev) {
+          const padLeft = HANDLE_STRIP_PX + 8;
+          const { rect } = prev;
+          if (
+            e.clientX >= rect.left - padLeft &&
+            e.clientX <= rect.right + RECT_PAD_X &&
+            e.clientY >= rect.top - RECT_PAD_Y &&
+            e.clientY <= rect.bottom + RECT_PAD_Y
+          ) {
+            return prev;
+          }
+        }
+        return computeHover(e);
+      });
     };
     const onLeave = (e: MouseEvent) => {
       if (menuOpen) return;
