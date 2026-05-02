@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -7,30 +7,20 @@ import {
   closestCenter,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
 import { Plus, Search } from "lucide-react";
 import {
   usePageStore,
-  selectSortedPages,
+  filterPageTree,
 } from "../../store/pageStore";
-import { PageListItem } from "./PageListItem";
+import { PageListGroup } from "./PageListGroup";
 
 export function Sidebar() {
-  const pages = usePageStore(selectSortedPages);
-  const activePageId = usePageStore((s) => s.activePageId);
-  const createPage = usePageStore((s) => s.createPage);
-  const reorderPages = usePageStore((s) => s.reorderPages);
   const [query, setQuery] = useState("");
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return pages;
-    return pages.filter((p) => p.title.toLowerCase().includes(q));
-  }, [pages, query]);
-
+  const tree = usePageStore((s) => filterPageTree(s, query));
+  const createPage = usePageStore((s) => s.createPage);
+  const movePage = usePageStore((s) => s.movePage);
+  // pages는 부모 추적용으로 직접 접근
+  const pagesMap = usePageStore((s) => s.pages);
   const dndEnabled = query.trim().length === 0;
 
   const sensors = useSensors(
@@ -40,14 +30,20 @@ export function Sidebar() {
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const ids = pages.map((p) => p.id);
-    const from = ids.indexOf(String(active.id));
-    const to = ids.indexOf(String(over.id));
-    if (from === -1 || to === -1) return;
-    const next = [...ids];
-    next.splice(from, 1);
-    next.splice(to, 0, String(active.id));
-    reorderPages(next);
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const activePage = pagesMap[activeId];
+    const overPage = pagesMap[overId];
+    if (!activePage || !overPage) return;
+    // 같은 부모를 공유할 때만 형제 재정렬로 처리.
+    // 다른 부모면 over 페이지의 부모로 이동시킨다.
+    const targetParent = overPage.parentId;
+    const siblings = Object.values(pagesMap)
+      .filter((p) => p.parentId === targetParent && p.id !== activeId)
+      .sort((a, b) => a.order - b.order);
+    const overIndex = siblings.findIndex((p) => p.id === overId);
+    if (overIndex === -1) return;
+    movePage(activeId, targetParent, overIndex);
   };
 
   return (
@@ -77,9 +73,11 @@ export function Sidebar() {
         />
       </div>
       <div className="flex-1 overflow-y-auto">
-        {filtered.length === 0 ? (
+        {tree.length === 0 ? (
           <p className="mt-4 px-2 text-xs text-zinc-400">
-            {query ? "일치하는 페이지가 없습니다." : "+ 버튼으로 페이지를 만드세요."}
+            {query
+              ? "일치하는 페이지가 없습니다."
+              : "+ 버튼으로 페이지를 만드세요."}
           </p>
         ) : (
           <DndContext
@@ -87,21 +85,7 @@ export function Sidebar() {
             collisionDetection={closestCenter}
             onDragEnd={onDragEnd}
           >
-            <SortableContext
-              items={filtered.map((p) => p.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="flex flex-col gap-0.5">
-                {filtered.map((page) => (
-                  <PageListItem
-                    key={page.id}
-                    page={page}
-                    active={page.id === activePageId}
-                    draggable={dndEnabled}
-                  />
-                ))}
-              </div>
-            </SortableContext>
+            <PageListGroup nodes={tree} depth={0} draggable={dndEnabled} />
           </DndContext>
         )}
       </div>

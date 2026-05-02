@@ -22,13 +22,30 @@ type PageStoreActions = {
   setActivePage: (id: string | null) => void;
   reorderPages: (orderedIds: string[]) => void;
   setIcon: (id: string, icon: string | null) => void;
+  // 페이지를 다른 부모/위치로 이동. parentId=null 이면 루트.
+  movePage: (id: string, parentId: string | null, index: number) => void;
 };
 
 export type PageStore = PageStoreState & PageStoreActions;
 
-function nextOrder(pages: PageMap): number {
-  const orders = Object.values(pages).map((p) => p.order);
-  return orders.length === 0 ? 0 : Math.max(...orders) + 1;
+function nextOrderForParent(pages: PageMap, parentId: string | null): number {
+  const siblings = Object.values(pages).filter((p) => p.parentId === parentId);
+  if (siblings.length === 0) return 0;
+  return Math.max(...siblings.map((s) => s.order)) + 1;
+}
+
+function isDescendant(
+  pages: PageMap,
+  candidateAncestorId: string,
+  nodeId: string,
+): boolean {
+  // candidateAncestorId가 nodeId의 조상인지 검사 (순환 방지용)
+  let cursor: string | null = nodeId;
+  while (cursor) {
+    if (cursor === candidateAncestorId) return true;
+    cursor = pages[cursor]?.parentId ?? null;
+  }
+  return false;
 }
 
 export const usePageStore = create<PageStore>()(
@@ -46,7 +63,7 @@ export const usePageStore = create<PageStore>()(
           icon: null,
           doc: structuredClone(EMPTY_DOC),
           parentId,
-          order: nextOrder(get().pages),
+          order: nextOrderForParent(get().pages, parentId),
           createdAt: now,
           updatedAt: now,
         };
@@ -60,9 +77,24 @@ export const usePageStore = create<PageStore>()(
       deletePage: (id) => {
         set((state) => {
           if (!(id in state.pages)) return state;
-          const { [id]: _removed, ...rest } = state.pages;
+          // 자식 페이지를 모두 함께 삭제(노션 휴지통 스타일).
+          const toRemove = new Set<string>([id]);
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const p of Object.values(state.pages)) {
+              if (p.parentId && toRemove.has(p.parentId) && !toRemove.has(p.id)) {
+                toRemove.add(p.id);
+                changed = true;
+              }
+            }
+          }
+          const rest: PageMap = {};
+          for (const [pid, page] of Object.entries(state.pages)) {
+            if (!toRemove.has(pid)) rest[pid] = page;
+          }
           let nextActive = state.activePageId;
-          if (state.activePageId === id) {
+          if (state.activePageId && toRemove.has(state.activePageId)) {
             const remaining = Object.values(rest).sort(
               (a, b) => a.order - b.order,
             );
@@ -123,6 +155,48 @@ export const usePageStore = create<PageStore>()(
           };
         });
       },
+
+      movePage: (id, parentId, index) => {
+        set((state) => {
+          const target = state.pages[id];
+          if (!target) return state;
+          // 자기 자신·자손 아래로의 이동 차단 (순환 방지)
+          if (parentId !== null) {
+            if (parentId === id) return state;
+            if (isDescendant(state.pages, id, parentId)) return state;
+          }
+          const next: PageMap = {};
+          for (const p of Object.values(state.pages)) {
+            next[p.id] = p;
+          }
+          // 1) 원래 부모에서 제거 후 형제들의 order 재조정
+          const oldParent = target.parentId;
+          const oldSiblings = Object.values(next)
+            .filter((p) => p.parentId === oldParent && p.id !== id)
+            .sort((a, b) => a.order - b.order);
+          oldSiblings.forEach((p, i) => {
+            next[p.id] = { ...p, order: i };
+          });
+          // 2) 새 부모의 형제 목록에 인덱스 위치로 삽입
+          const newSiblings = Object.values(next)
+            .filter((p) => p.parentId === parentId && p.id !== id)
+            .sort((a, b) => a.order - b.order);
+          const clampedIndex = Math.max(0, Math.min(index, newSiblings.length));
+          newSiblings.splice(clampedIndex, 0, {
+            ...target,
+            parentId,
+            order: 0,
+          });
+          newSiblings.forEach((p, i) => {
+            next[p.id] = { ...p, order: i };
+          });
+          next[id] = {
+            ...next[id]!,
+            updatedAt: Date.now(),
+          };
+          return { pages: next };
+        });
+      },
     }),
     {
       name: "quicknote.pageStore.v1",
@@ -133,4 +207,52 @@ export const usePageStore = create<PageStore>()(
 
 export function selectSortedPages(state: PageStore): Page[] {
   return Object.values(state.pages).sort((a, b) => a.order - b.order);
+}
+
+export type PageNode = Page & { children: PageNode[] };
+
+// 트리 셀렉터: parentId 기반 재귀 빌드. 형제들은 order로 정렬.
+export function selectPageTree(state: PageStore): PageNode[] {
+  const byParent = new Map<string | null, Page[]>();
+  for (const p of Object.values(state.pages)) {
+    const list = byParent.get(p.parentId) ?? [];
+    list.push(p);
+    byParent.set(p.parentId, list);
+  }
+  for (const list of byParent.values()) {
+    list.sort((a, b) => a.order - b.order);
+  }
+  const build = (parentId: string | null): PageNode[] =>
+    (byParent.get(parentId) ?? []).map((p) => ({
+      ...p,
+      children: build(p.id),
+    }));
+  return build(null);
+}
+
+// 검색 필터: 매치되는 페이지와 그 조상을 함께 반환.
+export function filterPageTree(
+  state: PageStore,
+  query: string,
+): PageNode[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return selectPageTree(state);
+  const matched = new Set<string>();
+  for (const p of Object.values(state.pages)) {
+    if (p.title.toLowerCase().includes(q)) matched.add(p.id);
+  }
+  // 매치된 페이지의 모든 조상 포함
+  const include = new Set(matched);
+  for (const id of matched) {
+    let cursor: string | null = state.pages[id]?.parentId ?? null;
+    while (cursor) {
+      include.add(cursor);
+      cursor = state.pages[cursor]?.parentId ?? null;
+    }
+  }
+  const prune = (nodes: PageNode[]): PageNode[] =>
+    nodes
+      .filter((n) => include.has(n.id))
+      .map((n) => ({ ...n, children: prune(n.children) }));
+  return prune(selectPageTree(state));
 }

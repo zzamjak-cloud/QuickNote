@@ -11,6 +11,11 @@ import {
   Minus,
   Image as ImageIcon,
   Pilcrow,
+  Table as TableIcon,
+  Lightbulb,
+  ChevronRight,
+  Youtube as YoutubeIcon,
+  AtSign,
   type LucideIcon,
 } from "lucide-react";
 
@@ -116,6 +121,58 @@ export const slashItems: SlashItem[] = [
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run();
       window.dispatchEvent(new CustomEvent("quicknote:open-image-upload"));
+    },
+  },
+  {
+    title: "표",
+    description: "3 × 3 표 삽입",
+    icon: TableIcon,
+    keywords: ["table", "grid", "표", "테이블"],
+    command: ({ editor, range }) =>
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .run(),
+  },
+  {
+    title: "콜아웃",
+    description: "💡 강조 박스",
+    icon: Lightbulb,
+    keywords: ["callout", "info", "tip", "강조", "콜아웃"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setCallout("💡").run(),
+  },
+  {
+    title: "토글",
+    description: "접고 펼 수 있는 블록",
+    icon: ChevronRight,
+    keywords: ["toggle", "details", "collapse", "토글", "접기"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setToggle().run(),
+  },
+  {
+    title: "유튜브 임베드",
+    description: "YouTube URL 삽입",
+    icon: YoutubeIcon,
+    keywords: ["youtube", "video", "embed", "유튜브", "임베드"],
+    command: ({ editor, range }) => {
+      const url = prompt("YouTube URL을 입력하세요:");
+      editor.chain().focus().deleteRange(range).run();
+      if (url && url.trim()) {
+        editor.chain().focus().setYoutubeVideo({ src: url.trim() }).run();
+      }
+    },
+  },
+  {
+    title: "페이지 링크",
+    description: "다른 페이지 멘션 (@)",
+    icon: AtSign,
+    keywords: ["mention", "page", "link", "멘션", "페이지"],
+    command: ({ editor, range }) => {
+      // 슬래시는 지우고 '@'를 입력해 멘션 suggestion을 트리거
+      editor.chain().focus().deleteRange(range).insertContent("@").run();
     },
   },
 ];

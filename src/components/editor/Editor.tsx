@@ -8,6 +8,14 @@ import TaskItem from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
 import HorizontalRule from "@tiptap/extension-horizontal-rule";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
+import { Highlight } from "@tiptap/extension-highlight";
+import { Youtube } from "@tiptap/extension-youtube";
 import { common, createLowlight } from "lowlight";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
@@ -16,15 +24,24 @@ import "highlight.js/styles/github-dark.css";
 import { usePageStore } from "../../store/pageStore";
 import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
 import { MoveBlock } from "../../lib/tiptapExtensions/moveBlock";
+import { Callout } from "../../lib/tiptapExtensions/callout";
+import {
+  Toggle,
+  ToggleHeader,
+  ToggleContent,
+} from "../../lib/tiptapExtensions/toggle";
+import { PageMention } from "../../lib/tiptapExtensions/pageMention";
 import {
   filterSlashItems,
   type SlashItem,
 } from "../../lib/tiptapExtensions/slashItems";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
+import { IconPicker } from "../common/IconPicker";
+import { BubbleToolbar } from "./BubbleToolbar";
+import { BlockHandles } from "./BlockHandles";
 
 const lowlight = createLowlight(common);
-
 const AUTOSAVE_DEBOUNCE_MS = 300;
 
 export function Editor() {
@@ -34,6 +51,7 @@ export function Editor() {
   );
   const updateDoc = usePageStore((s) => s.updateDoc);
   const renamePage = usePageStore((s) => s.renamePage);
+  const setIcon = usePageStore((s) => s.setIcon);
 
   const titleRef = useRef<HTMLInputElement | null>(null);
   const debounceRef = useRef<number | null>(null);
@@ -52,6 +70,24 @@ export function Editor() {
       Image,
       HorizontalRule,
       MoveBlock,
+      // 표
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      // 인라인 스타일
+      TextStyle,
+      Color,
+      Highlight.configure({ multicolor: true }),
+      // 임베드
+      Youtube.configure({ width: 560, height: 315 }),
+      // 커스텀 노드
+      Callout,
+      Toggle,
+      ToggleHeader,
+      ToggleContent,
+      // 페이지 멘션
+      PageMention,
       SlashCommand.configure({
         suggestion: {
           char: "/",
@@ -59,7 +95,7 @@ export function Editor() {
           command: ({ editor, range, props }) => {
             (props as SlashItem).command({ editor, range });
           },
-          items: ({ query }) => filterSlashItems(query).slice(0, 10),
+          items: ({ query }) => filterSlashItems(query).slice(0, 12),
           render: createSlashRenderer,
         },
       }),
@@ -118,6 +154,22 @@ export function Editor() {
     }
   }, [page?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 페이지 멘션 클릭 시 해당 페이지로 이동
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+    const onClick = (e: Event) => {
+      const target = (e.target as HTMLElement).closest(".page-mention");
+      if (!target) return;
+      const id = target.getAttribute("data-id");
+      if (id) {
+        usePageStore.getState().setActivePage(id);
+      }
+    };
+    dom.addEventListener("click", onClick);
+    return () => dom.removeEventListener("click", onClick);
+  }, [editor]);
+
   if (!page || !activeId) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
@@ -127,17 +179,27 @@ export function Editor() {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950">
-      <div className="mx-auto w-full max-w-3xl">
+    <div className="relative flex flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950">
+      <div className="relative mx-auto w-full max-w-3xl">
+        <div className="mt-12 px-12">
+          <IconPicker
+            current={page.icon}
+            onChange={(icon) => setIcon(activeId, icon)}
+          />
+        </div>
         <input
           ref={titleRef}
           value={page.title}
           onChange={(e) => renamePage(activeId, e.target.value)}
           placeholder="제목 없음"
-          className="mt-12 w-full bg-transparent px-12 text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
+          className="mt-2 w-full bg-transparent px-12 text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
         />
-        <EditorContent editor={editor} />
+        <div className="relative">
+          <EditorContent editor={editor} />
+          <BlockHandles editor={editor} />
+        </div>
       </div>
+      <BubbleToolbar editor={editor} />
       <ImageUpload
         open={imageOpen}
         onClose={() => setImageOpen(false)}
@@ -147,7 +209,7 @@ export function Editor() {
   );
 }
 
-// tippy.js 기반 SuggestionRenderer. 공식 노션 클론 패턴 참고.
+// tippy.js 기반 SuggestionRenderer.
 type RendererProps = {
   editor: import("@tiptap/react").Editor;
   clientRect?: (() => DOMRect | null) | null;
@@ -158,8 +220,6 @@ type RendererProps = {
 };
 
 function createSlashRenderer() {
-  // ReactRenderer 제네릭은 컴포넌트의 props 시그니처를 따른다.
-  // Suggestion이 넘기는 RendererProps는 슈퍼셋이므로 SlashMenu가 사용하는 키만 골라 전달.
   let component: ReactRenderer<SlashMenuHandle> | null = null;
   let popup: TippyInstance[] = [];
 

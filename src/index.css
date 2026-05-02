@@ -8,3 +8,85 @@ body,
   height: 100%;
   margin: 0;
 }
+
+/* TipTap 표 스타일 (노션 풍) */
+.ProseMirror table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  table-layout: fixed;
+  width: 100%;
+  overflow: hidden;
+}
+.ProseMirror table td,
+.ProseMirror table th {
+  border: 1px solid rgb(228 228 231);
+  padding: 6px 10px;
+  vertical-align: top;
+  position: relative;
+  min-width: 80px;
+}
+.dark .ProseMirror table td,
+.dark .ProseMirror table th {
+  border-color: rgb(63 63 70);
+}
+.ProseMirror table th {
+  background: rgb(244 244 245);
+  font-weight: 600;
+  text-align: left;
+}
+.dark .ProseMirror table th {
+  background: rgb(39 39 42);
+}
+.ProseMirror table .selectedCell::after {
+  background: rgba(99, 102, 241, 0.15);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+.ProseMirror .column-resize-handle {
+  background-color: rgb(99 102 241);
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  right: -2px;
+  top: 0;
+  width: 4px;
+}
+
+/* 콜아웃 본문 paragraph 마진 정리 */
+.callout-body > p {
+  margin: 0;
+}
+
+/* 토글 */
+.toggle-block summary {
+  list-style: none;
+  outline: none;
+  position: relative;
+  padding-left: 18px;
+}
+.toggle-block summary::-webkit-details-marker {
+  display: none;
+}
+.toggle-block summary::before {
+  content: "▶";
+  font-size: 10px;
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%) rotate(0deg);
+  transition: transform 120ms;
+}
+.toggle-block[open] summary::before {
+  transform: translateY(-50%) rotate(90deg);
+}
+
+/* 페이지 멘션 클릭 시각 표시 */
+.page-mention {
+  cursor: pointer;
+  font-weight: 500;
+}
+.page-mention::before {
+  content: "@";
+}
