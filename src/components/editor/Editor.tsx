@@ -51,6 +51,7 @@ import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
 import type { JSONContent } from "@tiptap/react";
 import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
+import { useBoxSelect } from "../../hooks/useBoxSelect";
 
 const lowlight = createLowlight(common);
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -470,6 +471,8 @@ export function Editor() {
     return () => dom.removeEventListener("click", onClick);
   }, [editor]);
 
+  const { dragRect } = useBoxSelect(editor);
+
   if (!page || !activeId) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
@@ -504,6 +507,17 @@ export function Editor() {
                 left: columnDropIndicator.x,
                 top: columnDropIndicator.top,
                 height: columnDropIndicator.height,
+              }}
+            />
+          )}
+          {dragRect && dragRect.w > 8 && dragRect.h > 8 && (
+            <div
+              className="qn-box-select-rect"
+              style={{
+                left: dragRect.x,
+                top: dragRect.y,
+                width: dragRect.w,
+                height: dragRect.h,
               }}
             />
           )}
