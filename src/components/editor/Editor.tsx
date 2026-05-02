@@ -15,6 +15,7 @@ import "highlight.js/styles/github-dark.css";
 
 import { usePageStore } from "../../store/pageStore";
 import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
+import { MoveBlock } from "../../lib/tiptapExtensions/moveBlock";
 import {
   filterSlashItems,
   type SlashItem,
@@ -50,6 +51,7 @@ export function Editor() {
       CodeBlockLowlight.configure({ lowlight, defaultLanguage: "plaintext" }),
       Image,
       HorizontalRule,
+      MoveBlock,
       SlashCommand.configure({
         suggestion: {
           char: "/",
