@@ -196,6 +196,13 @@ body.quicknote-block-dragging .ProseMirror {
   box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
 }
 
+/* DB 블록은 자체 UI에 컨트롤이 많아 atom 선택 시 파란 배경이 거슬림 — 비활성화 */
+.qn-database-block.ProseMirror-selectednode,
+.dark .qn-database-block.ProseMirror-selectednode {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
 li.ProseMirror-selectednode {
   outline: none !important;
   background: transparent !important;

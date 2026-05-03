@@ -61,7 +61,13 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
 
   return (
     <div className="inline-block min-w-full align-middle">
-      <table className="w-full border-collapse text-left text-xs">
+      <table className="w-full border-collapse text-left text-xs" style={{ tableLayout: "fixed" }}>
+        <colgroup>
+          {columns.map((col) => (
+            <col key={col.id} style={col.width ? { width: col.width } : undefined} />
+          ))}
+          <col style={{ width: 32 }} />
+        </colgroup>
         <thead>
           <tr>
             {columns.map((col, idx) => (
@@ -90,8 +96,6 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
               <tr
                 key={row.pageId}
                 onDragOver={(e) => {
-                  // 드래그 오버는 기본 동작을 막아야 onDrop이 발화되며,
-                  // 상위 TipTap 에디터로 이벤트가 전파되어 paragraph가 생성되는 문제를 방지.
                   e.preventDefault();
                   e.stopPropagation();
                   setRowDragOver(rIdx);
@@ -106,85 +110,88 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
                   isDropTarget ? "border-t-2 border-t-blue-500" : "",
                 ].join(" ")}
               >
-                {columns.map((col, cIdx) => (
-                  <td
-                    key={col.id}
-                    className={[
-                      "align-top px-2 py-1",
-                      cIdx === 0 ? "relative" : "",
-                    ].join(" ")}
-                  >
-                    {cIdx === 0 && (
-                      <span
-                        draggable
-                        onDragStart={(e) => {
-                          // TipTap 드롭 핸들러가 row 데이터를 텍스트로 해석해
-                          // paragraph를 만드는 것을 막기 위해 커스텀 mime 사용 + stopPropagation.
-                          e.stopPropagation();
-                          e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData(DRAG_MIME, `row:${rIdx}`);
-                          setRowDragFrom(rIdx);
-                        }}
-                        onDragEnd={(e) => {
-                          e.stopPropagation();
-                          setRowDragFrom(null);
-                          setRowDragOver(null);
-                        }}
-                        className="absolute left-[-18px] top-1/2 -translate-y-1/2 cursor-grab opacity-0 group-hover:opacity-100 active:cursor-grabbing"
-                        title="행 이동"
-                      >
-                        <GripVertical size={12} className="text-zinc-400" />
-                      </span>
-                    )}
-                    {col.type === "title" ? (
-                      <DatabaseCell
-                        databaseId={databaseId}
-                        rowId={row.pageId}
-                        column={col}
-                        value={row.title}
-                      />
-                    ) : (
-                      <DatabaseCell
-                        databaseId={databaseId}
-                        rowId={row.pageId}
-                        column={col}
-                        value={row.cells[col.id]}
-                      />
-                    )}
-                  </td>
-                ))}
-                <td className="w-20 whitespace-nowrap px-2 py-1 text-right align-middle">
-                  <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100">
-                    <button
-                      type="button"
-                      onClick={() => openFull(row.pageId)}
-                      title="페이지로 열기"
-                      className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+                {columns.map((col, cIdx) => {
+                  const isFirst = cIdx === 0;
+                  return (
+                    <td
+                      key={col.id}
+                      className={[
+                        "align-top px-2 py-1",
+                        isFirst ? "relative pr-16" : "",
+                      ].join(" ")}
                     >
-                      <ArrowUpRight size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openPeek(row.pageId)}
-                      title="사이드 피크 열기"
-                      className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-                    >
-                      <PanelRight size={12} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm("이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)")) {
-                          deleteRow(databaseId, row.pageId);
-                        }
-                      }}
-                      title="행 삭제"
-                      className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                </td>
+                      {isFirst && (
+                        <span
+                          draggable
+                          onDragStart={(e) => {
+                            e.stopPropagation();
+                            e.dataTransfer.effectAllowed = "move";
+                            e.dataTransfer.setData(DRAG_MIME, `row:${rIdx}`);
+                            setRowDragFrom(rIdx);
+                          }}
+                          onDragEnd={(e) => {
+                            e.stopPropagation();
+                            setRowDragFrom(null);
+                            setRowDragOver(null);
+                          }}
+                          className="absolute left-[-18px] top-1/2 -translate-y-1/2 cursor-grab opacity-0 group-hover:opacity-100 active:cursor-grabbing"
+                          title="행 이동"
+                        >
+                          <GripVertical size={12} className="text-zinc-400" />
+                        </span>
+                      )}
+                      {col.type === "title" ? (
+                        <DatabaseCell
+                          databaseId={databaseId}
+                          rowId={row.pageId}
+                          column={col}
+                          value={row.title}
+                        />
+                      ) : (
+                        <DatabaseCell
+                          databaseId={databaseId}
+                          rowId={row.pageId}
+                          column={col}
+                          value={row.cells[col.id]}
+                        />
+                      )}
+                      {isFirst && (
+                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
+                          <button
+                            type="button"
+                            onClick={() => openFull(row.pageId)}
+                            title="페이지로 열기"
+                            className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+                          >
+                            <ArrowUpRight size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openPeek(row.pageId)}
+                            title="사이드 피크 열기"
+                            className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+                          >
+                            <PanelRight size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm("이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)")) {
+                                deleteRow(databaseId, row.pageId);
+                              }
+                            }}
+                            title="행 삭제"
+                            className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+                {/* "+" 헤더 컬럼과 cell 수 일치를 위한 빈 td */}
+                <td />
               </tr>
             );
           })}

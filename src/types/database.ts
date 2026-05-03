@@ -36,6 +36,8 @@ export type ColumnDef = {
   id: string;
   name: string;
   type: ColumnType;
+  /** 표 뷰에서의 너비(px). 미지정 시 브라우저 자동. */
+  width?: number;
   config?: {
     options?: SelectOption[];
     /** 날짜 범위 UI 표시 */

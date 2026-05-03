@@ -5,6 +5,7 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
+const MIN_COL_WIDTH = 60;
 
 type Props = {
   databaseId: string;
@@ -41,6 +42,25 @@ export function DatabaseColumnHeader({
     const t = draft.trim() || "속성";
     if (t !== column.name) updateColumn(databaseId, column.id, { name: t });
     setRenaming(false);
+  };
+
+  const onResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = thRef.current?.offsetWidth ?? 120;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.max(MIN_COL_WIDTH, startWidth + (ev.clientX - startX));
+      updateColumn(databaseId, column.id, { width: next });
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
   };
 
   return (
@@ -103,6 +123,14 @@ export function DatabaseColumnHeader({
           </button>
         )}
       </div>
+
+      {/* 리사이즈 핸들 — 우측 모서리 4px, hover 시 파란 인디케이터 */}
+      <div
+        onMouseDown={onResizeStart}
+        onClick={(e) => e.stopPropagation()}
+        className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-blue-400/60"
+        title="컬럼 너비 조절"
+      />
 
       {menuOpen && (
         <DatabaseColumnMenu

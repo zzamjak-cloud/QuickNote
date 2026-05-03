@@ -109,11 +109,6 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
         </button>
       )}
 
-      {isTitle && (
-        <div className="px-2 py-1 text-[10px] text-zinc-500">
-          제목 컬럼은 페이지 제목과 동기화됩니다.
-        </div>
-      )}
     </div>,
     document.body,
   );
