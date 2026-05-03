@@ -64,14 +64,14 @@ export function DatabaseToolbarControls({
   };
 
   return (
-    <div className="border-b border-zinc-200 px-2 py-2 dark:border-zinc-700">
+    <div className="select-none border-b border-zinc-200 px-2 py-2 dark:border-zinc-700">
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="search"
           placeholder="검색…"
           value={panelState.searchQuery}
           onChange={(e) => setPanelState({ searchQuery: e.target.value })}
-          className="min-w-[140px] flex-1 rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
+          className="min-w-[140px] flex-1 select-text rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
         />
         <div className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-400">
           <span>정렬</span>
@@ -102,6 +102,7 @@ export function DatabaseToolbarControls({
         <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-600">
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={addFilter}
             className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
@@ -109,6 +110,7 @@ export function DatabaseToolbarControls({
           </button>
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => setFilterExpanded((v) => !v)}
             title={filterExpanded ? "조건 접기" : "조건 펼치기"}
             className="flex items-center border-l border-zinc-300 px-1.5 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
@@ -155,7 +157,7 @@ export function DatabaseToolbarControls({
                   onChange={(e) =>
                     updateRule(rule.id, { value: e.target.value })
                   }
-                  className="min-w-[80px] flex-1 rounded border border-zinc-300 px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
+                  className="min-w-[80px] flex-1 select-text rounded border border-zinc-300 px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
                   placeholder="값"
                 />
               )}
