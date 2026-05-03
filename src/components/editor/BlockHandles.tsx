@@ -49,12 +49,14 @@ const WRAPPER_TYPES_TO_FLATTEN = new Set(["callout", "toggle", "blockquote"]);
 function flattenWrapperToParagraph(editor: Editor, blockStart: number): boolean {
   const node = editor.state.doc.nodeAt(blockStart);
   if (!node || !WRAPPER_TYPES_TO_FLATTEN.has(node.type.name)) return false;
+  const paragraphType = editor.schema.nodes.paragraph;
+  if (!paragraphType) return false;
   let text = "";
   node.descendants((n) => {
     if (n.isText) text += n.text;
     return true;
   });
-  const paragraph = editor.schema.nodes.paragraph.create(
+  const paragraph = paragraphType.create(
     null,
     text ? editor.schema.text(text) : null,
   );
