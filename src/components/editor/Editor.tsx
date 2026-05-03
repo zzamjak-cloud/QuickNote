@@ -174,7 +174,14 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       Link.configure({ openOnClick: false }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      CodeBlockLowlight.configure({ lowlight, defaultLanguage: "plaintext" }),
+      CodeBlockLowlight.configure({
+        lowlight,
+        defaultLanguage: "plaintext",
+        // hljs 클래스가 없으면 github-dark 테마의 배경/기본 색이 적용되지 않음.
+        HTMLAttributes: {
+          class: "hljs qn-code-block",
+        },
+      }),
       ImageBlock.configure({ allowBase64: true }),
       HorizontalRule,
       MoveBlock,
