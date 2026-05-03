@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { Download, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Calendar, ChevronLeft, ChevronRight, Download, Plus, Trash2 } from "lucide-react";
 import type { CellValue, ColumnDef, FileCellItem } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import {
@@ -189,7 +190,6 @@ function MultiSelectCell({
 }
 
 function DateCell({
-  column,
   value,
   onChange,
 }: {
@@ -197,35 +197,263 @@ function DateCell({
   value: { start?: string; end?: string };
   onChange: (v: CellValue) => void;
 }) {
-  const showEnd = column.config?.dateShowEnd !== false;
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const startDate = value.start ? toDate(value.start) : null;
+  const endDate = value.end ? toDate(value.end) : null;
+  const [viewMonth, setViewMonth] = useState<Date>(
+    () => startDate ?? new Date(),
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current?.contains(e.target as Node)) return;
+      if (buttonRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const togglePopover = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = 248;
+      const left = Math.min(rect.left, window.innerWidth - width - 8);
+      setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
+    }
+    setOpen(true);
+  };
+
+  const onPickDay = (day: Date) => {
+    const s = startDate;
+    const e = endDate;
+    if (!s || (s && e)) {
+      // 새 범위 시작
+      onChange({ start: toIsoStart(day), end: undefined });
+      return;
+    }
+    // s 있고 e 없음: 두 번째 클릭 → 범위 확정 (작은 쪽이 시작)
+    if (sameDay(day, s)) {
+      onChange({ start: toIsoStart(day), end: undefined });
+      return;
+    }
+    if (day < s) {
+      onChange({ start: toIsoStart(day), end: toIsoEnd(s) });
+    } else {
+      onChange({ start: toIsoStart(s), end: toIsoEnd(day) });
+    }
+  };
+
+  const clearRange = () => {
+    onChange({ start: undefined, end: undefined });
+    setOpen(false);
+  };
+
+  const label = (() => {
+    if (!startDate) return "";
+    const s = formatDate(startDate);
+    if (!endDate || sameDay(startDate, endDate)) return s;
+    return `${s} → ${formatDate(endDate)}`;
+  })();
+
+  const isEmpty = !startDate;
+
   return (
-    <div className="flex flex-col gap-0.5 text-[10px]">
-      <input
-        type="date"
-        value={value.start?.slice(0, 10) ?? ""}
-        onChange={(e) =>
-          onChange({
-            ...value,
-            start: e.target.value ? `${e.target.value}T00:00:00` : undefined,
-          })
-        }
-        className="rounded border border-zinc-200 bg-white px-1 dark:border-zinc-600 dark:bg-zinc-900"
-      />
-      {showEnd && (
-        <input
-          type="date"
-          value={value.end?.slice(0, 10) ?? ""}
-          onChange={(e) =>
-            onChange({
-              ...value,
-              end: e.target.value ? `${e.target.value}T23:59:59` : undefined,
-            })
-          }
-          className="rounded border border-zinc-200 bg-white px-1 dark:border-zinc-600 dark:bg-zinc-900"
-        />
-      )}
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={togglePopover}
+        title={label || "날짜 선택"}
+        className={[
+          "flex items-center gap-1 rounded px-1 py-0.5 text-[11px]",
+          isEmpty
+            ? "text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800",
+        ].join(" ")}
+      >
+        <Calendar size={12} />
+        {!isEmpty && <span>{label}</span>}
+      </button>
+      {open && coords &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: 248 }}
+            className="z-50 rounded-md border border-zinc-200 bg-white p-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <CalendarMonth
+              viewMonth={viewMonth}
+              setViewMonth={setViewMonth}
+              start={startDate}
+              end={endDate}
+              onPickDay={onPickDay}
+            />
+            <div className="mt-1 flex items-center justify-between border-t border-zinc-100 pt-1 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={clearRange}
+                className="rounded px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                지우기
+              </button>
+              <span className="text-[10px] text-zinc-400">
+                {!startDate
+                  ? "시작일을 클릭"
+                  : !endDate
+                    ? "종료일을 클릭 (또는 같은 날짜 다시 클릭하여 단일)"
+                    : "선택 완료"}
+              </span>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function CalendarMonth({
+  viewMonth,
+  setViewMonth,
+  start,
+  end,
+  onPickDay,
+}: {
+  viewMonth: Date;
+  setViewMonth: (d: Date) => void;
+  start: Date | null;
+  end: Date | null;
+  onPickDay: (d: Date) => void;
+}) {
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const startWeekday = firstOfMonth.getDay(); // 0=일
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrev = new Date(year, month, 0).getDate();
+
+  // 6주 × 7일 그리드 — 앞뒤 빈 칸은 회색 표시
+  const cells: { date: Date; current: boolean }[] = [];
+  for (let i = startWeekday - 1; i >= 0; i--) {
+    cells.push({ date: new Date(year, month - 1, daysInPrev - i), current: false });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ date: new Date(year, month, d), current: true });
+  }
+  while (cells.length < 42) {
+    const last = cells[cells.length - 1]!.date;
+    const next = new Date(last);
+    next.setDate(last.getDate() + 1);
+    cells.push({ date: next, current: next.getMonth() === month });
+  }
+
+  const inRange = (d: Date) =>
+    start && end && d >= stripTime(start) && d <= stripTime(end);
+
+  const isStart = (d: Date) => start && sameDay(d, start);
+  const isEnd = (d: Date) => end && sameDay(d, end);
+
+  const today = new Date();
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setViewMonth(new Date(year, month - 1, 1))}
+          className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        >
+          <ChevronLeft size={12} />
+        </button>
+        <span className="text-xs font-medium">
+          {year}년 {month + 1}월
+        </span>
+        <button
+          type="button"
+          onClick={() => setViewMonth(new Date(year, month + 1, 1))}
+          className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        >
+          <ChevronRight size={12} />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-y-0.5 text-center text-[10px] text-zinc-400">
+        {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
+          <div key={d} className="py-0.5">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-y-0.5">
+        {cells.map((c, i) => {
+          const inR = inRange(c.date);
+          const s = isStart(c.date);
+          const e = isEnd(c.date);
+          const t = sameDay(c.date, today);
+          return (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onPickDay(c.date)}
+              className={[
+                "h-6 text-center text-[11px] transition-colors",
+                !c.current ? "text-zinc-300 dark:text-zinc-600" : "text-zinc-700 dark:text-zinc-200",
+                s || e
+                  ? "bg-blue-500 text-white hover:bg-blue-600"
+                  : inR
+                    ? "bg-blue-100 dark:bg-blue-950"
+                    : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                s ? "rounded-l" : "",
+                e ? "rounded-r" : "",
+                !s && !e && !inR ? "rounded" : "",
+                t && !s && !e ? "ring-1 ring-blue-300 ring-inset" : "",
+              ].join(" ")}
+            >
+              {c.date.getDate()}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
+}
+
+// ---- 날짜 헬퍼들 ----
+function toDate(iso: string): Date {
+  return new Date(iso);
+}
+function toIsoStart(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T00:00:00`;
+}
+function toIsoEnd(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T23:59:59`;
+}
+function stripTime(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function sameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+function formatDate(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function PersonCell({
