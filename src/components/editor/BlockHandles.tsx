@@ -39,7 +39,8 @@ type Props = {
   editor: Editor | null;
 };
 
-const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column", "toggle", "toggleHeader", "toggleContent"]);
+// 토글 자체는 핸들을 띄우되, 내부 toggleHeader/toggleContent는 제외(헤더/본문 hover 시 toggle 로 승격).
+const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column", "toggleHeader", "toggleContent"]);
 const HANDLE_STRIP_PX = 32;
 const MIN_HANDLE_LEFT = 6;
 const GUTTER_LEFT_PX = 56;

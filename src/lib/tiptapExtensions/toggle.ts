@@ -65,6 +65,7 @@ export const Toggle = Node.create({
   group: "block",
   content: "toggleHeader toggleContent",
   defining: true,
+  draggable: true,
   addAttributes() {
     return {
       open: {
