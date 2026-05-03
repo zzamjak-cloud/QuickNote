@@ -41,6 +41,28 @@ type Props = {
 
 // 토글 자체는 핸들을 띄우되, 내부 toggleHeader/toggleContent는 제외(헤더/본문 hover 시 toggle 로 승격).
 const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column", "toggleHeader", "toggleContent"]);
+// 타입 변경 시 새 타입을 적용하기 전에 단순 paragraph로 평탄화할 wrapper 노드들.
+const WRAPPER_TYPES_TO_FLATTEN = new Set(["callout", "toggle", "blockquote"]);
+
+/** wrapper(콜아웃·토글·인용) 블록을 그 안의 텍스트만 담은 단일 paragraph로 치환.
+ *  치환 성공 시 true 반환 — 호출자는 이후 setHeading 등 단일 타입 명령을 적용한다. */
+function flattenWrapperToParagraph(editor: Editor, blockStart: number): boolean {
+  const node = editor.state.doc.nodeAt(blockStart);
+  if (!node || !WRAPPER_TYPES_TO_FLATTEN.has(node.type.name)) return false;
+  let text = "";
+  node.descendants((n) => {
+    if (n.isText) text += n.text;
+    return true;
+  });
+  const paragraph = editor.schema.nodes.paragraph.create(
+    null,
+    text ? editor.schema.text(text) : null,
+  );
+  editor.view.dispatch(
+    editor.state.tr.replaceWith(blockStart, blockStart + node.nodeSize, paragraph),
+  );
+  return true;
+}
 const HANDLE_STRIP_PX = 32;
 const MIN_HANDLE_LEFT = 6;
 const GUTTER_LEFT_PX = 56;
@@ -345,7 +367,26 @@ export function BlockHandles({ editor }: Props) {
                           onClick={() => {
                             if (!editor) return;
                             if (hover) {
-                              editor.chain().focus().setNodeSelection(hover.blockStart).run();
+                              // wrapper(콜아웃·토글·인용) → 새 타입 적용 시 wrapper를 먼저 평탄화하여
+                              // 중첩(예: 콜아웃 안의 헤딩)이 만들어지지 않도록 한다.
+                              const flattened = flattenWrapperToParagraph(
+                                editor,
+                                hover.blockStart,
+                              );
+                              if (flattened) {
+                                // 평탄화된 새 paragraph 안의 텍스트 위치로 selection 이동
+                                editor
+                                  .chain()
+                                  .focus()
+                                  .setTextSelection(hover.blockStart + 1)
+                                  .run();
+                              } else {
+                                editor
+                                  .chain()
+                                  .focus()
+                                  .setNodeSelection(hover.blockStart)
+                                  .run();
+                              }
                             }
                             item.cmd(editor);
                             setMenuOpen(false);
