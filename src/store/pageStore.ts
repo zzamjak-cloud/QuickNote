@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../types/page";
+import type { CellValue } from "../types/database";
 import { newId } from "../lib/id";
 
 const EMPTY_DOC: JSONContent = {
@@ -14,8 +15,17 @@ type PageStoreState = {
   activePageId: string | null;
 };
 
+export type CreatePageOptions = {
+  /** false 이면 새 페이지를 만들어도 활성 페이지는 바꾸지 않음 (부모 문서 편집용) */
+  activate?: boolean;
+};
+
 type PageStoreActions = {
-  createPage: (title?: string, parentId?: string | null) => string;
+  createPage: (
+    title?: string,
+    parentId?: string | null,
+    opts?: CreatePageOptions,
+  ) => string;
   deletePage: (id: string) => void;
   renamePage: (id: string, title: string) => void;
   updateDoc: (id: string, doc: JSONContent) => void;
@@ -26,6 +36,8 @@ type PageStoreActions = {
   movePage: (id: string, parentId: string | null, index: number) => void;
   // 페이지(와 자손)를 복제하여 원본 바로 다음에 삽입. 복제된 루트의 id를 반환.
   duplicatePage: (id: string) => string;
+  // 행 페이지의 dbCells 한 항목을 갱신 (title 컬럼 제외)
+  setPageDbCell: (pageId: string, columnId: string, value: CellValue) => void;
 };
 
 export type PageStore = PageStoreState & PageStoreActions;
@@ -56,7 +68,8 @@ export const usePageStore = create<PageStore>()(
       pages: {},
       activePageId: null,
 
-      createPage: (title = "새 페이지", parentId = null) => {
+      createPage: (title = "새 페이지", parentId = null, opts) => {
+        const activate = opts?.activate !== false;
         const id = newId();
         const now = Date.now();
         const page: Page = {
@@ -71,7 +84,7 @@ export const usePageStore = create<PageStore>()(
         };
         set((state) => ({
           pages: { ...state.pages, [id]: page },
-          activePageId: id,
+          activePageId: activate ? id : state.activePageId,
         }));
         return id;
       },
@@ -252,6 +265,20 @@ export const usePageStore = create<PageStore>()(
 
         return cloneMap.get(id) ?? "";
       },
+
+      setPageDbCell: (pageId, columnId, value) => {
+        set((state) => {
+          const page = state.pages[pageId];
+          if (!page) return state;
+          const nextCells = { ...(page.dbCells ?? {}), [columnId]: value };
+          return {
+            pages: {
+              ...state.pages,
+              [pageId]: { ...page, dbCells: nextCells, updatedAt: Date.now() },
+            },
+          };
+        });
+      },
     }),
     {
       name: "quicknote.pageStore.v1",
@@ -261,7 +288,9 @@ export const usePageStore = create<PageStore>()(
 );
 
 export function selectSortedPages(state: PageStore): Page[] {
-  return Object.values(state.pages).sort((a, b) => a.order - b.order);
+  return Object.values(state.pages)
+    .filter((p) => p.databaseId == null) // 행 페이지는 사이드바에서 숨김
+    .sort((a, b) => a.order - b.order);
 }
 
 export type PageNode = Page & { children: PageNode[] };
@@ -270,6 +299,7 @@ export type PageNode = Page & { children: PageNode[] };
 export function selectPageTree(state: PageStore): PageNode[] {
   const byParent = new Map<string | null, Page[]>();
   for (const p of Object.values(state.pages)) {
+    if (p.databaseId != null) continue; // 행 페이지는 트리에서 제외
     const list = byParent.get(p.parentId) ?? [];
     list.push(p);
     byParent.set(p.parentId, list);
@@ -294,6 +324,7 @@ export function filterPageTree(
   if (!q) return selectPageTree(state);
   const matched = new Set<string>();
   for (const p of Object.values(state.pages)) {
+    if (p.databaseId != null) continue; // 행 페이지는 검색 결과에도 노출 금지
     if (p.title.toLowerCase().includes(q)) matched.add(p.id);
   }
   // 매치된 페이지의 모든 조상 포함

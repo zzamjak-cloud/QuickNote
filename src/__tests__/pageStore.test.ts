@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { usePageStore, selectSortedPages } from "../store/pageStore";
+import { usePageStore, selectSortedPages, selectPageTree } from "../store/pageStore";
 import { useSettingsStore } from "../store/settingsStore";
 
 beforeEach(() => {
@@ -83,5 +83,48 @@ describe("pageStore - duplicatePage", () => {
     usePageStore.getState().duplicatePage(parentId);
     const pages = Object.values(usePageStore.getState().pages);
     expect(pages).toHaveLength(4);
+  });
+});
+
+describe("pageStore — DB 행 페이지 가시성", () => {
+  beforeEach(() => {
+    usePageStore.setState({ pages: {}, activePageId: null });
+  });
+
+  it("databaseId가 있는 페이지는 selectPageTree에서 제외된다", () => {
+    const normal = usePageStore.getState().createPage("일반", null, { activate: false });
+    const row = usePageStore.getState().createPage("행", null, { activate: false });
+    usePageStore.setState((s) => ({
+      pages: {
+        ...s.pages,
+        [row]: { ...s.pages[row]!, databaseId: "db-1", dbCells: {} },
+      },
+    }));
+
+    const tree = selectPageTree(usePageStore.getState());
+    expect(tree.map((p) => p.id)).toEqual([normal]);
+  });
+
+  it("selectSortedPages에서도 동일하게 제외된다", () => {
+    const normal = usePageStore.getState().createPage("일반", null, { activate: false });
+    const row = usePageStore.getState().createPage("행", null, { activate: false });
+    usePageStore.setState((s) => ({
+      pages: {
+        ...s.pages,
+        [row]: { ...s.pages[row]!, databaseId: "db-1" },
+      },
+    }));
+
+    const sorted = selectSortedPages(usePageStore.getState());
+    expect(sorted.map((p) => p.id)).toEqual([normal]);
+  });
+
+  it("setPageDbCell이 dbCells를 갱신한다", () => {
+    const id = usePageStore.getState().createPage("p", null, { activate: false });
+    usePageStore.setState((s) => ({
+      pages: { ...s.pages, [id]: { ...s.pages[id]!, databaseId: "db-1", dbCells: {} } },
+    }));
+    usePageStore.getState().setPageDbCell(id, "col-1", "값1");
+    expect(usePageStore.getState().pages[id]?.dbCells?.["col-1"]).toBe("값1");
   });
 });
