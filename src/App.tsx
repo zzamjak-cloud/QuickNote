@@ -1,19 +1,72 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
 import { TopBar } from "./components/layout/TopBar";
+import { TabBar } from "./components/layout/TabBar";
 import { Editor } from "./components/editor/Editor";
+import { DatabaseRowPage } from "./components/database/DatabaseRowPage";
+import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore } from "./store/pageStore";
 
 function App() {
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
+  const activeTabIndex = useSettingsStore((s) => s.activeTabIndex);
+  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const openTab = useSettingsStore((s) => s.openTab);
+  const prevTab = useSettingsStore((s) => s.prevTab);
+  const nextTab = useSettingsStore((s) => s.nextTab);
   const createPage = usePageStore((s) => s.createPage);
+  const activePageId = usePageStore((s) => s.activePageId);
+  const setActivePage = usePageStore((s) => s.setActivePage);
+  const activePage = usePageStore((s) =>
+    activePageId ? s.pages[activePageId] : undefined,
+  );
+
+  const hydrationDone = useRef(false);
 
   // 다크 모드 클래스 동기화
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  // 마운트 시: 탭은 비어 있는데 페이지 스토어에 활성 페이지만 있는 경우(영속 불일치) 탭만 맞춤.
+  useLayoutEffect(() => {
+    if (hydrationDone.current) return;
+    hydrationDone.current = true;
+    const tabPageId =
+      useSettingsStore.getState().tabs[
+        useSettingsStore.getState().activeTabIndex
+      ]?.pageId ?? null;
+    const pid = usePageStore.getState().activePageId;
+    if (tabPageId === null && pid !== null) {
+      setCurrentTabPage(pid);
+    }
+  }, [setCurrentTabPage]);
+
+  // 사용자가 탭을 바꿀 때만: 현재 탭의 pageId → 활성 페이지 (tabs 배열을 deps에 넣으면
+  // 아래 page→tab 효과와 번갈아 가며 무한 루프가 난다.)
+  useEffect(() => {
+    const tabPageId =
+      useSettingsStore.getState().tabs[
+        useSettingsStore.getState().activeTabIndex
+      ]?.pageId ?? null;
+    const cur = usePageStore.getState().activePageId;
+    if (tabPageId !== cur) {
+      setActivePage(tabPageId);
+    }
+  }, [activeTabIndex, setActivePage]);
+
+  // 사이드바 등으로 활성 페이지만 바뀐 경우: 현재 탭 내용만 갱신
+  useEffect(() => {
+    const current =
+      useSettingsStore.getState().tabs[
+        useSettingsStore.getState().activeTabIndex
+      ]?.pageId ?? null;
+    if (current !== activePageId) {
+      setCurrentTabPage(activePageId);
+    }
+  }, [activePageId, setCurrentTabPage]);
 
   // 글로벌 단축키
   useEffect(() => {
@@ -33,19 +86,36 @@ function App() {
       } else if (e.key === "/") {
         e.preventDefault();
         toggleDarkMode();
+      } else if (e.key === "t") {
+        e.preventDefault();
+        openTab(null);
+      } else if (e.shiftKey && e.key === "[") {
+        e.preventDefault();
+        prevTab();
+      } else if (e.shiftKey && e.key === "]") {
+        e.preventDefault();
+        nextTab();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [createPage, toggleDarkMode]);
+  }, [createPage, toggleDarkMode, openTab, prevTab, nextTab]);
 
   return (
     <div className="flex h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
+        <TabBar />
         <TopBar />
-        <Editor />
+        {activePage?.databaseId ? (
+          <div className="flex-1 overflow-y-auto">
+            <DatabaseRowPage pageId={activePage.id} />
+          </div>
+        ) : (
+          <Editor />
+        )}
       </div>
+      <DatabaseRowPeek />
     </div>
   );
 }
