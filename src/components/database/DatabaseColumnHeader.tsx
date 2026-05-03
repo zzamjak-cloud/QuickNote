@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { GripVertical, ChevronDown } from "lucide-react";
 import type { ColumnDef } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { useUiStore } from "../../store/uiStore";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
@@ -27,7 +28,9 @@ export function DatabaseColumnHeader({
   highlightDrop,
 }: Props) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
+  const setOpenColumnMenu = useUiStore((s) => s.setOpenColumnMenu);
+  const menuOpen = openColumnMenuId === column.id;
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(column.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -113,7 +116,7 @@ export function DatabaseColumnHeader({
         ) : (
           <button
             type="button"
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={() => setOpenColumnMenu(menuOpen ? null : column.id)}
             onDoubleClick={() => setRenaming(true)}
             className="flex flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
             title="더블클릭하여 이름 변경"
@@ -137,7 +140,7 @@ export function DatabaseColumnHeader({
           databaseId={databaseId}
           column={column}
           anchorEl={thRef.current}
-          onClose={() => setMenuOpen(false)}
+          onClose={() => setOpenColumnMenu(null)}
         />
       )}
     </th>

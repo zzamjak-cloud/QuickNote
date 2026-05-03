@@ -4,6 +4,7 @@ import type {
   DatabaseRowView,
   FilterOperator,
   FilterRule,
+  SortRule,
 } from "../types/database";
 
 export function cellToSearchString(
@@ -65,6 +66,7 @@ function compareCell(
   return sa.localeCompare(sb, "ko");
 }
 
+/** 단일 키 정렬 (구 시그니처 호환용 — 내부에서는 sortRowsMulti 사용). */
 export function sortRows(
   rows: DatabaseRowView[],
   columnId: string | null,
@@ -72,11 +74,25 @@ export function sortRows(
   columns: ColumnDef[],
 ): DatabaseRowView[] {
   if (!columnId) return [...rows];
-  const col = columns.find((c) => c.id === columnId);
-  const sorted = [...rows].sort((r1, r2) =>
-    compareCell(r1.cells[columnId], r2.cells[columnId], col),
-  );
-  return dir === "desc" ? sorted.reverse() : sorted;
+  return sortRowsMulti(rows, [{ columnId, dir }], columns);
+}
+
+/** 다중 키 정렬 — rules 배열의 앞쪽이 우선 키. 빈 배열이면 원본 순서 유지. */
+export function sortRowsMulti(
+  rows: DatabaseRowView[],
+  rules: SortRule[],
+  columns: ColumnDef[],
+): DatabaseRowView[] {
+  if (rules.length === 0) return [...rows];
+  const colMap = new Map(columns.map((c) => [c.id, c]));
+  return [...rows].sort((r1, r2) => {
+    for (const rule of rules) {
+      const col = colMap.get(rule.columnId);
+      const cmp = compareCell(r1.cells[rule.columnId], r2.cells[rule.columnId], col);
+      if (cmp !== 0) return rule.dir === "desc" ? -cmp : cmp;
+    }
+    return 0;
+  });
 }
 
 function matchesFilter(
@@ -130,19 +146,22 @@ export function applyFilters(
   );
 }
 
+/**
+ * 검색·필터·정렬 일괄 적용.
+ * sortRules 배열이 비어 있으면 원본 순서 유지 (다중 정렬, #4).
+ */
 export function applyFilterSortSearch(
   rowsOrdered: DatabaseRowView[],
   columns: ColumnDef[],
   searchQuery: string,
   filterRules: FilterRule[],
-  sortColumnId: string | null,
-  sortDir: "asc" | "desc",
+  sortRules: SortRule[],
 ): DatabaseRowView[] {
   const searched = rowsOrdered.filter((r) =>
     rowMatchesSearch(r, columns, searchQuery),
   );
   const filtered = applyFilters(searched, filterRules, columns);
-  return sortRows(filtered, sortColumnId, sortDir, columns);
+  return sortRowsMulti(filtered, sortRules, columns);
 }
 
 export const FILTER_OPERATORS: { id: FilterOperator; label: string }[] = [

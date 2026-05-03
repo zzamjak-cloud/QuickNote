@@ -27,13 +27,19 @@ export function useProcessedRows(
         cells,
       });
     }
+    // 구버전(sortRules 미존재 + sortColumnId 있음)은 첫 규칙으로 자동 마이그레이션.
+    const effectiveSortRules =
+      panelState.sortRules && panelState.sortRules.length > 0
+        ? panelState.sortRules
+        : panelState.sortColumnId
+          ? [{ columnId: panelState.sortColumnId, dir: panelState.sortDir }]
+          : [];
     const rows = applyFilterSortSearch(
       ordered,
       bundle.columns,
       panelState.searchQuery,
       panelState.filterRules,
-      panelState.sortColumnId,
-      panelState.sortDir,
+      effectiveSortRules,
     );
     return { rows, columns: bundle.columns };
   }, [bundle, pages, databaseId, panelState]);

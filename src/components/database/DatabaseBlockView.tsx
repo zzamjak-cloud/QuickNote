@@ -277,7 +277,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
           </div>
         )}
 
-        <div className="overflow-x-auto p-2">
+        <div className="p-2">
           {missing ? (
             <div className="flex items-center gap-2 px-2 py-8 text-sm text-amber-700 dark:text-amber-400">
               <ArrowLeft size={16} />

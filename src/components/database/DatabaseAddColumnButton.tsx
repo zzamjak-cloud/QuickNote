@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Plus } from "lucide-react";
 import type { ColumnType } from "../../types/database";
 import { defaultColumnForType, useDatabaseStore } from "../../store/databaseStore";
+import { useUiStore } from "../../store/uiStore";
 
 const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -22,7 +23,10 @@ const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
 export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) {
   const addColumn = useDatabaseStore((s) => s.addColumn);
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
-  const [open, setOpen] = useState(false);
+  const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
+  const setOpenColumnMenu = useUiStore((s) => s.setOpenColumnMenu);
+  const menuKey = `add:${databaseId}`;
+  const open = openColumnMenuId === menuKey;
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -32,15 +36,15 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
     const handler = (e: MouseEvent) => {
       if (popoverRef.current?.contains(e.target as Node)) return;
       if (buttonRef.current?.contains(e.target as Node)) return;
-      setOpen(false);
+      setOpenColumnMenu(null);
     };
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
-  }, [open]);
+  }, [open, setOpenColumnMenu]);
 
   const toggle = () => {
     if (open) {
-      setOpen(false);
+      setOpenColumnMenu(null);
       return;
     }
     const rect = buttonRef.current?.getBoundingClientRect();
@@ -51,7 +55,7 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
       const top = rect.bottom + 4;
       setCoords({ top, left: Math.max(8, left) });
     }
-    setOpen(true);
+    setOpenColumnMenu(menuKey);
   };
 
   return (
@@ -81,7 +85,7 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
                   if (!bundle) return;
                   const idx = bundle.columns.length + 1;
                   addColumn(databaseId, defaultColumnForType(t.id, `${t.label} ${idx}`));
-                  setOpen(false);
+                  setOpenColumnMenu(null);
                 }}
                 className="block w-full rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >

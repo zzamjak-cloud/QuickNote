@@ -100,15 +100,37 @@ export type FilterRule = {
   value?: string;
 };
 
+/** 다중 정렬 규칙 — 배열의 앞쪽이 우선 키. */
+export type SortRule = {
+  columnId: string;
+  dir: "asc" | "desc";
+};
+
+/** 뷰별 표시/순서 설정 (#9). */
+export type ViewSpecificConfig = {
+  /** 이 뷰에서 보일 컬럼 id 순서. 비어 있으면 기본 순서 사용. */
+  visibleColumnIds?: string[];
+  /** visibleColumnIds 미지정 시 적용되는 숨김 목록. */
+  hiddenColumnIds?: string[];
+};
+
+export type ViewConfigsMap = Partial<Record<ViewKind, ViewSpecificConfig>>;
+
 /** 블록별 UI 상태 — TipTap attrs JSON으로 저장 */
 export type DatabasePanelState = {
   searchQuery: string;
   filterRules: FilterRule[];
+  /** @deprecated sortRules로 대체. 로드 시 sortRules가 비어있고 이 값이 있으면 첫 규칙으로 마이그레이션. */
   sortColumnId: string | null;
+  /** @deprecated sortRules로 대체. */
   sortDir: "asc" | "desc";
+  /** 다중 정렬 규칙 (#4). */
+  sortRules: SortRule[];
   kanbanGroupColumnId: string | null;
   galleryCoverColumnId: string | null;
   timelineDateColumnId: string | null;
+  /** 뷰별 컬럼 표시·순서 (#6, #9). */
+  viewConfigs: ViewConfigsMap;
 };
 
 export const emptyPanelState = (): DatabasePanelState => ({
@@ -116,10 +138,56 @@ export const emptyPanelState = (): DatabasePanelState => ({
   filterRules: [],
   sortColumnId: null,
   sortDir: "asc",
+  sortRules: [],
   kanbanGroupColumnId: null,
   galleryCoverColumnId: null,
   timelineDateColumnId: null,
+  viewConfigs: {},
 });
+
+/** 컬럼 타입별 기본 최소 폭(px) — colgroup의 width/minWidth에 적용. */
+export function defaultMinWidthForType(type: ColumnType): number {
+  switch (type) {
+    case "title": return 200;
+    case "text": return 160;
+    case "number": return 100;
+    case "select":
+    case "status": return 140;
+    case "multiSelect": return 180;
+    case "date": return 120;
+    case "person": return 140;
+    case "file": return 160;
+    case "checkbox": return 60;
+    case "url":
+    case "email":
+    case "phone": return 180;
+    default: return 140;
+  }
+}
+
+/**
+ * 현재 뷰에서 보일 컬럼을 순서대로 반환.
+ * - viewConfigs[viewKind].visibleColumnIds가 있으면 그 순서(존재하는 id만).
+ * - 없으면 bundle 컬럼 - hiddenColumnIds.
+ */
+export function getVisibleOrderedColumns(
+  columns: ColumnDef[],
+  viewKind: ViewKind,
+  viewConfigs: ViewConfigsMap | undefined,
+): ColumnDef[] {
+  const cfg = viewConfigs?.[viewKind];
+  if (cfg?.visibleColumnIds && cfg.visibleColumnIds.length > 0) {
+    const map = new Map(columns.map((c) => [c.id, c]));
+    const out: ColumnDef[] = [];
+    for (const id of cfg.visibleColumnIds) {
+      const c = map.get(id);
+      if (c) out.push(c);
+    }
+    return out;
+  }
+  const hidden = new Set(cfg?.hiddenColumnIds ?? []);
+  return columns.filter((c) => !hidden.has(c.id));
+}
 
 export type DatabaseBundle = {
   meta: DatabaseMeta;

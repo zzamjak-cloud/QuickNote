@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Plus, GripVertical, ArrowUpRight, PanelRight, X } from "lucide-react";
 import type { DatabasePanelState } from "../../../types/database";
+import { defaultMinWidthForType, getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { DatabaseCell } from "../DatabaseCell";
 import { DatabaseColumnHeader } from "../DatabaseColumnHeader";
 import { DatabaseAddColumnButton } from "../DatabaseAddColumnButton";
+import { DatabaseColumnSettingsButton } from "../DatabaseColumnSettingsButton";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -18,8 +20,8 @@ type Props = {
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
 
-export function DatabaseTableView({ databaseId, panelState }: Props) {
-  const { bundle, rows, columns } = useProcessedRows(databaseId, panelState);
+export function DatabaseTableView({ databaseId, panelState, setPanelState }: Props) {
+  const { bundle, rows } = useProcessedRows(databaseId, panelState);
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const moveColumn = useDatabaseStore((s) => s.moveColumn);
@@ -35,9 +37,27 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
 
   if (!bundle) return null;
 
+  // 뷰별 가시·정렬 컬럼 (#9)
+  const visibleCols = getVisibleOrderedColumns(
+    bundle.columns,
+    "table",
+    panelState.viewConfigs,
+  );
+
+  // moveColumn은 bundle.columns 기준 인덱스를 받으므로 visibleCols 인덱스를 변환.
+  const colIdToBundleIdx = new Map(
+    bundle.columns.map((c, i) => [c.id, i]),
+  );
+
   const onColDrop = () => {
     if (colDragFrom != null && colDragOver != null && colDragFrom !== colDragOver) {
-      moveColumn(databaseId, colDragFrom, colDragOver);
+      const fromCol = visibleCols[colDragFrom];
+      const toCol = visibleCols[colDragOver];
+      if (fromCol && toCol) {
+        const from = colIdToBundleIdx.get(fromCol.id) ?? -1;
+        const to = colIdToBundleIdx.get(toCol.id) ?? -1;
+        if (from >= 0 && to >= 0) moveColumn(databaseId, from, to);
+      }
     }
     setColDragFrom(null);
     setColDragOver(null);
@@ -60,17 +80,25 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
   };
 
   return (
-    <div className="inline-block min-w-full align-middle">
+    <div className="overflow-x-auto">
       <table className="w-full border-collapse text-left text-xs" style={{ tableLayout: "fixed" }}>
         <colgroup>
-          {columns.map((col) => (
-            <col key={col.id} style={col.width ? { width: col.width } : undefined} />
-          ))}
-          <col style={{ width: 32 }} />
+          {visibleCols.map((col) => {
+            const minW = defaultMinWidthForType(col.type);
+            return (
+              <col
+                key={col.id}
+                style={{ width: col.width ?? minW, minWidth: minW }}
+              />
+            );
+          })}
+          {/* + 버튼 + 설정 버튼 컬럼 (각 32px) */}
+          <col style={{ width: 32, minWidth: 32 }} />
+          <col style={{ width: 32, minWidth: 32 }} />
         </colgroup>
         <thead>
           <tr>
-            {columns.map((col, idx) => (
+            {visibleCols.map((col, idx) => (
               <DatabaseColumnHeader
                 key={col.id}
                 databaseId={databaseId}
@@ -87,6 +115,13 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
               />
             ))}
             <DatabaseAddColumnButton databaseId={databaseId} />
+            <DatabaseColumnSettingsButton
+              databaseId={databaseId}
+              viewKind="table"
+              panelState={panelState}
+              setPanelState={setPanelState}
+              asTh
+            />
           </tr>
         </thead>
         <tbody>
@@ -110,13 +145,13 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
                   isDropTarget ? "border-t-2 border-t-blue-500" : "",
                 ].join(" ")}
               >
-                {columns.map((col, cIdx) => {
+                {visibleCols.map((col, cIdx) => {
                   const isFirst = cIdx === 0;
                   return (
                     <td
                       key={col.id}
                       className={[
-                        "align-top px-2 py-1",
+                        "align-top overflow-hidden px-2 py-1",
                         isFirst ? "relative pr-16" : "",
                       ].join(" ")}
                     >
@@ -140,21 +175,28 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
                           <GripVertical size={12} className="text-zinc-400" />
                         </span>
                       )}
-                      {col.type === "title" ? (
-                        <DatabaseCell
-                          databaseId={databaseId}
-                          rowId={row.pageId}
-                          column={col}
-                          value={row.title}
-                        />
-                      ) : (
-                        <DatabaseCell
-                          databaseId={databaseId}
-                          rowId={row.pageId}
-                          column={col}
-                          value={row.cells[col.id]}
-                        />
-                      )}
+                      {/*
+                        셀 컨텐츠 클리핑(#2): truncate(=overflow:hidden+ellipsis+nowrap)을
+                        wrapper에 적용해 텍스트가 다음 컬럼으로 침범하지 않도록.
+                        input 등 자식 요소는 wrapper width(=cell width)에 맞춰 자연 클립.
+                      */}
+                      <div className="min-w-0 max-w-full truncate">
+                        {col.type === "title" ? (
+                          <DatabaseCell
+                            databaseId={databaseId}
+                            rowId={row.pageId}
+                            column={col}
+                            value={row.title}
+                          />
+                        ) : (
+                          <DatabaseCell
+                            databaseId={databaseId}
+                            rowId={row.pageId}
+                            column={col}
+                            value={row.cells[col.id]}
+                          />
+                        )}
+                      </div>
                       {isFirst && (
                         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
                           <button
@@ -190,7 +232,8 @@ export function DatabaseTableView({ databaseId, panelState }: Props) {
                     </td>
                   );
                 })}
-                {/* "+" 헤더 컬럼과 cell 수 일치를 위한 빈 td */}
+                {/* "+" 헤더, 설정 헤더와 cell 수 일치 */}
+                <td />
                 <td />
               </tr>
             );
