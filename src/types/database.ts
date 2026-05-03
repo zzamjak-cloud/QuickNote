@@ -5,9 +5,8 @@ export const DATABASE_STORE_VERSION = 2;
 export type ViewKind =
   | "table"
   | "kanban"
-  | "gallery"
-  | "list"
-  | "timeline";
+  | "timeline"
+  | "gallery";
 
 export type DatabaseLayout = "inline" | "fullPage";
 

@@ -3,7 +3,6 @@ import { NodeViewWrapper } from "@tiptap/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Database,
-  List as ListIcon,
   Kanban,
   GalleryHorizontal,
   GanttChartSquare,
@@ -23,7 +22,6 @@ import { emptyPanelState } from "../../types/database";
 import { DatabaseTableView } from "./views/DatabaseTableView";
 import { DatabaseKanbanView } from "./views/DatabaseKanbanView";
 import { DatabaseGalleryView } from "./views/DatabaseGalleryView";
-import { DatabaseListView } from "./views/DatabaseListView";
 import { DatabaseTimelineView } from "./views/DatabaseTimelineView";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 function parsePanelState(raw: string): DatabasePanelState {
@@ -45,25 +43,25 @@ function scheduleAttrsUpdate(
 const VIEW_ICONS: Record<ViewKind, typeof Table2> = {
   table: Table2,
   kanban: Kanban,
-  gallery: GalleryHorizontal,
-  list: ListIcon,
   timeline: GanttChartSquare,
+  gallery: GalleryHorizontal,
 };
 
 /** 뷰 토글 라벨(한국어). */
 const VIEW_LABELS: Record<ViewKind, string> = {
   table: "표",
   kanban: "칸반",
-  gallery: "갤러리",
-  list: "리스트",
   timeline: "타임라인",
+  gallery: "갤러리",
 };
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode } = props;
   const databaseId = String(node.attrs.databaseId ?? "");
   const layout = (node.attrs.layout ?? "inline") as DatabaseLayout;
-  const view = (node.attrs.view ?? "table") as ViewKind;
+  // 레거시 'list' 값은 표 뷰로 자동 매핑
+  const rawView = String(node.attrs.view ?? "table");
+  const view = (rawView === "list" ? "table" : rawView) as ViewKind;
   const panelState = parsePanelState(String(node.attrs.panelState ?? "{}"));
   const panelStateRef = useRef(panelState);
   panelStateRef.current = panelState;
@@ -156,14 +154,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
       case "gallery":
         return (
           <DatabaseGalleryView
-            databaseId={databaseId}
-            panelState={panelState}
-            setPanelState={setPanelState}
-          />
-        );
-      case "list":
-        return (
-          <DatabaseListView
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
