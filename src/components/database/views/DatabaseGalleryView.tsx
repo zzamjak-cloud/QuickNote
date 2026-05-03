@@ -10,6 +10,8 @@ import type {
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { DatabaseCell } from "../DatabaseCell";
+import { DatabaseColumnSettingsButton } from "../DatabaseColumnSettingsButton";
+import { getVisibleOrderedColumns } from "../../../types/database";
 import { getDatabaseFile } from "../../../lib/databaseFileStorage";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
@@ -78,6 +80,14 @@ export function DatabaseGalleryView({
             </option>
           ))}
         </select>
+        <div className="ml-auto">
+          <DatabaseColumnSettingsButton
+            databaseId={databaseId}
+            viewKind="gallery"
+            panelState={panelState}
+            setPanelState={setPanelState}
+          />
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
         {rows.map((row) => (
@@ -87,6 +97,11 @@ export function DatabaseGalleryView({
             row={row}
             columns={columns}
             coverColumn={columns.find((c) => c.id === coverColId)}
+            visibleColumns={getVisibleOrderedColumns(
+              columns,
+              "gallery",
+              panelState.viewConfigs,
+            )}
           />
         ))}
       </div>
@@ -106,13 +121,28 @@ function GalleryCard({
   row,
   columns,
   coverColumn,
+  visibleColumns,
 }: {
   databaseId: string;
   row: DatabaseRowView;
   columns: ColumnDef[];
   coverColumn?: ColumnDef;
+  visibleColumns: ColumnDef[];
 }) {
   const titleCol = columns.find((c) => c.type === "title");
+  // viewConfigs.gallery.visibleColumnIds가 명시돼 있으면 그 순서대로 모두 표시,
+  // 미지정이면 title·cover 제외 첫 2개만 (기본값).
+  const cardCols = (() => {
+    const explicit = visibleColumns.filter(
+      (c) => c.id !== titleCol?.id && c.id !== coverColumn?.id,
+    );
+    // viewConfigs가 지정되었으면 visibleColumns가 columns와 다를 가능성 있음 → 그대로 사용.
+    // 미지정 시(=visibleColumns가 columns와 동일) 처음 2개로 제한.
+    const allEqual =
+      visibleColumns.length === columns.length &&
+      visibleColumns.every((c, i) => c.id === columns[i]?.id);
+    return allEqual ? explicit.slice(0, 2) : explicit;
+  })();
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openPeek = useUiStore((s) => s.openPeek);
@@ -155,19 +185,16 @@ function GalleryCard({
             </button>
           </div>
         </div>
-        {columns
-          .filter((c) => c.id !== titleCol?.id && c.id !== coverColumn?.id)
-          .slice(0, 2)
-          .map((c) => (
-            <div key={c.id} className="mt-1">
-              <DatabaseCell
-                databaseId={databaseId}
-                rowId={row.pageId}
-                column={c}
-                value={row.cells[c.id]}
-              />
-            </div>
-          ))}
+        {cardCols.map((c) => (
+          <div key={c.id} className="mt-1">
+            <DatabaseCell
+              databaseId={databaseId}
+              rowId={row.pageId}
+              column={c}
+              value={row.cells[c.id]}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );
