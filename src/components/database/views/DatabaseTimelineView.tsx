@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUpRight, PanelRight, Plus } from "lucide-react";
 import type {
   CellValue,
@@ -28,9 +28,11 @@ const ROW_HEIGHT = 32;
 const ROW_GAP = 4;
 const HEADER_HEIGHT = 36;
 const SIDE_LABEL_W = 160;
-// 주 모드: 지난주/이번주/다음주 3주 = 21일 고정 범위.
-const WEEK_DAYS = 7;
+// 주 모드: 평일(월~금) 5일 × 3주 = 15 weekdays. 토/일은 시각화 제외.
+const WEEK_DAYS = 5;
 const WEEK_RANGE_DAYS = WEEK_DAYS * 3;
+/** 캘린더상의 주 1개(7일) 길이. 주 시작점 계산용. */
+const WEEK_CAL_DAYS = 7;
 
 /** YYYY-MM-DD 추출. */
 function isoDate(t: number): string {
@@ -91,11 +93,64 @@ function pickStatusColor(
   return col.config?.options?.find((o) => o.id === raw)?.color;
 }
 
-/** 주 헤더 라벨 포맷: "MM/DD - MM/DD". */
+/** 주 헤더 라벨 포맷: 평일 첫(월) ~ 마지막(금) — "MM/DD - MM/DD". */
 function weekLabel(start: number): string {
   const s = new Date(start);
-  const e = new Date(start + (WEEK_DAYS - 1) * DAY_MS);
+  // 평일 마지막 = 시작(월) + 4일 = 금요일.
+  const e = new Date(start + 4 * DAY_MS);
   return `${s.getMonth() + 1}/${s.getDate()} - ${e.getMonth() + 1}/${e.getDate()}`;
+}
+
+/**
+ * 주 모드 평일 인덱스(0~14): minT가 지난주 월요일일 때, t가 어느 평일인지 반환.
+ * 주말(토/일)이면 -1.
+ */
+function weekdayIndex(t: number, minT: number): number {
+  const day = startOfDay(t);
+  const dow = new Date(day).getDay(); // 일=0..토=6
+  if (dow === 0 || dow === 6) return -1;
+  const diffDays = Math.round((day - minT) / DAY_MS);
+  if (diffDays < 0 || diffDays >= WEEK_CAL_DAYS * 3) return -1;
+  const weekIdx = Math.floor(diffDays / WEEK_CAL_DAYS); // 0,1,2
+  const weekdayInWeek = (dow + 6) % 7; // 월=0..금=4 (토=5,일=6은 위에서 제외)
+  if (weekdayInWeek > 4) return -1;
+  return weekIdx * WEEK_DAYS + weekdayInWeek;
+}
+
+/**
+ * 주 모드용: 시작/종료를 가장 가까운 평일로 클램프.
+ * - start: 주말이면 다음 평일(월)로,
+ * - end:   주말이면 이전 평일(금)로.
+ * 반환: 평일 단위 시작/종료 timestamp(00:00). 둘 사이가 역전되면 null.
+ */
+function clampToWeekday(
+  start: number,
+  end: number,
+): { start: number; end: number } | null {
+  const ns = nextWeekday(start);
+  const ne = prevWeekday(end);
+  if (ns > ne) return null;
+  return { start: ns, end: ne };
+}
+
+function nextWeekday(t: number): number {
+  let d = startOfDay(t);
+  for (let i = 0; i < 7; i++) {
+    const dow = new Date(d).getDay();
+    if (dow !== 0 && dow !== 6) return d;
+    d += DAY_MS;
+  }
+  return d;
+}
+
+function prevWeekday(t: number): number {
+  let d = startOfDay(t);
+  for (let i = 0; i < 7; i++) {
+    const dow = new Date(d).getDay();
+    if (dow !== 0 && dow !== 6) return d;
+    d -= DAY_MS;
+  }
+  return d;
 }
 
 export function DatabaseTimelineView({
@@ -113,6 +168,18 @@ export function DatabaseTimelineView({
   const [granularity, setGranularity] = useState<Granularity>("day");
   // 주 모드에서 트랙 너비를 측정하기 위한 ref(컨테이너 너비 비례 변환에 사용).
   const trackRef = useRef<HTMLDivElement | null>(null);
+  // ResizeObserver로 트랙 폭을 state로 보관 — 첫 렌더/리사이즈에도 정확한 px 변환.
+  const [trackPxWidth, setTrackPxWidth] = useState(0);
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setTrackPxWidth(el.clientWidth);
+    });
+    ro.observe(el);
+    setTrackPxWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, [granularity]);
   const dragRef = useRef<{
     pageId: string;
     columnId: string;
@@ -160,8 +227,9 @@ export function DatabaseTimelineView({
   const axis = useMemo(() => {
     if (granularity === "week") {
       const thisWeekStart = startOfWeekMon(Date.now());
-      const minT = thisWeekStart - WEEK_DAYS * DAY_MS; // 지난주 월요일
-      const maxT = thisWeekStart + (2 * WEEK_DAYS - 1) * DAY_MS; // 다음주 일요일
+      const minT = thisWeekStart - WEEK_CAL_DAYS * DAY_MS; // 지난주 월요일
+      // 다음주 금요일까지 평일만 시각화. 캘린더상 마지막 weekday: minT + 2주(14일) + 4일(금).
+      const maxT = minT + (2 * WEEK_CAL_DAYS + 4) * DAY_MS;
       const totalDays = WEEK_RANGE_DAYS;
       // 주 모드는 컨테이너 너비를 비율로 분할 — cellWidth/totalW는 렌더 시점에 측정.
       return { minT, maxT, totalDays, cellWidth: 0, totalW: 0 };
@@ -184,20 +252,35 @@ export function DatabaseTimelineView({
 
   if (!bundle) return null;
 
-  // 주 모드: 측정된 트랙 너비로 1일당 픽셀을 산출(렌더 후 측정 결과로 갱신).
-  const trackPxWidth =
-    granularity === "week"
-      ? trackRef.current?.clientWidth ?? 0
-      : axis.totalW;
+  // 주 모드: 측정된 트랙 너비로 1일(평일 1칸)당 픽셀을 산출.
+  // 일 모드: 셀 폭 고정. 주 모드 측정 전(0)이면 카드 미렌더로 깜빡임 방지.
   const pxPerDay =
     granularity === "week"
       ? trackPxWidth / WEEK_RANGE_DAYS
       : axis.cellWidth;
 
+  /**
+   * 평일 인덱스 기준 X 좌표.
+   * - 주 모드: weekdayIndex(0~14)*pxPerDay.
+   * - 일 모드: 캘린더일수 기준.
+   */
   const dayToX = (t: number): number => {
+    if (granularity === "week") {
+      const idx = weekdayIndex(t, axis.minT);
+      if (idx < 0) return 0;
+      return Math.round(idx * pxPerDay);
+    }
     return Math.round(((t - axis.minT) / DAY_MS) * pxPerDay);
   };
+  /** 시작/종료 평일 인덱스 차이로 카드 폭 계산. */
   const dayWidth = (start: number, end: number): number => {
+    if (granularity === "week") {
+      const sIdx = weekdayIndex(start, axis.minT);
+      const eIdx = weekdayIndex(end, axis.minT);
+      if (sIdx < 0 || eIdx < 0) return pxPerDay;
+      const days = eIdx - sIdx + 1;
+      return Math.max(pxPerDay, days * pxPerDay);
+    }
     const days = Math.round((end - start) / DAY_MS) + 1;
     return Math.max(pxPerDay, days * pxPerDay);
   };
@@ -276,9 +359,10 @@ export function DatabaseTimelineView({
     }
   } else {
     // 주 모드: 3개 컬럼(지난주/이번주/다음주) — 헤더는 % 폭으로 배치.
+    // 각 주의 시작은 캘린더 월요일(7일 간격), 라벨은 평일(월~금)로 표기.
     const labels = ["지난 주", "이번 주", "다음 주"];
     for (let i = 0; i < 3; i++) {
-      const wkStart = axis.minT + i * WEEK_DAYS * DAY_MS;
+      const wkStart = axis.minT + i * WEEK_CAL_DAYS * DAY_MS;
       headerTicks.push({
         x: 0, // % 기반이라 무시
         label: `${labels[i]} (${weekLabel(wkStart)})`,
@@ -288,7 +372,15 @@ export function DatabaseTimelineView({
     }
   }
 
-  const todayX = dayToX(startOfDay(Date.now()));
+  // 오늘 마커 X — 주 모드에서 오늘이 주말이면 -1로 두어 미표시.
+  const todayX =
+    granularity === "week"
+      ? (() => {
+          const idx = weekdayIndex(Date.now(), axis.minT);
+          if (idx < 0 || !Number.isFinite(pxPerDay) || pxPerDay <= 0) return -1;
+          return Math.round(idx * pxPerDay);
+        })()
+      : dayToX(startOfDay(Date.now()));
 
   return (
     <div className="select-none">
@@ -489,13 +581,21 @@ export function DatabaseTimelineView({
                     }}
                   />
                 ))}
-                {rows.map((row, rIdx) => {
+                {/* 주 모드: pxPerDay가 0/NaN이면(첫 측정 전) 카드를 그리지 않음 — 깜빡임 방지. */}
+                {(granularity === "day" || (Number.isFinite(pxPerDay) && pxPerDay > 0)) && rows.map((row, rIdx) => {
                   const range = getRange(row.cells[dateColId]);
                   if (!range) return null;
-                  // 주 모드에서는 3주 범위 밖이면 클리핑 — 카드 좌/우를 axis.minT/maxT로 트림.
-                  const visStart = Math.max(range.start, axis.minT);
-                  const visEnd = Math.min(range.end, axis.maxT);
+                  // 3주 범위 밖이면 클리핑.
+                  let visStart = Math.max(range.start, axis.minT);
+                  let visEnd = Math.min(range.end, axis.maxT);
                   if (visEnd < axis.minT || visStart > axis.maxT) return null;
+                  // 주 모드: 시작/종료를 평일로 클램프 — 주말에 걸린 부분은 잘라냄.
+                  if (granularity === "week") {
+                    const c = clampToWeekday(visStart, visEnd);
+                    if (!c) return null;
+                    visStart = c.start;
+                    visEnd = c.end;
+                  }
                   const left = dayToX(visStart);
                   const w = dayWidth(visStart, visEnd);
                   const color = pickStatusColor(row, columns);

@@ -50,6 +50,15 @@ const VIEW_ICONS: Record<ViewKind, typeof Table2> = {
   timeline: GanttChartSquare,
 };
 
+/** 뷰 토글 라벨(한국어). */
+const VIEW_LABELS: Record<ViewKind, string> = {
+  table: "표",
+  kanban: "칸반",
+  gallery: "갤러리",
+  list: "리스트",
+  timeline: "타임라인",
+};
+
 export function DatabaseBlockView(props: NodeViewProps) {
   const { node, updateAttributes, deleteNode } = props;
   const databaseId = String(node.attrs.databaseId ?? "");
@@ -195,9 +204,10 @@ export function DatabaseBlockView(props: NodeViewProps) {
             }}
             placeholder="데이터베이스 이름"
             title="이름 변경 (전체 페이지면 페이지 제목과 함께 바뀝니다)"
-            className="min-w-[100px] flex-1 rounded border border-transparent bg-transparent px-1 text-xs font-medium text-zinc-700 outline-none focus:border-zinc-300 dark:text-zinc-300 dark:focus:border-zinc-600"
+            className="w-48 rounded border border-transparent bg-transparent px-1 text-xs font-medium text-zinc-700 outline-none focus:border-zinc-300 dark:text-zinc-300 dark:focus:border-zinc-600"
           />
-          <div className="ml-auto flex flex-wrap items-center gap-0.5">
+          {/* 뷰 토글 — 좌측, 아이콘+텍스트 */}
+          <div className="ml-1 flex flex-wrap items-center gap-0.5">
             {(Object.keys(VIEW_ICONS) as ViewKind[]).map((vk) => {
               const Icon = VIEW_ICONS[vk];
               const on = view === vk;
@@ -205,19 +215,23 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 <button
                   key={vk}
                   type="button"
-                  title={vk}
+                  title={VIEW_LABELS[vk]}
                   onClick={() => setView(vk)}
                   className={[
-                    "rounded p-1",
+                    "flex items-center gap-1 rounded px-2 py-1 text-xs",
                     on
                       ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
                       : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800",
                   ].join(" ")}
                 >
-                  <Icon size={15} />
+                  <Icon size={14} />
+                  <span>{VIEW_LABELS[vk]}</span>
                 </button>
               );
             })}
+          </div>
+          {/* 우측 보조 액션 */}
+          <div className="ml-auto flex items-center gap-0.5">
             <button
               type="button"
               title="다른 DB 연결"
