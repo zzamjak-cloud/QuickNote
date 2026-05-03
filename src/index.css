@@ -308,6 +308,11 @@ li.ProseMirror-selectednode::after {
   z-index: 100;
 }
 
+/* 컬럼 모드일 때는 dropcursor(가로 점선) 숨김 — 두 인디케이터 동시 표시 방지 */
+body.quicknote-column-drop .qn-dropcursor {
+  display: none !important;
+}
+
 
 /* 박스 선택 */
 .qn-box-select-rect {

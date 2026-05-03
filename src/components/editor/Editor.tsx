@@ -36,6 +36,7 @@ import {
   ToggleContent,
 } from "../../lib/tiptapExtensions/toggle";
 import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
+import { decideDropMode } from "../../lib/blockDropMode";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
 import { PageMention } from "../../lib/tiptapExtensions/pageMention";
 import { EmojiShortcode } from "../../lib/tiptapExtensions/emojiShortcode";
@@ -278,6 +279,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
           const { side, targetBlockStart } = columnDropRef.current;
           columnDropRef.current = null;
           setColumnDropIndicator(null);
+          document.body.classList.remove("quicknote-column-drop");
 
           const sel = view.state.selection;
           if (!(sel instanceof NodeSelection)) return false;
@@ -418,6 +420,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     const clearDrop = () => {
       columnDropRef.current = null;
       setColumnDropIndicator(null);
+      // 컬럼 모드 해제 → dropcursor(가로 점선) 다시 표시 허용
+      document.body.classList.remove("quicknote-column-drop");
     };
 
     const onDragOver = (e: DragEvent) => {
@@ -447,15 +451,19 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       const el = domEl instanceof HTMLElement ? domEl : (domEl as Node | null)?.parentElement;
       if (!el) { clearDrop(); return; }
       const rect = el.getBoundingClientRect();
-      const relX = e.clientX - rect.left;
-      const pct = relX / rect.width;
 
-      if (pct < 0.3) {
+      // 좌·우 가장자리 ~20% 영역만 컬럼 분할 모드, 그 외는 리스트 모드로 단일 결정.
+      // 컬럼 모드일 때만 컬럼 인디케이터를 켜고 body 클래스 토글로 dropcursor 를 숨겨
+      // 두 인디케이터가 동시에 표시되지 않도록 한다.
+      const mode = decideDropMode(rect.left, rect.width, e.clientX, 0.2);
+      if (mode === "column-left") {
         columnDropRef.current = { side: "left", targetBlockStart: targetStart };
         setColumnDropIndicator({ x: rect.left - 1, top: rect.top, height: rect.height });
-      } else if (pct > 0.7) {
+        document.body.classList.add("quicknote-column-drop");
+      } else if (mode === "column-right") {
         columnDropRef.current = { side: "right", targetBlockStart: targetStart };
         setColumnDropIndicator({ x: rect.right - 1, top: rect.top, height: rect.height });
+        document.body.classList.add("quicknote-column-drop");
       } else {
         clearDrop();
       }
