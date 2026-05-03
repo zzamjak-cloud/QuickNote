@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { JSONContent } from "@tiptap/react";
 import { ArrowUpRight, PanelRight } from "lucide-react";
 import type {
   DatabasePanelState,
@@ -19,6 +20,27 @@ type Props = {
   panelState: DatabasePanelState;
   setPanelState: (p: Partial<DatabasePanelState>) => void;
 };
+
+/** 페이지 doc(JSONContent)에서 첫 이미지 src를 깊이우선으로 탐색. */
+function findFirstImageSrc(doc: JSONContent | undefined): string | null {
+  if (!doc) return null;
+  const visit = (node: JSONContent | undefined): string | null => {
+    if (!node) return null;
+    if (node.type === "image" || node.type === "imageBlock") {
+      const src = (node.attrs?.src ?? "") as string;
+      if (typeof src === "string" && src) return src;
+    }
+    const children = node.content;
+    if (Array.isArray(children)) {
+      for (const c of children) {
+        const found = visit(c);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return visit(doc);
+}
 
 export function DatabaseGalleryView({
   databaseId,
@@ -49,7 +71,7 @@ export function DatabaseGalleryView({
           }
           className="rounded border border-zinc-300 bg-white px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900"
         >
-          <option value="">없음</option>
+          <option value="">페이지 본문 첫 이미지</option>
           {coverCandidates.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -94,6 +116,8 @@ function GalleryCard({
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openPeek = useUiStore((s) => s.openPeek);
+  // 행 페이지 doc에서 첫 이미지를 fallback 커버로 사용
+  const pageDoc = usePageStore((s) => s.pages[row.pageId]?.doc);
 
   const openFull = () => {
     setActivePage(row.pageId);
@@ -102,7 +126,11 @@ function GalleryCard({
 
   return (
     <div className="group overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-      <CoverImage column={coverColumn} cell={row.cells[coverColumn?.id ?? ""]} />
+      <CoverImage
+        column={coverColumn}
+        cell={row.cells[coverColumn?.id ?? ""]}
+        pageDoc={pageDoc}
+      />
       <div className="p-2">
         <div className="flex items-center justify-between gap-1">
           <div className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
@@ -148,42 +176,56 @@ function GalleryCard({
 function CoverImage({
   column,
   cell,
+  pageDoc,
 }: {
   column?: ColumnDef;
   cell: import("../../../types/database").CellValue;
+  pageDoc?: JSONContent;
 }) {
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
     let revoked: string | null = null;
-    if (!column) {
-      setSrc(null);
-      return;
-    }
-    if (column.type === "url" && typeof cell === "string" && cell) {
-      setSrc(cell);
+    let cancelled = false;
+
+    const setIfActive = (v: string | null) => {
+      if (!cancelled) setSrc(v);
+    };
+
+    // 1) 명시 컬럼 (file 또는 url)
+    if (column?.type === "url" && typeof cell === "string" && cell) {
+      setIfActive(cell);
       return () => {
+        cancelled = true;
         if (revoked) URL.revokeObjectURL(revoked);
       };
     }
-    if (column.type === "file" && Array.isArray(cell) && cell.length > 0) {
+    if (column?.type === "file" && Array.isArray(cell) && cell.length > 0) {
       const first = cell[0] as FileCellItem;
       void getDatabaseFile(first.fileId).then((blob) => {
+        if (cancelled) return;
         if (blob && blob.type.startsWith("image/")) {
           const u = URL.createObjectURL(blob);
           revoked = u;
-          setSrc(u);
+          setIfActive(u);
         } else {
-          setSrc(null);
+          // file 컬럼이지만 이미지가 아니면 페이지 본문 fallback.
+          setIfActive(findFirstImageSrc(pageDoc));
         }
       });
-    } else {
-      setSrc(null);
+      return () => {
+        cancelled = true;
+        if (revoked) URL.revokeObjectURL(revoked);
+      };
     }
+
+    // 2) Fallback — 페이지 본문 첫 이미지
+    setIfActive(findFirstImageSrc(pageDoc));
     return () => {
+      cancelled = true;
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [column, cell]);
+  }, [column, cell, pageDoc]);
 
   if (!src) {
     return (
