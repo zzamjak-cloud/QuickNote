@@ -80,7 +80,8 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
   };
 
   return (
-    <div className="overflow-x-auto">
+    // 헤더 sticky를 위해 wrapper에 max-h + overflow-y-auto. 가로 스크롤도 동일 wrapper.
+    <div className="max-h-[60vh] overflow-x-auto overflow-y-auto">
       <table className="w-full border-collapse text-left text-xs" style={{ tableLayout: "fixed" }}>
         <colgroup>
           {visibleCols.map((col) => {
@@ -96,7 +97,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
           <col style={{ width: 32, minWidth: 32 }} />
           <col style={{ width: 32, minWidth: 32 }} />
         </colgroup>
-        <thead>
+        <thead className="sticky top-0 z-[5] bg-white dark:bg-zinc-950">
           <tr>
             {visibleCols.map((col, idx) => (
               <DatabaseColumnHeader

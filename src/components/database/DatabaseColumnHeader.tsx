@@ -80,7 +80,8 @@ export function DatabaseColumnHeader({
         onDrop();
       }}
       className={[
-        "group relative whitespace-nowrap border-b border-zinc-200 px-2 py-1.5 font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-400",
+        // sticky thead 시 본문이 비치지 않도록 bg를 셀에 직접 부여.
+        "group relative whitespace-nowrap border-b border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400",
         highlightDrop === "left" ? "border-l-2 border-dashed border-l-blue-400" : "",
         highlightDrop === "right" ? "border-r-2 border-dashed border-r-blue-400" : "",
       ].join(" ")}

@@ -59,7 +59,7 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
   };
 
   return (
-    <th className="w-8 border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+    <th className="w-8 border-b border-zinc-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-950">
       <button
         ref={buttonRef}
         type="button"

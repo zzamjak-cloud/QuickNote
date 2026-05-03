@@ -138,7 +138,8 @@ export function DatabaseColumnSettingsButton({
   return (
     <>
       {asTh ? (
-        <th className="w-8 border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+        // sticky thead에서 본문이 비치지 않도록 bg 명시.
+        <th className="w-8 border-b border-zinc-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-950">
           {Btn}
         </th>
       ) : (

@@ -28,6 +28,9 @@ const ROW_HEIGHT = 32;
 const ROW_GAP = 4;
 const HEADER_HEIGHT = 36;
 const SIDE_LABEL_W = 160;
+// 주 모드: 지난주/이번주/다음주 3주 = 21일 고정 범위.
+const WEEK_DAYS = 7;
+const WEEK_RANGE_DAYS = WEEK_DAYS * 3;
 
 /** YYYY-MM-DD 추출. */
 function isoDate(t: number): string {
@@ -37,6 +40,16 @@ function isoDate(t: number): string {
 function startOfDay(t: number): number {
   const d = new Date(t);
   d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** 월요일 시작 기준 주의 시작일(00:00) 반환. */
+function startOfWeekMon(t: number): number {
+  const d = new Date(startOfDay(t));
+  // getDay(): 일=0, 월=1, ..., 토=6 → 월요일까지 거슬러갈 일수.
+  const dow = d.getDay();
+  const back = (dow + 6) % 7; // 월=0, 일=6
+  d.setDate(d.getDate() - back);
   return d.getTime();
 }
 
@@ -78,6 +91,13 @@ function pickStatusColor(
   return col.config?.options?.find((o) => o.id === raw)?.color;
 }
 
+/** 주 헤더 라벨 포맷: "MM/DD - MM/DD". */
+function weekLabel(start: number): string {
+  const s = new Date(start);
+  const e = new Date(start + (WEEK_DAYS - 1) * DAY_MS);
+  return `${s.getMonth() + 1}/${s.getDate()} - ${e.getMonth() + 1}/${e.getDate()}`;
+}
+
 export function DatabaseTimelineView({
   databaseId,
   panelState,
@@ -91,6 +111,8 @@ export function DatabaseTimelineView({
   const openPeek = useUiStore((s) => s.openPeek);
 
   const [granularity, setGranularity] = useState<Granularity>("day");
+  // 주 모드에서 트랙 너비를 측정하기 위한 ref(컨테이너 너비 비례 변환에 사용).
+  const trackRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
     pageId: string;
     columnId: string;
@@ -98,7 +120,8 @@ export function DatabaseTimelineView({
     origStart: number;
     origEnd: number;
     originX: number;
-    cellWidth: number;
+    /** 1일에 해당하는 픽셀 폭 (드래그 시작 시점). */
+    pxPerDay: number;
   } | null>(null);
   const [dragTick, setDragTick] = useState(0); // 드래그 중 강제 리렌더용
 
@@ -127,10 +150,22 @@ export function DatabaseTimelineView({
       if (range) out.push({ row: r, ...range });
     }
     return out;
+    // dragTick으로 드래그 중에도 갱신.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, dateColId, dragTick]);
 
-  // 시간축: [최소 시작 - 7일, 최대 종료 + 7일] 또는 비어있으면 오늘 ± 14일.
+  // 시간축:
+  // - 일 모드: [최소 시작 - 7일, 최대 종료 + 7일] 또는 비어있으면 오늘 ± 14일.
+  // - 주 모드: 오늘이 속한 주의 월요일 기준 -1주 ~ +1주(끝일) → 21일 고정.
   const axis = useMemo(() => {
+    if (granularity === "week") {
+      const thisWeekStart = startOfWeekMon(Date.now());
+      const minT = thisWeekStart - WEEK_DAYS * DAY_MS; // 지난주 월요일
+      const maxT = thisWeekStart + (2 * WEEK_DAYS - 1) * DAY_MS; // 다음주 일요일
+      const totalDays = WEEK_RANGE_DAYS;
+      // 주 모드는 컨테이너 너비를 비율로 분할 — cellWidth/totalW는 렌더 시점에 측정.
+      return { minT, maxT, totalDays, cellWidth: 0, totalW: 0 };
+    }
     let minT: number;
     let maxT: number;
     if (dateRanges.length === 0) {
@@ -142,19 +177,29 @@ export function DatabaseTimelineView({
       maxT = Math.max(...dateRanges.map((r) => r.end)) + 7 * DAY_MS;
     }
     const totalDays = Math.max(1, Math.round((maxT - minT) / DAY_MS) + 1);
-    const cellWidth = granularity === "day" ? 36 : 18;
+    const cellWidth = 36;
     const totalW = totalDays * cellWidth;
     return { minT, maxT, totalDays, cellWidth, totalW };
   }, [dateRanges, granularity]);
 
   if (!bundle) return null;
 
+  // 주 모드: 측정된 트랙 너비로 1일당 픽셀을 산출(렌더 후 측정 결과로 갱신).
+  const trackPxWidth =
+    granularity === "week"
+      ? trackRef.current?.clientWidth ?? 0
+      : axis.totalW;
+  const pxPerDay =
+    granularity === "week"
+      ? trackPxWidth / WEEK_RANGE_DAYS
+      : axis.cellWidth;
+
   const dayToX = (t: number): number => {
-    return Math.round(((t - axis.minT) / DAY_MS) * axis.cellWidth);
+    return Math.round(((t - axis.minT) / DAY_MS) * pxPerDay);
   };
   const dayWidth = (start: number, end: number): number => {
     const days = Math.round((end - start) / DAY_MS) + 1;
-    return Math.max(axis.cellWidth, days * axis.cellWidth);
+    return Math.max(pxPerDay, days * pxPerDay);
   };
 
   const openFull = (pageId: string) => {
@@ -179,7 +224,7 @@ export function DatabaseTimelineView({
       origStart: range.start,
       origEnd: range.end,
       originX: e.clientX,
-      cellWidth: axis.cellWidth,
+      pxPerDay,
     };
   };
 
@@ -187,7 +232,7 @@ export function DatabaseTimelineView({
     const d = dragRef.current;
     if (!d) return;
     const dx = e.clientX - d.originX;
-    const dDays = Math.round(dx / d.cellWidth);
+    const dDays = d.pxPerDay > 0 ? Math.round(dx / d.pxPerDay) : 0;
     let newStart = d.origStart;
     let newEnd = d.origEnd;
     if (d.mode === "move") {
@@ -216,22 +261,29 @@ export function DatabaseTimelineView({
     }
   };
 
-  // 헤더 라벨: 일 단위는 매일, 주 단위는 7일마다.
-  const headerTicks: { x: number; label: string; major?: boolean }[] = [];
-  for (let i = 0; i < axis.totalDays; i++) {
-    const t = axis.minT + i * DAY_MS;
-    const d = new Date(t);
-    if (granularity === "day") {
+  // 헤더 라벨/그리드 라인 — 모드별로 다르게 구성.
+  type HeaderTick = { x: number; label: string; major?: boolean; widthPct?: number };
+  const headerTicks: HeaderTick[] = [];
+  if (granularity === "day") {
+    for (let i = 0; i < axis.totalDays; i++) {
+      const t = axis.minT + i * DAY_MS;
+      const d = new Date(t);
       headerTicks.push({
         x: i * axis.cellWidth,
         label: `${d.getMonth() + 1}/${d.getDate()}`,
         major: d.getDate() === 1,
       });
-    } else if (i % 7 === 0) {
+    }
+  } else {
+    // 주 모드: 3개 컬럼(지난주/이번주/다음주) — 헤더는 % 폭으로 배치.
+    const labels = ["지난 주", "이번 주", "다음 주"];
+    for (let i = 0; i < 3; i++) {
+      const wkStart = axis.minT + i * WEEK_DAYS * DAY_MS;
       headerTicks.push({
-        x: i * axis.cellWidth,
-        label: `${d.getMonth() + 1}/${d.getDate()}`,
-        major: d.getDate() <= 7,
+        x: 0, // % 기반이라 무시
+        label: `${labels[i]} (${weekLabel(wkStart)})`,
+        major: i === 1,
+        widthPct: 100 / 3,
       });
     }
   }
@@ -292,7 +344,11 @@ export function DatabaseTimelineView({
         </p>
       ) : (
         <div
-          className="overflow-x-auto rounded border border-zinc-200 dark:border-zinc-700"
+          className={[
+            "rounded border border-zinc-200 dark:border-zinc-700",
+            // 주 모드는 컨테이너 너비에 맞춰 3등분 → 가로 스크롤 불필요.
+            granularity === "day" ? "overflow-x-auto" : "overflow-hidden",
+          ].join(" ")}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
@@ -300,7 +356,10 @@ export function DatabaseTimelineView({
           <div
             className="relative"
             style={{
-              width: SIDE_LABEL_W + axis.totalW,
+              width:
+                granularity === "day"
+                  ? SIDE_LABEL_W + axis.totalW
+                  : "100%",
               minHeight:
                 HEADER_HEIGHT + (rows.length || 1) * (ROW_HEIGHT + ROW_GAP) + 16,
             }}
@@ -316,22 +375,41 @@ export function DatabaseTimelineView({
               >
                 항목
               </div>
-              <div className="relative" style={{ width: axis.totalW }}>
-                {headerTicks.map((t, i) => (
-                  <div
-                    key={i}
-                    className={[
-                      "absolute top-0 h-full text-[10px]",
-                      t.major
-                        ? "border-l border-zinc-300 font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
-                        : "border-l border-zinc-100 text-zinc-400 dark:border-zinc-800",
-                    ].join(" ")}
-                    style={{ left: t.x, paddingLeft: 4 }}
-                  >
-                    {t.label}
-                  </div>
-                ))}
-              </div>
+              {granularity === "day" ? (
+                <div className="relative" style={{ width: axis.totalW }}>
+                  {headerTicks.map((t, i) => (
+                    <div
+                      key={i}
+                      className={[
+                        "absolute top-0 h-full text-[10px]",
+                        t.major
+                          ? "border-l border-zinc-300 font-medium text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
+                          : "border-l border-zinc-100 text-zinc-400 dark:border-zinc-800",
+                      ].join(" ")}
+                      style={{ left: t.x, paddingLeft: 4 }}
+                    >
+                      {t.label}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                // 주 모드: flex-1로 3등분.
+                <div className="relative flex flex-1">
+                  {headerTicks.map((t, i) => (
+                    <div
+                      key={i}
+                      className={[
+                        "flex flex-1 items-center justify-center border-l text-[11px] truncate px-2",
+                        t.major
+                          ? "border-zinc-300 font-semibold text-zinc-800 dark:border-zinc-600 dark:text-zinc-100"
+                          : "border-zinc-100 text-zinc-500 dark:border-zinc-800",
+                      ].join(" ")}
+                    >
+                      {t.label}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 본문 */}
@@ -355,23 +433,45 @@ export function DatabaseTimelineView({
               </div>
 
               {/* 우측 트랙 + 카드 */}
-              <div className="relative" style={{ width: axis.totalW }}>
+              <div
+                ref={trackRef}
+                className="relative flex-1"
+                style={
+                  granularity === "day"
+                    ? { width: axis.totalW }
+                    : undefined
+                }
+              >
                 {/* 세로 그리드 라인 */}
-                {headerTicks.map((t, i) => (
-                  <div
-                    key={i}
-                    className={[
-                      "absolute top-0 h-full",
-                      t.major
-                        ? "border-l border-zinc-200 dark:border-zinc-700"
-                        : "border-l border-zinc-100 dark:border-zinc-800",
-                    ].join(" ")}
-                    style={{ left: t.x }}
-                  />
-                ))}
+                {granularity === "day"
+                  ? headerTicks.map((t, i) => (
+                      <div
+                        key={i}
+                        className={[
+                          "absolute top-0 h-full",
+                          t.major
+                            ? "border-l border-zinc-200 dark:border-zinc-700"
+                            : "border-l border-zinc-100 dark:border-zinc-800",
+                        ].join(" ")}
+                        style={{ left: t.x }}
+                      />
+                    ))
+                  : // 주 모드는 % 기준 라인 3개(좌측 경계).
+                    [0, 1, 2].map((i) => (
+                      <div
+                        key={i}
+                        className={[
+                          "absolute top-0 h-full",
+                          i === 1
+                            ? "border-l border-zinc-200 dark:border-zinc-700"
+                            : "border-l border-zinc-100 dark:border-zinc-800",
+                        ].join(" ")}
+                        style={{ left: `${(i * 100) / 3}%` }}
+                      />
+                    ))}
 
-                {/* 오늘 마커 */}
-                {todayX >= 0 && todayX <= axis.totalW && (
+                {/* 오늘 마커 — 주 모드에서는 항상 범위 내. */}
+                {todayX >= 0 && todayX <= (granularity === "day" ? axis.totalW : trackPxWidth) && (
                   <div
                     className="absolute top-0 z-[1] w-px bg-red-400/80"
                     style={{ left: todayX, height: rows.length * (ROW_HEIGHT + ROW_GAP) }}
@@ -392,10 +492,17 @@ export function DatabaseTimelineView({
                 {rows.map((row, rIdx) => {
                   const range = getRange(row.cells[dateColId]);
                   if (!range) return null;
-                  const left = dayToX(range.start);
-                  const w = dayWidth(range.start, range.end);
+                  // 주 모드에서는 3주 범위 밖이면 클리핑 — 카드 좌/우를 axis.minT/maxT로 트림.
+                  const visStart = Math.max(range.start, axis.minT);
+                  const visEnd = Math.min(range.end, axis.maxT);
+                  if (visEnd < axis.minT || visStart > axis.maxT) return null;
+                  const left = dayToX(visStart);
+                  const w = dayWidth(visStart, visEnd);
                   const color = pickStatusColor(row, columns);
                   const top = rIdx * (ROW_HEIGHT + ROW_GAP) + 2;
+                  // 트림 여부 — 트림된 쪽은 리사이즈 핸들 비활성.
+                  const trimLeft = range.start < axis.minT;
+                  const trimRight = range.end > axis.maxT;
                   return (
                     <div
                       key={row.pageId}
@@ -413,12 +520,14 @@ export function DatabaseTimelineView({
                       }
                     >
                       {/* 좌 리사이즈 핸들 */}
-                      <span
-                        onPointerDown={(e) =>
-                          handlePointerDown(e, row, range, "resize-start")
-                        }
-                        className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize rounded-l-md bg-transparent group-hover:bg-blue-400/40"
-                      />
+                      {!trimLeft && (
+                        <span
+                          onPointerDown={(e) =>
+                            handlePointerDown(e, row, range, "resize-start")
+                          }
+                          className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize rounded-l-md bg-transparent group-hover:bg-blue-400/40"
+                        />
+                      )}
                       <div className="flex min-w-0 flex-1 items-center gap-2 px-2 text-[11px]">
                         <span
                           className="inline-block h-2 w-2 shrink-0 rounded-full"
@@ -463,12 +572,14 @@ export function DatabaseTimelineView({
                         </button>
                       </div>
                       {/* 우 리사이즈 핸들 */}
-                      <span
-                        onPointerDown={(e) =>
-                          handlePointerDown(e, row, range, "resize-end")
-                        }
-                        className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize rounded-r-md bg-transparent group-hover:bg-blue-400/40"
-                      />
+                      {!trimRight && (
+                        <span
+                          onPointerDown={(e) =>
+                            handlePointerDown(e, row, range, "resize-end")
+                          }
+                          className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize rounded-r-md bg-transparent group-hover:bg-blue-400/40"
+                        />
+                      )}
                     </div>
                   );
                 })}
