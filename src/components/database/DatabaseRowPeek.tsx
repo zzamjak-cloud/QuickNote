@@ -4,6 +4,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { DatabasePropertyPanel } from "./DatabasePropertyPanel";
+import { Editor } from "../editor/Editor";
 
 export function DatabaseRowPeek() {
   const peekPageId = useUiStore((s) => s.peekPageId);
@@ -57,9 +58,10 @@ export function DatabaseRowPeek() {
           className="mb-2 w-full bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
         />
         <DatabasePropertyPanel databaseId={databaseId} pageId={peekPageId} />
-        <p className="mt-4 text-[10px] text-zinc-400">
-          전체 페이지로 열려면 행의 ↗ 버튼을 사용하세요.
-        </p>
+        {/* 노션 스타일: 피크에서도 본문 편집 가능 — Editor에 pageId 주입, bodyOnly로 제목/아이콘 영역 숨김 */}
+        <div className="qn-peek-editor mt-2 -mx-8 flex flex-1 flex-col">
+          <Editor key={peekPageId} pageId={peekPageId} bodyOnly />
+        </div>
       </div>
     </div>
   );

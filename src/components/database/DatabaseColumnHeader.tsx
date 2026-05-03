@@ -81,8 +81,8 @@ export function DatabaseColumnHeader({
       }}
       className={[
         "group relative whitespace-nowrap border-b border-zinc-200 px-2 py-1.5 font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-400",
-        highlightDrop === "left" ? "border-l-2 border-l-blue-500" : "",
-        highlightDrop === "right" ? "border-r-2 border-r-blue-500" : "",
+        highlightDrop === "left" ? "border-l-2 border-dashed border-l-blue-400" : "",
+        highlightDrop === "right" ? "border-r-2 border-dashed border-r-blue-400" : "",
       ].join(" ")}
     >
       <div className="flex items-center gap-1">

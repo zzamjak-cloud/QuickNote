@@ -142,7 +142,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
                 }}
                 className={[
                   "group border-b border-zinc-100 dark:border-zinc-800",
-                  isDropTarget ? "border-t-2 border-t-blue-500" : "",
+                  isDropTarget ? "border-t-2 border-dashed border-t-blue-400" : "",
                 ].join(" ")}
               >
                 {visibleCols.map((col, cIdx) => {

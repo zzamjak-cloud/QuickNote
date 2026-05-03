@@ -22,6 +22,26 @@ describe("databaseQuery", () => {
     expect(rowMatchesSearch(rows[0]!, columns, "없음")).toBe(false);
   });
 
+  it("검색이 row.title을 직접 매치 (cells 합성 누락 방어)", () => {
+    // cells에 title 컬럼이 없어도 row.title로 매치되어야 함.
+    const noTitleCell: DatabaseRowView = {
+      pageId: "x",
+      databaseId: "d",
+      title: "감마",
+      cells: { n: 5, s: "a" },
+    };
+    expect(rowMatchesSearch(noTitleCell, columns, "감마")).toBe(true);
+  });
+
+  it("검색 토큰을 공백으로 분리해 AND 매치", () => {
+    // "알파 10" → 알파 AND 10 → 행1만 매치.
+    const out = applyFilterSortSearch(rows, columns, "알파 10", [], []);
+    expect(out.map((r) => r.pageId)).toEqual(["1"]);
+    // "알파 20" → 알파는 행1, 20은 행2에 있으므로 어떤 행도 두 토큰을 모두 갖지 않음.
+    const out2 = applyFilterSortSearch(rows, columns, "알파 20", [], []);
+    expect(out2).toHaveLength(0);
+  });
+
   it("applyFilterSortSearch sorts by single rule", () => {
     const out = applyFilterSortSearch(
       rows,

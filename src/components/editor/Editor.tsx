@@ -40,9 +40,11 @@ import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
 import { PageMention } from "../../lib/tiptapExtensions/pageMention";
 import { EmojiShortcode } from "../../lib/tiptapExtensions/emojiShortcode";
 import {
-  filterSlashItems,
-  type SlashItem,
+  filterSlashMenuEntries,
+  type SlashMenuEntry,
+  type SlashLeafItem,
 } from "../../lib/tiptapExtensions/slashItems";
+import { DatabaseBlock } from "../../lib/tiptapExtensions/databaseBlock";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker } from "../common/IconPicker";
@@ -52,6 +54,23 @@ import { BlockHandles } from "./BlockHandles";
 import type { JSONContent } from "@tiptap/react";
 import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
 import { useBoxSelect } from "../../hooks/useBoxSelect";
+import { useDatabaseStore } from "../../store/databaseStore";
+
+/** 문서가 databaseBlock 단일 블록만 있으면 페이지 제목을 DB 메타 제목과 동기화 */
+function syncDatabaseTitleFromDoc(doc: JSONContent, title: string): void {
+  const c = doc.content;
+  if (!c || c.length !== 1) return;
+  const first = c[0];
+  if (
+    first?.type === "databaseBlock" &&
+    first.attrs &&
+    typeof first.attrs.databaseId === "string"
+  ) {
+    useDatabaseStore
+      .getState()
+      .setDatabaseTitle(first.attrs.databaseId, title);
+  }
+}
 
 const lowlight = createLowlight(common);
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -95,10 +114,18 @@ function insertImageFromFile(
   return true;
 }
 
-export function Editor() {
+type EditorProps = {
+  /** 지정 시 해당 페이지를 편집(예: 사이드 피크). 미지정이면 activePageId 사용. */
+  pageId?: string;
+  /** 본문만 렌더(아이콘·제목 영역 숨김). 피크처럼 외부에서 제목을 따로 표시할 때 사용. */
+  bodyOnly?: boolean;
+};
+
+export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const activeId = usePageStore((s) => s.activePageId);
+  const effectivePageId = pageId ?? activeId;
   const page = usePageStore((s) =>
-    activeId ? s.pages[activeId] : undefined,
+    effectivePageId ? s.pages[effectivePageId] : undefined,
   );
   const updateDoc = usePageStore((s) => s.updateDoc);
   const renamePage = usePageStore((s) => s.renamePage);
@@ -166,14 +193,18 @@ export function Editor() {
       ToggleContent,
       PageMention,
       EmojiShortcode,
+      DatabaseBlock,
       SlashCommand.configure({
         suggestion: {
           char: "/",
           startOfLine: false,
           command: ({ editor, range, props }) => {
-            (props as SlashItem).command({ editor, range });
+            const e = props as SlashMenuEntry;
+            if (e.kind === "leaf") {
+              e.command({ editor, range });
+            }
           },
-          items: ({ query }) => filterSlashItems(query).slice(0, 24),
+          items: ({ query }) => filterSlashMenuEntries(query).slice(0, 40),
           render: createSlashRenderer,
         },
       }),
@@ -345,26 +376,29 @@ export function Editor() {
 
   // 활성 페이지 변경 시 본문 동기화. page.doc 를 deps 에 넣지 않음(타이핑·저장마다 doc 참조 변경 → setContent 루프·내용 되살림).
   useEffect(() => {
-    if (!editor || !page || !activeId) return;
+    if (!editor || !page || !effectivePageId) return;
     const safeDoc = stripStaleBlobImages(page.doc);
     if (JSON.stringify(safeDoc) !== JSON.stringify(page.doc)) {
-      updateDoc(activeId, safeDoc);
+      updateDoc(effectivePageId, safeDoc);
     }
     const current = editor.getJSON();
     if (JSON.stringify(current) === JSON.stringify(safeDoc)) return;
-    editor.commands.setContent(safeDoc, { emitUpdate: false });
-  }, [editor, page?.id, activeId, updateDoc]); // eslint-disable-line react-hooks/exhaustive-deps -- page.doc 변경 시 재동기화는 id 전환만
+    queueMicrotask(() => {
+      if (editor.isDestroyed) return;
+      editor.commands.setContent(safeDoc, { emitUpdate: false });
+    });
+  }, [editor, page?.id, effectivePageId, updateDoc]); // eslint-disable-line react-hooks/exhaustive-deps -- page.doc 변경 시 재동기화는 id 전환만
 
   // 디바운스 자동 저장
   useEffect(() => {
     if (!editor) return;
     const handler = () => {
-      if (!activeId) return;
+      if (!effectivePageId) return;
       if (debounceRef.current !== null) {
         window.clearTimeout(debounceRef.current);
       }
       debounceRef.current = window.setTimeout(() => {
-        updateDoc(activeId, editor.getJSON());
+        updateDoc(effectivePageId, editor.getJSON());
       }, AUTOSAVE_DEBOUNCE_MS);
     };
     editor.on("update", handler);
@@ -374,7 +408,7 @@ export function Editor() {
         window.clearTimeout(debounceRef.current);
       }
     };
-  }, [editor, activeId, updateDoc]);
+  }, [editor, effectivePageId, updateDoc]);
 
   // 컬럼 분할 드래그오버 감지
   useEffect(() => {
@@ -492,7 +526,7 @@ export function Editor() {
 
   const { dragRect } = useBoxSelect(editor);
 
-  if (!page || !activeId) {
+  if (!page || !effectivePageId) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
         페이지를 선택하거나 좌측 + 버튼으로 새 페이지를 만드세요.
@@ -503,19 +537,27 @@ export function Editor() {
   return (
     <div className="relative flex flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950">
       <div className={`relative mx-auto w-full ${fullWidth ? "max-w-none px-4" : "max-w-3xl"}`}>
-        <div className="mt-12 px-12">
-          <IconPicker
-            current={page.icon}
-            onChange={(icon) => setIcon(activeId, icon)}
-          />
-        </div>
-        <input
-          ref={titleRef}
-          value={page.title}
-          onChange={(e) => renamePage(activeId, e.target.value)}
-          placeholder="제목 없음"
-          className="mt-2 w-full bg-transparent px-12 text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
-        />
+        {!bodyOnly && (
+          <>
+            <div className="mt-12 px-12">
+              <IconPicker
+                current={page.icon}
+                onChange={(icon) => setIcon(effectivePageId, icon)}
+              />
+            </div>
+            <input
+              ref={titleRef}
+              value={page.title}
+              onChange={(e) => {
+                const v = e.target.value;
+                renamePage(effectivePageId, v);
+                syncDatabaseTitleFromDoc(page.doc, v);
+              }}
+              placeholder="제목 없음"
+              className="mt-2 w-full bg-transparent px-12 text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
+            />
+          </>
+        )}
         <div className="relative">
           <EditorContent editor={editor} />
           <BlockHandles editor={editor} />
@@ -594,8 +636,8 @@ export function Editor() {
 type RendererProps = {
   editor: import("@tiptap/react").Editor;
   clientRect?: (() => DOMRect | null) | null;
-  command: (item: SlashItem) => void;
-  items: SlashItem[];
+  command: (item: SlashMenuEntry) => void;
+  items: SlashMenuEntry[];
   query: string;
   event?: KeyboardEvent;
 };
@@ -605,8 +647,9 @@ function createSlashRenderer() {
   let popup: TippyInstance[] = [];
 
   const pickProps = (p: RendererProps) => ({
-    items: p.items,
-    command: p.command,
+    entries: filterSlashMenuEntries(p.query),
+    query: p.query,
+    command: (item: SlashLeafItem) => p.command(item),
   });
 
   return {

@@ -34,6 +34,12 @@ export function cellToSearchString(
   return String(value);
 }
 
+/**
+ * 행 검색.
+ * - row.title을 명시적으로 검사 (title 컬럼이 합성 누락된 경로 방어).
+ * - 공백으로 토큰을 분리해 모든 토큰이 어딘가 포함되면 매치(AND).
+ * - 단일 토큰일 때는 기존 단순 부분 일치와 동일.
+ */
 export function rowMatchesSearch(
   row: DatabaseRowView,
   columns: ColumnDef[],
@@ -41,11 +47,17 @@ export function rowMatchesSearch(
 ): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  for (const col of columns) {
-    const s = cellToSearchString(row.cells[col.id], columns, col.id).toLowerCase();
-    if (s.includes(q)) return true;
-  }
-  return false;
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+  const title = row.title.toLowerCase();
+  // 컬럼별 검색 문자열을 한 번만 계산 (각 토큰마다 재계산 방지).
+  const cellStrings = columns.map((col) =>
+    cellToSearchString(row.cells[col.id], columns, col.id).toLowerCase(),
+  );
+  return tokens.every((tok) => {
+    if (title.includes(tok)) return true;
+    return cellStrings.some((s) => s.includes(tok));
+  });
 }
 
 function compareCell(

@@ -159,10 +159,10 @@ export function DatabaseKanbanView({
                 }}
                 onDrop={(e) => onDropToColumn(e, col.id)}
                 className={[
-                  "flex w-[260px] shrink-0 flex-col rounded-lg border bg-zinc-50 dark:bg-zinc-900/60",
+                  "flex w-[260px] shrink-0 flex-col rounded-lg bg-zinc-50 dark:bg-zinc-900/60",
                   isDropOver
-                    ? "border-blue-400 ring-2 ring-blue-300/40"
-                    : "border-zinc-200 dark:border-zinc-700",
+                    ? "border-2 border-dashed border-blue-400 ring-2 ring-blue-300/30"
+                    : "border border-zinc-200 dark:border-zinc-700",
                 ].join(" ")}
               >
                 <div
