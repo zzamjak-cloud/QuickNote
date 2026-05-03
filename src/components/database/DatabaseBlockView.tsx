@@ -175,7 +175,12 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   return (
     <NodeViewWrapper className="qn-database-block">
-      <div className={shellClass}>
+      <div
+        className={shellClass}
+        // 내부 컨트롤(버튼/입력) 클릭이 ProseMirror로 버블링되어 atom 노드를
+        // 자동 선택(파란 배경 + BubbleToolbar 표시)하는 것을 차단.
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex flex-wrap items-center gap-1 px-2 py-1.5">
           <Database size={16} className="text-zinc-500" />
           <input
