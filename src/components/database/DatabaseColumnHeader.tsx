@@ -4,6 +4,8 @@ import type { ColumnDef } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 
+const DRAG_MIME = "application/x-quicknote-db-drag";
+
 type Props = {
   databaseId: string;
   column: ColumnDef;
@@ -28,6 +30,7 @@ export function DatabaseColumnHeader({
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(column.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const thRef = useRef<HTMLTableCellElement>(null);
 
   useEffect(() => { setDraft(column.name); }, [column.name]);
   useEffect(() => {
@@ -42,8 +45,17 @@ export function DatabaseColumnHeader({
 
   return (
     <th
-      onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
-      onDrop={onDrop}
+      ref={thRef}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDragOver(index);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDrop();
+      }}
       className={[
         "group relative whitespace-nowrap border-b border-zinc-200 px-2 py-1.5 font-medium text-zinc-600 dark:border-zinc-700 dark:text-zinc-400",
         highlightDrop === "left" ? "border-l-2 border-l-blue-500" : "",
@@ -54,10 +66,12 @@ export function DatabaseColumnHeader({
         <span
           draggable
           onDragStart={(e) => {
+            e.stopPropagation();
             e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", `col:${index}`);
+            e.dataTransfer.setData(DRAG_MIME, `col:${index}`);
             onDragStart(index);
           }}
+          onDragEnd={(e) => e.stopPropagation()}
           className="cursor-grab opacity-0 group-hover:opacity-100 active:cursor-grabbing"
           title="컬럼 이동"
         >
@@ -82,10 +96,9 @@ export function DatabaseColumnHeader({
             onClick={() => setMenuOpen((v) => !v)}
             onDoubleClick={() => setRenaming(true)}
             className="flex flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            title="열 옵션 (더블클릭하면 이름 변경)"
+            title="더블클릭하여 이름 변경"
           >
             <span className="truncate">{column.name}</span>
-            <span className="text-[9px] uppercase text-zinc-400">{column.type}</span>
             <ChevronDown size={10} className="ml-auto opacity-0 group-hover:opacity-60" />
           </button>
         )}
@@ -95,8 +108,8 @@ export function DatabaseColumnHeader({
         <DatabaseColumnMenu
           databaseId={databaseId}
           column={column}
+          anchorEl={thRef.current}
           onClose={() => setMenuOpen(false)}
-          onRequestRename={() => setRenaming(true)}
         />
       )}
     </th>

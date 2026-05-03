@@ -120,8 +120,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const shellClass =
     layout === "fullPage"
-      ? "my-4 w-[calc(100%+6rem)] max-w-none -mx-12 rounded-xl border border-zinc-200 bg-zinc-50/80 dark:border-zinc-700 dark:bg-zinc-900/40"
-      : "my-4 rounded-xl border border-zinc-200 bg-zinc-50/80 dark:border-zinc-700 dark:bg-zinc-900/40";
+      ? "my-4 w-[calc(100%+6rem)] max-w-none -mx-12"
+      : "my-4";
 
   const missing = !bundle;
 
@@ -176,7 +176,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   return (
     <NodeViewWrapper className="qn-database-block">
       <div className={shellClass}>
-        <div className="flex flex-wrap items-center gap-1 border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+        <div className="flex flex-wrap items-center gap-1 px-2 py-1.5">
           <Database size={16} className="text-zinc-500" />
           <input
             type="text"

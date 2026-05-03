@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { Pencil, Trash2, Type } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Trash2, Type } from "lucide-react";
 import type { ColumnDef, ColumnType } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { ColumnOptionsEditor } from "./ColumnOptionsEditor";
@@ -22,41 +23,48 @@ const TYPE_LABELS: { id: ColumnType; label: string }[] = [
 type Props = {
   databaseId: string;
   column: ColumnDef;
+  /** 부모 헤더 셀 — 메뉴를 그 아래에 띄우기 위한 기준점 */
+  anchorEl?: HTMLElement | null;
   onClose: () => void;
-  onRequestRename: () => void;
 };
 
-export function DatabaseColumnMenu({ databaseId, column, onClose, onRequestRename }: Props) {
+export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Props) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const removeColumn = useDatabaseStore((s) => s.removeColumn);
   const ref = useRef<HTMLDivElement>(null);
   const [confirming, setConfirming] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const rect = anchorEl?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 224; // w-56
+    const left = Math.min(rect.left, window.innerWidth - width - 8);
+    setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
+  }, [anchorEl]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
+      if (ref.current?.contains(e.target as Node)) return;
+      if (anchorEl?.contains(e.target as Node)) return;
+      onClose();
     };
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
-  }, [onClose]);
+  }, [onClose, anchorEl]);
 
   const isTitle = column.type === "title";
   const isSelectKind =
     column.type === "select" || column.type === "multiSelect" || column.type === "status";
 
-  return (
+  if (!coords) return null;
+
+  return createPortal(
     <div
       ref={ref}
-      className="absolute z-30 mt-1 w-56 rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      style={{ position: "fixed", top: coords.top, left: coords.left, width: 224 }}
+      className="z-50 rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     >
-      <button
-        type="button"
-        onClick={() => { onRequestRename(); onClose(); }}
-        className="flex w-full items-center gap-2 rounded px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-      >
-        <Pencil size={12} /> 이름 변경
-      </button>
-
       {!isTitle && (
         <div className="px-2 py-1">
           <div className="flex items-center gap-1 text-[10px] text-zinc-500">
@@ -100,6 +108,13 @@ export function DatabaseColumnMenu({ databaseId, column, onClose, onRequestRenam
           <Trash2 size={12} /> {confirming ? "한 번 더 누르면 삭제" : "삭제"}
         </button>
       )}
-    </div>
+
+      {isTitle && (
+        <div className="px-2 py-1 text-[10px] text-zinc-500">
+          제목 컬럼은 페이지 제목과 동기화됩니다.
+        </div>
+      )}
+    </div>,
+    document.body,
   );
 }
