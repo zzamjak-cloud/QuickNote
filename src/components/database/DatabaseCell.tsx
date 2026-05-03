@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Calendar, ChevronLeft, ChevronRight, Download, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Plus, Search, Trash2, X } from "lucide-react";
 import type { CellValue, ColumnDef, FileCellItem } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
-import {
-  useContactsStore,
-  searchContacts,
-} from "../../store/contactsStore";
+import { useContactsStore } from "../../store/contactsStore";
 import {
   putDatabaseFile,
   downloadBlob,
@@ -32,15 +29,21 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
   switch (column.type) {
     case "title":
     case "text":
-    case "phone":
-    case "email":
       return (
         <input
-          type={column.type === "email" ? "email" : "text"}
+          type="text"
           value={typeof value === "string" ? value : ""}
           onChange={(e) => setVal(e.target.value)}
           className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
         />
+      );
+    case "phone":
+      return (
+        <PhoneCell value={typeof value === "string" ? value : ""} onChange={setVal} />
+      );
+    case "email":
+      return (
+        <EmailCell value={typeof value === "string" ? value : ""} onChange={setVal} />
       );
     case "number":
       return (
@@ -91,7 +94,6 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
         </div>
       );
     case "select":
-    case "status":
       return (
         <select
           value={typeof value === "string" ? value : ""}
@@ -105,6 +107,14 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
             </option>
           ))}
         </select>
+      );
+    case "status":
+      return (
+        <StatusCell
+          column={column}
+          value={typeof value === "string" ? value : ""}
+          onChange={setVal}
+        />
       );
     case "multiSelect":
       return (
@@ -349,13 +359,13 @@ function DateCell({
         onClick={togglePopover}
         title={label || "날짜 선택"}
         className={[
-          "flex items-center gap-1 rounded px-1 py-0.5 text-[11px]",
+          "flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-left text-[11px]",
           isEmpty
-            ? "text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            ? "text-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800"
             : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800",
         ].join(" ")}
       >
-        {isEmpty ? <Calendar size={12} /> : <span>{label}</span>}
+        {isEmpty ? " " : <span>{label}</span>}
       </button>
       {open && coords &&
         createPortal(
@@ -539,48 +549,326 @@ function PersonCell({
 }) {
   const contacts = useContactsStore((s) => s.contacts);
   const addContact = useContactsStore((s) => s.addContact);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const [q, setQ] = useState("");
-  const filtered = searchContacts(contacts, q);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current?.contains(e.target as Node)) return;
+      if (buttonRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const togglePopover = () => {
+    if (open) { setOpen(false); return; }
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = 240;
+      const left = Math.min(rect.left, window.innerWidth - width - 8);
+      setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
+    }
+    setQ("");
+    setOpen(true);
+  };
+
+  // 등록된 사람의 "이름"만으로 검색
+  const filtered = (() => {
+    const term = q.trim().toLowerCase();
+    if (!term) return contacts;
+    return contacts.filter((c) => c.displayName.toLowerCase().includes(term));
+  })();
+
+  // value는 email; 표시는 displayName
+  const selectedContact = contacts.find((c) => c.email === value);
+
   return (
-    <div className="relative min-w-[140px]">
-      <div className="flex gap-1">
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={togglePopover}
+        title={selectedContact?.displayName ?? "사람 선택"}
+        className="flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-left text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      >
+        {selectedContact ? (
+          <span className="truncate text-zinc-700 dark:text-zinc-200">
+            {selectedContact.displayName}
+          </span>
+        ) : (
+          <span> </span>
+        )}
+      </button>
+      {open && coords &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: 240 }}
+            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <div className="flex items-center gap-1 border-b border-zinc-100 px-1 py-1 dark:border-zinc-800">
+              <Search size={12} className="text-zinc-400" />
+              <input
+                autoFocus
+                placeholder="이름 검색…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="min-w-0 flex-1 select-text bg-transparent px-1 py-0.5 outline-none"
+              />
+            </div>
+            {value && (
+              <button
+                type="button"
+                onClick={() => { onChange(null); setOpen(false); }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                <X size={11} /> 선택 해제
+              </button>
+            )}
+            {filtered.length === 0 ? (
+              <div className="px-2 py-2 text-[10px] text-zinc-500">
+                {q ? "결과 없음" : "등록된 사람이 없습니다"}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const email = window.prompt("이메일");
+                    const displayName = window.prompt("이름");
+                    if (email?.trim() && displayName?.trim()) {
+                      addContact(email.trim(), displayName.trim());
+                    }
+                  }}
+                  className="ml-2 rounded border border-zinc-300 px-1 py-0.5 text-[10px] dark:border-zinc-600"
+                >
+                  + 추가
+                </button>
+              </div>
+            ) : (
+              filtered.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => { onChange(c.email); setOpen(false); }}
+                  className={[
+                    "flex w-full items-center justify-between rounded px-2 py-1 text-left",
+                    c.email === value
+                      ? "bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+                      : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                  ].join(" ")}
+                >
+                  <span className="truncate">{c.displayName}</span>
+                  <span className="ml-2 shrink-0 text-[9px] text-zinc-400">{c.email}</span>
+                </button>
+              ))
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function StatusCell({
+  column,
+  value,
+  onChange,
+}: {
+  column: ColumnDef;
+  value: string;
+  onChange: (v: CellValue) => void;
+}) {
+  const opts = column.config?.options ?? [];
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current?.contains(e.target as Node)) return;
+      if (buttonRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const togglePopover = () => {
+    if (open) { setOpen(false); return; }
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = 180;
+      const left = Math.min(rect.left, window.innerWidth - width - 8);
+      setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
+    }
+    setOpen(true);
+  };
+
+  const current = opts.find((o) => o.id === value) ?? opts[0];
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={togglePopover}
+        title="상태 변경"
+        className="flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      >
+        {current ? (
+          <span
+            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+            style={{ backgroundColor: current.color ?? "#6b7280" }}
+          >
+            {current.label}
+          </span>
+        ) : (
+          <span className="text-[10px] text-zinc-400">옵션 없음</span>
+        )}
+      </button>
+      {open && coords &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: 180 }}
+            className="z-50 rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {opts.length === 0 ? (
+              <div className="px-2 py-1 text-[10px] text-zinc-500">옵션이 없습니다</div>
+            ) : (
+              opts.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => { onChange(o.id); setOpen(false); }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: o.color ?? "#6b7280" }}
+                  />
+                  <span className="truncate">{o.label}</span>
+                </button>
+              ))
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function PhoneCell({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: CellValue) => void;
+}) {
+  return (
+    <input
+      type="tel"
+      value={formatPhone(value)}
+      onChange={(e) => onChange(formatPhone(e.target.value))}
+      placeholder="010-0000-0000"
+      className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none placeholder:text-zinc-300 focus:border-zinc-300 dark:focus:border-zinc-600 dark:placeholder:text-zinc-600"
+    />
+  );
+}
+
+/** 숫자만 추출해 3-4-4 자리로 하이픈 삽입 (최대 11자리). */
+function formatPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 11);
+  if (digits.length < 4) return digits;
+  if (digits.length < 8) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+const COMMON_EMAIL_DOMAINS = [
+  "naver.com",
+  "gmail.com",
+  "kakao.com",
+  "daum.net",
+  "hanmail.net",
+  "hotmail.com",
+  "outlook.com",
+  "yahoo.com",
+  "icloud.com",
+];
+
+function EmailCell({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: CellValue) => void;
+}) {
+  const [idPart, domainPart] = (() => {
+    const at = value.lastIndexOf("@");
+    if (at < 0) return [value, ""];
+    return [value.slice(0, at), value.slice(at + 1)];
+  })();
+
+  const [customDomain, setCustomDomain] = useState(
+    domainPart && !COMMON_EMAIL_DOMAINS.includes(domainPart),
+  );
+
+  const updateId = (id: string) => {
+    onChange(id ? `${id}@${domainPart}` : domainPart ? `@${domainPart}` : "");
+  };
+
+  const updateDomain = (d: string) => {
+    onChange(idPart || d ? `${idPart}@${d}` : "");
+  };
+
+  return (
+    <div className="flex w-full min-w-[180px] items-center gap-0.5 text-xs">
+      <input
+        type="text"
+        value={idPart}
+        onChange={(e) => updateId(e.target.value)}
+        placeholder="id"
+        className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
+      />
+      <span className="shrink-0 text-zinc-400">@</span>
+      {customDomain ? (
         <input
           type="text"
-          placeholder="이메일 검색…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="min-w-0 flex-1 rounded border border-zinc-200 px-1 py-0.5 text-xs dark:border-zinc-600 dark:bg-zinc-900"
+          value={domainPart}
+          onChange={(e) => updateDomain(e.target.value)}
+          onBlur={() => {
+            if (COMMON_EMAIL_DOMAINS.includes(domainPart)) setCustomDomain(false);
+          }}
+          placeholder="example.com"
+          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
         />
-        <button
-          type="button"
-          title="연락처 등록"
-          className="shrink-0 rounded border border-zinc-200 px-1 text-[10px] dark:border-zinc-600"
-          onClick={() => {
-            const email = window.prompt("이메일");
-            const displayName = window.prompt("표시 이름");
-            if (email?.trim() && displayName?.trim()) {
-              addContact(email.trim(), displayName.trim());
+      ) : (
+        <select
+          value={COMMON_EMAIL_DOMAINS.includes(domainPart) ? domainPart : ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "__custom__") {
+              setCustomDomain(true);
+              updateDomain("");
+            } else {
+              updateDomain(v);
             }
           }}
+          className="min-w-0 flex-1 rounded border border-zinc-200 bg-white px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
         >
-          +
-        </button>
-      </div>
-      <select
-        value={value}
-        onChange={(e) => {
-          onChange(e.target.value || null);
-          setQ("");
-        }}
-        className="mt-0.5 w-full rounded border border-zinc-200 bg-white text-xs dark:border-zinc-600 dark:bg-zinc-900"
-      >
-        <option value="">—</option>
-        {(q ? filtered : contacts).map((c) => (
-          <option key={c.id} value={c.email}>
-            {c.displayName} ({c.email})
-          </option>
-        ))}
-      </select>
+          <option value="">선택</option>
+          {COMMON_EMAIL_DOMAINS.map((d) => (
+            <option key={d} value={d}>{d}</option>
+          ))}
+          <option value="__custom__">직접 입력…</option>
+        </select>
+      )}
     </div>
   );
 }

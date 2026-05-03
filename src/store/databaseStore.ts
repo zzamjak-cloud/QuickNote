@@ -59,6 +59,14 @@ type DatabaseStoreActions = {
 
 export type DatabaseStore = DatabaseStoreState & DatabaseStoreActions;
 
+/** 컬럼별 기본 셀 값 — 현재는 status만 첫 옵션을 채움, 나머지는 null. */
+function defaultCellValueForColumn(col: ColumnDef): CellValue {
+  if (col.type === "status") {
+    return col.config?.options?.[0]?.id ?? null;
+  }
+  return null;
+}
+
 /** 행 페이지를 직접 생성하고 id를 반환 — pageStore 외부에서 호출됨. */
 function createRowPage(databaseId: string, title: string): string {
   const pageId = usePageStore.getState().createPage(title, null, { activate: false });
@@ -135,6 +143,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           type: colIn.type,
           config: colIn.config,
         };
+        const defaultValue = defaultCellValueForColumn(col);
         set((state) => {
           const bundle = state.databases[databaseId];
           if (!bundle) return state;
@@ -149,6 +158,15 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        // 기본값이 있는 컬럼(status 등) 추가 시 기존 행 페이지에도 채움.
+        if (defaultValue != null) {
+          const bundle = get().databases[databaseId];
+          if (bundle) {
+            for (const pageId of bundle.rowPageOrder) {
+              usePageStore.getState().setPageDbCell(pageId, colId, defaultValue);
+            }
+          }
+        }
         return colId;
       },
 
@@ -247,6 +265,13 @@ export const useDatabaseStore = create<DatabaseStore>()(
           databaseId,
           `항목 ${bundle.rowPageOrder.length + 1}`,
         );
+        // 기본값이 있는 컬럼(status 등)에 시드 값 주입.
+        for (const col of bundle.columns) {
+          const def = defaultCellValueForColumn(col);
+          if (def != null) {
+            usePageStore.getState().setPageDbCell(pageId, col.id, def);
+          }
+        }
         set((state) => {
           const b = state.databases[databaseId];
           if (!b) return state;
@@ -344,7 +369,20 @@ export function listDatabases(state: DatabaseStore): { id: string; meta: Databas
 /** 속성 추가 시 타입별 기본 컬럼 정의 */
 export function defaultColumnForType(type: ColumnType, name: string): Omit<ColumnDef, "id"> {
   const base = { name, type };
-  if (type === "select" || type === "multiSelect" || type === "status") {
+  if (type === "status") {
+    return {
+      ...base,
+      config: {
+        options: [
+          { id: newId(), label: "시작전", color: "#94a3b8" },
+          { id: newId(), label: "진행중", color: "#3b82f6" },
+          { id: newId(), label: "완료", color: "#10b981" },
+          { id: newId(), label: "보류", color: "#f59e0b" },
+        ],
+      },
+    };
+  }
+  if (type === "select" || type === "multiSelect") {
     const opt = (label: string) => ({ id: newId(), label });
     return { ...base, config: { options: [opt("옵션 1"), opt("옵션 2")] } };
   }
