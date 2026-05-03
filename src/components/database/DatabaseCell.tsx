@@ -450,10 +450,10 @@ function sameDay(a: Date, b: Date): boolean {
   );
 }
 function formatDate(d: Date): string {
-  const yyyy = d.getFullYear();
+  const yy = String(d.getFullYear() % 100).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return `${yy}. ${mm}. ${dd}`;
 }
 
 function PersonCell({
