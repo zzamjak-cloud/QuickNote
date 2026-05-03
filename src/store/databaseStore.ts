@@ -326,7 +326,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
       resolveBundle: (databaseId) => get().databases[databaseId],
     }),
     {
-      name: "quicknote.databaseStore.v1",
+      name: "quicknote.databaseStore.v2",
       storage: createJSONStorage(() => localStorage),
       version: DATABASE_STORE_VERSION,
       // v1 → v2: 행 데이터 모델 전면 변경. 기존 데이터를 안전하게 마이그레이션할 수 없어 wipe.

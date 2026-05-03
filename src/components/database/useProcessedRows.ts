@@ -15,7 +15,7 @@ export function useProcessedRows(
     if (!bundle) return { rows: [] as DatabaseRowView[], columns: [] };
     const titleCol = bundle.columns.find((c) => c.type === "title");
     const ordered: DatabaseRowView[] = [];
-    for (const pageId of bundle.rowPageOrder) {
+    for (const pageId of bundle.rowPageOrder ?? []) {
       const page = pages[pageId];
       if (!page) continue;
       const cells: Record<string, CellValue> = { ...(page.dbCells ?? {}) };
