@@ -159,33 +159,108 @@ function MultiSelectCell({
   onChange: (v: CellValue) => void;
 }) {
   const opts = column.config?.options ?? [];
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (popoverRef.current?.contains(e.target as Node)) return;
+      if (buttonRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [open]);
+
   const toggle = (id: string) => {
     const set = new Set(value);
     if (set.has(id)) set.delete(id);
     else set.add(id);
     onChange([...set]);
   };
+
+  const togglePopover = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = 200;
+      const left = Math.min(rect.left, window.innerWidth - width - 8);
+      setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
+    }
+    setOpen(true);
+  };
+
+  const selected = opts.filter((o) => value.includes(o.id));
+
   return (
-    <div className="flex max-w-[220px] flex-wrap gap-1">
-      {opts.map((o) => {
-        const on = value.includes(o.id);
-        return (
-          <button
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={togglePopover}
+        title="옵션 선택"
+        className="flex min-h-[20px] w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      >
+        {selected.map((o) => (
+          <span
             key={o.id}
-            type="button"
-            onClick={() => toggle(o.id)}
-            className={[
-              "rounded px-1.5 py-0.5 text-[10px]",
-              on
-                ? "bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
-                : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-            ].join(" ")}
+            className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
           >
             {o.label}
-          </button>
-        );
-      })}
-    </div>
+          </span>
+        ))}
+      </button>
+      {open && coords &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: 200 }}
+            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {opts.length === 0 ? (
+              <div className="px-2 py-1 text-[10px] text-zinc-500">
+                옵션이 없습니다. 컬럼 메뉴에서 추가하세요.
+              </div>
+            ) : (
+              opts.map((o) => {
+                const on = value.includes(o.id);
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => toggle(o.id)}
+                    className={[
+                      "flex w-full items-center gap-2 rounded px-2 py-1 text-left",
+                      on
+                        ? "bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+                        : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                    ].join(" ")}
+                  >
+                    <span
+                      className={[
+                        "inline-flex h-3 w-3 shrink-0 items-center justify-center rounded border text-[8px]",
+                        on
+                          ? "border-blue-500 bg-blue-500 text-white"
+                          : "border-zinc-300 dark:border-zinc-600",
+                      ].join(" ")}
+                    >
+                      {on ? "✓" : ""}
+                    </span>
+                    <span className="truncate">{o.label}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -280,8 +355,7 @@ function DateCell({
             : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800",
         ].join(" ")}
       >
-        <Calendar size={12} />
-        {!isEmpty && <span>{label}</span>}
+        {isEmpty ? <Calendar size={12} /> : <span>{label}</span>}
       </button>
       {open && coords &&
         createPortal(
