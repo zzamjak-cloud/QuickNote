@@ -72,7 +72,9 @@ const RECT_PAD_X = 20;
 const RECT_PAD_Y = 18;
 
 function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | null {
-  let best: HoverInfo | null = null;
+  // wrapper(콜아웃/토글/인용) 안의 내부 블럭이 우선 — wrapper는 fallback.
+  let inner: HoverInfo | null = null;
+  let wrapper: HoverInfo | null = null;
   for (let d = $pos.depth; d > 0; d--) {
     const n = $pos.node(d);
     if (!n.isBlock || n.type.name === "doc") continue;
@@ -87,9 +89,15 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
       depth: d,
       node: n,
     };
-    if (!best || candidate.depth > best.depth) best = candidate;
+    if (WRAPPER_TYPES_TO_FLATTEN.has(n.type.name)) {
+      // 가장 외곽 wrapper만 보존 (깊이 작은 것)
+      if (!wrapper || candidate.depth < wrapper.depth) wrapper = candidate;
+    } else {
+      // inner는 가장 깊은 것
+      if (!inner || candidate.depth > inner.depth) inner = candidate;
+    }
   }
-  return best;
+  return inner ?? wrapper;
 }
 
 function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverInfo | null {

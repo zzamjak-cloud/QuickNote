@@ -1,5 +1,6 @@
 import { ReactRenderer } from "@tiptap/react";
 import Mention from "@tiptap/extension-mention";
+import { mergeAttributes } from "@tiptap/core";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import {
   forwardRef,
@@ -47,12 +48,12 @@ const MentionList = forwardRef<RefHandle, SuggestionProps>(
     }));
     if (items.length === 0)
       return (
-        <div className="rounded-md border border-zinc-200 bg-white p-2 text-xs text-zinc-500 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="rounded-xl border border-zinc-200 bg-white p-2 text-xs text-zinc-600 shadow-xl ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-white/10">
           페이지가 없습니다.
         </div>
       );
     return (
-      <div className="max-h-64 w-56 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="max-h-64 w-56 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 text-zinc-900 shadow-xl ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-white/10">
         {items.map((it, idx) => (
           <button
             key={it.id}
@@ -60,13 +61,15 @@ const MentionList = forwardRef<RefHandle, SuggestionProps>(
             onMouseEnter={() => setSelected(idx)}
             onClick={() => command({ id: it.id, label: it.title })}
             className={[
-              "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm",
+              "flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-sm text-zinc-900 dark:text-zinc-100",
               idx === selected
                 ? "bg-zinc-100 dark:bg-zinc-800"
                 : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60",
             ].join(" ")}
           >
-            <span className="w-5 text-center">{it.icon ?? "📄"}</span>
+            <span className="w-5 shrink-0 text-center text-base leading-none">
+              {it.icon ?? "📄"}
+            </span>
             <span className="truncate">{it.title || "제목 없음"}</span>
           </button>
         ))}
@@ -76,14 +79,49 @@ const MentionList = forwardRef<RefHandle, SuggestionProps>(
 );
 MentionList.displayName = "MentionList";
 
-export const PageMention = Mention.configure({
-  HTMLAttributes: {
-    class:
-      "page-mention rounded bg-zinc-100 px-1 text-zinc-900 hover:underline dark:bg-zinc-800 dark:text-zinc-100",
+const PageMentionNode = Mention.extend({
+  renderHTML({ node, HTMLAttributes }) {
+    const id = node.attrs.id as string;
+    const label = (node.attrs.label as string) ?? "";
+    const page = usePageStore.getState().pages[id];
+    const icon = page?.icon ?? "📄";
+    const displayTitle = page?.title ?? label ?? "페이지";
+    return [
+      "span",
+      mergeAttributes(
+        {
+          "data-type": "mention",
+          class:
+            "page-mention inline-flex max-w-full items-center gap-0.5 rounded bg-zinc-100 px-1 py-0.5 align-middle text-sm text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700",
+        },
+        HTMLAttributes,
+        { "data-id": id },
+      ),
+      [
+        "span",
+        {
+          class:
+            "select-none text-[11px] font-semibold text-zinc-500 dark:text-zinc-400",
+          "aria-hidden": "true",
+        },
+        "@",
+      ],
+      ["span", { class: "text-base leading-none" }, icon],
+      " ",
+      ["span", { class: "truncate font-medium" }, displayTitle],
+    ];
   },
   renderText({ node }) {
-    return `@${node.attrs.label ?? node.attrs.id}`;
+    const id = node.attrs.id as string;
+    const page = usePageStore.getState().pages[id];
+    const icon = page?.icon ?? "📄";
+    const displayTitle =
+      page?.title ?? (node.attrs.label as string) ?? "페이지";
+    return `@${icon} ${displayTitle}`;
   },
+});
+
+export const PageMention = PageMentionNode.configure({
   suggestion: {
     char: "@",
     items: ({ query }) => {
@@ -113,6 +151,8 @@ export const PageMention = Mention.configure({
             interactive: true,
             trigger: "manual",
             placement: "bottom-start",
+            theme: "quicknote-suggestion",
+            arrow: false,
           });
         },
         onUpdate(props: SuggestionProps) {

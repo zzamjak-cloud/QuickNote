@@ -30,9 +30,25 @@ export function ImageUpload({ open, onClose, editor }: Props) {
     }
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = String(reader.result);
-      editor?.chain().focus().setImage({ src: dataUrl }).run();
-      onClose();
+      const src = String(reader.result);
+      const im = new Image();
+      im.onload = () => {
+        editor
+          ?.chain()
+          .focus()
+          .setImage({
+            src,
+            width: im.naturalWidth,
+            height: im.naturalHeight,
+          })
+          .run();
+        onClose();
+      };
+      im.onerror = () => {
+        editor?.chain().focus().setImage({ src }).run();
+        onClose();
+      };
+      im.src = src;
     };
     reader.onerror = () => setError("이미지를 읽지 못했습니다.");
     reader.readAsDataURL(file);

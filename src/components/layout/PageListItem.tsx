@@ -4,7 +4,6 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronRight,
   ChevronDown,
-  GripVertical,
   Plus,
   Trash2,
   ArrowUpToLine,
@@ -20,9 +19,17 @@ type Props = {
   depth: number;
   draggable: boolean;
   onMove: (id: string) => void;
+  // 드롭 모드 시각 피드백: 'child'면 over row 전체 outline, 'sibling'이면 하단 라인.
+  dropTarget: { id: string; mode: "child" | "sibling" } | null;
 };
 
-export function PageListItem({ node, depth, draggable, onMove }: Props) {
+export function PageListItem({
+  node,
+  depth,
+  draggable,
+  onMove,
+  dropTarget,
+}: Props) {
   const setActivePage = usePageStore((s) => s.setActivePage);
   const renamePage = usePageStore((s) => s.renamePage);
   const deletePage = usePageStore((s) => s.deletePage);
@@ -74,15 +81,26 @@ export function PageListItem({ node, depth, draggable, onMove }: Props) {
 
   const hasChildren = node.children.length > 0;
   const active = node.id === activePageId;
+  const isChildTarget =
+    dropTarget?.id === node.id && dropTarget.mode === "child";
+  const isSiblingTarget =
+    dropTarget?.id === node.id && dropTarget.mode === "sibling";
 
   return (
     <div ref={sortable.setNodeRef} style={style}>
       <div
+        // dnd 활성 시 row 전체가 드래그 영역. 텍스트 더블클릭/우클릭은 stopPropagation으로 보호.
+        {...(draggable ? sortable.attributes : {})}
+        {...(draggable ? sortable.listeners : {})}
         className={[
           "group relative flex items-center gap-1 rounded-md py-1 pr-1 text-sm",
+          draggable ? "cursor-grab active:cursor-grabbing" : "",
           active
             ? "bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
             : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
+          isChildTarget
+            ? "outline outline-2 outline-blue-400 dark:outline-blue-500"
+            : "",
         ].join(" ")}
         style={{ paddingLeft: depth * 14 + 4 }}
         onContextMenu={(e) => {
@@ -93,6 +111,7 @@ export function PageListItem({ node, depth, draggable, onMove }: Props) {
         {hasChildren ? (
           <button
             type="button"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => toggleExpanded(node.id)}
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"
             aria-label={expanded ? "접기" : "펼치기"}
@@ -106,17 +125,6 @@ export function PageListItem({ node, depth, draggable, onMove }: Props) {
         ) : (
           <span className="inline-block h-5 w-5 shrink-0" />
         )}
-        {draggable && (
-          <button
-            type="button"
-            {...sortable.attributes}
-            {...sortable.listeners}
-            className="cursor-grab text-zinc-400 opacity-0 transition group-hover:opacity-100 active:cursor-grabbing"
-            aria-label="드래그하여 이동"
-          >
-            <GripVertical size={12} />
-          </button>
-        )}
         <span className="w-5 shrink-0 text-center text-base leading-5">
           {node.icon ?? "·"}
         </span>
@@ -124,6 +132,7 @@ export function PageListItem({ node, depth, draggable, onMove }: Props) {
           <input
             ref={inputRef}
             value={draft}
+            onPointerDown={(e) => e.stopPropagation()}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
             onKeyDown={(e) => {
@@ -139,6 +148,7 @@ export function PageListItem({ node, depth, draggable, onMove }: Props) {
           <button
             type="button"
             className="flex-1 truncate text-left"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setActivePage(node.id)}
             onDoubleClick={() => setEditing(true)}
             title="더블클릭하여 이름 변경, 우클릭으로 메뉴"
@@ -148,12 +158,11 @@ export function PageListItem({ node, depth, draggable, onMove }: Props) {
         )}
         <button
           type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            const newId = createPage("새 페이지", node.id);
+            createPage("새 페이지", node.id);
             setExpanded(node.id, true);
-            // 새 페이지는 자동으로 active가 됨 (createPage 내부)
-            void newId;
           }}
           className="text-zinc-400 opacity-0 transition hover:text-zinc-900 group-hover:opacity-100 dark:hover:text-zinc-100"
           aria-label="하위 페이지 추가"
@@ -161,6 +170,9 @@ export function PageListItem({ node, depth, draggable, onMove }: Props) {
         >
           <Plus size={14} />
         </button>
+        {isSiblingTarget && (
+          <span className="pointer-events-none absolute -bottom-0.5 left-2 right-2 h-0.5 rounded bg-blue-400 dark:bg-blue-500" />
+        )}
         {menuOpen && (
           <div
             ref={menuRef}
@@ -239,6 +251,7 @@ export function PageListItem({ node, depth, draggable, onMove }: Props) {
           depth={depth + 1}
           draggable={draggable}
           onMove={onMove}
+          dropTarget={dropTarget}
         />
       )}
     </div>

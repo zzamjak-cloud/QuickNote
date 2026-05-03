@@ -2,10 +2,10 @@ import { Extension } from "@tiptap/core";
 import Suggestion, {
   type SuggestionOptions,
 } from "@tiptap/suggestion";
-import type { SlashItem, SlashCommandContext } from "./slashItems";
+import type { SlashMenuEntry, SlashCommandContext } from "./slashItems";
 
 export type SlashCommandOptions = {
-  suggestion: Omit<SuggestionOptions<SlashItem>, "editor">;
+  suggestion: Omit<SuggestionOptions<SlashMenuEntry>, "editor">;
 };
 
 export const SlashCommand = Extension.create<SlashCommandOptions>({
@@ -18,7 +18,10 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
         startOfLine: false,
         command: ({ editor, range, props }) => {
           const ctx: SlashCommandContext = { editor, range };
-          (props as SlashItem).command(ctx);
+          const e = props as SlashMenuEntry;
+          if (e.kind === "leaf") {
+            e.command(ctx);
+          }
         },
       },
     };

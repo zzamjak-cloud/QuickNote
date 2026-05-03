@@ -10,9 +10,16 @@ type Props = {
   depth: number;
   draggable: boolean;
   onMove: (id: string) => void;
+  dropTarget: { id: string; mode: "child" | "sibling" } | null;
 };
 
-export function PageListGroup({ nodes, depth, draggable, onMove }: Props) {
+export function PageListGroup({
+  nodes,
+  depth,
+  draggable,
+  onMove,
+  dropTarget,
+}: Props) {
   return (
     <SortableContext
       items={nodes.map((n) => n.id)}
@@ -26,6 +33,7 @@ export function PageListGroup({ nodes, depth, draggable, onMove }: Props) {
             depth={depth}
             draggable={draggable}
             onMove={onMove}
+            dropTarget={dropTarget}
           />
         ))}
       </div>
