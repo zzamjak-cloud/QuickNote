@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 
 export type Tab = { pageId: string | null };
 
@@ -96,7 +97,7 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: "quicknote.settings.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => zustandStorage),
       version: 1,
       migrate: (persisted) => persisted,
     },

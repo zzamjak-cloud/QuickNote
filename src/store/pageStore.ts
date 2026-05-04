@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../types/page";
 import type { CellValue } from "../types/database";
@@ -356,7 +357,7 @@ export const usePageStore = create<PageStore>()(
     }),
     {
       name: "quicknote.pageStore.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => zustandStorage),
       version: 1,
       migrate: (persisted) => persisted,
     },

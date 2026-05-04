@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 import type {
   CellValue,
   ColumnDef,
@@ -417,7 +418,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
     }),
     {
       name: "quicknote.databaseStore.v2",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => zustandStorage),
       version: DATABASE_STORE_VERSION,
       // v1 → v2: 행 데이터 모델 전면 변경. 기존 데이터를 안전하게 마이그레이션할 수 없어 wipe.
       migrate: (persistedState, fromVersion) => {
