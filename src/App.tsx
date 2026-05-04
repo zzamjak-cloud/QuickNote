@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
 import { TopBar } from "./components/layout/TopBar";
 import { TabBar } from "./components/layout/TabBar";
@@ -8,6 +8,11 @@ import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore } from "./store/pageStore";
+import { MigrationScreen } from "./components/MigrationScreen";
+import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
+import { zustandStorage } from "./lib/storage/index";
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 function App() {
   const darkMode = useSettingsStore((s) => s.darkMode);
@@ -23,6 +28,15 @@ function App() {
   const activePage = usePageStore((s) =>
     activePageId ? s.pages[activePageId] : undefined,
   );
+
+  const [migrating, setMigrating] = useState(
+    () => isTauri && hasLocalStorageData(),
+  );
+
+  useEffect(() => {
+    if (!migrating) return;
+    migrateFromLocalStorage(zustandStorage).then(() => setMigrating(false));
+  }, [migrating]);
 
   const hydrationDone = useRef(false);
 
@@ -101,6 +115,8 @@ function App() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [createPage, toggleDarkMode, openTab, prevTab, nextTab]);
+
+  if (migrating) return <MigrationScreen />;
 
   return (
     <div className="flex h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
