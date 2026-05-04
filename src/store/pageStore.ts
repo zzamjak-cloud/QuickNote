@@ -32,6 +32,8 @@ type PageStoreActions = {
   setActivePage: (id: string | null) => void;
   reorderPages: (orderedIds: string[]) => void;
   setIcon: (id: string, icon: string | null) => void;
+  /** 해당 DB 의 전체 페이지(본문이 fullPage databaseBlock 단독) 페이지 id — 없으면 null */
+  findFullPagePageIdForDatabase: (databaseId: string) => string | null;
   // 페이지를 다른 부모/위치로 이동. parentId=null 이면 루트.
   movePage: (id: string, parentId: string | null, index: number) => void;
   // 페이지(와 자손)를 복제하여 원본 바로 다음에 삽입. 복제된 루트의 id를 반환.
@@ -278,6 +280,25 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+      },
+
+      findFullPagePageIdForDatabase: (databaseId) => {
+        const idWant = databaseId.trim();
+        if (!idWant) return null;
+        for (const p of Object.values(get().pages)) {
+          const content = p.doc?.content;
+          if (!content?.length) continue;
+          const first = content[0];
+          if (
+            first?.type === "databaseBlock" &&
+            first.attrs &&
+            String(first.attrs.databaseId ?? "") === idWant &&
+            first.attrs.layout === "fullPage"
+          ) {
+            return p.id;
+          }
+        }
+        return null;
       },
     }),
     {

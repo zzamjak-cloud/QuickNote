@@ -33,7 +33,8 @@ type DatabaseStoreActions = {
   createDatabase: (title?: string) => string;
   /** 명시적 삭제(페이지에서 블록만 지울 때는 호출하지 않음 — 데이터 유지) */
   deleteDatabase: (id: string) => void;
-  setDatabaseTitle: (id: string, title: string) => void;
+  /** 성공 시 true. 다른 DB와 동일한 표시 제목(정규화 후)이면 false */
+  setDatabaseTitle: (id: string, title: string) => boolean;
   addColumn: (databaseId: string, col: Omit<ColumnDef, "id"> & { id?: string }) => string;
   updateColumn: (
     databaseId: string,
@@ -67,6 +68,40 @@ function defaultCellValueForColumn(col: ColumnDef): CellValue {
   return null;
 }
 
+/** 표시용 제목 정규화 — 비교·중복 검사에 공통 사용 */
+export function normalizeDbTitle(title: string): string {
+  return title.trim() || "제목 없음";
+}
+
+function isDatabaseTitleTaken(
+  databases: DbMap,
+  title: string,
+  exceptId: string,
+): boolean {
+  const n = normalizeDbTitle(title);
+  for (const [id, b] of Object.entries(databases)) {
+    if (id === exceptId) continue;
+    if (normalizeDbTitle(b.meta.title) === n) return true;
+  }
+  return false;
+}
+
+/** 신규 DB용 — 기존과 겹치지 않는 제목 */
+function allocateUniqueDatabaseTitle(
+  databases: DbMap,
+  preferred: string,
+): string {
+  let base = normalizeDbTitle(preferred);
+  if (base === "제목 없음") base = "새 데이터베이스";
+  let candidate = base;
+  let n = 2;
+  while (isDatabaseTitleTaken(databases, candidate, "")) {
+    candidate = `${base} (${n})`;
+    n += 1;
+  }
+  return candidate;
+}
+
 /** 행 페이지를 직접 생성하고 id를 반환 — pageStore 외부에서 호출됨. */
 function createRowPage(databaseId: string, title: string): string {
   const pageId = usePageStore.getState().createPage(title, null, { activate: false });
@@ -94,9 +129,10 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const t = now();
         const cols = seedColumns();
         const seedPageId = createRowPage(id, "항목 1");
+        const uniqueTitle = allocateUniqueDatabaseTitle(get().databases, title);
 
         const bundle: DatabaseBundle = {
-          meta: { id, title, createdAt: t, updatedAt: t },
+          meta: { id, title: uniqueTitle, createdAt: t, updatedAt: t },
           columns: cols,
           rowPageOrder: [seedPageId],
         };
@@ -123,16 +159,23 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       setDatabaseTitle: (id, title) => {
-        set((state) => {
-          const b = state.databases[id];
-          if (!b) return state;
-          return {
-            databases: {
-              ...state.databases,
-              [id]: { ...b, meta: { ...b.meta, title, updatedAt: now() } },
+        const state = get();
+        const b = state.databases[id];
+        if (!b) return false;
+        const nextTitle = normalizeDbTitle(title);
+        if (isDatabaseTitleTaken(state.databases, nextTitle, id)) {
+          return false;
+        }
+        set({
+          databases: {
+            ...state.databases,
+            [id]: {
+              ...b,
+              meta: { ...b.meta, title: nextTitle, updatedAt: now() },
             },
-          };
+          },
         });
+        return true;
       },
 
       addColumn: (databaseId, colIn) => {

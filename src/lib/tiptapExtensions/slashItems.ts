@@ -76,10 +76,10 @@ function insertDatabaseBlock(
   range: Range,
   opts: { layout: DatabaseLayout; view: ViewKind },
 ): void {
-  const dbId = useDatabaseStore.getState().createDatabase();
   const from = range.from;
   const to = range.to;
   scheduleEditorWork(() => {
+    // DB 는 블록 안에서 "기존 연결" 또는 "새로 만들기"로만 지정 — 슬래시마다 빈 DB 가 쌓이지 않게 함
     editor
       .chain()
       .focus()
@@ -87,7 +87,7 @@ function insertDatabaseBlock(
       .insertContent({
         type: "databaseBlock",
         attrs: {
-          databaseId: dbId,
+          databaseId: "",
           layout: opts.layout,
           view: opts.view,
           panelState: JSON.stringify(emptyPanelState()),
@@ -102,14 +102,17 @@ function insertFullPageDatabase(
   range: Range,
   view: ViewKind,
 ): void {
-  const title = "새 데이터베이스";
-  const dbId = useDatabaseStore.getState().createDatabase(title);
+  const seedTitle = "새 데이터베이스";
   const parentId = usePageStore.getState().activePageId;
   const from = range.from;
   const to = range.to;
   scheduleEditorWork(() => {
+    const dbStore = useDatabaseStore.getState();
+    const dbId = dbStore.createDatabase(seedTitle);
+    const actualTitle =
+      dbStore.databases[dbId]?.meta.title ?? seedTitle;
     const store = usePageStore.getState();
-    const pageId = store.createPage(title, parentId, { activate: false });
+    const pageId = store.createPage(actualTitle, parentId, { activate: false });
     store.updateDoc(pageId, {
       type: "doc",
       content: [
@@ -130,7 +133,7 @@ function insertFullPageDatabase(
       .deleteRange({ from, to })
       .insertContent({
         type: "mention",
-        attrs: { id: pageId, label: title },
+        attrs: { id: pageId, label: actualTitle },
       })
       .insertContent(" ")
       .run();

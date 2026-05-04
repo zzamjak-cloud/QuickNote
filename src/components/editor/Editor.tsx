@@ -10,7 +10,6 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { ImageBlock } from "../../lib/tiptapExtensions/imageBlock";
 import HorizontalRule from "@tiptap/extension-horizontal-rule";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -22,8 +21,6 @@ import { Youtube } from "@tiptap/extension-youtube";
 import { common, createLowlight } from "lowlight";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
-import "highlight.js/styles/github-dark.css";
-
 import EmojiPickerReact, { EmojiStyle, Theme } from "emoji-picker-react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -36,6 +33,8 @@ import {
   ToggleContent,
 } from "../../lib/tiptapExtensions/toggle";
 import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
+import { CodeBlockLowlightStable } from "../../lib/tiptapExtensions/codeBlockLowlightStable";
+import { CodeBlockCopy } from "../../lib/tiptapExtensions/codeBlockCopy";
 import { decideDropMode } from "../../lib/blockDropMode";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
 import { PageMention } from "../../lib/tiptapExtensions/pageMention";
@@ -57,20 +56,43 @@ import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
 import { useBoxSelect } from "../../hooks/useBoxSelect";
 import { useDatabaseStore } from "../../store/databaseStore";
 
-/** 문서가 databaseBlock 단일 블록만 있으면 페이지 제목을 DB 메타 제목과 동기화 */
-function syncDatabaseTitleFromDoc(doc: JSONContent, title: string): void {
+/** 풀 페이지 DB — 페이지 제목 입력 시 blur 에서만 DB 메타 제목 갱신(중복 검사) */
+function trySyncFullPageDatabaseTitle(
+  doc: JSONContent,
+  pageTitle: string,
+): boolean {
   const c = doc.content;
-  if (!c || c.length !== 1) return;
+  if (!c?.length) return true;
   const first = c[0];
   if (
     first?.type === "databaseBlock" &&
     first.attrs &&
     typeof first.attrs.databaseId === "string"
   ) {
-    useDatabaseStore
+    return useDatabaseStore
       .getState()
-      .setDatabaseTitle(first.attrs.databaseId, title);
+      .setDatabaseTitle(first.attrs.databaseId, pageTitle);
   }
+  return true;
+}
+
+/** 전체 페이지 DB — 문서 첫 노드가 fullPage databaseBlock 일 때 하위에 붙은 빈 문단 등을 제거 */
+function normalizeFullPageDatabaseDoc(doc: JSONContent): JSONContent {
+  const c = doc.content;
+  if (!c?.length) return doc;
+  const first = c[0];
+  if (
+    first?.type === "databaseBlock" &&
+    first.attrs &&
+    (first.attrs as { layout?: string }).layout === "fullPage"
+  ) {
+    if (c.length === 1) return doc;
+    return {
+      type: "doc",
+      content: [JSON.parse(JSON.stringify(first)) as JSONContent],
+    };
+  }
+  return doc;
 }
 
 const lowlight = createLowlight(common);
@@ -136,6 +158,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const fullWidth = useSettingsStore((s) => s.fullWidth);
 
   const titleRef = useRef<HTMLInputElement | null>(null);
+  /** 풀 페이지 DB 제목 중복 시 입력 되돌리기용 — 마지막으로 저장에 성공한 제목 */
+  const dbTitleBaselineRef = useRef("");
   const debounceRef = useRef<number | null>(null);
   const [imageOpen, setImageOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -174,14 +198,16 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       Link.configure({ openOnClick: false }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      CodeBlockLowlight.configure({
+      CodeBlockLowlightStable.configure({
         lowlight,
-        defaultLanguage: "plaintext",
-        // hljs 클래스가 없으면 github-dark 테마의 배경/기본 색이 적용되지 않음.
+        /* null + fallbackLanguage: highlightAuto 없이 고정 언어로만 강조(입력 중 색 요동 방지) */
+        defaultLanguage: null,
+        fallbackLanguage: "javascript",
         HTMLAttributes: {
-          class: "hljs qn-code-block",
+          class: "hljs qn-code-block not-prose",
         },
       }),
+      CodeBlockCopy,
       ImageBlock.configure({ allowBase64: true }),
       HorizontalRule,
       MoveBlock,
@@ -214,6 +240,13 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
           },
           items: ({ query }) => filterSlashMenuEntries(query).slice(0, 40),
           render: createSlashRenderer,
+          shouldShow: ({ editor }) => {
+            const { $from } = editor.state.selection;
+            for (let d = $from.depth; d > 0; d--) {
+              if ($from.node(d).type.name === "codeBlock") return false;
+            }
+            return true;
+          },
         },
       }),
       Extension.create({
@@ -245,7 +278,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     () => ({
       attributes: {
         class:
-          "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-12 py-8 min-h-[60vh]",
+          "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-12 py-8 min-h-[min(85vh,900px)] qn-prose-marquee-host",
       },
       handlePaste: (view: import("@tiptap/pm/view").EditorView, event: ClipboardEvent) => {
         const items = event.clipboardData?.items;
@@ -374,6 +407,19 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     [],
   );
 
+  // 풀 페이지 데이터베이스 — 첫 블록이 fullPage databaseBlock 이면 해당 페이지는 본문 에디터로 쓰지 않음(인라인 DB 와 구분).
+  // 예전에는 doc 가 단일 블록일 때만 잡아서, 빈 문단 하나만 생겨도 편집이 다시 켜지는 문제가 있었음.
+  const isFullPageDatabase = useMemo(() => {
+    if (!page) return false;
+    const c = page.doc.content;
+    if (!c?.length) return false;
+    const first = c[0];
+    return (
+      first?.type === "databaseBlock" &&
+      first.attrs?.layout === "fullPage"
+    );
+  }, [page?.doc]);
+
   // content 로 store 의 page.doc 를 넘기면 자동저장마다 참조가 바뀌어 setOptions 가 무한 호출됨.
   // 초기값은 고정 EMPTY 만 넘기고, 실제 문서는 아래 effect 에서만 주입한다.
   const editor = useEditor({
@@ -381,12 +427,14 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     content: EMPTY_EDITOR_DOC,
     editorProps,
     shouldRerenderOnTransaction: false,
+    editable: !isFullPageDatabase,
   });
 
   // 활성 페이지 변경 시 본문 동기화. page.doc 를 deps 에 넣지 않음(타이핑·저장마다 doc 참조 변경 → setContent 루프·내용 되살림).
   useEffect(() => {
     if (!editor || !page || !effectivePageId) return;
-    const safeDoc = stripStaleBlobImages(page.doc);
+    let safeDoc = stripStaleBlobImages(page.doc);
+    safeDoc = normalizeFullPageDatabaseDoc(safeDoc);
     if (JSON.stringify(safeDoc) !== JSON.stringify(page.doc)) {
       updateDoc(effectivePageId, safeDoc);
     }
@@ -407,7 +455,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         window.clearTimeout(debounceRef.current);
       }
       debounceRef.current = window.setTimeout(() => {
-        updateDoc(effectivePageId, editor.getJSON());
+        const json = normalizeFullPageDatabaseDoc(editor.getJSON());
+        updateDoc(effectivePageId, json);
       }, AUTOSAVE_DEBOUNCE_MS);
     };
     editor.on("update", handler);
@@ -523,6 +572,11 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     }
   }, [page?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 풀 페이지 DB 제목 되돌리기 기준 — 페이지 전환 시에만 동기화(입력 중 매 글자로 덮어쓰지 않음)
+  useEffect(() => {
+    if (page) dbTitleBaselineRef.current = page.title;
+  }, [page?.id, effectivePageId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 페이지 멘션 클릭 시 해당 페이지로 이동
   useEffect(() => {
     if (!editor) return;
@@ -539,7 +593,26 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     return () => dom.removeEventListener("click", onClick);
   }, [editor]);
 
-  const { dragRect } = useBoxSelect(editor);
+  // editor.editable 토글 — read-only 상태로 두면 슬래시 메뉴, 텍스트 입력, 블록 추가 모두 차단.
+  // DB 블록의 React NodeView 내부 input/button 은 contenteditable 영향 밖이라 정상 동작.
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!isFullPageDatabase);
+    if (isFullPageDatabase) {
+      // PM 이 atom 단독 doc 에 자동으로 NodeSelection 을 만들어 .ProseMirror-selectednode 가
+      // 보이는 현상 + BubbleToolbar 가 뜨는 현상을 막기 위해 선택을 점선택으로 접고 포커스 해제.
+      try {
+        editor.commands.setTextSelection(0);
+      } catch {
+        // doc 첫 위치가 atom 시작이라 TextSelection 부적합한 경우 무시
+      }
+      if (editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
+    }
+  }, [editor, isFullPageDatabase]);
+
+  // 풀 페이지 DB 모드에서는 박스 드래그 자체가 무의미 — null 전달로 비활성.
+  const { selectedStarts: boxSelectedStarts, clearSelection: clearBoxSelection } =
+    useBoxSelect(isFullPageDatabase ? null : editor);
 
   if (!page || !effectivePageId) {
     return (
@@ -551,7 +624,10 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
 
   return (
     <div className="relative flex flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950">
-      <div className={`relative mx-auto w-full ${fullWidth ? "max-w-none px-4" : "max-w-3xl"}`}>
+      <div
+        className={`relative mx-auto w-full ${fullWidth ? "max-w-none px-4" : "max-w-3xl"}`}
+        data-qn-editor-column
+      >
         {!bodyOnly && (
           <>
             <div className="mt-12 px-12">
@@ -564,9 +640,17 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
               ref={titleRef}
               value={page.title}
               onChange={(e) => {
-                const v = e.target.value;
-                renamePage(effectivePageId, v);
-                syncDatabaseTitleFromDoc(page.doc, v);
+                renamePage(effectivePageId, e.target.value);
+              }}
+              onBlur={() => {
+                if (!isFullPageDatabase) return;
+                const ok = trySyncFullPageDatabaseTitle(page.doc, page.title);
+                if (!ok) {
+                  alert("이미 사용 중인 데이터베이스 이름입니다.");
+                  renamePage(effectivePageId, dbTitleBaselineRef.current);
+                } else {
+                  dbTitleBaselineRef.current = page.title;
+                }
               }}
               placeholder="제목 없음"
               className="mt-2 w-full bg-transparent px-12 text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
@@ -575,7 +659,13 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         )}
         <div className="relative">
           <EditorContent editor={editor} />
-          <BlockHandles editor={editor} />
+          {!isFullPageDatabase && (
+            <BlockHandles
+              editor={editor}
+              boxSelectedStarts={boxSelectedStarts}
+              onClearBoxSelection={clearBoxSelection}
+            />
+          )}
           {columnDropIndicator && (
             <div
               className="qn-column-drop-indicator"
@@ -583,17 +673,6 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
                 left: columnDropIndicator.x,
                 top: columnDropIndicator.top,
                 height: columnDropIndicator.height,
-              }}
-            />
-          )}
-          {dragRect && dragRect.w > 8 && dragRect.h > 8 && (
-            <div
-              className="qn-box-select-rect"
-              style={{
-                left: dragRect.x,
-                top: dragRect.y,
-                width: dragRect.w,
-                height: dragRect.h,
               }}
             />
           )}

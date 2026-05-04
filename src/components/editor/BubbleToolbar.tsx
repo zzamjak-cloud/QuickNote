@@ -66,6 +66,12 @@ export function BubbleToolbar({ editor }: Props) {
     let dragging = false;
 
     const compute = () => {
+      // read-only(예: 풀 페이지 DB) 에서는 부유 툴바 자체를 띄우지 않는다.
+      if (!editor.isEditable) {
+        setMode("hidden");
+        setPos(null);
+        return;
+      }
       const sel = editor.state.selection;
 
       if (sel instanceof NodeSelection && sel.node.type.name === "image") {

@@ -26,7 +26,7 @@ import {
   CALLOUT_PRESETS,
   type CalloutPresetId,
 } from "../../lib/tiptapExtensions/calloutPresets";
-import { startBlockNativeDrag } from "../../lib/startBlockNativeDrag";
+import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
 
 type HoverInfo = {
   rect: DOMRect;
@@ -37,6 +37,9 @@ type HoverInfo = {
 
 type Props = {
   editor: Editor | null;
+  /** 박스 선택으로 잡은 최상위 블럭 시작 위치 — 연속이면 그립으로 한꺼번에 이동 */
+  boxSelectedStarts?: readonly number[];
+  onClearBoxSelection?: () => void;
 };
 
 // 토글 자체는 핸들을 띄우되, 내부 toggleHeader/toggleContent는 제외(헤더/본문 hover 시 toggle 로 승격).
@@ -67,9 +70,29 @@ function flattenWrapperToParagraph(editor: Editor, blockStart: number): boolean 
 }
 const HANDLE_STRIP_PX = 32;
 const MIN_HANDLE_LEFT = 6;
+const GRIP_SIZE_PX = 28;
+const GRIP_ZONE_PAD_PX = 14;
 const GUTTER_LEFT_PX = 56;
 const RECT_PAD_X = 20;
 const RECT_PAD_Y = 18;
+
+/** 렌더와 동일한 수식으로 그립 버튼의 화면 영역을 내고, 호버가 풀리지 않게 한다. */
+function pointInGripZone(
+  clientX: number,
+  clientY: number,
+  hover: HoverInfo,
+  wrapperRect: DOMRect,
+): boolean {
+  const top = hover.rect.top - wrapperRect.top + 2;
+  const rawLeft = hover.rect.left - wrapperRect.left - HANDLE_STRIP_PX;
+  const left = Math.max(MIN_HANDLE_LEFT, rawLeft);
+  const z = GRIP_ZONE_PAD_PX;
+  const x0 = wrapperRect.left + left - z;
+  const y0 = wrapperRect.top + top - z;
+  const x1 = wrapperRect.left + left + GRIP_SIZE_PX + z;
+  const y1 = wrapperRect.top + top + GRIP_SIZE_PX + z;
+  return clientX >= x0 && clientX <= x1 && clientY >= y0 && clientY <= y1;
+}
 
 function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | null {
   // wrapper(콜아웃/토글/인용) 안의 내부 블럭이 우선 — wrapper는 fallback.
@@ -98,6 +121,26 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
     }
   }
   return inner ?? wrapper;
+}
+
+/** 현재 PM 선택 범위(from..to)에 걸친 doc 직속 블록 시작 좌표들. Shift+화살표 다중 선택 → 다중 이동 변환용. */
+function topLevelBlockStartsInRange(
+  editor: Editor,
+  from: number,
+  to: number,
+): number[] {
+  if (from === to) return [];
+  const doc = editor.state.doc;
+  const starts: number[] = [];
+  doc.forEach((node, offset) => {
+    if (!node.isBlock) return;
+    const blockStart = offset;
+    const blockEnd = offset + node.nodeSize;
+    if (blockEnd > from && blockStart < to) {
+      starts.push(blockStart);
+    }
+  });
+  return starts;
 }
 
 function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverInfo | null {
@@ -154,7 +197,11 @@ const TYPE_MENU_ITEMS = [
   { label: "콜아웃", icon: Lightbulb, cmd: (e: Editor) => e.chain().focus().setCallout("idea").run() },
 ];
 
-export function BlockHandles({ editor }: Props) {
+export function BlockHandles({
+  editor,
+  boxSelectedStarts,
+  onClearBoxSelection,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
@@ -182,10 +229,24 @@ export function BlockHandles({ editor }: Props) {
       if (menuOpen) return;
       setHover((prev) => {
         const next = computeHover(e);
+        const wrapperRect =
+          containerRef.current?.parentElement?.getBoundingClientRect();
+
+        // 콜아웃/토글 안: 그립으로 가는 동안 coords가 wrapper나 이모지 영역으로 잡혀
+        // 이전 블록이 아닌 부모 블록으로 바뀌거나 null이 된다. 그립 위에서는 이전 타깃을 유지.
+        if (
+          next &&
+          prev &&
+          next.blockStart !== prev.blockStart &&
+          wrapperRect &&
+          pointInGripZone(e.clientX, e.clientY, prev, wrapperRect)
+        ) {
+          return prev;
+        }
+
         if (next) return next;
-        // computeHover returned null (mouse is in gutter/handle area).
-        // Keep prev if still within the extended sticky zone so the handle stays visible.
-        if (prev) {
+
+        if (prev && wrapperRect) {
           const { rect } = prev;
           if (
             e.clientX >= rect.left - GUTTER_LEFT_PX &&
@@ -193,6 +254,9 @@ export function BlockHandles({ editor }: Props) {
             e.clientY >= rect.top - RECT_PAD_Y &&
             e.clientY <= rect.bottom + RECT_PAD_Y
           ) {
+            return prev;
+          }
+          if (pointInGripZone(e.clientX, e.clientY, prev, wrapperRect)) {
             return prev;
           }
         }
@@ -278,11 +342,34 @@ export function BlockHandles({ editor }: Props) {
     dragCommittedRef.current = true;
     e.stopPropagation();
     document.body.classList.add("quicknote-block-dragging");
-    startBlockNativeDrag(editor, e.nativeEvent, hover.blockStart, hover.node);
+
+    // 다중 이동 입력 결정 우선순위:
+    //   1) 박스 드래그로 잡힌 블록(boxSelectedStarts) 이 hover 를 포함 → 그대로 사용
+    //   2) Shift+화살표 등으로 PM 텍스트 선택이 다수의 doc 직속 블록을 가로지르고 있고 hover 가 그중 하나 → 그 블록 시작 좌표 사용
+    //   3) 둘 다 아니면 단일 블록 이동
+    let multiStarts: readonly number[] | undefined = boxSelectedStarts;
+    const inBoxSelection =
+      !!boxSelectedStarts?.length && boxSelectedStarts.includes(hover.blockStart);
+    if (!inBoxSelection) {
+      const sel = editor.state.selection;
+      const pmStarts = topLevelBlockStartsInRange(editor, sel.from, sel.to);
+      if (pmStarts.length > 1 && pmStarts.includes(hover.blockStart)) {
+        multiStarts = pmStarts;
+      }
+    }
+
+    startGripNativeDrag(
+      editor,
+      e.nativeEvent,
+      hover.blockStart,
+      hover.node,
+      multiStarts,
+    );
   };
 
   const onGripDragEnd = () => {
     document.body.classList.remove("quicknote-block-dragging");
+    onClearBoxSelection?.();
   };
 
   const onGripClick = (e: React.MouseEvent) => {
@@ -307,6 +394,10 @@ export function BlockHandles({ editor }: Props) {
   const deleteBlock = () => {
     if (!editor || !hover) return;
     const { blockStart, node } = hover;
+    if (node.type.name === "databaseBlock" && node.attrs.deletionLocked) {
+      setMenuOpen(false);
+      return;
+    }
     const tr = editor.state.tr.delete(blockStart, blockStart + node.nodeSize);
     editor.view.dispatch(tr);
     setMenuOpen(false);
@@ -337,6 +428,7 @@ export function BlockHandles({ editor }: Props) {
           <div className="relative" ref={menuRef}>
             <button
               type="button"
+              data-qn-block-grip
               draggable
               onPointerDown={onGripPointerDown}
               onDragStart={onGripDragStart}
