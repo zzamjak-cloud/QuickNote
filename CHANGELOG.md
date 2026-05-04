@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-05
+
+### Added
+- Tauri 2 데스크톱 앱 이식 — macOS(.dmg) + Windows(.exe/.msi) 배포 빌드
+- SQLite 로컬 저장소 (`quicknote.db`) — `tauri-plugin-sql` 기반
+- `src/lib/storage/` 어댑터 레이어 — 웹(localStorage) / 데스크톱(SQLite) 자동 분기
+- 최초 실행 시 localStorage → SQLite 마이그레이션 UI
+- GitHub Actions CI — `v*` 태그 푸시 시 macOS(universal) + Windows 크로스 빌드 + GitHub Release 초안 생성
+
+### Changed
+- Zustand persist storage: `localStorage` → `zustandStorage` (환경 감지 어댑터)
+- `vite.config.ts`: Tauri 빌드 타겟(`es2021`) 분기, `TAURI_` env prefix 추가
+
 ## [1.0.0] - 2026-05-05
 
 ### Added
