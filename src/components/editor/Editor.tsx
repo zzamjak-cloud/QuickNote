@@ -416,6 +416,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   useEffect(() => {
     if (!editor) return;
     const hydrate = () => {
+      if (editor.isDestroyed) return;
       const root = editor.view.dom;
       root
         .querySelectorAll<HTMLImageElement>("img[data-qn-image-id]")
@@ -439,7 +440,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
 
   // 컬럼 분할 드래그오버 감지
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     const dom = editor.view.dom;
 
     const clearDrop = () => {
