@@ -13,9 +13,9 @@ export default defineConfig({
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {
-    target: isTauri ? ["es2021", "chrome105", "safari14"] : "modules",
-    minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
-    sourcemap: !!process.env.TAURI_DEBUG,
+    ...(isTauri && { target: ["es2021", "chrome105", "safari14"] }),
+    minify: isTauri && process.env.TAURI_DEBUG ? false : "esbuild",
+    sourcemap: isTauri ? !!process.env.TAURI_DEBUG : false,
     rollupOptions: {
       output: {
         manualChunks(id) {

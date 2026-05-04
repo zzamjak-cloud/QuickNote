@@ -36,6 +36,5 @@ node_modules/.vitest/
 Plan
 .playwright-mcp
 .full-review
-.github
 .husky
 docs
