@@ -2,9 +2,20 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const isTauri = process.env.TAURI_ARCH !== undefined;
+
 export default defineConfig({
   plugins: [react()],
+  clearScreen: !isTauri,
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
+  envPrefix: ["VITE_", "TAURI_"],
   build: {
+    target: isTauri ? ["es2021", "chrome105", "safari14"] : "modules",
+    minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
+    sourcemap: !!process.env.TAURI_DEBUG,
     rollupOptions: {
       output: {
         manualChunks(id) {
