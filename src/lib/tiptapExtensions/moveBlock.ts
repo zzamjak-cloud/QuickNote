@@ -2,6 +2,7 @@ import { Extension } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorState, Transaction } from "@tiptap/pm/state";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { docTopLevelBlockStart } from "../pm/docTopLevelBlockStart";
 
 /** 블록 내 가장 깊은 inline content 의 첫 위치(블록 시작 좌표 기준).
  *  bulletList → listItem → paragraph 처럼 nested 컨테이너인 경우에도 안전한 TextSelection 좌표를 만든다. */
@@ -77,8 +78,9 @@ function extendBlockSelection(
   } else {
     if (headBlockBefore <= 0) return false; // 첫 블록
     let prevStart = -1;
-    doc.forEach((node, offset) => {
-      if (offset + node.nodeSize === headBlockBefore) prevStart = offset;
+    doc.forEach((node, fragmentOffset) => {
+      const blockStart = docTopLevelBlockStart(fragmentOffset);
+      if (blockStart + node.nodeSize === headBlockBefore) prevStart = blockStart;
     });
     if (prevStart < 0) return false;
     const prevNode = doc.nodeAt(prevStart);

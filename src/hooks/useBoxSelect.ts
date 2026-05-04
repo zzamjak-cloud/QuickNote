@@ -1,13 +1,43 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
+import { docTopLevelBlockStart } from "../lib/pm/docTopLevelBlockStart";
 import { startGripNativeDrag } from "../lib/startBlockNativeDrag";
 
 type Rect = { x: number; y: number; w: number; h: number };
 
+/** 마퀴를 드래그로 간주하기 전 최소 이동(px). 크면 체감상 꾹 눌러야 하는 느낌이 난다. */
+const MARQUEE_ACTIVATE_PX = 4;
+
+const GROUP_OVERLAY_ID = "qn-block-group-overlay";
+
+/** 박스 선택 오버레이를 붙일 호스트 — 스크롤 영역 안에 두어 contains()·히트 테스트가 깨지지 않게 함 */
+function getEditorMarqueeHost(editor: Editor): HTMLElement {
+  const columnHost =
+    editor.view.dom.closest<HTMLElement>("[data-qn-editor-column]") ??
+    editor.view.dom.parentElement;
+  return (
+    editor.view.dom.closest<HTMLElement>(".overflow-y-auto") ??
+    columnHost ??
+    document.body
+  );
+}
+
 /** nodeDOM이 텍스트/인라인을 줄 때까지 올라가 ProseMirror 직계 자식(최상위 블록 행)만 반환 */
 function blockOuterEl(editor: Editor, blockStart: number): HTMLElement | null {
-  let n: Node | null = editor.view.nodeDOM(blockStart);
+  const view = editor.view;
+  let n: Node | null = view.nodeDOM(blockStart);
+  if (!n) {
+    const innerMax = view.state.doc.content.size;
+    const probe = Math.min(Math.max(1, blockStart + 1), innerMax);
+    try {
+      const domAt = view.domAtPos(probe);
+      n = domAt.node as Node;
+      if (n.nodeType === Node.TEXT_NODE) n = n.parentElement;
+    } catch {
+      return null;
+    }
+  }
   if (!n) return null;
   if (n.nodeType === Node.TEXT_NODE) n = n.parentElement;
   const root = editor.view.dom;
@@ -20,15 +50,13 @@ function blockOuterEl(editor: Editor, blockStart: number): HTMLElement | null {
   return null;
 }
 
-/** 문서 직속 블록 목록 (pos = doc.resolve(probe).before(1)) */
+/** 문서 직속 블록 목록 */
 function getTopLevelBlocks(editor: Editor): { el: HTMLElement; pos: number }[] {
   const result: { el: HTMLElement; pos: number }[] = [];
   const { doc } = editor.state;
-  const innerMax = doc.content.size;
-  doc.forEach((node, offset) => {
+  doc.forEach((node, fragmentOffset) => {
     if (!node.isBlock) return;
-    const probe = Math.min(Math.max(1, offset + 1), innerMax);
-    const blockStart = doc.resolve(probe).before(1);
+    const blockStart = docTopLevelBlockStart(fragmentOffset);
     const el = blockOuterEl(editor, blockStart);
     if (el) result.push({ el, pos: blockStart });
   });
@@ -39,11 +67,16 @@ function getTopLevelBlocks(editor: Editor): { el: HTMLElement; pos: number }[] {
  * 단일 그룹 오버레이 — 선택된 블록들의 union 바운딩 박스 위에 라운딩된 사각형을 그린다.
  * PM DOM 에는 일절 손대지 않으므로 PM view.update 가 노드를 재렌더해도 영향 없음.
  */
-function ensureGroupOverlay(): HTMLDivElement {
-  let ov = document.querySelector<HTMLDivElement>("#qn-block-group-overlay");
+function ensureGroupOverlay(editor: Editor): HTMLDivElement {
+  const host = getEditorMarqueeHost(editor);
+  const misplaced = document.getElementById(GROUP_OVERLAY_ID);
+  if (misplaced && misplaced.parentElement !== host) {
+    misplaced.remove();
+  }
+  let ov = host.querySelector<HTMLDivElement>(`#${GROUP_OVERLAY_ID}`);
   if (ov) return ov;
   ov = document.createElement("div");
-  ov.id = "qn-block-group-overlay";
+  ov.id = GROUP_OVERLAY_ID;
   ov.style.cssText = [
     "position: fixed",
     // pointer-events: auto — 오버레이 위에서 mousedown/dragstart 받아 그룹 드래그 핸들로 사용.
@@ -58,21 +91,24 @@ function ensureGroupOverlay(): HTMLDivElement {
   ].join("; ") + ";";
   ov.draggable = true;
   ov.setAttribute("aria-hidden", "true");
-  document.body.appendChild(ov);
+  host.appendChild(ov);
   return ov;
 }
 
-function hideGroupOverlay(): void {
-  const ov = document.querySelector<HTMLDivElement>("#qn-block-group-overlay");
+function hideGroupOverlay(editor: Editor | null): void {
+  const el = editor
+    ? getEditorMarqueeHost(editor).querySelector<HTMLElement>(`#${GROUP_OVERLAY_ID}`)
+    : null;
+  const ov = el ?? document.getElementById(GROUP_OVERLAY_ID);
   if (ov) ov.style.display = "none";
 }
 
-function showGroupOverlayForRects(rects: DOMRect[]): void {
+function showGroupOverlayForRects(editor: Editor, rects: DOMRect[]): void {
   if (rects.length === 0) {
-    hideGroupOverlay();
+    hideGroupOverlay(editor);
     return;
   }
-  const ov = ensureGroupOverlay();
+  const ov = ensureGroupOverlay(editor);
   let minLeft = Infinity;
   let minTop = Infinity;
   let maxRight = -Infinity;
@@ -96,7 +132,7 @@ function showGroupOverlayForRects(rects: DOMRect[]): void {
  *  매 호출 fresh 하게 nodeDOM 으로 다시 찾아온다. */
 function paintOverlayForPositions(editor: Editor, positions: number[]): void {
   if (positions.length === 0) {
-    hideGroupOverlay();
+    hideGroupOverlay(editor);
     return;
   }
   const rects: DOMRect[] = [];
@@ -104,7 +140,7 @@ function paintOverlayForPositions(editor: Editor, positions: number[]): void {
     const el = blockOuterEl(editor, pos);
     if (el) rects.push(el.getBoundingClientRect());
   });
-  showGroupOverlayForRects(rects);
+  showGroupOverlayForRects(editor, rects);
 }
 
 export function useBoxSelect(editor: Editor | null) {
@@ -117,8 +153,8 @@ export function useBoxSelect(editor: Editor | null) {
   const clearSelection = useCallback(() => {
     selectedStartsRef.current = [];
     setSelectedStarts([]);
-    hideGroupOverlay();
-  }, []);
+    hideGroupOverlay(editor);
+  }, [editor]);
 
   const updateSelectionDom = useCallback(
     (rect: Rect) => {
@@ -140,7 +176,7 @@ export function useBoxSelect(editor: Editor | null) {
         }
       });
       selectedStartsRef.current = newStarts;
-      showGroupOverlayForRects(intersectedRects);
+      showGroupOverlayForRects(editor, intersectedRects);
     },
     [editor],
   );
@@ -162,15 +198,16 @@ export function useBoxSelect(editor: Editor | null) {
     document.body.appendChild(dragRectOverlay);
 
     const showDragOverlay = (r: Rect) => {
-      if (r.w <= 8 || r.h <= 8) {
+      // 예전: w<=8 || h<=8 이면 숨김 → 한 축만 움직이면 다른 축이 0이라 사각형이 거의 안 보였음.
+      if (Math.max(r.w, r.h) < 1) {
         dragRectOverlay.style.display = "none";
         return;
       }
       dragRectOverlay.style.display = "block";
       dragRectOverlay.style.left = `${r.x}px`;
       dragRectOverlay.style.top = `${r.y}px`;
-      dragRectOverlay.style.width = `${r.w}px`;
-      dragRectOverlay.style.height = `${r.h}px`;
+      dragRectOverlay.style.width = `${Math.max(r.w, 1)}px`;
+      dragRectOverlay.style.height = `${Math.max(r.h, 1)}px`;
     };
 
     const hideDragOverlay = () => {
@@ -183,9 +220,17 @@ export function useBoxSelect(editor: Editor | null) {
 
     const shouldIgnoreBoxSelectStart = (target: EventTarget | null): boolean => {
       if (!(target instanceof Element)) return true;
+      if (!editor.view.dom.contains(target)) return true;
       if (!editorHost.contains(target)) return true;
-      if (target.closest("input, textarea, select")) return true;
       if (target.closest("[data-qn-block-grip]")) return true;
+      // 인라인 DB 블록: 표·여백에서 마퀴 필수 — 입력/버튼만 예외 (select 는 툴바·셀에 많음)
+      const inDbBlock = target.closest(".qn-database-block");
+      if (inDbBlock) {
+        if (target.closest("input, textarea, select")) return true;
+        if (target.closest("button")) return true;
+        return false;
+      }
+      if (target.closest("input, textarea, select")) return true;
       // 본문 일반 링크는 클릭 탐색 우선 — 박스 선택 시작 안 함.
       // 연결된 인라인 DB 표 셀은 페이지 링크(<a>)가 많아 여기서 막히면 마퀴가 전혀 안 됨.
       if (
@@ -208,27 +253,81 @@ export function useBoxSelect(editor: Editor | null) {
       }
     };
 
-    const onMouseDown = (e: MouseEvent) => {
-      if (shouldIgnoreBoxSelectStart(e.target)) return;
-      if (e.button !== 0) return;
-
-      // PM 외부 여백 클릭이면 PM 텍스트 선택 해제(BubbleToolbar 자동 닫힘).
-      const target = e.target as Node;
-      if (!editor.view.dom.contains(target)) {
-        const sel = editor.state.selection;
-        if (sel.from !== sel.to) {
-          editor.view.dispatch(
-            editor.state.tr.setSelection(
-              TextSelection.create(editor.state.doc, sel.from),
-            ),
-          );
-        }
+    const collapsePmTextSelectionIfNeeded = () => {
+      const sel = editor.state.selection;
+      if (sel.from !== sel.to) {
+        editor.view.dispatch(
+          editor.state.tr.setSelection(
+            TextSelection.create(editor.state.doc, sel.from),
+          ),
+        );
       }
+    };
 
+    /** 본문 PM 바깥이지만 스크롤 에디터 안 — 좌우 전체 너비 여백 등. 마퀴 허용하되 페이지 크롬은 제외 */
+    const isEditorChromeOutsidePm = (el: Element): boolean =>
+      Boolean(
+        el.closest(
+          [
+            "input",
+            "textarea",
+            "select",
+            "button",
+            "a[href]",
+            "[data-qn-block-grip]",
+            ".tippy-box",
+            "[role='menu']",
+            "[role='listbox']",
+            "[role='dialog']",
+          ].join(", "),
+        ),
+      );
+
+    const beginMarqueeTracking = (ev: MouseEvent) => {
       clearSelection();
-      startRef.current = { x: e.clientX, y: e.clientY };
+      startRef.current = { x: ev.clientX, y: ev.clientY };
       activeRef.current = false;
       document.addEventListener("selectstart", onSelectStartWhileTracking, true);
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+
+      // 사이드바·오버레이(body 직결) 등 스크롤 에디터 영역 밖
+      if (!editorHost.contains(target)) {
+        collapsePmTextSelectionIfNeeded();
+        clearSelection();
+        return;
+      }
+
+      // 그룹 오버레이 — 스크롤 호스트 안에 있으므로 contains 는 통과함. 마퀴는 여기서 시작하지 않고(dragstart 만).
+      if (target.closest(`#${GROUP_OVERLAY_ID}`)) {
+        return;
+      }
+
+      const insidePm = editor.view.dom.contains(target);
+
+      // 한 줄 스크롤 호스트 안·PM 바깥 = 좌우 빈 여백·컬럼 패딩·래퍼 빈 영역 — 전체 너비로 마퀴 시작
+      if (!insidePm) {
+        if (isEditorChromeOutsidePm(target)) {
+          collapsePmTextSelectionIfNeeded();
+          clearSelection();
+          return;
+        }
+        collapsePmTextSelectionIfNeeded();
+        beginMarqueeTracking(e);
+        return;
+      }
+
+      // PM 안이지만 마퀴 비대상(링크·버튼·셀 select 등) — 박스 선택만 끊고 드래그 추적은 안 함.
+      if (shouldIgnoreBoxSelectStart(target)) {
+        clearSelection();
+        return;
+      }
+
+      beginMarqueeTracking(e);
     };
 
     const onMouseMove = (e: MouseEvent) => {
@@ -236,7 +335,12 @@ export function useBoxSelect(editor: Editor | null) {
       const dx = e.clientX - startRef.current.x;
       const dy = e.clientY - startRef.current.y;
 
-      if (!activeRef.current && Math.sqrt(dx * dx + dy * dy) < 8) return;
+      if (
+        !activeRef.current &&
+        Math.sqrt(dx * dx + dy * dy) < MARQUEE_ACTIVATE_PX
+      ) {
+        return;
+      }
       if (!activeRef.current) {
         activeRef.current = true;
         document.body.classList.add("qn-box-select-dragging");
@@ -282,14 +386,21 @@ export function useBoxSelect(editor: Editor | null) {
       activeRef.current = false;
     };
 
-    // capture: DB 블록 등 React 노드뷰에서 onMouseDown stopPropagation 하면 버블이 editorHost 에
-    // 도달하지 않아 박스 선택이 시작되지 않음 → 타깃보다 먼저 잡아 마퀴 시작 가능하게 함.
-    editorHost.addEventListener("mousedown", onMouseDown, true);
+    // capture + window: React 노드뷰·자식에서 stopPropagation 해도 가장 먼저 마퀴 시작 가능.
+    window.addEventListener("mousedown", onMouseDown, true);
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
 
     // 그룹 오버레이 자체를 드래그 핸들로 사용 — 오버레이를 잡고 끌면 선택된 블록 그룹이 통째로 이동.
-    const groupOverlayEl = ensureGroupOverlay();
+    const groupOverlayEl = ensureGroupOverlay(editor);
+
+    const clearSelectionAfterDocChange = () => {
+      if (activeRef.current) return;
+      if (document.body.classList.contains("quicknote-block-dragging")) return;
+      clearSelection();
+    };
+    editor.on("update", clearSelectionAfterDocChange);
+
     const computeActivePositions = (): number[] => {
       // 우선순위: 박스 선택 commit 결과 → PM 텍스트 선택의 다중 블록.
       if (selectedStartsRef.current.length > 0) {
@@ -298,10 +409,11 @@ export function useBoxSelect(editor: Editor | null) {
       const sel = editor.state.selection;
       if (sel.from === sel.to) return [];
       const positions: number[] = [];
-      editor.state.doc.forEach((node, offset) => {
+      editor.state.doc.forEach((node, fragmentOffset) => {
         if (!node.isBlock) return;
-        const end = offset + node.nodeSize;
-        if (end > sel.from && offset < sel.to) positions.push(offset);
+        const start = docTopLevelBlockStart(fragmentOffset);
+        const end = start + node.nodeSize;
+        if (end > sel.from && start < sel.to) positions.push(start);
       });
       return positions.length >= 2 ? positions : [];
     };
@@ -355,19 +467,20 @@ export function useBoxSelect(editor: Editor | null) {
       // PM 다중 선택 → 즉시 재계산
       const sel = editor.state.selection;
       if (sel.from === sel.to) {
-        hideGroupOverlay();
+        hideGroupOverlay(editor);
         return;
       }
       const pmStarts: number[] = [];
-      editor.state.doc.forEach((node, offset) => {
+      editor.state.doc.forEach((node, fragmentOffset) => {
         if (!node.isBlock) return;
-        const end = offset + node.nodeSize;
-        if (end > sel.from && offset < sel.to) pmStarts.push(offset);
+        const start = docTopLevelBlockStart(fragmentOffset);
+        const end = start + node.nodeSize;
+        if (end > sel.from && start < sel.to) pmStarts.push(start);
       });
       if (pmStarts.length >= 2) {
         paintOverlayForPositions(editor, pmStarts);
       } else {
-        hideGroupOverlay();
+        hideGroupOverlay(editor);
       }
     };
     const scroller =
@@ -376,7 +489,8 @@ export function useBoxSelect(editor: Editor | null) {
     window.addEventListener("resize", onScrollOrResize, { passive: true });
 
     return () => {
-      editorHost.removeEventListener("mousedown", onMouseDown, true);
+      editor.off("update", clearSelectionAfterDocChange);
+      window.removeEventListener("mousedown", onMouseDown, true);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("selectstart", onSelectStartWhileTracking, true);
@@ -387,19 +501,20 @@ export function useBoxSelect(editor: Editor | null) {
       groupOverlayEl.removeEventListener("dragend", onOverlayDragEnd);
       groupOverlayEl.removeEventListener("mousedown", onOverlayMouseDown);
       dragRectOverlay.remove();
-      hideGroupOverlay();
+      hideGroupOverlay(editor);
     };
   }, [editor, updateSelectionDom, clearSelection]);
 
   useEffect(() => {
+    if (!editor) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && selectedStarts.length > 0) {
-        clearSelection();
-      }
+      if (e.key !== "Escape") return;
+      if (selectedStartsRef.current.length === 0) return;
+      clearSelection();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedStarts, clearSelection]);
+  }, [editor, clearSelection]);
 
   // PM 텍스트 선택이 doc 직속 블록 2개 이상을 가로지르면 그룹 오버레이를 그린다.
   // 박스 드래그 활성 중에는 onMouseMove 가 단독 관리하므로 비활성.
@@ -417,19 +532,20 @@ export function useBoxSelect(editor: Editor | null) {
       if (activeRef.current) return;
       const sel = editor.state.selection;
       if (sel.from === sel.to) {
-        if (selectedStartsRef.current.length === 0) hideGroupOverlay();
+        if (selectedStartsRef.current.length === 0) hideGroupOverlay(editor);
         prevPmStarts = [];
         return;
       }
       const pmStarts: number[] = [];
-      editor.state.doc.forEach((node, offset) => {
+      editor.state.doc.forEach((node, fragmentOffset) => {
         if (!node.isBlock) return;
-        const end = offset + node.nodeSize;
-        if (end > sel.from && offset < sel.to) pmStarts.push(offset);
+        const start = docTopLevelBlockStart(fragmentOffset);
+        const end = start + node.nodeSize;
+        if (end > sel.from && start < sel.to) pmStarts.push(start);
       });
       if (pmStarts.length < 2) {
         // 단일 블록 내 선택 — 박스 선택이 없으면 오버레이 숨김
-        if (selectedStartsRef.current.length === 0) hideGroupOverlay();
+        if (selectedStartsRef.current.length === 0) hideGroupOverlay(editor);
         prevPmStarts = [];
         return;
       }
@@ -449,25 +565,28 @@ export function useBoxSelect(editor: Editor | null) {
   useEffect(() => {
     if (!editor) return;
     if (selectedStarts.length === 0) {
-      hideGroupOverlay();
+      hideGroupOverlay(editor);
       return;
     }
     paintOverlayForPositions(editor, selectedStarts);
   }, [editor, selectedStarts]);
 
   useEffect(() => {
-    if (!editor || selectedStarts.length === 0) return;
+    if (!editor) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.key === "Process") return;
       if (e.key !== "Backspace" && e.key !== "Delete") return;
+      // selectedStarts state 반영 전에 Delete 가 올 수 있음 — ref 만 신뢰하고 리스너는 항상 등록
       if (selectedStartsRef.current.length === 0) return;
-      // 포커스가 편집 영역 안에 있어도, 박스로 잡은 블록이 있으면 여기서 삭제 처리
-      // (기존에는 .ProseMirror 포커스 시 조기 return 해서 Delete 가 무시됨)
       e.preventDefault();
       e.stopPropagation();
+
+      const doc0 = editor.state.doc;
+      const sorted = [...selectedStartsRef.current].sort((a, b) => b - a);
       const tr = editor.state.tr;
-      const sorted = [...selectedStarts].sort((a, b) => b - a);
+
       for (const pos of sorted) {
-        const node = editor.state.doc.nodeAt(pos);
+        const node = doc0.nodeAt(pos);
         if (!node) continue;
         if (node.type.name === "databaseBlock" && node.attrs.deletionLocked) {
           continue;
@@ -475,12 +594,15 @@ export function useBoxSelect(editor: Editor | null) {
         const mappedPos = tr.mapping.map(pos);
         tr.delete(mappedPos, mappedPos + node.nodeSize);
       }
-      editor.view.dispatch(tr.scrollIntoView());
-      clearSelection();
+
+      if (tr.docChanged) {
+        editor.view.dispatch(tr.scrollIntoView());
+        clearSelection();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [editor, selectedStarts, clearSelection]);
+  }, [editor, clearSelection]);
 
   return { selectedStarts, clearSelection };
 }

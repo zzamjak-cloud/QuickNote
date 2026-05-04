@@ -1,6 +1,14 @@
 import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper } from "@tiptap/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import {
   Database,
   Kanban,
@@ -9,6 +17,7 @@ import {
   Table2,
   Link2,
   Plus,
+  Search,
   ArrowLeft,
   Trash2,
   PanelTop,
@@ -168,6 +177,10 @@ export function DatabaseBlockView(props: NodeViewProps) {
   type InlineBindingStep = "choose" | "new" | "link";
   const [inlineBindingStep, setInlineBindingStep] =
     useState<InlineBindingStep>("choose");
+  /** 기존 DB 연결 단계 — 제목 부분 일치 검색 + 키보드 선택 */
+  const [linkPickerQuery, setLinkPickerQuery] = useState("");
+  const [linkPickerHighlight, setLinkPickerHighlight] = useState(0);
+  const linkPickerListBaseId = useId();
 
   const setPanelState = useCallback(
     (patch: Partial<DatabasePanelState>) => {
@@ -190,6 +203,32 @@ export function DatabaseBlockView(props: NodeViewProps) {
   );
 
   const databasesList = useDatabaseStore(listDatabases);
+
+  const linkPickerFiltered = useMemo(() => {
+    const q = linkPickerQuery.trim().toLowerCase();
+    if (!q) return databasesList;
+    return databasesList.filter((d) =>
+      d.meta.title.toLowerCase().includes(q),
+    );
+  }, [databasesList, linkPickerQuery]);
+
+  useEffect(() => {
+    if (inlineBindingStep !== "link") return;
+    setLinkPickerHighlight((prev) => {
+      const n = linkPickerFiltered.length;
+      if (n === 0) return -1;
+      if (prev < 0) return 0;
+      return Math.min(prev, n - 1);
+    });
+  }, [inlineBindingStep, linkPickerFiltered]);
+
+  useEffect(() => {
+    if (inlineBindingStep !== "link" || linkPickerHighlight < 0) return;
+    const el = document.getElementById(
+      `${linkPickerListBaseId}-opt-${linkPickerHighlight}`,
+    );
+    el?.scrollIntoView({ block: "nearest" });
+  }, [inlineBindingStep, linkPickerHighlight, linkPickerListBaseId]);
 
   const bindToExistingDatabase = useCallback(
     (id: string) => {
@@ -221,6 +260,41 @@ export function DatabaseBlockView(props: NodeViewProps) {
     }
     setLinkOpen(false);
   }, [layout, activePageId, updateAttributes, renamePage]);
+
+  const onLinkPickerKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.nativeEvent.isComposing || e.key === "Process") return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        setLinkPickerHighlight((h) => {
+          const n = linkPickerFiltered.length;
+          if (n === 0) return -1;
+          if (h < 0) return 0;
+          return Math.min(h + 1, n - 1);
+        });
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        setLinkPickerHighlight((h) => {
+          const n = linkPickerFiltered.length;
+          if (n === 0) return -1;
+          if (h <= 0) return 0;
+          return h - 1;
+        });
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = linkPickerFiltered[linkPickerHighlight];
+        if (row) bindToExistingDatabase(row.id);
+      }
+    },
+    [linkPickerFiltered, linkPickerHighlight, bindToExistingDatabase],
+  );
 
   const shellClass =
     layout === "fullPage"
@@ -297,9 +371,17 @@ export function DatabaseBlockView(props: NodeViewProps) {
     <NodeViewWrapper className="qn-database-block">
       <div
         className={shellClass}
-        // 내부 컨트롤(버튼/입력) 클릭이 ProseMirror로 버블링되어 atom 노드를
-        // 자동 선택(파란 배경 + BubbleToolbar 표시)하는 것을 차단.
-        onMouseDown={(e) => e.stopPropagation()}
+        // 버튼·링크·폼만 PM 으로 버블 차단 — 표/여백은 버블 허용(useBoxSelect window capture 와 호환).
+        onMouseDown={(e) => {
+          const t = e.target as HTMLElement;
+          if (
+            t.closest(
+              "button, a[href], input, textarea, select, label",
+            )
+          ) {
+            e.stopPropagation();
+          }
+        }}
       >
         {needsBinding ? (
           <div className="p-2">
@@ -327,7 +409,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
                     <button
                       type="button"
                       className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm font-medium text-zinc-800 shadow-sm hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-                      onClick={() => setInlineBindingStep("link")}
+                      onClick={() => {
+                        setLinkPickerQuery("");
+                        setLinkPickerHighlight(0);
+                        setInlineBindingStep("link");
+                      }}
                     >
                       <Link2 size={16} strokeWidth={2.25} />
                       기존 데이터베이스 연결
@@ -359,29 +445,69 @@ export function DatabaseBlockView(props: NodeViewProps) {
               ) : (
                 <>
                   <p className="mb-2 text-zinc-500 dark:text-zinc-400">
-                    목록에서 연결할 데이터베이스를 고르세요.
+                    검색어로 목록을 좁힌 뒤, ↑↓로 항목을 고르고 Enter로 연결합니다.
                   </p>
-                  <label className="mb-1 block text-zinc-600 dark:text-zinc-500">
-                    기존 데이터베이스
-                  </label>
-                  <select
-                    className="mb-3 w-full max-w-md rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-600 dark:bg-zinc-900"
-                    value=""
-                    onChange={(e) => bindToExistingDatabase(e.target.value)}
+                  <label
+                    className="mb-1 block text-zinc-600 dark:text-zinc-500"
+                    htmlFor="qn-db-link-picker-search"
                   >
-                    <option value="">선택…</option>
-                    {databasesList.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.meta.title}
-                      </option>
-                    ))}
-                  </select>
-                  {databasesList.length === 0 ? (
-                    <p className="mb-2 text-amber-700 dark:text-amber-400">
-                      아직 저장된 데이터베이스가 없습니다. 「뒤로」에서 새로
-                      만들기를 선택하세요.
-                    </p>
-                  ) : null}
+                    기존 데이터베이스 검색
+                  </label>
+                  <div className="relative mb-2 max-w-md">
+                    <Search
+                      size={14}
+                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400"
+                      aria-hidden
+                    />
+                    <input
+                      id="qn-db-link-picker-search"
+                      type="text"
+                      inputMode="search"
+                      autoComplete="off"
+                      value={linkPickerQuery}
+                      onChange={(e) => setLinkPickerQuery(e.target.value)}
+                      onKeyDown={onLinkPickerKeyDown}
+                      placeholder="이름 일부 입력…"
+                      className="w-full rounded border border-zinc-300 bg-white py-1.5 pl-8 pr-2 text-sm text-zinc-900 caret-zinc-900 placeholder:text-zinc-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/35 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:caret-sky-300 dark:placeholder:text-zinc-500 dark:focus:border-sky-400 dark:focus:ring-sky-400/35"
+                    />
+                  </div>
+                  <div
+                    role="listbox"
+                    aria-label="검색된 데이터베이스"
+                    className="mb-3 max-h-48 max-w-md overflow-y-auto rounded border border-zinc-200 bg-white dark:border-zinc-600 dark:bg-zinc-950"
+                  >
+                    {databasesList.length === 0 ? (
+                      <div className="px-3 py-6 text-center text-sm text-amber-700 dark:text-amber-400">
+                        아직 저장된 데이터베이스가 없습니다. 「뒤로」에서 새로
+                        만들기를 선택하세요.
+                      </div>
+                    ) : linkPickerFiltered.length === 0 ? (
+                      <div className="px-3 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                        검색과 일치하는 데이터베이스가 없습니다.
+                      </div>
+                    ) : (
+                      linkPickerFiltered.map((d, idx) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          role="option"
+                          id={`${linkPickerListBaseId}-opt-${idx}`}
+                          aria-selected={linkPickerHighlight === idx}
+                          className={[
+                            "flex w-full cursor-pointer border-b border-zinc-100 px-3 py-2 text-left text-sm last:border-b-0 dark:border-zinc-800",
+                            linkPickerHighlight === idx
+                              ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-50"
+                              : "text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800/80",
+                          ].join(" ")}
+                          onMouseEnter={() => setLinkPickerHighlight(idx)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => bindToExistingDatabase(d.id)}
+                        >
+                          {d.meta.title}
+                        </button>
+                      ))
+                    )}
+                  </div>
                   <button
                     type="button"
                     className="text-sm text-zinc-500 underline-offset-2 hover:text-zinc-700 hover:underline dark:text-zinc-400 dark:hover:text-zinc-200"

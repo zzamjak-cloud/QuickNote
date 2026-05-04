@@ -6,6 +6,7 @@ import {
 } from "../../components/database/DatabaseBlockView";
 import type { DatabaseLayout, ViewKind } from "../../types/database";
 import { emptyPanelState } from "../../types/database";
+import { docTopLevelBlockStart } from "../pm/docTopLevelBlockStart";
 
 export const databaseBlockDeletionLockPluginKey = new PluginKey(
   "databaseBlockDeletionLock",
@@ -13,10 +14,10 @@ export const databaseBlockDeletionLockPluginKey = new PluginKey(
 
 function collectLockedDatabasePositions(doc: import("@tiptap/pm/model").Node) {
   const out: { pos: number; databaseId: string }[] = [];
-  doc.forEach((node, offset) => {
+  doc.forEach((node, fragmentOffset) => {
     if (node.type.name === "databaseBlock" && node.attrs.deletionLocked) {
       out.push({
-        pos: offset,
+        pos: docTopLevelBlockStart(fragmentOffset),
         databaseId: String(node.attrs.databaseId ?? ""),
       });
     }

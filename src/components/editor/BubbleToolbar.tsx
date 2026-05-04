@@ -91,6 +91,13 @@ export function BubbleToolbar({ editor }: Props) {
         }
       }
 
+      // 인라인 DB·HR 등 원자 블록의 NodeSelection — 텍스트 포매팅 툴바 숨김
+      if (sel instanceof NodeSelection) {
+        setMode("hidden");
+        setPos(null);
+        return;
+      }
+
       const { from, to } = sel;
       if (from === to) {
         setMode("hidden");

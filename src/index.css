@@ -2,6 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 네이티브 입력·편집 영역 — 텍스트·커서(caret) 대비(라이트/다크) */
+@layer base {
+  textarea,
+  input:not([type]),
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="password"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="number"],
+  select {
+    color: rgb(24 24 27);
+    caret-color: rgb(24 24 27);
+  }
+
+  html.dark textarea,
+  html.dark input:not([type]),
+  html.dark input[type="text"],
+  html.dark input[type="search"],
+  html.dark input[type="email"],
+  html.dark input[type="password"],
+  html.dark input[type="tel"],
+  html.dark input[type="url"],
+  html.dark input[type="number"],
+  html.dark select {
+    color: rgb(244 244 245);
+    caret-color: rgb(125 211 252);
+  }
+
+  /* TipTap 본문 — contenteditable 커서 */
+  .ProseMirror {
+    caret-color: rgb(24 24 27);
+  }
+
+  html.dark .ProseMirror {
+    caret-color: rgb(125 211 252);
+  }
+}
+
 html,
 body,
 #root {
@@ -517,6 +557,6 @@ body.qn-box-select-dragging .ProseMirror {
   user-select: none !important;
 }
 
-/* 다중 블록 선택 시각은 PM DOM 외부의 단일 그룹 오버레이(div#qn-block-group-overlay)
-   에서 그린다 — useBoxSelect.ts 의 ensureGroupOverlay 참고. PM view.update 가 노드를
+/* 다중 블록 선택 시각은 PM DOM 밖(에디터 스크롤 호스트 내)의 그룹 오버레이(#qn-block-group-overlay)
+   에서 그린다 — useBoxSelect.ts 참고. PM view.update 가 노드를
    재렌더해도 영향을 받지 않는다. dark 톤은 오버레이 자체에서 별도 처리하지 않음(두 톤 모두에서 가독). */

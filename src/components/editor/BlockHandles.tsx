@@ -27,6 +27,7 @@ import {
   type CalloutPresetId,
 } from "../../lib/tiptapExtensions/calloutPresets";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
+import { docTopLevelBlockStart } from "../../lib/pm/docTopLevelBlockStart";
 
 type HoverInfo = {
   rect: DOMRect;
@@ -132,10 +133,10 @@ function topLevelBlockStartsInRange(
   if (from === to) return [];
   const doc = editor.state.doc;
   const starts: number[] = [];
-  doc.forEach((node, offset) => {
+  doc.forEach((node, fragmentOffset) => {
     if (!node.isBlock) return;
-    const blockStart = offset;
-    const blockEnd = offset + node.nodeSize;
+    const blockStart = docTopLevelBlockStart(fragmentOffset);
+    const blockEnd = blockStart + node.nodeSize;
     if (blockEnd > from && blockStart < to) {
       starts.push(blockStart);
     }
