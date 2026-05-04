@@ -58,7 +58,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   const skipSyncRef = useRef(false);
 
   const measure = useCallback(() => {
-    if (!editor || skipSyncRef.current) return;
+    if (!editor || editor.isDestroyed || skipSyncRef.current) return;
     const sel = editor.state.selection;
     if (!(sel instanceof NodeSelection) || sel.node.type.name !== "image") {
       setBox(null);
@@ -81,7 +81,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   }, [editor]);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     measure();
     editor.on("selectionUpdate", measure);
     window.addEventListener("scroll", measure, true);

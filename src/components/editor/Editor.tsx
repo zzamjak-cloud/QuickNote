@@ -555,7 +555,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
 
   // 페이지 멘션 클릭 시 해당 페이지로 이동
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     const dom = editor.view.dom;
     const onClick = (e: Event) => {
       const target = (e.target as HTMLElement).closest(".page-mention");
@@ -572,7 +572,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   // editor.editable 토글 — read-only 상태로 두면 슬래시 메뉴, 텍스트 입력, 블록 추가 모두 차단.
   // DB 블록의 React NodeView 내부 input/button 은 contenteditable 영향 밖이라 정상 동작.
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     editor.setEditable(!isFullPageDatabase);
     if (isFullPageDatabase) {
       // PM 이 atom 단독 doc 에 자동으로 NodeSelection 을 만들어 .ProseMirror-selectednode 가
@@ -582,7 +582,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       } catch (err) {
         reportNonFatal(err, "fullPageDb.setTextSelection");
       }
-      if (editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
+      if (!editor.isDestroyed && editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
     }
   }, [editor, isFullPageDatabase]);
 

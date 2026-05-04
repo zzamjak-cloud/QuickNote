@@ -64,10 +64,11 @@ export function BubbleToolbar({ editor }: Props) {
   const [hlOpen, setHlOpen] = useState(false);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     let dragging = false;
 
     const compute = () => {
+      if (editor.isDestroyed) return;
       // read-only(예: 풀 페이지 DB) 에서는 부유 툴바 자체를 띄우지 않는다.
       if (!editor.isEditable) {
         setMode("hidden");
