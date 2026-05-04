@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { JSONContent } from "@tiptap/react";
-import { ArrowUpRight, PanelRight } from "lucide-react";
+import { ArrowUpRight, PanelRight, X } from "lucide-react";
 import type {
   DatabasePanelState,
   DatabaseRowView,
@@ -16,6 +16,7 @@ import { getDatabaseFile } from "../../../lib/databaseFileStorage";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
+import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 
 type Props = {
   databaseId: string;
@@ -51,6 +52,9 @@ export function DatabaseGalleryView({
 }: Props) {
   const { bundle, rows, columns } = useProcessedRows(databaseId, panelState);
   const addRow = useDatabaseStore((s) => s.addRow);
+  const deleteRow = useDatabaseStore((s) => s.deleteRow);
+
+  const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
 
   const coverCandidates = columns.filter(
     (c) => c.type === "file" || c.type === "url",
@@ -102,6 +106,7 @@ export function DatabaseGalleryView({
               "gallery",
               panelState.viewConfigs,
             )}
+            onRequestDelete={() => setRowDeletePageId(row.pageId)}
           />
         ))}
       </div>
@@ -112,6 +117,18 @@ export function DatabaseGalleryView({
       >
         + 새 항목
       </button>
+      <SimpleConfirmDialog
+        open={rowDeletePageId !== null}
+        title="행 삭제"
+        message="이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)"
+        confirmLabel="삭제"
+        danger
+        onCancel={() => setRowDeletePageId(null)}
+        onConfirm={() => {
+          if (rowDeletePageId) deleteRow(databaseId, rowDeletePageId);
+          setRowDeletePageId(null);
+        }}
+      />
     </div>
   );
 }
@@ -122,12 +139,14 @@ function GalleryCard({
   columns,
   coverColumn,
   visibleColumns,
+  onRequestDelete,
 }: {
   databaseId: string;
   row: DatabaseRowView;
   columns: ColumnDef[];
   coverColumn?: ColumnDef;
   visibleColumns: ColumnDef[];
+  onRequestDelete: () => void;
 }) {
   const titleCol = columns.find((c) => c.type === "title");
   // viewConfigs.gallery.visibleColumnIds가 명시돼 있으면 그 순서대로 모두 표시,
@@ -182,6 +201,14 @@ function GalleryCard({
               className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
             >
               <PanelRight size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={onRequestDelete}
+              title="항목 삭제"
+              className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+            >
+              <X size={11} />
             </button>
           </div>
         </div>

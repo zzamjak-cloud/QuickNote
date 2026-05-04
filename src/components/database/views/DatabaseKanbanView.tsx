@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowUpRight, PanelRight, Plus } from "lucide-react";
+import { ArrowUpRight, PanelRight, Plus, X } from "lucide-react";
 import type {
   ColumnDef,
   DatabasePanelState,
@@ -13,6 +13,7 @@ import { DatabaseColumnSettingsButton } from "../DatabaseColumnSettingsButton";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
+import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 
 type Props = {
   databaseId: string;
@@ -42,12 +43,14 @@ export function DatabaseKanbanView({
 }: Props) {
   const { bundle, rows, columns } = useProcessedRows(databaseId, panelState);
   const addRow = useDatabaseStore((s) => s.addRow);
+  const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openPeek = useUiStore((s) => s.openPeek);
 
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+  const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
 
   if (!bundle) return null;
 
@@ -193,6 +196,7 @@ export function DatabaseKanbanView({
                       colColor={col.color}
                       onOpenFull={() => openFull(row.pageId)}
                       onOpenPeek={() => openPeek(row.pageId)}
+                      onDelete={() => setRowDeletePageId(row.pageId)}
                     />
                   ))}
                   {bucketRows.length === 0 && (
@@ -213,6 +217,18 @@ export function DatabaseKanbanView({
       >
         <Plus size={14} /> 새 항목
       </button>
+      <SimpleConfirmDialog
+        open={rowDeletePageId !== null}
+        title="행 삭제"
+        message="이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)"
+        confirmLabel="삭제"
+        danger
+        onCancel={() => setRowDeletePageId(null)}
+        onConfirm={() => {
+          if (rowDeletePageId) deleteRow(databaseId, rowDeletePageId);
+          setRowDeletePageId(null);
+        }}
+      />
     </div>
   );
 }
@@ -224,6 +240,7 @@ function KanbanCard({
   colColor,
   onOpenFull,
   onOpenPeek,
+  onDelete,
 }: {
   row: DatabaseRowView;
   databaseId: string;
@@ -231,6 +248,7 @@ function KanbanCard({
   colColor: string | undefined;
   onOpenFull: () => void;
   onOpenPeek: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div
@@ -253,7 +271,11 @@ function KanbanCard({
         <div className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">
           <button
             type="button"
-            onClick={onOpenFull}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFull();
+            }}
             title="페이지로 열기"
             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
           >
@@ -261,11 +283,27 @@ function KanbanCard({
           </button>
           <button
             type="button"
-            onClick={onOpenPeek}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenPeek();
+            }}
             title="사이드 피크 열기"
             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
           >
             <PanelRight size={11} />
+          </button>
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            title="항목 삭제"
+            className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+          >
+            <X size={11} />
           </button>
         </div>
       </div>

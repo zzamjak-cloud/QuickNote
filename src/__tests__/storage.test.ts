@@ -38,6 +38,14 @@ describe("storage.loadPages / savePages", () => {
     localStorage.setItem(STORAGE_KEYS.pages, "{not json");
     expect(loadPages()).toEqual({});
   });
+
+  it("페이지 스키마와 맞지 않으면 빈 객체 반환", () => {
+    localStorage.setItem(
+      STORAGE_KEYS.pages,
+      JSON.stringify({ x: { notAPage: true } }),
+    );
+    expect(loadPages()).toEqual({});
+  });
 });
 
 describe("storage.activePageId", () => {

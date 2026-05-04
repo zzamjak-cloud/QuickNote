@@ -5,6 +5,7 @@ import { TabBar } from "./components/layout/TabBar";
 import { Editor } from "./components/editor/Editor";
 import { DatabaseRowPage } from "./components/database/DatabaseRowPage";
 import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
+import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore } from "./store/pageStore";
 
@@ -116,6 +117,7 @@ function App() {
         )}
       </div>
       <DatabaseRowPeek />
+      <TextPromptDialog />
     </div>
   );
 }

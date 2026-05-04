@@ -97,6 +97,8 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: "quicknote.settings.v1",
       storage: createJSONStorage(() => localStorage),
+      version: 1,
+      migrate: (persisted) => persisted,
     },
   ),
 );

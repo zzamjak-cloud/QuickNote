@@ -50,6 +50,8 @@ export const useContactsStore = create<ContactsStore>()(
     {
       name: "quicknote.contactsStore.v1",
       storage: createJSONStorage(() => localStorage),
+      version: 1,
+      migrate: (persisted) => persisted,
     },
   ),
 );

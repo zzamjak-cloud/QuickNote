@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { useDatabaseStore } from "../store/databaseStore";
 import { usePageStore } from "../store/pageStore";
 
@@ -73,5 +73,19 @@ describe("databaseStore — 페이지 기반 행", () => {
     useDatabaseStore.getState().removeColumn(dbId, titleColId);
     const stillThere = useDatabaseStore.getState().databases[dbId]!.columns.some((c) => c.id === titleColId);
     expect(stillThere).toBe(true);
+  });
+
+  it("removeColumn은 행이 여러 개여도 pageStore.setState를 1회만 호출한다", () => {
+    const dbId = useDatabaseStore.getState().createDatabase();
+    useDatabaseStore.getState().addRow(dbId);
+    useDatabaseStore.getState().addRow(dbId);
+    const bundle = useDatabaseStore.getState().databases[dbId]!;
+    const textCol = bundle.columns.find((c) => c.type === "text" && c.name === "텍스트")!;
+    const spy = vi.spyOn(usePageStore, "setState");
+    const before = spy.mock.calls.length;
+    useDatabaseStore.getState().removeColumn(dbId, textCol.id);
+    const callsForThisOp = spy.mock.calls.length - before;
+    expect(callsForThisOp).toBe(1);
+    spy.mockRestore();
   });
 });

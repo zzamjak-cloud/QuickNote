@@ -1,5 +1,26 @@
 import Image from "@tiptap/extension-image";
 import { mergeAttributes } from "@tiptap/core";
+import { EDITOR_IMAGE_PLACEHOLDER_SRC } from "../editorImageStorage";
+
+function attrsFromImgEl(
+  img: HTMLImageElement,
+  frameBase: Record<string, unknown>,
+): Record<string, unknown> {
+  const qn = img.getAttribute("data-qn-image-id");
+  return {
+    src: img.getAttribute("src"),
+    alt: img.getAttribute("alt"),
+    title: img.getAttribute("title"),
+    width: img.getAttribute("width")
+      ? parseInt(img.getAttribute("width")!, 10)
+      : null,
+    height: img.getAttribute("height")
+      ? parseInt(img.getAttribute("height")!, 10)
+      : null,
+    qnImageId: qn && qn.length > 0 ? qn : null,
+    ...frameBase,
+  };
+}
 
 /**
  * 이미지 블록: 인라인 크롭( img clip-path ) + 셸의 실루엣 아웃라인( drop-shadow ).
@@ -180,6 +201,18 @@ export const ImageBlock = Image.extend({
           "data-crop-h": String(attrs.cropHeight ?? 100),
         }),
       },
+      qnImageId: {
+        default: null,
+        parseHTML: (el) =>
+          (el as HTMLElement).getAttribute?.("data-qn-image-id") ?? null,
+        renderHTML: (attrs) => {
+          const id = attrs.qnImageId as string | null | undefined;
+          if (typeof id === "string" && id.length > 0) {
+            return { "data-qn-image-id": id };
+          }
+          return {};
+        },
+      },
     };
   },
 
@@ -194,18 +227,7 @@ export const ImageBlock = Image.extend({
           if (!inner) return false;
           const img = el as HTMLImageElement;
           const base = readFrameDataAttrs(inner);
-          return {
-            src: img.getAttribute("src"),
-            alt: img.getAttribute("alt"),
-            title: img.getAttribute("title"),
-            width: img.getAttribute("width")
-              ? parseInt(img.getAttribute("width")!, 10)
-              : null,
-            height: img.getAttribute("height")
-              ? parseInt(img.getAttribute("height")!, 10)
-              : null,
-            ...base,
-          };
+          return attrsFromImgEl(img, base);
         },
       },
       {
@@ -217,22 +239,17 @@ export const ImageBlock = Image.extend({
           if (!wrap) return false;
           const img = el as HTMLImageElement;
           const base = readFrameDataAttrs(wrap);
-          return {
-            src: img.getAttribute("src"),
-            alt: img.getAttribute("alt"),
-            title: img.getAttribute("title"),
-            width: img.getAttribute("width")
-              ? parseInt(img.getAttribute("width")!, 10)
-              : null,
-            height: img.getAttribute("height")
-              ? parseInt(img.getAttribute("height")!, 10)
-              : null,
-            ...base,
-          };
+          return attrsFromImgEl(img, base);
         },
+      },
+      // allowBase64 off 일 때도 IDB 이미지(data: 플레이스홀더 src)는 복사·HTML 붙여넣기로 복원
+      {
+        tag: "img[data-qn-image-id][src]",
+        getAttrs: (el) => attrsFromImgEl(el as HTMLImageElement, {}),
       },
       {
         tag: this.options.allowBase64 ? "img[src]" : 'img[src]:not([src^="data:"])',
+        getAttrs: (el) => attrsFromImgEl(el as HTMLImageElement, {}),
       },
     ];
   },
@@ -262,11 +279,18 @@ export const ImageBlock = Image.extend({
       {},
     );
 
+    const qnId = a.qnImageId as string | null | undefined;
+    const imgSrc =
+      typeof qnId === "string" && qnId.length > 0
+        ? EDITOR_IMAGE_PLACEHOLDER_SRC
+        : String(a.src ?? "");
+
     const imgAttrs = mergeAttributes(
       this.options.HTMLAttributes,
       HTMLAttributes,
       {
         style: imgCropStyle(a),
+        src: imgSrc,
       },
     );
 

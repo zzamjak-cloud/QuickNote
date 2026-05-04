@@ -9,6 +9,8 @@ import type {
 } from "../types/database";
 import { DATABASE_STORE_VERSION } from "../types/database";
 import { newId } from "../lib/id";
+import { reportNonFatal } from "../lib/reportNonFatal";
+import { createRowPageLinkedToDatabase } from "../lib/services/databaseRowPages";
 import { usePageStore } from "./pageStore";
 
 type DbMap = Record<string, DatabaseBundle>;
@@ -102,20 +104,9 @@ function allocateUniqueDatabaseTitle(
   return candidate;
 }
 
-/** 행 페이지를 직접 생성하고 id를 반환 — pageStore 외부에서 호출됨. */
+/** 행 페이지를 직접 생성하고 id를 반환 — `databaseRowPages`에서 pageStore 와 연결. */
 function createRowPage(databaseId: string, title: string): string {
-  const pageId = usePageStore.getState().createPage(title, null, { activate: false });
-  usePageStore.setState((s) => {
-    const page = s.pages[pageId];
-    if (!page) return s;
-    return {
-      pages: {
-        ...s.pages,
-        [pageId]: { ...page, databaseId, dbCells: {} },
-      },
-    };
-  });
-  return pageId;
+  return createRowPageLinkedToDatabase(databaseId, title);
 }
 
 export const useDatabaseStore = create<DatabaseStore>()(
@@ -201,13 +192,24 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
-        // 기본값이 있는 컬럼(status 등) 추가 시 기존 행 페이지에도 채움.
+        // 기본값이 있는 컬럼(status 등) 추가 시 기존 행 페이지에도 채움 (페이지 스토어 1회 갱신).
         if (defaultValue != null) {
           const bundle = get().databases[databaseId];
           if (bundle) {
-            for (const pageId of bundle.rowPageOrder) {
-              usePageStore.getState().setPageDbCell(pageId, colId, defaultValue);
-            }
+            const t = Date.now();
+            usePageStore.setState((s) => {
+              const nextPages = { ...s.pages };
+              for (const pageId of bundle.rowPageOrder) {
+                const page = nextPages[pageId];
+                if (!page) continue;
+                nextPages[pageId] = {
+                  ...page,
+                  dbCells: { ...(page.dbCells ?? {}), [colId]: defaultValue },
+                  updatedAt: t,
+                };
+              }
+              return { pages: nextPages };
+            });
           }
         }
         return colId;
@@ -239,26 +241,30 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       removeColumn: (databaseId, columnId) => {
+        const bundleBefore = get().databases[databaseId];
+        if (!bundleBefore) return;
+        const target = bundleBefore.columns.find((c) => c.id === columnId);
+        if (!target || target.type === "title") return;
+        const nextCols = bundleBefore.columns.filter((c) => c.id !== columnId);
+
+        usePageStore.setState((s) => {
+          let changed = false;
+          const nextPages = { ...s.pages };
+          const t = Date.now();
+          for (const pageId of bundleBefore.rowPageOrder) {
+            const page = nextPages[pageId];
+            if (!page?.dbCells || !(columnId in page.dbCells)) continue;
+            changed = true;
+            const nextCells = { ...page.dbCells };
+            delete nextCells[columnId];
+            nextPages[pageId] = { ...page, dbCells: nextCells, updatedAt: t };
+          }
+          return changed ? { pages: nextPages } : s;
+        });
+
         set((state) => {
           const bundle = state.databases[databaseId];
           if (!bundle) return state;
-          const target = bundle.columns.find((c) => c.id === columnId);
-          if (!target || target.type === "title") return state;
-          const nextCols = bundle.columns.filter((c) => c.id !== columnId);
-          // 모든 행 페이지의 dbCells에서도 해당 키 제거
-          const ps = usePageStore.getState();
-          for (const pageId of bundle.rowPageOrder) {
-            const page = ps.pages[pageId];
-            if (!page?.dbCells || !(columnId in page.dbCells)) continue;
-            const next = { ...page.dbCells };
-            delete next[columnId];
-            usePageStore.setState((s) => ({
-              pages: {
-                ...s.pages,
-                [pageId]: { ...s.pages[pageId]!, dbCells: next, updatedAt: Date.now() },
-              },
-            }));
-          }
           return {
             databases: {
               ...state.databases,
@@ -308,12 +314,28 @@ export const useDatabaseStore = create<DatabaseStore>()(
           databaseId,
           `항목 ${bundle.rowPageOrder.length + 1}`,
         );
-        // 기본값이 있는 컬럼(status 등)에 시드 값 주입.
+        // 기본값이 있는 컬럼(status 등)에 시드 값 주입 — 단일 setState.
+        const defaults: Record<string, CellValue> = {};
         for (const col of bundle.columns) {
           const def = defaultCellValueForColumn(col);
-          if (def != null) {
-            usePageStore.getState().setPageDbCell(pageId, col.id, def);
-          }
+          if (def != null) defaults[col.id] = def;
+        }
+        if (Object.keys(defaults).length > 0) {
+          const t = Date.now();
+          usePageStore.setState((s) => {
+            const page = s.pages[pageId];
+            if (!page) return s;
+            return {
+              pages: {
+                ...s.pages,
+                [pageId]: {
+                  ...page,
+                  dbCells: { ...(page.dbCells ?? {}), ...defaults },
+                  updatedAt: t,
+                },
+              },
+            };
+          });
         }
         set((state) => {
           const b = state.databases[databaseId];
@@ -391,14 +413,33 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       getBundle: (databaseId) => get().databases[databaseId],
-      resolveBundle: (databaseId) => get().databases[databaseId],
+      resolveBundle: (databaseId) => get().getBundle(databaseId),
     }),
     {
       name: "quicknote.databaseStore.v2",
       storage: createJSONStorage(() => localStorage),
       version: DATABASE_STORE_VERSION,
       // v1 → v2: 행 데이터 모델 전면 변경. 기존 데이터를 안전하게 마이그레이션할 수 없어 wipe.
-      migrate: () => ({ version: DATABASE_STORE_VERSION, databases: {} }),
+      migrate: (persistedState, fromVersion) => {
+        try {
+          const key = `quicknote.databaseStore.migrateBackup.${Date.now()}`;
+          localStorage.setItem(
+            key,
+            JSON.stringify({
+              fromVersion,
+              savedAt: Date.now(),
+              payload: persistedState,
+            }),
+          );
+          localStorage.setItem(
+            "quicknote.databaseStore.lastMigrateBackupKey",
+            key,
+          );
+        } catch (err) {
+          reportNonFatal(err, "databaseStore.migrate.backup");
+        }
+        return { version: DATABASE_STORE_VERSION, databases: {} };
+      },
     },
   ),
 );

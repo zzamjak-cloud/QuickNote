@@ -11,6 +11,7 @@ import { DatabaseColumnSettingsButton } from "../DatabaseColumnSettingsButton";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
+import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 
 type Props = {
   databaseId: string;
@@ -34,6 +35,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
   const [colDragOver, setColDragOver] = useState<number | null>(null);
   const [rowDragFrom, setRowDragFrom] = useState<number | null>(null);
   const [rowDragOver, setRowDragOver] = useState<number | null>(null);
+  const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
 
   if (!bundle) return null;
 
@@ -218,11 +220,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              if (window.confirm("이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)")) {
-                                deleteRow(databaseId, row.pageId);
-                              }
-                            }}
+                            onClick={() => setRowDeletePageId(row.pageId)}
                             title="행 삭제"
                             className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
                           >
@@ -248,6 +246,18 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
       >
         <Plus size={14} /> 새 항목
       </button>
+      <SimpleConfirmDialog
+        open={rowDeletePageId !== null}
+        title="행 삭제"
+        message="이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)"
+        confirmLabel="삭제"
+        danger
+        onCancel={() => setRowDeletePageId(null)}
+        onConfirm={() => {
+          if (rowDeletePageId) deleteRow(databaseId, rowDeletePageId);
+          setRowDeletePageId(null);
+        }}
+      />
     </div>
   );
 }

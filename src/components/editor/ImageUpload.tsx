@@ -1,6 +1,10 @@
 import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { Upload, X } from "lucide-react";
+import {
+  EDITOR_IMAGE_PLACEHOLDER_SRC,
+  storeEditorImageBlob,
+} from "../../lib/editorImageStorage";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -28,30 +32,45 @@ export function ImageUpload({ open, onClose, editor }: Props) {
       );
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const src = String(reader.result);
-      const im = new Image();
-      im.onload = () => {
-        editor
-          ?.chain()
-          .focus()
-          .setImage({
-            src,
-            width: im.naturalWidth,
-            height: im.naturalHeight,
-          })
-          .run();
-        onClose();
-      };
-      im.onerror = () => {
-        editor?.chain().focus().setImage({ src }).run();
-        onClose();
-      };
-      im.src = src;
-    };
-    reader.onerror = () => setError("이미지를 읽지 못했습니다.");
-    reader.readAsDataURL(file);
+    void (async () => {
+      try {
+        const qnImageId = await storeEditorImageBlob(file);
+        const url = URL.createObjectURL(file);
+        const im = new Image();
+        im.onload = () => {
+          editor
+            ?.chain()
+            .focus()
+            .insertContent({
+              type: "image",
+              attrs: {
+                src: EDITOR_IMAGE_PLACEHOLDER_SRC,
+                qnImageId,
+                width: im.naturalWidth,
+                height: im.naturalHeight,
+              },
+            })
+            .run();
+          URL.revokeObjectURL(url);
+          onClose();
+        };
+        im.onerror = () => {
+          URL.revokeObjectURL(url);
+          editor
+            ?.chain()
+            .focus()
+            .insertContent({
+              type: "image",
+              attrs: { src: EDITOR_IMAGE_PLACEHOLDER_SRC, qnImageId },
+            })
+            .run();
+          onClose();
+        };
+        im.src = url;
+      } catch {
+        setError("이미지를 저장하지 못했습니다.");
+      }
+    })();
   };
 
   return (
@@ -78,16 +97,10 @@ export function ImageUpload({ open, onClose, editor }: Props) {
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            const file = e.dataTransfer.files[0];
-            if (file) insert(file);
-          }}
-          className="flex w-full flex-col items-center gap-2 rounded-md border-2 border-dashed border-zinc-300 px-4 py-8 text-sm text-zinc-500 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-8 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
         >
-          <Upload size={20} />
-          <span>클릭 또는 드래그하여 이미지 선택 (≤ 5MB)</span>
+          <Upload size={18} />
+          파일 선택
         </button>
         <input
           ref={inputRef}
@@ -95,13 +108,13 @@ export function ImageUpload({ open, onClose, editor }: Props) {
           accept="image/*"
           className="hidden"
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) insert(file);
+            const f = e.target.files?.[0];
             e.target.value = "";
+            if (f) insert(f);
           }}
         />
         {error && (
-          <p className="mt-2 text-xs text-red-500">{error}</p>
+          <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>
         )}
       </div>
     </div>

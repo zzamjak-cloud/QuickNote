@@ -1,7 +1,4 @@
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import type { SidebarDropMode } from "../../lib/sidebarPageTreeCollision";
 import type { PageNode } from "../../store/pageStore";
 import { PageListItem } from "./PageListItem";
 
@@ -10,7 +7,7 @@ type Props = {
   depth: number;
   draggable: boolean;
   onMove: (id: string) => void;
-  dropTarget: { id: string; mode: "child" | "sibling" } | null;
+  dropTarget: { id: string; mode: SidebarDropMode } | null;
 };
 
 export function PageListGroup({
@@ -21,22 +18,17 @@ export function PageListGroup({
   dropTarget,
 }: Props) {
   return (
-    <SortableContext
-      items={nodes.map((n) => n.id)}
-      strategy={verticalListSortingStrategy}
-    >
-      <div className="flex flex-col gap-0.5">
-        {nodes.map((node) => (
-          <PageListItem
-            key={node.id}
-            node={node}
-            depth={depth}
-            draggable={draggable}
-            onMove={onMove}
-            dropTarget={dropTarget}
-          />
-        ))}
-      </div>
-    </SortableContext>
+    <div className="flex flex-col gap-0.5">
+      {nodes.map((node) => (
+        <PageListItem
+          key={node.id}
+          node={node}
+          depth={depth}
+          draggable={draggable}
+          onMove={onMove}
+          dropTarget={dropTarget}
+        />
+      ))}
+    </div>
   );
 }

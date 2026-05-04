@@ -15,23 +15,30 @@ type LowlightApi = {
   registered?: (name: string) => boolean;
 };
 
+type HastLike = {
+  properties?: { className?: unknown };
+  children?: unknown;
+  value?: unknown;
+};
+
 function parseNodes(
   nodes: unknown,
   className: string[] = [],
 ): { text: string; classes: string[] }[] {
   if (!Array.isArray(nodes)) return [];
-  return (nodes as any[]).flatMap((node) => {
-    const raw = node.properties?.className;
+  return (nodes as unknown[]).flatMap((node: unknown) => {
+    const n = node as HastLike;
+    const raw = n.properties?.className;
     const classFromProps = Array.isArray(raw)
       ? raw
       : raw
         ? [String(raw)]
         : [];
     const classes = [...className, ...classFromProps];
-    if (node.children) {
-      return parseNodes(node.children, classes);
+    if (n.children) {
+      return parseNodes(n.children, classes);
     }
-    return [{ text: String(node.value ?? ""), classes }];
+    return [{ text: String(n.value ?? ""), classes }];
   });
 }
 

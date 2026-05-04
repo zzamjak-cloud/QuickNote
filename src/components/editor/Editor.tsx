@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { NodeSelection } from "@tiptap/pm/state";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useEditor, EditorContent, ReactRenderer } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -18,10 +25,16 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { Youtube } from "@tiptap/extension-youtube";
-import { common, createLowlight } from "lowlight";
+import type { createLowlight } from "lowlight";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
-import EmojiPickerReact, { EmojiStyle, Theme } from "emoji-picker-react";
+type LowlightApi = ReturnType<typeof createLowlight>;
+
+const LazyEditorEmojiPicker = lazy(() =>
+  import("./EditorEmojiPickerPanel").then((m) => ({
+    default: m.EditorEmojiPickerPanel,
+  })),
+);
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
@@ -53,8 +66,19 @@ import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
 import type { JSONContent } from "@tiptap/react";
 import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
+import { isAllowedTipTapLinkUri } from "../../lib/safeUrl";
 import { useBoxSelect } from "../../hooks/useBoxSelect";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { tipTapJsonDocEquals } from "../../lib/pm/jsonDocEquals";
+import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
+import { loadEditorImageBlob } from "../../lib/editorImageStorage";
+import { reportNonFatal } from "../../lib/reportNonFatal";
+import {
+  createEditorHandleDrop,
+  type ColumnDropState,
+} from "../../lib/editor/editorHandleDrop";
+import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
+import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 
 /** 풀 페이지 DB — 페이지 제목 입력 시 blur 에서만 DB 메타 제목 갱신(중복 검사) */
 function trySyncFullPageDatabaseTitle(
@@ -89,53 +113,19 @@ function normalizeFullPageDatabaseDoc(doc: JSONContent): JSONContent {
     if (c.length === 1) return doc;
     return {
       type: "doc",
-      content: [JSON.parse(JSON.stringify(first)) as JSONContent],
+      content: [structuredClone(first) as JSONContent],
     };
   }
   return doc;
 }
 
-const lowlight = createLowlight(common);
 const AUTOSAVE_DEBOUNCE_MS = 300;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /** useEditor content 폴백 — 매 렌더 새 객체를 넘기면 옵션 비교 실패 → setOptions 반복 → 무한 업데이트 */
 const EMPTY_EDITOR_DOC: JSONContent = {
   type: "doc",
   content: [{ type: "paragraph" }],
 };
-
-function loadImageDimensions(
-  src: string,
-): Promise<{ w: number; h: number } | null> {
-  return new Promise((resolve) => {
-    const im = new Image();
-    im.onload = () =>
-      resolve({ w: im.naturalWidth, h: im.naturalHeight });
-    im.onerror = () => resolve(null);
-    im.src = src;
-  });
-}
-
-/** 로컬 저장 후에도 유지되도록 data URL 로 삽입(blob URL 은 새로고침 시 깨짐). */
-function insertImageFromFile(
-  file: File,
-  insert: (src: string, dim?: { w: number; h: number }) => void,
-): boolean {
-  if (file.size > MAX_IMAGE_BYTES) {
-    alert(
-      `5MB 이하 이미지만 가능합니다 (현재 ${(file.size / 1024 / 1024).toFixed(1)}MB).`,
-    );
-    return false;
-  }
-  const reader = new FileReader();
-  reader.onload = () => {
-    const src = String(reader.result);
-    void loadImageDimensions(src).then((dim) => insert(src, dim ?? undefined));
-  };
-  reader.readAsDataURL(file);
-  return true;
-}
 
 type EditorProps = {
   /** 지정 시 해당 페이지를 편집(예: 사이드 피크). 미지정이면 activePageId 사용. */
@@ -165,10 +155,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [emojiAnchor, setEmojiAnchor] = useState<{ top: number; left: number; insertPos: number } | null>(null);
 
-  const columnDropRef = useRef<{
-    side: "left" | "right";
-    targetBlockStart: number;
-  } | null>(null);
+  const columnDropRef = useRef<ColumnDropState>(null);
 
   const [columnDropIndicator, setColumnDropIndicator] = useState<{
     x: number;
@@ -176,11 +163,47 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     height: number;
   } | null>(null);
 
+  const [simpleAlert, setSimpleAlert] = useState<string | null>(null);
+
+  const clearColumnDropUi = useCallback(() => {
+    setColumnDropIndicator(null);
+    document.body.classList.remove("quicknote-column-drop");
+  }, [setColumnDropIndicator]);
+
+  const handleEditorInsertImage = useCallback(
+    (file: File, insert: Parameters<typeof insertImageFromFile>[1]) =>
+      insertImageFromFile(file, insert, {
+        onSizeExceeded: (mb) =>
+          setSimpleAlert(
+            `5MB 이하 이미지만 가능합니다 (현재 ${mb.toFixed(1)}MB).`,
+          ),
+      }),
+    [setSimpleAlert],
+  );
+
+  const [lowlightApi, setLowlightApi] = useState<LowlightApi | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void import("lowlight").then(({ common, createLowlight }) => {
+      if (!cancelled) setLowlightApi(createLowlight(common));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const extensions = useMemo(
     () => [
       NodeRange.configure({}),
       StarterKit.configure({
-        codeBlock: false,
+        // lowlight 청크 로딩 전: 기본 codeBlock(구문강조 없음). 로드 후 CodeBlockLowlight로 교체됨.
+        codeBlock: lowlightApi
+          ? false
+          : {
+              HTMLAttributes: {
+                class: "hljs qn-code-block not-prose",
+              },
+            },
         blockquote: false,
         // 아래는 동일 이름으로 별도 등록하므로 StarterKit 쪽은 끈다.
         link: false,
@@ -195,20 +218,35 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       Placeholder.configure({
         placeholder: "/ 를 입력해 명령 보기...",
       }),
-      Link.configure({ openOnClick: false }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      CodeBlockLowlightStable.configure({
-        lowlight,
-        /* null + fallbackLanguage: highlightAuto 없이 고정 언어로만 강조(입력 중 색 요동 방지) */
-        defaultLanguage: null,
-        fallbackLanguage: "javascript",
+      Link.configure({
+        openOnClick: false,
+        // protocols 를 넣으면 linkifyjs에 registerCustomProtocol이 돌아가는데,
+        // 자동 링크·붙여넣기가 먼저 쓰인 뒤면 "already initialized" 경고가 난다.
+        // http/https/mailto/tel 은 Link 기본 isAllowedUri에 이미 포함되므로 생략한다.
+        isAllowedUri: isAllowedTipTapLinkUri,
         HTMLAttributes: {
-          class: "hljs qn-code-block not-prose",
+          rel: "noopener noreferrer nofollow",
+          target: "_blank",
         },
       }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      ...(lowlightApi
+        ? [
+            CodeBlockLowlightStable.configure({
+              lowlight: lowlightApi,
+              /* null + fallbackLanguage: highlightAuto 없이 고정 언어로만 강조(입력 중 색 요동 방지) */
+              defaultLanguage: null,
+              fallbackLanguage: "javascript",
+              HTMLAttributes: {
+                class: "hljs qn-code-block not-prose",
+              },
+            }),
+          ]
+        : []),
       CodeBlockCopy,
-      ImageBlock.configure({ allowBase64: true }),
+      // 대용량 data: URL을 문서 JSON에 넣지 않음 — 이미지는 IDB + qnImageId만 사용
+      ImageBlock.configure({ allowBase64: false }),
       HorizontalRule,
       MoveBlock,
       Table.configure({ resizable: true }),
@@ -218,7 +256,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       TextStyle,
       Color,
       Highlight.configure({ multicolor: true }),
-      Youtube.configure({ width: 560, height: 315 }),
+      Youtube.configure({ width: 560, height: 315, nocookie: true }),
       Callout,
       ColumnLayout,
       Column,
@@ -271,7 +309,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         },
       }),
     ],
-    [],
+    [lowlightApi],
   );
 
   const editorProps = useMemo(
@@ -287,124 +325,27 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
           if (item.type.startsWith("image/")) {
             const file = item.getAsFile();
             if (file) {
-              const ok = insertImageFromFile(file, (src, dim) => {
+              event.preventDefault();
+              void handleEditorInsertImage(file, (attrs) => {
                 view.dispatch(
                   view.state.tr.replaceSelectionWith(
-                    view.state.schema.nodes.image!.create({
-                      src,
-                      ...(dim
-                        ? { width: dim.w, height: dim.h }
-                        : {}),
-                    }),
+                    view.state.schema.nodes.image!.create(attrs),
                   ),
                 );
               });
-              if (ok) {
-                event.preventDefault();
-                return true;
-              }
+              return true;
             }
           }
         }
         return false;
       },
-      handleDrop: (
-        view: import("@tiptap/pm/view").EditorView,
-        event: DragEvent,
-        _slice: unknown,
-        moved: boolean,
-      ) => {
-        // 컬럼 분할 드롭
-        if (moved && columnDropRef.current) {
-          const { side, targetBlockStart } = columnDropRef.current;
-          columnDropRef.current = null;
-          setColumnDropIndicator(null);
-          document.body.classList.remove("quicknote-column-drop");
-
-          const sel = view.state.selection;
-          if (!(sel instanceof NodeSelection)) return false;
-
-          const draggedStart = sel.from;
-          const draggedNode = sel.node;
-          const targetNode = view.state.doc.nodeAt(targetBlockStart);
-          if (!targetNode || draggedStart === targetBlockStart) return false;
-
-          const { schema } = view.state;
-          if (!schema.nodes.column || !schema.nodes.columnLayout) return false;
-
-          event.preventDefault();
-
-          const pos1 = Math.min(draggedStart, targetBlockStart);
-          const pos2 = Math.max(draggedStart, targetBlockStart);
-          const node1 = view.state.doc.nodeAt(pos1)!;
-          const node2 = view.state.doc.nodeAt(pos2)!;
-
-          // 기존 columnLayout에 열 추가 (최대 4열)
-          if (targetNode.type.name === "columnLayout") {
-            const existingCols: import("@tiptap/pm/model").Node[] = [];
-            targetNode.content.forEach((col) => existingCols.push(col));
-            if (existingCols.length >= 4) return false;
-            const newCol = schema.nodes.column.create({}, draggedNode.copy(draggedNode.content));
-            const newCols = side === "right"
-              ? [...existingCols, newCol]
-              : [newCol, ...existingCols];
-            const newLayout = schema.nodes.columnLayout.create({ columns: newCols.length }, newCols);
-            const tr = view.state.tr;
-            tr.delete(pos2, pos2 + node2.nodeSize);
-            tr.delete(pos1, pos1 + node1.nodeSize);
-            tr.insert(pos1, newLayout);
-            view.dispatch(tr.scrollIntoView());
-            return true;
-          }
-
-          // 새 2열 레이아웃 생성
-          const leftNode =
-            side === "left"
-              ? (draggedStart < targetBlockStart ? draggedNode : targetNode)
-              : (draggedStart < targetBlockStart ? targetNode : draggedNode);
-          const rightNode =
-            side === "left"
-              ? (draggedStart < targetBlockStart ? targetNode : draggedNode)
-              : (draggedStart < targetBlockStart ? draggedNode : targetNode);
-
-          const col1 = schema.nodes.column.create({}, leftNode.copy(leftNode.content));
-          const col2 = schema.nodes.column.create({}, rightNode.copy(rightNode.content));
-          const layout = schema.nodes.columnLayout.create({ columns: 2 }, [col1, col2]);
-
-          const tr = view.state.tr;
-          tr.delete(pos2, pos2 + node2.nodeSize);
-          tr.delete(pos1, pos1 + node1.nodeSize);
-          tr.insert(pos1, layout);
-          view.dispatch(tr.scrollIntoView());
-          return true;
-        }
-
-        // 기존 이미지 파일 드롭
-        if (moved) return false;
-        event.preventDefault?.();
-        const dt = event.dataTransfer;
-        const files = dt?.files;
-        if (!files || files.length === 0) return false;
-        const imgFile = Array.from(files).find((f) => f.type.startsWith("image/"));
-        if (!imgFile) return false;
-        const coord = view.posAtCoords({ left: event.clientX, top: event.clientY });
-        const ok = insertImageFromFile(imgFile, (src, dim) => {
-          const tr = view.state.tr;
-          const node = view.state.schema.nodes.image!.create({
-            src,
-            ...(dim ? { width: dim.w, height: dim.h } : {}),
-          });
-          if (coord) {
-            tr.insert(coord.pos, node);
-          } else {
-            tr.replaceSelectionWith(node);
-          }
-          view.dispatch(tr.scrollIntoView());
-        });
-        return ok;
-      },
+      handleDrop: createEditorHandleDrop({
+        columnDropRef,
+        clearColumnDropUi,
+        insertImageFromFile: handleEditorInsertImage,
+      }),
     }),
-    [],
+    [clearColumnDropUi, handleEditorInsertImage],
   );
 
   // 풀 페이지 데이터베이스 — 첫 블록이 fullPage databaseBlock 이면 해당 페이지는 본문 에디터로 쓰지 않음(인라인 DB 와 구분).
@@ -422,25 +363,28 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
 
   // content 로 store 의 page.doc 를 넘기면 자동저장마다 참조가 바뀌어 setOptions 가 무한 호출됨.
   // 초기값은 고정 EMPTY 만 넘기고, 실제 문서는 아래 effect 에서만 주입한다.
-  const editor = useEditor({
-    extensions,
-    content: EMPTY_EDITOR_DOC,
-    editorProps,
-    shouldRerenderOnTransaction: false,
-    editable: !isFullPageDatabase,
-  });
+  const editor = useEditor(
+    {
+      extensions,
+      content: EMPTY_EDITOR_DOC,
+      editorProps,
+      shouldRerenderOnTransaction: false,
+      editable: !isFullPageDatabase,
+    },
+    [lowlightApi],
+  );
 
   // 활성 페이지 변경 시 본문 동기화. page.doc 를 deps 에 넣지 않음(타이핑·저장마다 doc 참조 변경 → setContent 루프·내용 되살림).
   useEffect(() => {
     if (!editor || !page || !effectivePageId) return;
     let safeDoc = stripStaleBlobImages(page.doc);
     safeDoc = normalizeFullPageDatabaseDoc(safeDoc);
-    if (JSON.stringify(safeDoc) !== JSON.stringify(page.doc)) {
+    if (!tipTapJsonDocEquals(editor.schema, safeDoc, page.doc)) {
       updateDoc(effectivePageId, safeDoc);
     }
     const current = editor.getJSON();
-    if (JSON.stringify(current) === JSON.stringify(safeDoc)) return;
-    queueMicrotask(() => {
+    if (tipTapJsonDocEquals(editor.schema, current, safeDoc)) return;
+    scheduleEditorMutation(() => {
       if (editor.isDestroyed) return;
       editor.commands.setContent(safeDoc, { emitUpdate: false });
     });
@@ -468,6 +412,31 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     };
   }, [editor, effectivePageId, updateDoc]);
 
+  // IDB 에만 있는 이미지 바이트를 blob URL 로 수화(문서 JSON 은 qnImageId + 플레이스홀더 src 만 유지)
+  useEffect(() => {
+    if (!editor) return;
+    const hydrate = () => {
+      const root = editor.view.dom;
+      root
+        .querySelectorAll<HTMLImageElement>("img[data-qn-image-id]")
+        .forEach((img) => {
+          if (img.dataset.qnBlobHydrated === "1") return;
+          const id = img.getAttribute("data-qn-image-id");
+          if (!id) return;
+          void loadEditorImageBlob(id).then((blob) => {
+            if (!blob || !editor.view.dom.contains(img)) return;
+            img.src = URL.createObjectURL(blob);
+            img.dataset.qnBlobHydrated = "1";
+          });
+        });
+    };
+    hydrate();
+    editor.on("update", hydrate);
+    return () => {
+      editor.off("update", hydrate);
+    };
+  }, [editor]);
+
   // 컬럼 분할 드래그오버 감지
   useEffect(() => {
     if (!editor) return;
@@ -487,7 +456,13 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       const coords = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
       if (!coords) { clearDrop(); return; }
       let $pos;
-      try { $pos = editor.state.doc.resolve(coords.pos); } catch { clearDrop(); return; }
+      try {
+        $pos = editor.state.doc.resolve(coords.pos);
+      } catch (err) {
+        reportNonFatal(err, "columnDrop.dragOver.resolve");
+        clearDrop();
+        return;
+      }
 
       let targetNode = null;
       let targetStart = -1;
@@ -554,15 +529,15 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         const coords = editor.view.coordsAtPos(insertPos);
         top = coords.bottom + 8;
         left = coords.left;
-      } catch {
-        // 기본값 유지
+      } catch (err) {
+        reportNonFatal(err, "emojiPicker.coordsAtPos");
       }
       setEmojiAnchor({ top, left, insertPos });
       setEmojiPickerOpen(true);
     };
     window.addEventListener("quicknote:open-emoji-picker", open);
     return () => window.removeEventListener("quicknote:open-emoji-picker", open);
-  }, []);
+  }, [editor]);
 
   // 새 페이지 생성 시 제목 자동 포커스
   useEffect(() => {
@@ -603,8 +578,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       // 보이는 현상 + BubbleToolbar 가 뜨는 현상을 막기 위해 선택을 점선택으로 접고 포커스 해제.
       try {
         editor.commands.setTextSelection(0);
-      } catch {
-        // doc 첫 위치가 atom 시작이라 TextSelection 부적합한 경우 무시
+      } catch (err) {
+        reportNonFatal(err, "fullPageDb.setTextSelection");
       }
       if (editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
     }
@@ -646,7 +621,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
                 if (!isFullPageDatabase) return;
                 const ok = trySyncFullPageDatabaseTitle(page.doc, page.title);
                 if (!ok) {
-                  alert("이미 사용 중인 데이터베이스 이름입니다.");
+                  setSimpleAlert("이미 사용 중인 데이터베이스 이름입니다.");
                   renamePage(effectivePageId, dbTitleBaselineRef.current);
                 } else {
                   dbTitleBaselineRef.current = page.title;
@@ -699,29 +674,34 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
               left: emojiAnchor.left,
             }}
           >
-            <EmojiPickerReact
-              theme={darkMode ? Theme.DARK : Theme.LIGHT}
-              emojiStyle={EmojiStyle.NATIVE}
-              previewConfig={{ showPreview: false }}
-              searchDisabled={false}
-              lazyLoadEmojis
-              width={320}
-              height={380}
-              onEmojiClick={(data) => {
-                if (editor && emojiAnchor.insertPos != null) {
-                  editor
-                    .chain()
-                    .focus()
-                    .insertContentAt(emojiAnchor.insertPos, data.emoji)
-                    .run();
-                }
-                setEmojiPickerOpen(false);
-                setEmojiAnchor(null);
-              }}
-            />
+            <Suspense
+              fallback={
+                <div className="h-[380px] w-[320px] animate-pulse rounded-md border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800" />
+              }
+            >
+              <LazyEditorEmojiPicker
+                darkMode={darkMode}
+                onPick={(emoji) => {
+                  if (editor && emojiAnchor.insertPos != null) {
+                    editor
+                      .chain()
+                      .focus()
+                      .insertContentAt(emojiAnchor.insertPos, emoji)
+                      .run();
+                  }
+                  setEmojiPickerOpen(false);
+                  setEmojiAnchor(null);
+                }}
+              />
+            </Suspense>
           </div>
         </div>
       )}
+      <SimpleAlertDialog
+        open={simpleAlert !== null}
+        message={simpleAlert ?? ""}
+        onClose={() => setSimpleAlert(null)}
+      />
     </div>
   );
 }

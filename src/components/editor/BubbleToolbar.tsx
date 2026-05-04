@@ -11,6 +11,8 @@ import {
   Link as LinkIcon,
 } from "lucide-react";
 import { ImageBubbleToolbar } from "./ImageBubbleToolbar";
+import { sanitizeWebLinkHref } from "../../lib/safeUrl";
+import { useUiStore } from "../../store/uiStore";
 
 const COLORS = [
   { label: "기본", value: null },
@@ -192,13 +194,21 @@ export function BubbleToolbar({ editor }: Props) {
             <ToolbarBtn
               active={editor.isActive("link")}
               onClick={() => {
-                const url = prompt("URL을 입력하세요:");
-                if (url === null) return;
-                if (url === "") {
-                  editor.chain().focus().unsetLink().run();
-                } else {
-                  editor.chain().focus().setLink({ href: url }).run();
-                }
+                void (async () => {
+                  const url = await useUiStore
+                    .getState()
+                    .requestTextPrompt("URL을 입력하세요", {
+                      placeholder: "https://…",
+                    });
+                  if (url === null) return;
+                  if (url === "") {
+                    editor.chain().focus().unsetLink().run();
+                  } else {
+                    const safe = sanitizeWebLinkHref(url);
+                    if (!safe) return;
+                    editor.chain().focus().setLink({ href: safe }).run();
+                  }
+                })();
               }}
               title="링크"
             >

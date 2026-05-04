@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Download, Plus, Search, Trash2, X } from "lucide-react";
 import type { CellValue, ColumnDef, FileCellItem } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useContactsStore } from "../../store/contactsStore";
+import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
+import { AddContactDialog } from "../ui/AddContactDialog";
 import {
   putDatabaseFile,
   downloadBlob,
@@ -169,21 +171,7 @@ function MultiSelectCell({
   onChange: (v: CellValue) => void;
 }) {
   const opts = column.config?.options ?? [];
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (popoverRef.current?.contains(e.target as Node)) return;
-      if (buttonRef.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [open]);
+  const pop = useAnchoredPopover(200);
 
   const toggle = (id: string) => {
     const set = new Set(value);
@@ -192,28 +180,14 @@ function MultiSelectCell({
     onChange([...set]);
   };
 
-  const togglePopover = () => {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (rect) {
-      const width = 200;
-      const left = Math.min(rect.left, window.innerWidth - width - 8);
-      setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
-    }
-    setOpen(true);
-  };
-
   const selected = opts.filter((o) => value.includes(o.id));
 
   return (
     <>
       <button
-        ref={buttonRef}
+        ref={pop.buttonRef}
         type="button"
-        onClick={togglePopover}
+        onClick={() => pop.toggle(200)}
         title="옵션 선택"
         className="flex min-h-[20px] w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
@@ -226,11 +200,11 @@ function MultiSelectCell({
           </span>
         ))}
       </button>
-      {open && coords &&
+      {pop.open && pop.coords &&
         createPortal(
           <div
-            ref={popoverRef}
-            style={{ position: "fixed", top: coords.top, left: coords.left, width: 200 }}
+            ref={pop.popoverRef}
+            style={{ position: "fixed", top: pop.coords.top, left: pop.coords.left, width: 200 }}
             className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             {opts.length === 0 ? (
@@ -282,40 +256,12 @@ function DateCell({
   value: { start?: string; end?: string };
   onChange: (v: CellValue) => void;
 }) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const pop = useAnchoredPopover(248);
   const startDate = value.start ? toDate(value.start) : null;
   const endDate = value.end ? toDate(value.end) : null;
   const [viewMonth, setViewMonth] = useState<Date>(
     () => startDate ?? new Date(),
   );
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (popoverRef.current?.contains(e.target as Node)) return;
-      if (buttonRef.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const togglePopover = () => {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (rect) {
-      const width = 248;
-      const left = Math.min(rect.left, window.innerWidth - width - 8);
-      setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
-    }
-    setOpen(true);
-  };
 
   const onPickDay = (day: Date) => {
     const s = startDate;
@@ -339,7 +285,7 @@ function DateCell({
 
   const clearRange = () => {
     onChange({ start: undefined, end: undefined });
-    setOpen(false);
+    pop.close();
   };
 
   const label = (() => {
@@ -354,9 +300,9 @@ function DateCell({
   return (
     <>
       <button
-        ref={buttonRef}
+        ref={pop.buttonRef}
         type="button"
-        onClick={togglePopover}
+        onClick={() => pop.toggle(248)}
         title={label || "날짜 선택"}
         className={[
           "flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-left text-[11px]",
@@ -367,11 +313,16 @@ function DateCell({
       >
         {isEmpty ? " " : <span>{label}</span>}
       </button>
-      {open && coords &&
+      {pop.open && pop.coords &&
         createPortal(
           <div
-            ref={popoverRef}
-            style={{ position: "fixed", top: coords.top, left: coords.left, width: 248 }}
+            ref={pop.popoverRef}
+            style={{
+              position: "fixed",
+              top: pop.coords.top,
+              left: pop.coords.left,
+              width: 248,
+            }}
             className="z-50 rounded-md border border-zinc-200 bg-white p-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <CalendarMonth
@@ -549,34 +500,9 @@ function PersonCell({
 }) {
   const contacts = useContactsStore((s) => s.contacts);
   const addContact = useContactsStore((s) => s.addContact);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const pop = useAnchoredPopover(240);
   const [q, setQ] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (popoverRef.current?.contains(e.target as Node)) return;
-      if (buttonRef.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const togglePopover = () => {
-    if (open) { setOpen(false); return; }
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (rect) {
-      const width = 240;
-      const left = Math.min(rect.left, window.innerWidth - width - 8);
-      setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
-    }
-    setQ("");
-    setOpen(true);
-  };
+  const [addContactOpen, setAddContactOpen] = useState(false);
 
   // 등록된 사람의 "이름"만으로 검색
   const filtered = (() => {
@@ -590,10 +516,17 @@ function PersonCell({
 
   return (
     <>
+      <AddContactDialog
+        open={addContactOpen}
+        onClose={() => setAddContactOpen(false)}
+        onSave={(email, displayName) => {
+          addContact(email, displayName);
+        }}
+      />
       <button
-        ref={buttonRef}
+        ref={pop.buttonRef}
         type="button"
-        onClick={togglePopover}
+        onClick={() => pop.toggle(240, () => setQ(""))}
         title={selectedContact?.displayName ?? "사람 선택"}
         className="flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-left text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
@@ -605,11 +538,16 @@ function PersonCell({
           <span> </span>
         )}
       </button>
-      {open && coords &&
+      {pop.open && pop.coords &&
         createPortal(
           <div
-            ref={popoverRef}
-            style={{ position: "fixed", top: coords.top, left: coords.left, width: 240 }}
+            ref={pop.popoverRef}
+            style={{
+              position: "fixed",
+              top: pop.coords.top,
+              left: pop.coords.left,
+              width: 240,
+            }}
             className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <div className="flex items-center gap-1 border-b border-zinc-100 px-1 py-1 dark:border-zinc-800">
@@ -625,7 +563,10 @@ function PersonCell({
             {value && (
               <button
                 type="button"
-                onClick={() => { onChange(null); setOpen(false); }}
+                onClick={() => {
+                  onChange(null);
+                  pop.close();
+                }}
                 className="flex w-full items-center gap-2 rounded px-2 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >
                 <X size={11} /> 선택 해제
@@ -636,13 +577,7 @@ function PersonCell({
                 {q ? "결과 없음" : "등록된 사람이 없습니다"}
                 <button
                   type="button"
-                  onClick={() => {
-                    const email = window.prompt("이메일");
-                    const displayName = window.prompt("이름");
-                    if (email?.trim() && displayName?.trim()) {
-                      addContact(email.trim(), displayName.trim());
-                    }
-                  }}
+                  onClick={() => setAddContactOpen(true)}
                   className="ml-2 rounded border border-zinc-300 px-1 py-0.5 text-[10px] dark:border-zinc-600"
                 >
                   + 추가
@@ -653,7 +588,10 @@ function PersonCell({
                 <button
                   key={c.id}
                   type="button"
-                  onClick={() => { onChange(c.email); setOpen(false); }}
+                  onClick={() => {
+                    onChange(c.email);
+                    pop.close();
+                  }}
                   className={[
                     "flex w-full items-center justify-between rounded px-2 py-1 text-left",
                     c.email === value
@@ -683,41 +621,16 @@ function StatusCell({
   onChange: (v: CellValue) => void;
 }) {
   const opts = column.config?.options ?? [];
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (popoverRef.current?.contains(e.target as Node)) return;
-      if (buttonRef.current?.contains(e.target as Node)) return;
-      setOpen(false);
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  const togglePopover = () => {
-    if (open) { setOpen(false); return; }
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (rect) {
-      const width = 180;
-      const left = Math.min(rect.left, window.innerWidth - width - 8);
-      setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
-    }
-    setOpen(true);
-  };
+  const pop = useAnchoredPopover(180);
 
   const current = opts.find((o) => o.id === value) ?? opts[0];
 
   return (
     <>
       <button
-        ref={buttonRef}
+        ref={pop.buttonRef}
         type="button"
-        onClick={togglePopover}
+        onClick={() => pop.toggle(180)}
         title="상태 변경"
         className="flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
@@ -732,11 +645,16 @@ function StatusCell({
           <span className="text-[10px] text-zinc-400">옵션 없음</span>
         )}
       </button>
-      {open && coords &&
+      {pop.open && pop.coords &&
         createPortal(
           <div
-            ref={popoverRef}
-            style={{ position: "fixed", top: coords.top, left: coords.left, width: 180 }}
+            ref={pop.popoverRef}
+            style={{
+              position: "fixed",
+              top: pop.coords.top,
+              left: pop.coords.left,
+              width: 180,
+            }}
             className="z-50 rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             {opts.length === 0 ? (
@@ -746,7 +664,10 @@ function StatusCell({
                 <button
                   key={o.id}
                   type="button"
-                  onClick={() => { onChange(o.id); setOpen(false); }}
+                  onClick={() => {
+                    onChange(o.id);
+                    pop.close();
+                  }}
                   className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   <span

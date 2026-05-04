@@ -322,11 +322,13 @@ function CropOverlay({
     [boxW, boxH, setCrop],
   );
 
+  const endDragRef = useRef<() => void>(() => {});
   const endDrag = useCallback(() => {
     dragRef.current = null;
     window.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointerup", endDragRef.current);
   }, [onPointerMove]);
+  endDragRef.current = endDrag;
 
   const startDrag = (mode: DragMode, e: ReactPointerEvent) => {
     e.preventDefault();

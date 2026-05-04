@@ -35,3 +35,7 @@ node_modules/.vitest/
 .claude/settings.local.json
 Plan
 .playwright-mcp
+.full-review
+.github
+.husky
+docs

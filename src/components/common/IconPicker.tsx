@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import EmojiPickerReact, { EmojiStyle, Theme } from "emoji-picker-react";
-import { useSettingsStore } from "../../store/settingsStore";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+
+const LazyIconPickerEmoji = lazy(() =>
+  import("./IconPickerEmoji").then((m) => ({ default: m.IconPickerEmoji })),
+);
 
 type Props = {
   current: string | null;
@@ -11,7 +13,6 @@ type Props = {
 
 // 카테고리 탭 + 검색이 내장된 emoji-picker-react 기반 아이콘 picker.
 export function IconPicker({ current, onChange, size = "lg" }: Props) {
-  const darkMode = useSettingsStore((s) => s.darkMode);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -50,19 +51,18 @@ export function IconPicker({ current, onChange, size = "lg" }: Props) {
       {trigger}
       {open && (
         <div className="absolute left-0 top-14 z-50 rounded-md border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-          <EmojiPickerReact
-            theme={darkMode ? Theme.DARK : Theme.LIGHT}
-            emojiStyle={EmojiStyle.NATIVE}
-            previewConfig={{ showPreview: false }}
-            searchDisabled={false}
-            lazyLoadEmojis
-            width={320}
-            height={380}
-            onEmojiClick={(data) => {
-              onChange(data.emoji);
-              setOpen(false);
-            }}
-          />
+          <Suspense
+            fallback={
+              <div className="h-[380px] w-[320px] animate-pulse bg-zinc-100 dark:bg-zinc-800" />
+            }
+          >
+            <LazyIconPickerEmoji
+              onPick={(emoji) => {
+                onChange(emoji);
+                setOpen(false);
+              }}
+            />
+          </Suspense>
           <div className="flex items-center justify-end gap-1 border-t border-zinc-200 p-1.5 dark:border-zinc-700">
             <button
               type="button"

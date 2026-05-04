@@ -36,6 +36,11 @@ type PageStoreActions = {
   findFullPagePageIdForDatabase: (databaseId: string) => string | null;
   // 페이지를 다른 부모/위치로 이동. parentId=null 이면 루트.
   movePage: (id: string, parentId: string | null, index: number) => void;
+  // 키보드 단축키용 상대 이동 (같은 부모 내 위/아래, 들여쓰기/내어쓰기)
+  movePageRelative: (
+    id: string,
+    direction: "up" | "down" | "indent" | "outdent",
+  ) => void;
   // 페이지(와 자손)를 복제하여 원본 바로 다음에 삽입. 복제된 루트의 id를 반환.
   duplicatePage: (id: string) => string;
   // 행 페이지의 dbCells 한 항목을 갱신 (title 컬럼 제외)
@@ -50,7 +55,7 @@ function nextOrderForParent(pages: PageMap, parentId: string | null): number {
   return Math.max(...siblings.map((s) => s.order)) + 1;
 }
 
-function isDescendant(
+export function isDescendant(
   pages: PageMap,
   candidateAncestorId: string,
   nodeId: string,
@@ -215,6 +220,50 @@ export const usePageStore = create<PageStore>()(
         });
       },
 
+      movePageRelative: (id, direction) => {
+        const state = get();
+        const me = state.pages[id];
+        if (!me) return;
+        const siblings = Object.values(state.pages)
+          .filter((p) => p.parentId === me.parentId)
+          .sort((a, b) => a.order - b.order);
+        const idx = siblings.findIndex((p) => p.id === id);
+        if (idx === -1) return;
+        const move = get().movePage;
+
+        if (direction === "up") {
+          if (idx === 0) return;
+          move(id, me.parentId, idx - 1);
+          return;
+        }
+        if (direction === "down") {
+          if (idx >= siblings.length - 1) return;
+          move(id, me.parentId, idx + 1);
+          return;
+        }
+        if (direction === "indent") {
+          // 직전 형제의 마지막 자식으로
+          if (idx === 0) return;
+          const prev = siblings[idx - 1];
+          if (!prev) return;
+          move(id, prev.id, Number.MAX_SAFE_INTEGER);
+          return;
+        }
+        if (direction === "outdent") {
+          // 조부모의 자식으로 — 현재 부모 직후 위치
+          if (me.parentId === null) return;
+          const parent = state.pages[me.parentId];
+          if (!parent) return;
+          const grandSiblings = Object.values(state.pages)
+            .filter((p) => p.parentId === parent.parentId)
+            .sort((a, b) => a.order - b.order);
+          const parentIdx = grandSiblings.findIndex((p) => p.id === parent.id);
+          if (parentIdx === -1) return;
+          move(id, parent.parentId, parentIdx + 1);
+          return;
+        }
+      },
+
       duplicatePage: (id) => {
         const state = get();
         const source = state.pages[id];
@@ -244,6 +293,10 @@ export const usePageStore = create<PageStore>()(
           newPages[newPageId] = {
             ...orig,
             id: newPageId,
+            doc: structuredClone(orig.doc),
+            dbCells: orig.dbCells
+              ? structuredClone(orig.dbCells)
+              : orig.dbCells,
             title: isRoot ? `${orig.title} (복사본)` : orig.title,
             parentId: isRoot
               ? orig.parentId
@@ -304,6 +357,8 @@ export const usePageStore = create<PageStore>()(
     {
       name: "quicknote.pageStore.v1",
       storage: createJSONStorage(() => localStorage),
+      version: 1,
+      migrate: (persisted) => persisted,
     },
   ),
 );

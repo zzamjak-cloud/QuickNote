@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
   ChevronRight,
   ChevronDown,
@@ -9,6 +8,7 @@ import {
   ArrowUpToLine,
   MoveRight,
 } from "lucide-react";
+import type { SidebarDropMode } from "../../lib/sidebarPageTreeCollision";
 import type { PageNode } from "../../store/pageStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -19,11 +19,48 @@ type Props = {
   depth: number;
   draggable: boolean;
   onMove: (id: string) => void;
-  // 드롭 모드 시각 피드백: 'child'면 over row 전체 outline, 'sibling'이면 하단 라인.
-  dropTarget: { id: string; mode: "child" | "sibling" } | null;
+  // 드롭 힌트: before/after=행 위·아래 파란 선, child-first/-last=파란 링+가이드, disabled=빨간 링
+  dropTarget: { id: string; mode: SidebarDropMode } | null;
 };
 
-export function PageListItem({
+function dropHintForRow(
+  dt: Props["dropTarget"],
+  rowId: string,
+): "none" | SidebarDropMode {
+  if (!dt || dt.id !== rowId) return "none";
+  return dt.mode;
+}
+
+function pageNodePropsEqual(a: PageNode, b: PageNode): boolean {
+  if (
+    a.id !== b.id ||
+    a.title !== b.title ||
+    a.icon !== b.icon ||
+    a.parentId !== b.parentId ||
+    a.order !== b.order
+  ) {
+    return false;
+  }
+  if (a.children.length !== b.children.length) return false;
+  for (let i = 0; i < a.children.length; i++) {
+    if (!pageNodePropsEqual(a.children[i]!, b.children[i]!)) return false;
+  }
+  return true;
+}
+
+function pageListItemPropsEqual(prev: Props, next: Props): boolean {
+  if (prev.depth !== next.depth || prev.draggable !== next.draggable) return false;
+  if (prev.onMove !== next.onMove) return false;
+  if (
+    dropHintForRow(prev.dropTarget, prev.node.id) !==
+    dropHintForRow(next.dropTarget, next.node.id)
+  ) {
+    return false;
+  }
+  return pageNodePropsEqual(prev.node, next.node);
+}
+
+const PageListItemInner = function PageListItem({
   node,
   depth,
   draggable,
@@ -48,7 +85,23 @@ export function PageListItem({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const sortable = useSortable({ id: node.id, disabled: !draggable });
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    isDragging,
+  } = useDraggable({ id: node.id, disabled: !draggable });
+  const { setNodeRef: setDropRef } = useDroppable({
+    id: node.id,
+    disabled: !draggable,
+  });
+  const setRowRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      setDragRef(el);
+      setDropRef(el);
+    },
+    [setDragRef, setDropRef],
+  );
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -73,36 +126,38 @@ export function PageListItem({
     setEditing(false);
   };
 
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(sortable.transform),
-    transition: sortable.transition,
-    opacity: sortable.isDragging ? 0.4 : 1,
-  };
-
   const hasChildren = node.children.length > 0;
   const active = node.id === activePageId;
-  const isChildTarget =
-    dropTarget?.id === node.id && dropTarget.mode === "child";
-  const isSiblingTarget =
-    dropTarget?.id === node.id && dropTarget.mode === "sibling";
+  const mode: SidebarDropMode | "none" =
+    dropTarget?.id === node.id ? dropTarget.mode : "none";
+  const isChild = mode === "child-first" || mode === "child-last";
+  const isDisabled = mode === "disabled";
+
+  const rowPadLeft = depth * 14 + 4;
+  const childGuideLeft = (depth + 1) * 14 + 4;
 
   return (
-    <div ref={sortable.setNodeRef} style={style}>
+    <div className="flex flex-col gap-0.5">
       <div
-        // dnd 활성 시 row 전체가 드래그 영역. 텍스트 더블클릭/우클릭은 stopPropagation으로 보호.
-        {...(draggable ? sortable.attributes : {})}
-        {...(draggable ? sortable.listeners : {})}
+        ref={setRowRef}
+        data-sidebar-page-row={node.id}
+        data-sidebar-depth={depth}
+        {...(draggable ? attributes : {})}
+        {...(draggable ? listeners : {})}
         className={[
           "group relative flex items-center gap-1 rounded-md py-1 pr-1 text-sm",
-          draggable ? "cursor-grab active:cursor-grabbing" : "",
+          draggable ? "cursor-grab touch-none active:cursor-grabbing" : "",
           active
             ? "bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
             : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
-          isChildTarget
-            ? "outline outline-2 outline-blue-400 dark:outline-blue-500"
+          isChild
+            ? "ring-2 ring-inset ring-blue-500 dark:ring-blue-400"
+            : "",
+          isDisabled
+            ? "!cursor-not-allowed ring-2 ring-inset ring-red-500 dark:ring-red-400"
             : "",
         ].join(" ")}
-        style={{ paddingLeft: depth * 14 + 4 }}
+        style={{ paddingLeft: rowPadLeft, opacity: isDragging ? 0.3 : 1 }}
         onContextMenu={(e) => {
           e.preventDefault();
           setMenuOpen(true);
@@ -148,7 +203,6 @@ export function PageListItem({
           <button
             type="button"
             className="flex-1 truncate text-left"
-            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setActivePage(node.id)}
             onDoubleClick={() => setEditing(true)}
             title="더블클릭하여 이름 변경, 우클릭으로 메뉴"
@@ -170,8 +224,33 @@ export function PageListItem({
         >
           <Plus size={14} />
         </button>
-        {isSiblingTarget && (
-          <span className="pointer-events-none absolute -bottom-0.5 left-2 right-2 h-0.5 rounded bg-blue-400 dark:bg-blue-500" />
+        {mode === "before" && (
+          <span
+            className="pointer-events-none absolute -top-0.5 right-2 z-10 h-0.5 rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-blue-400"
+            style={{ left: rowPadLeft }}
+            aria-hidden
+          />
+        )}
+        {mode === "after" && (
+          <span
+            className="pointer-events-none absolute -bottom-0.5 right-2 z-10 h-0.5 rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-blue-400"
+            style={{ left: rowPadLeft }}
+            aria-hidden
+          />
+        )}
+        {mode === "child-first" && (
+          <span
+            className="pointer-events-none absolute -top-0.5 right-2 z-10 h-0.5 rounded-full bg-blue-400/70 dark:bg-blue-300/70"
+            style={{ left: childGuideLeft }}
+            aria-hidden
+          />
+        )}
+        {mode === "child-last" && (
+          <span
+            className="pointer-events-none absolute -bottom-0.5 right-2 z-10 h-0.5 rounded-full bg-blue-400/70 dark:bg-blue-300/70"
+            style={{ left: childGuideLeft }}
+            aria-hidden
+          />
         )}
         {menuOpen && (
           <div
@@ -256,4 +335,6 @@ export function PageListItem({
       )}
     </div>
   );
-}
+};
+
+export const PageListItem = memo(PageListItemInner, pageListItemPropsEqual);

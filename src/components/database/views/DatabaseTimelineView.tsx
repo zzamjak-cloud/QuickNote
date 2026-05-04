@@ -1,5 +1,7 @@
+/* eslint-disable react-hooks/purity -- 축/오늘 기준선은 렌더 시각의 Date.now() 사용 */
+/* eslint-disable react-hooks/preserve-manual-memoization -- React Compiler와 기존 useMemo 병행 */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, PanelRight, Plus } from "lucide-react";
+import { ArrowUpRight, PanelRight, Plus, X } from "lucide-react";
 import type {
   CellValue,
   ColumnDef,
@@ -14,6 +16,21 @@ import { DatabaseColumnSettingsButton } from "../DatabaseColumnSettingsButton";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
+import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
+import {
+  DAY_MS,
+  TIMELINE_WEEK_CAL_DAYS as WEEK_CAL_DAYS,
+  TIMELINE_WEEK_RANGE_DAYS as WEEK_RANGE_DAYS,
+  timelineClampToWeekday as clampToWeekday,
+  timelineGetRange as getRange,
+  timelineHexToRgba as hexToRgba,
+  timelineIsoDate as isoDate,
+  timelinePickStatusColor as pickStatusColor,
+  timelineStartOfDay as startOfDay,
+  timelineStartOfWeekMon as startOfWeekMon,
+  timelineWeekLabel as weekLabel,
+  timelineWeekdayIndex as weekdayIndex,
+} from "../../../lib/database/timelineGeometry";
 
 type Props = {
   databaseId: string;
@@ -23,135 +40,10 @@ type Props = {
 
 type Granularity = "day" | "week";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const ROW_HEIGHT = 32;
 const ROW_GAP = 4;
 const HEADER_HEIGHT = 36;
 const SIDE_LABEL_W = 160;
-// 주 모드: 평일(월~금) 5일 × 3주 = 15 weekdays. 토/일은 시각화 제외.
-const WEEK_DAYS = 5;
-const WEEK_RANGE_DAYS = WEEK_DAYS * 3;
-/** 캘린더상의 주 1개(7일) 길이. 주 시작점 계산용. */
-const WEEK_CAL_DAYS = 7;
-
-/** YYYY-MM-DD 추출. */
-function isoDate(t: number): string {
-  return new Date(t).toISOString().slice(0, 10);
-}
-
-function startOfDay(t: number): number {
-  const d = new Date(t);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-/** 월요일 시작 기준 주의 시작일(00:00) 반환. */
-function startOfWeekMon(t: number): number {
-  const d = new Date(startOfDay(t));
-  // getDay(): 일=0, 월=1, ..., 토=6 → 월요일까지 거슬러갈 일수.
-  const dow = d.getDay();
-  const back = (dow + 6) % 7; // 월=0, 일=6
-  d.setDate(d.getDate() - back);
-  return d.getTime();
-}
-
-function getRange(cell: CellValue): { start: number; end: number } | null {
-  if (!cell || typeof cell !== "object" || Array.isArray(cell)) return null;
-  if (!("start" in cell)) return null;
-  const v = cell as DateRangeValue;
-  const s = v.start ? Date.parse(v.start) : NaN;
-  if (!Number.isFinite(s)) return null;
-  const start = startOfDay(s);
-  const e = v.end ? Date.parse(v.end) : NaN;
-  const end = Number.isFinite(e) ? startOfDay(e) : start;
-  return { start, end: Math.max(end, start) };
-}
-
-/** 16진 컬러 → rgba (카드 배경용). */
-function hexToRgba(hex: string | undefined, alpha: number): string {
-  if (!hex) return `rgba(96, 165, 250, ${alpha})`;
-  const m = /^#?([\da-f]{6})$/i.exec(hex);
-  if (!m) return hex;
-  const n = parseInt(m[1]!, 16);
-  const r = (n >> 16) & 0xff;
-  const g = (n >> 8) & 0xff;
-  const b = n & 0xff;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-/** status/select 첫 옵션 컬러 (없으면 undefined). */
-function pickStatusColor(
-  row: DatabaseRowView,
-  columns: ColumnDef[],
-): string | undefined {
-  const col =
-    columns.find((c) => c.type === "status") ??
-    columns.find((c) => c.type === "select");
-  if (!col) return undefined;
-  const raw = row.cells[col.id];
-  if (typeof raw !== "string") return undefined;
-  return col.config?.options?.find((o) => o.id === raw)?.color;
-}
-
-/** 주 헤더 라벨 포맷: 평일 첫(월) ~ 마지막(금) — "MM/DD - MM/DD". */
-function weekLabel(start: number): string {
-  const s = new Date(start);
-  // 평일 마지막 = 시작(월) + 4일 = 금요일.
-  const e = new Date(start + 4 * DAY_MS);
-  return `${s.getMonth() + 1}/${s.getDate()} - ${e.getMonth() + 1}/${e.getDate()}`;
-}
-
-/**
- * 주 모드 평일 인덱스(0~14): minT가 지난주 월요일일 때, t가 어느 평일인지 반환.
- * 주말(토/일)이면 -1.
- */
-function weekdayIndex(t: number, minT: number): number {
-  const day = startOfDay(t);
-  const dow = new Date(day).getDay(); // 일=0..토=6
-  if (dow === 0 || dow === 6) return -1;
-  const diffDays = Math.round((day - minT) / DAY_MS);
-  if (diffDays < 0 || diffDays >= WEEK_CAL_DAYS * 3) return -1;
-  const weekIdx = Math.floor(diffDays / WEEK_CAL_DAYS); // 0,1,2
-  const weekdayInWeek = (dow + 6) % 7; // 월=0..금=4 (토=5,일=6은 위에서 제외)
-  if (weekdayInWeek > 4) return -1;
-  return weekIdx * WEEK_DAYS + weekdayInWeek;
-}
-
-/**
- * 주 모드용: 시작/종료를 가장 가까운 평일로 클램프.
- * - start: 주말이면 다음 평일(월)로,
- * - end:   주말이면 이전 평일(금)로.
- * 반환: 평일 단위 시작/종료 timestamp(00:00). 둘 사이가 역전되면 null.
- */
-function clampToWeekday(
-  start: number,
-  end: number,
-): { start: number; end: number } | null {
-  const ns = nextWeekday(start);
-  const ne = prevWeekday(end);
-  if (ns > ne) return null;
-  return { start: ns, end: ne };
-}
-
-function nextWeekday(t: number): number {
-  let d = startOfDay(t);
-  for (let i = 0; i < 7; i++) {
-    const dow = new Date(d).getDay();
-    if (dow !== 0 && dow !== 6) return d;
-    d += DAY_MS;
-  }
-  return d;
-}
-
-function prevWeekday(t: number): number {
-  let d = startOfDay(t);
-  for (let i = 0; i < 7; i++) {
-    const dow = new Date(d).getDay();
-    if (dow !== 0 && dow !== 6) return d;
-    d -= DAY_MS;
-  }
-  return d;
-}
 
 export function DatabaseTimelineView({
   databaseId,
@@ -160,6 +52,7 @@ export function DatabaseTimelineView({
 }: Props) {
   const { bundle, rows, columns } = useProcessedRows(databaseId, panelState);
   const addRow = useDatabaseStore((s) => s.addRow);
+  const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
@@ -191,6 +84,7 @@ export function DatabaseTimelineView({
     pxPerDay: number;
   } | null>(null);
   const [dragTick, setDragTick] = useState(0); // 드래그 중 강제 리렌더용
+  const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
 
   const dateCols = columns.filter((c) => c.type === "date");
   const dateColId =
@@ -670,6 +564,18 @@ export function DatabaseTimelineView({
                         >
                           <PanelRight size={11} />
                         </button>
+                        <button
+                          type="button"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRowDeletePageId(row.pageId);
+                          }}
+                          title="항목 삭제"
+                          className="rounded p-0.5 text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                        >
+                          <X size={11} />
+                        </button>
                       </div>
                       {/* 우 리사이즈 핸들 */}
                       {!trimRight && (
@@ -695,6 +601,18 @@ export function DatabaseTimelineView({
       >
         <Plus size={14} /> 새 항목
       </button>
+      <SimpleConfirmDialog
+        open={rowDeletePageId !== null}
+        title="행 삭제"
+        message="이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)"
+        confirmLabel="삭제"
+        danger
+        onCancel={() => setRowDeletePageId(null)}
+        onConfirm={() => {
+          if (rowDeletePageId) deleteRow(databaseId, rowDeletePageId);
+          setRowDeletePageId(null);
+        }}
+      />
     </div>
   );
 }

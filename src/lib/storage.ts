@@ -1,4 +1,5 @@
 import type { PageMap } from "../types/page";
+import { safeParsePageMap } from "./schemas/pageMapSchema";
 
 export const STORAGE_KEYS = {
   pages: "quicknote.pages.v1",
@@ -15,9 +16,14 @@ export function loadPages(): PageMap {
   const raw = localStorage.getItem(STORAGE_KEYS.pages);
   if (raw === null) return {};
   try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== "object") return {};
-    return parsed as PageMap;
+    const ok = safeParsePageMap(parsed);
+    if (!ok) {
+      console.warn("[storage] pages 스키마 검증 실패 — 빈 상태로 폴백");
+      return {};
+    }
+    return ok;
   } catch (err) {
     console.error("[storage] pages 파싱 실패", err);
     return {};

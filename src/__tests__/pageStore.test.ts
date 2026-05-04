@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { usePageStore, selectSortedPages, selectPageTree } from "../store/pageStore";
 import { useSettingsStore } from "../store/settingsStore";
 
@@ -83,6 +83,26 @@ describe("pageStore - duplicatePage", () => {
     usePageStore.getState().duplicatePage(parentId);
     const pages = Object.values(usePageStore.getState().pages);
     expect(pages).toHaveLength(4);
+  });
+
+  it("복제 후 원본 doc 변경이 사본 doc와 분리된다", () => {
+    const id = usePageStore.getState().createPage("원본");
+    usePageStore.getState().updateDoc(id, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "A" }] }],
+    });
+    const copyId = usePageStore.getState().duplicatePage(id);
+    expect(copyId).not.toBe("");
+
+    usePageStore.getState().updateDoc(id, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "B" }] }],
+    });
+
+    const origDoc = usePageStore.getState().pages[id]!.doc;
+    const copyDoc = usePageStore.getState().pages[copyId]!.doc;
+    expect(JSON.stringify(origDoc)).toContain("B");
+    expect(JSON.stringify(copyDoc)).toContain("A");
   });
 });
 

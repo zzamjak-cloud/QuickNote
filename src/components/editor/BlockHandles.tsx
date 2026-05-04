@@ -27,7 +27,8 @@ import {
   type CalloutPresetId,
 } from "../../lib/tiptapExtensions/calloutPresets";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
-import { docTopLevelBlockStart } from "../../lib/pm/docTopLevelBlockStart";
+import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
+import { reportNonFatal } from "../../lib/reportNonFatal";
 
 type HoverInfo = {
   rect: DOMRect;
@@ -124,26 +125,6 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
   return inner ?? wrapper;
 }
 
-/** 현재 PM 선택 범위(from..to)에 걸친 doc 직속 블록 시작 좌표들. Shift+화살표 다중 선택 → 다중 이동 변환용. */
-function topLevelBlockStartsInRange(
-  editor: Editor,
-  from: number,
-  to: number,
-): number[] {
-  if (from === to) return [];
-  const doc = editor.state.doc;
-  const starts: number[] = [];
-  doc.forEach((node, fragmentOffset) => {
-    if (!node.isBlock) return;
-    const blockStart = docTopLevelBlockStart(fragmentOffset);
-    const blockEnd = blockStart + node.nodeSize;
-    if (blockEnd > from && blockStart < to) {
-      starts.push(blockStart);
-    }
-  });
-  return starts;
-}
-
 function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverInfo | null {
   const view = editor.view;
   const byStart = new Map<number, HoverInfo>();
@@ -153,7 +134,10 @@ function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverIn
     try {
       const max = editor.state.doc.content.size;
       $pos = editor.state.doc.resolve(Math.min(Math.max(0, pos), max));
-    } catch { return; }
+    } catch (err) {
+      reportNonFatal(err, "blockHandles.considerPosition.resolve");
+      return;
+    }
     const h = hoverFromResolvedPos(editor, $pos);
     if (!h) return;
     const prev = byStart.get(h.blockStart);
@@ -164,7 +148,11 @@ function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverIn
   if (coords) considerPosition(coords.pos);
 
   let stack: Element[] = [];
-  try { stack = document.elementsFromPoint(clientX, clientY) as Element[]; } catch {}
+  try {
+    stack = document.elementsFromPoint(clientX, clientY) as Element[];
+  } catch (err) {
+    reportNonFatal(err, "blockHandles.elementsFromPoint");
+  }
 
   for (const raw of stack) {
     if (!(raw instanceof HTMLElement)) continue;
@@ -172,7 +160,13 @@ function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverIn
     let el: HTMLElement | null = raw;
     let steps = 0;
     while (el && el !== view.dom && steps++ < 24) {
-      try { const p = view.posAtDOM(el, 0); considerPosition(p); break; } catch {}
+      try {
+        const p = view.posAtDOM(el, 0);
+        considerPosition(p);
+        break;
+      } catch (err) {
+        reportNonFatal(err, "blockHandles.posAtDOM");
+      }
       el = el.parentElement;
     }
   }
@@ -226,8 +220,14 @@ export function BlockHandles({
     const root = containerRef.current?.parentElement;
     if (!root) return;
 
-    const onMove = (e: MouseEvent) => {
-      if (menuOpen) return;
+    let rafId: number | null = null;
+    let pending: MouseEvent | null = null;
+
+    const flushHover = () => {
+      rafId = null;
+      const e = pending;
+      pending = null;
+      if (!e || menuOpen) return;
       setHover((prev) => {
         const next = computeHover(e);
         const wrapperRect =
@@ -264,8 +264,21 @@ export function BlockHandles({
         return null;
       });
     };
+
+    const onMove = (e: MouseEvent) => {
+      if (menuOpen) return;
+      pending = e;
+      if (rafId == null) {
+        rafId = requestAnimationFrame(flushHover);
+      }
+    };
     const onLeave = (e: MouseEvent) => {
       if (menuOpen) return;
+      pending = null;
+      if (rafId != null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       const related = e.relatedTarget as Node | null;
       if (related && root.contains(related)) return;
       setHover(null);
@@ -274,6 +287,7 @@ export function BlockHandles({
     root.addEventListener("mousemove", onMove);
     root.addEventListener("mouseleave", onLeave);
     return () => {
+      if (rafId != null) cancelAnimationFrame(rafId);
       root.removeEventListener("mousemove", onMove);
       root.removeEventListener("mouseleave", onLeave);
     };
@@ -353,7 +367,11 @@ export function BlockHandles({
       !!boxSelectedStarts?.length && boxSelectedStarts.includes(hover.blockStart);
     if (!inBoxSelection) {
       const sel = editor.state.selection;
-      const pmStarts = topLevelBlockStartsInRange(editor, sel.from, sel.to);
+      const pmStarts = topLevelBlockStartsInSelectionRange(
+        editor.state.doc,
+        sel.from,
+        sel.to,
+      );
       if (pmStarts.length > 1 && pmStarts.includes(hover.blockStart)) {
         multiStarts = pmStarts;
       }

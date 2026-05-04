@@ -1,8 +1,10 @@
 # QuickNote
 
-개인용 노션 스타일 메모 앱. v1.0.0은 **웹 에디터 단독** 버전이며, Tauri 데스크톱·AWS 동기화·구글 인증·자동 업데이트는 차기 버전에서 단계적으로 추가된다.
+개인용 노션 스타일 메모 앱. **릴리스 버전 번호는 루트 `package.json`의 `version`과 동일하게 관리합니다** (현재 `0.1.0`). 기능 목록의 세부 변경은 `CHANGELOG.md`를 참고한다.
 
-## 기능 (v1.1.1)
+웹 에디터 단독 MVP 단계이며, Tauri 데스크톱·AWS 동기화·구글 인증·자동 업데이트는 차기 버전에서 단계적으로 추가된다.
+
+## 기능 (개요)
 
 페이지/사이드바
 - **트리형 페이지** — `parentId` 기반 무한 중첩, 사이드바에서 펼치기/접기
@@ -40,6 +42,8 @@ React 19 · Vite 7 · TypeScript 5.9 (strict) · Tailwind CSS 3 · TipTap 3 · Z
 
 ## 실행
 
+Node.js는 **20 LTS** 권장 (`.nvmrc` 참고).
+
 ```bash
 npm install
 npm run dev      # http://localhost:5173
@@ -60,11 +64,16 @@ npm run build
 
 ## 로드맵
 
-- v1.0.0 — 웹 에디터 MVP (현 버전)
+- **현재** — `package.json` 버전 기준 웹 에디터 MVP (`CHANGELOG.md` 참고)
 - v2.0.0 — Tauri 데스크톱 이식, SQLite 로컬 저장
 - v3.0.0 — AWS Cognito + Google OAuth + 화이트리스트 인증
 - v4.0.0 — Lambda + DynamoDB 동기화, S3 이미지 업로드
 - v5.0.0 — 실시간 협업(AppSync), 자동 업데이트(GitHub Actions)
+
+## 기여·보안
+
+- 개발·PR 절차: `CONTRIBUTING.md`
+- 취약점 신고: `SECURITY.md`
 
 ## 라이선스
 
