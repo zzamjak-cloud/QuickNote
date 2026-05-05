@@ -7,8 +7,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent,
 } from "react";
+import { startBlockNativeDrag } from "../../lib/startBlockNativeDrag";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -32,10 +34,9 @@ import { DatabaseBlockLinkExistingPanel } from "./DatabaseBlockLinkExistingPanel
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
 
 export function DatabaseBlockView(props: NodeViewProps) {
-  const { node, updateAttributes, deleteNode } = props;
+  const { editor, node, getPos, updateAttributes, deleteNode } = props;
   const databaseId = String(node.attrs.databaseId ?? "");
   const readOnlyTitleAttr = Boolean(node.attrs.readOnlyTitle);
-  const deletionLocked = Boolean(node.attrs.deletionLocked);
   const layout = (node.attrs.layout ?? "inline") as DatabaseLayout;
   const rawView = String(node.attrs.view ?? "table");
   const view = (rawView === "list" ? "table" : rawView) as ViewKind;
@@ -250,6 +251,25 @@ export function DatabaseBlockView(props: NodeViewProps) {
     [linkPickerFiltered, linkPickerHighlight, bindToExistingDatabase],
   );
 
+  const onInlineTitleDragStart = useCallback(
+    (e: ReactDragEvent<HTMLDivElement>) => {
+      const pos = typeof getPos === "function" ? getPos() : null;
+      if (pos == null || pos < 0) {
+        e.preventDefault();
+        return;
+      }
+      // 박스 드래그 selection 이 있을 수 있어 단일 블럭 이동 경로로 직접 진입
+      e.stopPropagation();
+      document.body.classList.add("quicknote-block-dragging");
+      startBlockNativeDrag(editor, e.nativeEvent, pos, node);
+    },
+    [editor, getPos, node],
+  );
+
+  const onInlineTitleDragEnd = useCallback(() => {
+    document.body.classList.remove("quicknote-block-dragging");
+  }, []);
+
   const shellClass =
     layout === "fullPage"
       ? "my-4 w-[calc(100%+6rem)] max-w-none -mx-12"
@@ -335,21 +355,13 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 inlineTitleLocked={inlineTitleLocked}
                 dbHomePageId={dbHomePageId}
                 onOpenDbHomePage={openDbHomePage}
-                deletionLocked={deletionLocked}
-                onToggleDeletionLock={() =>
-                  scheduleEditorMutation(() =>
-                    updateAttributes({ deletionLocked: !deletionLocked }),
-                  )
-                }
                 onOpenLink={() => setLinkOpen((v) => !v)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
-                view={view}
-                onViewChange={setView}
+                onTitleDragStart={onInlineTitleDragStart}
+                onTitleDragEnd={onInlineTitleDragEnd}
               />
             ) : (
               <DatabaseBlockFullPageHeader
-                view={view}
-                onViewChange={setView}
                 onOpenLink={() => setLinkOpen((v) => !v)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
               />
@@ -357,6 +369,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
             <DatabaseToolbarControls
               databaseId={databaseId}
+              viewKind={view}
+              view={view}
+              onViewChange={setView}
               panelState={panelState}
               setPanelState={setPanelState}
             />

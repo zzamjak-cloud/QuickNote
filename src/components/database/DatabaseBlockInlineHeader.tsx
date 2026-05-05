@@ -1,6 +1,5 @@
-import { Database, Link2, Lock, PanelTop, Trash2, Unlock } from "lucide-react";
-import type { ViewKind } from "../../types/database";
-import { DatabaseViewKindToggle } from "./DatabaseViewKindToggle";
+import { Database, Link2, PanelTop, Trash2 } from "lucide-react";
+import type { DragEvent as ReactDragEvent } from "react";
 
 type Props = {
   displayDbTitle: string;
@@ -10,12 +9,11 @@ type Props = {
   inlineTitleLocked: boolean;
   dbHomePageId: string | null;
   onOpenDbHomePage: (pageId: string) => void;
-  deletionLocked: boolean;
-  onToggleDeletionLock: () => void;
   onOpenLink: () => void;
   onOpenDeleteModal: () => void;
-  view: ViewKind;
-  onViewChange: (v: ViewKind) => void;
+  /** 제목 영역 드래그 — 인라인 DB 블럭을 통째로 이동 */
+  onTitleDragStart?: (e: ReactDragEvent<HTMLDivElement>) => void;
+  onTitleDragEnd?: () => void;
 };
 
 export function DatabaseBlockInlineHeader({
@@ -26,17 +24,26 @@ export function DatabaseBlockInlineHeader({
   inlineTitleLocked,
   dbHomePageId,
   onOpenDbHomePage,
-  deletionLocked,
-  onToggleDeletionLock,
   onOpenLink,
   onOpenDeleteModal,
-  view,
-  onViewChange,
+  onTitleDragStart,
+  onTitleDragEnd,
 }: Props) {
   return (
     <>
-      <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-2 py-2 dark:border-zinc-700">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+      {/* 제목 바 전체가 드래그 핸들 — 노션처럼 빈 영역 드래그시 블럭 이동.
+          input/button 등 인터랙티브 자식은 자체 동작이 우선되어 드래그가 시작되지 않음. */}
+      <div
+        draggable={onTitleDragStart ? true : undefined}
+        onDragStart={onTitleDragStart}
+        onDragEnd={onTitleDragEnd}
+        className={[
+          "group flex items-center justify-between gap-2 border-b border-zinc-200 px-2 py-2 dark:border-zinc-700",
+          onTitleDragStart ? "cursor-grab active:cursor-grabbing" : "",
+        ].join(" ")}
+        title={onTitleDragStart ? "드래그하여 블럭 이동" : undefined}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-1">
           <Database size={16} className="shrink-0 text-zinc-500" />
           {inlineTitleLocked ? (
             <span
@@ -75,27 +82,6 @@ export function DatabaseBlockInlineHeader({
           ) : null}
           <button
             type="button"
-            title={
-              deletionLocked
-                ? "삭제 잠금 해제 — 블록 삭제 허용"
-                : "삭제 잠금 — 키보드·그립 메뉴·박스 선택 삭제 방지"
-            }
-            onClick={onToggleDeletionLock}
-            className={[
-              "rounded p-1",
-              deletionLocked
-                ? "text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/30"
-                : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800",
-            ].join(" ")}
-          >
-            {deletionLocked ? (
-              <Lock size={15} strokeWidth={2.25} />
-            ) : (
-              <Unlock size={15} strokeWidth={2} />
-            )}
-          </button>
-          <button
-            type="button"
             title="다른 DB 연결"
             onClick={onOpenLink}
             className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -111,9 +97,6 @@ export function DatabaseBlockInlineHeader({
             <Trash2 size={15} />
           </button>
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5">
-        <DatabaseViewKindToggle view={view} onViewChange={onViewChange} />
       </div>
     </>
   );

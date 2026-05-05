@@ -4,6 +4,9 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { NodeSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
+export const QUICKNOTE_BLOCK_DRAG_MIME =
+  "application/x-quicknote-block-starts";
+
 /**
  * @tiptap/extension-drag-handle 의 nested drag 경로와 동일하게,
  * 현재 호버한 블록을 NodeSelection + slice 로 드래그한다.
@@ -38,6 +41,14 @@ function cloneElement(node: Node): Node {
 }
 
 function getDraggedBlockElement(view: EditorView, pos: number): Element | null {
+  const nodeAtPos = view.state.doc.nodeAt(pos);
+  if (nodeAtPos?.type.name === "databaseBlock") {
+    const nodeDom = view.nodeDOM(pos);
+    if (nodeDom instanceof Element) {
+      const wrap = nodeDom.closest(".qn-database-block");
+      if (wrap) return wrap;
+    }
+  }
   const nodeDom = view.nodeDOM(pos);
   if (nodeDom instanceof Element && nodeDom !== view.dom) {
     return nodeDom;
@@ -100,8 +111,7 @@ function startContiguousBlocksNativeDrag(
   sortedBlockStarts: number[],
 ): void {
   const { view } = editor;
-  if (!event.dataTransfer || sortedBlockStarts.length < 2) return;
-
+  if (!event.dataTransfer || sortedBlockStarts.length < 1) return;
   const { doc } = view.state;
   const fromPos = sortedBlockStarts[0]!;
   const lastStart = sortedBlockStarts[sortedBlockStarts.length - 1]!;
@@ -132,6 +142,10 @@ function startContiguousBlocksNativeDrag(
   wrapper.style.top = "-10000px";
   document.body.append(wrapper);
   event.dataTransfer.clearData();
+  event.dataTransfer.setData(
+    QUICKNOTE_BLOCK_DRAG_MIME,
+    JSON.stringify(sortedBlockStarts),
+  );
   event.dataTransfer.setData("text/html", "");
   const wrapperRect = wrapper.getBoundingClientRect();
   const dragImageX = getDragImageOffset(direction, wrapperRect.width);
@@ -172,7 +186,10 @@ export function startGripNativeDrag(
     boxSelectedStarts?.length && boxSelectedStarts.includes(blockStart)
       ? sortedContiguousTopLevelBlockStarts(doc, boxSelectedStarts)
       : null;
-  if (chain && chain.length > 1) {
+  // 박스/그룹 오버레이에서 시작한 drag 는 단일 선택이어도
+  // contiguous 경로(=NodeRangeSelection + QUICKNOTE mime)로 통일해야
+  // 브라우저별 drop 거부(dropEffect:none) 케이스를 줄일 수 있다.
+  if (chain && chain.length >= 1) {
     startContiguousBlocksNativeDrag(editor, event, chain);
     return;
   }
@@ -190,7 +207,6 @@ export function startBlockNativeDrag(
 ): void {
   const { view } = editor;
   if (!event.dataTransfer) return;
-
   const { doc } = view.state;
   const from = blockStart;
   const to = blockStart + node.nodeSize;
@@ -225,7 +241,12 @@ export function startBlockNativeDrag(
   wrapper.style.top = "-10000px";
   document.body.append(wrapper);
   event.dataTransfer.clearData();
+  event.dataTransfer.setData(
+    QUICKNOTE_BLOCK_DRAG_MIME,
+    JSON.stringify([blockStart]),
+  );
   event.dataTransfer.setData("text/html", ""); // 일부 브라우저에서 drag 활성화
+  event.dataTransfer.setData("text/plain", "quicknote-block-drag");
   const wrapperRect = wrapper.getBoundingClientRect();
   const dragImageX = getDragImageOffset(direction, wrapperRect.width);
   event.dataTransfer.setDragImage(wrapper, dragImageX, 0);

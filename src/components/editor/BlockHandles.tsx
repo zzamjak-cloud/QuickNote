@@ -108,8 +108,12 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
     const dom = editor.view.nodeDOM(start);
     const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
     if (!el) continue;
+    const rectEl =
+      n.type.name === "databaseBlock"
+        ? el.closest(".qn-database-block") ?? el
+        : el;
     const candidate: HoverInfo = {
-      rect: el.getBoundingClientRect(),
+      rect: rectEl.getBoundingClientRect(),
       blockStart: start,
       depth: d,
       node: n,
@@ -122,7 +126,62 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
       if (!inner || candidate.depth > inner.depth) inner = candidate;
     }
   }
+  // doc 직속 atom 블록(databaseBlock 등)은 $pos.depth == 0 이라 위 루프가 잡지 못함.
+  // posAtCoords/posAtDOM 결과가 atom 경계에 떨어지므로 nodeAfter/nodeBefore 모두 검사.
+  if (!inner && $pos.parent.type.name === "doc") {
+    const idx = $pos.index();
+    const probes: { node: PMNode; start: number }[] = [];
+    const after = $pos.parent.maybeChild(idx);
+    if (after) probes.push({ node: after, start: $pos.posAtIndex(idx) });
+    if (idx > 0) {
+      const before = $pos.parent.maybeChild(idx - 1);
+      if (before) probes.push({ node: before, start: $pos.posAtIndex(idx - 1) });
+    }
+    for (const p of probes) {
+      const n = p.node;
+      if (!n.isBlock || !n.isAtom) continue;
+      if (SKIP_HANDLE_TYPES.has(n.type.name)) continue;
+      const dom = editor.view.nodeDOM(p.start);
+      const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
+      if (!el) continue;
+      const rectEl =
+        n.type.name === "databaseBlock"
+          ? el.closest(".qn-database-block") ?? el
+          : el;
+      inner = {
+        rect: rectEl.getBoundingClientRect(),
+        blockStart: p.start,
+        depth: 1, // doc 직속 → top-level paragraph 와 동일 우선순위
+        node: n,
+      };
+      break;
+    }
+  }
   return inner ?? wrapper;
+}
+
+/** TD 등 React NodeView 내부에서 posAtDOM 이 막힐 때 — 래퍼 .qn-database-block 으로 직접 해석 */
+function considerDatabaseBlockFromStack(
+  editor: Editor,
+  stack: Element[],
+  considerPosition: (pos: number) => void,
+) {
+  const view = editor.view;
+  for (const raw of stack) {
+    if (!(raw instanceof HTMLElement)) continue;
+    if (!view.dom.contains(raw)) continue;
+    const db = raw.closest(".qn-database-block");
+    if (!db || !view.dom.contains(db)) continue;
+    try {
+      considerPosition(view.posAtDOM(db, 0));
+    } catch {
+      try {
+        considerPosition(view.posAtDOM(db, 1));
+      } catch {
+        /* noop */
+      }
+    }
+  }
 }
 
 function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverInfo | null {
@@ -144,15 +203,17 @@ function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverIn
     if (!prev || h.depth > prev.depth) byStart.set(h.blockStart, h);
   };
 
-  const coords = view.posAtCoords({ left: clientX, top: clientY });
-  if (coords) considerPosition(coords.pos);
-
   let stack: Element[] = [];
   try {
     stack = document.elementsFromPoint(clientX, clientY) as Element[];
   } catch (err) {
     reportNonFatal(err, "blockHandles.elementsFromPoint");
   }
+
+  considerDatabaseBlockFromStack(editor, stack, considerPosition);
+
+  const coords = view.posAtCoords({ left: clientX, top: clientY });
+  if (coords) considerPosition(coords.pos);
 
   for (const raw of stack) {
     if (!(raw instanceof HTMLElement)) continue;
@@ -175,6 +236,23 @@ function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverIn
   let best: HoverInfo | null = null;
   for (const h of byStart.values()) {
     if (!best || h.depth > best.depth) best = h;
+  }
+  // 타이틀/input 등 NodeView 크롬 위에서는 깊은 블록보다 databaseBlock 을 우선
+  for (const h of byStart.values()) {
+    if (h.node.type.name !== "databaseBlock") continue;
+    const dom = editor.view.nodeDOM(h.blockStart);
+    const wrap =
+      dom instanceof Element ? dom.closest(".qn-database-block") : null;
+    if (!(wrap instanceof HTMLElement)) continue;
+    const r = wrap.getBoundingClientRect();
+    if (
+      clientX >= r.left &&
+      clientX <= r.right &&
+      clientY >= r.top &&
+      clientY <= r.bottom
+    ) {
+      return { ...h, rect: r };
+    }
   }
   return best;
 }
@@ -307,15 +385,21 @@ export function BlockHandles({
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
 
+  const hoverBlockStart = hover?.blockStart;
+
   useEffect(() => {
-    if (!editor || !hover) return;
+    if (!editor || hoverBlockStart == null) return;
     const refreshRect = () => {
       setHover((h) => {
         if (!h || !editor) return h;
         const dom = editor.view.nodeDOM(h.blockStart);
         const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
         if (!el) return null;
-        return { ...h, rect: el.getBoundingClientRect() };
+        const rectEl =
+          h.node.type.name === "databaseBlock"
+            ? el.closest(".qn-database-block") ?? el
+            : el;
+        return { ...h, rect: rectEl.getBoundingClientRect() };
       });
     };
     const scroller = containerRef.current?.closest(".overflow-y-auto") ?? window;
@@ -325,7 +409,7 @@ export function BlockHandles({
       scroller.removeEventListener("scroll", refreshRect);
       window.removeEventListener("resize", refreshRect);
     };
-  }, [editor, hover?.blockStart]);
+  }, [editor, hoverBlockStart]);
 
   const wrapper = containerRef.current?.parentElement;
   const wrapperRect = wrapper?.getBoundingClientRect();
@@ -413,10 +497,6 @@ export function BlockHandles({
   const deleteBlock = () => {
     if (!editor || !hover) return;
     const { blockStart, node } = hover;
-    if (node.type.name === "databaseBlock" && node.attrs.deletionLocked) {
-      setMenuOpen(false);
-      return;
-    }
     const tr = editor.state.tr.delete(blockStart, blockStart + node.nodeSize);
     editor.view.dispatch(tr);
     setMenuOpen(false);

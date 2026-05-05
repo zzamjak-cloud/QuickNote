@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { GripVertical, ChevronDown } from "lucide-react";
 import type { ColumnDef } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -6,7 +7,8 @@ import { useUiStore } from "../../store/uiStore";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
-const MIN_COL_WIDTH = 60;
+/** 사용자가 드래그로 임의 폭으로 줄일 수 있도록 최소값을 매우 작게 — 보이긴 해야 하므로 12px. */
+const MIN_COL_WIDTH = 12;
 
 type Props = {
   databaseId: string;
@@ -16,6 +18,8 @@ type Props = {
   onDragOver: (idx: number) => void;
   onDrop: () => void;
   highlightDrop?: "left" | "right" | null;
+  /** 헤더 우측 리사이즈 핸들 더블클릭 시 호출 — 컬럼 내용 폭에 맞춰 자동 조정 */
+  onAutoFit?: () => void;
 };
 
 export function DatabaseColumnHeader({
@@ -26,6 +30,7 @@ export function DatabaseColumnHeader({
   onDragOver,
   onDrop,
   highlightDrop,
+  onAutoFit,
 }: Props) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
@@ -47,19 +52,31 @@ export function DatabaseColumnHeader({
     setRenaming(false);
   };
 
+  // 노션 스타일 — 드래그 중엔 컬럼 폭을 즉시 갱신하지 않고 가이드 라인만 표시,
+  // mouseup 에서 한 번만 width 커밋. 다른 컬럼 폭이 매 프레임 재배분되며 흔들리는 문제 방지.
+  const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
   const onResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const startWidth = thRef.current?.offsetWidth ?? 120;
+    setResizeGuideX(startX);
     const onMove = (ev: MouseEvent) => {
-      const next = Math.max(MIN_COL_WIDTH, startWidth + (ev.clientX - startX));
-      updateColumn(databaseId, column.id, { width: next });
+      const delta = ev.clientX - startX;
+      const proposed = Math.max(MIN_COL_WIDTH, startWidth + delta);
+      // 라인 위치는 실제 적용될 우측 경계 좌표(= 시작점 + clamped delta)
+      const clampedX = startX + (proposed - startWidth);
+      setResizeGuideX(clampedX);
     };
-    const onUp = () => {
+    const onUp = (ev: MouseEvent) => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       document.body.style.cursor = "";
+      setResizeGuideX(null);
+      const finalWidth = Math.max(MIN_COL_WIDTH, startWidth + (ev.clientX - startX));
+      if (finalWidth !== startWidth) {
+        updateColumn(databaseId, column.id, { width: finalWidth });
+      }
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -69,6 +86,7 @@ export function DatabaseColumnHeader({
   return (
     <th
       ref={thRef}
+      data-qn-col-id={column.id}
       onDragOver={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -128,12 +146,17 @@ export function DatabaseColumnHeader({
         )}
       </div>
 
-      {/* 리사이즈 핸들 — 우측 모서리 4px, hover 시 파란 인디케이터 */}
+      {/* 리사이즈 핸들 — 우측 모서리 4px, hover 시 파란 인디케이터, 더블클릭으로 자동 맞춤 */}
       <div
         onMouseDown={onResizeStart}
         onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onAutoFit?.();
+        }}
         className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize hover:bg-blue-400/60"
-        title="컬럼 너비 조절"
+        title="드래그: 너비 조절 / 더블클릭: 내용 폭에 맞춤"
       />
 
       {menuOpen && (
@@ -144,6 +167,15 @@ export function DatabaseColumnHeader({
           onClose={() => setOpenColumnMenu(null)}
         />
       )}
+      {resizeGuideX != null &&
+        createPortal(
+          <div
+            aria-hidden
+            className="pointer-events-none fixed top-0 bottom-0 z-50 w-px bg-blue-500"
+            style={{ left: resizeGuideX }}
+          />,
+          document.body,
+        )}
     </th>
   );
 }

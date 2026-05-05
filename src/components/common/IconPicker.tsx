@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 
 const LazyIconPickerEmoji = lazy(() =>
   import("./IconPickerEmoji").then((m) => ({ default: m.IconPickerEmoji })),
@@ -33,7 +34,7 @@ export function IconPicker({ current, onChange, size = "lg" }: Props) {
         className="flex h-12 w-12 items-center justify-center rounded-md text-3xl hover:bg-zinc-100 dark:hover:bg-zinc-800"
         aria-label="페이지 아이콘"
       >
-        {current ?? <span className="text-xs text-zinc-400">아이콘 추가</span>}
+        {current ?? <Plus size={18} className="text-zinc-400" />}
       </button>
     ) : (
       <button

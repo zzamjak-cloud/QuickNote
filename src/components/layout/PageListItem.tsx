@@ -13,6 +13,7 @@ import type { PageNode } from "../../store/pageStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
+import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 type Props = {
   node: PageNode;
@@ -82,6 +83,7 @@ const PageListItemInner = function PageListItem({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(node.title);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -90,7 +92,7 @@ const PageListItemInner = function PageListItem({
     listeners,
     setNodeRef: setDragRef,
     isDragging,
-  } = useDraggable({ id: node.id, disabled: !draggable });
+  } = useDraggable({ id: node.id, disabled: !draggable || menuOpen || editing });
   const { setNodeRef: setDropRef } = useDroppable({
     id: node.id,
     disabled: !draggable,
@@ -132,6 +134,7 @@ const PageListItemInner = function PageListItem({
     dropTarget?.id === node.id ? dropTarget.mode : "none";
   const isChild = mode === "child-first" || mode === "child-last";
   const isDisabled = mode === "disabled";
+  const rowDragEnabled = draggable && !menuOpen && !editing;
 
   const rowPadLeft = depth * 14 + 4;
   const childGuideLeft = (depth + 1) * 14 + 4;
@@ -142,11 +145,11 @@ const PageListItemInner = function PageListItem({
         ref={setRowRef}
         data-sidebar-page-row={node.id}
         data-sidebar-depth={depth}
-        {...(draggable ? attributes : {})}
-        {...(draggable ? listeners : {})}
+        {...(rowDragEnabled ? attributes : {})}
+        {...(rowDragEnabled ? listeners : {})}
         className={[
           "group relative flex items-center gap-1 rounded-md py-1 pr-1 text-sm",
-          draggable ? "cursor-grab touch-none active:cursor-grabbing" : "",
+          rowDragEnabled ? "touch-none active:cursor-grabbing" : "",
           active
             ? "bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
             : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
@@ -160,15 +163,19 @@ const PageListItemInner = function PageListItem({
         style={{ paddingLeft: rowPadLeft, opacity: isDragging ? 0.3 : 1 }}
         onContextMenu={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           setMenuOpen(true);
         }}
       >
         {hasChildren ? (
           <button
             type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => toggleExpanded(node.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleExpanded(node.id);
+            }}
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+            style={{ cursor: "inherit" }}
             aria-label={expanded ? "접기" : "펼치기"}
           >
             {expanded ? (
@@ -203,6 +210,7 @@ const PageListItemInner = function PageListItem({
           <button
             type="button"
             className="flex-1 truncate text-left"
+            style={{ cursor: "inherit" }}
             onClick={() => setActivePage(node.id)}
             onDoubleClick={() => setEditing(true)}
             title="더블클릭하여 이름 변경, 우클릭으로 메뉴"
@@ -212,13 +220,13 @@ const PageListItemInner = function PageListItem({
         )}
         <button
           type="button"
-          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             createPage("새 페이지", node.id);
             setExpanded(node.id, true);
           }}
           className="text-zinc-400 opacity-0 transition hover:text-zinc-900 group-hover:opacity-100 dark:hover:text-zinc-100"
+          style={{ cursor: "inherit" }}
           aria-label="하위 페이지 추가"
           title="하위 페이지 추가"
         >
@@ -240,7 +248,7 @@ const PageListItemInner = function PageListItem({
         )}
         {mode === "child-first" && (
           <span
-            className="pointer-events-none absolute -top-0.5 right-2 z-10 h-0.5 rounded-full bg-blue-400/70 dark:bg-blue-300/70"
+            className="pointer-events-none absolute -bottom-0.5 right-2 z-10 h-0.5 rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-blue-400"
             style={{ left: childGuideLeft }}
             aria-hidden
           />
@@ -255,10 +263,13 @@ const PageListItemInner = function PageListItem({
         {menuOpen && (
           <div
             ref={menuRef}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             className="absolute right-1 top-full z-30 mt-0.5 w-44 rounded-md border border-zinc-200 bg-white py-1 text-xs shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
           >
             <button
               type="button"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
                 createPage("새 페이지", node.id);
                 setExpanded(node.id, true);
@@ -270,6 +281,7 @@ const PageListItemInner = function PageListItem({
             </button>
             <button
               type="button"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
                 setEditing(true);
                 setMenuOpen(false);
@@ -280,6 +292,7 @@ const PageListItemInner = function PageListItem({
             </button>
             <button
               type="button"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
                 onMove(node.id);
                 setMenuOpen(false);
@@ -291,6 +304,7 @@ const PageListItemInner = function PageListItem({
             {node.parentId !== null && (
               <button
                 type="button"
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => {
                   movePage(node.id, null, Number.MAX_SAFE_INTEGER);
                   setMenuOpen(false);
@@ -303,19 +317,12 @@ const PageListItemInner = function PageListItem({
             <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
             <button
               type="button"
-              onClick={() => {
-                if (
-                  confirm(
-                    `"${node.title}" 페이지를 삭제하시겠습니까?${
-                      node.children.length > 0
-                        ? " 하위 페이지도 함께 삭제됩니다."
-                        : ""
-                    }`,
-                  )
-                ) {
-                  deletePage(node.id);
-                }
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 setMenuOpen(false);
+                setDeleteConfirmOpen(true);
               }}
               className="flex w-full items-center gap-2 px-2 py-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
             >
@@ -324,6 +331,21 @@ const PageListItemInner = function PageListItem({
           </div>
         )}
       </div>
+      <SimpleConfirmDialog
+        open={deleteConfirmOpen}
+        title="페이지 삭제"
+        message={`"${node.title}" 페이지를 삭제하시겠습니까?${
+          node.children.length > 0 ? " 하위 페이지도 함께 삭제됩니다." : ""
+        }`}
+        confirmLabel="삭제"
+        cancelLabel="취소"
+        danger
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => {
+          setDeleteConfirmOpen(false);
+          deletePage(node.id);
+        }}
+      />
       {hasChildren && expanded && (
         <PageListGroup
           nodes={node.children}

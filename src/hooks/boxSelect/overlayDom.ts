@@ -1,7 +1,44 @@
 import type { Editor } from "@tiptap/react";
+import type { EditorView } from "@tiptap/pm/view";
 import { forEachDocDirectBlock } from "../../lib/pm/topLevelBlocks";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import { GROUP_OVERLAY_ID } from "./constants";
+
+/** React NodeView(databaseBlock) — 공통 blockOuterEl 상향이 테이블 셀 등에서 끊기면 마퀴·드래그 미리보기가 실패한다 */
+function pmRootChildForDatabaseBlock(
+  view: EditorView,
+  blockStart: number,
+  root: HTMLElement,
+): HTMLElement | null {
+  let n: Node | null = view.nodeDOM(blockStart);
+  if (!n) {
+    const innerMax = view.state.doc.content.size;
+    const probe = Math.min(Math.max(1, blockStart + 1), innerMax);
+    try {
+      const domAt = view.domAtPos(probe);
+      n = domAt.node as Node;
+      if (n.nodeType === Node.TEXT_NODE) n = n.parentElement;
+    } catch (err) {
+      reportNonFatal(err, "boxSelect.pmRootChildForDatabaseBlock.probe");
+      return null;
+    }
+  }
+  if (!n) return null;
+  if (n.nodeType === Node.TEXT_NODE) n = n.parentElement;
+  if (!n) return null;
+  const anchor =
+    n instanceof Element
+      ? n.closest(".qn-database-block") ??
+        n.closest("[data-node-view-wrapper]")
+      : null;
+  let el: HTMLElement | null =
+    anchor instanceof HTMLElement ? anchor : null;
+  while (el && el !== root) {
+    if (el.parentElement === root) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
 
 /** 파괴된 뒤 `editor.view` 접근 시 TipTap 이 throw 하므로 선행 검사 */
 export function editorViewAvailable(editor: Editor | null): editor is Editor {
@@ -27,6 +64,13 @@ export function getEditorMarqueeHost(editor: Editor): HTMLElement {
 export function blockOuterEl(editor: Editor, blockStart: number): HTMLElement | null {
   if (!editorViewAvailable(editor)) return null;
   const view = editor.view;
+  const root = view.dom;
+  const pmNode = view.state.doc.nodeAt(blockStart);
+  if (pmNode?.type.name === "databaseBlock") {
+    const dbEl = pmRootChildForDatabaseBlock(view, blockStart, root);
+    if (dbEl) return dbEl;
+  }
+
   let n: Node | null = view.nodeDOM(blockStart);
   if (!n) {
     const innerMax = view.state.doc.content.size;
@@ -42,7 +86,7 @@ export function blockOuterEl(editor: Editor, blockStart: number): HTMLElement | 
   }
   if (!n) return null;
   if (n.nodeType === Node.TEXT_NODE) n = n.parentElement;
-  const root = editor.view.dom;
+  if (!n) return null;
   let el: HTMLElement | null =
     n instanceof HTMLElement ? n : (n as Node).parentElement;
   while (el && el !== root) {
@@ -77,11 +121,11 @@ export function ensureGroupOverlay(editor: Editor): HTMLDivElement {
   if (ov) return ov;
   ov = document.createElement("div");
   ov.id = GROUP_OVERLAY_ID;
+  // 노션처럼 시각 표시만 — pointer-events: none 으로 클릭 통과, 이동은 그립 핸들러 전용
   ov.style.cssText =
     [
       "position: fixed",
-      "pointer-events: auto",
-      "cursor: grab",
+      "pointer-events: none",
       "z-index: 30",
       "border-radius: 8px",
       "background-color: rgba(35, 131, 226, 0.18)",
@@ -89,7 +133,6 @@ export function ensureGroupOverlay(editor: Editor): HTMLDivElement {
       "display: none",
       "transition: none",
     ].join("; ") + ";";
-  ov.draggable = true;
   ov.setAttribute("aria-hidden", "true");
   host.appendChild(ov);
   return ov;

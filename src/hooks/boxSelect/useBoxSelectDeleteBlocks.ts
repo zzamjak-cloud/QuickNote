@@ -1,7 +1,7 @@
 import { type RefObject, useEffect } from "react";
 import type { Editor } from "@tiptap/react";
 
-/** 박스 선택된 블록 일괄 삭제(삭제 잠금 DB 블록 제외) */
+/** 박스 선택된 블록 일괄 삭제 */
 export function useBoxSelectDeleteBlocks(
   editor: Editor | null,
   selectedStartsRef: RefObject<number[]>,
@@ -23,9 +23,6 @@ export function useBoxSelectDeleteBlocks(
       for (const pos of sorted) {
         const node = doc0.nodeAt(pos);
         if (!node) continue;
-        if (node.type.name === "databaseBlock" && node.attrs.deletionLocked) {
-          continue;
-        }
         const mappedPos = tr.mapping.map(pos);
         tr.delete(mappedPos, mappedPos + node.nodeSize);
       }

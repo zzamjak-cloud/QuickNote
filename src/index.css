@@ -552,6 +552,13 @@ body.quicknote-column-drop .qn-dropcursor {
   contain: layout style paint;
 }
 
+/* 마퀴 mousedown 직후~mouseup: 임계값(몇 px) 전에도 선택·드래그가 생기지 않게 */
+body.qn-box-select-tracking [data-qn-editor-column],
+body.qn-box-select-tracking [data-qn-editor-column] * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
 /* 드래그 중에는 페이지 전체 텍스트 선택 억제 */
 body.qn-box-select-dragging {
   user-select: none !important;

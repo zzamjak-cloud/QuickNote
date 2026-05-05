@@ -220,7 +220,6 @@ export function Sidebar() {
     const hint = resolveSidebarDrop({
       overId,
       activeId,
-      clientX: pointerRef.current.x,
       clientY: pointerRef.current.y,
       prev: nestHintRef.current,
       isBlocked,

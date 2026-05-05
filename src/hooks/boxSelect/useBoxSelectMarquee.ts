@@ -1,21 +1,16 @@
 import { type RefObject, useEffect } from "react";
 import type { Editor } from "@tiptap/react";
+import type { EditorView } from "@tiptap/pm/view";
 import { TextSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
-import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
 import { MARQUEE_ACTIVATE_PX } from "./constants";
 import type { Rect } from "./types";
 import {
-  ensureGroupOverlay,
   hideGroupOverlay,
   paintOverlayForPositions,
 } from "./overlayDom";
-import {
-  isEditorChromeOutsidePm,
-  isGroupOverlayTarget,
-  shouldIgnoreBoxSelectStart,
-} from "./hitTest";
+import { isGroupOverlayTarget } from "./hitTest";
 
 type Args = {
   editor: Editor | null;
@@ -28,7 +23,20 @@ type Args = {
   updateSelectionDom: (rect: Rect) => void;
 };
 
-/** 마퀴 드래그 · 드래그 사각형 오버레이 · 그룹 오버레이 드래그 핸들(window capture 포함) */
+/** 노션 스타일 — target 이 PM 의 어떤 doc 직속 블럭(또는 그 후손) 안에 있는지 검사.
+ *  블럭 안이면 마퀴 시작 금지(테이블 셀 선택·텍스트 cursor 이동 등 PM 자체 처리에 위임). */
+function isInsideAnyBlock(view: EditorView, target: Element): boolean {
+  if (target === view.dom) return false;
+  if (!view.dom.contains(target)) return false;
+  let el: Element | null = target;
+  while (el && el !== view.dom) {
+    if (el.parentElement === view.dom) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+
+/** 마퀴 드래그 — 블럭 외부 빈 공간 전용. 그룹 오버레이는 시각 표시만(이동은 그립 핸들러 전용). */
 export function useBoxSelectMarquee({
   editor,
   startRef,
@@ -72,12 +80,13 @@ export function useBoxSelectMarquee({
 
     const endMarqueeChrome = () => {
       document.body.classList.remove("qn-box-select-dragging");
+      document.body.classList.remove("qn-box-select-tracking");
     };
 
     const onSelectStartWhileTracking = (e: Event) => {
-      if (!startRef.current || !activeRef.current) return;
+      if (!startRef.current) return;
       const t = e.target;
-      if (t instanceof Node && editor.view.dom.contains(t)) {
+      if (t instanceof Node && editorHost.contains(t)) {
         e.preventDefault();
       }
     };
@@ -101,42 +110,45 @@ export function useBoxSelectMarquee({
       clearSelection();
       startRef.current = { x: ev.clientX, y: ev.clientY };
       activeRef.current = false;
+      document.body.classList.add("qn-box-select-tracking");
+      getSelection()?.removeAllRanges();
       document.addEventListener("selectstart", onSelectStartWhileTracking, true);
     };
+
+    /** 마퀴 시작이 절대 안되어야 하는 인터랙션 요소 (폼·링크·버튼·그립·팝업 등). */
+    const INTERACTIVE_SELECTOR =
+      "input, textarea, select, button, a[href], label, " +
+      "[data-qn-block-grip], .tippy-box, [role='menu'], [role='listbox'], [role='dialog']";
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       const target = e.target;
       if (!(target instanceof Element)) return;
 
+      // 에디터 호스트 외부 — 선택 해제 후 종료
       if (!editorHost.contains(target)) {
         collapsePmSelectionIfNeeded();
         clearSelection();
         return;
       }
 
-      if (isGroupOverlayTarget(target)) {
-        return;
-      }
+      // 그룹 오버레이는 pointer-events:none 이라 도달하지 않지만 방어
+      if (isGroupOverlayTarget(target)) return;
 
-      const insidePm = editor.view.dom.contains(target);
+      // 인터랙션 요소 — 마퀴 시작 금지(선택 유지)
+      if (target.closest(INTERACTIVE_SELECTOR)) return;
 
-      if (!insidePm) {
-        if (isEditorChromeOutsidePm(target)) {
-          collapsePmSelectionIfNeeded();
+      // 블럭 컨텐츠 안 — 노션처럼 마퀴 시작 차단.
+      // 박스 선택이 있다면 클리어(클릭 → cursor 이동 시 자연스러운 해제).
+      if (isInsideAnyBlock(editor.view, target)) {
+        if (selectedStartsRef.current.length > 0) {
           clearSelection();
-          return;
         }
-        collapsePmSelectionIfNeeded();
-        beginMarqueeTracking(e);
         return;
       }
 
-      if (shouldIgnoreBoxSelectStart(editor, editorHost, target)) {
-        clearSelection();
-        return;
-      }
-
+      // 외부 빈 공간(에디터 chrome / 블럭 사이 padding 등) — 마퀴 시작
+      collapsePmSelectionIfNeeded();
       beginMarqueeTracking(e);
     };
 
@@ -196,8 +208,6 @@ export function useBoxSelectMarquee({
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
 
-    const groupOverlayEl = ensureGroupOverlay(editor);
-
     const clearSelectionAfterDocChange = () => {
       if (activeRef.current) return;
       if (document.body.classList.contains("quicknote-block-dragging")) return;
@@ -205,52 +215,21 @@ export function useBoxSelectMarquee({
     };
     editor.on("update", clearSelectionAfterDocChange);
 
-    const computeActivePositions = (): number[] => {
-      if (selectedStartsRef.current.length > 0) {
-        return [...selectedStartsRef.current];
-      }
-      const sel = editor.state.selection;
-      if (sel.from === sel.to) return [];
-      const positions = topLevelBlockStartsInSelectionRange(
-        editor.state.doc,
-        sel.from,
-        sel.to,
-      );
-      return positions.length >= 2 ? positions : [];
+    // 그립 핸들러로 시작한 native drag 도 quicknote-block-dragging body 클래스를 걸어주므로
+    // 에디터 영역 dragover 를 명시적으로 수락(브라우저가 moved/drop을 거부 못하도록).
+    const onWindowDragOver = (e: DragEvent) => {
+      if (!document.body.classList.contains("quicknote-block-dragging")) return;
+      const hostRect = editorHost.getBoundingClientRect();
+      const insideHost =
+        e.clientX >= hostRect.left &&
+        e.clientX <= hostRect.right &&
+        e.clientY >= hostRect.top &&
+        e.clientY <= hostRect.bottom;
+      if (!insideHost) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
     };
-
-    const onOverlayDragStart = (e: DragEvent) => {
-      const positions = computeActivePositions();
-      if (positions.length === 0) {
-        e.preventDefault();
-        return;
-      }
-      const sorted = [...positions].sort((a, b) => a - b);
-      const firstPos = sorted[0]!;
-      const firstNode = editor.state.doc.nodeAt(firstPos);
-      if (!firstNode) {
-        e.preventDefault();
-        return;
-      }
-      document.body.classList.add("quicknote-block-dragging");
-      groupOverlayEl.style.display = "none";
-      groupOverlayEl.style.cursor = "grabbing";
-      startGripNativeDrag(editor, e, firstPos, firstNode, positions);
-    };
-
-    const onOverlayDragEnd = () => {
-      document.body.classList.remove("quicknote-block-dragging");
-      groupOverlayEl.style.cursor = "grab";
-      clearSelection();
-    };
-
-    const onOverlayMouseDown = (e: MouseEvent) => {
-      e.stopPropagation();
-    };
-
-    groupOverlayEl.addEventListener("dragstart", onOverlayDragStart);
-    groupOverlayEl.addEventListener("dragend", onOverlayDragEnd);
-    groupOverlayEl.addEventListener("mousedown", onOverlayMouseDown);
+    window.addEventListener("dragover", onWindowDragOver, true);
 
     const onScrollOrResize = () => {
       if (!editor) return;
@@ -288,13 +267,21 @@ export function useBoxSelectMarquee({
       window.removeEventListener("mouseup", onMouseUp);
       document.removeEventListener("selectstart", onSelectStartWhileTracking, true);
       document.body.classList.remove("qn-box-select-dragging");
+      document.body.classList.remove("qn-box-select-tracking");
       scroller.removeEventListener("scroll", onScrollOrResize);
       window.removeEventListener("resize", onScrollOrResize);
-      groupOverlayEl.removeEventListener("dragstart", onOverlayDragStart);
-      groupOverlayEl.removeEventListener("dragend", onOverlayDragEnd);
-      groupOverlayEl.removeEventListener("mousedown", onOverlayMouseDown);
+      window.removeEventListener("dragover", onWindowDragOver, true);
       dragRectOverlay.remove();
       hideGroupOverlay(editor);
     };
-  }, [editor, updateSelectionDom, clearSelection, setSelectedStarts]);
+  }, [
+    editor,
+    startRef,
+    activeRef,
+    dragRectRef,
+    selectedStartsRef,
+    updateSelectionDom,
+    clearSelection,
+    setSelectedStarts,
+  ]);
 }

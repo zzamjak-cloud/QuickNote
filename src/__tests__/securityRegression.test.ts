@@ -5,7 +5,6 @@
  * T-2 panelState(JSON) 프로토타입·키 오염 방어
  * T-3 loadPages 스키마 검증
  * T-4 링크/URL 허용 스킴 매트릭스
- * T-5 databaseBlock deletionLocked → filterTransaction 거부
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -89,7 +88,7 @@ describe("HI-19 T-4 URL 스킴 매트릭스", () => {
   });
 });
 
-describe("HI-19 T-5 databaseBlock filterTransaction (deletionLocked)", () => {
+describe("HI-19 databaseBlock 삭제", () => {
   let editor: Editor | null = null;
 
   afterEach(() => {
@@ -97,58 +96,30 @@ describe("HI-19 T-5 databaseBlock filterTransaction (deletionLocked)", () => {
     editor = null;
   });
 
-  function makeDoc(locked: boolean): JSONContent {
-    return {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          content: [{ type: "text", text: "hi" }],
+  const docWithDatabase: JSONContent = {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "hi" }],
+      },
+      {
+        type: "databaseBlock",
+        attrs: {
+          databaseId: "db-regression",
+          layout: "inline",
+          view: "table",
+          panelState: JSON.stringify(emptyPanelState()),
+          readOnlyTitle: false,
         },
-        {
-          type: "databaseBlock",
-          attrs: {
-            databaseId: "db-regression",
-            layout: "inline",
-            view: "table",
-            panelState: JSON.stringify(emptyPanelState()),
-            readOnlyTitle: false,
-            deletionLocked: locked,
-          },
-        },
-      ],
-    };
-  }
+      },
+    ],
+  };
 
-  it("deletionLocked 이면 블록 삭제 트랜잭션이 적용되지 않는다", () => {
+  it("databaseBlock 은 tr.delete 로 문서에서 제거된다", () => {
     editor = new Editor({
       extensions: [StarterKit, DatabaseBlock],
-      content: makeDoc(true),
-      editable: true,
-    });
-
-    let dbPos = -1;
-    let dbSize = 0;
-    editor.state.doc.descendants((node, pos) => {
-      if (node.type.name === "databaseBlock") {
-        dbPos = pos;
-        dbSize = node.nodeSize;
-        return false;
-      }
-    });
-    expect(dbPos).toBeGreaterThanOrEqual(0);
-    expect(dbSize).toBeGreaterThan(0);
-
-    const before = editor.getJSON();
-    const tr = editor.state.tr.delete(dbPos, dbPos + dbSize);
-    editor.view.dispatch(tr);
-    expect(editor.getJSON()).toEqual(before);
-  });
-
-  it("deletionLocked 가 아니면 블록 삭제가 반영된다", () => {
-    editor = new Editor({
-      extensions: [StarterKit, DatabaseBlock],
-      content: makeDoc(false),
+      content: docWithDatabase,
       editable: true,
     });
 

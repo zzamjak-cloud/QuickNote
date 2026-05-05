@@ -22,6 +22,10 @@ export function useBoxSelectPmOverlay(
 
     const apply = () => {
       if (activeRef.current) return;
+      // 그룹 오버레이 dragstart → startContiguousBlocksNativeDrag 가 setSelection 을 dispatch 하면
+      // selectionUpdate 가 즉시 발화한다. 이때 페인트 하면 숨겨둔 오버레이가 드래그 도중 다시 떠
+      // drop 이 PM 대신 오버레이로 떨어져 이동이 전혀 적용되지 않는다.
+      if (document.body.classList.contains("quicknote-block-dragging")) return;
       const sel = editor.state.selection;
       if (sel.from === sel.to) {
         if (selectedStartsRef.current.length === 0) hideGroupOverlay(editor);

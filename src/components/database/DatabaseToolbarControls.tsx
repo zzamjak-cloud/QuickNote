@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Plus, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  X,
+  Search,
+  ArrowUpDown,
+  Funnel,
+} from "lucide-react";
 import { newId } from "../../lib/id";
 import { FILTER_OPERATORS } from "../../lib/databaseQuery";
 import type {
@@ -7,23 +14,35 @@ import type {
   FilterRule,
   FilterOperator,
   SortRule,
+  ViewKind,
 } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
+import { DatabaseViewKindToggle } from "./DatabaseViewKindToggle";
 
 type Props = {
   databaseId: string;
+  viewKind: ViewKind;
+  view: ViewKind;
+  onViewChange: (v: ViewKind) => void;
   panelState: DatabasePanelState;
   setPanelState: (p: Partial<DatabasePanelState>) => void;
 };
 
 export function DatabaseToolbarControls({
   databaseId,
+  viewKind,
+  view,
+  onViewChange,
   panelState,
   setPanelState,
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const [filterExpanded, setFilterExpanded] = useState(false);
   const [sortExpanded, setSortExpanded] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(
+    panelState.searchQuery.trim().length > 0,
+  );
 
   // 검색창 — 한글 IME 입력 깨짐 방지(#3): composition 동안 panelState commit 보류.
   const [searchDraft, setSearchDraft] = useState(panelState.searchQuery);
@@ -31,6 +50,9 @@ export function DatabaseToolbarControls({
   useEffect(() => {
     // 외부에서 panelState가 바뀌면(다른 인스턴스 등) draft 동기화.
     if (!composingRef.current) setSearchDraft(panelState.searchQuery);
+  }, [panelState.searchQuery]);
+  useEffect(() => {
+    if (panelState.searchQuery.trim().length > 0) setSearchOpen(true);
   }, [panelState.searchQuery]);
 
   const sortOptions = useMemo(() => {
@@ -104,76 +126,112 @@ export function DatabaseToolbarControls({
   return (
     <div className="select-none border-b border-zinc-200 px-2 py-2 dark:border-zinc-700">
       <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="search"
-          placeholder="검색…"
-          value={searchDraft}
-          onChange={(e) => {
-            setSearchDraft(e.target.value);
-            // composition 중에는 panelState commit 보류.
-            if (!composingRef.current) {
-              setPanelState({ searchQuery: e.target.value });
-            }
-          }}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={(e) => {
-            composingRef.current = false;
-            setPanelState({
-              searchQuery: (e.target as HTMLInputElement).value,
-            });
-          }}
-          className="w-44 select-text rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
-        />
-
-        {/* 정렬 — 다중 규칙 (#4) */}
-        <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-600">
+        <div className="flex flex-wrap items-center gap-0.5">
+          <DatabaseViewKindToggle view={view} onViewChange={onViewChange} />
+        </div>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={addSort}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            onClick={() => {
+              if (searchOpen && searchDraft.length > 0) {
+                setSearchDraft("");
+                setPanelState({ searchQuery: "" });
+              }
+              setSearchOpen((v) => !v);
+            }}
+            title={searchOpen ? "검색 닫기" : "검색 열기"}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
           >
-            <Plus size={12} /> 정렬
-            {effectiveSortRules.length > 0 && (
-              <span className="ml-1 rounded bg-zinc-200 px-1 text-[10px] text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
-                {effectiveSortRules.length}
-              </span>
-            )}
+            <Search size={13} />
           </button>
-          {effectiveSortRules.length > 0 && (
+          {searchOpen && (
+            <input
+              type="search"
+              placeholder="검색…"
+              value={searchDraft}
+              onChange={(e) => {
+                setSearchDraft(e.target.value);
+                // composition 중에는 panelState commit 보류.
+                if (!composingRef.current) {
+                  setPanelState({ searchQuery: e.target.value });
+                }
+              }}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={(e) => {
+                composingRef.current = false;
+                setPanelState({
+                  searchQuery: (e.target as HTMLInputElement).value,
+                });
+              }}
+              className="w-44 select-text rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
+            />
+          )}
+
+          {/* 정렬 — 다중 규칙 (#4) */}
+          <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-600">
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setSortExpanded((v) => !v)}
-              title={sortExpanded ? "정렬 접기" : "정렬 펼치기"}
-              className="flex items-center border-l border-zinc-300 px-1.5 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+              onClick={addSort}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
-              {sortExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              <ArrowUpDown size={12} />
+              {effectiveSortRules.length > 0 && (
+                <span className="rounded bg-zinc-200 px-1 text-[10px] text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
+                  {effectiveSortRules.length}
+                </span>
+              )}
             </button>
-          )}
-        </div>
+            {effectiveSortRules.length > 0 && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setSortExpanded((v) => !v)}
+                title={sortExpanded ? "정렬 접기" : "정렬 펼치기"}
+                className="flex items-center border-l border-zinc-300 px-1.5 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+              >
+                {sortExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+            )}
+          </div>
 
-        {/* 필터 */}
-        <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-600">
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={addFilter}
-            className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            <Plus size={12} /> 필터
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setFilterExpanded((v) => !v)}
-            title={filterExpanded ? "조건 접기" : "조건 펼치기"}
-            className="flex items-center border-l border-zinc-300 px-1.5 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
-          >
-            {filterExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
+          {/* 필터 */}
+          <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-600">
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={addFilter}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              <Funnel size={12} />
+              {panelState.filterRules.length > 0 && (
+                <span className="rounded bg-zinc-200 px-1 text-[10px] text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
+                  {panelState.filterRules.length}
+                </span>
+              )}
+            </button>
+            {panelState.filterRules.length > 0 && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setFilterExpanded((v) => !v)}
+                title={filterExpanded ? "조건 접기" : "조건 펼치기"}
+                className="flex items-center border-l border-zinc-300 px-1.5 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+              >
+                {filterExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+            )}
+          </div>
+
+          <DatabaseColumnSettingsButton
+            databaseId={databaseId}
+            viewKind={viewKind}
+            panelState={panelState}
+            setPanelState={setPanelState}
+          />
         </div>
       </div>
 

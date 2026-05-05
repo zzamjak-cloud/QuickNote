@@ -36,7 +36,7 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
           type="text"
           value={typeof value === "string" ? value : ""}
           onChange={(e) => setVal(e.target.value)}
-          className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
+          className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
         />
       );
     case "phone":
@@ -62,7 +62,7 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
             const v = e.target.value;
             setVal(v === "" ? null : Number(v));
           }}
-          className="w-full min-w-[72px] rounded border border-transparent px-1 py-0.5 text-xs outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
+          className="w-full rounded border border-transparent px-1 py-0.5 text-xs outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
         />
       );
     case "checkbox":
@@ -76,24 +76,7 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
       );
     case "url":
       return (
-        <div className="flex items-center gap-1">
-          <input
-            type="url"
-            value={typeof value === "string" ? value : ""}
-            onChange={(e) => setVal(e.target.value)}
-            className="min-w-0 flex-1 rounded border border-transparent px-1 py-0.5 text-xs outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
-          />
-          {typeof value === "string" && value.startsWith("http") && (
-            <a
-              href={value}
-              target="_blank"
-              rel="noreferrer"
-              className="shrink-0 text-[10px] text-blue-600 underline dark:text-blue-400"
-            >
-              열기
-            </a>
-          )}
-        </div>
+        <UrlCell value={typeof value === "string" ? value : ""} onChange={setVal} />
       );
     case "select":
       return (
@@ -698,8 +681,42 @@ function PhoneCell({
       value={formatPhone(value)}
       onChange={(e) => onChange(formatPhone(e.target.value))}
       placeholder="010-0000-0000"
-      className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none placeholder:text-zinc-300 focus:border-zinc-300 dark:focus:border-zinc-600 dark:placeholder:text-zinc-600"
+      className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none placeholder:text-zinc-300 focus:border-zinc-300 dark:focus:border-zinc-600 dark:placeholder:text-zinc-600"
     />
+  );
+}
+
+function UrlCell({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: CellValue) => void;
+}) {
+  const isUrl = /^https?:\/\//i.test(value);
+  return (
+    <div className="group/url relative flex w-full items-center">
+      <input
+        type="url"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="https://..."
+        className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 pr-8 text-xs outline-none placeholder:text-zinc-300 focus:border-zinc-300 dark:focus:border-zinc-600 dark:placeholder:text-zinc-600"
+      />
+      {isUrl && (
+        <a
+          href={value}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="absolute right-0.5 top-1/2 -translate-y-1/2 rounded bg-white/95 px-1 py-0.5 text-[10px] text-blue-600 underline opacity-0 transition-opacity group-hover/url:opacity-100 dark:bg-zinc-950/95 dark:text-blue-400"
+          title={value}
+        >
+          열기
+        </a>
+      )}
+    </div>
   );
 }
 
@@ -711,18 +728,7 @@ function formatPhone(raw: string): string {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }
 
-const COMMON_EMAIL_DOMAINS = [
-  "naver.com",
-  "gmail.com",
-  "kakao.com",
-  "daum.net",
-  "hanmail.net",
-  "hotmail.com",
-  "outlook.com",
-  "yahoo.com",
-  "icloud.com",
-];
-
+/** 일반 텍스트 입력 — 값에 "@" 가 없으면 빨간 글자로 경고 표시 */
 function EmailCell({
   value,
   onChange,
@@ -730,67 +736,18 @@ function EmailCell({
   value: string;
   onChange: (v: CellValue) => void;
 }) {
-  const [idPart, domainPart] = (() => {
-    const at = value.lastIndexOf("@");
-    if (at < 0) return [value, ""];
-    return [value.slice(0, at), value.slice(at + 1)];
-  })();
-
-  const [customDomain, setCustomDomain] = useState(
-    domainPart && !COMMON_EMAIL_DOMAINS.includes(domainPart),
-  );
-
-  const updateId = (id: string) => {
-    onChange(id ? `${id}@${domainPart}` : domainPart ? `@${domainPart}` : "");
-  };
-
-  const updateDomain = (d: string) => {
-    onChange(idPart || d ? `${idPart}@${d}` : "");
-  };
-
+  const isInvalid = value.length > 0 && !value.includes("@");
   return (
-    <div className="flex w-full min-w-[180px] items-center gap-0.5 text-xs">
-      <input
-        type="text"
-        value={idPart}
-        onChange={(e) => updateId(e.target.value)}
-        placeholder="id"
-        className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
-      />
-      <span className="shrink-0 text-zinc-400">@</span>
-      {customDomain ? (
-        <input
-          type="text"
-          value={domainPart}
-          onChange={(e) => updateDomain(e.target.value)}
-          onBlur={() => {
-            if (COMMON_EMAIL_DOMAINS.includes(domainPart)) setCustomDomain(false);
-          }}
-          placeholder="example.com"
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
-        />
-      ) : (
-        <select
-          value={COMMON_EMAIL_DOMAINS.includes(domainPart) ? domainPart : ""}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === "__custom__") {
-              setCustomDomain(true);
-              updateDomain("");
-            } else {
-              updateDomain(v);
-            }
-          }}
-          className="min-w-0 flex-1 rounded border border-zinc-200 bg-white px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
-        >
-          <option value="">선택</option>
-          {COMMON_EMAIL_DOMAINS.map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-          <option value="__custom__">직접 입력…</option>
-        </select>
-      )}
-    </div>
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="email@example.com"
+      className={[
+        "w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none placeholder:text-zinc-300 focus:border-zinc-300 dark:focus:border-zinc-600 dark:placeholder:text-zinc-600",
+        isInvalid ? "text-red-500 dark:text-red-400" : "",
+      ].join(" ")}
+    />
   );
 }
 

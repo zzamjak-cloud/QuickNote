@@ -350,16 +350,17 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
 
   // 풀 페이지 데이터베이스 — 첫 블록이 fullPage databaseBlock 이면 해당 페이지는 본문 에디터로 쓰지 않음(인라인 DB 와 구분).
   // 예전에는 doc 가 단일 블록일 때만 잡아서, 빈 문단 하나만 생겨도 편집이 다시 켜지는 문제가 있었음.
+  const pageDoc = page?.doc;
   const isFullPageDatabase = useMemo(() => {
-    if (!page) return false;
-    const c = page.doc.content;
+    if (!pageDoc) return false;
+    const c = pageDoc.content;
     if (!c?.length) return false;
     const first = c[0];
     return (
       first?.type === "databaseBlock" &&
       first.attrs?.layout === "fullPage"
     );
-  }, [page?.doc]);
+  }, [pageDoc]);
 
   // content 로 store 의 page.doc 를 넘기면 자동저장마다 참조가 바뀌어 setOptions 가 무한 호출됨.
   // 초기값은 고정 EMPTY 만 넘기고, 실제 문서는 아래 effect 에서만 주입한다.

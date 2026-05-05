@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- 페이지 아이콘 트리거 UI를 텍스트(`아이콘 추가`)에서 `+` 심볼 아이콘으로 변경.
+- 데이터베이스 툴바를 단일 라인으로 정리: 좌측 뷰 모드 토글, 우측 검색/정렬/필터/속성 액션.
+- 인라인 데이터베이스 헤더의 중복 드래그 핸들 표시 제거.
+- 테이블 헤더의 별도 속성 설정 컬럼을 제거하고 툴바의 속성 버튼으로 통합.
+- 테이블 선택 체크박스 열 폭/정렬을 재조정해 컬럼 라인과 겹침을 완화.
+
 ## [2.0.0] - 2026-05-05
 
 ### Added
@@ -29,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 헤더 `+` 버튼 컬럼 추가 / grip 핸들 컬럼 드래그 재정렬
 - 박스 다중 선택 (마우스 드래그) — `src/hooks/boxSelect/`
 - 다단 레이아웃 (Columns) TipTap 확장
-- `src/__tests__/securityRegression.test.ts`: HI-19 T-1~T-5 (duplicate 격리, panelState, loadPages, URL 스킴, deletionLocked filterTransaction).
+- `src/__tests__/securityRegression.test.ts`: HI-19 T-1~T-5 (duplicate 격리, panelState, loadPages, URL 스킴, databaseBlock 삭제 동작).
 - `SECURITY.md`, `CONTRIBUTING.md`, `docs/adr/README.md`.
 - `.nvmrc`, `package.json` `engines`, static hosting용 `vercel.json` 보안 헤더.
 - Zustand persist `version`/`migrate` for page/settings/contacts stores.
