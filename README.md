@@ -117,10 +117,10 @@ npm run tauri:build  # 배포용 .dmg / .exe 생성
 ## 로드맵
 
 - **v1.0.0** — 웹 에디터 + 데이터베이스 MVP (`CHANGELOG.md` 참고)
-- **v2.0.0** — Tauri 데스크톱 이식, SQLite 로컬 저장 ← 진행 중
+- **v2.0.0** — Tauri 데스크톱 이식, SQLite 로컬 저장, 태그 릴리스·자동 업데이트(minisign + GitHub Actions) ← 완료
 - v3.0.0 — AWS Cognito + Google OAuth + 화이트리스트 인증
 - v4.0.0 — Lambda + DynamoDB 동기화, S3 이미지 업로드
-- v5.0.0 — 실시간 협업 (AppSync), 자동 업데이트 (GitHub Actions)
+- v5.0.0 — 실시간 협업 (AppSync)
 
 ## 기여·보안
 
