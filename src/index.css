@@ -552,8 +552,8 @@ body.quicknote-column-drop .qn-dropcursor {
   contain: layout style paint;
 }
 
-/* 드래그 중에는 네이티브 텍스트 선택과 충돌 방지 */
-body.qn-box-select-dragging .ProseMirror {
+/* 드래그 중에는 페이지 전체 텍스트 선택 억제 */
+body.qn-box-select-dragging {
   user-select: none !important;
 }
 
