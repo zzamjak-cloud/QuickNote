@@ -99,7 +99,21 @@ export const DatabaseBlock = Node.create({
             }
             const inner = pos + 1;
             const mapRes = tr.mapping.mapResult(inner);
-            if (mapRes.deleted) return false;
+            if (mapRes.deleted) {
+              // 원래 위치에서 삭제됨 — 이동(새 doc에 같은 databaseId 존재)이면 허용, 순수 삭제면 차단
+              let foundInNewDoc = false;
+              tr.doc.descendants((node) => {
+                if (
+                  node.type.name === "databaseBlock" &&
+                  String(node.attrs.databaseId ?? "") === databaseId
+                ) {
+                  foundInNewDoc = true;
+                }
+                return !foundInNewDoc;
+              });
+              if (!foundInNewDoc) return false;
+              continue; // 이동이므로 다음 잠금 블록 검사로
+            }
             const mappedStart = tr.mapping.map(pos, -1);
             const newNode = tr.doc.nodeAt(mappedStart);
             if (
