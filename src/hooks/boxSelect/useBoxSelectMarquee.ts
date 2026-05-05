@@ -1,6 +1,7 @@
 import { type RefObject, useEffect } from "react";
 import type { Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
 import { MARQUEE_ACTIVATE_PX } from "./constants";
@@ -81,14 +82,18 @@ export function useBoxSelectMarquee({
       }
     };
 
-    const collapsePmTextSelectionIfNeeded = () => {
+    const collapsePmSelectionIfNeeded = () => {
       const sel = editor.state.selection;
-      if (sel.from !== sel.to) {
-        editor.view.dispatch(
-          editor.state.tr.setSelection(
-            TextSelection.create(editor.state.doc, sel.from),
-          ),
-        );
+      if (sel.from !== sel.to || sel instanceof CellSelection) {
+        try {
+          editor.view.dispatch(
+            editor.state.tr.setSelection(
+              TextSelection.create(editor.state.doc, sel.from),
+            ),
+          );
+        } catch {
+          // 테이블 경계 위치에서 TextSelection 생성 실패 시 무시
+        }
       }
     };
 
@@ -96,6 +101,8 @@ export function useBoxSelectMarquee({
       clearSelection();
       startRef.current = { x: ev.clientX, y: ev.clientY };
       activeRef.current = false;
+      // PM 자체 mousedown 핸들러가 CellSelection을 만든 뒤 해제
+      setTimeout(collapsePmSelectionIfNeeded, 0);
       document.addEventListener("selectstart", onSelectStartWhileTracking, true);
     };
 
@@ -105,7 +112,7 @@ export function useBoxSelectMarquee({
       if (!(target instanceof Element)) return;
 
       if (!editorHost.contains(target)) {
-        collapsePmTextSelectionIfNeeded();
+        collapsePmSelectionIfNeeded();
         clearSelection();
         return;
       }
@@ -118,11 +125,11 @@ export function useBoxSelectMarquee({
 
       if (!insidePm) {
         if (isEditorChromeOutsidePm(target)) {
-          collapsePmTextSelectionIfNeeded();
+          collapsePmSelectionIfNeeded();
           clearSelection();
           return;
         }
-        collapsePmTextSelectionIfNeeded();
+        collapsePmSelectionIfNeeded();
         beginMarqueeTracking(e);
         return;
       }
@@ -150,14 +157,10 @@ export function useBoxSelectMarquee({
         activeRef.current = true;
         document.body.classList.add("qn-box-select-dragging");
         getSelection()?.removeAllRanges();
-        const sel = editor.state.selection;
-        if (sel.from !== sel.to) {
-          editor.view.dispatch(
-            editor.state.tr.setSelection(
-              TextSelection.create(editor.state.doc, sel.from),
-            ),
-          );
-        }
+        collapsePmSelectionIfNeeded();
+      } else if (editor.state.selection instanceof CellSelection) {
+        // 마퀴가 테이블 위를 지나는 동안 PM이 CellSelection을 재생성하는 것을 막음
+        collapsePmSelectionIfNeeded();
       }
 
       const rect: Rect = {
