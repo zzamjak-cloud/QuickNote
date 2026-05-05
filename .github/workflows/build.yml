@@ -75,15 +75,14 @@ jobs:
 
       - name: Upload updater fragment for merge
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          F=$(find src-tauri/target -name latest.json -type f | head -1)
-          if [ -z "${F}" ]; then
-            echo "::error::latest.json not found under src-tauri/target"
-            find src-tauri/target -type f -name "*.json" 2>/dev/null | head -40 || true
-            exit 1
-          fi
-          cp "$F" "updater-fragment-${{ matrix.platform }}.json"
+          gh release download "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "latest.json" \
+            --output "updater-fragment-${{ matrix.platform }}.json"
       - uses: actions/upload-artifact@v4
         with:
           name: updater-fragment-${{ matrix.platform }}
