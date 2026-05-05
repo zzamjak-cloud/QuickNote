@@ -17,6 +17,9 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
   const tree = usePageStore(selectPageTree);
   const movePage = usePageStore((s) => s.movePage);
   const pages = usePageStore((s) => s.pages);
+  const findFullPagePageIdForDatabase = usePageStore(
+    (s) => s.findFullPagePageIdForDatabase,
+  );
   const dbList = useDatabaseStore(listDatabases);
   const attachPageAsRow = useDatabaseStore((s) => s.attachPageAsRow);
   const detachRowToNormalPage = useDatabaseStore((s) => s.detachRowToNormalPage);
@@ -52,6 +55,13 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
     normalizedQuery.length === 0
       ? dbList
       : dbList.filter((d) => d.meta.title.toLowerCase().includes(normalizedQuery));
+  const selectableDbList = filteredDbList.filter((d) => {
+    // 1) 현재 페이지가 특정 DB의 fullPage 루트라면 그 DB로는 자기 자신 이동이므로 제외
+    if (findFullPagePageIdForDatabase(d.id) === pageId) return false;
+    // 2) 이미 해당 DB의 row 페이지인 경우도 자기 자신 DB로의 재이동(no-op)이므로 제외
+    if (target.databaseId && target.databaseId === d.id) return false;
+    return true;
+  });
 
   return (
     <div
@@ -126,12 +136,12 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
           <div className="px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
             데이터베이스 항목으로 이동
           </div>
-          {filteredDbList.length === 0 ? (
+          {selectableDbList.length === 0 ? (
             <p className="px-2 py-2 text-xs text-zinc-400">
               일치하는 데이터베이스가 없습니다.
             </p>
           ) : (
-            filteredDbList.map((d) => (
+            selectableDbList.map((d) => (
               <button
                 key={d.id}
                 type="button"

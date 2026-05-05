@@ -134,6 +134,35 @@ function toPageSnapshot(page: ReturnType<typeof usePageStore.getState>["pages"][
   };
 }
 
+function extractFullPageDatabaseId(
+  page: ReturnType<typeof usePageStore.getState>["pages"][string],
+): string | null {
+  const first = page.doc?.content?.[0] as
+    | { type?: string; attrs?: Record<string, unknown> }
+    | undefined;
+  if (!first || first.type !== "databaseBlock") return null;
+  const attrs = first.attrs ?? {};
+  if (attrs.layout !== "fullPage") return null;
+  return typeof attrs.databaseId === "string" ? attrs.databaseId : null;
+}
+
+function makeReferenceCellValue(
+  cols: ColumnDef[],
+  sourceDbId: string,
+  sourceTitle: string,
+): Record<string, CellValue> {
+  const out: Record<string, CellValue> = {};
+  const refValue = `quicknote://database/${sourceDbId}`;
+  const urlCol = cols.find((c) => c.type === "url");
+  const textCol = cols.find((c) => c.type === "text");
+  const fallbackCol = cols.find((c) => c.type !== "title");
+  const target = urlCol ?? textCol ?? fallbackCol;
+  if (!target) return out;
+  out[target.id] =
+    target.type === "url" ? refValue : `DB 참조: ${sourceTitle} (${sourceDbId})`;
+  return out;
+}
+
 function isValidDatabaseSnapshot(
   snapshot: DatabaseSnapshot | null,
 ): snapshot is DatabaseSnapshot {
@@ -600,6 +629,86 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const targetDb = get().databases[databaseId];
         const pageBefore = usePageStore.getState().pages[pageId];
         if (!targetDb || !pageBefore) return false;
+        const sourceFullPageDbId = extractFullPageDatabaseId(pageBefore);
+        // 권장 3: DB 페이지는 다른 DB로 실삽입하지 않고 "참조 행"만 생성.
+        if (sourceFullPageDbId) {
+          if (sourceFullPageDbId === databaseId) return false;
+          const refPageId = createRowPage(
+            databaseId,
+            pageBefore.title || "DB 참조",
+          );
+          const defaultCells: Record<string, CellValue> = {};
+          for (const col of targetDb.columns) {
+            if (col.type === "title") continue;
+            const def = defaultCellValueForColumn(col);
+            defaultCells[col.id] = def ?? null;
+          }
+          const refCells = makeReferenceCellValue(
+            targetDb.columns,
+            sourceFullPageDbId,
+            pageBefore.title || "데이터베이스",
+          );
+          const nextCells = { ...defaultCells, ...refCells };
+
+          usePageStore.setState((s) => {
+            const page = s.pages[refPageId];
+            if (!page) return s;
+            return {
+              pages: {
+                ...s.pages,
+                [refPageId]: {
+                  ...page,
+                  databaseId,
+                  dbCells: nextCells,
+                  parentId: null,
+                  updatedAt: now(),
+                },
+              },
+            };
+          });
+
+          set((state) => {
+            const db = state.databases[databaseId];
+            if (!db) return state;
+            return {
+              databases: {
+                ...state.databases,
+                [databaseId]: {
+                  ...db,
+                  rowPageOrder: [...db.rowPageOrder, refPageId],
+                  meta: { ...db.meta, updatedAt: now() },
+                },
+              },
+            };
+          });
+
+          const hs = useHistoryStore.getState();
+          const refPageAfter = usePageStore.getState().pages[refPageId];
+          const dbAfter = get().databases[databaseId];
+          if (refPageAfter) {
+            const pageEvents = hs.pageEventsByPageId[refPageId] ?? [];
+            hs.recordPageEvent(
+              refPageId,
+              "page.dbCell",
+              { id: refPageId, databaseId, dbCells: structuredClone(nextCells) },
+              shouldWriteAnchor(pageEvents.length + 1)
+                ? toPageSnapshot(refPageAfter)
+                : undefined,
+            );
+          }
+          if (dbAfter) {
+            const dbEvents = hs.dbEventsByDatabaseId[databaseId] ?? [];
+            hs.recordDbEvent(
+              databaseId,
+              "db.row.add",
+              { rowPageOrder: [...dbAfter.rowPageOrder] },
+              shouldWriteAnchor(dbEvents.length + 1)
+                ? toDatabaseSnapshot(dbAfter)
+                : undefined,
+            );
+          }
+          return true;
+        }
 
         const fromDbId = pageBefore.databaseId;
         const fromDb =
@@ -778,6 +887,25 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           },
         }));
+        // DB 삭제 후 복원 시 row 페이지가 누락될 수 있어, 페이지 히스토리 스냅샷으로 함께 복원.
+        usePageStore.setState((s) => {
+          const nextPages = { ...s.pages };
+          let changed = false;
+          const hs = useHistoryStore.getState();
+          for (const pageId of snapshot.rowPageOrder) {
+            if (nextPages[pageId]) continue;
+            const pageSnap = hs.getLatestPageSnapshot(pageId);
+            if (!pageSnap) continue;
+            nextPages[pageId] = {
+              ...structuredClone(pageSnap),
+              databaseId,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            changed = true;
+          }
+          return changed ? { pages: nextPages } : s;
+        });
         return true;
       },
 
@@ -798,6 +926,24 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           },
         }));
+        usePageStore.setState((s) => {
+          const nextPages = { ...s.pages };
+          let changed = false;
+          const hs = useHistoryStore.getState();
+          for (const pageId of snapshot.rowPageOrder) {
+            if (nextPages[pageId]) continue;
+            const pageSnap = hs.getLatestPageSnapshot(pageId);
+            if (!pageSnap) continue;
+            nextPages[pageId] = {
+              ...structuredClone(pageSnap),
+              databaseId,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            changed = true;
+          }
+          return changed ? { pages: nextPages } : s;
+        });
         return true;
       },
 

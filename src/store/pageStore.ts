@@ -506,6 +506,7 @@ export const usePageStore = create<PageStore>()(
 export function selectSortedPages(state: PageStore): Page[] {
   return Object.values(state.pages)
     .filter((p) => p.databaseId == null) // 행 페이지는 사이드바에서 숨김
+    .filter((p) => !isFullPageDatabaseHomePage(p)) // DB 전용 홈 페이지는 사이드바에서 숨김
     .sort((a, b) => a.order - b.order);
 }
 
@@ -516,6 +517,7 @@ export function selectPageTree(state: PageStore): PageNode[] {
   const byParent = new Map<string | null, Page[]>();
   for (const p of Object.values(state.pages)) {
     if (p.databaseId != null) continue; // 행 페이지는 트리에서 제외
+    if (isFullPageDatabaseHomePage(p)) continue; // DB 전용 홈 페이지는 트리에서 제외
     const list = byParent.get(p.parentId) ?? [];
     list.push(p);
     byParent.set(p.parentId, list);
@@ -541,6 +543,7 @@ export function filterPageTree(
   const matched = new Set<string>();
   for (const p of Object.values(state.pages)) {
     if (p.databaseId != null) continue; // 행 페이지는 검색 결과에도 노출 금지
+    if (isFullPageDatabaseHomePage(p)) continue; // DB 전용 홈 페이지는 검색 결과에도 노출 금지
     if (p.title.toLowerCase().includes(q)) matched.add(p.id);
   }
   // 매치된 페이지의 모든 조상 포함
@@ -557,4 +560,16 @@ export function filterPageTree(
       .filter((n) => include.has(n.id))
       .map((n) => ({ ...n, children: prune(n.children) }));
   return prune(selectPageTree(state));
+}
+
+function isFullPageDatabaseHomePage(page: Page): boolean {
+  const first = page.doc?.content?.[0] as
+    | { type?: string; attrs?: Record<string, unknown> }
+    | undefined;
+  return (
+    !!first &&
+    first.type === "databaseBlock" &&
+    first.attrs?.layout === "fullPage" &&
+    typeof first.attrs?.databaseId === "string"
+  );
 }

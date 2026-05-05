@@ -37,7 +37,19 @@ export function DatabaseBlockInlineHeader({
           input/button 등 인터랙티브 자식은 자체 동작이 우선되어 드래그가 시작되지 않음. */}
       <div
         draggable={onTitleDragStart ? true : undefined}
-        onDragStart={onTitleDragStart}
+        onDragStart={(e) => {
+          const t = e.target as HTMLElement | null;
+          if (
+            t?.closest(
+              "input, textarea, button, a[href], select, [contenteditable='true']",
+            )
+          ) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          onTitleDragStart?.(e);
+        }}
         onDragEnd={onTitleDragEnd}
         className={[
           "group flex items-center justify-between gap-2 border-b border-zinc-200 px-2 py-2 dark:border-zinc-700",

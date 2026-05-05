@@ -26,6 +26,7 @@ import {
 import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageMoveDialog } from "./PageMoveDialog";
+import { DatabaseManagerDialog } from "./DatabaseManagerDialog";
 
 type DropTarget = { id: string; mode: SidebarDropMode } | null;
 
@@ -61,6 +62,7 @@ export function Sidebar() {
   const isDraggingRef = useRef(false);
   const [query, setQuery] = useState("");
   const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
+  const [dbManagerOpen, setDbManagerOpen] = useState(false);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [dragOverlayId, setDragOverlayId] = useState<string | null>(null);
 
@@ -344,9 +346,20 @@ export function Sidebar() {
           </DndContext>
         )}
       </div>
+      <button
+        type="button"
+        onClick={() => setDbManagerOpen(true)}
+        className="mt-2 w-full rounded-md border border-zinc-200 px-2 py-1 text-left text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      >
+        데이터베이스 관리
+      </button>
       <PageMoveDialog
         pageId={moveTargetId}
         onClose={() => setMoveTargetId(null)}
+      />
+      <DatabaseManagerDialog
+        open={dbManagerOpen}
+        onClose={() => setDbManagerOpen(false)}
       />
     </aside>
   );

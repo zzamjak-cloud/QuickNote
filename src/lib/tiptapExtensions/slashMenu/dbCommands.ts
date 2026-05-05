@@ -8,7 +8,6 @@ import {
   Table2,
 } from "lucide-react";
 import { usePageStore } from "../../../store/pageStore";
-import { useSettingsStore } from "../../../store/settingsStore";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { emptyPanelState } from "../../../types/database";
 import type { DatabaseLayout, ViewKind } from "../../../types/database";
@@ -46,7 +45,6 @@ export function insertFullPageDatabase(
   view: ViewKind,
 ): void {
   const seedTitle = "새 데이터베이스";
-  const parentId = usePageStore.getState().activePageId;
   const from = range.from;
   const to = range.to;
   scheduleEditorMutation(() => {
@@ -54,7 +52,8 @@ export function insertFullPageDatabase(
     const dbId = dbStore.createDatabase(seedTitle);
     const actualTitle = dbStore.databases[dbId]?.meta.title ?? seedTitle;
     const store = usePageStore.getState();
-    const pageId = store.createPage(actualTitle, parentId, { activate: false });
+    // DB 전용 홈 페이지는 생성하되 사이드바 카테고리에는 노출하지 않는다.
+    const pageId = store.createPage(actualTitle, null, { activate: false });
     store.updateDoc(pageId, {
       type: "doc",
       content: [
@@ -79,10 +78,7 @@ export function insertFullPageDatabase(
       })
       .insertContent(" ")
       .run();
-    if (parentId) {
-      useSettingsStore.getState().setExpanded(parentId, true);
-    }
-    store.setActivePage(pageId);
+    // 현재 문맥은 유지하고 @멘션만 남긴다.
   });
 }
 

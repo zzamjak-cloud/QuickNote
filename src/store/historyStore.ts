@@ -52,6 +52,12 @@ type HistoryActions = {
   getDbSnapshotAtEvent: (databaseId: string, eventId: string) => DatabaseSnapshot | null;
   getDeletedRowTombstones: (databaseId: string) => DeletedRowTombstone[];
   popDeletedRowTombstone: (databaseId: string, tombstoneId: string) => DeletedRowTombstone | null;
+  getDeletedDbRestorePoints: () => Array<{
+    databaseId: string;
+    eventId: string;
+    ts: number;
+    title: string;
+  }>;
 };
 
 export type HistoryStore = HistoryState & HistoryActions;
@@ -88,7 +94,19 @@ function mergeDbPatch(
   base: DatabaseSnapshot | null,
   patch: Partial<DatabaseSnapshot>,
 ): DatabaseSnapshot | null {
-  if (!base) return null;
+  if (!base) {
+    // 첫 이벤트(db.create)는 anchor 없이도 전체 스냅샷 patch가 올 수 있다.
+    // 이 경우 초기 스냅샷으로 승격해 타임라인/복원이 가능해야 한다.
+    if (
+      patch.meta &&
+      typeof patch.meta.id === "string" &&
+      Array.isArray(patch.columns) &&
+      Array.isArray(patch.rowPageOrder)
+    ) {
+      return structuredClone(patch as DatabaseSnapshot);
+    }
+    return null;
+  }
   return { ...base, ...patch };
 }
 
@@ -444,6 +462,28 @@ export const useHistoryStore = create<HistoryStore>()(
           };
         });
         return removed;
+      },
+      getDeletedDbRestorePoints: () => {
+        const out: Array<{
+          databaseId: string;
+          eventId: string;
+          ts: number;
+          title: string;
+        }> = [];
+        for (const [databaseId, events] of Object.entries(get().dbEventsByDatabaseId)) {
+          if (!events.length) continue;
+          const sorted = [...events].sort((a, b) => a.ts - b.ts);
+          const lastDelete = [...sorted].reverse().find((e) => e.kind === "db.delete");
+          if (!lastDelete) continue;
+          const title = lastDelete.patch.meta?.title ?? "삭제된 데이터베이스";
+          out.push({
+            databaseId,
+            eventId: lastDelete.id,
+            ts: lastDelete.ts,
+            title,
+          });
+        }
+        return out.sort((a, b) => b.ts - a.ts);
       },
     }),
     {
