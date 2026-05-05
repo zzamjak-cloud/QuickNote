@@ -22,6 +22,7 @@ import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import { useTableRowSelection } from "./useTableRowSelection";
+import { useHistoryStore } from "../../../store/historyStore";
 
 type Props = {
   databaseId: string;
@@ -38,9 +39,15 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const moveColumn = useDatabaseStore((s) => s.moveColumn);
   const setRowOrder = useDatabaseStore((s) => s.setRowOrder);
+  const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const openTab = useSettingsStore((s) => s.openTab);
   const openPeek = useUiStore((s) => s.openPeek);
+  const setRowBackTarget = useUiStore((s) => s.setRowBackTarget);
+  const restoreDeletedRowFromHistory = useDatabaseStore(
+    (s) => s.restoreDeletedRowFromHistory,
+  );
 
   const [colDragFrom, setColDragFrom] = useState<number | null>(null);
   const [colDragOver, setColDragOver] = useState<number | null>(null);
@@ -59,12 +66,15 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
   const [selectionMenuOpen, setSelectionMenuOpen] = useState(false);
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const selectionMenuRef = useRef<HTMLDivElement | null>(null);
+  const deletedRowTombstones = useHistoryStore((s) =>
+    s.getDeletedRowTombstones(databaseId),
+  );
   useEffect(() => {
     if (!selectionMenuOpen) return;
     const onDocDown = (e: MouseEvent) => {
-      if (!selectionMenuRef.current?.contains(e.target as Node)) {
-        setSelectionMenuOpen(false);
-      }
+      const target = e.target as Node;
+      const inSelection = selectionMenuRef.current?.contains(target);
+      if (!inSelection) setSelectionMenuOpen(false);
     };
     document.addEventListener("mousedown", onDocDown);
     return () => document.removeEventListener("mousedown", onDocDown);
@@ -80,6 +90,13 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
     "table",
     panelState.viewConfigs,
   );
+  const resolvedColWidths = visibleCols.map(
+    (col) => col.width ?? defaultMinWidthForType(col.type),
+  );
+  const CHECKBOX_COL = 28;
+  const ADD_COL = 32;
+  const tableWidthPx =
+    CHECKBOX_COL + ADD_COL + resolvedColWidths.reduce((acc, w) => acc + w, 0);
 
   // moveColumn은 bundle.columns 기준 인덱스를 받으므로 visibleCols 인덱스를 변환.
   const colIdToBundleIdx = new Map(
@@ -112,7 +129,14 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
     setRowDragOver(null);
   };
 
-  const openFull = (pageId: string) => {
+  const openFull = (pageId: string, opts?: { newTab?: boolean }) => {
+    if (activePageId) {
+      setRowBackTarget(pageId, activePageId);
+    }
+    if (opts?.newTab) {
+      openTab(pageId);
+      return;
+    }
     setActivePage(pageId);
     setCurrentTabPage(pageId);
   };
@@ -184,19 +208,14 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
           parent 가 더 넓으면 좌측 정렬, 좁으면 가로 스크롤(이미 overflow-x-auto). */}
       <table
         className="border-collapse text-left text-xs"
-        style={{ tableLayout: "fixed" }}
+        style={{ tableLayout: "fixed", width: `${tableWidthPx}px` }}
       >
         <colgroup>
           {/* 선택 체크박스 컬럼 */}
           <col style={{ width: 28, minWidth: 28 }} />
-          {visibleCols.map((col) => {
-            // minWidth 를 강제하지 않음 — 사용자가 자유롭게 좁히도록 허용.
-            // col.width 가 없는 레거시/신규 컬럼은 type 별 기본값을 한 번만 표시(추후 사용자 조정으로 갱신).
-            const w = col.width ?? defaultMinWidthForType(col.type);
-            return (
-              <col key={col.id} style={{ width: w }} />
-            );
-          })}
+          {visibleCols.map((col, idx) => (
+            <col key={col.id} style={{ width: resolvedColWidths[idx] }} />
+          ))}
           {/* + 버튼 컬럼 */}
           <col style={{ width: 32, minWidth: 32 }} />
         </colgroup>
@@ -363,7 +382,11 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
                         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
                           <button
                             type="button"
-                            onClick={() => openFull(row.pageId)}
+                            onClick={(e) =>
+                              openFull(row.pageId, {
+                                newTab: e.metaKey || e.ctrlKey,
+                              })
+                            }
                             title="페이지로 열기"
                             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
                           >
@@ -405,33 +428,50 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
         >
           <Plus size={14} /> 새 항목
         </button>
-        {selectedRowIds.size > 0 && (
-          <div className="relative" ref={selectionMenuRef}>
-            <button
-              type="button"
-              onClick={() => setSelectionMenuOpen((v) => !v)}
-              className="flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              <span>{selectedRowIds.size}개 선택</span>
-              <MoreHorizontal size={14} />
-            </button>
-            {selectionMenuOpen && (
-              <div className="absolute right-0 bottom-full z-30 mb-1 w-36 rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectionMenuOpen(false);
-                    setBatchDeleteOpen(true);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                >
-                  <Trash2 size={12} />
-                  삭제
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {selectedRowIds.size > 0 && (
+            <div className="relative" ref={selectionMenuRef}>
+              <button
+                type="button"
+                onClick={() => setSelectionMenuOpen((v) => !v)}
+                className="flex items-center gap-1 rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                <span>{selectedRowIds.size}개 선택</span>
+                <MoreHorizontal size={14} />
+              </button>
+              {selectionMenuOpen && (
+                <div className="absolute right-0 bottom-full z-30 mb-1 w-36 rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectionMenuOpen(false);
+                      setBatchDeleteOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                  >
+                    <Trash2 size={12} />
+                    삭제
+                  </button>
+                  {deletedRowTombstones[0] && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const latest = deletedRowTombstones[0];
+                        if (latest) {
+                          restoreDeletedRowFromHistory(databaseId, latest.id);
+                        }
+                        setSelectionMenuOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      최근 삭제 행 복구
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       <SimpleConfirmDialog
         open={rowDeletePageId !== null}

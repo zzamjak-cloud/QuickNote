@@ -5,6 +5,7 @@ import {
   selectPageTree,
   type PageNode,
 } from "../../store/pageStore";
+import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 
 type Props = {
   pageId: string | null;
@@ -16,6 +17,9 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
   const tree = usePageStore(selectPageTree);
   const movePage = usePageStore((s) => s.movePage);
   const pages = usePageStore((s) => s.pages);
+  const dbList = useDatabaseStore(listDatabases);
+  const attachPageAsRow = useDatabaseStore((s) => s.attachPageAsRow);
+  const detachRowToNormalPage = useDatabaseStore((s) => s.detachRowToNormalPage);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -41,6 +45,13 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
   if (!pageId) return null;
   const target = pages[pageId];
   if (!target) return null;
+  const isRowPage = !!target.databaseId;
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredDbList =
+    normalizedQuery.length === 0
+      ? dbList
+      : dbList.filter((d) => d.meta.title.toLowerCase().includes(normalizedQuery));
 
   return (
     <div
@@ -59,7 +70,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="페이지 검색"
+            placeholder="페이지/DB 검색"
             autoFocus
             className="flex-1 bg-transparent text-xs outline-none placeholder:text-zinc-400"
           />
@@ -68,6 +79,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
           <button
             type="button"
             onClick={() => {
+              if (isRowPage) detachRowToNormalPage(pageId);
               movePage(pageId, null, Number.MAX_SAFE_INTEGER);
               onClose();
             }}
@@ -88,6 +100,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
                 type="button"
                 disabled={disabled}
                 onClick={() => {
+                  if (isRowPage) detachRowToNormalPage(pageId);
                   movePage(pageId, node.id, Number.MAX_SAFE_INTEGER);
                   onClose();
                 }}
@@ -106,6 +119,31 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
               >
                 <span className="w-5 text-center">{node.icon ?? "📄"}</span>
                 <span className="truncate">{node.title || "제목 없음"}</span>
+              </button>
+            ))
+          )}
+          <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+          <div className="px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+            데이터베이스 항목으로 이동
+          </div>
+          {filteredDbList.length === 0 ? (
+            <p className="px-2 py-2 text-xs text-zinc-400">
+              일치하는 데이터베이스가 없습니다.
+            </p>
+          ) : (
+            filteredDbList.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => {
+                  attachPageAsRow(d.id, pageId);
+                  onClose();
+                }}
+                className="flex w-full items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                title="이 데이터베이스의 항목으로 추가"
+              >
+                <span className="w-5 text-center">🗂️</span>
+                <span className="truncate">{d.meta.title || "제목 없음"}</span>
               </button>
             ))
           )}

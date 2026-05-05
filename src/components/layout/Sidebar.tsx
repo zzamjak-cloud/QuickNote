@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import pkg from "../../../package.json";
 
 import {
   DndContext,
@@ -46,6 +47,7 @@ function SidebarDragPreview({ pageId }: { pageId: string }) {
 const HOVER_EXPAND_DELAY_MS = 700;
 const EDGE_SCROLL_ZONE_PX = 24;
 const EDGE_SCROLL_MAX_PER_FRAME = 12;
+const APP_VERSION = pkg.version;
 
 export function Sidebar() {
   const pointerRef = useRef({ x: 0, y: 0 });
@@ -285,8 +287,11 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 px-2 py-3 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="mb-2 flex items-center gap-1.5 px-1">
-        <h2 className="flex-1 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          QuickNote
+        <h2 className="flex flex-1 items-baseline gap-1 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+          <span>QuickNote</span>
+          <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+            v{APP_VERSION}
+          </span>
         </h2>
         <button
           type="button"

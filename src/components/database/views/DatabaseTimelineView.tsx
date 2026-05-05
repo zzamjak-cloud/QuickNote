@@ -408,12 +408,47 @@ export function DatabaseTimelineView({
                 {rows.map((row) => (
                   <div
                     key={row.pageId}
-                    className="flex items-center gap-1 truncate border-b border-zinc-100 px-2 dark:border-zinc-800"
+                    className="group relative flex items-center gap-1 truncate border-b border-zinc-100 px-2 pr-16 dark:border-zinc-800"
                     style={{ height: ROW_HEIGHT + ROW_GAP }}
                   >
                     <span className="truncate text-xs text-zinc-700 dark:text-zinc-200">
                       {row.title || "제목 없음"}
                     </span>
+                    <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openFull(row.pageId);
+                        }}
+                        title="페이지로 열기"
+                        className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+                      >
+                        <ArrowUpRight size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openPeek(row.pageId);
+                        }}
+                        title="사이드 피크 열기"
+                        className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+                      >
+                        <PanelRight size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRowDeletePageId(row.pageId);
+                        }}
+                        title="행 삭제"
+                        className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

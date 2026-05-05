@@ -12,7 +12,13 @@ export function useProcessedRows(
   const pages = usePageStore((s) => s.pages);
 
   const processed = useMemo(() => {
-    if (!bundle) return { rows: [] as DatabaseRowView[], columns: [] };
+    if (
+      !bundle ||
+      !Array.isArray(bundle.columns) ||
+      !Array.isArray(bundle.rowPageOrder)
+    ) {
+      return { rows: [] as DatabaseRowView[], columns: [] };
+    }
     const titleCol = bundle.columns.find((c) => c.type === "title");
     const ordered: DatabaseRowView[] = [];
     for (const pageId of bundle.rowPageOrder ?? []) {

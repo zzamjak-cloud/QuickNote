@@ -10,6 +10,7 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent,
 } from "react";
+import { Check, Minus, Trash2 } from "lucide-react";
 import { startBlockNativeDrag } from "../../lib/startBlockNativeDrag";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
@@ -32,6 +33,9 @@ import { DatabaseBlockFullPageHeader } from "./DatabaseBlockFullPageHeader";
 import { DatabaseBlockInlineHeader } from "./DatabaseBlockInlineHeader";
 import { DatabaseBlockLinkExistingPanel } from "./DatabaseBlockLinkExistingPanel";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
+import { useHistoryStore } from "../../store/historyStore";
+import { useHistorySelection } from "../history/useHistorySelection";
+import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
@@ -102,6 +106,27 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletePhraseDraft, setDeletePhraseDraft] = useState("");
+  const [dbHistoryDialogOpen, setDbHistoryDialogOpen] = useState(false);
+  const [dbHistoryDeleteOpen, setDbHistoryDeleteOpen] = useState(false);
+  const [dbHistoryDeleteTarget, setDbHistoryDeleteTarget] = useState<{
+    label: string;
+    eventIds: string[];
+  } | null>(null);
+  const dbHistoryTimeline = useHistoryStore((s) =>
+    hasDatabaseId ? s.getDbTimeline(databaseId) : [],
+  );
+  const deleteDbHistoryEvents = useHistoryStore((s) => s.deleteDbHistoryEvents);
+  const dbTimelineIds = dbHistoryTimeline.map((e) => e.id);
+  const {
+    selectedIds: selectedDbTimelineIds,
+    toggleOne: toggleDbTimelineOne,
+    toggleAll: toggleDbTimelineAll,
+    clearSelection: clearDbTimelineSelection,
+  } = useHistorySelection(dbTimelineIds);
+  const selectedDbTimelineEntries = dbHistoryTimeline.filter((e) =>
+    selectedDbTimelineIds.has(e.id),
+  );
+  const selectedDbEventIds = selectedDbTimelineEntries.flatMap((e) => e.eventIds);
 
   const openDeleteDatabaseModal = () => {
     setDeletePhraseDraft("");
@@ -355,6 +380,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 inlineTitleLocked={inlineTitleLocked}
                 dbHomePageId={dbHomePageId}
                 onOpenDbHomePage={openDbHomePage}
+                onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
                 onOpenLink={() => setLinkOpen((v) => !v)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
                 onTitleDragStart={onInlineTitleDragStart}
@@ -362,6 +388,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
               />
             ) : (
               <DatabaseBlockFullPageHeader
+                onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
                 onOpenLink={() => setLinkOpen((v) => !v)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
               />
@@ -399,6 +426,167 @@ export function DatabaseBlockView(props: NodeViewProps) {
         onDeletePhraseChange={setDeletePhraseDraft}
         onClose={closeDeleteDatabaseModal}
         onConfirmDelete={executeDeleteDatabasePermanently}
+      />
+      {dbHistoryDialogOpen && hasDatabaseId && (
+        <div
+          className="fixed inset-0 z-[420] flex items-center justify-center bg-black/45 p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setDbHistoryDialogOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="qn-db-history-title"
+            className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2
+                id="qn-db-history-title"
+                className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+              >
+                DB 버전 히스토리
+              </h2>
+              <button
+                type="button"
+                onClick={() => setDbHistoryDialogOpen(false)}
+                className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  hasDatabaseId &&
+                  useDatabaseStore.getState().restoreDatabaseFromLatestHistory(databaseId)
+                }
+                className="rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                DB 최근 버전 복원
+              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleDbTimelineAll()}
+                  className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  {selectedDbTimelineIds.size > 0 &&
+                  selectedDbTimelineIds.size === dbTimelineIds.length ? (
+                    <Check size={12} />
+                  ) : selectedDbTimelineIds.size > 0 ? (
+                    <Minus size={12} />
+                  ) : (
+                    <span className="inline-block h-3 w-3 rounded-sm border border-zinc-400" />
+                  )}
+                  전체 선택
+                </button>
+                {selectedDbTimelineIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDbHistoryDeleteTarget({
+                        label: `${selectedDbTimelineIds.size}개 선택 항목`,
+                        eventIds: selectedDbEventIds,
+                      });
+                      setDbHistoryDeleteOpen(true);
+                    }}
+                    className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/30"
+                  >
+                    선택 삭제
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="max-h-[55vh] overflow-y-auto rounded-md border border-zinc-200 dark:border-zinc-700">
+              {dbHistoryTimeline.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-zinc-500">
+                  버전 기록이 없습니다.
+                </div>
+              ) : (
+                dbHistoryTimeline.slice(0, 100).map((entry, idx, arr) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => {
+                      const targetEventId = entry.eventIds[entry.eventIds.length - 1];
+                      if (targetEventId && hasDatabaseId) {
+                        useDatabaseStore
+                          .getState()
+                          .restoreDatabaseFromHistoryEvent(databaseId, targetEventId);
+                      }
+                      setDbHistoryDialogOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleDbTimelineOne(entry.id, { shiftKey: e.shiftKey });
+                      }}
+                      className={[
+                        "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border",
+                        selectedDbTimelineIds.has(entry.id)
+                          ? "border-blue-500 bg-blue-500 text-white"
+                          : "border-zinc-400",
+                      ].join(" ")}
+                      aria-label="히스토리 선택"
+                    >
+                      {selectedDbTimelineIds.has(entry.id) ? (
+                        <Check size={10} strokeWidth={3} />
+                      ) : null}
+                    </button>
+                    <span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-200">
+                      {`버전 ${arr.length - idx}`}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-zinc-400">
+                      {new Date(entry.endTs).toLocaleString()}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDbHistoryDeleteTarget({
+                          label: `버전 ${arr.length - idx}`,
+                          eventIds: entry.eventIds,
+                        });
+                        setDbHistoryDeleteOpen(true);
+                      }}
+                      className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                      title="히스토리 항목 삭제"
+                      aria-label="히스토리 항목 삭제"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      <SimpleConfirmDialog
+        open={dbHistoryDeleteOpen}
+        title="히스토리 항목 삭제"
+        message={`"${dbHistoryDeleteTarget?.label ?? "선택한 항목"}" 히스토리를 삭제할까요?`}
+        confirmLabel="삭제"
+        danger
+        onCancel={() => {
+          setDbHistoryDeleteOpen(false);
+          setDbHistoryDeleteTarget(null);
+        }}
+        onConfirm={() => {
+          if (hasDatabaseId && dbHistoryDeleteTarget) {
+            deleteDbHistoryEvents(databaseId, dbHistoryDeleteTarget.eventIds);
+          }
+          setDbHistoryDeleteOpen(false);
+          setDbHistoryDeleteTarget(null);
+          clearDbTimelineSelection();
+        }}
       />
     </NodeViewWrapper>
   );

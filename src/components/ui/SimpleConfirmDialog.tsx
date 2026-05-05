@@ -23,7 +23,7 @@ export function SimpleConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[400] flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 z-[500] flex items-center justify-center bg-black/45 p-4"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel();

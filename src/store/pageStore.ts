@@ -5,6 +5,11 @@ import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../types/page";
 import type { CellValue } from "../types/database";
 import { newId } from "../lib/id";
+import {
+  shouldWriteAnchor,
+  useHistoryStore,
+} from "./historyStore";
+import type { PageSnapshot } from "../types/history";
 
 const EMPTY_DOC: JSONContent = {
   type: "doc",
@@ -46,6 +51,8 @@ type PageStoreActions = {
   duplicatePage: (id: string) => string;
   // 행 페이지의 dbCells 한 항목을 갱신 (title 컬럼 제외)
   setPageDbCell: (pageId: string, columnId: string, value: CellValue) => void;
+  restorePageFromLatestHistory: (pageId: string) => boolean;
+  restorePageFromHistoryEvent: (pageId: string, eventId: string) => boolean;
 };
 
 export type PageStore = PageStoreState & PageStoreActions;
@@ -54,6 +61,19 @@ function nextOrderForParent(pages: PageMap, parentId: string | null): number {
   const siblings = Object.values(pages).filter((p) => p.parentId === parentId);
   if (siblings.length === 0) return 0;
   return Math.max(...siblings.map((s) => s.order)) + 1;
+}
+
+function toPageSnapshot(page: Page): PageSnapshot {
+  return {
+    id: page.id,
+    title: page.title,
+    icon: page.icon,
+    doc: structuredClone(page.doc),
+    parentId: page.parentId,
+    order: page.order,
+    databaseId: page.databaseId,
+    dbCells: page.dbCells ? structuredClone(page.dbCells) : undefined,
+  };
 }
 
 export function isDescendant(
@@ -94,10 +114,19 @@ export const usePageStore = create<PageStore>()(
           pages: { ...state.pages, [id]: page },
           activePageId: activate ? id : state.activePageId,
         }));
+        const hs = useHistoryStore.getState();
+        const pageEvents = hs.pageEventsByPageId[id] ?? [];
+        hs.recordPageEvent(
+          id,
+          "page.create",
+          toPageSnapshot(page),
+          shouldWriteAnchor(pageEvents.length + 1) ? toPageSnapshot(page) : undefined,
+        );
         return id;
       },
 
       deletePage: (id) => {
+        const before = get().pages[id];
         set((state) => {
           if (!(id in state.pages)) return state;
           // 자식 페이지를 모두 함께 삭제(노션 휴지통 스타일).
@@ -125,9 +154,20 @@ export const usePageStore = create<PageStore>()(
           }
           return { pages: rest, activePageId: nextActive };
         });
+        if (before) {
+          const hs = useHistoryStore.getState();
+          const events = hs.pageEventsByPageId[id] ?? [];
+          hs.recordPageEvent(
+            id,
+            "page.delete",
+            toPageSnapshot(before),
+            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(before) : undefined,
+          );
+        }
       },
 
       renamePage: (id, title) => {
+        const before = get().pages[id];
         set((state) => {
           const current = state.pages[id];
           if (!current) return state;
@@ -138,9 +178,21 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+        const after = get().pages[id];
+        if (before && after && before.title !== after.title) {
+          const hs = useHistoryStore.getState();
+          const events = hs.pageEventsByPageId[id] ?? [];
+          hs.recordPageEvent(
+            id,
+            "page.rename",
+            { id, title: after.title },
+            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+          );
+        }
       },
 
       updateDoc: (id, doc) => {
+        const before = get().pages[id];
         set((state) => {
           const current = state.pages[id];
           if (!current) return state;
@@ -151,6 +203,17 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+        const after = get().pages[id];
+        if (before && after) {
+          const hs = useHistoryStore.getState();
+          const events = hs.pageEventsByPageId[id] ?? [];
+          hs.recordPageEvent(
+            id,
+            "page.doc",
+            { id, doc: structuredClone(after.doc) },
+            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+          );
+        }
       },
 
       setActivePage: (id) => set({ activePageId: id }),
@@ -167,6 +230,7 @@ export const usePageStore = create<PageStore>()(
       },
 
       setIcon: (id, icon) => {
+        const before = get().pages[id];
         set((state) => {
           const current = state.pages[id];
           if (!current) return state;
@@ -177,9 +241,21 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+        const after = get().pages[id];
+        if (before && after && before.icon !== after.icon) {
+          const hs = useHistoryStore.getState();
+          const events = hs.pageEventsByPageId[id] ?? [];
+          hs.recordPageEvent(
+            id,
+            "page.icon",
+            { id, icon: after.icon },
+            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+          );
+        }
       },
 
       movePage: (id, parentId, index) => {
+        const before = get().pages[id];
         set((state) => {
           const target = state.pages[id];
           if (!target) return state;
@@ -219,6 +295,23 @@ export const usePageStore = create<PageStore>()(
           };
           return { pages: next };
         });
+        const after = get().pages[id];
+        if (before && after) {
+          const changed =
+            before.parentId !== after.parentId || before.order !== after.order;
+          if (changed) {
+            const hs = useHistoryStore.getState();
+            const events = hs.pageEventsByPageId[id] ?? [];
+            hs.recordPageEvent(
+              id,
+              "page.move",
+              { id, parentId: after.parentId, order: after.order },
+              shouldWriteAnchor(events.length + 1)
+                ? toPageSnapshot(after)
+                : undefined,
+            );
+          }
+        }
       },
 
       movePageRelative: (id, direction) => {
@@ -323,6 +416,7 @@ export const usePageStore = create<PageStore>()(
       },
 
       setPageDbCell: (pageId, columnId, value) => {
+        const before = get().pages[pageId];
         set((state) => {
           const page = state.pages[pageId];
           if (!page) return state;
@@ -334,6 +428,51 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+        const after = get().pages[pageId];
+        if (before && after) {
+          const hs = useHistoryStore.getState();
+          const events = hs.pageEventsByPageId[pageId] ?? [];
+          hs.recordPageEvent(
+            pageId,
+            "page.dbCell",
+            { id: pageId, dbCells: { [columnId]: value } },
+            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+          );
+        }
+      },
+
+      restorePageFromLatestHistory: (pageId) => {
+        const snapshot = useHistoryStore.getState().getLatestPageSnapshot(pageId);
+        if (!snapshot) return false;
+        set((state) => ({
+          pages: {
+            ...state.pages,
+            [pageId]: {
+              ...snapshot,
+              createdAt: state.pages[pageId]?.createdAt ?? Date.now(),
+              updatedAt: Date.now(),
+            },
+          },
+        }));
+        return true;
+      },
+
+      restorePageFromHistoryEvent: (pageId, eventId) => {
+        const snapshot = useHistoryStore
+          .getState()
+          .getPageSnapshotAtEvent(pageId, eventId);
+        if (!snapshot) return false;
+        set((state) => ({
+          pages: {
+            ...state.pages,
+            [pageId]: {
+              ...snapshot,
+              createdAt: state.pages[pageId]?.createdAt ?? Date.now(),
+              updatedAt: Date.now(),
+            },
+          },
+        }));
+        return true;
       },
 
       findFullPagePageIdForDatabase: (databaseId) => {

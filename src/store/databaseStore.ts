@@ -13,6 +13,8 @@ import { newId } from "../lib/id";
 import { reportNonFatal } from "../lib/reportNonFatal";
 import { createRowPageLinkedToDatabase } from "../lib/services/databaseRowPages";
 import { usePageStore } from "./pageStore";
+import { shouldWriteAnchor, useHistoryStore } from "./historyStore";
+import type { DatabaseSnapshot, PageSnapshot } from "../types/history";
 
 type DbMap = Record<string, DatabaseBundle>;
 
@@ -56,6 +58,11 @@ type DatabaseStoreActions = {
     value: CellValue,
   ) => void;
   setRowOrder: (databaseId: string, orderedPageIds: string[]) => void;
+  attachPageAsRow: (databaseId: string, pageId: string) => boolean;
+  detachRowToNormalPage: (pageId: string) => boolean;
+  restoreDatabaseFromLatestHistory: (databaseId: string) => boolean;
+  restoreDatabaseFromHistoryEvent: (databaseId: string, eventId: string) => boolean;
+  restoreDeletedRowFromHistory: (databaseId: string, tombstoneId: string) => boolean;
   getBundle: (databaseId: string) => DatabaseBundle | undefined;
   /** 스키마·행을 소스와 공유하는지 */
   resolveBundle: (databaseId: string) => DatabaseBundle | undefined;
@@ -110,6 +117,57 @@ function createRowPage(databaseId: string, title: string): string {
   return createRowPageLinkedToDatabase(databaseId, title);
 }
 
+function toDatabaseSnapshot(bundle: DatabaseBundle): DatabaseSnapshot {
+  return structuredClone(bundle);
+}
+
+function toPageSnapshot(page: ReturnType<typeof usePageStore.getState>["pages"][string]): PageSnapshot {
+  return {
+    id: page.id,
+    title: page.title,
+    icon: page.icon,
+    doc: structuredClone(page.doc),
+    parentId: page.parentId,
+    order: page.order,
+    databaseId: page.databaseId,
+    dbCells: page.dbCells ? structuredClone(page.dbCells) : undefined,
+  };
+}
+
+function isValidDatabaseSnapshot(
+  snapshot: DatabaseSnapshot | null,
+): snapshot is DatabaseSnapshot {
+  if (!snapshot) return false;
+  if (!Array.isArray(snapshot.columns)) return false;
+  if (!Array.isArray(snapshot.rowPageOrder)) return false;
+  if (!snapshot.meta || typeof snapshot.meta.id !== "string") return false;
+  return true;
+}
+
+function isValidDatabaseBundle(bundle: unknown): bundle is DatabaseBundle {
+  if (!bundle || typeof bundle !== "object") return false;
+  const b = bundle as {
+    meta?: { id?: unknown; title?: unknown; createdAt?: unknown; updatedAt?: unknown };
+    columns?: unknown;
+    rowPageOrder?: unknown;
+  };
+  if (!b.meta || typeof b.meta !== "object") return false;
+  if (typeof b.meta.id !== "string") return false;
+  if (typeof b.meta.title !== "string") return false;
+  if (!Array.isArray(b.columns)) return false;
+  if (!Array.isArray(b.rowPageOrder)) return false;
+  return true;
+}
+
+function sanitizeDatabaseMap(input: unknown): DbMap {
+  if (!input || typeof input !== "object") return {};
+  const next: DbMap = {};
+  for (const [id, bundle] of Object.entries(input as Record<string, unknown>)) {
+    if (isValidDatabaseBundle(bundle)) next[id] = bundle;
+  }
+  return next;
+}
+
 export const useDatabaseStore = create<DatabaseStore>()(
   persist(
     (set, get) => ({
@@ -132,6 +190,14 @@ export const useDatabaseStore = create<DatabaseStore>()(
         set((state) => ({
           databases: { ...state.databases, [id]: bundle },
         }));
+        const hs = useHistoryStore.getState();
+        const events = hs.dbEventsByDatabaseId[id] ?? [];
+        hs.recordDbEvent(
+          id,
+          "db.create",
+          toDatabaseSnapshot(bundle),
+          shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundle) : undefined,
+        );
         return id;
       },
 
@@ -148,6 +214,18 @@ export const useDatabaseStore = create<DatabaseStore>()(
           delete next[id];
           return { databases: next };
         });
+        if (bundle) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[id] ?? [];
+          hs.recordDbEvent(
+            id,
+            "db.delete",
+            toDatabaseSnapshot(bundle),
+            shouldWriteAnchor(events.length + 1)
+              ? toDatabaseSnapshot(bundle)
+              : undefined,
+          );
+        }
       },
 
       setDatabaseTitle: (id, title) => {
@@ -167,6 +245,19 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           },
         });
+        const bundleAfter = get().databases[id];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[id] ?? [];
+          hs.recordDbEvent(
+            id,
+            "db.title",
+            { meta: structuredClone(bundleAfter.meta) },
+            shouldWriteAnchor(events.length + 1)
+              ? toDatabaseSnapshot(bundleAfter)
+              : undefined,
+          );
+        }
         return true;
       },
 
@@ -213,6 +304,19 @@ export const useDatabaseStore = create<DatabaseStore>()(
             });
           }
         }
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.column.add",
+            { columns: structuredClone(bundleAfter.columns) },
+            shouldWriteAnchor(events.length + 1)
+              ? toDatabaseSnapshot(bundleAfter)
+              : undefined,
+          );
+        }
         return colId;
       },
 
@@ -239,6 +343,19 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.column.update",
+            { columns: structuredClone(bundleAfter.columns) },
+            shouldWriteAnchor(events.length + 1)
+              ? toDatabaseSnapshot(bundleAfter)
+              : undefined,
+          );
+        }
       },
 
       removeColumn: (databaseId, columnId) => {
@@ -277,6 +394,19 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.column.remove",
+            { columns: structuredClone(bundleAfter.columns) },
+            shouldWriteAnchor(events.length + 1)
+              ? toDatabaseSnapshot(bundleAfter)
+              : undefined,
+          );
+        }
       },
 
       moveColumn: (databaseId, fromIdx, toIdx) => {
@@ -306,6 +436,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        // 컬럼 순서 이동은 레이아웃 조정 성격이라 버전 히스토리에 기록하지 않는다.
       },
 
       addRow: (databaseId) => {
@@ -352,10 +483,33 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.row.add",
+            { rowPageOrder: [...bundleAfter.rowPageOrder] },
+            shouldWriteAnchor(events.length + 1)
+              ? toDatabaseSnapshot(bundleAfter)
+              : undefined,
+          );
+        }
         return pageId;
       },
 
       deleteRow: (databaseId, pageId) => {
+        const pageBefore = usePageStore.getState().pages[pageId];
+        const rowIdx = get().databases[databaseId]?.rowPageOrder.indexOf(pageId) ?? -1;
+        if (pageBefore && rowIdx >= 0) {
+          useHistoryStore.getState().recordDeletedRowTombstone({
+            databaseId,
+            pageId,
+            rowIndex: rowIdx,
+            pageSnapshot: toPageSnapshot(pageBefore),
+          });
+        }
         usePageStore.getState().deletePage(pageId);
         set((state) => {
           const bundle = state.databases[databaseId];
@@ -371,6 +525,19 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.row.delete",
+            { rowPageOrder: [...bundleAfter.rowPageOrder] },
+            shouldWriteAnchor(events.length + 1)
+              ? toDatabaseSnapshot(bundleAfter)
+              : undefined,
+          );
+        }
       },
 
       updateCell: (databaseId, pageId, columnId, value) => {
@@ -393,6 +560,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        // 셀 값 변경은 "행 페이지"의 내용 변경으로 본다.
+        // DB 히스토리에는 남기지 않고, pageStore(setPageDbCell/renamePage)의
+        // 페이지 히스토리로만 기록한다.
       },
 
       setRowOrder: (databaseId, orderedPageIds) => {
@@ -411,6 +581,261 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.row.order",
+            { rowPageOrder: [...bundleAfter.rowPageOrder] },
+            shouldWriteAnchor(events.length + 1)
+              ? toDatabaseSnapshot(bundleAfter)
+              : undefined,
+          );
+        }
+      },
+
+      attachPageAsRow: (databaseId, pageId) => {
+        const targetDb = get().databases[databaseId];
+        const pageBefore = usePageStore.getState().pages[pageId];
+        if (!targetDb || !pageBefore) return false;
+
+        const fromDbId = pageBefore.databaseId;
+        const fromDb =
+          fromDbId && fromDbId !== databaseId ? get().databases[fromDbId] : undefined;
+
+        // 대상 DB의 컬럼 기준으로 기본 속성값 준비(제목 컬럼 제외).
+        const defaultCells: Record<string, CellValue> = {};
+        for (const col of targetDb.columns) {
+          if (col.type === "title") continue;
+          const def = defaultCellValueForColumn(col);
+          defaultCells[col.id] = def ?? null;
+        }
+        const nextCells = { ...defaultCells, ...(pageBefore.dbCells ?? {}) };
+
+        usePageStore.setState((s) => {
+          const page = s.pages[pageId];
+          if (!page) return s;
+          return {
+            pages: {
+              ...s.pages,
+              [pageId]: {
+                ...page,
+                databaseId,
+                dbCells: nextCells,
+                // DB 항목으로 편입되면 사이드바 트리 경로(부모 체인)에서 분리한다.
+                // 그렇지 않으면 TopBar breadcrumb가 이전 부모 경로를 계속 보여준다.
+                parentId: null,
+                updatedAt: now(),
+              },
+            },
+          };
+        });
+
+        set((state) => {
+          const nextDatabases = { ...state.databases };
+          const currentTarget = nextDatabases[databaseId];
+          if (!currentTarget) return state;
+
+          if (fromDb && fromDbId) {
+            nextDatabases[fromDbId] = {
+              ...fromDb,
+              rowPageOrder: fromDb.rowPageOrder.filter((id) => id !== pageId),
+              meta: { ...fromDb.meta, updatedAt: now() },
+            };
+          }
+
+          const deduped = currentTarget.rowPageOrder.filter((id) => id !== pageId);
+          nextDatabases[databaseId] = {
+            ...currentTarget,
+            rowPageOrder: [...deduped, pageId],
+            meta: { ...currentTarget.meta, updatedAt: now() },
+          };
+          return { databases: nextDatabases };
+        });
+
+        const hs = useHistoryStore.getState();
+        const pageAfter = usePageStore.getState().pages[pageId];
+        const targetAfter = get().databases[databaseId];
+        if (pageAfter) {
+          const pageEvents = hs.pageEventsByPageId[pageId] ?? [];
+          hs.recordPageEvent(
+            pageId,
+            "page.dbCell",
+            { id: pageId, databaseId, dbCells: structuredClone(nextCells) },
+            shouldWriteAnchor(pageEvents.length + 1)
+              ? toPageSnapshot(pageAfter)
+              : undefined,
+          );
+        }
+        if (targetAfter) {
+          const targetEvents = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.row.add",
+            { rowPageOrder: [...targetAfter.rowPageOrder] },
+            shouldWriteAnchor(targetEvents.length + 1)
+              ? toDatabaseSnapshot(targetAfter)
+              : undefined,
+          );
+        }
+        if (fromDbId && fromDbId !== databaseId) {
+          const oldAfter = get().databases[fromDbId];
+          if (oldAfter) {
+            const oldEvents = hs.dbEventsByDatabaseId[fromDbId] ?? [];
+            hs.recordDbEvent(
+              fromDbId,
+              "db.row.delete",
+              { rowPageOrder: [...oldAfter.rowPageOrder] },
+              shouldWriteAnchor(oldEvents.length + 1)
+                ? toDatabaseSnapshot(oldAfter)
+                : undefined,
+            );
+          }
+        }
+        return true;
+      },
+
+      detachRowToNormalPage: (pageId) => {
+        const pageBefore = usePageStore.getState().pages[pageId];
+        const fromDbId = pageBefore?.databaseId;
+        if (!pageBefore || !fromDbId) return false;
+        const fromDb = get().databases[fromDbId];
+        if (!fromDb) return false;
+
+        usePageStore.setState((s) => {
+          const page = s.pages[pageId];
+          if (!page) return s;
+          return {
+            pages: {
+              ...s.pages,
+              [pageId]: {
+                ...page,
+                databaseId: undefined,
+                dbCells: undefined,
+                updatedAt: now(),
+              },
+            },
+          };
+        });
+
+        set((state) => {
+          const db = state.databases[fromDbId];
+          if (!db) return state;
+          return {
+            databases: {
+              ...state.databases,
+              [fromDbId]: {
+                ...db,
+                rowPageOrder: db.rowPageOrder.filter((id) => id !== pageId),
+                meta: { ...db.meta, updatedAt: now() },
+              },
+            },
+          };
+        });
+
+        const hs = useHistoryStore.getState();
+        const pageAfter = usePageStore.getState().pages[pageId];
+        const dbAfter = get().databases[fromDbId];
+        if (pageAfter) {
+          const pageEvents = hs.pageEventsByPageId[pageId] ?? [];
+          hs.recordPageEvent(
+            pageId,
+            "page.dbCell",
+            { id: pageId, databaseId: undefined, dbCells: undefined },
+            shouldWriteAnchor(pageEvents.length + 1)
+              ? toPageSnapshot(pageAfter)
+              : undefined,
+          );
+        }
+        if (dbAfter) {
+          const dbEvents = hs.dbEventsByDatabaseId[fromDbId] ?? [];
+          hs.recordDbEvent(
+            fromDbId,
+            "db.row.delete",
+            { rowPageOrder: [...dbAfter.rowPageOrder] },
+            shouldWriteAnchor(dbEvents.length + 1)
+              ? toDatabaseSnapshot(dbAfter)
+              : undefined,
+          );
+        }
+        return true;
+      },
+
+      restoreDatabaseFromLatestHistory: (databaseId) => {
+        const snapshot = useHistoryStore.getState().getLatestDbSnapshot(databaseId);
+        if (!isValidDatabaseSnapshot(snapshot)) return false;
+        set((state) => ({
+          databases: {
+            ...state.databases,
+            [databaseId]: {
+              ...structuredClone(snapshot),
+              meta: {
+                ...structuredClone(snapshot.meta),
+                updatedAt: Date.now(),
+              },
+            },
+          },
+        }));
+        return true;
+      },
+
+      restoreDatabaseFromHistoryEvent: (databaseId, eventId) => {
+        const snapshot = useHistoryStore
+          .getState()
+          .getDbSnapshotAtEvent(databaseId, eventId);
+        if (!isValidDatabaseSnapshot(snapshot)) return false;
+        set((state) => ({
+          databases: {
+            ...state.databases,
+            [databaseId]: {
+              ...structuredClone(snapshot),
+              meta: {
+                ...structuredClone(snapshot.meta),
+                updatedAt: Date.now(),
+              },
+            },
+          },
+        }));
+        return true;
+      },
+
+      restoreDeletedRowFromHistory: (databaseId, tombstoneId) => {
+        const tombstone = useHistoryStore
+          .getState()
+          .popDeletedRowTombstone(databaseId, tombstoneId);
+        if (!tombstone) return false;
+
+        usePageStore.setState((s) => ({
+          pages: {
+            ...s.pages,
+            [tombstone.pageId]: {
+              ...structuredClone(tombstone.pageSnapshot),
+              createdAt: s.pages[tombstone.pageId]?.createdAt ?? Date.now(),
+              updatedAt: Date.now(),
+            },
+          },
+        }));
+
+        set((state) => {
+          const b = state.databases[databaseId];
+          if (!b) return state;
+          const order = [...b.rowPageOrder];
+          const idx = Math.max(0, Math.min(tombstone.rowIndex, order.length));
+          order.splice(idx, 0, tombstone.pageId);
+          return {
+            databases: {
+              ...state.databases,
+              [databaseId]: {
+                ...b,
+                rowPageOrder: order,
+                meta: { ...b.meta, updatedAt: now() },
+              },
+            },
+          };
+        });
+        return true;
       },
 
       getBundle: (databaseId) => get().databases[databaseId],
@@ -422,6 +847,14 @@ export const useDatabaseStore = create<DatabaseStore>()(
       version: DATABASE_STORE_VERSION,
       // v1 → v2: 행 데이터 모델 전면 변경. 기존 데이터를 안전하게 마이그레이션할 수 없어 wipe.
       migrate: (persistedState, fromVersion) => {
+        // 이미 같은 버전이어도(운영 중 버그로) 손상 데이터가 저장될 수 있어 부팅 시 정리.
+        if (fromVersion === DATABASE_STORE_VERSION) {
+          const state = persistedState as { version?: unknown; databases?: unknown };
+          return {
+            version: DATABASE_STORE_VERSION,
+            databases: sanitizeDatabaseMap(state?.databases),
+          };
+        }
         try {
           const key = `quicknote.databaseStore.migrateBackup.${Date.now()}`;
           localStorage.setItem(

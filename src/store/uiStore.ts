@@ -17,6 +17,8 @@ type UiStoreState = {
   openColumnMenuId: string | null;
   /** 슬래시 메뉴 등 비-React 컨텍스트용 단일 입력 모달 */
   textPrompt: TextPromptRequest | null;
+  /** 행 페이지 전체화면 진입 시, 되돌아갈 원본 페이지 id를 기억 */
+  rowBackTargetByPageId: Record<string, string>;
 };
 
 type UiStoreActions = {
@@ -28,12 +30,16 @@ type UiStoreActions = {
     opts?: { placeholder?: string; initialValue?: string },
   ) => Promise<string | null>;
   completeTextPrompt: (value: string | null) => void;
+  setRowBackTarget: (rowPageId: string, pageId: string) => void;
+  getRowBackTarget: (rowPageId: string) => string | null;
+  clearRowBackTarget: (rowPageId: string) => void;
 };
 
 export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
   peekPageId: null,
   openColumnMenuId: null,
   textPrompt: null,
+  rowBackTargetByPageId: {},
   openPeek: (pageId) => set({ peekPageId: pageId }),
   closePeek: () => set({ peekPageId: null }),
   setOpenColumnMenu: (id) => set({ openColumnMenuId: id }),
@@ -55,4 +61,20 @@ export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
       set({ textPrompt: null });
     }
   },
+  setRowBackTarget: (rowPageId, pageId) =>
+    set((s) => ({
+      rowBackTargetByPageId: {
+        ...s.rowBackTargetByPageId,
+        [rowPageId]: pageId,
+      },
+    })),
+  getRowBackTarget: (rowPageId) =>
+    get().rowBackTargetByPageId[rowPageId] ?? null,
+  clearRowBackTarget: (rowPageId) =>
+    set((s) => {
+      if (!(rowPageId in s.rowBackTargetByPageId)) return s;
+      const next = { ...s.rowBackTargetByPageId };
+      delete next[rowPageId];
+      return { rowBackTargetByPageId: next };
+    }),
 }));

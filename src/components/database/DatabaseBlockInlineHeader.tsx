@@ -1,4 +1,4 @@
-import { Database, Link2, PanelTop, Trash2 } from "lucide-react";
+import { Database, History, Link2, PanelTop, Trash2 } from "lucide-react";
 import type { DragEvent as ReactDragEvent } from "react";
 
 type Props = {
@@ -9,6 +9,7 @@ type Props = {
   inlineTitleLocked: boolean;
   dbHomePageId: string | null;
   onOpenDbHomePage: (pageId: string) => void;
+  onOpenDbHistory: () => void;
   onOpenLink: () => void;
   onOpenDeleteModal: () => void;
   /** 제목 영역 드래그 — 인라인 DB 블럭을 통째로 이동 */
@@ -24,6 +25,7 @@ export function DatabaseBlockInlineHeader({
   inlineTitleLocked,
   dbHomePageId,
   onOpenDbHomePage,
+  onOpenDbHistory,
   onOpenLink,
   onOpenDeleteModal,
   onTitleDragStart,
@@ -70,6 +72,14 @@ export function DatabaseBlockInlineHeader({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            title="DB 버전 히스토리"
+            onClick={onOpenDbHistory}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            <History size={15} />
+          </button>
           {dbHomePageId != null ? (
             <button
               type="button"
