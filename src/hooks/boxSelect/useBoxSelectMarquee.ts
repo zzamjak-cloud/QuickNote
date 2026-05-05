@@ -101,8 +101,6 @@ export function useBoxSelectMarquee({
       clearSelection();
       startRef.current = { x: ev.clientX, y: ev.clientY };
       activeRef.current = false;
-      // PM 자체 mousedown 핸들러가 CellSelection을 만든 뒤 해제
-      setTimeout(collapsePmSelectionIfNeeded, 0);
       document.addEventListener("selectstart", onSelectStartWhileTracking, true);
     };
 
