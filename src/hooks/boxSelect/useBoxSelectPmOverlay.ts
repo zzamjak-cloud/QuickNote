@@ -12,7 +12,7 @@ export function useBoxSelectPmOverlay(
   const prevPmStartsRef = useRef<number[]>([]);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
 
     const arraysEqual = (a: number[], b: number[]) => {
       if (a.length !== b.length) return false;

@@ -7,7 +7,7 @@ export function useBoxSelectEscape(
   clearSelection: () => void,
 ): void {
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (selectedStartsRef.current.length === 0) return;

@@ -39,7 +39,7 @@ export function useBoxSelectMarquee({
   updateSelectionDom,
 }: Args): void {
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     const columnHost =
       editor.view.dom.closest<HTMLElement>("[data-qn-editor-column]") ??
       editor.view.dom.parentElement;

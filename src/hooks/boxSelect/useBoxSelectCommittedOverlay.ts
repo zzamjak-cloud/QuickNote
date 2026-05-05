@@ -8,7 +8,7 @@ export function useBoxSelectCommittedOverlay(
   selectedStarts: number[],
 ): void {
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
     if (selectedStarts.length === 0) {
       hideGroupOverlay(editor);
       return;
