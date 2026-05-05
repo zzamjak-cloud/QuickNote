@@ -1,54 +1,132 @@
-name: Tauri Build
+name: Publish Release
 
 on:
   push:
     tags:
-      - 'v*'
-  workflow_dispatch:
+      - "v*"
 
 jobs:
-  build-tauri:
+  publish:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
-            args: '--target universal-apple-darwin'
-          - platform: windows-latest
-            args: ''
+          - platform: "macos-latest"
+            args: "--target universal-apple-darwin"
+          - platform: "windows-latest"
+            args: ""
 
     runs-on: ${{ matrix.platform }}
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: validate tag/version sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAURI_VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "$PKG_VERSION" != "$TAURI_VERSION" ]; then
+            echo "::error::package.json ($PKG_VERSION) != src-tauri/tauri.conf.json ($TAURI_VERSION)"
+            exit 1
+          fi
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::tag version ($TAG_VERSION) != package.json ($PKG_VERSION)"
+            exit 1
+          fi
+
+      - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: 20
+          cache: "npm"
 
-      - name: Install Rust stable
+      - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: install Rust targets for macOS
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Install frontend dependencies
+      - name: install frontend dependencies
         run: npm ci
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      - name: build and release
+        uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'QuickNote ${{ github.ref_name }}'
-          releaseBody: '릴리스 노트는 CHANGELOG.md를 참고하세요.'
-          releaseDraft: true
+          releaseName: "QuickNote v__VERSION__"
+          releaseBody: "See the assets to download and install this version."
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload updater fragment for merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          F=$(find src-tauri/target -name latest.json -type f | head -1)
+          if [ -z "${F}" ]; then
+            echo "::error::latest.json not found under src-tauri/target"
+            find src-tauri/target -type f -name "*.json" 2>/dev/null | head -40 || true
+            exit 1
+          fi
+          cp "$F" "updater-fragment-${{ matrix.platform }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: updater-fragment-${{ matrix.platform }}
+          path: updater-fragment-${{ matrix.platform }}.json
+          if-no-files-found: error
+
+  merge-updater-json:
+    name: Merge latest.json (Windows + macOS)
+    needs: publish
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: updater-fragment-*
+          merge-multiple: true
+          path: fragments
+
+      - name: Merge platform entries and upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mapfile -t files < <(find fragments -type f -name 'updater-fragment-*.json' | sort)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No updater fragment json files in fragments/"
+            find fragments -type f -ls || true
+            exit 1
+          fi
+          if [ ${#files[@]} -eq 1 ]; then
+            cp "${files[0]}" latest.json
+          else
+            jq -s '
+              if length == 1 then .[0]
+              else
+                .[0] as $base |
+                reduce .[1:][] as $x ($base;
+                  .platforms = (.platforms * $x.platforms)
+                )
+              end
+            ' "${files[@]}" > latest.json
+          fi
+          gh release upload "${{ github.ref_name }}" latest.json --clobber --repo "${{ github.repository }}"

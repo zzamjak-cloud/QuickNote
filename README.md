@@ -91,6 +91,22 @@ npm run tauri:dev    # 개발용 데스크톱 창
 npm run tauri:build  # 배포용 .dmg / .exe 생성
 ```
 
+### 자동 업데이트 릴리스 규약 (Tag Push)
+
+- 자동 업데이트 배포는 `v*` 태그 푸시에서만 실행된다.
+- 버전은 반드시 세 곳이 일치해야 한다.
+  - `package.json`의 `version`
+  - `src-tauri/tauri.conf.json`의 `version`
+  - 푸시 태그 `vX.Y.Z`
+- 릴리스 순서
+  1. 버전 bump
+  2. `CHANGELOG.md` 갱신
+  3. `git tag vX.Y.Z && git push origin vX.Y.Z`
+- GitHub Secrets 필요
+  - `TAURI_SIGNING_PRIVATE_KEY`
+  - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- `src-tauri/tauri.conf.json`의 `plugins.updater.pubkey`에는 minisign 공개키를 넣어야 한다.
+
 ## 데이터 저장
 
 | 환경 | 저장소 |

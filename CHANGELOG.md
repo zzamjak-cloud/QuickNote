@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 페이지 상단 메뉴/행 페이지/사이드 피크에서 공통으로 사용하는 버전 히스토리 모달(다중 선택·일괄 삭제) 추가.
 - 사이드바 하단 **데이터베이스 관리** UI 추가: 활성 DB 목록, 삭제 DB 복원, DB 바로 열기.
 - 페이지 이동 다이얼로그에서 페이지/DB 통합 검색 및 DB 대상으로의 이동(참조 행 생성) 지원.
+- Tauri 자동 업데이트 런타임 추가(`tauri-plugin-updater`, `tauri-plugin-process`) 및 앱 내 업데이트 모달/다운로드/재시작 흐름 도입.
 
 ### Changed
 - 페이지 아이콘 트리거 UI를 텍스트(`아이콘 추가`)에서 `+` 심볼 아이콘으로 변경.
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DB를 다른 DB 항목으로 이동할 때 실삽입 대신 참조 행으로 처리(중첩 DB 방지).
 - 인라인 DB 제목 input에서 텍스트 선택/드래그 시 블록 드래그가 시작되지 않도록 가드 추가.
 - 행 전체 페이지 열기 아이콘 `Ctrl/Cmd + 클릭` 시 새 탭 열기, 뒤로가기 시 이전 DB 문맥으로 복귀.
+- GitHub Actions 태그 릴리스를 `latest.json` 병합 업로드 방식으로 정비하고, 태그/버전 불일치 시 실패 가드를 추가.
 
 ## [2.0.0] - 2026-05-05
 

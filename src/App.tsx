@@ -6,11 +6,13 @@ import { Editor } from "./components/editor/Editor";
 import { DatabaseRowPage } from "./components/database/DatabaseRowPage";
 import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
+import { AutoUpdateDialog } from "./components/ui/AutoUpdateDialog";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore } from "./store/pageStore";
 import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
 import { zustandStorage } from "./lib/storage/index";
+import { useAutoUpdate } from "./hooks/useAutoUpdate";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -32,6 +34,7 @@ function App() {
   const [migrating, setMigrating] = useState(
     () => isTauri && hasLocalStorageData(),
   );
+  const autoUpdate = useAutoUpdate();
 
   useEffect(() => {
     if (!migrating) return;
@@ -134,6 +137,19 @@ function App() {
       </div>
       <DatabaseRowPeek />
       <TextPromptDialog />
+      {autoUpdate.isSupported && (
+        <AutoUpdateDialog
+          open={autoUpdate.open}
+          version={autoUpdate.latestVersion}
+          notes={autoUpdate.releaseNotes}
+          state={autoUpdate.state}
+          progressPercent={autoUpdate.progressPercent}
+          errorMessage={autoUpdate.errorMessage}
+          onClose={autoUpdate.closeDialog}
+          onUpdate={autoUpdate.startUpdate}
+          onRestart={autoUpdate.restartNow}
+        />
+      )}
     </div>
   );
 }
