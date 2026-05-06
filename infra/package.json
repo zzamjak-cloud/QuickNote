@@ -13,9 +13,11 @@
     "cdk": "cdk",
     "diff": "cdk diff",
     "deploy": "cdk deploy --all --outputs-file cdk-outputs.json",
-    "destroy": "cdk destroy --all"
+    "destroy": "cdk destroy --all",
+    "build:resolvers": "esbuild lib/sync/resolvers/upsert.ts lib/sync/resolvers/softDelete.ts lib/sync/resolvers/list.ts lib/sync/resolvers/subscribe.ts --bundle --platform=neutral --format=esm --target=esnext --external:@aws-appsync/utils --outdir=lib/sync/resolvers/dist"
   },
   "devDependencies": {
+    "@aws-appsync/utils": "^2.1.1",
     "@types/aws-lambda": "^8.10.145",
     "@types/node": "^20.14.10",
     "aws-cdk": "^2.170.0",

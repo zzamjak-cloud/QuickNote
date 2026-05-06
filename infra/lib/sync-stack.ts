@@ -6,6 +6,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as appsync from "aws-cdk-lib/aws-appsync";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
+import { attachOwnerScopedModelResolvers } from "./sync/appsync-resolver-factory";
 
 export interface SyncStackProps extends cdk.StackProps {
   // CognitoStack 의 출력값을 cross-stack reference 로 받는다.
@@ -103,5 +104,10 @@ export class QuicknoteSyncStack extends cdk.Stack {
     new cdk.CfnOutput(this, "AppSyncApiId", { value: api.apiId });
     // realtime URL 은 endpoint 에서 ".appsync-api." → ".appsync-realtime-api." 로 도출.
     // Amplify GraphQL 클라이언트가 자동 처리하므로 별도 출력은 생략.
+
+    // 3 owner-scoped 모델에 LWW 리졸버 부착.
+    attachOwnerScopedModelResolvers(api, "Page", this.pageTable);
+    attachOwnerScopedModelResolvers(api, "Database", this.databaseTable);
+    attachOwnerScopedModelResolvers(api, "Contact", this.contactTable);
   }
 }
