@@ -91,7 +91,11 @@ export class QuicknoteSyncStack extends cdk.Stack {
           authorizationType: appsync.AuthorizationType.USER_POOL,
           userPoolConfig: {
             userPool,
-            defaultAction: appsync.UserPoolDefaultAction.DENY,
+            // ALLOW: 인증된 사용자는 기본 접근 허용. 필드별 소유권 검증은
+            // DynamoDB 리졸버의 condition expression(owner = $ctx.identity.sub)에서
+            // 처리한다. DENY 로 두면 스키마 모든 필드에 @aws_cognito_user_pools
+            // 디렉티브를 붙여야 하는데 본 앱은 그룹 기반 권한을 안 쓴다.
+            defaultAction: appsync.UserPoolDefaultAction.ALLOW,
           },
         },
       },
