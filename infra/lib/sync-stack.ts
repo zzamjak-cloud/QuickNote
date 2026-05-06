@@ -314,5 +314,53 @@ export function response(ctx) {
       schedule: events.Schedule.cron({ minute: "0", hour: "18" }),
       targets: [new eventsTargets.LambdaFunction(gcFn)],
     });
+
+    // v5-resolvers Lambda — 모든 v5 admin/workspace mutation/query 라우터
+    const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
+      entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler",
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(15),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environment: {
+        MEMBERS_TABLE_NAME: this.membersTable.tableName,
+        TEAMS_TABLE_NAME: this.teamsTable.tableName,
+        MEMBER_TEAMS_TABLE_NAME: this.memberTeamsTable.tableName,
+        WORKSPACES_TABLE_NAME: this.workspacesTable.tableName,
+        WORKSPACE_ACCESS_TABLE_NAME: this.workspaceAccessTable.tableName,
+      },
+      bundling: {
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+      },
+    });
+
+    // 5개 테이블 read/write 권한
+    this.membersTable.grantReadWriteData(v5ResolversFn);
+    this.teamsTable.grantReadWriteData(v5ResolversFn);
+    this.memberTeamsTable.grantReadWriteData(v5ResolversFn);
+    this.workspacesTable.grantReadWriteData(v5ResolversFn);
+    this.workspaceAccessTable.grantReadWriteData(v5ResolversFn);
+
+    // AppSync Lambda DataSource
+    const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
+
+    // 본 task 범위: me, createMember, listMembers, getMember 만 wiring.
+    // 후속 task 들이 같은 Ds 에 mutation/query 추가.
+    v5Ds.createResolver("MeQuery", {
+      typeName: "Query", fieldName: "me",
+    });
+    v5Ds.createResolver("CreateMemberMutation", {
+      typeName: "Mutation", fieldName: "createMember",
+    });
+    v5Ds.createResolver("ListMembersQuery", {
+      typeName: "Query", fieldName: "listMembers",
+    });
+    v5Ds.createResolver("GetMemberQuery", {
+      typeName: "Query", fieldName: "getMember",
+    });
   }
 }
