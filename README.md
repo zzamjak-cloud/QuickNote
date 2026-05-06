@@ -132,13 +132,25 @@ npm run tauri:build  # 배포용 .dmg / .exe 생성
 
 인프라(CDK) 배포·환경변수 설정 방법은 `infra/README.md` 와 `.env.example` 참고.
 
+## 동기화 (v4.0.0+)
+
+웹/데스크톱 모두 **AWS AppSync (Cognito JWT 인증)** 로 페이지·DB·연락처를 자동 동기화한다.
+
+- 페이지 단위 LWW (`updatedAt` 비교)
+- 오프라인 편집은 IndexedDB(웹) / SQLite(Tauri) outbox 큐에 누적, 온라인 복귀 시 자동 재시도(지수 백오프)
+- 페이지 doc 변경은 2초 디바운스, 메타·DB·연락처는 즉시 푸시
+- 이미지는 S3 PreSignedURL 로 업로드 (≤ 20MB, png/jpeg/webp/gif). 에디터 doc 안에는 `quicknote-image://{id}` 가상 스킴으로 영구 ID 만 보유
+- 동기화 비대상: 페이지/DB 히스토리, 디바이스별 UI 설정(다크모드·사이드바 폭·탭), 인증 토큰
+
+배포·환경변수: `infra/README.md` 의 `QuicknoteSyncStack` 절 참고.
+
 ## 로드맵
 
 - **v1.0.0** — 웹 에디터 + 데이터베이스 MVP (`CHANGELOG.md` 참고)
 - **v2.0.0** — Tauri 데스크톱 이식, SQLite 로컬 저장, 태그 릴리스·자동 업데이트(minisign + GitHub Actions)
-- **v3.0.0** — AWS Cognito + Google OAuth + 화이트리스트 인증 ← 완료
-- v4.0.0 — Lambda + DynamoDB 동기화, S3 이미지 업로드
-- v5.0.0 — 실시간 협업 (AppSync)
+- **v3.0.0** — AWS Cognito + Google OAuth + 화이트리스트 인증
+- **v4.0.0** — AWS AppSync 단일 사용자 멀티 디바이스 동기화 (LWW) + S3 이미지 업로드 ← 완료
+- v5.0.0 — 다중 사용자 실시간 협업 (CRDT/Yjs)
 
 ## 기여·보안
 
