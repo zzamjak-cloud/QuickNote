@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-05-06
+
+### Added
+
+- AWS AppSync 기반 단일 사용자 멀티 디바이스 동기화 (페이지/DB/연락처, LWW)
+- 오프라인 outbox 큐 (웹: IndexedDB / Tauri: SQLite) + 자동 재시도(지수 백오프, 최대 60초)
+- 실시간 구독 (`onPageChanged` / `onDatabaseChanged` / `onContactChanged`)
+- S3 PreSignedURL 기반 이미지 업로드 (≤ 20MB, image/png|jpeg|webp|gif). 에디터 doc 안에는 `quicknote-image://{id}` 가상 스킴으로 영구 ID 만 보유
+- 야간 image-gc Lambda (30일 미참조 이미지 정리)
+- 새 CDK 스택 `QuicknoteSyncStack`: AppSync API + 4 DDB 테이블(Page/Database/Contact/ImageAsset) + S3 버킷 + Lambda 2종 + EventBridge cron
+- 부팅 시 v1~v3 잔여 데이터 자동 폐기
+
+### Changed
+
+- 동기화 대상 스토어(pages/databases/contacts)는 `localStorage`/SQLite 영속화 제거 (클라우드 SoT)
+- 페이지 doc 변경은 2초 디바운스 후 푸시, 메타·DB·연락처는 즉시
+- 에디터 이미지: IDB 영속화 → S3 업로드 + `quicknote-image://{id}` 가상 스킴 + React NodeView 비동기 src 변환
+- 이미지 노드 attr 단순화 — outline/shadow/crop 제거 (성능·복잡도 절감, crop 모달 폐기)
+
+### Removed
+
+- `editorImageStorage.ts` (IDB 이미지 저장)
+- `ImageEditModal.tsx` (이미지 크롭 모달)
+- `quicknote.pages.v1` 등 v1~v3 localStorage 키 (부팅 시 자동 폐기)
+
+### Infra
+
+- 클라이언트: `aws-amplify` v6 추가, `dexie` v4 추가
+- 인프라: `@aws-appsync/utils` 추가, `build:resolvers` esbuild 스크립트 추가
+
 ## [3.0.4] - 2026-05-06
 
 ### Changed
