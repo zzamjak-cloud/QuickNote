@@ -17,7 +17,12 @@ export async function getSyncEngine(): Promise<SyncEngine> {
 }
 
 // fire-and-forget enqueue. 실패 시 콘솔에만 기록.
-export function enqueueAsync(op: OutboxOp, payload: EnqueuePayload): void {
+// payload 는 EnqueuePayload(`{id, updatedAt?}`) 를 만족하면서 추가 필드를 자유롭게 담을 수 있다.
+// (전체 GraphQL input 객체를 그대로 넘기는 용도)
+export function enqueueAsync(
+  op: OutboxOp,
+  payload: EnqueuePayload & Record<string, unknown>,
+): void {
   void getSyncEngine()
     .then((e) => e.enqueue(op, payload))
     .catch((err) => {

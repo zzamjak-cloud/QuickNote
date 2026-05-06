@@ -10,6 +10,35 @@ import {
   useHistoryStore,
 } from "./historyStore";
 import type { PageSnapshot } from "../types/history";
+import { enqueueAsync } from "../lib/sync/runtime";
+import { useAuthStore } from "./authStore";
+
+// 동기화 헬퍼 — 인증된 사용자의 sub 를 ownerId 로 사용. 미인증이면 빈 문자열.
+function getOwnerId(): string {
+  const s = useAuthStore.getState().state;
+  return s.status === "authenticated" ? s.user.sub : "";
+}
+
+// 클라이언트 number(epoch ms) → GraphQL 경계 string/ISO 변환
+function toGqlPage(p: Page, ownerId: string): Record<string, unknown> {
+  return {
+    id: p.id,
+    ownerId,
+    title: p.title,
+    icon: p.icon ?? null,
+    parentId: p.parentId ?? null,
+    order: String(p.order),
+    databaseId: p.databaseId ?? null,
+    doc: p.doc,
+    dbCells: p.dbCells ?? null,
+    createdAt: new Date(p.createdAt).toISOString(),
+    updatedAt: new Date(p.updatedAt).toISOString(),
+  };
+}
+
+function enqueueUpsertPage(p: Page): void {
+  enqueueAsync("upsertPage", toGqlPage(p, getOwnerId()) as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
+}
 
 const EMPTY_DOC: JSONContent = {
   type: "doc",
@@ -122,11 +151,14 @@ export const usePageStore = create<PageStore>()(
           toPageSnapshot(page),
           shouldWriteAnchor(pageEvents.length + 1) ? toPageSnapshot(page) : undefined,
         );
+        enqueueUpsertPage(page);
         return id;
       },
 
       deletePage: (id) => {
         const before = get().pages[id];
+        // 삭제 대상 id 집합을 set 호출 외부에서 계산해 enqueue 에 사용.
+        const removedIds: string[] = [];
         set((state) => {
           if (!(id in state.pages)) return state;
           // 자식 페이지를 모두 함께 삭제(노션 휴지통 스타일).
@@ -152,6 +184,7 @@ export const usePageStore = create<PageStore>()(
             );
             nextActive = remaining[0]?.id ?? null;
           }
+          removedIds.push(...toRemove);
           return { pages: rest, activePageId: nextActive };
         });
         if (before) {
@@ -163,6 +196,11 @@ export const usePageStore = create<PageStore>()(
             toPageSnapshot(before),
             shouldWriteAnchor(events.length + 1) ? toPageSnapshot(before) : undefined,
           );
+        }
+        // 삭제된 모든 페이지(자손 포함) 각각에 대해 softDeletePage 를 enqueue.
+        const nowIso = new Date().toISOString();
+        for (const removedId of removedIds) {
+          enqueueAsync("softDeletePage", { id: removedId, updatedAt: nowIso });
         }
       },
 
@@ -188,6 +226,7 @@ export const usePageStore = create<PageStore>()(
             { id, title: after.title },
             shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
           );
+          enqueueUpsertPage(after);
         }
       },
 
@@ -213,20 +252,27 @@ export const usePageStore = create<PageStore>()(
             { id, doc: structuredClone(after.doc) },
             shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
           );
+          enqueueUpsertPage(after);
         }
       },
 
       setActivePage: (id) => set({ activePageId: id }),
 
       reorderPages: (orderedIds) => {
+        const updatedPages: Page[] = [];
         set((state) => {
           const next: PageMap = { ...state.pages };
           orderedIds.forEach((id, idx) => {
             const page = next[id];
-            if (page) next[id] = { ...page, order: idx };
+            if (page && page.order !== idx) {
+              const updated = { ...page, order: idx, updatedAt: Date.now() };
+              next[id] = updated;
+              updatedPages.push(updated);
+            }
           });
           return { pages: next };
         });
+        for (const p of updatedPages) enqueueUpsertPage(p);
       },
 
       setIcon: (id, icon) => {
@@ -251,11 +297,13 @@ export const usePageStore = create<PageStore>()(
             { id, icon: after.icon },
             shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
           );
+          enqueueUpsertPage(after);
         }
       },
 
       movePage: (id, parentId, index) => {
         const before = get().pages[id];
+        const beforePages = get().pages;
         set((state) => {
           const target = state.pages[id];
           if (!target) return state;
@@ -310,6 +358,15 @@ export const usePageStore = create<PageStore>()(
                 ? toPageSnapshot(after)
                 : undefined,
             );
+            // 이동된 본인 + 부모 변경/order 재조정으로 영향받은 모든 형제를 enqueue.
+            const afterPages = get().pages;
+            for (const [pid, p] of Object.entries(afterPages)) {
+              const prev = beforePages[pid];
+              if (!prev) continue;
+              if (prev.parentId !== p.parentId || prev.order !== p.order) {
+                enqueueUpsertPage(p);
+              }
+            }
           }
         }
       },
@@ -412,6 +469,21 @@ export const usePageStore = create<PageStore>()(
           return { pages: merged };
         });
 
+        // 복제된 모든 페이지(자손 포함)와 정렬 재조정으로 영향받은 형제까지 enqueue.
+        const afterPages = get().pages;
+        const clonedIds = new Set(cloneMap.values());
+        for (const [pid, p] of Object.entries(afterPages)) {
+          if (clonedIds.has(pid)) {
+            enqueueUpsertPage(p);
+          } else if (
+            p.parentId === source.parentId &&
+            state.pages[pid] &&
+            state.pages[pid]!.order !== p.order
+          ) {
+            enqueueUpsertPage(p);
+          }
+        }
+
         return cloneMap.get(id) ?? "";
       },
 
@@ -438,6 +510,7 @@ export const usePageStore = create<PageStore>()(
             { id: pageId, dbCells: { [columnId]: value } },
             shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
           );
+          enqueueUpsertPage(after);
         }
       },
 
@@ -454,6 +527,8 @@ export const usePageStore = create<PageStore>()(
             },
           },
         }));
+        const after = get().pages[pageId];
+        if (after) enqueueUpsertPage(after);
         return true;
       },
 
@@ -472,6 +547,8 @@ export const usePageStore = create<PageStore>()(
             },
           },
         }));
+        const after = get().pages[pageId];
+        if (after) enqueueUpsertPage(after);
         return true;
       },
 
