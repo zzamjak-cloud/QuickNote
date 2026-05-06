@@ -43,6 +43,9 @@ Conventional Commits 권장 (`feat:`, `fix:`, `chore:` …). 자동 릴리스/re
   - GitHub Secrets 설정 확인
     - `TAURI_SIGNING_PRIVATE_KEY`
     - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+    - Cognito/Vite (**로컬 `.env`와 동일 값**을 Actions에 등록해야 **GitHub 빌드 앱에서 로그인**이 된다.)
+      - 필수: `VITE_COGNITO_REGION`, `VITE_COGNITO_USER_POOL_ID`, `VITE_COGNITO_HOSTED_UI_DOMAIN`, `VITE_COGNITO_DESKTOP_CLIENT_ID`, `VITE_AUTH_REDIRECT_DESKTOP`
+      - 선택(웹용 동일 패키지): `VITE_COGNITO_WEB_CLIENT_ID`, `VITE_AUTH_REDIRECT_WEB`
   - `src-tauri/tauri.conf.json`의 updater endpoint/pubkey 유효성 확인
 
 ### E2E 검증 시나리오 (mac/windows)

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.3] - 2026-05-06
+
+### Fixed
+
+- **프로덕션(태그 릴리스) 데스크톱 앱에서 Google 로그인 버튼 무응답**: GitHub Actions `Publish Release`에 `VITE_*` Cognito 환경 변수가 없어 빌드된 번들에 설정이 비어 `signIn` 이 즉시 실패하던 문제. 워크플로우에 시크릿 주입 및 누락 시 사전 실패 검증 추가.
+- `signIn` 실패 시 예외를 잡아 로그인 화면에 `callbackError` 메시지로 표시.
+
+### Changed
+
+- `CONTRIBUTING.md` / `README.md`: 데스크톱 릴리스용 필수 Repository Secrets 목록 명시.
+
 ## [3.0.2] - 2026-05-06
 
 ### Fixed

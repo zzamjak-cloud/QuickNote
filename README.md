@@ -105,6 +105,13 @@ npm run tauri:build  # 배포용 .dmg / .exe 생성
 - GitHub Secrets 필요
   - `TAURI_SIGNING_PRIVATE_KEY`
   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+- **데스크톱/GitHub Actions 릴리스**에서는 로컬 `.env`가 쓰이지 않는다. `npm run build`가 CI에서 실행될 때 `VITE_*`가 주입되어야 프로덕션 앱에서 Google 로그인이 동작한다. 아래 이름으로 Repository Secrets를 등록할 것 (`CONTRIBUTING.md` 참고).
+  - `VITE_COGNITO_REGION`
+  - `VITE_COGNITO_USER_POOL_ID`
+  - `VITE_COGNITO_HOSTED_UI_DOMAIN`
+  - `VITE_COGNITO_DESKTOP_CLIENT_ID`
+  - `VITE_AUTH_REDIRECT_DESKTOP`
+  - (선택·웹과 동일 소스 빌드 시) `VITE_COGNITO_WEB_CLIENT_ID`, `VITE_AUTH_REDIRECT_WEB`
 - `src-tauri/tauri.conf.json`의 `plugins.updater.pubkey`에는 minisign 공개키를 넣어야 한다.
 
 ## 데이터 저장
