@@ -56,3 +56,13 @@ export function requireRoleAtLeast(caller: Member, required: WorkspaceRole): voi
     forbidden(`권한 부족 — ${required} 이상 필요`);
   }
 }
+
+export function requireOwnerOnly(caller: Member): void {
+  if (caller.workspaceRole !== "owner") forbidden("Owner 만 가능");
+}
+
+export function preventOwnerMutation(caller: Member, target: Member): void {
+  if (target.workspaceRole === "owner" && caller.memberId !== target.memberId) {
+    forbidden("Owner 는 본인만 변경 가능");
+  }
+}

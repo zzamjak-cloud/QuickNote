@@ -3,8 +3,19 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { getCallerMember, ResolverError } from "./handlers/_auth";
-import { createMember, listMembers, getMember } from "./handlers/member";
-import type { Tables } from "./handlers/member";
+import {
+  createMember,
+  listMembers,
+  getMember,
+  updateMember,
+  promoteToManager,
+  demoteToMember,
+  transferOwnership,
+  removeMember,
+  assignMemberToTeam,
+  unassignMemberFromTeam,
+} from "./handlers/member";
+import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
 const doc = DynamoDBDocumentClient.from(ddb);
@@ -36,7 +47,21 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
       case "listMembers":
         return await listMembers({ ...args, filter: event.arguments.filter });
       case "getMember":
-        return await getMember({ ...args, memberId: event.arguments.memberId });
+        return await getMember({ ...args, memberId: event.arguments.memberId as string });
+      case "updateMember":
+        return await updateMember({ ...args, input: event.arguments.input as UpdateMemberInput & { memberId: string } });
+      case "promoteToManager":
+        return await promoteToManager({ ...args, memberId: event.arguments.memberId as string });
+      case "demoteToMember":
+        return await demoteToMember({ ...args, memberId: event.arguments.memberId as string });
+      case "transferOwnership":
+        return await transferOwnership({ ...args, toMemberId: event.arguments.toMemberId as string });
+      case "removeMember":
+        return await removeMember({ ...args, memberId: event.arguments.memberId as string });
+      case "assignMemberToTeam":
+        return await assignMemberToTeam({ ...args, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
+      case "unassignMemberFromTeam":
+        return await unassignMemberFromTeam({ ...args, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
       default:
         throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");
     }
