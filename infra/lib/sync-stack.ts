@@ -7,6 +7,8 @@ import * as appsync from "aws-cdk-lib/aws-appsync";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as events from "aws-cdk-lib/aws-events";
+import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { attachOwnerScopedModelResolvers } from "./sync/appsync-resolver-factory";
 
@@ -171,6 +173,37 @@ export function response(ctx) {
       fieldName: "getImageDownloadUrl",
       runtime: jsRuntime,
       code: passthroughCode,
+    });
+
+    // 야간 image GC Lambda — 30일 미참조 이미지 정리.
+    const gcFn = new lambdaNode.NodejsFunction(this, "ImageGcFn", {
+      entry: path.join(__dirname, "..", "lambda", "image-gc", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler",
+      memorySize: 512,
+      timeout: cdk.Duration.minutes(5),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environment: {
+        PAGE_TABLE: this.pageTable.table.tableName,
+        IMAGE_ASSET_TABLE: this.imageAssetTable.table.tableName,
+        IMAGES_BUCKET: imagesBucket.bucketName,
+      },
+      bundling: {
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+      },
+    });
+
+    this.pageTable.table.grantReadData(gcFn);
+    this.imageAssetTable.table.grantReadWriteData(gcFn);
+    imagesBucket.grantDelete(gcFn);
+
+    new events.Rule(this, "ImageGcSchedule", {
+      // UTC 18:00 = KST 03:00
+      schedule: events.Schedule.cron({ minute: "0", hour: "18" }),
+      targets: [new eventsTargets.LambdaFunction(gcFn)],
     });
   }
 }
