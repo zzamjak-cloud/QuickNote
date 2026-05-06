@@ -7,6 +7,7 @@ import { useHistoryStore } from "../../store/historyStore";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageMoveDialog } from "./PageMoveDialog";
+import { UserMenu } from "../auth/UserMenu";
 
 export function TopBar() {
   const darkMode = useSettingsStore((s) => s.darkMode);
@@ -133,6 +134,7 @@ export function TopBar() {
         >
           {darkMode ? <Sun size={16} /> : <Moon size={16} />}
         </button>
+        <UserMenu />
         {activeId && (
           <div className="relative" ref={menuRef}>
             <button

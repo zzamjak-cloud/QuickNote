@@ -1,0 +1,23 @@
+{
+  "app": "npx ts-node --prefer-ts-exts bin/quicknote.ts",
+  "watch": {
+    "include": ["**"],
+    "exclude": ["README.md", "cdk*.json", "**/*.d.ts", "**/*.js", "tsconfig.json", "package*.json", "node_modules", "test", "dist", "cdk.out"]
+  },
+  "context": {
+    "cognitoDomainPrefix": "quicknote-auth",
+    "webCallbackUrls": [
+      "http://localhost:5173/auth/callback"
+    ],
+    "webLogoutUrls": [
+      "http://localhost:5173/auth/signout"
+    ],
+    "desktopCallbackUrls": [
+      "http://127.0.0.1:14735/auth/callback"
+    ],
+    "desktopLogoutUrls": [
+      "http://127.0.0.1:14735/auth/signout"
+    ],
+    "googleSecretName": "quicknote/google-oauth"
+  }
+}

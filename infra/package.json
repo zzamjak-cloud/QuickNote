@@ -1,0 +1,31 @@
+{
+  "name": "quicknote-infra",
+  "version": "3.0.0",
+  "private": true,
+  "description": "QuickNote AWS 인프라 (Cognito + 화이트리스트 Lambda)",
+  "bin": {
+    "quicknote-infra": "bin/quicknote.js"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -p . -w",
+    "test": "vitest run",
+    "cdk": "cdk",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy --all --outputs-file cdk-outputs.json",
+    "destroy": "cdk destroy --all"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
+    "@types/node": "^20.14.10",
+    "aws-cdk": "^2.170.0",
+    "esbuild": "^0.24.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.5.4",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.170.0",
+    "constructs": "^10.4.2"
+  }
+}

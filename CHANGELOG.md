@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-05-06
+
+### Added
+- AWS Cognito User Pool + Google OAuth 페더레이션 기반 로그인.
+- `infra/` CDK(TypeScript) 스택: User Pool, App Client(웹/데스크톱), Hosted UI 도메인, PreSignUp Lambda.
+- 화이트리스트 강제: PreSignUp Lambda 트리거가 `ALLOWED_EMAILS` 와 매칭되지 않는 가입을 거부.
+- 프론트엔드 `src/lib/auth/`: `oidc-client-ts` 기반 PKCE Authorization Code 흐름, `zustandStorage` 위 비동기 StateStore.
+- `useAuthStore` (`src/store/authStore.ts`): `loading / anonymous / authenticated` 상태 머신, refresh_token 기반 silent renew.
+- `<AuthGate>` 게이트, `LoginScreen`, `AuthCallback`, `UserMenu` 컴포넌트.
+- Tauri 데스크톱 OAuth: 시스템 기본 브라우저 + `quicknote://auth/callback` 딥링크. `tauri-plugin-deep-link`, `tauri-plugin-shell` 추가.
+- `.env.example` 와 `infra/README.md` 배포 가이드.
+
+### Changed
+- `package.json`/`src-tauri/tauri.conf.json` 버전을 `3.0.0` 으로 bump.
+- `App.tsx` 를 `<AuthGate>` 로 감싸 로그인 전에는 메인 UI 가 마운트되지 않도록 변경.
+- `main.tsx` 부팅 시 `pathname=/auth/callback` 분기로 토큰 교환 후 `/` 로 전환.
+- `TopBar` 우측에 사용자 아바타 + 로그아웃 메뉴 추가.
+
+### Notes
+- 데이터 모델은 v2 와 동일(localStorage / SQLite). 사용자별 데이터 분리는 v4 에서 도입 예정.
+
+## [Unreleased pre-3.0.0]
+
 ### Added
 - 페이지/DB 버전 히스토리 스토어(`historyStore`) 도입: 보관 정책(최대 200개/30일), 앵커 스냅샷, 삭제 행 복원 포인트 관리.
 - 페이지 상단 메뉴/행 페이지/사이드 피크에서 공통으로 사용하는 버전 히스토리 모달(다중 선택·일괄 삭제) 추가.

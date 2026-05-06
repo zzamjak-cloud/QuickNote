@@ -114,11 +114,22 @@ npm run tauri:build  # 배포용 .dmg / .exe 생성
 | 웹 | 브라우저 `localStorage` |
 | 데스크톱 (v2+) | 로컬 SQLite (`~/.local/share/quicknote/quicknote.db`) |
 
+## 인증 (v3.0.0+)
+
+웹/데스크톱 모두 **AWS Cognito User Pool + Google OAuth** 페더레이션으로 로그인한다. 화이트리스트에 등록된 이메일만 가입할 수 있다.
+
+- 웹: Hosted UI 로 리다이렉트 → Google → `/auth/callback`
+- 데스크톱(Tauri): 시스템 기본 브라우저로 Hosted UI 오픈 → `quicknote://auth/callback` 딥링크로 복귀
+- 토큰: PKCE Authorization Code 흐름. `oidc-client-ts` + `zustandStorage` 어댑터로 영속화
+- 화이트리스트: Cognito PreSignUp Lambda 가 `ALLOWED_EMAILS` 와 매칭되지 않는 가입을 거부
+
+인프라(CDK) 배포·환경변수 설정 방법은 `infra/README.md` 와 `.env.example` 참고.
+
 ## 로드맵
 
 - **v1.0.0** — 웹 에디터 + 데이터베이스 MVP (`CHANGELOG.md` 참고)
-- **v2.0.0** — Tauri 데스크톱 이식, SQLite 로컬 저장, 태그 릴리스·자동 업데이트(minisign + GitHub Actions) ← 완료
-- v3.0.0 — AWS Cognito + Google OAuth + 화이트리스트 인증
+- **v2.0.0** — Tauri 데스크톱 이식, SQLite 로컬 저장, 태그 릴리스·자동 업데이트(minisign + GitHub Actions)
+- **v3.0.0** — AWS Cognito + Google OAuth + 화이트리스트 인증 ← 완료
 - v4.0.0 — Lambda + DynamoDB 동기화, S3 이미지 업로드
 - v5.0.0 — 실시간 협업 (AppSync)
 

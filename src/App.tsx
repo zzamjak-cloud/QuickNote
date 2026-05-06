@@ -7,6 +7,7 @@ import { DatabaseRowPage } from "./components/database/DatabaseRowPage";
 import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { AutoUpdateDialog } from "./components/ui/AutoUpdateDialog";
+import { AuthGate } from "./components/auth/AuthGate";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore } from "./store/pageStore";
 import { MigrationScreen } from "./components/MigrationScreen";
@@ -122,35 +123,37 @@ function App() {
   if (migrating) return <MigrationScreen />;
 
   return (
-    <div className="flex h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <TabBar />
-        <TopBar />
-        {activePage?.databaseId ? (
-          <div className="flex-1 overflow-y-auto">
-            <DatabaseRowPage pageId={activePage.id} />
-          </div>
-        ) : (
-          <Editor />
+    <AuthGate>
+      <div className="flex h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+        <Sidebar />
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <TabBar />
+          <TopBar />
+          {activePage?.databaseId ? (
+            <div className="flex-1 overflow-y-auto">
+              <DatabaseRowPage pageId={activePage.id} />
+            </div>
+          ) : (
+            <Editor />
+          )}
+        </div>
+        <DatabaseRowPeek />
+        <TextPromptDialog />
+        {autoUpdate.isSupported && (
+          <AutoUpdateDialog
+            open={autoUpdate.open}
+            version={autoUpdate.latestVersion}
+            notes={autoUpdate.releaseNotes}
+            state={autoUpdate.state}
+            progressPercent={autoUpdate.progressPercent}
+            errorMessage={autoUpdate.errorMessage}
+            onClose={autoUpdate.closeDialog}
+            onUpdate={autoUpdate.startUpdate}
+            onRestart={autoUpdate.restartNow}
+          />
         )}
       </div>
-      <DatabaseRowPeek />
-      <TextPromptDialog />
-      {autoUpdate.isSupported && (
-        <AutoUpdateDialog
-          open={autoUpdate.open}
-          version={autoUpdate.latestVersion}
-          notes={autoUpdate.releaseNotes}
-          state={autoUpdate.state}
-          progressPercent={autoUpdate.progressPercent}
-          errorMessage={autoUpdate.errorMessage}
-          onClose={autoUpdate.closeDialog}
-          onUpdate={autoUpdate.startUpdate}
-          onRestart={autoUpdate.restartNow}
-        />
-      )}
-    </div>
+    </AuthGate>
   );
 }
 
