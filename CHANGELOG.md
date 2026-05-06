@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-05-06
+
+### Fixed
+
+- 앱 자동 업데이트 직후 등 **`로그인 상태 확인 중…`에서 멈추는 문제** 완화: 세션 복구(`restoreSession`) 전체에 예외 처리 및 타임아웃(토큰 저장소 읽기·`signinSilent`·`getUser`). OIDC 설정 오류 시에도 로딩에 고정되지 않도록 `getOidcManager()` 호출 순서 정리.
+- 로그인 화면에 세션 복구 타임아웃 안내 메시지(`restoreTimeout`) 추가.
+
 ## [3.0.0] - 2026-05-06
 
 ### Added
