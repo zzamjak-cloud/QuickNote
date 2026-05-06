@@ -1,39 +1,47 @@
 import type { PreSignUpTriggerEvent, PreSignUpTriggerHandler } from "aws-lambda";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
-// ALLOWED_EMAILS 는 콤마로 구분된 소문자 이메일 목록.
-function parseAllowList(raw: string | undefined): Set<string> {
-  if (!raw) return new Set();
-  return new Set(
-    raw
-      .split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
+const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-export function isAllowed(email: string | undefined, list: Set<string>): boolean {
+// Members 테이블 GSI(byEmail) 조회 + status=active 검증.
+// 테스트 가능하도록 send 를 주입 가능한 형태로 분리.
+export async function isMemberAllowed(
+  email: string,
+  tableName: string,
+  send: typeof docClient.send,
+): Promise<boolean> {
   if (!email) return false;
-  return list.has(email.trim().toLowerCase());
+  const lower = email.trim().toLowerCase();
+  const result = await send(
+    new QueryCommand({
+      TableName: tableName,
+      IndexName: "byEmail",
+      KeyConditionExpression: "email = :e",
+      ExpressionAttributeValues: { ":e": lower },
+      Limit: 1,
+    }),
+  );
+  const m = result.Items?.[0];
+  return Boolean(m && m.status === "active");
 }
 
 export const handler: PreSignUpTriggerHandler = async (event: PreSignUpTriggerEvent) => {
-  const allowed = parseAllowList(process.env.ALLOWED_EMAILS);
+  const tableName = process.env.MEMBERS_TABLE_NAME!;
   const email = event.request.userAttributes?.email;
 
-  if (!isAllowed(email, allowed)) {
-    // throw 하면 Cognito 가입을 거부하고, Hosted UI 에 에러를 노출한다.
+  // 등록된 active 멤버만 가입 허용
+  const allowed = await isMemberAllowed(email ?? "", tableName, docClient.send.bind(docClient));
+  if (!allowed) {
     throw new Error("UNAUTHORIZED_EMAIL");
   }
 
-  // 외부 IdP(Google) 페더레이션 흐름이면 이메일 자동 검증 + 자동 확인.
   if (event.triggerSource === "PreSignUp_ExternalProvider") {
     event.response.autoVerifyEmail = true;
     event.response.autoConfirmUser = true;
   } else {
-    // 비밀번호 가입은 운영상 사용하지 않지만 안전한 기본값.
     event.response.autoConfirmUser = true;
     event.response.autoVerifyEmail = true;
   }
-
   return event;
 };
