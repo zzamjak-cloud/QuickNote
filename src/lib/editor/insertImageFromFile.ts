@@ -1,18 +1,16 @@
-import {
-  EDITOR_IMAGE_PLACEHOLDER_SRC,
-  storeEditorImageBlob,
-} from "../editorImageStorage";
+// 드래그·붙여넣기 등 비-모달 경로에서 이미지를 v4 S3 로 업로드 후 노드 삽입.
+
+import { uploadImage } from "../images/upload";
 import { reportNonFatal } from "../reportNonFatal";
 
-export const MAX_EDITOR_IMAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_EDITOR_IMAGE_BYTES = 20 * 1024 * 1024;
 
 function loadImageDimensions(
   src: string,
 ): Promise<{ w: number; h: number } | null> {
   return new Promise((resolve) => {
     const im = new Image();
-    im.onload = () =>
-      resolve({ w: im.naturalWidth, h: im.naturalHeight });
+    im.onload = () => resolve({ w: im.naturalWidth, h: im.naturalHeight });
     im.onerror = () => resolve(null);
     im.src = src;
   });
@@ -20,12 +18,11 @@ function loadImageDimensions(
 
 export type InsertImageAttrs = {
   src: string;
-  qnImageId: string | null;
   width?: number;
   height?: number;
 };
 
-/** 바이너리는 IndexedDB 에 두고 문서에는 qnImageId 만 저장해 localStorage 부담을 줄인다. */
+/** v4: 파일을 S3 에 업로드하고 quicknote-image:// ref 를 src 로 삽입한다. */
 export async function insertImageFromFile(
   file: File,
   insert: (attrs: InsertImageAttrs) => void,
@@ -40,19 +37,20 @@ export async function insertImageFromFile(
     return false;
   }
   try {
-    const qnImageId = await storeEditorImageBlob(file);
+    // 자연 크기는 업로드와 병렬로 측정 — 실패해도 본문 삽입은 진행.
     const url = URL.createObjectURL(file);
+    let dim: { w: number; h: number } | null = null;
     try {
-      const dim = await loadImageDimensions(url);
-      insert({
-        src: EDITOR_IMAGE_PLACEHOLDER_SRC,
-        qnImageId,
-        ...(dim ? { width: dim.w, height: dim.h } : {}),
-      });
-      return true;
+      dim = await loadImageDimensions(url);
     } finally {
       URL.revokeObjectURL(url);
     }
+    const ref = await uploadImage(file);
+    insert({
+      src: ref,
+      ...(dim ? { width: dim.w, height: dim.h } : {}),
+    });
+    return true;
   } catch (err) {
     reportNonFatal(err, "insertImageFromFile");
     return false;

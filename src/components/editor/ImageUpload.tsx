@@ -1,12 +1,15 @@
 import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { Upload, X } from "lucide-react";
-import {
-  EDITOR_IMAGE_PLACEHOLDER_SRC,
-  storeEditorImageBlob,
-} from "../../lib/editorImageStorage";
+import { uploadImage } from "../../lib/images/upload";
 
-const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BYTES = 20 * 1024 * 1024;
+const ALLOWED_MIME = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
 
 type Props = {
   open: boolean;
@@ -17,58 +20,44 @@ type Props = {
 export function ImageUpload({ open, onClose, editor }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   if (!open) return null;
 
   const insert = (file: File) => {
     setError(null);
-    if (!file.type.startsWith("image/")) {
-      setError("이미지 파일만 업로드할 수 있습니다.");
+    if (!ALLOWED_MIME.has(file.type)) {
+      setError("png, jpeg, webp, gif 만 업로드할 수 있습니다.");
       return;
     }
     if (file.size > MAX_BYTES) {
       setError(
-        `5MB 이하 이미지만 가능합니다 (현재 ${(file.size / 1024 / 1024).toFixed(1)}MB).`,
+        `20MB 이하 이미지만 가능합니다 (현재 ${(file.size / 1024 / 1024).toFixed(1)}MB).`,
       );
       return;
     }
     void (async () => {
+      setUploading(true);
+      // 자연 크기는 업로드와 병렬로 측정 — 실패해도 본문 삽입은 진행.
+      const dim = await loadImageDimensions(file).catch(() => null);
       try {
-        const qnImageId = await storeEditorImageBlob(file);
-        const url = URL.createObjectURL(file);
-        const im = new Image();
-        im.onload = () => {
-          editor
-            ?.chain()
-            .focus()
-            .insertContent({
-              type: "image",
-              attrs: {
-                src: EDITOR_IMAGE_PLACEHOLDER_SRC,
-                qnImageId,
-                width: im.naturalWidth,
-                height: im.naturalHeight,
-              },
-            })
-            .run();
-          URL.revokeObjectURL(url);
-          onClose();
-        };
-        im.onerror = () => {
-          URL.revokeObjectURL(url);
-          editor
-            ?.chain()
-            .focus()
-            .insertContent({
-              type: "image",
-              attrs: { src: EDITOR_IMAGE_PLACEHOLDER_SRC, qnImageId },
-            })
-            .run();
-          onClose();
-        };
-        im.src = url;
+        const ref = await uploadImage(file);
+        editor
+          ?.chain()
+          .focus()
+          .insertContent({
+            type: "image",
+            attrs: {
+              src: ref,
+              ...(dim ? { width: dim.w, height: dim.h } : {}),
+            },
+          })
+          .run();
+        onClose();
       } catch {
-        setError("이미지를 저장하지 못했습니다.");
+        setError("이미지를 업로드하지 못했습니다.");
+      } finally {
+        setUploading(false);
       }
     })();
   };
@@ -96,16 +85,17 @@ export function ImageUpload({ open, onClose, editor }: Props) {
         </div>
         <button
           type="button"
+          disabled={uploading}
           onClick={() => inputRef.current?.click()}
-          className="flex w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-8 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          className="flex w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-8 text-sm text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
         >
           <Upload size={18} />
-          파일 선택
+          {uploading ? "업로드 중..." : "파일 선택"}
         </button>
         <input
           ref={inputRef}
           type="file"
-          accept="image/*"
+          accept="image/png,image/jpeg,image/webp,image/gif"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -119,4 +109,23 @@ export function ImageUpload({ open, onClose, editor }: Props) {
       </div>
     </div>
   );
+}
+
+function loadImageDimensions(
+  file: File,
+): Promise<{ w: number; h: number } | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      const r = { w: im.naturalWidth, h: im.naturalHeight };
+      URL.revokeObjectURL(url);
+      resolve(r);
+    };
+    im.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    im.src = url;
+  });
 }

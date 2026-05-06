@@ -71,7 +71,6 @@ import { useBoxSelect } from "../../hooks/useBoxSelect";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { tipTapJsonDocEquals } from "../../lib/pm/jsonDocEquals";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
-import { loadEditorImageBlob } from "../../lib/editorImageStorage";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import {
   createEditorHandleDrop,
@@ -245,7 +244,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
           ]
         : []),
       CodeBlockCopy,
-      // 대용량 data: URL을 문서 JSON에 넣지 않음 — 이미지는 IDB + qnImageId만 사용
+      // 대용량 data: URL 을 문서 JSON 에 넣지 않음 — 이미지는 v4 S3 ref(quicknote-image://) 사용.
       ImageBlock.configure({ allowBase64: false }),
       HorizontalRule,
       MoveBlock,
@@ -412,32 +411,6 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       }
     };
   }, [editor, effectivePageId, updateDoc]);
-
-  // IDB 에만 있는 이미지 바이트를 blob URL 로 수화(문서 JSON 은 qnImageId + 플레이스홀더 src 만 유지)
-  useEffect(() => {
-    if (!editor) return;
-    const hydrate = () => {
-      if (editor.isDestroyed) return;
-      const root = editor.view.dom;
-      root
-        .querySelectorAll<HTMLImageElement>("img[data-qn-image-id]")
-        .forEach((img) => {
-          if (img.dataset.qnBlobHydrated === "1") return;
-          const id = img.getAttribute("data-qn-image-id");
-          if (!id) return;
-          void loadEditorImageBlob(id).then((blob) => {
-            if (!blob || !editor.view.dom.contains(img)) return;
-            img.src = URL.createObjectURL(blob);
-            img.dataset.qnBlobHydrated = "1";
-          });
-        });
-    };
-    hydrate();
-    editor.on("update", hydrate);
-    return () => {
-      editor.off("update", hydrate);
-    };
-  }, [editor]);
 
   // 컬럼 분할 드래그오버 감지
   useEffect(() => {
