@@ -50,6 +50,21 @@ export class QuicknoteSyncStack extends cdk.Stack {
       ttlAttribute: "expireAt", // pending 1일 자동 삭제용
     });
 
+    // v5: workspaceId 스코핑 조회용 GSI. 기존 byOwner GSI 는 마이그레이션 완료 후 제거.
+    this.pageTable.table.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndUpdatedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    this.databaseTable.table.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndUpdatedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     new cdk.CfnOutput(this, "PageTableName", { value: this.pageTable.table.tableName });
     new cdk.CfnOutput(this, "DatabaseTableName", { value: this.databaseTable.table.tableName });
     new cdk.CfnOutput(this, "ContactTableName", { value: this.contactTable.table.tableName });
