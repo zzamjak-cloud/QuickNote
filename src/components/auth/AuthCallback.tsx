@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAuthStore } from "../../store/authStore";
 
 // /auth/callback 라우트(웹)에서 마운트되어 code 를 토큰으로 교환한다.
@@ -8,8 +8,13 @@ import { useAuthStore } from "../../store/authStore";
 // 떨어지면 LoginScreen 이 errorMessage 를 표시한다.
 export function AuthCallback({ onDone }: { onDone: () => void }) {
   const handleCallback = useAuthStore((s) => s.handleCallback);
+  // signinCallback 은 state 를 1회 consume 하면 끝이다. 어떤 사유로든 effect 가
+  // 두 번 실행되면 두 번째 호출이 "No matching state found" 로 실패하므로 ref 가드.
+  const ranRef = useRef(false);
 
   useEffect(() => {
+    if (ranRef.current) return;
+    ranRef.current = true;
     let cancelled = false;
     void (async () => {
       await handleCallback(window.location.href);

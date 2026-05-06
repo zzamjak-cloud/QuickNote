@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import App from "./App";
 import { AuthCallback } from "./components/auth/AuthCallback";
 import { useAuthStore } from "./store/authStore";
@@ -77,8 +77,12 @@ function useSyncBootstrap() {
 export function Bootstrap() {
   const [path, setPath] = useState(window.location.pathname);
   useSyncBootstrap();
+  // onDone 을 useCallback 으로 안정화. 인라인 함수면 매 렌더마다 새 참조가 되어
+  // AuthCallback 의 useEffect 가 재실행되고 handleCallback 이 두 번 호출된다.
+  // 두 번째 호출은 이미 consume 된 state 를 다시 읽어 "No matching state found" 발생.
+  const goHome = useCallback(() => setPath("/"), []);
   if (path === "/auth/callback") {
-    return <AuthCallback onDone={() => setPath("/")} />;
+    return <AuthCallback onDone={goHome} />;
   }
   return <App />;
 }

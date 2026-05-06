@@ -17,12 +17,16 @@ export function configureAppSync(): void {
 
   // Amplify v6 의 두 번째 인자(library options) 타입은 너무 깊어 TS 추론이
   // 폭발한다. 의도적으로 unknown 으로 cast 한다.
+  // defaultAuthMode 를 "none" 으로 둔다. "userPool" 은 Amplify 가 fetchAuthSession()
+  // 을 호출해 Amplify Auth.Cognito 세션을 요구하는데, 본 앱은 oidc-client-ts 로만
+  // 인증하므로 세션이 비어 NoValidAuthTokens 가 난다. AppSync 가 USER_POOL 모드여도
+  // 서버는 Authorization 헤더의 JWT 만 검증하므로 "none" + 직접 헤더 주입으로 충분하다.
   const resourcesConfig = {
     API: {
       GraphQL: {
         endpoint,
         region,
-        defaultAuthMode: "userPool",
+        defaultAuthMode: "none",
       },
     },
   };
