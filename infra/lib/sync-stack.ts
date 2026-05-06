@@ -23,7 +23,6 @@ export interface SyncStackProps extends cdk.StackProps {
 export class QuicknoteSyncStack extends cdk.Stack {
   public readonly pageTable: ModelTable;
   public readonly databaseTable: ModelTable;
-  public readonly contactTable: ModelTable;
   public readonly imageAssetTable: ModelTable;
   public readonly imagesBucket: s3.Bucket;
   public readonly api: appsync.GraphqlApi;
@@ -45,7 +44,6 @@ export class QuicknoteSyncStack extends cdk.Stack {
     // 4개 owner-scoped 테이블을 팩토리로 생성.
     this.pageTable = createSyncTable(this, "PageTable", "Page");
     this.databaseTable = createSyncTable(this, "DatabaseTable", "Database");
-    this.contactTable = createSyncTable(this, "ContactTable", "Contact");
     this.imageAssetTable = createSyncTable(this, "ImageAssetTable", "ImageAsset", {
       ttlAttribute: "expireAt", // pending 1일 자동 삭제용
     });
@@ -67,7 +65,6 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "PageTableName", { value: this.pageTable.table.tableName });
     new cdk.CfnOutput(this, "DatabaseTableName", { value: this.databaseTable.table.tableName });
-    new cdk.CfnOutput(this, "ContactTableName", { value: this.contactTable.table.tableName });
     new cdk.CfnOutput(this, "ImageAssetTableName", {
       value: this.imageAssetTable.table.tableName,
     });
@@ -225,7 +222,6 @@ export class QuicknoteSyncStack extends cdk.Stack {
     // 3 owner-scoped 모델에 LWW 리졸버 부착.
     attachOwnerScopedModelResolvers(api, "Page", this.pageTable);
     attachOwnerScopedModelResolvers(api, "Database", this.databaseTable);
-    attachOwnerScopedModelResolvers(api, "Contact", this.contactTable);
 
     // 이미지 PreSignedURL 발급·검증 Lambda. AppSync 가 invoke.
     const presignFn = new lambdaNode.NodejsFunction(this, "ImagePresignFn", {
