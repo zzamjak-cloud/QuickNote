@@ -4,10 +4,8 @@
 export type OutboxOp =
   | "upsertPage"
   | "upsertDatabase"
-  | "upsertContact"
   | "softDeletePage"
-  | "softDeleteDatabase"
-  | "softDeleteContact";
+  | "softDeleteDatabase";
 
 export type OutboxEntry = {
   id: string;

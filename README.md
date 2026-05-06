@@ -150,7 +150,7 @@ npm run tauri:build  # 배포용 .dmg / .exe 생성
 - **v2.0.0** — Tauri 데스크톱 이식, SQLite 로컬 저장, 태그 릴리스·자동 업데이트(minisign + GitHub Actions)
 - **v3.0.0** — AWS Cognito + Google OAuth + 화이트리스트 인증
 - **v4.0.0** — AWS AppSync 단일 사용자 멀티 디바이스 동기화 (LWW) + S3 이미지 업로드 ← 완료
-- v5.0.0 — 다중 사용자 실시간 협업 (CRDT/Yjs)
+- **v5.0.0** — 워크스페이스 기반 다중 사용자 협업(구성원/팀/권한/멘션) ← 완료
 
 ## 기여·보안
 

@@ -3,17 +3,21 @@ import App from "./App";
 import { AuthCallback } from "./components/auth/AuthCallback";
 import { useAuthStore } from "./store/authStore";
 import {
-  fetchAllPages,
-  fetchAllDatabases,
-  fetchAllContacts,
+  fetchPagesByWorkspace,
+  fetchDatabasesByWorkspace,
   startSubscriptions,
 } from "./lib/sync";
 import { getSyncEngine } from "./lib/sync/runtime";
 import {
   applyRemotePageToStore,
   applyRemoteDatabaseToStore,
-  applyRemoteContactToStore,
 } from "./lib/sync/storeApply";
+import { useWorkspaceStore } from "./store/workspaceStore";
+import { useMemberStore } from "./store/memberStore";
+import { listMembersApi, meApi } from "./lib/sync/memberApi";
+import { listMyWorkspacesApi } from "./lib/sync/workspaceApi";
+import { listTeamsApi } from "./lib/sync/teamApi";
+import { useTeamStore } from "./store/teamStore";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -22,37 +26,79 @@ function useSyncBootstrap() {
   const authSub = useAuthStore((s) =>
     s.state.status === "authenticated" ? s.state.user.sub : null,
   );
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const setWorkspaces = useWorkspaceStore((s) => s.setWorkspaces);
+  const clearWorkspaces = useWorkspaceStore((s) => s.clear);
+  const setMe = useMemberStore((s) => s.setMe);
+  const setMembers = useMemberStore((s) => s.setMembers);
+  const clearMembers = useMemberStore((s) => s.clear);
+  const setTeams = useTeamStore((s) => s.setTeams);
+  const clearTeams = useTeamStore((s) => s.clear);
   // 한 사용자 세션 내에서 중복 부트스트랩 방지.
   const startedForRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (authStatus !== "authenticated" || !authSub) {
+      setMe(null);
+      clearWorkspaces();
+      clearMembers();
+      clearTeams();
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [me, workspaces] = await Promise.all([meApi(), listMyWorkspacesApi()]);
+        if (cancelled) return;
+        setMe(me);
+        setWorkspaces(workspaces);
+
+        const isAdmin = me.workspaceRole === "owner" || me.workspaceRole === "manager";
+        if (!isAdmin) {
+          setMembers([]);
+          setTeams([]);
+          return;
+        }
+
+        const [members, teams] = await Promise.all([listMembersApi(), listTeamsApi()]);
+        if (cancelled) return;
+        setMembers(members);
+        setTeams(teams);
+      } catch (err) {
+        console.error("[sync] auth bootstrap failed", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus, authSub, setMe, setMembers, setTeams, setWorkspaces, clearWorkspaces, clearMembers, clearTeams]);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) {
       startedForRef.current = null;
       return;
     }
-    if (startedForRef.current === authSub) return;
-    startedForRef.current = authSub;
+    const startedKey = `${authSub}:${currentWorkspaceId}`;
+    if (startedForRef.current === startedKey) return;
+    startedForRef.current = startedKey;
 
     let unsub: (() => void) | undefined;
     let cancelled = false;
 
     (async () => {
       try {
-        const [pages, dbs, contacts] = await Promise.all([
-          fetchAllPages(),
-          fetchAllDatabases(),
-          fetchAllContacts(),
+        const [pages, dbs] = await Promise.all([
+          fetchPagesByWorkspace(currentWorkspaceId),
+          fetchDatabasesByWorkspace(currentWorkspaceId),
         ]);
         if (cancelled) return;
         for (const p of pages) applyRemotePageToStore(p);
         for (const d of dbs) applyRemoteDatabaseToStore(d);
-        for (const c of contacts) applyRemoteContactToStore(c);
 
         if (cancelled) return;
-        unsub = startSubscriptions(authSub, {
+        unsub = startSubscriptions(currentWorkspaceId, {
           onPage: applyRemotePageToStore,
           onDatabase: applyRemoteDatabaseToStore,
-          onContact: applyRemoteContactToStore,
         });
 
         const engine = await getSyncEngine();
@@ -70,7 +116,7 @@ function useSyncBootstrap() {
         console.error("[sync] unsubscribe failed", err);
       }
     };
-  }, [authStatus, authSub]);
+  }, [authStatus, authSub, currentWorkspaceId]);
 }
 
 // 웹 환경에서 /auth/callback 으로 리다이렉트되면 code 교환을 처리한 뒤 / 로 전환한다.

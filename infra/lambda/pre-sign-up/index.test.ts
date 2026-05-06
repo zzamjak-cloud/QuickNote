@@ -1,61 +1,36 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import type { PreSignUpTriggerEvent } from "aws-lambda";
-import { handler, isAllowed } from "./index";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { isMemberAllowed } from "./index";
 
-function makeEvent(
-  email: string,
-  triggerSource: PreSignUpTriggerEvent["triggerSource"] = "PreSignUp_ExternalProvider",
-): PreSignUpTriggerEvent {
-  return {
-    version: "1",
-    region: "ap-northeast-2",
-    userPoolId: "pool",
-    userName: "user",
-    callerContext: { awsSdkVersion: "1", clientId: "client" },
-    triggerSource,
-    request: {
-      userAttributes: { email },
-      validationData: undefined,
-      clientMetadata: undefined,
-    },
-    response: {
-      autoConfirmUser: false,
-      autoVerifyEmail: false,
-      autoVerifyPhone: false,
-    },
-  } as PreSignUpTriggerEvent;
+type SendFn = typeof DynamoDBDocumentClient.prototype.send;
+
+function makeMockSend(items: Record<string, unknown>[]) {
+  return vi.fn().mockResolvedValue({ Items: items }) as unknown as SendFn;
 }
 
 describe("PreSignUp Lambda", () => {
   beforeEach(() => {
-    process.env.ALLOWED_EMAILS = "alice@example.com,bob@example.com";
+    process.env.MEMBERS_TABLE_NAME = "quicknote-members";
   });
 
-  it("isAllowed 는 대소문자/공백을 무시한다", () => {
-    const list = new Set(["alice@example.com"]);
-    expect(isAllowed(" Alice@example.com ", list)).toBe(true);
-    expect(isAllowed("eve@example.com", list)).toBe(false);
-    expect(isAllowed(undefined, list)).toBe(false);
+  it("active 멤버는 허용", async () => {
+    const send = makeMockSend([{ memberId: "m1", email: "alice@example.com", status: "active" }]);
+    expect(await isMemberAllowed("Alice@example.com", "quicknote-members", send)).toBe(true);
   });
 
-  it("허용 이메일은 자동 확인된다", async () => {
-    const event = makeEvent("alice@example.com");
-    const result = await handler(event, {} as never, () => undefined);
-    if (!result) throw new Error("no result");
-    expect(result.response.autoConfirmUser).toBe(true);
-    expect(result.response.autoVerifyEmail).toBe(true);
+  it("removed 멤버는 거부", async () => {
+    const send = makeMockSend([{ memberId: "m1", email: "alice@example.com", status: "removed" }]);
+    expect(await isMemberAllowed("alice@example.com", "quicknote-members", send)).toBe(false);
   });
 
-  it("미허용 이메일은 가입을 거부한다", async () => {
-    const event = makeEvent("eve@example.com");
-    await expect(handler(event, {} as never, () => undefined)).rejects.toThrow(
-      "UNAUTHORIZED_EMAIL",
-    );
+  it("Member 가 없으면 거부", async () => {
+    const send = makeMockSend([]);
+    expect(await isMemberAllowed("eve@example.com", "quicknote-members", send)).toBe(false);
   });
 
-  it("ALLOWED_EMAILS 가 비어있으면 모두 거부된다", async () => {
-    process.env.ALLOWED_EMAILS = "";
-    const event = makeEvent("alice@example.com");
-    await expect(handler(event, {} as never, () => undefined)).rejects.toThrow();
+  it("이메일 누락 시 즉시 거부 (DDB 호출 없음)", async () => {
+    const send = vi.fn() as unknown as SendFn;
+    expect(await isMemberAllowed("", "quicknote-members", send)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
   });
 });

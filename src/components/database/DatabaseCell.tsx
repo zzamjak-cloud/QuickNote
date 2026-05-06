@@ -1,11 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Download, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Plus, Trash2 } from "lucide-react";
 import type { CellValue, ColumnDef, FileCellItem } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
-import { useContactsStore } from "../../store/contactsStore";
 import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
-import { AddContactDialog } from "../ui/AddContactDialog";
 import {
   putDatabaseFile,
   downloadBlob,
@@ -13,6 +11,7 @@ import {
   deleteDatabaseFile,
 } from "../../lib/databaseFileStorage";
 import { newId } from "../../lib/id";
+import { searchMembersForMentionApi } from "../../lib/sync/memberApi";
 
 type Props = {
   databaseId: string;
@@ -481,115 +480,92 @@ function PersonCell({
   value: string;
   onChange: (v: CellValue) => void;
 }) {
-  const contacts = useContactsStore((s) => s.contacts);
-  const addContact = useContactsStore((s) => s.addContact);
-  const pop = useAnchoredPopover(240);
-  const [q, setQ] = useState("");
-  const [addContactOpen, setAddContactOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [items, setItems] = useState<Array<{ memberId: string; name: string; jobRole: string }>>([]);
 
-  // 등록된 사람의 "이름"만으로 검색
-  const filtered = (() => {
-    const term = q.trim().toLowerCase();
-    if (!term) return contacts;
-    return contacts.filter((c) => c.displayName.toLowerCase().includes(term));
+  const query = (() => {
+    const idx = value.lastIndexOf("@");
+    if (idx < 0) return "";
+    return value.slice(idx + 1).trim();
   })();
 
-  // value는 email; 표시는 displayName
-  const selectedContact = contacts.find((c) => c.email === value);
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setCoords({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 220) });
+  }, [value, open]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!open) return;
+    void (async () => {
+      const found = await searchMembersForMentionApi(query, 8);
+      if (!cancelled) setItems(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, query]);
+
+  const applyMention = (name: string) => {
+    const idx = value.lastIndexOf("@");
+    if (idx < 0) {
+      onChange(name);
+      setOpen(false);
+      return;
+    }
+    const next = `${value.slice(0, idx)}@${name}`;
+    onChange(next.trim());
+    setOpen(false);
+  };
 
   return (
     <>
-      <AddContactDialog
-        open={addContactOpen}
-        onClose={() => setAddContactOpen(false)}
-        onSave={(email, displayName) => {
-          addContact(email, displayName);
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value;
+          onChange(next);
+          setOpen(next.includes("@"));
         }}
+        onFocus={() => setOpen(value.includes("@"))}
+        onBlur={() => {
+          window.setTimeout(() => setOpen(false), 120);
+        }}
+        placeholder="담당자 @이름"
+        className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none placeholder:text-zinc-300 focus:border-zinc-300 dark:focus:border-zinc-600 dark:placeholder:text-zinc-600"
       />
-      <button
-        ref={pop.buttonRef}
-        type="button"
-        onClick={() => pop.toggle(240, () => setQ(""))}
-        title={selectedContact?.displayName ?? "사람 선택"}
-        className="flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-left text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
-      >
-        {selectedContact ? (
-          <span className="truncate text-zinc-700 dark:text-zinc-200">
-            {selectedContact.displayName}
-          </span>
-        ) : (
-          <span> </span>
-        )}
-      </button>
-      {pop.open && pop.coords &&
-        createPortal(
-          <div
-            ref={pop.popoverRef}
-            style={{
-              position: "fixed",
-              top: pop.coords.top,
-              left: pop.coords.left,
-              width: 240,
-            }}
-            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <div className="flex items-center gap-1 border-b border-zinc-100 px-1 py-1 dark:border-zinc-800">
-              <Search size={12} className="text-zinc-400" />
-              <input
-                autoFocus
-                placeholder="이름 검색…"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                className="min-w-0 flex-1 select-text bg-transparent px-1 py-0.5 outline-none"
-              />
-            </div>
-            {value && (
-              <button
-                type="button"
-                onClick={() => {
-                  onChange(null);
-                  pop.close();
-                }}
-                className="flex w-full items-center gap-2 rounded px-2 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              >
-                <X size={11} /> 선택 해제
-              </button>
-            )}
-            {filtered.length === 0 ? (
-              <div className="px-2 py-2 text-[10px] text-zinc-500">
-                {q ? "결과 없음" : "등록된 사람이 없습니다"}
-                <button
-                  type="button"
-                  onClick={() => setAddContactOpen(true)}
-                  className="ml-2 rounded border border-zinc-300 px-1 py-0.5 text-[10px] dark:border-zinc-600"
-                >
-                  + 추가
-                </button>
-              </div>
-            ) : (
-              filtered.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(c.email);
-                    pop.close();
-                  }}
-                  className={[
-                    "flex w-full items-center justify-between rounded px-2 py-1 text-left",
-                    c.email === value
-                      ? "bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
-                      : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
-                  ].join(" ")}
-                >
-                  <span className="truncate">{c.displayName}</span>
-                  <span className="ml-2 shrink-0 text-[9px] text-zinc-400">{c.email}</span>
-                </button>
-              ))
-            )}
-          </div>,
-          document.body,
-        )}
+      {open && coords
+        ? createPortal(
+            <div
+              style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width }}
+              className="z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              {items.length === 0 ? (
+                <div className="px-2 py-1 text-[11px] text-zinc-500">멤버 검색 결과가 없습니다.</div>
+              ) : (
+                items.map((m) => (
+                  <button
+                    key={m.memberId}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => applyMention(m.name)}
+                    className="flex w-full items-center justify-between rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <span className="truncate">@{m.name}</span>
+                    <span className="ml-2 shrink-0 text-[10px] text-zinc-500">{m.jobRole}</span>
+                  </button>
+                ))
+              )}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

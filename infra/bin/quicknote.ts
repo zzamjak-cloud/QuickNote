@@ -5,12 +5,6 @@ import { QuicknoteSyncStack } from "../lib/sync-stack";
 
 const app = new cdk.App();
 
-const allowedEmailsRaw = (app.node.tryGetContext("allowedEmails") as string | undefined) ?? "";
-const allowedEmails = allowedEmailsRaw
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
-
 const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
   region: process.env.CDK_DEFAULT_REGION ?? "ap-northeast-2",
@@ -25,7 +19,6 @@ const cognitoStack = new CognitoStack(app, "QuicknoteCognitoStack", {
   desktopCallbackUrls: app.node.tryGetContext("desktopCallbackUrls") as string[],
   desktopLogoutUrls: app.node.tryGetContext("desktopLogoutUrls") as string[],
   googleSecretName: app.node.tryGetContext("googleSecretName") as string,
-  allowedEmails,
 });
 
 const imagesBucketName =
@@ -38,4 +31,9 @@ new QuicknoteSyncStack(app, "QuicknoteSyncStack", {
   userPoolId: cognitoStack.userPoolId,
   userPoolArn: cognitoStack.userPoolArn,
   imagesBucketName,
+  membersTableName: app.node.tryGetContext("membersTableName") as string | undefined,
+  teamsTableName: app.node.tryGetContext("teamsTableName") as string | undefined,
+  memberTeamsTableName: app.node.tryGetContext("memberTeamsTableName") as string | undefined,
+  workspacesTableName: app.node.tryGetContext("workspacesTableName") as string | undefined,
+  workspaceAccessTableName: app.node.tryGetContext("workspaceAccessTableName") as string | undefined,
 });

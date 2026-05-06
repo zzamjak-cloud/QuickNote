@@ -50,7 +50,7 @@ import { CodeBlockLowlightStable } from "../../lib/tiptapExtensions/codeBlockLow
 import { CodeBlockCopy } from "../../lib/tiptapExtensions/codeBlockCopy";
 import { decideDropMode } from "../../lib/blockDropMode";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
-import { PageMention } from "../../lib/tiptapExtensions/pageMention";
+import { MemberMention } from "../../lib/tiptapExtensions/memberMention";
 import { EmojiShortcode } from "../../lib/tiptapExtensions/emojiShortcode";
 import {
   filterSlashMenuEntries,
@@ -262,7 +262,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       Toggle,
       ToggleHeader,
       ToggleContent,
-      PageMention,
+      MemberMention,
       EmojiShortcode,
       DatabaseBlock,
       SlashCommand.configure({
@@ -526,22 +526,6 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   useEffect(() => {
     if (page) dbTitleBaselineRef.current = page.title;
   }, [page?.id, effectivePageId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 페이지 멘션 클릭 시 해당 페이지로 이동
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    const dom = editor.view.dom;
-    const onClick = (e: Event) => {
-      const target = (e.target as HTMLElement).closest(".page-mention");
-      if (!target) return;
-      const id = target.getAttribute("data-id");
-      if (id) {
-        usePageStore.getState().setActivePage(id);
-      }
-    };
-    dom.addEventListener("click", onClick);
-    return () => dom.removeEventListener("click", onClick);
-  }, [editor]);
 
   // editor.editable 토글 — read-only 상태로 두면 슬래시 메뉴, 텍스트 입력, 블록 추가 모두 차단.
   // DB 블록의 React NodeView 내부 input/button 은 contenteditable 영향 밖이라 정상 동작.

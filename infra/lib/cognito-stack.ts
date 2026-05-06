@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
@@ -14,7 +15,6 @@ export interface CognitoStackProps extends cdk.StackProps {
   desktopCallbackUrls: string[];
   desktopLogoutUrls: string[];
   googleSecretName: string;
-  allowedEmails: string[];
 }
 
 export class CognitoStack extends cdk.Stack {
@@ -25,8 +25,7 @@ export class CognitoStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: CognitoStackProps) {
     super(scope, id, props);
 
-    // 화이트리스트 검증 Lambda. PreSignUp 트리거로 등록되어
-    // 페더레이션 가입을 사전 차단한다.
+    // Members 테이블 GSI(byEmail) 조회로 가입 허용 여부를 검증하는 Lambda.
     const preSignUpFn = new lambdaNode.NodejsFunction(this, "PreSignUpFn", {
       entry: path.join(__dirname, "..", "lambda", "pre-sign-up", "index.ts"),
       runtime: lambda.Runtime.NODEJS_20_X,
@@ -35,7 +34,7 @@ export class CognitoStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(5),
       logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {
-        ALLOWED_EMAILS: props.allowedEmails.join(","),
+        MEMBERS_TABLE_NAME: "quicknote-members",
       },
       bundling: {
         minify: true,
@@ -44,6 +43,53 @@ export class CognitoStack extends cdk.Stack {
         externalModules: ["@aws-sdk/*"],
       },
     });
+
+    preSignUpFn.role!.attachInlinePolicy(
+      new iam.Policy(this, "PreSignUpDdbPolicy", {
+        statements: [
+          new iam.PolicyStatement({
+            actions: ["dynamodb:Query"],
+            resources: [
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/quicknote-members`,
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/quicknote-members/index/byEmail`,
+            ],
+          }),
+        ],
+      }),
+    );
+
+    // Cognito 가입 완료 후 cognitoSub 를 Members 테이블에 매핑하는 Lambda.
+    const postConfirmationFn = new lambdaNode.NodejsFunction(this, "PostConfirmationFn", {
+      entry: path.join(__dirname, "..", "lambda", "post-confirmation", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler",
+      memorySize: 128,
+      timeout: cdk.Duration.seconds(5),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environment: {
+        MEMBERS_TABLE_NAME: "quicknote-members",
+      },
+      bundling: {
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+      },
+    });
+
+    postConfirmationFn.role!.attachInlinePolicy(
+      new iam.Policy(this, "PostConfirmationDdbPolicy", {
+        statements: [
+          new iam.PolicyStatement({
+            actions: ["dynamodb:Query", "dynamodb:UpdateItem"],
+            resources: [
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/quicknote-members`,
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/quicknote-members/index/byEmail`,
+            ],
+          }),
+        ],
+      }),
+    );
 
     const userPool = new cognito.UserPool(this, "UserPool", {
       userPoolName: "quicknote-users",
@@ -55,6 +101,7 @@ export class CognitoStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN, // 사용자 데이터 보존
       lambdaTriggers: {
         preSignUp: preSignUpFn,
+        postConfirmation: postConfirmationFn,
       },
       standardAttributes: {
         email: { required: true, mutable: true },

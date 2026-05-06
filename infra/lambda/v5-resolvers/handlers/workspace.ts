@@ -1,0 +1,414 @@
+import {
+  BatchWriteCommand,
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { v4 as uuid } from "uuid";
+import { badRequest, notFound, requireRoleAtLeast, type Member } from "./_auth";
+import type { Tables } from "./member";
+
+type AccessLevel = "edit" | "view";
+type AccessSubjectType = "member" | "team" | "everyone";
+
+type WorkspaceAccessInput = {
+  subjectType: "MEMBER" | "TEAM" | "EVERYONE";
+  subjectId?: string | null;
+  level: "EDIT" | "VIEW";
+};
+
+type WorkspaceAccessEntry = {
+  subjectType: AccessSubjectType;
+  subjectId: string | null;
+  level: AccessLevel;
+};
+
+type WorkspaceRow = {
+  workspaceId: string;
+  name: string;
+  type: "personal" | "shared";
+  ownerMemberId: string;
+  createdAt: string;
+};
+
+export type Workspace = WorkspaceRow & {
+  access: WorkspaceAccessEntry[];
+  myEffectiveLevel: AccessLevel;
+};
+
+function toLevel(level: "EDIT" | "VIEW"): AccessLevel {
+  return level === "EDIT" ? "edit" : "view";
+}
+
+function toSubjectType(t: "MEMBER" | "TEAM" | "EVERYONE"): AccessSubjectType {
+  if (t === "MEMBER") return "member";
+  if (t === "TEAM") return "team";
+  return "everyone";
+}
+
+function subjectKey(subjectType: AccessSubjectType, subjectId: string | null): string {
+  if (subjectType === "everyone") return "everyone#*";
+  return `${subjectType}#${subjectId ?? ""}`;
+}
+
+async function getWorkspaceRow(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  workspaceId: string,
+): Promise<WorkspaceRow | undefined> {
+  const r = await doc.send(
+    new GetCommand({ TableName: tables.Workspaces, Key: { workspaceId } }),
+  );
+  return r.Item as WorkspaceRow | undefined;
+}
+
+async function getWorkspaceAccess(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  workspaceId: string,
+): Promise<WorkspaceAccessEntry[]> {
+  const r = await doc.send(
+    new QueryCommand({
+      TableName: tables.WorkspaceAccess,
+      KeyConditionExpression: "workspaceId = :w",
+      ExpressionAttributeValues: { ":w": workspaceId },
+    }),
+  );
+  return (r.Items ?? []).map((i) => ({
+    subjectType: i.subjectType as AccessSubjectType,
+    subjectId: (i.subjectId as string | undefined) ?? null,
+    level: i.level as AccessLevel,
+  }));
+}
+
+async function getCallerTeamIds(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  callerId: string,
+): Promise<string[]> {
+  const r = await doc.send(
+    new QueryCommand({
+      TableName: tables.MemberTeams,
+      KeyConditionExpression: "memberId = :m",
+      ExpressionAttributeValues: { ":m": callerId },
+    }),
+  );
+  return (r.Items ?? []).map((i) => i.teamId as string);
+}
+
+function computeEffectiveLevel(
+  entries: WorkspaceAccessEntry[],
+  caller: Member,
+  callerTeamIds: Set<string>,
+): AccessLevel | null {
+  let best: AccessLevel | null = null;
+  for (const e of entries) {
+    const matched =
+      (e.subjectType === "member" && e.subjectId === caller.memberId) ||
+      (e.subjectType === "team" && e.subjectId && callerTeamIds.has(e.subjectId)) ||
+      e.subjectType === "everyone";
+    if (!matched) continue;
+    if (e.level === "edit") return "edit";
+    best = "view";
+  }
+  return best;
+}
+
+async function hydrateWorkspace(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  row: WorkspaceRow,
+  caller: Member,
+  callerTeamIds: Set<string>,
+): Promise<Workspace | null> {
+  const access = await getWorkspaceAccess(doc, tables, row.workspaceId);
+  const level = computeEffectiveLevel(access, caller, callerTeamIds);
+  if (!level) return null;
+  return { ...row, access, myEffectiveLevel: level };
+}
+
+export async function createWorkspace(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  input: { name: string; access: WorkspaceAccessInput[] };
+}): Promise<Workspace> {
+  requireRoleAtLeast(args.caller, "manager");
+  const name = args.input.name.trim();
+  if (!name) badRequest("워크스페이스 이름은 비어 있을 수 없음");
+  if ((args.input.access?.length ?? 0) > 24) {
+    badRequest("access 엔트리 24개 초과 불가");
+  }
+  const workspaceId = uuid();
+  const createdAt = new Date().toISOString();
+  await args.doc.send(
+    new PutCommand({
+      TableName: args.tables.Workspaces,
+      Item: {
+        workspaceId,
+        name,
+        type: "shared",
+        ownerMemberId: args.caller.memberId,
+        createdAt,
+      },
+      ConditionExpression: "attribute_not_exists(workspaceId)",
+    }),
+  );
+  const normalizedAccess = args.input.access.map((e) => ({
+    subjectType: toSubjectType(e.subjectType),
+    subjectId: e.subjectType === "EVERYONE" ? null : (e.subjectId ?? null),
+    level: toLevel(e.level),
+  }));
+  const putReqs = normalizedAccess.map((e) => ({
+    PutRequest: {
+      Item: {
+        workspaceId,
+        subjectKey: subjectKey(e.subjectType, e.subjectId),
+        subjectType: e.subjectType,
+        subjectId: e.subjectId,
+        level: e.level,
+      },
+    },
+  }));
+  if (putReqs.length > 0) {
+    await args.doc.send(
+      new BatchWriteCommand({
+        RequestItems: { [args.tables.WorkspaceAccess]: putReqs },
+      }),
+    );
+  }
+  return {
+    workspaceId,
+    name,
+    type: "shared",
+    ownerMemberId: args.caller.memberId,
+    createdAt,
+    access: normalizedAccess,
+    myEffectiveLevel: "edit",
+  };
+}
+
+export async function updateWorkspace(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  input: { workspaceId: string; name?: string | null };
+}): Promise<Workspace> {
+  requireRoleAtLeast(args.caller, "manager");
+  if (!args.input.name?.trim()) badRequest("변경할 name 필요");
+  const row = await getWorkspaceRow(args.doc, args.tables, args.input.workspaceId);
+  if (!row) notFound("Workspace 없음");
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Workspaces,
+      Key: { workspaceId: args.input.workspaceId },
+      UpdateExpression: "SET #n = :n",
+      ExpressionAttributeNames: { "#n": "name" },
+      ExpressionAttributeValues: { ":n": args.input.name.trim() },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  const updated = r.Attributes as WorkspaceRow;
+  const access = await getWorkspaceAccess(args.doc, args.tables, args.input.workspaceId);
+  return { ...updated, access, myEffectiveLevel: "edit" };
+}
+
+export async function setWorkspaceAccess(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  workspaceId: string;
+  entries: WorkspaceAccessInput[];
+}): Promise<Workspace> {
+  requireRoleAtLeast(args.caller, "manager");
+  const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
+  if (!row) notFound("Workspace 없음");
+
+  const existing = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.WorkspaceAccess,
+      KeyConditionExpression: "workspaceId = :w",
+      ExpressionAttributeValues: { ":w": args.workspaceId },
+    }),
+  );
+  const deleteReqs = (existing.Items ?? []).map((i) => ({
+    DeleteRequest: { Key: { workspaceId: i.workspaceId, subjectKey: i.subjectKey } },
+  }));
+  for (let i = 0; i < deleteReqs.length; i += 25) {
+    await args.doc.send(
+      new BatchWriteCommand({
+        RequestItems: { [args.tables.WorkspaceAccess]: deleteReqs.slice(i, i + 25) },
+      }),
+    );
+  }
+
+  const normalized = args.entries.map((e) => ({
+    subjectType: toSubjectType(e.subjectType),
+    subjectId: e.subjectType === "EVERYONE" ? null : (e.subjectId ?? null),
+    level: toLevel(e.level),
+  }));
+  const putReqs = normalized.map((e) => ({
+    PutRequest: {
+      Item: {
+        workspaceId: args.workspaceId,
+        subjectKey: subjectKey(e.subjectType, e.subjectId),
+        subjectType: e.subjectType,
+        subjectId: e.subjectId,
+        level: e.level,
+      },
+    },
+  }));
+  for (let i = 0; i < putReqs.length; i += 25) {
+    await args.doc.send(
+      new BatchWriteCommand({
+        RequestItems: { [args.tables.WorkspaceAccess]: putReqs.slice(i, i + 25) },
+      }),
+    );
+  }
+  return { ...row, access: normalized, myEffectiveLevel: "edit" };
+}
+
+export async function deleteWorkspace(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  workspaceId: string;
+}): Promise<boolean> {
+  requireRoleAtLeast(args.caller, "manager");
+  const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
+  if (!row) return false;
+
+  const access = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.WorkspaceAccess,
+      KeyConditionExpression: "workspaceId = :w",
+      ExpressionAttributeValues: { ":w": args.workspaceId },
+    }),
+  );
+  const accessDeletes = (access.Items ?? []).map((i) => ({
+    DeleteRequest: { Key: { workspaceId: i.workspaceId, subjectKey: i.subjectKey } },
+  }));
+  for (let i = 0; i < accessDeletes.length; i += 25) {
+    await args.doc.send(
+      new BatchWriteCommand({
+        RequestItems: { [args.tables.WorkspaceAccess]: accessDeletes.slice(i, i + 25) },
+      }),
+    );
+  }
+
+  if (args.tables.Pages) {
+    const pages = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tables.Pages,
+        IndexName: "byWorkspaceAndUpdatedAt",
+        KeyConditionExpression: "workspaceId = :w",
+        ExpressionAttributeValues: { ":w": args.workspaceId },
+      }),
+    );
+    const pageDeletes = (pages.Items ?? []).map((p) => ({
+      DeleteRequest: { Key: { id: p.id } },
+    }));
+    for (let i = 0; i < pageDeletes.length; i += 25) {
+      await args.doc.send(
+        new BatchWriteCommand({
+          RequestItems: { [args.tables.Pages]: pageDeletes.slice(i, i + 25) },
+        }),
+      );
+    }
+  }
+  if (args.tables.Databases) {
+    const dbs = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tables.Databases,
+        IndexName: "byWorkspaceAndUpdatedAt",
+        KeyConditionExpression: "workspaceId = :w",
+        ExpressionAttributeValues: { ":w": args.workspaceId },
+      }),
+    );
+    const dbDeletes = (dbs.Items ?? []).map((d) => ({
+      DeleteRequest: { Key: { id: d.id } },
+    }));
+    for (let i = 0; i < dbDeletes.length; i += 25) {
+      await args.doc.send(
+        new BatchWriteCommand({
+          RequestItems: { [args.tables.Databases]: dbDeletes.slice(i, i + 25) },
+        }),
+      );
+    }
+  }
+
+  await args.doc.send(
+    new DeleteCommand({
+      TableName: args.tables.Workspaces,
+      Key: { workspaceId: args.workspaceId },
+    }),
+  );
+  return true;
+}
+
+export async function listMyWorkspaces(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+}): Promise<Workspace[]> {
+  const teamIds = await getCallerTeamIds(args.doc, args.tables, args.caller.memberId);
+  const teamSet = new Set(teamIds);
+  const subjectKeys = [
+    `member#${args.caller.memberId}`,
+    ...teamIds.map((id) => `team#${id}`),
+    "everyone#*",
+  ];
+  const workspaceIds = new Set<string>([args.caller.personalWorkspaceId]);
+
+  for (const sk of subjectKeys) {
+    const r = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tables.WorkspaceAccess,
+        IndexName: "bySubject",
+        KeyConditionExpression: "subjectKey = :sk",
+        ExpressionAttributeValues: { ":sk": sk },
+      }),
+    );
+    for (const item of r.Items ?? []) {
+      workspaceIds.add(item.workspaceId as string);
+    }
+  }
+
+  const rows = await Promise.all(
+    Array.from(workspaceIds).map((workspaceId) =>
+      getWorkspaceRow(args.doc, args.tables, workspaceId),
+    ),
+  );
+  const hydrated = await Promise.all(
+    rows
+      .filter((r): r is WorkspaceRow => Boolean(r))
+      .map((r) => hydrateWorkspace(args.doc, args.tables, r, args.caller, teamSet)),
+  );
+  return hydrated.filter((w): w is Workspace => Boolean(w));
+}
+
+export async function getWorkspace(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  workspaceId: string;
+}): Promise<Workspace | null> {
+  const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
+  if (!row) return null;
+  const teamSet = new Set(
+    await getCallerTeamIds(args.doc, args.tables, args.caller.memberId),
+  );
+  return hydrateWorkspace(args.doc, args.tables, row, args.caller, teamSet);
+}
+
+export async function listWorkspacesForDebug(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+}): Promise<WorkspaceRow[]> {
+  const r = await args.doc.send(new ScanCommand({ TableName: args.tables.Workspaces }));
+  return (r.Items ?? []) as WorkspaceRow[];
+}

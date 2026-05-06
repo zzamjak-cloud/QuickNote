@@ -7,9 +7,62 @@ schema {
 scalar AWSJSON
 scalar AWSDateTime
 
+# ========== Enums ==========
+enum WorkspaceRole { OWNER MANAGER MEMBER }
+enum WorkspaceType { PERSONAL SHARED }
+enum AccessLevel  { EDIT VIEW }
+enum AccessSubjectType { TEAM MEMBER EVERYONE }
+enum MemberStatus { ACTIVE REMOVED }
+enum ImageStatus { PENDING READY }
+
+# ========== Domain Types ==========
+type Member {
+  memberId: ID!
+  email: String!
+  name: String!
+  jobRole: String!
+  workspaceRole: WorkspaceRole!
+  status: MemberStatus!
+  personalWorkspaceId: ID!
+  cognitoSub: String
+  teams: [Team!]!
+  createdAt: AWSDateTime!
+  removedAt: AWSDateTime
+}
+
+type MemberMini {
+  memberId: ID!
+  name: String!
+  jobRole: String!
+}
+
+type Team {
+  teamId: ID!
+  name: String!
+  members: [Member!]!
+  createdAt: AWSDateTime!
+}
+
+type Workspace {
+  workspaceId: ID!
+  name: String!
+  type: WorkspaceType!
+  ownerMemberId: ID!
+  access: [WorkspaceAccessEntry!]!
+  myEffectiveLevel: AccessLevel!
+  createdAt: AWSDateTime!
+}
+
+type WorkspaceAccessEntry {
+  subjectType: AccessSubjectType!
+  subjectId: ID
+  level: AccessLevel!
+}
+
 type Page {
   id: ID!
-  ownerId: ID!
+  workspaceId: ID!
+  createdByMemberId: ID!
   title: String!
   icon: String
   parentId: ID
@@ -24,25 +77,14 @@ type Page {
 
 type Database {
   id: ID!
-  ownerId: ID!
+  workspaceId: ID!
+  createdByMemberId: ID!
   title: String!
   columns: AWSJSON!
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
   deletedAt: AWSDateTime
 }
-
-type Contact {
-  id: ID!
-  ownerId: ID!
-  email: String!
-  displayName: String!
-  createdAt: AWSDateTime!
-  updatedAt: AWSDateTime!
-  deletedAt: AWSDateTime
-}
-
-enum ImageStatus { PENDING READY }
 
 type ImageAsset {
   id: ID!
@@ -56,7 +98,6 @@ type ImageAsset {
 
 type PageConnection { items: [Page!]! nextToken: String }
 type DatabaseConnection { items: [Database!]! nextToken: String }
-type ContactConnection { items: [Contact!]! nextToken: String }
 
 type ImageUploadResult {
   imageId: ID!
@@ -64,8 +105,10 @@ type ImageUploadResult {
   expiresAt: AWSDateTime!
 }
 
+# ========== Inputs ==========
 input PageInput {
   id: ID!
+  workspaceId: ID!
   title: String!
   icon: String
   parentId: ID
@@ -79,16 +122,9 @@ input PageInput {
 
 input DatabaseInput {
   id: ID!
+  workspaceId: ID!
   title: String!
   columns: AWSJSON!
-  createdAt: AWSDateTime!
-  updatedAt: AWSDateTime!
-}
-
-input ContactInput {
-  id: ID!
-  email: String!
-  displayName: String!
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
 }
@@ -99,29 +135,96 @@ input ImageUploadInput {
   sha256: String!
 }
 
+input CreateMemberInput {
+  email: String!
+  name: String!
+  jobRole: String!
+  workspaceRole: WorkspaceRole = MEMBER
+  teamIds: [ID!]
+}
+
+input UpdateMemberInput {
+  memberId: ID!
+  name: String
+  jobRole: String
+  teamIds: [ID!]
+}
+
+input WorkspaceAccessInput {
+  subjectType: AccessSubjectType!
+  subjectId: ID
+  level: AccessLevel!
+}
+
+input CreateWorkspaceInput {
+  name: String!
+  access: [WorkspaceAccessInput!]!
+}
+
+input UpdateWorkspaceInput {
+  workspaceId: ID!
+  name: String
+}
+
+input MemberFilter {
+  status: MemberStatus
+  teamId: ID
+  workspaceRole: WorkspaceRole
+}
+
+# ========== Query ==========
 type Query {
-  listPages(updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
-  listDatabases(updatedAfter: AWSDateTime, limit: Int, nextToken: String): DatabaseConnection!
-  listContacts(limit: Int, nextToken: String): ContactConnection!
+  me: Member!
+
+  listMembers(filter: MemberFilter): [Member!]!
+  getMember(memberId: ID!): Member
+  listTeams: [Team!]!
+  getTeam(teamId: ID!): Team
+
+  searchMembersForMention(query: String, limit: Int = 20): [MemberMini!]!
+
+  listMyWorkspaces: [Workspace!]!
+  getWorkspace(workspaceId: ID!): Workspace
+
+  listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
+  listDatabases(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): DatabaseConnection!
+
   getImageDownloadUrl(imageId: ID!): String!
 }
 
+# ========== Mutation ==========
 type Mutation {
+  createMember(input: CreateMemberInput!): Member!
+  updateMember(input: UpdateMemberInput!): Member!
+  promoteToManager(memberId: ID!): Member!
+  demoteToMember(memberId: ID!): Member!
+  transferOwnership(toMemberId: ID!): Member!
+  removeMember(memberId: ID!): Member!
+  assignMemberToTeam(memberId: ID!, teamId: ID!): Boolean!
+  unassignMemberFromTeam(memberId: ID!, teamId: ID!): Boolean!
+
+  createTeam(name: String!): Team!
+  updateTeam(teamId: ID!, name: String!): Team!
+  deleteTeam(teamId: ID!): Boolean!
+
+  createWorkspace(input: CreateWorkspaceInput!): Workspace!
+  updateWorkspace(input: UpdateWorkspaceInput!): Workspace!
+  setWorkspaceAccess(workspaceId: ID!, entries: [WorkspaceAccessInput!]!): Workspace!
+  deleteWorkspace(workspaceId: ID!): Boolean!
+
   upsertPage(input: PageInput!): Page!
+  softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Page!
   upsertDatabase(input: DatabaseInput!): Database!
-  upsertContact(input: ContactInput!): Contact!
-  softDeletePage(id: ID!, updatedAt: AWSDateTime!): Page!
-  softDeleteDatabase(id: ID!, updatedAt: AWSDateTime!): Database!
-  softDeleteContact(id: ID!, updatedAt: AWSDateTime!): Contact!
+  softDeleteDatabase(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Database!
+
   getImageUploadUrl(input: ImageUploadInput!): ImageUploadResult!
   confirmImage(imageId: ID!): ImageAsset!
 }
 
+# ========== Subscription ==========
 type Subscription {
-  onPageChanged(ownerId: ID!): Page
+  onPageChanged(workspaceId: ID!): Page
     @aws_subscribe(mutations: ["upsertPage", "softDeletePage"])
-  onDatabaseChanged(ownerId: ID!): Database
+  onDatabaseChanged(workspaceId: ID!): Database
     @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase"])
-  onContactChanged(ownerId: ID!): Contact
-    @aws_subscribe(mutations: ["upsertContact", "softDeleteContact"])
 }

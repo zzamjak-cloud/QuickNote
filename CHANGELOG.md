@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] - 2026-05-07
+
+### Added
+
+- v5 워크스페이스 기반 협업 모델 도입: `Member`, `Team`, `Workspace`, `WorkspaceAccess` 도메인 및 AppSync GraphQL 스키마 확장
+- AppSync 단일 `v5-resolvers` Lambda 라우터 + 도메인별 핸들러(`member/team/workspace/pageDatabase/mention`) 및 테스트 추가
+- 워크스페이스/구성원/팀 관리 UI(생성/편집/삭제/권한 변경/팀 배정), 멤버 멘션(`@`) 기능 추가
+- 워크스페이스 삭제 시 확인 문구 직접 입력 안전장치 다이얼로그 추가
+- 레거시 `ownerId` 구조를 v5 구조로 옮기는 `v5-migration` Lambda 추가
+
+### Changed
+
+- 권한 체계를 `owner/manager/member` + 워크스페이스 접근 규칙 기반으로 정리 (manager는 owner 제외 관리 가능)
+- 설정 모달 UX 전면 개선: 레이아웃 확장, 팀/워크스페이스 카드형 3열 목록, 아이콘 액션 중심 인터랙션
+- 워크스페이스 접근 권한 편집 문구를 자연어 중심으로 개선 (기본 규칙/예외 규칙 요약 제공)
+- 부트스트랩 시 인증 후 `me/workspaces/members/teams`를 함께 복원하여 새로고침 후 관리자 데이터 유실 문제 개선
+- GraphQL enum 직렬화/역직렬화 정규화(백엔드 대문자 enum, 프론트 소문자 상태) 일관화
+- CDK 스택에서 기존 AppSync 리졸버 LogicalId 고정 및 v5 테이블 명 context 주입으로 배포 충돌 완화
+
+### Fixed
+
+- `createMember` 시 `cognitoSub: null` 저장으로 `byCognitoSub` GSI validation 오류가 발생하던 문제 수정
+- Pages/Databases 조회 및 워크스페이스 삭제 cascade에서 잘못된 GSI 이름 참조 수정
+- 설정 팝업/확인 팝업의 긴 텍스트 overflow 및 줄바꿈 이슈 수정
+- 구성원 검색에 팀 정보 포함 및 대소문자 무시 검색 지원
+
+### Removed
+
+- Contacts 도메인 및 관련 UI/스토어 제거 (v5 모델로 통합)
+
 ## [4.0.0] - 2026-05-06
 
 ### Added

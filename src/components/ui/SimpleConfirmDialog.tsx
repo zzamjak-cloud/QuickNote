@@ -42,7 +42,7 @@ export function SimpleConfirmDialog({
         >
           {title}
         </h2>
-        <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
+        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
           {message}
         </p>
         <div className="mt-5 flex justify-end gap-2">
