@@ -6,6 +6,8 @@ const reasonMessages: Record<string, string> = {
   expired: "세션이 만료되었습니다. 다시 로그인해주세요.",
   denied: "이 계정은 화이트리스트에 등록되어 있지 않습니다. 관리자에게 문의하세요.",
   callbackError: "로그인 처리 중 오류가 발생했습니다.",
+  restoreTimeout:
+    "로그인 정보를 불러오는 데 시간이 초과했습니다. 다시 로그인해 주세요.",
 };
 
 export function LoginScreen() {

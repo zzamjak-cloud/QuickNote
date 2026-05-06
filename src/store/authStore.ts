@@ -23,7 +23,34 @@ export type AnonymousReason =
   | "expired"
   | "denied"
   | "signedOut"
-  | "callbackError";
+  | "callbackError"
+  /** 로그인 복구 단계 타임아웃(저장소·silent renew 등) — 데스크톱 WebView에서 자주 걸린다 */
+  | "restoreTimeout";
+
+const STORAGE_READ_MS = 15_000;
+const SIGNIN_SILENT_MS = 12_000;
+const GET_USER_MS = 12_000;
+
+async function promiseWithTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      p,
+      new Promise<T>((_, reject) => {
+        t = setTimeout(
+          () => reject(new Error(`auth timeout: ${label} (${ms}ms)`)),
+          ms,
+        );
+      }),
+    ]);
+  } finally {
+    if (t !== undefined) clearTimeout(t);
+  }
+}
 
 export type AuthState =
   | { status: "loading" }
@@ -124,51 +151,120 @@ export const useAuthStore = create<AuthStore>((set) => ({
   },
 
   async restoreSession() {
-    const manager = getOidcManager();
-    const cached = await readStoredTokens();
-
-    if (!cached) {
-      set({ state: { status: "anonymous", reason: "initial" } });
-      return;
-    }
-
-    if (isExpiringSoon(cached)) {
+    try {
+      let cached: StoredTokens | null;
       try {
-        const refreshed = await manager.signinSilent();
-        if (refreshed) {
-          const tokens = userToTokens(refreshed);
-          await writeStoredTokens(tokens);
-          set({
-            state: {
-              status: "authenticated",
-              user: userToAuthUser(refreshed),
-              tokens,
-            },
-          });
-          return;
-        }
-      } catch {
-        // refresh 실패 → 만료 상태로 강등.
+        cached = await promiseWithTimeout(
+          readStoredTokens(),
+          STORAGE_READ_MS,
+          "readStoredTokens",
+        );
+      } catch (err) {
+        console.error("[auth] restoreSession: token read failed", err);
+        await clearStoredTokens();
+        const message = err instanceof Error ? err.message : String(err);
+        const reason: AnonymousReason = /timeout/i.test(message)
+          ? "restoreTimeout"
+          : "initial";
+        set({
+          state:
+            reason === "restoreTimeout"
+              ? { status: "anonymous", reason, errorMessage: message }
+              : { status: "anonymous", reason: "initial" },
+        });
+        return;
       }
+
+      if (!cached) {
+        set({ state: { status: "anonymous", reason: "initial" } });
+        return;
+      }
+
+      let manager;
+      try {
+        manager = getOidcManager();
+      } catch (err) {
+        console.error("[auth] restoreSession: OIDC 설정 오류", err);
+        await clearStoredTokens();
+        const message = err instanceof Error ? err.message : String(err);
+        set({
+          state: {
+            status: "anonymous",
+            reason: "callbackError",
+            errorMessage: message,
+          },
+        });
+        return;
+      }
+
+      if (isExpiringSoon(cached)) {
+        try {
+          const refreshed = await promiseWithTimeout(
+            manager.signinSilent(),
+            SIGNIN_SILENT_MS,
+            "signinSilent",
+          );
+          if (refreshed) {
+            const tokens = userToTokens(refreshed);
+            await writeStoredTokens(tokens);
+            set({
+              state: {
+                status: "authenticated",
+                user: userToAuthUser(refreshed),
+                tokens,
+              },
+            });
+            return;
+          }
+        } catch {
+          // refresh 실패 또는 타임아웃 → 만료 상태로 강등.
+        }
+        await clearStoredTokens();
+        set({ state: { status: "anonymous", reason: "expired" } });
+        return;
+      }
+
+      let user;
+      try {
+        user = await promiseWithTimeout(
+          manager.getUser(),
+          GET_USER_MS,
+          "getUser",
+        );
+      } catch {
+        await clearStoredTokens();
+        set({ state: { status: "anonymous", reason: "restoreTimeout" } });
+        return;
+      }
+
+      if (user && !user.expired) {
+        set({
+          state: {
+            status: "authenticated",
+            user: userToAuthUser(user),
+            tokens: cached,
+          },
+        });
+        return;
+      }
+
       await clearStoredTokens();
       set({ state: { status: "anonymous", reason: "expired" } });
-      return;
-    }
-
-    const user = await manager.getUser();
-    if (user && !user.expired) {
+    } catch (err) {
+      console.error("[auth] restoreSession: unexpected failure", err);
+      try {
+        await clearStoredTokens();
+      } catch {
+        // 무시
+      }
+      const message = err instanceof Error ? err.message : String(err);
       set({
         state: {
-          status: "authenticated",
-          user: userToAuthUser(user),
-          tokens: cached,
+          status: "anonymous",
+          reason: "callbackError",
+          errorMessage: message,
         },
       });
-      return;
     }
-
-    // 캐시는 유효 범위지만 oidc userStore 가 비어 있는 비정상 상태.
-    await clearStoredTokens();
-    set({ state: { status: "anonymous", reason: "expired" } });
   },
 }));
