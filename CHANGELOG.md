@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-05-06
+
+### Fixed
+
+- `restoreSession` 동시 다발 호출(React Strict Mode 등) 시 한 번만 실행되도록 in-flight 가드.
+- 로딩 화면에 **앱 버전(`v*` )** 표시로 실제 실행 중인 빌드 확인 가능.
+- 약 **45초** 후에도 `loading`이면 로그인 화면으로 전환하는 `bailIfStuckLoading` 안전망.
+
 ## [3.0.1] - 2026-05-06
 
 ### Fixed

@@ -66,6 +66,8 @@ type AuthActions = {
   handleCallback: (url: string) => Promise<void>;
   signOut: () => Promise<void>;
   restoreSession: () => Promise<void>;
+  /** 아직 loading 이면 로그인 화면으로 전환(복구 루틴이 안 풀릴 때 안전망) */
+  bailIfStuckLoading: () => void;
 };
 
 export type AuthStore = Internals & AuthActions;
@@ -94,8 +96,25 @@ function userToTokens(user: User): StoredTokens {
   };
 }
 
+let restoreSessionInFlight: Promise<void> | null = null;
+
 export const useAuthStore = create<AuthStore>((set) => ({
   state: { status: "loading" },
+
+  bailIfStuckLoading() {
+    set((s) =>
+      s.state.status === "loading"
+        ? {
+            state: {
+              status: "anonymous",
+              reason: "restoreTimeout",
+              errorMessage:
+                "로그인 상태 확인이 예상보다 오래 걸려 로그인 화면으로 전환했습니다. 다시 로그인해 주세요.",
+            },
+          }
+        : s,
+    );
+  },
 
   async signIn() {
     // OidcClient 로 authorize URL 만 만들고, 웹/데스크톱 분기에 따라 외부에서 연다.
@@ -151,41 +170,116 @@ export const useAuthStore = create<AuthStore>((set) => ({
   },
 
   async restoreSession() {
-    try {
-      let cached: StoredTokens | null;
+    if (restoreSessionInFlight) {
+      return restoreSessionInFlight;
+    }
+    restoreSessionInFlight = (async () => {
       try {
-        cached = await promiseWithTimeout(
-          readStoredTokens(),
-          STORAGE_READ_MS,
-          "readStoredTokens",
-        );
-      } catch (err) {
-        console.error("[auth] restoreSession: token read failed", err);
-        await clearStoredTokens();
-        const message = err instanceof Error ? err.message : String(err);
-        const reason: AnonymousReason = /timeout/i.test(message)
-          ? "restoreTimeout"
-          : "initial";
-        set({
-          state:
-            reason === "restoreTimeout"
-              ? { status: "anonymous", reason, errorMessage: message }
-              : { status: "anonymous", reason: "initial" },
-        });
-        return;
-      }
+        let cached: StoredTokens | null;
+        try {
+          cached = await promiseWithTimeout(
+            readStoredTokens(),
+            STORAGE_READ_MS,
+            "readStoredTokens",
+          );
+        } catch (err) {
+          console.error("[auth] restoreSession: token read failed", err);
+          await clearStoredTokens();
+          const message = err instanceof Error ? err.message : String(err);
+          const reason: AnonymousReason = /timeout/i.test(message)
+            ? "restoreTimeout"
+            : "initial";
+          set({
+            state:
+              reason === "restoreTimeout"
+                ? { status: "anonymous", reason, errorMessage: message }
+                : { status: "anonymous", reason: "initial" },
+          });
+          return;
+        }
 
-      if (!cached) {
-        set({ state: { status: "anonymous", reason: "initial" } });
-        return;
-      }
+        if (!cached) {
+          set({ state: { status: "anonymous", reason: "initial" } });
+          return;
+        }
 
-      let manager;
-      try {
-        manager = getOidcManager();
-      } catch (err) {
-        console.error("[auth] restoreSession: OIDC 설정 오류", err);
+        let manager;
+        try {
+          manager = getOidcManager();
+        } catch (err) {
+          console.error("[auth] restoreSession: OIDC 설정 오류", err);
+          await clearStoredTokens();
+          const message = err instanceof Error ? err.message : String(err);
+          set({
+            state: {
+              status: "anonymous",
+              reason: "callbackError",
+              errorMessage: message,
+            },
+          });
+          return;
+        }
+
+        if (isExpiringSoon(cached)) {
+          try {
+            const refreshed = await promiseWithTimeout(
+              manager.signinSilent(),
+              SIGNIN_SILENT_MS,
+              "signinSilent",
+            );
+            if (refreshed) {
+              const tokens = userToTokens(refreshed);
+              await writeStoredTokens(tokens);
+              set({
+                state: {
+                  status: "authenticated",
+                  user: userToAuthUser(refreshed),
+                  tokens,
+                },
+              });
+              return;
+            }
+          } catch {
+            // refresh 실패 또는 타임아웃 → 만료 상태로 강등.
+          }
+          await clearStoredTokens();
+          set({ state: { status: "anonymous", reason: "expired" } });
+          return;
+        }
+
+        let user;
+        try {
+          user = await promiseWithTimeout(
+            manager.getUser(),
+            GET_USER_MS,
+            "getUser",
+          );
+        } catch {
+          await clearStoredTokens();
+          set({ state: { status: "anonymous", reason: "restoreTimeout" } });
+          return;
+        }
+
+        if (user && !user.expired) {
+          set({
+            state: {
+              status: "authenticated",
+              user: userToAuthUser(user),
+              tokens: cached,
+            },
+          });
+          return;
+        }
+
         await clearStoredTokens();
+        set({ state: { status: "anonymous", reason: "expired" } });
+      } catch (err) {
+        console.error("[auth] restoreSession: unexpected failure", err);
+        try {
+          await clearStoredTokens();
+        } catch {
+          // 무시
+        }
         const message = err instanceof Error ? err.message : String(err);
         set({
           state: {
@@ -194,77 +288,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
             errorMessage: message,
           },
         });
-        return;
+      } finally {
+        restoreSessionInFlight = null;
       }
-
-      if (isExpiringSoon(cached)) {
-        try {
-          const refreshed = await promiseWithTimeout(
-            manager.signinSilent(),
-            SIGNIN_SILENT_MS,
-            "signinSilent",
-          );
-          if (refreshed) {
-            const tokens = userToTokens(refreshed);
-            await writeStoredTokens(tokens);
-            set({
-              state: {
-                status: "authenticated",
-                user: userToAuthUser(refreshed),
-                tokens,
-              },
-            });
-            return;
-          }
-        } catch {
-          // refresh 실패 또는 타임아웃 → 만료 상태로 강등.
-        }
-        await clearStoredTokens();
-        set({ state: { status: "anonymous", reason: "expired" } });
-        return;
-      }
-
-      let user;
-      try {
-        user = await promiseWithTimeout(
-          manager.getUser(),
-          GET_USER_MS,
-          "getUser",
-        );
-      } catch {
-        await clearStoredTokens();
-        set({ state: { status: "anonymous", reason: "restoreTimeout" } });
-        return;
-      }
-
-      if (user && !user.expired) {
-        set({
-          state: {
-            status: "authenticated",
-            user: userToAuthUser(user),
-            tokens: cached,
-          },
-        });
-        return;
-      }
-
-      await clearStoredTokens();
-      set({ state: { status: "anonymous", reason: "expired" } });
-    } catch (err) {
-      console.error("[auth] restoreSession: unexpected failure", err);
-      try {
-        await clearStoredTokens();
-      } catch {
-        // 무시
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      set({
-        state: {
-          status: "anonymous",
-          reason: "callbackError",
-          errorMessage: message,
-        },
-      });
-    }
+    })();
+    return restoreSessionInFlight;
   },
 }));

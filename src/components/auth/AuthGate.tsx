@@ -1,7 +1,11 @@
 import { useEffect, type ReactNode } from "react";
+import pkg from "../../../package.json";
 import { useAuthStore } from "../../store/authStore";
 import { LoginScreen } from "./LoginScreen";
 import { setupDeepLinkListener } from "../../lib/auth/deepLink";
+
+/** read + silent + getUser 연속 시 상한을 넘기면 복구 안전망 발동 */
+const STUCK_LOADING_BAIL_MS = 45_000;
 
 type Props = { children: ReactNode };
 
@@ -10,6 +14,7 @@ export function AuthGate({ children }: Props) {
   const state = useAuthStore((s) => s.state);
   const restoreSession = useAuthStore((s) => s.restoreSession);
   const handleCallback = useAuthStore((s) => s.handleCallback);
+  const bailIfStuckLoading = useAuthStore((s) => s.bailIfStuckLoading);
 
   useEffect(() => {
     // /auth/callback 흐름에서 이미 handleCallback 이 상태를 세팅한 경우엔
@@ -18,6 +23,13 @@ export function AuthGate({ children }: Props) {
       void restoreSession();
     }
   }, [restoreSession]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      bailIfStuckLoading();
+    }, STUCK_LOADING_BAIL_MS);
+    return () => window.clearTimeout(id);
+  }, [bailIfStuckLoading]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -33,8 +45,11 @@ export function AuthGate({ children }: Props) {
 
   if (state.status === "loading") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
-        로그인 상태 확인 중…
+      <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-white text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
+        <span>로그인 상태 확인 중…</span>
+        <span className="text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
+          v{pkg.version}
+        </span>
       </div>
     );
   }
