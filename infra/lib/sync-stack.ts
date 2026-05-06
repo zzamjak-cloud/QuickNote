@@ -4,6 +4,8 @@ import { Construct } from "constructs";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as appsync from "aws-cdk-lib/aws-appsync";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaNode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { attachOwnerScopedModelResolvers } from "./sync/appsync-resolver-factory";
@@ -109,5 +111,66 @@ export class QuicknoteSyncStack extends cdk.Stack {
     attachOwnerScopedModelResolvers(api, "Page", this.pageTable);
     attachOwnerScopedModelResolvers(api, "Database", this.databaseTable);
     attachOwnerScopedModelResolvers(api, "Contact", this.contactTable);
+
+    // 이미지 PreSignedURL 발급·검증 Lambda. AppSync 가 invoke.
+    const presignFn = new lambdaNode.NodejsFunction(this, "ImagePresignFn", {
+      entry: path.join(__dirname, "..", "lambda", "image-presign", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler",
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(10),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environment: {
+        IMAGES_BUCKET: imagesBucket.bucketName,
+        IMAGE_ASSET_TABLE: this.imageAssetTable.table.tableName,
+      },
+      bundling: {
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+      },
+    });
+
+    imagesBucket.grantPut(presignFn);
+    imagesBucket.grantRead(presignFn);
+    this.imageAssetTable.table.grantReadWriteData(presignFn);
+
+    const presignDs = api.addLambdaDataSource("ImagePresignDs", presignFn);
+
+    // AppSync JS 리졸버 inline passthrough — Lambda 가 단일 핸들러로 분기 처리.
+    const passthroughCode = appsync.Code.fromInline(`
+export function request(ctx) {
+  return {
+    operation: "Invoke",
+    payload: { info: ctx.info, identity: ctx.identity, arguments: ctx.arguments },
+  };
+}
+export function response(ctx) {
+  if (ctx.error) util.error(ctx.error.message, ctx.error.type);
+  return ctx.result;
+}
+`);
+
+    const jsRuntime = appsync.FunctionRuntime.JS_1_0_0;
+
+    presignDs.createResolver("Mutation_getImageUploadUrl", {
+      typeName: "Mutation",
+      fieldName: "getImageUploadUrl",
+      runtime: jsRuntime,
+      code: passthroughCode,
+    });
+    presignDs.createResolver("Mutation_confirmImage", {
+      typeName: "Mutation",
+      fieldName: "confirmImage",
+      runtime: jsRuntime,
+      code: passthroughCode,
+    });
+    presignDs.createResolver("Query_getImageDownloadUrl", {
+      typeName: "Query",
+      fieldName: "getImageDownloadUrl",
+      runtime: jsRuntime,
+      code: passthroughCode,
+    });
   }
 }
