@@ -1,6 +1,4 @@
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { zustandStorage } from "../lib/storage/index";
 import type {
   CellValue,
   ColumnDef,
@@ -10,7 +8,6 @@ import type {
 } from "../types/database";
 import { DATABASE_STORE_VERSION } from "../types/database";
 import { newId } from "../lib/id";
-import { reportNonFatal } from "../lib/reportNonFatal";
 import { createRowPageLinkedToDatabase } from "../lib/services/databaseRowPages";
 import { usePageStore } from "./pageStore";
 import { shouldWriteAnchor, useHistoryStore } from "./historyStore";
@@ -227,33 +224,8 @@ function isValidDatabaseSnapshot(
   return true;
 }
 
-function isValidDatabaseBundle(bundle: unknown): bundle is DatabaseBundle {
-  if (!bundle || typeof bundle !== "object") return false;
-  const b = bundle as {
-    meta?: { id?: unknown; title?: unknown; createdAt?: unknown; updatedAt?: unknown };
-    columns?: unknown;
-    rowPageOrder?: unknown;
-  };
-  if (!b.meta || typeof b.meta !== "object") return false;
-  if (typeof b.meta.id !== "string") return false;
-  if (typeof b.meta.title !== "string") return false;
-  if (!Array.isArray(b.columns)) return false;
-  if (!Array.isArray(b.rowPageOrder)) return false;
-  return true;
-}
-
-function sanitizeDatabaseMap(input: unknown): DbMap {
-  if (!input || typeof input !== "object") return {};
-  const next: DbMap = {};
-  for (const [id, bundle] of Object.entries(input as Record<string, unknown>)) {
-    if (isValidDatabaseBundle(bundle)) next[id] = bundle;
-  }
-  return next;
-}
-
 export const useDatabaseStore = create<DatabaseStore>()(
-  persist(
-    (set, get) => ({
+  (set, get) => ({
       version: DATABASE_STORE_VERSION,
       databases: {},
 
@@ -1102,44 +1074,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
         return true;
       },
 
-      getBundle: (databaseId) => get().databases[databaseId],
-      resolveBundle: (databaseId) => get().getBundle(databaseId),
-    }),
-    {
-      name: "quicknote.databaseStore.v2",
-      storage: createJSONStorage(() => zustandStorage),
-      version: DATABASE_STORE_VERSION,
-      // v1 → v2: 행 데이터 모델 전면 변경. 기존 데이터를 안전하게 마이그레이션할 수 없어 wipe.
-      migrate: (persistedState, fromVersion) => {
-        // 이미 같은 버전이어도(운영 중 버그로) 손상 데이터가 저장될 수 있어 부팅 시 정리.
-        if (fromVersion === DATABASE_STORE_VERSION) {
-          const state = persistedState as { version?: unknown; databases?: unknown };
-          return {
-            version: DATABASE_STORE_VERSION,
-            databases: sanitizeDatabaseMap(state?.databases),
-          };
-        }
-        try {
-          const key = `quicknote.databaseStore.migrateBackup.${Date.now()}`;
-          localStorage.setItem(
-            key,
-            JSON.stringify({
-              fromVersion,
-              savedAt: Date.now(),
-              payload: persistedState,
-            }),
-          );
-          localStorage.setItem(
-            "quicknote.databaseStore.lastMigrateBackupKey",
-            key,
-          );
-        } catch (err) {
-          reportNonFatal(err, "databaseStore.migrate.backup");
-        }
-        return { version: DATABASE_STORE_VERSION, databases: {} };
-      },
-    },
-  ),
+    getBundle: (databaseId) => get().databases[databaseId],
+    resolveBundle: (databaseId) => get().getBundle(databaseId),
+  }),
 );
 
 export function listDatabases(state: DatabaseStore): { id: string; meta: DatabaseMeta }[] {

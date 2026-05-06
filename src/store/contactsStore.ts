@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
 import { newId } from "../lib/id";
 import { enqueueAsync } from "../lib/sync/runtime";
 import { useAuthStore } from "./authStore";
@@ -52,71 +51,48 @@ function enqueueUpsertContact(c: Contact): void {
   );
 }
 
-export const useContactsStore = create<ContactsStore>()(
-  persist(
-    (set) => ({
-      contacts: [],
+export const useContactsStore = create<ContactsStore>()((set) => ({
+  contacts: [],
 
-      addContact: (email, displayName) => {
-        const id = newId();
-        const now = Date.now();
-        const contact: Contact = {
-          id,
-          email: email.trim(),
-          displayName: displayName.trim(),
-          createdAt: now,
-          updatedAt: now,
-        };
-        set((s) => ({ contacts: [...s.contacts, contact] }));
-        enqueueUpsertContact(contact);
-        return id;
-      },
+  addContact: (email, displayName) => {
+    const id = newId();
+    const now = Date.now();
+    const contact: Contact = {
+      id,
+      email: email.trim(),
+      displayName: displayName.trim(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((s) => ({ contacts: [...s.contacts, contact] }));
+    enqueueUpsertContact(contact);
+    return id;
+  },
 
-      updateContact: (id, patch) => {
-        let after: Contact | undefined;
-        set((s) => {
-          const next = s.contacts.map((c) => {
-            if (c.id !== id) return c;
-            const merged = { ...c, ...patch, updatedAt: Date.now() };
-            after = merged;
-            return merged;
-          });
-          return { contacts: next };
-        });
-        if (after) enqueueUpsertContact(after);
-      },
+  updateContact: (id, patch) => {
+    let after: Contact | undefined;
+    set((s) => {
+      const next = s.contacts.map((c) => {
+        if (c.id !== id) return c;
+        const merged = { ...c, ...patch, updatedAt: Date.now() };
+        after = merged;
+        return merged;
+      });
+      return { contacts: next };
+    });
+    if (after) enqueueUpsertContact(after);
+  },
 
-      removeContact: (id) => {
-        set((s) => ({
-          contacts: s.contacts.filter((c) => c.id !== id),
-        }));
-        enqueueAsync("softDeleteContact", {
-          id,
-          updatedAt: new Date().toISOString(),
-        });
-      },
-    }),
-    {
-      name: "quicknote.contactsStore.v1",
-      storage: createJSONStorage(() => localStorage),
-      version: 1,
-      // 기존 직렬화본에 createdAt/updatedAt 가 없으면 현재 시각으로 백필.
-      migrate: (persisted) => {
-        const p = persisted as { contacts?: Partial<Contact>[] } | undefined;
-        if (!p?.contacts) return persisted;
-        const t = Date.now();
-        const next: Contact[] = p.contacts.map((c) => ({
-          id: String(c.id ?? newId()),
-          email: String(c.email ?? ""),
-          displayName: String(c.displayName ?? ""),
-          createdAt: typeof c.createdAt === "number" ? c.createdAt : t,
-          updatedAt: typeof c.updatedAt === "number" ? c.updatedAt : t,
-        }));
-        return { contacts: next };
-      },
-    },
-  ),
-);
+  removeContact: (id) => {
+    set((s) => ({
+      contacts: s.contacts.filter((c) => c.id !== id),
+    }));
+    enqueueAsync("softDeleteContact", {
+      id,
+      updatedAt: new Date().toISOString(),
+    });
+  },
+}));
 
 export function searchContacts(
   contacts: Contact[],
