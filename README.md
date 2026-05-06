@@ -91,6 +91,17 @@ npm run tauri:dev    # 개발용 데스크톱 창
 npm run tauri:build  # 배포용 .dmg / .exe 생성
 ```
 
+### 웹 (Vercel)
+
+프로덕션 웹은 Vercel에 연결된 프로젝트에 배포한다. Git 연동으로 `main` 푸시만으로 올리거나, CLI로 아래와 같이 배포할 수 있다.
+
+```bash
+npx vercel --prod --yes --archive=tgz
+```
+
+- Tauri 리포지토리는 로컬에 `src-tauri/target`·`node_modules` 등 대용량 경로가 있어, 루트 `.vercelignore` 없이 CLI 배포하면 업로드 한도/용량 문제로 실패할 수 있다. 웹 빌드는 Vercel 측에서 `npm install`·`npm run build`로 수행된다.
+- 프로덕션 배포 완료 후 기본 별칭 예: `https://quick-note-khaki.vercel.app` (대시보드의 Production 도메인·별칭이 최종 기준)
+
 ### 자동 업데이트 릴리스 규약 (Tag Push)
 
 - 자동 업데이트 배포는 `v*` 태그 푸시에서만 실행된다.

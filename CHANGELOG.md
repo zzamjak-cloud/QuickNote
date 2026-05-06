@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Infra
+
+- Vercel CLI로 프로덕션 배포 시 로컬 `src-tauri/target`(Rust 빌드 산출물) 등이 아카이브에 포함되면 업로드가 수 GB로 불어나 실패할 수 있어, 루트 `.vercelignore`로 `node_modules`·`dist`·`src-tauri/target` 등을 제외하도록 정리
+
 ## [5.0.0] - 2026-05-07
 
 ### Added
