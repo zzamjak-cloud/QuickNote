@@ -19,7 +19,9 @@
   "devDependencies": {
     "@aws-appsync/utils": "^2.1.1",
     "@aws-sdk/client-dynamodb": "^3.1043.0",
+    "@aws-sdk/client-s3": "^3.1043.0",
     "@aws-sdk/lib-dynamodb": "^3.1043.0",
+    "@aws-sdk/s3-request-presigner": "^3.1043.0",
     "@types/aws-lambda": "^8.10.145",
     "@types/node": "^20.14.10",
     "@types/uuid": "^10.0.0",

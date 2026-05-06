@@ -26,6 +26,8 @@ export type Tables = {
   MemberTeams: string;
   Workspaces: string;
   WorkspaceAccess: string;
+  Pages?: string;
+  Databases?: string;
 };
 
 export type CreateMemberInput = {
@@ -43,6 +45,7 @@ type MemberFilterInput = {
 };
 
 type TxItem = NonNullable<TransactWriteCommandInput["TransactItems"]>[number];
+export type { Member };
 
 // Pure helper: TransactWriteItems 항목 생성. 테스트하기 쉽게 분리.
 export function buildCreateMemberTxItems(args: {
@@ -65,7 +68,6 @@ export function buildCreateMemberTxItems(args: {
         workspaceRole: role,
         status: "active",
         personalWorkspaceId: args.personalWorkspaceId,
-        cognitoSub: null,
         createdAt: args.now,
       },
       ConditionExpression: "attribute_not_exists(memberId)",
@@ -317,9 +319,10 @@ export async function promoteToManager(args: {
   caller: Member;
   memberId: string;
 }): Promise<Member> {
-  requireOwnerOnly(args.caller);
+  requireRoleAtLeast(args.caller, "manager");
   const target = await getMemberById(args.doc, args.tables, args.memberId);
   if (!target) notFound("Member 없음");
+  if (target.workspaceRole === "owner") forbidden("Owner 는 권한 변경 불가");
   if (target.status !== "active") badRequest("비활성 멤버");
   if (target.workspaceRole !== "member") badRequest("이미 manager 또는 owner");
 
@@ -344,7 +347,7 @@ export async function demoteToMember(args: {
   caller: Member;
   memberId: string;
 }): Promise<Member> {
-  requireOwnerOnly(args.caller);
+  requireRoleAtLeast(args.caller, "manager");
   const target = await getMemberById(args.doc, args.tables, args.memberId);
   if (!target) notFound("Member 없음");
   if (target.workspaceRole === "owner") forbidden("Owner 는 강등 불가");
@@ -409,8 +412,6 @@ export async function transferOwnership(args: {
 }
 
 // ─── removeMember ─────────────────────────────────────────────────────────────
-
-type TxItem = NonNullable<TransactWriteCommandInput["TransactItems"]>[number];
 
 export type RemoveMemberPlan = {
   primaryItems: TxItem[];
@@ -500,8 +501,8 @@ export async function removeMember(args: {
   tables: Tables;
   caller: Member;
   memberId: string;
-}): Promise<{ memberId: string }> {
-  requireOwnerOnly(args.caller);
+}): Promise<Member> {
+  requireRoleAtLeast(args.caller, "manager");
 
   const target = await getMemberById(args.doc, args.tables, args.memberId);
   if (!target) notFound("Member 없음");
@@ -573,7 +574,7 @@ export async function removeMember(args: {
   // TODO: Cognito AdminDisableUser 호출 — v5.0 단순화로 생략.
   // PreSignUp trigger 가 status="removed" 를 차단하므로 보안상 충분.
 
-  return { memberId: args.memberId };
+  return { ...target, status: "removed", removedAt: now };
 }
 
 // ─── assignMemberToTeam / unassignMemberFromTeam ──────────────────────────────

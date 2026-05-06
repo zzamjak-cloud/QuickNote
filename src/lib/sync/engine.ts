@@ -12,15 +12,13 @@ import type {
 export interface GqlBridge {
   upsertPage(input: unknown): Promise<void>;
   upsertDatabase(input: unknown): Promise<void>;
-  upsertContact(input: unknown): Promise<void>;
-  softDeletePage(id: string, updatedAt: string): Promise<void>;
-  softDeleteDatabase(id: string, updatedAt: string): Promise<void>;
-  softDeleteContact(id: string, updatedAt: string): Promise<void>;
+  softDeletePage(id: string, workspaceId: string, updatedAt: string): Promise<void>;
+  softDeleteDatabase(id: string, workspaceId: string, updatedAt: string): Promise<void>;
 }
 
 const MAX_BACKOFF_MS = 60_000;
 
-export type EnqueuePayload = { id: string; updatedAt?: string };
+export type EnqueuePayload = { id: string; workspaceId?: string; updatedAt?: string };
 
 export class SyncEngine {
   private flushing = false;
@@ -97,14 +95,10 @@ export class SyncEngine {
         return this.gql.upsertPage(p);
       case "upsertDatabase":
         return this.gql.upsertDatabase(p);
-      case "upsertContact":
-        return this.gql.upsertContact(p);
       case "softDeletePage":
-        return this.gql.softDeletePage(p.id, p.updatedAt ?? "");
+        return this.gql.softDeletePage(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
       case "softDeleteDatabase":
-        return this.gql.softDeleteDatabase(p.id, p.updatedAt ?? "");
-      case "softDeleteContact":
-        return this.gql.softDeleteContact(p.id, p.updatedAt ?? "");
+        return this.gql.softDeleteDatabase(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
     }
   }
 }

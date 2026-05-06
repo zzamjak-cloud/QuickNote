@@ -11,7 +11,7 @@ import {
   type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Plus, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import {
   resolveSidebarDrop,
   sidebarPageTreeCollision,
@@ -27,6 +27,8 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageMoveDialog } from "./PageMoveDialog";
 import { DatabaseManagerDialog } from "./DatabaseManagerDialog";
+import { SidebarHeader } from "../sidebar/SidebarHeader";
+import { SettingsModal } from "../settings/SettingsModal";
 
 type DropTarget = { id: string; mode: SidebarDropMode } | null;
 
@@ -63,6 +65,7 @@ export function Sidebar() {
   const [query, setQuery] = useState("");
   const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
   const [dbManagerOpen, setDbManagerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [dragOverlayId, setDragOverlayId] = useState<string | null>(null);
 
@@ -288,23 +291,11 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 px-2 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="mb-2 flex items-center gap-1.5 px-1">
-        <h2 className="flex flex-1 items-baseline gap-1 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          <span>QuickNote</span>
-          <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
-            v{APP_VERSION}
-          </span>
-        </h2>
-        <button
-          type="button"
-          onClick={() => createPage()}
-          className="rounded-md p-1 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-          aria-label="새 페이지"
-          title="새 페이지 (Cmd/Ctrl+N)"
-        >
-          <Plus size={16} />
-        </button>
-      </div>
+      <SidebarHeader
+        appVersion={APP_VERSION}
+        onCreatePage={() => createPage()}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
       <div className="mb-2 flex items-center gap-1.5 rounded-md bg-white px-2 py-1 ring-1 ring-zinc-200 focus-within:ring-zinc-400 dark:bg-zinc-950 dark:ring-zinc-800 dark:focus-within:ring-zinc-600">
         <Search size={13} className="text-zinc-400" />
         <input
@@ -360,6 +351,10 @@ export function Sidebar() {
       <DatabaseManagerDialog
         open={dbManagerOpen}
         onClose={() => setDbManagerOpen(false)}
+      />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       />
     </aside>
   );

@@ -31,4 +31,9 @@ new QuicknoteSyncStack(app, "QuicknoteSyncStack", {
   userPoolId: cognitoStack.userPoolId,
   userPoolArn: cognitoStack.userPoolArn,
   imagesBucketName,
+  membersTableName: app.node.tryGetContext("membersTableName") as string | undefined,
+  teamsTableName: app.node.tryGetContext("teamsTableName") as string | undefined,
+  memberTeamsTableName: app.node.tryGetContext("memberTeamsTableName") as string | undefined,
+  workspacesTableName: app.node.tryGetContext("workspacesTableName") as string | undefined,
+  workspaceAccessTableName: app.node.tryGetContext("workspaceAccessTableName") as string | undefined,
 });

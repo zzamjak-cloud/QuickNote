@@ -38,7 +38,7 @@ describe("buildCreateMemberTxItems", () => {
       tables, memberId: "m1", personalWorkspaceId: "w1", now: "now",
     });
     expect(items).toHaveLength(5);
-    expect(items.filter((i) => i.Put.TableName === "MT")).toHaveLength(2);
+    expect(items.filter((i) => i.Put?.TableName === "MT")).toHaveLength(2);
   });
 });
 
@@ -187,7 +187,7 @@ describe("promoteToManager", () => {
   it("Member caller 권한 거부", async () => {
     const doc = mockDoc();
     await expect(promoteToManager({ doc, tables, caller: memberCaller, memberId: "tgt-1" }))
-      .rejects.toThrow(/Owner 만 가능/);
+      .rejects.toThrow(/권한 부족/);
   });
 
   it("이미 manager — 거부", async () => {
@@ -216,7 +216,7 @@ describe("demoteToMember", () => {
   it("Member caller 권한 거부", async () => {
     const doc = mockDoc();
     await expect(demoteToMember({ doc, tables, caller: memberCaller, memberId: "mgr-1" }))
-      .rejects.toThrow(/Owner 만 가능/);
+      .rejects.toThrow(/권한 부족/);
   });
 
   it("Owner target 강등 거부", async () => {
@@ -328,7 +328,7 @@ describe("removeMember", () => {
   it("Member caller 권한 거부", async () => {
     const doc = mockDoc();
     await expect(removeMember({ doc, tables, caller: memberCaller, memberId: "tgt-1" }))
-      .rejects.toThrow(/Owner 만 가능/);
+      .rejects.toThrow(/권한 부족/);
   });
 
   it("Owner target 제거 거부", async () => {
@@ -355,6 +355,7 @@ describe("removeMember", () => {
     );
     const result = await removeMember({ doc, tables, caller: ownerCaller, memberId: "tgt-1" });
     expect(result.memberId).toBe("tgt-1");
+    expect(result.status).toBe("removed");
     expect(doc.send).toHaveBeenCalledTimes(6);
   });
 });

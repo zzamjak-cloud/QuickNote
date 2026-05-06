@@ -76,6 +76,12 @@ npm run build:resolvers
 
 산출물: `lib/sync/resolvers/dist/{upsert,softDelete,list,subscribe}.js`.
 
+esbuild 출력 크기(예시):
+- `list.js` 약 1.1kb
+- `softDelete.js` 약 1.1kb
+- `upsert.js` 약 1.0kb
+- `subscribe.js` 약 0.5kb
+
 ### 2. 컨텍스트 변수 (선택)
 
 이미지 버킷 이름은 기본적으로 `quicknote-images-{account}-{region}` 으로 구성된다.
@@ -90,6 +96,20 @@ npx cdk deploy QuicknoteSyncStack -c imagesBucketName=my-bucket
 ```bash
 npx cdk deploy QuicknoteSyncStack --outputs-file cdk-outputs.json
 ```
+
+### 3-1. v5 마이그레이션 실행 (1회)
+
+`QuicknoteSyncStack` 출력값에 `V5MigrationFunctionName` 이 포함된다.
+
+```bash
+aws lambda invoke \
+  --function-name <V5MigrationFunctionName> \
+  --payload '{}' \
+  --cli-binary-format raw-in-base64-out \
+  migration-result.json
+```
+
+`migration-result.json`에는 `owners`, `migratedPages`, `migratedDatabases` 카운트가 기록된다.
 
 ### 4. 출력값을 `.env` 에 매핑
 

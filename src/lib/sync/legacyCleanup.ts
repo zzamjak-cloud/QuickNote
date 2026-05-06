@@ -13,7 +13,7 @@ export function purgeLegacyLocalStorage(): void {
   if (typeof localStorage === "undefined") return;
   for (const k of LEGACY_LOCAL_STORAGE_KEYS) {
     if (localStorage.getItem(k) !== null) {
-      console.warn(`[v4] purging legacy localStorage key: ${k}`);
+      if (import.meta.env.DEV) console.info(`[v4] purged legacy localStorage key: ${k}`);
       localStorage.removeItem(k);
     }
   }
@@ -37,7 +37,7 @@ export async function purgeLegacyTauriData(): Promise<void> {
     for (const t of LEGACY_SQL_TABLES) {
       try {
         await d.execute(`DROP TABLE IF EXISTS ${t}`);
-        console.warn(`[v4] dropped legacy SQLite table: ${t}`);
+        if (import.meta.env.DEV) console.info(`[v4] dropped legacy SQLite table: ${t}`);
       } catch (err) {
         console.warn(`[v4] drop ${t} failed`, err);
       }

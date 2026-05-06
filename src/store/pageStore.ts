@@ -10,19 +10,26 @@ import {
 import type { PageSnapshot } from "../types/history";
 import { enqueueAsync } from "../lib/sync/runtime";
 import { useAuthStore } from "./authStore";
+import { useWorkspaceStore } from "./workspaceStore";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 
-// 동기화 헬퍼 — 인증된 사용자의 sub 를 ownerId 로 사용. 미인증이면 빈 문자열.
-function getOwnerId(): string {
+// 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
+// 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
+function getCreatedByMemberId(): string {
   const s = useAuthStore.getState().state;
   return s.status === "authenticated" ? s.user.sub : "";
 }
 
+function getCurrentWorkspaceId(): string {
+  return useWorkspaceStore.getState().currentWorkspaceId ?? "";
+}
+
 // 클라이언트 number(epoch ms) → GraphQL 경계 string/ISO 변환
-function toGqlPage(p: Page, ownerId: string): Record<string, unknown> {
+function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> {
   return {
     id: p.id,
-    ownerId,
+    workspaceId: getCurrentWorkspaceId(),
+    createdByMemberId,
     title: p.title,
     icon: p.icon ?? null,
     parentId: p.parentId ?? null,
@@ -36,7 +43,7 @@ function toGqlPage(p: Page, ownerId: string): Record<string, unknown> {
 }
 
 function enqueueUpsertPage(p: Page): void {
-  enqueueAsync("upsertPage", toGqlPage(p, getOwnerId()) as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
+  enqueueAsync("upsertPage", toGqlPage(p, getCreatedByMemberId()) as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
 }
 
 const EMPTY_DOC: JSONContent = {
@@ -197,8 +204,9 @@ export const usePageStore = create<PageStore>()(
         }
         // 삭제된 모든 페이지(자손 포함) 각각에 대해 softDeletePage 를 enqueue.
         const nowIso = new Date().toISOString();
+        const workspaceId = useWorkspaceStore.getState().currentWorkspaceId ?? "";
         for (const removedId of removedIds) {
-          enqueueAsync("softDeletePage", { id: removedId, updatedAt: nowIso });
+          enqueueAsync("softDeletePage", { id: removedId, workspaceId, updatedAt: nowIso });
         }
       },
 

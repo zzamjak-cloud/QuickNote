@@ -15,6 +15,31 @@ import {
   assignMemberToTeam,
   unassignMemberFromTeam,
 } from "./handlers/member";
+import {
+  createTeam,
+  deleteTeam,
+  getTeam,
+  listTeams,
+  updateTeam,
+} from "./handlers/team";
+import {
+  createWorkspace,
+  deleteWorkspace,
+  getWorkspace,
+  listMyWorkspaces,
+  setWorkspaceAccess,
+  updateWorkspace,
+} from "./handlers/workspace";
+import { searchMembersForMention } from "./handlers/mention";
+import {
+  listDatabases,
+  listPages,
+  softDeleteDatabase,
+  softDeletePage,
+  upsertDatabase,
+  upsertPage,
+  validateWorkspaceSubscription,
+} from "./handlers/pageDatabase";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -26,6 +51,8 @@ const tables: Tables = {
   MemberTeams: process.env.MEMBER_TEAMS_TABLE_NAME!,
   Workspaces: process.env.WORKSPACES_TABLE_NAME!,
   WorkspaceAccess: process.env.WORKSPACE_ACCESS_TABLE_NAME!,
+  Pages: process.env.PAGES_TABLE_NAME,
+  Databases: process.env.DATABASES_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -34,34 +61,190 @@ type AppsyncEvent = {
   info: { fieldName: string };
 };
 
+function roleToGql(role: string): "OWNER" | "MANAGER" | "MEMBER" {
+  if (role === "owner") return "OWNER";
+  if (role === "manager") return "MANAGER";
+  return "MEMBER";
+}
+
+function statusToGql(status: string): "ACTIVE" | "REMOVED" {
+  return status === "removed" ? "REMOVED" : "ACTIVE";
+}
+
+function workspaceTypeToGql(type: string): "PERSONAL" | "SHARED" {
+  return type === "personal" ? "PERSONAL" : "SHARED";
+}
+
+function levelToGql(level: string): "EDIT" | "VIEW" {
+  return level === "edit" ? "EDIT" : "VIEW";
+}
+
+function subjectTypeToGql(type: string): "TEAM" | "MEMBER" | "EVERYONE" {
+  if (type === "team") return "TEAM";
+  if (type === "member") return "MEMBER";
+  return "EVERYONE";
+}
+
+function normalizeMemberForGql(member: Record<string, unknown>) {
+  return {
+    ...member,
+    workspaceRole: roleToGql(String(member.workspaceRole ?? "member")),
+    status: statusToGql(String(member.status ?? "active")),
+  };
+}
+
+function normalizeWorkspaceForGql(workspace: Record<string, unknown>) {
+  const access = Array.isArray(workspace.access) ? workspace.access : [];
+  return {
+    ...workspace,
+    type: workspaceTypeToGql(String(workspace.type ?? "shared")),
+    myEffectiveLevel: levelToGql(String(workspace.myEffectiveLevel ?? "view")),
+    access: access.map((entry) => {
+      const e = entry as Record<string, unknown>;
+      return {
+        ...e,
+        subjectType: subjectTypeToGql(String(e.subjectType ?? "everyone")),
+        level: levelToGql(String(e.level ?? "view")),
+      };
+    }),
+  };
+}
+
+function normalizeTeamForGql(team: Record<string, unknown>) {
+  const members = Array.isArray(team.members) ? team.members : [];
+  return {
+    ...team,
+    members: members.map((m) => normalizeMemberForGql(m as Record<string, unknown>)),
+  };
+}
+
 export async function handler(event: AppsyncEvent): Promise<unknown> {
   try {
     const caller = await getCallerMember(doc, tables.Members, event.identity?.sub);
-    const args = { doc, tables, caller, ...event.arguments };
+    const base = { doc, tables, caller };
 
     switch (event.info.fieldName) {
       case "me":
-        return caller;
+        return normalizeMemberForGql(caller as unknown as Record<string, unknown>);
       case "createMember":
-        return await createMember({ ...args, input: event.arguments.input });
+        return normalizeMemberForGql((await createMember({
+          ...base,
+          input: event.arguments.input as import("./handlers/member").CreateMemberInput,
+        })) as Record<string, unknown>);
       case "listMembers":
-        return await listMembers({ ...args, filter: event.arguments.filter });
+        return (await listMembers({
+          ...base,
+          filter: event.arguments.filter as
+            | { status?: "ACTIVE" | "REMOVED"; teamId?: string; workspaceRole?: "OWNER" | "MANAGER" | "MEMBER" }
+            | undefined,
+        })).map((m) => normalizeMemberForGql(m as unknown as Record<string, unknown>));
       case "getMember":
-        return await getMember({ ...args, memberId: event.arguments.memberId as string });
+        {
+          const member = await getMember({ ...base, memberId: event.arguments.memberId as string });
+          return member ? normalizeMemberForGql(member as unknown as Record<string, unknown>) : null;
+        }
       case "updateMember":
-        return await updateMember({ ...args, input: event.arguments.input as UpdateMemberInput & { memberId: string } });
+        return normalizeMemberForGql((await updateMember({ ...base, input: event.arguments.input as UpdateMemberInput & { memberId: string } })) as Record<string, unknown>);
       case "promoteToManager":
-        return await promoteToManager({ ...args, memberId: event.arguments.memberId as string });
+        return normalizeMemberForGql((await promoteToManager({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
       case "demoteToMember":
-        return await demoteToMember({ ...args, memberId: event.arguments.memberId as string });
+        return normalizeMemberForGql((await demoteToMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
       case "transferOwnership":
-        return await transferOwnership({ ...args, toMemberId: event.arguments.toMemberId as string });
+        return normalizeMemberForGql((await transferOwnership({ ...base, toMemberId: event.arguments.toMemberId as string })) as Record<string, unknown>);
       case "removeMember":
-        return await removeMember({ ...args, memberId: event.arguments.memberId as string });
+        return normalizeMemberForGql((await removeMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
       case "assignMemberToTeam":
-        return await assignMemberToTeam({ ...args, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
+        await assignMemberToTeam({ ...base, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
+        return true;
       case "unassignMemberFromTeam":
-        return await unassignMemberFromTeam({ ...args, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
+        await unassignMemberFromTeam({ ...base, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
+        return true;
+      case "listTeams":
+        return (await listTeams(base)).map((t) => normalizeTeamForGql(t as unknown as Record<string, unknown>));
+      case "getTeam":
+        {
+          const team = await getTeam({ ...base, teamId: event.arguments.teamId as string });
+          return team ? normalizeTeamForGql(team as unknown as Record<string, unknown>) : null;
+        }
+      case "createTeam":
+        return normalizeTeamForGql((await createTeam({ ...base, name: event.arguments.name as string })) as Record<string, unknown>);
+      case "updateTeam":
+        return normalizeTeamForGql((await updateTeam({
+          ...base,
+          teamId: event.arguments.teamId as string,
+          name: event.arguments.name as string,
+        })) as Record<string, unknown>);
+      case "deleteTeam":
+        return await deleteTeam({ ...base, teamId: event.arguments.teamId as string });
+      case "createWorkspace":
+        return normalizeWorkspaceForGql((await createWorkspace({
+          ...base,
+          input: event.arguments.input as { name: string; access: Array<{ subjectType: "MEMBER" | "TEAM" | "EVERYONE"; subjectId?: string; level: "EDIT" | "VIEW" }> },
+        })) as Record<string, unknown>);
+      case "updateWorkspace":
+        return normalizeWorkspaceForGql((await updateWorkspace({
+          ...base,
+          input: event.arguments.input as { workspaceId: string; name?: string | null },
+        })) as Record<string, unknown>);
+      case "setWorkspaceAccess":
+        return normalizeWorkspaceForGql((await setWorkspaceAccess({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          entries: event.arguments.entries as Array<{ subjectType: "MEMBER" | "TEAM" | "EVERYONE"; subjectId?: string; level: "EDIT" | "VIEW" }>,
+        })) as Record<string, unknown>);
+      case "deleteWorkspace":
+        return await deleteWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string });
+      case "listMyWorkspaces":
+        return (await listMyWorkspaces(base)).map((w) => normalizeWorkspaceForGql(w as unknown as Record<string, unknown>));
+      case "getWorkspace":
+        {
+          const ws = await getWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string });
+          return ws ? normalizeWorkspaceForGql(ws as unknown as Record<string, unknown>) : null;
+        }
+      case "searchMembersForMention":
+        return await searchMembersForMention({
+          ...base,
+          query: (event.arguments.query as string | null | undefined) ?? null,
+          limit: (event.arguments.limit as number | null | undefined) ?? null,
+        });
+      case "listPages":
+        return await listPages({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          updatedAfter: event.arguments.updatedAfter as string | undefined,
+          limit: event.arguments.limit as number | undefined,
+          nextToken: event.arguments.nextToken as string | undefined,
+        });
+      case "listDatabases":
+        return await listDatabases({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          updatedAfter: event.arguments.updatedAfter as string | undefined,
+          limit: event.arguments.limit as number | undefined,
+          nextToken: event.arguments.nextToken as string | undefined,
+        });
+      case "upsertPage":
+        return await upsertPage({ ...base, input: event.arguments.input as Record<string, unknown> });
+      case "softDeletePage":
+        return await softDeletePage({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
+          updatedAt: event.arguments.updatedAt as string,
+        });
+      case "upsertDatabase":
+        return await upsertDatabase({ ...base, input: event.arguments.input as Record<string, unknown> });
+      case "softDeleteDatabase":
+        return await softDeleteDatabase({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
+          updatedAt: event.arguments.updatedAt as string,
+        });
+      case "onPageChanged":
+        return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
+      case "onDatabaseChanged":
+        return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
       default:
         throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");
     }

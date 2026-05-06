@@ -14,23 +14,29 @@ import { shouldWriteAnchor, useHistoryStore } from "./historyStore";
 import type { DatabaseSnapshot, PageSnapshot } from "../types/history";
 import { enqueueAsync } from "../lib/sync/runtime";
 import { useAuthStore } from "./authStore";
+import { useWorkspaceStore } from "./workspaceStore";
 import type { Page } from "../types/page";
 
-// 동기화 헬퍼 — 인증된 사용자의 sub 를 ownerId 로 사용. 미인증이면 빈 문자열.
-function getOwnerId(): string {
+// v5 fallback: 아직 memberStore(me.memberId)와 완전 연동 전이라 auth sub 를 사용.
+function getCreatedByMemberId(): string {
   const s = useAuthStore.getState().state;
   return s.status === "authenticated" ? s.user.sub : "";
+}
+
+function getCurrentWorkspaceId(): string {
+  return useWorkspaceStore.getState().currentWorkspaceId ?? "";
 }
 
 // 클라이언트 number(epoch ms) → GraphQL 경계 ISO 문자열 변환
 function toGqlDatabase(
   meta: DatabaseMeta,
   columns: ColumnDef[],
-  ownerId: string,
+  createdByMemberId: string,
 ): Record<string, unknown> {
   return {
     id: meta.id,
-    ownerId,
+    workspaceId: getCurrentWorkspaceId(),
+    createdByMemberId,
     title: meta.title,
     columns,
     createdAt: new Date(meta.createdAt).toISOString(),
@@ -39,7 +45,7 @@ function toGqlDatabase(
 }
 
 function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
-  const payload = toGqlDatabase(bundle.meta, bundle.columns, getOwnerId());
+  const payload = toGqlDatabase(bundle.meta, bundle.columns, getCreatedByMemberId());
   enqueueAsync(
     "upsertDatabase",
     payload as Record<string, unknown> & { id: string; updatedAt?: string },
@@ -48,12 +54,13 @@ function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
 
 // 행 페이지를 직접 mutate 한 경우 페이지 enqueue 를 보조해주는 헬퍼.
 function enqueueUpsertPageRaw(p: Page): void {
-  const ownerId = getOwnerId();
+  const createdByMemberId = getCreatedByMemberId();
   enqueueAsync(
     "upsertPage",
     {
       id: p.id,
-      ownerId,
+      workspaceId: getCurrentWorkspaceId(),
+      createdByMemberId,
       title: p.title,
       icon: p.icon ?? null,
       parentId: p.parentId ?? null,
@@ -283,6 +290,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           );
           enqueueAsync("softDeleteDatabase", {
             id,
+            workspaceId: useWorkspaceStore.getState().currentWorkspaceId ?? "",
             updatedAt: new Date().toISOString(),
           });
         }

@@ -34,5 +34,11 @@
       "http://127.0.0.1:14735/auth/signout"
     ],
     "googleSecretName": "quicknote/google-oauth"
+    ,
+    "membersTableName": "quicknote-members-v6",
+    "teamsTableName": "quicknote-teams-v6",
+    "memberTeamsTableName": "quicknote-member-teams-v6",
+    "workspacesTableName": "quicknote-workspaces-v6",
+    "workspaceAccessTableName": "quicknote-workspace-access-v6"
   }
 }

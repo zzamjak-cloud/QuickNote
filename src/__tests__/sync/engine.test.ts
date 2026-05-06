@@ -14,17 +14,11 @@ function makeGql(): GqlBridge & { calls: Call[] } {
     upsertDatabase: async (i) => {
       calls.push(["upsertDatabase", i]);
     },
-    upsertContact: async (i) => {
-      calls.push(["upsertContact", i]);
+    softDeletePage: async (id, workspaceId, u) => {
+      calls.push(["softDeletePage", id, workspaceId, u]);
     },
-    softDeletePage: async (id, u) => {
-      calls.push(["softDeletePage", id, u]);
-    },
-    softDeleteDatabase: async (id, u) => {
-      calls.push(["softDeleteDatabase", id, u]);
-    },
-    softDeleteContact: async (id, u) => {
-      calls.push(["softDeleteContact", id, u]);
+    softDeleteDatabase: async (id, workspaceId, u) => {
+      calls.push(["softDeleteDatabase", id, workspaceId, u]);
     },
   };
 }

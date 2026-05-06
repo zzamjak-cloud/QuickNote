@@ -11,13 +11,17 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
-import { attachOwnerScopedModelResolvers } from "./sync/appsync-resolver-factory";
 
 export interface SyncStackProps extends cdk.StackProps {
   // CognitoStack 의 출력값을 cross-stack reference 로 받는다.
   userPoolId: string;
   userPoolArn: string;
   imagesBucketName: string;
+  membersTableName?: string;
+  teamsTableName?: string;
+  memberTeamsTableName?: string;
+  workspacesTableName?: string;
+  workspaceAccessTableName?: string;
 }
 
 export class QuicknoteSyncStack extends cdk.Stack {
@@ -71,7 +75,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     // v5 신규 테이블 5종 — workspace 기반 멀티 유저 협업 인프라
     const membersTable = new dynamodb.Table(this, "MembersTable", {
-      tableName: "quicknote-members",
+      tableName: props.membersTableName ?? "quicknote-members",
       partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -90,7 +94,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const teamsTable = new dynamodb.Table(this, "TeamsTable", {
-      tableName: "quicknote-teams",
+      tableName: props.teamsTableName ?? "quicknote-teams",
       partitionKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -99,7 +103,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const memberTeamsTable = new dynamodb.Table(this, "MemberTeamsTable", {
-      tableName: "quicknote-member-teams",
+      tableName: props.memberTeamsTableName ?? "quicknote-member-teams",
       partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -115,7 +119,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const workspacesTable = new dynamodb.Table(this, "WorkspacesTable", {
-      tableName: "quicknote-workspaces",
+      tableName: props.workspacesTableName ?? "quicknote-workspaces",
       partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -130,7 +134,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const workspaceAccessTable = new dynamodb.Table(this, "WorkspaceAccessTable", {
-      tableName: "quicknote-workspace-access",
+      tableName: props.workspaceAccessTableName ?? "quicknote-workspace-access",
       partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "subjectKey", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -218,10 +222,6 @@ export class QuicknoteSyncStack extends cdk.Stack {
     new cdk.CfnOutput(this, "AppSyncApiId", { value: api.apiId });
     // realtime URL 은 endpoint 에서 ".appsync-api." → ".appsync-realtime-api." 로 도출.
     // Amplify GraphQL 클라이언트가 자동 처리하므로 별도 출력은 생략.
-
-    // 3 owner-scoped 모델에 LWW 리졸버 부착.
-    attachOwnerScopedModelResolvers(api, "Page", this.pageTable);
-    attachOwnerScopedModelResolvers(api, "Database", this.databaseTable);
 
     // 이미지 PreSignedURL 발급·검증 Lambda. AppSync 가 invoke.
     const presignFn = new lambdaNode.NodejsFunction(this, "ImagePresignFn", {
@@ -329,6 +329,8 @@ export function response(ctx) {
         MEMBER_TEAMS_TABLE_NAME: this.memberTeamsTable.tableName,
         WORKSPACES_TABLE_NAME: this.workspacesTable.tableName,
         WORKSPACE_ACCESS_TABLE_NAME: this.workspaceAccessTable.tableName,
+        PAGES_TABLE_NAME: this.pageTable.table.tableName,
+        DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
       },
       bundling: {
         minify: true,
@@ -344,6 +346,8 @@ export function response(ctx) {
     this.memberTeamsTable.grantReadWriteData(v5ResolversFn);
     this.workspacesTable.grantReadWriteData(v5ResolversFn);
     this.workspaceAccessTable.grantReadWriteData(v5ResolversFn);
+    this.pageTable.table.grantReadWriteData(v5ResolversFn);
+    this.databaseTable.table.grantReadWriteData(v5ResolversFn);
 
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
@@ -369,5 +373,94 @@ export function response(ctx) {
     v5Ds.createResolver("RemoveMemberMutation", { typeName: "Mutation", fieldName: "removeMember" });
     v5Ds.createResolver("AssignMemberToTeamMutation", { typeName: "Mutation", fieldName: "assignMemberToTeam" });
     v5Ds.createResolver("UnassignMemberFromTeamMutation", { typeName: "Mutation", fieldName: "unassignMemberFromTeam" });
+    v5Ds.createResolver("ListTeamsQuery", { typeName: "Query", fieldName: "listTeams" });
+    v5Ds.createResolver("GetTeamQuery", { typeName: "Query", fieldName: "getTeam" });
+    v5Ds.createResolver("CreateTeamMutation", { typeName: "Mutation", fieldName: "createTeam" });
+    v5Ds.createResolver("UpdateTeamMutation", { typeName: "Mutation", fieldName: "updateTeam" });
+    v5Ds.createResolver("DeleteTeamMutation", { typeName: "Mutation", fieldName: "deleteTeam" });
+    v5Ds.createResolver("CreateWorkspaceMutation", { typeName: "Mutation", fieldName: "createWorkspace" });
+    v5Ds.createResolver("UpdateWorkspaceMutation", { typeName: "Mutation", fieldName: "updateWorkspace" });
+    v5Ds.createResolver("SetWorkspaceAccessMutation", { typeName: "Mutation", fieldName: "setWorkspaceAccess" });
+    v5Ds.createResolver("DeleteWorkspaceMutation", { typeName: "Mutation", fieldName: "deleteWorkspace" });
+    v5Ds.createResolver("ListMyWorkspacesQuery", { typeName: "Query", fieldName: "listMyWorkspaces" });
+    v5Ds.createResolver("GetWorkspaceQuery", { typeName: "Query", fieldName: "getWorkspace" });
+    v5Ds.createResolver("SearchMembersForMentionQuery", { typeName: "Query", fieldName: "searchMembersForMention" });
+    // 기존 배포의 Logical ID를 강제로 유지해 Resolver 교체 시 AlreadyExists를 피한다.
+    const listPagesResolver = v5Ds.createResolver("QuerylistPages", {
+      typeName: "Query",
+      fieldName: "listPages",
+    });
+    (listPagesResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiQuerylistPagesB67FE9DA");
+
+    const listDatabasesResolver = v5Ds.createResolver("QuerylistDatabases", {
+      typeName: "Query",
+      fieldName: "listDatabases",
+    });
+    (listDatabasesResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiQuerylistDatabasesC5178196");
+
+    const upsertPageResolver = v5Ds.createResolver("MutationupsertPage", {
+      typeName: "Mutation",
+      fieldName: "upsertPage",
+    });
+    (upsertPageResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationupsertPage70CE2413");
+
+    const softDeletePageResolver = v5Ds.createResolver("MutationsoftDeletePage", {
+      typeName: "Mutation",
+      fieldName: "softDeletePage",
+    });
+    (softDeletePageResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationsoftDeletePage005AAFF7");
+
+    const upsertDatabaseResolver = v5Ds.createResolver("MutationupsertDatabase", {
+      typeName: "Mutation",
+      fieldName: "upsertDatabase",
+    });
+    (upsertDatabaseResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationupsertDatabase432CF126");
+
+    const softDeleteDatabaseResolver = v5Ds.createResolver("MutationsoftDeleteDatabase", {
+      typeName: "Mutation",
+      fieldName: "softDeleteDatabase",
+    });
+    (softDeleteDatabaseResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationsoftDeleteDatabase0827D9EA");
+
+    const onPageChangedResolver = v5Ds.createResolver("SubscriptiononPageChanged", {
+      typeName: "Subscription",
+      fieldName: "onPageChanged",
+    });
+    (onPageChangedResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiSubscriptiononPageChangedC0926FB3");
+
+    const onDatabaseChangedResolver = v5Ds.createResolver("SubscriptiononDatabaseChanged", {
+      typeName: "Subscription",
+      fieldName: "onDatabaseChanged",
+    });
+    (onDatabaseChangedResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiSubscriptiononDatabaseChangedE8BD5823");
+
+    // v5 데이터 마이그레이션 Lambda (v4 ownerId -> v5 workspace/member 필드 보강)
+    const v5MigrationFn = new lambdaNode.NodejsFunction(this, "V5MigrationFn", {
+      entry: path.join(__dirname, "..", "lambda", "v5-migration", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler",
+      memorySize: 512,
+      timeout: cdk.Duration.minutes(5),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environment: {
+        MEMBERS_TABLE_NAME: this.membersTable.tableName,
+        WORKSPACES_TABLE_NAME: this.workspacesTable.tableName,
+        WORKSPACE_ACCESS_TABLE_NAME: this.workspaceAccessTable.tableName,
+        PAGES_TABLE_NAME: this.pageTable.table.tableName,
+        DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
+      },
+      bundling: {
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+      },
+    });
+    this.membersTable.grantReadWriteData(v5MigrationFn);
+    this.workspacesTable.grantReadWriteData(v5MigrationFn);
+    this.workspaceAccessTable.grantReadWriteData(v5MigrationFn);
+    this.pageTable.table.grantReadWriteData(v5MigrationFn);
+    this.databaseTable.table.grantReadWriteData(v5MigrationFn);
+    new cdk.CfnOutput(this, "V5MigrationFunctionName", { value: v5MigrationFn.functionName });
   }
 }

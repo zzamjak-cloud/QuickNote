@@ -3,9 +3,8 @@ export type { GqlBridge, EnqueuePayload } from "./engine";
 export { realGqlBridge } from "./graphql/bridge";
 export { startSubscriptions, type SubscribeHandlers } from "./subscribers";
 export {
-  fetchAllPages,
-  fetchAllDatabases,
-  fetchAllContacts,
+  fetchPagesByWorkspace,
+  fetchDatabasesByWorkspace,
 } from "./bootstrap";
 export { ImageUrlCache } from "./imageUrls";
 export {
@@ -21,6 +20,5 @@ export { getOutboxAdapter } from "./outbox/adapter";
 export type {
   GqlPage,
   GqlDatabase,
-  GqlContact,
   GqlImageAsset,
 } from "./graphql/operations";

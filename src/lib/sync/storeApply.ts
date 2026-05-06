@@ -6,11 +6,9 @@
 import type {
   GqlPage,
   GqlDatabase,
-  GqlContact,
 } from "./graphql/operations";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
-import { useContactsStore, type Contact } from "../../store/contactsStore";
 import type { Page } from "../../types/page";
 import type {
   ColumnDef,
@@ -99,31 +97,3 @@ export function applyRemoteDatabaseToStore(
   });
 }
 
-export function applyRemoteContactToStore(
-  c: GqlContact | null | undefined,
-): void {
-  if (!c) return;
-  useContactsStore.setState((s) => {
-    const idx = s.contacts.findIndex((x) => x.id === c.id);
-    const local = idx >= 0 ? s.contacts[idx] : undefined;
-    if (c.deletedAt) {
-      if (!local) return s;
-      return { contacts: s.contacts.filter((x) => x.id !== c.id) };
-    }
-    if (local && !isRemoteNewer(local.updatedAt, c.updatedAt)) return s;
-
-    const merged: Contact = {
-      id: c.id,
-      email: c.email,
-      displayName: c.displayName,
-      createdAt: isoToMs(c.createdAt) || Date.now(),
-      updatedAt: isoToMs(c.updatedAt) || Date.now(),
-    };
-    if (idx === -1) {
-      return { contacts: [...s.contacts, merged] };
-    }
-    const next = s.contacts.slice();
-    next[idx] = merged;
-    return { contacts: next };
-  });
-}
