@@ -1,16 +1,31 @@
 {
   "app": "npx ts-node --prefer-ts-exts bin/quicknote.ts",
   "watch": {
-    "include": ["**"],
-    "exclude": ["README.md", "cdk*.json", "**/*.d.ts", "**/*.js", "tsconfig.json", "package*.json", "node_modules", "test", "dist", "cdk.out"]
+    "include": [
+      "**"
+    ],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "**/*.d.ts",
+      "**/*.js",
+      "tsconfig.json",
+      "package*.json",
+      "node_modules",
+      "test",
+      "dist",
+      "cdk.out"
+    ]
   },
   "context": {
     "cognitoDomainPrefix": "quicknote-auth",
     "webCallbackUrls": [
-      "http://localhost:5173/auth/callback"
+      "http://localhost:5173/auth/callback",
+      "https://quick-note-khaki.vercel.app/auth/callback"
     ],
     "webLogoutUrls": [
-      "http://localhost:5173/auth/signout"
+      "http://localhost:5173/auth/signout",
+      "https://quick-note-khaki.vercel.app/auth/signout"
     ],
     "desktopCallbackUrls": [
       "http://127.0.0.1:14735/auth/callback"
