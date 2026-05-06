@@ -1,6 +1,9 @@
-# QuickNote 인프라 (v3.0.0)
+# QuickNote 인프라
 
-AWS Cognito + Google OAuth + 화이트리스트 Lambda 를 CDK(TypeScript)로 정의한다.
+CDK(TypeScript) 로 정의한 두 개의 스택:
+
+- **`QuicknoteCognitoStack`** (v3.0.0+) — AWS Cognito + Google OAuth + 화이트리스트 Lambda
+- **`QuicknoteSyncStack`** (v4.0.0+) — AppSync GraphQL API + DynamoDB(4 테이블) + S3 + Lambda(이미지 PreSign · 야간 GC) + EventBridge cron
 
 ## 사전 준비
 
@@ -59,10 +62,54 @@ npm test
 
 PreSignUp Lambda 에 대한 단위 테스트만 포함되어 있다 (CDK 합성 테스트는 v4 에서 추가 예정).
 
+## v4 동기화 스택 배포 (`QuicknoteSyncStack`)
+
+### 1. 리졸버 번들 빌드
+
+AppSync JS 리졸버는 esbuild 로 사전 번들이 필요하다.
+
+```bash
+cd infra
+npm install
+npm run build:resolvers
+```
+
+산출물: `lib/sync/resolvers/dist/{upsert,softDelete,list,subscribe}.js`.
+
+### 2. 컨텍스트 변수 (선택)
+
+이미지 버킷 이름은 기본적으로 `quicknote-images-{account}-{region}` 으로 구성된다.
+다른 이름을 쓰려면 `imagesBucketName` 컨텍스트로 전달:
+
+```bash
+npx cdk deploy QuicknoteSyncStack -c imagesBucketName=my-bucket
+```
+
+### 3. 배포
+
+```bash
+npx cdk deploy QuicknoteSyncStack --outputs-file cdk-outputs.json
+```
+
+### 4. 출력값을 `.env` 에 매핑
+
+| Output | 매핑할 env |
+|---|---|
+| `AppSyncEndpoint` | `VITE_APPSYNC_ENDPOINT` |
+| `ImagesBucketName` | `VITE_S3_BUCKET_NAME` |
+| `Region` (Cognito 스택과 동일) | `VITE_S3_REGION` |
+
+`AppSyncRealtimeEndpoint` 는 별도 출력하지 않는다 — Amplify GraphQL 클라이언트가
+endpoint 의 `appsync-api` → `appsync-realtime-api` 변환을 자동 처리한다.
+
+### 비용 추정 (100 활성 사용자/월)
+
+AppSync 요청 ~$15 + DDB on-demand ~$5 + S3 ~$3 + Lambda ~$1 = **약 $25/월**.
+
 ## 정리
 
 ```bash
 npm run destroy -- -c allowedEmails=dummy@x.com
 ```
 
-User Pool 은 `removalPolicy: RETAIN` 이므로 콘솔에서 수동 삭제해야 완전히 제거된다.
+User Pool / DDB 테이블 / S3 버킷은 모두 `removalPolicy: RETAIN` 이므로 콘솔에서 수동 삭제해야 완전히 제거된다.
