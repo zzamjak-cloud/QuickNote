@@ -15,6 +15,60 @@ import { createRowPageLinkedToDatabase } from "../lib/services/databaseRowPages"
 import { usePageStore } from "./pageStore";
 import { shouldWriteAnchor, useHistoryStore } from "./historyStore";
 import type { DatabaseSnapshot, PageSnapshot } from "../types/history";
+import { enqueueAsync } from "../lib/sync/runtime";
+import { useAuthStore } from "./authStore";
+import type { Page } from "../types/page";
+
+// 동기화 헬퍼 — 인증된 사용자의 sub 를 ownerId 로 사용. 미인증이면 빈 문자열.
+function getOwnerId(): string {
+  const s = useAuthStore.getState().state;
+  return s.status === "authenticated" ? s.user.sub : "";
+}
+
+// 클라이언트 number(epoch ms) → GraphQL 경계 ISO 문자열 변환
+function toGqlDatabase(
+  meta: DatabaseMeta,
+  columns: ColumnDef[],
+  ownerId: string,
+): Record<string, unknown> {
+  return {
+    id: meta.id,
+    ownerId,
+    title: meta.title,
+    columns,
+    createdAt: new Date(meta.createdAt).toISOString(),
+    updatedAt: new Date(meta.updatedAt).toISOString(),
+  };
+}
+
+function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
+  const payload = toGqlDatabase(bundle.meta, bundle.columns, getOwnerId());
+  enqueueAsync(
+    "upsertDatabase",
+    payload as Record<string, unknown> & { id: string; updatedAt?: string },
+  );
+}
+
+// 행 페이지를 직접 mutate 한 경우 페이지 enqueue 를 보조해주는 헬퍼.
+function enqueueUpsertPageRaw(p: Page): void {
+  const ownerId = getOwnerId();
+  enqueueAsync(
+    "upsertPage",
+    {
+      id: p.id,
+      ownerId,
+      title: p.title,
+      icon: p.icon ?? null,
+      parentId: p.parentId ?? null,
+      order: String(p.order),
+      databaseId: p.databaseId ?? null,
+      doc: p.doc,
+      dbCells: p.dbCells ?? null,
+      createdAt: new Date(p.createdAt).toISOString(),
+      updatedAt: new Date(p.updatedAt).toISOString(),
+    } as Record<string, unknown> & { id: string; updatedAt?: string },
+  );
+}
 
 type DbMap = Record<string, DatabaseBundle>;
 
@@ -227,6 +281,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           toDatabaseSnapshot(bundle),
           shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundle) : undefined,
         );
+        enqueueUpsertDatabase(bundle);
         return id;
       },
 
@@ -254,6 +309,10 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundle)
               : undefined,
           );
+          enqueueAsync("softDeleteDatabase", {
+            id,
+            updatedAt: new Date().toISOString(),
+          });
         }
       },
 
@@ -286,6 +345,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundleAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(bundleAfter);
         }
         return true;
       },
@@ -314,6 +374,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           };
         });
         // 기본값이 있는 컬럼(status 등) 추가 시 기존 행 페이지에도 채움 (페이지 스토어 1회 갱신).
+        const mutatedRowPageIds: string[] = [];
         if (defaultValue != null) {
           const bundle = get().databases[databaseId];
           if (bundle) {
@@ -328,6 +389,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
                   dbCells: { ...(page.dbCells ?? {}), [colId]: defaultValue },
                   updatedAt: t,
                 };
+                mutatedRowPageIds.push(pageId);
               }
               return { pages: nextPages };
             });
@@ -345,6 +407,13 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundleAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(bundleAfter);
+        }
+        // 직접 mutate 한 행 페이지에 대해 enqueue.
+        const pages = usePageStore.getState().pages;
+        for (const pid of mutatedRowPageIds) {
+          const p = pages[pid];
+          if (p) enqueueUpsertPageRaw(p);
         }
         return colId;
       },
@@ -384,6 +453,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundleAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(bundleAfter);
         }
       },
 
@@ -394,6 +464,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
         if (!target || target.type === "title") return;
         const nextCols = bundleBefore.columns.filter((c) => c.id !== columnId);
 
+        const mutatedRowPageIds: string[] = [];
         usePageStore.setState((s) => {
           let changed = false;
           const nextPages = { ...s.pages };
@@ -405,6 +476,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
             const nextCells = { ...page.dbCells };
             delete nextCells[columnId];
             nextPages[pageId] = { ...page, dbCells: nextCells, updatedAt: t };
+            mutatedRowPageIds.push(pageId);
           }
           return changed ? { pages: nextPages } : s;
         });
@@ -435,6 +507,12 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundleAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(bundleAfter);
+        }
+        const pages = usePageStore.getState().pages;
+        for (const pid of mutatedRowPageIds) {
+          const p = pages[pid];
+          if (p) enqueueUpsertPageRaw(p);
         }
       },
 
@@ -466,6 +544,8 @@ export const useDatabaseStore = create<DatabaseStore>()(
           };
         });
         // 컬럼 순서 이동은 레이아웃 조정 성격이라 버전 히스토리에 기록하지 않는다.
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
       },
 
       addRow: (databaseId) => {
@@ -524,7 +604,13 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundleAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(bundleAfter);
         }
+        // 행 페이지 자체는 createRowPage 가 pageStore 에 createPage 로 추가했고,
+        // 위 setState 로 dbCells 가 수정됐을 수 있다. 둘 다 enqueue 가 필요하지만
+        // dedupe 로 마지막 한 번만 보내진다.
+        const newPage = usePageStore.getState().pages[pageId];
+        if (newPage) enqueueUpsertPageRaw(newPage);
         return pageId;
       },
 
@@ -566,7 +652,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundleAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(bundleAfter);
         }
+        // 행 페이지 자체의 softDelete 는 pageStore.deletePage 가 이미 enqueue.
       },
 
       updateCell: (databaseId, pageId, columnId, value) => {
@@ -622,6 +710,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundleAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(bundleAfter);
         }
       },
 
@@ -706,7 +795,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
                 ? toDatabaseSnapshot(dbAfter)
                 : undefined,
             );
+            enqueueUpsertDatabase(dbAfter);
           }
+          if (refPageAfter) enqueueUpsertPageRaw(refPageAfter);
           return true;
         }
 
@@ -788,6 +879,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(targetAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(targetAfter);
         }
         if (fromDbId && fromDbId !== databaseId) {
           const oldAfter = get().databases[fromDbId];
@@ -801,8 +893,10 @@ export const useDatabaseStore = create<DatabaseStore>()(
                 ? toDatabaseSnapshot(oldAfter)
                 : undefined,
             );
+            enqueueUpsertDatabase(oldAfter);
           }
         }
+        if (pageAfter) enqueueUpsertPageRaw(pageAfter);
         return true;
       },
 
@@ -868,7 +962,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(dbAfter)
               : undefined,
           );
+          enqueueUpsertDatabase(dbAfter);
         }
+        if (pageAfter) enqueueUpsertPageRaw(pageAfter);
         return true;
       },
 
@@ -888,6 +984,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           },
         }));
         // DB 삭제 후 복원 시 row 페이지가 누락될 수 있어, 페이지 히스토리 스냅샷으로 함께 복원.
+        const restoredPageIds: string[] = [];
         usePageStore.setState((s) => {
           const nextPages = { ...s.pages };
           let changed = false;
@@ -902,10 +999,18 @@ export const useDatabaseStore = create<DatabaseStore>()(
               createdAt: Date.now(),
               updatedAt: Date.now(),
             };
+            restoredPageIds.push(pageId);
             changed = true;
           }
           return changed ? { pages: nextPages } : s;
         });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
+        const pages = usePageStore.getState().pages;
+        for (const pid of restoredPageIds) {
+          const p = pages[pid];
+          if (p) enqueueUpsertPageRaw(p);
+        }
         return true;
       },
 
@@ -926,6 +1031,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           },
         }));
+        const restoredPageIds: string[] = [];
         usePageStore.setState((s) => {
           const nextPages = { ...s.pages };
           let changed = false;
@@ -940,10 +1046,18 @@ export const useDatabaseStore = create<DatabaseStore>()(
               createdAt: Date.now(),
               updatedAt: Date.now(),
             };
+            restoredPageIds.push(pageId);
             changed = true;
           }
           return changed ? { pages: nextPages } : s;
         });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
+        const pages = usePageStore.getState().pages;
+        for (const pid of restoredPageIds) {
+          const p = pages[pid];
+          if (p) enqueueUpsertPageRaw(p);
+        }
         return true;
       },
 
@@ -981,6 +1095,10 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
+        const restoredPage = usePageStore.getState().pages[tombstone.pageId];
+        if (restoredPage) enqueueUpsertPageRaw(restoredPage);
         return true;
       },
 
