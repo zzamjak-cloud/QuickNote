@@ -12,6 +12,7 @@ import {
 import type { PageSnapshot } from "../types/history";
 import { enqueueAsync } from "../lib/sync/runtime";
 import { useAuthStore } from "./authStore";
+import { debouncePerKey } from "../lib/sync/debouncePerKey";
 
 // 동기화 헬퍼 — 인증된 사용자의 sub 를 ownerId 로 사용. 미인증이면 빈 문자열.
 function getOwnerId(): string {
@@ -252,7 +253,12 @@ export const usePageStore = create<PageStore>()(
             { id, doc: structuredClone(after.doc) },
             shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
           );
-          enqueueUpsertPage(after);
+          // 페이지 doc 은 한 글자마다 호출되므로 2초 idle 디바운스로 enqueue 횟수를 줄인다.
+          // 발사 시점에 최신 스냅샷을 다시 읽어 최종 본만 보낸다.
+          debouncePerKey(`page:${id}`, 2000, () => {
+            const latest = get().pages[id];
+            if (latest) enqueueUpsertPage(latest);
+          });
         }
       },
 
