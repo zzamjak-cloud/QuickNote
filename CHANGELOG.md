@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.4] - 2026-05-06
+
+### Changed
+
+- GitHub Actions 릴리스용 Repository Secrets(Cognito `VITE_*`, 데스크톱·웹)가 모두 등록된 상태에서 다시 빌드하는 릴리스.
+
 ## [3.0.3] - 2026-05-06
 
 ### Fixed
