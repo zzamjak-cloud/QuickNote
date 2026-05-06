@@ -1,7 +1,10 @@
+import * as path from "node:path";
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as appsync from "aws-cdk-lib/aws-appsync";
+import * as logs from "aws-cdk-lib/aws-logs";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 
 export interface SyncStackProps extends cdk.StackProps {
@@ -17,6 +20,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
   public readonly contactTable: ModelTable;
   public readonly imageAssetTable: ModelTable;
   public readonly imagesBucket: s3.Bucket;
+  public readonly api: appsync.GraphqlApi;
 
   constructor(scope: Construct, id: string, props: SyncStackProps) {
     super(scope, id, props);
@@ -71,7 +75,33 @@ export class QuicknoteSyncStack extends cdk.Stack {
     this.imagesBucket = imagesBucket;
     new cdk.CfnOutput(this, "ImagesBucketName", { value: imagesBucket.bucketName });
 
-    // 자원은 후속 Task 들에서 추가된다.
-    void userPool;
+    // AppSync GraphQL API. Cognito User Pool 을 primary authorizer 로 사용한다.
+    const api = new appsync.GraphqlApi(this, "SyncApi", {
+      name: "quicknote-sync",
+      definition: appsync.Definition.fromFile(
+        path.join(__dirname, "sync", "schema.graphql"),
+      ),
+      authorizationConfig: {
+        defaultAuthorization: {
+          authorizationType: appsync.AuthorizationType.USER_POOL,
+          userPoolConfig: {
+            userPool,
+            defaultAction: appsync.UserPoolDefaultAction.DENY,
+          },
+        },
+      },
+      logConfig: {
+        fieldLogLevel: appsync.FieldLogLevel.ERROR,
+        retention: logs.RetentionDays.ONE_MONTH,
+      },
+      xrayEnabled: false,
+    });
+
+    this.api = api;
+
+    new cdk.CfnOutput(this, "AppSyncEndpoint", { value: api.graphqlUrl });
+    new cdk.CfnOutput(this, "AppSyncApiId", { value: api.apiId });
+    // realtime URL 은 endpoint 에서 ".appsync-api." → ".appsync-realtime-api." 로 도출.
+    // Amplify GraphQL 클라이언트가 자동 처리하므로 별도 출력은 생략.
   }
 }
