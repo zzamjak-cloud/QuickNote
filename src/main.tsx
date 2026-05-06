@@ -4,6 +4,14 @@ import "./index.css";
 import "highlight.js/styles/github-dark.css";
 import { reportNonFatal } from "./lib/reportNonFatal";
 import { Bootstrap } from "./Bootstrap";
+import {
+  purgeLegacyLocalStorage,
+  purgeLegacyTauriData,
+} from "./lib/sync/legacyCleanup";
+
+// v4 첫 부팅 시 v1~v3 잔여 데이터 폐기 (사용자 합의 — 기존은 개발 테스트 데이터).
+purgeLegacyLocalStorage();
+void purgeLegacyTauriData();
 
 window.addEventListener("error", (ev) => {
   if ((ev.error as Error | null)?.message?.includes("[tiptap error]")) return;
