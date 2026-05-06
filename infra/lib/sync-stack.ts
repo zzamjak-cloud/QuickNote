@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 
 export interface SyncStackProps extends cdk.StackProps {
@@ -15,6 +16,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
   public readonly databaseTable: ModelTable;
   public readonly contactTable: ModelTable;
   public readonly imageAssetTable: ModelTable;
+  public readonly imagesBucket: s3.Bucket;
 
   constructor(scope: Construct, id: string, props: SyncStackProps) {
     super(scope, id, props);
@@ -39,6 +41,35 @@ export class QuicknoteSyncStack extends cdk.Stack {
     new cdk.CfnOutput(this, "ImageAssetTableName", {
       value: this.imageAssetTable.table.tableName,
     });
+
+    // 이미지 업로드용 S3 버킷. PreSignedURL 만 유효해 사실상 안전.
+    const imagesBucket = new s3.Bucket(this, "ImagesBucket", {
+      bucketName: props.imagesBucketName,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      versioned: false,
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedOrigins: ["*"], // PreSignedURL 만 유효해 사실상 안전
+          allowedHeaders: ["*"],
+          maxAge: 3000,
+        },
+      ],
+      lifecycleRules: [
+        {
+          id: "expire-pending-uploads",
+          enabled: true,
+          prefix: "users/",
+          abortIncompleteMultipartUploadAfter: cdk.Duration.days(1),
+          expiration: undefined, // 정상 객체는 만료시키지 않음
+        },
+      ],
+    });
+
+    this.imagesBucket = imagesBucket;
+    new cdk.CfnOutput(this, "ImagesBucketName", { value: imagesBucket.bucketName });
 
     // 자원은 후속 Task 들에서 추가된다.
     void userPool;
