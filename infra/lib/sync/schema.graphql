@@ -1,0 +1,127 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+scalar AWSJSON
+scalar AWSDateTime
+
+type Page {
+  id: ID!
+  ownerId: ID!
+  title: String!
+  icon: String
+  parentId: ID
+  order: String!
+  databaseId: ID
+  doc: AWSJSON!
+  dbCells: AWSJSON
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  deletedAt: AWSDateTime
+}
+
+type Database {
+  id: ID!
+  ownerId: ID!
+  title: String!
+  columns: AWSJSON!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  deletedAt: AWSDateTime
+}
+
+type Contact {
+  id: ID!
+  ownerId: ID!
+  email: String!
+  displayName: String!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  deletedAt: AWSDateTime
+}
+
+enum ImageStatus { PENDING READY }
+
+type ImageAsset {
+  id: ID!
+  ownerId: ID!
+  mimeType: String!
+  size: Int!
+  sha256: String!
+  status: ImageStatus!
+  createdAt: AWSDateTime!
+}
+
+type PageConnection { items: [Page!]! nextToken: String }
+type DatabaseConnection { items: [Database!]! nextToken: String }
+type ContactConnection { items: [Contact!]! nextToken: String }
+
+type ImageUploadResult {
+  imageId: ID!
+  uploadUrl: String!
+  expiresAt: AWSDateTime!
+}
+
+input PageInput {
+  id: ID!
+  title: String!
+  icon: String
+  parentId: ID
+  order: String!
+  databaseId: ID
+  doc: AWSJSON!
+  dbCells: AWSJSON
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+input DatabaseInput {
+  id: ID!
+  title: String!
+  columns: AWSJSON!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+input ContactInput {
+  id: ID!
+  email: String!
+  displayName: String!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+input ImageUploadInput {
+  mimeType: String!
+  size: Int!
+  sha256: String!
+}
+
+type Query {
+  listPages(updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
+  listDatabases(updatedAfter: AWSDateTime, limit: Int, nextToken: String): DatabaseConnection!
+  listContacts(limit: Int, nextToken: String): ContactConnection!
+  getImageDownloadUrl(imageId: ID!): String!
+}
+
+type Mutation {
+  upsertPage(input: PageInput!): Page!
+  upsertDatabase(input: DatabaseInput!): Database!
+  upsertContact(input: ContactInput!): Contact!
+  softDeletePage(id: ID!, updatedAt: AWSDateTime!): Page!
+  softDeleteDatabase(id: ID!, updatedAt: AWSDateTime!): Database!
+  softDeleteContact(id: ID!, updatedAt: AWSDateTime!): Contact!
+  getImageUploadUrl(input: ImageUploadInput!): ImageUploadResult!
+  confirmImage(imageId: ID!): ImageAsset!
+}
+
+type Subscription {
+  onPageChanged(ownerId: ID!): Page
+    @aws_subscribe(mutations: ["upsertPage", "softDeletePage"])
+  onDatabaseChanged(ownerId: ID!): Database
+    @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase"])
+  onContactChanged(ownerId: ID!): Contact
+    @aws_subscribe(mutations: ["upsertContact", "softDeleteContact"])
+}
