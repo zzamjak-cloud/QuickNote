@@ -16,12 +16,16 @@ export function between(left: string | null, right: string | null): string {
   return midstring(a, b);
 }
 
+function charAtOr(s: string, i: number, fallback: string): string {
+  return i < s.length ? (s[i] as string) : fallback;
+}
+
 function midstring(a: string, b: string): string {
   let i = 0;
   let prefix = "";
   while (true) {
-    const ca = i < a.length ? a[i] : MIN;
-    const cb = i < b.length ? b[i] : b === "" ? AFTER_MAX : MAX;
+    const ca = charAtOr(a, i, MIN);
+    const cb = charAtOr(b, i, b === "" ? AFTER_MAX : MAX);
     if (ca === cb) {
       prefix += ca;
       i++;
@@ -37,7 +41,7 @@ function midstring(a: string, b: string): string {
     prefix += ca;
     i++;
     while (true) {
-      const ca2 = i < a.length ? a[i] : MIN;
+      const ca2 = charAtOr(a, i, MIN);
       if (ca2.charCodeAt(0) < MAX.charCodeAt(0)) {
         const mid = String.fromCharCode(
           Math.floor((ca2.charCodeAt(0) + MAX.charCodeAt(0) + 1) / 2),

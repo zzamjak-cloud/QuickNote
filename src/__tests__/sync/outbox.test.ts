@@ -38,8 +38,9 @@ describe("MemoryOutboxAdapter", () => {
     await a.upsertByDedupe(entry({ id: "2", dedupeKey: "k", payload: { v: 2 } }));
     const items = await a.list(10);
     expect(items.length).toBe(1);
-    expect(items[0].id).toBe("2");
-    expect(items[0].payload).toEqual({ v: 2 });
+    const first = items[0]!;
+    expect(first.id).toBe("2");
+    expect(first.payload).toEqual({ v: 2 });
   });
 
   it("clear empties the store", async () => {

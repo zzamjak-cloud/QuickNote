@@ -16,12 +16,12 @@ describe("isRemoteWinner", () => {
   });
 
   it("treats deletedAt-set remote as winner regardless of updatedAt", () => {
-    const local = {
+    const local: { id: string; updatedAt: string; deletedAt: string | null } = {
       id: "a",
       updatedAt: "2026-05-06T00:00:10Z",
       deletedAt: null,
     };
-    const remote = {
+    const remote: { id: string; updatedAt: string; deletedAt: string | null } = {
       id: "a",
       updatedAt: "2026-05-06T00:00:05Z",
       deletedAt: "2026-05-06T00:00:05Z",
