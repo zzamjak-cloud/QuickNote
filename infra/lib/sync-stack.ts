@@ -6,6 +6,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as appsync from "aws-cdk-lib/aws-appsync";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNode from "aws-cdk-lib/aws-lambda-nodejs";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
@@ -26,6 +27,11 @@ export class QuicknoteSyncStack extends cdk.Stack {
   public readonly imageAssetTable: ModelTable;
   public readonly imagesBucket: s3.Bucket;
   public readonly api: appsync.GraphqlApi;
+  public readonly membersTable: dynamodb.Table;
+  public readonly teamsTable: dynamodb.Table;
+  public readonly memberTeamsTable: dynamodb.Table;
+  public readonly workspacesTable: dynamodb.Table;
+  public readonly workspaceAccessTable: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: SyncStackProps) {
     super(scope, id, props);
@@ -50,6 +56,94 @@ export class QuicknoteSyncStack extends cdk.Stack {
     new cdk.CfnOutput(this, "ImageAssetTableName", {
       value: this.imageAssetTable.table.tableName,
     });
+
+    // v5 신규 테이블 5종 — workspace 기반 멀티 유저 협업 인프라
+    const membersTable = new dynamodb.Table(this, "MembersTable", {
+      tableName: "quicknote-members",
+      partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    membersTable.addGlobalSecondaryIndex({
+      indexName: "byEmail",
+      partitionKey: { name: "email", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    membersTable.addGlobalSecondaryIndex({
+      indexName: "byCognitoSub",
+      partitionKey: { name: "cognitoSub", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    const teamsTable = new dynamodb.Table(this, "TeamsTable", {
+      tableName: "quicknote-teams",
+      partitionKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    const memberTeamsTable = new dynamodb.Table(this, "MemberTeamsTable", {
+      tableName: "quicknote-member-teams",
+      partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    memberTeamsTable.addGlobalSecondaryIndex({
+      indexName: "byTeam",
+      partitionKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    const workspacesTable = new dynamodb.Table(this, "WorkspacesTable", {
+      tableName: "quicknote-workspaces",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    workspacesTable.addGlobalSecondaryIndex({
+      indexName: "byOwnerAndType",
+      partitionKey: { name: "ownerMemberId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "type", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    const workspaceAccessTable = new dynamodb.Table(this, "WorkspaceAccessTable", {
+      tableName: "quicknote-workspace-access",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "subjectKey", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    workspaceAccessTable.addGlobalSecondaryIndex({
+      indexName: "bySubject",
+      partitionKey: { name: "subjectKey", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    new cdk.CfnOutput(this, "MembersTableName", { value: membersTable.tableName });
+    new cdk.CfnOutput(this, "TeamsTableName", { value: teamsTable.tableName });
+    new cdk.CfnOutput(this, "MemberTeamsTableName", { value: memberTeamsTable.tableName });
+    new cdk.CfnOutput(this, "WorkspacesTableName", { value: workspacesTable.tableName });
+    new cdk.CfnOutput(this, "WorkspaceAccessTableName", { value: workspaceAccessTable.tableName });
+
+    this.membersTable = membersTable;
+    this.teamsTable = teamsTable;
+    this.memberTeamsTable = memberTeamsTable;
+    this.workspacesTable = workspacesTable;
+    this.workspaceAccessTable = workspaceAccessTable;
 
     // 이미지 업로드용 S3 버킷. PreSignedURL 만 유효해 사실상 안전.
     const imagesBucket = new s3.Bucket(this, "ImagesBucket", {
