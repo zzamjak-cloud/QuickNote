@@ -18,6 +18,10 @@ export interface CognitoStackProps extends cdk.StackProps {
 }
 
 export class CognitoStack extends cdk.Stack {
+  // 다른 스택에서 cross-stack reference 로 참조하기 위한 공개 getter.
+  public readonly userPoolId: string;
+  public readonly userPoolArn: string;
+
   constructor(scope: Construct, id: string, props: CognitoStackProps) {
     super(scope, id, props);
 
@@ -139,5 +143,8 @@ export class CognitoStack extends cdk.Stack {
     new cdk.CfnOutput(this, "HostedUiDomain", {
       value: `${domain.domainName}.auth.${this.region}.amazoncognito.com`,
     });
+
+    this.userPoolId = userPool.userPoolId;
+    this.userPoolArn = userPool.userPoolArn;
   }
 }

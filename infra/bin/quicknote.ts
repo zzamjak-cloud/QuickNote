@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { CognitoStack } from "../lib/cognito-stack";
+import { QuicknoteSyncStack } from "../lib/sync-stack";
 
 const app = new cdk.App();
 
-// 화이트리스트 이메일은 `cdk deploy -c allowedEmails=a@x.com,b@y.com` 으로 주입한다.
-// bootstrap 단계에서도 app 이 합성되므로 비어 있어도 throw 하지 않는다.
-// 비어 있으면 Lambda 가 모든 가입을 거부하는 안전한 기본값으로 동작한다.
 const allowedEmailsRaw = (app.node.tryGetContext("allowedEmails") as string | undefined) ?? "";
 const allowedEmails = allowedEmailsRaw
   .split(",")
@@ -18,7 +16,7 @@ const env = {
   region: process.env.CDK_DEFAULT_REGION ?? "ap-northeast-2",
 };
 
-new CognitoStack(app, "QuicknoteCognitoStack", {
+const cognitoStack = new CognitoStack(app, "QuicknoteCognitoStack", {
   env,
   description: "QuickNote v3 인증 스택 (User Pool + Google IdP + 화이트리스트 Lambda)",
   cognitoDomainPrefix: app.node.tryGetContext("cognitoDomainPrefix") as string,
@@ -28,4 +26,16 @@ new CognitoStack(app, "QuicknoteCognitoStack", {
   desktopLogoutUrls: app.node.tryGetContext("desktopLogoutUrls") as string[],
   googleSecretName: app.node.tryGetContext("googleSecretName") as string,
   allowedEmails,
+});
+
+const imagesBucketName =
+  (app.node.tryGetContext("imagesBucketName") as string | undefined)
+  ?? `quicknote-images-${env.account ?? "unknown"}-${env.region}`;
+
+new QuicknoteSyncStack(app, "QuicknoteSyncStack", {
+  env,
+  description: "QuickNote v4 동기화 스택 (AppSync + DDB + S3 + Lambda)",
+  userPoolId: cognitoStack.userPoolId,
+  userPoolArn: cognitoStack.userPoolArn,
+  imagesBucketName,
 });
