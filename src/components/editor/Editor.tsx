@@ -385,7 +385,10 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   // 즉시 editor 에 반영되도록 한다. 자기 타이핑은 editor.getJSON() === safeDoc 비교로 걸러지므로 무한 루프 없음.
   // 사용자 입력 중(focused)이면 cursor 보존을 위해 blur 까지 setContent 를 보류.
   useEffect(() => {
-    if (!editor || !page || !effectivePageId) return;
+    if (!editor || !page || !effectivePageId) {
+      console.log("[QN-DEBUG] editor:effect skip", { hasEditor: !!editor, hasPage: !!page, effectivePageId });
+      return;
+    }
     let safeDoc = stripStaleBlobImages(page.doc);
     safeDoc = normalizeFullPageDatabaseDoc(safeDoc);
     if (!tipTapJsonDocEquals(editor.schema, safeDoc, page.doc)) {
@@ -394,12 +397,17 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     const sync = () => {
       if (editor.isDestroyed) return;
       const current = editor.getJSON();
-      if (tipTapJsonDocEquals(editor.schema, current, safeDoc)) return;
+      const equals = tipTapJsonDocEquals(editor.schema, current, safeDoc);
+      console.log("[QN-DEBUG] editor:sync", { equals, focused: editor.isFocused, currentLen: JSON.stringify(current).length, safeDocLen: JSON.stringify(safeDoc).length });
+      if (equals) return;
+      console.log("[QN-DEBUG] editor:setContent applied");
       editor.commands.setContent(safeDoc, { emitUpdate: false });
     };
+    console.log("[QN-DEBUG] editor:effect run", { pageId: page.id, updatedAt: page.updatedAt, focused: editor.isFocused });
     if (editor.isFocused) {
       const onBlur = () => {
         editor.off("blur", onBlur);
+        console.log("[QN-DEBUG] editor:blur → sync");
         scheduleEditorMutation(sync);
       };
       editor.on("blur", onBlur);
