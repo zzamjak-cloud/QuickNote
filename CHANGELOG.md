@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.8] - 2026-05-08
+
+### Changed
+
+- **`package.json`과 Tauri `tauri.conf.json` 버전을 `5.0.8`로 함께 올림**: 데스크톱 CI의 버전 일치 검증과 릴리스 메타 정보를 명확히 맞추기 위한 패치 릴리스.
+
 ## [5.0.7] - 2026-05-08
 
 ### Fixed
