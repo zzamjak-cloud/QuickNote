@@ -49,8 +49,17 @@ export class SyncEngine {
       attempts: 0,
       dedupeKey: `${op}:${payload.id}`,
     };
+    console.log("[QN-DEBUG] enqueue", op, {
+      pageId: payload.id,
+      workspaceId: (payload as Record<string, unknown>).workspaceId,
+      createdByMemberId: (payload as Record<string, unknown>).createdByMemberId,
+    });
     await this.outbox.upsertByDedupe(entry);
     this.scheduleFlush(0);
+  }
+
+  async peekPending(): Promise<number> {
+    return (await this.outbox.list(1)).length;
   }
 
   scheduleFlush(delayMs: number): void {
@@ -72,12 +81,22 @@ export class SyncEngine {
         let minFailBackoff = MAX_BACKOFF_MS;
         let hasFailure = false;
 
+        console.log("[QN-DEBUG] flush batch", { size: batch.length });
         for (const entry of batch) {
           try {
             await this.execute(entry);
+            console.log("[QN-DEBUG] mutation OK", entry.op, {
+              pageId: (entry.payload as Record<string, unknown>).id,
+            });
             await this.outbox.remove(entry.id);
           } catch (err) {
-            void err;
+            console.error("[QN-DEBUG] mutation FAIL", entry.op, {
+              pageId: (entry.payload as Record<string, unknown>).id,
+              workspaceId: (entry.payload as Record<string, unknown>).workspaceId,
+              attempts: entry.attempts + 1,
+              error: err instanceof Error ? err.message : String(err),
+              errors: (err as { errors?: unknown }).errors,
+            });
             const attempts = entry.attempts + 1;
             if (attempts >= MAX_ATTEMPTS) {
               // 영구 실패로 간주하고 dead-letter 처리(드롭).

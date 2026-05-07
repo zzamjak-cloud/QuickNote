@@ -45,7 +45,16 @@ function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> 
 }
 
 function enqueueUpsertPage(p: Page): void {
-  enqueueAsync("upsertPage", toGqlPage(p, getCreatedByMemberId()) as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
+  const wsId = getCurrentWorkspaceId();
+  const memberId = getCreatedByMemberId();
+  if (!wsId) {
+    console.error("[QN-DEBUG] enqueueUpsertPage SKIPPED: workspaceId 없음 — 인증/부트스트랩 미완료 시점에 페이지 변경 발생", { pageId: p.id });
+    return;
+  }
+  if (!memberId) {
+    console.warn("[QN-DEBUG] enqueueUpsertPage: createdByMemberId 비어있음 — Lambda fallback 시도", { pageId: p.id });
+  }
+  enqueueAsync("upsertPage", toGqlPage(p, memberId) as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
 }
 
 const EMPTY_DOC: JSONContent = {

@@ -99,7 +99,6 @@ function useSyncBootstrap() {
     const prevWorkspaceId = startedForRef.current
       ? startedForRef.current.split(":").slice(1).join(":")
       : null;
-    applyWorkspaceSwitch(prevWorkspaceId, currentWorkspaceId);
     startedForRef.current = startedKey;
 
     let unsub: (() => void) | undefined;
@@ -107,10 +106,20 @@ function useSyncBootstrap() {
 
     (async () => {
       try {
+        const switchResult = await applyWorkspaceSwitch(
+          prevWorkspaceId,
+          currentWorkspaceId,
+        );
+        console.log("[QN-DEBUG] bootstrap switch result", switchResult);
         const [pages, dbs] = await Promise.all([
           fetchPagesByWorkspace(currentWorkspaceId),
           fetchDatabasesByWorkspace(currentWorkspaceId),
         ]);
+        console.log("[QN-DEBUG] bootstrap fetched", {
+          workspaceId: currentWorkspaceId,
+          pages: pages.length,
+          databases: dbs.length,
+        });
         if (cancelled) return;
         for (const p of pages) applyRemotePageToStore(p);
         for (const d of dbs) applyRemoteDatabaseToStore(d);
@@ -124,7 +133,7 @@ function useSyncBootstrap() {
         const engine = await getSyncEngine();
         await engine.flush();
       } catch (err) {
-        console.error("[sync] bootstrap failed", err);
+        console.error("[QN-DEBUG] bootstrap failed", err);
       }
     })();
 
