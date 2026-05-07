@@ -340,9 +340,8 @@ export function TopBar() {
                 </div>
               ) : (
                 pageHistoryTimeline.slice(0, 100).map((entry, idx, arr) => (
-                  <button
+                  <div
                     key={entry.id}
-                    type="button"
                     onClick={() => {
                       const targetEventId = entry.eventIds[entry.eventIds.length - 1];
                       if (targetEventId) {
@@ -350,6 +349,18 @@ export function TopBar() {
                       }
                       setHistoryDialogOpen(false);
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        const targetEventId = entry.eventIds[entry.eventIds.length - 1];
+                        if (targetEventId) {
+                          restorePageFromHistoryEvent(activeId, targetEventId);
+                        }
+                        setHistoryDialogOpen(false);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                     className="flex w-full items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                   >
                     <button
@@ -397,7 +408,7 @@ export function TopBar() {
                     >
                       <Trash2 size={12} />
                     </button>
-                  </button>
+                  </div>
                 ))
               )}
             </div>

@@ -623,3 +623,13 @@ body.qn-box-select-dragging {
 .dark .ProseMirror [data-column-layout] > [data-column]:not(:last-child)::after {
   background: rgba(113, 113, 122, 0.42);
 }
+
+/* 컬럼 핸들 드래그 중에는 블록 드래그 시각요소를 숨겨 혼선을 줄인다. */
+body.quicknote-column-reorder-dragging [data-qn-block-grip] {
+  visibility: hidden;
+}
+
+body.quicknote-column-reorder-dragging .qn-column-drop-indicator,
+body.quicknote-column-reorder-dragging .qn-dropcursor {
+  display: none !important;
+}

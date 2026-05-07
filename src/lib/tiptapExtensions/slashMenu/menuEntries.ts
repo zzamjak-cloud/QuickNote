@@ -25,7 +25,66 @@ import { usePageStore } from "../../../store/pageStore";
 import { useUiStore } from "../../../store/uiStore";
 import { isTrustedYoutubeInput } from "../../safeUrl";
 import { dbSlashChildren } from "./dbCommands";
-import type { SlashMenuEntry } from "./types";
+import type { SlashCommandContext, SlashMenuEntry } from "./types";
+
+function countProtectedMediaBlocks(node: unknown): number {
+  if (!node || typeof node !== "object") return 0;
+  const n = node as {
+    type?: string;
+    attrs?: { mime?: string; mimeType?: string; contentType?: string };
+    content?: unknown[];
+  };
+  const isYoutube = n.type === "youtube";
+  const mime =
+    typeof n.attrs?.mime === "string"
+      ? n.attrs.mime
+      : typeof n.attrs?.mimeType === "string"
+        ? n.attrs.mimeType
+        : typeof n.attrs?.contentType === "string"
+          ? n.attrs.contentType
+          : null;
+  const isVideoFile =
+    n.type === "fileBlock" &&
+    typeof mime === "string" &&
+    mime.startsWith("video/");
+  const self = isYoutube || isVideoFile ? 1 : 0;
+  if (!Array.isArray(n.content) || n.content.length === 0) return self;
+  return (
+    self +
+    n.content.reduce<number>(
+      (acc, child) => acc + countProtectedMediaBlocks(child),
+      0,
+    )
+  );
+}
+
+function runColumnLayoutCommand(
+  editor: SlashCommandContext["editor"],
+  cols: 2 | 3 | 4,
+) {
+  const before = editor.getJSON();
+  const beforeMediaCount = countProtectedMediaBlocks(before);
+  const chain = editor.chain().focus();
+  const { $from } = editor.state.selection;
+  // slash 범위(range)는 신뢰하지 않고 현재 단락 내부 텍스트만 정리한다.
+  // 이렇게 하면 다른 블록(특히 미디어 블록)까지 함께 삭제되는 경로를 차단할 수 있다.
+  if ($from.parent.type.name === "paragraph") {
+    const from = $from.start();
+    const to = from + $from.parent.content.size;
+    if (from < to) {
+      chain.deleteRange({ from, to });
+    }
+  }
+  const ok = chain.setColumnLayout(cols).run();
+  if (!ok) return false;
+  const after = editor.getJSON();
+  const afterMediaCount = countProtectedMediaBlocks(after);
+  if (afterMediaCount < beforeMediaCount) {
+    editor.commands.setContent(before, { emitUpdate: true });
+    return false;
+  }
+  return true;
+}
 
 export const slashMenuEntries: SlashMenuEntry[] = [
   {
@@ -265,8 +324,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     description: "나란히 두 열 레이아웃",
     icon: LayoutGrid,
     keywords: ["columns", "2 col", "두 열", "2열", "column"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setColumnLayout(2).run(),
+    command: ({ editor }) => runColumnLayoutCommand(editor, 2),
   },
   {
     kind: "leaf",
@@ -274,8 +332,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     description: "세 열 레이아웃",
     icon: LayoutGrid,
     keywords: ["3 col", "세 열", "3열"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setColumnLayout(3).run(),
+    command: ({ editor }) => runColumnLayoutCommand(editor, 3),
   },
   {
     kind: "leaf",
@@ -283,8 +340,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     description: "네 열 레이아웃",
     icon: LayoutGrid,
     keywords: ["4 col", "네 열", "4열"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setColumnLayout(4).run(),
+    command: ({ editor }) => runColumnLayoutCommand(editor, 4),
   },
   {
     kind: "leaf",

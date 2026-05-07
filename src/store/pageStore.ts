@@ -13,6 +13,7 @@ import type { PageSnapshot } from "../types/history";
 import { enqueueAsync } from "../lib/sync/runtime";
 import { useAuthStore } from "./authStore";
 import { useWorkspaceStore } from "./workspaceStore";
+import { useSettingsStore } from "./settingsStore";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
@@ -248,6 +249,9 @@ export const usePageStore = create<PageStore>()(
         const workspaceId = useWorkspaceStore.getState().currentWorkspaceId ?? "";
         for (const removedId of removedIds) {
           enqueueAsync("softDeletePage", { id: removedId, workspaceId, updatedAt: nowIso });
+        }
+        if (removedIds.length > 0) {
+          useSettingsStore.getState().removeFavoritesForPages(removedIds);
         }
       },
 

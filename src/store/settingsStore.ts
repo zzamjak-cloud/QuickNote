@@ -8,6 +8,10 @@ type SettingsState = {
   darkMode: boolean;
   fullWidth: boolean;
   sidebarWidth: number;
+  /** 사이드바 접힘 — 접힘 시 좌측 얇은 레일만 표시 */
+  sidebarCollapsed: boolean;
+  /** 개인 즐겨찾기 페이지 id 순서 */
+  favoritePageIds: string[];
   expandedIds: string[];
   // 페이지 탭. activeTabIndex 위치의 탭 pageId가 곧 활성 페이지.
   tabs: Tab[];
@@ -17,6 +21,13 @@ type SettingsState = {
 type SettingsActions = {
   toggleDarkMode: () => void;
   setSidebarWidth: (width: number) => void;
+  toggleSidebarCollapsed: () => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
+  toggleFavoritePage: (pageId: string) => void;
+  reorderFavorites: (orderedIds: string[]) => void;
+  removeFavoritePage: (pageId: string) => void;
+  /** 페이지 삭제 시 즐겨찾기 배열에서 제거 */
+  removeFavoritesForPages: (pageIds: string[]) => void;
   toggleExpanded: (id: string) => void;
   setExpanded: (id: string, expanded: boolean) => void;
   // 현재 탭의 pageId만 갱신
@@ -41,12 +52,36 @@ export const useSettingsStore = create<SettingsStore>()(
       darkMode: false,
       fullWidth: false,
       sidebarWidth: 260,
+      sidebarCollapsed: false,
+      favoritePageIds: [],
       expandedIds: [],
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
       toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
       setSidebarWidth: (width) =>
         set({ sidebarWidth: Math.max(180, Math.min(480, width)) }),
+      toggleSidebarCollapsed: () =>
+        set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+      setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+      toggleFavoritePage: (pageId) =>
+        set((s) => ({
+          favoritePageIds: s.favoritePageIds.includes(pageId)
+            ? s.favoritePageIds.filter((id) => id !== pageId)
+            : [...s.favoritePageIds, pageId],
+        })),
+      reorderFavorites: (orderedIds) =>
+        set(() => ({ favoritePageIds: [...orderedIds] })),
+      removeFavoritePage: (pageId) =>
+        set((s) => ({
+          favoritePageIds: s.favoritePageIds.filter((id) => id !== pageId),
+        })),
+      removeFavoritesForPages: (pageIds) =>
+        set((s) => {
+          const rm = new Set(pageIds);
+          const next = s.favoritePageIds.filter((id) => !rm.has(id));
+          if (next.length === s.favoritePageIds.length) return s;
+          return { favoritePageIds: next };
+        }),
       toggleExpanded: (id) =>
         set((s) => ({
           expandedIds: s.expandedIds.includes(id)
@@ -113,8 +148,18 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: "quicknote.settings.v1",
       storage: createJSONStorage(() => zustandStorage),
-      version: 1,
-      migrate: (persisted) => persisted,
+      version: 2,
+      migrate: (persisted: unknown, fromVersion: number) => {
+        const p = persisted as Record<string, unknown>;
+        if (fromVersion < 2) {
+          return {
+            ...p,
+            sidebarCollapsed: false,
+            favoritePageIds: [],
+          };
+        }
+        return persisted;
+      },
     },
   ),
 );

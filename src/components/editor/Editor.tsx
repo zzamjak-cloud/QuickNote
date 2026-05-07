@@ -63,9 +63,11 @@ import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker } from "../common/IconPicker";
+import { Star } from "lucide-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
+import { ColumnReorderHandles } from "./ColumnReorderHandles";
 import type { JSONContent } from "@tiptap/react";
 import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
 import { isAllowedTipTapLinkUri } from "../../lib/safeUrl";
@@ -151,6 +153,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
 
   const darkMode = useSettingsStore((s) => s.darkMode);
   const fullWidth = useSettingsStore((s) => s.fullWidth);
+  const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
+  const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
 
   const titleRef = useRef<HTMLInputElement | null>(null);
   /** 풀 페이지 DB 제목 중복 시 입력 되돌리기용 — 마지막으로 저장에 성공한 제목 */
@@ -610,6 +614,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
                 <IconPicker
                   current={page.icon}
                   onChange={(icon) => setIcon(effectivePageId, icon)}
+                  onUploadMessage={(msg) => setSimpleAlert(msg)}
                 />
                 <input
                   ref={titleRef}
@@ -628,14 +633,39 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
                     }
                   }}
                   placeholder="제목 없음"
-                  className="flex-1 bg-transparent text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
+                  className="min-w-0 flex-1 bg-transparent text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
                 />
+                <button
+                  type="button"
+                  onClick={() => toggleFavoritePage(effectivePageId)}
+                  className="shrink-0 rounded-md p-2 text-zinc-400 hover:bg-zinc-100 hover:text-amber-500 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
+                  aria-label={
+                    favoritePageIds.includes(effectivePageId)
+                      ? "즐겨찾기 해제"
+                      : "즐겨찾기"
+                  }
+                  aria-pressed={favoritePageIds.includes(effectivePageId)}
+                  title="즐겨찾기"
+                >
+                  <Star
+                    size={22}
+                    strokeWidth={1.75}
+                    className={
+                      favoritePageIds.includes(effectivePageId)
+                        ? "fill-amber-400 text-amber-500"
+                        : ""
+                    }
+                  />
+                </button>
               </div>
             </div>
           </>
         )}
         <div className="relative">
           <EditorContent editor={editor} />
+          {!isFullPageDatabase && (
+            <ColumnReorderHandles editor={editor} boxSelectedStarts={boxSelectedStarts} />
+          )}
           {!isFullPageDatabase && (
             <BlockHandles
               editor={editor}

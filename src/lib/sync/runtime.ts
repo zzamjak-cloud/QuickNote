@@ -18,11 +18,10 @@ export async function getSyncEngine(): Promise<SyncEngine> {
       const w = window as unknown as Record<string, unknown>;
       w.__QN_clearOutbox = async () => {
         await _engine!.clearAll();
-        console.log("[QN-DEBUG] outbox 전체 비움 완료");
+        return true;
       };
       w.__QN_outboxSnapshot = async () => {
         const snap = await _engine!.debugSnapshot();
-        console.log("[QN-DEBUG] outbox snapshot", { count: snap.length, entries: snap });
         return snap;
       };
     }

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.7] - 2026-05-08
+
+### Fixed
+
+- **컬럼/박스 드래그 중 에디터 뷰 접근 예외**: `ColumnReorderHandles` 의 마우스 이동/갱신 경로에서 `editor.view` 언마운트 타이밍 접근으로 `[tiptap error]: The editor view is not available` 가 반복 발생하던 문제를 방어. `view/dom` 접근을 예외 안전 가드로 통일해 페이지 전환·리로드 직후에도 에러 스팸 없이 동작.
+- **버전 히스토리 중첩 버튼 hydration 오류 재발**: 히스토리 리스트 항목의 인터랙션 래퍼를 버튼 중첩이 생기지 않는 구조로 정리해 `<button> cannot be a descendant of <button>` 오류를 해소.
+- **컬럼 드래그 시 잘못된 텍스트 삽입/되돌리기 불안정**: 컬럼 핸들 drag payload 처리와 드롭 경로를 보강해 텍스트만 떨어지는 오동작을 줄이고 의도한 컬럼 재정렬만 반영되도록 안정화.
+
+### Changed
+
+- 사이드바 즐겨찾기 노출 위치를 오른쪽 패널 중심으로 정리하고, 패널 헤더에 즐겨찾기 개수 표시를 추가.
+- 릴리즈 전 `QN-DEBUG` 콘솔 로그를 정리해 프로덕션 콘솔 노이즈를 제거.
+
 ## [5.0.6] - 2026-05-07
 
 ### Fixed

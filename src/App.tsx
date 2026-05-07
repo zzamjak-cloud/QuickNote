@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
+import { SidebarCollapsedRail } from "./components/layout/SidebarCollapsedRail";
+import { FavoritesPanel } from "./components/layout/FavoritesPanel";
 import { TopBar } from "./components/layout/TopBar";
 import { TabBar } from "./components/layout/TabBar";
 import { Editor } from "./components/editor/Editor";
@@ -25,6 +27,8 @@ function App() {
   const openTab = useSettingsStore((s) => s.openTab);
   const prevTab = useSettingsStore((s) => s.prevTab);
   const nextTab = useSettingsStore((s) => s.nextTab);
+  const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
+  const toggleSidebarCollapsed = useSettingsStore((s) => s.toggleSidebarCollapsed);
   const createPage = usePageStore((s) => s.createPage);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -114,18 +118,28 @@ function App() {
       } else if (e.shiftKey && e.key === "]") {
         e.preventDefault();
         nextTab();
+      } else if (mod && e.key === "\\") {
+        e.preventDefault();
+        toggleSidebarCollapsed();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [createPage, toggleDarkMode, openTab, prevTab, nextTab]);
+  }, [
+    createPage,
+    toggleDarkMode,
+    openTab,
+    prevTab,
+    nextTab,
+    toggleSidebarCollapsed,
+  ]);
 
   if (migrating) return <MigrationScreen />;
 
   return (
     <AuthGate>
       <div className="flex h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-        <Sidebar />
+        {sidebarCollapsed ? <SidebarCollapsedRail /> : <Sidebar />}
         <div className="flex flex-1 flex-col overflow-hidden">
           <TabBar />
           <TopBar />
@@ -137,6 +151,7 @@ function App() {
             <Editor />
           )}
         </div>
+        <FavoritesPanel />
         <DatabaseRowPeek />
         <TextPromptDialog />
         {autoUpdate.isSupported && (

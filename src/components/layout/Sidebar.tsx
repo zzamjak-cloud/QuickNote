@@ -29,6 +29,7 @@ import { PageMoveDialog } from "./PageMoveDialog";
 import { DatabaseManagerDialog } from "./DatabaseManagerDialog";
 import { SidebarHeader } from "../sidebar/SidebarHeader";
 import { SettingsModal } from "../settings/SettingsModal";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 
 type DropTarget = { id: string; mode: SidebarDropMode } | null;
 
@@ -37,9 +38,7 @@ function SidebarDragPreview({ pageId }: { pageId: string }) {
   if (!page) return null;
   return (
     <div className="flex max-w-[15rem] cursor-grabbing select-none items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm shadow-lg ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10">
-      <span className="shrink-0 text-base leading-none">
-        {page.icon ?? "·"}
-      </span>
+      <PageIconDisplay icon={page.icon} size="sm" className="shrink-0" />
       <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">
         {page.title || "제목 없음"}
       </span>
@@ -87,7 +86,15 @@ export function Sidebar() {
   const duplicatePage = usePageStore((s) => s.duplicatePage);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const activePageId = usePageStore((s) => s.activePageId);
-  const undoLastDelete = usePageStore((s) => s.undoLastDelete);
+
+  const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
+  const setSidebarCollapsed = useSettingsStore((s) => s.setSidebarCollapsed);
+
+  const resizeRef = useRef<{
+    startX: number;
+    startWidth: number;
+  } | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -106,16 +113,6 @@ export function Sidebar() {
         const newId = duplicatePage(activePageId);
         if (newId) setActivePage(newId);
         return;
-      }
-
-      // Ctrl/Cmd + Z (shift 없음): 마지막 페이지 삭제 복원.
-      // 입력 필드/에디터 focus 시는 위 isInput·isEditorFocused 가드로 이미 return 처리됨 — 여기는 사이드바·빈 영역 focus 한정.
-      if (mod && (e.key === "z" || e.key === "Z") && !e.shiftKey) {
-        const restored = undoLastDelete();
-        if (restored) {
-          e.preventDefault();
-          return;
-        }
       }
 
       // 페이지 삭제는 사이드바 우측 휴지통 아이콘·우클릭 메뉴로만 트리거.
@@ -140,7 +137,7 @@ export function Sidebar() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activePageId, duplicatePage, setActivePage, movePageRelative, undoLastDelete]);
+  }, [activePageId, duplicatePage, setActivePage, movePageRelative]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -271,6 +268,39 @@ export function Sidebar() {
     }
   };
 
+  const onResizePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    resizeRef.current = {
+      startX: e.clientX,
+      startWidth: sidebarWidth,
+    };
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+    const onMove = (ev: PointerEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      const dx = ev.clientX - r.startX;
+      setSidebarWidth(r.startWidth + dx);
+    };
+    const onUp = (ev: PointerEvent) => {
+      resizeRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      try {
+        (ev.target as HTMLElement).releasePointerCapture(ev.pointerId);
+      } catch {
+        /* noop */
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+
   const onDragEnd = (event: DragEndEvent) => {
     const { active } = event;
     const last = nestHintRef.current;
@@ -305,11 +335,16 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 px-2 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+    <div
+      className="relative flex h-full shrink-0 flex-col"
+      style={{ width: sidebarWidth }}
+    >
+      <aside className="flex h-full min-w-0 flex-1 flex-col border-r border-zinc-200 bg-zinc-50 px-2 py-3 dark:border-zinc-800 dark:bg-zinc-900">
       <SidebarHeader
         appVersion={APP_VERSION}
         onCreatePage={() => createPage()}
         onOpenSettings={() => setSettingsOpen(true)}
+        onCollapseSidebar={() => setSidebarCollapsed(true)}
       />
       <div className="mb-2 flex items-center gap-1.5 rounded-md bg-white px-2 py-1 ring-1 ring-zinc-200 focus-within:ring-zinc-400 dark:bg-zinc-950 dark:ring-zinc-800 dark:focus-within:ring-zinc-600">
         <Search size={13} className="text-zinc-400" />
@@ -371,6 +406,15 @@ export function Sidebar() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />
-    </aside>
+      </aside>
+      {/* 사이드바 폭 조절 핸들 */}
+      <button
+        type="button"
+        aria-label="사이드바 너비 조절"
+        title="드래그하여 너비 조절"
+        onPointerDown={onResizePointerDown}
+        className="absolute right-0 top-0 z-30 h-full w-2 cursor-col-resize border-0 bg-transparent p-0 hover:bg-blue-500/15 active:bg-blue-500/25"
+      />
+    </div>
   );
 }

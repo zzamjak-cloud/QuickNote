@@ -1,21 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, MoreHorizontal, Trash2, Check, Minus } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, Star, Trash2, Check, Minus } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { useUiStore } from "../../store/uiStore";
 import { Editor } from "../editor/Editor";
+import { IconPicker } from "../common/IconPicker";
 import { DatabasePropertyPanel } from "./DatabasePropertyPanel";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageMoveDialog } from "../layout/PageMoveDialog";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const page = usePageStore((s) => s.pages[pageId]);
   const renamePage = usePageStore((s) => s.renamePage);
+  const setIcon = usePageStore((s) => s.setIcon);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
+  const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
   const getRowBackTarget = useUiStore((s) => s.getRowBackTarget);
   const clearRowBackTarget = useUiStore((s) => s.clearRowBackTarget);
   const databaseId = page?.databaseId;
@@ -31,6 +36,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [iconAlert, setIconAlert] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{
     label: string;
     eventIds: string[];
@@ -133,21 +139,48 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
         </div>
       </div>
 
-      <input
-        type="text"
-        value={titleDraft}
-        onChange={(e) => setTitleDraft(e.target.value)}
-        onBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        }}
-        placeholder="제목 없음"
-        className="w-full bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
-      />
+      <div className="mb-4 flex items-center gap-2">
+        <IconPicker
+          current={page.icon}
+          onChange={(icon) => setIcon(pageId, icon)}
+          onUploadMessage={(msg) => setIconAlert(msg)}
+        />
+        <input
+          type="text"
+          value={titleDraft}
+          onChange={(e) => setTitleDraft(e.target.value)}
+          onBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+          placeholder="제목 없음"
+          className="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
+        />
+        <button
+          type="button"
+          onClick={() => toggleFavoritePage(pageId)}
+          className="shrink-0 rounded-md p-2 text-zinc-400 hover:bg-zinc-100 hover:text-amber-500 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
+          aria-label={
+            favoritePageIds.includes(pageId) ? "즐겨찾기 해제" : "즐겨찾기"
+          }
+          aria-pressed={favoritePageIds.includes(pageId)}
+          title="즐겨찾기"
+        >
+          <Star
+            size={22}
+            strokeWidth={1.75}
+            className={
+              favoritePageIds.includes(pageId)
+                ? "fill-amber-400 text-amber-500"
+                : ""
+            }
+          />
+        </button>
+      </div>
 
       <DatabasePropertyPanel databaseId={databaseId} pageId={pageId} />
 
-      <Editor />
+      <Editor pageId={pageId} bodyOnly />
       <PageMoveDialog
         pageId={moveDialogOpen ? pageId : null}
         onClose={() => setMoveDialogOpen(false)}
@@ -221,9 +254,8 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
                 </div>
               ) : (
                 pageHistoryTimeline.slice(0, 100).map((entry, idx, arr) => (
-                  <button
+                  <div
                     key={entry.id}
-                    type="button"
                     onClick={() => {
                       const targetEventId = entry.eventIds[entry.eventIds.length - 1];
                       if (targetEventId) {
@@ -231,6 +263,18 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
                       }
                       setHistoryDialogOpen(false);
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        const targetEventId = entry.eventIds[entry.eventIds.length - 1];
+                        if (targetEventId) {
+                          restorePageFromHistoryEvent(pageId, targetEventId);
+                        }
+                        setHistoryDialogOpen(false);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                     className="flex w-full items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                   >
                     <button
@@ -278,13 +322,18 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
                     >
                       <Trash2 size={12} />
                     </button>
-                  </button>
+                  </div>
                 ))
               )}
             </div>
           </div>
         </div>
       )}
+      <SimpleAlertDialog
+        open={iconAlert !== null}
+        message={iconAlert ?? ""}
+        onClose={() => setIconAlert(null)}
+      />
       <SimpleConfirmDialog
         open={deleteConfirmOpen}
         title="히스토리 항목 삭제"

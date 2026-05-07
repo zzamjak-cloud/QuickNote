@@ -47,6 +47,11 @@ type Props = {
   onClearBoxSelection?: () => void;
 };
 
+type DownloadNotice = {
+  kind: "loading" | "success" | "error";
+  message: string;
+} | null;
+
 // 토글 자체는 핸들을 띄우되, 내부 toggleHeader/toggleContent는 제외(헤더/본문 hover 시 toggle 로 승격).
 const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column", "toggleHeader", "toggleContent"]);
 // 타입 변경 시 새 타입을 적용하기 전에 단순 paragraph로 평탄화할 wrapper 노드들.
@@ -80,6 +85,7 @@ const GRIP_ZONE_PAD_PX = 14;
 const GUTTER_LEFT_PX = 56;
 const RECT_PAD_X = 20;
 const RECT_PAD_Y = 18;
+const HANDLE_TOP_OFFSET_PX = -2;
 
 /** 렌더와 동일한 수식으로 그립 버튼의 화면 영역을 내고, 호버가 풀리지 않게 한다. */
 function pointInGripZone(
@@ -88,7 +94,7 @@ function pointInGripZone(
   hover: HoverInfo,
   wrapperRect: DOMRect,
 ): boolean {
-  const top = hover.rect.top - wrapperRect.top + 2;
+  const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX;
   const rawLeft = hover.rect.left - wrapperRect.left - HANDLE_STRIP_PX;
   const left = Math.max(MIN_HANDLE_LEFT, rawLeft);
   const z = GRIP_ZONE_PAD_PX;
@@ -278,12 +284,20 @@ export function BlockHandles({
   boxSelectedStarts,
   onClearBoxSelection,
 }: Props) {
+  const boxSelectionActive =
+    (boxSelectedStarts?.length ?? 0) > 0 ||
+    (!!editor &&
+      !editor.isDestroyed &&
+      !!editor.view.dom.querySelector(".ProseMirror-selectednoderange"));
   const containerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [presetOpen, setPresetOpen] = useState(false);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [boxSelecting, setBoxSelecting] = useState(false);
   const dragCommittedRef = useRef(false);
   const clickTimerRef = useRef<number | null>(null);
   const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -297,7 +311,21 @@ export function BlockHandles({
   );
 
   useEffect(() => {
+    const syncBoxSelecting = () => {
+      const cls = document.body.classList;
+      setBoxSelecting(
+        cls.contains("qn-box-select-tracking") || cls.contains("qn-box-select-dragging"),
+      );
+    };
+    syncBoxSelecting();
+    const observer = new MutationObserver(syncBoxSelecting);
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     if (!editor) return;
+    if (boxSelectionActive) return;
     const root = containerRef.current?.parentElement;
     if (!root) return;
 
@@ -372,7 +400,7 @@ export function BlockHandles({
       root.removeEventListener("mousemove", onMove);
       root.removeEventListener("mouseleave", onLeave);
     };
-  }, [editor, computeHover, menuOpen]);
+  }, [editor, computeHover, menuOpen, boxSelectionActive]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -420,7 +448,7 @@ export function BlockHandles({
   const bar =
     hover && wrapperRect
       ? (() => {
-          const top = hover.rect.top - wrapperRect.top + 2;
+          const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX;
           const rawLeft = hover.rect.left - wrapperRect.left - HANDLE_STRIP_PX;
           const left = Math.max(MIN_HANDLE_LEFT, rawLeft);
           return { top, left };
@@ -534,8 +562,13 @@ export function BlockHandles({
     menuAnchor != null && menuAnchor.y + 260 > window.innerHeight - 8;
 
   const downloadAttachment = async () => {
-    if (!editor || !hover) return;
+    if (!editor || !hover || isDownloading) return;
     try {
+      setIsDownloading(true);
+      setDownloadNotice({
+        kind: "loading",
+        message: "다운로드 중...",
+      });
       const attrs = hover.node.attrs as {
         src?: string | null;
         name?: string | null;
@@ -566,11 +599,50 @@ export function BlockHandles({
       } finally {
         URL.revokeObjectURL(blobUrl);
       }
+      setDownloadNotice({
+        kind: "success",
+        message: "다운로드가 완료되었습니다.",
+      });
       setMenuOpen(false);
     } catch (err) {
+      setDownloadNotice({
+        kind: "error",
+        message: "다운로드에 실패했습니다. 다시 시도해 주세요.",
+      });
       reportNonFatal(err, "blockHandles.downloadAttachment");
+    } finally {
+      setIsDownloading(false);
     }
   };
+
+  useEffect(() => {
+    if (!downloadNotice || downloadNotice.kind === "loading") return;
+    const t = window.setTimeout(() => setDownloadNotice(null), 2200);
+    return () => window.clearTimeout(t);
+  }, [downloadNotice]);
+
+  useEffect(() => {
+    if (!editor || !boxSelectionActive || (boxSelectedStarts?.length ?? 0) === 0) return;
+    const anchorStart = boxSelectedStarts?.[0];
+    if (anchorStart == null) return;
+    const node = editor.state.doc.nodeAt(anchorStart);
+    if (!node) return;
+    const dom = editor.view.nodeDOM(anchorStart);
+    const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
+    if (!el) return;
+    const rectEl =
+      node.type.name === "databaseBlock"
+        ? el.closest(".qn-database-block") ?? el
+        : el;
+    setHover({
+      blockStart: anchorStart,
+      node,
+      rect: rectEl.getBoundingClientRect(),
+      depth: 1,
+    });
+  }, [editor, boxSelectionActive, boxSelectedStarts]);
+
+  if (boxSelecting) return null;
 
   return (
     <div ref={containerRef} className="pointer-events-none absolute inset-0 z-10">
@@ -742,6 +814,21 @@ export function BlockHandles({
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      ) : null}
+      {downloadNotice ? (
+        <div className="pointer-events-none fixed bottom-5 right-5 z-[420]">
+          <div
+            className={`rounded-lg border px-3 py-2 text-xs shadow-lg ${
+              downloadNotice.kind === "error"
+                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-300"
+                : downloadNotice.kind === "success"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-300"
+                  : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/50 dark:text-blue-300"
+            }`}
+          >
+            {downloadNotice.message}
           </div>
         </div>
       ) : null}

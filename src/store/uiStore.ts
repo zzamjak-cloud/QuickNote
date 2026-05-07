@@ -8,6 +8,8 @@ type TextPromptRequest = {
 };
 
 type UiStoreState = {
+  /** 우측 즐겨찾기 패널 열림 */
+  favoritesPanelOpen: boolean;
   /** 사이드 피크 모달로 열어둔 페이지 id (없으면 null) */
   peekPageId: string | null;
   /**
@@ -22,6 +24,9 @@ type UiStoreState = {
 };
 
 type UiStoreActions = {
+  toggleFavoritesPanel: () => void;
+  openFavoritesPanel: () => void;
+  closeFavoritesPanel: () => void;
   openPeek: (pageId: string) => void;
   closePeek: () => void;
   setOpenColumnMenu: (id: string | null) => void;
@@ -36,10 +41,15 @@ type UiStoreActions = {
 };
 
 export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
+  favoritesPanelOpen: false,
   peekPageId: null,
   openColumnMenuId: null,
   textPrompt: null,
   rowBackTargetByPageId: {},
+  toggleFavoritesPanel: () =>
+    set((s) => ({ favoritesPanelOpen: !s.favoritesPanelOpen })),
+  openFavoritesPanel: () => set({ favoritesPanelOpen: true }),
+  closeFavoritesPanel: () => set({ favoritesPanelOpen: false }),
   openPeek: (pageId) => set({ peekPageId: pageId }),
   closePeek: () => set({ peekPageId: null }),
   setOpenColumnMenu: (id) => set({ openColumnMenuId: id }),

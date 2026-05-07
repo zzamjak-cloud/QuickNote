@@ -18,6 +18,7 @@ import { PageListGroup } from "./PageListGroup";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistoryStore } from "../../store/historyStore";
 import { useHistorySelection } from "../history/useHistorySelection";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 
 type Props = {
   node: PageNode;
@@ -216,8 +217,8 @@ const PageListItemInner = function PageListItem({
         ) : (
           <span className="inline-block h-5 w-5 shrink-0" />
         )}
-        <span className="w-5 shrink-0 text-center text-base leading-5">
-          {node.icon ?? "·"}
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden text-center text-base leading-5">
+          <PageIconDisplay icon={node.icon} size="sm" />
         </span>
         {editing ? (
           <input
