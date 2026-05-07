@@ -2,6 +2,7 @@ import { NodeSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import type { MutableRefObject } from "react";
 import type { insertImageFromFile } from "./insertImageFromFile";
+import { insertFileFromFile } from "./insertFileFromFile";
 import {
   QUICKNOTE_BLOCK_DRAG_MIME,
 } from "../startBlockNativeDrag";
@@ -259,22 +260,32 @@ export function createEditorHandleDrop(options: {
     const dt = event.dataTransfer;
     const files = dt?.files;
     if (!files || files.length === 0) return false;
-    const imgFile = Array.from(files).find((f) => f.type.startsWith("image/"));
-    if (!imgFile) return false;
     const coord = view.posAtCoords({
       left: event.clientX,
       top: event.clientY,
     });
-    void insertImageFromFile(imgFile, (attrs) => {
-      const tr = view.state.tr;
-      const node = view.state.schema.nodes.image!.create(attrs);
-      if (coord) {
-        tr.insert(coord.pos, node);
+    // 모든 dropped file 을 순회: image 는 image 노드, 그 외(영상·PDF·zip 등)는 fileBlock 노드.
+    for (const f of Array.from(files)) {
+      const isImage = f.type.startsWith("image/");
+      if (isImage) {
+        void insertImageFromFile(f, (attrs) => {
+          const tr = view.state.tr;
+          const node = view.state.schema.nodes.image!.create(attrs);
+          if (coord) tr.insert(coord.pos, node);
+          else tr.replaceSelectionWith(node);
+          view.dispatch(tr.scrollIntoView());
+        });
       } else {
-        tr.replaceSelectionWith(node);
+        void insertFileFromFile(f, (attrs) => {
+          const tr = view.state.tr;
+          const fileNode = view.state.schema.nodes.fileBlock?.create(attrs);
+          if (!fileNode) return;
+          if (coord) tr.insert(coord.pos, fileNode);
+          else tr.replaceSelectionWith(fileNode);
+          view.dispatch(tr.scrollIntoView());
+        });
       }
-      view.dispatch(tr.scrollIntoView());
-    });
+    }
     return true;
   };
 }

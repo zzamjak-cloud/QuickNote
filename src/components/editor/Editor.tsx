@@ -79,6 +79,8 @@ import {
   type ColumnDropState,
 } from "../../lib/editor/editorHandleDrop";
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
+import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
+import { FileBlock } from "../../lib/tiptapExtensions/fileBlock";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
 
@@ -250,6 +252,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       CodeBlockCopy,
       // 대용량 data: URL 을 문서 JSON 에 넣지 않음 — 이미지는 v4 S3 ref(quicknote-image://) 사용.
       ImageBlock.configure({ allowBase64: false }),
+      // 동영상·PDF·zip 등 모든 파일은 fileBlock 으로 통합. mimeType 에 따라 NodeView 가 분기.
+      FileBlock,
       HorizontalRule,
       MoveBlock,
       Table.configure({ resizable: true }),
@@ -326,23 +330,35 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       handlePaste: (view: import("@tiptap/pm/view").EditorView, event: ClipboardEvent) => {
         const items = event.clipboardData?.items;
         if (!items) return false;
-        for (const item of Array.from(items)) {
+        // image 는 image 노드, 그 외 file 항목은 fileBlock 노드로 삽입.
+        // string item(text/html 등) 은 PM 기본 paste 흐름에 위임.
+        const fileItems = Array.from(items).filter((it) => it.kind === "file");
+        if (fileItems.length === 0) return false;
+        let handled = false;
+        for (const item of fileItems) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          handled = true;
+          event.preventDefault();
           if (item.type.startsWith("image/")) {
-            const file = item.getAsFile();
-            if (file) {
-              event.preventDefault();
-              void handleEditorInsertImage(file, (attrs) => {
-                view.dispatch(
-                  view.state.tr.replaceSelectionWith(
-                    view.state.schema.nodes.image!.create(attrs),
-                  ),
-                );
-              });
-              return true;
-            }
+            void handleEditorInsertImage(file, (attrs) => {
+              view.dispatch(
+                view.state.tr.replaceSelectionWith(
+                  view.state.schema.nodes.image!.create(attrs),
+                ),
+              );
+            });
+          } else {
+            void insertFileFromFile(file, (attrs) => {
+              const fileNode = view.state.schema.nodes.fileBlock?.create(attrs);
+              if (!fileNode) return;
+              view.dispatch(
+                view.state.tr.replaceSelectionWith(fileNode).scrollIntoView(),
+              );
+            });
           }
         }
-        return false;
+        return handled;
       },
       handleDrop: createEditorHandleDrop({
         columnDropRef,

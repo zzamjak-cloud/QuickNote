@@ -36,13 +36,34 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const BUCKET = requireEnv("IMAGES_BUCKET");
 const TABLE = requireEnv("IMAGE_ASSET_TABLE");
 
+// image 외 일반 파일(동영상·PDF·zip 등) 업로드를 같은 인프라로 처리한다.
+// 위험 mimeType(HTML/JS/SVG 등 브라우저 실행 가능 형식) 은 차단해 XSS 회피.
 const ALLOWED_MIME = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
+  // images
+  "image/png", "image/jpeg", "image/webp", "image/gif",
+  // video
+  "video/mp4", "video/webm", "video/ogg", "video/quicktime",
+  // audio
+  "audio/mpeg", "audio/wav", "audio/ogg", "audio/webm", "audio/mp4",
+  // docs
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  // archives
+  "application/zip", "application/x-zip-compressed",
+  "application/x-gzip", "application/gzip", "application/x-tar",
+  "application/x-7z-compressed", "application/x-rar-compressed",
+  // text
+  "text/plain", "text/markdown", "text/csv",
+  "application/json", "application/xml",
+  // generic binary fallback (탐색기 → Ctrl+V 등이 mimeType 을 못 가져오는 경우)
+  "application/octet-stream",
 ]);
-const MAX_BYTES = 20 * 1024 * 1024;
+const MAX_BYTES = 100 * 1024 * 1024;
 
 export async function handler(event: AppSyncEvent) {
   const sub = event.identity?.sub;
@@ -71,7 +92,10 @@ async function getUploadUrl(ownerId: string, input: UploadInput) {
   }
 
   const imageId = randomUUID();
-  const ext = input.mimeType.split("/")[1].replace("jpeg", "jpg");
+  // mimeType 의 subtype 을 기본 확장자로 사용. octet-stream 등 특수 케이스는 dat 로 폴백.
+  // image 명명을 유지하지만 실제로는 모든 파일 종류를 같은 bucket prefix(users/{owner}/images/) 에 저장.
+  const subtype = input.mimeType.split("/")[1] ?? "dat";
+  const ext = subtype.replace("jpeg", "jpg").replace("svg+xml", "svg");
   const key = `users/${ownerId}/images/${imageId}.${ext}`;
   const expireAt = Math.floor(Date.now() / 1000) + 24 * 60 * 60; // pending 1일 TTL
 
