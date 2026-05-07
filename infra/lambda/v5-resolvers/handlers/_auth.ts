@@ -112,17 +112,15 @@ export function computeEffectiveLevel(
   memberId: string,
   memberTeamIds: string[],
 ): AccessLevel | null {
-  let best: AccessLevel | null = null;
   const teamSet = new Set(memberTeamIds);
   for (const e of entries) {
     const matched =
-      e.subjectType === "everyone" ||
       (e.subjectType === "member" && e.subjectId === memberId) ||
-      (e.subjectType === "team" && e.subjectId !== null && teamSet.has(e.subjectId));
-    if (!matched) continue;
-    if (best === null || LEVEL_RANK[e.level] > LEVEL_RANK[best]) best = e.level;
+      (e.subjectType === "team" && e.subjectId !== null && teamSet.has(e.subjectId)) ||
+      e.subjectType === "everyone";
+    if (matched) return e.level;
   }
-  return best;
+  return null;
 }
 
 export async function requireWorkspaceAccess(args: {
