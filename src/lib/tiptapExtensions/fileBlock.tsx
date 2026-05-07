@@ -59,7 +59,8 @@ function FileView(props: NodeViewProps) {
     );
   }
 
-  // 비디오 인라인 플레이어 + 크기 조정 핸들 + 클릭 시 확대 미리보기
+  // 비디오 인라인 플레이어 + 크기 조정 핸들 + 클릭 시 확대 미리보기.
+  // wrapping 박스 없이 video element 가 직접 자식 — 레터박스(검은색 여백) 방지.
   if (mime.startsWith("video/")) {
     const styleW = attrs.width ? `${attrs.width}px` : undefined;
     return (
@@ -68,26 +69,21 @@ function FileView(props: NodeViewProps) {
         className="qn-file-shell my-2 inline-block max-w-full align-top"
         data-drag-handle
       >
-        <span
-          className="block overflow-hidden rounded-lg border border-zinc-200 bg-black dark:border-zinc-700"
-          style={{ width: styleW, maxWidth: "100%" }}
-        >
-          {url ? (
-            <video
-              src={url}
-              controls
-              className="block h-auto"
-              style={{
-                width: styleW ?? "100%",
-                maxWidth: "100%",
-              }}
-            />
-          ) : (
-            <span className="flex h-32 w-full items-center justify-center text-xs text-zinc-400">
-              로딩…
-            </span>
-          )}
-        </span>
+        {url ? (
+          <video
+            src={url}
+            controls
+            className="block h-auto rounded-lg border border-zinc-200 dark:border-zinc-700"
+            style={{
+              width: styleW ?? "auto",
+              maxWidth: "100%",
+            }}
+          />
+        ) : (
+          <span className="flex h-32 w-64 items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
+            로딩…
+          </span>
+        )}
         {zoom && url && (
           <span
             className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 p-6"
