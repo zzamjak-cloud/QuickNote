@@ -21,10 +21,6 @@ export function CreateWorkspaceModal({ open, onClose, onCreate }: Props) {
       setError("워크스페이스 이름을 입력해 주세요.");
       return;
     }
-    if (entries.length === 0) {
-      setError("최소 1개의 접근 권한이 필요합니다.");
-      return;
-    }
     setError(null);
     await onCreate({ name: n, access: entries });
     setName("");

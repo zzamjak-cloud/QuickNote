@@ -41,13 +41,16 @@ export function AdminWorkspacesTab() {
     return `${name} 삭제`;
   }, [deletingWorkspace]);
 
-  const openEditModal = async (workspaceId: string) => {
+  const openEditModal = (workspaceId: string) => {
     const target = shared.find((w) => w.workspaceId === workspaceId);
     if (!target) return;
-    const detail = await getWorkspaceApi(target.workspaceId);
-    setEditEntries(detail.access);
+    setEditEntries([]);
     setEditingWorkspaceId(target.workspaceId);
     setOpenEdit(true);
+    // 모달 오픈 후 비동기로 접근 규칙 로드
+    void getWorkspaceApi(target.workspaceId).then((detail) => {
+      setEditEntries(detail.access);
+    });
   };
 
   return (

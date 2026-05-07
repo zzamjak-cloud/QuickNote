@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2, Users } from "lucide-react";
-import { createTeamApi, deleteTeamApi } from "../../lib/sync/teamApi";
+import { createTeamApi, deleteTeamApi, updateTeamApi } from "../../lib/sync/teamApi";
 import { useTeamStore } from "../../store/teamStore";
 import { useMemberStore } from "../../store/memberStore";
 import { assignMemberToTeamApi, unassignMemberFromTeamApi } from "../../lib/sync/memberApi";
@@ -15,6 +15,7 @@ export function AdminTeamsTab() {
   const [newTeamName, setNewTeamName] = useState("");
   const [confirmDeleteTeamId, setConfirmDeleteTeamId] = useState<string | null>(null);
   const [openAssignTeamId, setOpenAssignTeamId] = useState<string | null>(null);
+  const [editingTeamName, setEditingTeamName] = useState("");
   const [search, setSearch] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -63,6 +64,7 @@ export function AdminTeamsTab() {
   const onOpenAssignModal = (teamId: string) => {
     const team = teams.find((t) => t.teamId === teamId);
     setOpenAssignTeamId(teamId);
+    setEditingTeamName(team?.name ?? "");
     setSearch("");
     setSelectedMemberIds(team?.members.map((m) => m.memberId) ?? []);
   };
@@ -77,18 +79,22 @@ export function AdminTeamsTab() {
     if (!assignTeam) return;
     setSaving(true);
     try {
+      const newName = editingTeamName.trim();
       const prevIds = new Set(assignTeam.members.map((m) => m.memberId));
       const nextIds = new Set(selectedMemberIds);
       const addIds = selectedMemberIds.filter((id) => !prevIds.has(id));
       const removeIds = assignTeam.members.map((m) => m.memberId).filter((id) => !nextIds.has(id));
-      await Promise.all([
+      const [updatedTeam] = await Promise.all([
+        newName && newName !== assignTeam.name
+          ? updateTeamApi(assignTeam.teamId, newName)
+          : Promise.resolve(null),
         ...addIds.map((memberId) => assignMemberToTeamApi(memberId, assignTeam.teamId)),
         ...removeIds.map((memberId) => unassignMemberFromTeamApi(memberId, assignTeam.teamId)),
       ]);
       const nextMembers = selectedMemberIds
         .map((memberId) => membersById.get(memberId))
         .filter((m): m is NonNullable<typeof m> => Boolean(m));
-      upsertTeam({ ...assignTeam, members: nextMembers });
+      upsertTeam({ ...assignTeam, ...(updatedTeam ?? {}), members: nextMembers });
       setOpenAssignTeamId(null);
     } finally {
       setSaving(false);
@@ -224,7 +230,14 @@ export function AdminTeamsTab() {
             className="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <h4 className="text-sm font-semibold">{assignTeam.name} 구성원 관리</h4>
+            <div className="flex items-center gap-2">
+              <input
+                value={editingTeamName}
+                onChange={(e) => setEditingTeamName(e.target.value)}
+                className="flex-1 rounded border border-zinc-300 px-2 py-1 text-sm font-semibold outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
+              />
+              <span className="shrink-0 text-xs text-zinc-400">구성원 관리</span>
+            </div>
             <div className="mt-3 rounded-md border border-zinc-200 px-2 py-1 dark:border-zinc-700">
               <input
                 value={search}

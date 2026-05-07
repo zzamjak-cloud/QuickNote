@@ -85,12 +85,8 @@ function SortableRule({
       >
         {rule.level === "EDIT" ? "편집" : "보기"}
       </span>
-      {isEveryone ? (
-        <span className="w-4" />
-      ) : (
-        <button type="button" onClick={onRemove}
-          className="text-zinc-400 hover:text-red-500">✕</button>
-      )}
+      <button type="button" onClick={onRemove}
+        className="text-zinc-400 hover:text-red-500">✕</button>
     </div>
   );
 }
