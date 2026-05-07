@@ -291,7 +291,7 @@ export function MemberModal(props: Props) {
                 addJobFunction(v);
                 if (currentWorkspaceId) {
                   await updateWorkspaceOptionsApi(currentWorkspaceId, {
-                    jobFunctions: [...jobFunctions, v],
+                    jobFunctions: useWorkspaceOptionsStore.getState().jobFunctions,
                   });
                 }
               }}
@@ -299,7 +299,7 @@ export function MemberModal(props: Props) {
                 removeJobFunction(v);
                 if (currentWorkspaceId) {
                   await updateWorkspaceOptionsApi(currentWorkspaceId, {
-                    jobFunctions: jobFunctions.filter((f) => f !== v),
+                    jobFunctions: useWorkspaceOptionsStore.getState().jobFunctions,
                   });
                 }
               }}
@@ -313,7 +313,7 @@ export function MemberModal(props: Props) {
                 addJobTitle(v);
                 if (currentWorkspaceId) {
                   await updateWorkspaceOptionsApi(currentWorkspaceId, {
-                    jobTitles: [...jobTitles, v],
+                    jobTitles: useWorkspaceOptionsStore.getState().jobTitles,
                   });
                 }
               }}
@@ -321,7 +321,7 @@ export function MemberModal(props: Props) {
                 removeJobTitle(v);
                 if (currentWorkspaceId) {
                   await updateWorkspaceOptionsApi(currentWorkspaceId, {
-                    jobTitles: jobTitles.filter((t) => t !== v),
+                    jobTitles: useWorkspaceOptionsStore.getState().jobTitles,
                   });
                 }
               }}
