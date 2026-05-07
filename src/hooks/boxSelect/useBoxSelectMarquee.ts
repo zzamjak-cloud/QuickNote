@@ -48,23 +48,13 @@ export function useBoxSelectMarquee({
   updateSelectionDom,
 }: Args): void {
   useEffect(() => {
-    if (!editor || editor.isDestroyed) {
-      console.log("[QN-DEBUG] marquee:effect skipped", { hasEditor: !!editor, isDestroyed: editor?.isDestroyed });
-      return;
-    }
+    if (!editor || editor.isDestroyed) return;
     const columnHost =
       editor.view.dom.closest<HTMLElement>("[data-qn-editor-column]") ??
       editor.view.dom.parentElement;
     const editorHost =
       editor.view.dom.closest<HTMLElement>(".overflow-y-auto") ?? columnHost;
-    if (!editorHost) {
-      console.log("[QN-DEBUG] marquee:effect no editorHost");
-      return;
-    }
-    console.log("[QN-DEBUG] marquee:effect mounted", {
-      editorHost: editorHost.className,
-      columnHost: columnHost?.className,
-    });
+    if (!editorHost) return;
 
     const dragRectOverlay = document.createElement("div");
     dragRectOverlay.className = "qn-box-select-rect";
@@ -135,40 +125,22 @@ export function useBoxSelectMarquee({
       const target = e.target;
       if (!(target instanceof Element)) return;
 
-      const dbg = (reason: string, extra?: Record<string, unknown>) => {
-        console.log("[QN-DEBUG] marquee:mousedown", reason, {
-          targetTag: target.tagName,
-          targetCls: target.className,
-          isViewDom: target === editor.view.dom,
-          ...extra,
-        });
-      };
-
       // 에디터 호스트 외부 — 선택 해제 후 종료
       if (!editorHost.contains(target)) {
-        dbg("skip:outside-editor-host");
         collapsePmSelectionIfNeeded();
         clearSelection();
         return;
       }
 
       // 그룹 오버레이는 pointer-events:none 이라 도달하지 않지만 방어
-      if (isGroupOverlayTarget(target)) {
-        dbg("skip:group-overlay");
-        return;
-      }
+      if (isGroupOverlayTarget(target)) return;
 
       // 인터랙션 요소 — 마퀴 시작 금지(선택 유지)
-      const interactive = target.closest(INTERACTIVE_SELECTOR);
-      if (interactive) {
-        dbg("skip:interactive", { matched: interactive.tagName + "." + (interactive as Element).className });
-        return;
-      }
+      if (target.closest(INTERACTIVE_SELECTOR)) return;
 
       // 블럭 컨텐츠 안 — 노션처럼 마퀴 시작 차단.
       // 박스 선택이 있다면 클리어(클릭 → cursor 이동 시 자연스러운 해제).
       if (isInsideAnyBlock(editor.view, target)) {
-        dbg("skip:inside-block");
         if (selectedStartsRef.current.length > 0) {
           clearSelection();
         }
@@ -176,7 +148,6 @@ export function useBoxSelectMarquee({
       }
 
       // 외부 빈 공간(에디터 chrome / 블럭 사이 padding 등) — 마퀴 시작
-      dbg("BEGIN");
       collapsePmSelectionIfNeeded();
       beginMarqueeTracking(e);
     };

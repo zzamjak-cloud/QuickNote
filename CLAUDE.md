@@ -168,4 +168,62 @@ location.reload();
 | 앱 부트스트랩 (초기 페치) | `src/Bootstrap.tsx` |
 | 페이지 스토어 | `src/store/pageStore.ts` |
 | DB 스토어 | `src/store/databaseStore.ts` |
+| 박스 드래그 마퀴 | `src/hooks/boxSelect/useBoxSelectMarquee.ts` |
 | CDK 인프라 | `infra/` |
+
+---
+
+## 박스 드래그 선택 회귀 방지
+
+페이지 빈 공간(에디터 좌우 padding·블록 사이·마지막 블록 아래)에서 마우스 드래그 시 점선 사각형이 시각화되며 다중 블록을 선택하는 기능. **반복 회귀 이력**이 있으니 코드 변경 시 다음 사항 점검:
+
+### 정상 동작 흐름
+
+1. `mousedown` (capture phase) → `onMouseDown` (`useBoxSelectMarquee.ts`)
+2. target 검사 — early return 분기:
+   - `editorHost.contains(target)` 외부면 종료
+   - `INTERACTIVE_SELECTOR`(button/input/[role='dialog'] 등) 매치 시 종료
+   - `isInsideAnyBlock(view, target)` true면 종료(블록 내부)
+3. 빈 공간이면 `beginMarqueeTracking` → body에 `qn-box-select-tracking` 클래스 추가
+4. `mousemove` `MARQUEE_ACTIVATE_PX` 이상 → `qn-box-select-dragging` 추가 + `.qn-box-select-rect` div 표시
+5. `mouseup` → 선택 확정
+
+### 회귀 발생 시 점검 항목
+
+**증상별 의심 위치**:
+
+| 증상 | 의심 위치 |
+|------|-----------|
+| 사각형 자체가 안 그려짐 | `.qn-box-select-rect` CSS(`src/index.css`)의 `z-index`·`position` 깨짐, 다른 element가 더 높은 z-index로 가림 |
+| body class 안 붙음(`""`) | `onMouseDown`이 호출 안 됨 → useEffect 자체 미동작 또는 capture listener race |
+| `skip:inside-block` 분기로 빠짐 | `isInsideAnyBlock`이 의도치 않게 true 반환 → PM dom 구조 변경 또는 `editor.view.dom` reference stale |
+| `skip:interactive` 분기 | 새로 추가한 ancestor가 `INTERACTIVE_SELECTOR`에 매치 (예: 페이지 헤더에 `[role='dialog']` 추가 등) |
+| 텍스트가 선택됨 | marquee 시작 자체가 실패 → PM 자체 mousedown으로 fall through |
+
+### 진단 절차 (다시 회귀하면)
+
+`useBoxSelectMarquee.ts`의 `onMouseDown` 도입부에 임시 로그를 넣어 분기 추적 (이전 진단 commit `93a412e` 참고):
+
+```ts
+const dbg = (reason: string, extra?: Record<string, unknown>) => {
+  console.log("[QN-DEBUG] marquee:mousedown", reason, {
+    targetTag: target.tagName,
+    targetCls: target.className,
+    isViewDom: target === editor.view.dom,
+    ...extra,
+  });
+};
+// 각 early return 직전에 dbg("skip:reason"), 마지막 beginMarqueeTracking 직전 dbg("BEGIN")
+```
+
+또한 사용자에게 다음 콘솔 진단 요청 가능:
+- `document.querySelector('.qn-box-select-rect')` — overlay div가 DOM에 있는지
+- `document.body.className` — 드래그 시도 중 `qn-box-select-tracking`/`qn-box-select-dragging` 클래스 부착 여부
+- mousedown event의 `target.tagName` + `className` (어떤 element가 잡히는지)
+
+### 변경 시 주의
+
+- **에디터 컬럼 레이아웃 변경**(`Editor.tsx`의 `.overflow-y-auto`, `data-qn-editor-column`) 시 `editor.view.dom.closest()` 가 의도한 host 를 잡는지 확인.
+- **새 absolute/fixed element**가 페이지에 추가되면 `pointer-events-none` 또는 `z-index` 가 marquee overlay를 가리지 않는지 확인.
+- **새 mousedown capture listener**가 `stopImmediatePropagation` 호출하지 않는지 확인.
+- **PM dom 의 padding 영역(`px-12 py-8`)** 에서도 marquee 가 시작되어야 함 — `isInsideAnyBlock`이 `target === view.dom` 케이스에서 false 반환하는 동작을 깨뜨리지 말 것.
