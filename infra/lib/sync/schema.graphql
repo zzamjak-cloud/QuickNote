@@ -23,6 +23,10 @@ type Member {
   jobRole: String!
   workspaceRole: WorkspaceRole!
   status: MemberStatus!
+  jobTitle: String
+  phone: String
+  avatarUrl: String
+  thumbnailUrl: String
   personalWorkspaceId: ID!
   cognitoSub: String
   teams: [Team!]!
@@ -43,6 +47,11 @@ type Team {
   createdAt: AWSDateTime!
 }
 
+type WorkspaceOptions {
+  jobFunctions: [String!]!
+  jobTitles: [String!]!
+}
+
 type Workspace {
   workspaceId: ID!
   name: String!
@@ -51,6 +60,7 @@ type Workspace {
   access: [WorkspaceAccessEntry!]!
   myEffectiveLevel: AccessLevel!
   createdAt: AWSDateTime!
+  options: WorkspaceOptions!
 }
 
 type WorkspaceAccessEntry {
@@ -147,6 +157,10 @@ input UpdateMemberInput {
   memberId: ID!
   name: String
   jobRole: String
+  jobTitle: String
+  phone: String
+  avatarUrl: String
+  thumbnailUrl: String
   teamIds: [ID!]
 }
 
@@ -161,9 +175,15 @@ input CreateWorkspaceInput {
   access: [WorkspaceAccessInput!]!
 }
 
+input WorkspaceOptionsInput {
+  jobFunctions: [String!]
+  jobTitles: [String!]
+}
+
 input UpdateWorkspaceInput {
   workspaceId: ID!
   name: String
+  options: WorkspaceOptionsInput
 }
 
 input MemberFilter {
