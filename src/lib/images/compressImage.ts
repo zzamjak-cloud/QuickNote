@@ -12,12 +12,17 @@ export async function compressImage(
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2D 캔버스 컨텍스트를 가져오지 못했습니다.");
   ctx.drawImage(img, 0, 0, width, height);
-  return new Promise((resolve, reject) => {
+  return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new Error("압축 실패"))),
       "image/webp",
       quality,
     );
+  }).catch((err) => {
+    // 오류 시 캔버스 픽셀 데이터를 즉시 해제
+    canvas.width = 0;
+    canvas.height = 0;
+    throw err;
   });
 }
 
