@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.3] - 2026-05-07
+
+### Fixed
+
+- **새 페이지 새로고침 시 일시/영구 사라짐**: `legacyCleanup.purgeLegacyLocalStorage()` 가 부팅마다 `quicknote.pages.v1` 을 삭제했는데, v5 부터 동일 키를 `pageStore` persist 키로 재사용하면서 충돌. 페이지를 만들고 새로고침하면 persist 가 비워진 채 rehydrate 되어 페이지가 즉시 사라져 보였음. legacy 리스트에서 `quicknote.pages.v1` 제거.
+
 ## [5.0.2] - 2026-05-07
 
 ### Fixed
