@@ -1,4 +1,5 @@
 import { ChevronRight, Moon, Sun, MoreHorizontal, Trash2, Check, Minus } from "lucide-react";
+import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { useState, useEffect, useRef } from "react";
 import type { Page } from "../../types/page";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -91,6 +92,29 @@ export function TopBar() {
   const handleDelete = () => {
     if (!activeId) return;
     deletePage(activeId);
+    setMenuOpen(false);
+  };
+
+  // 마크다운 파일로 현재 페이지 내보내기
+  const handleExportMarkdown = () => {
+    if (!activeId) return;
+    const page = pages[activeId];
+    if (!page) return;
+    const title = page.title || "untitled";
+    const md = pageDocToMarkdown(page.doc);
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setMenuOpen(false);
+  };
+
+  // 브라우저 인쇄 기능으로 PDF 내보내기
+  const handleExportPdf = () => {
+    window.print();
     setMenuOpen(false);
   };
 
@@ -203,6 +227,21 @@ export function TopBar() {
                 >
                   <span>버전 히스토리</span>
                   <span className="text-xs text-zinc-400">열기</span>
+                </button>
+                <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+                <button
+                  type="button"
+                  onClick={handleExportMarkdown}
+                  className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  마크다운(.md)으로 내보내기
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPdf}
+                  className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  PDF로 내보내기
                 </button>
                 <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
                 <button
