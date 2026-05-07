@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.2] - 2026-05-07
+
+### Fixed
+
+- **데스크톱 앱 동기화 무동작**: GitHub Actions 릴리스 워크플로우(`build.yml`)에 `VITE_APPSYNC_ENDPOINT`/`VITE_S3_REGION`/`VITE_S3_BUCKET_NAME` 시크릿이 누락되어, 데스크톱 번들에서 `configureAppSync()` 가 throw 하고 부트스트랩이 조용히 실패하던 문제. UI 가 사용자 역할을 `member` fallback 으로, 워크스페이스를 `워크스페이스 없음` 으로 표시하던 원인. 워크플로우의 `Verify Vite secrets` / `build and release` 스텝에 누락 시크릿을 추가하고, 사전 검증으로 미주입 시 빌드를 즉시 실패시킴.
+
 ## [5.0.1] - 2026-05-07
 
 ### Added

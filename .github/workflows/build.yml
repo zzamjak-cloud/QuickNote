@@ -60,8 +60,9 @@ jobs:
         run: npm ci
 
       # Vite 는 빌드 시점에 import.meta.env.VITE_* 를 번들에 박는다.
-      # 시크릿이 없으면 프로덕션 앱에서 로그인 버튼이 무응답처럼 보인다(Config throw).
-      - name: Verify Cognito Vite secrets (desktop bundle)
+      # 시크릿이 없으면 프로덕션 앱에서 로그인 버튼이 무응답처럼 보이거나
+      # AppSync configureAppSync() 가 throw 해서 동기화가 전혀 동작하지 않는다.
+      - name: Verify Vite secrets (desktop bundle)
         shell: bash
         env:
           VITE_COGNITO_REGION: ${{ secrets.VITE_COGNITO_REGION }}
@@ -69,6 +70,9 @@ jobs:
           VITE_COGNITO_HOSTED_UI_DOMAIN: ${{ secrets.VITE_COGNITO_HOSTED_UI_DOMAIN }}
           VITE_COGNITO_DESKTOP_CLIENT_ID: ${{ secrets.VITE_COGNITO_DESKTOP_CLIENT_ID }}
           VITE_AUTH_REDIRECT_DESKTOP: ${{ secrets.VITE_AUTH_REDIRECT_DESKTOP }}
+          VITE_APPSYNC_ENDPOINT: ${{ secrets.VITE_APPSYNC_ENDPOINT }}
+          VITE_S3_REGION: ${{ secrets.VITE_S3_REGION }}
+          VITE_S3_BUCKET_NAME: ${{ secrets.VITE_S3_BUCKET_NAME }}
         run: |
           set -euo pipefail
           missing=()
@@ -77,6 +81,9 @@ jobs:
           [ -z "${VITE_COGNITO_HOSTED_UI_DOMAIN:-}" ] && missing+=(VITE_COGNITO_HOSTED_UI_DOMAIN)
           [ -z "${VITE_COGNITO_DESKTOP_CLIENT_ID:-}" ] && missing+=(VITE_COGNITO_DESKTOP_CLIENT_ID)
           [ -z "${VITE_AUTH_REDIRECT_DESKTOP:-}" ] && missing+=(VITE_AUTH_REDIRECT_DESKTOP)
+          [ -z "${VITE_APPSYNC_ENDPOINT:-}" ] && missing+=(VITE_APPSYNC_ENDPOINT)
+          [ -z "${VITE_S3_REGION:-}" ] && missing+=(VITE_S3_REGION)
+          [ -z "${VITE_S3_BUCKET_NAME:-}" ] && missing+=(VITE_S3_BUCKET_NAME)
           if [ "${#missing[@]}" -ne 0 ]; then
             echo "::error::데스크톱 릴리스에 필요한 Repository secrets 가 비어 있습니다: ${missing[*]} (CONTRIBUTING 참고)."
             exit 1
@@ -95,6 +102,9 @@ jobs:
           VITE_COGNITO_DESKTOP_CLIENT_ID: ${{ secrets.VITE_COGNITO_DESKTOP_CLIENT_ID }}
           VITE_AUTH_REDIRECT_WEB: ${{ secrets.VITE_AUTH_REDIRECT_WEB }}
           VITE_AUTH_REDIRECT_DESKTOP: ${{ secrets.VITE_AUTH_REDIRECT_DESKTOP }}
+          VITE_APPSYNC_ENDPOINT: ${{ secrets.VITE_APPSYNC_ENDPOINT }}
+          VITE_S3_REGION: ${{ secrets.VITE_S3_REGION }}
+          VITE_S3_BUCKET_NAME: ${{ secrets.VITE_S3_BUCKET_NAME }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "QuickNote v__VERSION__"
