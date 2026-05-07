@@ -92,6 +92,13 @@ export async function updateWorkspaceApi(input: {
   return normalizeWorkspace(ws);
 }
 
+export async function updateWorkspaceOptionsApi(
+  workspaceId: string,
+  options: { jobFunctions?: string[]; jobTitles?: string[] },
+): Promise<void> {
+  await updateWorkspaceApi({ workspaceId, options });
+}
+
 export async function setWorkspaceAccessApi(input: {
   workspaceId: string;
   entries: WorkspaceAccessInput[];

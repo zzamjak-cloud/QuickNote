@@ -1,12 +1,14 @@
 import { useState } from "react";
 import type { Member } from "../../store/memberStore";
 import { useWorkspaceOptionsStore } from "../../store/workspaceOptionsStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import {
   updateMemberApi,
   promoteToManagerApi,
   demoteToMemberApi,
   removeMemberApi,
 } from "../../lib/sync/memberApi";
+import { updateWorkspaceOptionsApi } from "../../lib/sync/workspaceApi";
 
 type CreateProps = {
   mode: "create";
@@ -39,8 +41,8 @@ function DropdownWithAdd({
   value: string;
   options: string[];
   onChange: (v: string) => void;
-  onAdd: (v: string) => void;
-  onRemove: (v: string) => void;
+  onAdd: (v: string) => void | Promise<void>;
+  onRemove: (v: string) => void | Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState("");
@@ -120,6 +122,7 @@ export function MemberModal(props: Props) {
   const removeJobFunction = useWorkspaceOptionsStore((s) => s.removeJobFunction);
   const addJobTitle = useWorkspaceOptionsStore((s) => s.addJobTitle);
   const removeJobTitle = useWorkspaceOptionsStore((s) => s.removeJobTitle);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
 
   const initial = props.mode === "edit" ? props.member : null;
 
@@ -284,16 +287,44 @@ export function MemberModal(props: Props) {
               value={jobRole}
               options={jobFunctions}
               onChange={setJobRole}
-              onAdd={addJobFunction}
-              onRemove={removeJobFunction}
+              onAdd={async (v) => {
+                addJobFunction(v);
+                if (currentWorkspaceId) {
+                  await updateWorkspaceOptionsApi(currentWorkspaceId, {
+                    jobFunctions: [...jobFunctions, v],
+                  });
+                }
+              }}
+              onRemove={async (v) => {
+                removeJobFunction(v);
+                if (currentWorkspaceId) {
+                  await updateWorkspaceOptionsApi(currentWorkspaceId, {
+                    jobFunctions: jobFunctions.filter((f) => f !== v),
+                  });
+                }
+              }}
             />
             <DropdownWithAdd
               label="직책"
               value={jobTitle}
               options={jobTitles}
               onChange={setJobTitle}
-              onAdd={addJobTitle}
-              onRemove={removeJobTitle}
+              onAdd={async (v) => {
+                addJobTitle(v);
+                if (currentWorkspaceId) {
+                  await updateWorkspaceOptionsApi(currentWorkspaceId, {
+                    jobTitles: [...jobTitles, v],
+                  });
+                }
+              }}
+              onRemove={async (v) => {
+                removeJobTitle(v);
+                if (currentWorkspaceId) {
+                  await updateWorkspaceOptionsApi(currentWorkspaceId, {
+                    jobTitles: jobTitles.filter((t) => t !== v),
+                  });
+                }
+              }}
             />
             <div>
               <div className="mb-0.5 text-[9px] font-medium text-zinc-500">역할 (권한)</div>
