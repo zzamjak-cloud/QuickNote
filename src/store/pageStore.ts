@@ -26,7 +26,9 @@ function getCurrentWorkspaceId(): string {
   return useWorkspaceStore.getState().currentWorkspaceId ?? "";
 }
 
-// 클라이언트 number(epoch ms) → GraphQL 경계 string/ISO 변환
+// 클라이언트 number(epoch ms) → GraphQL 경계 string/ISO 변환.
+// AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다 — 객체를 그대로 보내면
+// 'Variable has an invalid value' 검증 오류로 mutation 이 거부된다.
 function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> {
   return {
     id: p.id,
@@ -37,8 +39,8 @@ function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> 
     parentId: p.parentId ?? null,
     order: String(p.order),
     databaseId: p.databaseId ?? null,
-    doc: p.doc,
-    dbCells: p.dbCells ?? null,
+    doc: JSON.stringify(p.doc),
+    dbCells: p.dbCells ? JSON.stringify(p.dbCells) : null,
     createdAt: new Date(p.createdAt).toISOString(),
     updatedAt: new Date(p.updatedAt).toISOString(),
   };

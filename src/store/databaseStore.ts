@@ -29,7 +29,8 @@ function getCurrentWorkspaceId(): string {
   return useWorkspaceStore.getState().currentWorkspaceId ?? "";
 }
 
-// 클라이언트 number(epoch ms) → GraphQL 경계 ISO 문자열 변환
+// 클라이언트 number(epoch ms) → GraphQL 경계 ISO 문자열 변환.
+// AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다.
 function toGqlDatabase(
   meta: DatabaseMeta,
   columns: ColumnDef[],
@@ -40,7 +41,7 @@ function toGqlDatabase(
     workspaceId: getCurrentWorkspaceId(),
     createdByMemberId,
     title: meta.title,
-    columns,
+    columns: JSON.stringify(columns),
     createdAt: new Date(meta.createdAt).toISOString(),
     updatedAt: new Date(meta.updatedAt).toISOString(),
   };
@@ -60,6 +61,7 @@ function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
 }
 
 // 행 페이지를 직접 mutate 한 경우 페이지 enqueue 를 보조해주는 헬퍼.
+// doc/dbCells 는 AppSync AWSJSON 요구사항에 맞춰 JSON.stringify 로 직렬화.
 function enqueueUpsertPageRaw(p: Page): void {
   const createdByMemberId = getCreatedByMemberId();
   enqueueAsync(
@@ -73,8 +75,8 @@ function enqueueUpsertPageRaw(p: Page): void {
       parentId: p.parentId ?? null,
       order: String(p.order),
       databaseId: p.databaseId ?? null,
-      doc: p.doc,
-      dbCells: p.dbCells ?? null,
+      doc: JSON.stringify(p.doc),
+      dbCells: p.dbCells ? JSON.stringify(p.dbCells) : null,
       createdAt: new Date(p.createdAt).toISOString(),
       updatedAt: new Date(p.updatedAt).toISOString(),
     } as Record<string, unknown> & { id: string; updatedAt?: string },

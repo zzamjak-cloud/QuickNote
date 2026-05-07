@@ -23,6 +23,20 @@ function isoToMs(iso: string | null | undefined): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+// AppSync AWSJSON 응답은 보통 JSON 문자열로 도착한다(Amplify 가 자동 parse 해주는 경우도 있어 객체일 수 있음).
+// 둘 다 안전하게 처리한다.
+function parseAwsJson<T>(v: unknown, fallback: T): T {
+  if (v == null) return fallback;
+  if (typeof v === "string") {
+    try {
+      return JSON.parse(v) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return v as T;
+}
+
 function isRemoteNewer(localUpdatedMs: number, remoteIso: string): boolean {
   return isoToMs(remoteIso) > localUpdatedMs;
 }
@@ -53,11 +67,14 @@ export function applyRemotePageToStore(p: GqlPage | null | undefined): void {
       id: p.id,
       title: p.title,
       icon: p.icon ?? null,
-      doc: (p.doc as JSONContent | null) ?? { type: "doc", content: [{ type: "paragraph" }] },
+      doc: parseAwsJson<JSONContent>(p.doc, {
+        type: "doc",
+        content: [{ type: "paragraph" }],
+      }),
       parentId: p.parentId ?? null,
       order: orderNum,
       databaseId: p.databaseId ?? undefined,
-      dbCells: (p.dbCells as Page["dbCells"]) ?? undefined,
+      dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
       createdAt: isoToMs(p.createdAt) || Date.now(),
       updatedAt: isoToMs(p.updatedAt) || Date.now(),
     };
@@ -79,7 +96,7 @@ export function applyRemoteDatabaseToStore(
     }
     if (local && !isRemoteNewer(local.meta.updatedAt, d.updatedAt)) return s;
 
-    const columns = (d.columns as ColumnDef[] | null) ?? [];
+    const columns = parseAwsJson<ColumnDef[]>(d.columns, []);
     // 원격은 rowPageOrder 를 모르므로 로컬 본을 보존(없으면 [] 로 초기화).
     const rowPageOrder = local?.rowPageOrder ?? [];
 
