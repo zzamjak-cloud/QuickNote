@@ -42,6 +42,38 @@ export const Callout = Node.create({
       {
         tag: "aside",
       },
+      // 노션 web 콜아웃: <figure class="...callout..."> <div>{emoji}</div> <div>{body}</div> </figure>
+      {
+        tag: "figure",
+        getAttrs: (el) => {
+          const html = el as HTMLElement;
+          if (!/(^|\s)callout(\s|$)/.test(html.className)) return false;
+          const firstChild = html.firstElementChild as HTMLElement | null;
+          const emoji = firstChild?.textContent?.trim() ?? "💡";
+          return { preset: presetFromLegacyEmoji(emoji) };
+        },
+        contentElement: (dom) => {
+          const html = dom as HTMLElement;
+          const bodyDiv = html.lastElementChild as HTMLElement | null;
+          return bodyDiv ?? html;
+        },
+      },
+      // 노션 desktop/web 다른 형태: <div class="notion-callout-block">
+      {
+        tag: "div.notion-callout-block",
+        getAttrs: (el) => {
+          const html = el as HTMLElement;
+          const emojiEl =
+            html.querySelector("[role='img']") ??
+            html.firstElementChild;
+          const emoji = emojiEl?.textContent?.trim() ?? "💡";
+          return { preset: presetFromLegacyEmoji(emoji) };
+        },
+        contentElement: (dom) => {
+          const html = dom as HTMLElement;
+          return (html.lastElementChild as HTMLElement | null) ?? html;
+        },
+      },
     ];
   },
 
