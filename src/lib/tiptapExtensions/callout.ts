@@ -42,7 +42,26 @@ export const Callout = Node.create({
       {
         tag: "aside",
       },
-      // 노션 web 콜아웃: <figure class="...callout..."> <div>{emoji}</div> <div>{body}</div> </figure>
+      // 노션 (web/desktop) 콜아웃: <div role="note" aria-roledescription="콜아웃">...본문 블록들...</div>
+      // 본문은 notion-text-block / notion-bulleted_list-block 등 여러 div 로 구성되며,
+      // PM 이 schema 에 없는 wrapper div 들을 통과시키며 안의 텍스트만 paragraph 로 매핑.
+      {
+        tag: "div[role='note']",
+        getAttrs: (el) => {
+          const html = el as HTMLElement;
+          const desc = html.getAttribute("aria-roledescription") ?? "";
+          if (!/콜아웃|callout/i.test(desc)) return false;
+          // 노션 클립보드는 emoji 를 별도 element 로 안 실어 보내는 경우가 많음 — default preset 사용.
+          // emoji 가 보이는 형태(예: aria-label) 가 있으면 매핑 시도.
+          const iconEl =
+            html.querySelector("[aria-label][data-icon-shape='emoji']") ??
+            html.querySelector("img[alt]");
+          const emoji = iconEl?.textContent?.trim() || iconEl?.getAttribute("alt") || "💡";
+          return { preset: presetFromLegacyEmoji(emoji) };
+        },
+        contentElement: (dom) => dom as HTMLElement,
+      },
+      // 노션 web export(공개 페이지): <figure class="callout">
       {
         tag: "figure",
         getAttrs: (el) => {
@@ -50,23 +69,6 @@ export const Callout = Node.create({
           if (!/(^|\s)callout(\s|$)/.test(html.className)) return false;
           const firstChild = html.firstElementChild as HTMLElement | null;
           const emoji = firstChild?.textContent?.trim() ?? "💡";
-          return { preset: presetFromLegacyEmoji(emoji) };
-        },
-        contentElement: (dom) => {
-          const html = dom as HTMLElement;
-          const bodyDiv = html.lastElementChild as HTMLElement | null;
-          return bodyDiv ?? html;
-        },
-      },
-      // 노션 desktop/web 다른 형태: <div class="notion-callout-block">
-      {
-        tag: "div.notion-callout-block",
-        getAttrs: (el) => {
-          const html = el as HTMLElement;
-          const emojiEl =
-            html.querySelector("[role='img']") ??
-            html.firstElementChild;
-          const emoji = emojiEl?.textContent?.trim() ?? "💡";
           return { preset: presetFromLegacyEmoji(emoji) };
         },
         contentElement: (dom) => {
