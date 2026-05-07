@@ -65,8 +65,8 @@ function FileView(props: NodeViewProps) {
     const styleW = attrs.width ? `${attrs.width}px` : undefined;
     return (
       <NodeViewWrapper
-        as="span"
-        className="qn-file-shell my-2 inline-block max-w-full align-top"
+        as="div"
+        className="qn-file-shell my-2 leading-none"
         data-drag-handle
       >
         {url ? (
@@ -80,12 +80,12 @@ function FileView(props: NodeViewProps) {
             }}
           />
         ) : (
-          <span className="flex h-32 w-64 items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
+          <div className="flex h-32 w-64 items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
             로딩…
-          </span>
+          </div>
         )}
         {zoom && url && (
-          <span
+          <div
             className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 p-6"
             role="dialog"
             aria-modal="true"
@@ -98,12 +98,12 @@ function FileView(props: NodeViewProps) {
               className="max-h-full max-w-full"
               onClick={(e) => e.stopPropagation()}
             />
-          </span>
+          </div>
         )}
         <button
           type="button"
           aria-label="확대 미리보기"
-          className="ml-1 align-middle rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          className="mt-1 inline-block rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] leading-tight text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -246,8 +246,8 @@ export const FileBlock = Node.create({
   },
 
   addNodeView() {
-    // wrapper 도 span 으로 두어 inline-block 흐름 유지(이미지와 동일).
-    // 그래야 ImageResizeOverlay 패턴이 video 를 인식하고 핸들이 영상 크기에 맞춰진다.
-    return ReactNodeViewRenderer(FileView, { as: "span" });
+    // block-level wrapper. atom block 이라 PM 이 노드 시작 위치에 NodeSelection 을 만들고
+    // ImageResizeOverlay 가 nodeDOM 의 inner img/video 를 측정해 핸들 위치를 잡는다.
+    return ReactNodeViewRenderer(FileView, { as: "div" });
   },
 });

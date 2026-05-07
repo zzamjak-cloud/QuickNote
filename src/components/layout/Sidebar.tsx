@@ -29,7 +29,6 @@ import { PageMoveDialog } from "./PageMoveDialog";
 import { DatabaseManagerDialog } from "./DatabaseManagerDialog";
 import { SidebarHeader } from "../sidebar/SidebarHeader";
 import { SettingsModal } from "../settings/SettingsModal";
-import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 type DropTarget = { id: string; mode: SidebarDropMode } | null;
 
@@ -65,7 +64,6 @@ export function Sidebar() {
   const isDraggingRef = useRef(false);
   const [query, setQuery] = useState("");
   const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [dbManagerOpen, setDbManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
@@ -89,7 +87,6 @@ export function Sidebar() {
   const duplicatePage = usePageStore((s) => s.duplicatePage);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const activePageId = usePageStore((s) => s.activePageId);
-  const deletePage = usePageStore((s) => s.deletePage);
   const undoLastDelete = usePageStore((s) => s.undoLastDelete);
 
   useEffect(() => {
@@ -121,13 +118,9 @@ export function Sidebar() {
         }
       }
 
-      // Delete / Backspace: 활성 페이지 삭제 (확인 다이얼로그 경유, 우클릭 메뉴와 동일 흐름).
-      // 맥에서는 백스페이스가 Delete 역할을 하므로 둘 다 처리.
-      if ((e.key === "Delete" || e.key === "Backspace") && activePageId) {
-        e.preventDefault();
-        setDeleteTargetId(activePageId);
-        return;
-      }
+      // 페이지 삭제는 사이드바 우측 휴지통 아이콘·우클릭 메뉴로만 트리거.
+      // 백스페이스/Delete 글로벌 단축키는 페이지 본문의 컨텍스트 메뉴 위에서
+      // 의도치 않게 페이지 삭제로 이어지는 위험이 있어 제거.
 
       // Alt+Arrows: 페이지 트리 이동 단축키
       if (!e.altKey || !activePageId) return;
@@ -147,7 +140,7 @@ export function Sidebar() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activePageId, duplicatePage, setActivePage, movePageRelative, deletePage, undoLastDelete]);
+  }, [activePageId, duplicatePage, setActivePage, movePageRelative, undoLastDelete]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -369,27 +362,6 @@ export function Sidebar() {
       <PageMoveDialog
         pageId={moveTargetId}
         onClose={() => setMoveTargetId(null)}
-      />
-      <SimpleConfirmDialog
-        open={deleteTargetId !== null}
-        title="페이지 삭제"
-        message={(() => {
-          if (!deleteTargetId) return "";
-          const target = pagesMap[deleteTargetId];
-          const hasChildren = Object.values(pagesMap).some(
-            (p) => p.parentId === deleteTargetId,
-          );
-          return `"${target?.title ?? "제목 없음"}" 페이지를 삭제하시겠습니까?${
-            hasChildren ? " 하위 페이지도 함께 삭제됩니다." : ""
-          }`;
-        })()}
-        confirmLabel="삭제"
-        danger
-        onConfirm={() => {
-          if (deleteTargetId) deletePage(deleteTargetId);
-          setDeleteTargetId(null);
-        }}
-        onCancel={() => setDeleteTargetId(null)}
       />
       <DatabaseManagerDialog
         open={dbManagerOpen}

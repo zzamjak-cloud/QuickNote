@@ -261,6 +261,21 @@ const PageListItemInner = function PageListItem({
         >
           <Plus size={14} />
         </button>
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDeleteConfirmOpen(true);
+          }}
+          className="text-zinc-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
+          style={{ cursor: "inherit" }}
+          aria-label="페이지 삭제"
+          title="페이지 삭제"
+        >
+          <Trash2 size={14} />
+        </button>
         {mode === "before" && (
           <span
             className="pointer-events-none absolute -top-0.5 right-2 z-10 h-0.5 rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.35)] dark:bg-blue-400"
