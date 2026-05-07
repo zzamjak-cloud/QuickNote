@@ -13,29 +13,22 @@ export async function applyWorkspaceSwitch(
   prev: string | null,
   next: string | null,
 ): Promise<{ cleared: boolean; reason: string; pending: number }> {
-  if (prev === null) {
-    console.log("[QN-DEBUG] workspaceSwitch skip:initial-mount", { next });
-    return { cleared: false, reason: "initial-mount", pending: 0 };
-  }
-  if (prev === next) {
-    return { cleared: false, reason: "same-workspace", pending: 0 };
-  }
+  if (prev === null) return { cleared: false, reason: "initial-mount", pending: 0 };
+  if (prev === next) return { cleared: false, reason: "same-workspace", pending: 0 };
   let pending = 0;
   try {
     const engine = await getSyncEngine();
     pending = await engine.peekPending();
-  } catch (err) {
-    console.error("[QN-DEBUG] workspaceSwitch peekPending FAIL", err);
+  } catch {
+    /* outbox 조회 실패 시 클리어 보류 쪽으로 안전 처리 */
   }
-  console.log("[QN-DEBUG] workspaceSwitch evaluate", { prev, next, pending });
   if (pending > 0) {
     console.warn(
-      "[QN-DEBUG] workspaceSwitch defer-clear: outbox 에 미전송 mutation 이 남아 캐시 클리어 보류 (데이터 손실 방지). 콘솔에서 `await __QN_clearOutbox()` 로 stale entries 를 비울 수 있다.",
+      "[sync] outbox 미전송 mutation 으로 워크스페이스 캐시 클리어 보류 (데이터 손실 방지). 강제 비우려면 콘솔에서 `await __QN_clearOutbox()`.",
       { pending },
     );
     return { cleared: false, reason: "pending-outbox", pending };
   }
-  console.log("[QN-DEBUG] workspaceSwitch clear", { prev, next });
   usePageStore.setState({ pages: {}, activePageId: null });
   useDatabaseStore.setState({ databases: {} });
   return { cleared: true, reason: "switched", pending: 0 };

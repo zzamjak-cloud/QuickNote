@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.5] - 2026-05-07
+
+### Fixed
+
+- **데스크톱 stale outbox 호환**: v5.0.4 이전에 객체 형식으로 큐잉된 페이지/DB mutation 이 `Variable 'doc' has an invalid value` 로 영구 거부되어 데이터 손실 위험이 있던 문제. 송신 어댑터(`bridge`)가 `doc`/`dbCells`/`columns` 가 객체이면 송신 직전에 `JSON.stringify` 로 자동 정규화해 옛 형식 stale entry 도 정상 처리.
+- **워크스페이스 전환 시 캐시 클리어 보류 안내**: outbox 미전송 mutation 이 남아 클리어가 보류된 경우 콘솔 헬퍼(`await __QN_clearOutbox()`) 로 즉시 비울 수 있도록 가이드 메시지 추가.
+
+### Added
+
+- 디버그용 글로벌 콘솔 헬퍼: `window.__QN_outboxSnapshot()`, `window.__QN_clearOutbox()` (웹 IndexedDB / 데스크톱 SQLite 모두 동일하게 동작).
+
 ## [5.0.4] - 2026-05-07
 
 ### Fixed
