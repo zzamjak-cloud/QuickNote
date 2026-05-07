@@ -73,4 +73,51 @@ describe("SyncEngine", () => {
     await engine.flush();
     expect((await outbox.list(10)).length).toBe(0);
   });
+
+  it("드랍 head: 영구 실패 entry 가 max attempts 에 도달하면 outbox 에서 제거된다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const base = makeGql();
+    const gql: GqlBridge = {
+      ...base,
+      upsertPage: async () => {
+        throw new Error("Forbidden");
+      },
+    };
+    const engine = new SyncEngine(outbox, gql);
+    await engine.enqueue("upsertPage", { id: "stuck" });
+    // attempts 가 max 에 도달할 때까지 반복 flush — 실제 시간 지연 없이 backoff 무시.
+    for (let i = 0; i < 60; i++) {
+      await engine.flush();
+      const list = await outbox.list(10);
+      if (list.length === 0) break;
+      // backoff 우회를 위해 attempts 만 진행시킨다 (테스트 한정).
+      await outbox.put({ ...list[0]!, attempts: list[0]!.attempts + 1 });
+    }
+    expect((await outbox.list(10)).length).toBe(0);
+  });
+
+  it("non-blocking head: 영구 실패 entry 가 head 에 있어도 후속 entries 가 처리된다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const base = makeGql();
+    const gql: GqlBridge = {
+      ...base,
+      upsertPage: async (input) => {
+        const id = (input as { id: string }).id;
+        if (id === "stuck") throw new Error("Forbidden");
+        base.calls.push(["upsertPage", input]);
+      },
+    };
+    const engine = new SyncEngine(outbox, gql);
+    // head 가 영원히 실패하는 entry, 그 뒤에 정상 entries.
+    await engine.enqueue("upsertPage", { id: "stuck" });
+    await engine.enqueue("upsertPage", { id: "ok-1" });
+    await engine.enqueue("upsertPage", { id: "ok-2" });
+    await engine.flush();
+    // 정상 entries 는 같은 batch 안에서 처리되어야 한다.
+    const okIds = base.calls
+      .filter((c) => c[0] === "upsertPage")
+      .map((c) => (c[1] as { id: string }).id);
+    expect(okIds).toContain("ok-1");
+    expect(okIds).toContain("ok-2");
+  });
 });

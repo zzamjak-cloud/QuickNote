@@ -12,6 +12,7 @@ import {
   applyRemotePageToStore,
   applyRemoteDatabaseToStore,
 } from "./lib/sync/storeApply";
+import { applyWorkspaceSwitch } from "./lib/sync/workspaceSwitch";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
@@ -92,6 +93,13 @@ function useSyncBootstrap() {
     }
     const startedKey = `${authSub}:${currentWorkspaceId}`;
     if (startedForRef.current === startedKey) return;
+    // 워크스페이스가 실제로 바뀐 경우에만 stale 캐시 제거.
+    // 초기 마운트(startedForRef.current === null)에서는 persist 로 복원된
+    // 첫 페인트 캐시를 유지하여 fetch 동안 빈 화면을 보여주지 않는다.
+    const prevWorkspaceId = startedForRef.current
+      ? startedForRef.current.split(":").slice(1).join(":")
+      : null;
+    applyWorkspaceSwitch(prevWorkspaceId, currentWorkspaceId);
     startedForRef.current = startedKey;
 
     let unsub: (() => void) | undefined;

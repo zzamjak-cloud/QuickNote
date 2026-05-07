@@ -17,6 +17,9 @@ export interface GqlBridge {
 }
 
 const MAX_BACKOFF_MS = 60_000;
+// 영구 실패 entry 를 자동 정리하는 attempts 상한.
+// 이 값을 넘긴 entry 는 head 에 영원히 남아 후속 entries 처리를 막는 stuck-head 위험이 있어 outbox 에서 제거한다.
+const MAX_ATTEMPTS = 50;
 
 export type EnqueuePayload = { id: string; workspaceId?: string; updatedAt?: string };
 
@@ -76,6 +79,17 @@ export class SyncEngine {
           } catch (err) {
             void err;
             const attempts = entry.attempts + 1;
+            if (attempts >= MAX_ATTEMPTS) {
+              // 영구 실패로 간주하고 dead-letter 처리(드롭).
+              // 이 entry 가 head 에 남아있으면 후속 enqueue 가 영원히 처리되지 못한다.
+              console.warn(
+                "[sync] dropping entry after max attempts",
+                entry.op,
+                entry.payload,
+              );
+              await this.outbox.remove(entry.id);
+              continue;
+            }
             const backoff = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** entry.attempts);
             await this.outbox.put({
               ...entry,
