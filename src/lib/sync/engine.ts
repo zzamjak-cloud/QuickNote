@@ -49,11 +49,6 @@ export class SyncEngine {
       attempts: 0,
       dedupeKey: `${op}:${payload.id}`,
     };
-    console.log("[QN-DEBUG] enqueue", op, {
-      pageId: payload.id,
-      workspaceId: (payload as Record<string, unknown>).workspaceId,
-      createdByMemberId: (payload as Record<string, unknown>).createdByMemberId,
-    });
     await this.outbox.upsertByDedupe(entry);
     this.scheduleFlush(0);
   }
@@ -81,27 +76,19 @@ export class SyncEngine {
         let minFailBackoff = MAX_BACKOFF_MS;
         let hasFailure = false;
 
-        console.log("[QN-DEBUG] flush batch", { size: batch.length });
         for (const entry of batch) {
           try {
             await this.execute(entry);
-            console.log("[QN-DEBUG] mutation OK", entry.op, {
-              pageId: (entry.payload as Record<string, unknown>).id,
-            });
             await this.outbox.remove(entry.id);
           } catch (err) {
-            // GraphQL 에러는 보통 { errors: [{ message, errorType, path, ... }] } 형태.
-            // 콘솔에서 [object Object] 로만 보이지 않게 직렬화해 메시지 본체를 노출한다.
+            // mutation 실패는 운영에서도 유용하므로 GraphQL 메시지 본체를 콘솔에 남긴다.
             const gqlErrors = (err as { errors?: unknown[] }).errors;
             const firstGql = Array.isArray(gqlErrors) ? gqlErrors[0] : null;
-            console.error("[QN-DEBUG] mutation FAIL", entry.op, {
+            console.error("[sync] mutation failed", entry.op, {
               pageId: (entry.payload as Record<string, unknown>).id,
-              workspaceId: (entry.payload as Record<string, unknown>).workspaceId,
               attempts: entry.attempts + 1,
-              gqlMessage: (firstGql as { message?: string } | null)?.message,
-              gqlErrorType: (firstGql as { errorType?: string } | null)?.errorType,
-              gqlPath: (firstGql as { path?: unknown } | null)?.path,
-              raw: JSON.stringify(gqlErrors ?? err, null, 2),
+              message: (firstGql as { message?: string } | null)?.message
+                ?? (err instanceof Error ? err.message : String(err)),
             });
             const attempts = entry.attempts + 1;
             if (attempts >= MAX_ATTEMPTS) {

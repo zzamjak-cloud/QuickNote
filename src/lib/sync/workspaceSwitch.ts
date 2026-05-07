@@ -13,28 +13,22 @@ export async function applyWorkspaceSwitch(
   prev: string | null,
   next: string | null,
 ): Promise<{ cleared: boolean; reason: string }> {
-  if (prev === null) {
-    console.log("[QN-DEBUG] workspaceSwitch skip:initial-mount", { next });
-    return { cleared: false, reason: "initial-mount" };
-  }
-  if (prev === next) {
-    return { cleared: false, reason: "same-workspace" };
-  }
+  if (prev === null) return { cleared: false, reason: "initial-mount" };
+  if (prev === next) return { cleared: false, reason: "same-workspace" };
   let pending = 0;
   try {
     const engine = await getSyncEngine();
     pending = await engine.peekPending();
-  } catch (err) {
-    console.error("[QN-DEBUG] workspaceSwitch peekPending FAIL", err);
+  } catch {
+    /* outbox 조회 실패 시 클리어 보류 쪽으로 안전하게 처리 */
   }
   if (pending > 0) {
     console.warn(
-      "[QN-DEBUG] workspaceSwitch defer-clear: outbox 에 미전송 mutation 이 남아있어 클리어 보류 (데이터 손실 방지)",
-      { prev, next, pending },
+      "[sync] outbox 에 미전송 mutation 이 남아있어 워크스페이스 캐시 클리어를 보류합니다 (데이터 손실 방지).",
+      { pending },
     );
     return { cleared: false, reason: "pending-outbox" };
   }
-  console.log("[QN-DEBUG] workspaceSwitch clear", { prev, next });
   usePageStore.setState({ pages: {}, activePageId: null });
   useDatabaseStore.setState({ databases: {} });
   return { cleared: true, reason: "switched" };

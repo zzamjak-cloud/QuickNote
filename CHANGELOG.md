@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.4] - 2026-05-07
+
+### Fixed
+
+- **AppSync AWSJSON 직렬화 누락으로 v5 이후 모든 페이지/DB 동기화 단절**: `doc`/`dbCells`/`columns` 를 객체 그대로 보내 AppSync 가 `Variable 'doc' has an invalid value` 검증 오류로 모든 `upsertPage`/`upsertDatabase` mutation 을 거부하던 문제. 단 한 페이지도 서버에 도달하지 못해 다른 클라이언트 동기화·워크스페이스 fetch 가 0 건이던 근본 원인. 송신 시 `JSON.stringify`, 수신 시 `parseAwsJson` 안전 파싱.
+- **outbox stuck-head**: head entry 가 영구 실패 상태이면 후속 enqueue 가 영원히 처리되지 못하던 문제. 50회 시도 후 영구 실패로 간주하고 dead-letter 처리.
+- **워크스페이스 전환 시 이전 워크스페이스 페이지 잔류**: `Page` 레코드에 `workspaceId` 필드가 없어 사이드바에 두 워크스페이스 페이지가 혼재되던 문제. 전환 시 outbox 미전송 mutation 이 0 개일 때만 캐시를 클리어해 데이터 손실 없이 사이드바 갱신.
+- **인증/부트스트랩 미완료 시점 enqueue 가드**: `currentWorkspaceId` 가 빈 상태에서 발생한 페이지 변경이 stale entry 로 outbox 에 영구 적재되던 문제. workspaceId 미설정 시 enqueue 자체를 차단.
+
 ## [5.0.3] - 2026-05-07
 
 ### Fixed

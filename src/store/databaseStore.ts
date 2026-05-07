@@ -48,9 +48,8 @@ function toGqlDatabase(
 }
 
 function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
-  const wsId = getCurrentWorkspaceId();
-  if (!wsId) {
-    console.error("[QN-DEBUG] enqueueUpsertDatabase SKIPPED: workspaceId 없음", { dbId: bundle.meta.id });
+  if (!getCurrentWorkspaceId()) {
+    console.warn("[sync] upsertDatabase skipped: workspaceId 미설정", { dbId: bundle.meta.id });
     return;
   }
   const payload = toGqlDatabase(bundle.meta, bundle.columns, getCreatedByMemberId());
