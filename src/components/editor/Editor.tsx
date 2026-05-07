@@ -79,6 +79,7 @@ import {
   type ColumnDropState,
 } from "../../lib/editor/editorHandleDrop";
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
+import { transformNotionCalloutHtml } from "../../lib/editor/transformNotionCallout";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
 
@@ -323,6 +324,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         class:
           "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-12 py-8 min-h-[min(85vh,900px)] qn-prose-marquee-host",
       },
+      transformPastedHTML: (html: string) => transformNotionCalloutHtml(html),
       handlePaste: (view: import("@tiptap/pm/view").EditorView, event: ClipboardEvent) => {
         const items = event.clipboardData?.items;
         if (!items) return false;
