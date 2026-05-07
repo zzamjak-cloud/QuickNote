@@ -39,6 +39,9 @@ export const Callout = Node.create({
         contentElement: (dom: HTMLElement) =>
           dom.querySelector(".callout-body") ?? dom,
       },
+      {
+        tag: "aside",
+      },
     ];
   },
 

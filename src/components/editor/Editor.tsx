@@ -58,6 +58,8 @@ import {
   type SlashLeafItem,
 } from "../../lib/tiptapExtensions/slashItems";
 import { DatabaseBlock } from "../../lib/tiptapExtensions/databaseBlock";
+import { PageLink } from "../../lib/tiptapExtensions/pageLink";
+import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker } from "../common/IconPicker";
@@ -267,6 +269,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       MemberMention,
       EmojiShortcode,
       DatabaseBlock,
+      PageLink,
+      ButtonBlock,
       SlashCommand.configure({
         suggestion: {
           char: "/",

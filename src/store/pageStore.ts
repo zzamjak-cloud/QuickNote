@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../types/page";
 import type { CellValue } from "../types/database";
@@ -127,7 +129,8 @@ export function isDescendant(
 }
 
 export const usePageStore = create<PageStore>()(
-  (set, get) => ({
+  persist(
+    (set, get) => ({
       pages: {},
       activePageId: null,
 
@@ -608,7 +611,25 @@ export const usePageStore = create<PageStore>()(
         }
         return null;
       },
-  }),
+    }),
+    {
+      name: "quicknote.pages.v1",
+      storage: createJSONStorage(() => zustandStorage),
+      version: 1,
+      migrate: (persisted: unknown, fromVersion: number) => {
+        // 버전 0(최초 migrate 없던 시절) 캐시는 구조 보장 불가 → 빈 상태로 초기화.
+        // Bootstrap이 원격에서 전체 재페치하므로 데이터 손실 없음.
+        if (fromVersion < 1) {
+          return { pages: {}, activePageId: null };
+        }
+        return persisted;
+      },
+      partialize: (state) => ({
+        pages: state.pages,
+        activePageId: state.activePageId,
+      }),
+    }
+  )
 );
 
 export function selectSortedPages(state: PageStore): Page[] {

@@ -1,4 +1,4 @@
-import { ChevronRight, Moon, Sun, MoreHorizontal, Trash2, Check, Minus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Moon, Sun, MoreHorizontal, Trash2, Check, Minus } from "lucide-react";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { useState, useEffect, useRef } from "react";
 import type { Page } from "../../types/page";
@@ -15,6 +15,11 @@ export function TopBar() {
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
   const fullWidth = useSettingsStore((s) => s.fullWidth);
   const toggleFullWidth = useSettingsStore((s) => s.toggleFullWidth);
+  const navBack = useSettingsStore((s) => s.navBack);
+  const canGoBack = useSettingsStore((s) => {
+    const tab = s.tabs[s.activeTabIndex];
+    return (tab?.back?.length ?? 0) > 0;
+  });
   const activeId = usePageStore((s) => s.activePageId);
   const pages = usePageStore((s) => s.pages);
   const setActive = usePageStore((s) => s.setActivePage);
@@ -120,6 +125,16 @@ export function TopBar() {
 
   return (
     <header className="flex h-10 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <button
+        type="button"
+        onClick={navBack}
+        disabled={!canGoBack}
+        className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-30 disabled:cursor-default dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        aria-label="뒤로가기"
+        title="뒤로가기"
+      >
+        <ChevronLeft size={16} />
+      </button>
       <div className="flex flex-1 items-center gap-1 overflow-hidden text-xs text-zinc-500 dark:text-zinc-400">
         {breadcrumb.length === 0 ? (
           <span>페이지를 선택하거나 새로 만드세요</span>

@@ -129,6 +129,32 @@ function useSyncBootstrap() {
       }
     };
   }, [authStatus, authSub, currentWorkspaceId]);
+
+  // 온라인 복귀 시 원격 데이터 재페치 + outbox flush.
+  // 오프라인 동안 다른 클라이언트가 만든 변경을 즉시 반영하고
+  // 로컬에서 쌓인 pending mutations 를 전송함.
+  useEffect(() => {
+    if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) return;
+    const wsId = currentWorkspaceId;
+    const onOnline = () => {
+      void (async () => {
+        try {
+          const [pages, dbs] = await Promise.all([
+            fetchPagesByWorkspace(wsId),
+            fetchDatabasesByWorkspace(wsId),
+          ]);
+          for (const p of pages) applyRemotePageToStore(p);
+          for (const d of dbs) applyRemoteDatabaseToStore(d);
+          const engine = await getSyncEngine();
+          await engine.flush();
+        } catch (err) {
+          console.error("[sync] online refetch failed", err);
+        }
+      })();
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [authStatus, authSub, currentWorkspaceId]);
 }
 
 // 웹 환경에서 /auth/callback 으로 리다이렉트되면 code 교환을 처리한 뒤 / 로 전환한다.

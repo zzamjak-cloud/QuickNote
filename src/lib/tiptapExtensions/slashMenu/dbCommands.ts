@@ -73,7 +73,7 @@ export function insertFullPageDatabase(
       .focus()
       .deleteRange({ from, to })
       .insertContent({
-        type: "mention",
+        type: "pageLink",
         attrs: { id: pageId, label: actualTitle },
       })
       .insertContent(" ")

@@ -129,7 +129,10 @@ async function hydrateWorkspace(
   callerTeamIds: Set<string>,
 ): Promise<Workspace | null> {
   const access = await getWorkspaceAccess(doc, tables, row.workspaceId);
-  const level = computeEffectiveLevel(access, caller, callerTeamIds);
+  // owner는 WorkspaceAccess 엔트리 없이도 암묵적으로 edit 권한
+  const level = caller.workspaceRole === "owner"
+    ? "edit"
+    : computeEffectiveLevel(access, caller, callerTeamIds);
   if (!level) return null;
   return {
     ...row,
@@ -417,11 +420,39 @@ export async function listMyWorkspaces(args: {
     }
   }
 
-  const rows = await Promise.all(
-    Array.from(workspaceIds).map((workspaceId) =>
+  const workspaceIdList = Array.from(workspaceIds);
+  const fetchedRows = await Promise.all(
+    workspaceIdList.map((workspaceId) =>
       getWorkspaceRow(args.doc, args.tables, workspaceId),
     ),
   );
+
+  // 개인 워크스페이스 DynamoDB 레코드가 없으면 자동 생성
+  const rows = [...fetchedRows];
+  const personalIdx = workspaceIdList.indexOf(args.caller.personalWorkspaceId);
+  if (personalIdx >= 0 && !rows[personalIdx]) {
+    const now = new Date().toISOString();
+    const personalRow: WorkspaceRow = {
+      workspaceId: args.caller.personalWorkspaceId,
+      name: "개인 워크스페이스",
+      type: "personal",
+      ownerMemberId: args.caller.memberId,
+      createdAt: now,
+    };
+    try {
+      await args.doc.send(
+        new PutCommand({
+          TableName: args.tables.Workspaces,
+          Item: personalRow,
+          ConditionExpression: "attribute_not_exists(workspaceId)",
+        }),
+      );
+    } catch {
+      // 동시에 생성된 경우 무시
+    }
+    rows[personalIdx] = personalRow;
+  }
+
   const hydrated = await Promise.all(
     rows
       .filter((r): r is WorkspaceRow => Boolean(r))

@@ -17,6 +17,7 @@ import {
   Pilcrow,
   Quote,
   Smile,
+  Link,
   Table as TableIcon,
   Youtube as YoutubeIcon,
 } from "lucide-react";
@@ -203,6 +204,15 @@ export const slashMenuEntries: SlashMenuEntry[] = [
         .deleteRange(range)
         .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
         .run(),
+  },
+  {
+    kind: "leaf",
+    title: "버튼",
+    description: "링크 버튼 삽입",
+    icon: Link,
+    keywords: ["button", "link", "버튼", "링크", "url"],
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).insertButtonBlock("버튼", "").run(),
   },
   {
     kind: "leaf",

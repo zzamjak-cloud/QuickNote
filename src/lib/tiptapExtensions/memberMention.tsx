@@ -1,10 +1,13 @@
 import { ReactRenderer } from "@tiptap/react";
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes } from "@tiptap/core";
+import { Plugin } from "prosemirror-state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import { forwardRef, useEffect, useImperativeHandle, useState } from "react";
 import { searchMembersForMentionApi } from "../sync/memberApi";
 import { useMemberStore } from "../../store/memberStore";
+import { usePageStore } from "../../store/pageStore";
+import { useSettingsStore } from "../../store/settingsStore";
 
 type Item = { id: string; name: string; jobRole: string };
 
@@ -74,6 +77,30 @@ const MentionList = forwardRef<RefHandle, SuggestionProps>(({ items, command }, 
 MentionList.displayName = "MemberMentionList";
 
 const MemberMentionNode = Mention.extend({
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            click(_view, event) {
+              const target = event.target as HTMLElement;
+              const el = target.closest<HTMLElement>('[data-type="mention"][data-id]');
+              if (!el) return false;
+              const id = el.getAttribute("data-id");
+              if (!id) return false;
+              const page = usePageStore.getState().pages[id];
+              if (!page) return false;
+              event.preventDefault();
+              usePageStore.getState().setActivePage(id);
+              useSettingsStore.getState().setCurrentTabPage(id);
+              return true;
+            },
+          },
+        },
+      }),
+    ];
+  },
+
   renderHTML({ node, HTMLAttributes }) {
     return [
       "span",

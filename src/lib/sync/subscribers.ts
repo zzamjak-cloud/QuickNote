@@ -6,8 +6,10 @@ import {
   type GqlDatabase,
 } from "./graphql/operations";
 
-// 자기 ownerId 의 변경 푸시를 수신해 LWW 적용 콜백을 호출.
-// 반환된 함수를 호출하면 모든 구독을 unsubscribe.
+// 자기 workspaceId 의 변경 푸시를 수신해 LWW 적용 콜백을 호출.
+// 구독 에러 및 네트워크 단절 시 지수 백오프(최대 30초)로 자동 재연결.
+// window 'online' 이벤트 수신 시 즉시 재연결.
+// 반환된 함수를 호출하면 모든 구독과 재연결 타이머를 해제.
 
 export type SubscribeHandlers = {
   onPage: (item: GqlPage) => void;
@@ -21,33 +23,92 @@ type Subscribable = {
   }) => { unsubscribe: () => void };
 };
 
+const MAX_RETRY_DELAY_MS = 30_000;
+const MAX_RETRY_ATTEMPTS = 12;
+
 export function startSubscriptions(
   workspaceId: string,
   handlers: SubscribeHandlers,
 ): () => void {
-  const c = appsyncClient();
+  let stopped = false;
+  let pageSub: { unsubscribe: () => void } | null = null;
+  let dbSub: { unsubscribe: () => void } | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryAttempts = 0;
 
-  const pageObs = c.graphql({
-    query: ON_PAGE_CHANGED,
-    variables: { workspaceId },
-  }) as unknown as Subscribable;
-  const pageSub = pageObs.subscribe({
-    next: ({ data }) => handlers.onPage(data.onPageChanged as GqlPage),
-    error: (e) => console.error("[sub:page]", e),
-  });
+  const clearSubs = () => {
+    try { pageSub?.unsubscribe(); } catch { /* noop */ }
+    try { dbSub?.unsubscribe(); } catch { /* noop */ }
+    pageSub = null;
+    dbSub = null;
+  };
 
-  const dbObs = c.graphql({
-    query: ON_DATABASE_CHANGED,
-    variables: { workspaceId },
-  }) as unknown as Subscribable;
-  const dbSub = dbObs.subscribe({
-    next: ({ data }) =>
-      handlers.onDatabase(data.onDatabaseChanged as GqlDatabase),
-    error: (e) => console.error("[sub:database]", e),
-  });
+  const scheduleRetry = () => {
+    if (stopped || retryAttempts >= MAX_RETRY_ATTEMPTS) return;
+    if (retryTimer) return;
+    const delay = Math.min(MAX_RETRY_DELAY_MS, 1000 * 2 ** retryAttempts);
+    retryAttempts++;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      connect();
+    }, delay);
+  };
+
+  const connect = () => {
+    if (stopped) return;
+    clearSubs();
+
+    const c = appsyncClient();
+
+    const pageObs = c.graphql({
+      query: ON_PAGE_CHANGED,
+      variables: { workspaceId },
+    }) as unknown as Subscribable;
+    pageSub = pageObs.subscribe({
+      next: ({ data }) => {
+        retryAttempts = 0;
+        handlers.onPage(data.onPageChanged as GqlPage);
+      },
+      error: (e) => {
+        console.error("[sub:page]", e);
+        scheduleRetry();
+      },
+    });
+
+    const dbObs = c.graphql({
+      query: ON_DATABASE_CHANGED,
+      variables: { workspaceId },
+    }) as unknown as Subscribable;
+    dbSub = dbObs.subscribe({
+      next: ({ data }) => {
+        retryAttempts = 0;
+        handlers.onDatabase(data.onDatabaseChanged as GqlDatabase);
+      },
+      error: (e) => {
+        console.error("[sub:database]", e);
+        scheduleRetry();
+      },
+    });
+  };
+
+  // 온라인 복귀 시 즉시 재연결 (재시도 카운트 초기화)
+  const onOnline = () => {
+    if (stopped) return;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    retryAttempts = 0;
+    connect();
+  };
+  window.addEventListener("online", onOnline);
+
+  connect();
 
   return () => {
-    pageSub.unsubscribe();
-    dbSub.unsubscribe();
+    stopped = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    window.removeEventListener("online", onOnline);
+    clearSubs();
   };
 }

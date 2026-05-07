@@ -7,7 +7,7 @@ import type {
 
 // 동기화 엔진. enqueue 시 outbox 에 적재 → 백그라운드 워커가 mutation 으로 flush.
 // 같은 (op, id) 의 새 enqueue 는 dedupe 로 마지막 본만 남김.
-// 실패 시 지수 백오프 재시도(최대 60초).
+// 실패한 항목만 지수 백오프 재시도(최대 60초), 나머지 배치는 계속 처리.
 
 export interface GqlBridge {
   upsertPage(input: unknown): Promise<void>;
@@ -65,6 +65,10 @@ export class SyncEngine {
       while (true) {
         const batch = await this.outbox.list(20);
         if (batch.length === 0) return;
+
+        let minFailBackoff = MAX_BACKOFF_MS;
+        let hasFailure = false;
+
         for (const entry of batch) {
           try {
             await this.execute(entry);
@@ -78,9 +82,16 @@ export class SyncEngine {
               attempts,
               lastErrorAt: this.clock(),
             });
-            this.scheduleFlush(backoff);
-            return;
+            // 실패한 항목은 기록만 하고 나머지 배치는 계속 처리
+            hasFailure = true;
+            minFailBackoff = Math.min(minFailBackoff, backoff);
           }
+        }
+
+        // 배치 내 실패 항목이 있으면 최소 백오프로 재시도 예약 후 종료
+        if (hasFailure) {
+          this.scheduleFlush(minFailBackoff);
+          return;
         }
       }
     } finally {

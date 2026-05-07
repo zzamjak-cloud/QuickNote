@@ -131,6 +131,10 @@ export async function requireWorkspaceAccess(args: {
   workspaceId: string;
   required: AccessLevel;
 }): Promise<AccessLevel> {
+  // owner는 WorkspaceAccess 테이블 엔트리 없이도 암묵적으로 edit 권한을 가짐.
+  // 개인 워크스페이스처럼 access 엔트리가 생성되지 않은 경우도 정상 동작.
+  if (args.caller.workspaceRole === "owner") return "edit";
+
   const teamIds = await getMemberTeamIds(args.doc, args.memberTeamsTableName, args.caller.memberId);
   const entries = await getWorkspaceAccessEntries(args.doc, args.workspaceAccessTableName, args.workspaceId);
   const effective = computeEffectiveLevel(entries, args.caller.memberId, teamIds);

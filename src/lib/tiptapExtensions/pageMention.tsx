@@ -86,16 +86,18 @@ const PageMentionNode = Mention.extend({
     return [
       new Plugin({
         props: {
-          handleClick(_view, _pos, event) {
-            const target = event.target as HTMLElement;
-            const mention = target.closest<HTMLElement>('[data-type="mention"][data-id]');
-            if (!mention) return false;
-            const id = mention.getAttribute("data-id");
-            if (!id) return false;
-            event.preventDefault();
-            usePageStore.getState().setActivePage(id);
-            useSettingsStore.getState().setCurrentTabPage(id);
-            return true;
+          handleDOMEvents: {
+            click(_view, event) {
+              const target = event.target as HTMLElement;
+              const mention = target.closest<HTMLElement>('[data-type="mention"][data-id]');
+              if (!mention) return false;
+              const id = mention.getAttribute("data-id");
+              if (!id) return false;
+              event.preventDefault();
+              usePageStore.getState().setActivePage(id);
+              useSettingsStore.getState().setCurrentTabPage(id);
+              return true;
+            },
           },
         },
       }),

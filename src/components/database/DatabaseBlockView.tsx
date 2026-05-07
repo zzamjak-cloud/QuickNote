@@ -108,6 +108,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const [deletePhraseDraft, setDeletePhraseDraft] = useState("");
   const [dbHistoryDialogOpen, setDbHistoryDialogOpen] = useState(false);
   const [dbHistoryDeleteOpen, setDbHistoryDeleteOpen] = useState(false);
+  const [dbPermanentDeleteOpen, setDbPermanentDeleteOpen] = useState(false);
   const [dbHistoryDeleteTarget, setDbHistoryDeleteTarget] = useState<{
     label: string;
     eventIds: string[];
@@ -147,9 +148,13 @@ export function DatabaseBlockView(props: NodeViewProps) {
       return;
     }
     deleteDatabaseFromStore(databaseId);
-    scheduleEditorMutation(() => {
-      deleteNode();
-    });
+    if (layout === "fullPage" && activePageId) {
+      usePageStore.getState().deletePage(activePageId);
+    } else {
+      scheduleEditorMutation(() => {
+        deleteNode();
+      });
+    }
     closeDeleteDatabaseModal();
   };
 
@@ -458,16 +463,25 @@ export function DatabaseBlockView(props: NodeViewProps) {
               </button>
             </div>
             <div className="mb-2 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  hasDatabaseId &&
-                  useDatabaseStore.getState().restoreDatabaseFromLatestHistory(databaseId)
-                }
-                className="rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-              >
-                DB 최근 버전 복원
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    hasDatabaseId &&
+                    useDatabaseStore.getState().restoreDatabaseFromLatestHistory(databaseId)
+                  }
+                  className="rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  DB 최근 버전 복원
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDbPermanentDeleteOpen(true)}
+                  className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/30"
+                >
+                  영구삭제
+                </button>
+              </div>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -586,6 +600,26 @@ export function DatabaseBlockView(props: NodeViewProps) {
           setDbHistoryDeleteOpen(false);
           setDbHistoryDeleteTarget(null);
           clearDbTimelineSelection();
+        }}
+      />
+      <SimpleConfirmDialog
+        open={dbPermanentDeleteOpen}
+        title="데이터베이스 영구삭제"
+        message="이 데이터베이스와 모든 히스토리를 완전히 삭제합니다. 복구가 불가능합니다. 계속할까요?"
+        confirmLabel="영구삭제"
+        danger
+        onCancel={() => setDbPermanentDeleteOpen(false)}
+        onConfirm={() => {
+          if (hasDatabaseId) {
+            deleteDatabaseFromStore(databaseId);
+            if (layout === "fullPage" && activePageId) {
+              usePageStore.getState().deletePage(activePageId);
+            } else {
+              scheduleEditorMutation(() => deleteNode());
+            }
+          }
+          setDbPermanentDeleteOpen(false);
+          setDbHistoryDialogOpen(false);
         }}
       />
     </NodeViewWrapper>

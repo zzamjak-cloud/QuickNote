@@ -7,8 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.1] - 2026-05-07
+
+### Added
+
+- 에디터에 버튼 블록/페이지 링크 확장을 추가하고 슬래시 메뉴 항목을 확장
+- 페이지/멤버 멘션 UX를 개선해 검색 및 삽입 동작의 일관성을 강화
+
+### Changed
+
+- 워크스페이스/인증/동기화 로직을 정리해 부트스트랩 및 구독 흐름의 안정성을 개선
+- 데이터베이스 타임라인/블록 뷰 상호작용을 개선하고 상단바/설정 상태 동기화 동작을 보강
+
 ### Infra
 
+- v5 리졸버 핸들러의 인증/워크스페이스 처리 로직을 보강해 예외 상황 대응을 개선
 - Vercel CLI로 프로덕션 배포 시 로컬 `src-tauri/target`(Rust 빌드 산출물) 등이 아카이브에 포함되면 업로드가 수 GB로 불어나 실패할 수 있어, 루트 `.vercelignore`로 `node_modules`·`dist`·`src-tauri/target` 등을 제외하도록 정리
 
 ## [5.0.0] - 2026-05-07

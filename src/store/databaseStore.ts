@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 import type {
   CellValue,
   ColumnDef,
@@ -232,7 +234,8 @@ function isValidDatabaseSnapshot(
 }
 
 export const useDatabaseStore = create<DatabaseStore>()(
-  (set, get) => ({
+  persist(
+    (set, get) => ({
       version: DATABASE_STORE_VERSION,
       databases: {},
 
@@ -1084,7 +1087,21 @@ export const useDatabaseStore = create<DatabaseStore>()(
 
     getBundle: (databaseId) => get().databases[databaseId],
     resolveBundle: (databaseId) => get().getBundle(databaseId),
-  }),
+    }),
+    {
+      name: "quicknote.databases.v1",
+      storage: createJSONStorage(() => zustandStorage),
+      version: 1,
+      migrate: (persisted: unknown, fromVersion: number) => {
+        // 버전 0 캐시는 빈 상태로 초기화. Bootstrap이 원격 재페치로 복원함.
+        if (fromVersion < 1) {
+          return { databases: {} };
+        }
+        return persisted;
+      },
+      partialize: (state) => ({ databases: state.databases }),
+    }
+  )
 );
 
 export function listDatabases(state: DatabaseStore): { id: string; meta: DatabaseMeta }[] {

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { zustandStorage } from "../lib/storage/index";
 
-export type Tab = { pageId: string | null };
+export type Tab = { pageId: string | null; back?: string[] };
 
 type SettingsState = {
   darkMode: boolean;
@@ -30,6 +30,7 @@ type SettingsActions = {
   prevTab: () => void;
   nextTab: () => void;
   toggleFullWidth: () => void;
+  navBack: () => void;
 };
 
 export type SettingsStore = SettingsState & SettingsActions;
@@ -60,10 +61,24 @@ export const useSettingsStore = create<SettingsStore>()(
         })),
       setCurrentTabPage: (pageId) =>
         set((s) => {
-          const cur = s.tabs[s.activeTabIndex]?.pageId ?? null;
+          const curTab = s.tabs[s.activeTabIndex];
+          const cur = curTab?.pageId ?? null;
           if (cur === pageId) return s;
+          const back = cur !== null
+            ? [...(curTab?.back ?? []), cur].slice(-50)
+            : (curTab?.back ?? []);
           const tabs = [...s.tabs];
-          tabs[s.activeTabIndex] = { pageId };
+          tabs[s.activeTabIndex] = { pageId, back };
+          return { tabs };
+        }),
+      navBack: () =>
+        set((s) => {
+          const curTab = s.tabs[s.activeTabIndex];
+          const back = curTab?.back ?? [];
+          if (back.length === 0) return s;
+          const prevPageId = back[back.length - 1]!;
+          const tabs = [...s.tabs];
+          tabs[s.activeTabIndex] = { pageId: prevPageId, back: back.slice(0, -1) };
           return { tabs };
         }),
       openTab: (pageId) =>

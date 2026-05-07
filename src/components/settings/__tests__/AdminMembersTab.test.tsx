@@ -98,8 +98,9 @@ describe("AdminMembersTab", () => {
     fireEvent.change(screen.getByPlaceholderText("이메일"), { target: { value: "new@x.com" } });
     // 직무 필드는 select(combobox)로 변경됨 — 다이얼로그 내 첫 번째 combobox
     const dialog = screen.getByRole("dialog");
-    const jobRoleSelect = within(dialog).getAllByRole("combobox")[0];
-    fireEvent.change(jobRoleSelect, { target: { value: "PM" } });
+    const [jobRoleSelect] = within(dialog).getAllByRole("combobox");
+    expect(jobRoleSelect).toBeTruthy();
+    fireEvent.change(jobRoleSelect as Element, { target: { value: "PM" } });
     fireEvent.click(screen.getByText("추가"));
 
     await waitFor(() => expect(createMemberApiMock).toHaveBeenCalledTimes(1));
