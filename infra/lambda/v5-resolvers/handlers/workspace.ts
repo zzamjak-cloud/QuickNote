@@ -33,11 +33,17 @@ type WorkspaceRow = {
   type: "personal" | "shared";
   ownerMemberId: string;
   createdAt: string;
+  jobFunctions?: string[];
+  jobTitles?: string[];
 };
 
 export type Workspace = WorkspaceRow & {
   access: WorkspaceAccessEntry[];
   myEffectiveLevel: AccessLevel;
+  options?: {
+    jobFunctions: string[];
+    jobTitles: string[];
+  };
 };
 
 function toLevel(level: "EDIT" | "VIEW"): AccessLevel {
@@ -125,7 +131,15 @@ async function hydrateWorkspace(
   const access = await getWorkspaceAccess(doc, tables, row.workspaceId);
   const level = computeEffectiveLevel(access, caller, callerTeamIds);
   if (!level) return null;
-  return { ...row, access, myEffectiveLevel: level };
+  return {
+    ...row,
+    access,
+    myEffectiveLevel: level,
+    options: {
+      jobFunctions: row.jobFunctions ?? [],
+      jobTitles: row.jobTitles ?? [],
+    },
+  };
 }
 
 export async function createWorkspace(args: {
@@ -193,25 +207,53 @@ export async function updateWorkspace(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
   caller: Member;
-  input: { workspaceId: string; name?: string | null };
+  input: { workspaceId: string; name?: string | null; options?: { jobFunctions?: string[] | null; jobTitles?: string[] | null } | null };
 }): Promise<Workspace> {
   requireRoleAtLeast(args.caller, "manager");
-  if (!args.input.name?.trim()) badRequest("변경할 name 필요");
   const row = await getWorkspaceRow(args.doc, args.tables, args.input.workspaceId);
   if (!row) notFound("Workspace 없음");
+
+  const sets: string[] = [];
+  const names: Record<string, string> = {};
+  const vals: Record<string, unknown> = {};
+
+  if (args.input.name != null && args.input.name.trim()) {
+    sets.push("#n = :n");
+    names["#n"] = "name";
+    vals[":n"] = args.input.name.trim();
+  }
+  if (args.input.options?.jobFunctions != null) {
+    sets.push("jobFunctions = :jf");
+    vals[":jf"] = args.input.options.jobFunctions;
+  }
+  if (args.input.options?.jobTitles != null) {
+    sets.push("jobTitles = :jt");
+    vals[":jt"] = args.input.options.jobTitles;
+  }
+
+  if (sets.length === 0) badRequest("변경할 항목 없음");
+
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: args.tables.Workspaces,
       Key: { workspaceId: args.input.workspaceId },
-      UpdateExpression: "SET #n = :n",
-      ExpressionAttributeNames: { "#n": "name" },
-      ExpressionAttributeValues: { ":n": args.input.name.trim() },
+      UpdateExpression: `SET ${sets.join(", ")}`,
+      ...(Object.keys(names).length > 0 ? { ExpressionAttributeNames: names } : {}),
+      ExpressionAttributeValues: vals,
       ReturnValues: "ALL_NEW",
     }),
   );
   const updated = r.Attributes as WorkspaceRow;
   const access = await getWorkspaceAccess(args.doc, args.tables, args.input.workspaceId);
-  return { ...updated, access, myEffectiveLevel: "edit" };
+  return {
+    ...updated,
+    access,
+    myEffectiveLevel: "edit",
+    options: {
+      jobFunctions: updated.jobFunctions ?? [],
+      jobTitles: updated.jobTitles ?? [],
+    },
+  };
 }
 
 export async function setWorkspaceAccess(args: {

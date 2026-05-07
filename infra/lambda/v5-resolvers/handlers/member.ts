@@ -243,6 +243,10 @@ async function getMemberById(
 export type UpdateMemberInput = {
   name?: string | null;
   jobRole?: string | null;
+  jobTitle?: string | null;
+  phone?: string | null;
+  avatarUrl?: string | null;
+  thumbnailUrl?: string | null;
   teamIds?: string[] | null;
 };
 
@@ -263,6 +267,10 @@ export async function updateMember(args: {
   const vals: Record<string, unknown> = {};
   if (args.input.name != null) { sets.push("name = :n"); vals[":n"] = args.input.name; }
   if (args.input.jobRole != null) { sets.push("jobRole = :j"); vals[":j"] = args.input.jobRole; }
+  if (args.input.jobTitle !== undefined) { sets.push("jobTitle = :jt"); vals[":jt"] = args.input.jobTitle ?? null; }
+  if (args.input.phone !== undefined) { sets.push("phone = :ph"); vals[":ph"] = args.input.phone ?? null; }
+  if (args.input.avatarUrl !== undefined) { sets.push("avatarUrl = :av"); vals[":av"] = args.input.avatarUrl ?? null; }
+  if (args.input.thumbnailUrl !== undefined) { sets.push("thumbnailUrl = :th"); vals[":th"] = args.input.thumbnailUrl ?? null; }
 
   let updated: Member = target;
   if (sets.length > 0) {
