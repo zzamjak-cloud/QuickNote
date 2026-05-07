@@ -11,6 +11,7 @@ export function AdminTeamsTab() {
   const members = useMemberStore((s) => s.members);
   const upsertTeam = useTeamStore((s) => s.upsertTeam);
   const removeTeam = useTeamStore((s) => s.removeTeam);
+  const [openCreate, setOpenCreate] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
   const [confirmDeleteTeamId, setConfirmDeleteTeamId] = useState<string | null>(null);
   const [openAssignTeamId, setOpenAssignTeamId] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export function AdminTeamsTab() {
     const created = await createTeamApi(name);
     upsertTeam(created);
     setNewTeamName("");
+    setOpenCreate(false);
   };
 
   const onDeleteTeam = async () => {
@@ -95,18 +97,11 @@ export function AdminTeamsTab() {
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold">팀 관리</h3>
-
-      <div className="flex items-center gap-2">
-        <input
-          value={newTeamName}
-          onChange={(e) => setNewTeamName(e.target.value)}
-          placeholder="새 팀 이름"
-          className="flex-1 rounded border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-        />
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">팀 관리</h3>
         <button
           type="button"
-          onClick={() => void onCreateTeam()}
+          onClick={() => setOpenCreate(true)}
           className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
         >
           <Plus size={12} />
@@ -168,6 +163,52 @@ export function AdminTeamsTab() {
         onCancel={() => setConfirmDeleteTeamId(null)}
         onConfirm={() => void onDeleteTeam()}
       />
+
+      {openCreate && (
+        <div
+          className="fixed inset-0 z-[530] flex items-center justify-center bg-black/45 p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setOpenCreate(false);
+              setNewTeamName("");
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-xs rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h4 className="text-sm font-semibold">새 팀 추가</h4>
+            <input
+              autoFocus
+              value={newTeamName}
+              onChange={(e) => setNewTeamName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void onCreateTeam()}
+              placeholder="팀 이름"
+              className="mt-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-xs outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setOpenCreate(false); setNewTeamName(""); }}
+                className="rounded border px-3 py-1 text-xs"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void onCreateTeam()}
+                className="rounded bg-zinc-900 px-3 py-1 text-xs text-white dark:bg-zinc-100 dark:text-zinc-900"
+              >
+                추가
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {openAssignTeamId && assignTeam ? (
         <div

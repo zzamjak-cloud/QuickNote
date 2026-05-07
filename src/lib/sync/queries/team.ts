@@ -39,3 +39,9 @@ export const DELETE_TEAM = `
     deleteTeam(teamId: $teamId)
   }
 `;
+
+export const UPDATE_TEAM = `
+  mutation UpdateTeam($teamId: ID!, $name: String!) {
+    updateTeam(teamId: $teamId, name: $name) { ${TEAM_FIELDS} }
+  }
+`;

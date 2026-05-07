@@ -1,5 +1,5 @@
 import { appsyncClient } from "./graphql/client";
-import { CREATE_TEAM, DELETE_TEAM, LIST_TEAMS } from "./queries/team";
+import { CREATE_TEAM, DELETE_TEAM, LIST_TEAMS, UPDATE_TEAM } from "./queries/team";
 import type { Team } from "../../store/teamStore";
 import type { Member } from "../../store/memberStore";
 
@@ -52,4 +52,14 @@ export async function deleteTeamApi(teamId: string): Promise<boolean> {
     variables: { teamId },
   })) as { data?: { deleteTeam?: boolean } };
   return Boolean(result.data?.deleteTeam);
+}
+
+export async function updateTeamApi(teamId: string, name: string): Promise<Team> {
+  const result = (await appsyncClient().graphql({
+    query: UPDATE_TEAM,
+    variables: { teamId, name },
+  })) as { data?: { updateTeam?: GqlTeam } };
+  const team = result.data?.updateTeam;
+  if (!team) throw new Error("updateTeam 응답이 비어 있습니다.");
+  return normalizeTeam(team);
 }
