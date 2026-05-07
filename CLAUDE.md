@@ -227,3 +227,50 @@ const dbg = (reason: string, extra?: Record<string, unknown>) => {
 - **새 absolute/fixed element**가 페이지에 추가되면 `pointer-events-none` 또는 `z-index` 가 marquee overlay를 가리지 않는지 확인.
 - **새 mousedown capture listener**가 `stopImmediatePropagation` 호출하지 않는지 확인.
 - **PM dom 의 padding 영역(`px-12 py-8`)** 에서도 marquee 가 시작되어야 함 — `isInsideAnyBlock`이 `target === view.dom` 케이스에서 false 반환하는 동작을 깨뜨리지 말 것.
+
+---
+
+## 이미지 크기 조정 회귀 방지
+
+이미지 클릭 시 8개 핸들이 이미지 크기에 정확히 정렬되어 비율 유지 리사이즈가 가능해야 함. 두 차례 회귀 이력 — 핸들이 행 전체 너비에 그려지거나 width/height 가 저장 안 되는 형태.
+
+### 정상 동작 흐름
+
+1. 이미지 클릭 → PM 이 `NodeSelection` 생성 (image 는 atom)
+2. `ImageResizeOverlay.measure` 가 `editor.view.nodeDOM(sel.from)` 으로 wrapper 획득
+3. wrapper 내부의 `<img>` 요소를 `querySelector("img")` 로 찾아 그 `getBoundingClientRect` 로 핸들 위치 계산
+4. 핸들 드래그 → `editor.chain().setNodeSelection(pos).updateAttributes("image", { width, height }).run()`
+5. `ImageBlock` extension 의 `addAttributes` 가 width/height 를 schema 에 저장 → doc 에 영구 보관
+6. NodeView 가 `attrs.width` 를 `<img width=... style="width:Npx; max-width:100%">` 로 렌더
+
+### 회귀 발생 시 점검 항목
+
+| 증상 | 의심 위치 |
+|------|-----------|
+| 핸들이 이미지 옆이 아닌 행 양 끝에 그려짐 | `ImageResizeOverlay.measure` 가 outer wrapper 만 측정 — `querySelector("img")` 로 inner 측정 누락 |
+| 클릭 시 selection 파란 박스가 행 전체 너비 | `ReactNodeViewRenderer(Comp, { as: "span" })` 누락 — outer wrapper 가 기본값 `div` 라 block 으로 row 전체 차지 |
+| 크기 조정해도 새로고침 시 원복 | `ImageBlock.extend` 에 `addAttributes` 누락 — width/height 가 schema 에 등록 안 됨 |
+| 이미지가 항상 자연 크기 또는 column 전체 너비 | `addAttributes` 누락 + 렌더 시 `attrs.width` 가 항상 undefined |
+| 핸들 자체가 안 보임 | `box.width < 8` early return / `nodeDOM` 이 null / `selection` 이 `NodeSelection` 아님 |
+
+### 진단 절차
+
+1. 이미지가 렌더링되는지 + width 가 적용되는지:
+   ```js
+   document.querySelectorAll('.qn-image-shell img').forEach(i =>
+     console.log({ renderedW: i.width, attrW: i.getAttribute('width'), styleW: i.style.width })
+   )
+   ```
+2. 클릭 시 `ImageResizeOverlay.measure` 분기 추적 — 각 단계에 `console.log` 추가:
+   - `selType` / `nodeName`
+   - `nodeDOM` 의 `tagName` / `className`
+   - 측정 box 의 `width` / `height`
+3. wrapper outer 가 `react-renderer node-image` 이면 → `as: "span"` 설정 안 됨
+4. wrapper 의 `getBoundingClientRect.width` 가 행 전체 너비면 → block-level 로 fallthrough 중
+
+### 변경 시 주의
+
+- **`@tiptap/extension-image`** 기본 schema 에는 width/height 가 없다. ImageBlock 확장에서 `addAttributes` 로 직접 등록해야 함 (`src/lib/tiptapExtensions/imageBlock.tsx`).
+- **NodeView wrapper**(`as` 옵션)와 **ReactNodeViewRenderer wrapper**(2번째 인자의 `as`)는 별개. 둘 다 inline 흐름이 필요하면 둘 다 `span` 지정.
+- **ImageResizeOverlay 측정**은 항상 wrapper → inner img 순으로 fallback. wrapper 만 측정하면 NodeView 구조 변경 시 항상 깨짐.
+- **CSS `max-w-full`** 만으로는 사용자 지정 width 를 보존하지 못함. 인라인 `style.width` 로 명시.
