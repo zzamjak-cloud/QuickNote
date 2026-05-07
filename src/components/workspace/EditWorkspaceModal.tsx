@@ -20,14 +20,12 @@ export function EditWorkspaceModal({
   const [name, setName] = useState(workspaceName);
   const [entries, setEntries] = useState<WorkspaceAccessInput[]>(initialEntries);
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setName(workspaceName);
     setEntries(initialEntries);
     setError(null);
-    setWarning(null);
   }, [open, workspaceName, initialEntries]);
 
   if (!open) return null;
@@ -59,9 +57,8 @@ export function EditWorkspaceModal({
         />
         <div className="mt-3">
           <p className="mb-1 text-xs font-medium">접근 권한 설정</p>
-          <AccessEntriesEditor value={entries} onChange={setEntries} onWarning={setWarning} />
+          <AccessEntriesEditor value={entries} onChange={setEntries} />
         </div>
-        {warning ? <p className="mt-2 text-xs text-amber-600">{warning}</p> : null}
         {error ? <p className="mt-2 text-xs text-red-500">{error}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} className="rounded border px-3 py-1 text-xs">취소</button>
