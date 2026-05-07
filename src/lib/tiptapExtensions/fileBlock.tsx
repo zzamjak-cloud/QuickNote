@@ -17,6 +17,8 @@ type FileAttrs = {
   name?: string | null;
   size?: number | null;
   mime?: string | null;
+  width?: number | null;
+  height?: number | null;
 };
 
 function formatSize(n: number | null | undefined): string {
@@ -57,30 +59,37 @@ function FileView(props: NodeViewProps) {
     );
   }
 
-  // 비디오 인라인 플레이어 + 클릭 시 확대 미리보기
+  // 비디오 인라인 플레이어 + 크기 조정 핸들 + 클릭 시 확대 미리보기
   if (mime.startsWith("video/")) {
+    const styleW = attrs.width ? `${attrs.width}px` : undefined;
     return (
       <NodeViewWrapper
-        as="div"
-        className="qn-file-shell my-2"
+        as="span"
+        className="qn-file-shell my-2 inline-block max-w-full align-top"
         data-drag-handle
       >
-        <div className="overflow-hidden rounded-lg border border-zinc-200 bg-black dark:border-zinc-700">
+        <span
+          className="block overflow-hidden rounded-lg border border-zinc-200 bg-black dark:border-zinc-700"
+          style={{ width: styleW, maxWidth: "100%" }}
+        >
           {url ? (
             <video
               src={url}
               controls
-              className="block max-h-[480px] w-full"
-              onClick={() => setZoom(true)}
+              className="block h-auto"
+              style={{
+                width: styleW ?? "100%",
+                maxWidth: "100%",
+              }}
             />
           ) : (
-            <div className="flex h-32 w-full items-center justify-center text-xs text-zinc-400">
+            <span className="flex h-32 w-full items-center justify-center text-xs text-zinc-400">
               로딩…
-            </div>
+            </span>
           )}
-        </div>
+        </span>
         {zoom && url && (
-          <div
+          <span
             className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 p-6"
             role="dialog"
             aria-modal="true"
@@ -93,8 +102,20 @@ function FileView(props: NodeViewProps) {
               className="max-h-full max-w-full"
               onClick={(e) => e.stopPropagation()}
             />
-          </div>
+          </span>
         )}
+        <button
+          type="button"
+          aria-label="확대 미리보기"
+          className="ml-1 align-middle rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setZoom(true);
+          }}
+        >
+          확대
+        </button>
       </NodeViewWrapper>
     );
   }
@@ -192,6 +213,28 @@ export const FileBlock = Node.create({
         renderHTML: (attrs) =>
           attrs.mime ? { "data-mime": String(attrs.mime) } : {},
       },
+      width: {
+        default: null,
+        parseHTML: (el) => {
+          const v = (el as HTMLElement).getAttribute("data-w");
+          if (!v) return null;
+          const n = parseInt(v, 10);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        },
+        renderHTML: (attrs) =>
+          attrs.width ? { "data-w": String(attrs.width) } : {},
+      },
+      height: {
+        default: null,
+        parseHTML: (el) => {
+          const v = (el as HTMLElement).getAttribute("data-h");
+          if (!v) return null;
+          const n = parseInt(v, 10);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        },
+        renderHTML: (attrs) =>
+          attrs.height ? { "data-h": String(attrs.height) } : {},
+      },
     };
   },
 
@@ -207,6 +250,8 @@ export const FileBlock = Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(FileView, { as: "div" });
+    // wrapper 도 span 으로 두어 inline-block 흐름 유지(이미지와 동일).
+    // 그래야 ImageResizeOverlay 패턴이 video 를 인식하고 핸들이 영상 크기에 맞춰진다.
+    return ReactNodeViewRenderer(FileView, { as: "span" });
   },
 });

@@ -60,7 +60,16 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   const measure = useCallback(() => {
     if (!editor || editor.isDestroyed || skipSyncRef.current) return;
     const sel = editor.state.selection;
-    if (!(sel instanceof NodeSelection) || sel.node.type.name !== "image") {
+    if (!(sel instanceof NodeSelection)) {
+      setBox(null);
+      return;
+    }
+    const nodeName = sel.node.type.name;
+    const isVideoFileBlock =
+      nodeName === "fileBlock" &&
+      typeof sel.node.attrs.mime === "string" &&
+      (sel.node.attrs.mime as string).startsWith("video/");
+    if (nodeName !== "image" && !isVideoFileBlock) {
       setBox(null);
       return;
     }
@@ -70,10 +79,9 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       setBox(null);
       return;
     }
-    // outer wrapper(react-renderer div) 는 block 이라 row 전체를 차지한다.
-    // 핸들은 실제 img 의 크기에 맞춰 그려야 사용자 입장에서 정확.
-    const imgEl = el.querySelector("img");
-    const target: HTMLElement = imgEl ?? el;
+    // outer wrapper 가 block 이면 row 전체를 차지하므로 실제 미디어 element 의 rect 를 사용.
+    const mediaEl = el.querySelector("img,video") as HTMLElement | null;
+    const target: HTMLElement = mediaEl ?? el;
     const r = target.getBoundingClientRect();
     setBox({
       pos: sel.from,
@@ -104,9 +112,13 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       e.stopPropagation();
 
       const sel = editor.state.selection;
-      if (!(sel instanceof NodeSelection) || sel.node.type.name !== "image") {
-        return;
-      }
+      if (!(sel instanceof NodeSelection)) return;
+      const nodeName = sel.node.type.name;
+      const isVideo =
+        nodeName === "fileBlock" &&
+        typeof sel.node.attrs.mime === "string" &&
+        (sel.node.attrs.mime as string).startsWith("video/");
+      if (nodeName !== "image" && !isVideo) return;
       const node = sel.node;
       const attrs = node.attrs as {
         width?: number | null;
@@ -114,12 +126,21 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       };
       const dom = editor.view.nodeDOM(sel.from);
       const shell = dom instanceof HTMLElement ? dom : null;
-      const imgEl = shell?.querySelector("img");
-      const rect = shell?.getBoundingClientRect();
+      const mediaEl = shell?.querySelector("img,video") as
+        | HTMLImageElement
+        | HTMLVideoElement
+        | null;
+      const rect = (mediaEl ?? shell)?.getBoundingClientRect();
       if (!rect) return;
 
-      const natW = imgEl?.naturalWidth ?? 1;
-      const natH = imgEl?.naturalHeight ?? 1;
+      const natW =
+        (mediaEl as HTMLImageElement | null)?.naturalWidth ??
+        (mediaEl as HTMLVideoElement | null)?.videoWidth ??
+        1;
+      const natH =
+        (mediaEl as HTMLImageElement | null)?.naturalHeight ??
+        (mediaEl as HTMLVideoElement | null)?.videoHeight ??
+        1;
       let ratio: number;
       if (
         attrs.width != null &&
@@ -208,7 +229,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
         editor
           .chain()
           .setNodeSelection(d.pos)
-          .updateAttributes("image", {
+          .updateAttributes(nodeName, {
             width: Math.round(newW),
             height: Math.round(newH),
           })
