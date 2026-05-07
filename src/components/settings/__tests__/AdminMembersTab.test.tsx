@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminMembersTab } from "../AdminMembersTab";
 import { useMemberStore } from "../../../store/memberStore";
 import { useTeamStore } from "../../../store/teamStore";
+import { useWorkspaceOptionsStore } from "../../../store/workspaceOptionsStore";
 
 const createMemberApiMock = vi.fn();
 
@@ -13,6 +14,8 @@ vi.mock("../../../lib/sync/memberApi", () => ({
 describe("AdminMembersTab", () => {
   beforeEach(() => {
     createMemberApiMock.mockReset();
+    // 직무 select 옵션에 "PM"이 나타나도록 초기화
+    useWorkspaceOptionsStore.setState({ jobFunctions: ["PM"], jobTitles: [] });
     useMemberStore.setState({
       me: null,
       mentionCandidates: [],
@@ -93,7 +96,10 @@ describe("AdminMembersTab", () => {
 
     fireEvent.change(screen.getByPlaceholderText("이름"), { target: { value: "New" } });
     fireEvent.change(screen.getByPlaceholderText("이메일"), { target: { value: "new@x.com" } });
-    fireEvent.change(screen.getByPlaceholderText("직무"), { target: { value: "PM" } });
+    // 직무 필드는 select(combobox)로 변경됨 — 다이얼로그 내 첫 번째 combobox
+    const dialog = screen.getByRole("dialog");
+    const jobRoleSelect = within(dialog).getAllByRole("combobox")[0];
+    fireEvent.change(jobRoleSelect, { target: { value: "PM" } });
     fireEvent.click(screen.getByText("추가"));
 
     await waitFor(() => expect(createMemberApiMock).toHaveBeenCalledTimes(1));

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminTeamsTab } from "../AdminTeamsTab";
 import { useTeamStore } from "../../../store/teamStore";
@@ -52,10 +52,14 @@ describe("AdminTeamsTab", () => {
     deleteTeamApiMock.mockResolvedValue(true);
 
     render(<AdminTeamsTab />);
-    fireEvent.change(screen.getByPlaceholderText("새 팀 이름"), {
+    // 모달 열기
+    fireEvent.click(screen.getByText("팀 추가"));
+    fireEvent.change(screen.getByPlaceholderText("팀 이름"), {
       target: { value: "Platform" },
     });
-    fireEvent.click(screen.getByText("팀 추가"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("추가"));
+    });
     await waitFor(() => expect(createTeamApiMock).toHaveBeenCalledWith("Platform"));
 
     fireEvent.click(screen.getByLabelText("Design 삭제"));

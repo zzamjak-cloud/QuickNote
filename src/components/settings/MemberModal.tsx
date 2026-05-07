@@ -306,6 +306,7 @@ export function MemberModal(props: Props) {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                placeholder="이름"
                 className="w-full rounded border border-zinc-300 px-2 py-1 outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
               />
             </div>
@@ -315,6 +316,7 @@ export function MemberModal(props: Props) {
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  placeholder="이메일"
                   className="w-full rounded border border-zinc-300 px-2 py-1 outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
                 />
               ) : (

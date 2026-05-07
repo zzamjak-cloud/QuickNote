@@ -86,7 +86,7 @@ describe("AdminWorkspacesTab", () => {
     expect(screen.getAllByLabelText("HR 삭제").length).toBeGreaterThan(0);
   });
 
-  it("생성 모달에서 중복 대상 권한은 edit 우선 정리 후 생성한다", async () => {
+  it("생성 모달에서 EVERYONE EDIT 규칙 추가 후 생성한다", async () => {
     createWorkspaceApiMock.mockResolvedValue({
       workspaceId: "ws-9",
       name: "New WS",
@@ -102,12 +102,19 @@ describe("AdminWorkspacesTab", () => {
       target: { value: "New WS" },
     });
 
-    fireEvent.change(screen.getByLabelText("subject-type"), {
-      target: { value: "EVERYONE" },
-    });
-    fireEvent.click(screen.getByText("보기 권한 추가"));
-    fireEvent.click(screen.getByText("편집 권한 추가"));
-    expect(screen.getByText("같은 대상의 view/edit 중복은 edit 우선으로 정리되었습니다.")).toBeTruthy();
+    // 규칙 추가 폼 열기
+    fireEvent.click(screen.getByText("규칙 추가"));
+    // addType select(MEMBER/TEAM/EVERYONE)과 addLevel select(EDIT/VIEW)를 찾아 EVERYONE EDIT 선택
+    const selects = screen.getAllByRole("combobox");
+    const addTypeSelect = selects.find((s) =>
+      Array.from(s.querySelectorAll("option")).some((o) => (o as HTMLOptionElement).value === "EVERYONE"),
+    );
+    const addLevelSelect = selects.find((s) =>
+      Array.from(s.querySelectorAll("option")).some((o) => (o as HTMLOptionElement).value === "EDIT"),
+    );
+    fireEvent.change(addTypeSelect!, { target: { value: "EVERYONE" } });
+    fireEvent.change(addLevelSelect!, { target: { value: "EDIT" } });
+    fireEvent.click(screen.getByText("추가"));
 
     await act(async () => {
       fireEvent.click(screen.getByText("저장"));
@@ -158,7 +165,22 @@ describe("AdminWorkspacesTab", () => {
     fireEvent.change(nameInput, {
       target: { value: "HR Updated" },
     });
-    fireEvent.click(screen.getByText("편집 권한 추가"));
+    // 규칙 추가 폼 열기 후 TEAM 규칙 추가 (EVERYONE은 이미 존재하여 dedup 처리됨)
+    fireEvent.click(screen.getByText("규칙 추가"));
+    const editSelects = screen.getAllByRole("combobox");
+    const editAddTypeSelect = editSelects.find((s) =>
+      Array.from(s.querySelectorAll("option")).some((o) => (o as HTMLOptionElement).value === "TEAM"),
+    );
+    const editAddLevelSelect = editSelects.find((s) =>
+      Array.from(s.querySelectorAll("option")).some((o) => (o as HTMLOptionElement).value === "EDIT"),
+    );
+    if (editAddTypeSelect) fireEvent.change(editAddTypeSelect, { target: { value: "TEAM" } });
+    if (editAddLevelSelect) fireEvent.change(editAddLevelSelect, { target: { value: "EDIT" } });
+    // 팀 검색 후 선택
+    const teamSearchInput = screen.getByPlaceholderText("팀 검색...");
+    fireEvent.change(teamSearchInput, { target: { value: "Core" } });
+    fireEvent.click(screen.getByText("Core"));
+    fireEvent.click(screen.getByText("추가"));
 
     await act(async () => {
       fireEvent.click(screen.getByText("저장"));
@@ -174,7 +196,10 @@ describe("AdminWorkspacesTab", () => {
     });
     expect(setWorkspaceAccessApiMock).toHaveBeenCalledWith({
       workspaceId: "ws-2",
-      entries: [{ subjectType: "EVERYONE", subjectId: undefined, level: "EDIT" }],
+      entries: [
+        { subjectType: "TEAM", subjectId: "t-1", level: "EDIT" },
+        { subjectType: "EVERYONE", subjectId: undefined, level: "VIEW" },
+      ],
     });
   });
 
