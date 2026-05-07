@@ -1,5 +1,5 @@
 const MEMBER_FIELDS = `
-  memberId email name jobRole workspaceRole status personalWorkspaceId cognitoSub createdAt removedAt
+  memberId email name jobRole jobTitle phone avatarUrl thumbnailUrl workspaceRole status personalWorkspaceId cognitoSub createdAt removedAt
 `;
 
 export const ME = `
@@ -63,5 +63,29 @@ export const SEARCH_MEMBERS_FOR_MENTION = `
       name
       jobRole
     }
+  }
+`;
+
+export const UPDATE_MEMBER = `
+  mutation UpdateMember(
+    $memberId: ID!
+    $name: String
+    $jobRole: String
+    $jobTitle: String
+    $phone: String
+    $avatarUrl: String
+    $thumbnailUrl: String
+  ) {
+    updateMember(
+      memberId: $memberId
+      input: {
+        name: $name
+        jobRole: $jobRole
+        jobTitle: $jobTitle
+        phone: $phone
+        avatarUrl: $avatarUrl
+        thumbnailUrl: $thumbnailUrl
+      }
+    ) { ${MEMBER_FIELDS} }
   }
 `;

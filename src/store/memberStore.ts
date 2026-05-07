@@ -10,6 +10,10 @@ export type Member = {
   jobRole: string;
   workspaceRole: MemberRole;
   status: MemberStatus;
+  jobTitle?: string;
+  phone?: string;
+  avatarUrl?: string;
+  thumbnailUrl?: string;
   personalWorkspaceId: string;
 };
 

@@ -15,17 +15,24 @@ export type WorkspaceAccessInput = {
   level: "EDIT" | "VIEW";
 };
 
+export type WorkspaceOptions = {
+  jobFunctions: string[];
+  jobTitles: string[];
+};
+
 type WorkspaceResponse = Omit<WorkspaceSummary, "type" | "myEffectiveLevel"> & {
   type: "PERSONAL" | "SHARED" | "personal" | "shared";
   myEffectiveLevel: "EDIT" | "VIEW" | "edit" | "view";
   access?: WorkspaceAccessInput[];
+  options?: WorkspaceOptions;
 };
 
 export type WorkspaceDetail = WorkspaceSummary & {
   access: WorkspaceAccessInput[];
+  options?: WorkspaceOptions;
 };
 
-function normalizeWorkspace(ws: WorkspaceResponse): WorkspaceSummary {
+function normalizeWorkspace(ws: WorkspaceResponse): WorkspaceSummary & { options?: WorkspaceOptions } {
   return {
     ...ws,
     type: ws.type === "PERSONAL" ? "personal" : ws.type === "SHARED" ? "shared" : ws.type,
@@ -38,7 +45,7 @@ function normalizeWorkspace(ws: WorkspaceResponse): WorkspaceSummary {
   };
 }
 
-export async function listMyWorkspacesApi(): Promise<WorkspaceSummary[]> {
+export async function listMyWorkspacesApi(): Promise<(WorkspaceSummary & { options?: WorkspaceOptions })[]> {
   const result = (await appsyncClient().graphql({
     query: LIST_MY_WORKSPACES,
   })) as { data?: { listMyWorkspaces?: WorkspaceResponse[] } };
@@ -74,7 +81,8 @@ export async function createWorkspaceApi(input: {
 export async function updateWorkspaceApi(input: {
   workspaceId: string;
   name?: string;
-}): Promise<WorkspaceSummary> {
+  options?: { jobFunctions?: string[]; jobTitles?: string[] };
+}): Promise<WorkspaceSummary & { options?: WorkspaceOptions }> {
   const result = (await appsyncClient().graphql({
     query: UPDATE_WORKSPACE,
     variables: { input },

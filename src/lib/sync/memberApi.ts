@@ -9,6 +9,7 @@ import {
   PROMOTE_TO_MANAGER,
   REMOVE_MEMBER,
   UNASSIGN_MEMBER_FROM_TEAM,
+  UPDATE_MEMBER,
 } from "./queries/member";
 import type { Member, MemberMini } from "../../store/memberStore";
 
@@ -18,6 +19,15 @@ type CreateMemberInput = {
   jobRole: string;
   workspaceRole?: "OWNER" | "MANAGER" | "MEMBER";
   teamIds?: string[];
+};
+
+type UpdateMemberInput = {
+  name?: string | null;
+  jobRole?: string | null;
+  jobTitle?: string | null;
+  phone?: string | null;
+  avatarUrl?: string | null;
+  thumbnailUrl?: string | null;
 };
 
 type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
@@ -115,6 +125,16 @@ export async function unassignMemberFromTeamApi(memberId: string, teamId: string
     variables: { memberId, teamId },
   })) as { data?: { unassignMemberFromTeam?: boolean } };
   return Boolean(result.data?.unassignMemberFromTeam);
+}
+
+export async function updateMemberApi(memberId: string, input: UpdateMemberInput): Promise<Member> {
+  const result = (await appsyncClient().graphql({
+    query: UPDATE_MEMBER,
+    variables: { memberId, ...input },
+  })) as { data?: { updateMember?: GqlMember } };
+  const member = result.data?.updateMember;
+  if (!member) throw new Error("updateMember 응답이 비어 있습니다.");
+  return normalizeMember(member);
 }
 
 export async function searchMembersForMentionApi(

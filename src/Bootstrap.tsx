@@ -14,6 +14,7 @@ import {
 } from "./lib/sync/storeApply";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useMemberStore } from "./store/memberStore";
+import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
 import { listMembersApi, meApi } from "./lib/sync/memberApi";
 import { listMyWorkspacesApi } from "./lib/sync/workspaceApi";
 import { listTeamsApi } from "./lib/sync/teamApi";
@@ -41,6 +42,7 @@ function useSyncBootstrap() {
     if (authStatus !== "authenticated" || !authSub) {
       setMe(null);
       clearWorkspaces();
+      useWorkspaceOptionsStore.getState().clear();
       clearMembers();
       clearTeams();
       return;
@@ -51,7 +53,17 @@ function useSyncBootstrap() {
         const [me, workspaces] = await Promise.all([meApi(), listMyWorkspacesApi()]);
         if (cancelled) return;
         setMe(me);
-        setWorkspaces(workspaces);
+        // WorkspaceSummary[]로 캐스트 (options는 스토어 밖에서만 사용)
+        setWorkspaces(workspaces as Parameters<typeof setWorkspaces>[0]);
+
+        // 현재 워크스페이스의 options를 WorkspaceOptionsStore에 동기화
+        const currentWs =
+          workspaces.find(
+            (w) => w.workspaceId === useWorkspaceStore.getState().currentWorkspaceId,
+          ) ?? workspaces[0];
+        if (currentWs?.options) {
+          useWorkspaceOptionsStore.getState().setOptions(currentWs.options);
+        }
 
         const isAdmin = me.workspaceRole === "owner" || me.workspaceRole === "manager";
         if (!isAdmin) {

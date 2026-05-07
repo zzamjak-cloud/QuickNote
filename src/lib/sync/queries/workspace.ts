@@ -12,6 +12,7 @@ const WORKSPACE_FIELDS = `
   myEffectiveLevel
   createdAt
   access { ${ACCESS_ENTRY_FIELDS} }
+  options { jobFunctions jobTitles }
 `;
 
 export const LIST_MY_WORKSPACES = `
