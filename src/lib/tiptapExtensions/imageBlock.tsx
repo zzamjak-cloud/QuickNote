@@ -31,7 +31,12 @@ function ImageView(props: NodeViewProps) {
           alt={attrs.alt ?? ""}
           width={attrs.width ?? undefined}
           height={attrs.height ?? undefined}
-          className="block max-w-full h-auto"
+          className="block h-auto"
+          style={
+            attrs.width
+              ? { width: `${attrs.width}px`, maxWidth: "100%" }
+              : { maxWidth: "100%" }
+          }
           draggable={false}
         />
       ) : (
@@ -41,8 +46,39 @@ function ImageView(props: NodeViewProps) {
   );
 }
 
+// width/height 를 Tiptap 노드 attrs 로 명시 등록.
+// 누락 시 ImageResizeOverlay 의 updateAttributes 가 schema 에 없는 attr 로 간주되어 무시되고,
+// 렌더 시 img 의 width/height prop 도 항상 undefined → max-w-full 로 column 전체 너비 박스로 표시됨.
 export const ImageBlock = Image.extend({
   name: "image",
+
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: (el) => {
+          const v = el.getAttribute("width");
+          if (!v) return null;
+          const n = parseInt(v, 10);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        },
+        renderHTML: (attrs) =>
+          attrs.width ? { width: String(attrs.width) } : {},
+      },
+      height: {
+        default: null,
+        parseHTML: (el) => {
+          const v = el.getAttribute("height");
+          if (!v) return null;
+          const n = parseInt(v, 10);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        },
+        renderHTML: (attrs) =>
+          attrs.height ? { height: String(attrs.height) } : {},
+      },
+    };
+  },
 
   addNodeView() {
     return ReactNodeViewRenderer(ImageView);
