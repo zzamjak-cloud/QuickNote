@@ -100,22 +100,19 @@ async function getCallerTeamIds(
   return (r.Items ?? []).map((i) => i.teamId as string);
 }
 
-function computeEffectiveLevel(
+export function computeEffectiveLevel(
   entries: WorkspaceAccessEntry[],
   caller: Member,
   callerTeamIds: Set<string>,
 ): AccessLevel | null {
-  let best: AccessLevel | null = null;
   for (const e of entries) {
     const matched =
       (e.subjectType === "member" && e.subjectId === caller.memberId) ||
       (e.subjectType === "team" && e.subjectId && callerTeamIds.has(e.subjectId)) ||
       e.subjectType === "everyone";
-    if (!matched) continue;
-    if (e.level === "edit") return "edit";
-    best = "view";
+    if (matched) return e.level;
   }
-  return best;
+  return null;
 }
 
 async function hydrateWorkspace(
