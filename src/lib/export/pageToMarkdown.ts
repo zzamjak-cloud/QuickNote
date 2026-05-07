@@ -20,10 +20,12 @@ function nodeToMd(node: JSONContent, depth = 0): string {
       return (node.content ?? []).map((item) => nodeToMd(item, depth)).join("");
     case "orderedList":
       return (node.content ?? [])
-        .map(
-          (item, i) =>
-            `${i + 1}. ${(item.content ?? []).flatMap((n) => (n.content ?? []).map(inlineToMd)).join("")}\n`,
-        )
+        .map((item, i) => {
+          const text = (item.content ?? [])
+            .flatMap((n) => (n.content ?? []).map(inlineToMd))
+            .join("");
+          return `${i + 1}. ${text}\n`;
+        })
         .join("");
     case "listItem": {
       const indent = "  ".repeat(depth);

@@ -108,7 +108,7 @@ export function TopBar() {
     a.href = url;
     a.download = `${title}.md`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
     setMenuOpen(false);
   };
 
