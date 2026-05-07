@@ -152,8 +152,8 @@ const PageListItemInner = function PageListItem({
   const isDisabled = mode === "disabled";
   const rowDragEnabled = draggable && !menuOpen && !editing;
 
-  const rowPadLeft = depth * 14 + 4;
-  const childGuideLeft = (depth + 1) * 14 + 4;
+  const rowPadLeft = depth * 14 + 2;
+  const childGuideLeft = (depth + 1) * 14 + 2;
   const pageHistoryTimeline = useHistoryStore((s) => s.getPageTimeline(node.id));
   const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
   const timelineIds = pageHistoryTimeline.map((e) => e.id);
