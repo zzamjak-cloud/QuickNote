@@ -49,12 +49,34 @@ export class SyncEngine {
       attempts: 0,
       dedupeKey: `${op}:${payload.id}`,
     };
+    console.log("[QN-DEBUG] enqueue", op, {
+      pageId: payload.id,
+      workspaceId: (payload as Record<string, unknown>).workspaceId,
+      docType: typeof (payload as Record<string, unknown>).doc,
+    });
     await this.outbox.upsertByDedupe(entry);
     this.scheduleFlush(0);
   }
 
   async peekPending(): Promise<number> {
     return (await this.outbox.list(1)).length;
+  }
+
+  async debugSnapshot(): Promise<unknown[]> {
+    const all = await this.outbox.list(100);
+    return all.map((e) => ({
+      id: e.id,
+      op: e.op,
+      attempts: e.attempts,
+      pageId: (e.payload as Record<string, unknown>).id,
+      workspaceId: (e.payload as Record<string, unknown>).workspaceId,
+      docType: typeof (e.payload as Record<string, unknown>).doc,
+      enqueuedAt: new Date(e.enqueuedAt).toISOString(),
+    }));
+  }
+
+  async clearAll(): Promise<void> {
+    await this.outbox.clear();
   }
 
   scheduleFlush(delayMs: number): void {
@@ -76,9 +98,13 @@ export class SyncEngine {
         let minFailBackoff = MAX_BACKOFF_MS;
         let hasFailure = false;
 
+        console.log("[QN-DEBUG] flush batch", { size: batch.length });
         for (const entry of batch) {
           try {
             await this.execute(entry);
+            console.log("[QN-DEBUG] mutation OK", entry.op, {
+              pageId: (entry.payload as Record<string, unknown>).id,
+            });
             await this.outbox.remove(entry.id);
           } catch (err) {
             // mutation 실패는 운영에서도 유용하므로 GraphQL 메시지 본체를 콘솔에 남긴다.

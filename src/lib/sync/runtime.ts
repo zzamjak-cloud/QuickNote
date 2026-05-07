@@ -12,6 +12,20 @@ export async function getSyncEngine(): Promise<SyncEngine> {
   if (!_engine) {
     const outbox = await getOutboxAdapter();
     _engine = new SyncEngine(outbox, realGqlBridge);
+    // 콘솔에서 stale outbox 를 즉시 비울 수 있는 디버그 헬퍼.
+    // 데스크톱(Tauri SQLite) / 웹(IndexedDB) 모두 같은 한 줄로 동작.
+    if (typeof window !== "undefined") {
+      const w = window as unknown as Record<string, unknown>;
+      w.__QN_clearOutbox = async () => {
+        await _engine!.clearAll();
+        console.log("[QN-DEBUG] outbox 전체 비움 완료");
+      };
+      w.__QN_outboxSnapshot = async () => {
+        const snap = await _engine!.debugSnapshot();
+        console.log("[QN-DEBUG] outbox snapshot", { count: snap.length, entries: snap });
+        return snap;
+      };
+    }
   }
   return _engine;
 }
