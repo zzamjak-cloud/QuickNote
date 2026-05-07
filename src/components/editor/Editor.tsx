@@ -380,7 +380,10 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     [lowlightApi],
   );
 
-  // 활성 페이지 변경 시 본문 동기화. page.doc 를 deps 에 넣지 않음(타이핑·저장마다 doc 참조 변경 → setContent 루프·내용 되살림).
+  // 활성 페이지 변경 + 원격 변경 수신 시 본문 동기화.
+  // deps 에 page?.updatedAt 을 포함해 다른 클라이언트의 push (subscription → applyRemotePageToStore) 가
+  // 즉시 editor 에 반영되도록 한다. 자기 타이핑은 editor.getJSON() === safeDoc 비교로 걸러지므로 무한 루프 없음.
+  // 사용자 입력 중(focused)이면 cursor 보존을 위해 blur 까지 setContent 를 보류.
   useEffect(() => {
     if (!editor || !page || !effectivePageId) return;
     let safeDoc = stripStaleBlobImages(page.doc);
@@ -388,13 +391,24 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     if (!tipTapJsonDocEquals(editor.schema, safeDoc, page.doc)) {
       updateDoc(effectivePageId, safeDoc);
     }
-    const current = editor.getJSON();
-    if (tipTapJsonDocEquals(editor.schema, current, safeDoc)) return;
-    scheduleEditorMutation(() => {
+    const sync = () => {
       if (editor.isDestroyed) return;
+      const current = editor.getJSON();
+      if (tipTapJsonDocEquals(editor.schema, current, safeDoc)) return;
       editor.commands.setContent(safeDoc, { emitUpdate: false });
-    });
-  }, [editor, page?.id, effectivePageId, updateDoc]); // eslint-disable-line react-hooks/exhaustive-deps -- page.doc 변경 시 재동기화는 id 전환만
+    };
+    if (editor.isFocused) {
+      const onBlur = () => {
+        editor.off("blur", onBlur);
+        scheduleEditorMutation(sync);
+      };
+      editor.on("blur", onBlur);
+      return () => {
+        editor.off("blur", onBlur);
+      };
+    }
+    scheduleEditorMutation(sync);
+  }, [editor, page?.id, effectivePageId, page?.updatedAt, updateDoc]);
 
   // 디바운스 자동 저장
   useEffect(() => {
