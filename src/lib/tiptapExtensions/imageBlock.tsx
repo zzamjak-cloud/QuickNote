@@ -81,6 +81,8 @@ export const ImageBlock = Image.extend({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(ImageView);
+    // outer wrapper(react-renderer) 도 span 으로 만들어 inline-block 흐름을 유지.
+    // 기본값(div) 일 경우 row 전체를 차지해 ProseMirror-selectednode 시각이 행 전체 박스로 그려짐.
+    return ReactNodeViewRenderer(ImageView, { as: "span" });
   },
 });

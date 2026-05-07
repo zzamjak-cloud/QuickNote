@@ -60,30 +60,21 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   const measure = useCallback(() => {
     if (!editor || editor.isDestroyed || skipSyncRef.current) return;
     const sel = editor.state.selection;
-    const isNodeSel = sel instanceof NodeSelection;
-    const nodeName = isNodeSel ? sel.node.type.name : null;
-    console.log("[QN-DEBUG] resize:measure", {
-      selType: sel.constructor.name,
-      isNodeSel,
-      nodeName,
-    });
-    if (!isNodeSel || nodeName !== "image") {
+    if (!(sel instanceof NodeSelection) || sel.node.type.name !== "image") {
       setBox(null);
       return;
     }
     const dom = editor.view.nodeDOM(sel.from);
     const el = dom instanceof HTMLElement ? dom : null;
-    console.log("[QN-DEBUG] resize:dom", {
-      hasDom: !!el,
-      tagName: el?.tagName,
-      cls: el?.className,
-    });
     if (!el) {
       setBox(null);
       return;
     }
-    const r = el.getBoundingClientRect();
-    console.log("[QN-DEBUG] resize:rect", { w: r.width, h: r.height, l: r.left, t: r.top });
+    // outer wrapper(react-renderer div) 는 block 이라 row 전체를 차지한다.
+    // 핸들은 실제 img 의 크기에 맞춰 그려야 사용자 입장에서 정확.
+    const imgEl = el.querySelector("img");
+    const target: HTMLElement = imgEl ?? el;
+    const r = target.getBoundingClientRect();
     setBox({
       pos: sel.from,
       left: r.left,
