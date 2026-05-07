@@ -4,6 +4,7 @@ import { createMemberApi } from "../../lib/sync/memberApi";
 import { useMemberStore, type Member } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
 import { CreateMemberModal } from "./CreateMemberModal";
+import { MemberModal } from "./MemberModal";
 import { MemberRowActions } from "./MemberRowActions";
 
 function toUpperRole(role: Member["workspaceRole"]): "OWNER" | "MANAGER" | "MEMBER" {
@@ -20,6 +21,7 @@ export function AdminMembersTab() {
   const removeMemberFromCache = useMemberStore((s) => s.removeMemberFromCache);
   const [query, setQuery] = useState("");
   const [openCreate, setOpenCreate] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
 
   const teamNamesByMemberId = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -104,7 +106,11 @@ export function AdminMembersTab() {
               </tr>
             ) : (
               filtered.map((m) => (
-                <tr key={m.memberId} className="border-t border-zinc-100 dark:border-zinc-800">
+                <tr
+                  key={m.memberId}
+                  className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/50"
+                  onClick={() => setSelectedMember(m)}
+                >
                   <td className="whitespace-nowrap px-3 py-2">{m.name}</td>
                   <td className="whitespace-nowrap px-3 py-2">{m.email}</td>
                   <td className="whitespace-nowrap px-3 py-2">{m.jobRole}</td>
@@ -138,6 +144,26 @@ export function AdminMembersTab() {
         onClose={() => setOpenCreate(false)}
         onCreate={onCreate}
       />
+      {selectedMember && (
+        <MemberModal
+          mode="edit"
+          open={true}
+          onClose={() => setSelectedMember(null)}
+          member={selectedMember}
+          onUpdated={(updated) => {
+            upsertMember({
+              ...updated,
+              workspaceRole: updated.workspaceRole ?? "member",
+              status: updated.status ?? "active",
+            });
+            setSelectedMember(null);
+          }}
+          onRemoved={(memberId) => {
+            removeMemberFromCache(memberId);
+            setSelectedMember(null);
+          }}
+        />
+      )}
     </div>
   );
 }
