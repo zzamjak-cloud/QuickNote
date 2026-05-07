@@ -90,6 +90,7 @@ export function Sidebar() {
   const setActivePage = usePageStore((s) => s.setActivePage);
   const activePageId = usePageStore((s) => s.activePageId);
   const deletePage = usePageStore((s) => s.deletePage);
+  const undoLastDelete = usePageStore((s) => s.undoLastDelete);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -108,6 +109,16 @@ export function Sidebar() {
         const newId = duplicatePage(activePageId);
         if (newId) setActivePage(newId);
         return;
+      }
+
+      // Ctrl/Cmd + Z (shift 없음): 마지막 페이지 삭제 복원.
+      // 입력 필드/에디터 focus 시는 위 isInput·isEditorFocused 가드로 이미 return 처리됨 — 여기는 사이드바·빈 영역 focus 한정.
+      if (mod && (e.key === "z" || e.key === "Z") && !e.shiftKey) {
+        const restored = undoLastDelete();
+        if (restored) {
+          e.preventDefault();
+          return;
+        }
       }
 
       // Delete / Backspace: 활성 페이지 삭제 (확인 다이얼로그 경유, 우클릭 메뉴와 동일 흐름).
@@ -136,7 +147,7 @@ export function Sidebar() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activePageId, duplicatePage, setActivePage, movePageRelative, deletePage]);
+  }, [activePageId, duplicatePage, setActivePage, movePageRelative, deletePage, undoLastDelete]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),

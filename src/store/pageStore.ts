@@ -66,9 +66,18 @@ const EMPTY_DOC: JSONContent = {
   content: [{ type: "paragraph" }],
 };
 
+type DeletedBatch = {
+  /** 삭제 직전의 page 스냅샷들(자손 포함) */
+  pages: Page[];
+  /** 삭제 직전 활성 페이지 id (복원 후 자동 활성화) */
+  activePageBefore: string | null;
+};
+
 type PageStoreState = {
   pages: PageMap;
   activePageId: string | null;
+  /** 가장 최근 삭제 배치 — Ctrl+Z 한 번 으로 복원 가능 */
+  lastDeletedBatch: DeletedBatch | null;
 };
 
 export type CreatePageOptions = {
@@ -83,6 +92,8 @@ type PageStoreActions = {
     opts?: CreatePageOptions,
   ) => string;
   deletePage: (id: string) => void;
+  /** 마지막으로 삭제한 페이지 배치를 복원. 복원되면 true 반환. */
+  undoLastDelete: () => boolean;
   renamePage: (id: string, title: string) => void;
   updateDoc: (id: string, doc: JSONContent) => void;
   setActivePage: (id: string | null) => void;
@@ -146,6 +157,7 @@ export const usePageStore = create<PageStore>()(
     (set, get) => ({
       pages: {},
       activePageId: null,
+      lastDeletedBatch: null,
 
       createPage: (title = "새 페이지", parentId = null, opts) => {
         const activate = opts?.activate !== false;
@@ -179,8 +191,9 @@ export const usePageStore = create<PageStore>()(
 
       deletePage: (id) => {
         const before = get().pages[id];
-        // 삭제 대상 id 집합을 set 호출 외부에서 계산해 enqueue 에 사용.
+        // 삭제 대상 id 집합·page 객체를 set 호출 외부에서 보관(enqueue 와 undo 용).
         const removedIds: string[] = [];
+        const removedPages: Page[] = [];
         set((state) => {
           if (!(id in state.pages)) return state;
           // 자식 페이지를 모두 함께 삭제(노션 휴지통 스타일).
@@ -197,7 +210,11 @@ export const usePageStore = create<PageStore>()(
           }
           const rest: PageMap = {};
           for (const [pid, page] of Object.entries(state.pages)) {
-            if (!toRemove.has(pid)) rest[pid] = page;
+            if (toRemove.has(pid)) {
+              removedPages.push(page);
+            } else {
+              rest[pid] = page;
+            }
           }
           let nextActive = state.activePageId;
           if (state.activePageId && toRemove.has(state.activePageId)) {
@@ -207,7 +224,14 @@ export const usePageStore = create<PageStore>()(
             nextActive = remaining[0]?.id ?? null;
           }
           removedIds.push(...toRemove);
-          return { pages: rest, activePageId: nextActive };
+          return {
+            pages: rest,
+            activePageId: nextActive,
+            lastDeletedBatch: {
+              pages: removedPages,
+              activePageBefore: state.activePageId,
+            },
+          };
         });
         if (before) {
           const hs = useHistoryStore.getState();
@@ -225,6 +249,31 @@ export const usePageStore = create<PageStore>()(
         for (const removedId of removedIds) {
           enqueueAsync("softDeletePage", { id: removedId, workspaceId, updatedAt: nowIso });
         }
+      },
+
+      undoLastDelete: () => {
+        const batch = get().lastDeletedBatch;
+        if (!batch || batch.pages.length === 0) return false;
+        set((state) => {
+          const next: PageMap = { ...state.pages };
+          for (const p of batch.pages) {
+            next[p.id] = p;
+          }
+          const restoreActive =
+            batch.activePageBefore && next[batch.activePageBefore]
+              ? batch.activePageBefore
+              : state.activePageId;
+          return {
+            pages: next,
+            activePageId: restoreActive,
+            lastDeletedBatch: null,
+          };
+        });
+        // 서버 측 softDelete record 를 일반 record 로 다시 upsert(덮어쓰기) 해 복원.
+        for (const p of batch.pages) {
+          enqueueUpsertPage(p);
+        }
+        return true;
       },
 
       renamePage: (id, title) => {
