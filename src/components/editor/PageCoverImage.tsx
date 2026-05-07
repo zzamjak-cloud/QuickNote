@@ -18,14 +18,6 @@ export function PageCoverImage({ url, onChange, onRemove }: Props) {
     reader.readAsDataURL(file);
   };
 
-  // 클립보드 붙여넣기로 이미지 추가
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const file = Array.from(e.clipboardData.files).find((f) =>
-      f.type.startsWith("image/"),
-    );
-    if (file) handleFile(file);
-  };
-
   // 커버 이미지가 없을 때: 호버 시 추가 버튼 표시
   if (!url) {
     return (
@@ -55,7 +47,6 @@ export function PageCoverImage({ url, onChange, onRemove }: Props) {
   return (
     <div
       className="relative h-40 w-full overflow-hidden"
-      onPaste={handlePaste}
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();

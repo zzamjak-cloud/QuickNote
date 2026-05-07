@@ -314,13 +314,29 @@ export const usePageStore = create<PageStore>()(
       },
 
       setCoverImage: (id, coverImage) => {
-        set((s) => {
-          const page = s.pages[id];
-          if (!page) return s;
-          const updated = { ...page, coverImage, updatedAt: Date.now() };
-          enqueueUpsertPage(updated);
-          return { pages: { ...s.pages, [id]: updated } };
+        const before = get().pages[id];
+        set((state) => {
+          const current = state.pages[id];
+          if (!current) return state;
+          return {
+            pages: {
+              ...state.pages,
+              [id]: { ...current, coverImage, updatedAt: Date.now() },
+            },
+          };
         });
+        const after = get().pages[id];
+        if (before && after && before.coverImage !== after.coverImage) {
+          const hs = useHistoryStore.getState();
+          const events = hs.pageEventsByPageId[id] ?? [];
+          hs.recordPageEvent(
+            id,
+            "page.coverImage",
+            { id, coverImage: after.coverImage },
+            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+          );
+          enqueueUpsertPage(after);
+        }
       },
 
       movePage: (id, parentId, index) => {
