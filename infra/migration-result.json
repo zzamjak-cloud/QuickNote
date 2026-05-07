@@ -1,0 +1,1 @@
+{"owners":1,"migratedPages":0,"migratedDatabases":0,"note":"owner already existed in quicknote-members-v6 (zzamjak@gmail.com, cognitoSub: 54482dcc-d061-70d3-6198-9e684d58efd2). Migration Lambda returned owners:0 because pages/databases tables are empty — no ownerId rows to scan."}
