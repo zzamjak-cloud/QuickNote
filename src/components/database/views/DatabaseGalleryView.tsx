@@ -10,7 +10,6 @@ import type {
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { DatabaseCell } from "../DatabaseCell";
-import { DatabaseColumnSettingsButton } from "../DatabaseColumnSettingsButton";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { getDatabaseFile } from "../../../lib/databaseFileStorage";
 import { usePageStore } from "../../../store/pageStore";
@@ -84,14 +83,6 @@ export function DatabaseGalleryView({
             </option>
           ))}
         </select>
-        <div className="ml-auto">
-          <DatabaseColumnSettingsButton
-            databaseId={databaseId}
-            viewKind="gallery"
-            panelState={panelState}
-            setPanelState={setPanelState}
-          />
-        </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
         {rows.map((row) => (

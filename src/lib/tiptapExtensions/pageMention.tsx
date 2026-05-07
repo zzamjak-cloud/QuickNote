@@ -1,6 +1,7 @@
 import { ReactRenderer } from "@tiptap/react";
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes } from "@tiptap/core";
+import { Plugin } from "prosemirror-state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import {
   forwardRef,
@@ -9,6 +10,7 @@ import {
   useState,
 } from "react";
 import { usePageStore } from "../../store/pageStore";
+import { useSettingsStore } from "../../store/settingsStore";
 
 type Item = { id: string; title: string; icon: string | null };
 
@@ -80,6 +82,26 @@ const MentionList = forwardRef<RefHandle, SuggestionProps>(
 MentionList.displayName = "MentionList";
 
 const PageMentionNode = Mention.extend({
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleClick(_view, _pos, event) {
+            const target = event.target as HTMLElement;
+            const mention = target.closest<HTMLElement>('[data-type="mention"][data-id]');
+            if (!mention) return false;
+            const id = mention.getAttribute("data-id");
+            if (!id) return false;
+            event.preventDefault();
+            usePageStore.getState().setActivePage(id);
+            useSettingsStore.getState().setCurrentTabPage(id);
+            return true;
+          },
+        },
+      }),
+    ];
+  },
+
   renderHTML({ node, HTMLAttributes }) {
     const id = node.attrs.id as string;
     const label = (node.attrs.label as string) ?? "";

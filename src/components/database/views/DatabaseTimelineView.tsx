@@ -12,7 +12,6 @@ import type {
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
-import { DatabaseColumnSettingsButton } from "../DatabaseColumnSettingsButton";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -313,14 +312,6 @@ export function DatabaseTimelineView({
               {g === "day" ? "일" : "주"}
             </button>
           ))}
-        </div>
-        <div className="ml-auto">
-          <DatabaseColumnSettingsButton
-            databaseId={databaseId}
-            viewKind="timeline"
-            panelState={panelState}
-            setPanelState={setPanelState}
-          />
         </div>
       </div>
 

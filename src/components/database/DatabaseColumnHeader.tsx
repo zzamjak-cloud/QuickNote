@@ -47,8 +47,9 @@ export function DatabaseColumnHeader({
   }, [renaming]);
 
   const commitName = () => {
-    const t = draft.trim() || "속성";
+    const t = draft.trim() || column.name;
     if (t !== column.name) updateColumn(databaseId, column.id, { name: t });
+    setDraft(t);
     setRenaming(false);
   };
 
@@ -127,6 +128,7 @@ export function DatabaseColumnHeader({
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitName}
             onKeyDown={(e) => {
+              e.stopPropagation();
               if (e.key === "Enter") commitName();
               if (e.key === "Escape") { setDraft(column.name); setRenaming(false); }
             }}

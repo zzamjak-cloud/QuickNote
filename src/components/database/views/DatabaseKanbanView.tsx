@@ -9,7 +9,6 @@ import { getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { DatabaseCell } from "../DatabaseCell";
-import { DatabaseColumnSettingsButton } from "../DatabaseColumnSettingsButton";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -123,14 +122,6 @@ export function DatabaseKanbanView({
             </option>
           ))}
         </select>
-        <div className="ml-auto">
-          <DatabaseColumnSettingsButton
-            databaseId={databaseId}
-            viewKind="kanban"
-            panelState={panelState}
-            setPanelState={setPanelState}
-          />
-        </div>
       </div>
       {!groupCol ? (
         <p className="py-6 text-center text-xs text-zinc-500">
