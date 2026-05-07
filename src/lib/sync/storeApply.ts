@@ -43,7 +43,6 @@ function isRemoteNewer(localUpdatedMs: number, remoteIso: string): boolean {
 
 export function applyRemotePageToStore(p: GqlPage | null | undefined): void {
   if (!p) return;
-  console.log("[QN-DEBUG] applyRemotePage", { pageId: p.id, remoteUpdatedAt: p.updatedAt });
   usePageStore.setState((s) => {
     const local = s.pages[p.id];
     // tombstone — 로컬에서 제거.
@@ -56,11 +55,7 @@ export function applyRemotePageToStore(p: GqlPage | null | undefined): void {
       return { ...s, pages: rest, activePageId: nextActive };
     }
     // 로컬이 더 신선하면 무시.
-    if (local && !isRemoteNewer(local.updatedAt, p.updatedAt)) {
-      console.log("[QN-DEBUG] applyRemotePage SKIP (local newer)", { pageId: p.id, localMs: local.updatedAt, remoteIso: p.updatedAt });
-      return s;
-    }
-    console.log("[QN-DEBUG] applyRemotePage APPLY", { pageId: p.id });
+    if (local && !isRemoteNewer(local.updatedAt, p.updatedAt)) return s;
 
     const orderNum = (() => {
       const n = Number(p.order);
