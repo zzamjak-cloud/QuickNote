@@ -90,12 +90,18 @@ export class SyncEngine {
             });
             await this.outbox.remove(entry.id);
           } catch (err) {
+            // GraphQL 에러는 보통 { errors: [{ message, errorType, path, ... }] } 형태.
+            // 콘솔에서 [object Object] 로만 보이지 않게 직렬화해 메시지 본체를 노출한다.
+            const gqlErrors = (err as { errors?: unknown[] }).errors;
+            const firstGql = Array.isArray(gqlErrors) ? gqlErrors[0] : null;
             console.error("[QN-DEBUG] mutation FAIL", entry.op, {
               pageId: (entry.payload as Record<string, unknown>).id,
               workspaceId: (entry.payload as Record<string, unknown>).workspaceId,
               attempts: entry.attempts + 1,
-              error: err instanceof Error ? err.message : String(err),
-              errors: (err as { errors?: unknown }).errors,
+              gqlMessage: (firstGql as { message?: string } | null)?.message,
+              gqlErrorType: (firstGql as { errorType?: string } | null)?.errorType,
+              gqlPath: (firstGql as { path?: unknown } | null)?.path,
+              raw: JSON.stringify(gqlErrors ?? err, null, 2),
             });
             const attempts = entry.attempts + 1;
             if (attempts >= MAX_ATTEMPTS) {
