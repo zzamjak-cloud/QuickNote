@@ -57,7 +57,6 @@ export function startSubscriptions(
 
   const connect = async () => {
     if (stopped) return;
-    console.log("[QN-DEBUG] sub:connect", { workspaceId });
     clearSubs();
 
     // AppSync USER_POOL 인증에서 subscription 의 connection_init 핸드셰이크에는
@@ -65,7 +64,6 @@ export function startSubscriptions(
     // (defaultAuthMode "none" + 수동 헤더 방식은 query/mutation 에만 작동)
     const tokens = await readStoredTokens();
     const authToken = tokens?.idToken;
-    console.log("[QN-DEBUG] sub:auth", { hasToken: !!authToken });
 
     const c = appsyncClient();
 
@@ -76,24 +74,21 @@ export function startSubscriptions(
         variables: { workspaceId },
         authToken,
       } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
-      console.log("[QN-DEBUG] sub:page obs ready", { type: typeof pageObs, hasSubscribe: typeof pageObs?.subscribe === "function" });
     } catch (e) {
-      console.error("[QN-DEBUG] sub:page obs FAIL", e);
+      console.error("[sub:page]", e);
       scheduleRetry();
       return;
     }
     pageSub = pageObs.subscribe({
       next: ({ data }) => {
-        console.log("[QN-DEBUG] sub:page received", data);
         retryAttempts = 0;
         handlers.onPage(data.onPageChanged as GqlPage);
       },
       error: (e) => {
-        console.error("[QN-DEBUG] sub:page error", e);
+        console.error("[sub:page]", e);
         scheduleRetry();
       },
     });
-    console.log("[QN-DEBUG] sub:page subscribed", { hasPageSub: !!pageSub });
 
     let dbObs: Subscribable;
     try {
@@ -102,24 +97,21 @@ export function startSubscriptions(
         variables: { workspaceId },
         authToken,
       } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
-      console.log("[QN-DEBUG] sub:database obs ready", { type: typeof dbObs });
     } catch (e) {
-      console.error("[QN-DEBUG] sub:database obs FAIL", e);
+      console.error("[sub:database]", e);
       scheduleRetry();
       return;
     }
     dbSub = dbObs.subscribe({
       next: ({ data }) => {
-        console.log("[QN-DEBUG] sub:database received", data);
         retryAttempts = 0;
         handlers.onDatabase(data.onDatabaseChanged as GqlDatabase);
       },
       error: (e) => {
-        console.error("[QN-DEBUG] sub:database error", e);
+        console.error("[sub:database]", e);
         scheduleRetry();
       },
     });
-    console.log("[QN-DEBUG] sub:database subscribed", { hasDbSub: !!dbSub });
   };
 
   // 온라인 복귀 시 즉시 재연결 (재시도 카운트 초기화)

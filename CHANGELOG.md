@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.6] - 2026-05-07
+
+### Fixed
+
+- **AppSync GraphQL Subscription 미연결로 실시간 동기화 미작동**: `defaultAuthMode: "none"` + 수동 헤더 주입 방식이 query/mutation 에는 작동하지만 subscription 의 connection_init 핸드셰이크에는 토큰이 안 붙어 WebSocket 연결 자체가 시도되지 않던 문제. `subscribers` 가 `readStoredTokens()` 로 idToken 을 읽어 `authToken` 옵션으로 직접 주입하도록 수정. 이제 다른 클라이언트의 페이지/DB 변경이 워크스페이스 전환 없이 즉시 반영.
+- **Tauri SQLite outbox UNIQUE 제약 race**: `upsertByDedupe` 가 `DELETE → INSERT` 두 statement 였던 탓에 같은 dedupeKey 로 거의 동시에 enqueue 가 일어나면 `UNIQUE constraint failed: outbox_entries.dedupeKey` 로 실패. SQLite UPSERT(`ON CONFLICT(dedupeKey) DO UPDATE`) 한 statement 로 atomic 처리.
+
+### Added
+
+- **사이드바 페이지 Delete/Backspace 단축키**: 활성 페이지를 Delete (또는 맥의 Backspace) 키로 삭제. 우클릭 메뉴와 동일하게 확인 다이얼로그 경유.
+
 ## [5.0.5] - 2026-05-07
 
 ### Fixed
