@@ -5,6 +5,7 @@ import {
   type GqlPage,
   type GqlDatabase,
 } from "./graphql/operations";
+import { readStoredTokens } from "../auth/tokenStore";
 
 // 자기 workspaceId 의 변경 푸시를 수신해 LWW 적용 콜백을 호출.
 // 구독 에러 및 네트워크 단절 시 지수 백오프(최대 30초)로 자동 재연결.
@@ -50,14 +51,21 @@ export function startSubscriptions(
     retryAttempts++;
     retryTimer = setTimeout(() => {
       retryTimer = null;
-      connect();
+      void connect();
     }, delay);
   };
 
-  const connect = () => {
+  const connect = async () => {
     if (stopped) return;
     console.log("[QN-DEBUG] sub:connect", { workspaceId });
     clearSubs();
+
+    // AppSync USER_POOL 인증에서 subscription 의 connection_init 핸드셰이크에는
+    // Amplify 의 headers 함수 대신 authToken 옵션으로 직접 토큰을 주입해야 한다.
+    // (defaultAuthMode "none" + 수동 헤더 방식은 query/mutation 에만 작동)
+    const tokens = await readStoredTokens();
+    const authToken = tokens?.idToken;
+    console.log("[QN-DEBUG] sub:auth", { hasToken: !!authToken });
 
     const c = appsyncClient();
 
@@ -66,7 +74,8 @@ export function startSubscriptions(
       pageObs = c.graphql({
         query: ON_PAGE_CHANGED,
         variables: { workspaceId },
-      }) as unknown as Subscribable;
+        authToken,
+      } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
       console.log("[QN-DEBUG] sub:page obs ready", { type: typeof pageObs, hasSubscribe: typeof pageObs?.subscribe === "function" });
     } catch (e) {
       console.error("[QN-DEBUG] sub:page obs FAIL", e);
@@ -91,7 +100,8 @@ export function startSubscriptions(
       dbObs = c.graphql({
         query: ON_DATABASE_CHANGED,
         variables: { workspaceId },
-      }) as unknown as Subscribable;
+        authToken,
+      } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
       console.log("[QN-DEBUG] sub:database obs ready", { type: typeof dbObs });
     } catch (e) {
       console.error("[QN-DEBUG] sub:database obs FAIL", e);
@@ -120,11 +130,11 @@ export function startSubscriptions(
       retryTimer = null;
     }
     retryAttempts = 0;
-    connect();
+    void connect();
   };
   window.addEventListener("online", onOnline);
 
-  connect();
+  void connect();
 
   return () => {
     stopped = true;
