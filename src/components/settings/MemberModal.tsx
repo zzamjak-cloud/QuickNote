@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import type { Member } from "../../store/memberStore";
 import { useWorkspaceOptionsStore } from "../../store/workspaceOptionsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
@@ -9,6 +9,7 @@ import {
   removeMemberApi,
 } from "../../lib/sync/memberApi";
 import { updateWorkspaceOptionsApi } from "../../lib/sync/workspaceApi";
+import { resizeAvatar } from "../../lib/images/resizeAvatar";
 
 type CreateProps = {
   mode: "create";
@@ -136,6 +137,14 @@ export function MemberModal(props: Props) {
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // 아바타 미리보기 (편집 모드 초기값은 기존 URL)
+  const [avatarPreview, setAvatarPreview] = useState<string | undefined>(
+    props.mode === "edit" ? props.member.avatarUrl ?? undefined : undefined,
+  );
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | undefined>(
+    props.mode === "edit" ? props.member.thumbnailUrl ?? undefined : undefined,
+  );
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // 편집 모드에서 변경 여부 확인
   const dirty =
@@ -148,6 +157,14 @@ export function MemberModal(props: Props) {
         workspaceRole !== (initial?.workspaceRole ?? "member");
 
   if (!props.open) return null;
+
+  // 아바타 파일 선택 시 리사이즈 처리
+  const handleAvatarFile = async (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    const { avatar256, thumbnail64 } = await resizeAvatar(file);
+    setAvatarPreview(avatar256);
+    setThumbnailPreview(thumbnail64);
+  };
 
   const handleSubmit = async () => {
     setError(null);
@@ -168,6 +185,8 @@ export function MemberModal(props: Props) {
           jobRole: jobRole || null,
           jobTitle: jobTitle || null,
           phone: phone || null,
+          avatarUrl: avatarPreview ?? null,
+          thumbnailUrl: thumbnailPreview ?? null,
         });
         // 2. 역할 변경 (필요한 경우에만)
         const prevRole = initial?.workspaceRole;
@@ -218,15 +237,39 @@ export function MemberModal(props: Props) {
       >
         {/* 상단 프로필 영역 */}
         <div className="flex flex-col items-center gap-1.5 border-b border-zinc-100 px-4 pb-3 pt-4 dark:border-zinc-800">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-blue-200 bg-blue-100 text-2xl dark:border-blue-900 dark:bg-blue-950">
-            {initial?.avatarUrl ? (
-              <img
-                src={initial.avatarUrl}
-                className="h-full w-full rounded-full object-cover"
-                alt=""
-              />
-            ) : (
-              "👤"
+          <div className="relative">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-blue-200 bg-blue-100 text-2xl dark:border-blue-900 dark:bg-blue-950">
+              {avatarPreview ? (
+                <img
+                  src={avatarPreview}
+                  className="h-full w-full rounded-full object-cover"
+                  alt=""
+                />
+              ) : (
+                "👤"
+              )}
+            </div>
+            {props.mode === "edit" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-700 text-[10px] text-white hover:bg-zinc-500"
+                  title="사진 변경"
+                >
+                  ✎
+                </button>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleAvatarFile(f);
+                  }}
+                />
+              </>
             )}
           </div>
           {props.mode === "edit" ? (
