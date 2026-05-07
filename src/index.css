@@ -184,6 +184,18 @@ body.quicknote-block-dragging .ProseMirror {
   margin-bottom: 0.35rem;
   padding-left: 1.25rem;
 }
+
+/* 불릿/번호 마커를 본문보다 진한 회색으로 */
+.ProseMirror ul > li::marker,
+.ProseMirror ol > li::marker {
+  color: rgb(82 82 91);
+}
+
+.dark .ProseMirror ul > li::marker,
+.dark .ProseMirror ol > li::marker {
+  color: rgb(212 212 216);
+}
+
 .ProseMirror li > p {
   margin-top: 0.2em;
   margin-bottom: 0.2em;
@@ -245,6 +257,17 @@ body.quicknote-block-dragging .ProseMirror {
 .dark .react-renderer.ProseMirror-selectednode:has(.qn-database-block),
 .dark .ProseMirror-selectednode:has([data-node-view-wrapper].qn-database-block),
 .dark .qn-database-block.ProseMirror-selectednode {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* fileBlock(동영상/첨부파일)도 atom 선택 파란 배경 제거 — 리사이즈 핸들만 표시 */
+.react-renderer.ProseMirror-selectednode:has(.qn-file-shell),
+.ProseMirror-selectednode:has([data-node-view-wrapper].qn-file-shell),
+.qn-file-shell.ProseMirror-selectednode,
+.dark .react-renderer.ProseMirror-selectednode:has(.qn-file-shell),
+.dark .ProseMirror-selectednode:has([data-node-view-wrapper].qn-file-shell),
+.dark .qn-file-shell.ProseMirror-selectednode {
   background-color: transparent !important;
   box-shadow: none !important;
 }
@@ -567,3 +590,36 @@ body.qn-box-select-dragging {
 /* 다중 블록 선택 시각은 PM DOM 밖(에디터 스크롤 호스트 내)의 그룹 오버레이(#qn-block-group-overlay)
    에서 그린다 — useBoxSelect.ts 참고. PM view.update 가 노드를
    재렌더해도 영향을 받지 않는다. dark 톤은 오버레이 자체에서 별도 처리하지 않음(두 톤 모두에서 가독). */
+
+/* 컬럼 레이아웃: 바깥 얇은 박스 + 컬럼 사이 얇은 구분선 */
+.ProseMirror [data-column-layout] {
+  border: 1px solid rgba(161, 161, 170, 0.22);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: rgba(250, 250, 250, 0.35);
+}
+
+.dark .ProseMirror [data-column-layout] {
+  border-color: rgba(113, 113, 122, 0.35);
+  background: rgba(39, 39, 42, 0.25);
+}
+
+.ProseMirror [data-column-layout] > [data-column] {
+  position: relative;
+  padding: 2px 10px;
+}
+
+.ProseMirror [data-column-layout] > [data-column]:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: -12px;
+  width: 1px;
+  height: calc(100% - 8px);
+  background: rgba(161, 161, 170, 0.25);
+  pointer-events: none;
+}
+
+.dark .ProseMirror [data-column-layout] > [data-column]:not(:last-child)::after {
+  background: rgba(113, 113, 122, 0.42);
+}

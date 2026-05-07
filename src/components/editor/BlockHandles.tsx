@@ -21,11 +21,14 @@ import {
   Copy,
   Trash2,
   LayoutTemplate,
+  Download,
 } from "lucide-react";
 import {
   CALLOUT_PRESETS,
   type CalloutPresetId,
 } from "../../lib/tiptapExtensions/calloutPresets";
+import { decodeFileRef } from "../../lib/files/scheme";
+import { imageUrlCache } from "../../lib/images/registry";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
 import { reportNonFatal } from "../../lib/reportNonFatal";
@@ -516,6 +519,58 @@ export function BlockHandles({
   };
 
   const isCallout = hover?.node.type.name === "callout";
+  const isAttachmentBlock =
+    hover?.node.type.name === "fileBlock";
+  const menuAnchor =
+    hover && bar && wrapperRect
+      ? {
+          x: wrapperRect.left + bar.left + 28,
+          y: wrapperRect.top + bar.top,
+        }
+      : null;
+  const menuFlipLeft =
+    menuAnchor != null && menuAnchor.x + 8 + 192 > window.innerWidth - 8;
+  const menuFlipUp =
+    menuAnchor != null && menuAnchor.y + 260 > window.innerHeight - 8;
+
+  const downloadAttachment = async () => {
+    if (!editor || !hover) return;
+    try {
+      const attrs = hover.node.attrs as {
+        src?: string | null;
+        name?: string | null;
+      };
+      const rawSrc = attrs.src ?? null;
+      if (!rawSrc) return;
+
+      // quicknote-file:// ref 는 다운로드 URL로 해석 후 강제 다운로드.
+      const fileId = decodeFileRef(rawSrc);
+      const href = fileId ? await imageUrlCache.get(fileId) : rawSrc;
+      if (!href) return;
+
+      // WebView 환경에서 원격 mp4 href 직접 클릭 시 "재생 열기"로 라우팅되는 문제가 있어
+      // blob 다운로드로 강제 저장 경로를 사용한다.
+      const resp = await fetch(href, { method: "GET" });
+      if (!resp.ok) throw new Error(`download failed: ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      try {
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = attrs.name ?? "download";
+        a.rel = "noopener noreferrer";
+        a.style.display = "none";
+        document.body.append(a);
+        a.click();
+        a.remove();
+      } finally {
+        URL.revokeObjectURL(blobUrl);
+      }
+      setMenuOpen(false);
+    } catch (err) {
+      reportNonFatal(err, "blockHandles.downloadAttachment");
+    }
+  };
 
   return (
     <div ref={containerRef} className="pointer-events-none absolute inset-0 z-10">
@@ -540,68 +595,86 @@ export function BlockHandles({
             </button>
 
             {menuOpen && (
-              <div className="absolute left-8 top-0 z-50 w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-                {/* 타입 변경 */}
-                <div className="relative">
+              <div
+                className="absolute z-50 w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                style={{
+                  left: menuFlipLeft ? undefined : 32,
+                  right: menuFlipLeft ? 32 : undefined,
+                  top: menuFlipUp ? undefined : 0,
+                  bottom: menuFlipUp ? 0 : undefined,
+                }}
+              >
+                {isAttachmentBlock ? (
                   <button
                     type="button"
-                    onMouseEnter={() => setTypeMenuOpen(true)}
-                    onMouseLeave={() => setTypeMenuOpen(false)}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    onClick={downloadAttachment}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   >
-                    <span className="flex items-center gap-2">
-                      <Pilcrow size={14} />
-                      타입 변경
-                    </span>
-                    <span className="text-zinc-400">›</span>
+                    <Download size={14} />
+                    다운로드
                   </button>
-                  {typeMenuOpen && (
-                    <div
-                      className="absolute left-full top-0 z-50 w-40 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                ) : (
+                  <div className="relative">
+                    <button
+                      type="button"
                       onMouseEnter={() => setTypeMenuOpen(true)}
                       onMouseLeave={() => setTypeMenuOpen(false)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
-                      {TYPE_MENU_ITEMS.map((item) => (
-                        <button
-                          key={item.label}
-                          type="button"
-                          onClick={() => {
-                            if (!editor) return;
-                            if (hover) {
-                              // wrapper(콜아웃·토글·인용) → 새 타입 적용 시 wrapper를 먼저 평탄화하여
-                              // 중첩(예: 콜아웃 안의 헤딩)이 만들어지지 않도록 한다.
-                              const flattened = flattenWrapperToParagraph(
-                                editor,
-                                hover.blockStart,
-                              );
-                              if (flattened) {
-                                // 평탄화된 새 paragraph 안의 텍스트 위치로 selection 이동
-                                editor
-                                  .chain()
-                                  .focus()
-                                  .setTextSelection(hover.blockStart + 1)
-                                  .run();
-                              } else {
-                                editor
-                                  .chain()
-                                  .focus()
-                                  .setNodeSelection(hover.blockStart)
-                                  .run();
+                      <span className="flex items-center gap-2">
+                        <Pilcrow size={14} />
+                        타입 변경
+                      </span>
+                      <span className="text-zinc-400">›</span>
+                    </button>
+                    {typeMenuOpen && (
+                      <div
+                        className="absolute left-full top-0 z-50 w-40 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        onMouseEnter={() => setTypeMenuOpen(true)}
+                        onMouseLeave={() => setTypeMenuOpen(false)}
+                      >
+                        {TYPE_MENU_ITEMS.map((item) => (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => {
+                              if (!editor) return;
+                              if (hover) {
+                                // wrapper(콜아웃·토글·인용) → 새 타입 적용 시 wrapper를 먼저 평탄화하여
+                                // 중첩(예: 콜아웃 안의 헤딩)이 만들어지지 않도록 한다.
+                                const flattened = flattenWrapperToParagraph(
+                                  editor,
+                                  hover.blockStart,
+                                );
+                                if (flattened) {
+                                  // 평탄화된 새 paragraph 안의 텍스트 위치로 selection 이동
+                                  editor
+                                    .chain()
+                                    .focus()
+                                    .setTextSelection(hover.blockStart + 1)
+                                    .run();
+                                } else {
+                                  editor
+                                    .chain()
+                                    .focus()
+                                    .setNodeSelection(hover.blockStart)
+                                    .run();
+                                }
                               }
-                            }
-                            item.cmd(editor);
-                            setMenuOpen(false);
-                            setTypeMenuOpen(false);
-                          }}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                        >
-                          <item.icon size={14} />
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                              item.cmd(editor);
+                              setMenuOpen(false);
+                              setTypeMenuOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          >
+                            <item.icon size={14} />
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* 콜아웃 프리셋 (콜아웃 블럭일 때만) */}
                 {isCallout && (

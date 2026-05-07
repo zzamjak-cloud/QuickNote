@@ -238,7 +238,8 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
         const shellNow = editor.view.nodeDOM(d.pos);
         const el = shellNow instanceof HTMLElement ? shellNow : null;
         if (el) {
-          const nr = el.getBoundingClientRect();
+          const mediaNow = el.querySelector("img,video") as HTMLElement | null;
+          const nr = (mediaNow ?? el).getBoundingClientRect();
           setBox({
             pos: d.pos,
             left: nr.left,

@@ -13,6 +13,29 @@ export type ColumnDropState = {
   targetBlockStart: number;
 } | null;
 
+function makeUploadId(): string {
+  return `upload-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function findFileBlockPosByUploadId(
+  view: EditorView,
+  uploadId: string,
+): number | null {
+  let found: number | null = null;
+  view.state.doc.descendants((node, pos) => {
+    if (
+      node.type.name === "fileBlock" &&
+      typeof node.attrs.uploadId === "string" &&
+      node.attrs.uploadId === uploadId
+    ) {
+      found = pos;
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
 function parseQuickNoteBlockDragStarts(dt: DataTransfer | null): number[] | null {
   const raw = dt?.getData(QUICKNOTE_BLOCK_DRAG_MIME);
   if (!raw) return null;
@@ -88,7 +111,10 @@ function topLevelInsertionPosFromDrop(
   for (let d = $pos.depth; d >= 1; d--) {
     const node = $pos.node(d);
     if (!node.isBlock || node.type.name === "doc") continue;
-    if (d !== 1 && $pos.node(d - 1).type.name !== "doc") continue;
+    const parent = $pos.node(d - 1);
+    const isValidParent =
+      parent.type.name === "doc" || parent.type.name === "column";
+    if (!isValidParent) continue;
     const targetStart = $pos.before(d);
     const dom = view.nodeDOM(targetStart);
     const el = dom instanceof Element ? dom : dom?.parentElement;
@@ -99,6 +125,14 @@ function topLevelInsertionPosFromDrop(
     const rect = (rectEl instanceof HTMLElement ? rectEl : el)?.getBoundingClientRect();
     const after = rect ? clientY > rect.top + rect.height / 2 : false;
     return after ? targetStart + node.nodeSize : targetStart;
+  }
+
+  // column 내부의 패딩/빈 영역으로 떨어진 경우 column 끝에 삽입.
+  for (let d = $pos.depth; d >= 1; d--) {
+    const node = $pos.node(d);
+    if (node.type.name !== "column") continue;
+    const colStart = $pos.before(d);
+    return colStart + node.nodeSize - 1;
   }
 
   // depth 0 — atom databaseBlock 또는 doc padding 영역(.ProseMirror 자체).
@@ -264,25 +298,82 @@ export function createEditorHandleDrop(options: {
       left: event.clientX,
       top: event.clientY,
     });
-    // 모든 dropped file 을 순회: image 는 image 노드, 그 외(영상·PDF·zip 등)는 fileBlock 노드.
+    // 모든 dropped file 을 순회:
+    // 1) 즉시 임시 fileBlock(업로드중) 삽입으로 시각 피드백 제공
+    // 2) 업로드 완료 시 image/file 실제 노드로 교체
+    const basePos = coord?.pos ?? view.state.selection.from;
+    let insertPos = basePos;
     for (const f of Array.from(files)) {
       const isImage = f.type.startsWith("image/");
+      const fileBlockType = view.state.schema.nodes.fileBlock;
+      if (!fileBlockType) continue;
+      const uploadId = makeUploadId();
+      const placeholder = fileBlockType.create({
+        name: f.name,
+        size: f.size,
+        mime: f.type || null,
+        uploading: true,
+        uploadId,
+      });
+      view.dispatch(view.state.tr.insert(insertPos, placeholder).scrollIntoView());
+      insertPos += placeholder.nodeSize;
+
       if (isImage) {
         void insertImageFromFile(f, (attrs) => {
-          const tr = view.state.tr;
-          const node = view.state.schema.nodes.image!.create(attrs);
-          if (coord) tr.insert(coord.pos, node);
-          else tr.replaceSelectionWith(node);
-          view.dispatch(tr.scrollIntoView());
+          const pos = findFileBlockPosByUploadId(view, uploadId);
+          if (pos == null) return;
+          const oldNode = view.state.doc.nodeAt(pos);
+          if (!oldNode) return;
+          const imageNode = view.state.schema.nodes.image?.create(attrs);
+          if (!imageNode) return;
+          view.dispatch(
+            view.state.tr.replaceWith(
+              pos,
+              pos + oldNode.nodeSize,
+              imageNode,
+            ),
+          );
+        }).then((ok) => {
+          if (ok) return;
+          const pos = findFileBlockPosByUploadId(view, uploadId);
+          if (pos == null) return;
+          const oldNode = view.state.doc.nodeAt(pos);
+          if (!oldNode || oldNode.type.name !== "fileBlock") return;
+          view.dispatch(
+            view.state.tr.setNodeMarkup(pos, undefined, {
+              ...oldNode.attrs,
+              uploading: false,
+              uploadError: true,
+            }),
+          );
         });
       } else {
         void insertFileFromFile(f, (attrs) => {
-          const tr = view.state.tr;
-          const fileNode = view.state.schema.nodes.fileBlock?.create(attrs);
-          if (!fileNode) return;
-          if (coord) tr.insert(coord.pos, fileNode);
-          else tr.replaceSelectionWith(fileNode);
-          view.dispatch(tr.scrollIntoView());
+          const pos = findFileBlockPosByUploadId(view, uploadId);
+          if (pos == null) return;
+          const oldNode = view.state.doc.nodeAt(pos);
+          if (!oldNode || oldNode.type.name !== "fileBlock") return;
+          view.dispatch(
+            view.state.tr.setNodeMarkup(pos, undefined, {
+              ...attrs,
+              uploading: false,
+              uploadId: null,
+              uploadError: false,
+            }),
+          );
+        }).then((ok) => {
+          if (ok) return;
+          const pos = findFileBlockPosByUploadId(view, uploadId);
+          if (pos == null) return;
+          const oldNode = view.state.doc.nodeAt(pos);
+          if (!oldNode || oldNode.type.name !== "fileBlock") return;
+          view.dispatch(
+            view.state.tr.setNodeMarkup(pos, undefined, {
+              ...oldNode.attrs,
+              uploading: false,
+              uploadError: true,
+            }),
+          );
         });
       }
     }

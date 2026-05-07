@@ -19,6 +19,9 @@ type FileAttrs = {
   mime?: string | null;
   width?: number | null;
   height?: number | null;
+  uploading?: boolean | null;
+  uploadId?: string | null;
+  uploadError?: boolean | null;
 };
 
 function formatSize(n: number | null | undefined): string {
@@ -44,8 +47,28 @@ function FileView(props: NodeViewProps) {
   const { url, error } = useFileUrl(attrs.src ?? null);
   const [zoom, setZoom] = useState(false);
   const mime = attrs.mime ?? "";
+  const isUploading = !!attrs.uploading;
+  const hasUploadError = !!attrs.uploadError;
 
-  if (error) {
+  if (isUploading) {
+    return (
+      <NodeViewWrapper
+        as="div"
+        className="qn-file-shell my-2"
+        data-drag-handle
+      >
+        <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+          {renderIcon(mime, 18, "shrink-0 text-zinc-500 dark:text-zinc-400")}
+          <span className="min-w-0 flex-1 truncate">{attrs.name || "파일"}</span>
+          <span className="shrink-0 text-xs text-blue-600 dark:text-blue-300">
+            첨부 중...
+          </span>
+        </div>
+      </NodeViewWrapper>
+    );
+  }
+
+  if (error || hasUploadError) {
     return (
       <NodeViewWrapper
         as="div"
@@ -53,13 +76,14 @@ function FileView(props: NodeViewProps) {
         data-drag-handle
       >
         <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/60 dark:bg-red-950/40">
-          파일을 불러오지 못했습니다 ({error.slice(0, 60)})
+          파일을 불러오지 못했습니다
+          {error ? ` (${error.slice(0, 60)})` : ""}
         </div>
       </NodeViewWrapper>
     );
   }
 
-  // 비디오 인라인 플레이어 + 크기 조정 핸들 + 클릭 시 확대 미리보기.
+  // 비디오 인라인 플레이어 + 크기 조정 핸들 + 더블클릭 시 확대 미리보기.
   // wrapping 박스 없이 video element 가 직접 자식 — 레터박스(검은색 여백) 방지.
   if (mime.startsWith("video/")) {
     const styleW = attrs.width ? `${attrs.width}px` : undefined;
@@ -74,6 +98,11 @@ function FileView(props: NodeViewProps) {
             src={url}
             controls
             className="block h-auto rounded-lg border border-zinc-200 dark:border-zinc-700"
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setZoom(true);
+            }}
             style={{
               width: styleW ?? "auto",
               maxWidth: "100%",
@@ -100,18 +129,6 @@ function FileView(props: NodeViewProps) {
             />
           </div>
         )}
-        <button
-          type="button"
-          aria-label="확대 미리보기"
-          className="mt-1 inline-block rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-[11px] leading-tight text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setZoom(true);
-          }}
-        >
-          확대
-        </button>
       </NodeViewWrapper>
     );
   }
@@ -230,6 +247,26 @@ export const FileBlock = Node.create({
         },
         renderHTML: (attrs) =>
           attrs.height ? { "data-h": String(attrs.height) } : {},
+      },
+      uploading: {
+        default: false,
+        parseHTML: (el) =>
+          (el as HTMLElement).getAttribute("data-uploading") === "true",
+        renderHTML: (attrs) =>
+          attrs.uploading ? { "data-uploading": "true" } : {},
+      },
+      uploadId: {
+        default: null,
+        parseHTML: (el) => (el as HTMLElement).getAttribute("data-upload-id"),
+        renderHTML: (attrs) =>
+          attrs.uploadId ? { "data-upload-id": String(attrs.uploadId) } : {},
+      },
+      uploadError: {
+        default: false,
+        parseHTML: (el) =>
+          (el as HTMLElement).getAttribute("data-upload-error") === "true",
+        renderHTML: (attrs) =>
+          attrs.uploadError ? { "data-upload-error": "true" } : {},
       },
     };
   },
