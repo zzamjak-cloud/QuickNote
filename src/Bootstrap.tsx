@@ -116,10 +116,12 @@ function useSyncBootstrap() {
         for (const d of dbs) applyRemoteDatabaseToStore(d);
 
         if (cancelled) return;
+        console.log("[QN-DEBUG] starting subscriptions", { workspaceId: currentWorkspaceId });
         unsub = startSubscriptions(currentWorkspaceId, {
           onPage: applyRemotePageToStore,
           onDatabase: applyRemoteDatabaseToStore,
         });
+        console.log("[QN-DEBUG] startSubscriptions returned", { hasUnsub: typeof unsub === "function" });
 
         const engine = await getSyncEngine();
         await engine.flush();
