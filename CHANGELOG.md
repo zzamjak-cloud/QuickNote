@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.9] - 2026-05-08
+
+### Fixed
+
+- **자동 업데이트 직후 에디터가 빈 문서로 스토어·버전 히스토리를 덮어쓸 수 있던 문제**: 초기 마운트 시 TipTap이 빈 `doc`에서 시작하는 동안 자동 저장이 먼저 실행되지 않도록 하이드레이션 가드를 두고, 동일 문서의 중복 `updateDoc`은 무시하며 정규화(stale blob 제거 등)만 할 때는 로컬 히스토리를 남기지 않도록 분리.
+
 ## [5.0.8] - 2026-05-08
 
 ### Changed

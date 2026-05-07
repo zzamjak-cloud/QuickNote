@@ -400,6 +400,12 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     [lowlightApi],
   );
 
+  /** 스토어 본문이 에디터에 반영되기 전 자동저장으로 빈 doc 이 덮어쓰이지 않도록 함 */
+  const storeDocHydratedRef = useRef(false);
+  useEffect(() => {
+    storeDocHydratedRef.current = false;
+  }, [editor, effectivePageId]);
+
   // 활성 페이지 변경 + 원격 변경 수신 시 본문 동기화.
   // deps 에 page?.updatedAt 을 포함해 다른 클라이언트의 push (subscription → applyRemotePageToStore) 가
   // 즉시 editor 에 반영되도록 한다. 자기 타이핑은 editor.getJSON() === safeDoc 비교로 걸러지므로 무한 루프 없음.
@@ -409,13 +415,17 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     let safeDoc = stripStaleBlobImages(page.doc);
     safeDoc = normalizeFullPageDatabaseDoc(safeDoc);
     if (!tipTapJsonDocEquals(editor.schema, safeDoc, page.doc)) {
-      updateDoc(effectivePageId, safeDoc);
+      updateDoc(effectivePageId, safeDoc, { skipHistory: true });
     }
     const sync = () => {
       if (editor.isDestroyed) return;
       const current = editor.getJSON();
-      if (tipTapJsonDocEquals(editor.schema, current, safeDoc)) return;
+      if (tipTapJsonDocEquals(editor.schema, current, safeDoc)) {
+        storeDocHydratedRef.current = true;
+        return;
+      }
       editor.commands.setContent(safeDoc, { emitUpdate: false });
+      storeDocHydratedRef.current = true;
     };
     if (editor.isFocused) {
       const onBlur = () => {
@@ -439,6 +449,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         window.clearTimeout(debounceRef.current);
       }
       debounceRef.current = window.setTimeout(() => {
+        if (!effectivePageId) return;
+        if (!storeDocHydratedRef.current) return;
         const json = normalizeFullPageDatabaseDoc(editor.getJSON());
         updateDoc(effectivePageId, json);
       }, AUTOSAVE_DEBOUNCE_MS);

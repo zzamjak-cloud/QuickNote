@@ -15,6 +15,7 @@ import { useAuthStore } from "./authStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import { useSettingsStore } from "./settingsStore";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
+import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
 // 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
@@ -96,7 +97,11 @@ type PageStoreActions = {
   /** 마지막으로 삭제한 페이지 배치를 복원. 복원되면 true 반환. */
   undoLastDelete: () => boolean;
   renamePage: (id: string, title: string) => void;
-  updateDoc: (id: string, doc: JSONContent) => void;
+  updateDoc: (
+    id: string,
+    doc: JSONContent,
+    options?: { skipHistory?: boolean },
+  ) => void;
   setActivePage: (id: string | null) => void;
   reorderPages: (orderedIds: string[]) => void;
   setIcon: (id: string, icon: string | null) => void;
@@ -306,8 +311,12 @@ export const usePageStore = create<PageStore>()(
         }
       },
 
-      updateDoc: (id, doc) => {
+      updateDoc: (id, doc, options) => {
         const before = get().pages[id];
+        if (!before) return;
+        // 에디터 초기 빈 doc·동일 재저장이 히스토리·원격에 중복 반영되지 않도록 차단
+        if (jsonContentEquals(before.doc, doc)) return;
+
         set((state) => {
           const current = state.pages[id];
           if (!current) return state;
@@ -320,14 +329,17 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[id];
         if (before && after) {
-          const hs = useHistoryStore.getState();
-          const events = hs.pageEventsByPageId[id] ?? [];
-          hs.recordPageEvent(
-            id,
-            "page.doc",
-            { id, doc: structuredClone(after.doc) },
-            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
-          );
+          const skipHistory = options?.skipHistory === true;
+          if (!skipHistory) {
+            const hs = useHistoryStore.getState();
+            const events = hs.pageEventsByPageId[id] ?? [];
+            hs.recordPageEvent(
+              id,
+              "page.doc",
+              { id, doc: structuredClone(after.doc) },
+              shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+            );
+          }
           // 페이지 doc 은 한 글자마다 호출되므로 2초 idle 디바운스로 enqueue 횟수를 줄인다.
           // 발사 시점에 최신 스냅샷을 다시 읽어 최종 본만 보낸다.
           debouncePerKey(`page:${id}`, 2000, () => {
