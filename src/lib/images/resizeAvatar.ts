@@ -16,7 +16,10 @@ export function resizeAvatar(file: File): Promise<AvatarResult> {
         thumbnail64: cropSquare(img, 64),
       });
     };
-    img.onerror = reject;
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("이미지 로드 실패"));
+    };
     img.src = objectUrl;
   });
 }
@@ -26,7 +29,8 @@ function cropSquare(img: HTMLImageElement, size: number): string {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D 캔버스 컨텍스트를 가져오지 못했습니다.");
   const { naturalWidth: w, naturalHeight: h } = img;
   const side = Math.min(w, h);
   const sx = (w - side) / 2;
