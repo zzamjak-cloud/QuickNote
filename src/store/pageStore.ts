@@ -73,6 +73,7 @@ type PageStoreActions = {
   setActivePage: (id: string | null) => void;
   reorderPages: (orderedIds: string[]) => void;
   setIcon: (id: string, icon: string | null) => void;
+  setCoverImage: (id: string, coverImage: string | null) => void;
   /** 해당 DB 의 전체 페이지(본문이 fullPage databaseBlock 단독) 페이지 id — 없으면 null */
   findFullPagePageIdForDatabase: (databaseId: string) => string | null;
   // 페이지를 다른 부모/위치로 이동. parentId=null 이면 루트.
@@ -310,6 +311,16 @@ export const usePageStore = create<PageStore>()(
           );
           enqueueUpsertPage(after);
         }
+      },
+
+      setCoverImage: (id, coverImage) => {
+        set((s) => {
+          const page = s.pages[id];
+          if (!page) return s;
+          const updated = { ...page, coverImage, updatedAt: Date.now() };
+          enqueueUpsertPage(updated);
+          return { pages: { ...s.pages, [id]: updated } };
+        });
       },
 
       movePage: (id, parentId, index) => {

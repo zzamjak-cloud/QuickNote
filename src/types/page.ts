@@ -14,6 +14,8 @@ export type Page = {
   databaseId?: string;
   /** title 컬럼을 제외한 셀 값 */
   dbCells?: Record<string, CellValue>;
+  /** 커버 이미지 data URL 또는 원격 URL */
+  coverImage?: string | null;
 };
 
 export type PageMap = Record<string, Page>;

@@ -78,6 +78,7 @@ import {
 } from "../../lib/editor/editorHandleDrop";
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
+import { PageCoverImage } from "./PageCoverImage";
 
 /** 풀 페이지 DB — 페이지 제목 입력 시 blur 에서만 DB 메타 제목 갱신(중복 검사) */
 function trySyncFullPageDatabaseTitle(
@@ -142,6 +143,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const updateDoc = usePageStore((s) => s.updateDoc);
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
+  const setCoverImage = usePageStore((s) => s.setCoverImage);
 
   const darkMode = useSettingsStore((s) => s.darkMode);
   const fullWidth = useSettingsStore((s) => s.fullWidth);
@@ -564,31 +566,38 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       >
         {!bodyOnly && (
           <>
-            <div className="mt-12 px-12">
-              <IconPicker
-                current={page.icon}
-                onChange={(icon) => setIcon(effectivePageId, icon)}
-              />
-            </div>
-            <input
-              ref={titleRef}
-              value={page.title}
-              onChange={(e) => {
-                renamePage(effectivePageId, e.target.value);
-              }}
-              onBlur={() => {
-                if (!isFullPageDatabase) return;
-                const ok = trySyncFullPageDatabaseTitle(page.doc, page.title);
-                if (!ok) {
-                  setSimpleAlert("이미 사용 중인 데이터베이스 이름입니다.");
-                  renamePage(effectivePageId, dbTitleBaselineRef.current);
-                } else {
-                  dbTitleBaselineRef.current = page.title;
-                }
-              }}
-              placeholder="제목 없음"
-              className="mt-2 w-full bg-transparent px-12 text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
+            <PageCoverImage
+              url={page.coverImage}
+              onChange={(url) => setCoverImage(effectivePageId, url)}
+              onRemove={() => setCoverImage(effectivePageId, null)}
             />
+            <div className="mt-12 px-12">
+              <div className="flex items-center gap-2">
+                <IconPicker
+                  current={page.icon}
+                  onChange={(icon) => setIcon(effectivePageId, icon)}
+                />
+                <input
+                  ref={titleRef}
+                  value={page.title}
+                  onChange={(e) => {
+                    renamePage(effectivePageId, e.target.value);
+                  }}
+                  onBlur={() => {
+                    if (!isFullPageDatabase) return;
+                    const ok = trySyncFullPageDatabaseTitle(page.doc, page.title);
+                    if (!ok) {
+                      setSimpleAlert("이미 사용 중인 데이터베이스 이름입니다.");
+                      renamePage(effectivePageId, dbTitleBaselineRef.current);
+                    } else {
+                      dbTitleBaselineRef.current = page.title;
+                    }
+                  }}
+                  placeholder="제목 없음"
+                  className="flex-1 bg-transparent text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
+                />
+              </div>
+            </div>
           </>
         )}
         <div className="relative">
