@@ -87,11 +87,26 @@ export class TauriOutboxAdapter implements OutboxAdapter {
   }
 
   async upsertByDedupe(entry: OutboxEntry): Promise<void> {
+    // 같은 dedupeKey 로 거의 동시에 enqueue 가 일어나면 DELETE→INSERT 가
+    // race 로 UNIQUE 충돌을 일으킨다. SQLite UPSERT 로 atomic 처리.
     const d = await db();
-    await d.execute(`DELETE FROM outbox_entries WHERE dedupeKey = ?`, [
-      entry.dedupeKey,
-    ]);
-    await this.put(entry);
+    await d.execute(
+      `INSERT INTO outbox_entries(id, op, payload, enqueuedAt, attempts, lastErrorAt, dedupeKey)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(dedupeKey) DO UPDATE SET
+         id=excluded.id, op=excluded.op, payload=excluded.payload,
+         enqueuedAt=excluded.enqueuedAt, attempts=excluded.attempts,
+         lastErrorAt=excluded.lastErrorAt`,
+      [
+        entry.id,
+        entry.op,
+        JSON.stringify(entry.payload),
+        entry.enqueuedAt,
+        entry.attempts,
+        entry.lastErrorAt ?? null,
+        entry.dedupeKey,
+      ],
+    );
   }
 
   async clear(): Promise<void> {
