@@ -20,6 +20,58 @@ type Props = {
   value: CellValue;
 };
 
+function TitleCell({
+  databaseId,
+  rowId,
+  column,
+  value,
+}: {
+  databaseId: string;
+  rowId: string;
+  column: ColumnDef;
+  value: string;
+}) {
+  const updateCell = useDatabaseStore((s) => s.updateCell);
+  const [draft, setDraft] = useState(value);
+
+  // 외부에서 값이 변경될 때만 동기화 (편집 중 루프 방지)
+  const committedRef = useRef(true);
+  useEffect(() => {
+    if (committedRef.current) setDraft(value);
+  }, [value]);
+
+  const commit = () => {
+    const t = draft.trim();
+    const final = t || value; // 빈 값이면 편집 시작 전 원래 값으로 복원
+    committedRef.current = true;
+    if (final !== value) updateCell(databaseId, rowId, column.id, final);
+    else setDraft(final);
+  };
+
+  return (
+    <input
+      type="text"
+      value={draft}
+      onChange={(e) => {
+        committedRef.current = false;
+        setDraft(e.target.value);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          committedRef.current = true;
+          setDraft(value);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      placeholder="제목 없음"
+      className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-xs outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
+    />
+  );
+}
+
 export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
   const updateCell = useDatabaseStore((s) => s.updateCell);
 
@@ -29,6 +81,14 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
 
   switch (column.type) {
     case "title":
+      return (
+        <TitleCell
+          databaseId={databaseId}
+          rowId={rowId}
+          column={column}
+          value={typeof value === "string" ? value : ""}
+        />
+      );
     case "text":
       return (
         <input
