@@ -60,17 +60,30 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   const measure = useCallback(() => {
     if (!editor || editor.isDestroyed || skipSyncRef.current) return;
     const sel = editor.state.selection;
-    if (!(sel instanceof NodeSelection) || sel.node.type.name !== "image") {
+    const isNodeSel = sel instanceof NodeSelection;
+    const nodeName = isNodeSel ? sel.node.type.name : null;
+    console.log("[QN-DEBUG] resize:measure", {
+      selType: sel.constructor.name,
+      isNodeSel,
+      nodeName,
+    });
+    if (!isNodeSel || nodeName !== "image") {
       setBox(null);
       return;
     }
     const dom = editor.view.nodeDOM(sel.from);
     const el = dom instanceof HTMLElement ? dom : null;
+    console.log("[QN-DEBUG] resize:dom", {
+      hasDom: !!el,
+      tagName: el?.tagName,
+      cls: el?.className,
+    });
     if (!el) {
       setBox(null);
       return;
     }
     const r = el.getBoundingClientRect();
+    console.log("[QN-DEBUG] resize:rect", { w: r.width, h: r.height, l: r.left, t: r.top });
     setBox({
       pos: sel.from,
       left: r.left,
