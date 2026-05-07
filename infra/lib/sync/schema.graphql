@@ -119,6 +119,9 @@ type ImageUploadResult {
 input PageInput {
   id: ID!
   workspaceId: ID!
+  # 클라이언트가 작성자 식별자를 함께 보낸다(없으면 Lambda 가 caller.memberId 로 폴백).
+  # 누락 시 AppSync 가 'Field not defined' 검증 오류로 mutation 을 거부한다.
+  createdByMemberId: ID
   title: String!
   icon: String
   parentId: ID
@@ -133,6 +136,7 @@ input PageInput {
 input DatabaseInput {
   id: ID!
   workspaceId: ID!
+  createdByMemberId: ID
   title: String!
   columns: AWSJSON!
   createdAt: AWSDateTime!

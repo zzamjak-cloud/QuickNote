@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **새 페이지 새로고침 시 일시/영구 사라짐**: `legacyCleanup.purgeLegacyLocalStorage()` 가 부팅마다 `quicknote.pages.v1` 을 삭제했는데, v5 부터 동일 키를 `pageStore` persist 키로 재사용하면서 충돌. 페이지를 만들고 새로고침하면 persist 가 비워진 채 rehydrate 되어 페이지가 즉시 사라져 보였음. legacy 리스트에서 `quicknote.pages.v1` 제거.
+- **페이지·DB mutation 이 DynamoDB 에 도달하지 않던 동기화 단절**: `Page`/`Database` 타입엔 `createdByMemberId: ID!` 가 정의되어 있지만 `PageInput`/`DatabaseInput` 에는 누락되어 있어, 클라이언트가 보낸 mutation 을 AppSync 가 `Field 'createdByMemberId' is not defined for type 'PageInput'` 검증 오류로 거부하던 문제. 모든 페이지/DB 변경이 outbox 백오프 재시도 루프에 갇힌 채 zustand persist 에만 반영되어 클라이언트 간 동기화가 전혀 일어나지 않던 원인. `PageInput`/`DatabaseInput` 에 `createdByMemberId: ID` 추가(누락 시 Lambda 가 caller.memberId 로 폴백). CDK 재배포 필요.
 
 ## [5.0.2] - 2026-05-07
 
