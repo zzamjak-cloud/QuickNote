@@ -4,23 +4,6 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { zustandStorage } from "../lib/storage/index";
 import { scheduleEnqueueClientPrefs } from "../lib/sync/clientPrefsSync";
 
-/** 즐겨찾기 디버그 — 콘솔 필터가 Info 를 숨겨도 보이도록 warn 사용 */
-const QN_PREFS_LOG = "[QN clientPrefs]";
-
-function traceClientPrefsAction(
-  kind: "toggleFavoritePage" | "reorderFavorites" | "removeFavoritePage",
-  detail: Record<string, unknown>,
-): void {
-  console.warn(`${QN_PREFS_LOG} settingsStore.${kind}`, detail);
-  if (typeof window !== "undefined") {
-    (window as Window & { __QN_CLIENT_PREFS__?: unknown }).__QN_CLIENT_PREFS__ = {
-      kind,
-      ...detail,
-      at: Date.now(),
-    };
-  }
-}
-
 export type Tab = { pageId: string | null; back?: string[] };
 
 type SettingsState = {
@@ -85,8 +68,7 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleSidebarCollapsed: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
-      toggleFavoritePage: (pageId) => {
-        traceClientPrefsAction("toggleFavoritePage", { pageId });
+      toggleFavoritePage: (pageId) =>
         set((s) => {
           const favoritePageIds = s.favoritePageIds.includes(pageId)
             ? s.favoritePageIds.filter((id) => id !== pageId)
@@ -94,27 +76,22 @@ export const useSettingsStore = create<SettingsStore>()(
           const favoritePageIdsUpdatedAt = Date.now();
           queueMicrotask(() => scheduleEnqueueClientPrefs());
           return { favoritePageIds, favoritePageIdsUpdatedAt };
-        });
-      },
-      reorderFavorites: (orderedIds) => {
-        traceClientPrefsAction("reorderFavorites", { count: orderedIds.length });
+        }),
+      reorderFavorites: (orderedIds) =>
         set(() => {
           const favoritePageIds = [...orderedIds];
           const favoritePageIdsUpdatedAt = Date.now();
           queueMicrotask(() => scheduleEnqueueClientPrefs());
           return { favoritePageIds, favoritePageIdsUpdatedAt };
-        });
-      },
-      removeFavoritePage: (pageId) => {
-        traceClientPrefsAction("removeFavoritePage", { pageId });
+        }),
+      removeFavoritePage: (pageId) =>
         set((s) => {
           const favoritePageIds = s.favoritePageIds.filter((id) => id !== pageId);
           if (favoritePageIds.length === s.favoritePageIds.length) return s;
           const favoritePageIdsUpdatedAt = Date.now();
           queueMicrotask(() => scheduleEnqueueClientPrefs());
           return { favoritePageIds, favoritePageIdsUpdatedAt };
-        });
-      },
+        }),
       removeFavoritesForPages: (pageIds) =>
         set((s) => {
           const rm = new Set(pageIds);

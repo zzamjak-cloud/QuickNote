@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.10] - 2026-05-08
+
+### Fixed
+
+- **즐겨찾기(clientPrefs) 동기화**: AppSync `AWSJSON` 이중 문자열 래핑 디코드, 동일 타임스탬프 시 목록 불일치 시 서버 스냅샷 수렴, `updateMyClientPrefs` 직접 GraphQL 전송 및 응답 `errors` 검사.
+- **settings persist v4**: 즐겨찾기 타임스탬프 복구로 LWW 역전 방지.
+
+### Changed
+
+- **프로덕션 콘솔**: `[QN clientPrefs]` 디버그 로그 제거(실패 시 `[sync]` 오류만 유지).
+
 ## [5.0.9] - 2026-05-08
 
 ### Fixed

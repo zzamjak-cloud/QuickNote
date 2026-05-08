@@ -60,25 +60,6 @@ function useSyncBootstrap() {
           listMyWorkspacesApi(),
         ]);
         if (cancelled) return;
-        console.info("[QN clientPrefs] bootstrap: me + workspaces fetch 완료, applyRemote 직전", {
-          memberIdShort:
-            me.memberId.length > 10 ? `…${me.memberId.slice(-8)}` : me.memberId,
-          clientPrefsKind:
-            clientPrefs === null || clientPrefs === undefined
-              ? String(clientPrefs)
-              : typeof clientPrefs,
-          clientPrefsSample:
-            typeof clientPrefs === "string"
-              ? (clientPrefs.length > 120 ? `${clientPrefs.slice(0, 120)}…` : clientPrefs)
-              : (() => {
-                  try {
-                    const s = JSON.stringify(clientPrefs);
-                    return s.length > 120 ? `${s.slice(0, 120)}…` : s;
-                  } catch {
-                    return "[stringify 실패]";
-                  }
-                })(),
-        });
         applyRemoteClientPrefs(clientPrefs);
         setMe(me);
         // WorkspaceSummary[]로 캐스트 (options는 스토어 밖에서만 사용)
@@ -175,10 +156,9 @@ function useSyncBootstrap() {
       void (async () => {
         try {
           const { clientPrefs } = await fetchMeWithClientPrefs();
-          console.info("[QN clientPrefs] visibility 복귀: me 재조회 → applyRemote");
           applyRemoteClientPrefs(clientPrefs);
-        } catch (e) {
-          console.info("[QN clientPrefs] visibility pullPrefs 실패(재시도 가능)", e);
+        } catch {
+          /* 탭 전환 중 일시 네트워크 오류는 무시 */
         }
       })();
     };
@@ -199,10 +179,9 @@ function useSyncBootstrap() {
       void (async () => {
         try {
           const { clientPrefs } = await fetchMeWithClientPrefs();
-          console.info("[QN clientPrefs] online 복귀: me 재조회 → applyRemote");
           applyRemoteClientPrefs(clientPrefs);
-        } catch (e) {
-          console.info("[QN clientPrefs] online pullPrefs 실패", e);
+        } catch {
+          /* ignore */
         }
         try {
           const [pages, dbs] = await Promise.all([

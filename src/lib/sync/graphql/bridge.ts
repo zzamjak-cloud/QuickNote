@@ -8,9 +8,6 @@ import {
 import { UPDATE_MY_CLIENT_PREFS } from "../queries/member";
 import type { GqlBridge } from "../engine";
 
-/** `clientPrefsSync` 와 동일 태그 — 콘솔 필터 통일 */
-const QN_PREFS_LOG = "[QN clientPrefs]";
-
 // AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다.
 // v5.0.4 이전 형식(객체)으로 큐잉된 outbox stale entry 도 송신 직전에 정규화해
 // 'Variable has an invalid value' 검증 오류 없이 통과시킨다.
@@ -64,7 +61,7 @@ export const realGqlBridge: GqlBridge = {
       errors?: { message?: string; path?: unknown }[];
     };
     if (Array.isArray(result.errors) && result.errors.length > 0) {
-      console.error(`${QN_PREFS_LOG} bridge: updateMyClientPrefs GraphQL errors`, result.errors);
+      console.error("[sync] updateMyClientPrefs GraphQL errors", result.errors);
       throw new Error(
         result.errors
           .map((e) => e.message ?? "")
@@ -72,20 +69,5 @@ export const realGqlBridge: GqlBridge = {
           .join("; ") || "updateMyClientPrefs GraphQL error",
       );
     }
-    const m = result.data?.updateMyClientPrefs;
-    if (!m) {
-      console.warn(`${QN_PREFS_LOG} bridge: updateMyClientPrefs data 없음`, {
-        dataKeys: result.data ? Object.keys(result.data) : [],
-      });
-    }
-    console.info(`${QN_PREFS_LOG} bridge: updateMyClientPrefs data 수신`, {
-      hasData: Boolean(result.data),
-      memberIdSuffix:
-        m?.memberId && m.memberId.length > 8 ? `…${m.memberId.slice(-8)}` : m?.memberId,
-      returnedClientPrefsType:
-        m?.clientPrefs == null || m?.clientPrefs === undefined
-          ? String(m?.clientPrefs)
-          : typeof m.clientPrefs,
-    });
   },
 };
