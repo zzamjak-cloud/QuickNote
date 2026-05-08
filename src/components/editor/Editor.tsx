@@ -1,5 +1,4 @@
 import {
-  lazy,
   Suspense,
   useCallback,
   useEffect,
@@ -30,11 +29,42 @@ import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
 type LowlightApi = ReturnType<typeof createLowlight>;
 
-const LazyEditorEmojiPicker = lazy(() =>
-  import("./EditorEmojiPickerPanel").then((m) => ({
-    default: m.EditorEmojiPickerPanel,
-  })),
-);
+const EMOJI_PICKER_WIDTH = 320;
+const EMOJI_PICKER_HEIGHT = 380;
+const EMOJI_PICKER_GAP = 8;
+const EMOJI_PICKER_MARGIN = 12;
+
+type EmojiAnchor = {
+  top: number;
+  left: number;
+  insertPos: number;
+};
+
+function clampFloatingPanelPosition(
+  rect: { top: number; bottom: number; left: number },
+): { top: number; left: number } {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const maxLeft = Math.max(
+    EMOJI_PICKER_MARGIN,
+    viewportWidth - EMOJI_PICKER_WIDTH - EMOJI_PICKER_MARGIN,
+  );
+  const maxTop = Math.max(
+    EMOJI_PICKER_MARGIN,
+    viewportHeight - EMOJI_PICKER_HEIGHT - EMOJI_PICKER_MARGIN,
+  );
+  const preferredBelow = rect.bottom + EMOJI_PICKER_GAP;
+  const preferredAbove = rect.top - EMOJI_PICKER_HEIGHT - EMOJI_PICKER_GAP;
+  const hasRoomBelow =
+    preferredBelow + EMOJI_PICKER_HEIGHT <= viewportHeight - EMOJI_PICKER_MARGIN;
+  const top = hasRoomBelow ? preferredBelow : preferredAbove;
+
+  return {
+    left: Math.min(Math.max(rect.left, EMOJI_PICKER_MARGIN), maxLeft),
+    top: Math.min(Math.max(top, EMOJI_PICKER_MARGIN), maxTop),
+  };
+}
+
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
@@ -60,9 +90,10 @@ import {
 import { DatabaseBlock } from "../../lib/tiptapExtensions/databaseBlock";
 import { PageLink } from "../../lib/tiptapExtensions/pageLink";
 import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
+import { LucideInlineIcon } from "../../lib/tiptapExtensions/lucideInlineIcon";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
-import { IconPicker } from "../common/IconPicker";
+import { IconPicker, IconPickerPanel } from "../common/IconPicker";
 import { Star } from "lucide-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { ImageResizeOverlay } from "./ImageResizeOverlay";
@@ -151,7 +182,6 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const setIcon = usePageStore((s) => s.setIcon);
   const setCoverImage = usePageStore((s) => s.setCoverImage);
 
-  const darkMode = useSettingsStore((s) => s.darkMode);
   const fullWidth = useSettingsStore((s) => s.fullWidth);
   const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
   const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
@@ -162,7 +192,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const debounceRef = useRef<number | null>(null);
   const [imageOpen, setImageOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const [emojiAnchor, setEmojiAnchor] = useState<{ top: number; left: number; insertPos: number } | null>(null);
+  const [emojiAnchor, setEmojiAnchor] = useState<EmojiAnchor | null>(null);
 
   const columnDropRef = useRef<ColumnDropState>(null);
 
@@ -273,6 +303,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       DatabaseBlock,
       PageLink,
       ButtonBlock,
+      LucideInlineIcon,
       SlashCommand.configure({
         suggestion: {
           char: "/",
@@ -478,25 +509,52 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   }, []);
 
   // 이모지 피커 모달 트리거
+  const getEmojiAnchor = useCallback(
+    (insertPos: number): EmojiAnchor => {
+      let top = 200;
+      let left = 200;
+      try {
+        const coords = editor?.view.coordsAtPos(insertPos);
+        if (coords) {
+          const next = clampFloatingPanelPosition(coords);
+          top = next.top;
+          left = next.left;
+        }
+      } catch (err) {
+        reportNonFatal(err, "emojiPicker.coordsAtPos");
+      }
+      return { top, left, insertPos };
+    },
+    [editor],
+  );
+
   useEffect(() => {
     const open = () => {
       if (!editor) return;
       const insertPos = editor.state.selection.from;
-      let top = 200;
-      let left = 200;
-      try {
-        const coords = editor.view.coordsAtPos(insertPos);
-        top = coords.bottom + 8;
-        left = coords.left;
-      } catch (err) {
-        reportNonFatal(err, "emojiPicker.coordsAtPos");
-      }
-      setEmojiAnchor({ top, left, insertPos });
+      setEmojiAnchor(getEmojiAnchor(insertPos));
       setEmojiPickerOpen(true);
     };
     window.addEventListener("quicknote:open-emoji-picker", open);
     return () => window.removeEventListener("quicknote:open-emoji-picker", open);
-  }, [editor]);
+  }, [editor, getEmojiAnchor]);
+
+  useEffect(() => {
+    if (!emojiPickerOpen || !emojiAnchor) return;
+    const reposition = () => {
+      setEmojiAnchor((current) =>
+        current ? getEmojiAnchor(current.insertPos) : current,
+      );
+    };
+    window.addEventListener("resize", reposition, { passive: true });
+    window.visualViewport?.addEventListener("resize", reposition, { passive: true });
+    window.visualViewport?.addEventListener("scroll", reposition, { passive: true });
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.visualViewport?.removeEventListener("resize", reposition);
+      window.visualViewport?.removeEventListener("scroll", reposition);
+    };
+  }, [emojiAnchor, emojiPickerOpen, getEmojiAnchor]);
 
   // 새 페이지 생성 시 제목 자동 포커스
   useEffect(() => {
@@ -645,14 +703,28 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
                 <div className="h-[380px] w-[320px] animate-pulse rounded-md border border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800" />
               }
             >
-              <LazyEditorEmojiPicker
-                darkMode={darkMode}
-                onPick={(emoji) => {
+              <IconPickerPanel
+                title="아이콘 삽입"
+                onPickEmoji={(emoji) => {
                   if (editor && emojiAnchor.insertPos != null) {
                     editor
                       .chain()
                       .focus()
                       .insertContentAt(emojiAnchor.insertPos, emoji)
+                      .run();
+                  }
+                  setEmojiPickerOpen(false);
+                  setEmojiAnchor(null);
+                }}
+                onPickLucide={(name, color) => {
+                  if (editor && emojiAnchor.insertPos != null) {
+                    editor
+                      .chain()
+                      .focus()
+                      .insertContentAt(emojiAnchor.insertPos, {
+                        type: "lucideInlineIcon",
+                        attrs: { name, color },
+                      })
                       .run();
                   }
                   setEmojiPickerOpen(false);

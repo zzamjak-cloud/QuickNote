@@ -15,8 +15,8 @@ export function IconPickerEmoji({ onPick }: Props) {
       previewConfig={{ showPreview: false }}
       searchDisabled={false}
       lazyLoadEmojis
-      width={320}
-      height={380}
+      width={304}
+      height={360}
       onEmojiClick={(data) => onPick(data.emoji)}
     />
   );
