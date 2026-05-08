@@ -8,6 +8,7 @@ type Props = {
   initialEntries: WorkspaceAccessInput[];
   onClose: () => void;
   onSave: (input: { name: string; entries: WorkspaceAccessInput[] }) => Promise<void> | void;
+  onRequestDelete?: () => void;
 };
 
 export function EditWorkspaceModal({
@@ -16,6 +17,7 @@ export function EditWorkspaceModal({
   initialEntries,
   onClose,
   onSave,
+  onRequestDelete,
 }: Props) {
   const [name, setName] = useState(workspaceName);
   const [entries, setEntries] = useState<WorkspaceAccessInput[]>(initialEntries);
@@ -56,11 +58,22 @@ export function EditWorkspaceModal({
           <AccessEntriesEditor value={entries} onChange={setEntries} />
         </div>
         {error ? <p className="mt-2 text-xs text-red-500">{error}</p> : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded border px-3 py-1 text-xs">취소</button>
-          <button type="button" onClick={() => void submit()} className="rounded bg-zinc-900 px-3 py-1 text-xs text-white dark:bg-zinc-100 dark:text-zinc-900">
-            저장
-          </button>
+        <div className="mt-4 flex justify-between gap-2">
+          {onRequestDelete ? (
+            <button
+              type="button"
+              onClick={onRequestDelete}
+              className="rounded border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/40"
+            >
+              워크스페이스 삭제
+            </button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="rounded border px-3 py-1 text-xs">취소</button>
+            <button type="button" onClick={() => void submit()} className="rounded bg-zinc-900 px-3 py-1 text-xs text-white dark:bg-zinc-100 dark:text-zinc-900">
+              저장
+            </button>
+          </div>
         </div>
       </div>
     </div>

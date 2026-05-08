@@ -1,7 +1,9 @@
 // 페이지 icon: 이모지 또는 이미지(quicknote-image:// 등) 표시
 
+import * as LucideIcons from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useImageUrl } from "../../lib/images/hooks";
-import { isImageLikePageIcon } from "../../lib/pageIcon";
+import { decodeLucidePageIcon, isImageLikePageIcon } from "../../lib/pageIcon";
 
 type Props = {
   icon: string | null;
@@ -26,9 +28,31 @@ export function PageIconDisplay({
   const isImg = isImageLikePageIcon(icon);
   const { url, error } = useImageUrl(isImg ? icon : null);
   const box = sizeClass[size];
+  const lucideIcon = decodeLucidePageIcon(icon);
+  const iconSize = size === "lg" ? 32 : size === "md" ? 18 : 15;
+
+  if (lucideIcon) {
+    const Icon =
+      (LucideIcons as unknown as Record<string, LucideIcon>)[
+        lucideIcon.name
+      ] ?? LucideIcons.FileText;
+    return (
+      <span className={`inline-flex ${box} shrink-0 items-center justify-center ${className}`}>
+        <Icon size={iconSize} strokeWidth={1.9} color={lucideIcon.color} />
+      </span>
+    );
+  }
 
   if (!icon) {
-    return <span className={className}>·</span>;
+    return (
+      <span className={`inline-flex ${box} shrink-0 items-center justify-center ${className}`}>
+        <LucideIcons.FileText
+          size={iconSize}
+          strokeWidth={1.9}
+          className="text-zinc-500 dark:text-zinc-400"
+        />
+      </span>
+    );
   }
 
   if (isImg && url && !error) {

@@ -5,7 +5,6 @@ import { useMemberStore, type Member } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
 import { CreateMemberModal } from "./CreateMemberModal";
 import { MemberModal } from "./MemberModal";
-import { MemberRowActions } from "./MemberRowActions";
 
 function toUpperRole(role: Member["workspaceRole"]): "OWNER" | "MANAGER" | "MEMBER" {
   if (role === "owner") return "OWNER";
@@ -15,7 +14,6 @@ function toUpperRole(role: Member["workspaceRole"]): "OWNER" | "MANAGER" | "MEMB
 
 export function AdminMembersTab() {
   const members = useMemberStore((s) => s.members);
-  const me = useMemberStore((s) => s.me);
   const teams = useTeamStore((s) => s.teams);
   const upsertMember = useMemberStore((s) => s.upsertMember);
   const removeMemberFromCache = useMemberStore((s) => s.removeMemberFromCache);
@@ -94,13 +92,12 @@ export function AdminMembersTab() {
               <th className="px-3 py-2 font-medium">직무</th>
               <th className="px-3 py-2 font-medium">권한</th>
               <th className="px-3 py-2 font-medium">팀정보</th>
-              <th className="px-3 py-2 font-medium">액션</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-zinc-500">
+                <td colSpan={5} className="px-3 py-4 text-zinc-500">
                   결과가 없습니다.
                 </td>
               </tr>
@@ -117,20 +114,6 @@ export function AdminMembersTab() {
                   <td className="whitespace-nowrap px-3 py-2">{toUpperRole(m.workspaceRole)}</td>
                   <td className="min-w-[220px] px-3 py-2 text-zinc-600 dark:text-zinc-300">
                     {teamNamesByMemberId.get(m.memberId)?.join(", ") || "-"}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2">
-                    <MemberRowActions
-                      meRole={me?.workspaceRole ?? "member"}
-                      member={m}
-                      onMemberUpdated={(updated) =>
-                        upsertMember({
-                          ...updated,
-                          workspaceRole: updated.workspaceRole ?? "member",
-                          status: updated.status ?? "active",
-                        })
-                      }
-                      onMemberRemoved={(memberId) => removeMemberFromCache(memberId)}
-                    />
                   </td>
                 </tr>
               ))

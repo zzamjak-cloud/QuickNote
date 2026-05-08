@@ -7,6 +7,14 @@ type TextPromptRequest = {
   resolve: (value: string | null) => void;
 };
 
+export type ToastKind = "success" | "info" | "error";
+
+export type ToastMessage = {
+  id: string;
+  message: string;
+  kind: ToastKind;
+};
+
 type UiStoreState = {
   /** 우측 즐겨찾기 패널 열림 */
   favoritesPanelOpen: boolean;
@@ -21,6 +29,8 @@ type UiStoreState = {
   textPrompt: TextPromptRequest | null;
   /** 행 페이지 전체화면 진입 시, 되돌아갈 원본 페이지 id를 기억 */
   rowBackTargetByPageId: Record<string, string>;
+  /** 전역 비차단 알림 */
+  toasts: ToastMessage[];
 };
 
 type UiStoreActions = {
@@ -38,7 +48,13 @@ type UiStoreActions = {
   setRowBackTarget: (rowPageId: string, pageId: string) => void;
   getRowBackTarget: (rowPageId: string) => string | null;
   clearRowBackTarget: (rowPageId: string) => void;
+  showToast: (message: string, opts?: { kind?: ToastKind }) => void;
+  dismissToast: (id: string) => void;
 };
+
+function newToastId(): string {
+  return `toast-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
   favoritesPanelOpen: false,
@@ -46,6 +62,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
   openColumnMenuId: null,
   textPrompt: null,
   rowBackTargetByPageId: {},
+  toasts: [],
   toggleFavoritesPanel: () =>
     set((s) => ({ favoritesPanelOpen: !s.favoritesPanelOpen })),
   openFavoritesPanel: () => set({ favoritesPanelOpen: true }),
@@ -87,4 +104,18 @@ export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
       delete next[rowPageId];
       return { rowBackTargetByPageId: next };
     }),
+  showToast: (message, opts) => {
+    const id = newToastId();
+    const kind = opts?.kind ?? "info";
+    set((s) => ({
+      toasts: [...s.toasts, { id, message, kind }].slice(-4),
+    }));
+    window.setTimeout(() => {
+      get().dismissToast(id);
+    }, 2200);
+  },
+  dismissToast: (id) =>
+    set((s) => ({
+      toasts: s.toasts.filter((toast) => toast.id !== id),
+    })),
 }));

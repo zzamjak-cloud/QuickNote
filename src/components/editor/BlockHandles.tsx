@@ -22,6 +22,7 @@ import {
   Trash2,
   LayoutTemplate,
   Download,
+  Link2,
 } from "lucide-react";
 import {
   CALLOUT_PRESETS,
@@ -32,6 +33,7 @@ import { imageUrlCache } from "../../lib/images/registry";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
 import { reportNonFatal } from "../../lib/reportNonFatal";
+import { usePageStore } from "../../store/pageStore";
 
 type HoverInfo = {
   rect: DOMRect;
@@ -109,6 +111,8 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
   // wrapper(콜아웃/토글/인용) 안의 내부 블럭이 우선 — wrapper는 fallback.
   let inner: HoverInfo | null = null;
   let wrapper: HoverInfo | null = null;
+  let taskItem: HoverInfo | null = null;
+  let listItem: HoverInfo | null = null;
   for (let d = $pos.depth; d > 0; d--) {
     const n = $pos.node(d);
     if (!n.isBlock || n.type.name === "doc") continue;
@@ -130,6 +134,12 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
     if (WRAPPER_TYPES_TO_FLATTEN.has(n.type.name)) {
       // 가장 외곽 wrapper만 보존 (깊이 작은 것)
       if (!wrapper || candidate.depth < wrapper.depth) wrapper = candidate;
+    } else if (n.type.name === "taskItem") {
+      // 체크박스와 텍스트는 하나의 이동 단위여야 하므로 내부 paragraph보다 taskItem을 우선한다.
+      if (!taskItem || candidate.depth > taskItem.depth) taskItem = candidate;
+    } else if (n.type.name === "listItem") {
+      // 불릿/번호 마커와 텍스트도 하나의 이동 단위이므로 내부 paragraph보다 listItem을 우선한다.
+      if (!listItem || candidate.depth > listItem.depth) listItem = candidate;
     } else {
       // inner는 가장 깊은 것
       if (!inner || candidate.depth > inner.depth) inner = candidate;
@@ -166,7 +176,7 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
       break;
     }
   }
-  return inner ?? wrapper;
+  return taskItem ?? listItem ?? inner ?? wrapper;
 }
 
 /** TD 등 React NodeView 내부에서 posAtDOM 이 막힐 때 — 래퍼 .qn-database-block 으로 직접 해석 */
@@ -296,6 +306,7 @@ export function BlockHandles({
   const [presetOpen, setPresetOpen] = useState(false);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
+  const activePageId = usePageStore((s) => s.activePageId);
   const [isDownloading, setIsDownloading] = useState(false);
   const [boxSelecting, setBoxSelecting] = useState(false);
   const dragCommittedRef = useRef(false);
@@ -522,6 +533,14 @@ export function BlockHandles({
     const insertAt = blockStart + node.nodeSize;
     const tr = editor.state.tr.insert(insertAt, node.copy(node.content));
     editor.view.dispatch(tr.scrollIntoView());
+    setMenuOpen(false);
+  };
+
+  const copyBlockLink = () => {
+    if (!hover || !activePageId) return;
+    void navigator.clipboard.writeText(
+      `quicknote://page/${activePageId}?block=${hover.blockStart}`,
+    );
     setMenuOpen(false);
   };
 
@@ -792,6 +811,15 @@ export function BlockHandles({
                 )}
 
                 <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+
+                <button
+                  type="button"
+                  onClick={copyBlockLink}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Link2 size={14} />
+                  블럭 링크 복사
+                </button>
 
                 {/* 복제 */}
                 <button

@@ -39,6 +39,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
 import { MoveBlock } from "../../lib/tiptapExtensions/moveBlock";
+import { DeleteCurrentBlock } from "../../lib/tiptapExtensions/deleteCurrentBlock";
 import { Callout } from "../../lib/tiptapExtensions/callout";
 import {
   Toggle,
@@ -48,7 +49,6 @@ import {
 import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
 import { CodeBlockLowlightStable } from "../../lib/tiptapExtensions/codeBlockLowlightStable";
 import { CodeBlockCopy } from "../../lib/tiptapExtensions/codeBlockCopy";
-import { decideDropMode } from "../../lib/blockDropMode";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
 import { MemberMention } from "../../lib/tiptapExtensions/memberMention";
 import { EmojiShortcode } from "../../lib/tiptapExtensions/emojiShortcode";
@@ -166,18 +166,11 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
 
   const columnDropRef = useRef<ColumnDropState>(null);
 
-  const [columnDropIndicator, setColumnDropIndicator] = useState<{
-    x: number;
-    top: number;
-    height: number;
-  } | null>(null);
-
   const [simpleAlert, setSimpleAlert] = useState<string | null>(null);
 
   const clearColumnDropUi = useCallback(() => {
-    setColumnDropIndicator(null);
     document.body.classList.remove("quicknote-column-drop");
-  }, [setColumnDropIndicator]);
+  }, []);
 
   const handleEditorInsertImage = useCallback(
     (file: File, insert: Parameters<typeof insertImageFromFile>[1]) =>
@@ -260,6 +253,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       FileBlock,
       HorizontalRule,
       MoveBlock,
+      DeleteCurrentBlock,
       Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
@@ -406,25 +400,28 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     storeDocHydratedRef.current = false;
   }, [editor, effectivePageId]);
 
+  const safePageDoc = useMemo(() => {
+    if (!pageDoc) return null;
+    return normalizeFullPageDatabaseDoc(stripStaleBlobImages(pageDoc));
+  }, [pageDoc]);
+
   // 활성 페이지 변경 + 원격 변경 수신 시 본문 동기화.
   // deps 에 page?.updatedAt 을 포함해 다른 클라이언트의 push (subscription → applyRemotePageToStore) 가
   // 즉시 editor 에 반영되도록 한다. 자기 타이핑은 editor.getJSON() === safeDoc 비교로 걸러지므로 무한 루프 없음.
   // 사용자 입력 중(focused)이면 cursor 보존을 위해 blur 까지 setContent 를 보류.
   useEffect(() => {
-    if (!editor || !page || !effectivePageId) return;
-    let safeDoc = stripStaleBlobImages(page.doc);
-    safeDoc = normalizeFullPageDatabaseDoc(safeDoc);
-    if (!tipTapJsonDocEquals(editor.schema, safeDoc, page.doc)) {
-      updateDoc(effectivePageId, safeDoc, { skipHistory: true });
+    if (!editor || !pageDoc || !safePageDoc || !effectivePageId) return;
+    if (!tipTapJsonDocEquals(editor.schema, safePageDoc, pageDoc)) {
+      updateDoc(effectivePageId, safePageDoc, { skipHistory: true });
     }
     const sync = () => {
       if (editor.isDestroyed) return;
       const current = editor.getJSON();
-      if (tipTapJsonDocEquals(editor.schema, current, safeDoc)) {
+      if (tipTapJsonDocEquals(editor.schema, current, safePageDoc)) {
         storeDocHydratedRef.current = true;
         return;
       }
-      editor.commands.setContent(safeDoc, { emitUpdate: false });
+      editor.commands.setContent(safePageDoc, { emitUpdate: false });
       storeDocHydratedRef.current = true;
     };
     if (editor.isFocused) {
@@ -438,7 +435,15 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       };
     }
     scheduleEditorMutation(sync);
-  }, [editor, page?.id, effectivePageId, page?.updatedAt, updateDoc]);
+  }, [
+    editor,
+    page?.id,
+    effectivePageId,
+    page?.updatedAt,
+    pageDoc,
+    safePageDoc,
+    updateDoc,
+  ]);
 
   // 디바운스 자동 저장
   useEffect(() => {
@@ -463,79 +468,6 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       }
     };
   }, [editor, effectivePageId, updateDoc]);
-
-  // 컬럼 분할 드래그오버 감지
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
-    const dom = editor.view.dom;
-
-    const clearDrop = () => {
-      columnDropRef.current = null;
-      setColumnDropIndicator(null);
-      // 컬럼 모드 해제 → dropcursor(가로 점선) 다시 표시 허용
-      document.body.classList.remove("quicknote-column-drop");
-    };
-
-    const onDragOver = (e: DragEvent) => {
-      if (!document.body.classList.contains("quicknote-block-dragging")) return;
-      e.preventDefault();
-
-      const coords = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
-      if (!coords) { clearDrop(); return; }
-      let $pos;
-      try {
-        $pos = editor.state.doc.resolve(coords.pos);
-      } catch (err) {
-        reportNonFatal(err, "columnDrop.dragOver.resolve");
-        clearDrop();
-        return;
-      }
-
-      let targetNode = null;
-      let targetStart = -1;
-      for (let d = $pos.depth; d >= 1; d--) {
-        const n = $pos.node(d);
-        if (n.isBlock && n.type.name !== "doc") {
-          if (d === 1 || $pos.node(d - 1).type.name === "doc") {
-            targetNode = n;
-            targetStart = $pos.before(d);
-            break;
-          }
-        }
-      }
-      if (!targetNode || targetStart < 0) { clearDrop(); return; }
-
-      const domEl = editor.view.nodeDOM(targetStart);
-      const el = domEl instanceof HTMLElement ? domEl : (domEl as Node | null)?.parentElement;
-      if (!el) { clearDrop(); return; }
-      const rect = el.getBoundingClientRect();
-
-      // 좌·우 가장자리 ~20% 영역만 컬럼 분할 모드, 그 외는 리스트 모드로 단일 결정.
-      // 컬럼 모드일 때만 컬럼 인디케이터를 켜고 body 클래스 토글로 dropcursor 를 숨겨
-      // 두 인디케이터가 동시에 표시되지 않도록 한다.
-      const mode = decideDropMode(rect.left, rect.width, e.clientX, 0.2);
-      if (mode === "column-left") {
-        columnDropRef.current = { side: "left", targetBlockStart: targetStart };
-        setColumnDropIndicator({ x: rect.left - 1, top: rect.top, height: rect.height });
-        document.body.classList.add("quicknote-column-drop");
-      } else if (mode === "column-right") {
-        columnDropRef.current = { side: "right", targetBlockStart: targetStart };
-        setColumnDropIndicator({ x: rect.right - 1, top: rect.top, height: rect.height });
-        document.body.classList.add("quicknote-column-drop");
-      } else {
-        clearDrop();
-      }
-    };
-
-    dom.addEventListener("dragover", onDragOver);
-    dom.addEventListener("dragleave", clearDrop);
-    document.addEventListener("dragend", clearDrop);
-    return () => {
-      dom.removeEventListener("dragover", onDragOver);
-      dom.removeEventListener("dragleave", clearDrop);
-      document.removeEventListener("dragend", clearDrop);
-    };
-  }, [editor]);
 
   // 이미지 업로드 모달 트리거
   useEffect(() => {
@@ -683,16 +615,6 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
               editor={editor}
               boxSelectedStarts={boxSelectedStarts}
               onClearBoxSelection={clearBoxSelection}
-            />
-          )}
-          {columnDropIndicator && (
-            <div
-              className="qn-column-drop-indicator"
-              style={{
-                left: columnDropIndicator.x,
-                top: columnDropIndicator.top,
-                height: columnDropIndicator.height,
-              }}
             />
           )}
         </div>

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
+import { Fragment, type Node as PMNode } from "@tiptap/pm/model";
+import { Plus, X } from "lucide-react";
 
 type Props = {
   editor: Editor | null;
@@ -49,6 +51,8 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
   const [dragging, setDragging] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [hoveringLayout, setHoveringLayout] = useState(false);
+  const [hoveredColumnIndex, setHoveredColumnIndex] = useState<number | null>(null);
+  const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
   const [boxSelecting, setBoxSelecting] = useState(false);
   const [pmRangeSelecting, setPmRangeSelecting] = useState(false);
   const [boxAnchor, setBoxAnchor] = useState<{ left: number; top: number } | null>(null);
@@ -250,6 +254,80 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
     [editor, refresh],
   );
 
+  const addColumn = useCallback(
+    (layoutStart: number) => {
+      if (!editor || editor.isDestroyed) return false;
+      const layout = editor.state.doc.nodeAt(layoutStart);
+      if (!layout || layout.type.name !== "columnLayout") return false;
+      if (layout.childCount >= 4) return true;
+      const columnType = editor.schema.nodes.column;
+      const paragraphType = editor.schema.nodes.paragraph;
+      if (!columnType || !paragraphType) return false;
+      const cols: PMNode[] = [];
+      layout.forEach((col) => cols.push(col));
+      cols.push(columnType.create({}, paragraphType.create()));
+      const nextLayout = layout.type.create(
+        { ...layout.attrs, columns: cols.length },
+        Fragment.fromArray(cols),
+      );
+      const tr = editor.state.tr.replaceWith(
+        layoutStart,
+        layoutStart + layout.nodeSize,
+        nextLayout,
+      );
+      editor.view.dispatch(tr.scrollIntoView());
+      editor.view.focus();
+      requestAnimationFrame(refresh);
+      return true;
+    },
+    [editor, refresh],
+  );
+
+  const removeColumn = useCallback(
+    (layoutStart: number, index: number) => {
+      if (!editor || editor.isDestroyed) return false;
+      const layout = editor.state.doc.nodeAt(layoutStart);
+      if (!layout || layout.type.name !== "columnLayout") return false;
+      if (layout.childCount <= 2) return true;
+      const columnType = editor.schema.nodes.column;
+      if (!columnType) return false;
+      const cols: PMNode[] = [];
+      layout.forEach((col) => cols.push(col));
+      const removed = cols[index];
+      if (!removed) return false;
+      cols.splice(index, 1);
+      if (removed.content.size > 0) {
+        const mergeIndex = Math.max(0, Math.min(index - 1, cols.length - 1));
+        const target = cols[mergeIndex];
+        if (target) {
+          const mergedChildren: PMNode[] = [];
+          target.forEach((child) => mergedChildren.push(child));
+          removed.forEach((child) => mergedChildren.push(child));
+          cols[mergeIndex] = columnType.create(
+            target.attrs,
+            Fragment.fromArray(mergedChildren),
+          );
+        }
+      }
+      const nextLayout = layout.type.create(
+        { ...layout.attrs, columns: cols.length },
+        Fragment.fromArray(cols),
+      );
+      const tr = editor.state.tr.replaceWith(
+        layoutStart,
+        layoutStart + layout.nodeSize,
+        nextLayout,
+      );
+      editor.view.dispatch(tr.scrollIntoView());
+      editor.view.focus();
+      setDeleteConfirmIndex(null);
+      setHoveredColumnIndex(Math.max(0, Math.min(index - 1, cols.length - 1)));
+      requestAnimationFrame(refresh);
+      return true;
+    },
+    [editor, refresh],
+  );
+
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const onAny = () => requestAnimationFrame(refresh);
@@ -373,6 +451,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
 
       if (!handles || handles.items.length === 0) {
         setHoveringLayout(!!nextLayoutEl);
+        setHoveredColumnIndex(null);
         if (nextLayoutEl) requestAnimationFrame(refresh);
         return;
       }
@@ -381,19 +460,51 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      const inside = !!nextLayoutEl || handles.items.some(
-        (item) =>
-          x >= item.colLeft &&
-          x <= item.colLeft + item.colWidth &&
-          y >= item.colTop - 24 &&
-          y <= item.colTop + item.colHeight,
-      );
+      const minLeft = Math.min(...handles.items.map((item) => item.colLeft));
+      const maxRight = Math.max(...handles.items.map((item) => item.colLeft + item.colWidth));
+      const minTop = Math.min(...handles.items.map((item) => item.top));
+      const maxBottom = Math.max(...handles.items.map((item) => item.colTop + item.colHeight));
+      const controlsBand =
+        x >= minLeft - 24 &&
+        x <= maxRight + 72 &&
+        y >= minTop - 10 &&
+        y <= maxBottom;
+      const inside =
+        !!nextLayoutEl ||
+        controlsBand ||
+        handles.items.some(
+          (item) =>
+            x >= item.colLeft &&
+            x <= item.colLeft + item.colWidth &&
+            y >= item.colTop - 32 &&
+            y <= item.colTop + item.colHeight,
+        );
+      let nextHoveredIndex: number | null = null;
+      if (inside) {
+        let best: { index: number; distance: number } | null = null;
+        for (const item of handles.items) {
+          const inColumnX =
+            x >= item.colLeft - 8 && x <= item.colLeft + item.colWidth + 8;
+          const center = item.colLeft + item.colWidth / 2;
+          const distance = inColumnX ? 0 : Math.abs(x - center);
+          if (!best || distance < best.distance) {
+            best = { index: item.index, distance };
+          }
+        }
+        nextHoveredIndex = best?.index ?? null;
+      }
       setHoveringLayout(inside);
+      setHoveredColumnIndex(nextHoveredIndex);
+      if (nextHoveredIndex !== deleteConfirmIndex) {
+        setDeleteConfirmIndex(null);
+      }
       if (nextLayoutEl) requestAnimationFrame(refresh);
     };
     const onLeave = () => {
       hoveredLayoutElRef.current = null;
       setHoveringLayout(false);
+      setHoveredColumnIndex(null);
+      setDeleteConfirmIndex(null);
     };
     window.addEventListener("mousemove", onMove, { passive: true });
     window.addEventListener("blur", onLeave);
@@ -401,7 +512,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("blur", onLeave);
     };
-  }, [editor, handles, refresh]);
+  }, [deleteConfirmIndex, editor, handles, refresh]);
 
   useEffect(() => {
     if (!handles) return;
@@ -436,6 +547,24 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
   // 박스 선택 상태에서는 일반 컬럼 hover 핸들을 모두 끄고 단일(좌상단) 핸들만 노출.
   const showColumnHandles =
     hasRealHandles && !boxSelectionActive && (boxSelecting || dragging || hoveringLayout);
+  const activeHandles = showColumnHandles ? handles : null;
+  const visibleColumnItems =
+    activeHandles
+      ? activeHandles.items.filter(
+          (item) =>
+            dragging ||
+            item.index === hoveredColumnIndex ||
+            item.index === dropIndex,
+        )
+      : [];
+  const addButtonItem =
+    activeHandles?.items.length
+      ? activeHandles.items[
+          hoveredColumnIndex == null
+            ? activeHandles.items.length - 1
+            : Math.min(hoveredColumnIndex, activeHandles.items.length - 1)
+        ]
+      : null;
 
   if (boxSelectionActive) return null;
 
@@ -527,78 +656,133 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
           </span>
         </button>
       ) : null}
-      {showColumnHandles && handles?.items.map((item) => (
-        <button
+      {activeHandles ? visibleColumnItems.map((item) => (
+        <div
           key={item.start}
-          type="button"
-          draggable
-          className={[
-            "pointer-events-auto absolute flex h-6 w-7 cursor-grab items-center justify-center rounded-md border bg-white/95 text-zinc-500 shadow-sm active:cursor-grabbing dark:bg-zinc-900/95 dark:text-zinc-300",
-            dropIndex === item.index
-              ? "border-blue-500 ring-2 ring-blue-300/70 text-blue-600 dark:border-blue-400 dark:ring-blue-500/40 dark:text-blue-300"
-              : "border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 dark:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
-          ].join(" ")}
+          className="pointer-events-auto absolute flex items-center gap-1"
           style={{ left: item.left, top: item.top }}
-          title="드래그로 컬럼 순서 변경"
-          aria-label={`컬럼 ${item.index + 1} 이동`}
-          onDragStart={(e) => {
-            if (!handles) return;
-            e.stopPropagation();
-            setDragging(true);
-            setDropIndex(item.index);
-            e.dataTransfer.effectAllowed = "move";
-            // 브라우저가 본문에 텍스트를 떨어뜨리지 않도록 plain text는 넣지 않는다.
-            e.dataTransfer.setData(
-              DRAG_MIME,
-              JSON.stringify({
+        >
+          <button
+            type="button"
+            draggable
+            className={[
+              "flex h-6 w-7 cursor-grab items-center justify-center rounded-md border bg-white/95 text-zinc-500 shadow-sm active:cursor-grabbing dark:bg-zinc-900/95 dark:text-zinc-300",
+              dropIndex === item.index
+                ? "border-blue-500 ring-2 ring-blue-300/70 text-blue-600 dark:border-blue-400 dark:ring-blue-500/40 dark:text-blue-300"
+                : "border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 dark:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+            ].join(" ")}
+            title="드래그로 컬럼 순서 변경"
+            aria-label={`컬럼 ${item.index + 1} 이동`}
+            onDragStart={(e) => {
+              if (!handles) return;
+              e.stopPropagation();
+              setDragging(true);
+              setDropIndex(item.index);
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData(
+                DRAG_MIME,
+                JSON.stringify({
+                  layoutStart: handles.layoutStart,
+                  fromIndex: item.index,
+                }),
+              );
+              e.dataTransfer.setData("text/plain", "");
+              dragPayloadRef.current = {
                 layoutStart: handles.layoutStart,
                 fromIndex: item.index,
-              }),
-            );
-            // 일부 브라우저는 text/plain이 없으면 drop 이벤트가 불안정하다.
-            e.dataTransfer.setData("text/plain", "");
-            dragPayloadRef.current = {
-              layoutStart: handles.layoutStart,
-              fromIndex: item.index,
-            };
+              };
+            }}
+            onDragEnd={() => {
+              setDragging(false);
+              setDropIndex(null);
+              dragPayloadRef.current = null;
+            }}
+            onDragEnter={(e) => {
+              if (!parseDragData(e.dataTransfer)) return;
+              e.preventDefault();
+              setDropIndex(item.index);
+            }}
+            onDragOver={(e) => {
+              if (!parseDragData(e.dataTransfer)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              if (dropIndex !== item.index) setDropIndex(item.index);
+            }}
+            onDrop={(e) => {
+              const payload = parseDragData(e.dataTransfer);
+              if (!payload) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setDragging(false);
+              setDropIndex(null);
+              reorderColumns(payload.layoutStart, payload.fromIndex, item.index);
+            }}
+          >
+            <span className="grid grid-cols-3 gap-0.5">
+              {Array.from({ length: 6 }).map((_, idx) => (
+                <span
+                  key={idx}
+                  className="h-0.5 w-0.5 rounded-full bg-current opacity-90"
+                />
+              ))}
+            </span>
+          </button>
+          {activeHandles.items.length > 2 ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (deleteConfirmIndex === item.index) {
+                  removeColumn(activeHandles.layoutStart, item.index);
+                  return;
+                }
+                setDeleteConfirmIndex(item.index);
+              }}
+              className={[
+                "flex h-6 items-center justify-center rounded-md border bg-white/95 text-zinc-500 shadow-sm dark:bg-zinc-900/95",
+                deleteConfirmIndex === item.index
+                  ? "gap-1 whitespace-nowrap border-red-300 px-2 text-[11px] font-medium text-red-600 hover:bg-red-50 dark:border-red-700/80 dark:text-red-300 dark:hover:bg-red-950/40"
+                  : "border-zinc-200 text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-red-950/40 dark:hover:text-red-300",
+                deleteConfirmIndex === item.index ? "" : "w-6",
+              ].join(" ")}
+              title={
+                deleteConfirmIndex === item.index
+                  ? "삭제 확인"
+                  : "컬럼 삭제"
+              }
+              aria-label={
+                deleteConfirmIndex === item.index
+                  ? `컬럼 ${item.index + 1} 삭제 확인`
+                  : `컬럼 ${item.index + 1} 삭제`
+              }
+            >
+              <X size={12} />
+              {deleteConfirmIndex === item.index ? (
+                <span>삭제 확인</span>
+              ) : null}
+            </button>
+          ) : null}
+        </div>
+      )) : null}
+      {activeHandles && activeHandles.items.length < 4 && addButtonItem ? (
+        <button
+          type="button"
+          onClick={() => addColumn(activeHandles.layoutStart)}
+          onMouseEnter={() => {
+            setHoveringLayout(true);
+            setHoveredColumnIndex(addButtonItem.index);
           }}
-          onDragEnd={() => {
-            setDragging(false);
-            setDropIndex(null);
-            dragPayloadRef.current = null;
+          className="pointer-events-auto absolute flex h-6 w-6 items-center justify-center rounded-md border border-zinc-200 bg-white/95 text-zinc-500 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900/95 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          style={{
+            left:
+              Math.max(...activeHandles.items.map((item) => item.colLeft + item.colWidth)) + 8,
+            top: addButtonItem.top,
           }}
-          onDragEnter={(e) => {
-            if (!parseDragData(e.dataTransfer)) return;
-            e.preventDefault();
-            setDropIndex(item.index);
-          }}
-          onDragOver={(e) => {
-            if (!parseDragData(e.dataTransfer)) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "move";
-            if (dropIndex !== item.index) setDropIndex(item.index);
-          }}
-          onDrop={(e) => {
-            const payload = parseDragData(e.dataTransfer);
-            if (!payload) return;
-            e.preventDefault();
-            e.stopPropagation();
-            setDragging(false);
-            setDropIndex(null);
-            reorderColumns(payload.layoutStart, payload.fromIndex, item.index);
-          }}
+          title="컬럼 추가"
+          aria-label="컬럼 추가"
         >
-          <span className="grid grid-cols-3 gap-0.5">
-            {Array.from({ length: 6 }).map((_, idx) => (
-              <span
-                // 3x2 점 패턴(가로가 더 넓은 형태)
-                key={idx}
-                className="h-0.5 w-0.5 rounded-full bg-current opacity-90"
-              />
-            ))}
-          </span>
+          <Plus size={14} />
         </button>
-      ))}
+      ) : null}
     </div>
   );
 }

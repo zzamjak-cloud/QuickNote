@@ -1,18 +1,28 @@
-import { ChevronLeft, ChevronRight, Moon, Sun, MoreHorizontal, Trash2, Check, Minus } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+  Trash2,
+  Check,
+  Minus,
+  Link2,
+  Copy,
+  CopyPlus,
+  FolderInput,
+  History,
+} from "lucide-react";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { useState, useEffect, useRef } from "react";
 import type { Page } from "../../types/page";
 import { useSettingsStore } from "../../store/settingsStore";
 import { usePageStore } from "../../store/pageStore";
 import { useHistoryStore } from "../../store/historyStore";
+import { useUiStore } from "../../store/uiStore";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageMoveDialog } from "./PageMoveDialog";
-import { UserMenu } from "../auth/UserMenu";
 
 export function TopBar() {
-  const darkMode = useSettingsStore((s) => s.darkMode);
-  const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
   const fullWidth = useSettingsStore((s) => s.fullWidth);
   const toggleFullWidth = useSettingsStore((s) => s.toggleFullWidth);
   const navBack = useSettingsStore((s) => s.navBack);
@@ -25,6 +35,7 @@ export function TopBar() {
   const setActive = usePageStore((s) => s.setActivePage);
   const duplicatePage = usePageStore((s) => s.duplicatePage);
   const deletePage = usePageStore((s) => s.deletePage);
+  const showToast = useUiStore((s) => s.showToast);
   const restorePageFromHistoryEvent = usePageStore(
     (s) => s.restorePageFromHistoryEvent,
   );
@@ -91,6 +102,26 @@ export function TopBar() {
     if (!activeId) return;
     const newId = duplicatePage(activeId);
     if (newId) setActive(newId);
+    setMenuOpen(false);
+  };
+
+  const copyPageLink = () => {
+    if (!activeId) return;
+    void navigator.clipboard
+      .writeText(`quicknote://page/${activeId}`)
+      .then(() => showToast("페이지 링크 복사 완료!", { kind: "success" }))
+      .catch(() => showToast("페이지 링크 복사에 실패했습니다.", { kind: "error" }));
+    setMenuOpen(false);
+  };
+
+  const copyPageContent = () => {
+    if (!activeId) return;
+    const page = pages[activeId];
+    if (!page) return;
+    void navigator.clipboard
+      .writeText(pageDocToMarkdown(page.doc))
+      .then(() => showToast("페이지 내용 복사 완료!", { kind: "success" }))
+      .catch(() => showToast("페이지 내용 복사에 실패했습니다.", { kind: "error" }));
     setMenuOpen(false);
   };
 
@@ -164,17 +195,53 @@ export function TopBar() {
         )}
       </div>
       <div className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={toggleDarkMode}
-          className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-          aria-label="다크 모드 토글"
-          title="다크 모드 토글"
-        >
-          {darkMode ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
-        <UserMenu />
         {activeId && (
+          <>
+          <button
+            type="button"
+            onClick={copyPageLink}
+            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="링크 복사"
+            title="링크 복사"
+          >
+            <Link2 size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={copyPageContent}
+            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="페이지 내용 복사"
+            title="페이지 내용 복사"
+          >
+            <Copy size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={handleDuplicate}
+            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="페이지 복제"
+            title="페이지 복제"
+          >
+            <CopyPlus size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setMoveDialogOpen(true)}
+            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="다른 페이지로 이동"
+            title="다른 페이지로 이동"
+          >
+            <FolderInput size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryDialogOpen(true)}
+            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="버전 히스토리"
+            title="버전 히스토리"
+          >
+            <History size={16} />
+          </button>
           <div className="relative" ref={menuRef}>
             <button
               type="button"
@@ -189,16 +256,19 @@ export function TopBar() {
               <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
                 <button
                   type="button"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(
-                      `quicknote://page/${activeId}`
-                    );
-                    setMenuOpen(false);
-                  }}
+                  onClick={copyPageLink}
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   <span>링크 복사</span>
                   <span className="text-xs text-zinc-400">⌘L</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={copyPageContent}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <span>페이지 내용 복사</span>
+                  <span className="text-xs text-zinc-400">MD</span>
                 </button>
                 <button
                   type="button"
@@ -269,6 +339,7 @@ export function TopBar() {
               </div>
             )}
           </div>
+          </>
         )}
       </div>
       {historyDialogOpen && activeId && (

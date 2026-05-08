@@ -204,8 +204,8 @@ const PageListItemInner = function PageListItem({
               e.stopPropagation();
               toggleExpanded(node.id);
             }}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-            style={{ cursor: "inherit" }}
+            className="absolute flex h-5 w-5 shrink-0 items-center justify-center rounded bg-white/90 text-zinc-500 opacity-0 transition hover:bg-zinc-200 group-hover:opacity-100 dark:bg-zinc-900/90 dark:hover:bg-zinc-700"
+            style={{ left: rowPadLeft, cursor: "inherit" }}
             aria-label={expanded ? "접기" : "펼치기"}
           >
             {expanded ? (
@@ -214,9 +214,7 @@ const PageListItemInner = function PageListItem({
               <ChevronRight size={14} />
             )}
           </button>
-        ) : (
-          <span className="inline-block h-5 w-5 shrink-0" />
-        )}
+        ) : null}
         <span className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden text-center text-base leading-5">
           <PageIconDisplay icon={node.icon} size="sm" />
         </span>

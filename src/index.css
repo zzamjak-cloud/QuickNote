@@ -202,6 +202,39 @@ body.quicknote-block-dragging .ProseMirror {
   line-height: 1.42;
 }
 
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] > li::marker {
+  content: "";
+}
+
+.ProseMirror ul[data-type="taskList"] > li > label {
+  margin-top: 0.2rem;
+  flex: 0 0 auto;
+}
+
+.ProseMirror ul[data-type="taskList"] > li > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ProseMirror ul[data-type="taskList"] > li > div > p {
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+  line-height: 1.42;
+}
+
 .ProseMirror blockquote {
   margin-top: 0.4rem;
   margin-bottom: 0.4rem;
@@ -545,23 +578,6 @@ li.ProseMirror-selectednode::after {
   background: rgba(39, 39, 42, 0.9);
   color: rgb(212, 212, 216);
 }
-
-/* 컬럼 드롭 인디케이터 */
-.qn-column-drop-indicator {
-  position: fixed;
-  top: 0;
-  width: 2px;
-  background: transparent;
-  border-left: 2px dashed #3b82f6;
-  pointer-events: none;
-  z-index: 100;
-}
-
-/* 컬럼 모드일 때는 dropcursor(가로 점선) 숨김 — 두 인디케이터 동시 표시 방지 */
-body.quicknote-column-drop .qn-dropcursor {
-  display: none !important;
-}
-
 
 /* 박스 선택 — 훅에서 body에 붙임; fixed 뷰포트 좌표 */
 .qn-box-select-rect {

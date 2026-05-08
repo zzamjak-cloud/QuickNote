@@ -14,6 +14,21 @@ export type ColumnDropState = {
   targetBlockStart: number;
 } | null;
 
+type DraggedBlockShape = {
+  insertNode: PMNode;
+  listItemNode: PMNode | null;
+  sourceListTypeName: string | null;
+  deleteFrom: number;
+  deleteTo: number;
+  deleteWholeParentList: boolean;
+};
+
+const LIST_ITEM_TYPES = new Set(["listItem", "taskItem"]);
+const LIST_WRAPPER_BY_ITEM: Record<string, string[]> = {
+  listItem: ["bulletList", "orderedList"],
+  taskItem: ["taskList"],
+};
+
 function countProtectedMediaInDoc(doc: import("@tiptap/pm/model").Node): number {
   let count = 0;
   doc.descendants((node) => {
@@ -34,6 +49,298 @@ function countProtectedMediaInDoc(doc: import("@tiptap/pm/model").Node): number 
     return true;
   });
   return count;
+}
+
+function draggedBlockShape(
+  view: EditorView,
+  pos: number,
+  node: PMNode,
+): DraggedBlockShape | null {
+  if (!LIST_ITEM_TYPES.has(node.type.name)) {
+    return {
+      insertNode: node.copy(node.content),
+      listItemNode: null,
+      sourceListTypeName: null,
+      deleteFrom: pos,
+      deleteTo: pos + node.nodeSize,
+      deleteWholeParentList: false,
+    };
+  }
+
+  const wrappers = LIST_WRAPPER_BY_ITEM[node.type.name] ?? [];
+  try {
+    const $pos = view.state.doc.resolve(pos);
+    for (let d = $pos.depth - 1; d >= 1; d--) {
+      const parent = $pos.node(d);
+      if (!wrappers.includes(parent.type.name)) continue;
+      const parentStart = $pos.before(d);
+      const deleteWholeParentList = parent.childCount <= 1;
+      return {
+        insertNode: parent.type.create(
+          parent.attrs,
+          Fragment.from(node.copy(node.content)),
+          parent.marks,
+        ),
+        listItemNode: node.copy(node.content),
+        sourceListTypeName: parent.type.name,
+        deleteFrom: deleteWholeParentList ? parentStart : pos,
+        deleteTo: deleteWholeParentList
+          ? parentStart + parent.nodeSize
+          : pos + node.nodeSize,
+        deleteWholeParentList,
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function listItemInsertionPosFromDrop(
+  view: EditorView,
+  event: DragEvent,
+  shape: DraggedBlockShape,
+): number | null {
+  if (!shape.listItemNode || !shape.sourceListTypeName) return null;
+  const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+  if (!coords) return null;
+  let $pos;
+  try {
+    $pos = view.state.doc.resolve(coords.pos);
+  } catch {
+    return null;
+  }
+
+  for (let d = $pos.depth; d >= 1; d--) {
+    const node = $pos.node(d);
+    if (node.type.name !== shape.listItemNode.type.name) continue;
+    const parent = $pos.node(d - 1);
+    if (parent.type.name !== shape.sourceListTypeName) continue;
+    const itemStart = $pos.before(d);
+    const dom = view.nodeDOM(itemStart);
+    const el = dom instanceof Element ? dom : dom?.parentElement;
+    const rect = el?.getBoundingClientRect();
+    const after = rect ? event.clientY > rect.top + rect.height / 2 : false;
+    return after ? itemStart + node.nodeSize : itemStart;
+  }
+
+  for (let d = $pos.depth; d >= 1; d--) {
+    const node = $pos.node(d);
+    if (node.type.name !== shape.sourceListTypeName) continue;
+    const listStart = $pos.before(d);
+    return listStart + node.nodeSize - 1;
+  }
+
+  return null;
+}
+
+function isDropInsideColumn(event: DragEvent): boolean {
+  const hit = document.elementFromPoint(event.clientX, event.clientY);
+  return Boolean(hit?.closest("[data-column]"));
+}
+
+function columnInsertionPosFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  const colEl = hit?.closest?.("[data-column]");
+  if (!(colEl instanceof HTMLElement) || !view.dom.contains(colEl)) return null;
+
+  let colStart: number | null = null;
+  let colNode: PMNode | null = null;
+  try {
+    const rawPos = view.posAtDOM(colEl, 0);
+    const $raw = view.state.doc.resolve(
+      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
+    );
+    for (let d = $raw.depth; d >= 1; d--) {
+      if ($raw.node(d).type.name !== "column") continue;
+      colStart = $raw.before(d);
+      colNode = $raw.node(d);
+      break;
+    }
+    if (colStart == null) {
+      const maybeNode = view.state.doc.nodeAt(rawPos);
+      if (maybeNode?.type.name === "column") {
+        colStart = rawPos;
+        colNode = maybeNode;
+      }
+    }
+  } catch {
+    colStart = null;
+    colNode = null;
+  }
+  if (colStart == null || !colNode || colNode.type.name !== "column") return null;
+
+  let fallback = colStart + colNode.nodeSize - 1;
+  let bestPos: number | null = null;
+  let bestDistance = Infinity;
+  colNode.forEach((child, offset) => {
+    const childStart = colStart + 1 + offset;
+    const dom = view.nodeDOM(childStart);
+    const el = dom instanceof Element ? dom : dom?.parentElement;
+    const rectEl =
+      el instanceof Element
+        ? el.closest(".qn-database-block") ?? el
+        : null;
+    const rect = (rectEl instanceof HTMLElement ? rectEl : el)?.getBoundingClientRect();
+    if (!rect) return;
+    const after = clientY > rect.top + rect.height / 2;
+    const distance =
+      clientY < rect.top
+        ? rect.top - clientY
+        : clientY > rect.bottom
+          ? clientY - rect.bottom
+          : 0;
+    const pos = after ? childStart + child.nodeSize : childStart;
+    if (distance < bestDistance) {
+      bestPos = pos;
+      bestDistance = distance;
+    }
+    fallback = childStart + child.nodeSize;
+  });
+
+  return bestPos ?? fallback;
+}
+
+function moveNestedListItemIntoColumn(
+  view: EditorView,
+  event: DragEvent,
+  start: number,
+): boolean {
+  if (!isDropInsideColumn(event)) return false;
+  const node = view.state.doc.nodeAt(start);
+  if (!node || !LIST_ITEM_TYPES.has(node.type.name)) return false;
+  const shape = draggedBlockShape(view, start, node);
+  if (!shape) return false;
+  const listInsertAt = listItemInsertionPosFromDrop(view, event, shape);
+
+  const insertAt =
+    listInsertAt ??
+    topLevelInsertionPosFromDrop(
+      view,
+      event.clientX,
+      event.clientY,
+    );
+  if (insertAt >= shape.deleteFrom && insertAt <= shape.deleteTo) {
+    event.preventDefault();
+    return true;
+  }
+
+  event.preventDefault();
+  const tr = view.state.tr;
+  tr.delete(
+    tr.mapping.map(shape.deleteFrom),
+    tr.mapping.map(shape.deleteTo),
+  );
+  tr.insert(
+    tr.mapping.map(insertAt, -1),
+    listInsertAt != null && shape.listItemNode
+      ? shape.listItemNode
+      : shape.insertNode,
+  );
+  const afterMediaCount = countProtectedMediaInDoc(tr.doc);
+  const beforeMediaCount = countProtectedMediaInDoc(view.state.doc);
+  if (afterMediaCount < beforeMediaCount) return true;
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+  return true;
+}
+
+function moveSelectedBlockIntoColumn(
+  view: EditorView,
+  event: DragEvent,
+): boolean {
+  if (!isDropInsideColumn(event)) return false;
+  const sel = view.state.selection;
+  if (!(sel instanceof NodeSelection)) return false;
+  if (sel.node.type.name === "columnLayout") {
+    event.preventDefault();
+    return true;
+  }
+  const shape = draggedBlockShape(view, sel.from, sel.node);
+  if (!shape) return false;
+
+  const listInsertAt = listItemInsertionPosFromDrop(view, event, shape);
+  const insertAt =
+    listInsertAt ??
+    topLevelInsertionPosFromDrop(
+      view,
+      event.clientX,
+      event.clientY,
+    );
+  if (insertAt >= shape.deleteFrom && insertAt <= shape.deleteTo) {
+    event.preventDefault();
+    return true;
+  }
+
+  event.preventDefault();
+  const beforeMediaCount = countProtectedMediaInDoc(view.state.doc);
+  const tr = view.state.tr;
+  tr.delete(
+    tr.mapping.map(shape.deleteFrom),
+    tr.mapping.map(shape.deleteTo),
+  );
+  tr.insert(
+    tr.mapping.map(insertAt, -1),
+    listInsertAt != null && shape.listItemNode
+      ? shape.listItemNode
+      : shape.insertNode,
+  );
+  const afterMediaCount = countProtectedMediaInDoc(tr.doc);
+  if (afterMediaCount < beforeMediaCount) return true;
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+  return true;
+}
+
+function moveSingleQuickNoteBlockFromDrop(
+  view: EditorView,
+  event: DragEvent,
+  start: number,
+): boolean {
+  const node = view.state.doc.nodeAt(start);
+  if (!node || !node.isBlock) return false;
+  if (isDropInsideColumn(event) && node.type.name === "columnLayout") {
+    event.preventDefault();
+    return true;
+  }
+  const shape = draggedBlockShape(view, start, node);
+  if (!shape) return false;
+  const listInsertAt = listItemInsertionPosFromDrop(view, event, shape);
+  const insertAt =
+    listInsertAt ??
+    topLevelInsertionPosFromDrop(
+      view,
+      event.clientX,
+      event.clientY,
+    );
+  if (insertAt >= shape.deleteFrom && insertAt <= shape.deleteTo) {
+    event.preventDefault();
+    return true;
+  }
+
+  event.preventDefault();
+  const beforeMediaCount = countProtectedMediaInDoc(view.state.doc);
+  const tr = view.state.tr;
+  tr.delete(
+    tr.mapping.map(shape.deleteFrom),
+    tr.mapping.map(shape.deleteTo),
+  );
+  tr.insert(
+    tr.mapping.map(insertAt, -1),
+    listInsertAt != null && shape.listItemNode
+      ? shape.listItemNode
+      : shape.insertNode,
+  );
+  const afterMediaCount = countProtectedMediaInDoc(tr.doc);
+  if (afterMediaCount < beforeMediaCount) return true;
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+  return true;
 }
 
 function makeUploadId(): string {
@@ -121,6 +428,9 @@ function topLevelInsertionPosFromDrop(
   clientX: number,
   clientY: number,
 ): number {
+  const columnPos = columnInsertionPosFromPoint(view, clientX, clientY);
+  if (columnPos != null) return columnPos;
+
   const coords = view.posAtCoords({ left: clientX, top: clientY });
   if (!coords) return nearestTopLevelInsertionByY(view, clientY);
 
@@ -170,6 +480,14 @@ function moveQuickNoteBlocksFromDrop(
 ): boolean {
   const doc = view.state.doc;
   const sorted = [...new Set(starts)].sort((a, b) => a - b);
+  if (sorted.length === 1) {
+    const movedNestedListItem = moveNestedListItemIntoColumn(
+      view,
+      event,
+      sorted[0]!,
+    );
+    if (movedNestedListItem) return true;
+  }
   const topLevelOnly = sorted.every((pos) => {
     try {
       const $pos = doc.resolve(pos);
@@ -178,6 +496,9 @@ function moveQuickNoteBlocksFromDrop(
       return false;
     }
   });
+  if (!topLevelOnly && sorted.length === 1) {
+    return moveSingleQuickNoteBlockFromDrop(view, event, sorted[0]!);
+  }
   if (!topLevelOnly) return false;
   const blocks = sorted
     .map((pos) => {
@@ -189,6 +510,13 @@ function moveQuickNoteBlocksFromDrop(
 
   if (blocks.length === 0) {
     return false;
+  }
+  if (
+    isDropInsideColumn(event) &&
+    blocks.some((block) => block.node.type.name === "columnLayout")
+  ) {
+    event.preventDefault();
+    return true;
   }
   const insertAt = topLevelInsertionPosFromDrop(
     view,
@@ -234,203 +562,12 @@ export function createEditorHandleDrop(options: {
     moved: boolean,
   ): boolean {
     const draggedStarts = parseQuickNoteBlockDragStarts(event.dataTransfer);
-    if (moved && columnDropRef.current) {
-      const { side, targetBlockStart } = columnDropRef.current;
+    if (columnDropRef.current) {
       columnDropRef.current = null;
       clearColumnDropUi();
+    }
 
-      const sel = view.state.selection;
-      if (!(sel instanceof NodeSelection)) return false;
-
-      const draggedStart = sel.from;
-      const draggedNode = sel.node;
-      const targetNode = view.state.doc.nodeAt(targetBlockStart);
-      if (!targetNode || draggedStart === targetBlockStart) return false;
-
-      const { schema } = view.state;
-      if (!schema.nodes.column || !schema.nodes.columnLayout) return false;
-      const columnNodeType = schema.nodes.column;
-      const columnLayoutNodeType = schema.nodes.columnLayout;
-
-      event.preventDefault();
-      const beforeMediaCount = countProtectedMediaInDoc(view.state.doc);
-
-      const pos1 = Math.min(draggedStart, targetBlockStart);
-      const pos2 = Math.max(draggedStart, targetBlockStart);
-      const node1 = view.state.doc.nodeAt(pos1)!;
-      const node2 = view.state.doc.nodeAt(pos2)!;
-
-      if (targetNode.type.name === "columnLayout") {
-        const targetEnd = targetBlockStart + targetNode.nodeSize;
-        const draggedInsideTargetLayout =
-          draggedStart > targetBlockStart && draggedStart < targetEnd;
-        if (draggedInsideTargetLayout) {
-          const $dragged = view.state.doc.resolve(draggedStart);
-          let sourceColStart: number | null = null;
-          let sourceLayoutStart: number | null = null;
-          for (let d = $dragged.depth; d >= 1; d--) {
-            const node = $dragged.node(d);
-            if (node.type.name !== "column") continue;
-            if (d - 1 >= 1 && $dragged.node(d - 1).type.name === "columnLayout") {
-              sourceColStart = $dragged.before(d);
-              sourceLayoutStart = $dragged.before(d - 1);
-              break;
-            }
-          }
-          if (
-            sourceColStart == null ||
-            sourceLayoutStart == null ||
-            sourceLayoutStart !== targetBlockStart
-          ) {
-            return true;
-          }
-
-          const existingCols: Array<{ start: number; node: PMNode }> = [];
-          targetNode.forEach((col, offset) => {
-            existingCols.push({
-              start: targetBlockStart + 1 + offset,
-              node: col,
-            });
-          });
-          const sourceIndex = existingCols.findIndex((c) => c.start === sourceColStart);
-          if (sourceIndex < 0) {
-            return true;
-          }
-          if (existingCols.length >= 4) {
-            // 4열 꽉 찬 상태에서는 "새 열 추가" 대신 컬럼 순서 이동으로 해석한다.
-            const moved = existingCols[sourceIndex];
-            if (!moved) return true;
-            const withoutSource = existingCols.filter((_, idx) => idx !== sourceIndex);
-            const reordered =
-              side === "right"
-                ? [...withoutSource, moved]
-                : [moved, ...withoutSource];
-            const reorderedLayout = columnLayoutNodeType.create(
-              { columns: reordered.length },
-              reordered.map((c) => c.node),
-            );
-            const tr = view.state.tr.replaceWith(
-              targetBlockStart,
-              targetBlockStart + targetNode.nodeSize,
-              reorderedLayout,
-            );
-            const afterMediaCount = countProtectedMediaInDoc(tr.doc);
-            if (afterMediaCount < beforeMediaCount) {
-              return true;
-            }
-            view.dispatch(tr.scrollIntoView());
-            view.focus();
-            return true;
-          }
-
-          let removedFromSource = false;
-          const nextCols = existingCols.map(({ start, node }) => {
-            if (start !== sourceColStart) return node;
-            const keptChildren: PMNode[] = [];
-            node.forEach((child, childOffset) => {
-              const childStart = start + 1 + childOffset;
-              if (childStart === draggedStart) {
-                removedFromSource = true;
-                return;
-              }
-              keptChildren.push(child);
-            });
-            if (keptChildren.length === 0) {
-              const paragraph = schema.nodes.paragraph?.create();
-              if (paragraph) keptChildren.push(paragraph);
-            }
-            return columnNodeType.create(node.attrs, Fragment.fromArray(keptChildren));
-          });
-          if (!removedFromSource) {
-            return true;
-          }
-
-          const newCol = columnNodeType.create(
-            {},
-            draggedNode.copy(draggedNode.content),
-          );
-          const mergedCols =
-            side === "right" ? [...nextCols, newCol] : [newCol, ...nextCols];
-          const newLayout = columnLayoutNodeType.create(
-            { columns: mergedCols.length },
-            mergedCols,
-          );
-
-          const tr = view.state.tr.replaceWith(
-            targetBlockStart,
-            targetBlockStart + targetNode.nodeSize,
-            newLayout,
-          );
-          const afterMediaCount = countProtectedMediaInDoc(tr.doc);
-          if (afterMediaCount < beforeMediaCount) {
-            return true;
-          }
-          view.dispatch(tr.scrollIntoView());
-          view.focus();
-          return true;
-        }
-        const existingCols: import("@tiptap/pm/model").Node[] = [];
-        targetNode.content.forEach((col) => existingCols.push(col));
-        if (existingCols.length >= 4) return false;
-        const newCol = columnNodeType.create(
-          {},
-          draggedNode.copy(draggedNode.content),
-        );
-        const newCols =
-          side === "right"
-            ? [...existingCols, newCol]
-            : [newCol, ...existingCols];
-        const newLayout = columnLayoutNodeType.create(
-          { columns: newCols.length },
-          newCols,
-        );
-        const tr = view.state.tr;
-        tr.delete(tr.mapping.map(pos2), tr.mapping.map(pos2 + node2.nodeSize));
-        tr.delete(tr.mapping.map(pos1), tr.mapping.map(pos1 + node1.nodeSize));
-        tr.insert(pos1, newLayout);
-        const afterMediaCount = countProtectedMediaInDoc(tr.doc);
-        if (afterMediaCount < beforeMediaCount) {
-          return true;
-        }
-        view.dispatch(tr.scrollIntoView());
-        view.focus();
-        return true;
-      }
-
-      const leftNode =
-        side === "left"
-          ? draggedStart < targetBlockStart
-            ? draggedNode
-            : targetNode
-          : draggedStart < targetBlockStart
-            ? targetNode
-            : draggedNode;
-      const rightNode =
-        side === "left"
-          ? draggedStart < targetBlockStart
-            ? targetNode
-            : draggedNode
-          : draggedStart < targetBlockStart
-            ? draggedNode
-            : targetNode;
-
-      const col1 = columnNodeType.create({}, leftNode.copy(leftNode.content));
-      const col2 = columnNodeType.create(
-        {},
-        rightNode.copy(rightNode.content),
-      );
-      const layout = columnLayoutNodeType.create({ columns: 2 }, [col1, col2]);
-
-      const tr = view.state.tr;
-      tr.delete(tr.mapping.map(pos2), tr.mapping.map(pos2 + node2.nodeSize));
-      tr.delete(tr.mapping.map(pos1), tr.mapping.map(pos1 + node1.nodeSize));
-      tr.insert(pos1, layout);
-      const afterMediaCount = countProtectedMediaInDoc(tr.doc);
-      if (afterMediaCount < beforeMediaCount) {
-        return true;
-      }
-      view.dispatch(tr.scrollIntoView());
-      view.focus();
+    if (moved && moveSelectedBlockIntoColumn(view, event)) {
       return true;
     }
 

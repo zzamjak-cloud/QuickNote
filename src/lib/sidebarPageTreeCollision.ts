@@ -65,8 +65,9 @@ export const sidebarPageTreeCollision: CollisionDetection = ({
   return [];
 };
 
-/** sibling 모드에서 위/아래 분할 경계 */
-export const SIBLING_Y_THRESHOLD = 0.5;
+/** row 안에서 앞/자식/뒤 드롭을 나누는 세로 경계 */
+export const BEFORE_Y_THRESHOLD = 0.25;
+export const AFTER_Y_THRESHOLD = 0.75;
 
 /** 미세 흔들림 방지용 히스테리시스 (이전 모드 유지폭 — 8%) */
 const HYST = 0.08;
@@ -100,14 +101,12 @@ export type ResolveDropArgs = {
 };
 
 /**
- * 노션 스타일 — 가로 좌표는 사용하지 않는다.
+ * 노션 스타일 — 행을 세로 3구역으로 나눈다.
  *   1) over === active 또는 active 자손 → disabled
- *   2) yRatio < 0.5 → before(같은 부모 안 형제, over 앞)
- *   3) yRatio ≥ 0.5 → after
- *      - over 가 펼쳐져 있으면(자식이 화면에 노출됨) "after" 가 시각적으로 첫 자식 위치를
- *        가리키므로 자동 "child-first"(첫 자식) 로 변환
- *      - 그 외엔 over 의 형제 다음으로
- * 히스테리시스는 같은 overId 일 때만 적용해 0.5 근처 흔들림 방지.
+ *   2) 상단 25% → before(같은 부모 안 형제, over 앞)
+ *   3) 중앙 50% → child-last(over 의 마지막 자식)
+ *   4) 하단 25% → after(같은 부모 안 형제, over 뒤)
+ * 히스테리시스는 같은 overId 일 때만 적용해 경계 근처 흔들림을 줄인다.
  */
 export function resolveSidebarDrop(args: ResolveDropArgs): SidebarDropHint {
   const { overId, activeId, clientY, prev, isBlocked, isExpanded } = args;
@@ -122,19 +121,23 @@ export function resolveSidebarDrop(args: ResolveDropArgs): SidebarDropHint {
   const yRatio = (clientY - r.top) / Math.max(r.height, 1);
   const sameTarget = prev?.overId === overId;
 
-  let beforeHalf: boolean;
-  if (sameTarget && prev?.mode === "before") {
-    beforeHalf = yRatio < SIBLING_Y_THRESHOLD + HYST;
-  } else if (
-    sameTarget &&
-    (prev?.mode === "after" || prev?.mode === "child-first")
-  ) {
-    beforeHalf = yRatio < SIBLING_Y_THRESHOLD - HYST;
-  } else {
-    beforeHalf = yRatio < SIBLING_Y_THRESHOLD;
-  }
+  const beforeBoundary =
+    sameTarget && prev?.mode === "before"
+      ? BEFORE_Y_THRESHOLD + HYST
+      : sameTarget && prev?.mode === "child-last"
+        ? BEFORE_Y_THRESHOLD - HYST
+      : BEFORE_Y_THRESHOLD;
+  const afterBoundary =
+    sameTarget && prev?.mode === "after"
+      ? AFTER_Y_THRESHOLD - HYST
+      : sameTarget && prev?.mode === "child-last"
+        ? AFTER_Y_THRESHOLD + HYST
+      : AFTER_Y_THRESHOLD;
 
-  if (beforeHalf) return { overId, mode: "before" };
-  if (isExpanded(overId)) return { overId, mode: "child-first" };
-  return { overId, mode: "after" };
+  if (yRatio < beforeBoundary) return { overId, mode: "before" };
+  if (yRatio > afterBoundary) {
+    if (isExpanded(overId)) return { overId, mode: "child-first" };
+    return { overId, mode: "after" };
+  }
+  return { overId, mode: "child-last" };
 }

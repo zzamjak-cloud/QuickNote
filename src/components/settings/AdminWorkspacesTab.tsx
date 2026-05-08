@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Plus, Settings2, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useUiStore } from "../../store/uiStore";
 import {
   createWorkspaceApi,
   deleteWorkspaceApi,
@@ -17,8 +18,10 @@ export function AdminWorkspacesTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const upsertWorkspace = useWorkspaceStore((s) => s.upsertWorkspace);
   const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace);
+  const showToast = useUiStore((s) => s.showToast);
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
   const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null);
+  const [loadingWorkspaceId, setLoadingWorkspaceId] = useState<string | null>(null);
   const [openCreate, setOpenCreate] = useState(false);
   const [openEdit, setOpenEdit] = useState(false);
   const [editEntries, setEditEntries] = useState<WorkspaceAccessInput[]>([]);
@@ -41,16 +44,21 @@ export function AdminWorkspacesTab() {
     return `${name} 삭제`;
   }, [deletingWorkspace]);
 
-  const openEditModal = (workspaceId: string) => {
+  const openEditModal = async (workspaceId: string) => {
     const target = shared.find((w) => w.workspaceId === workspaceId);
     if (!target) return;
-    setEditEntries([]);
-    setEditingWorkspaceId(target.workspaceId);
-    setOpenEdit(true);
-    // 모달 오픈 후 비동기로 접근 규칙 로드
-    void getWorkspaceApi(target.workspaceId).then((detail) => {
+    setLoadingWorkspaceId(target.workspaceId);
+    setOpenEdit(false);
+    try {
+      const detail = await getWorkspaceApi(target.workspaceId);
       setEditEntries(detail.access);
-    });
+      setEditingWorkspaceId(target.workspaceId);
+      setOpenEdit(true);
+    } catch {
+      showToast("워크스페이스 정보를 불러오지 못했습니다.", { kind: "error" });
+    } finally {
+      setLoadingWorkspaceId(null);
+    }
   };
 
   return (
@@ -77,39 +85,20 @@ export function AdminWorkspacesTab() {
             </li>
           ) : (
             shared.map((ws) => (
-              <li
-                key={ws.workspaceId}
-                className="flex items-center justify-between rounded border border-zinc-200 px-3 py-2 dark:border-zinc-700"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{ws.name}</span>
-                  <span className="block text-[10px] lowercase text-zinc-500 dark:text-zinc-400">
-                    workspace
+              <li key={ws.workspaceId}>
+                <button
+                  type="button"
+                  onClick={() => void openEditModal(ws.workspaceId)}
+                  disabled={loadingWorkspaceId !== null}
+                  className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{ws.name}</span>
+                    <span className="block text-[10px] lowercase text-zinc-500 dark:text-zinc-400">
+                      {loadingWorkspaceId === ws.workspaceId ? "불러오는 중..." : "workspace"}
+                    </span>
                   </span>
-                </span>
-                <div className="ml-2 flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => void openEditModal(ws.workspaceId)}
-                    className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                    aria-label={`${ws.name} 설정 편집`}
-                    title="설정 편집"
-                  >
-                    <Settings2 size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeletingWorkspaceId(ws.workspaceId);
-                      setDeletePhraseDraft("");
-                    }}
-                    className="rounded p-1 text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                    aria-label={`${ws.name} 삭제`}
-                    title="워크스페이스 삭제"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
+                </button>
               </li>
             ))
           )}
@@ -128,7 +117,11 @@ export function AdminWorkspacesTab() {
           open={openEdit}
           workspaceName={editingWorkspace.name}
           initialEntries={editEntries}
-          onClose={() => setOpenEdit(false)}
+          onClose={() => {
+            setOpenEdit(false);
+            setEditingWorkspaceId(null);
+            setEditEntries([]);
+          }}
           onSave={async ({ name, entries }) => {
             if (!editingWorkspace) return;
             const updated = await updateWorkspaceApi({
@@ -143,6 +136,10 @@ export function AdminWorkspacesTab() {
               ...updated,
               myEffectiveLevel: accessUpdated.myEffectiveLevel,
             });
+          }}
+          onRequestDelete={() => {
+            setDeletingWorkspaceId(editingWorkspace.workspaceId);
+            setDeletePhraseDraft("");
           }}
         />
       ) : null}

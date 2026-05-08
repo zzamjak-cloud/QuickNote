@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { useAuthStore } from "../../store/authStore";
 import { useMemberStore } from "../../store/memberStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import { MyProfileSection } from "./MyProfileSection";
 import { AdminMembersTab } from "./AdminMembersTab";
 import { AdminTeamsTab } from "./AdminTeamsTab";
@@ -17,6 +18,8 @@ type TabId = "profile" | "members" | "teams" | "workspaces";
 export function SettingsModal({ open, onClose }: Props) {
   const signOut = useAuthStore((s) => s.signOut);
   const role = useMemberStore((s) => s.me?.workspaceRole ?? "member");
+  const darkMode = useSettingsStore((s) => s.darkMode);
+  const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
   const isAdmin = role === "owner" || role === "manager";
   const [tab, setTab] = useState<TabId>("profile");
 
@@ -49,7 +52,7 @@ export function SettingsModal({ open, onClose }: Props) {
         className="flex h-[min(86vh,820px)] w-full max-w-6xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <aside className="w-56 shrink-0 border-r border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
+        <aside className="flex w-56 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="mb-2 flex items-center justify-between px-1">
             <h2 id="settings-modal-title" className="text-sm font-semibold">설정</h2>
             <button
@@ -78,6 +81,29 @@ export function SettingsModal({ open, onClose }: Props) {
               </button>
             ))}
           </nav>
+          <div className="mt-auto border-t border-zinc-200 pt-3 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={toggleDarkMode}
+              className="flex w-full items-center justify-between rounded-md px-2 py-2 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              aria-pressed={darkMode}
+            >
+              <span>{darkMode ? "다크" : "라이트"}</span>
+              <span
+                className={[
+                  "relative h-5 w-10 rounded-full transition",
+                  darkMode ? "bg-zinc-700" : "bg-zinc-300",
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition",
+                    darkMode ? "left-5" : "left-0.5",
+                  ].join(" ")}
+                />
+              </span>
+            </button>
+          </div>
         </aside>
 
         <section className="flex-1 overflow-y-auto p-6">
@@ -102,4 +128,3 @@ export function SettingsModal({ open, onClose }: Props) {
     </div>
   );
 }
-

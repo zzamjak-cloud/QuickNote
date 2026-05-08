@@ -9,6 +9,7 @@ import { DatabaseRowPage } from "./components/database/DatabaseRowPage";
 import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { AutoUpdateDialog } from "./components/ui/AutoUpdateDialog";
+import { ToastViewport } from "./components/ui/ToastViewport";
 import { AuthGate } from "./components/auth/AuthGate";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore } from "./store/pageStore";
@@ -154,6 +155,7 @@ function App() {
         <FavoritesPanel />
         <DatabaseRowPeek />
         <TextPromptDialog />
+        <ToastViewport />
         {autoUpdate.isSupported && (
           <AutoUpdateDialog
             open={autoUpdate.open}
