@@ -7,6 +7,7 @@ import { insertFileFromFile } from "./insertFileFromFile";
 import {
   QUICKNOTE_BLOCK_DRAG_MIME,
 } from "../startBlockNativeDrag";
+import { queryTabPanelElements } from "../tiptapExtensions/tabPanelDom";
 import { forEachDocDirectBlock } from "../pm/topLevelBlocks";
 
 export type ColumnDropState = {
@@ -138,6 +139,92 @@ function listItemInsertionPosFromDrop(
 function isDropInsideColumn(event: DragEvent): boolean {
   const hit = document.elementFromPoint(event.clientX, event.clientY);
   return Boolean(hit?.closest("[data-column]"));
+}
+
+/** 빈 패널 영역 드롭 시 활성 탭의 패널 DOM 을 택한다 */
+function resolveTabPanelElementFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): HTMLElement | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  if (!hit || !view.dom.contains(hit)) return null;
+  const direct = hit.closest("[data-tab-panel]");
+  if (direct instanceof HTMLElement) return direct;
+  const panelsRoot = hit.closest(".qn-tab-panels");
+  const tabBlock = hit.closest("[data-tab-block]");
+  if (!(panelsRoot instanceof HTMLElement) || !(tabBlock instanceof HTMLElement)) {
+    return null;
+  }
+  const rawIdx = Number(tabBlock.getAttribute("data-active-index") ?? "0");
+  const idx = Number.isFinite(rawIdx) ? Math.max(0, rawIdx) : 0;
+  const panels = queryTabPanelElements(panelsRoot);
+  const panel = panels[idx];
+  return panel ?? null;
+}
+
+function tabPanelInsertionPosFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const panelEl = resolveTabPanelElementFromPoint(view, clientX, clientY);
+  if (!panelEl) return null;
+
+  let panelStart: number | null = null;
+  let panelNode: PMNode | null = null;
+  try {
+    const rawPos = view.posAtDOM(panelEl, 0);
+    const $raw = view.state.doc.resolve(
+      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
+    );
+    for (let d = $raw.depth; d >= 1; d--) {
+      if ($raw.node(d).type.name !== "tabPanel") continue;
+      panelStart = $raw.before(d);
+      panelNode = $raw.node(d);
+      break;
+    }
+    if (panelStart == null) {
+      const maybeNode = view.state.doc.nodeAt(rawPos);
+      if (maybeNode?.type.name === "tabPanel") {
+        panelStart = rawPos;
+        panelNode = maybeNode;
+      }
+    }
+  } catch {
+    return null;
+  }
+  if (panelStart == null || !panelNode || panelNode.type.name !== "tabPanel") {
+    return null;
+  }
+
+  let fallback = panelStart + panelNode.nodeSize - 1;
+  let bestPos: number | null = null;
+  let bestDistance = Infinity;
+  panelNode.forEach((child, offset) => {
+    const childStart = panelStart! + 1 + offset;
+    const dom = view.nodeDOM(childStart);
+    const el = dom instanceof Element ? dom : dom?.parentElement;
+    const rectEl =
+      el instanceof Element ? el.closest(".qn-database-block") ?? el : null;
+    const rect = (rectEl instanceof HTMLElement ? rectEl : el)?.getBoundingClientRect();
+    if (!rect) return;
+    const after = clientY > rect.top + rect.height / 2;
+    const distance =
+      clientY < rect.top
+        ? rect.top - clientY
+        : clientY > rect.bottom
+          ? clientY - rect.bottom
+          : 0;
+    const pos = after ? childStart + child.nodeSize : childStart;
+    if (distance < bestDistance) {
+      bestPos = pos;
+      bestDistance = distance;
+    }
+    fallback = childStart + child.nodeSize;
+  });
+
+  return bestPos ?? fallback;
 }
 
 function columnInsertionPosFromPoint(
@@ -428,6 +515,9 @@ function topLevelInsertionPosFromDrop(
   clientX: number,
   clientY: number,
 ): number {
+  const tabPanelPos = tabPanelInsertionPosFromPoint(view, clientX, clientY);
+  if (tabPanelPos != null) return tabPanelPos;
+
   const columnPos = columnInsertionPosFromPoint(view, clientX, clientY);
   if (columnPos != null) return columnPos;
 

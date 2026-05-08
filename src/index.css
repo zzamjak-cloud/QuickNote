@@ -649,3 +649,156 @@ body.quicknote-column-reorder-dragging .qn-column-drop-indicator,
 body.quicknote-column-reorder-dragging .qn-dropcursor {
   display: none !important;
 }
+
+.ProseMirror [data-tab-block][data-tab-placement="bottom"] .qn-tab-panels {
+  margin-bottom: 0.5rem;
+}
+
+.ProseMirror [data-tab-block][data-tab-placement="top"] .qn-tab-panels {
+  margin-top: 0.5rem;
+}
+
+.ProseMirror [data-tab-block][data-tab-placement="left"] .qn-tab-list,
+.ProseMirror [data-tab-block][data-tab-placement="right"] .qn-tab-list {
+  flex-direction: column;
+  align-items: stretch;
+  width: 9rem;
+  min-width: 9rem;
+}
+
+.ProseMirror [data-tab-block][data-tab-placement="left"] .qn-tab-items,
+.ProseMirror [data-tab-block][data-tab-placement="right"] .qn-tab-items {
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.ProseMirror [data-tab-block][data-tab-placement="left"] .qn-tab-actions,
+.ProseMirror [data-tab-block][data-tab-placement="right"] .qn-tab-actions {
+  margin-top: auto;
+  margin-left: 0;
+  justify-content: flex-end;
+}
+
+.ProseMirror [data-tab-block][data-tab-placement="left"] .qn-tab-button,
+.ProseMirror [data-tab-block][data-tab-placement="right"] .qn-tab-button {
+  max-width: none;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/*
+ * 탭 패널 표시 백업: TipTap React 노드뷰는 .qn-tab-panels 안에 PM contentDOM(div[data-node-view-content-react])를 끼워 넣음.
+ * 그래서 패널은 .qn-tab-panels 직계가 아니라 그 안쪽 직계 — 기존 `.qn-tab-panels > .qn-tab-panel` 은 한 번도 매칭되지 않았음.
+ */
+.ProseMirror [data-tab-block] .qn-tab-panels [data-tab-panel] {
+  display: none !important;
+}
+
+/* PM 래퍼 직계 패널 (일반) */
+.ProseMirror [data-tab-block][data-active-index="0"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(1),
+.ProseMirror [data-tab-block][data-active-index="0"] .qn-tab-panels > .qn-tab-panel:nth-of-type(1) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="1"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(2),
+.ProseMirror [data-tab-block][data-active-index="1"] .qn-tab-panels > .qn-tab-panel:nth-of-type(2) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="2"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(3),
+.ProseMirror [data-tab-block][data-active-index="2"] .qn-tab-panels > .qn-tab-panel:nth-of-type(3) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="3"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(4),
+.ProseMirror [data-tab-block][data-active-index="3"] .qn-tab-panels > .qn-tab-panel:nth-of-type(4) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="4"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(5),
+.ProseMirror [data-tab-block][data-active-index="4"] .qn-tab-panels > .qn-tab-panel:nth-of-type(5) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="5"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(6),
+.ProseMirror [data-tab-block][data-active-index="5"] .qn-tab-panels > .qn-tab-panel:nth-of-type(6) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="6"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(7),
+.ProseMirror [data-tab-block][data-active-index="6"] .qn-tab-panels > .qn-tab-panel:nth-of-type(7) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="7"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(8),
+.ProseMirror [data-tab-block][data-active-index="7"] .qn-tab-panels > .qn-tab-panel:nth-of-type(8) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="8"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(9),
+.ProseMirror [data-tab-block][data-active-index="8"] .qn-tab-panels > .qn-tab-panel:nth-of-type(9) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="9"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(10),
+.ProseMirror [data-tab-block][data-active-index="9"] .qn-tab-panels > .qn-tab-panel:nth-of-type(10) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="10"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(11),
+.ProseMirror [data-tab-block][data-active-index="10"] .qn-tab-panels > .qn-tab-panel:nth-of-type(11) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="11"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(12),
+.ProseMirror [data-tab-block][data-active-index="11"] .qn-tab-panels > .qn-tab-panel:nth-of-type(12) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="12"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(13),
+.ProseMirror [data-tab-block][data-active-index="12"] .qn-tab-panels > .qn-tab-panel:nth-of-type(13) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="13"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(14),
+.ProseMirror [data-tab-block][data-active-index="13"] .qn-tab-panels > .qn-tab-panel:nth-of-type(14) {
+  display: block !important;
+}
+.ProseMirror [data-tab-block][data-active-index="14"]
+  .qn-tab-panels
+  [data-node-view-content-react]
+  > .qn-tab-panel:nth-of-type(15),
+.ProseMirror [data-tab-block][data-active-index="14"] .qn-tab-panels > .qn-tab-panel:nth-of-type(15) {
+  display: block !important;
+}

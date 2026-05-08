@@ -17,6 +17,8 @@ type FileAttrs = {
   name?: string | null;
   size?: number | null;
   mime?: string | null;
+  mimeType?: string | null;
+  contentType?: string | null;
   width?: number | null;
   height?: number | null;
   uploading?: boolean | null;
@@ -46,7 +48,7 @@ function FileView(props: NodeViewProps) {
   const attrs = props.node.attrs as FileAttrs;
   const { url, error } = useFileUrl(attrs.src ?? null);
   const [zoom, setZoom] = useState(false);
-  const mime = attrs.mime ?? "";
+  const mime = attrs.mime ?? attrs.mimeType ?? attrs.contentType ?? "";
   const isUploading = !!attrs.uploading;
   const hasUploadError = !!attrs.uploadError;
 
@@ -222,9 +224,18 @@ export const FileBlock = Node.create({
       },
       mime: {
         default: null,
-        parseHTML: (el) => (el as HTMLElement).getAttribute("data-mime"),
+        parseHTML: (el) =>
+          (el as HTMLElement).getAttribute("data-mime") ??
+          (el as HTMLElement).getAttribute("data-mime-type") ??
+          (el as HTMLElement).getAttribute("data-content-type"),
         renderHTML: (attrs) =>
           attrs.mime ? { "data-mime": String(attrs.mime) } : {},
+      },
+      mimeType: {
+        default: null,
+      },
+      contentType: {
+        default: null,
       },
       width: {
         default: null,

@@ -77,6 +77,7 @@ import {
   ToggleContent,
 } from "../../lib/tiptapExtensions/toggle";
 import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
+import { TabBlock, TabPanel } from "../../lib/tiptapExtensions/tabBlock";
 import { CodeBlockLowlightStable } from "../../lib/tiptapExtensions/codeBlockLowlightStable";
 import { CodeBlockCopy } from "../../lib/tiptapExtensions/codeBlockCopy";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
@@ -295,6 +296,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       Callout,
       ColumnLayout,
       Column,
+      TabBlock,
+      TabPanel,
       Toggle,
       ToggleHeader,
       ToggleContent,

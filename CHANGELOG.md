@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.11] - 2026-05-09
+
+### Added
+
+- **탭 블록**: 다중 `tabPanel`·탭 헤더·배치(상·하·좌·우), 슬래시 메뉴 삽입, 탭 패널 영역 드롭 타깃 보강.
+
+### Fixed
+
+- **탭 전환 시 본문이 바뀌지 않던 문제**: TipTap React 노드뷰가 `.qn-tab-panels` 안에 PM용 `data-node-view-content-react` 래퍼를 두어 기존 CSS 직계 선택자가 패널에 적용되지 않던 점을 수정하고, `[data-active-index]` DOM 동기화·트랜잭션 직후 패널 표시 재적용으로 안정화.
+
+### Changed
+
+- 탭/패널 DOM 디버그용 콘솔 로그 제거.
+
 ## [5.0.10] - 2026-05-08
 
 ### Fixed

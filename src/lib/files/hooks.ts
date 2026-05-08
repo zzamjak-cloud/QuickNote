@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { imageUrlCache } from "../images/registry";
+import { decodeImageRef } from "../sync/imageScheme";
 import { decodeFileRef } from "./scheme";
 
 export type UseFileUrlResult = {
@@ -23,7 +24,9 @@ export function useFileUrl(
       setError(null);
       return;
     }
-    const id = decodeFileRef(srcOrRef);
+    // 초기 파일 첨부는 이미지 업로드 인프라를 그대로 써서 quicknote-image:// 로
+    // 저장된 문서가 있을 수 있다. 파일 노드에서는 두 ref 스킴 모두 downloadUrl 로 푼다.
+    const id = decodeFileRef(srcOrRef) ?? decodeImageRef(srcOrRef);
     if (!id) {
       // 일반 URL 이면 그대로 사용.
       setUrl(srcOrRef);

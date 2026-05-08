@@ -10,6 +10,7 @@ import {
   Heading3,
   Image as ImageIcon,
   LayoutGrid,
+  PanelTop,
   Lightbulb,
   List,
   ListOrdered,
@@ -86,6 +87,20 @@ function runColumnLayoutCommand(
   return true;
 }
 
+function runTabBlockCommand(
+  editor: SlashCommandContext["editor"],
+  placement: "top" | "bottom" | "left" | "right",
+) {
+  const chain = editor.chain().focus();
+  const { $from } = editor.state.selection;
+  if ($from.parent.type.name === "paragraph") {
+    const from = $from.start();
+    const to = from + $from.parent.content.size;
+    if (from < to) chain.deleteRange({ from, to });
+  }
+  return chain.setTabBlock(placement).run();
+}
+
 export const slashMenuEntries: SlashMenuEntry[] = [
   {
     kind: "category",
@@ -105,6 +120,14 @@ export const slashMenuEntries: SlashMenuEntry[] = [
       "타임라인",
     ],
     children: dbSlashChildren,
+  },
+  {
+    kind: "leaf",
+    title: "탭",
+    description: "탭으로 구분된 컨텐츠 블록",
+    icon: PanelTop,
+    keywords: ["tabs", "tab", "탭", "tab block"],
+    command: ({ editor }) => runTabBlockCommand(editor, "top"),
   },
   {
     kind: "leaf",
