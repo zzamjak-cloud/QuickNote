@@ -20,6 +20,9 @@ function makeGql(): GqlBridge & { calls: Call[] } {
     softDeleteDatabase: async (id, workspaceId, u) => {
       calls.push(["softDeleteDatabase", id, workspaceId, u]);
     },
+    updateMyClientPrefs: async (json) => {
+      calls.push(["updateMyClientPrefs", json]);
+    },
   };
 }
 
@@ -119,5 +122,19 @@ describe("SyncEngine", () => {
       .map((c) => (c[1] as { id: string }).id);
     expect(okIds).toContain("ok-1");
     expect(okIds).toContain("ok-2");
+  });
+
+  it("updateMyClientPrefs 를 outbox 에서 전송한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    const json = '{"v":1,"favoritePageIds":[],"favoritePageIdsUpdatedAt":1}';
+    await engine.enqueue("updateMyClientPrefs", {
+      id: "m-1",
+      clientPrefs: json,
+    });
+    await engine.flush();
+    expect(gql.calls).toEqual([["updateMyClientPrefs", json]]);
+    expect((await outbox.list(10)).length).toBe(0);
   });
 });

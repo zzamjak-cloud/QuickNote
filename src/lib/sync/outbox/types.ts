@@ -5,7 +5,8 @@ export type OutboxOp =
   | "upsertPage"
   | "upsertDatabase"
   | "softDeletePage"
-  | "softDeleteDatabase";
+  | "softDeleteDatabase"
+  | "updateMyClientPrefs";
 
 export type OutboxEntry = {
   id: string;

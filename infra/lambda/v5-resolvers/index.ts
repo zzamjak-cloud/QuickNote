@@ -8,6 +8,7 @@ import {
   listMembers,
   getMember,
   updateMember,
+  updateMyClientPrefs,
   promoteToManager,
   demoteToMember,
   transferOwnership,
@@ -145,6 +146,19 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         }
       case "updateMember":
         return normalizeMemberForGql((await updateMember({ ...base, input: event.arguments.input as UpdateMemberInput & { memberId: string } })) as Record<string, unknown>);
+      case "updateMyClientPrefs": {
+        const raw = event.arguments.input as { clientPrefs?: unknown };
+        const cp =
+          typeof raw?.clientPrefs === "string"
+            ? raw.clientPrefs
+            : JSON.stringify(raw.clientPrefs ?? {});
+        return normalizeMemberForGql(
+          (await updateMyClientPrefs({
+            ...base,
+            input: { clientPrefs: cp },
+          })) as Record<string, unknown>,
+        );
+      }
       case "promoteToManager":
         return normalizeMemberForGql((await promoteToManager({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
       case "demoteToMember":

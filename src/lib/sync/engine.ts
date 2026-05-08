@@ -14,6 +14,8 @@ export interface GqlBridge {
   upsertDatabase(input: unknown): Promise<void>;
   softDeletePage(id: string, workspaceId: string, updatedAt: string): Promise<void>;
   softDeleteDatabase(id: string, workspaceId: string, updatedAt: string): Promise<void>;
+  /** 멤버 본인 clientPrefs(즐겨찾기 등) 동기화. */
+  updateMyClientPrefs(clientPrefsJson: string): Promise<void>;
 }
 
 const MAX_BACKOFF_MS = 60_000;
@@ -21,7 +23,13 @@ const MAX_BACKOFF_MS = 60_000;
 // 이 값을 넘긴 entry 는 head 에 영원히 남아 후속 entries 처리를 막는 stuck-head 위험이 있어 outbox 에서 제거한다.
 const MAX_ATTEMPTS = 50;
 
-export type EnqueuePayload = { id: string; workspaceId?: string; updatedAt?: string };
+export type EnqueuePayload = {
+  id: string;
+  workspaceId?: string;
+  updatedAt?: string;
+  /** updateMyClientPrefs 전용(JSON 문자열) */
+  clientPrefs?: string;
+};
 
 export class SyncEngine {
   private flushing = false;
@@ -153,6 +161,13 @@ export class SyncEngine {
         return this.gql.softDeletePage(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
       case "softDeleteDatabase":
         return this.gql.softDeleteDatabase(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
+      case "updateMyClientPrefs": {
+        const json = (p as { clientPrefs?: string }).clientPrefs;
+        if (typeof json !== "string" || !json) {
+          throw new Error("updateMyClientPrefs: clientPrefs 문자열 누락");
+        }
+        return this.gql.updateMyClientPrefs(json);
+      }
     }
   }
 }

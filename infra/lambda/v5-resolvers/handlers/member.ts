@@ -16,6 +16,7 @@ import {
   badRequest,
   notFound,
   forbidden,
+  ResolverError,
   type Member,
   type WorkspaceRole,
 } from "./_auth";
@@ -317,6 +318,98 @@ export async function updateMember(args: {
   }
 
   return updated;
+}
+
+/** v1 클라이언트 prefs — 즐겨찾기 동기화. */
+export type ClientPrefsPayloadV1 = {
+  v: 1;
+  favoritePageIds: string[];
+  favoritePageIdsUpdatedAt: number;
+};
+
+const MAX_SYNCED_FAVORITES = 500;
+const MAX_PAGE_ID_CHARS = 128;
+
+function parseClientPrefsStored(raw: unknown): ClientPrefsPayloadV1 | null {
+  if (raw == null || raw === "") return null;
+  const str = typeof raw === "string" ? raw : JSON.stringify(raw);
+  try {
+    const o = JSON.parse(str) as Record<string, unknown>;
+    if (Number(o.v) !== 1) return null;
+    if (!Array.isArray(o.favoritePageIds)) return null;
+    const favoritePageIds = o.favoritePageIds.map(String);
+    const ts = Number(o.favoritePageIdsUpdatedAt);
+    if (!Number.isFinite(ts) || ts < 0) return null;
+    return {
+      v: 1,
+      favoritePageIds,
+      favoritePageIdsUpdatedAt: ts,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 호출자 본인(clientPrefs 저장)만 허용. Manager 권한 불필요.
+ * LWW: favoritePageIdsUpdatedAt 이 기존보다 작으면 업데이트하지 않음.
+ */
+export async function updateMyClientPrefs(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  input: { clientPrefs: string };
+}): Promise<Member> {
+  const target = await getMemberById(args.doc, args.tables, args.caller.memberId);
+  if (!target) notFound("Member 없음");
+  if (target.status !== "active") badRequest("비활성 멤버");
+
+  let incoming: ClientPrefsPayloadV1;
+  try {
+    const o = JSON.parse(args.input.clientPrefs) as Record<string, unknown>;
+    if (Number(o.v) !== 1) badRequest("지원하지 않는 clientPrefs 버전");
+    if (!Array.isArray(o.favoritePageIds)) {
+      badRequest("favoritePageIds 가 배열이 아닙니다");
+    }
+    const favoritePageIds = o.favoritePageIds.map(String);
+    if (favoritePageIds.length > MAX_SYNCED_FAVORITES) badRequest("즐겨찾기 최대 개수 초과");
+    for (const id of favoritePageIds) {
+      if (id.length > MAX_PAGE_ID_CHARS) badRequest("페이지 ID 길이 초과");
+    }
+    const favoritePageIdsUpdatedAt = Number(o.favoritePageIdsUpdatedAt);
+    if (!Number.isFinite(favoritePageIdsUpdatedAt) || favoritePageIdsUpdatedAt < 0) {
+      badRequest("favoritePageIdsUpdatedAt 가 유효하지 않습니다");
+    }
+    incoming = {
+      v: 1,
+      favoritePageIds,
+      favoritePageIdsUpdatedAt,
+    };
+  } catch (e) {
+    if (e instanceof ResolverError) throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    badRequest(`clientPrefs 파싱 실패 — ${msg}`);
+  }
+
+  const existing = parseClientPrefsStored(target.clientPrefs ?? null);
+  if (
+    existing &&
+    incoming.favoritePageIdsUpdatedAt < existing.favoritePageIdsUpdatedAt
+  ) {
+    return target;
+  }
+
+  const toSave = JSON.stringify(incoming satisfies ClientPrefsPayloadV1);
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Members,
+      Key: { memberId: args.caller.memberId },
+      UpdateExpression: "SET clientPrefs = :cp",
+      ExpressionAttributeValues: { ":cp": toSave },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return r.Attributes as Member;
 }
 
 // ─── promoteToManager ─────────────────────────────────────────────────────────

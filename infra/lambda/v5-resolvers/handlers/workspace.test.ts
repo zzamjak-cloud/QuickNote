@@ -90,12 +90,17 @@ describe("workspace handlers", () => {
   });
 
   it("getWorkspace: 접근 없으면 null", async () => {
+    const memberCaller: Member = {
+      ...caller,
+      memberId: "stranger",
+      workspaceRole: "member",
+    };
     const doc = mockDoc(
       { Item: { workspaceId: "w1", name: "W", type: "shared", ownerMemberId: "o", createdAt: "now" } },
       { Items: [] },
       { Items: [] },
     );
-    const ws = await getWorkspace({ doc, tables, caller, workspaceId: "w1" });
+    const ws = await getWorkspace({ doc, tables, caller: memberCaller, workspaceId: "w1" });
     expect(ws).toBeNull();
   });
 

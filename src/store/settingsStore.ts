@@ -1,6 +1,25 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+
 import { zustandStorage } from "../lib/storage/index";
+import { scheduleEnqueueClientPrefs } from "../lib/sync/clientPrefsSync";
+
+/** 즐겨찾기 디버그 — 콘솔 필터가 Info 를 숨겨도 보이도록 warn 사용 */
+const QN_PREFS_LOG = "[QN clientPrefs]";
+
+function traceClientPrefsAction(
+  kind: "toggleFavoritePage" | "reorderFavorites" | "removeFavoritePage",
+  detail: Record<string, unknown>,
+): void {
+  console.warn(`${QN_PREFS_LOG} settingsStore.${kind}`, detail);
+  if (typeof window !== "undefined") {
+    (window as Window & { __QN_CLIENT_PREFS__?: unknown }).__QN_CLIENT_PREFS__ = {
+      kind,
+      ...detail,
+      at: Date.now(),
+    };
+  }
+}
 
 export type Tab = { pageId: string | null; back?: string[] };
 
@@ -12,6 +31,8 @@ type SettingsState = {
   sidebarCollapsed: boolean;
   /** 개인 즐겨찾기 페이지 id 순서 */
   favoritePageIds: string[];
+  /** 즐겨찾기 LWW 타임스탬프(epoch ms). 서버 clientPrefs 도 동일 필드명. */
+  favoritePageIdsUpdatedAt: number;
   expandedIds: string[];
   // 페이지 탭. activeTabIndex 위치의 탭 pageId가 곧 활성 페이지.
   tabs: Tab[];
@@ -54,6 +75,7 @@ export const useSettingsStore = create<SettingsStore>()(
       sidebarWidth: 260,
       sidebarCollapsed: false,
       favoritePageIds: [],
+      favoritePageIdsUpdatedAt: 0,
       expandedIds: [],
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
@@ -63,24 +85,44 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleSidebarCollapsed: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
-      toggleFavoritePage: (pageId) =>
-        set((s) => ({
-          favoritePageIds: s.favoritePageIds.includes(pageId)
+      toggleFavoritePage: (pageId) => {
+        traceClientPrefsAction("toggleFavoritePage", { pageId });
+        set((s) => {
+          const favoritePageIds = s.favoritePageIds.includes(pageId)
             ? s.favoritePageIds.filter((id) => id !== pageId)
-            : [...s.favoritePageIds, pageId],
-        })),
-      reorderFavorites: (orderedIds) =>
-        set(() => ({ favoritePageIds: [...orderedIds] })),
-      removeFavoritePage: (pageId) =>
-        set((s) => ({
-          favoritePageIds: s.favoritePageIds.filter((id) => id !== pageId),
-        })),
+            : [...s.favoritePageIds, pageId];
+          const favoritePageIdsUpdatedAt = Date.now();
+          queueMicrotask(() => scheduleEnqueueClientPrefs());
+          return { favoritePageIds, favoritePageIdsUpdatedAt };
+        });
+      },
+      reorderFavorites: (orderedIds) => {
+        traceClientPrefsAction("reorderFavorites", { count: orderedIds.length });
+        set(() => {
+          const favoritePageIds = [...orderedIds];
+          const favoritePageIdsUpdatedAt = Date.now();
+          queueMicrotask(() => scheduleEnqueueClientPrefs());
+          return { favoritePageIds, favoritePageIdsUpdatedAt };
+        });
+      },
+      removeFavoritePage: (pageId) => {
+        traceClientPrefsAction("removeFavoritePage", { pageId });
+        set((s) => {
+          const favoritePageIds = s.favoritePageIds.filter((id) => id !== pageId);
+          if (favoritePageIds.length === s.favoritePageIds.length) return s;
+          const favoritePageIdsUpdatedAt = Date.now();
+          queueMicrotask(() => scheduleEnqueueClientPrefs());
+          return { favoritePageIds, favoritePageIdsUpdatedAt };
+        });
+      },
       removeFavoritesForPages: (pageIds) =>
         set((s) => {
           const rm = new Set(pageIds);
           const next = s.favoritePageIds.filter((id) => !rm.has(id));
           if (next.length === s.favoritePageIds.length) return s;
-          return { favoritePageIds: next };
+          const favoritePageIdsUpdatedAt = Date.now();
+          queueMicrotask(() => scheduleEnqueueClientPrefs());
+          return { favoritePageIds: next, favoritePageIdsUpdatedAt };
         }),
       toggleExpanded: (id) =>
         set((s) => ({
@@ -148,17 +190,42 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: "quicknote.settings.v1",
       storage: createJSONStorage(() => zustandStorage),
-      version: 2,
+      version: 4,
       migrate: (persisted: unknown, fromVersion: number) => {
-        const p = persisted as Record<string, unknown>;
+        let p = persisted as Record<string, unknown>;
         if (fromVersion < 2) {
-          return {
+          p = {
             ...p,
             sidebarCollapsed: false,
             favoritePageIds: [],
+            favoritePageIdsUpdatedAt: 0,
           };
         }
-        return persisted;
+        if (fromVersion < 3) {
+          const ids = Array.isArray(p.favoritePageIds)
+            ? (p.favoritePageIds as string[])
+            : [];
+          const prevTs = Number(p.favoritePageIdsUpdatedAt);
+          const favoritePageIdsUpdatedAt =
+            Number.isFinite(prevTs) && prevTs > 0
+              ? prevTs
+              : ids.length > 0
+                ? Date.now()
+                : 0;
+          p = { ...p, favoritePageIdsUpdatedAt };
+        }
+        // v3 마이그레이션으로 즐겨찾기는 있는데 타임스탬프만 0인 경우 서버 prefs 가 로컬을 덮어쓰는 문제 복구
+        if (fromVersion < 4) {
+          const ids = Array.isArray(p.favoritePageIds)
+            ? (p.favoritePageIds as string[])
+            : [];
+          let ts = Number(p.favoritePageIdsUpdatedAt);
+          if (ids.length > 0 && (!Number.isFinite(ts) || ts <= 0)) {
+            ts = Date.now();
+          }
+          p = { ...p, favoritePageIdsUpdatedAt: ts };
+        }
+        return p;
       },
     },
   ),

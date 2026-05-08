@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   createMember, listMembers, getMember, buildCreateMemberTxItems,
-  updateMember, promoteToManager, demoteToMember,
+  updateMember, updateMyClientPrefs, promoteToManager, demoteToMember,
   transferOwnership, removeMember, buildRemoveMemberPlan,
   assignMemberToTeam, unassignMemberFromTeam,
 } from "./member";
@@ -178,6 +178,54 @@ describe("updateMember", () => {
     });
     // GetItem + Query(teams) + BatchWrite = 3 calls (no name/jobRole update)
     expect(doc.send).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("updateMyClientPrefs", () => {
+  const selfCaller: Member = { ...memberCaller, memberId: "self-m" };
+
+  it("본인 clientPrefs 저장", async () => {
+    const row = { ...selfCaller, memberId: "self-m", clientPrefs: null };
+    const nextJson = JSON.stringify({
+      v: 1,
+      favoritePageIds: ["p1"],
+      favoritePageIdsUpdatedAt: 100,
+    });
+    const doc = mockDoc(
+      { Item: row },
+      { Attributes: { ...row, clientPrefs: nextJson } },
+    );
+    const result = await updateMyClientPrefs({
+      doc,
+      tables,
+      caller: selfCaller,
+      input: { clientPrefs: nextJson },
+    });
+    expect(result.clientPrefs).toBe(nextJson);
+    expect(doc.send).toHaveBeenCalledTimes(2);
+  });
+
+  it("서버에 더 새 prefs 가 있으면 덮어쓰지 않음", async () => {
+    const existingJson = JSON.stringify({
+      v: 1,
+      favoritePageIds: ["keep"],
+      favoritePageIdsUpdatedAt: 999,
+    });
+    const row = { ...selfCaller, memberId: "self-m", clientPrefs: existingJson };
+    const doc = mockDoc({ Item: row });
+    const staleIncoming = JSON.stringify({
+      v: 1,
+      favoritePageIds: ["new"],
+      favoritePageIdsUpdatedAt: 1,
+    });
+    const result = await updateMyClientPrefs({
+      doc,
+      tables,
+      caller: selfCaller,
+      input: { clientPrefs: staleIncoming },
+    });
+    expect(result.clientPrefs).toBe(existingJson);
+    expect(doc.send).toHaveBeenCalledTimes(1);
   });
 });
 

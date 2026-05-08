@@ -29,6 +29,8 @@ type Member {
   thumbnailUrl: String
   personalWorkspaceId: ID!
   cognitoSub: String
+  """클라이언트별 동기화 JSON(예: 즐겨찾기). 멤버 본인만 갱신."""
+  clientPrefs: AWSJSON
   teams: [Team!]!
   createdAt: AWSDateTime!
   removedAt: AWSDateTime
@@ -190,6 +192,10 @@ input UpdateWorkspaceInput {
   options: WorkspaceOptionsInput
 }
 
+input UpdateMyClientPrefsInput {
+  clientPrefs: AWSJSON!
+}
+
 input MemberFilter {
   status: MemberStatus
   teamId: ID
@@ -226,6 +232,8 @@ type Mutation {
   removeMember(memberId: ID!): Member!
   assignMemberToTeam(memberId: ID!, teamId: ID!): Boolean!
   unassignMemberFromTeam(memberId: ID!, teamId: ID!): Boolean!
+  """로그인한 멤버 본인의 clientPrefs 저장(LWW 타임스탬프 포함 JSON). MEMBER 역할 허용."""
+  updateMyClientPrefs(input: UpdateMyClientPrefsInput!): Member!
 
   createTeam(name: String!): Team!
   updateTeam(teamId: ID!, name: String!): Team!

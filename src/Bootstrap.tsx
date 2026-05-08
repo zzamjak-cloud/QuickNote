@@ -16,8 +16,12 @@ import { applyWorkspaceSwitch } from "./lib/sync/workspaceSwitch";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
-import { listMembersApi, meApi } from "./lib/sync/memberApi";
+import { listMembersApi, fetchMeWithClientPrefs } from "./lib/sync/memberApi";
 import { listMyWorkspacesApi } from "./lib/sync/workspaceApi";
+import {
+  applyRemoteClientPrefs,
+  flushClientPrefsToServerNow,
+} from "./lib/sync/clientPrefsSync";
 import { listTeamsApi } from "./lib/sync/teamApi";
 import { useTeamStore } from "./store/teamStore";
 
@@ -51,8 +55,31 @@ function useSyncBootstrap() {
     let cancelled = false;
     (async () => {
       try {
-        const [me, workspaces] = await Promise.all([meApi(), listMyWorkspacesApi()]);
+        const [{ member: me, clientPrefs }, workspaces] = await Promise.all([
+          fetchMeWithClientPrefs(),
+          listMyWorkspacesApi(),
+        ]);
         if (cancelled) return;
+        console.info("[QN clientPrefs] bootstrap: me + workspaces fetch 완료, applyRemote 직전", {
+          memberIdShort:
+            me.memberId.length > 10 ? `…${me.memberId.slice(-8)}` : me.memberId,
+          clientPrefsKind:
+            clientPrefs === null || clientPrefs === undefined
+              ? String(clientPrefs)
+              : typeof clientPrefs,
+          clientPrefsSample:
+            typeof clientPrefs === "string"
+              ? (clientPrefs.length > 120 ? `${clientPrefs.slice(0, 120)}…` : clientPrefs)
+              : (() => {
+                  try {
+                    const s = JSON.stringify(clientPrefs);
+                    return s.length > 120 ? `${s.slice(0, 120)}…` : s;
+                  } catch {
+                    return "[stringify 실패]";
+                  }
+                })(),
+        });
+        applyRemoteClientPrefs(clientPrefs);
         setMe(me);
         // WorkspaceSummary[]로 캐스트 (options는 스토어 밖에서만 사용)
         setWorkspaces(workspaces as Parameters<typeof setWorkspaces>[0]);
@@ -65,6 +92,9 @@ function useSyncBootstrap() {
         if (currentWs?.options) {
           useWorkspaceOptionsStore.getState().setOptions(currentWs.options);
         }
+
+        // memberId 확정 직후 즐겨찾기를 서버로 올리고 flush(워크스페이스 부트와 무관)
+        await flushClientPrefsToServerNow();
 
         const isAdmin = me.workspaceRole === "owner" || me.workspaceRole === "manager";
         if (!isAdmin) {
@@ -138,6 +168,27 @@ function useSyncBootstrap() {
     };
   }, [authStatus, authSub, currentWorkspaceId]);
 
+  // 탭 복귀 시 즐겨찾기(clientPrefs)만 가볍게 재동기화.
+  useEffect(() => {
+    if (authStatus !== "authenticated" || !authSub) return;
+    const pullPrefs = () => {
+      void (async () => {
+        try {
+          const { clientPrefs } = await fetchMeWithClientPrefs();
+          console.info("[QN clientPrefs] visibility 복귀: me 재조회 → applyRemote");
+          applyRemoteClientPrefs(clientPrefs);
+        } catch (e) {
+          console.info("[QN clientPrefs] visibility pullPrefs 실패(재시도 가능)", e);
+        }
+      })();
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") pullPrefs();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [authStatus, authSub]);
+
   // 온라인 복귀 시 원격 데이터 재페치 + outbox flush.
   // 오프라인 동안 다른 클라이언트가 만든 변경을 즉시 반영하고
   // 로컬에서 쌓인 pending mutations 를 전송함.
@@ -146,6 +197,13 @@ function useSyncBootstrap() {
     const wsId = currentWorkspaceId;
     const onOnline = () => {
       void (async () => {
+        try {
+          const { clientPrefs } = await fetchMeWithClientPrefs();
+          console.info("[QN clientPrefs] online 복귀: me 재조회 → applyRemote");
+          applyRemoteClientPrefs(clientPrefs);
+        } catch (e) {
+          console.info("[QN clientPrefs] online pullPrefs 실패", e);
+        }
         try {
           const [pages, dbs] = await Promise.all([
             fetchPagesByWorkspace(wsId),

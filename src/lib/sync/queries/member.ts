@@ -1,5 +1,5 @@
 const MEMBER_FIELDS = `
-  memberId email name jobRole jobTitle phone avatarUrl thumbnailUrl workspaceRole status personalWorkspaceId cognitoSub createdAt removedAt
+  memberId email name jobRole jobTitle phone avatarUrl thumbnailUrl workspaceRole status personalWorkspaceId cognitoSub createdAt removedAt clientPrefs
 `;
 
 export const ME = `
@@ -63,6 +63,12 @@ export const SEARCH_MEMBERS_FOR_MENTION = `
       name
       jobRole
     }
+  }
+`;
+
+export const UPDATE_MY_CLIENT_PREFS = `
+  mutation UpdateMyClientPrefs($input: UpdateMyClientPrefsInput!) {
+    updateMyClientPrefs(input: $input) { ${MEMBER_FIELDS} }
   }
 `;
 

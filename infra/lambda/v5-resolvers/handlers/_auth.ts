@@ -12,6 +12,8 @@ export type Member = {
   status: "active" | "removed";
   personalWorkspaceId: string;
   cognitoSub: string | null;
+  /** Member 테이블 JSON 문자열(클라이언트 즐겨찾기 등). */
+  clientPrefs?: string | null;
   createdAt: string;
   removedAt?: string | null;
 };

@@ -367,6 +367,10 @@ export function response(ctx) {
       typeName: "Query", fieldName: "getMember",
     });
     v5Ds.createResolver("UpdateMemberMutation", { typeName: "Mutation", fieldName: "updateMember" });
+    v5Ds.createResolver("UpdateMyClientPrefsMutation", {
+      typeName: "Mutation",
+      fieldName: "updateMyClientPrefs",
+    });
     v5Ds.createResolver("PromoteToManagerMutation", { typeName: "Mutation", fieldName: "promoteToManager" });
     v5Ds.createResolver("DemoteToMemberMutation", { typeName: "Mutation", fieldName: "demoteToMember" });
     v5Ds.createResolver("TransferOwnershipMutation", { typeName: "Mutation", fieldName: "transferOwnership" });
