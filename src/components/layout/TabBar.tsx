@@ -14,7 +14,9 @@ export function TabBar() {
   const nextTab = useSettingsStore((s) => s.nextTab);
   const pages = usePageStore((s) => s.pages);
   const toggleFavoritesPanel = useUiStore((s) => s.toggleFavoritesPanel);
-  const favoritesPanelOpen = useUiStore((s) => s.favoritesPanelOpen);
+  const favoritesPanelOpen = useUiStore(
+    (s) => s.rightPanelOpen && s.rightPanelTab === "favorites",
+  );
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50 px-1 dark:border-zinc-800 dark:bg-zinc-900">

@@ -18,11 +18,13 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { usePageStore } from "../../store/pageStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { useUiStore } from "../../store/uiStore";
+import { NotificationBell } from "../notifications/NotificationBell";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageMoveDialog } from "./PageMoveDialog";
 
 export function TopBar() {
+  const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const fullWidth = useSettingsStore((s) => s.fullWidth);
   const toggleFullWidth = useSettingsStore((s) => s.toggleFullWidth);
   const navigateToParentPage = usePageStore((s) => s.navigateToParentPage);
@@ -195,6 +197,11 @@ export function TopBar() {
           ))
         )}
       </div>
+      {!sidebarCollapsed ? (
+        <div className="flex shrink-0 items-center lg:hidden">
+          <NotificationBell />
+        </div>
+      ) : null}
       <div className="flex items-center gap-1">
         {activeId && (
           <>

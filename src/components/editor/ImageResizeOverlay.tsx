@@ -9,6 +9,27 @@ import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
 
 const MIN_PX = 48;
+/** selectionUpdate 마다 소수 픽셀만 달라도 리렌더 → 화면 깜빡임 방지 */
+const BOX_EPS = 0.75;
+
+function boxOverlayEqual(
+  a: {
+    pos: number;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  },
+  b: typeof a,
+): boolean {
+  return (
+    a.pos === b.pos &&
+    Math.abs(a.left - b.left) < BOX_EPS &&
+    Math.abs(a.top - b.top) < BOX_EPS &&
+    Math.abs(a.width - b.width) < BOX_EPS &&
+    Math.abs(a.height - b.height) < BOX_EPS
+  );
+}
 
 type HandleId =
   | "nw"
@@ -61,7 +82,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
     if (!editor || editor.isDestroyed || skipSyncRef.current) return;
     const sel = editor.state.selection;
     if (!(sel instanceof NodeSelection)) {
-      setBox(null);
+      setBox((prev) => (prev === null ? prev : null));
       return;
     }
     const nodeName = sel.node.type.name;
@@ -70,26 +91,27 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       typeof sel.node.attrs.mime === "string" &&
       (sel.node.attrs.mime as string).startsWith("video/");
     if (nodeName !== "image" && !isVideoFileBlock) {
-      setBox(null);
+      setBox((prev) => (prev === null ? prev : null));
       return;
     }
     const dom = editor.view.nodeDOM(sel.from);
     const el = dom instanceof HTMLElement ? dom : null;
     if (!el) {
-      setBox(null);
+      setBox((prev) => (prev === null ? prev : null));
       return;
     }
     // outer wrapper 가 block 이면 row 전체를 차지하므로 실제 미디어 element 의 rect 를 사용.
     const mediaEl = el.querySelector("img,video") as HTMLElement | null;
     const target: HTMLElement = mediaEl ?? el;
     const r = target.getBoundingClientRect();
-    setBox({
+    const next = {
       pos: sel.from,
       left: r.left,
       top: r.top,
       width: r.width,
       height: r.height,
-    });
+    };
+    setBox((prev) => (prev && boxOverlayEqual(prev, next) ? prev : next));
   }, [editor]);
 
   useEffect(() => {

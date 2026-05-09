@@ -9,10 +9,11 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import { useFileUrl } from "../files/hooks";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { File, FileArchive, FileText, Film, Music } from "lucide-react";
 
 type FileAttrs = {
+  id?: string | null;
   src?: string | null;
   name?: string | null;
   size?: number | null;
@@ -44,7 +45,31 @@ function renderIcon(mime: string | null | undefined, size: number, className?: s
   return <File {...props} />;
 }
 
-function FileView(props: NodeViewProps) {
+function fileAttrsChanged(a: FileAttrs, b: FileAttrs): boolean {
+  return (
+    a.id !== b.id ||
+    a.src !== b.src ||
+    a.name !== b.name ||
+    a.size !== b.size ||
+    a.mime !== b.mime ||
+    a.mimeType !== b.mimeType ||
+    a.contentType !== b.contentType ||
+    a.width !== b.width ||
+    a.height !== b.height ||
+    a.uploading !== b.uploading ||
+    a.uploadId !== b.uploadId ||
+    a.uploadError !== b.uploadError
+  );
+}
+
+function areFileNodeViewsEqual(prev: NodeViewProps, next: NodeViewProps): boolean {
+  return !fileAttrsChanged(
+    prev.node.attrs as FileAttrs,
+    next.node.attrs as FileAttrs,
+  );
+}
+
+const FileView = memo(function FileView(props: NodeViewProps) {
   const attrs = props.node.attrs as FileAttrs;
   const { url, error } = useFileUrl(attrs.src ?? null);
   const [zoom, setZoom] = useState(false);
@@ -188,7 +213,7 @@ function FileView(props: NodeViewProps) {
       </a>
     </NodeViewWrapper>
   );
-}
+}, areFileNodeViewsEqual);
 
 export const FileBlock = Node.create({
   name: "fileBlock",
@@ -278,6 +303,12 @@ export const FileBlock = Node.create({
           (el as HTMLElement).getAttribute("data-upload-error") === "true",
         renderHTML: (attrs) =>
           attrs.uploadError ? { "data-upload-error": "true" } : {},
+      },
+      id: {
+        default: null,
+        parseHTML: (el) => (el as HTMLElement).getAttribute("data-id"),
+        renderHTML: (attrs) =>
+          attrs.id ? { "data-id": String(attrs.id) } : {},
       },
     };
   },

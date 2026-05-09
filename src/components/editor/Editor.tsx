@@ -115,8 +115,25 @@ import {
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
 import { FileBlock } from "../../lib/tiptapExtensions/fileBlock";
+import UniqueID from "@tiptap/extension-unique-id";
+import { ReplaceStep } from "@tiptap/pm/transform";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
+import {
+  registerEditorNavigation,
+  unregisterEditorNavigation,
+  scrollToBlockId,
+} from "../../lib/editor/editorNavigationBridge";
+import { useUiStore } from "../../store/uiStore";
+import { useMemberStore } from "../../store/memberStore";
+import { useBlockCommentStore } from "../../store/blockCommentStore";
+import {
+  createBlockCommentDecorations,
+  dispatchDecoRefresh,
+} from "../../lib/tiptapExtensions/blockCommentDecorations";
+import { BlockCommentThreadPanel } from "../comments/BlockCommentThreadPanel";
+import { MentionSearchModal } from "./MentionSearchModal";
+import type { EditorView as PmEditorView } from "@tiptap/pm/view";
 
 /** 풀 페이지 DB — 페이지 제목 입력 시 blur 에서만 DB 메타 제목 갱신(중복 검사) */
 function trySyncFullPageDatabaseTitle(
@@ -172,6 +189,35 @@ type EditorProps = {
   bodyOnly?: boolean;
 };
 
+/** youtube·image·fileBlock 등 임베드/미디어는 제외 — UniqueID 갱신 시 iframe·video·img가 다시 로드되는 현상 방지. image/fileBlock은 스키마에 `id` attr을 직접 등록(댓글 앵커). */
+const UNIQUE_ID_TYPES = [
+  "paragraph",
+  "heading",
+  "blockquote",
+  "bulletList",
+  "orderedList",
+  "listItem",
+  "taskList",
+  "taskItem",
+  "codeBlock",
+  "horizontalRule",
+  "databaseBlock",
+  "callout",
+  "columnLayout",
+  "column",
+  "tabBlock",
+  "tabPanel",
+  "toggle",
+  "toggleHeader",
+  "toggleContent",
+  "table",
+  "tableRow",
+  "tableHeader",
+  "tableCell",
+  "buttonBlock",
+  "pageLink",
+];
+
 export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const activeId = usePageStore((s) => s.activePageId);
   const effectivePageId = pageId ?? activeId;
@@ -187,6 +233,20 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
   const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
 
+  const me = useMemberStore((s) => s.me);
+
+  const pageDoc = page?.doc;
+  const isFullPageDatabase = useMemo(() => {
+    if (!pageDoc) return false;
+    const c = pageDoc.content;
+    if (!c?.length) return false;
+    const first = c[0];
+    return (
+      first?.type === "databaseBlock" &&
+      first.attrs?.layout === "fullPage"
+    );
+  }, [pageDoc]);
+
   const titleRef = useRef<HTMLInputElement | null>(null);
   /** 풀 페이지 DB 제목 중복 시 입력 되돌리기용 — 마지막으로 저장에 성공한 제목 */
   const dbTitleBaselineRef = useRef("");
@@ -198,10 +258,37 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const columnDropRef = useRef<ColumnDropState>(null);
 
   const [simpleAlert, setSimpleAlert] = useState<string | null>(null);
+  /** @ 키로 멘션 검색 모달 — 인라인 제안과 분리 */
+  const [mentionRange, setMentionRange] = useState<{
+    from: number;
+    to: number;
+  } | null>(null);
 
   const clearColumnDropUi = useCallback(() => {
     document.body.classList.remove("quicknote-column-drop");
   }, []);
+
+  const handleAtOpenMention = useCallback(
+    (view: PmEditorView, event: KeyboardEvent) => {
+      if (
+        event.key !== "@" ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return false;
+      }
+      const { $from } = view.state.selection;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name === "codeBlock") return false;
+      }
+      event.preventDefault();
+      const { from, to } = view.state.selection;
+      setMentionRange({ from, to });
+      return true;
+    },
+    [setMentionRange],
+  );
 
   const handleEditorInsertImage = useCallback(
     (file: File, insert: Parameters<typeof insertImageFromFile>[1]) =>
@@ -302,6 +389,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       ToggleHeader,
       ToggleContent,
       MemberMention,
+      createBlockCommentDecorations(effectivePageId ?? undefined, me?.memberId),
       EmojiShortcode,
       DatabaseBlock,
       PageLink,
@@ -349,8 +437,26 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
           };
         },
       }),
+      UniqueID.configure({
+        types: UNIQUE_ID_TYPES,
+        updateDocument: !isFullPageDatabase,
+        /** 짧은 텍스트 입력마다 appendTransaction 생략 → youtube·임베드 불필요 갱신 방지 */
+        filterTransaction: (tr) => {
+          if (!tr.docChanged) return true;
+          if (tr.getMeta("__uniqueIDTransaction")) return true;
+          if (tr.getMeta("paste")) return true;
+          const onlyReplace = tr.steps.every((s) => s instanceof ReplaceStep);
+          if (!onlyReplace) return true;
+          let inserted = 0;
+          for (const s of tr.steps) {
+            if (s instanceof ReplaceStep && s.slice) inserted += s.slice.size;
+          }
+          if (inserted > 160) return true;
+          return false;
+        },
+      }),
     ],
-    [lowlightApi],
+    [lowlightApi, isFullPageDatabase, effectivePageId, me?.memberId],
   );
 
   const editorProps = useMemo(
@@ -397,23 +503,13 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         clearColumnDropUi,
         insertImageFromFile: handleEditorInsertImage,
       }),
+      handleKeyDown(view: PmEditorView, event: KeyboardEvent) {
+        if (handleAtOpenMention(view, event)) return true;
+        return false;
+      },
     }),
-    [clearColumnDropUi, handleEditorInsertImage],
+    [clearColumnDropUi, handleEditorInsertImage, handleAtOpenMention],
   );
-
-  // 풀 페이지 데이터베이스 — 첫 블록이 fullPage databaseBlock 이면 해당 페이지는 본문 에디터로 쓰지 않음(인라인 DB 와 구분).
-  // 예전에는 doc 가 단일 블록일 때만 잡아서, 빈 문단 하나만 생겨도 편집이 다시 켜지는 문제가 있었음.
-  const pageDoc = page?.doc;
-  const isFullPageDatabase = useMemo(() => {
-    if (!pageDoc) return false;
-    const c = pageDoc.content;
-    if (!c?.length) return false;
-    const first = c[0];
-    return (
-      first?.type === "databaseBlock" &&
-      first.attrs?.layout === "fullPage"
-    );
-  }, [pageDoc]);
 
   // content 로 store 의 page.doc 를 넘기면 자동저장마다 참조가 바뀌어 setOptions 가 무한 호출됨.
   // 초기값은 고정 EMPTY 만 넘기고, 실제 문서는 아래 effect 에서만 주입한다.
@@ -425,8 +521,38 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       shouldRerenderOnTransaction: false,
       editable: !isFullPageDatabase,
     },
-    [lowlightApi],
+    [lowlightApi, isFullPageDatabase],
   );
+
+  const commentThread = useUiStore((s) => s.commentThread);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    registerEditorNavigation(editor);
+    return () => unregisterEditorNavigation(editor);
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !commentThread) return;
+    if (commentThread.pageId !== effectivePageId) return;
+    if (commentThread.skipScroll) return;
+    const t = window.setTimeout(() => {
+      scrollToBlockId(commentThread.blockId);
+    }, 60);
+    return () => window.clearTimeout(t);
+  }, [commentThread, editor, effectivePageId]);
+
+  /** 댓글·내 멤버 정보 변경 시 블록 decoration 다시 그림 */
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const go = () => dispatchDecoRefresh(editor);
+    const unsub1 = useBlockCommentStore.subscribe(go);
+    const unsub2 = useMemberStore.subscribe(go);
+    return () => {
+      unsub1();
+      unsub2();
+    };
+  }, [editor]);
 
   /** 스토어 본문이 에디터에 반영되기 전 자동저장으로 빈 doc 이 덮어쓰이지 않도록 함 */
   const storeDocHydratedRef = useRef(false);
@@ -743,6 +869,13 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         message={simpleAlert ?? ""}
         onClose={() => setSimpleAlert(null)}
       />
+      <MentionSearchModal
+        open={mentionRange !== null}
+        onClose={() => setMentionRange(null)}
+        editor={editor}
+        range={mentionRange}
+      />
+      <BlockCommentThreadPanel editor={editor} />
     </div>
   );
 }

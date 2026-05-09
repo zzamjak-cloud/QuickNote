@@ -11,10 +11,20 @@ export type UseFileUrlResult = {
   error: string | null;
 };
 
+/** 첫 페인트부터 TTL 캐시 URL 반영 — 에디터 입력 시 노드뷰 재마운트해도 동영상 깜빡임 최소화 */
+function initialFileUrl(srcOrRef: string | null | undefined): string | null {
+  if (!srcOrRef) return null;
+  const id = decodeFileRef(srcOrRef) ?? decodeImageRef(srcOrRef);
+  if (!id) return srcOrRef;
+  return imageUrlCache.peek(id) ?? null;
+}
+
 export function useFileUrl(
   srcOrRef: string | null | undefined,
 ): UseFileUrlResult {
-  const [url, setUrl] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(() =>
+    initialFileUrl(srcOrRef),
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,10 +43,16 @@ export function useFileUrl(
       setError(null);
       return;
     }
-    setUrl(null);
     setError(null);
-    // backend 가 image* mutation 으로 통합 처리하므로 같은 캐시·downloadUrl 흐름 재사용.
-    imageUrlCache.get(id).then(
+    const cached = imageUrlCache.peek(id);
+    if (cached) {
+      setUrl(cached);
+      return () => {
+        canceled = true;
+      };
+    }
+    setUrl(null);
+    void imageUrlCache.get(id).then(
       (u) => {
         if (!canceled) setUrl(u);
       },

@@ -15,25 +15,45 @@ export type ToastMessage = {
   kind: ToastKind;
 };
 
+/** 우측 패널(목차 / 즐겨찾기) 탭 */
+export type RightPanelTab = "toc" | "favorites";
+
+/** 블록 댓글 스레드 패널(전역 — 알림 클릭에서도 동일하게 연다) */
+export type CommentThreadPayload = {
+  pageId: string;
+  blockId: string;
+  blockStart: number;
+  /** "+" 버튼 클릭 시 화면 좌표 — 있으면 패널을 버튼 옆에 붙인다 */
+  anchorViewport?: { top: number; left: number; right: number; bottom: number };
+  /** true면 블록으로 스크롤·포커스 이동 생략(본문에서 이미 보일 때 깜빡임·임베드 재로드 완화) */
+  skipScroll?: boolean;
+};
+
 type UiStoreState = {
-  /** 우측 즐겨찾기 패널 열림 */
-  favoritesPanelOpen: boolean;
-  /** 사이드 피크 모달로 열어둔 페이지 id (없으면 null) */
+  /** 우측 패널(목차·즐겨찾기) 열림 */
+  rightPanelOpen: boolean;
+  rightPanelTab: RightPanelTab;
+  /** 사이드바 알림 드롭다운 */
+  notificationCenterOpen: boolean;
+  /** 블록 댓글 스레드 패널 */
+  commentThread: CommentThreadPayload | null;
   peekPageId: string | null;
-  /**
-   * 동시에 한 컬럼 헤더 메뉴만 열리도록 글로벌 단일 상태로 관리 (#1).
-   * 'add:<dbId>' 같은 비-컬럼 메뉴 키도 받을 수 있도록 string으로.
-   */
   openColumnMenuId: string | null;
-  /** 슬래시 메뉴 등 비-React 컨텍스트용 단일 입력 모달 */
   textPrompt: TextPromptRequest | null;
-  /** 행 페이지 전체화면 진입 시, 되돌아갈 원본 페이지 id를 기억 */
   rowBackTargetByPageId: Record<string, string>;
-  /** 전역 비차단 알림 */
   toasts: ToastMessage[];
 };
 
 type UiStoreActions = {
+  toggleRightPanel: (tab: RightPanelTab) => void;
+  openRightPanel: (tab: RightPanelTab) => void;
+  closeRightPanel: () => void;
+  setRightPanelTab: (tab: RightPanelTab) => void;
+  toggleNotificationCenter: () => void;
+  closeNotificationCenter: () => void;
+  openCommentThread: (payload: CommentThreadPayload) => void;
+  closeCommentThread: () => void;
+  /** 하위 호환: 즐겨찾기 패널만 토글 */
   toggleFavoritesPanel: () => void;
   openFavoritesPanel: () => void;
   closeFavoritesPanel: () => void;
@@ -57,16 +77,37 @@ function newToastId(): string {
 }
 
 export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
-  favoritesPanelOpen: false,
+  rightPanelOpen: false,
+  rightPanelTab: "favorites",
+  notificationCenterOpen: false,
+  commentThread: null,
   peekPageId: null,
   openColumnMenuId: null,
   textPrompt: null,
   rowBackTargetByPageId: {},
   toasts: [],
-  toggleFavoritesPanel: () =>
-    set((s) => ({ favoritesPanelOpen: !s.favoritesPanelOpen })),
-  openFavoritesPanel: () => set({ favoritesPanelOpen: true }),
-  closeFavoritesPanel: () => set({ favoritesPanelOpen: false }),
+
+  toggleRightPanel: (tab) =>
+    set((s) => {
+      if (!s.rightPanelOpen) return { rightPanelOpen: true, rightPanelTab: tab };
+      if (s.rightPanelTab !== tab) return { rightPanelTab: tab };
+      return { rightPanelOpen: false };
+    }),
+  openRightPanel: (tab) => set({ rightPanelOpen: true, rightPanelTab: tab }),
+  closeRightPanel: () => set({ rightPanelOpen: false }),
+  setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
+
+  toggleNotificationCenter: () =>
+    set((s) => ({ notificationCenterOpen: !s.notificationCenterOpen })),
+  closeNotificationCenter: () => set({ notificationCenterOpen: false }),
+
+  openCommentThread: (payload) => set({ commentThread: payload }),
+  closeCommentThread: () => set({ commentThread: null }),
+
+  toggleFavoritesPanel: () => get().toggleRightPanel("favorites"),
+  openFavoritesPanel: () => get().openRightPanel("favorites"),
+  closeFavoritesPanel: () => get().closeRightPanel(),
+
   openPeek: (pageId) => set({ peekPageId: pageId }),
   closePeek: () => set({ peekPageId: null }),
   setOpenColumnMenu: (id) => set({ openColumnMenuId: id }),

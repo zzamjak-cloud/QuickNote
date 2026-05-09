@@ -10,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  memo,
   useRef,
   useState,
 } from "react";
@@ -120,7 +121,35 @@ function getTabFloatingMenuPosition(
   };
 }
 
-function TabBlockView({ editor, getPos, node, updateAttributes }: NodeViewProps) {
+function tabPanelChromeChanged(prev: NodeViewProps, next: NodeViewProps): boolean {
+  const prevNode = prev.node;
+  const nextNode = next.node;
+  if (prevNode.attrs.placement !== nextNode.attrs.placement) return true;
+  if (prevNode.attrs.activeIndex !== nextNode.attrs.activeIndex) return true;
+  if (prevNode.childCount !== nextNode.childCount) return true;
+  for (let i = 0; i < prevNode.childCount; i++) {
+    const prevPanel = prevNode.child(i);
+    const nextPanel = nextNode.child(i);
+    if (prevPanel.attrs.id !== nextPanel.attrs.id) return true;
+    if (prevPanel.attrs.title !== nextPanel.attrs.title) return true;
+    if (prevPanel.attrs.icon !== nextPanel.attrs.icon) return true;
+  }
+  return false;
+}
+
+function areTabBlockNodeViewsEqual(
+  prev: NodeViewProps,
+  next: NodeViewProps,
+): boolean {
+  return !tabPanelChromeChanged(prev, next);
+}
+
+const TabBlockView = memo(function TabBlockView({
+  editor,
+  getPos,
+  node,
+  updateAttributes,
+}: NodeViewProps) {
   const placement = safePlacement(node.attrs.placement);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tabMenuIndex, setTabMenuIndex] = useState<number | null>(null);
@@ -232,19 +261,9 @@ function TabBlockView({ editor, getPos, node, updateAttributes }: NodeViewProps)
 
   useLayoutEffect(() => {
     applyPanelsVisibility("layout");
-  }, [applyPanelsVisibility, node.childCount]);
+    requestAnimationFrame(() => applyPanelsVisibility("layout+rAF"));
+  }, [activeIndex, applyPanelsVisibility, node.childCount]);
 
-  /** PM 이 트랜잭션 후 contentDOM 을 고친 뒤에 인라인 스타일을 다시 맞춤 */
-  useEffect(() => {
-    const afterTxn = () => {
-      applyPanelsVisibility("transaction");
-      requestAnimationFrame(() => applyPanelsVisibility("transaction+rAF"));
-    };
-    editor.on("transaction", afterTxn);
-    return () => {
-      editor.off("transaction", afterTxn);
-    };
-  }, [editor, applyPanelsVisibility]);
   const tabs = Array.from({ length: node.childCount }, (_, index) => {
     const child = node.child(index);
     return {
@@ -701,7 +720,7 @@ function TabBlockView({ editor, getPos, node, updateAttributes }: NodeViewProps)
       {placement === "bottom" && tabList}
     </NodeViewWrapper>
   );
-}
+}, areTabBlockNodeViewsEqual);
 
 export const TabPanel = Node.create({
   name: "tabPanel",

@@ -77,6 +77,12 @@ export const ImageBlock = Image.extend({
         renderHTML: (attrs) =>
           attrs.height ? { height: String(attrs.height) } : {},
       },
+      id: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-id"),
+        renderHTML: (attrs) =>
+          attrs.id ? { "data-id": String(attrs.id) } : {},
+      },
     };
   },
 

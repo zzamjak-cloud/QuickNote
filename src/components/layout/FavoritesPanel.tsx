@@ -6,11 +6,12 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { FavoritesList } from "./FavoritesList";
 
 export function FavoritesPanel() {
-  const open = useUiStore((s) => s.favoritesPanelOpen);
-  const closeFavoritesPanel = useUiStore((s) => s.closeFavoritesPanel);
+  const open = useUiStore((s) => s.rightPanelOpen);
+  const tab = useUiStore((s) => s.rightPanelTab);
+  const closePanel = useUiStore((s) => s.closeRightPanel);
   const favoriteCount = useSettingsStore((s) => s.favoritePageIds.length);
 
-  if (!open) return null;
+  if (!open || tab !== "favorites") return null;
 
   return (
     <>
@@ -18,7 +19,7 @@ export function FavoritesPanel() {
         type="button"
         className="fixed inset-0 z-[360] cursor-default bg-black/20 dark:bg-black/40"
         aria-label="즐겨찾기 패널 닫기"
-        onClick={closeFavoritesPanel}
+        onClick={closePanel}
       />
       <aside
         className="fixed right-0 top-0 z-[370] flex h-full w-80 max-w-[90vw] flex-col border-l border-zinc-200 bg-zinc-50 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
@@ -35,7 +36,7 @@ export function FavoritesPanel() {
           </h2>
           <button
             type="button"
-            onClick={closeFavoritesPanel}
+            onClick={closePanel}
             className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             aria-label="닫기"
           >

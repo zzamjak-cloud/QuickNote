@@ -9,10 +9,19 @@ export type UseImageUrlResult = {
   error: string | null;
 };
 
+function initialImageUrl(srcOrRef: string | null | undefined): string | null {
+  if (!srcOrRef) return null;
+  const id = decodeImageRef(srcOrRef);
+  if (!id) return srcOrRef;
+  return imageUrlCache.peek(id) ?? null;
+}
+
 export function useImageUrl(
   srcOrRef: string | null | undefined,
 ): UseImageUrlResult {
-  const [url, setUrl] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(() =>
+    initialImageUrl(srcOrRef),
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,9 +38,16 @@ export function useImageUrl(
       setError(null);
       return;
     }
-    setUrl(null);
     setError(null);
-    imageUrlCache.get(id).then(
+    const cached = imageUrlCache.peek(id);
+    if (cached) {
+      setUrl(cached);
+      return () => {
+        canceled = true;
+      };
+    }
+    setUrl(null);
+    void imageUrlCache.get(id).then(
       (u) => {
         if (!canceled) setUrl(u);
       },

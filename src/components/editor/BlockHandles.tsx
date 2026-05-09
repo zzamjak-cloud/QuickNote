@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
 } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model";
 import {
@@ -23,6 +24,7 @@ import {
   LayoutTemplate,
   Download,
   Link2,
+  MessageSquare,
 } from "lucide-react";
 import {
   CALLOUT_PRESETS,
@@ -34,6 +36,9 @@ import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import { usePageStore } from "../../store/pageStore";
+import { useUiStore } from "../../store/uiStore";
+import { useBlockCommentStore } from "../../store/blockCommentStore";
+import { ensureBlockId } from "../../lib/comments/ensureBlockId";
 
 type HoverInfo = {
   rect: DOMRect;
@@ -47,6 +52,16 @@ type Props = {
   /** 박스 선택으로 잡은 최상위 블럭 시작 위치 — 연속이면 그립으로 한꺼번에 이동 */
   boxSelectedStarts?: readonly number[];
   onClearBoxSelection?: () => void;
+};
+
+/** 댓글 1개 이상인 블록 — 오른쪽 바깥 배지(상시) */
+type PinnedCommentBadge = {
+  key: string;
+  blockStart: number;
+  blockId: string;
+  count: number;
+  top: number;
+  commentLeft: number;
 };
 
 type DownloadNotice = {
@@ -86,6 +101,8 @@ const GRIP_SIZE_PX = 28;
 const GRIP_ZONE_PAD_PX = 14;
 const GUTTER_LEFT_PX = 56;
 const RECT_PAD_X = 20;
+/** 블록 오른쪽 바깥 — 댓글 수 배지가 본문과 겹치지 않도록 간격 */
+const COMMENT_BTN_GAP_PX = 8;
 const RECT_PAD_Y = 18;
 const HANDLE_TOP_OFFSET_PX = -2;
 
@@ -307,6 +324,7 @@ export function BlockHandles({
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
   const activePageId = usePageStore((s) => s.activePageId);
+  const openCommentThread = useUiStore((s) => s.openCommentThread);
   const [isDownloading, setIsDownloading] = useState(false);
   const [boxSelecting, setBoxSelecting] = useState(false);
   const dragCommittedRef = useRef(false);
@@ -361,6 +379,15 @@ export function BlockHandles({
           next.blockStart !== prev.blockStart &&
           wrapperRect &&
           pointInGripZone(e.clientX, e.clientY, prev, wrapperRect)
+        ) {
+          return prev;
+        }
+
+        /** 같은 블록 위에서 커서만 움직일 때 매 프레임 새 객체 → 전체 리렌더·동영상 재로드 유발 방지 */
+        if (
+          next &&
+          prev &&
+          next.blockStart === prev.blockStart
         ) {
           return prev;
         }
@@ -466,6 +493,76 @@ export function BlockHandles({
         })()
       : null;
 
+  const [pinnedCommentBadges, setPinnedCommentBadges] = useState<
+    PinnedCommentBadge[]
+  >([]);
+
+  useEffect(() => {
+    if (!editor || !activePageId) {
+      setPinnedCommentBadges([]);
+      return;
+    }
+
+    const refreshPinned = (): void => {
+      const root = containerRef.current?.parentElement;
+      if (!editor || editor.isDestroyed || !root) return;
+      const wrapperRectInner = root.getBoundingClientRect();
+
+      const countByBlockId = new Map<string, number>();
+      for (const m of useBlockCommentStore.getState().messages) {
+        if (m.pageId !== activePageId) continue;
+        countByBlockId.set(
+          m.blockId,
+          (countByBlockId.get(m.blockId) ?? 0) + 1,
+        );
+      }
+
+      const items: PinnedCommentBadge[] = [];
+      editor.state.doc.descendants((node, pos) => {
+        if (!node.isBlock) return;
+        const id = node.attrs?.id as string | undefined;
+        if (!id) return;
+        const count = countByBlockId.get(id) ?? 0;
+        if (count === 0) return;
+
+        const dom = editor.view.nodeDOM(pos);
+        const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
+        if (!el) return;
+        const rectEl =
+          node.type.name === "databaseBlock"
+            ? el.closest(".qn-database-block") ?? el
+            : el;
+        const rect = rectEl.getBoundingClientRect();
+        const top = rect.top - wrapperRectInner.top + HANDLE_TOP_OFFSET_PX;
+        const commentLeft =
+          rect.right - wrapperRectInner.left + COMMENT_BTN_GAP_PX;
+        items.push({
+          key: `${pos}-${id}`,
+          blockStart: pos,
+          blockId: id,
+          count,
+          top,
+          commentLeft,
+        });
+      });
+
+      setPinnedCommentBadges(items);
+    };
+
+    refreshPinned();
+    const unsub = useBlockCommentStore.subscribe(refreshPinned);
+    editor.on("update", refreshPinned);
+    const scroller = containerRef.current?.closest(".overflow-y-auto") ?? window;
+    scroller.addEventListener("scroll", refreshPinned, { passive: true });
+    window.addEventListener("resize", refreshPinned, { passive: true });
+    return () => {
+      unsub();
+      editor.off("update", refreshPinned);
+      scroller.removeEventListener("scroll", refreshPinned);
+      window.removeEventListener("resize", refreshPinned);
+    };
+  }, [editor, activePageId]);
+
   const onGripPointerDown = (e: React.PointerEvent) => {
     dragCommittedRef.current = false;
     pointerDownPosRef.current = { x: e.clientX, y: e.clientY };
@@ -534,6 +631,33 @@ export function BlockHandles({
     const tr = editor.state.tr.insert(insertAt, node.copy(node.content));
     editor.view.dispatch(tr.scrollIntoView());
     setMenuOpen(false);
+  };
+
+  const openBlockCommentAtStart = (
+    e: ReactMouseEvent<HTMLButtonElement>,
+    blockStart: number,
+  ) => {
+    if (!editor || !activePageId) return;
+    const blockId = ensureBlockId(editor, blockStart);
+    if (!blockId) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    openCommentThread({
+      pageId: activePageId,
+      blockId,
+      blockStart,
+      skipScroll: true,
+      anchorViewport: {
+        top: r.top,
+        left: r.left,
+        right: r.right,
+        bottom: r.bottom,
+      },
+    });
+  };
+
+  const openBlockComment = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    if (!hover) return;
+    openBlockCommentAtStart(e, hover.blockStart);
   };
 
   const copyBlockLink = () => {
@@ -666,6 +790,7 @@ export function BlockHandles({
   return (
     <div ref={containerRef} className="pointer-events-none absolute inset-0 z-10">
       {hover && bar && wrapperRect ? (
+        <>
         <div
           className="pointer-events-auto absolute z-30 flex items-start"
           style={{ top: bar.top, left: bar.left }}
@@ -695,17 +820,33 @@ export function BlockHandles({
                   bottom: menuFlipUp ? 0 : undefined,
                 }}
               >
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openBlockComment(e);
+                    setMenuOpen(false);
+                    setPresetOpen(false);
+                    setTypeMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                >
+                  <MessageSquare size={14} />
+                  댓글 추가
+                </button>
+
                 {isAttachmentBlock ? (
                   <button
                     type="button"
                     onClick={downloadAttachment}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    className="flex w-full items-center gap-2 border-t border-zinc-200 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
                   >
                     <Download size={14} />
                     다운로드
                   </button>
                 ) : (
-                  <div className="relative">
+                  <div className="relative border-t border-zinc-200 dark:border-zinc-700">
                     <button
                       type="button"
                       onMouseEnter={() => setTypeMenuOpen(true)}
@@ -844,7 +985,32 @@ export function BlockHandles({
             )}
           </div>
         </div>
+        </>
       ) : null}
+      {pinnedCommentBadges.map((pin) => (
+        <div
+          key={pin.key}
+          className="pointer-events-auto absolute z-30 flex items-start"
+          style={{ top: pin.top, left: pin.commentLeft }}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              openBlockCommentAtStart(e, pin.blockStart);
+            }}
+            title={`댓글 ${pin.count}개`}
+            aria-label={`블록 댓글 ${pin.count}개`}
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent bg-white/90 text-amber-500 shadow-sm ring-1 ring-amber-200/90 hover:bg-amber-50 dark:bg-zinc-900/90 dark:text-amber-400 dark:ring-amber-800/70 dark:hover:bg-amber-950/30"
+          >
+            <MessageSquare size={18} strokeWidth={2} className="text-amber-500 dark:text-amber-400" />
+            <span className="absolute -right-0.5 -top-0.5 flex min-h-[16px] min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-[4px] text-[10px] font-bold tabular-nums leading-none text-white shadow-sm dark:bg-amber-600">
+              {pin.count > 99 ? "99+" : pin.count}
+            </span>
+          </button>
+        </div>
+      ))}
       {downloadNotice ? (
         <div className="pointer-events-none fixed bottom-5 right-5 z-[420]">
           <div

@@ -802,3 +802,36 @@ body.quicknote-column-reorder-dragging .qn-dropcursor {
 .ProseMirror [data-tab-block][data-active-index="14"] .qn-tab-panels > .qn-tab-panel:nth-of-type(15) {
   display: block !important;
 }
+
+/* 다른 구성원의 미확인 댓글이 있을 때 블록 강조 */
+.ProseMirror .qn-block-comment-glow {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.35);
+}
+html.dark .ProseMirror .qn-block-comment-glow {
+  background-color: rgba(16, 185, 129, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.4);
+}
+
+/* 댓글이 하나라도 달린 블록 — 하단 앰버 라인(배경보다 NodeView에서도 잘 보임) */
+.ProseMirror .qn-block-has-comments {
+  border-radius: 4px;
+  background-color: rgba(254, 249, 195, 0.35);
+  border-bottom: 2px solid rgba(234, 179, 8, 0.65);
+  padding-bottom: 0.2rem;
+  margin-bottom: 0.15rem;
+  box-shadow: none;
+}
+html.dark .ProseMirror .qn-block-has-comments {
+  background-color: rgba(113, 63, 18, 0.2);
+  border-bottom-color: rgba(250, 204, 21, 0.5);
+}
+
+/* 미확인 댓글 강조가 노란 배경 위에서도 보이도록 */
+.ProseMirror .qn-block-has-comments.qn-block-comment-glow {
+  box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.5);
+}
+html.dark .ProseMirror .qn-block-has-comments.qn-block-comment-glow {
+  box-shadow: inset 0 0 0 2px rgba(52, 211, 153, 0.55);
+}

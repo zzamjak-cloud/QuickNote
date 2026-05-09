@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
 import {
@@ -62,63 +62,78 @@ export function BubbleToolbar({ editor }: Props) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [colorOpen, setColorOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
+  /** 동일 표시 상태면 setState 생략 — 클릭마다 selectionUpdate 로 깜빡임 방지 */
+  const lastToolbarSigRef = useRef<string>("");
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
+    lastToolbarSigRef.current = "";
     let dragging = false;
 
     const compute = () => {
       if (editor.isDestroyed) return;
+      let nextMode: ToolbarMode = "hidden";
+      let nextPos: { top: number; left: number } | null = null;
+
       // read-only(예: 풀 페이지 DB) 에서는 부유 툴바 자체를 띄우지 않는다.
       if (!editor.isEditable) {
-        setMode("hidden");
-        setPos(null);
-        return;
-      }
-      const sel = editor.state.selection;
+        nextMode = "hidden";
+        nextPos = null;
+      } else {
+        const sel = editor.state.selection;
 
-      if (sel instanceof NodeSelection && sel.node.type.name === "image") {
-        const dom = editor.view.nodeDOM(sel.from);
-        const el =
-          dom instanceof HTMLElement ? dom : dom?.parentElement ?? null;
-        if (el instanceof HTMLElement) {
-          const r = el.getBoundingClientRect();
-          setMode("image");
-          setPos({
-            top: r.top + window.scrollY - 44,
-            left: r.left + r.width / 2 + window.scrollX,
-          });
-          setColorOpen(false);
-          setHlOpen(false);
-          return;
+        if (sel instanceof NodeSelection && sel.node.type.name === "image") {
+          const dom = editor.view.nodeDOM(sel.from);
+          const el =
+            dom instanceof HTMLElement ? dom : dom?.parentElement ?? null;
+          if (el instanceof HTMLElement) {
+            const r = el.getBoundingClientRect();
+            nextMode = "image";
+            nextPos = {
+              top: r.top + window.scrollY - 44,
+              left: r.left + r.width / 2 + window.scrollX,
+            };
+          } else {
+            nextMode = "hidden";
+            nextPos = null;
+          }
+        } else if (sel instanceof NodeSelection) {
+          // 인라인 DB·HR 등 원자 블록의 NodeSelection — 텍스트 포매팅 툴바 숨김
+          nextMode = "hidden";
+          nextPos = null;
+        } else {
+          const { from, to } = sel;
+          if (from === to) {
+            nextMode = "hidden";
+            nextPos = null;
+          } else {
+            const start = editor.view.coordsAtPos(from);
+            const end = editor.view.coordsAtPos(to);
+            nextMode = "text";
+            nextPos = {
+              top: Math.min(start.top, end.top) + window.scrollY - 44,
+              left: (start.left + end.left) / 2 + window.scrollX,
+            };
+          }
         }
       }
 
-      // 인라인 DB·HR 등 원자 블록의 NodeSelection — 텍스트 포매팅 툴바 숨김
-      if (sel instanceof NodeSelection) {
-        setMode("hidden");
-        setPos(null);
-        return;
-      }
+      const sig =
+        nextMode === "hidden"
+          ? "hidden"
+          : `${nextMode}:${Math.round(nextPos!.top)}:${Math.round(nextPos!.left)}`;
+      if (lastToolbarSigRef.current === sig) return;
+      lastToolbarSigRef.current = sig;
 
-      const { from, to } = sel;
-      if (from === to) {
-        setMode("hidden");
-        setPos(null);
-        return;
-      }
-
-      const start = editor.view.coordsAtPos(from);
-      const end = editor.view.coordsAtPos(to);
-      setMode("text");
-      setPos({
-        top: Math.min(start.top, end.top) + window.scrollY - 44,
-        left: (start.left + end.left) / 2 + window.scrollX,
-      });
+      setMode(nextMode);
+      setPos(nextPos);
+      setColorOpen(false);
+      setHlOpen(false);
     };
 
     const onMouseDown = () => {
       dragging = true;
+      lastToolbarSigRef.current = "hidden";
       setMode("hidden");
       setPos(null);
     };

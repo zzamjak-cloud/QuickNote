@@ -1,5 +1,6 @@
 import { PanelLeftClose, Plus, Settings } from "lucide-react";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { NotificationBell } from "../notifications/NotificationBell";
 
 type Props = {
   appVersion: string;
@@ -34,6 +35,10 @@ export function SidebarHeader({
             v{appVersion}
           </span>
         </h2>
+        {/* 좁은 화면에서는 TopBar 알림으로 대체 — 중복 방지 */}
+        <span className="hidden lg:inline-flex">
+          <NotificationBell />
+        </span>
         <button
           type="button"
           onClick={onOpenSettings}

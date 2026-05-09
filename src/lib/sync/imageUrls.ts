@@ -18,6 +18,14 @@ export class ImageUrlCache {
     this.clock = clock;
   }
 
+  /** TTL 내에 이미 풀린 URL만 동기 반환 — 노드뷰 재마운트 시 로딩 깜빡임 방지 */
+  peek(imageId: string): string | undefined {
+    const cached = this.cache.get(imageId);
+    const now = this.clock();
+    if (cached && cached.expiresAt > now) return cached.url;
+    return undefined;
+  }
+
   async get(imageId: string): Promise<string> {
     const cached = this.cache.get(imageId);
     const now = this.clock();

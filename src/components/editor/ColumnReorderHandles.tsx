@@ -24,6 +24,39 @@ type HandleState = {
   items: HandleItem[];
 } | null;
 
+const GEOM_EPS = 0.75;
+
+function handleItemsVisuallyEqual(a: HandleItem[], b: HandleItem[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const p = a[i]!;
+    const q = b[i]!;
+    if (p.index !== q.index || p.start !== q.start) return false;
+    if (
+      Math.abs(p.colLeft - q.colLeft) >= GEOM_EPS ||
+      Math.abs(p.colTop - q.colTop) >= GEOM_EPS ||
+      Math.abs(p.colWidth - q.colWidth) >= GEOM_EPS ||
+      Math.abs(p.colHeight - q.colHeight) >= GEOM_EPS ||
+      Math.abs(p.left - q.left) >= GEOM_EPS ||
+      Math.abs(p.top - q.top) >= GEOM_EPS
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sameHandleState(
+  prev: HandleState,
+  next: NonNullable<HandleState>,
+): boolean {
+  if (prev === null) return false;
+  if (prev.layoutStart !== next.layoutStart) return false;
+  return handleItemsVisuallyEqual(prev.items, next.items);
+}
+
+const clearHandles = (prev: HandleState) => (prev === null ? prev : null);
+
 const DRAG_MIME = "application/x-quicknote-column-reorder";
 
 function parseDragData(dt: DataTransfer | null): { layoutStart: number; fromIndex: number } | null {
@@ -90,18 +123,18 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
 
   const refresh = useCallback(() => {
     if (!editor || editor.isDestroyed) {
-      setHandles(null);
+      setHandles(clearHandles);
       return;
     }
     let editorDom: HTMLElement | null = null;
     try {
       editorDom = editor.view?.dom ?? null;
     } catch {
-      setHandles(null);
+      setHandles(clearHandles);
       return;
     }
     if (!editorDom) {
-      setHandles(null);
+      setHandles(clearHandles);
       return;
     }
     const container = containerRef.current;
@@ -157,7 +190,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       if (!hoveredLayoutEl) {
         // 박스 드래그 중에는 직전 핸들을 유지해 깜빡임/소실을 막는다.
         if (boxSelecting) return;
-        setHandles(null);
+        setHandles(clearHandles);
         return;
       }
       let pos: number | null = null;
@@ -167,7 +200,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
         pos = null;
       }
       if (pos == null) {
-        setHandles(null);
+        setHandles(clearHandles);
         return;
       }
       const $pos = editor.state.doc.resolve(Math.max(0, Math.min(pos, editor.state.doc.content.size)));
@@ -179,16 +212,16 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
         }
       }
       if (!layoutNode || layoutStart == null) {
-        setHandles(null);
+        setHandles(clearHandles);
         return;
       }
     }
     if (layoutStart == null) {
-      setHandles(null);
+      setHandles(clearHandles);
       return;
     }
     if (!layoutNode) {
-      setHandles(null);
+      setHandles(clearHandles);
       return;
     }
     const nextItems: HandleItem[] = [];
@@ -211,10 +244,11 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       });
     });
     if (nextItems.length < 2) {
-      setHandles(null);
+      setHandles(clearHandles);
       return;
     }
-    setHandles({ layoutStart, items: nextItems });
+    const nextState: NonNullable<HandleState> = { layoutStart, items: nextItems };
+    setHandles((prev) => (sameHandleState(prev, nextState) ? prev : nextState));
   }, [editor, boxSelecting]);
 
   const reorderColumns = useCallback(
@@ -365,9 +399,9 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
         setPmRangeSelecting(false);
         return;
       }
-      setPmRangeSelecting(
-        !!root.querySelector(".ProseMirror-selectednoderange"),
-      );
+      const nextPm =
+        !!root.querySelector(".ProseMirror-selectednoderange");
+      setPmRangeSelecting((prev) => (prev === nextPm ? prev : nextPm));
     };
     sync();
     editor.on("selectionUpdate", sync);
