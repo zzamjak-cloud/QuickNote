@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.12] - 2026-05-09
+
+### Added
+
+- **휴지통**: 사이드바에서 삭제 페이지 조회(삭제 시각 최신순)·복원, 30일 보관 후 영구 삭제(일일 DynamoDB purge Lambda), AppSync `listTrashedPages`/`restorePage` 및 구독에 복원 반영.
+- **휴지통 UI**: 최초 50건 로드, `더보기`로 50건씩 추가 로드(서버 `nextToken` 커서).
+- **워크스페이스 랜딩**: 워크스페이스별 마지막 방문 페이지 기억·복원(settings persist v6), 없으면 사이드바 루트 첫 페이지로 시작.
+- **워크스페이스 부트스트랩**: `applyWorkspaceSwitch` 가 초기 세션(`prev=null`)에서는 persist 캐시를 비우지 않도록 조정.
+
+### Fixed
+
+- **새로고침**: 탭은 맞는데 본문이 비던 현상(초기 클리어와 persist 충돌) 완화.
+- **실행취소**: 블록 삭제·박스 삭제 직후 `Ctrl+Z` 가 PM 히스토리로 가지 않던 문제(포커스 복귀 + 창 캡처 단축키 전달).
+
+### Changed
+
+- 페이지 버전 타임라인·목록 등에 **마지막 편집자**(`lastEditedBy*`) 표시 보강.
+
 ## [5.0.11] - 2026-05-09
 
 ### Added

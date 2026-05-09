@@ -29,6 +29,7 @@ export function useBoxSelectDeleteBlocks(
 
       if (tr.docChanged) {
         editor.view.dispatch(tr.scrollIntoView());
+        editor.view.focus();
         clearSelection();
       }
     };

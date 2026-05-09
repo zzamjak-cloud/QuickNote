@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 
 type TextPromptRequest = {
   title: string;
@@ -13,6 +15,12 @@ export type ToastMessage = {
   id: string;
   message: string;
   kind: ToastKind;
+};
+
+export type FavoriteNavigationRequest = {
+  pageId: string;
+  workspaceId: string | null;
+  requestedAt: number;
 };
 
 /** 우측 패널(목차 / 즐겨찾기) 탭 */
@@ -42,6 +50,7 @@ type UiStoreState = {
   textPrompt: TextPromptRequest | null;
   rowBackTargetByPageId: Record<string, string>;
   toasts: ToastMessage[];
+  pendingFavoriteNavigation: FavoriteNavigationRequest | null;
 };
 
 type UiStoreActions = {
@@ -70,13 +79,20 @@ type UiStoreActions = {
   clearRowBackTarget: (rowPageId: string) => void;
   showToast: (message: string, opts?: { kind?: ToastKind }) => void;
   dismissToast: (id: string) => void;
+  requestFavoriteNavigation: (payload: {
+    pageId: string;
+    workspaceId: string | null;
+  }) => void;
+  clearFavoriteNavigation: () => void;
 };
 
 function newToastId(): string {
   return `toast-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
+export const useUiStore = create<UiStoreState & UiStoreActions>()(
+  persist(
+    (set, get) => ({
   rightPanelOpen: false,
   rightPanelTab: "favorites",
   notificationCenterOpen: false,
@@ -86,6 +102,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
   textPrompt: null,
   rowBackTargetByPageId: {},
   toasts: [],
+  pendingFavoriteNavigation: null,
 
   toggleRightPanel: (tab) =>
     set((s) => {
@@ -159,4 +176,23 @@ export const useUiStore = create<UiStoreState & UiStoreActions>((set, get) => ({
     set((s) => ({
       toasts: s.toasts.filter((toast) => toast.id !== id),
     })),
-}));
+  requestFavoriteNavigation: (payload) =>
+    set({
+      pendingFavoriteNavigation: {
+        pageId: payload.pageId,
+        workspaceId: payload.workspaceId,
+        requestedAt: Date.now(),
+      },
+    }),
+  clearFavoriteNavigation: () => set({ pendingFavoriteNavigation: null }),
+}),
+    {
+      name: "quicknote.ui.v1",
+      storage: createJSONStorage(() => zustandStorage),
+      partialize: (state) => ({
+        rightPanelOpen: state.rightPanelOpen,
+        rightPanelTab: state.rightPanelTab,
+      }),
+    },
+  ),
+);

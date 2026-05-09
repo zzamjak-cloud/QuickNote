@@ -45,6 +45,9 @@ export type PageHistoryEvent = {
   patch: Partial<PageSnapshot>;
   /** 주기적 압축용 기준 스냅샷 */
   anchor?: PageSnapshot;
+  /** 기록 시점 수정 구성원(영속 시점 스냅샷) */
+  editedByMemberId?: string;
+  editedByName?: string;
 };
 
 export type DbHistoryEvent = {
@@ -75,4 +78,7 @@ export type HistoryTimelineEntry = {
   endTs: number;
   count: number;
   label: string;
+  /** 버킷 내 가장 마지막 이벤트의 수정자 */
+  lastEditedByMemberId?: string;
+  lastEditedByName?: string;
 };

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Plus, Star, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListTree, Plus, Star, X } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
@@ -13,10 +13,11 @@ export function TabBar() {
   const prevTab = useSettingsStore((s) => s.prevTab);
   const nextTab = useSettingsStore((s) => s.nextTab);
   const pages = usePageStore((s) => s.pages);
-  const toggleFavoritesPanel = useUiStore((s) => s.toggleFavoritesPanel);
-  const favoritesPanelOpen = useUiStore(
-    (s) => s.rightPanelOpen && s.rightPanelTab === "favorites",
-  );
+  const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
+  const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
+  const rightPanelTab = useUiStore((s) => s.rightPanelTab);
+  const tocPanelOpen = rightPanelOpen && rightPanelTab === "toc";
+  const favoritesPanelOpen = rightPanelOpen && rightPanelTab === "favorites";
 
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50 px-1 dark:border-zinc-800 dark:bg-zinc-900">
@@ -86,25 +87,46 @@ export function TabBar() {
           <Plus size={14} />
         </button>
       </div>
-      <button
-        type="button"
-        onClick={toggleFavoritesPanel}
-        className={[
-          "flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
-          favoritesPanelOpen ? "text-amber-500 dark:text-amber-400" : "",
-        ].join(" ")}
-        title="즐겨찾기 패널"
-        aria-label="즐겨찾기 패널"
-        aria-pressed={favoritesPanelOpen}
+      <div
+        className="ml-1 flex items-center gap-1 rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
+        role="radiogroup"
+        aria-label="우측 패널 선택"
       >
-        <Star
-          size={16}
-          strokeWidth={1.75}
-          className={
-            favoritesPanelOpen ? "fill-amber-400 text-amber-500" : undefined
-          }
-        />
-      </button>
+        <button
+          type="button"
+          onClick={() => toggleRightPanel("toc")}
+          className={[
+            "flex h-6 w-6 items-center justify-center rounded text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+            tocPanelOpen ? "bg-zinc-100 text-violet-600 dark:bg-zinc-800 dark:text-violet-300" : "",
+          ].join(" ")}
+          title="목차 보기"
+          aria-label="목차 보기"
+          role="radio"
+          aria-checked={tocPanelOpen}
+        >
+          <ListTree size={15} strokeWidth={1.8} />
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleRightPanel("favorites")}
+          className={[
+            "flex h-6 w-6 items-center justify-center rounded text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+            favoritesPanelOpen ? "bg-zinc-100 text-amber-500 dark:bg-zinc-800 dark:text-amber-400" : "",
+          ].join(" ")}
+          title="즐겨찾기"
+          aria-label="즐겨찾기"
+          role="radio"
+          aria-checked={favoritesPanelOpen}
+        >
+          <Star
+            size={15}
+            strokeWidth={1.8}
+            className={
+              favoritesPanelOpen ? "fill-amber-400 text-amber-500" : undefined
+            }
+          />
+        </button>
+      </div>
     </div>
   );
 }

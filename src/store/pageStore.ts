@@ -460,7 +460,13 @@ export const usePageStore = create<PageStore>()(
         }
       },
 
-      setActivePage: (id) => set({ activePageId: id }),
+      setActivePage: (id) => {
+        set({ activePageId: id });
+        const ws = getCurrentWorkspaceId();
+        if (ws && id) {
+          useSettingsStore.getState().setLastVisitedPageForWorkspace(ws, id);
+        }
+      },
 
       navigateToParentPage: () => {
         const id = get().activePageId;
@@ -892,7 +898,8 @@ export function filterPageTree(
   return prune(selectPageTree(state));
 }
 
-function isFullPageDatabaseHomePage(page: Page): boolean {
+/** 사이드바/트리에서 숨기는 DB 전용 풀페이지 홈 — 랜딩 기본값 계산에도 동일 규칙 적용 */
+export function isFullPageDatabaseHomePage(page: Page): boolean {
   const first = page.doc?.content?.[0] as
     | { type?: string; attrs?: Record<string, unknown> }
     | undefined;

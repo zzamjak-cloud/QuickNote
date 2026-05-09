@@ -3,14 +3,12 @@ import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { NotificationBell } from "../notifications/NotificationBell";
 
 type Props = {
-  appVersion: string;
   onCreatePage: () => void;
   onOpenSettings?: () => void;
   onCollapseSidebar?: () => void;
 };
 
 export function SidebarHeader({
-  appVersion,
   onCreatePage,
   onOpenSettings,
   onCollapseSidebar,
@@ -29,12 +27,7 @@ export function SidebarHeader({
             <PanelLeftClose size={16} />
           </button>
         ) : null}
-        <h2 className="flex min-w-0 flex-1 items-baseline gap-1 text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          <span>QuickNote</span>
-          <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
-            v{appVersion}
-          </span>
-        </h2>
+        <span className="min-w-0 flex-1" aria-hidden="true" />
         {/* 좁은 화면에서는 TopBar 알림으로 대체 — 중복 방지 */}
         <span className="hidden lg:inline-flex">
           <NotificationBell />

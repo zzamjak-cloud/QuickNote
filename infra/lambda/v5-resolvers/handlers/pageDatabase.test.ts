@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   listDatabases,
   listPages,
+  listTrashedPages,
+  restorePage,
   softDeleteDatabase,
   softDeletePage,
   upsertDatabase,
@@ -104,6 +106,58 @@ describe("page/database handlers", () => {
         input: { id: "d1", workspaceId: "ws-1", updatedAt: "now", createdAt: "now", title: "D", columns: "{}", createdByMemberId: "m1" },
       }),
     ).rejects.toThrow(/권한/);
+  });
+
+  it("listTrashedPages: 삭제된 페이지만 반환", async () => {
+    const recent = new Date().toISOString();
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "everyone", subjectId: null, level: "view" }] },
+      {
+        Items: [
+          {
+            id: "p-trash",
+            workspaceId: "ws-1",
+            deletedAt: recent,
+            updatedAt: recent,
+            title: "T",
+          },
+        ],
+      },
+    );
+    const result = await listTrashedPages({ doc, tables, caller, workspaceId: "ws-1" });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]!.id).toBe("p-trash");
+  });
+
+  it("restorePage: 삭제 항목이면 복원", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {
+        Item: {
+          id: "p1",
+          workspaceId: "ws-1",
+          deletedAt: new Date(Date.now() - 864e5).toISOString(),
+          title: "Hi",
+          doc: "{}",
+          order: "0",
+          createdByMemberId: "m1",
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-01-01T00:00:00Z",
+        },
+      },
+      {},
+    );
+    const result = await restorePage({
+      doc,
+      tables,
+      caller,
+      id: "p1",
+      workspaceId: "ws-1",
+    });
+    expect(result["id"]).toBe("p1");
+    expect(result["deletedAt"]).toBeUndefined();
   });
 
   it("softDeleteDatabase: 대상 없으면 실패", async () => {

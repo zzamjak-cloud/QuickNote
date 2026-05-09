@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import pkg from "../../../package.json";
-
 import {
   DndContext,
   DragOverlay,
@@ -27,6 +25,7 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageMoveDialog } from "./PageMoveDialog";
 import { DatabaseManagerDialog } from "./DatabaseManagerDialog";
+import { TrashDialog } from "./TrashDialog";
 import { SidebarHeader } from "../sidebar/SidebarHeader";
 import { SettingsModal } from "../settings/SettingsModal";
 import { PageIconDisplay } from "../common/PageIconDisplay";
@@ -49,8 +48,6 @@ function SidebarDragPreview({ pageId }: { pageId: string }) {
 const HOVER_EXPAND_DELAY_MS = 700;
 const EDGE_SCROLL_ZONE_PX = 24;
 const EDGE_SCROLL_MAX_PER_FRAME = 12;
-const APP_VERSION = pkg.version;
-
 export function Sidebar() {
   const pointerRef = useRef({ x: 0, y: 0 });
   const nestHintRef = useRef<SidebarDropHint | null>(null);
@@ -64,6 +61,7 @@ export function Sidebar() {
   const [query, setQuery] = useState("");
   const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
   const [dbManagerOpen, setDbManagerOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [dragOverlayId, setDragOverlayId] = useState<string | null>(null);
@@ -341,7 +339,6 @@ export function Sidebar() {
     >
       <aside className="flex h-full min-w-0 flex-1 flex-col border-r border-zinc-200 bg-zinc-50 px-2 py-3 dark:border-zinc-800 dark:bg-zinc-900">
       <SidebarHeader
-        appVersion={APP_VERSION}
         onCreatePage={() => createPage()}
         onOpenSettings={() => setSettingsOpen(true)}
         onCollapseSidebar={() => setSidebarCollapsed(true)}
@@ -394,6 +391,13 @@ export function Sidebar() {
       >
         데이터베이스 관리
       </button>
+      <button
+        type="button"
+        onClick={() => setTrashOpen(true)}
+        className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1 text-left text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      >
+        휴지통
+      </button>
       <PageMoveDialog
         pageId={moveTargetId}
         onClose={() => setMoveTargetId(null)}
@@ -402,6 +406,7 @@ export function Sidebar() {
         open={dbManagerOpen}
         onClose={() => setDbManagerOpen(false)}
       />
+      <TrashDialog open={trashOpen} onClose={() => setTrashOpen(false)} />
       <SettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

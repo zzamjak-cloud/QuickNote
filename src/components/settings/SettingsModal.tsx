@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { X } from "lucide-react";
+import pkg from "../../../package.json";
 import { useAuthStore } from "../../store/authStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -49,7 +50,7 @@ export function SettingsModal({ open, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-modal-title"
-        className="flex h-[min(86vh,820px)] w-full max-w-6xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
+        className="relative flex h-[min(86vh,820px)] w-full max-w-6xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <aside className="flex w-56 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
@@ -124,6 +125,13 @@ export function SettingsModal({ open, onClose }: Props) {
             </div>
           ) : null}
         </section>
+
+        <p
+          className="pointer-events-none absolute bottom-3 right-4 text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500"
+          aria-label={`앱 버전 ${pkg.version}`}
+        >
+          v{pkg.version}
+        </p>
       </div>
     </div>
   );

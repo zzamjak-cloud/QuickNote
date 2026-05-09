@@ -8,13 +8,18 @@ import { getSyncEngine } from "./runtime";
 //
 // 안전 장치: outbox 에 미전송 mutation 이 있으면 클리어를 보류한다.
 // 그렇지 않으면 서버에 도달하지 못한 새 페이지가 영구 손실된다.
-// 초기 마운트(prev=null)에서도 stale 캐시 혼입을 막기 위해 클리어를 허용한다.
+//
+// prev=null 은 부트스트랩 첫 실행(세션 시작·새로고침 직후)을 의미한다.
+// 이 경우 persist 로 복원된 페이지 본문을 유지하고, fetch 가 끝나면 LWW 로 덮어쓴다.
+// (null 일 때까지 클리어하면 타이틀만 살아 있고 본문이 비는 레이스가 난다.)
 export async function applyWorkspaceSwitch(
   prev: string | null,
   next: string | null,
 ): Promise<{ cleared: boolean; reason: string; pending: number }> {
   if (!next) return { cleared: false, reason: "missing-next-workspace", pending: 0 };
   if (prev === next) return { cleared: false, reason: "same-workspace", pending: 0 };
+  if (prev === null)
+    return { cleared: false, reason: "initial-bootstrap", pending: 0 };
   let pending = 0;
   try {
     const engine = await getSyncEngine();

@@ -19,6 +19,8 @@ import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistoryStore } from "../../store/historyStore";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageIconDisplay } from "../common/PageIconDisplay";
+import { useMemberStore } from "../../store/memberStore";
+import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 
 type Props = {
   node: PageNode;
@@ -157,6 +159,8 @@ const PageListItemInner = function PageListItem({
   const childGuideLeft = (depth + 1) * 14;
   const pageHistoryTimeline = useHistoryStore((s) => s.getPageTimeline(node.id));
   const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
+  const members = useMemberStore((s) => s.members);
+  const me = useMemberStore((s) => s.me);
   const timelineIds = pageHistoryTimeline.map((e) => e.id);
   const {
     selectedIds: selectedTimelineIds,
@@ -447,8 +451,13 @@ const PageListItemInner = function PageListItem({
                           <Check size={10} strokeWidth={3} />
                         ) : null}
                       </button>
-                      <span className="flex-1 truncate text-zinc-600 dark:text-zinc-300">
-                        {`버전 ${arr.length - idx}`}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-zinc-600 dark:text-zinc-300">
+                          {`버전 ${arr.length - idx}`}
+                        </span>
+                        <span className="block truncate text-[10px] text-zinc-400">
+                          {formatPageHistoryEditorLine(entry, { members, me })}
+                        </span>
                       </span>
                       <span className="shrink-0 text-zinc-400">
                         {new Date(entry.endTs).toLocaleTimeString()}

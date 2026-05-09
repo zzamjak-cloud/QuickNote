@@ -532,6 +532,48 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     return () => unregisterEditorNavigation(editor);
   }, [editor]);
 
+  /** 핸들 메뉴 삭제 등으로 포커스가 PM 밖에 있을 때 Ctrl+Z/Y 가 브라우저·앱으로 새지 않고 본문 히스토리로 가도록 함 */
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editor.isEditable) return;
+
+    const shouldForwardUndoRedo = (): boolean => {
+      const ae = document.activeElement;
+      if (ae instanceof HTMLElement && editor.view.dom.contains(ae)) return false;
+      const tag = ae?.tagName ?? "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return false;
+      if (ae instanceof HTMLElement && ae.isContentEditable) return false;
+      return true;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.key === "Process") return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (!shouldForwardUndoRedo()) return;
+      if (e.code !== "KeyZ" && e.code !== "KeyY") return;
+
+      const undo = e.code === "KeyZ" && !e.shiftKey;
+      const redo =
+        (e.code === "KeyZ" && e.shiftKey) ||
+        (e.code === "KeyY" && e.ctrlKey && !e.metaKey);
+
+      if (undo && editor.can().undo()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        editor.chain().focus().undo().run();
+        return;
+      }
+      if (redo && editor.can().redo()) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        editor.chain().focus().redo().run();
+      }
+    };
+
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [editor]);
+
   useEffect(() => {
     if (!editor || editor.isDestroyed || !commentThread) return;
     if (commentThread.pageId !== effectivePageId) return;

@@ -70,16 +70,26 @@ export function applyRemoteClientPrefs(raw: unknown): void {
     if (!remoteNewer) {
       if (sameTs && listsMatch) return s;
       if (sameTs && !listsMatch) {
+        const favoritePageMetaById = { ...s.favoritePageMetaById };
+        for (const id of Object.keys(favoritePageMetaById)) {
+          if (!parsed.favoritePageIds.includes(id)) delete favoritePageMetaById[id];
+        }
         return {
           favoritePageIds: [...parsed.favoritePageIds],
+          favoritePageMetaById,
           favoritePageIdsUpdatedAt: parsed.favoritePageIdsUpdatedAt,
         };
       }
       return s;
     }
 
+    const favoritePageMetaById = { ...s.favoritePageMetaById };
+    for (const id of Object.keys(favoritePageMetaById)) {
+      if (!parsed.favoritePageIds.includes(id)) delete favoritePageMetaById[id];
+    }
     return {
       favoritePageIds: [...parsed.favoritePageIds],
+      favoritePageMetaById,
       favoritePageIdsUpdatedAt: parsed.favoritePageIdsUpdatedAt,
     };
   });

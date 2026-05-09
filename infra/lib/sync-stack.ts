@@ -315,6 +315,33 @@ export function response(ctx) {
       targets: [new eventsTargets.LambdaFunction(gcFn)],
     });
 
+    // 휴지통 보관(30일) 만료 페이지 — DynamoDB 에서 영구 삭제
+    const trashPurgeFn = new lambdaNode.NodejsFunction(this, "TrashPurgeFn", {
+      entry: path.join(__dirname, "..", "lambda", "trash-purge", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: "handler",
+      memorySize: 256,
+      timeout: cdk.Duration.minutes(5),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      environment: {
+        PAGES_TABLE_NAME: this.pageTable.table.tableName,
+      },
+      bundling: {
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+      },
+    });
+    this.pageTable.table.grantReadWriteData(trashPurgeFn);
+    new events.Rule(this, "TrashPurgeSchedule", {
+      schedule: events.Schedule.cron({ minute: "15", hour: "18" }),
+      targets: [new eventsTargets.LambdaFunction(trashPurgeFn)],
+    });
+    new cdk.CfnOutput(this, "TrashPurgeFunctionName", {
+      value: trashPurgeFn.functionName,
+    });
+
     // v5-resolvers Lambda — 모든 v5 admin/workspace mutation/query 라우터
     const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),
@@ -402,6 +429,11 @@ export function response(ctx) {
     });
     (listDatabasesResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiQuerylistDatabasesC5178196");
 
+    v5Ds.createResolver("QuerylistTrashedPages", {
+      typeName: "Query",
+      fieldName: "listTrashedPages",
+    });
+
     const upsertPageResolver = v5Ds.createResolver("MutationupsertPage", {
       typeName: "Mutation",
       fieldName: "upsertPage",
@@ -413,6 +445,11 @@ export function response(ctx) {
       fieldName: "softDeletePage",
     });
     (softDeletePageResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationsoftDeletePage005AAFF7");
+
+    v5Ds.createResolver("MutationrestorePage", {
+      typeName: "Mutation",
+      fieldName: "restorePage",
+    });
 
     const upsertDatabaseResolver = v5Ds.createResolver("MutationupsertDatabase", {
       typeName: "Mutation",

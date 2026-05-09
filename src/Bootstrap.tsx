@@ -13,6 +13,7 @@ import {
   applyRemoteDatabaseToStore,
 } from "./lib/sync/storeApply";
 import { applyWorkspaceSwitch } from "./lib/sync/workspaceSwitch";
+import { applyWorkspaceLanding } from "./lib/sync/workspaceLanding";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
@@ -125,6 +126,9 @@ function useSyncBootstrap() {
         if (cancelled) return;
         for (const p of pages) applyRemotePageToStore(p);
         for (const d of dbs) applyRemoteDatabaseToStore(d);
+
+        if (cancelled) return;
+        applyWorkspaceLanding(currentWorkspaceId);
 
         if (cancelled) return;
         unsub = startSubscriptions(currentWorkspaceId, {

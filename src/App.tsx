@@ -51,6 +51,8 @@ function App() {
   }, [migrating]);
 
   const hydrationDone = useRef(false);
+  /** effect B에서 탭을 active 기준으로 덮어쓸지: activePageId 가 실제로 바뀐 경우만 (탭 클릭 직후 이전 id 로 덮어쓰기 방지) */
+  const prevActivePageIdRef = useRef<string | null | undefined>(undefined);
 
   // 다크 모드 클래스 동기화
   useEffect(() => {
@@ -72,7 +74,8 @@ function App() {
   }, [setCurrentTabPage]);
 
   // 현재 탭의 pageId가 바뀔 때마다(탭 전환·뒤로가기·replaceCurrentTabPage 등) 활성 페이지와 맞춤.
-  useEffect(() => {
+  // useLayoutEffect: 탭 전환 직후 같은 턴에서 active 를 맞추어, 아래 effect B가 이전 active 로 탭을 덮어쓰지 않게 함.
+  useLayoutEffect(() => {
     const cur = usePageStore.getState().activePageId;
     if (tabPageId !== cur) {
       setActivePage(tabPageId);
@@ -85,10 +88,36 @@ function App() {
       useSettingsStore.getState().tabs[
         useSettingsStore.getState().activeTabIndex
       ]?.pageId ?? null;
+    if (activePageId === null) {
+      prevActivePageIdRef.current = activePageId;
+      // 워크스페이스 부트스트랩 시 페이지 맵이 잠깐 비면 activePageId 만 null 이 될 수 있음.
+      // 이때 영속화된 탭 pageId 를 null 로 덮어쓰면 재진입 시 항상 빈 탭으로 시작하는 버그가 난다.
+      if (current !== null) {
+        const pages = usePageStore.getState().pages;
+        const hasAnyPage = Object.keys(pages).length > 0;
+        if (!hasAnyPage) {
+          return;
+        }
+        if (!pages[current]) {
+          setCurrentTabPage(null);
+        }
+      }
+      return;
+    }
+
+    const prevActive = prevActivePageIdRef.current;
+    const activeIdChanged =
+      prevActive !== undefined && prevActive !== activePageId;
+    prevActivePageIdRef.current = activePageId;
+
     if (current !== activePageId) {
+      // 탭만 바꾼 프레임에서는 active 가 아직 이전 값 — 이때는 active 로 탭을 덮어쓰면 제목/본문 불일치 발생
+      if (!activeIdChanged && prevActive !== undefined) {
+        return;
+      }
       setCurrentTabPage(activePageId);
     }
-  }, [activePageId, setCurrentTabPage]);
+  }, [activePageId, activeTabIndex, setCurrentTabPage]);
 
   // 글로벌 단축키
   useEffect(() => {

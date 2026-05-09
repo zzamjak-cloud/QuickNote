@@ -22,6 +22,8 @@ import { NotificationBell } from "../notifications/NotificationBell";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageMoveDialog } from "./PageMoveDialog";
+import { useMemberStore } from "../../store/memberStore";
+import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 
 export function TopBar() {
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
@@ -51,6 +53,8 @@ export function TopBar() {
     activeId ? s.getPageTimeline(activeId) : [],
   );
   const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
+  const members = useMemberStore((s) => s.members);
+  const me = useMemberStore((s) => s.me);
   const timelineIds = pageHistoryTimeline.map((e) => e.id);
   const {
     selectedIds: selectedTimelineIds,
@@ -465,7 +469,7 @@ export function TopBar() {
                         {`버전 ${arr.length - idx}`}
                       </span>
                       <span className="block text-[11px] text-zinc-400">
-                        변경자 정보는 추후 추가 예정
+                        {formatPageHistoryEditorLine(entry, { members, me })}
                       </span>
                     </span>
                     <span className="shrink-0 text-[11px] text-zinc-400">

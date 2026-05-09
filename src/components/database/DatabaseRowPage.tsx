@@ -12,6 +12,8 @@ import { useHistorySelection } from "../history/useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageMoveDialog } from "../layout/PageMoveDialog";
+import { useMemberStore } from "../../store/memberStore";
+import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const page = usePageStore((s) => s.pages[pageId]);
@@ -30,6 +32,8 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   );
   const pageHistoryTimeline = useHistoryStore((s) => s.getPageTimeline(pageId));
   const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
+  const members = useMemberStore((s) => s.members);
+  const me = useMemberStore((s) => s.me);
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -300,7 +304,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
                         {`버전 ${arr.length - idx}`}
                       </span>
                       <span className="block text-[11px] text-zinc-400">
-                        변경자 정보는 추후 추가 예정
+                        {formatPageHistoryEditorLine(entry, { members, me })}
                       </span>
                     </span>
                     <span className="shrink-0 text-[11px] text-zinc-400">

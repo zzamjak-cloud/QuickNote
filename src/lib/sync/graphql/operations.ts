@@ -1,7 +1,9 @@
 // 수동 작성 GraphQL operations. infra/lib/sync/schema.graphql 와 일관성 유지.
 export {
   LIST_PAGES,
+  LIST_TRASHED_PAGES,
   ON_PAGE_CHANGED,
+  RESTORE_PAGE,
   SOFT_DELETE_PAGE,
   UPSERT_PAGE,
   type GqlPage,

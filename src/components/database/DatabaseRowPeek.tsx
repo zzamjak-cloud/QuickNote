@@ -9,6 +9,8 @@ import { Editor } from "../editor/Editor";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { PageMoveDialog } from "../layout/PageMoveDialog";
+import { useMemberStore } from "../../store/memberStore";
+import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
@@ -37,6 +39,8 @@ export function DatabaseRowPeek() {
     peekPageId ? s.getPageTimeline(peekPageId) : [],
   );
   const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
+  const members = useMemberStore((s) => s.members);
+  const me = useMemberStore((s) => s.me);
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [width, setWidth] = useState<number>(() => loadPeekWidth());
@@ -302,7 +306,7 @@ export function DatabaseRowPeek() {
                           {`버전 ${arr.length - idx}`}
                         </span>
                         <span className="block text-[11px] text-zinc-400">
-                          변경자 정보는 추후 추가 예정
+                          {formatPageHistoryEditorLine(entry, { members, me })}
                         </span>
                       </span>
                       <span className="shrink-0 text-[11px] text-zinc-400">

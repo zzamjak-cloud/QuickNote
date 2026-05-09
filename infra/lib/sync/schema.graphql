@@ -217,6 +217,8 @@ type Query {
   getWorkspace(workspaceId: ID!): Workspace
 
   listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
+  """삭제 후 보관 기간(30일) 내 페이지만, 삭제 시각 최신순(페이지당 최대 50개·nextToken 연속 조회)"""
+  listTrashedPages(workspaceId: ID!, limit: Int, nextToken: String): PageConnection!
   listDatabases(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): DatabaseConnection!
 
   getImageDownloadUrl(imageId: ID!): String!
@@ -246,6 +248,8 @@ type Mutation {
 
   upsertPage(input: PageInput!): Page!
   softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Page!
+  """휴지통 페이지 복원(deletedAt 제거)"""
+  restorePage(id: ID!, workspaceId: ID!): Page!
   upsertDatabase(input: DatabaseInput!): Database!
   softDeleteDatabase(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Database!
 
@@ -256,7 +260,7 @@ type Mutation {
 # ========== Subscription ==========
 type Subscription {
   onPageChanged(workspaceId: ID!): Page
-    @aws_subscribe(mutations: ["upsertPage", "softDeletePage"])
+    @aws_subscribe(mutations: ["upsertPage", "softDeletePage", "restorePage"])
   onDatabaseChanged(workspaceId: ID!): Database
     @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase"])
 }

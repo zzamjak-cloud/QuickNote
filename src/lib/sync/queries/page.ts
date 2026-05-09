@@ -24,6 +24,21 @@ export const SOFT_DELETE_PAGE = `
   }
 `;
 
+export const LIST_TRASHED_PAGES = `
+  query ListTrashedPages($workspaceId: ID!, $limit: Int, $nextToken: String) {
+    listTrashedPages(workspaceId: $workspaceId, limit: $limit, nextToken: $nextToken) {
+      items { ${PAGE_FIELDS} }
+      nextToken
+    }
+  }
+`;
+
+export const RESTORE_PAGE = `
+  mutation RestorePage($id: ID!, $workspaceId: ID!) {
+    restorePage(id: $id, workspaceId: $workspaceId) { ${PAGE_FIELDS} }
+  }
+`;
+
 export const ON_PAGE_CHANGED = `
   subscription OnPageChanged($workspaceId: ID!) {
     onPageChanged(workspaceId: $workspaceId) { ${PAGE_FIELDS} }

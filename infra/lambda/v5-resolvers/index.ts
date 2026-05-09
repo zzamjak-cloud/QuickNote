@@ -35,6 +35,8 @@ import { searchMembersForMention } from "./handlers/mention";
 import {
   listDatabases,
   listPages,
+  listTrashedPages,
+  restorePage,
   softDeleteDatabase,
   softDeletePage,
   upsertDatabase,
@@ -237,6 +239,13 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           limit: event.arguments.limit as number | undefined,
           nextToken: event.arguments.nextToken as string | undefined,
         });
+      case "listTrashedPages":
+        return await listTrashedPages({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          limit: event.arguments.limit as number | undefined,
+          nextToken: event.arguments.nextToken as string | null | undefined,
+        });
       case "upsertPage":
         return await upsertPage({ ...base, input: event.arguments.input as Record<string, unknown> });
       case "softDeletePage":
@@ -245,6 +254,12 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           id: event.arguments.id as string,
           workspaceId: event.arguments.workspaceId as string,
           updatedAt: event.arguments.updatedAt as string,
+        });
+      case "restorePage":
+        return await restorePage({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
         });
       case "upsertDatabase":
         return await upsertDatabase({ ...base, input: event.arguments.input as Record<string, unknown> });

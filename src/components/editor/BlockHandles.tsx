@@ -630,6 +630,7 @@ export function BlockHandles({
     const insertAt = blockStart + node.nodeSize;
     const tr = editor.state.tr.insert(insertAt, node.copy(node.content));
     editor.view.dispatch(tr.scrollIntoView());
+    editor.view.focus();
     setMenuOpen(false);
   };
 
@@ -673,6 +674,7 @@ export function BlockHandles({
     const { blockStart, node } = hover;
     const tr = editor.state.tr.delete(blockStart, blockStart + node.nodeSize);
     editor.view.dispatch(tr);
+    editor.view.focus();
     setMenuOpen(false);
     setHover(null);
   };

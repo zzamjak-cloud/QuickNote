@@ -19,6 +19,17 @@ import {
   HISTORY_RETENTION_MAX_EVENTS,
   HISTORY_STORE_VERSION,
 } from "../types/history";
+import { useMemberStore } from "./memberStore";
+
+/** 히스토리 이벤트에 붙일 현재 편집자(맴버 스토어 기준) */
+function getPageEventEditorFields(): Pick<
+  PageHistoryEvent,
+  "editedByMemberId" | "editedByName"
+> {
+  const me = useMemberStore.getState().me;
+  if (!me) return {};
+  return { editedByMemberId: me.memberId, editedByName: me.name };
+}
 
 type HistoryState = {
   pageEventsByPageId: Record<string, PageHistoryEvent[]>;
@@ -215,6 +226,8 @@ function groupPageTimeline(ascEvents: PageHistoryEvent[]): HistoryTimelineEntry[
       prev.eventIds.push(ev.id);
       prev.endTs = ev.ts;
       prev.count += 1;
+      prev.lastEditedByMemberId = ev.editedByMemberId ?? prev.lastEditedByMemberId;
+      prev.lastEditedByName = ev.editedByName ?? prev.lastEditedByName;
       continue;
     }
     grouped.push({
@@ -226,6 +239,8 @@ function groupPageTimeline(ascEvents: PageHistoryEvent[]): HistoryTimelineEntry[
       endTs: ev.ts,
       count: 1,
       label: "페이지 변경",
+      lastEditedByMemberId: ev.editedByMemberId,
+      lastEditedByName: ev.editedByName,
     });
   }
   return grouped
@@ -245,6 +260,7 @@ export const useHistoryStore = create<HistoryStore>()(
 
       recordPageEvent: (pageId, kind, patch, anchor) => {
         set((state) => {
+          const editor = getPageEventEditorFields();
           const prev = state.pageEventsByPageId[pageId] ?? [];
           const last = prev[prev.length - 1];
           if (
@@ -258,6 +274,7 @@ export const useHistoryStore = create<HistoryStore>()(
               patch: { ...last.patch, ...patch },
               // coalesce 중에는 anchor를 새로 늘리지 않고 기존 anchor를 유지한다.
               anchor: last.anchor,
+              ...editor,
             };
             const next = trimEventsByRetention([
               ...prev.slice(0, -1),
@@ -274,6 +291,7 @@ export const useHistoryStore = create<HistoryStore>()(
             pageId,
             patch,
             anchor,
+            ...editor,
           };
           const next = trimEventsByRetention([...prev, nextEvent]);
           return {
