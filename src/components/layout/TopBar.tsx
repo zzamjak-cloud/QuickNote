@@ -25,11 +25,7 @@ import { PageMoveDialog } from "./PageMoveDialog";
 export function TopBar() {
   const fullWidth = useSettingsStore((s) => s.fullWidth);
   const toggleFullWidth = useSettingsStore((s) => s.toggleFullWidth);
-  const navBack = useSettingsStore((s) => s.navBack);
-  const canGoBack = useSettingsStore((s) => {
-    const tab = s.tabs[s.activeTabIndex];
-    return (tab?.back?.length ?? 0) > 0;
-  });
+  const navigateToParentPage = usePageStore((s) => s.navigateToParentPage);
   const activeId = usePageStore((s) => s.activePageId);
   const pages = usePageStore((s) => s.pages);
   const setActive = usePageStore((s) => s.setActivePage);
@@ -75,6 +71,11 @@ export function TopBar() {
       cursor = page.parentId;
     }
   }
+
+  const activePage = activeId ? pages[activeId] : undefined;
+  const parentId = activePage?.parentId ?? null;
+  const canGoBack =
+    Boolean(activeId && parentId !== null && pages[parentId ?? ""]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -158,11 +159,11 @@ export function TopBar() {
     <header className="flex h-10 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
       <button
         type="button"
-        onClick={navBack}
+        onClick={() => navigateToParentPage()}
         disabled={!canGoBack}
         className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-30 disabled:cursor-default dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-        aria-label="뒤로가기"
-        title="뒤로가기"
+        aria-label="상위 페이지로 이동"
+        title="상위 페이지로 이동 (루트에서는 비활성)"
       >
         <ChevronLeft size={16} />
       </button>

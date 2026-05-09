@@ -36,6 +36,8 @@ type SettingsActions = {
   setExpanded: (id: string, expanded: boolean) => void;
   // 현재 탭의 pageId만 갱신
   setCurrentTabPage: (pageId: string | null) => void;
+  /** 탭 pageId만 교체 — 방문 이력(back)은 초기화(헤더 부모 이동 등) */
+  replaceCurrentTabPage: (pageId: string | null) => void;
   // 새 탭 열기
   openTab: (pageId: string | null) => void;
   // 특정 탭 닫기
@@ -45,7 +47,6 @@ type SettingsActions = {
   prevTab: () => void;
   nextTab: () => void;
   toggleFullWidth: () => void;
-  navBack: () => void;
 };
 
 export type SettingsStore = SettingsState & SettingsActions;
@@ -125,14 +126,13 @@ export const useSettingsStore = create<SettingsStore>()(
           tabs[s.activeTabIndex] = { pageId, back };
           return { tabs };
         }),
-      navBack: () =>
+      replaceCurrentTabPage: (pageId) =>
         set((s) => {
-          const curTab = s.tabs[s.activeTabIndex];
-          const back = curTab?.back ?? [];
-          if (back.length === 0) return s;
-          const prevPageId = back[back.length - 1]!;
           const tabs = [...s.tabs];
-          tabs[s.activeTabIndex] = { pageId: prevPageId, back: back.slice(0, -1) };
+          const i = s.activeTabIndex;
+          const prev = tabs[i];
+          if ((prev?.pageId ?? null) === pageId) return s;
+          tabs[i] = { pageId, back: [] };
           return { tabs };
         }),
       openTab: (pageId) =>

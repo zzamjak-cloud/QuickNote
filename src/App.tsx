@@ -24,6 +24,9 @@ function App() {
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
   const activeTabIndex = useSettingsStore((s) => s.activeTabIndex);
+  const tabPageId = useSettingsStore(
+    (s) => s.tabs[s.activeTabIndex]?.pageId ?? null,
+  );
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openTab = useSettingsStore((s) => s.openTab);
   const prevTab = useSettingsStore((s) => s.prevTab);
@@ -68,18 +71,13 @@ function App() {
     }
   }, [setCurrentTabPage]);
 
-  // 사용자가 탭을 바꿀 때만: 현재 탭의 pageId → 활성 페이지 (tabs 배열을 deps에 넣으면
-  // 아래 page→tab 효과와 번갈아 가며 무한 루프가 난다.)
+  // 현재 탭의 pageId가 바뀔 때마다(탭 전환·뒤로가기·replaceCurrentTabPage 등) 활성 페이지와 맞춤.
   useEffect(() => {
-    const tabPageId =
-      useSettingsStore.getState().tabs[
-        useSettingsStore.getState().activeTabIndex
-      ]?.pageId ?? null;
     const cur = usePageStore.getState().activePageId;
     if (tabPageId !== cur) {
       setActivePage(tabPageId);
     }
-  }, [activeTabIndex, setActivePage]);
+  }, [tabPageId, activeTabIndex, setActivePage]);
 
   // 사이드바 등으로 활성 페이지만 바뀐 경우: 현재 탭 내용만 갱신
   useEffect(() => {

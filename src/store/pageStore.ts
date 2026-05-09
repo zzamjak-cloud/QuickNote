@@ -103,6 +103,8 @@ type PageStoreActions = {
     options?: { skipHistory?: boolean },
   ) => void;
   setActivePage: (id: string | null) => void;
+  /** 계층 상 부모 페이지로 이동(헤더 뒤로가기). 루트(parentId 없음)면 무시 */
+  navigateToParentPage: () => void;
   reorderPages: (orderedIds: string[]) => void;
   setIcon: (id: string, icon: string | null) => void;
   setCoverImage: (id: string, coverImage: string | null) => void;
@@ -350,6 +352,18 @@ export const usePageStore = create<PageStore>()(
       },
 
       setActivePage: (id) => set({ activePageId: id }),
+
+      navigateToParentPage: () => {
+        const id = get().activePageId;
+        if (!id) return;
+        const page = get().pages[id];
+        const parentId = page?.parentId ?? null;
+        if (parentId === null) return;
+        const parent = get().pages[parentId];
+        if (!parent) return;
+        useSettingsStore.getState().replaceCurrentTabPage(parentId);
+        set({ activePageId: parentId });
+      },
 
       reorderPages: (orderedIds) => {
         const updatedPages: Page[] = [];
