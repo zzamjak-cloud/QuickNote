@@ -54,8 +54,14 @@ export function scrollToOutlineHeadingIndex(index: number): boolean {
  */
 /** 블록 노드 attrs.id 로 스크롤(UniqueID) */
 export function scrollToBlockId(blockId: string): boolean {
+  const foundPos = findBlockPositionById(blockId);
+  if (foundPos === null) return false;
+  return scrollToBlockPosition(foundPos);
+}
+
+export function findBlockPositionById(blockId: string): number | null {
   const editor = activeEditor;
-  if (!editor || editor.isDestroyed) return false;
+  if (!editor || editor.isDestroyed) return null;
   let foundPos: number | null = null;
   editor.state.doc.descendants((node, pos) => {
     const id = node.attrs.id as string | undefined;
@@ -64,8 +70,7 @@ export function scrollToBlockId(blockId: string): boolean {
       return false;
     }
   });
-  if (foundPos === null) return false;
-  return scrollToBlockPosition(foundPos);
+  return foundPos;
 }
 
 export function scrollToBlockPosition(blockPos: number): boolean {

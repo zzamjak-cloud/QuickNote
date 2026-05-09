@@ -19,6 +19,7 @@ export async function loadMergedMentionItems(
 ): Promise<MentionListItem[]> {
   const q = query.trim().toLowerCase();
   const membersLocal = filterWorkspaceMembersForMention(query, 14);
+  const accessibleMemberIds = new Set(membersLocal.map((m) => m.memberId));
   let remoteMembers: Awaited<ReturnType<typeof searchMembersForMentionApi>> = [];
   try {
     remoteMembers = await searchMembersForMentionApi(query, 14);
@@ -42,6 +43,7 @@ export async function loadMergedMentionItems(
     pushMember(m.memberId, m.name, m.jobRole);
   }
   for (const m of remoteMembers) {
+    if (!accessibleMemberIds.has(m.memberId)) continue;
     pushMember(m.memberId, m.name, m.jobRole);
   }
 

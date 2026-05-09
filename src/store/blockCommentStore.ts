@@ -3,6 +3,8 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { zustandStorage } from "../lib/storage/index";
 import { newId } from "../lib/id";
 import { useNotificationStore } from "./notificationStore";
+import { normalizeMentionMemberIds } from "../lib/comments/mentionMemberIds";
+import { usePageStore } from "./pageStore";
 
 /** 블록 스레드 내 단일 댓글 */
 export type BlockCommentMsg = {
@@ -54,13 +56,16 @@ function dispatchNotificationsForMessage(
   priorParticipants: string[],
 ): void {
   const notified = new Set<string>();
+  const pageTitle = usePageStore.getState().pages[msg.pageId]?.title ?? "페이지";
 
-  for (const mid of msg.mentionMemberIds) {
+  for (const mid of normalizeMentionMemberIds(msg.mentionMemberIds)) {
     if (mid === msg.authorMemberId) continue;
     notified.add(mid);
     useNotificationStore.getState().addNotification({
       recipientMemberId: mid,
       kind: "mention",
+      source: "comment",
+      pageTitle,
       pageId: msg.pageId,
       blockId: msg.blockId,
       fromMemberId: msg.authorMemberId,
@@ -76,6 +81,29 @@ function dispatchNotificationsForMessage(
     useNotificationStore.getState().addNotification({
       recipientMemberId: mid,
       kind: "thread_reply",
+      source: "comment",
+      pageTitle,
+      pageId: msg.pageId,
+      blockId: msg.blockId,
+      fromMemberId: msg.authorMemberId,
+      commentId: msg.id,
+      previewBody: msg.bodyText.slice(0, 140),
+    });
+  }
+}
+
+function dispatchNewMentionNotifications(
+  msg: BlockCommentMsg,
+  mentionMemberIds: string[],
+): void {
+  const pageTitle = usePageStore.getState().pages[msg.pageId]?.title ?? "페이지";
+  for (const mid of normalizeMentionMemberIds(mentionMemberIds)) {
+    if (mid === msg.authorMemberId) continue;
+    useNotificationStore.getState().addNotification({
+      recipientMemberId: mid,
+      kind: "mention",
+      source: "comment",
+      pageTitle,
       pageId: msg.pageId,
       blockId: msg.blockId,
       fromMemberId: msg.authorMemberId,
@@ -101,7 +129,7 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
           blockId: input.blockId,
           authorMemberId: input.authorMemberId,
           bodyText: input.bodyText,
-          mentionMemberIds: input.mentionMemberIds,
+          mentionMemberIds: normalizeMentionMemberIds(input.mentionMemberIds),
           parentId: input.parentId,
           createdAt: Date.now(),
         };
@@ -111,17 +139,28 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
       },
       updateMessage: (id, patch) => {
         let ok = false;
+        let updated: BlockCommentMsg | null = null;
+        let newlyMentioned: string[] = [];
         set((s) => ({
           messages: s.messages.map((m) => {
             if (m.id !== id) return m;
             ok = true;
-            return {
+            const prevMentions = new Set(normalizeMentionMemberIds(m.mentionMemberIds));
+            const nextMentions = normalizeMentionMemberIds(patch.mentionMemberIds);
+            newlyMentioned = nextMentions.filter((mid) => !prevMentions.has(mid));
+            updated = {
               ...m,
               bodyText: patch.bodyText,
-              mentionMemberIds: patch.mentionMemberIds,
+              mentionMemberIds: nextMentions,
+            };
+            return {
+              ...updated,
             };
           }),
         }));
+        if (updated && newlyMentioned.length > 0) {
+          dispatchNewMentionNotifications(updated, newlyMentioned);
+        }
         return ok;
       },
       deleteMessage: (id) =>

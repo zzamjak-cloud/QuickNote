@@ -14,14 +14,21 @@ import { enqueueAsync } from "../lib/sync/runtime";
 import { useAuthStore } from "./authStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import { useSettingsStore } from "./settingsStore";
+import { useMemberStore } from "./memberStore";
+import { useNotificationStore } from "./notificationStore";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
+import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
 
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
 // 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
 function getCreatedByMemberId(): string {
   const s = useAuthStore.getState().state;
   return s.status === "authenticated" ? s.user.sub : "";
+}
+
+function getCurrentMemberId(): string {
+  return useMemberStore.getState().me?.memberId ?? getCreatedByMemberId();
 }
 
 function getCurrentWorkspaceId(): string {
@@ -61,6 +68,107 @@ function enqueueUpsertPage(p: Page): void {
       updatedAt?: string;
     },
   );
+}
+
+function jsonText(node: JSONContent | null | undefined): string {
+  if (!node) return "";
+  if (node.type === "mention") {
+    return "";
+  }
+  const own = typeof node.text === "string" ? node.text : "";
+  const child = node.content?.map(jsonText).join(" ") ?? "";
+  return `${own} ${child}`.replace(/\s+/g, " ").trim();
+}
+
+function blockPreviewById(doc: JSONContent, blockId: string): string {
+  let found = "";
+  const walk = (node: JSONContent | null | undefined): boolean => {
+    if (!node) return false;
+    if (node.attrs && node.attrs.id === blockId) {
+      found = jsonText(node);
+      return true;
+    }
+    for (const child of node.content ?? []) {
+      if (walk(child)) return true;
+    }
+    return false;
+  };
+  walk(doc);
+  return found;
+}
+
+function notifyNewPageMentions(pageId: string, before: JSONContent, after: JSONContent): void {
+  const authorMemberId = getCurrentMemberId();
+  if (!authorMemberId) return;
+  const page = usePageStore.getState().pages[pageId];
+
+  const beforeHits = extractMentionMemberHitsFromDoc(before).filter(
+    (hit) => hit.blockId,
+  );
+  const afterHits = extractMentionMemberHitsFromDoc(after).filter(
+    (hit) => hit.blockId,
+  );
+  const keyOf = (hit: { memberId: string; blockId: string | null }) =>
+    `${hit.memberId}:${hit.blockId ?? ""}`;
+  const beforeKeys = new Set(beforeHits.map(keyOf));
+  const afterKeys = new Set(afterHits.map(keyOf));
+
+  for (const hit of beforeHits) {
+    if (!hit.blockId) continue;
+    if (afterKeys.has(keyOf(hit))) continue;
+    useNotificationStore
+      .getState()
+      .removeNotificationByCommentId(
+        `page:${pageId}:block:${hit.blockId}:member:${hit.memberId}`,
+      );
+  }
+
+  const notified = new Set<string>();
+  for (const hit of afterHits) {
+    if (!hit.blockId) continue;
+    const key = `${hit.memberId}:${hit.blockId}`;
+    const commentId = `page:${pageId}:block:${hit.blockId}:member:${hit.memberId}`;
+    const previewBody = blockPreviewById(after, hit.blockId);
+    if (beforeKeys.has(key)) {
+      const beforePreviewBody = blockPreviewById(before, hit.blockId);
+      const notificationStore = useNotificationStore.getState();
+      const existing = notificationStore.items.some(
+        (item) => item.commentId === commentId,
+      );
+      if (existing) {
+        notificationStore.updateNotificationByCommentId(commentId, {
+          pageTitle: page?.title ?? "페이지",
+          previewBody,
+        });
+      } else if (beforePreviewBody !== previewBody) {
+        notificationStore.addNotification({
+          recipientMemberId: hit.memberId,
+          kind: "mention",
+          source: "page",
+          pageTitle: page?.title ?? "페이지",
+          pageId,
+          blockId: hit.blockId,
+          fromMemberId: authorMemberId,
+          commentId,
+          previewBody,
+        });
+      }
+      continue;
+    }
+    if (notified.has(key)) continue;
+    notified.add(key);
+    useNotificationStore.getState().addNotification({
+      recipientMemberId: hit.memberId,
+      kind: "mention",
+      source: "page",
+      pageTitle: page?.title ?? "페이지",
+      pageId,
+      blockId: hit.blockId,
+      fromMemberId: authorMemberId,
+      commentId,
+      previewBody,
+    });
+  }
 }
 
 const EMPTY_DOC: JSONContent = {
@@ -331,6 +439,7 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[id];
         if (before && after) {
+          notifyNewPageMentions(id, before.doc, after.doc);
           const skipHistory = options?.skipHistory === true;
           if (!skipHistory) {
             const hs = useHistoryStore.getState();

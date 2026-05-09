@@ -93,7 +93,10 @@ export function BlockCommentThreadPanel({ editor }: Props) {
       setAnchor(null);
       return;
     }
-    const start = findBlockStartById(editor, payload.blockId);
+    const start =
+      payload.blockStart > 0
+        ? payload.blockStart
+        : findBlockStartById(editor, payload.blockId);
     if (start === null) {
       setAnchor(null);
       return;

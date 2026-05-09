@@ -26,12 +26,12 @@ beforeEach(() => {
 });
 
 describe("applyWorkspaceSwitch", () => {
-  it("초기 마운트(prev=null)에서는 캐시를 유지한다", async () => {
+  it("초기 마운트(prev=null)에서도 stale 혼입 방지를 위해 캐시를 클리어한다", async () => {
     usePageStore.getState().createPage("a");
     const result = await applyWorkspaceSwitch(null, "ws-1");
-    expect(result.cleared).toBe(false);
-    expect(result.reason).toBe("initial-mount");
-    expect(Object.keys(usePageStore.getState().pages).length).toBe(1);
+    expect(result.cleared).toBe(true);
+    expect(result.reason).toBe("switched");
+    expect(Object.keys(usePageStore.getState().pages).length).toBe(0);
   });
 
   it("동일 워크스페이스 ID 일 때는 캐시를 유지한다", async () => {

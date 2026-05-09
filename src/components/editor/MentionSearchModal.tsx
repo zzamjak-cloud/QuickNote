@@ -12,8 +12,16 @@ import {
   loadMergedMentionItems,
   type MentionListItem,
 } from "../../lib/comments/mentionItems";
+import { ensureBlockId } from "../../lib/comments/ensureBlockId";
+import { useMemberStore } from "../../store/memberStore";
+import { useUiStore } from "../../store/uiStore";
 
 type Range = { from: number; to: number };
+type MentionGroup = {
+  kind: MentionListItem["mentionKind"];
+  label: string;
+  rows: Array<{ item: MentionListItem; index: number }>;
+};
 
 type Props = {
   open: boolean;
@@ -28,10 +36,24 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
   const [items, setItems] = useState<MentionListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(0);
+  const groups: MentionGroup[] = [
+    { kind: "member", label: "구성원", rows: [] },
+    { kind: "page", label: "페이지", rows: [] },
+    { kind: "database", label: "데이터베이스", rows: [] },
+  ];
+  items.forEach((item, index) => {
+    groups.find((group) => group.kind === item.mentionKind)?.rows.push({
+      item,
+      index,
+    });
+  });
+  const visibleGroups = groups.filter((group) => group.rows.length > 0);
 
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setItems([]);
+    setLoading(false);
     setSelected(0);
     const t = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(t);
@@ -39,6 +61,12 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
 
   useEffect(() => {
     if (!open) return;
+    if (!query.trim()) {
+      setItems([]);
+      setLoading(false);
+      setSelected(0);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     void loadMergedMentionItems(query, 24).then((rows) => {
@@ -58,6 +86,27 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
       if (!editor || editor.isDestroyed || !range) {
         onClose();
         return;
+      }
+      if (item.mentionKind === "member") {
+        const memberId = item.id.startsWith("m:") ? item.id.slice(2) : item.id;
+        const member = useMemberStore
+          .getState()
+          .members.find((m) => m.memberId === memberId && m.status === "active");
+        if (!member) {
+          useUiStore.getState().showToast(
+            `${item.label}님은 워크스페이스 접근 권한이 없어서 멘션할 수 없습니다.`,
+            { kind: "error" },
+          );
+          onClose();
+          return;
+        }
+      }
+      const $from = editor.state.doc.resolve(range.from);
+      for (let depth = $from.depth; depth > 0; depth--) {
+        if ($from.node(depth).isBlock) {
+          ensureBlockId(editor, $from.before(depth));
+          break;
+        }
       }
       editor
         .chain()
@@ -141,29 +190,40 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
         <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-100 dark:border-zinc-700">
           {loading ? (
             <div className="px-3 py-6 text-center text-xs text-zinc-500">불러오는 중…</div>
+          ) : !query.trim() ? (
+            <div className="px-3 py-6 text-center text-xs text-zinc-500">
+              검색어를 입력하세요.
+            </div>
           ) : items.length === 0 ? (
             <div className="px-3 py-6 text-center text-xs text-zinc-500">
               일치하는 항목이 없습니다.
             </div>
           ) : (
-            items.map((it, idx) => (
-              <button
-                key={`${it.id}-${idx}`}
-                type="button"
-                onMouseEnter={() => setSelected(idx)}
-                onClick={() => insert(it)}
-                className={[
-                  "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm",
-                  idx === selected
-                    ? "bg-zinc-100 dark:bg-zinc-800"
-                    : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60",
-                ].join(" ")}
-              >
-                <span className="min-w-0 truncate font-medium text-zinc-900 dark:text-zinc-100">
-                  {it.label}
-                </span>
-                <span className="shrink-0 text-[10px] text-zinc-500">{it.subtitle}</span>
-              </button>
+            visibleGroups.map((group) => (
+              <div key={group.kind} className="border-b border-zinc-100 last:border-0 dark:border-zinc-800">
+                <div className="bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                  {group.label}
+                </div>
+                {group.rows.map(({ item, index }) => (
+                  <button
+                    key={`${item.id}-${index}`}
+                    type="button"
+                    onMouseEnter={() => setSelected(index)}
+                    onClick={() => insert(item)}
+                    className={[
+                      "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm",
+                      index === selected
+                        ? "bg-blue-50 dark:bg-blue-950/50"
+                        : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60",
+                    ].join(" ")}
+                  >
+                    <span className="min-w-0 truncate font-medium text-zinc-900 dark:text-zinc-100">
+                      {item.label}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-zinc-500">{item.subtitle}</span>
+                  </button>
+                ))}
+              </div>
             ))
           )}
         </div>

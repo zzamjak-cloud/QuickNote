@@ -8,12 +8,12 @@ import { getSyncEngine } from "./runtime";
 //
 // 안전 장치: outbox 에 미전송 mutation 이 있으면 클리어를 보류한다.
 // 그렇지 않으면 서버에 도달하지 못한 새 페이지가 영구 손실된다.
-// 초기 마운트(prev=null) 또는 동일 ID 일 때는 첫 페인트 캐시를 유지한다.
+// 초기 마운트(prev=null)에서도 stale 캐시 혼입을 막기 위해 클리어를 허용한다.
 export async function applyWorkspaceSwitch(
   prev: string | null,
   next: string | null,
 ): Promise<{ cleared: boolean; reason: string; pending: number }> {
-  if (prev === null) return { cleared: false, reason: "initial-mount", pending: 0 };
+  if (!next) return { cleared: false, reason: "missing-next-workspace", pending: 0 };
   if (prev === next) return { cleared: false, reason: "same-workspace", pending: 0 };
   let pending = 0;
   try {

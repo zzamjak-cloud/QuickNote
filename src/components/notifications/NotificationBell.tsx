@@ -7,24 +7,57 @@ import { useMemberStore } from "../../store/memberStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
-import { scrollToBlockId } from "../../lib/editor/editorNavigationBridge";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import {
+  findBlockPositionById,
+  scrollToBlockId,
+} from "../../lib/editor/editorNavigationBridge";
 import { computeDropdownBelowAnchor } from "../../lib/ui/clampFloatingPanel";
 
 const PANEL_W = 320;
 /** 헤더+목록 근사 높이 — 위치 클램프용 */
 const EST_PANEL_H = 340;
+const NAV_RETRY_MS = 80;
+const NAV_MAX_ATTEMPTS = 35;
+
+function afterStableLayout(fn: () => void): void {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      window.setTimeout(fn, 40);
+    });
+  });
+}
+
+function focusNotificationTarget(
+  blockId: string,
+  onFocused: (blockStart: number) => void,
+  attempt = 0,
+): void {
+  const blockStart = findBlockPositionById(blockId);
+  if (blockStart !== null && scrollToBlockId(blockId)) {
+    onFocused(blockStart);
+    return;
+  }
+  if (attempt >= NAV_MAX_ATTEMPTS) return;
+  window.setTimeout(
+    () => focusNotificationTarget(blockId, onFocused, attempt + 1),
+    NAV_RETRY_MS,
+  );
+}
 
 export function NotificationBell() {
   const me = useMemberStore((s) => s.me);
   const members = useMemberStore((s) => s.members);
-  const listForMember = useNotificationStore((s) => s.listForMember);
-  const unreadCountForMember = useNotificationStore((s) => s.unreadCountForMember);
+  const notificationItems = useNotificationStore((s) => s.items);
   const markRead = useNotificationStore((s) => s.markRead);
   const removeNotification = useNotificationStore((s) => s.removeNotification);
   const markAllReadForMember = useNotificationStore((s) => s.markAllReadForMember);
 
   const setActivePage = usePageStore((s) => s.setActivePage);
+  const pages = usePageStore((s) => s.pages);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
 
   const open = useUiStore((s) => s.notificationCenterOpen);
   const toggleNotificationCenter = useUiStore((s) => s.toggleNotificationCenter);
@@ -36,8 +69,12 @@ export function NotificationBell() {
   const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
 
   const memberId = me?.memberId;
-  const items = memberId ? listForMember(memberId) : [];
-  const unread = memberId ? unreadCountForMember(memberId) : 0;
+  const items = memberId
+    ? notificationItems
+        .filter((x) => x.recipientMemberId === memberId || x.recipientMemberId === `m:${memberId}`)
+        .sort((a, b) => b.createdAt - a.createdAt)
+    : [];
+  const unread = items.filter((x) => !x.read).length;
 
   const reposition = useCallback((): void => {
     const el = bellRef.current;
@@ -77,6 +114,12 @@ export function NotificationBell() {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
       const t = e.target as Node;
+      if (
+        t instanceof HTMLElement &&
+        t.closest("[data-qn-notification-panel], [data-qn-notification-bell]")
+      ) {
+        return;
+      }
       if (panelRef.current?.contains(t)) return;
       const bell = bellRef.current;
       if (bell?.contains(t)) return;
@@ -89,22 +132,67 @@ export function NotificationBell() {
   if (!memberId) return null;
 
   const nameOf = (id: string) => members.find((m) => m.memberId === id)?.name ?? "구성원";
+  const notificationWorkspaceLabel = (n: (typeof items)[number]) =>
+    n.workspaceName ? `(${n.workspaceName})` : "";
+  const metaLabelOf = (n: (typeof items)[number]) => {
+    if (n.kind === "thread_reply") return "답글";
+    if (n.source === "page") return "페이지 멘션";
+    return "댓글 멘션";
+  };
+  const pageTitleOf = (n: (typeof items)[number]) =>
+    n.pageTitle || pages[n.pageId]?.title || "페이지";
+
+  const commentBadgeAnchorFor = (blockId: string) => {
+    const escaped =
+      typeof CSS !== "undefined" && CSS.escape
+        ? CSS.escape(blockId)
+        : blockId.replace(/["\\]/g, "\\$&");
+    const el = document.querySelector<HTMLElement>(
+      `[data-qn-comment-badge-block-id="${escaped}"]`,
+    );
+    if (!el) return undefined;
+    const r = el.getBoundingClientRect();
+    return { top: r.top, left: r.left, right: r.right, bottom: r.bottom };
+  };
 
   const onNavigate = (id: string) => {
     const n = useNotificationStore.getState().items.find((x) => x.id === id);
     if (!n) return;
     markRead(n.id);
     closeNotificationCenter();
-    setActivePage(n.pageId);
-    setCurrentTabPage(n.pageId);
-    window.setTimeout(() => {
-      scrollToBlockId(n.blockId);
-      openCommentThread({
-        pageId: n.pageId,
-        blockId: n.blockId,
-        blockStart: 0,
+    if (n.workspaceId && n.workspaceId !== currentWorkspaceId) {
+      setCurrentWorkspaceId(n.workspaceId);
+      setCurrentTabPage(null);
+    }
+
+    const navigateWhenReady = (attempt = 0): void => {
+      const pageReady = Boolean(usePageStore.getState().pages[n.pageId]);
+      if (!pageReady) {
+        if (attempt < NAV_MAX_ATTEMPTS) {
+          window.setTimeout(() => navigateWhenReady(attempt + 1), NAV_RETRY_MS);
+        }
+        return;
+      }
+      setCurrentTabPage(n.pageId);
+      setActivePage(n.pageId);
+      afterStableLayout(() => {
+        focusNotificationTarget(n.blockId, (blockStart) => {
+          afterStableLayout(() => {
+            focusNotificationTarget(n.blockId, (stableBlockStart) => {
+              if (n.source !== "page") {
+                openCommentThread({
+                  pageId: n.pageId,
+                  blockId: n.blockId,
+                  blockStart: stableBlockStart || blockStart,
+                  anchorViewport: commentBadgeAnchorFor(n.blockId),
+                });
+              }
+            });
+          });
+        });
       });
-    }, 80);
+    };
+    window.setTimeout(() => navigateWhenReady(), 0);
   };
 
   return (
@@ -129,6 +217,7 @@ export function NotificationBell() {
       {open && panelPos ? (
         <div
           ref={panelRef}
+          data-qn-notification-panel
           className="fixed z-[300] w-80 max-w-[calc(100vw-16px)] rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
           style={{ top: panelPos.top, left: panelPos.left, width: PANEL_W }}
           role="menu"
@@ -164,9 +253,14 @@ export function NotificationBell() {
                   <button
                     type="button"
                     className="min-w-0 flex-1 text-left"
-                    onClick={() => onNavigate(n.id)}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onNavigate(n.id);
+                    }}
+                    onClick={(e) => e.preventDefault()}
                   >
-                    <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
                       <span
                         className={[
                           "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
@@ -177,9 +271,17 @@ export function NotificationBell() {
                       <span className="font-medium text-zinc-700 dark:text-zinc-200">
                         {nameOf(n.fromMemberId)}
                       </span>
-                      <span className="text-zinc-400">
-                        {n.kind === "mention" ? "멘션" : "답글"}
+                      <span className="min-w-0 truncate text-zinc-500">
+                        {pageTitleOf(n)}
                       </span>
+                      {notificationWorkspaceLabel(n) ? (
+                        <span className="shrink-0 text-zinc-400">
+                          {notificationWorkspaceLabel(n)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-0.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                      {metaLabelOf(n)}
                     </div>
                     <p className="mt-0.5 line-clamp-2 text-xs text-zinc-800 dark:text-zinc-100">
                       {n.previewBody}
@@ -190,10 +292,12 @@ export function NotificationBell() {
                     className="shrink-0 self-start rounded p-1 text-zinc-400 opacity-0 hover:bg-zinc-100 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-zinc-800"
                     aria-label="알림 삭제"
                     title="삭제"
-                    onClick={(e) => {
+                    onPointerDown={(e) => {
+                      e.preventDefault();
                       e.stopPropagation();
                       removeNotification(n.id);
                     }}
+                    onClick={(e) => e.preventDefault()}
                   >
                     <Trash2 size={14} />
                   </button>

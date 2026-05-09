@@ -990,6 +990,7 @@ export function BlockHandles({
       {pinnedCommentBadges.map((pin) => (
         <div
           key={pin.key}
+          data-qn-comment-badge-block-id={pin.blockId}
           className="pointer-events-auto absolute z-30 flex items-start"
           style={{ top: pin.top, left: pin.commentLeft }}
         >

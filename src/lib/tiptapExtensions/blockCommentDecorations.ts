@@ -3,6 +3,8 @@ import type { Editor } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
+import { useMemberStore } from "../../store/memberStore";
+import { usePageStore } from "../../store/pageStore";
 
 export const blockCommentDecoKey = new PluginKey("qn-block-comment-deco");
 
@@ -21,10 +23,12 @@ export function createBlockCommentDecorations(
           key: blockCommentDecoKey,
           props: {
             decorations(state) {
-              if (!pid) return null;
+              const currentPageId = pid ?? usePageStore.getState().activePageId ?? undefined;
+              if (!currentPageId) return null;
+              const currentMemberId = myId ?? useMemberStore.getState().me?.memberId;
               const hasUnread = useBlockCommentStore.getState().hasUnreadFromOthers;
               const messages = useBlockCommentStore.getState().messages.filter(
-                (m) => m.pageId === pid,
+                (m) => m.pageId === currentPageId,
               );
               const countBy = new Map<string, number>();
               for (const m of messages) {
@@ -37,8 +41,8 @@ export function createBlockCommentDecorations(
                 if (!id) return;
                 const n = countBy.get(id) ?? 0;
                 const unread =
-                  !!myId &&
-                  hasUnread(pid, id, myId);
+                  !!currentMemberId &&
+                  hasUnread(currentPageId, id, currentMemberId);
                 if (n === 0 && !unread) return;
                 const classes = [
                   n > 0 ? "qn-block-has-comments" : "",

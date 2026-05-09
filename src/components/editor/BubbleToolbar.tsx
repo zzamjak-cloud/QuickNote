@@ -164,7 +164,7 @@ export function BubbleToolbar({ editor }: Props) {
 
   return (
     <div
-      className="fixed z-40 -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-1 py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+      className="fixed z-[390] -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-1 py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       style={{ top: pos.top, left: pos.left }}
       onPointerDownCapture={(e) => {
         const t = e.target as HTMLElement;
@@ -172,6 +172,7 @@ export function BubbleToolbar({ editor }: Props) {
           return;
         }
         e.preventDefault();
+        e.stopPropagation();
       }}
     >
       <div className="flex items-center gap-0.5">
@@ -297,7 +298,21 @@ function ToolbarBtn({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onClick={(e) => e.preventDefault()}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onClick();
+      }}
       title={title}
       className={[
         "flex h-7 w-7 items-center justify-center rounded text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
@@ -322,7 +337,16 @@ function ColorPalette({
         <button
           key={it.label}
           type="button"
-          onClick={() => onPick(it.value)}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onPick(it.value);
+          }}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={(e) => e.preventDefault()}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-zinc-200 text-[10px] hover:scale-105 dark:border-zinc-700"
           style={{ background: it.value ?? "transparent" }}
           title={it.label}
