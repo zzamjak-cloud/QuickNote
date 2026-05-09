@@ -25,7 +25,9 @@ import {
 import { usePageStore } from "../../../store/pageStore";
 import { useUiStore } from "../../../store/uiStore";
 import { isTrustedYoutubeInput } from "../../safeUrl";
+import { clearSlashRange, runSlashCommand } from "./commandHelpers";
 import { dbSlashChildren } from "./dbCommands";
+import { slashCategory, slashLeaf } from "./entryBuilders";
 import type { SlashCommandContext, SlashMenuEntry } from "./types";
 
 function countProtectedMediaBlocks(node: unknown): number {
@@ -59,10 +61,7 @@ function countProtectedMediaBlocks(node: unknown): number {
   );
 }
 
-function runColumnLayoutCommand(
-  editor: SlashCommandContext["editor"],
-  cols: 2 | 3 | 4,
-) {
+function runColumnLayoutCommand(editor: SlashCommandContext["editor"]) {
   const before = editor.getJSON();
   const beforeMediaCount = countProtectedMediaBlocks(before);
   const chain = editor.chain().focus();
@@ -76,7 +75,7 @@ function runColumnLayoutCommand(
       chain.deleteRange({ from, to });
     }
   }
-  const ok = chain.setColumnLayout(cols).run();
+  const ok = chain.setColumnLayout(2).run();
   if (!ok) return false;
   const after = editor.getJSON();
   const afterMediaCount = countProtectedMediaBlocks(after);
@@ -102,8 +101,7 @@ function runTabBlockCommand(
 }
 
 export const slashMenuEntries: SlashMenuEntry[] = [
-  {
-    kind: "category",
+  slashCategory({
     title: "DB",
     description: "데이터베이스 삽입",
     icon: DatabaseIcon,
@@ -120,133 +118,112 @@ export const slashMenuEntries: SlashMenuEntry[] = [
       "타임라인",
     ],
     children: dbSlashChildren,
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "탭",
     description: "탭으로 구분된 컨텐츠 블록",
     icon: PanelTop,
     keywords: ["tabs", "tab", "탭", "tab block"],
     command: ({ editor }) => runTabBlockCommand(editor, "top"),
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "본문",
     description: "일반 텍스트 단락",
     icon: Pilcrow,
     keywords: ["paragraph", "text", "본문", "단락"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setParagraph().run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.setParagraph()),
+  }),
+  slashLeaf({
     title: "제목 1",
     description: "큰 섹션 제목",
     icon: Heading1,
     keywords: ["heading1", "h1", "제목", "title"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setHeading({ level: 1 }).run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) => chain.setHeading({ level: 1 })),
+  }),
+  slashLeaf({
     title: "제목 2",
     description: "중간 섹션 제목",
     icon: Heading2,
     keywords: ["heading2", "h2", "subheading"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setHeading({ level: 2 }).run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) => chain.setHeading({ level: 2 })),
+  }),
+  slashLeaf({
     title: "제목 3",
     description: "작은 섹션 제목",
     icon: Heading3,
     keywords: ["heading3", "h3"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setHeading({ level: 3 }).run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) => chain.setHeading({ level: 3 })),
+  }),
+  slashLeaf({
     title: "글머리 기호 목록",
     description: "• 단순 목록",
     icon: List,
     keywords: ["bullet", "list", "ul", "글머리"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).toggleBulletList().run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.toggleBulletList()),
+  }),
+  slashLeaf({
     title: "번호 목록",
     description: "1. 순서 있는 목록",
     icon: ListOrdered,
     keywords: ["ordered", "numbered", "list", "ol", "번호"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).toggleOrderedList().run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.toggleOrderedList()),
+  }),
+  slashLeaf({
     title: "할 일",
     description: "체크박스 목록",
     icon: CheckSquare,
     keywords: ["todo", "task", "check", "할 일", "체크"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).toggleTaskList().run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.toggleTaskList()),
+  }),
+  slashLeaf({
     title: "코드 블록",
     description: "구문 강조 코드",
     icon: Code2,
     keywords: ["code", "코드", "snippet"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.toggleCodeBlock()),
+  }),
+  slashLeaf({
     title: "인용",
     description: "강조 인용 단락",
     icon: Quote,
     keywords: ["quote", "blockquote", "인용"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.toggleBlockquote()),
+  }),
+  slashLeaf({
     title: "구분선",
     description: "수평선 추가",
     icon: Minus,
     keywords: ["divider", "hr", "horizontal", "구분"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHorizontalRule()),
+  }),
+  slashLeaf({
     title: "이미지",
     description: "이미지 업로드",
     icon: ImageIcon,
     keywords: ["image", "이미지", "사진"],
-    command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).run();
+    command: (ctx) => {
+      clearSlashRange(ctx);
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent("quicknote:open-image-upload"));
       }, 0);
     },
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "이모지",
     description: "이모지 아이콘 삽입",
     icon: Smile,
     keywords: ["emoji", "이모지", "아이콘", "icon", "emoticon"],
-    command: ({ editor, range }) => {
-      editor.chain().focus().deleteRange(range).run();
+    command: (ctx) => {
+      clearSlashRange(ctx);
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent("quicknote:open-emoji-picker"));
       }, 0);
     },
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "새 페이지",
     description: "현재 페이지의 하위 페이지를 추가하고 멘션 삽입",
     icon: FileText,
@@ -272,101 +249,82 @@ export const slashMenuEntries: SlashMenuEntry[] = [
         usePageStore.getState().setActivePage(newId);
       }, 0);
     },
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "표",
     description: "3 × 3 표 삽입",
     icon: TableIcon,
     keywords: ["table", "grid", "표", "테이블"],
-    command: ({ editor, range }) =>
-      editor
-        .chain()
-        .focus()
-        .deleteRange(range)
-        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-        .run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) =>
+        chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }),
+      ),
+  }),
+  slashLeaf({
     title: "버튼",
     description: "링크 버튼 삽입",
     icon: Link,
     keywords: ["button", "link", "버튼", "링크", "url"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).insertButtonBlock("버튼", "").run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) => chain.insertButtonBlock("버튼", "")),
+  }),
+  slashLeaf({
     title: "콜아웃",
     description: "💡 강조 박스",
     icon: Lightbulb,
     keywords: ["callout", "info", "tip", "강조", "콜아웃"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setCallout("idea").run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.setCallout("idea")),
+  }),
+  slashLeaf({
     title: "토글",
     description: "접고 펼 수 있는 블록",
     icon: ChevronRight,
     keywords: ["toggle", "details", "collapse", "토글", "접기"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setToggle().run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.setToggle()),
+  }),
+  slashLeaf({
     title: "제목 토글 목록 1",
     description: "큰 제목 스타일 토글",
     icon: Heading1,
     keywords: ["toggle h1", "토글 제목1", "heading toggle 1"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setHeadingToggle(1).run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHeadingToggle(1)),
+  }),
+  slashLeaf({
     title: "제목 토글 목록 2",
     description: "중간 제목 스타일 토글",
     icon: Heading2,
     keywords: ["toggle h2", "토글 제목2", "heading toggle 2"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setHeadingToggle(2).run(),
-  },
-  {
-    kind: "leaf",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHeadingToggle(2)),
+  }),
+  slashLeaf({
     title: "제목 토글 목록 3",
     description: "작은 제목 스타일 토글",
     icon: Heading3,
     keywords: ["toggle h3", "토글 제목3", "heading toggle 3"],
-    command: ({ editor, range }) =>
-      editor.chain().focus().deleteRange(range).setHeadingToggle(3).run(),
-  },
-  {
-    kind: "leaf",
-    title: "2개의 열",
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHeadingToggle(3)),
+  }),
+  slashLeaf({
+    title: "컬럼",
     description: "나란히 두 열 레이아웃",
     icon: LayoutGrid,
-    keywords: ["columns", "2 col", "두 열", "2열", "column"],
-    command: ({ editor }) => runColumnLayoutCommand(editor, 2),
-  },
-  {
-    kind: "leaf",
-    title: "3개의 열",
-    description: "세 열 레이아웃",
-    icon: LayoutGrid,
-    keywords: ["3 col", "세 열", "3열"],
-    command: ({ editor }) => runColumnLayoutCommand(editor, 3),
-  },
-  {
-    kind: "leaf",
-    title: "4개의 열",
-    description: "네 열 레이아웃",
-    icon: LayoutGrid,
-    keywords: ["4 col", "네 열", "4열"],
-    command: ({ editor }) => runColumnLayoutCommand(editor, 4),
-  },
-  {
-    kind: "leaf",
+    keywords: [
+      "columns",
+      "column",
+      "열",
+      "레이아웃",
+      "2 col",
+      "3 col",
+      "4 col",
+      "두 열",
+      "세 열",
+      "네 열",
+      "2열",
+      "3열",
+      "4열",
+    ],
+    command: ({ editor }) => runColumnLayoutCommand(editor),
+  }),
+  slashLeaf({
     title: "유튜브 임베드",
     description: "YouTube URL 삽입",
     icon: YoutubeIcon,
@@ -384,9 +342,8 @@ export const slashMenuEntries: SlashMenuEntry[] = [
         }
       })();
     },
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "페이지 링크",
     description: "다른 페이지 멘션 (@)",
     icon: AtSign,
@@ -398,5 +355,5 @@ export const slashMenuEntries: SlashMenuEntry[] = [
         editor.view.dispatch(editor.state.tr.insertText("@", from));
       }, 0);
     },
-  },
+  }),
 ];

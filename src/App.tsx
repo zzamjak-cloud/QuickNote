@@ -10,6 +10,7 @@ import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { AutoUpdateDialog } from "./components/ui/AutoUpdateDialog";
 import { ToastViewport } from "./components/ui/ToastViewport";
+import { WorkspaceSyncBanner } from "./components/sync/WorkspaceSyncBanner";
 import { AuthGate } from "./components/auth/AuthGate";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore } from "./store/pageStore";
@@ -168,8 +169,9 @@ function App() {
     <AuthGate>
       <div className="flex h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
         {sidebarCollapsed ? <SidebarCollapsedRail /> : <Sidebar />}
-        <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <TabBar />
+          <WorkspaceSyncBanner />
           <TopBar />
           {activePage?.databaseId ? (
             <div className="flex-1 overflow-y-auto">

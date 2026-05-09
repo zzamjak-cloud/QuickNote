@@ -11,7 +11,8 @@ import { usePageStore } from "../../../store/pageStore";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { emptyPanelState } from "../../../types/database";
 import type { DatabaseLayout, ViewKind } from "../../../types/database";
-import { scheduleEditorMutation } from "../../pm/scheduleEditorMutation";
+import { scheduleSlashMutation } from "./commandHelpers";
+import { slashLeaf } from "./entryBuilders";
 import type { SlashLeafItem } from "./types";
 
 export function insertDatabaseBlock(
@@ -19,13 +20,11 @@ export function insertDatabaseBlock(
   range: Range,
   opts: { layout: DatabaseLayout; view: ViewKind },
 ): void {
-  const from = range.from;
-  const to = range.to;
-  scheduleEditorMutation(() => {
+  scheduleSlashMutation(range, (stableRange) => {
     editor
       .chain()
       .focus()
-      .deleteRange({ from, to })
+      .deleteRange(stableRange)
       .insertContent({
         type: "databaseBlock",
         attrs: {
@@ -45,9 +44,7 @@ export function insertFullPageDatabase(
   view: ViewKind,
 ): void {
   const seedTitle = "새 데이터베이스";
-  const from = range.from;
-  const to = range.to;
-  scheduleEditorMutation(() => {
+  scheduleSlashMutation(range, (stableRange) => {
     const dbStore = useDatabaseStore.getState();
     const dbId = dbStore.createDatabase(seedTitle);
     const actualTitle = dbStore.databases[dbId]?.meta.title ?? seedTitle;
@@ -71,7 +68,7 @@ export function insertFullPageDatabase(
     editor
       .chain()
       .focus()
-      .deleteRange({ from, to })
+      .deleteRange(stableRange)
       .insertContent({
         type: "pageLink",
         attrs: { id: pageId, label: actualTitle },
@@ -83,17 +80,15 @@ export function insertFullPageDatabase(
 }
 
 export const dbSlashChildren: SlashLeafItem[] = [
-  {
-    kind: "leaf",
+  slashLeaf({
     title: "전체 페이지",
     description: "새 페이지에 데이터베이스만 표시",
     icon: PanelTop,
     keywords: ["full", "page", "전체", "페이지"],
     command: ({ editor, range }) =>
       insertFullPageDatabase(editor, range, "table"),
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "인라인",
     description: "현재 페이지에 블록 삽입",
     icon: IndentIncrease,
@@ -103,9 +98,8 @@ export const dbSlashChildren: SlashLeafItem[] = [
         layout: "inline",
         view: "table",
       }),
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "표",
     description: "표 보기 데이터베이스",
     icon: Table2,
@@ -115,9 +109,8 @@ export const dbSlashChildren: SlashLeafItem[] = [
         layout: "inline",
         view: "table",
       }),
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "칸반 보드",
     description: "보드 보기",
     icon: Kanban,
@@ -127,9 +120,8 @@ export const dbSlashChildren: SlashLeafItem[] = [
         layout: "inline",
         view: "kanban",
       }),
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "갤러리",
     description: "갤러리 카드 보기",
     icon: GalleryHorizontal,
@@ -139,9 +131,8 @@ export const dbSlashChildren: SlashLeafItem[] = [
         layout: "inline",
         view: "gallery",
       }),
-  },
-  {
-    kind: "leaf",
+  }),
+  slashLeaf({
     title: "타임라인",
     description: "타임라인 보기",
     icon: GanttChartSquare,
@@ -151,5 +142,5 @@ export const dbSlashChildren: SlashLeafItem[] = [
         layout: "inline",
         view: "timeline",
       }),
-  },
+  }),
 ];

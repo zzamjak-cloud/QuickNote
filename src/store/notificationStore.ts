@@ -4,6 +4,8 @@ import { zustandStorage } from "../lib/storage/index";
 import { newId } from "../lib/id";
 import { normalizeMentionMemberId } from "../lib/comments/mentionMemberIds";
 import { useWorkspaceStore } from "./workspaceStore";
+import type { PersistedObject } from "../lib/migrations/persistedStore";
+import { migratePersistedStore } from "../lib/migrations/persistedStore";
 
 /** 워크스페이스 멤버별 인앱 알림 */
 export type InAppNotification = {
@@ -41,6 +43,63 @@ type NotificationActions = {
   listForMember: (memberId: string) => InAppNotification[];
   unreadCountForMember: (memberId: string) => number;
 };
+
+export const NOTIFICATION_STORE_VERSION = 2;
+
+function migrateNotificationItem(value: unknown): InAppNotification | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value as Partial<InAppNotification>;
+  if (
+    typeof item.id !== "string" ||
+    typeof item.recipientMemberId !== "string" ||
+    typeof item.kind !== "string" ||
+    typeof item.pageId !== "string" ||
+    typeof item.blockId !== "string" ||
+    typeof item.fromMemberId !== "string" ||
+    typeof item.commentId !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: item.id,
+    recipientMemberId:
+      normalizeMentionMemberId(item.recipientMemberId) ?? item.recipientMemberId,
+    kind: item.kind === "thread_reply" ? "thread_reply" : "mention",
+    source: item.source === "page" ? "page" : "comment",
+    workspaceId: item.workspaceId ?? null,
+    workspaceName: item.workspaceName ?? null,
+    pageTitle: item.pageTitle ?? null,
+    pageId: item.pageId,
+    blockId: item.blockId,
+    fromMemberId: normalizeMentionMemberId(item.fromMemberId) ?? item.fromMemberId,
+    commentId: item.commentId,
+    previewBody: typeof item.previewBody === "string" ? item.previewBody : "",
+    createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+    read: Boolean(item.read),
+  };
+}
+
+export function migrateNotificationStore(
+  persisted: unknown,
+  fromVersion: number,
+): PersistedObject {
+  return migratePersistedStore(
+    persisted,
+    fromVersion,
+    [
+      {
+        version: 2,
+        migrate: (state) => ({
+          ...state,
+          items: Array.isArray(state.items)
+            ? state.items.map(migrateNotificationItem).filter(Boolean)
+            : [],
+        }),
+      },
+    ],
+    { items: [] },
+  );
+}
 
 export const useNotificationStore = create<NotificationState & NotificationActions>()(
   persist(
@@ -134,7 +193,8 @@ export const useNotificationStore = create<NotificationState & NotificationActio
     {
       name: "quicknote.notifications.v1",
       storage: createJSONStorage(() => zustandStorage),
-      version: 1,
+      version: NOTIFICATION_STORE_VERSION,
+      migrate: migrateNotificationStore,
     },
   ),
 );

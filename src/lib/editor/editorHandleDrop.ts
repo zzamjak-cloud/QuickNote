@@ -7,8 +7,13 @@ import { insertFileFromFile } from "./insertFileFromFile";
 import {
   QUICKNOTE_BLOCK_DRAG_MIME,
 } from "../startBlockNativeDrag";
-import { queryTabPanelElements } from "../tiptapExtensions/tabPanelDom";
-import { forEachDocDirectBlock } from "../pm/topLevelBlocks";
+import {
+  canDropNodeAtInsertionPos,
+  resolveBlockDropTarget,
+  resolveBlockDropIndicatorRect,
+  topLevelInsertionPosFromDrop,
+  type BlockDropIndicatorRect,
+} from "./blockDropTarget";
 
 export type ColumnDropState = {
   side: "left" | "right";
@@ -141,158 +146,6 @@ function isDropInsideColumn(event: DragEvent): boolean {
   return Boolean(hit?.closest("[data-column]"));
 }
 
-/** 빈 패널 영역 드롭 시 활성 탭의 패널 DOM 을 택한다 */
-function resolveTabPanelElementFromPoint(
-  view: EditorView,
-  clientX: number,
-  clientY: number,
-): HTMLElement | null {
-  const hit = document.elementFromPoint(clientX, clientY);
-  if (!hit || !view.dom.contains(hit)) return null;
-  const direct = hit.closest("[data-tab-panel]");
-  if (direct instanceof HTMLElement) return direct;
-  const panelsRoot = hit.closest(".qn-tab-panels");
-  const tabBlock = hit.closest("[data-tab-block]");
-  if (!(panelsRoot instanceof HTMLElement) || !(tabBlock instanceof HTMLElement)) {
-    return null;
-  }
-  const rawIdx = Number(tabBlock.getAttribute("data-active-index") ?? "0");
-  const idx = Number.isFinite(rawIdx) ? Math.max(0, rawIdx) : 0;
-  const panels = queryTabPanelElements(panelsRoot);
-  const panel = panels[idx];
-  return panel ?? null;
-}
-
-function tabPanelInsertionPosFromPoint(
-  view: EditorView,
-  clientX: number,
-  clientY: number,
-): number | null {
-  const panelEl = resolveTabPanelElementFromPoint(view, clientX, clientY);
-  if (!panelEl) return null;
-
-  let panelStart: number | null = null;
-  let panelNode: PMNode | null = null;
-  try {
-    const rawPos = view.posAtDOM(panelEl, 0);
-    const $raw = view.state.doc.resolve(
-      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
-    );
-    for (let d = $raw.depth; d >= 1; d--) {
-      if ($raw.node(d).type.name !== "tabPanel") continue;
-      panelStart = $raw.before(d);
-      panelNode = $raw.node(d);
-      break;
-    }
-    if (panelStart == null) {
-      const maybeNode = view.state.doc.nodeAt(rawPos);
-      if (maybeNode?.type.name === "tabPanel") {
-        panelStart = rawPos;
-        panelNode = maybeNode;
-      }
-    }
-  } catch {
-    return null;
-  }
-  if (panelStart == null || !panelNode || panelNode.type.name !== "tabPanel") {
-    return null;
-  }
-
-  let fallback = panelStart + panelNode.nodeSize - 1;
-  let bestPos: number | null = null;
-  let bestDistance = Infinity;
-  panelNode.forEach((child, offset) => {
-    const childStart = panelStart! + 1 + offset;
-    const dom = view.nodeDOM(childStart);
-    const el = dom instanceof Element ? dom : dom?.parentElement;
-    const rectEl =
-      el instanceof Element ? el.closest(".qn-database-block") ?? el : null;
-    const rect = (rectEl instanceof HTMLElement ? rectEl : el)?.getBoundingClientRect();
-    if (!rect) return;
-    const after = clientY > rect.top + rect.height / 2;
-    const distance =
-      clientY < rect.top
-        ? rect.top - clientY
-        : clientY > rect.bottom
-          ? clientY - rect.bottom
-          : 0;
-    const pos = after ? childStart + child.nodeSize : childStart;
-    if (distance < bestDistance) {
-      bestPos = pos;
-      bestDistance = distance;
-    }
-    fallback = childStart + child.nodeSize;
-  });
-
-  return bestPos ?? fallback;
-}
-
-function columnInsertionPosFromPoint(
-  view: EditorView,
-  clientX: number,
-  clientY: number,
-): number | null {
-  const hit = document.elementFromPoint(clientX, clientY);
-  const colEl = hit?.closest?.("[data-column]");
-  if (!(colEl instanceof HTMLElement) || !view.dom.contains(colEl)) return null;
-
-  let colStart: number | null = null;
-  let colNode: PMNode | null = null;
-  try {
-    const rawPos = view.posAtDOM(colEl, 0);
-    const $raw = view.state.doc.resolve(
-      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
-    );
-    for (let d = $raw.depth; d >= 1; d--) {
-      if ($raw.node(d).type.name !== "column") continue;
-      colStart = $raw.before(d);
-      colNode = $raw.node(d);
-      break;
-    }
-    if (colStart == null) {
-      const maybeNode = view.state.doc.nodeAt(rawPos);
-      if (maybeNode?.type.name === "column") {
-        colStart = rawPos;
-        colNode = maybeNode;
-      }
-    }
-  } catch {
-    colStart = null;
-    colNode = null;
-  }
-  if (colStart == null || !colNode || colNode.type.name !== "column") return null;
-
-  let fallback = colStart + colNode.nodeSize - 1;
-  let bestPos: number | null = null;
-  let bestDistance = Infinity;
-  colNode.forEach((child, offset) => {
-    const childStart = colStart + 1 + offset;
-    const dom = view.nodeDOM(childStart);
-    const el = dom instanceof Element ? dom : dom?.parentElement;
-    const rectEl =
-      el instanceof Element
-        ? el.closest(".qn-database-block") ?? el
-        : null;
-    const rect = (rectEl instanceof HTMLElement ? rectEl : el)?.getBoundingClientRect();
-    if (!rect) return;
-    const after = clientY > rect.top + rect.height / 2;
-    const distance =
-      clientY < rect.top
-        ? rect.top - clientY
-        : clientY > rect.bottom
-          ? clientY - rect.bottom
-          : 0;
-    const pos = after ? childStart + child.nodeSize : childStart;
-    if (distance < bestDistance) {
-      bestPos = pos;
-      bestDistance = distance;
-    }
-    fallback = childStart + child.nodeSize;
-  });
-
-  return bestPos ?? fallback;
-}
-
 function moveNestedListItemIntoColumn(
   view: EditorView,
   event: DragEvent,
@@ -312,6 +165,14 @@ function moveNestedListItemIntoColumn(
       event.clientX,
       event.clientY,
     );
+  const insertNode =
+    listInsertAt != null && shape.listItemNode
+      ? shape.listItemNode
+      : shape.insertNode;
+  if (!canDropNodeAtInsertionPos(view, insertNode, insertAt)) {
+    event.preventDefault();
+    return true;
+  }
   if (insertAt >= shape.deleteFrom && insertAt <= shape.deleteTo) {
     event.preventDefault();
     return true;
@@ -325,9 +186,7 @@ function moveNestedListItemIntoColumn(
   );
   tr.insert(
     tr.mapping.map(insertAt, -1),
-    listInsertAt != null && shape.listItemNode
-      ? shape.listItemNode
-      : shape.insertNode,
+    insertNode,
   );
   const afterMediaCount = countProtectedMediaInDoc(tr.doc);
   const beforeMediaCount = countProtectedMediaInDoc(view.state.doc);
@@ -359,6 +218,14 @@ function moveSelectedBlockIntoColumn(
       event.clientX,
       event.clientY,
     );
+  const insertNode =
+    listInsertAt != null && shape.listItemNode
+      ? shape.listItemNode
+      : shape.insertNode;
+  if (!canDropNodeAtInsertionPos(view, insertNode, insertAt)) {
+    event.preventDefault();
+    return true;
+  }
   if (insertAt >= shape.deleteFrom && insertAt <= shape.deleteTo) {
     event.preventDefault();
     return true;
@@ -373,9 +240,7 @@ function moveSelectedBlockIntoColumn(
   );
   tr.insert(
     tr.mapping.map(insertAt, -1),
-    listInsertAt != null && shape.listItemNode
-      ? shape.listItemNode
-      : shape.insertNode,
+    insertNode,
   );
   const afterMediaCount = countProtectedMediaInDoc(tr.doc);
   if (afterMediaCount < beforeMediaCount) return true;
@@ -405,6 +270,14 @@ function moveSingleQuickNoteBlockFromDrop(
       event.clientX,
       event.clientY,
     );
+  const insertNode =
+    listInsertAt != null && shape.listItemNode
+      ? shape.listItemNode
+      : shape.insertNode;
+  if (!canDropNodeAtInsertionPos(view, insertNode, insertAt)) {
+    event.preventDefault();
+    return true;
+  }
   if (insertAt >= shape.deleteFrom && insertAt <= shape.deleteTo) {
     event.preventDefault();
     return true;
@@ -419,9 +292,7 @@ function moveSingleQuickNoteBlockFromDrop(
   );
   tr.insert(
     tr.mapping.map(insertAt, -1),
-    listInsertAt != null && shape.listItemNode
-      ? shape.listItemNode
-      : shape.insertNode,
+    insertNode,
   );
   const afterMediaCount = countProtectedMediaInDoc(tr.doc);
   if (afterMediaCount < beforeMediaCount) return true;
@@ -466,101 +337,6 @@ function parseQuickNoteBlockDragStarts(dt: DataTransfer | null): number[] | null
   } catch {
     return null;
   }
-}
-
-/** doc 직속 자식의 화면 rect 를 모아 Y 좌표 기준 가장 가까운 블록을 찾아 삽입 위치 반환.
- *  posAtCoords 가 null 이거나 atom databaseBlock 위라 depth 0 으로 도달한 경우의 최종 폴백. */
-function nearestTopLevelInsertionByY(
-  view: EditorView,
-  clientY: number,
-): number {
-  let bestStart: number | null = null;
-  let bestEnd: number | null = null;
-  let bestDistance = Infinity;
-  let bestAfter = false;
-  forEachDocDirectBlock(view.state.doc, (node, blockStart) => {
-    const dom = view.nodeDOM(blockStart);
-    const el = dom instanceof Element ? dom : dom?.parentElement;
-    const rectEl =
-      el instanceof Element
-        ? el.closest(".qn-database-block") ?? el
-        : null;
-    const rect = (rectEl instanceof HTMLElement ? rectEl : el)?.getBoundingClientRect();
-    if (!rect) return;
-    let distance: number;
-    let after: boolean;
-    if (clientY < rect.top) {
-      distance = rect.top - clientY;
-      after = false;
-    } else if (clientY > rect.bottom) {
-      distance = clientY - rect.bottom;
-      after = true;
-    } else {
-      distance = 0;
-      after = clientY > rect.top + rect.height / 2;
-    }
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestStart = blockStart;
-      bestEnd = blockStart + node.nodeSize;
-      bestAfter = after;
-    }
-  });
-  if (bestStart == null || bestEnd == null) return view.state.doc.content.size;
-  return bestAfter ? bestEnd : bestStart;
-}
-
-function topLevelInsertionPosFromDrop(
-  view: EditorView,
-  clientX: number,
-  clientY: number,
-): number {
-  const tabPanelPos = tabPanelInsertionPosFromPoint(view, clientX, clientY);
-  if (tabPanelPos != null) return tabPanelPos;
-
-  const columnPos = columnInsertionPosFromPoint(view, clientX, clientY);
-  if (columnPos != null) return columnPos;
-
-  const coords = view.posAtCoords({ left: clientX, top: clientY });
-  if (!coords) return nearestTopLevelInsertionByY(view, clientY);
-
-  let $pos;
-  try {
-    $pos = view.state.doc.resolve(coords.pos);
-  } catch {
-    return nearestTopLevelInsertionByY(view, clientY);
-  }
-
-  for (let d = $pos.depth; d >= 1; d--) {
-    const node = $pos.node(d);
-    if (!node.isBlock || node.type.name === "doc") continue;
-    const parent = $pos.node(d - 1);
-    const isValidParent =
-      parent.type.name === "doc" || parent.type.name === "column";
-    if (!isValidParent) continue;
-    const targetStart = $pos.before(d);
-    const dom = view.nodeDOM(targetStart);
-    const el = dom instanceof Element ? dom : dom?.parentElement;
-    const rectEl =
-      el instanceof Element
-        ? el.closest(".qn-database-block") ?? el
-        : null;
-    const rect = (rectEl instanceof HTMLElement ? rectEl : el)?.getBoundingClientRect();
-    const after = rect ? clientY > rect.top + rect.height / 2 : false;
-    return after ? targetStart + node.nodeSize : targetStart;
-  }
-
-  // column 내부의 패딩/빈 영역으로 떨어진 경우 column 끝에 삽입.
-  for (let d = $pos.depth; d >= 1; d--) {
-    const node = $pos.node(d);
-    if (node.type.name !== "column") continue;
-    const colStart = $pos.before(d);
-    return colStart + node.nodeSize - 1;
-  }
-
-  // depth 0 — atom databaseBlock 또는 doc padding 영역(.ProseMirror 자체).
-  // 좌표 기반으로 가장 가까운 doc 직속 블록을 찾아 삽입 위치 결정.
-  return nearestTopLevelInsertionByY(view, clientY);
 }
 
 function moveQuickNoteBlocksFromDrop(
@@ -613,6 +389,14 @@ function moveQuickNoteBlocksFromDrop(
     event.clientX,
     event.clientY,
   );
+  if (
+    blocks.some(
+      (block) => !canDropNodeAtInsertionPos(view, block.node, insertAt),
+    )
+  ) {
+    event.preventDefault();
+    return true;
+  }
   // 삽입점이 선택 블록 중 하나 "안"이면 no-op.
   if (blocks.some((b) => insertAt >= b.pos && insertAt <= b.end)) {
     event.preventDefault();
@@ -641,9 +425,15 @@ function moveQuickNoteBlocksFromDrop(
 export function createEditorHandleDrop(options: {
   columnDropRef: MutableRefObject<ColumnDropState>;
   clearColumnDropUi: () => void;
+  clearBlockDropIndicator?: () => void;
   insertImageFromFile: typeof insertImageFromFile;
 }) {
-  const { columnDropRef, clearColumnDropUi, insertImageFromFile } = options;
+  const {
+    columnDropRef,
+    clearColumnDropUi,
+    clearBlockDropIndicator,
+    insertImageFromFile,
+  } = options;
 
   return function handleDrop(
     view: EditorView,
@@ -656,6 +446,7 @@ export function createEditorHandleDrop(options: {
       columnDropRef.current = null;
       clearColumnDropUi();
     }
+    clearBlockDropIndicator?.();
 
     if (moved && moveSelectedBlockIntoColumn(view, event)) {
       return true;
@@ -758,3 +549,48 @@ export function createEditorHandleDrop(options: {
     return true;
   };
 }
+
+export function createEditorHandleDragOver(options: {
+  showBlockDropIndicator: (rect: BlockDropIndicatorRect) => void;
+  clearBlockDropIndicator: () => void;
+}) {
+  const { showBlockDropIndicator, clearBlockDropIndicator } = options;
+  return function handleDragOver(view: EditorView, event: DragEvent): boolean {
+    const starts = parseQuickNoteBlockDragStarts(event.dataTransfer);
+    if (!starts) return false;
+    const nodes = starts
+      .map((start) => view.state.doc.nodeAt(start))
+      .filter((node): node is PMNode => Boolean(node));
+    if (nodes.length === 0) return false;
+
+    const target = resolveBlockDropTarget(
+      view,
+      event.clientX,
+      event.clientY,
+      nodes,
+    );
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = target.allowed ? "move" : "none";
+    }
+    if (target.allowed) {
+      const rect = resolveBlockDropIndicatorRect(
+        view,
+        target,
+        event.clientX,
+        event.clientY,
+      );
+      if (rect) {
+        showBlockDropIndicator(rect);
+      } else {
+        clearBlockDropIndicator();
+      }
+      event.preventDefault();
+      return true;
+    }
+    clearBlockDropIndicator();
+    event.preventDefault();
+    return true;
+  };
+}
+
+export type { BlockDropIndicatorRect };

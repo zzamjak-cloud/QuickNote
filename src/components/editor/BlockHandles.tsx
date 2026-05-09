@@ -39,6 +39,13 @@ import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
+import {
+  isAttachmentBlockNodeType,
+  isCalloutBlockNodeType,
+  shouldFlattenWrapperBeforeTypeChange,
+  shouldSuppressBlockHandle,
+  shouldUseDatabaseBlockChrome,
+} from "../../lib/blocks/uiPolicy";
 
 type HoverInfo = {
   rect: DOMRect;
@@ -69,16 +76,11 @@ type DownloadNotice = {
   message: string;
 } | null;
 
-// 토글 자체는 핸들을 띄우되, 내부 toggleHeader/toggleContent는 제외(헤더/본문 hover 시 toggle 로 승격).
-const SKIP_HANDLE_TYPES = new Set(["columnLayout", "column", "toggleHeader", "toggleContent"]);
-// 타입 변경 시 새 타입을 적용하기 전에 단순 paragraph로 평탄화할 wrapper 노드들.
-const WRAPPER_TYPES_TO_FLATTEN = new Set(["callout", "toggle", "blockquote"]);
-
 /** wrapper(콜아웃·토글·인용) 블록을 그 안의 텍스트만 담은 단일 paragraph로 치환.
  *  치환 성공 시 true 반환 — 호출자는 이후 setHeading 등 단일 타입 명령을 적용한다. */
 function flattenWrapperToParagraph(editor: Editor, blockStart: number): boolean {
   const node = editor.state.doc.nodeAt(blockStart);
-  if (!node || !WRAPPER_TYPES_TO_FLATTEN.has(node.type.name)) return false;
+  if (!node || !shouldFlattenWrapperBeforeTypeChange(node.type.name)) return false;
   const paragraphType = editor.schema.nodes.paragraph;
   if (!paragraphType) return false;
   let text = "";
@@ -133,13 +135,13 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
   for (let d = $pos.depth; d > 0; d--) {
     const n = $pos.node(d);
     if (!n.isBlock || n.type.name === "doc") continue;
-    if (SKIP_HANDLE_TYPES.has(n.type.name)) continue;
+    if (shouldSuppressBlockHandle(n.type.name)) continue;
     const start = $pos.before(d);
     const dom = editor.view.nodeDOM(start);
     const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
     if (!el) continue;
     const rectEl =
-      n.type.name === "databaseBlock"
+      shouldUseDatabaseBlockChrome(n.type.name)
         ? el.closest(".qn-database-block") ?? el
         : el;
     const candidate: HoverInfo = {
@@ -148,7 +150,7 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
       depth: d,
       node: n,
     };
-    if (WRAPPER_TYPES_TO_FLATTEN.has(n.type.name)) {
+    if (shouldFlattenWrapperBeforeTypeChange(n.type.name)) {
       // 가장 외곽 wrapper만 보존 (깊이 작은 것)
       if (!wrapper || candidate.depth < wrapper.depth) wrapper = candidate;
     } else if (n.type.name === "taskItem") {
@@ -176,12 +178,12 @@ function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | nu
     for (const p of probes) {
       const n = p.node;
       if (!n.isBlock || !n.isAtom) continue;
-      if (SKIP_HANDLE_TYPES.has(n.type.name)) continue;
+      if (shouldSuppressBlockHandle(n.type.name)) continue;
       const dom = editor.view.nodeDOM(p.start);
       const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
       if (!el) continue;
       const rectEl =
-        n.type.name === "databaseBlock"
+        shouldUseDatabaseBlockChrome(n.type.name)
           ? el.closest(".qn-database-block") ?? el
           : el;
       inner = {
@@ -275,7 +277,7 @@ function blockAtPoint(editor: Editor, clientX: number, clientY: number): HoverIn
   }
   // 타이틀/input 등 NodeView 크롬 위에서는 깊은 블록보다 databaseBlock 을 우선
   for (const h of byStart.values()) {
-    if (h.node.type.name !== "databaseBlock") continue;
+    if (!shouldUseDatabaseBlockChrome(h.node.type.name)) continue;
     const dom = editor.view.nodeDOM(h.blockStart);
     const wrap =
       dom instanceof Element ? dom.closest(".qn-database-block") : null;
@@ -465,7 +467,7 @@ export function BlockHandles({
         const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
         if (!el) return null;
         const rectEl =
-          h.node.type.name === "databaseBlock"
+          shouldUseDatabaseBlockChrome(h.node.type.name)
             ? el.closest(".qn-database-block") ?? el
             : el;
         return { ...h, rect: rectEl.getBoundingClientRect() };
@@ -529,7 +531,7 @@ export function BlockHandles({
         const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
         if (!el) return;
         const rectEl =
-          node.type.name === "databaseBlock"
+          shouldUseDatabaseBlockChrome(node.type.name)
             ? el.closest(".qn-database-block") ?? el
             : el;
         const rect = rectEl.getBoundingClientRect();
@@ -691,9 +693,9 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
-  const isCallout = hover?.node.type.name === "callout";
+  const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isAttachmentBlock =
-    hover?.node.type.name === "fileBlock";
+    hover ? isAttachmentBlockNodeType(hover.node.type.name) : false;
   const menuAnchor =
     hover && bar && wrapperRect
       ? {
@@ -776,7 +778,7 @@ export function BlockHandles({
     const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
     if (!el) return;
     const rectEl =
-      node.type.name === "databaseBlock"
+      shouldUseDatabaseBlockChrome(node.type.name)
         ? el.closest(".qn-database-block") ?? el
         : el;
     setHover({

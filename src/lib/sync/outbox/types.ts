@@ -8,6 +8,9 @@ export type OutboxOp =
   | "softDeleteDatabase"
   | "updateMyClientPrefs";
 
+/** outbox 엔트리에 붙는 엔티티 분류(플러시·관측용). */
+export type OutboxEntityType = "page" | "database" | "memberPrefs";
+
 export type OutboxEntry = {
   id: string;
   op: OutboxOp;
@@ -16,6 +19,11 @@ export type OutboxEntry = {
   attempts: number;
   lastErrorAt?: number;
   dedupeKey: string;
+  /** enqueue 시점 payload 기준 워크스페이스(null 이면 멤버 전역 prefs 등). 레거시 행은 미설정일 수 있음. */
+  workspaceId?: string | null;
+  entityType?: OutboxEntityType;
+  entityId?: string;
+  baseVersion?: number;
 };
 
 export interface OutboxAdapter {

@@ -131,6 +131,7 @@ export function AdminTeamsTab() {
               <li key={team.teamId}>
                 <button
                   type="button"
+                  aria-label={`${team.name} 구성원 관리`}
                   onClick={() => onOpenAssignModal(team.teamId)}
                   className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
                 >

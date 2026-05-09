@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.13] - 2026-05-09
+
+### Added
+
+- **블록 정책·레지스트리**: DnD/에디터/UI 정책 및 슬래시 제목 매핑(`src/lib/blocks/`).
+- **persistedStore 마이그레이션**: 공통 메타·첨부 패턴 및 스토어별 마이그레이션 테스트 보강.
+- **동기화**: outbox 플러시 순서·메타 타입 보강, 온라인 복귀 후 캐시 재조화(`reconcileWorkspaceCacheAfterFlush`), **동기화 배너**(`WorkspaceSyncBanner`)로 블라인드 상태 안내.
+
+### Fixed
+
+- **웹 에디터** 본문 끝에서 스크롤·입력 여백이 부족하던 문제(`min-h-0`, 하단 DOM 스페이서 + 픽셀 동기화 + `scroll-padding-bottom`).
+- **탭 블록** 생성 직후 캐럿이 패널 안에 남던 문제 → 삽입 후 레이아웃 다음에 캐럿을 탭 블록 **바깥**(다음 블록 또는 문서 끝 빈 단락)으로 이동.
+
+### Changed
+
+- 슬래시 메뉴에서 **다열 분리 항목 제거** → **컬럼** 단일 항목만 노출, 삽입 시 **2열 레이아웃** 고정.
+- 동기화 엔진·워크스페이스 전환·스토어 적용(`storeApply`), 댓글·알림·설정 등 부수 개선 및 테스트 추가.
+
 ## [5.0.12] - 2026-05-09
 
 ### Added

@@ -13,6 +13,7 @@ import {
   scrollToBlockId,
 } from "../../lib/editor/editorNavigationBridge";
 import { computeDropdownBelowAnchor } from "../../lib/ui/clampFloatingPanel";
+import { waitForPageDeepLink } from "../../lib/navigation/waitForPageDeepLink";
 
 const PANEL_W = 320;
 /** 헤더+목록 근사 높이 — 위치 클램프용 */
@@ -54,7 +55,6 @@ export function NotificationBell() {
   const markAllReadForMember = useNotificationStore((s) => s.markAllReadForMember);
 
   const setActivePage = usePageStore((s) => s.setActivePage);
-  const pages = usePageStore((s) => s.pages);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
@@ -63,6 +63,7 @@ export function NotificationBell() {
   const toggleNotificationCenter = useUiStore((s) => s.toggleNotificationCenter);
   const closeNotificationCenter = useUiStore((s) => s.closeNotificationCenter);
   const openCommentThread = useUiStore((s) => s.openCommentThread);
+  const showToast = useUiStore((s) => s.showToast);
 
   const bellRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -140,7 +141,9 @@ export function NotificationBell() {
     return "댓글 멘션";
   };
   const pageTitleOf = (n: (typeof items)[number]) =>
-    n.pageTitle || pages[n.pageId]?.title || "페이지";
+    n.pageTitle ||
+    usePageStore.getState().pages[n.pageId]?.title ||
+    "페이지";
 
   const commentBadgeAnchorFor = (blockId: string) => {
     const escaped =
@@ -155,24 +158,32 @@ export function NotificationBell() {
     return { top: r.top, left: r.left, right: r.right, bottom: r.bottom };
   };
 
-  const onNavigate = (id: string) => {
-    const n = useNotificationStore.getState().items.find((x) => x.id === id);
-    if (!n) return;
-    markRead(n.id);
-    closeNotificationCenter();
-    if (n.workspaceId && n.workspaceId !== currentWorkspaceId) {
-      setCurrentWorkspaceId(n.workspaceId);
-      setCurrentTabPage(null);
-    }
+  const onNavigate = (id: string): void => {
+    void (async () => {
+      const n = useNotificationStore.getState().items.find((x) => x.id === id);
+      if (!n) return;
+      markRead(n.id);
+      closeNotificationCenter();
 
-    const navigateWhenReady = (attempt = 0): void => {
-      const pageReady = Boolean(usePageStore.getState().pages[n.pageId]);
-      if (!pageReady) {
-        if (attempt < NAV_MAX_ATTEMPTS) {
-          window.setTimeout(() => navigateWhenReady(attempt + 1), NAV_RETRY_MS);
-        }
+      const switchWorkspace =
+        Boolean(n.workspaceId) && n.workspaceId !== currentWorkspaceId;
+      if (switchWorkspace && n.workspaceId) {
+        setCurrentWorkspaceId(n.workspaceId);
+        setCurrentTabPage(null);
+      }
+
+      const loaded = await waitForPageDeepLink({
+        pageId: n.pageId,
+        workspaceId: n.workspaceId ?? undefined,
+      });
+      if (!loaded) {
+        showToast(
+          "페이지를 불러오지 못했습니다. 네트워크 또는 권한을 확인한 뒤 다시 시도하세요.",
+          { kind: "error" },
+        );
         return;
       }
+
       setCurrentTabPage(n.pageId);
       setActivePage(n.pageId);
       afterStableLayout(() => {
@@ -191,8 +202,7 @@ export function NotificationBell() {
           });
         });
       });
-    };
-    window.setTimeout(() => navigateWhenReady(), 0);
+    })();
   };
 
   return (

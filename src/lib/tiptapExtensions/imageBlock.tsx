@@ -1,6 +1,7 @@
 // v4 단순화: 이미지 노드는 src/alt/width/height 만 보유.
 // src 가 quicknote-image:// 스킴이면 React NodeView 가 PreSignedURL 로 비동기 해석.
 
+import { memo } from "react";
 import Image from "@tiptap/extension-image";
 import {
   ReactNodeViewRenderer,
@@ -9,7 +10,23 @@ import {
 } from "@tiptap/react";
 import { useImageUrl } from "../images/hooks";
 
-function ImageView(props: NodeViewProps) {
+function shallowImageAttrsEqual(
+  prev: NodeViewProps,
+  next: NodeViewProps,
+): boolean {
+  const a = prev.node.attrs as Record<string, unknown>;
+  const b = next.node.attrs as Record<string, unknown>;
+  return (
+    prev.selected === next.selected &&
+    a.src === b.src &&
+    a.alt === b.alt &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.id === b.id
+  );
+}
+
+const ImageView = memo(function ImageView(props: NodeViewProps) {
   const attrs = props.node.attrs as {
     src?: string | null;
     alt?: string | null;
@@ -44,7 +61,7 @@ function ImageView(props: NodeViewProps) {
       )}
     </NodeViewWrapper>
   );
-}
+}, shallowImageAttrsEqual);
 
 // width/height 를 Tiptap 노드 attrs 로 명시 등록.
 // 누락 시 ImageResizeOverlay 의 updateAttributes 가 schema 에 없는 attr 로 간주되어 무시되고,

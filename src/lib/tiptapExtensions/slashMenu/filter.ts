@@ -1,4 +1,4 @@
-import { slashMenuEntries } from "./menuEntries";
+import { getSlashMenuEntries } from "../../blocks/registry";
 import type {
   SlashCategoryItem,
   SlashLeafItem,
@@ -7,6 +7,7 @@ import type {
 
 /** 루트 목록만 필터 (서브메뉴는 SlashMenu 내부에서 처리) */
 export function filterSlashMenuEntries(query: string): SlashMenuEntry[] {
+  const slashMenuEntries = getSlashMenuEntries();
   const q = query.trim().toLowerCase();
   if (!q) return slashMenuEntries;
 

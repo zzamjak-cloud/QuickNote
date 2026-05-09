@@ -14,7 +14,9 @@ import {
 } from "./lib/sync/storeApply";
 import { applyWorkspaceSwitch } from "./lib/sync/workspaceSwitch";
 import { applyWorkspaceLanding } from "./lib/sync/workspaceLanding";
+import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspaceCacheAfterFlush";
 import { useWorkspaceStore } from "./store/workspaceStore";
+import { usePageStore } from "./store/pageStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
 import { listMembersApi, fetchMeWithClientPrefs } from "./lib/sync/memberApi";
@@ -25,6 +27,7 @@ import {
 } from "./lib/sync/clientPrefsSync";
 import { listTeamsApi } from "./lib/sync/teamApi";
 import { useTeamStore } from "./store/teamStore";
+import { useUiStore } from "./store/uiStore";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -118,14 +121,35 @@ function useSyncBootstrap() {
 
     (async () => {
       try {
-        await applyWorkspaceSwitch(prevWorkspaceId, currentWorkspaceId);
-        const [pages, dbs] = await Promise.all([
-          fetchPagesByWorkspace(currentWorkspaceId),
-          fetchDatabasesByWorkspace(currentWorkspaceId),
-        ]);
-        if (cancelled) return;
-        for (const p of pages) applyRemotePageToStore(p);
-        for (const d of dbs) applyRemoteDatabaseToStore(d);
+        const switchResult = await applyWorkspaceSwitch(
+          prevWorkspaceId,
+          currentWorkspaceId,
+        );
+        const setHold = useUiStore.getState().setOutboxWorkspaceSwitchHold;
+        if (switchResult.reason === "pending-outbox") {
+          setHold({
+            pending: switchResult.pending,
+            targetWorkspaceId: currentWorkspaceId,
+            sourceWorkspaceId:
+              prevWorkspaceId ??
+              usePageStore.getState().cacheWorkspaceId ??
+              null,
+          });
+        } else {
+          setHold(null);
+        }
+
+        const fetchApply = async (): Promise<void> => {
+          const [pages, dbs] = await Promise.all([
+            fetchPagesByWorkspace(currentWorkspaceId),
+            fetchDatabasesByWorkspace(currentWorkspaceId),
+          ]);
+          if (cancelled) return;
+          for (const p of pages) applyRemotePageToStore(p);
+          for (const d of dbs) applyRemoteDatabaseToStore(d);
+        };
+
+        await fetchApply();
 
         if (cancelled) return;
         applyWorkspaceLanding(currentWorkspaceId);
@@ -138,6 +162,15 @@ function useSyncBootstrap() {
 
         const engine = await getSyncEngine();
         await engine.flush();
+
+        if (!cancelled) {
+          await reconcileWorkspaceCacheAfterFlush({
+            currentWorkspaceId,
+            sessionPrevWorkspaceId: prevWorkspaceId,
+            fetchApply,
+            cancelled: () => cancelled,
+          });
+        }
       } catch (err) {
         console.error("[sync] bootstrap failed", err);
       }
@@ -188,14 +221,21 @@ function useSyncBootstrap() {
           /* ignore */
         }
         try {
-          const [pages, dbs] = await Promise.all([
-            fetchPagesByWorkspace(wsId),
-            fetchDatabasesByWorkspace(wsId),
-          ]);
-          for (const p of pages) applyRemotePageToStore(p);
-          for (const d of dbs) applyRemoteDatabaseToStore(d);
+          const fetchApply = async (): Promise<void> => {
+            const [pages, dbs] = await Promise.all([
+              fetchPagesByWorkspace(wsId),
+              fetchDatabasesByWorkspace(wsId),
+            ]);
+            for (const p of pages) applyRemotePageToStore(p);
+            for (const d of dbs) applyRemoteDatabaseToStore(d);
+          };
+          await fetchApply();
           const engine = await getSyncEngine();
           await engine.flush();
+          await reconcileWorkspaceCacheAfterFlush({
+            currentWorkspaceId: wsId,
+            fetchApply,
+          });
         } catch (err) {
           console.error("[sync] online refetch failed", err);
         }

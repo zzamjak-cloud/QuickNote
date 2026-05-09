@@ -10,7 +10,8 @@ type DeleteTarget = {
 };
 
 const LIST_ITEM_TYPES = new Set(["listItem", "taskItem"]);
-const DIRECT_PARENT_TYPES = new Set(["doc", "column"]);
+/** 이 부모 안의 블록만 Mod+삭제 로 제거(tabPanel 포함 — 없으면 doc 까지 올라가 tabBlock 통째 삭제 됨) */
+const DIRECT_PARENT_TYPES = new Set(["doc", "column", "tabPanel"]);
 const PROTECTED_TYPES = new Set(["columnLayout", "column"]);
 
 export const DeleteCurrentBlock = Extension.create({

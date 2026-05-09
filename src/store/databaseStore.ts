@@ -18,6 +18,11 @@ import { enqueueAsync } from "../lib/sync/runtime";
 import { useAuthStore } from "./authStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import type { Page } from "../types/page";
+import {
+  attachPersistedMeta,
+  mergePersistedSubset,
+  migratePersistedStore,
+} from "../lib/migrations/persistedStore";
 
 // v5 fallback: 아직 memberStore(me.memberId)와 완전 연동 전이라 auth sub 를 사용.
 function getCreatedByMemberId(): string {
@@ -98,6 +103,8 @@ function seedColumns(): ColumnDef[] {
 type DatabaseStoreState = {
   version: number;
   databases: DbMap;
+  /** 현재 databases 캐시가 소속된 워크스페이스. null이면 구버전/미확정 캐시로 간주한다. */
+  cacheWorkspaceId: string | null;
 };
 
 type DatabaseStoreActions = {
@@ -135,6 +142,14 @@ type DatabaseStoreActions = {
 };
 
 export type DatabaseStore = DatabaseStoreState & DatabaseStoreActions;
+
+/** zustand persist `version` 과 동일 — 메타 schemaVersion 과 맞춘다 */
+const DATABASE_STORE_PERSIST_VERSION = 2;
+
+const DATABASE_STORE_DATA_KEYS = [
+  "databases",
+  "cacheWorkspaceId",
+] as const satisfies readonly (keyof DatabaseStoreState)[];
 
 /** 컬럼별 기본 셀 값 — 현재는 status만 첫 옵션을 채움, 나머지는 null. */
 function defaultCellValueForColumn(col: ColumnDef): CellValue {
@@ -244,6 +259,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
     (set, get) => ({
       version: DATABASE_STORE_VERSION,
       databases: {},
+      cacheWorkspaceId: null,
 
       createDatabase: (title = "새 데이터베이스") => {
         const id = newId();
@@ -260,6 +276,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
 
         set((state) => ({
           databases: { ...state.databases, [id]: bundle },
+          cacheWorkspaceId: getCurrentWorkspaceId() || state.cacheWorkspaceId,
         }));
         const hs = useHistoryStore.getState();
         const events = hs.dbEventsByDatabaseId[id] ?? [];
@@ -1097,15 +1114,47 @@ export const useDatabaseStore = create<DatabaseStore>()(
     {
       name: "quicknote.databases.v1",
       storage: createJSONStorage(() => zustandStorage),
-      version: 1,
+      version: DATABASE_STORE_PERSIST_VERSION,
       migrate: (persisted: unknown, fromVersion: number) => {
-        // 버전 0 캐시는 빈 상태로 초기화. Bootstrap이 원격 재페치로 복원함.
-        if (fromVersion < 1) {
-          return { databases: {} };
+        const next = migratePersistedStore(
+          persisted,
+          fromVersion,
+          [
+            {
+              version: 1,
+              migrate: () => ({ databases: {}, cacheWorkspaceId: null }),
+            },
+            {
+              version: 2,
+              migrate: (state) => ({ ...state, cacheWorkspaceId: null }),
+            },
+          ],
+          { databases: {}, cacheWorkspaceId: null },
+        );
+        if (fromVersion < DATABASE_STORE_PERSIST_VERSION) {
+          return attachPersistedMeta(next, {
+            migratedAt: new Date().toISOString(),
+          });
         }
-        return persisted;
+        return next;
       },
-      partialize: (state) => ({ databases: state.databases }),
+      partialize: (state) =>
+        attachPersistedMeta(
+          {
+            databases: state.databases,
+            cacheWorkspaceId: state.cacheWorkspaceId,
+          },
+          {
+            schemaVersion: DATABASE_STORE_PERSIST_VERSION,
+            persistedWorkspaceId: state.cacheWorkspaceId,
+          },
+        ),
+      merge: (persisted, current) =>
+        mergePersistedSubset(
+          persisted,
+          current as DatabaseStore,
+          DATABASE_STORE_DATA_KEYS,
+        ),
     }
   )
 );

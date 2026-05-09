@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from "@tiptap/core";
+import type { Editor } from "@tiptap/core";
 import {
   NodeViewContent,
   NodeViewWrapper,
@@ -204,6 +205,14 @@ const TabBlockView = memo(function TabBlockView({
    */
   const applyPanelsVisibility = useCallback(
     (reason: string) => {
+      // 한글 IME 조합 중 패널 display/hidden 을 바꾸면 조합이 끊겨 「ㅌㅔ」처럼 자모 분리된다.
+      if (editor.view.composing) {
+        requestAnimationFrame(() =>
+          applyPanelsVisibilityRef.current(`${reason}|defer-composing`),
+        );
+        return;
+      }
+
       const blockPos =
         typeof getPosRef.current === "function" ? getPosRef.current() : null;
       if (typeof blockPos !== "number") {
@@ -232,10 +241,45 @@ const TabBlockView = memo(function TabBlockView({
         root,
       );
 
+      // 비활성 패널에 display:none + hidden 을 주면 크롬 계열 한글 IME 가
+      // 탭별·첫 조합 단위로 자모가 분리된다. 비활성은 absolute + 미표시 로만 처리한다.
+      // 활성 패널도 display 를 인라인으로 박아 둔다: index.css 가 모든 [data-tab-panel] 에
+      // display:none !important 를 걸고, nth-of-type 백업은 첫 패널 DOM(래퍼 계층)과 안 맞을 수 있음.
+      const inlinePanelKeys = [
+        "display",
+        "position",
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "opacity",
+        "visibility",
+        "pointer-events",
+        "z-index",
+        "user-select",
+      ] satisfies string[];
       panels.forEach((el, i) => {
         const show = i === clampedActive;
-        el.style.setProperty("display", show ? "block" : "none", "important");
-        el.toggleAttribute("hidden", !show);
+        for (const key of inlinePanelKeys) el.style.removeProperty(key);
+        el.removeAttribute("hidden");
+        if (show) {
+          el.style.setProperty("display", "block", "important");
+          el.style.setProperty("position", "relative", "important");
+          el.style.setProperty("z-index", "1", "important");
+          el.setAttribute("aria-hidden", "false");
+          return;
+        }
+        el.style.setProperty("position", "absolute", "important");
+        el.style.setProperty("left", "0", "important");
+        el.style.setProperty("right", "0", "important");
+        el.style.setProperty("top", "0", "important");
+        el.style.setProperty("display", "block", "important");
+        el.style.setProperty("opacity", "0", "important");
+        el.style.setProperty("visibility", "hidden", "important");
+        el.style.setProperty("pointer-events", "none", "important");
+        el.style.setProperty("z-index", "0", "important");
+        el.style.setProperty("user-select", "none", "important");
+        el.setAttribute("aria-hidden", "true");
       });
 
       // CSS 백업([data-active-index])은 React 노드뷰가 attrs 만 바뀔 때 래퍼 리렌더가 밀릴 수 있어 DOM 에 직접 반영
@@ -714,7 +758,7 @@ const TabBlockView = memo(function TabBlockView({
       <div ref={panelsShellRef} className="contents">
         <NodeViewContent
           as="div"
-          className="qn-tab-panels min-w-0 flex-1 rounded-md bg-white/70 p-2 dark:bg-zinc-950/30"
+          className="qn-tab-panels relative min-w-0 flex-1 overflow-hidden rounded-md bg-white/70 p-2 dark:bg-zinc-950/30"
         />
       </div>
       {placement === "bottom" && tabList}
@@ -766,6 +810,37 @@ export const TabPanel = Node.create({
     ];
   },
 });
+
+/** 탭 블록 삽입 후 캐럿을 패널 밖(다음 블록 경계)으로 — 노드뷰 포커스 다음 프레임에 실행해야 안정적 */
+function focusCaretAfterInsertedTabBlock(editor: Editor): void {
+  if (editor.isDestroyed) return;
+  const { state } = editor;
+  let tabBlockDepth = -1;
+  const $from = state.selection.$from;
+  for (let d = $from.depth; d >= 1; d--) {
+    if ($from.node(d).type.name === "tabBlock") {
+      tabBlockDepth = d;
+      break;
+    }
+  }
+  if (tabBlockDepth === -1) return;
+
+  const tabStart = $from.before(tabBlockDepth);
+  const tabNode = $from.node(tabBlockDepth);
+  const docSize = state.doc.content.size;
+  const afterTabPos = Math.min(tabStart + tabNode.nodeSize, docSize);
+
+  if (afterTabPos >= docSize) {
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(afterTabPos, { type: "paragraph" })
+      .scrollIntoView()
+      .run();
+    return;
+  }
+  editor.chain().focus().setTextSelection(afterTabPos).scrollIntoView().run();
+}
 
 export const TabBlock = Node.create({
   name: "tabBlock",
@@ -822,8 +897,8 @@ export const TabBlock = Node.create({
     return {
       setTabBlock:
         (placement: TabPlacement = "top") =>
-        ({ commands }) =>
-          commands.insertContent({
+        ({ commands, editor }) => {
+          const ok = commands.insertContent({
             type: this.name,
             attrs: {
               placement,
@@ -837,7 +912,17 @@ export const TabBlock = Node.create({
               },
               content: [{ type: "paragraph" }],
             })),
-          }),
+          });
+          if (!ok) return false;
+
+          // 패널 노드뷰가 같은 턴에 포커스를 잡는 경우가 있어, 레이아웃 이후 두 프레임 뒤에 캐럿 이동
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              focusCaretAfterInsertedTabBlock(editor);
+            });
+          });
+          return true;
+        },
     };
   },
 });

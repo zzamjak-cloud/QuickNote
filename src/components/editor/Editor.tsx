@@ -1,13 +1,16 @@
 import {
   Suspense,
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { useEditor, EditorContent, ReactRenderer } from "@tiptap/react";
 import { Extension } from "@tiptap/core";
+import type { Editor as TiptapEditorClass } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { NodeRange } from "@tiptap/extension-node-range";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -23,7 +26,7 @@ import { TableHeader } from "@tiptap/extension-table-header";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
-import { Youtube } from "@tiptap/extension-youtube";
+import { YoutubeBlock } from "../../lib/tiptapExtensions/youtubeBlock";
 import type { createLowlight } from "lowlight";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
@@ -109,14 +112,23 @@ import { tipTapJsonDocEquals } from "../../lib/pm/jsonDocEquals";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import {
+  createEditorHandleDragOver,
   createEditorHandleDrop,
+  type BlockDropIndicatorRect,
   type ColumnDropState,
 } from "../../lib/editor/editorHandleDrop";
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
 import { FileBlock } from "../../lib/tiptapExtensions/fileBlock";
 import UniqueID from "@tiptap/extension-unique-id";
-import { ReplaceStep } from "@tiptap/pm/transform";
+import {
+  AddMarkStep,
+  RemoveMarkStep,
+  ReplaceAroundStep,
+  ReplaceStep,
+  type Step,
+} from "@tiptap/pm/transform";
+import type { Transaction } from "@tiptap/pm/state";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
 import {
@@ -134,47 +146,88 @@ import {
 import { BlockCommentThreadPanel } from "../comments/BlockCommentThreadPanel";
 import { MentionSearchModal } from "./MentionSearchModal";
 import type { EditorView as PmEditorView } from "@tiptap/pm/view";
+import {
+  EDITOR_UNIQUE_ID_TYPES,
+  getFirstDatabaseBlockId,
+  isFullPageDatabaseDoc,
+  normalizeFullPageDatabaseDoc,
+} from "../../lib/blocks/editorPolicy";
+
+/**
+ * UniqueID.configure.filterTransaction 에서 `view.composing` 을 읽기 위한 핸들.
+ * onCreate 에서만 설정 — 조합 중 appendTransaction(setNodeMarkup) 이 IME 를 끊는 것을 막는다.
+ */
+let uniqueIdFilterHostEditor: TiptapEditorClass | null = null;
+
+/**
+ * IME 조합 첫 타자는 ReplaceAroundStep 이거나 마크 단계(Add/RemoveMark) 와 같은 트랜잭션에 섞이는 경우가 있어
+ * 기존「ReplaceStep 만」판별 시 UniqueID appendTransaction 이 끼어 조합이 끊긴다.
+ */
+function uniqueIdTypingOnlySteps(steps: readonly Step[]): boolean {
+  return steps.every(
+    (s) =>
+      s instanceof ReplaceStep ||
+      s instanceof ReplaceAroundStep ||
+      s instanceof AddMarkStep ||
+      s instanceof RemoveMarkStep,
+  );
+}
+
+/** Replace 계열 스텝이 넣은 슬라이스 크기 합 — 조합 분할 방지 범위는 160 유지 */
+function uniqueIdTypingInsertedSize(steps: readonly Step[]): number {
+  let sum = 0;
+  for (const s of steps) {
+    if (s instanceof ReplaceStep && s.slice) sum += s.slice.size;
+    else if (s instanceof ReplaceAroundStep && s.slice) sum += s.slice.size;
+  }
+  return sum;
+}
+
+/**
+ * UniqueID appendTransaction 스킵 여부. false 를 반환하면 스킵(@tiptap/extension-unique-id 규약).
+ * useMemo 밖에 둬서 performance.now 정합성·React purity 린트 이슈를 피한다.
+ */
+function editorUniqueIdFilterTransaction(tr: Transaction): boolean {
+  if (tr.getMeta("composition")) {
+    return false;
+  }
+  if (uniqueIdFilterHostEditor?.view.composing) {
+    return false;
+  }
+  if (!tr.docChanged) return true;
+  if (tr.getMeta("__uniqueIDTransaction")) return true;
+  if (tr.getMeta("paste")) return true;
+  if (!uniqueIdTypingOnlySteps(tr.steps)) return true;
+  const inserted = uniqueIdTypingInsertedSize(tr.steps);
+  if (inserted > 160) return true;
+  return false;
+}
 
 /** 풀 페이지 DB — 페이지 제목 입력 시 blur 에서만 DB 메타 제목 갱신(중복 검사) */
 function trySyncFullPageDatabaseTitle(
   doc: JSONContent,
   pageTitle: string,
 ): boolean {
-  const c = doc.content;
-  if (!c?.length) return true;
-  const first = c[0];
-  if (
-    first?.type === "databaseBlock" &&
-    first.attrs &&
-    typeof first.attrs.databaseId === "string"
-  ) {
+  const databaseId = getFirstDatabaseBlockId(doc);
+  if (databaseId) {
     return useDatabaseStore
       .getState()
-      .setDatabaseTitle(first.attrs.databaseId, pageTitle);
+      .setDatabaseTitle(databaseId, pageTitle);
   }
   return true;
 }
 
-/** 전체 페이지 DB — 문서 첫 노드가 fullPage databaseBlock 일 때 하위에 붙은 빈 문단 등을 제거 */
-function normalizeFullPageDatabaseDoc(doc: JSONContent): JSONContent {
-  const c = doc.content;
-  if (!c?.length) return doc;
-  const first = c[0];
-  if (
-    first?.type === "databaseBlock" &&
-    first.attrs &&
-    (first.attrs as { layout?: string }).layout === "fullPage"
-  ) {
-    if (c.length === 1) return doc;
-    return {
-      type: "doc",
-      content: [structuredClone(first) as JSONContent],
-    };
-  }
-  return doc;
-}
-
 const AUTOSAVE_DEBOUNCE_MS = 300;
+
+/** 본문 스크롤 하단 여백(px) — 뷰포트 높이 42%, 최소 12rem, 최대 680px */
+function computeEditorTailSpacerPx(): number {
+  const vh = window.visualViewport?.height ?? window.innerHeight;
+  const rootRemPx =
+    Number.parseFloat(getComputedStyle(document.documentElement).fontSize) ||
+    16;
+  const minPx = Math.round(12 * rootRemPx);
+  return Math.min(680, Math.max(minPx, Math.round(vh * 0.42)));
+}
 
 /** useEditor content 폴백 — 매 렌더 새 객체를 넘기면 옵션 비교 실패 → setOptions 반복 → 무한 업데이트 */
 const EMPTY_EDITOR_DOC: JSONContent = {
@@ -189,34 +242,10 @@ type EditorProps = {
   bodyOnly?: boolean;
 };
 
-/** youtube·image·fileBlock 등 임베드/미디어는 제외 — UniqueID 갱신 시 iframe·video·img가 다시 로드되는 현상 방지. image/fileBlock은 스키마에 `id` attr을 직접 등록(댓글 앵커). */
-const UNIQUE_ID_TYPES = [
-  "paragraph",
-  "heading",
-  "blockquote",
-  "bulletList",
-  "orderedList",
-  "listItem",
-  "taskList",
-  "taskItem",
-  "codeBlock",
-  "horizontalRule",
-  "databaseBlock",
-  "callout",
-  "columnLayout",
-  "column",
-  "tabBlock",
-  "tabPanel",
-  "toggle",
-  "toggleHeader",
-  "toggleContent",
-  "table",
-  "tableRow",
-  "tableHeader",
-  "tableCell",
-  "buttonBlock",
-  "pageLink",
-];
+/** editor 인스턴스 참조만 바뀔 때 재마운트 — 본문 state 변경 시 무분별 리렌더 방지 */
+const MemoBubbleToolbar = memo(BubbleToolbar);
+const MemoImageResizeOverlay = memo(ImageResizeOverlay);
+const MemoBlockCommentThreadPanel = memo(BlockCommentThreadPanel);
 
 export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const activeId = usePageStore((s) => s.activePageId);
@@ -230,21 +259,18 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const setCoverImage = usePageStore((s) => s.setCoverImage);
 
   const fullWidth = useSettingsStore((s) => s.fullWidth);
-  const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
+  /** 다른 페이지 즐겨찾기 변경 시 전체 에디터 리렌더를 줄이기 위해 boolean 만 구독 */
+  const isCurrentPageFavorite = useSettingsStore(
+    (s) =>
+      effectivePageId != null && s.favoritePageIds.includes(effectivePageId),
+  );
   const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
 
-  const me = useMemberStore((s) => s.me);
+  const myMemberId = useMemberStore((s) => s.me?.memberId);
 
   const pageDoc = page?.doc;
   const isFullPageDatabase = useMemo(() => {
-    if (!pageDoc) return false;
-    const c = pageDoc.content;
-    if (!c?.length) return false;
-    const first = c[0];
-    return (
-      first?.type === "databaseBlock" &&
-      first.attrs?.layout === "fullPage"
-    );
+    return isFullPageDatabaseDoc(pageDoc);
   }, [pageDoc]);
 
   const titleRef = useRef<HTMLInputElement | null>(null);
@@ -256,6 +282,8 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const [emojiAnchor, setEmojiAnchor] = useState<EmojiAnchor | null>(null);
 
   const columnDropRef = useRef<ColumnDropState>(null);
+  const [blockDropIndicator, setBlockDropIndicator] =
+    useState<BlockDropIndicatorRect | null>(null);
 
   const [simpleAlert, setSimpleAlert] = useState<string | null>(null);
   /** @ 키로 멘션 검색 모달 — 인라인 제안과 분리 */
@@ -264,9 +292,15 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     to: number;
   } | null>(null);
 
+  const editorScrollHostRef = useRef<HTMLDivElement | null>(null);
+  const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(420);
+
   const clearColumnDropUi = useCallback(() => {
     document.body.classList.remove("quicknote-column-drop");
   }, []);
+  const clearBlockDropIndicator = useCallback(() => {
+    setBlockDropIndicator(null);
+  }, [setBlockDropIndicator]);
 
   const handleAtOpenMention = useCallback(
     (view: PmEditorView, event: KeyboardEvent) => {
@@ -379,7 +413,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       TextStyle,
       Color,
       Highlight.configure({ multicolor: true }),
-      Youtube.configure({ width: 560, height: 315, nocookie: true }),
+      YoutubeBlock.configure({ width: 560, height: 315, nocookie: true }),
       Callout,
       ColumnLayout,
       Column,
@@ -389,7 +423,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       ToggleHeader,
       ToggleContent,
       MemberMention,
-      createBlockCommentDecorations(effectivePageId ?? undefined, me?.memberId),
+      createBlockCommentDecorations(effectivePageId ?? undefined, myMemberId),
       EmojiShortcode,
       DatabaseBlock,
       PageLink,
@@ -438,25 +472,13 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         },
       }),
       UniqueID.configure({
-        types: UNIQUE_ID_TYPES,
+        types: EDITOR_UNIQUE_ID_TYPES,
         updateDocument: !isFullPageDatabase,
         /** 짧은 텍스트 입력마다 appendTransaction 생략 → youtube·임베드 불필요 갱신 방지 */
-        filterTransaction: (tr) => {
-          if (!tr.docChanged) return true;
-          if (tr.getMeta("__uniqueIDTransaction")) return true;
-          if (tr.getMeta("paste")) return true;
-          const onlyReplace = tr.steps.every((s) => s instanceof ReplaceStep);
-          if (!onlyReplace) return true;
-          let inserted = 0;
-          for (const s of tr.steps) {
-            if (s instanceof ReplaceStep && s.slice) inserted += s.slice.size;
-          }
-          if (inserted > 160) return true;
-          return false;
-        },
+        filterTransaction: editorUniqueIdFilterTransaction,
       }),
     ],
-    [lowlightApi, isFullPageDatabase, effectivePageId, me?.memberId],
+    [lowlightApi, isFullPageDatabase, effectivePageId, myMemberId],
   );
 
   const editorProps = useMemo(
@@ -501,14 +523,34 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       handleDrop: createEditorHandleDrop({
         columnDropRef,
         clearColumnDropUi,
+        clearBlockDropIndicator,
         insertImageFromFile: handleEditorInsertImage,
       }),
+      handleDOMEvents: {
+        dragover: createEditorHandleDragOver({
+          showBlockDropIndicator: setBlockDropIndicator,
+          clearBlockDropIndicator,
+        }),
+        dragleave: (view: PmEditorView, event: DragEvent) => {
+          const next = event.relatedTarget;
+          if (!(next instanceof Node) || !view.dom.contains(next)) {
+            clearBlockDropIndicator();
+          }
+          return false;
+        },
+      },
       handleKeyDown(view: PmEditorView, event: KeyboardEvent) {
         if (handleAtOpenMention(view, event)) return true;
         return false;
       },
     }),
-    [clearColumnDropUi, handleEditorInsertImage, handleAtOpenMention],
+    [
+      clearColumnDropUi,
+      setBlockDropIndicator,
+      clearBlockDropIndicator,
+      handleEditorInsertImage,
+      handleAtOpenMention,
+    ],
   );
 
   // content 로 store 의 page.doc 를 넘기면 자동저장마다 참조가 바뀌어 setOptions 가 무한 호출됨.
@@ -520,6 +562,12 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       editorProps,
       shouldRerenderOnTransaction: false,
       editable: !isFullPageDatabase,
+      onCreate: ({ editor: created }) => {
+        uniqueIdFilterHostEditor = created;
+      },
+      onDestroy: () => {
+        uniqueIdFilterHostEditor = null;
+      },
     },
     [lowlightApi, isFullPageDatabase],
   );
@@ -761,16 +809,40 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const { selectedStarts: boxSelectedStarts, clearSelection: clearBoxSelection } =
     useBoxSelect(isFullPageDatabase ? null : editor);
 
+  useLayoutEffect(() => {
+    const host = editorScrollHostRef.current;
+    /* 호스트 미마운트(페이지 미선택 등)에서는 스킵 — page 는 early return 과 별개로 ref 만 본다 */
+    if (!host) return;
+    const run = (): void => {
+      const px = computeEditorTailSpacerPx();
+      host.style.scrollPaddingBottom = `${px}px`;
+      setEditorTailSpacerPx(px);
+    };
+    run();
+    window.addEventListener("resize", run, { passive: true });
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", run, { passive: true });
+    vv?.addEventListener("scroll", run, { passive: true });
+    return () => {
+      window.removeEventListener("resize", run);
+      vv?.removeEventListener("resize", run);
+      vv?.removeEventListener("scroll", run);
+    };
+  }, [effectivePageId, page?.id]);
+
   if (!page || !effectivePageId) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-zinc-400">
+      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-zinc-400">
         페이지를 선택하거나 좌측 + 버튼으로 새 페이지를 만드세요.
       </div>
     );
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950">
+    <div
+      ref={editorScrollHostRef}
+      className="qn-editor-body-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950"
+    >
       <div
         className={`relative mx-auto w-full ${fullWidth ? "max-w-none px-4" : "max-w-3xl"}`}
         data-qn-editor-column
@@ -813,20 +885,16 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
                   onClick={() => toggleFavoritePage(effectivePageId)}
                   className="shrink-0 rounded-md p-2 text-zinc-400 hover:bg-zinc-100 hover:text-amber-500 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
                   aria-label={
-                    favoritePageIds.includes(effectivePageId)
-                      ? "즐겨찾기 해제"
-                      : "즐겨찾기"
+                    isCurrentPageFavorite ? "즐겨찾기 해제" : "즐겨찾기"
                   }
-                  aria-pressed={favoritePageIds.includes(effectivePageId)}
+                  aria-pressed={isCurrentPageFavorite}
                   title="즐겨찾기"
                 >
                   <Star
                     size={22}
                     strokeWidth={1.75}
                     className={
-                      favoritePageIds.includes(effectivePageId)
-                        ? "fill-amber-400 text-amber-500"
-                        : ""
+                      isCurrentPageFavorite ? "fill-amber-400 text-amber-500" : ""
                     }
                   />
                 </button>
@@ -836,6 +904,16 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         )}
         <div className="relative">
           <EditorContent editor={editor} />
+          {blockDropIndicator ? (
+            <div
+              className="qn-block-drop-indicator"
+              style={{
+                top: blockDropIndicator.top,
+                left: blockDropIndicator.left,
+                width: blockDropIndicator.width,
+              }}
+            />
+          ) : null}
           {!isFullPageDatabase && (
             <ColumnReorderHandles editor={editor} boxSelectedStarts={boxSelectedStarts} />
           )}
@@ -847,9 +925,17 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
             />
           )}
         </div>
+        <div
+          aria-hidden
+          className="qn-editor-scroll-tail-spacer shrink-0 select-none"
+          style={{
+            height: editorTailSpacerPx,
+            minHeight: editorTailSpacerPx,
+          }}
+        />
       </div>
-      <BubbleToolbar editor={editor} />
-      <ImageResizeOverlay editor={editor} />
+      <MemoBubbleToolbar editor={editor} />
+      <MemoImageResizeOverlay editor={editor} />
       <ImageUpload
         open={imageOpen}
         onClose={() => setImageOpen(false)}
@@ -917,7 +1003,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         editor={editor}
         range={mentionRange}
       />
-      <BlockCommentThreadPanel editor={editor} />
+      <MemoBlockCommentThreadPanel editor={editor} />
     </div>
   );
 }

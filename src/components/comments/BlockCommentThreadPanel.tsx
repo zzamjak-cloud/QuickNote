@@ -1,6 +1,7 @@
 // 블록 댓글 스레드 — 노션형 타임라인 + 답글
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/react";
 import { Pencil, Trash2, X } from "lucide-react";
@@ -33,8 +34,13 @@ function memberName(members: { memberId: string; name: string }[], id: string): 
 export function BlockCommentThreadPanel({ editor }: Props) {
   const payload = useUiStore((s) => s.commentThread);
   const closeCommentThread = useUiStore((s) => s.closeCommentThread);
-  const members = useMemberStore((s) => s.members);
-  const me = useMemberStore((s) => s.me);
+  /** 표시 이름만 구독 — 멤버 객체 기타 필드 변경 시 패널 전체 리렌더 완화 */
+  const members = useMemberStore(
+    useShallow((s) =>
+      s.members.map((m) => ({ memberId: m.memberId, name: m.name })),
+    ),
+  );
+  const myMemberId = useMemberStore((s) => s.me?.memberId);
   const addMessage = useBlockCommentStore((s) => s.addMessage);
   const updateMessage = useBlockCommentStore((s) => s.updateMessage);
   const deleteMessage = useBlockCommentStore((s) => s.deleteMessage);
@@ -144,7 +150,7 @@ export function BlockCommentThreadPanel({ editor }: Props) {
 
   if (!payload || !pageExists) return null;
 
-  const myId = me?.memberId;
+  const myId = myMemberId;
   const canPost = !!myId;
 
   const onSend = (text: string, mentionIds: string[]) => {

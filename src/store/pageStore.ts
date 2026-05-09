@@ -19,6 +19,11 @@ import { useNotificationStore } from "./notificationStore";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
+import {
+  attachPersistedMeta,
+  mergePersistedSubset,
+  migratePersistedStore,
+} from "../lib/migrations/persistedStore";
 
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
 // 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
@@ -128,9 +133,23 @@ function notifyNewPageMentions(pageId: string, before: JSONContent, after: JSONC
     if (!hit.blockId) continue;
     const key = `${hit.memberId}:${hit.blockId}`;
     const commentId = `page:${pageId}:block:${hit.blockId}:member:${hit.memberId}`;
-    const previewBody = blockPreviewById(after, hit.blockId);
+    const hostPreview =
+      hit.previewInlineHostText != null &&
+      hit.previewInlineHostText.trim() !== ""
+        ? hit.previewInlineHostText.trim()
+        : null;
+    const previewBody = hostPreview ?? blockPreviewById(after, hit.blockId);
     if (beforeKeys.has(key)) {
-      const beforePreviewBody = blockPreviewById(before, hit.blockId);
+      const beforeHit = beforeHits.find(
+        (h) => h.blockId && `${h.memberId}:${h.blockId}` === key,
+      );
+      const beforeHost =
+        beforeHit?.previewInlineHostText != null &&
+        beforeHit.previewInlineHostText.trim() !== ""
+          ? beforeHit.previewInlineHostText.trim()
+          : null;
+      const beforePreviewBody =
+        beforeHost ?? blockPreviewById(before, hit.blockId);
       const notificationStore = useNotificationStore.getState();
       const existing = notificationStore.items.some(
         (item) => item.commentId === commentId,
@@ -186,6 +205,8 @@ type DeletedBatch = {
 type PageStoreState = {
   pages: PageMap;
   activePageId: string | null;
+  /** 현재 pages 캐시가 소속된 워크스페이스. null이면 구버전/미확정 캐시로 간주한다. */
+  cacheWorkspaceId: string | null;
   /** 가장 최근 삭제 배치 — Ctrl+Z 한 번 으로 복원 가능 */
   lastDeletedBatch: DeletedBatch | null;
 };
@@ -235,6 +256,15 @@ type PageStoreActions = {
 
 export type PageStore = PageStoreState & PageStoreActions;
 
+/** zustand persist `version` 과 동일 — 메타 schemaVersion 과 맞춘다 */
+const PAGE_STORE_PERSIST_VERSION = 2;
+
+const PAGE_STORE_DATA_KEYS = [
+  "pages",
+  "activePageId",
+  "cacheWorkspaceId",
+] as const satisfies readonly (keyof PageStoreState)[];
+
 function nextOrderForParent(pages: PageMap, parentId: string | null): number {
   const siblings = Object.values(pages).filter((p) => p.parentId === parentId);
   if (siblings.length === 0) return 0;
@@ -273,6 +303,7 @@ export const usePageStore = create<PageStore>()(
     (set, get) => ({
       pages: {},
       activePageId: null,
+      cacheWorkspaceId: null,
       lastDeletedBatch: null,
 
       createPage: (title = "새 페이지", parentId = null, opts) => {
@@ -292,6 +323,7 @@ export const usePageStore = create<PageStore>()(
         set((state) => ({
           pages: { ...state.pages, [id]: page },
           activePageId: activate ? id : state.activePageId,
+          cacheWorkspaceId: getCurrentWorkspaceId() || state.cacheWorkspaceId,
         }));
         const hs = useHistoryStore.getState();
         const pageEvents = hs.pageEventsByPageId[id] ?? [];
@@ -822,19 +854,48 @@ export const usePageStore = create<PageStore>()(
     {
       name: "quicknote.pages.v1",
       storage: createJSONStorage(() => zustandStorage),
-      version: 1,
+      version: PAGE_STORE_PERSIST_VERSION,
       migrate: (persisted: unknown, fromVersion: number) => {
-        // 버전 0(최초 migrate 없던 시절) 캐시는 구조 보장 불가 → 빈 상태로 초기화.
-        // Bootstrap이 원격에서 전체 재페치하므로 데이터 손실 없음.
-        if (fromVersion < 1) {
-          return { pages: {}, activePageId: null };
+        const next = migratePersistedStore(
+          persisted,
+          fromVersion,
+          [
+            {
+              version: 1,
+              migrate: () => ({
+                pages: {},
+                activePageId: null,
+                cacheWorkspaceId: null,
+              }),
+            },
+            {
+              version: 2,
+              migrate: (state) => ({ ...state, cacheWorkspaceId: null }),
+            },
+          ],
+          { pages: {}, activePageId: null, cacheWorkspaceId: null },
+        );
+        if (fromVersion < PAGE_STORE_PERSIST_VERSION) {
+          return attachPersistedMeta(next, {
+            migratedAt: new Date().toISOString(),
+          });
         }
-        return persisted;
+        return next;
       },
-      partialize: (state) => ({
-        pages: state.pages,
-        activePageId: state.activePageId,
-      }),
+      partialize: (state) =>
+        attachPersistedMeta(
+          {
+            pages: state.pages,
+            activePageId: state.activePageId,
+            cacheWorkspaceId: state.cacheWorkspaceId,
+          },
+          {
+            schemaVersion: PAGE_STORE_PERSIST_VERSION,
+            persistedWorkspaceId: state.cacheWorkspaceId,
+          },
+        ),
+      merge: (persisted, current) =>
+        mergePersistedSubset(persisted, current as PageStore, PAGE_STORE_DATA_KEYS),
     }
   )
 );

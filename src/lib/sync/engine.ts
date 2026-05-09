@@ -4,6 +4,8 @@ import type {
   OutboxEntry,
   OutboxOp,
 } from "./outbox/types";
+import { buildOutboxEntryMeta } from "./outboxMeta";
+import { sortOutboxBatchForFlush } from "./outboxFlushOrder";
 
 // 동기화 엔진. enqueue 시 outbox 에 적재 → 백그라운드 워커가 mutation 으로 flush.
 // 같은 (op, id) 의 새 enqueue 는 dedupe 로 마지막 본만 남김.
@@ -37,18 +39,26 @@ export class SyncEngine {
   private readonly outbox: OutboxAdapter;
   private readonly gql: GqlBridge;
   private readonly clock: () => number;
+  /** 플러시 시 UI 워크스페이스와 엔트리 메타 불일치 진단용(옵션). */
+  private readonly getCurrentWorkspaceIdForLog?: () => string | null;
 
   constructor(
     outbox: OutboxAdapter,
     gql: GqlBridge,
     clock: () => number = () => Date.now(),
+    getCurrentWorkspaceIdForLog?: () => string | null,
   ) {
     this.outbox = outbox;
     this.gql = gql;
     this.clock = clock;
+    this.getCurrentWorkspaceIdForLog = getCurrentWorkspaceIdForLog;
   }
 
   async enqueue(op: OutboxOp, payload: EnqueuePayload): Promise<void> {
+    const meta = buildOutboxEntryMeta(
+      op,
+      payload as Record<string, unknown>,
+    );
     const entry: OutboxEntry = {
       id: ulid(),
       op,
@@ -56,6 +66,10 @@ export class SyncEngine {
       enqueuedAt: this.clock(),
       attempts: 0,
       dedupeKey: `${op}:${payload.id}`,
+      workspaceId: meta.workspaceId,
+      entityType: meta.entityType,
+      entityId: meta.entityId,
+      baseVersion: meta.baseVersion,
     };
     await this.outbox.upsertByDedupe(entry);
     this.scheduleFlush(0);
@@ -73,6 +87,10 @@ export class SyncEngine {
       attempts: e.attempts,
       pageId: (e.payload as Record<string, unknown>).id,
       workspaceId: (e.payload as Record<string, unknown>).workspaceId,
+      entryWorkspaceId: e.workspaceId,
+      entityType: e.entityType,
+      entityId: e.entityId,
+      baseVersion: e.baseVersion,
       docType: typeof (e.payload as Record<string, unknown>).doc,
       enqueuedAt: new Date(e.enqueuedAt).toISOString(),
     }));
@@ -95,14 +113,17 @@ export class SyncEngine {
     this.flushing = true;
     try {
       while (true) {
-        const batch = await this.outbox.list(20);
-        if (batch.length === 0) return;
+        const batchRaw = await this.outbox.list(20);
+        if (batchRaw.length === 0) return;
+        const uiWs = this.getCurrentWorkspaceIdForLog?.() ?? null;
+        const batch = sortOutboxBatchForFlush(batchRaw, uiWs);
 
         let minFailBackoff = MAX_BACKOFF_MS;
         let hasFailure = false;
 
         for (const entry of batch) {
           try {
+            this.logWorkspaceMismatchIfAny(entry);
             await this.execute(entry);
             await this.outbox.remove(entry.id);
           } catch (err) {
@@ -147,6 +168,27 @@ export class SyncEngine {
       }
     } finally {
       this.flushing = false;
+    }
+  }
+
+  /** UI가 다른 워크스페이스에 있어도 payload 기준 전송은 해야 하므로, 경고만 남긴다. */
+  private logWorkspaceMismatchIfAny(entry: OutboxEntry): void {
+    if (entry.op === "updateMyClientPrefs") return;
+    const fn = this.getCurrentWorkspaceIdForLog;
+    if (!fn) return;
+    const uiWs = fn();
+    const entryWs = entry.workspaceId;
+    if (!uiWs || entryWs == null || entryWs === "") return;
+    if (entryWs !== uiWs) {
+      console.warn(
+        "[sync] outbox flush: UI 워크스페이스와 엔트리 메타 workspaceId 불일치 (payload 기준으로 전송 진행)",
+        {
+          op: entry.op,
+          entryWorkspaceId: entryWs,
+          uiWorkspaceId: uiWs,
+          entityId: entry.entityId,
+        },
+      );
     }
   }
 

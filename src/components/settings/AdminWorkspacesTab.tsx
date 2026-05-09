@@ -88,6 +88,7 @@ export function AdminWorkspacesTab() {
               <li key={ws.workspaceId}>
                 <button
                   type="button"
+                  aria-label={`${ws.name} 설정 편집`}
                   onClick={() => void openEditModal(ws.workspaceId)}
                   disabled={loadingWorkspaceId !== null}
                   className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900"

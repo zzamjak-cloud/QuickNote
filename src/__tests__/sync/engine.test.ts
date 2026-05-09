@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { SyncEngine, type GqlBridge } from "../../lib/sync/engine";
 import { MemoryOutboxAdapter } from "../../lib/sync/outbox/adapter.memory";
 
@@ -136,5 +136,63 @@ describe("SyncEngine", () => {
     await engine.flush();
     expect(gql.calls).toEqual([["updateMyClientPrefs", json]]);
     expect((await outbox.list(10)).length).toBe(0);
+  });
+
+  it("flush 배치에서 현재 UI 워크스페이스 엔트리를 먼저 전송한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    let t = 0;
+    const engine = new SyncEngine(
+      outbox,
+      gql,
+      () => ++t,
+      () => "ws-current",
+    );
+    await engine.enqueue("upsertPage", {
+      id: "other-first",
+      workspaceId: "ws-remote",
+      updatedAt: "t-a",
+    });
+    await engine.enqueue("upsertPage", {
+      id: "current-second",
+      workspaceId: "ws-current",
+      updatedAt: "t-b",
+    });
+    await engine.flush();
+    expect(gql.calls[0]?.[0]).toBe("upsertPage");
+    expect((gql.calls[0]![1] as { id: string }).id).toBe("current-second");
+    expect((gql.calls[1]![1] as { id: string }).id).toBe("other-first");
+  });
+
+  it("enqueue 시 outbox 엔트리에 워크스페이스·엔티티 메타가 채워진다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    await engine.enqueue("upsertPage", {
+      id: "p-1",
+      workspaceId: "ws-1",
+    });
+    const list = await outbox.list(10);
+    expect(list[0]!.workspaceId).toBe("ws-1");
+    expect(list[0]!.entityType).toBe("page");
+    expect(list[0]!.entityId).toBe("p-1");
+  });
+
+  it("플러시 시 UI 워크스페이스와 엔트리 메타가 다르면 경고 로그만 남긴다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const engine = new SyncEngine(outbox, gql, () => Date.now(), () => "ws-ui");
+    await engine.enqueue("upsertPage", {
+      id: "p-1",
+      workspaceId: "ws-remote",
+      updatedAt: "t",
+    });
+    await engine.flush();
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("불일치"))).toBe(
+      true,
+    );
+    expect((await outbox.list(10)).length).toBe(0);
+    warn.mockRestore();
   });
 });

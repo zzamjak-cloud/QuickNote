@@ -3,6 +3,7 @@ import { realGqlBridge } from "./graphql/bridge";
 import { getOutboxAdapter } from "./outbox/adapter";
 import type { OutboxOp } from "./outbox/types";
 import type { EnqueuePayload } from "./engine";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 
 // 런타임 싱글톤. UI/스토어에서 가볍게 enqueue 만 호출하도록 노출.
 
@@ -11,7 +12,12 @@ let _engine: SyncEngine | null = null;
 export async function getSyncEngine(): Promise<SyncEngine> {
   if (!_engine) {
     const outbox = await getOutboxAdapter();
-    _engine = new SyncEngine(outbox, realGqlBridge);
+    _engine = new SyncEngine(
+      outbox,
+      realGqlBridge,
+      () => Date.now(),
+      () => useWorkspaceStore.getState().currentWorkspaceId ?? null,
+    );
     // 콘솔에서 stale outbox 를 즉시 비울 수 있는 디버그 헬퍼.
     // 데스크톱(Tauri SQLite) / 웹(IndexedDB) 모두 같은 한 줄로 동작.
     if (typeof window !== "undefined") {

@@ -36,11 +36,10 @@ describe("AdminTeamsTab", () => {
     });
   });
 
-  it("팀 목록 카드에 팀명/인원수/액션을 렌더링한다", () => {
+  it("팀 목록 카드에 팀명·인원수·구성원 관리 라벨을 렌더링한다", () => {
     render(<AdminTeamsTab />);
     expect(screen.getByText("Design (1명)")).toBeTruthy();
     expect(screen.getByLabelText("Design 구성원 관리")).toBeTruthy();
-    expect(screen.getByLabelText("Design 삭제")).toBeTruthy();
   });
 
   it("팀 추가/삭제 액션이 API를 호출한다", async () => {
@@ -62,7 +61,8 @@ describe("AdminTeamsTab", () => {
     });
     await waitFor(() => expect(createTeamApiMock).toHaveBeenCalledWith("Platform"));
 
-    fireEvent.click(screen.getByLabelText("Design 삭제"));
+    fireEvent.click(screen.getByLabelText("Design 구성원 관리"));
+    fireEvent.click(screen.getByRole("button", { name: "팀 삭제" }));
     fireEvent.click(screen.getByText("삭제"));
     await waitFor(() => expect(deleteTeamApiMock).toHaveBeenCalledWith("t1"));
   });

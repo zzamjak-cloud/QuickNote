@@ -150,6 +150,16 @@ body.quicknote-block-dragging .ProseMirror {
   cursor: grabbing;
 }
 
+/* 본문 하단 입력 여유 — 스페이서 높이·scroll-padding-bottom 은 Editor.tsx 에서 픽셀 동기화 */
+.qn-editor-body-scroll {
+  overscroll-behavior-y: contain;
+}
+.qn-editor-scroll-tail-spacer {
+  width: 100%;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
 /* Typography prose 기본보다 촘촘한 블록 간격 (Enter 로 생기는 문단 간격 포함) */
 .ProseMirror p {
   margin-top: 0.35rem;
@@ -350,6 +360,36 @@ li.ProseMirror-selectednode::after {
 .qn-dropcursor {
   background-color: transparent !important;
   z-index: 100 !important;
+}
+
+.qn-block-drop-indicator {
+  position: fixed;
+  height: 3px;
+  pointer-events: none;
+  z-index: 150;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background-image: repeating-linear-gradient(
+    to right,
+    rgb(59, 130, 246) 0,
+    rgb(59, 130, 246) 5px,
+    transparent 5px,
+    transparent 10px
+  );
+}
+
+.dark .qn-block-drop-indicator {
+  background-image: repeating-linear-gradient(
+    to right,
+    rgb(96, 165, 250) 0,
+    rgb(96, 165, 250) 5px,
+    transparent 5px,
+    transparent 10px
+  );
+}
+
+body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
+  display: none !important;
 }
 
 .qn-dropcursor.prosemirror-dropcursor-block {

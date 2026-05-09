@@ -63,9 +63,12 @@ function fileAttrsChanged(a: FileAttrs, b: FileAttrs): boolean {
 }
 
 function areFileNodeViewsEqual(prev: NodeViewProps, next: NodeViewProps): boolean {
-  return !fileAttrsChanged(
-    prev.node.attrs as FileAttrs,
-    next.node.attrs as FileAttrs,
+  return (
+    prev.selected === next.selected &&
+    !fileAttrsChanged(
+      prev.node.attrs as FileAttrs,
+      next.node.attrs as FileAttrs,
+    )
   );
 }
 

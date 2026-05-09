@@ -5,6 +5,8 @@ import { zustandStorage } from "../lib/storage/index";
 import { scheduleEnqueueClientPrefs } from "../lib/sync/clientPrefsSync";
 import { usePageStore } from "./pageStore";
 import { useWorkspaceStore } from "./workspaceStore";
+import type { PersistedObject } from "../lib/migrations/persistedStore";
+import { migratePersistedStore } from "../lib/migrations/persistedStore";
 
 export type Tab = { pageId: string | null; back?: string[] };
 export type FavoritePageMeta = {
@@ -70,6 +72,91 @@ type SettingsActions = {
 };
 
 export type SettingsStore = SettingsState & SettingsActions;
+
+export const SETTINGS_STORE_VERSION = 6;
+
+export function migrateSettingsStore(
+  persisted: unknown,
+  fromVersion: number,
+): PersistedObject {
+  return migratePersistedStore(
+    persisted,
+    fromVersion,
+    [
+      {
+        version: 2,
+        migrate: (state) => ({
+          ...state,
+          sidebarCollapsed: false,
+          favoritePageIds: [],
+          favoritePageMetaById: {},
+          favoritePageIdsUpdatedAt: 0,
+        }),
+      },
+      {
+        version: 3,
+        migrate: (state) => {
+          const ids = Array.isArray(state.favoritePageIds)
+            ? (state.favoritePageIds as string[])
+            : [];
+          const prevTs = Number(state.favoritePageIdsUpdatedAt);
+          const favoritePageIdsUpdatedAt =
+            Number.isFinite(prevTs) && prevTs > 0
+              ? prevTs
+              : ids.length > 0
+                ? Date.now()
+                : 0;
+          return { ...state, favoritePageIdsUpdatedAt };
+        },
+      },
+      {
+        version: 4,
+        migrate: (state) => {
+          const ids = Array.isArray(state.favoritePageIds)
+            ? (state.favoritePageIds as string[])
+            : [];
+          let ts = Number(state.favoritePageIdsUpdatedAt);
+          if (ids.length > 0 && (!Number.isFinite(ts) || ts <= 0)) {
+            ts = Date.now();
+          }
+          return { ...state, favoritePageIdsUpdatedAt: ts };
+        },
+      },
+      {
+        version: 5,
+        migrate: (state) => {
+          const rawMeta = state.favoritePageMetaById;
+          const favoritePageMetaById =
+            rawMeta && typeof rawMeta === "object" && !Array.isArray(rawMeta)
+              ? (rawMeta as Record<string, FavoritePageMeta>)
+              : {};
+          return { ...state, favoritePageMetaById };
+        },
+      },
+      {
+        version: 6,
+        migrate: (state) => ({
+          ...state,
+          lastVisitedPageIdByWorkspaceId: {},
+        }),
+      },
+    ],
+    {
+      darkMode: false,
+      fullWidth: false,
+      sidebarWidth: 260,
+      rightPanelWidth: 320,
+      sidebarCollapsed: false,
+      favoritePageIds: [],
+      favoritePageMetaById: {},
+      favoritePageIdsUpdatedAt: 0,
+      expandedIds: [],
+      tabs: [{ pageId: null }],
+      activeTabIndex: 0,
+      lastVisitedPageIdByWorkspaceId: {},
+    },
+  );
+}
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(
@@ -226,55 +313,8 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: "quicknote.settings.v1",
       storage: createJSONStorage(() => zustandStorage),
-      version: 6,
-      migrate: (persisted: unknown, fromVersion: number) => {
-        let p = persisted as Record<string, unknown>;
-        if (fromVersion < 2) {
-          p = {
-            ...p,
-            sidebarCollapsed: false,
-            favoritePageIds: [],
-            favoritePageMetaById: {},
-            favoritePageIdsUpdatedAt: 0,
-          };
-        }
-        if (fromVersion < 3) {
-          const ids = Array.isArray(p.favoritePageIds)
-            ? (p.favoritePageIds as string[])
-            : [];
-          const prevTs = Number(p.favoritePageIdsUpdatedAt);
-          const favoritePageIdsUpdatedAt =
-            Number.isFinite(prevTs) && prevTs > 0
-              ? prevTs
-              : ids.length > 0
-                ? Date.now()
-                : 0;
-          p = { ...p, favoritePageIdsUpdatedAt };
-        }
-        // v3 마이그레이션으로 즐겨찾기는 있는데 타임스탬프만 0인 경우 서버 prefs 가 로컬을 덮어쓰는 문제 복구
-        if (fromVersion < 4) {
-          const ids = Array.isArray(p.favoritePageIds)
-            ? (p.favoritePageIds as string[])
-            : [];
-          let ts = Number(p.favoritePageIdsUpdatedAt);
-          if (ids.length > 0 && (!Number.isFinite(ts) || ts <= 0)) {
-            ts = Date.now();
-          }
-          p = { ...p, favoritePageIdsUpdatedAt: ts };
-        }
-        if (fromVersion < 5) {
-          const rawMeta = p.favoritePageMetaById;
-          const favoritePageMetaById =
-            rawMeta && typeof rawMeta === "object" && !Array.isArray(rawMeta)
-              ? (rawMeta as Record<string, FavoritePageMeta>)
-              : {};
-          p = { ...p, favoritePageMetaById };
-        }
-        if (fromVersion < 6) {
-          p = { ...p, lastVisitedPageIdByWorkspaceId: {} };
-        }
-        return p;
-      },
+      version: SETTINGS_STORE_VERSION,
+      migrate: migrateSettingsStore,
     },
   ),
 );

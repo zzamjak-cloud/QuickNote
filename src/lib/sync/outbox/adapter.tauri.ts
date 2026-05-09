@@ -23,10 +23,32 @@ function db(): Promise<Database> {
       await d.execute(
         `CREATE INDEX IF NOT EXISTS idx_outbox_enqueuedAt ON outbox_entries(enqueuedAt);`,
       );
+      await ensureOutboxMetaColumns(d);
       return d;
     })();
   }
   return dbPromise;
+}
+
+async function ensureOutboxMetaColumns(d: Database): Promise<void> {
+  const rows = await d.select<{ name: string }[]>(
+    "PRAGMA table_info(outbox_entries)",
+  );
+  const names = new Set(rows.map((r) => r.name));
+  if (!names.has("workspaceId")) {
+    await d.execute(`ALTER TABLE outbox_entries ADD COLUMN workspaceId TEXT`);
+  }
+  if (!names.has("entityType")) {
+    await d.execute(`ALTER TABLE outbox_entries ADD COLUMN entityType TEXT`);
+  }
+  if (!names.has("entityId")) {
+    await d.execute(`ALTER TABLE outbox_entries ADD COLUMN entityId TEXT`);
+  }
+  if (!names.has("baseVersion")) {
+    await d.execute(
+      `ALTER TABLE outbox_entries ADD COLUMN baseVersion INTEGER`,
+    );
+  }
 }
 
 type Row = {
@@ -37,29 +59,42 @@ type Row = {
   attempts: number;
   lastErrorAt: number | null;
   dedupeKey: string;
+  workspaceId?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  baseVersion?: number | null;
 };
 
 function rowToEntry(r: Row): OutboxEntry {
-  return {
+  const payload = JSON.parse(r.payload) as unknown;
+  const base: OutboxEntry = {
     id: r.id,
     op: r.op as OutboxEntry["op"],
-    payload: JSON.parse(r.payload),
+    payload,
     enqueuedAt: r.enqueuedAt,
     attempts: r.attempts,
     lastErrorAt: r.lastErrorAt ?? undefined,
     dedupeKey: r.dedupeKey,
   };
+  if (r.workspaceId != null)
+    base.workspaceId = r.workspaceId;
+  if (r.entityType != null)
+    base.entityType = r.entityType as OutboxEntry["entityType"];
+  if (r.entityId != null) base.entityId = r.entityId;
+  if (r.baseVersion != null) base.baseVersion = r.baseVersion;
+  return base;
 }
 
 export class TauriOutboxAdapter implements OutboxAdapter {
   async put(entry: OutboxEntry): Promise<void> {
     const d = await db();
     await d.execute(
-      `INSERT INTO outbox_entries(id, op, payload, enqueuedAt, attempts, lastErrorAt, dedupeKey)
-       VALUES (?,?,?,?,?,?,?)
+      `INSERT INTO outbox_entries(id, op, payload, enqueuedAt, attempts, lastErrorAt, dedupeKey, workspaceId, entityType, entityId, baseVersion)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET
          op=excluded.op, payload=excluded.payload, enqueuedAt=excluded.enqueuedAt,
-         attempts=excluded.attempts, lastErrorAt=excluded.lastErrorAt, dedupeKey=excluded.dedupeKey`,
+         attempts=excluded.attempts, lastErrorAt=excluded.lastErrorAt, dedupeKey=excluded.dedupeKey,
+         workspaceId=excluded.workspaceId, entityType=excluded.entityType, entityId=excluded.entityId, baseVersion=excluded.baseVersion`,
       [
         entry.id,
         entry.op,
@@ -68,6 +103,10 @@ export class TauriOutboxAdapter implements OutboxAdapter {
         entry.attempts,
         entry.lastErrorAt ?? null,
         entry.dedupeKey,
+        entry.workspaceId ?? null,
+        entry.entityType ?? null,
+        entry.entityId ?? null,
+        entry.baseVersion ?? null,
       ],
     );
   }
@@ -91,12 +130,13 @@ export class TauriOutboxAdapter implements OutboxAdapter {
     // race 로 UNIQUE 충돌을 일으킨다. SQLite UPSERT 로 atomic 처리.
     const d = await db();
     await d.execute(
-      `INSERT INTO outbox_entries(id, op, payload, enqueuedAt, attempts, lastErrorAt, dedupeKey)
-       VALUES (?,?,?,?,?,?,?)
+      `INSERT INTO outbox_entries(id, op, payload, enqueuedAt, attempts, lastErrorAt, dedupeKey, workspaceId, entityType, entityId, baseVersion)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(dedupeKey) DO UPDATE SET
          id=excluded.id, op=excluded.op, payload=excluded.payload,
          enqueuedAt=excluded.enqueuedAt, attempts=excluded.attempts,
-         lastErrorAt=excluded.lastErrorAt`,
+         lastErrorAt=excluded.lastErrorAt,
+         workspaceId=excluded.workspaceId, entityType=excluded.entityType, entityId=excluded.entityId, baseVersion=excluded.baseVersion`,
       [
         entry.id,
         entry.op,
@@ -105,6 +145,10 @@ export class TauriOutboxAdapter implements OutboxAdapter {
         entry.attempts,
         entry.lastErrorAt ?? null,
         entry.dedupeKey,
+        entry.workspaceId ?? null,
+        entry.entityType ?? null,
+        entry.entityId ?? null,
+        entry.baseVersion ?? null,
       ],
     );
   }

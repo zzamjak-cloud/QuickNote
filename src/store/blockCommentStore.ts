@@ -5,6 +5,8 @@ import { newId } from "../lib/id";
 import { useNotificationStore } from "./notificationStore";
 import { normalizeMentionMemberIds } from "../lib/comments/mentionMemberIds";
 import { usePageStore } from "./pageStore";
+import type { PersistedObject } from "../lib/migrations/persistedStore";
+import { migratePersistedStore } from "../lib/migrations/persistedStore";
 
 /** 블록 스레드 내 단일 댓글 */
 export type BlockCommentMsg = {
@@ -46,8 +48,68 @@ type BlockCommentActions = {
   ) => boolean;
 };
 
+export const BLOCK_COMMENT_STORE_VERSION = 2;
+
 function threadKey(pageId: string, blockId: string): string {
   return `${pageId}:${blockId}`;
+}
+
+function migrateBlockCommentMsg(value: unknown): BlockCommentMsg | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const msg = value as Partial<BlockCommentMsg>;
+  if (
+    typeof msg.id !== "string" ||
+    typeof msg.pageId !== "string" ||
+    typeof msg.blockId !== "string" ||
+    typeof msg.authorMemberId !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: msg.id,
+    pageId: msg.pageId,
+    blockId: msg.blockId,
+    authorMemberId: msg.authorMemberId,
+    bodyText: typeof msg.bodyText === "string" ? msg.bodyText : "",
+    mentionMemberIds: normalizeMentionMemberIds(msg.mentionMemberIds ?? []),
+    parentId: typeof msg.parentId === "string" ? msg.parentId : null,
+    createdAt: typeof msg.createdAt === "number" ? msg.createdAt : Date.now(),
+  };
+}
+
+function migrateThreadVisitedAt(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value)) {
+    const timestamp = Number(raw);
+    if (key && Number.isFinite(timestamp) && timestamp > 0) {
+      result[key] = timestamp;
+    }
+  }
+  return result;
+}
+
+export function migrateBlockCommentStore(
+  persisted: unknown,
+  fromVersion: number,
+): PersistedObject {
+  return migratePersistedStore(
+    persisted,
+    fromVersion,
+    [
+      {
+        version: 2,
+        migrate: (state) => ({
+          ...state,
+          messages: Array.isArray(state.messages)
+            ? state.messages.map(migrateBlockCommentMsg).filter(Boolean)
+            : [],
+          threadVisitedAt: migrateThreadVisitedAt(state.threadVisitedAt),
+        }),
+      },
+    ],
+    { messages: [], threadVisitedAt: {} },
+  );
 }
 
 /** 새 글 추가 전까지의 스레드 참여자에게만 답글 알림(첫 글은 빈 배열) */
@@ -199,7 +261,8 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
     {
       name: "quicknote.blockComments.v1",
       storage: createJSONStorage(() => zustandStorage),
-      version: 1,
+      version: BLOCK_COMMENT_STORE_VERSION,
+      migrate: migrateBlockCommentStore,
     },
   ),
 );

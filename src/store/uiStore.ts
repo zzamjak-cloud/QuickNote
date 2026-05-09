@@ -23,6 +23,14 @@ export type FavoriteNavigationRequest = {
   requestedAt: number;
 };
 
+/** 미전송 outbox 때문에 워크스페이스 전환 시 로컬 캐시 비우기가 한 번 막힌 상태(세션용, persist 제외) */
+export type OutboxWorkspaceSwitchHold = {
+  pending: number;
+  targetWorkspaceId: string;
+  /** 캐시 클리어 재시도에 쓰이는 소스 워크스페이스(세션 전환 직전 WS 또는 페이지 캐시 소속) */
+  sourceWorkspaceId?: string | null;
+};
+
 /** 우측 패널(목차 / 즐겨찾기) 탭 */
 export type RightPanelTab = "toc" | "favorites";
 
@@ -51,6 +59,7 @@ type UiStoreState = {
   rowBackTargetByPageId: Record<string, string>;
   toasts: ToastMessage[];
   pendingFavoriteNavigation: FavoriteNavigationRequest | null;
+  outboxWorkspaceSwitchHold: OutboxWorkspaceSwitchHold | null;
 };
 
 type UiStoreActions = {
@@ -84,6 +93,7 @@ type UiStoreActions = {
     workspaceId: string | null;
   }) => void;
   clearFavoriteNavigation: () => void;
+  setOutboxWorkspaceSwitchHold: (payload: OutboxWorkspaceSwitchHold | null) => void;
 };
 
 function newToastId(): string {
@@ -103,6 +113,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   rowBackTargetByPageId: {},
   toasts: [],
   pendingFavoriteNavigation: null,
+  outboxWorkspaceSwitchHold: null,
 
   toggleRightPanel: (tab) =>
     set((s) => {
@@ -185,6 +196,8 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
       },
     }),
   clearFavoriteNavigation: () => set({ pendingFavoriteNavigation: null }),
+  setOutboxWorkspaceSwitchHold: (payload) =>
+    set({ outboxWorkspaceSwitchHold: payload }),
 }),
     {
       name: "quicknote.ui.v1",

@@ -80,10 +80,24 @@ describe("AdminWorkspacesTab", () => {
     expect(screen.getByText("Engineering")).toBeTruthy();
   });
 
-  it("행 클릭 시 상세 패널을 표시한다", () => {
+  it("행에 설정 편집 라벨이 있고, 클릭 시 편집 모달에서 삭제 버튼에 접근할 수 있다", async () => {
+    getWorkspaceApiMock.mockResolvedValue({
+      workspaceId: "ws-2",
+      name: "HR",
+      type: "shared",
+      ownerMemberId: "m-owner",
+      myEffectiveLevel: "view",
+      access: [],
+    });
     render(<AdminWorkspacesTab />);
     expect(screen.getAllByLabelText("HR 설정 편집").length).toBeGreaterThan(0);
-    expect(screen.getAllByLabelText("HR 삭제").length).toBeGreaterThan(0);
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("HR 설정 편집"));
+    });
+    await vi.waitFor(() => {
+      expect(getWorkspaceApiMock).toHaveBeenCalledWith("ws-2");
+    });
+    expect(screen.getByRole("button", { name: "워크스페이스 삭제" })).toBeTruthy();
   });
 
   it("생성 모달에서 EVERYONE EDIT 규칙 추가 후 생성한다", async () => {
@@ -205,9 +219,23 @@ describe("AdminWorkspacesTab", () => {
 
   it("삭제 확인 시 deleteWorkspace 호출 후 목록에서 제거한다", async () => {
     deleteWorkspaceApiMock.mockResolvedValue(true);
+    getWorkspaceApiMock.mockResolvedValue({
+      workspaceId: "ws-2",
+      name: "HR",
+      type: "shared",
+      ownerMemberId: "m-owner",
+      myEffectiveLevel: "view",
+      access: [],
+    });
 
     render(<AdminWorkspacesTab />);
-    fireEvent.click(screen.getByLabelText("HR 삭제"));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("HR 설정 편집"));
+    });
+    await vi.waitFor(() => {
+      expect(getWorkspaceApiMock).toHaveBeenCalled();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "워크스페이스 삭제" }));
     fireEvent.change(screen.getByPlaceholderText("HR 삭제"), {
       target: { value: "HR 삭제" },
     });
