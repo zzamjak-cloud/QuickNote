@@ -852,7 +852,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
               onChange={(url) => setCoverImage(effectivePageId, url)}
               onRemove={() => setCoverImage(effectivePageId, null)}
             />
-            <div className="mt-12 px-12">
+            <div className={`${page.coverImage ? "mt-12" : "mt-4"} px-12`}>
               <div className="flex items-center gap-2">
                 <IconPicker
                   current={page.icon}

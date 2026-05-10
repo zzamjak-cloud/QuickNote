@@ -21,11 +21,11 @@ export function PageCoverImage({ url, onChange, onRemove }: Props) {
   // 커버 이미지가 없을 때: 호버 시 추가 버튼 표시
   if (!url) {
     return (
-      <div className="group relative flex h-8 items-center">
+      <div className="relative flex h-8 items-center px-12 pt-6">
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="text-[10px] text-zinc-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-zinc-600"
+          className="rounded px-1.5 py-1 text-[11px] text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
         >
           + 커버 이미지 추가
         </button>

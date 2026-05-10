@@ -115,7 +115,7 @@ export type ViewSpecificConfig = {
 
 export type ViewConfigsMap = Partial<Record<ViewKind, ViewSpecificConfig>>;
 
-/** 블록별 UI 상태 — TipTap attrs JSON으로 저장 */
+/** DB 뷰 개인 UI 상태 — 로컬 전용 저장소에만 저장하고 문서/동기화 payload에 싣지 않는다. */
 export type DatabasePanelState = {
   searchQuery: string;
   filterRules: FilterRule[];

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.15] - 2026-05-10
+
+### Added
+
+- **databaseViewPrefsStore**: 워크스페이스·데이터베이스별 로컬 패널 상태(필터·정렬·속성 표시 등)를 persist 저장. 문서에 인코딩하던 `panelState`와 분리해 페이지 doc 동기화 부담을 줄임.
+
+### Changed
+
+- **데이터베이스 블록**: 패널 상태 변경은 로컬 prefs 스토어에만 반영하고, 노드 attrs의 `panelState`는 레거시 초기값·마이그레이션 fallback 용도로만 유지.
+- **DB 전체 화면 헤더**: 「다른 DB 연결」 버튼 제거(인라인 블록 문맥에서의 연결 UI는 유지).
+- **속성 패널(DatabasePropertyPanel)**: 제목(title) 열 표시명 인라인 수정 등 편집 UX 보강.
+
+### Fixed
+
+- **페이지 커버 이미지(PageCoverImage)**: 빈 상태·추가 버튼 표시 등 표시 흐름 정리.
+
 ## [5.0.14] - 2026-05-10
 
 ### Added

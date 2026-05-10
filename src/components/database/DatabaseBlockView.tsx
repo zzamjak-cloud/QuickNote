@@ -36,6 +36,8 @@ import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
 import { useHistoryStore } from "../../store/historyStore";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
@@ -45,12 +47,16 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const rawView = String(node.attrs.view ?? "table");
   const view = (rawView === "list" ? "table" : rawView) as ViewKind;
   const panelStateRaw = String(node.attrs.panelState ?? "{}");
-  const panelState = useMemo(
-    () => parseDatabasePanelStateJson(panelStateRaw),
-    [panelStateRaw],
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const panelState = useDatabaseViewPrefsStore((s) =>
+    databaseId
+      ? s.getPanelState(databaseId, panelStateRaw)
+      : parseDatabasePanelStateJson(panelStateRaw),
   );
+  void currentWorkspaceId;
   const panelStateRef = useRef(panelState);
   panelStateRef.current = panelState;
+  const patchLocalPanelState = useDatabaseViewPrefsStore((s) => s.patchPanelState);
 
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const hasDatabaseId = databaseId.length > 0;
@@ -169,13 +175,12 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const setPanelState = useCallback(
     (patch: Partial<DatabasePanelState>) => {
-      scheduleEditorMutation(() => {
-        const next = { ...panelStateRef.current, ...patch };
-        panelStateRef.current = next;
-        updateAttributes({ panelState: JSON.stringify(next) });
-      });
+      if (!databaseId) return;
+      const next = { ...panelStateRef.current, ...patch };
+      panelStateRef.current = next;
+      patchLocalPanelState(databaseId, patch, panelStateRaw);
     },
-    [updateAttributes],
+    [databaseId, panelStateRaw, patchLocalPanelState],
   );
 
   const setView = useCallback(
@@ -394,7 +399,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
             ) : (
               <DatabaseBlockFullPageHeader
                 onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
-                onOpenLink={() => setLinkOpen((v) => !v)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
               />
             )}

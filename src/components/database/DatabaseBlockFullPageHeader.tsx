@@ -1,14 +1,12 @@
-import { History, Link2, Trash2 } from "lucide-react";
+import { History, Trash2 } from "lucide-react";
 
 type Props = {
   onOpenDbHistory: () => void;
-  onOpenLink: () => void;
   onOpenDeleteModal: () => void;
 };
 
 export function DatabaseBlockFullPageHeader({
   onOpenDbHistory,
-  onOpenLink,
   onOpenDeleteModal,
 }: Props) {
   return (
@@ -21,14 +19,6 @@ export function DatabaseBlockFullPageHeader({
           className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
         >
           <History size={15} />
-        </button>
-        <button
-          type="button"
-          title="다른 DB 연결"
-          onClick={onOpenLink}
-          className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-        >
-          <Link2 size={15} />
         </button>
         <button
           type="button"
