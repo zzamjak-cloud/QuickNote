@@ -22,6 +22,7 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
 import { PageIconDisplay } from "../common/PageIconDisplay";
+import { getRevokedFavoritePageIds } from "./favoritesAccess";
 
 const FAVORITE_NAV_TIMEOUT_MS = 6000;
 
@@ -62,6 +63,13 @@ function FavoriteRow({ pageId }: { pageId: string }) {
               (w) => w.workspaceId === targetWorkspaceId,
             );
             if (!workspace) {
+              if (workspaces.length === 0) {
+                requestFavoriteNavigation({
+                  pageId,
+                  workspaceId: targetWorkspaceId,
+                });
+                return;
+              }
               removeFavoritePage(pageId);
               showToast(
                 `${favoriteMeta?.workspaceName || "해당 워크스페이스"}에 대한 접근 권한이 없습니다.`,
@@ -127,11 +135,11 @@ export function FavoritesList() {
   // 접근 권한이 사라진 워크스페이스의 즐겨찾기는 자동 제거
   useEffect(() => {
     if (favoritePageIds.length === 0) return;
-    const workspaceSet = new Set(workspaces.map((ws) => ws.workspaceId));
-    const revoked = favoritePageIds.filter((pageId) => {
-      const wsId = favoritePageMetaById[pageId]?.workspaceId;
-      return !!wsId && !workspaceSet.has(wsId);
-    });
+    const revoked = getRevokedFavoritePageIds(
+      favoritePageIds,
+      favoritePageMetaById,
+      workspaces,
+    );
     if (revoked.length > 0) removeFavoritesForPages(revoked);
   }, [favoritePageIds, favoritePageMetaById, workspaces, removeFavoritesForPages]);
 

@@ -20,9 +20,12 @@ import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
 import {
+  attachQuarantine,
   attachPersistedMeta,
   mergePersistedSubset,
   migratePersistedStore,
+  type PersistedObject,
+  type PersistedQuarantine,
 } from "../lib/migrations/persistedStore";
 
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
@@ -207,6 +210,8 @@ type PageStoreState = {
   activePageId: string | null;
   /** 현재 pages 캐시가 소속된 워크스페이스. null이면 구버전/미확정 캐시로 간주한다. */
   cacheWorkspaceId: string | null;
+  /** 자동 복구하지 못한 persisted 원본. 사용자 데이터 안전을 위해 삭제하지 않는다. */
+  migrationQuarantine: PersistedQuarantine[];
   /** 가장 최근 삭제 배치 — Ctrl+Z 한 번 으로 복원 가능 */
   lastDeletedBatch: DeletedBatch | null;
 };
@@ -257,13 +262,141 @@ type PageStoreActions = {
 export type PageStore = PageStoreState & PageStoreActions;
 
 /** zustand persist `version` 과 동일 — 메타 schemaVersion 과 맞춘다 */
-const PAGE_STORE_PERSIST_VERSION = 2;
+const PAGE_STORE_PERSIST_VERSION = 3;
 
 const PAGE_STORE_DATA_KEYS = [
   "pages",
   "activePageId",
   "cacheWorkspaceId",
+  "migrationQuarantine",
 ] as const satisfies readonly (keyof PageStoreState)[];
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isJsonDoc(value: unknown): value is JSONContent {
+  return isPlainObject(value) && typeof value.type === "string";
+}
+
+function coercePage(value: unknown): Page | null {
+  if (!isPlainObject(value)) return null;
+  if (typeof value.id !== "string" || typeof value.title !== "string") return null;
+  if (!isJsonDoc(value.doc)) return null;
+  const createdAt = Number(value.createdAt);
+  const updatedAt = Number(value.updatedAt);
+  if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) return null;
+  const order = Number(value.order);
+  return {
+    id: value.id,
+    title: value.title,
+    icon: typeof value.icon === "string" ? value.icon : null,
+    doc: value.doc,
+    parentId: typeof value.parentId === "string" ? value.parentId : null,
+    order: Number.isFinite(order) ? order : 0,
+    databaseId:
+      typeof value.databaseId === "string" ? value.databaseId : undefined,
+    dbCells: isPlainObject(value.dbCells)
+      ? (value.dbCells as Page["dbCells"])
+      : undefined,
+    coverImage:
+      typeof value.coverImage === "string" ? value.coverImage : null,
+    createdAt,
+    updatedAt,
+  };
+}
+
+function coercePageMap(value: unknown): {
+  pages: PageMap;
+  quarantined: Record<string, unknown>;
+} {
+  const pages: PageMap = {};
+  const quarantined: Record<string, unknown> = {};
+  if (!isPlainObject(value)) return { pages, quarantined };
+  for (const [key, raw] of Object.entries(value)) {
+    const page = coercePage(raw);
+    if (page) {
+      pages[page.id || key] = page;
+    } else {
+      quarantined[key] = raw;
+    }
+  }
+  return { pages, quarantined };
+}
+
+function validatePagePersistedState(state: PersistedObject): boolean {
+  return (
+    isPlainObject(state.pages) &&
+    (state.activePageId == null || typeof state.activePageId === "string") &&
+    (state.cacheWorkspaceId == null || typeof state.cacheWorkspaceId === "string")
+  );
+}
+
+function normalizePagePersistedState(
+  state: PersistedObject,
+  fromVersion: number,
+): PersistedObject {
+  const { pages, quarantined } = coercePageMap(state.pages);
+  const next: PersistedObject = {
+    ...state,
+    pages,
+    activePageId:
+      typeof state.activePageId === "string" && pages[state.activePageId]
+        ? state.activePageId
+        : null,
+    cacheWorkspaceId:
+      typeof state.cacheWorkspaceId === "string" ? state.cacheWorkspaceId : null,
+    migrationQuarantine: Array.isArray(state.migrationQuarantine)
+      ? state.migrationQuarantine
+      : [],
+  };
+  if (Object.keys(quarantined).length > 0) {
+    return attachQuarantine(next, quarantined, fromVersion, {
+      quarantineReason: "invalid-page-records",
+    });
+  }
+  return next;
+}
+
+export function migratePageStore(
+  persisted: unknown,
+  fromVersion: number,
+): PersistedObject {
+  const next = migratePersistedStore(
+    persisted,
+    fromVersion,
+    [
+      {
+        version: 1,
+        migrate: (state) => normalizePagePersistedState(state, fromVersion),
+      },
+      {
+        version: 2,
+        migrate: (state) => ({ ...state, cacheWorkspaceId: null }),
+      },
+      {
+        version: 3,
+        migrate: (state) => normalizePagePersistedState(state, fromVersion),
+      },
+    ],
+    {
+      pages: {},
+      activePageId: null,
+      cacheWorkspaceId: null,
+      migrationQuarantine: [],
+    },
+    {
+      validate: validatePagePersistedState,
+      quarantineReason: "invalid-page-store",
+    },
+  );
+  if (fromVersion < PAGE_STORE_PERSIST_VERSION) {
+    return attachPersistedMeta(next, {
+      migratedAt: new Date().toISOString(),
+    });
+  }
+  return next;
+}
 
 function nextOrderForParent(pages: PageMap, parentId: string | null): number {
   const siblings = Object.values(pages).filter((p) => p.parentId === parentId);
@@ -304,6 +437,7 @@ export const usePageStore = create<PageStore>()(
       pages: {},
       activePageId: null,
       cacheWorkspaceId: null,
+      migrationQuarantine: [],
       lastDeletedBatch: null,
 
       createPage: (title = "새 페이지", parentId = null, opts) => {
@@ -855,39 +989,14 @@ export const usePageStore = create<PageStore>()(
       name: "quicknote.pages.v1",
       storage: createJSONStorage(() => zustandStorage),
       version: PAGE_STORE_PERSIST_VERSION,
-      migrate: (persisted: unknown, fromVersion: number) => {
-        const next = migratePersistedStore(
-          persisted,
-          fromVersion,
-          [
-            {
-              version: 1,
-              migrate: () => ({
-                pages: {},
-                activePageId: null,
-                cacheWorkspaceId: null,
-              }),
-            },
-            {
-              version: 2,
-              migrate: (state) => ({ ...state, cacheWorkspaceId: null }),
-            },
-          ],
-          { pages: {}, activePageId: null, cacheWorkspaceId: null },
-        );
-        if (fromVersion < PAGE_STORE_PERSIST_VERSION) {
-          return attachPersistedMeta(next, {
-            migratedAt: new Date().toISOString(),
-          });
-        }
-        return next;
-      },
+      migrate: migratePageStore,
       partialize: (state) =>
         attachPersistedMeta(
           {
             pages: state.pages,
             activePageId: state.activePageId,
             cacheWorkspaceId: state.cacheWorkspaceId,
+            migrationQuarantine: state.migrationQuarantine,
           },
           {
             schemaVersion: PAGE_STORE_PERSIST_VERSION,

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { migrateBlockCommentStore } from "../blockCommentStore";
+import { migrateDatabaseStore } from "../databaseStore";
 import { migrateNotificationStore } from "../notificationStore";
+import { migratePageStore } from "../pageStore";
 import { migrateSettingsStore } from "../settingsStore";
 
 describe("persisted store migrations", () => {
@@ -92,6 +94,7 @@ describe("persisted store migrations", () => {
     expect(migrated.messages).toEqual([
       {
         id: "c1",
+        workspaceId: null,
         pageId: "p1",
         blockId: "b1",
         authorMemberId: "author",
@@ -102,5 +105,58 @@ describe("persisted store migrations", () => {
       },
     ]);
     expect(migrated.threadVisitedAt).toEqual({ "p1:b1": 22 });
+  });
+
+  it("pageStore migration preserves valid pages and quarantines invalid records", () => {
+    const migrated = migratePageStore(
+      {
+        pages: {
+          good: {
+            id: "good",
+            title: "Good",
+            icon: null,
+            doc: { type: "doc", content: [{ type: "paragraph" }] },
+            parentId: null,
+            order: 1,
+            createdAt: 10,
+            updatedAt: 20,
+          },
+          bad: { id: "bad" },
+        },
+        activePageId: "good",
+      },
+      2,
+    );
+
+    expect(Object.keys(migrated.pages as Record<string, unknown>)).toEqual([
+      "good",
+    ]);
+    expect(migrated.activePageId).toBe("good");
+    expect(migrated.migrationQuarantine).toEqual([
+      expect.objectContaining({ reason: "invalid-page-records" }),
+    ]);
+  });
+
+  it("databaseStore migration preserves valid databases and quarantines invalid records", () => {
+    const migrated = migrateDatabaseStore(
+      {
+        databases: {
+          db1: {
+            meta: { id: "db1", title: "DB", createdAt: 1, updatedAt: 2 },
+            columns: [{ id: "title", name: "Name", type: "title" }],
+            rowPageOrder: ["p1"],
+          },
+          broken: { meta: { id: "broken" } },
+        },
+      },
+      2,
+    );
+
+    expect(Object.keys(migrated.databases as Record<string, unknown>)).toEqual([
+      "db1",
+    ]);
+    expect(migrated.migrationQuarantine).toEqual([
+      expect.objectContaining({ reason: "invalid-database-records" }),
+    ]);
   });
 });

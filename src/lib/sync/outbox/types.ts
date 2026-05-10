@@ -32,5 +32,8 @@ export interface OutboxAdapter {
   remove(id: string): Promise<void>;
   /** dedupeKey 가 같은 기존 entry 를 새 entry 로 교체 */
   upsertByDedupe(entry: OutboxEntry): Promise<void>;
+  /** 영구 실패 항목을 제거하기 전에 보존한다. */
+  putDeadLetter?(entry: OutboxEntry, reason: string): Promise<void>;
+  listDeadLetters?(limit: number): Promise<Array<OutboxEntry & { deadLetterReason: string }>>;
   clear(): Promise<void>;
 }

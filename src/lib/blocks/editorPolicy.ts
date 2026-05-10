@@ -12,7 +12,13 @@ const UNIQUE_ID_EXCLUDED_NODE_TYPES = new Set([
 
 export const EDITOR_UNIQUE_ID_TYPES = blockDefinitions
   .flatMap((definition) => definition.nodeTypes)
-  .filter((nodeType) => !UNIQUE_ID_EXCLUDED_NODE_TYPES.has(nodeType));
+  .filter((nodeType) => {
+    const definition = getBlockDefinitionForNodeType(nodeType);
+    return (
+      !UNIQUE_ID_EXCLUDED_NODE_TYPES.has(nodeType) &&
+      definition?.editor.excludeFromUniqueId !== true
+    );
+  });
 
 export function isDatabaseBlockType(nodeType: string | null | undefined): boolean {
   return (

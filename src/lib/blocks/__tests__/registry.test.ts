@@ -50,4 +50,15 @@ describe("block registry", () => {
       }
     }
   });
+
+  it("declares extension policies for future block migrations and UI", () => {
+    for (const definition of blockDefinitions) {
+      expect(definition.serialization.schemaVersion).toBeGreaterThanOrEqual(1);
+      expect(definition.serialization.stableType).toBe(definition.id);
+      expect(definition.command.slashTitles).toEqual(definition.slashTitles);
+      expect(definition.toolbar.kind).toMatch(
+        /^(none|text|media|database|container)$/,
+      );
+    }
+  });
 });

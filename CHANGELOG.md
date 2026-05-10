@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.14] - 2026-05-10
+
+### Added
+
+- **데이터 안전성 레이어**: persisted store migration runner에 validation과 `migrationQuarantine` 보존 영역을 추가해, 복구 불가능한 원본을 삭제하지 않고 디스크에 남기도록 개선.
+- **page/database 보존형 migration**: 기존 page/database 캐시 shape를 검증하고, 유효한 레코드는 유지하며 손상된 레코드만 quarantine으로 분리하는 migration 테스트 추가.
+- **outbox dead-letter 보존**: 영구 실패 mutation이 최대 재시도에 도달하면 제거 전에 dead-letter 저장소로 보존.
+- **블록 registry 확장**: 블록별 editor/serialization/toolbar/command policy 선언 슬롯을 추가해 신규 블록 확장과 향후 블록 단위 migration 기반을 마련.
+
+### Fixed
+
+- **워크스페이스 첫 렌더 캐시 오염 방지**: 현재 워크스페이스와 소속이 다른 page/database 캐시가 있으면 앱 본문 렌더 전에 gate를 걸어 stale 화면이 보이지 않도록 보강.
+- **pending outbox 전환 경로 안정화**: 워크스페이스 전환 중 미전송 mutation이 있으면 원격 데이터를 기존 stale cache에 섞지 않고, flush/reconcile 이후에만 현재 워크스페이스 데이터를 적용.
+- **history/comment/notification workspace scope**: 히스토리·댓글·알림 데이터에 workspace 경계를 보강해 워크스페이스 간 UI/복원 데이터 혼선을 줄임.
+
+### Changed
+
+- persisted store migration, workspace switch, sync engine, block policy 관련 회귀 테스트를 보강하고 릴리스 전 검증 기준선을 `285`개 테스트로 확장.
+
 ## [5.0.13] - 2026-05-09
 
 ### Added

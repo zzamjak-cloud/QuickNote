@@ -14,11 +14,17 @@ const FLATTENABLE_WRAPPER_NODE_TYPES = new Set([
 ]);
 
 export function shouldSuppressBlockHandle(nodeType: string): boolean {
-  return HANDLE_SUPPRESSED_NODE_TYPES.has(nodeType);
+  return (
+    HANDLE_SUPPRESSED_NODE_TYPES.has(nodeType) ||
+    getBlockDefinitionForNodeType(nodeType)?.editor.suppressBlockHandle === true
+  );
 }
 
 export function shouldFlattenWrapperBeforeTypeChange(nodeType: string): boolean {
-  return FLATTENABLE_WRAPPER_NODE_TYPES.has(nodeType);
+  return (
+    FLATTENABLE_WRAPPER_NODE_TYPES.has(nodeType) ||
+    getBlockDefinitionForNodeType(nodeType)?.editor.flattenBeforeTypeChange === true
+  );
 }
 
 export function shouldUseDatabaseBlockChrome(nodeType: string): boolean {

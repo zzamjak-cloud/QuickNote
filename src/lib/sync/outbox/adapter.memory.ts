@@ -4,6 +4,7 @@ import type { OutboxAdapter, OutboxEntry } from "./types";
 export class MemoryOutboxAdapter implements OutboxAdapter {
   private byId = new Map<string, OutboxEntry>();
   private byDedupe = new Map<string, string>();
+  private deadLetters: Array<OutboxEntry & { deadLetterReason: string }> = [];
 
   async put(entry: OutboxEntry): Promise<void> {
     this.byId.set(entry.id, entry);
@@ -32,5 +33,15 @@ export class MemoryOutboxAdapter implements OutboxAdapter {
   async clear(): Promise<void> {
     this.byId.clear();
     this.byDedupe.clear();
+  }
+
+  async putDeadLetter(entry: OutboxEntry, reason: string): Promise<void> {
+    this.deadLetters.push({ ...entry, deadLetterReason: reason });
+  }
+
+  async listDeadLetters(
+    limit: number,
+  ): Promise<Array<OutboxEntry & { deadLetterReason: string }>> {
+    return this.deadLetters.slice(-limit);
   }
 }

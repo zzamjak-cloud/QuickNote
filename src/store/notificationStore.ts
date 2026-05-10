@@ -111,11 +111,14 @@ export const useNotificationStore = create<NotificationState & NotificationActio
           input.recipientMemberId;
         const fromMemberId =
           normalizeMentionMemberId(input.fromMemberId) ?? input.fromMemberId;
+        const workspaceId =
+          input.workspaceId ?? useWorkspaceStore.getState().currentWorkspaceId;
         const alreadyExists = get().items.some(
           (x) =>
             normalizeMentionMemberId(x.recipientMemberId) === recipientMemberId &&
             x.kind === input.kind &&
-            x.commentId === input.commentId,
+            x.commentId === input.commentId &&
+            (x.workspaceId ?? null) === (workspaceId ?? null),
         );
         if (alreadyExists) return;
         const n: InAppNotification = {
@@ -123,8 +126,7 @@ export const useNotificationStore = create<NotificationState & NotificationActio
           recipientMemberId,
           kind: input.kind,
           source: input.source,
-          workspaceId:
-            input.workspaceId ?? useWorkspaceStore.getState().currentWorkspaceId,
+          workspaceId,
           workspaceName:
             input.workspaceName ??
             useWorkspaceStore
@@ -132,8 +134,7 @@ export const useNotificationStore = create<NotificationState & NotificationActio
               .workspaces.find(
                 (w) =>
                   w.workspaceId ===
-                  (input.workspaceId ??
-                    useWorkspaceStore.getState().currentWorkspaceId),
+                  workspaceId,
               )?.name ??
             null,
           pageTitle: input.pageTitle ?? null,

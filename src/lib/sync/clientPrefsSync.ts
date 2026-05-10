@@ -58,6 +58,16 @@ function favoritePageIdsSequenceEqual(a: string[], b: string[]): boolean {
 export function applyRemoteClientPrefs(raw: unknown): void {
   const parsed = decodeClientPrefsField(raw);
   if (!parsed) return;
+
+  // settings persist 복원 전에는 favoritePageIdsUpdatedAt 이 0으로 남아
+  // 원격 타임스탬프가 더 크다고 판단되어 즐겨찾기가 통째로 지워질 수 있음 → 복원 후 재적용
+  if (!useSettingsStore.persist.hasHydrated()) {
+    void ensureSettingsPersistHydrated().then(() => {
+      applyRemoteClientPrefs(raw);
+    });
+    return;
+  }
+
   useSettingsStore.setState((s) => {
     const remoteNewer = parsed.favoritePageIdsUpdatedAt > s.favoritePageIdsUpdatedAt;
     const sameTs =
@@ -141,7 +151,18 @@ export function scheduleEnqueueClientPrefs(): void {
   });
 }
 
+/**
+ * Zustand persist 비동기 복원 완료까지 대기.
+ * 복원 전에 서버로 flush 하면 메모리 기본값(빈 즐겨찾기)이 Lambda LWW 로 덮어써져
+ * 새로고침 시 즐겨찾기가 사라지는 원인이 됨.
+ */
+export async function ensureSettingsPersistHydrated(): Promise<void> {
+  if (useSettingsStore.persist.hasHydrated()) return;
+  await Promise.resolve(useSettingsStore.persist.rehydrate());
+}
+
 /** memberId 확정 직후(Bootstrap): 즉시 서버 반영(await). */
 export async function flushClientPrefsToServerNow(): Promise<void> {
+  await ensureSettingsPersistHydrated();
   await pushClientPrefsToServer();
 }

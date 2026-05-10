@@ -8,6 +8,15 @@ export type PersistedStoreMeta = {
   persistedWorkspaceId?: string | null;
   /** 마이그레이션이 실행된 시각(저장별 갱신이 아니라 버전 업 시점에만 기록 권장) */
   migratedAt?: string;
+  /** 자동 복구할 수 없었던 원본 조각. 런타임 상태가 아니라 디스크 보존용이다. */
+  migrationQuarantine?: PersistedQuarantine[];
+};
+
+export type PersistedQuarantine = {
+  reason: string;
+  createdAt: string;
+  fromVersion: number;
+  value: unknown;
 };
 
 /** rehydrate merge 시 스토어 액션/비저장 필드 오염을 막기 위해 제거해야 하는 공통 메타 키 */
@@ -64,6 +73,12 @@ export type PersistedStoreMigration = {
   migrate: (state: PersistedObject) => PersistedObject;
 };
 
+export type PersistedStoreMigrationOptions = {
+  validate?: (state: PersistedObject) => boolean;
+  quarantineReason?: string;
+  now?: () => string;
+};
+
 function toPersistedObject(value: unknown, fallback: PersistedObject): PersistedObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return fallback;
@@ -76,13 +91,46 @@ export function migratePersistedStore(
   fromVersion: number,
   migrations: PersistedStoreMigration[],
   fallback: PersistedObject,
+  options: PersistedStoreMigrationOptions = {},
 ): PersistedObject {
+  const original = persisted;
   let state = toPersistedObject(persisted, fallback);
   const sorted = [...migrations].sort((a, b) => a.version - b.version);
-  for (const migration of sorted) {
-    if (fromVersion < migration.version) {
-      state = migration.migrate(state);
+  try {
+    for (const migration of sorted) {
+      if (fromVersion < migration.version) {
+        state = migration.migrate(state);
+      }
     }
+  } catch {
+    state = fallback;
+    return attachQuarantine(state, original, fromVersion, options);
+  }
+  if (options.validate && !options.validate(state)) {
+    return attachQuarantine(fallback, original, fromVersion, options);
   }
   return state;
+}
+
+export function attachQuarantine(
+  state: PersistedObject,
+  value: unknown,
+  fromVersion: number,
+  options: Pick<PersistedStoreMigrationOptions, "quarantineReason" | "now"> = {},
+): PersistedObject {
+  const existing = Array.isArray(state.migrationQuarantine)
+    ? (state.migrationQuarantine as PersistedQuarantine[])
+    : [];
+  return {
+    ...state,
+    migrationQuarantine: [
+      ...existing,
+      {
+        reason: options.quarantineReason ?? "persisted-store-validation-failed",
+        createdAt: options.now?.() ?? new Date().toISOString(),
+        fromVersion,
+        value,
+      },
+    ],
+  };
 }

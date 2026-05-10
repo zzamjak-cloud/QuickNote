@@ -1,7 +1,10 @@
 import {
+  ArrowLeftRight,
   ChevronLeft,
   ChevronRight,
+  FileText,
   MoreHorizontal,
+  Printer,
   Trash2,
   Check,
   Minus,
@@ -12,6 +15,10 @@ import {
   History,
 } from "lucide-react";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
+
+/** 페이지 메뉴 드롭다운 왼쪽 아이콘 공통 스타일 */
+const MENU_ITEM_ICON =
+  "size-4 shrink-0 text-zinc-500 dark:text-zinc-400";
 import { useState, useEffect, useRef } from "react";
 import type { Page } from "../../types/page";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -97,13 +104,18 @@ export function TopBar() {
       if (!mod || !activeId) return;
       if (e.key === "l" || e.key === "L") {
         e.preventDefault();
-        void navigator.clipboard.writeText(`quicknote://page/${activeId}`);
         setMenuOpen(false);
+        void navigator.clipboard
+          .writeText(`quicknote://page/${activeId}`)
+          .then(() => showToast("페이지 링크 복사 완료!", { kind: "success" }))
+          .catch(() =>
+            showToast("페이지 링크 복사에 실패했습니다.", { kind: "error" }),
+          );
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeId]);
+  }, [activeId, showToast]);
 
   const handleDuplicate = () => {
     if (!activeId) return;
@@ -211,6 +223,27 @@ export function TopBar() {
           <>
           <button
             type="button"
+            onClick={() => toggleFullWidth()}
+            className={[
+              "rounded-md p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800",
+              fullWidth
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100",
+            ].join(" ")}
+            aria-label={
+              fullWidth ? "전체 너비 보기 끄기" : "전체 너비 보기 켜기"
+            }
+            aria-pressed={fullWidth}
+            title={
+              fullWidth
+                ? "전체 너비 보기 끄기 (좁은 본문)"
+                : "전체 너비 보기 켜기"
+            }
+          >
+            <ArrowLeftRight size={16} strokeWidth={fullWidth ? 2.25 : 2} />
+          </button>
+          <button
+            type="button"
             onClick={copyPageLink}
             className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             aria-label="링크 복사"
@@ -265,43 +298,58 @@ export function TopBar() {
               <MoreHorizontal size={16} />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
                 <button
                   type="button"
-                  onClick={copyPageLink}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  <span>링크 복사</span>
-                  <span className="text-xs text-zinc-400">⌘L</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={copyPageContent}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  <span>페이지 내용 복사</span>
-                  <span className="text-xs text-zinc-400">MD</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDuplicate}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  <span>페이지 복제</span>
-                  <span className="text-xs text-zinc-400">⌘D</span>
-                </button>
-                <button
-                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={fullWidth}
+                  title={
+                    fullWidth
+                      ? "전체 너비 보기 끄기 (좁은 본문)"
+                      : "전체 너비 보기 켜기"
+                  }
                   onClick={() => {
                     toggleFullWidth();
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  <span>전체 너비</span>
-                  <span className="text-xs text-zinc-400">
-                    {fullWidth ? "✓" : ""}
-                  </span>
+                  <ArrowLeftRight
+                    size={16}
+                    className={
+                      fullWidth
+                        ? "size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                        : `${MENU_ITEM_ICON}`
+                    }
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1">전체 너비 보기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={copyPageLink}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Link2 className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">링크 복사</span>
+                  <span className="shrink-0 text-xs text-zinc-400">⌘L</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={copyPageContent}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Copy className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">페이지 내용 복사</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDuplicate}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <CopyPlus className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">페이지 복제</span>
+                  <span className="shrink-0 text-xs text-zinc-400">⌘D</span>
                 </button>
                 <button
                   type="button"
@@ -309,10 +357,11 @@ export function TopBar() {
                     setMenuOpen(false);
                     setMoveDialogOpen(true);
                   }}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  <span>다른 페이지로 이동</span>
-                  <span className="text-xs text-zinc-400">열기</span>
+                  <FolderInput className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">다른 페이지로 이동</span>
+                  <span className="shrink-0 text-xs text-zinc-400">열기</span>
                 </button>
                 <button
                   type="button"
@@ -320,33 +369,42 @@ export function TopBar() {
                     setMenuOpen(false);
                     setHistoryDialogOpen(true);
                   }}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  <span>버전 히스토리</span>
-                  <span className="text-xs text-zinc-400">열기</span>
+                  <History className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">버전 히스토리</span>
+                  <span className="shrink-0 text-xs text-zinc-400">열기</span>
                 </button>
                 <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
                 <button
                   type="button"
                   onClick={handleExportMarkdown}
-                  className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  마크다운(.md)으로 내보내기
+                  <FileText className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    마크다운(.md)으로 내보내기
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={handleExportPdf}
-                  className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  PDF로 내보내기
+                  <Printer className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">PDF로 내보내기</span>
                 </button>
                 <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
                 <button
                   type="button"
                   onClick={handleDelete}
-                  className="flex w-full items-center px-3 py-2 text-left text-sm text-red-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800"
                 >
-                  페이지 삭제
+                  <Trash2
+                    className="size-4 shrink-0 text-red-600 dark:text-red-400"
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1">페이지 삭제</span>
                 </button>
               </div>
             )}

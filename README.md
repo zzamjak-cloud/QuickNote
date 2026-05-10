@@ -155,6 +155,25 @@ npx vercel --prod --yes --archive=tgz
 
 배포·환경변수: `infra/README.md` 의 `QuicknoteSyncStack` 절 참고.
 
+## 데이터 안전성·마이그레이션 (v5.0.14+)
+
+QuickNote는 persisted cache를 직접 파괴하지 않고, 검증 가능한 migration 레이어를 통해 새 구조로 이동한다.
+
+- page/database 캐시는 `cacheWorkspaceId`로 워크스페이스 소속을 기록한다.
+- 첫 렌더 전에 현재 워크스페이스와 다른 캐시를 감지하면 stale 화면을 막고 refetch/reconcile을 우선한다.
+- migration 실패 또는 손상 레코드는 `migrationQuarantine`에 원본을 보존한다.
+- outbox 영구 실패 항목은 제거 전에 dead-letter 저장소에 남긴다.
+- 블록 타입별 정책은 `src/lib/blocks/registry.ts`에서 DnD/editor/serialization/toolbar/command 단위로 확장한다.
+
+릴리스 전 기본 검증:
+
+```bash
+npm run typecheck
+npm run lint
+npm run test:run
+npm run build
+```
+
 ## 로드맵
 
 - **v1.0.0** — 웹 에디터 + 데이터베이스 MVP (`CHANGELOG.md` 참고)

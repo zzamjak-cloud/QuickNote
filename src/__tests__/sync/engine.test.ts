@@ -97,6 +97,13 @@ describe("SyncEngine", () => {
       await outbox.put({ ...list[0]!, attempts: list[0]!.attempts + 1 });
     }
     expect((await outbox.list(10)).length).toBe(0);
+    expect(await outbox.listDeadLetters?.(10)).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        op: "upsertPage",
+        deadLetterReason: "max-attempts-exceeded",
+      }),
+    ]);
   });
 
   it("non-blocking head: 영구 실패 entry 가 head 에 있어도 후속 entries 가 처리된다", async () => {

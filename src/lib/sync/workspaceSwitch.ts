@@ -17,7 +17,7 @@ function hasLocalWorkspaceCache(): boolean {
   );
 }
 
-function cacheBelongsToWorkspace(workspaceId: string): boolean {
+export function cacheBelongsToWorkspace(workspaceId: string): boolean {
   const hasPageCache = Object.keys(usePageStore.getState().pages).length > 0;
   const hasDatabaseCache =
     Object.keys(useDatabaseStore.getState().databases).length > 0;
@@ -26,6 +26,12 @@ function cacheBelongsToWorkspace(workspaceId: string): boolean {
   if (hasPageCache && pageCacheWorkspaceId !== workspaceId) return false;
   if (hasDatabaseCache && databaseCacheWorkspaceId !== workspaceId) return false;
   return hasPageCache || hasDatabaseCache;
+}
+
+export function workspaceCacheNeedsPrepaintClear(workspaceId: string | null): boolean {
+  return Boolean(
+    workspaceId && hasLocalWorkspaceCache() && !cacheBelongsToWorkspace(workspaceId),
+  );
 }
 
 function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
@@ -53,7 +59,7 @@ export async function applyWorkspaceSwitch(
 ): Promise<{ cleared: boolean; reason: string; pending: number }> {
   if (!next) return { cleared: false, reason: "missing-next-workspace", pending: 0 };
   const initialCacheMismatch =
-    prev === null && hasLocalWorkspaceCache() && !cacheBelongsToWorkspace(next);
+    prev === null && workspaceCacheNeedsPrepaintClear(next);
   if (prev === next && !initialCacheMismatch) {
     return { cleared: false, reason: "same-workspace", pending: 0 };
   }

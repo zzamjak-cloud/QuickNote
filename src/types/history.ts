@@ -1,7 +1,7 @@
 import type { DatabaseBundle } from "./database";
 import type { Page } from "./page";
 
-export const HISTORY_STORE_VERSION = 1;
+export const HISTORY_STORE_VERSION = 2;
 export const HISTORY_RETENTION_MAX_EVENTS = 200;
 export const HISTORY_RETENTION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 export const HISTORY_ANCHOR_INTERVAL = 20;
@@ -42,6 +42,7 @@ export type PageHistoryEvent = {
   ts: number;
   kind: PageHistoryKind;
   pageId: string;
+  workspaceId?: string | null;
   patch: Partial<PageSnapshot>;
   /** 주기적 압축용 기준 스냅샷 */
   anchor?: PageSnapshot;
@@ -55,6 +56,7 @@ export type DbHistoryEvent = {
   ts: number;
   kind: DbHistoryKind;
   databaseId: string;
+  workspaceId?: string | null;
   patch: Partial<DatabaseSnapshot>;
   /** 주기적 압축용 기준 스냅샷 */
   anchor?: DatabaseSnapshot;
@@ -64,6 +66,7 @@ export type DeletedRowTombstone = {
   id: string;
   ts: number;
   databaseId: string;
+  workspaceId?: string | null;
   pageId: string;
   rowIndex: number;
   pageSnapshot: PageSnapshot;

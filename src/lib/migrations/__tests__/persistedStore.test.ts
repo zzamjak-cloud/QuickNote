@@ -32,6 +32,33 @@ describe("migratePersistedStore", () => {
 
     expect(migrated).toEqual({ value: "a", b: true, c: true });
   });
+
+  it("validation 실패 시 fallback 과 quarantine 을 반환한다", () => {
+    const migrated = migratePersistedStore(
+      { pages: "broken" },
+      1,
+      [{ version: 2, migrate: (state) => state }],
+      { pages: {} },
+      {
+        validate: (state) =>
+          Boolean(state.pages && typeof state.pages === "object"),
+        quarantineReason: "bad-pages",
+        now: () => "2026-01-01T00:00:00.000Z",
+      },
+    );
+
+    expect(migrated).toEqual({
+      pages: {},
+      migrationQuarantine: [
+        {
+          reason: "bad-pages",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          fromVersion: 1,
+          value: { pages: "broken" },
+        },
+      ],
+    });
+  });
 });
 
 describe("attachPersistedMeta", () => {

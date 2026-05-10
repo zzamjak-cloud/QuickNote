@@ -1,7 +1,8 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import {
   applyRemoteClientPrefs,
   decodeClientPrefsField,
+  ensureSettingsPersistHydrated,
 } from "../lib/sync/clientPrefsSync";
 import { useSettingsStore } from "../store/settingsStore";
 
@@ -95,5 +96,23 @@ describe("applyRemoteClientPrefs", () => {
       }),
     );
     expect(useSettingsStore.getState().favoritePageIds).toEqual(["a"]);
+  });
+});
+
+describe("ensureSettingsPersistHydrated", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("이미 복원된 settings store 는 다시 rehydrate 하지 않는다", async () => {
+    const hasHydrated = vi
+      .spyOn(useSettingsStore.persist, "hasHydrated")
+      .mockReturnValue(true);
+    const rehydrate = vi.spyOn(useSettingsStore.persist, "rehydrate");
+
+    await ensureSettingsPersistHydrated();
+
+    expect(hasHydrated).toHaveBeenCalled();
+    expect(rehydrate).not.toHaveBeenCalled();
   });
 });

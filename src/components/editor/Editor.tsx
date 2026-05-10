@@ -119,6 +119,7 @@ import {
 } from "../../lib/editor/editorHandleDrop";
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
+import { extractClipboardFiles } from "../../lib/editor/clipboardFiles";
 import { FileBlock } from "../../lib/tiptapExtensions/fileBlock";
 import UniqueID from "@tiptap/extension-unique-id";
 import {
@@ -488,19 +489,16 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
           "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-12 py-8 min-h-[min(85vh,900px)] qn-prose-marquee-host",
       },
       handlePaste: (view: import("@tiptap/pm/view").EditorView, event: ClipboardEvent) => {
-        const items = event.clipboardData?.items;
-        if (!items) return false;
         // image 는 image 노드, 그 외 file 항목은 fileBlock 노드로 삽입.
         // string item(text/html 등) 은 PM 기본 paste 흐름에 위임.
-        const fileItems = Array.from(items).filter((it) => it.kind === "file");
+        const fileItems = extractClipboardFiles(event.clipboardData);
         if (fileItems.length === 0) return false;
+        event.preventDefault();
         let handled = false;
         for (const item of fileItems) {
-          const file = item.getAsFile();
-          if (!file) continue;
+          const { file } = item;
           handled = true;
-          event.preventDefault();
-          if (item.type.startsWith("image/")) {
+          if (item.isImage) {
             void handleEditorInsertImage(file, (attrs) => {
               view.dispatch(
                 view.state.tr.replaceSelectionWith(

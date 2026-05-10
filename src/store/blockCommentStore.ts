@@ -5,12 +5,14 @@ import { newId } from "../lib/id";
 import { useNotificationStore } from "./notificationStore";
 import { normalizeMentionMemberIds } from "../lib/comments/mentionMemberIds";
 import { usePageStore } from "./pageStore";
+import { useWorkspaceStore } from "./workspaceStore";
 import type { PersistedObject } from "../lib/migrations/persistedStore";
 import { migratePersistedStore } from "../lib/migrations/persistedStore";
 
 /** 블록 스레드 내 단일 댓글 */
 export type BlockCommentMsg = {
   id: string;
+  workspaceId?: string | null;
   pageId: string;
   blockId: string;
   authorMemberId: string;
@@ -54,6 +56,15 @@ function threadKey(pageId: string, blockId: string): string {
   return `${pageId}:${blockId}`;
 }
 
+function getCurrentWorkspaceId(): string | null {
+  return useWorkspaceStore.getState().currentWorkspaceId ?? null;
+}
+
+function messageBelongsToCurrentWorkspace(msg: BlockCommentMsg): boolean {
+  const current = getCurrentWorkspaceId();
+  return !current || msg.workspaceId == null || msg.workspaceId === current;
+}
+
 function migrateBlockCommentMsg(value: unknown): BlockCommentMsg | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const msg = value as Partial<BlockCommentMsg>;
@@ -67,6 +78,7 @@ function migrateBlockCommentMsg(value: unknown): BlockCommentMsg | null {
   }
   return {
     id: msg.id,
+    workspaceId: msg.workspaceId ?? null,
     pageId: msg.pageId,
     blockId: msg.blockId,
     authorMemberId: msg.authorMemberId,
@@ -187,6 +199,7 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
         );
         const msg: BlockCommentMsg = {
           id: input.id ?? newId(),
+          workspaceId: getCurrentWorkspaceId(),
           pageId: input.pageId,
           blockId: input.blockId,
           authorMemberId: input.authorMemberId,
@@ -229,11 +242,17 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
         set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
       messagesForBlock: (pageId, blockId) =>
         get()
-          .messages.filter((m) => m.pageId === pageId && m.blockId === blockId)
+          .messages.filter(
+            (m) =>
+              messageBelongsToCurrentWorkspace(m) &&
+              m.pageId === pageId &&
+              m.blockId === blockId,
+          )
           .sort((a, b) => a.createdAt - b.createdAt),
       participantIdsForBlock: (pageId, blockId) => {
         const ids = new Set<string>();
         for (const m of get().messages) {
+          if (!messageBelongsToCurrentWorkspace(m)) continue;
           if (m.pageId !== pageId || m.blockId !== blockId) continue;
           ids.add(m.authorMemberId);
         }
@@ -251,6 +270,7 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
         const visited = get().threadVisitedAt[threadKey(pageId, blockId)] ?? 0;
         return get().messages.some(
           (m) =>
+            messageBelongsToCurrentWorkspace(m) &&
             m.pageId === pageId &&
             m.blockId === blockId &&
             m.authorMemberId !== myMemberId &&

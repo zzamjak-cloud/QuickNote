@@ -20,6 +20,7 @@ import {
   HISTORY_STORE_VERSION,
 } from "../types/history";
 import { useMemberStore } from "./memberStore";
+import { useWorkspaceStore } from "./workspaceStore";
 
 /** 히스토리 이벤트에 붙일 현재 편집자(맴버 스토어 기준) */
 function getPageEventEditorFields(): Pick<
@@ -31,10 +32,23 @@ function getPageEventEditorFields(): Pick<
   return { editedByMemberId: me.memberId, editedByName: me.name };
 }
 
+function getCurrentWorkspaceId(): string | null {
+  return useWorkspaceStore.getState().currentWorkspaceId ?? null;
+}
+
+function filterCurrentWorkspaceEvents<T extends { workspaceId?: string | null }>(
+  events: T[],
+): T[] {
+  const current = getCurrentWorkspaceId();
+  if (!current) return events;
+  return events.filter((event) => event.workspaceId == null || event.workspaceId === current);
+}
+
 type HistoryState = {
   pageEventsByPageId: Record<string, PageHistoryEvent[]>;
   dbEventsByDatabaseId: Record<string, DbHistoryEvent[]>;
   deletedRowTombstonesByDbId: Record<string, DeletedRowTombstone[]>;
+  cacheWorkspaceId: string | null;
 };
 
 type HistoryActions = {
@@ -257,10 +271,12 @@ export const useHistoryStore = create<HistoryStore>()(
       pageEventsByPageId: {},
       dbEventsByDatabaseId: {},
       deletedRowTombstonesByDbId: {},
+      cacheWorkspaceId: null,
 
       recordPageEvent: (pageId, kind, patch, anchor) => {
         set((state) => {
           const editor = getPageEventEditorFields();
+          const workspaceId = getCurrentWorkspaceId();
           const prev = state.pageEventsByPageId[pageId] ?? [];
           const last = prev[prev.length - 1];
           if (
@@ -270,6 +286,7 @@ export const useHistoryStore = create<HistoryStore>()(
           ) {
             const merged: PageHistoryEvent = {
               ...last,
+              workspaceId,
               ts: Date.now(),
               patch: { ...last.patch, ...patch },
               // coalesce 중에는 anchor를 새로 늘리지 않고 기존 anchor를 유지한다.
@@ -282,6 +299,7 @@ export const useHistoryStore = create<HistoryStore>()(
             ]);
             return {
               pageEventsByPageId: { ...state.pageEventsByPageId, [pageId]: next },
+              cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
             };
           }
           const nextEvent: PageHistoryEvent = {
@@ -289,6 +307,7 @@ export const useHistoryStore = create<HistoryStore>()(
             ts: Date.now(),
             kind,
             pageId,
+            workspaceId,
             patch,
             anchor,
             ...editor,
@@ -296,17 +315,20 @@ export const useHistoryStore = create<HistoryStore>()(
           const next = trimEventsByRetention([...prev, nextEvent]);
           return {
             pageEventsByPageId: { ...state.pageEventsByPageId, [pageId]: next },
+            cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
           };
         });
       },
 
       recordDbEvent: (databaseId, kind, patch, anchor) => {
         set((state) => {
+          const workspaceId = getCurrentWorkspaceId();
           const prev = state.dbEventsByDatabaseId[databaseId] ?? [];
           const last = prev[prev.length - 1];
           if (last && last.kind === kind && shouldCoalesceDbEvent(kind)) {
             const merged: DbHistoryEvent = {
               ...last,
+              workspaceId,
               ts: Date.now(),
               patch: { ...last.patch, ...patch },
               anchor: last.anchor,
@@ -320,6 +342,7 @@ export const useHistoryStore = create<HistoryStore>()(
                 ...state.dbEventsByDatabaseId,
                 [databaseId]: next,
               },
+              cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
             };
           }
           const nextEvent: DbHistoryEvent = {
@@ -327,34 +350,40 @@ export const useHistoryStore = create<HistoryStore>()(
             ts: Date.now(),
             kind,
             databaseId,
+            workspaceId,
             patch,
             anchor,
           };
           const next = trimEventsByRetention([...prev, nextEvent]);
           return {
             dbEventsByDatabaseId: { ...state.dbEventsByDatabaseId, [databaseId]: next },
+            cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
           };
         });
       },
 
       recordDeletedRowTombstone: (row) => {
         set((state) => {
+          const workspaceId = getCurrentWorkspaceId();
           const prev = state.deletedRowTombstonesByDbId[row.databaseId] ?? [];
           const next = trimEventsByRetention([
             ...prev,
-            { ...row, id: newId(), ts: Date.now() },
+            { ...row, workspaceId, id: newId(), ts: Date.now() },
           ]);
           return {
             deletedRowTombstonesByDbId: {
               ...state.deletedRowTombstonesByDbId,
               [row.databaseId]: next,
             },
+            cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
           };
         });
       },
 
       getLatestPageSnapshot: (pageId) => {
-        const events = get().pageEventsByPageId[pageId] ?? [];
+        const events = filterCurrentWorkspaceEvents(
+          get().pageEventsByPageId[pageId] ?? [],
+        );
         if (events.length === 0) return null;
         let snapshot: PageSnapshot | null = null;
         for (const event of events) {
@@ -365,7 +394,9 @@ export const useHistoryStore = create<HistoryStore>()(
       },
 
       getLatestDbSnapshot: (databaseId) => {
-        const events = get().dbEventsByDatabaseId[databaseId] ?? [];
+        const events = filterCurrentWorkspaceEvents(
+          get().dbEventsByDatabaseId[databaseId] ?? [],
+        );
         if (events.length === 0) return null;
         let snapshot: DatabaseSnapshot | null = null;
         for (const event of events) {
@@ -376,23 +407,26 @@ export const useHistoryStore = create<HistoryStore>()(
       },
 
       getPageEvents: (pageId) =>
-        [...(get().pageEventsByPageId[pageId] ?? [])].sort((a, b) => b.ts - a.ts),
+        filterCurrentWorkspaceEvents([...(get().pageEventsByPageId[pageId] ?? [])])
+          .sort((a, b) => b.ts - a.ts),
 
       getDbEvents: (databaseId) =>
-        [...(get().dbEventsByDatabaseId[databaseId] ?? [])].sort(
-          (a, b) => b.ts - a.ts,
-        ),
+        filterCurrentWorkspaceEvents([
+          ...(get().dbEventsByDatabaseId[databaseId] ?? []),
+        ]).sort((a, b) => b.ts - a.ts),
 
       getPageTimeline: (pageId) =>
         groupPageTimeline(
-          [...(get().pageEventsByPageId[pageId] ?? [])].sort((a, b) => a.ts - b.ts),
+          filterCurrentWorkspaceEvents([
+            ...(get().pageEventsByPageId[pageId] ?? []),
+          ]).sort((a, b) => a.ts - b.ts),
         ),
 
       getDbTimeline: (databaseId) =>
         groupTimeline(
-          [...(get().dbEventsByDatabaseId[databaseId] ?? [])].sort(
-            (a, b) => a.ts - b.ts,
-          ),
+          filterCurrentWorkspaceEvents([
+            ...(get().dbEventsByDatabaseId[databaseId] ?? []),
+          ]).sort((a, b) => a.ts - b.ts),
           dbBucket,
           dbKindLabel,
         ).filter((entry) => {
@@ -431,7 +465,9 @@ export const useHistoryStore = create<HistoryStore>()(
       },
 
       getPageSnapshotAtEvent: (pageId, eventId) => {
-        const events = get().pageEventsByPageId[pageId] ?? [];
+        const events = filterCurrentWorkspaceEvents(
+          get().pageEventsByPageId[pageId] ?? [],
+        );
         if (events.length === 0) return null;
         let snapshot: PageSnapshot | null = null;
         for (const event of events) {
@@ -443,7 +479,9 @@ export const useHistoryStore = create<HistoryStore>()(
       },
 
       getDbSnapshotAtEvent: (databaseId, eventId) => {
-        const events = get().dbEventsByDatabaseId[databaseId] ?? [];
+        const events = filterCurrentWorkspaceEvents(
+          get().dbEventsByDatabaseId[databaseId] ?? [],
+        );
         if (events.length === 0) return null;
         let snapshot: DatabaseSnapshot | null = null;
         for (const event of events) {
@@ -457,14 +495,16 @@ export const useHistoryStore = create<HistoryStore>()(
       },
 
       getDeletedRowTombstones: (databaseId) =>
-        [...(get().deletedRowTombstonesByDbId[databaseId] ?? [])].sort(
-          (a, b) => b.ts - a.ts,
-        ),
+        filterCurrentWorkspaceEvents([
+          ...(get().deletedRowTombstonesByDbId[databaseId] ?? []),
+        ]).sort((a, b) => b.ts - a.ts),
 
       popDeletedRowTombstone: (databaseId, tombstoneId) => {
         let removed: DeletedRowTombstone | null = null;
         set((state) => {
-          const list = state.deletedRowTombstonesByDbId[databaseId] ?? [];
+          const list = filterCurrentWorkspaceEvents(
+            state.deletedRowTombstonesByDbId[databaseId] ?? [],
+          );
           const next = list.filter((t) => {
             if (t.id === tombstoneId) {
               removed = t;
@@ -488,7 +528,8 @@ export const useHistoryStore = create<HistoryStore>()(
           ts: number;
           title: string;
         }> = [];
-        for (const [databaseId, events] of Object.entries(get().dbEventsByDatabaseId)) {
+        for (const [databaseId, eventsRaw] of Object.entries(get().dbEventsByDatabaseId)) {
+          const events = filterCurrentWorkspaceEvents(eventsRaw);
           if (!events.length) continue;
           const sorted = [...events].sort((a, b) => a.ts - b.ts);
           const lastDelete = [...sorted].reverse().find((e) => e.kind === "db.delete");
@@ -508,7 +549,10 @@ export const useHistoryStore = create<HistoryStore>()(
       name: "quicknote.historyStore.v1",
       storage: createJSONStorage(() => zustandStorage),
       version: HISTORY_STORE_VERSION,
-      migrate: (persisted) => persisted,
+      migrate: (persisted) => ({
+        ...(persisted && typeof persisted === "object" ? persisted : {}),
+        cacheWorkspaceId: null,
+      }),
     },
   ),
 );

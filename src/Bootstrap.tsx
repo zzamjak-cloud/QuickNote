@@ -13,16 +13,19 @@ import {
   applyRemoteDatabaseToStore,
 } from "./lib/sync/storeApply";
 import { applyWorkspaceSwitch } from "./lib/sync/workspaceSwitch";
+import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
 import { applyWorkspaceLanding } from "./lib/sync/workspaceLanding";
 import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspaceCacheAfterFlush";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { usePageStore } from "./store/pageStore";
+import { useDatabaseStore } from "./store/databaseStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
 import { listMembersApi, fetchMeWithClientPrefs } from "./lib/sync/memberApi";
 import { listMyWorkspacesApi } from "./lib/sync/workspaceApi";
 import {
   applyRemoteClientPrefs,
+  ensureSettingsPersistHydrated,
   flushClientPrefsToServerNow,
 } from "./lib/sync/clientPrefsSync";
 import { listTeamsApi } from "./lib/sync/teamApi";
@@ -31,7 +34,7 @@ import { useUiStore } from "./store/uiStore";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
-function useSyncBootstrap() {
+function useSyncBootstrap(): boolean {
   const authStatus = useAuthStore((s) => s.state.status);
   const authSub = useAuthStore((s) =>
     s.state.status === "authenticated" ? s.state.user.sub : null,
@@ -44,6 +47,23 @@ function useSyncBootstrap() {
   const clearMembers = useMemberStore((s) => s.clear);
   const setTeams = useTeamStore((s) => s.setTeams);
   const clearTeams = useTeamStore((s) => s.clear);
+  const pageCacheWorkspaceId = usePageStore((s) => s.cacheWorkspaceId);
+  const pageCacheCount = usePageStore((s) => Object.keys(s.pages).length);
+  const databaseCacheWorkspaceId = useDatabaseStore((s) => s.cacheWorkspaceId);
+  const databaseCacheCount = useDatabaseStore(
+    (s) => Object.keys(s.databases).length,
+  );
+  const cacheNeedsClear = Boolean(
+    currentWorkspaceId &&
+      ((pageCacheCount > 0 && pageCacheWorkspaceId !== currentWorkspaceId) ||
+        (databaseCacheCount > 0 &&
+          databaseCacheWorkspaceId !== currentWorkspaceId)),
+  );
+  const [workspaceCacheReady, setWorkspaceCacheReady] = useState(() =>
+    !workspaceCacheNeedsPrepaintClear(
+      useWorkspaceStore.getState().currentWorkspaceId,
+    ),
+  );
   // 한 사용자 세션 내에서 중복 부트스트랩 방지.
   const startedForRef = useRef<string | null>(null);
 
@@ -63,6 +83,9 @@ function useSyncBootstrap() {
           fetchMeWithClientPrefs(),
           listMyWorkspacesApi(),
         ]);
+        if (cancelled) return;
+        // 원격 병합·flush 전에 로컬 스토리지 복원 필수(미복원 시 flush 가 빈 목록으로 서버 덮어씀)
+        await ensureSettingsPersistHydrated();
         if (cancelled) return;
         applyRemoteClientPrefs(clientPrefs);
         setMe(me);
@@ -104,6 +127,7 @@ function useSyncBootstrap() {
   useEffect(() => {
     if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) {
       startedForRef.current = null;
+      setWorkspaceCacheReady(true);
       return;
     }
     const startedKey = `${authSub}:${currentWorkspaceId}`;
@@ -121,10 +145,22 @@ function useSyncBootstrap() {
 
     (async () => {
       try {
+        setWorkspaceCacheReady(
+          !workspaceCacheNeedsPrepaintClear(currentWorkspaceId),
+        );
         const switchResult = await applyWorkspaceSwitch(
           prevWorkspaceId,
           currentWorkspaceId,
         );
+        const fetchApply = async (): Promise<void> => {
+          const [pages, dbs] = await Promise.all([
+            fetchPagesByWorkspace(currentWorkspaceId),
+            fetchDatabasesByWorkspace(currentWorkspaceId),
+          ]);
+          if (cancelled) return;
+          for (const p of pages) applyRemotePageToStore(p);
+          for (const d of dbs) applyRemoteDatabaseToStore(d);
+        };
         const setHold = useUiStore.getState().setOutboxWorkspaceSwitchHold;
         if (switchResult.reason === "pending-outbox") {
           setHold({
@@ -135,19 +171,26 @@ function useSyncBootstrap() {
               usePageStore.getState().cacheWorkspaceId ??
               null,
           });
+          const engine = await getSyncEngine();
+          await engine.flush();
+          if (!cancelled) {
+            await reconcileWorkspaceCacheAfterFlush({
+              currentWorkspaceId,
+              sessionPrevWorkspaceId: prevWorkspaceId,
+              fetchApply,
+              cancelled: () => cancelled,
+            });
+          }
+          if (
+            cancelled ||
+            workspaceCacheNeedsPrepaintClear(currentWorkspaceId)
+          ) {
+            return;
+          }
         } else {
           setHold(null);
         }
-
-        const fetchApply = async (): Promise<void> => {
-          const [pages, dbs] = await Promise.all([
-            fetchPagesByWorkspace(currentWorkspaceId),
-            fetchDatabasesByWorkspace(currentWorkspaceId),
-          ]);
-          if (cancelled) return;
-          for (const p of pages) applyRemotePageToStore(p);
-          for (const d of dbs) applyRemoteDatabaseToStore(d);
-        };
+        setWorkspaceCacheReady(true);
 
         await fetchApply();
 
@@ -173,6 +216,7 @@ function useSyncBootstrap() {
         }
       } catch (err) {
         console.error("[sync] bootstrap failed", err);
+        setWorkspaceCacheReady(true);
       }
     })();
 
@@ -244,18 +288,29 @@ function useSyncBootstrap() {
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, [authStatus, authSub, currentWorkspaceId]);
+  return (
+    workspaceCacheReady &&
+    !(authStatus === "authenticated" && cacheNeedsClear)
+  );
 }
 
 // 웹 환경에서 /auth/callback 으로 리다이렉트되면 code 교환을 처리한 뒤 / 로 전환한다.
 export function Bootstrap() {
   const [path, setPath] = useState(window.location.pathname);
-  useSyncBootstrap();
+  const workspaceCacheReady = useSyncBootstrap();
   // onDone 을 useCallback 으로 안정화. 인라인 함수면 매 렌더마다 새 참조가 되어
   // AuthCallback 의 useEffect 가 재실행되고 handleCallback 이 두 번 호출된다.
   // 두 번째 호출은 이미 consume 된 state 를 다시 읽어 "No matching state found" 발생.
   const goHome = useCallback(() => setPath("/"), []);
   if (path === "/auth/callback") {
     return <AuthCallback onDone={goHome} />;
+  }
+  if (!workspaceCacheReady) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-white text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
+        워크스페이스 캐시 확인 중…
+      </div>
+    );
   }
   return <App />;
 }

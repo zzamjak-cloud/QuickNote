@@ -145,6 +145,14 @@ export class SyncEngine {
                 entry.op,
                 entry.payload,
               );
+              await this.outbox.putDeadLetter?.(
+                {
+                  ...entry,
+                  attempts,
+                  lastErrorAt: this.clock(),
+                },
+                "max-attempts-exceeded",
+              );
               await this.outbox.remove(entry.id);
               continue;
             }

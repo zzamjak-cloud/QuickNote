@@ -23,6 +23,23 @@ function db(): Promise<Database> {
       await d.execute(
         `CREATE INDEX IF NOT EXISTS idx_outbox_enqueuedAt ON outbox_entries(enqueuedAt);`,
       );
+      await d.execute(`
+        CREATE TABLE IF NOT EXISTS outbox_dead_letters (
+          id TEXT PRIMARY KEY,
+          op TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          enqueuedAt INTEGER NOT NULL,
+          attempts INTEGER NOT NULL,
+          lastErrorAt INTEGER,
+          dedupeKey TEXT NOT NULL,
+          workspaceId TEXT,
+          entityType TEXT,
+          entityId TEXT,
+          baseVersion INTEGER,
+          deadLetterReason TEXT NOT NULL,
+          deadLetterAt INTEGER NOT NULL
+        );
+      `);
       await ensureOutboxMetaColumns(d);
       return d;
     })();
@@ -156,5 +173,42 @@ export class TauriOutboxAdapter implements OutboxAdapter {
   async clear(): Promise<void> {
     const d = await db();
     await d.execute(`DELETE FROM outbox_entries`);
+  }
+
+  async putDeadLetter(entry: OutboxEntry, reason: string): Promise<void> {
+    const d = await db();
+    await d.execute(
+      `INSERT OR REPLACE INTO outbox_dead_letters(id, op, payload, enqueuedAt, attempts, lastErrorAt, dedupeKey, workspaceId, entityType, entityId, baseVersion, deadLetterReason, deadLetterAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        entry.id,
+        entry.op,
+        JSON.stringify(entry.payload),
+        entry.enqueuedAt,
+        entry.attempts,
+        entry.lastErrorAt ?? null,
+        entry.dedupeKey,
+        entry.workspaceId ?? null,
+        entry.entityType ?? null,
+        entry.entityId ?? null,
+        entry.baseVersion ?? null,
+        reason,
+        Date.now(),
+      ],
+    );
+  }
+
+  async listDeadLetters(
+    limit: number,
+  ): Promise<Array<OutboxEntry & { deadLetterReason: string }>> {
+    const d = await db();
+    const rows = await d.select<Array<Row & { deadLetterReason: string }>>(
+      `SELECT * FROM outbox_dead_letters ORDER BY deadLetterAt DESC LIMIT ?`,
+      [limit],
+    );
+    return rows.map((row) => ({
+      ...rowToEntry(row),
+      deadLetterReason: row.deadLetterReason,
+    }));
   }
 }
