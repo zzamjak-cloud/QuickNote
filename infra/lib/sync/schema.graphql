@@ -77,6 +77,8 @@ type Page {
   createdByMemberId: ID!
   title: String!
   icon: String
+  """페이지 상단 커버. `quicknote-image://{imageId}` S3 자산 참조 권장(레거시 data URL 가능)."""
+  coverImage: String
   parentId: ID
   order: String!
   databaseId: ID
@@ -126,6 +128,7 @@ input PageInput {
   createdByMemberId: ID
   title: String!
   icon: String
+  coverImage: String
   parentId: ID
   order: String!
   databaseId: ID

@@ -163,6 +163,20 @@ async function upsertRecord(args: {
   return args.input;
 }
 
+/** data URL·base64 커버가 DynamoDB 400KB 항목 한도를 압박하지 않도록 상한(문자열 length 기준). */
+const MAX_COVER_IMAGE_CHARS = 350_000;
+
+function validateCoverImageField(input: Record<string, unknown>): void {
+  const v = input.coverImage;
+  if (v == null) return;
+  if (typeof v !== "string") badRequest("coverImage 는 문자열이어야 합니다");
+  if (v.length > MAX_COVER_IMAGE_CHARS) {
+    badRequest(
+      `커버 이미지 데이터가 너무 큽니다(최대 약 ${MAX_COVER_IMAGE_CHARS}자). 더 작은 이미지를 사용해 주세요.`,
+    );
+  }
+}
+
 export async function upsertPage(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -170,6 +184,7 @@ export async function upsertPage(args: {
   input: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
+  validateCoverImageField(args.input);
   return upsertRecord({ ...args, tableName: args.tables.Pages });
 }
 

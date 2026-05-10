@@ -1,6 +1,7 @@
 // 드래그·붙여넣기 등 비-모달 경로에서 이미지를 v4 S3 로 업로드 후 노드 삽입.
 
 import { uploadImage } from "../images/upload";
+import { prepareImageFileForUpload } from "../images/compressImage";
 import { reportNonFatal } from "../reportNonFatal";
 
 export const MAX_EDITOR_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -37,15 +38,15 @@ export async function insertImageFromFile(
     return false;
   }
   try {
-    // 자연 크기는 업로드와 병렬로 측정 — 실패해도 본문 삽입은 진행.
-    const url = URL.createObjectURL(file);
+    const prepared = await prepareImageFileForUpload(file);
+    const url = URL.createObjectURL(prepared);
     let dim: { w: number; h: number } | null = null;
     try {
       dim = await loadImageDimensions(url);
     } finally {
       URL.revokeObjectURL(url);
     }
-    const ref = await uploadImage(file);
+    const ref = await uploadImage(prepared);
     insert({
       src: ref,
       ...(dim ? { width: dim.w, height: dim.h } : {}),

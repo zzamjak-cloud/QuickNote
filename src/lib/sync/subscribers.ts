@@ -5,7 +5,7 @@ import {
   type GqlPage,
   type GqlDatabase,
 } from "./graphql/operations";
-import { readStoredTokens } from "../auth/tokenStore";
+import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 
 // 자기 workspaceId 의 변경 푸시를 수신해 LWW 적용 콜백을 호출.
 // 구독 에러 및 네트워크 단절 시 지수 백오프(최대 30초)로 자동 재연결.
@@ -62,7 +62,7 @@ export function startSubscriptions(
     // AppSync USER_POOL 인증에서 subscription 의 connection_init 핸드셰이크에는
     // Amplify 의 headers 함수 대신 authToken 옵션으로 직접 토큰을 주입해야 한다.
     // (defaultAuthMode "none" + 수동 헤더 방식은 query/mutation 에만 작동)
-    const tokens = await readStoredTokens();
+    const tokens = await ensureFreshTokensForAppSync();
     const authToken = tokens?.idToken;
 
     const c = appsyncClient();

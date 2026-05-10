@@ -65,6 +65,31 @@ describe("page/database handlers", () => {
     expect(result.id).toBe("p1");
   });
 
+  it("upsertPage: coverImage 가 너무 크면 거부", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+    );
+    await expect(
+      upsertPage({
+        doc,
+        tables,
+        caller,
+        input: {
+          id: "p1",
+          workspaceId: "ws-1",
+          updatedAt: "now",
+          createdAt: "now",
+          title: "T",
+          doc: "{}",
+          order: "a",
+          createdByMemberId: "m1",
+          coverImage: "x".repeat(350_001),
+        },
+      }),
+    ).rejects.toThrow(/너무 큽|큽니다/);
+  });
+
   it("softDeletePage: edit 권한이면 성공", async () => {
     const doc = mockDoc(
       { Items: [] }, // memberTeams

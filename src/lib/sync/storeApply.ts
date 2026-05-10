@@ -99,6 +99,7 @@ export function applyRemotePageToStore(p: GqlPage | null | undefined): void {
       id: p.id,
       title: p.title,
       icon: p.icon ?? null,
+      coverImage: typeof p.coverImage === "string" ? p.coverImage : null,
       doc: parseAwsJson<JSONContent>(p.doc, {
         type: "doc",
         content: [{ type: "paragraph" }],

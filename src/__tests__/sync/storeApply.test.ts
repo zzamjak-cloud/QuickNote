@@ -72,6 +72,16 @@ describe("storeApply 워크스페이스 가드", () => {
     expect(usePageStore.getState().pages["pg-1"]).toBeDefined();
   });
 
+  it("coverImage 가 원격에서 로컬 페이지에 반영된다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const p = gqlPage("ws-a");
+    p.coverImage = "data:image/png;base64,QUJD";
+    applyRemotePageToStore(p);
+    expect(usePageStore.getState().pages["pg-1"]?.coverImage).toBe(
+      "data:image/png;base64,QUJD",
+    );
+  });
+
   it("원격 workspaceId 가 비면 적용하지 않는다", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });

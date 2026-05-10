@@ -1,5 +1,5 @@
 const PAGE_FIELDS = `
-  id workspaceId createdByMemberId title icon parentId order databaseId
+  id workspaceId createdByMemberId title icon coverImage parentId order databaseId
   doc dbCells createdAt updatedAt deletedAt
 `;
 
@@ -51,6 +51,7 @@ export type GqlPage = {
   createdByMemberId: string;
   title: string;
   icon?: string | null;
+  coverImage?: string | null;
   parentId?: string | null;
   order: string;
   databaseId?: string | null;

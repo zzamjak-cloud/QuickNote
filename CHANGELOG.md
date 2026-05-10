@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.16] - 2026-05-11
+
+### Added
+
+- **페이지 커버 S3 동기화**: `Page`/`PageInput`에 `coverImage` 필드(AppSync·Lambda). 로컬에 `quicknote-image://` ref 저장, 본문 이미지와 동일 PreSigned 업로드 파이프라인.
+- **커버 전용 압축·크롭**: 배너 가로세로비(4:1) 중앙 크롭, 최대 가로 1280px WebP로 용량 절감. GIF는 원본 유지.
+- **AppSync 토큰 갱신**(`apiTokens`): ID 토큰 만료 임박 시 `signinSilent`로 갱신 후 쿼리·구독에 주입(웹/로컬 장시간 세션 동기화 안정화).
+
+### Changed
+
+- **본문 이미지**: 업로드 전 `prepareImageFileForUpload`로 공통 압축(WebP, 최대 1920×3840 박스).
+- **에디터 레이아웃**: 커버 이미지는 `max-w-3xl` 컬럼 밖에서 **전체 에디터 패널 너비**로 표시(넓은 창·Tauri에서 전폭 배너).
+
+### Fixed
+
+- **커버 동기화**: GraphQL·스토어에 `coverImage`가 빠져 원격과 불일치하던 문제.
+
 ## [5.0.15] - 2026-05-10
 
 ### Added

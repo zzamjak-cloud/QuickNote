@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { Upload, X } from "lucide-react";
 import { uploadImage } from "../../lib/images/upload";
-import { compressImage } from "../../lib/images/compressImage";
+import { prepareImageFileForUpload } from "../../lib/images/compressImage";
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const ALLOWED_MIME = new Set([
@@ -39,16 +39,7 @@ export function ImageUpload({ open, onClose, editor }: Props) {
     }
     void (async () => {
       setUploading(true);
-      // 자연 크기는 업로드와 병렬로 측정 — 실패해도 본문 삽입은 진행.
-      // GIF는 애니메이션 보존을 위해 압축 생략
-      const fileToUpload =
-        file.type === "image/gif"
-          ? file
-          : new File(
-              [await compressImage(file)],
-              file.name.replace(/\.[^.]+$/, ".webp"),
-              { type: "image/webp" },
-            );
+      const fileToUpload = await prepareImageFileForUpload(file);
       const dim = await loadImageDimensions(fileToUpload).catch(() => null);
       try {
         const ref = await uploadImage(fileToUpload);

@@ -53,6 +53,7 @@ function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> 
     createdByMemberId,
     title: p.title,
     icon: p.icon ?? null,
+    coverImage: p.coverImage ?? null,
     parentId: p.parentId ?? null,
     order: String(p.order),
     databaseId: p.databaseId ?? null,

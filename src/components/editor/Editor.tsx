@@ -841,17 +841,31 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       ref={editorScrollHostRef}
       className="qn-editor-body-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950"
     >
+      {/* 커버는 max-w- 컬럼 밖에 두어 좁은 본문 폭에서도 에디터 패널 전체 너비로 펼친다(웹·Tauri 공통). */}
+      {!bodyOnly && page.coverImage ? (
+        <div className="w-full shrink-0">
+          <PageCoverImage
+            url={page.coverImage}
+            onChange={(url) => setCoverImage(effectivePageId, url)}
+            onRemove={() => setCoverImage(effectivePageId, null)}
+            onUploadError={(msg) => setSimpleAlert(msg)}
+          />
+        </div>
+      ) : null}
       <div
         className={`relative mx-auto w-full ${fullWidth ? "max-w-none px-4" : "max-w-3xl"}`}
         data-qn-editor-column
       >
         {!bodyOnly && (
           <>
-            <PageCoverImage
-              url={page.coverImage}
-              onChange={(url) => setCoverImage(effectivePageId, url)}
-              onRemove={() => setCoverImage(effectivePageId, null)}
-            />
+            {!page.coverImage ? (
+              <PageCoverImage
+                url={page.coverImage}
+                onChange={(url) => setCoverImage(effectivePageId, url)}
+                onRemove={() => setCoverImage(effectivePageId, null)}
+                onUploadError={(msg) => setSimpleAlert(msg)}
+              />
+            ) : null}
             <div className={`${page.coverImage ? "mt-12" : "mt-4"} px-12`}>
               <div className="flex items-center gap-2">
                 <IconPicker

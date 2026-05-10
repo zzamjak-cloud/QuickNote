@@ -1,6 +1,6 @@
 import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/api";
-import { readStoredTokens } from "../../auth/tokenStore";
+import { ensureFreshTokensForAppSync } from "../../auth/apiTokens";
 
 // Amplify v6 GraphQL 클라이언트 구성. Cognito User Pool JWT 를 헤더로 주입.
 
@@ -34,8 +34,8 @@ export function configureAppSync(): void {
     API: {
       GraphQL: {
         headers: async () => {
-          const tokens = await readStoredTokens();
-          return tokens ? { Authorization: tokens.idToken } : {};
+          const tokens = await ensureFreshTokensForAppSync();
+          return tokens?.idToken ? { Authorization: tokens.idToken } : {};
         },
       },
     },
