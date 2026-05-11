@@ -32,7 +32,20 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const removeColumn = useDatabaseStore((s) => s.removeColumn);
   const ref = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(column.name);
+
+  useEffect(() => {
+    setNameDraft(column.name);
+    const timer = setTimeout(() => nameInputRef.current?.select(), 60);
+    return () => clearTimeout(timer);
+  }, [column.name]);
+
+  const commitName = () => {
+    const t = nameDraft.trim() || column.name;
+    if (t !== column.name) updateColumn(databaseId, column.id, { name: t });
+  };
 
   // 매 렌더마다 anchorEl 위치를 직접 계산 (useLayoutEffect 한 번만 실행하면 스크롤/리사이즈 후 좌표가 틀림)
   const rect = anchorEl?.getBoundingClientRect();
@@ -64,6 +77,23 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
       style={{ position: "fixed", top: coords.top, left: coords.left, width: 224 }}
       className="z-[490] rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     >
+      {/* 속성 이름 편집 — title 컬럼 포함 항상 표시 */}
+      <div className="border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
+        <input
+          ref={nameInputRef}
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          onBlur={commitName}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") { commitName(); onClose(); }
+            if (e.key === "Escape") { setNameDraft(column.name); onClose(); }
+          }}
+          placeholder="속성 이름"
+          className="w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900"
+        />
+      </div>
+
       {!isTitle && (
         <div className="px-2 py-1">
           <div className="flex items-center gap-1 text-[10px] text-zinc-500">

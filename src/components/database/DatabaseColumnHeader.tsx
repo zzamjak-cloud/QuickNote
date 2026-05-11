@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { GripVertical, ChevronDown } from "lucide-react";
 import type { ColumnDef } from "../../types/database";
-import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 
@@ -32,26 +31,10 @@ export function DatabaseColumnHeader({
   highlightDrop,
   onAutoFit,
 }: Props) {
-  const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
   const setOpenColumnMenu = useUiStore((s) => s.setOpenColumnMenu);
   const menuOpen = openColumnMenuId === column.id;
-  const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft] = useState(column.name);
-  const inputRef = useRef<HTMLInputElement>(null);
   const thRef = useRef<HTMLTableCellElement>(null);
-
-  useEffect(() => { setDraft(column.name); }, [column.name]);
-  useEffect(() => {
-    if (renaming) inputRef.current?.focus();
-  }, [renaming]);
-
-  const commitName = () => {
-    const t = draft.trim() || column.name;
-    if (t !== column.name) updateColumn(databaseId, column.id, { name: t });
-    setDraft(t);
-    setRenaming(false);
-  };
 
   // 노션 스타일 — 드래그 중엔 컬럼 폭을 즉시 갱신하지 않고 가이드 라인만 표시,
   // mouseup 에서 한 번만 width 커밋. 다른 컬럼 폭이 매 프레임 재배분되며 흔들리는 문제 방지.
@@ -121,31 +104,15 @@ export function DatabaseColumnHeader({
           <GripVertical size={12} className="text-zinc-400" />
         </span>
 
-        {renaming ? (
-          <input
-            ref={inputRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter") commitName();
-              if (e.key === "Escape") { setDraft(column.name); setRenaming(false); }
-            }}
-            className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-1 text-xs dark:border-zinc-600 dark:bg-zinc-900"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setOpenColumnMenu(menuOpen ? null : column.id)}
-            onDoubleClick={() => setRenaming(true)}
-            className="flex flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            title="더블클릭하여 이름 변경"
-          >
-            <span className="truncate">{column.name}</span>
-            <ChevronDown size={10} className="ml-auto opacity-0 group-hover:opacity-60" />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setOpenColumnMenu(menuOpen ? null : column.id)}
+          className="flex flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          title="클릭하여 속성 편집"
+        >
+          <span className="truncate">{column.name}</span>
+          <ChevronDown size={10} className="ml-auto opacity-0 group-hover:opacity-60" />
+        </button>
       </div>
 
       {/* 리사이즈 핸들 — 우측 모서리 4px, hover 시 파란 인디케이터, 더블클릭으로 자동 맞춤 */}
