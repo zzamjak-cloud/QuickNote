@@ -223,7 +223,13 @@ function dbBucket(kind: DbHistoryKind): "content" | "structure" {
   return "structure";
 }
 
-function groupTimeline<T extends { id: string; ts: number; kind: string }>(
+function groupTimeline<T extends {
+  id: string;
+  ts: number;
+  kind: string;
+  editedByMemberId?: string;
+  editedByName?: string;
+}>(
   ascEvents: T[],
   getBucket: (kind: T["kind"]) => "content" | "structure",
   getLabel: (kind: T["kind"]) => string,
@@ -242,6 +248,8 @@ function groupTimeline<T extends { id: string; ts: number; kind: string }>(
       prev.eventIds.push(ev.id);
       prev.endTs = ev.ts;
       prev.count += 1;
+      prev.lastEditedByMemberId = ev.editedByMemberId ?? prev.lastEditedByMemberId;
+      prev.lastEditedByName = ev.editedByName ?? prev.lastEditedByName;
       continue;
     }
     grouped.push({
@@ -253,6 +261,8 @@ function groupTimeline<T extends { id: string; ts: number; kind: string }>(
       endTs: ev.ts,
       count: 1,
       label: getLabel(ev.kind),
+      lastEditedByMemberId: ev.editedByMemberId,
+      lastEditedByName: ev.editedByName,
     });
   }
   return grouped
@@ -359,6 +369,7 @@ export const useHistoryStore = create<HistoryStore>()(
       recordDbEvent: (databaseId, kind, patch, anchor) => {
         set((state) => {
           const workspaceId = getCurrentWorkspaceId();
+          const editor = getPageEventEditorFields();
           const prev = state.dbEventsByDatabaseId[databaseId] ?? [];
           const last = prev[prev.length - 1];
           if (last && last.kind === kind && shouldCoalesceDbEvent(kind)) {
@@ -368,6 +379,7 @@ export const useHistoryStore = create<HistoryStore>()(
               ts: Date.now(),
               patch: { ...last.patch, ...patch },
               anchor: last.anchor,
+              ...editor,
             };
             const next = trimDbEventsByRetention([
               ...prev.slice(0, -1),
@@ -389,6 +401,7 @@ export const useHistoryStore = create<HistoryStore>()(
             workspaceId,
             patch,
             anchor,
+            ...editor,
           };
           const next = trimDbEventsByRetention([...prev, nextEvent]);
           return {

@@ -69,6 +69,9 @@ export type DbHistoryEvent = {
   patch: Partial<DatabaseSnapshot>;
   /** 주기적 압축용 기준 스냅샷 */
   anchor?: DatabaseSnapshot;
+  /** 기록 시점 수정 구성원(영속 시점 스냅샷) */
+  editedByMemberId?: string;
+  editedByName?: string;
 };
 
 export type DeletedRowTombstone = {

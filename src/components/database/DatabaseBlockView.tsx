@@ -41,6 +41,8 @@ import { useHistorySelection } from "../history/useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useMemberStore } from "../../store/memberStore";
+import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
@@ -51,6 +53,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const view = (rawView === "list" ? "table" : rawView) as ViewKind;
   const panelStateRaw = String(node.attrs.panelState ?? "{}");
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const members = useMemberStore((s) => s.members);
+  const me = useMemberStore((s) => s.me);
   const panelState = useDatabaseViewPrefsStore((s) =>
     databaseId
       ? s.getPanelState(databaseId, panelStateRaw)
@@ -573,6 +577,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
                     <span className="shrink-0 text-[11px] text-zinc-400">
                       {new Date(entry.endTs).toLocaleString()}
                     </span>
+                    {(entry.lastEditedByName || entry.lastEditedByMemberId) && (
+                      <span className="shrink-0 max-w-[80px] truncate text-[11px] text-zinc-400">
+                        {formatPageHistoryEditorLine(entry, { members, me: me ?? null })}
+                      </span>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => {
