@@ -10,12 +10,18 @@ import type {
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import type { Page } from "../../types/page";
+import type { PageBlockCommentsSnapshot } from "../../types/blockComment";
+import { coercePageBlockComments } from "../comments/blockCommentSnapshot";
+import { mergePageBlockComments } from "../comments/mergePageBlockComments";
+import { notifyRemoteBlockCommentDelta } from "../comments/notifyRemoteBlockCommentDelta";
+import { useMemberStore } from "../../store/memberStore";
 import type {
   ColumnDef,
   DatabaseBundle,
 } from "../../types/database";
 import type { JSONContent } from "@tiptap/react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 
 /**
  * 구독 레이스·백엔드 오류로 다른 워크스페이스 스냅샷이 내려올 때 로컬 캐시가 오염되지 않게 한다.
@@ -63,9 +69,80 @@ function isRemoteNewer(localUpdatedMs: number, remoteIso: string): boolean {
   return isoToMs(remoteIso) > localUpdatedMs;
 }
 
-export function applyRemotePageToStore(p: GqlPage | null | undefined): void {
+/** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다. */
+function collectRowPageIdsForDatabase(databaseId: string): string[] {
+  const pages = usePageStore.getState().pages;
+  return Object.values(pages)
+    .filter((page) => page.databaseId === databaseId)
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+    .map((page) => page.id);
+}
+
+/** 로컬 순서를 우선하되, 원격에서 새로 내려온 행 페이지는 끝에 붙인다. */
+function mergeRowPageOrderWithDerived(
+  localOrder: string[] | undefined,
+  derived: string[],
+): string[] {
+  if (!derived.length) return localOrder?.length ? [...localOrder] : [];
+  if (!localOrder?.length) return derived;
+  const derivedSet = new Set(derived);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of localOrder) {
+    if (!derivedSet.has(id)) continue;
+    out.push(id);
+    seen.add(id);
+  }
+  for (const id of derived) {
+    if (!seen.has(id)) out.push(id);
+  }
+  return out;
+}
+
+function removePageIdFromDatabaseRowOrder(databaseId: string, pageId: string): void {
+  useDatabaseStore.setState((s) => {
+    const db = s.databases[databaseId];
+    if (!db || !db.rowPageOrder.includes(pageId)) return s;
+    return {
+      ...s,
+      databases: {
+        ...s.databases,
+        [databaseId]: {
+          ...db,
+          rowPageOrder: db.rowPageOrder.filter((id) => id !== pageId),
+        },
+      },
+    };
+  });
+}
+
+/** 구독 순서상 DB 스냅샷보다 행 페이지가 먼저 올 때 rowPageOrder 에 id 가 빠지지 않게 한다. */
+function ensurePageInDatabaseRowOrder(databaseId: string, pageId: string): void {
+  useDatabaseStore.setState((s) => {
+    const db = s.databases[databaseId];
+    if (!db || db.rowPageOrder.includes(pageId)) return s;
+    return {
+      ...s,
+      databases: {
+        ...s.databases,
+        [databaseId]: {
+          ...db,
+          rowPageOrder: [...db.rowPageOrder, pageId],
+        },
+      },
+    };
+  });
+}
+
+export function applyRemotePageToStore(
+  p: GqlPage | null | undefined,
+  options?: { skipBlockCommentNotifications?: boolean },
+): void {
   if (!p) return;
   if (!shouldApplyRemoteSnapshot(p.workspaceId)) return;
+
+  const before = usePageStore.getState().pages[p.id];
+
   usePageStore.setState((s) => {
     const local = s.pages[p.id];
     // tombstone — 로컬에서 제거.
@@ -95,6 +172,16 @@ export function applyRemotePageToStore(p: GqlPage | null | undefined): void {
       return isoToMs(p.updatedAt);
     })();
 
+    const remoteBlockComments: PageBlockCommentsSnapshot | undefined =
+      p.blockComments != null
+        ? coercePageBlockComments(parseAwsJson<unknown>(p.blockComments, null))
+        : undefined;
+    // 원격에 blockComments 가 없거나 비어 있으면 로컬 스레드가 통째로 사라지지 않게 합친다.
+    const mergedBlockComments = mergePageBlockComments(
+      remoteBlockComments,
+      local?.blockComments,
+    );
+
     const merged: Page = {
       id: p.id,
       title: p.title,
@@ -108,6 +195,7 @@ export function applyRemotePageToStore(p: GqlPage | null | undefined): void {
       order: orderNum,
       databaseId: p.databaseId ?? undefined,
       dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
+      ...(mergedBlockComments ? { blockComments: mergedBlockComments } : {}),
       createdAt: isoToMs(p.createdAt) || Date.now(),
       updatedAt: isoToMs(p.updatedAt) || Date.now(),
     };
@@ -117,6 +205,26 @@ export function applyRemotePageToStore(p: GqlPage | null | undefined): void {
       cacheWorkspaceId: p.workspaceId,
     };
   });
+
+  if (p.deletedAt) {
+    const dbId = before?.databaseId;
+    if (dbId) removePageIdFromDatabaseRowOrder(dbId, p.id);
+    return;
+  }
+
+  const after = usePageStore.getState().pages[p.id];
+  if (after?.databaseId) {
+    ensurePageInDatabaseRowOrder(after.databaseId, after.id);
+  }
+
+  if (options?.skipBlockCommentNotifications !== true) {
+    const myMemberId = useMemberStore.getState().me?.memberId;
+    notifyRemoteBlockCommentDelta(
+      myMemberId,
+      before?.blockComments,
+      after?.blockComments,
+    );
+  }
 }
 
 export function applyRemoteDatabaseToStore(
@@ -124,38 +232,51 @@ export function applyRemoteDatabaseToStore(
 ): void {
   if (!d) return;
   if (!shouldApplyRemoteSnapshot(d.workspaceId)) return;
-  useDatabaseStore.setState((s) => {
-    const local = s.databases[d.id];
-    if (d.deletedAt) {
-      if (!local) return s;
+
+  const local = useDatabaseStore.getState().databases[d.id];
+
+  if (d.deletedAt) {
+    useDatabaseStore.setState((s) => {
+      const bundle = s.databases[d.id];
+      if (!bundle) return s;
       const rest = { ...s.databases };
       delete rest[d.id];
       return { ...s, databases: rest, cacheWorkspaceId: d.workspaceId };
-    }
-    if (local && !isRemoteNewer(local.meta.updatedAt, d.updatedAt)) {
-      return s.cacheWorkspaceId === d.workspaceId
+    });
+    return;
+  }
+
+  if (local && !isRemoteNewer(local.meta.updatedAt, d.updatedAt)) {
+    useDatabaseStore.setState((s) =>
+      s.cacheWorkspaceId === d.workspaceId
         ? s
-        : { ...s, cacheWorkspaceId: d.workspaceId };
-    }
+        : { ...s, cacheWorkspaceId: d.workspaceId },
+    );
+    return;
+  }
 
-    const columns = parseAwsJson<ColumnDef[]>(d.columns, []);
-    // 원격은 rowPageOrder 를 모르므로 로컬 본을 보존(없으면 [] 로 초기화).
-    const rowPageOrder = local?.rowPageOrder ?? [];
+  const columns = parseAwsJson<ColumnDef[]>(d.columns, []);
+  // 원격은 rowPageOrder 를 모르므로: 로컬 순서 보존 + 페이지 스토어에서 역산해 빈 캐시 복구.
+  const derivedRowOrder = collectRowPageIdsForDatabase(d.id);
+  const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
 
-    const bundle: DatabaseBundle = {
-      meta: {
-        id: d.id,
-        title: d.title,
-        createdAt: isoToMs(d.createdAt) || Date.now(),
-        updatedAt: isoToMs(d.updatedAt) || Date.now(),
-      },
-      columns,
-      rowPageOrder,
-    };
-    return {
-      ...s,
-      databases: { ...s.databases, [d.id]: bundle },
-      cacheWorkspaceId: d.workspaceId,
-    };
-  });
+  const bundle: DatabaseBundle = {
+    meta: {
+      id: d.id,
+      title: d.title,
+      createdAt: isoToMs(d.createdAt) || Date.now(),
+      updatedAt: isoToMs(d.updatedAt) || Date.now(),
+    },
+    columns,
+    rowPageOrder,
+  };
+
+  useDatabaseStore.setState((s) => ({
+    ...s,
+    databases: { ...s.databases, [d.id]: bundle },
+    cacheWorkspaceId: d.workspaceId,
+  }));
+
+  // 서버에서 온 DB는 로컬에 db.create 가 없을 수 있다. 고아 패치만 있으면 타임라인이 비게 된다.
+  repairDbHistoryBaselineIfNeeded(d.id, structuredClone(bundle));
 }

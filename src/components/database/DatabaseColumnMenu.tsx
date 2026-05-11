@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Trash2, Type } from "lucide-react";
 import type { ColumnDef, ColumnType } from "../../types/database";
@@ -33,15 +33,13 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
   const removeColumn = useDatabaseStore((s) => s.removeColumn);
   const ref = useRef<HTMLDivElement>(null);
   const [confirming, setConfirming] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
 
-  useLayoutEffect(() => {
-    const rect = anchorEl?.getBoundingClientRect();
-    if (!rect) return;
-    const width = 224; // w-56
-    const left = Math.min(rect.left, window.innerWidth - width - 8);
-    setCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
-  }, [anchorEl]);
+  // 매 렌더마다 anchorEl 위치를 직접 계산 (useLayoutEffect 한 번만 실행하면 스크롤/리사이즈 후 좌표가 틀림)
+  const rect = anchorEl?.getBoundingClientRect();
+  const width = 224;
+  const coords = rect
+    ? { top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) }
+    : null;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -63,7 +61,7 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
     <div
       ref={ref}
       style={{ position: "fixed", top: coords.top, left: coords.left, width: 224 }}
-      className="z-50 rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      className="z-[490] rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     >
       {!isTitle && (
         <div className="px-2 py-1">

@@ -20,6 +20,8 @@ export type FavoritePageMeta = {
 type SettingsState = {
   darkMode: boolean;
   fullWidth: boolean;
+  /** pageId -> fullWidth. 없으면 전역 fullWidth를 fallback으로 사용. */
+  pageFullWidthById: Record<string, boolean>;
   sidebarWidth: number;
   rightPanelWidth: number;
   /** 사이드바 접힘 — 접힘 시 좌측 얇은 레일만 표시 */
@@ -64,6 +66,7 @@ type SettingsActions = {
   prevTab: () => void;
   nextTab: () => void;
   toggleFullWidth: () => void;
+  toggleFullWidthForPage: (pageId: string | null) => void;
   /** 워크스페이스 방문 페이지 기억(pageId null 이면 해당 워크스페이스 키만 제거 가능) */
   setLastVisitedPageForWorkspace: (
     workspaceId: string | null,
@@ -73,7 +76,7 @@ type SettingsActions = {
 
 export type SettingsStore = SettingsState & SettingsActions;
 
-export const SETTINGS_STORE_VERSION = 6;
+export const SETTINGS_STORE_VERSION = 7;
 
 export function migrateSettingsStore(
   persisted: unknown,
@@ -140,10 +143,18 @@ export function migrateSettingsStore(
           lastVisitedPageIdByWorkspaceId: {},
         }),
       },
+      {
+        version: 7,
+        migrate: (state) => ({
+          ...state,
+          pageFullWidthById: {},
+        }),
+      },
     ],
     {
       darkMode: false,
       fullWidth: false,
+      pageFullWidthById: {},
       sidebarWidth: 260,
       rightPanelWidth: 320,
       sidebarCollapsed: false,
@@ -163,6 +174,7 @@ export const useSettingsStore = create<SettingsStore>()(
     (set) => ({
       darkMode: false,
       fullWidth: false,
+      pageFullWidthById: {},
       sidebarWidth: 260,
       rightPanelWidth: 320,
       sidebarCollapsed: false,
@@ -297,6 +309,17 @@ export const useSettingsStore = create<SettingsStore>()(
           activeTabIndex: Math.min(s.tabs.length - 1, s.activeTabIndex + 1),
         })),
       toggleFullWidth: () => set((s) => ({ fullWidth: !s.fullWidth })),
+      toggleFullWidthForPage: (pageId) =>
+        set((s) => {
+          if (!pageId) return { fullWidth: !s.fullWidth };
+          const current = s.pageFullWidthById[pageId] ?? s.fullWidth;
+          return {
+            pageFullWidthById: {
+              ...s.pageFullWidthById,
+              [pageId]: !current,
+            },
+          };
+        }),
       setLastVisitedPageForWorkspace: (workspaceId, pageId) => {
         if (!workspaceId) return;
         set((s) => {

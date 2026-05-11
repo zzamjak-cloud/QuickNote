@@ -9,6 +9,7 @@ import type {
 import { getVisibleOrderedColumns } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
+import { VIEW_ICONS, VIEW_LABELS } from "./databaseBlockViewConstants";
 
 type Props = {
   databaseId: string;
@@ -154,6 +155,41 @@ export function DatabaseColumnSettingsButton({
           >
             <div className="px-2 py-1 text-[10px] uppercase text-zinc-500">
               속성 표시 · 순서
+            </div>
+            <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
+              <div className="px-1 py-1 text-[10px] uppercase text-zinc-500">
+                모드 표시
+              </div>
+              {(Object.keys(VIEW_ICONS) as ViewKind[]).map((kind) => {
+                const Icon = VIEW_ICONS[kind];
+                const hidden = kind !== "table" && panelState.hiddenViewKinds.includes(kind);
+                const disabled = kind === "table";
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => {
+                      if (disabled) return;
+                      const current = new Set(panelState.hiddenViewKinds.filter((v) => v !== "table"));
+                      if (current.has(kind)) current.delete(kind);
+                      else current.add(kind);
+                      setPanelState({ hiddenViewKinds: [...current] });
+                    }}
+                    className={[
+                      "flex w-full items-center gap-2 rounded px-1 py-1 text-left",
+                      disabled
+                        ? "cursor-default text-zinc-400"
+                        : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                      hidden ? "opacity-55" : "",
+                    ].join(" ")}
+                    title={disabled ? "표 모드는 항상 표시됩니다" : hidden ? "모드 표시" : "모드 감추기"}
+                  >
+                    <Icon size={12} />
+                    <span className="min-w-0 flex-1 truncate">{VIEW_LABELS[kind]}</span>
+                    {hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+                  </button>
+                );
+              })}
             </div>
             {items.map((it, idx) => {
               const isTitle = it.col.type === "title";

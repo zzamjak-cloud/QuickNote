@@ -12,6 +12,7 @@ import {
 } from "../../lib/databaseFileStorage";
 import { newId } from "../../lib/id";
 import { searchMembersForMentionApi } from "../../lib/sync/memberApi";
+import { SELECT_COLOR_PRESETS } from "./ColumnOptionsEditor";
 
 type Props = {
   databaseId: string;
@@ -139,18 +140,11 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
       );
     case "select":
       return (
-        <select
+        <SelectCell
+          column={column}
           value={typeof value === "string" ? value : ""}
-          onChange={(e) => setVal(e.target.value || null)}
-          className="max-w-[160px] rounded border border-zinc-200 bg-white px-1 py-0.5 text-xs dark:border-zinc-600 dark:bg-zinc-900"
-        >
-          <option value="">—</option>
-          {(column.config?.options ?? []).map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+          onChange={setVal}
+        />
       );
     case "status":
       return (
@@ -203,6 +197,92 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
   }
 }
 
+function optionStyle(color: string | undefined) {
+  return { backgroundColor: color ?? SELECT_COLOR_PRESETS[0] };
+}
+
+function SelectCell({
+  column,
+  value,
+  onChange,
+}: {
+  column: ColumnDef;
+  value: string;
+  onChange: (v: CellValue) => void;
+}) {
+  const opts = column.config?.options ?? [];
+  const current = opts.find((o) => o.id === value) ?? null;
+  const pop = useAnchoredPopover(180);
+
+  return (
+    <>
+      <button
+        ref={pop.buttonRef}
+        type="button"
+        onClick={() => pop.toggle(180)}
+        title="옵션 선택"
+        className="flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-left text-[10px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      >
+        {current ? (
+          <span
+            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+            style={optionStyle(current.color)}
+          >
+            {current.label}
+          </span>
+        ) : null}
+      </button>
+      {pop.open && pop.coords &&
+        createPortal(
+          <div
+            ref={pop.popoverRef}
+            style={{
+              position: "fixed",
+              top: pop.coords.top,
+              left: pop.coords.left,
+              width: 180,
+            }}
+            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                pop.close();
+              }}
+              className="block w-full rounded px-2 py-1 text-left text-[10px] text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              — 선택 해제
+            </button>
+            {opts.length === 0 ? (
+              <div className="px-2 py-1 text-[10px] text-zinc-500">옵션이 없습니다</div>
+            ) : (
+              opts.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(o.id);
+                    pop.close();
+                  }}
+                  className="block w-full rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <span
+                    className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+                    style={optionStyle(o.color)}
+                  >
+                    {o.label}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function MultiSelectCell({
   column,
   value,
@@ -236,7 +316,8 @@ function MultiSelectCell({
         {selected.map((o) => (
           <span
             key={o.id}
-            className="rounded bg-blue-100 px-1.5 py-0.5 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+            className="rounded px-1.5 py-0.5 text-white"
+            style={optionStyle(o.color)}
           >
             {o.label}
           </span>
@@ -262,23 +343,21 @@ function MultiSelectCell({
                     type="button"
                     onClick={() => toggle(o.id)}
                     className={[
-                      "flex w-full items-center gap-2 rounded px-2 py-1 text-left",
+                      "block w-full rounded px-2 py-1 text-left",
                       on
-                        ? "bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100"
+                        ? "bg-zinc-100 dark:bg-zinc-800"
                         : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
                     ].join(" ")}
                   >
                     <span
                       className={[
-                        "inline-flex h-3 w-3 shrink-0 items-center justify-center rounded border text-[8px]",
-                        on
-                          ? "border-blue-500 bg-blue-500 text-white"
-                          : "border-zinc-300 dark:border-zinc-600",
+                        "inline-block rounded px-1.5 py-0.5 text-[10px] font-medium text-white",
+                        on ? "" : "opacity-70",
                       ].join(" ")}
+                      style={optionStyle(o.color)}
                     >
-                      {on ? "✓" : ""}
+                      {o.label}
                     </span>
-                    <span className="truncate">{o.label}</span>
                   </button>
                 );
               })
@@ -439,6 +518,28 @@ function CalendarMonth({
   const isEnd = (d: Date) => end && sameDay(d, end);
 
   const today = new Date();
+  const [jumpOpen, setJumpOpen] = useState(false);
+  const [jumpValue, setJumpValue] = useState(() =>
+    `${year}-${String(month + 1).padStart(2, "0")}`,
+  );
+
+  useEffect(() => {
+    if (!jumpOpen) {
+      setJumpValue(`${year}-${String(month + 1).padStart(2, "0")}`);
+    }
+  }, [jumpOpen, month, year]);
+
+  const commitJump = () => {
+    const m = /^(\d{1,4})[-./년\s]+(\d{1,2})/.exec(jumpValue.trim());
+    if (!m) {
+      setJumpOpen(false);
+      return;
+    }
+    const y = Math.max(1, Math.min(9999, Number(m[1])));
+    const mo = Math.max(1, Math.min(12, Number(m[2])));
+    setViewMonth(new Date(y, mo - 1, 1));
+    setJumpOpen(false);
+  };
 
   return (
     <div>
@@ -450,9 +551,29 @@ function CalendarMonth({
         >
           <ChevronLeft size={12} />
         </button>
-        <span className="text-xs font-medium">
-          {year}년 {month + 1}월
-        </span>
+        {jumpOpen ? (
+          <input
+            autoFocus
+            value={jumpValue}
+            onChange={(e) => setJumpValue(e.target.value)}
+            onBlur={commitJump}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitJump();
+              if (e.key === "Escape") setJumpOpen(false);
+            }}
+            className="w-24 rounded border border-zinc-300 px-1 py-0.5 text-center text-xs outline-none dark:border-zinc-700 dark:bg-zinc-900"
+            placeholder="YYYY-MM"
+          />
+        ) : (
+          <button
+            type="button"
+            onDoubleClick={() => setJumpOpen(true)}
+            className="rounded px-2 py-0.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title="더블클릭하여 년/월 직접 입력"
+          >
+            {year}년 {month + 1}월
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setViewMonth(new Date(year, month + 1, 1))}
@@ -687,13 +808,14 @@ function StatusCell({
                     onChange(o.id);
                     pop.close();
                   }}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="block w-full rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   <span
-                    className="inline-block h-2 w-2 rounded-full"
+                    className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
                     style={{ backgroundColor: o.color ?? "#6b7280" }}
-                  />
-                  <span className="truncate">{o.label}</span>
+                  >
+                    {o.label}
+                  </span>
                 </button>
               ))
             )}

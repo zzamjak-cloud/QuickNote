@@ -5,18 +5,9 @@ export function createRowPageLinkedToDatabase(
   databaseId: string,
   title: string,
 ): string {
-  const pageId = usePageStore.getState().createPage(title, null, {
+  return usePageStore.getState().createPage(title, null, {
     activate: false,
+    databaseId,
+    dbCells: {},
   });
-  usePageStore.setState((s) => {
-    const page = s.pages[pageId];
-    if (!page) return s;
-    return {
-      pages: {
-        ...s.pages,
-        [pageId]: { ...page, databaseId, dbCells: {} },
-      },
-    };
-  });
-  return pageId;
 }

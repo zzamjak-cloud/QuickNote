@@ -133,7 +133,7 @@ export function AdminTeamsTab() {
                   type="button"
                   aria-label={`${team.name} 구성원 관리`}
                   onClick={() => onOpenAssignModal(team.teamId)}
-                  className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                  className="flex w-full items-center justify-between rounded border border-blue-200 bg-blue-50 px-3 py-2 text-left text-blue-950 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/35 dark:text-blue-100 dark:hover:bg-blue-950/55"
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {team.name} ({team.members.length}명)
@@ -234,7 +234,7 @@ export function AdminTeamsTab() {
                     const m = membersById.get(memberId);
                     if (!m) return null;
                     return (
-                      <li key={memberId} className="flex items-center justify-between gap-2 rounded border border-zinc-200 px-2 py-1.5 text-xs dark:border-zinc-700">
+                      <li key={memberId} className="flex items-center justify-between gap-2 rounded border border-blue-200 bg-blue-50 px-2 py-1.5 text-xs text-blue-950 dark:border-blue-900/60 dark:bg-blue-950/35 dark:text-blue-100">
                         <span className="min-w-0">
                           <span className="block truncate font-medium">{m.name}</span>
                           <span className="block truncate text-zinc-500">{m.email} · {m.jobRole}</span>

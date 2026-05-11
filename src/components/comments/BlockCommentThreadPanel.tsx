@@ -1,6 +1,13 @@
 // 블록 댓글 스레드 — 노션형 타임라인 + 답글
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import type { Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/react";
@@ -15,8 +22,13 @@ import {
 import { CommentComposer } from "./CommentComposer";
 import { findBlockStartById } from "../../lib/comments/ensureBlockId";
 import { computeFloatingPanelPosition } from "../../lib/ui/clampFloatingPanel";
+import {
+  getEditorForPage,
+  subscribeEditorRegistry,
+} from "../../lib/editor/editorByPageRegistry";
 
 type Props = {
+  /** null 이면 payload.pageId 로 레지스트리에서 에디터를 찾는다(App 단일 패널). */
   editor: Editor | null;
 };
 
@@ -58,6 +70,42 @@ export function BlockCommentThreadPanel({ editor }: Props) {
 
   const [replyParentId, setReplyParentId] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  /**
+   * 배경 클릭으로 닫기 허용 여부.
+   * 댓글 등록 직후 목록이 생기며 패널이 길어지면, 같은 클릭의 mouseup 이
+   * '등록' 버튼 아래로 깔린 전체 화면 배경에 떨어져 즉시 닫히는 경우가 있다.
+   */
+  const [backdropDismissible, setBackdropDismissible] = useState(false);
+  /** 렌더 시점이 아니라 layout 이후에 레지스트리에서 읽는다(팝업 미표시 방지) */
+  const [liveEditor, setLiveEditor] = useState<Editor | null>(editor);
+
+  useEffect(() => {
+    if (!payload) {
+      setBackdropDismissible(false);
+      return;
+    }
+    setBackdropDismissible(false);
+    const ms = messages.length > 0 ? 400 : 120;
+    const id = window.setTimeout(() => setBackdropDismissible(true), ms);
+    return () => window.clearTimeout(id);
+  }, [payload, messages.length]);
+
+  useLayoutEffect(() => {
+    if (editor) {
+      setLiveEditor(editor);
+      return;
+    }
+    const pid = payload?.pageId;
+    if (!pid) {
+      setLiveEditor(null);
+      return;
+    }
+    const sync = () => {
+      setLiveEditor(getEditorForPage(pid) ?? null);
+    };
+    sync();
+    return subscribeEditorRegistry(sync);
+  }, [editor, payload?.pageId]);
 
   /** 이전 스레드 — 닫기·다른 블록으로 전환 시 확인 시각 기록 */
   const payloadRef = useRef<CommentThreadPayload | null>(null);
@@ -95,19 +143,19 @@ export function BlockCommentThreadPanel({ editor }: Props) {
       return;
     }
 
-    if (!editor || editor.isDestroyed) {
+    if (!liveEditor || liveEditor.isDestroyed) {
       setAnchor(null);
       return;
     }
     const start =
       payload.blockStart > 0
         ? payload.blockStart
-        : findBlockStartById(editor, payload.blockId);
+        : findBlockStartById(liveEditor, payload.blockId);
     if (start === null) {
       setAnchor(null);
       return;
     }
-    const dom = editor.view.nodeDOM(start);
+    const dom = liveEditor.view.nodeDOM(start);
     const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
     if (!el) {
       setAnchor(null);
@@ -128,7 +176,7 @@ export function BlockCommentThreadPanel({ editor }: Props) {
       vh,
     });
     setAnchor({ top, left });
-  }, [payload, editor]);
+  }, [payload, liveEditor]);
 
   useLayoutEffect(() => {
     updateAnchorPosition();
@@ -138,7 +186,7 @@ export function BlockCommentThreadPanel({ editor }: Props) {
     if (!payload) return;
     const onResize = () => updateAnchorPosition();
     window.addEventListener("resize", onResize);
-    const scroller = editor?.view.dom.closest(".overflow-y-auto");
+    const scroller = liveEditor?.view.dom.closest(".overflow-y-auto");
     scroller?.addEventListener("scroll", onResize, { passive: true });
     window.addEventListener("scroll", onResize, true);
     return () => {
@@ -146,7 +194,7 @@ export function BlockCommentThreadPanel({ editor }: Props) {
       scroller?.removeEventListener("scroll", onResize);
       window.removeEventListener("scroll", onResize, true);
     };
-  }, [payload, editor, updateAnchorPosition]);
+  }, [payload, liveEditor, updateAnchorPosition]);
 
   if (!payload || !pageExists) return null;
 
@@ -170,16 +218,25 @@ export function BlockCommentThreadPanel({ editor }: Props) {
     closeCommentThread();
   };
 
-  return (
+  // 피크 view(z-[400]) 의 stacking context 안에서 렌더되면 그 안에 갇히기 때문에
+  // document.body 로 portal — 모든 컨텍스트보다 위에 떠야 함
+  return createPortal(
     <>
       <button
         type="button"
-        className="fixed inset-0 z-[375] cursor-default bg-black/10 dark:bg-black/30"
+        className="fixed inset-0 z-[480] cursor-default bg-black/10 dark:bg-black/30"
         aria-label="댓글 패널 배경 닫기"
-        onClick={handleClose}
+        onClick={(e) => {
+          if (!backdropDismissible) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          handleClose();
+        }}
       />
       <aside
-        className="fixed z-[380] flex max-h-[min(520px,85vh)] w-[340px] max-w-[calc(100vw-16px)] flex-col rounded-lg border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="fixed z-[485] flex max-h-[min(520px,85vh)] w-[340px] max-w-[calc(100vw-16px)] flex-col rounded-lg border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
         style={
           anchor
             ? { top: anchor.top, left: anchor.left }
@@ -252,7 +309,8 @@ export function BlockCommentThreadPanel({ editor }: Props) {
           )}
         </div>
       </aside>
-    </>
+    </>,
+    document.body,
   );
 }
 

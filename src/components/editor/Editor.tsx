@@ -84,6 +84,7 @@ function clampFloatingPanelPosition(
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
+import { PageContext, setPageContext } from "../../lib/tiptapExtensions/pageContext";
 import { MoveBlock } from "../../lib/tiptapExtensions/moveBlock";
 import { DeleteCurrentBlock } from "../../lib/tiptapExtensions/deleteCurrentBlock";
 import { Callout } from "../../lib/tiptapExtensions/callout";
@@ -109,6 +110,7 @@ import { PageLink } from "../../lib/tiptapExtensions/pageLink";
 import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
 import { BookmarkBlock } from "../../lib/tiptapExtensions/bookmarkBlock";
 import { LucideInlineIcon } from "../../lib/tiptapExtensions/lucideInlineIcon";
+import { DateInline } from "../../lib/tiptapExtensions/dateInline";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker, IconPickerPanel } from "../common/IconPicker";
@@ -163,7 +165,7 @@ import {
   createBlockCommentDecorations,
   dispatchDecoRefresh,
 } from "../../lib/tiptapExtensions/blockCommentDecorations";
-import { BlockCommentThreadPanel } from "../comments/BlockCommentThreadPanel";
+import { registerEditorForPage } from "../../lib/editor/editorByPageRegistry";
 import { MentionSearchModal } from "./MentionSearchModal";
 import type { EditorView as PmEditorView } from "@tiptap/pm/view";
 import {
@@ -203,6 +205,17 @@ function uniqueIdTypingInsertedSize(steps: readonly Step[]): number {
   return sum;
 }
 
+/** 슬라이스에 노드 경계(openStart/openEnd > 0)가 있으면 블록 분할/결합 등 구조 변경 — 새 ID 가 필요 */
+function uniqueIdStepsHaveBoundary(steps: readonly Step[]): boolean {
+  for (const s of steps) {
+    if (s instanceof ReplaceStep || s instanceof ReplaceAroundStep) {
+      const slice = s.slice;
+      if (slice && (slice.openStart > 0 || slice.openEnd > 0)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * UniqueID appendTransaction 스킵 여부. false 를 반환하면 스킵(@tiptap/extension-unique-id 규약).
  * useMemo 밖에 둬서 performance.now 정합성·React purity 린트 이슈를 피한다.
@@ -217,6 +230,8 @@ function editorUniqueIdFilterTransaction(tr: Transaction): boolean {
   if (!tr.docChanged) return true;
   if (tr.getMeta("__uniqueIDTransaction")) return true;
   if (tr.getMeta("paste")) return true;
+  // 블록 분할(Enter) 등 노드 경계가 변하는 트랜잭션은 새 ID 가 필요하므로 처리
+  if (uniqueIdStepsHaveBoundary(tr.steps)) return true;
   if (!uniqueIdTypingOnlySteps(tr.steps)) return true;
   const inserted = uniqueIdTypingInsertedSize(tr.steps);
   if (inserted > 160) return true;
@@ -260,16 +275,24 @@ type EditorProps = {
   pageId?: string;
   /** 본문만 렌더(아이콘·제목 영역 숨김). 피크처럼 외부에서 제목을 따로 표시할 때 사용. */
   bodyOnly?: boolean;
+  /** 사이드 피크(좁은 패널) 컨텍스트 — 사이드바 레이아웃 시프트 비활성 + 댓글은 컴팩트 배지로 표시 */
+  peek?: boolean;
 };
 
 /** editor 인스턴스 참조만 바뀔 때 재마운트 — 본문 state 변경 시 무분별 리렌더 방지 */
 const MemoBubbleToolbar = memo(BubbleToolbar);
 const MemoImageResizeOverlay = memo(ImageResizeOverlay);
-const MemoBlockCommentThreadPanel = memo(BlockCommentThreadPanel);
 
-export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
+export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps = {}) {
   const activeId = usePageStore((s) => s.activePageId);
   const effectivePageId = pageId ?? activeId;
+  // 페이지에 댓글이 하나라도 존재하면 사이드바 공간을 예약해 본문을 좌측으로 밀어냄.
+  // 단, 피크 모드에서는 사이드바 공간을 만들지 않고 컴팩트 배지만 표시 → hasPageComments 무시.
+  const hasPageComments = useBlockCommentStore((s) =>
+    effectivePageId
+      ? s.messages.some((m) => m.pageId === effectivePageId)
+      : false,
+  );
   const page = usePageStore((s) =>
     effectivePageId ? s.pages[effectivePageId] : undefined,
   );
@@ -278,7 +301,11 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const setIcon = usePageStore((s) => s.setIcon);
   const setCoverImage = usePageStore((s) => s.setCoverImage);
 
-  const fullWidth = useSettingsStore((s) => s.fullWidth);
+  const globalFullWidth = useSettingsStore((s) => s.fullWidth);
+  const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
+  const fullWidth = effectivePageId
+    ? (pageFullWidthById[effectivePageId] ?? globalFullWidth)
+    : globalFullWidth;
   /** 다른 페이지 즐겨찾기 변경 시 전체 에디터 리렌더를 줄이기 위해 boolean 만 구독 */
   const isCurrentPageFavorite = useSettingsStore(
     (s) =>
@@ -369,6 +396,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
 
   const extensions = useMemo(
     () => [
+      PageContext,
       NodeRange.configure({}),
       StarterKit.configure({
         // lowlight 청크 로딩 전: 기본 codeBlock(구문강조 없음). 로드 후 CodeBlockLowlight로 교체됨.
@@ -451,6 +479,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       ButtonBlock,
       BookmarkBlock,
       LucideInlineIcon,
+      DateInline,
       SlashCommand.configure({
         suggestion: {
           char: "/",
@@ -506,8 +535,11 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const editorProps = useMemo(
     () => ({
       attributes: {
-        class:
-          "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-12 py-8 min-h-[min(85vh,900px)] qn-prose-marquee-host",
+        class: `prose prose-zinc dark:prose-invert max-w-none focus:outline-none ${
+          bodyOnly
+            ? "px-12 py-4"
+            : "px-12 py-8 min-h-[min(85vh,900px)]"
+        } qn-prose-marquee-host`,
       },
       handlePaste: (view: import("@tiptap/pm/view").EditorView, event: ClipboardEvent) => {
         // image 는 image 노드, 그 외 file 항목은 fileBlock 노드로 삽입.
@@ -612,9 +644,12 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       handleEditorInsertImage,
       handleAtOpenMention,
       setPasteUrlChoice,
+      bodyOnly,
     ],
   );
 
+  // 슬래시 명령 등 editor 인스턴스만 받는 콜백에서 현재 페이지 ID 를 알 수 있도록
+  // PageContext storage 에 effectivePageId 를 주입한다.
   // content 로 store 의 page.doc 를 넘기면 자동저장마다 참조가 바뀌어 setOptions 가 무한 호출됨.
   // 초기값은 고정 EMPTY 만 넘기고, 실제 문서는 아래 effect 에서만 주입한다.
   const editor = useEditor(
@@ -633,6 +668,17 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     },
     [lowlightApi, isFullPageDatabase],
   );
+
+  // PageContext storage 동기화 — 슬래시 명령(/페이지 등) 이 현재 호스트 페이지를 식별하기 위함.
+  useEffect(() => {
+    setPageContext(editor, effectivePageId ?? null);
+  }, [editor, effectivePageId]);
+
+  // 댓글 스레드 패널은 App 에서 단일 마운트 — layout 단계에서 등록해 같은 커밋의 패널 effect 보다 먼저 둔다
+  useLayoutEffect(() => {
+    if (!editor || editor.isDestroyed || !effectivePageId) return;
+    return registerEditorForPage(effectivePageId, editor);
+  }, [editor, effectivePageId]);
 
   const applyPasteUrlChoice = useCallback(
     (mode: "mention" | "url" | "bookmark" | "embed") => {
@@ -752,17 +798,38 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     return () => window.clearTimeout(t);
   }, [commentThread, editor, effectivePageId]);
 
-  /** 댓글·내 멤버 정보 변경 시 블록 decoration 다시 그림 */
+  /** 이 페이지 댓글·방문 기록·멤버와 관련된 스토어 변경만 decoration 갱신(prev 인자 미지원·persist 경로 대비) */
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const go = () => dispatchDecoRefresh(editor);
-    const unsub1 = useBlockCommentStore.subscribe(go);
-    const unsub2 = useMemberStore.subscribe(go);
+    const pid = effectivePageId;
+    const buildSig = (): string => {
+      if (!pid) return "";
+      const s = useBlockCommentStore.getState();
+      const mid = useMemberStore.getState().me?.memberId ?? "";
+      const msgs = s.messages.filter((m) => m.pageId === pid);
+      const visit = s.threadVisitedAt;
+      const vk = Object.keys(visit)
+        .filter((k) => k.startsWith(`${pid}:`))
+        .sort()
+        .map((k) => `${k}:${visit[k]}`)
+        .join("|");
+      return `${mid}|${msgs.map((m) => `${m.id}:${m.createdAt}:${m.bodyText.length}`).join(",")}|${vk}`;
+    };
+    let last = buildSig();
+    dispatchDecoRefresh(editor);
+    const tick = () => {
+      const next = buildSig();
+      if (next === last) return;
+      last = next;
+      dispatchDecoRefresh(editor);
+    };
+    const unsub1 = useBlockCommentStore.subscribe(tick);
+    const unsub2 = useMemberStore.subscribe(tick);
     return () => {
       unsub1();
       unsub2();
     };
-  }, [editor]);
+  }, [editor, effectivePageId]);
 
   /** 스토어 본문이 에디터에 반영되기 전 자동저장으로 빈 doc 이 덮어쓰이지 않도록 함 */
   const storeDocHydratedRef = useRef(false);
@@ -903,6 +970,42 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
     }
   }, [page?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 페이지 제목 변경 시 에디터 내 mention 노드의 label 동기화
+  useEffect(() => {
+    if (!editor) return;
+    let prevPages = usePageStore.getState().pages;
+    const unsub = usePageStore.subscribe((s) => {
+      const cur = s.pages;
+      if (cur === prevPages) { prevPages = cur; return; }
+      const changed = new Map<string, string>();
+      for (const [id, page] of Object.entries(cur)) {
+        const prev = prevPages[id];
+        if (prev && prev.title !== page.title) changed.set(id, page.title);
+      }
+      prevPages = cur;
+      if (changed.size === 0) return;
+      const updates: Array<{ pos: number; attrs: Record<string, unknown> }> = [];
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "mention") {
+          const newTitle = changed.get(node.attrs.id as string);
+          if (newTitle !== undefined && newTitle !== (node.attrs.label as string)) {
+            updates.push({ pos, attrs: { ...node.attrs, label: newTitle } });
+          }
+        }
+        return true;
+      });
+      if (updates.length === 0) return;
+      const tr = editor.state.tr;
+      // 역순 적용으로 위치 오프셋 충돌 방지
+      for (const { pos, attrs } of updates.reverse()) {
+        tr.setNodeMarkup(pos, undefined, attrs);
+      }
+      tr.setMeta("addToHistory", false);
+      editor.view.dispatch(tr);
+    });
+    return unsub;
+  }, [editor]);
+
   // 풀 페이지 DB 제목 되돌리기 기준 — 페이지 전환 시에만 동기화(입력 중 매 글자로 덮어쓰지 않음)
   useEffect(() => {
     if (page) dbTitleBaselineRef.current = page.title;
@@ -924,6 +1027,18 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       if (!editor.isDestroyed && editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
     }
   }, [editor, isFullPageDatabase]);
+
+  // 슬래시 "페이지 링크" 명령이 발행하는 커스텀 이벤트를 수신 → mention search modal 열기
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const dom = editor.view.dom;
+    const handler = (e: Event) => {
+      const { from, to } = (e as CustomEvent<{ from: number; to: number }>).detail;
+      setMentionRange({ from, to });
+    };
+    dom.addEventListener("qn:open-mention-search", handler);
+    return () => dom.removeEventListener("qn:open-mention-search", handler);
+  }, [editor, setMentionRange]);
 
   // 풀 페이지 DB 모드에서는 박스 드래그 자체가 무의미 — null 전달로 비활성.
   const { selectedStarts: boxSelectedStarts, clearSelection: clearBoxSelection } =
@@ -975,7 +1090,15 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         </div>
       ) : null}
       <div
-        className={`relative mx-auto w-full ${fullWidth ? "max-w-none px-4" : "max-w-3xl"}`}
+        className={`relative mx-auto w-full ${
+          fullWidth
+            ? hasPageComments && !peek
+              ? "max-w-none pl-4 pr-[260px]"
+              : "max-w-none px-4"
+            : hasPageComments && !peek
+              ? "max-w-[1056px] pr-[256px]"
+              : "max-w-3xl"
+        }`}
         data-qn-editor-column
       >
         {!bodyOnly && (
@@ -1013,6 +1136,12 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
                   }}
                   placeholder="제목 없음"
                   className="min-w-0 flex-1 bg-transparent text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === "ArrowDown") {
+                      e.preventDefault();
+                      editor?.chain().focus().run();
+                    }
+                  }}
                 />
                 <button
                   type="button"
@@ -1052,14 +1181,18 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
             <ColumnReorderHandles editor={editor} boxSelectedStarts={boxSelectedStarts} />
           )}
           {!isFullPageDatabase && <TableBlockControls editor={editor} />}
-          {!isFullPageDatabase && (
-            <BlockHandles
-              editor={editor}
-              boxSelectedStarts={boxSelectedStarts}
-              onClearBoxSelection={clearBoxSelection}
-            />
-          )}
         </div>
+        {/* BlockHandles 는 외곽 wrapper 의 padding 영역(pr-[256px] 등 사이드바 예약)에서도
+            카드를 렌더할 수 있어야 하므로 inner relative 컨테이너 밖, 외곽 wrapper 의 직접 자식으로 둠.
+            pageId 를 명시 전달해 피크 뷰처럼 activePageId 와 다른 페이지를 편집 중일 때도
+            올바른 페이지의 댓글로 필터링됨. */}
+        <BlockHandles
+          editor={editor}
+          pageId={effectivePageId ?? null}
+          compactComments={peek}
+          boxSelectedStarts={boxSelectedStarts}
+          onClearBoxSelection={clearBoxSelection}
+        />
         <div
           aria-hidden
           className="qn-editor-scroll-tail-spacer shrink-0 select-none"
@@ -1172,7 +1305,6 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         editor={editor}
         range={mentionRange}
       />
-      <MemoBlockCommentThreadPanel editor={editor} />
     </div>
   );
 }

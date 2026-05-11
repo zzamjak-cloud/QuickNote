@@ -52,6 +52,7 @@ describe("page/database handlers", () => {
 
   it("upsertPage: edit 권한이면 성공", async () => {
     const doc = mockDoc(
+      { Item: undefined }, // blockComments 보존용 Get — 기존 페이지 없음
       { Items: [] }, // memberTeams
       { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
       {}, // put
@@ -65,8 +66,74 @@ describe("page/database handlers", () => {
     expect(result.id).toBe("p1");
   });
 
+  it("upsertPage: blockComments 가 객체여도 문자열로 정규화되어 성공(AppSync AWSJSON 파싱 경로)", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {}, // put
+    );
+    const input: Record<string, unknown> = {
+      id: "p1",
+      workspaceId: "ws-1",
+      updatedAt: "now",
+      createdAt: "now",
+      title: "T",
+      doc: "{}",
+      order: "a",
+      createdByMemberId: "m1",
+      blockComments: { messages: [], threadVisitedAt: {} },
+    };
+    const result = await upsertPage({ doc, tables, caller, input });
+    expect(result.id).toBe("p1");
+    expect(typeof result.blockComments).toBe("string");
+    expect(JSON.parse(result.blockComments as string)).toEqual({ messages: [], threadVisitedAt: {} });
+  });
+
+  it("upsertPage: blockComments 키가 없으면 Dynamo 기존 값을 이어 붙인다", async () => {
+    const existingBc = JSON.stringify({
+      messages: [
+        {
+          id: "c1",
+          pageId: "p1",
+          blockId: "b1",
+          authorMemberId: "m2",
+          bodyText: "유지",
+          mentionMemberIds: [],
+          parentId: null,
+          createdAt: 1,
+        },
+      ],
+      threadVisitedAt: {},
+    });
+    const doc = mockDoc(
+      { Item: { id: "p1", blockComments: existingBc } },
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {},
+    );
+    const result = await upsertPage({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "p1",
+        workspaceId: "ws-1",
+        updatedAt: "now",
+        createdAt: "now",
+        title: "T",
+        doc: "{}",
+        order: "a",
+        createdByMemberId: "m1",
+      },
+    });
+    expect(typeof result.blockComments).toBe("string");
+    expect(JSON.parse(result.blockComments as string).messages).toHaveLength(1);
+    expect(JSON.parse(result.blockComments as string).messages[0].bodyText).toBe("유지");
+  });
+
   it("upsertPage: coverImage 가 너무 크면 거부", async () => {
     const doc = mockDoc(
+      { Item: undefined }, // blockComments 키 없을 때 선행 Get
       { Items: [] },
       { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
     );

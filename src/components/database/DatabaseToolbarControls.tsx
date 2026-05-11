@@ -54,6 +54,11 @@ export function DatabaseToolbarControls({
   useEffect(() => {
     if (panelState.searchQuery.trim().length > 0) setSearchOpen(true);
   }, [panelState.searchQuery]);
+  useEffect(() => {
+    if (view !== "table" && panelState.hiddenViewKinds.includes(view)) {
+      onViewChange("table");
+    }
+  }, [onViewChange, panelState.hiddenViewKinds, view]);
 
   const sortOptions = useMemo(() => {
     const cols = bundle?.columns ?? [];
@@ -127,7 +132,11 @@ export function DatabaseToolbarControls({
     <div className="select-none border-b border-zinc-200 px-2 py-2 dark:border-zinc-700">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap items-center gap-0.5">
-          <DatabaseViewKindToggle view={view} onViewChange={onViewChange} />
+          <DatabaseViewKindToggle
+            view={view}
+            onViewChange={onViewChange}
+            hiddenViewKinds={panelState.hiddenViewKinds}
+          />
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
           <button

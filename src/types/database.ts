@@ -130,6 +130,8 @@ export type DatabasePanelState = {
   timelineDateColumnId: string | null;
   /** 뷰별 컬럼 표시·순서 (#6, #9). */
   viewConfigs: ViewConfigsMap;
+  /** 비활성화한 뷰 모드. table은 항상 표시되므로 저장되어 있어도 무시한다. */
+  hiddenViewKinds: ViewKind[];
 };
 
 export const emptyPanelState = (): DatabasePanelState => ({
@@ -142,6 +144,7 @@ export const emptyPanelState = (): DatabasePanelState => ({
   galleryCoverColumnId: null,
   timelineDateColumnId: null,
   viewConfigs: {},
+  hiddenViewKinds: [],
 });
 
 /** 컬럼 타입별 기본 최소 폭(px) — colgroup의 width/minWidth에 적용. */

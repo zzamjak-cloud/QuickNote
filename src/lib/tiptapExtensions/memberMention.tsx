@@ -1,10 +1,56 @@
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes } from "@tiptap/core";
 import { Plugin } from "prosemirror-state";
+import {
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  type NodeViewProps,
+} from "@tiptap/react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
+
+/** 멘션 노드뷰 — 페이지 멘션의 경우 pageStore 를 구독해 페이지 제목 변경을 즉시 반영 */
+function MentionNodeView({ node }: NodeViewProps) {
+  const id = (node.attrs.id as string | undefined) ?? "";
+  const rawLabel = (node.attrs.label as string | undefined) ?? "";
+  const kindAttr = (node.attrs.mentionKind as string | undefined) ?? "member";
+  const isPage = kindAttr === "page" || id.startsWith("p:");
+  const isDatabase = kindAttr === "database" || id.startsWith("d:");
+  const pageId = id.startsWith("p:") ? id.slice(2) : id;
+  // 페이지 멘션일 때만 스토어 구독 — title 변경 시 자동 재렌더
+  const reactivePageTitle = usePageStore((s) =>
+    isPage ? s.pages[pageId]?.title : undefined,
+  );
+  const label = isPage ? (reactivePageTitle ?? rawLabel ?? "페이지") : rawLabel;
+  const dataKind = kindAttr === "member" ? undefined : kindAttr;
+
+  return (
+    <NodeViewWrapper as="span" contentEditable={false}>
+      <span
+        data-type="mention"
+        data-id={id}
+        {...(dataKind ? { "data-mention-kind": dataKind } : {})}
+        className="member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-sm text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70"
+      >
+        <span
+          className="select-none text-[11px] font-semibold text-blue-500 dark:text-blue-300"
+          aria-hidden="true"
+        >
+          @
+        </span>
+        {isPage ? (
+          <span className="select-none text-xs">↗</span>
+        ) : null}
+        {isDatabase ? (
+          <span className="select-none text-xs">DB</span>
+        ) : null}
+        <span className="truncate font-medium">{label}</span>
+      </span>
+    </NodeViewWrapper>
+  );
+}
 
 function navigateToPage(pageId: string): void {
   if (!pageId) return;
@@ -67,6 +113,9 @@ function showMemberProfilePopup(memberId: string, anchor: HTMLElement): void {
 
 /** 인라인 @ 제안은 사용하지 않음 — Editor/CommentComposer 에서 @ 키로 검색 모달 연결 */
 const MemberMentionNode = Mention.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(MentionNodeView);
+  },
   addAttributes() {
     return {
       ...this.parent?.(),

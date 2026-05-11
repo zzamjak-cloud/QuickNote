@@ -30,6 +30,7 @@
 
 2. 프론트엔드 배포 (CDK 배포 확인 후)
    npm run build
+   - `Page.blockComments` 는 항상 GraphQL 조회·구독·upsert 에 포함된다(CDK 스키마에 필드가 있어야 함).
 
 3. Zustand persist 버전 bump (스키마 변경 시만)
    → 아래 "스키마 버전 관리" 섹션 참고

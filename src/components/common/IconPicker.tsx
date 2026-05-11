@@ -11,6 +11,7 @@ const LazyIconPickerEmoji = lazy(() =>
 
 const MAX_ICON_BYTES = Math.min(5 * 1024 * 1024, MAX_EDITOR_IMAGE_BYTES);
 const DEFAULT_LUCIDE_COLOR = "#3f3f46";
+const CUSTOM_ICON_STORAGE_KEY = "quicknote.customPageIcons.v1";
 type LucidePreset = {
   name: string;
   label: string;
@@ -248,11 +249,42 @@ type Props = {
   onUploadMessage?: (message: string) => void;
 };
 
+type CustomIconPreset = {
+  id: string;
+  src: string;
+  label: string;
+};
+
+function loadCustomIcons(): CustomIconPreset[] {
+  try {
+    const raw = window.localStorage.getItem(CUSTOM_ICON_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is CustomIconPreset =>
+        item &&
+        typeof item.id === "string" &&
+        typeof item.src === "string" &&
+        typeof item.label === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomIcons(items: CustomIconPreset[]) {
+  window.localStorage.setItem(CUSTOM_ICON_STORAGE_KEY, JSON.stringify(items));
+}
+
 type IconPickerPanelProps = {
   title?: string;
   footer?: ReactNode;
   onPickEmoji: (emoji: string) => void;
   onPickLucide: (name: string, color: string) => void;
+  onPickCustom?: (icon: string) => void;
+  onRequestCustomUpload?: () => void;
+  customIcons?: CustomIconPreset[];
+  onDeleteCustomIcon?: (id: string) => void;
 };
 
 export function IconPickerPanel({
@@ -260,9 +292,13 @@ export function IconPickerPanel({
   footer,
   onPickEmoji,
   onPickLucide,
+  onPickCustom,
+  onRequestCustomUpload,
+  customIcons = [],
+  onDeleteCustomIcon,
 }: IconPickerPanelProps) {
   const [color, setColor] = useState(DEFAULT_LUCIDE_COLOR);
-  const [activeMenu, setActiveMenu] = useState<"lucide" | "emoji">("lucide");
+  const [activeMenu, setActiveMenu] = useState<"lucide" | "emoji" | "custom">("lucide");
   const [activeLucideCategory, setActiveLucideCategory] = useState("all");
   const [lucideQuery, setLucideQuery] = useState("");
 
@@ -287,7 +323,7 @@ export function IconPickerPanel({
             {title}
           </span>
           <div className="flex rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800">
-            {(["lucide", "emoji"] as const).map((menu) => (
+            {(["lucide", "emoji", "custom"] as const).map((menu) => (
               <button
                 key={menu}
                 type="button"
@@ -299,7 +335,7 @@ export function IconPickerPanel({
                     : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100",
                 ].join(" ")}
               >
-                {menu === "lucide" ? "루시드" : "이모지"}
+                {menu === "lucide" ? "루시드" : menu === "emoji" ? "이모지" : "커스텀"}
               </button>
             ))}
           </div>
@@ -388,7 +424,7 @@ export function IconPickerPanel({
               </div>
             </div>
             </div>
-          ) : (
+          ) : activeMenu === "emoji" ? (
             <Suspense
               fallback={
                 <div className="h-[360px] w-[304px] animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
@@ -396,6 +432,43 @@ export function IconPickerPanel({
             >
               <LazyIconPickerEmoji onPick={onPickEmoji} />
             </Suspense>
+          ) : (
+            <div className="flex h-full flex-col">
+              <button
+                type="button"
+                onClick={onRequestCustomUpload}
+                className="mb-2 flex items-center gap-2 rounded-md border border-dashed border-zinc-300 px-2 py-2 text-left text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                <LucideIcons.ImagePlus size={14} />
+                사용자 지정 아이콘
+              </button>
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {customIcons.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-zinc-400">
+                    등록된 커스텀 아이콘이 없습니다.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-8 gap-1">
+                    {customIcons.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onPickCustom?.(item.src)}
+                        onContextMenu={(event) => {
+                          event.preventDefault();
+                          onDeleteCustomIcon?.(item.id);
+                        }}
+                        className="flex h-8 w-8 items-center justify-center overflow-hidden rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        title={`${item.label} (우클릭 삭제)`}
+                        aria-label={item.label}
+                      >
+                        <PageIconDisplay icon={item.src} size="md" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -428,6 +501,9 @@ export function IconPicker({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [customIcons, setCustomIcons] = useState<CustomIconPreset[]>(() =>
+    typeof window === "undefined" ? [] : loadCustomIcons(),
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -467,11 +543,25 @@ export function IconPicker({
       </button>
     );
 
-  const onPickImageFile = async (file: File | undefined) => {
+  const onPickImageFile = async (file: File | undefined, savePreset = true) => {
     if (!file || !file.type.startsWith("image/")) return;
     const ok = await insertImageFromFile(
       file,
       (attrs) => {
+        if (savePreset) {
+          setCustomIcons((prev) => {
+            const next = [
+              {
+                id: `${Date.now()}:${file.name}`,
+                src: attrs.src,
+                label: file.name || "커스텀 아이콘",
+              },
+              ...prev.filter((item) => item.src !== attrs.src),
+            ].slice(0, 80);
+            saveCustomIcons(next);
+            return next;
+          });
+        }
         onChange(attrs.src);
         setOpen(false);
       },
@@ -508,6 +598,19 @@ export function IconPicker({
             onPickEmoji={(emoji) => {
               onChange(emoji);
               setOpen(false);
+            }}
+            onPickCustom={(icon) => {
+              onChange(icon);
+              setOpen(false);
+            }}
+            onRequestCustomUpload={() => fileRef.current?.click()}
+            customIcons={customIcons}
+            onDeleteCustomIcon={(id) => {
+              setCustomIcons((prev) => {
+                const next = prev.filter((item) => item.id !== id);
+                saveCustomIcons(next);
+                return next;
+              });
             }}
             footer={
               <>

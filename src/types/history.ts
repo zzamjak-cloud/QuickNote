@@ -9,7 +9,16 @@ export const HISTORY_GROUP_WINDOW_MS = 90 * 1000;
 
 export type PageSnapshot = Pick<
   Page,
-  "id" | "title" | "icon" | "coverImage" | "doc" | "parentId" | "order" | "databaseId" | "dbCells"
+  | "id"
+  | "title"
+  | "icon"
+  | "coverImage"
+  | "doc"
+  | "parentId"
+  | "order"
+  | "databaseId"
+  | "dbCells"
+  | "blockComments"
 >;
 
 export type DatabaseSnapshot = DatabaseBundle;

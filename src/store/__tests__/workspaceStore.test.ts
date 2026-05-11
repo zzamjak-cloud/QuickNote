@@ -43,6 +43,15 @@ describe("workspaceStore", () => {
     expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-2");
   });
 
+  it("setWorkspaces([])는 목록·선택을 바꾸지 않는다", () => {
+    const list = [ws({ workspaceId: "ws-1", name: "A" })];
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-1", workspaces: list });
+    useWorkspaceStore.getState().setWorkspaces([]);
+    const s = useWorkspaceStore.getState();
+    expect(s.currentWorkspaceId).toBe("ws-1");
+    expect(s.workspaces).toEqual(list);
+  });
+
   it("upsertWorkspace는 기존 항목 수정, 없으면 추가", () => {
     useWorkspaceStore.getState().setWorkspaces([ws({ workspaceId: "ws-1", name: "A" })]);
     useWorkspaceStore.getState().upsertWorkspace(

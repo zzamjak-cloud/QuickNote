@@ -59,13 +59,13 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
   };
 
   return (
-    <th className="w-8 border-b border-zinc-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-950">
+    <th className="w-8 border-b border-zinc-200 bg-white p-0 text-center align-middle dark:border-zinc-700 dark:bg-zinc-950">
       <button
         ref={buttonRef}
         type="button"
         onClick={toggle}
         title="속성 추가"
-        className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        className="inline-flex h-full w-full items-center justify-center rounded py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
         <Plus size={14} />
       </button>

@@ -100,7 +100,7 @@ export function TeamDetailPanel({ team }: Props) {
           team.members.map((m) => (
             <li
               key={m.memberId}
-              className="flex items-center justify-between border-t border-zinc-100 py-1.5 first:border-t-0 dark:border-zinc-800"
+              className="my-1 flex items-center justify-between rounded border border-blue-200 bg-blue-50 px-2 py-1.5 text-blue-950 first:mt-0 dark:border-blue-900/60 dark:bg-blue-950/35 dark:text-blue-100"
             >
               <span>
                 <span className="font-medium">{m.name}</span>

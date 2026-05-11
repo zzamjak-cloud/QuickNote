@@ -33,7 +33,10 @@ import { DatabaseBlockFullPageHeader } from "./DatabaseBlockFullPageHeader";
 import { DatabaseBlockInlineHeader } from "./DatabaseBlockInlineHeader";
 import { DatabaseBlockLinkExistingPanel } from "./DatabaseBlockLinkExistingPanel";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
-import { useHistoryStore } from "../../store/historyStore";
+import {
+  repairDbHistoryBaselineIfNeeded,
+  useHistoryStore,
+} from "../../store/historyStore";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
@@ -95,6 +98,12 @@ export function DatabaseBlockView(props: NodeViewProps) {
   useEffect(() => {
     setTitleDraft(displayDbTitle);
   }, [displayDbTitle, databaseId]);
+
+  // db.create 없이 패치만 있으면 버전 기록 UI가 비어 보인다 — 고아 체인 복구 후 베이스라인 심기.
+  useEffect(() => {
+    if (!hasDatabaseId || !bundle) return;
+    repairDbHistoryBaselineIfNeeded(databaseId, structuredClone(bundle));
+  }, [hasDatabaseId, databaseId, bundle]);
 
   const commitDbTitle = () => {
     if (!hasDatabaseId) return;

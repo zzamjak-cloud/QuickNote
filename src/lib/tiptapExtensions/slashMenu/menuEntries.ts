@@ -1,5 +1,6 @@
 import {
   AtSign,
+  CalendarDays,
   CheckSquare,
   ChevronRight,
   Code2,
@@ -100,7 +101,6 @@ function runTabBlockCommand(
 }
 
 export const slashMenuEntries: SlashMenuEntry[] = [
-  ...dbSlashChildren,
   slashLeaf({
     title: "탭",
     description: "탭으로 구분된 컨텐츠 블록",
@@ -206,17 +206,25 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     },
   }),
   slashLeaf({
+    title: "날짜",
+    description: "클릭해서 바꿀 수 있는 날짜",
+    icon: CalendarDays,
+    keywords: ["date", "calendar", "날짜", "달력"],
+    command: (ctx) => runSlashCommand(ctx, (chain) => chain.insertDateInline()),
+  }),
+  slashLeaf({
     title: "새 페이지",
     description: "현재 페이지의 하위 페이지를 추가하고 멘션 삽입",
     icon: FileText,
     keywords: ["page", "subpage", "new", "페이지", "하위"],
     command: ({ editor, range }) => {
       const store = usePageStore.getState();
-      const parentId = store.activePageId;
-      const newId = store.createPage("새 페이지", parentId);
-      if (parentId) {
-        store.setActivePage(parentId);
-      }
+      // 호스트 페이지 ID 우선순위: editor 의 pageContext → activePageId 폴백.
+      // 피크/풀뷰의 DB 항목 페이지를 편집 중일 때도 그 항목을 부모로 잡기 위함.
+      const ctx = editor.storage.pageContext as { pageId?: string | null } | undefined;
+      const parentId = ctx?.pageId ?? store.activePageId;
+      // 자동 활성화는 끈다 — 사용자는 현재 페이지에 머무르고 멘션 버튼만 보게 된다.
+      const newId = store.createPage("새 페이지", parentId, { activate: false });
       setTimeout(() => {
         editor
           .chain()
@@ -224,11 +232,16 @@ export const slashMenuEntries: SlashMenuEntry[] = [
           .deleteRange(range)
           .insertContent({
             type: "mention",
-            attrs: { id: newId, label: "새 페이지" },
+            // 페이지 멘션은 "p:" 프리픽스 + mentionKind: "page" 로 식별 —
+            // 이 포맷이어야 MemberMention NodeView 가 페이지 제목을 반응형으로 동기화함
+            attrs: {
+              id: `p:${newId}`,
+              label: "새 페이지",
+              mentionKind: "page",
+            },
           })
           .insertContent(" ")
           .run();
-        usePageStore.getState().setActivePage(newId);
       }, 0);
     },
   }),
@@ -292,6 +305,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     keywords: [
       "columns",
       "column",
+      "컬럼",
       "열",
       "레이아웃",
       "2 col",
@@ -332,10 +346,15 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     keywords: ["mention", "page", "link", "멘션", "페이지"],
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run();
-      setTimeout(() => {
-        const { from } = editor.state.selection;
-        editor.view.dispatch(editor.state.tr.insertText("@", from));
-      }, 0);
+      // 삭제 후 커서 위치를 읽어 mention search 모달 열기
+      const { from, to } = editor.state.selection;
+      editor.view.dom.dispatchEvent(
+        new CustomEvent("qn:open-mention-search", {
+          bubbles: true,
+          detail: { from, to },
+        }),
+      );
     },
   }),
+  ...dbSlashChildren,
 ];

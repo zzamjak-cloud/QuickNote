@@ -1,11 +1,30 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useBlockCommentStore } from "../blockCommentStore";
 import { useNotificationStore } from "../notificationStore";
+import { usePageStore } from "../pageStore";
 
 describe("notificationStore", () => {
   beforeEach(() => {
     useNotificationStore.setState({ items: [] });
-    useBlockCommentStore.setState({ messages: [], threadVisitedAt: {} });
+    // 댓글은 pageStore.pages[*].blockComments 에 저장되므로 최소 페이지가 있어야 updateMessage 가 동작한다.
+    usePageStore.setState((s) => ({
+      ...s,
+      pages: {
+        ...s.pages,
+        p1: {
+          id: "p1",
+          title: "테스트",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+      activePageId: "p1",
+    }));
+    useBlockCommentStore.getState().resyncFromPages();
   });
 
   it("댓글 멤버 멘션의 m: prefix 를 제거해서 내 알림으로 조회한다", () => {

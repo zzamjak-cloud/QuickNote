@@ -177,6 +177,37 @@ function validateCoverImageField(input: Record<string, unknown>): void {
   }
 }
 
+/** 댓글 JSON 이 DynamoDB 항목 한도를 압박하지 않도록 상한(문자열 length 기준). */
+const MAX_BLOCK_COMMENTS_JSON_CHARS = 280_000;
+
+/**
+ * AppSync 가 AWSJSON 을 Lambda 에 **이미 파싱된 객체**로 넘기는 경우가 있어
+ * 문자열뿐 아니라 plain object/array 를 받아 문자열로 정규화한다.
+ * 클라이언트가 JSON 문자열로내도 동일하게 처리된다.
+ */
+function normalizeBlockCommentsField(input: Record<string, unknown>): void {
+  const v = input.blockComments;
+  if (v == null) return;
+  let asString: string;
+  if (typeof v === "string") {
+    asString = v;
+  } else if (typeof v === "object") {
+    try {
+      asString = JSON.stringify(v);
+    } catch {
+      badRequest("blockComments JSON 직렬화에 실패했습니다");
+    }
+  } else {
+    badRequest("blockComments 는 JSON 객체·문자열·null 이어야 합니다");
+  }
+  if (asString.length > MAX_BLOCK_COMMENTS_JSON_CHARS) {
+    badRequest(
+      `블록 댓글 데이터가 너무 큽니다(최대 약 ${MAX_BLOCK_COMMENTS_JSON_CHARS}자). 오래된 스레드를 정리해 주세요.`,
+    );
+  }
+  input.blockComments = asString;
+}
+
 export async function upsertPage(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -184,8 +215,21 @@ export async function upsertPage(args: {
   input: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
-  validateCoverImageField(args.input);
-  return upsertRecord({ ...args, tableName: args.tables.Pages });
+  const input: Record<string, unknown> = { ...args.input };
+  // 구 클라이언트가 blockComments 키를 빼고 Put 하면 Dynamo 항목에서 댓글이 사라진다.
+  // 키가 없을 때만 기존 값을 이어붙인다(null 은 의도적 삭제로 본다).
+  if (!("blockComments" in input) && typeof input.id === "string") {
+    const existing = await args.doc.send(
+      new GetCommand({ TableName: args.tables.Pages, Key: { id: input.id } }),
+    );
+    const prev = existing.Item?.blockComments;
+    if (prev != null) {
+      input.blockComments = prev;
+    }
+  }
+  validateCoverImageField(input);
+  normalizeBlockCommentsField(input);
+  return upsertRecord({ ...args, tableName: args.tables.Pages, input });
 }
 
 export async function upsertDatabase(args: {

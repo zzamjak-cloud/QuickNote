@@ -39,6 +39,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
       setWorkspaces: (workspaces) =>
         set((state) => {
+          // 빈 배열이면 기존 유지 — API 일시 실패·레이스로 선택 WS 가 첫 항목으로 덮이는 것 방지
+          if (workspaces.length === 0) {
+            return state;
+          }
           const currentExists =
             state.currentWorkspaceId !== null &&
             workspaces.some((w) => w.workspaceId === state.currentWorkspaceId);

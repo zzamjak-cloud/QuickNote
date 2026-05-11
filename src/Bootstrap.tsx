@@ -26,11 +26,13 @@ import { listMyWorkspacesApi } from "./lib/sync/workspaceApi";
 import {
   applyRemoteClientPrefs,
   ensureSettingsPersistHydrated,
+  ensureWorkspacePersistHydrated,
   flushClientPrefsToServerNow,
 } from "./lib/sync/clientPrefsSync";
 import { listTeamsApi } from "./lib/sync/teamApi";
 import { useTeamStore } from "./store/teamStore";
 import { useUiStore } from "./store/uiStore";
+import { migrateLegacyBlockCommentsToPagesOnce } from "./lib/comments/migrateLegacyBlockCommentsToPages";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -68,6 +70,9 @@ function useSyncBootstrap(): boolean {
   const startedForRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // loading 동안 워크스페이스를 비우면 persist 로 복원된 currentWorkspaceId 가 날아가고,
+    // 이후 setWorkspaces 가 null 을 "목록에 없음"으로 보아 첫 WS 로 고정한다(새로고침·세션 중 리셋).
+    if (authStatus === "loading") return;
     if (authStatus !== "authenticated" || !authSub) {
       setMe(null);
       clearWorkspaces();
@@ -86,6 +91,8 @@ function useSyncBootstrap(): boolean {
         if (cancelled) return;
         // 원격 병합·flush 전에 로컬 스토리지 복원 필수(미복원 시 flush 가 빈 목록으로 서버 덮어씀)
         await ensureSettingsPersistHydrated();
+        // 워크스페이스 ID도 동일 — 비동기 storage 복원 전 setWorkspaces 시 currentWorkspaceId 가 null 로 간주되어 첫 WS로 바뀜
+        await ensureWorkspacePersistHydrated();
         if (cancelled) return;
         applyRemoteClientPrefs(clientPrefs);
         setMe(me);
@@ -153,12 +160,14 @@ function useSyncBootstrap(): boolean {
           currentWorkspaceId,
         );
         const fetchApply = async (): Promise<void> => {
+          await migrateLegacyBlockCommentsToPagesOnce();
           const [pages, dbs] = await Promise.all([
             fetchPagesByWorkspace(currentWorkspaceId),
             fetchDatabasesByWorkspace(currentWorkspaceId),
           ]);
           if (cancelled) return;
-          for (const p of pages) applyRemotePageToStore(p);
+          for (const p of pages)
+            applyRemotePageToStore(p, { skipBlockCommentNotifications: true });
           for (const d of dbs) applyRemoteDatabaseToStore(d);
         };
         const setHold = useUiStore.getState().setOutboxWorkspaceSwitchHold;
@@ -270,7 +279,8 @@ function useSyncBootstrap(): boolean {
               fetchPagesByWorkspace(wsId),
               fetchDatabasesByWorkspace(wsId),
             ]);
-            for (const p of pages) applyRemotePageToStore(p);
+            for (const p of pages)
+              applyRemotePageToStore(p, { skipBlockCommentNotifications: true });
             for (const d of dbs) applyRemoteDatabaseToStore(d);
           };
           await fetchApply();

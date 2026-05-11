@@ -299,6 +299,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
 
   return (
     <div
+      data-qn-editor-chrome="image-resize-overlay"
       className="pointer-events-none fixed z-[35]"
       aria-hidden
       style={{

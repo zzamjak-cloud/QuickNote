@@ -7,6 +7,7 @@ import { TabBar } from "./components/layout/TabBar";
 import { Editor } from "./components/editor/Editor";
 import { DatabaseRowPage } from "./components/database/DatabaseRowPage";
 import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
+import { BlockCommentThreadPanel } from "./components/comments/BlockCommentThreadPanel";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { AutoUpdateDialog } from "./components/ui/AutoUpdateDialog";
 import { ToastViewport } from "./components/ui/ToastViewport";
@@ -213,6 +214,7 @@ function App() {
         </div>
         <FavoritesPanel />
         <DatabaseRowPeek />
+        <BlockCommentThreadPanel editor={null} />
         <TextPromptDialog />
         <ToastViewport />
         {autoUpdate.isSupported && (

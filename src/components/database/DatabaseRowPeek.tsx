@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { X, MoreHorizontal, Trash2, Check, Minus } from "lucide-react";
+import { X, MoreHorizontal, Trash2, Check, Minus, Maximize2, ChevronLeft, FileText, ArrowLeftRight } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { DatabasePropertyPanel } from "./DatabasePropertyPanel";
 import { Editor } from "../editor/Editor";
@@ -27,12 +28,40 @@ function loadPeekWidth(): number {
 
 export function DatabaseRowPeek() {
   const peekPageId = useUiStore((s) => s.peekPageId);
+  const peekHistory = useUiStore((s) => s.peekHistory);
   const closePeek = useUiStore((s) => s.closePeek);
-  const page = usePageStore((s) => (peekPageId ? s.pages[peekPageId] : undefined));
+  const peekBack = useUiStore((s) => s.peekBack);
+  const peekNavigate = useUiStore((s) => s.peekNavigate);
+  const setRowBackTarget = useUiStore((s) => s.setRowBackTarget);
+  const activePageId = usePageStore((s) => s.activePageId);
+  const setActivePage = usePageStore((s) => s.setActivePage);
+  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  // 피크 페이지 전체너비 상태 — 토글 버튼이 항상 peekPageId 만 타깃팅 (배경의 메인 페이지 변경 방지)
+  const globalFullWidth = useSettingsStore((s) => s.fullWidth);
+  const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
+  const toggleFullWidthForPage = useSettingsStore((s) => s.toggleFullWidthForPage);
+  const peekFullWidth = peekPageId
+    ? (pageFullWidthById[peekPageId] ?? globalFullWidth)
+    : globalFullWidth;
+  const allPages = usePageStore((s) => s.pages);
+  const page = peekPageId ? allPages[peekPageId] : undefined;
+  const childPages = peekPageId
+    ? Object.values(allPages).filter((p) => p.parentId === peekPageId)
+    : [];
   const renamePage = usePageStore((s) => s.renamePage);
   const restorePageFromHistoryEvent = usePageStore(
     (s) => s.restorePageFromHistoryEvent,
   );
+
+  // 피크에서 "전체 열기" 클릭 시: 현재 활성 페이지를 뒤로가기 대상으로 저장하고
+  // 항목 페이지를 활성화하여 전체 페이지 뷰(DatabaseRowPage)가 보이게 한다.
+  const openFullPage = () => {
+    if (!peekPageId) return;
+    if (activePageId) setRowBackTarget(peekPageId, activePageId);
+    setActivePage(peekPageId);
+    setCurrentTabPage(peekPageId);
+    closePeek();
+  };
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
   const pageHistoryTimeline = useHistoryStore((s) =>
@@ -114,12 +143,16 @@ export function DatabaseRowPeek() {
     localStorage.setItem(PEEK_WIDTH_KEY, String(width));
   };
 
-  if (!peekPageId || !page || !databaseId || !bundle) return null;
+  // 피크는 DB 항목뿐 아니라 하위 일반 페이지 등 모든 페이지를 렌더할 수 있어야 함
+  // (DB 항목에서 /새 페이지 로 만든 하위 페이지 클릭 시 peekNavigate 로 진입)
+  if (!peekPageId || !page) return null;
+  const isDbRow = !!(databaseId && bundle);
 
   return (
     <div
       onClick={closePeek}
-      className="fixed inset-0 z-40 bg-black/30"
+      // z-[400] : TopBar(z-[350]) 위로 올려 배경 본문 헤더까지 dim 효과 적용
+      className="fixed inset-0 z-[400] bg-black/40"
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -136,7 +169,45 @@ export function DatabaseRowPeek() {
           className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-blue-400/60"
         />
 
-        <div className="mb-4 flex items-center justify-end gap-1">
+        <div className="mb-8 flex items-center justify-between gap-1">
+          {peekHistory.length > 0 ? (
+            <button
+              type="button"
+              onClick={peekBack}
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              title="이전 페이지로 돌아가기"
+            >
+              <ChevronLeft size={14} />
+              이전 페이지
+            </button>
+          ) : (
+            <div />
+          )}
+          <div className="flex items-center gap-1">
+          {/* 전체너비 토글 — 피크 페이지만 타깃팅(배경의 활성 페이지를 건드리지 않음) */}
+          <button
+            type="button"
+            onClick={() => peekPageId && toggleFullWidthForPage(peekPageId)}
+            className={`rounded p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+              peekFullWidth
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-zinc-500"
+            }`}
+            title={peekFullWidth ? "전체 너비 끄기" : "전체 너비 켜기"}
+            aria-label="전체 너비 토글"
+            aria-pressed={peekFullWidth}
+          >
+            <ArrowLeftRight size={14} strokeWidth={peekFullWidth ? 2.25 : 2} />
+          </button>
+          <button
+            type="button"
+            onClick={openFullPage}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title="전체 페이지로 열기"
+            aria-label="전체 페이지로 열기"
+          >
+            <Maximize2 size={14} />
+          </button>
           <div className="relative" ref={menuRef}>
             <button
               type="button"
@@ -181,6 +252,7 @@ export function DatabaseRowPeek() {
           >
             <X size={16} />
           </button>
+          </div>{/* 우측 버튼 그룹 끝 */}
         </div>
         <input
           type="text"
@@ -193,11 +265,32 @@ export function DatabaseRowPeek() {
           placeholder="제목 없음"
           className="mb-2 w-full bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
         />
-        <DatabasePropertyPanel databaseId={databaseId} pageId={peekPageId} />
+        {isDbRow && databaseId ? (
+          <DatabasePropertyPanel databaseId={databaseId} pageId={peekPageId} />
+        ) : null}
         {/* 노션 스타일: 피크에서도 본문 편집 가능 — Editor에 pageId 주입, bodyOnly로 제목/아이콘 영역 숨김 */}
         <div className="qn-peek-editor mt-2 -mx-8 flex flex-1 flex-col">
-          <Editor key={peekPageId} pageId={peekPageId} bodyOnly />
+          <Editor key={peekPageId} pageId={peekPageId} bodyOnly peek />
         </div>
+        {/* 항목 내 하위 페이지 목록 */}
+        {childPages.length > 0 && (
+          <div className="mt-4 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+            <p className="mb-2 text-xs font-semibold text-zinc-400 dark:text-zinc-500">하위 페이지</p>
+            <div className="flex flex-col gap-0.5">
+              {childPages.map((cp) => (
+                <button
+                  key={cp.id}
+                  type="button"
+                  onClick={() => peekNavigate(cp.id)}
+                  className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  <span className="shrink-0 text-base leading-none">{cp.icon ?? <FileText size={14} />}</span>
+                  <span className="truncate">{cp.title || "제목 없음"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <PageMoveDialog
           pageId={moveDialogOpen ? peekPageId : null}
           onClose={() => setMoveDialogOpen(false)}

@@ -43,6 +43,7 @@ const databasePanelStatePartialSchema = z
     galleryCoverColumnId: z.string().nullable().optional(),
     timelineDateColumnId: z.string().nullable().optional(),
     viewConfigs: z.record(viewKindEnum, viewSpecificSchema).optional(),
+    hiddenViewKinds: z.array(viewKindEnum).optional(),
   });
 
 export function parseDatabasePanelStateJson(raw: string): DatabasePanelState {

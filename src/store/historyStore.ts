@@ -41,7 +41,14 @@ function filterCurrentWorkspaceEvents<T extends { workspaceId?: string | null }>
 ): T[] {
   const current = getCurrentWorkspaceId();
   if (!current) return events;
-  return events.filter((event) => event.workspaceId == null || event.workspaceId === current);
+  const cacheWs = useHistoryStore.getState().cacheWorkspaceId;
+  return events.filter((event) => {
+    const wid = event.workspaceId;
+    if (wid == null || wid === "") return true;
+    if (wid === current) return true;
+    if (cacheWs != null && cacheWs !== "" && wid === cacheWs) return true;
+    return false;
+  });
 }
 
 type HistoryState = {
@@ -92,6 +99,35 @@ function trimEventsByRetention<T extends { ts: number }>(events: T[]): T[] {
   const ageFiltered = events.filter((e) => e.ts >= threshold);
   if (ageFiltered.length <= HISTORY_RETENTION_MAX_EVENTS) return ageFiltered;
   return ageFiltered.slice(ageFiltered.length - HISTORY_RETENTION_MAX_EVENTS);
+}
+
+/**
+ * DB 이벤트 보존 정책 — 가장 오래된 항목부터 자르면 db.create 가 먼저 사라져
+ * mergeDbPatch(null, …) 가 실패하고 getDbTimeline 이 전부 필터링되는 문제가 생긴다.
+ */
+export function trimDbEventsByRetention(events: DbHistoryEvent[]): DbHistoryEvent[] {
+  if (events.length === 0) return events;
+  const asc = [...events].sort((a, b) => a.ts - b.ts);
+  const firstCreate = asc.find((e) => e.kind === "db.create");
+  const threshold = Date.now() - HISTORY_RETENTION_MAX_AGE_MS;
+  const max = HISTORY_RETENTION_MAX_EVENTS;
+
+  const ageFiltered = asc.filter((e) => {
+    if (firstCreate && e.id === firstCreate.id) return true;
+    return e.ts >= threshold;
+  });
+
+  if (ageFiltered.length <= max) {
+    return ageFiltered.sort((a, b) => a.ts - b.ts);
+  }
+
+  const pinned = firstCreate ? ageFiltered.filter((e) => e.id === firstCreate.id) : [];
+  const pinnedId = firstCreate?.id;
+  const movable = ageFiltered.filter((e) => e.id !== pinnedId);
+  const budget = Math.max(0, max - pinned.length);
+  const keptMovable =
+    budget === 0 ? [] : movable.slice(Math.max(0, movable.length - budget));
+  return [...pinned, ...keptMovable].sort((a, b) => a.ts - b.ts);
 }
 
 function mergePagePatch(
@@ -333,7 +369,7 @@ export const useHistoryStore = create<HistoryStore>()(
               patch: { ...last.patch, ...patch },
               anchor: last.anchor,
             };
-            const next = trimEventsByRetention([
+            const next = trimDbEventsByRetention([
               ...prev.slice(0, -1),
               merged,
             ]);
@@ -354,7 +390,7 @@ export const useHistoryStore = create<HistoryStore>()(
             patch,
             anchor,
           };
-          const next = trimEventsByRetention([...prev, nextEvent]);
+          const next = trimDbEventsByRetention([...prev, nextEvent]);
           return {
             dbEventsByDatabaseId: { ...state.dbEventsByDatabaseId, [databaseId]: next },
             cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
@@ -396,7 +432,9 @@ export const useHistoryStore = create<HistoryStore>()(
       getLatestDbSnapshot: (databaseId) => {
         const events = filterCurrentWorkspaceEvents(
           get().dbEventsByDatabaseId[databaseId] ?? [],
-        );
+        )
+          .slice()
+          .sort((a, b) => a.ts - b.ts);
         if (events.length === 0) return null;
         let snapshot: DatabaseSnapshot | null = null;
         for (const event of events) {
@@ -481,7 +519,9 @@ export const useHistoryStore = create<HistoryStore>()(
       getDbSnapshotAtEvent: (databaseId, eventId) => {
         const events = filterCurrentWorkspaceEvents(
           get().dbEventsByDatabaseId[databaseId] ?? [],
-        );
+        )
+          .slice()
+          .sort((a, b) => a.ts - b.ts);
         if (events.length === 0) return null;
         let snapshot: DatabaseSnapshot | null = null;
         for (const event of events) {
@@ -556,6 +596,27 @@ export const useHistoryStore = create<HistoryStore>()(
     },
   ),
 );
+
+/**
+ * db.create 없이 패치만 쌓이면 getDbTimeline 이 전부 탈락한다.
+ * 로컬·원격 적용 순서로 생긴 고아 체인은 삭제 후 현재 bundle 기준으로 재시드한다.
+ */
+export function repairDbHistoryBaselineIfNeeded(
+  databaseId: string,
+  bundle: DatabaseSnapshot,
+): void {
+  const hs = useHistoryStore.getState();
+  const raw = hs.dbEventsByDatabaseId[databaseId] ?? [];
+  if (raw.some((e) => e.kind === "db.create")) return;
+  if (raw.length > 0) {
+    hs.deleteDbHistoryEvents(
+      databaseId,
+      raw.map((e) => e.id),
+    );
+  }
+  const snap = structuredClone(bundle);
+  hs.recordDbEvent(databaseId, "db.create", snap, snap);
+}
 
 export function shouldWriteAnchor(eventCount: number): boolean {
   return eventCount % HISTORY_ANCHOR_INTERVAL === 0;

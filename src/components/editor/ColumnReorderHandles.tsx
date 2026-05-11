@@ -88,7 +88,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
   const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
   const [boxSelecting, setBoxSelecting] = useState(false);
   const [pmRangeSelecting, setPmRangeSelecting] = useState(false);
-  const [boxAnchor, setBoxAnchor] = useState<{ left: number; top: number } | null>(null);
   const boxSelectionActive = boxSelectedStarts.length > 0 || pmRangeSelecting;
 
   const getNearestColumnIndexByClientX = useCallback(
@@ -108,18 +107,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
     },
     [handles],
   );
-
-  const getFromIndexFromBoxSelection = useCallback((): number | null => {
-    if (!handles || boxSelectedStarts.length === 0) return null;
-    for (const item of handles.items) {
-      const colNode = editor?.state.doc.nodeAt(item.start);
-      if (!colNode) continue;
-      const colEnd = item.start + colNode.nodeSize;
-      const hit = boxSelectedStarts.some((pos) => pos >= item.start && pos < colEnd);
-      if (hit) return item.index;
-    }
-    return handles.items[0]?.index ?? null;
-  }, [handles, boxSelectedStarts, editor]);
 
   const refresh = useCallback(() => {
     if (!editor || editor.isDestroyed) {
@@ -435,33 +422,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    if (!boxSelectionActive) {
-      setBoxAnchor(null);
-      return;
-    }
-    let bestLeft = Number.POSITIVE_INFINITY;
-    let bestTop = Number.POSITIVE_INFINITY;
-    for (const start of boxSelectedStarts) {
-      let dom: Node | null = null;
-      try {
-        dom = editor.view.nodeDOM(start);
-      } catch {
-        dom = null;
-      }
-      const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
-      if (r.left < bestLeft) bestLeft = r.left;
-      if (r.top < bestTop) bestTop = r.top;
-    }
-    if (Number.isFinite(bestLeft) && Number.isFinite(bestTop)) {
-      // 기존 블록 핸들 위치/크기 감각과 맞춘 좌표
-      setBoxAnchor({ left: bestLeft - 32, top: bestTop - 2 });
-    }
-  }, [editor, boxSelectionActive, boxSelectedStarts]);
-
-  useEffect(() => {
-    if (!editor || editor.isDestroyed) return;
     const onMove = (e: MouseEvent) => {
       if (editor.isDestroyed) return;
       let editorDom: HTMLElement | null = null;
@@ -580,13 +540,14 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
   const hasRealHandles = !!handles && handles.items.length > 0;
   // 박스 선택 상태에서는 일반 컬럼 hover 핸들을 모두 끄고 단일(좌상단) 핸들만 노출.
   const showColumnHandles =
-    hasRealHandles && !boxSelectionActive && (boxSelecting || dragging || hoveringLayout);
+    hasRealHandles && !boxSelectionActive && (dragging || hoveringLayout || !boxSelecting);
   const activeHandles = showColumnHandles ? handles : null;
   const visibleColumnItems =
     activeHandles
       ? activeHandles.items.filter(
           (item) =>
             dragging ||
+            hoveredColumnIndex == null ||
             item.index === hoveredColumnIndex ||
             item.index === dropIndex,
         )
@@ -599,11 +560,12 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
             : Math.min(hoveredColumnIndex, activeHandles.items.length - 1)
         ]
       : null;
-
-  if (boxSelectionActive) return null;
-
   return (
-    <div ref={containerRef} className="pointer-events-none absolute inset-0 z-20">
+    <div
+      ref={containerRef}
+      data-qn-editor-chrome="column-reorder-handles"
+      className="pointer-events-none absolute inset-0 z-20"
+    >
       {dragging && dropIndex != null && handles ? (
         (() => {
           const target = handles.items.find((i) => i.index === dropIndex);
@@ -657,39 +619,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
             />
           ))
         : null}
-      {boxSelectionActive && boxAnchor ? (
-        <button
-          type="button"
-          draggable
-          title="드래그로 컬럼 순서 변경"
-          aria-label="선택 컬럼 이동"
-          className="pointer-events-auto fixed z-[380] flex h-7 w-7 cursor-grab items-center justify-center rounded-md border border-transparent bg-white/90 text-zinc-500 shadow-sm ring-1 ring-zinc-200/80 hover:bg-zinc-50 hover:text-zinc-800 active:cursor-grabbing dark:bg-zinc-900/90 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-          style={{ left: boxAnchor.left, top: boxAnchor.top }}
-          onDragStart={(e) => {
-            const fromIndex = getFromIndexFromBoxSelection();
-            if (fromIndex == null || !handles) return;
-            setDragging(true);
-            setDropIndex(fromIndex);
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", "");
-            dragPayloadRef.current = {
-              layoutStart: handles.layoutStart,
-              fromIndex,
-            };
-          }}
-          onDragEnd={() => {
-            setDragging(false);
-            setDropIndex(null);
-            dragPayloadRef.current = null;
-          }}
-        >
-          <span className="grid grid-cols-3 gap-0.5">
-            {Array.from({ length: 6 }).map((_, idx) => (
-              <span key={idx} className="h-0.5 w-0.5 rounded-full bg-current opacity-90" />
-            ))}
-          </span>
-        </button>
-      ) : null}
+      {/* 박스 선택 시 별도 컬러 프리셋 핸들은 제거함. 컬러 변경은 BlockHandles 메뉴의 "컬러 변경" 서브메뉴에서 처리한다. */}
       {activeHandles ? visibleColumnItems.map((item) => (
         <div
           key={item.start}

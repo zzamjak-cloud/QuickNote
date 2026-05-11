@@ -153,9 +153,10 @@ export function useBoxSelectMarquee({
     };
 
     /** 마퀴 시작이 절대 안되어야 하는 인터랙션 요소 (폼·링크·버튼·그립·팝업 등). */
+    /** BlockHandles(댓글 배지·그립 등)는 PM view.dom 밖이라 isInsideAnyBlock 이 false — 크롬 루트로 제외 */
     const INTERACTIVE_SELECTOR =
       "input, textarea, select, button, a[href], label, " +
-      "[data-qn-block-grip], .tippy-box, [role='menu'], [role='listbox'], [role='dialog']";
+      "[data-qn-block-grip], [data-qn-editor-chrome], .tippy-box, [role='menu'], [role='listbox'], [role='dialog']";
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;

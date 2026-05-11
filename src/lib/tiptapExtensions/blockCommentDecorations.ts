@@ -36,9 +36,14 @@ export function createBlockCommentDecorations(
               }
 
               const decos: Decoration[] = [];
+              // ID 중복(엔터로 블록 분할 시 일시적으로 동일 id) 가 있을 때
+              // 첫 번째 블록만 스타일 적용 — 신규 분할 블록에 댓글 표시가 번지지 않도록
+              const seen = new Set<string>();
               state.doc.descendants((node, pos) => {
                 const id = node.attrs?.id as string | undefined;
                 if (!id) return;
+                if (seen.has(id)) return;
+                seen.add(id);
                 const n = countBy.get(id) ?? 0;
                 const unread =
                   !!currentMemberId &&

@@ -84,7 +84,7 @@ export const dbSlashChildren: SlashLeafItem[] = [
     title: "DB - 전체 페이지",
     description: "새 페이지에 데이터베이스만 표시",
     icon: PanelTop,
-    keywords: ["db", "database", "full", "page", "전체", "페이지"],
+    keywords: ["db", "database", "full", "page", "전체", "페이지", "데이터", "데이터베이스"],
     command: ({ editor, range }) =>
       insertFullPageDatabase(editor, range, "table"),
   }),
@@ -92,7 +92,7 @@ export const dbSlashChildren: SlashLeafItem[] = [
     title: "DB - 인라인",
     description: "현재 페이지에 블록 삽입",
     icon: IndentIncrease,
-    keywords: ["db", "database", "inline", "인라인"],
+    keywords: ["db", "database", "inline", "인라인", "데이터", "데이터베이스"],
     command: ({ editor, range }) =>
       insertDatabaseBlock(editor, range, {
         layout: "inline",

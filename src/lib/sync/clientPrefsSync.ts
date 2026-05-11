@@ -3,6 +3,7 @@ import { enqueueAsync, getSyncEngine } from "./runtime";
 import { realGqlBridge } from "./graphql/bridge";
 import { useMemberStore } from "../../store/memberStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 
 /** clientPrefs 페이로드 버전(AppSync 저장 JSON). */
 export const CLIENT_PREFS_SCHEMA_V = 1 as const;
@@ -159,6 +160,12 @@ export function scheduleEnqueueClientPrefs(): void {
 export async function ensureSettingsPersistHydrated(): Promise<void> {
   if (useSettingsStore.persist.hasHydrated()) return;
   await Promise.resolve(useSettingsStore.persist.rehydrate());
+}
+
+/** 워크스페이스 currentWorkspaceId 복원 전에 setWorkspaces 하면 첫 WS로 덮여 새로고침마다 리셋됨 */
+export async function ensureWorkspacePersistHydrated(): Promise<void> {
+  if (useWorkspaceStore.persist.hasHydrated()) return;
+  await Promise.resolve(useWorkspaceStore.persist.rehydrate());
 }
 
 /** memberId 확정 직후(Bootstrap): 즉시 서버 반영(await). */

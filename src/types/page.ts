@@ -1,5 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 import type { CellValue } from "./database";
+import type { PageBlockCommentsSnapshot } from "./blockComment";
 
 export type Page = {
   id: string;
@@ -16,6 +17,8 @@ export type Page = {
   dbCells?: Record<string, CellValue>;
   /** 커버 이미지 data URL 또는 원격 URL */
   coverImage?: string | null;
+  /** 블록 댓글·스레드 읽음 상태 — AppSync `Page.blockComments`(AWSJSON)와 동기화 */
+  blockComments?: PageBlockCommentsSnapshot;
 };
 
 export type PageMap = Record<string, Page>;

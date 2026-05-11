@@ -4,12 +4,19 @@ import { VIEW_ICONS, VIEW_LABELS } from "./databaseBlockViewConstants";
 type Props = {
   view: ViewKind;
   onViewChange: (v: ViewKind) => void;
+  hiddenViewKinds?: ViewKind[];
 };
 
-export function DatabaseViewKindToggle({ view, onViewChange }: Props) {
+export function DatabaseViewKindToggle({
+  view,
+  onViewChange,
+  hiddenViewKinds = [],
+}: Props) {
+  const hidden = new Set<ViewKind>(hiddenViewKinds.filter((kind) => kind !== "table"));
   return (
     <>
       {(Object.keys(VIEW_ICONS) as ViewKind[]).map((vk) => {
+        if (hidden.has(vk)) return null;
         const Icon = VIEW_ICONS[vk];
         const on = view === vk;
         return (

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, MoreHorizontal, Star, Trash2, Check, Minus } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, Star, Trash2, Check, Minus, FileText } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -13,16 +13,26 @@ import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageMoveDialog } from "../layout/PageMoveDialog";
 import { useMemberStore } from "../../store/memberStore";
+import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
-  const page = usePageStore((s) => s.pages[pageId]);
+  const allPages = usePageStore((s) => s.pages);
+  const page = allPages[pageId];
+  const childPages = Object.values(allPages).filter((p) => p.parentId === pageId);
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
   const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
+  const globalFullWidth = useSettingsStore((s) => s.fullWidth);
+  const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
+  const fullWidth = pageFullWidthById[pageId] ?? globalFullWidth;
+  // 댓글이 하나라도 존재하면 사이드바 공간을 위해 외곽 너비를 확장
+  const hasPageComments = useBlockCommentStore((s) =>
+    s.messages.some((m) => m.pageId === pageId),
+  );
   const getRowBackTarget = useUiStore((s) => s.getRowBackTarget);
   const clearRowBackTarget = useUiStore((s) => s.clearRowBackTarget);
   const databaseId = page?.databaseId;
@@ -94,8 +104,19 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
     setCurrentTabPage(firstNormal?.id ?? null);
   };
 
+  // 에디터 wrapper 와 동일한 클래스 — 외부 헤더·속성 패널·하위 페이지가 본문(컨텐츠) 폭과 일치하도록
+  const columnClass = fullWidth
+    ? hasPageComments
+      ? "max-w-none pl-4 pr-[260px]"
+      : "max-w-none px-4"
+    : hasPageComments
+      ? "max-w-[1056px] pr-[256px]"
+      : "max-w-3xl";
+
   return (
-    <div className="mx-auto max-w-[840px] px-12 py-8">
+    <div className="py-8">
+      <div className={`mx-auto w-full ${columnClass}`}>
+      <div className="px-12">
       <div className="mb-6 flex items-center justify-between gap-2">
         <button
           type="button"
@@ -183,8 +204,36 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
       </div>
 
       <DatabasePropertyPanel databaseId={databaseId} pageId={pageId} />
+      </div>{/* close px-12 */}
+      </div>{/* close column wrapper */}
 
       <Editor pageId={pageId} bodyOnly />
+      {/* 항목 내 하위 페이지 목록 — 본문과 동일 컬럼 정렬 */}
+      {childPages.length > 0 && (
+        <div className={`mx-auto w-full ${columnClass}`}>
+          <div className="px-12">
+            <div className="mt-6 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+              <p className="mb-2 text-xs font-semibold text-zinc-400 dark:text-zinc-500">하위 페이지</p>
+              <div className="flex flex-col gap-0.5">
+                {childPages.map((cp) => (
+                  <button
+                    key={cp.id}
+                    type="button"
+                    onClick={() => {
+                      setActivePage(cp.id);
+                      setCurrentTabPage(cp.id);
+                    }}
+                    className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >
+                    <span className="shrink-0 text-base leading-none">{cp.icon ?? <FileText size={14} />}</span>
+                    <span className="truncate">{cp.title || "제목 없음"}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <PageMoveDialog
         pageId={moveDialogOpen ? pageId : null}
         onClose={() => setMoveDialogOpen(false)}

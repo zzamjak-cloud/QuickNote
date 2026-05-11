@@ -84,6 +84,8 @@ type Page {
   databaseId: ID
   doc: AWSJSON!
   dbCells: AWSJSON
+  """블록 댓글 스레드·읽음 상태 JSON(`{ messages, threadVisitedAt }`)."""
+  blockComments: AWSJSON
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
   deletedAt: AWSDateTime
@@ -134,6 +136,7 @@ input PageInput {
   databaseId: ID
   doc: AWSJSON!
   dbCells: AWSJSON
+  blockComments: AWSJSON
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
 }

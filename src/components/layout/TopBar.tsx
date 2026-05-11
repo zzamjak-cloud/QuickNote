@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
+import { emptyPanelState } from "../../types/database";
 
 /** 페이지 메뉴 드롭다운 왼쪽 아이콘 공통 스타일 */
 const MENU_ITEM_ICON =
@@ -24,6 +25,7 @@ import { useState, useEffect, useRef } from "react";
 import type { Page } from "../../types/page";
 import { useSettingsStore } from "../../store/settingsStore";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseStore } from "../../store/databaseStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { useUiStore } from "../../store/uiStore";
 import { NotificationBell } from "../notifications/NotificationBell";
@@ -35,14 +37,19 @@ import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 
 export function TopBar() {
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
-  const fullWidth = useSettingsStore((s) => s.fullWidth);
-  const toggleFullWidth = useSettingsStore((s) => s.toggleFullWidth);
+  const globalFullWidth = useSettingsStore((s) => s.fullWidth);
+  const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
+  const toggleFullWidthForPage = useSettingsStore((s) => s.toggleFullWidthForPage);
   const navigateToParentPage = usePageStore((s) => s.navigateToParentPage);
   const activeId = usePageStore((s) => s.activePageId);
   const pages = usePageStore((s) => s.pages);
   const setActive = usePageStore((s) => s.setActivePage);
   const duplicatePage = usePageStore((s) => s.duplicatePage);
   const deletePage = usePageStore((s) => s.deletePage);
+  const databases = useDatabaseStore((s) => s.databases);
+  const createPage = usePageStore((s) => s.createPage);
+  const updateDoc = usePageStore((s) => s.updateDoc);
+  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const showToast = useUiStore((s) => s.showToast);
   const restorePageFromHistoryEvent = usePageStore(
     (s) => s.restorePageFromHistoryEvent,
@@ -75,18 +82,60 @@ export function TopBar() {
   );
   const selectedEventIds = selectedEntries.flatMap((e) => e.eventIds);
 
-  const breadcrumb: { id: string; title: string; icon: string | null }[] = [];
+  type BreadcrumbNode = { id: string; title: string; icon: string | null; noNav?: boolean; dbId?: string };
+  const breadcrumb: BreadcrumbNode[] = [];
   if (activeId) {
+    // parentId 체인을 수집
+    const chain: Page[] = [];
     let cursor: string | null = activeId;
+    const seen = new Set<string>();
     while (cursor !== null) {
+      if (seen.has(cursor)) break;
+      seen.add(cursor);
       const page: Page | undefined = pages[cursor];
       if (!page) break;
-      breadcrumb.unshift({ id: page.id, title: page.title, icon: page.icon });
+      chain.unshift(page);
+      if (page.databaseId != null) {
+        // DB row 페이지는 parentId=null이므로 체인 탐색 종료
+        // DB 컨테이너 페이지 + DB 이름을 앞에 삽입
+        const dbBundle = databases[page.databaseId];
+        const containerPageId = usePageStore.getState().findFullPagePageIdForDatabase(page.databaseId);
+        if (containerPageId) {
+          const containerChain: BreadcrumbNode[] = [];
+          let c: string | null = pages[containerPageId]?.parentId ?? null;
+          const cs = new Set<string>();
+          while (c !== null) {
+            if (cs.has(c)) break;
+            cs.add(c);
+            const cp: Page | undefined = pages[c];
+            if (!cp) break;
+            containerChain.unshift({ id: cp.id, title: cp.title, icon: cp.icon });
+            c = cp.parentId;
+          }
+          breadcrumb.push(...containerChain);
+        }
+        if (dbBundle) {
+          // DB 이름 노드가 컨테이너 페이지를 대표 — 중복 방지를 위해 컨테이너 페이지 자체는 체인에서 제외
+          breadcrumb.push({
+            id: containerPageId ?? `db-virtual-${page.databaseId}`,
+            title: dbBundle.meta.title,
+            icon: null,
+            dbId: page.databaseId,
+          });
+        }
+        break;
+      }
       cursor = page.parentId;
+    }
+    for (const p of chain) {
+      breadcrumb.push({ id: p.id, title: p.title, icon: p.icon });
     }
   }
 
   const activePage = activeId ? pages[activeId] : undefined;
+  const fullWidth = activeId
+    ? (pageFullWidthById[activeId] ?? globalFullWidth)
+    : globalFullWidth;
   const parentId = activePage?.parentId ?? null;
   const canGoBack =
     Boolean(activeId && parentId !== null && pages[parentId ?? ""]);
@@ -174,6 +223,35 @@ export function TopBar() {
     setMenuOpen(false);
   };
 
+  // 데이터베이스 관리 팝업과 동일한 로직 — 스토어 함수로 기존 페이지 조회 (중복 생성 방지)
+  const openDatabase = (databaseId: string, title: string) => {
+    const existingId = usePageStore
+      .getState()
+      .findFullPagePageIdForDatabase(databaseId);
+    const pageId =
+      existingId ??
+      (() => {
+        const id = createPage(title, null, { activate: false });
+        updateDoc(id, {
+          type: "doc",
+          content: [
+            {
+              type: "databaseBlock",
+              attrs: {
+                databaseId,
+                layout: "fullPage",
+                view: "table",
+                panelState: JSON.stringify(emptyPanelState()),
+              },
+            },
+          ],
+        });
+        return id;
+      })();
+    setActive(pageId);
+    setCurrentTabPage(pageId);
+  };
+
   return (
     <header className="relative z-[350] flex h-10 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
       <button
@@ -197,7 +275,14 @@ export function TopBar() {
               )}
               <button
                 type="button"
-                onClick={() => setActive(node.id)}
+                onClick={() => {
+                  if (node.dbId) {
+                    openDatabase(node.dbId, node.title);
+                  } else {
+                    setActive(node.id);
+                    setCurrentTabPage(node.id);
+                  }
+                }}
                 className={[
                   "flex items-center gap-1 truncate rounded px-1.5 py-0.5 hover:bg-zinc-100 dark:hover:bg-zinc-800",
                   idx === breadcrumb.length - 1
@@ -224,7 +309,7 @@ export function TopBar() {
           <>
           <button
             type="button"
-            onClick={() => toggleFullWidth()}
+            onClick={() => toggleFullWidthForPage(activeId)}
             className={[
               "rounded-md p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800",
               fullWidth
@@ -310,7 +395,7 @@ export function TopBar() {
                       : "전체 너비 보기 켜기"
                   }
                   onClick={() => {
-                    toggleFullWidth();
+                    toggleFullWidthForPage(activeId);
                     setMenuOpen(false);
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"

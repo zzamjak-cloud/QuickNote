@@ -25,6 +25,7 @@ import {
   Download,
   Link2,
   MessageSquare,
+  MessageSquarePlus,
 } from "lucide-react";
 import {
   CALLOUT_PRESETS,
@@ -38,6 +39,7 @@ import { reportNonFatal } from "../../lib/reportNonFatal";
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
+import { useMemberStore } from "../../store/memberStore";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
 import {
   isAttachmentBlockNodeType,
@@ -60,9 +62,13 @@ type Props = {
   /** 박스 선택으로 잡은 최상위 블럭 시작 위치 — 연속이면 그립으로 한꺼번에 이동 */
   boxSelectedStarts?: readonly number[];
   onClearBoxSelection?: () => void;
+  /** Editor 가 편집 중인 페이지 ID — activePageId 와 다른 페이지(피크 뷰 등) 용도 */
+  pageId?: string | null;
+  /** 피크 뷰처럼 좁은 컨텍스트에서 댓글을 작은 아이콘+카운트 배지로 표시 */
+  compactComments?: boolean;
 };
 
-/** 댓글 1개 이상인 블록 — 오른쪽 바깥 배지(상시) */
+/** 댓글 1개 이상인 블록 — 오른쪽 사이드바 카드(상시) */
 type PinnedCommentBadge = {
   key: string;
   blockStart: number;
@@ -70,6 +76,8 @@ type PinnedCommentBadge = {
   count: number;
   top: number;
   commentLeft: number;
+  /** 블록의 모든 댓글(시간순) — 사이드바에서 전체 표시 */
+  messages: { id: string; bodyText: string; authorName: string }[];
 };
 
 type DownloadNotice = {
@@ -128,6 +136,10 @@ function pointInGripZone(
 }
 
 function hoverFromResolvedPos(editor: Editor, $pos: ResolvedPos): HoverInfo | null {
+  // 표(table) 내부 블록은 BlockHandles 표시 안 함 — TableBlockControls 가 처리
+  for (let d = 0; d <= $pos.depth; d++) {
+    if ($pos.node(d).type.name === "table") return null;
+  }
   // wrapper(콜아웃/토글/인용) 안의 내부 블럭이 우선 — wrapper는 fallback.
   let inner: HoverInfo | null = null;
   let wrapper: HoverInfo | null = null;
@@ -313,6 +325,8 @@ export function BlockHandles({
   editor,
   boxSelectedStarts,
   onClearBoxSelection,
+  pageId,
+  compactComments = false,
 }: Props) {
   const boxSelectionActive =
     (boxSelectedStarts?.length ?? 0) > 0 ||
@@ -326,7 +340,9 @@ export function BlockHandles({
   const [presetOpen, setPresetOpen] = useState(false);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
-  const activePageId = usePageStore((s) => s.activePageId);
+  const globalActivePageId = usePageStore((s) => s.activePageId);
+  // pageId prop 우선 — 피크 뷰처럼 활성 페이지와 다른 페이지를 편집할 때 정확한 페이지 ID 사용
+  const activePageId = pageId ?? globalActivePageId;
   const openCommentThread = useUiStore((s) => s.openCommentThread);
   const [isDownloading, setIsDownloading] = useState(false);
   const [boxSelecting, setBoxSelecting] = useState(false);
@@ -430,7 +446,12 @@ export function BlockHandles({
         rafId = null;
       }
       const related = e.relatedTarget as Node | null;
-      if (related && root.contains(related)) return;
+      // 핸들 overlay(그립, 댓글 추가 버튼 등) 위로 이동하는 경우 hover 유지
+      if (
+        related &&
+        (root.contains(related) || containerRef.current?.contains(related))
+      )
+        return;
       setHover(null);
     };
 
@@ -511,21 +532,39 @@ export function BlockHandles({
       if (!editor || editor.isDestroyed || !root) return;
       const wrapperRectInner = root.getBoundingClientRect();
 
-      const countByBlockId = new Map<string, number>();
+      // 블록별 모든 댓글 수집 — createdAt 오름차순(오래된 → 최신)으로 정렬
+      const messagesByBlockId = new Map<
+        string,
+        Array<{ id: string; bodyText: string; authorMemberId: string; createdAt: number }>
+      >();
       for (const m of useBlockCommentStore.getState().messages) {
         if (m.pageId !== activePageId) continue;
-        countByBlockId.set(
-          m.blockId,
-          (countByBlockId.get(m.blockId) ?? 0) + 1,
-        );
+        const arr = messagesByBlockId.get(m.blockId) ?? [];
+        arr.push({
+          id: m.id,
+          bodyText: m.bodyText,
+          authorMemberId: m.authorMemberId,
+          createdAt: m.createdAt,
+        });
+        messagesByBlockId.set(m.blockId, arr);
+      }
+      for (const arr of messagesByBlockId.values()) {
+        arr.sort((a, b) => a.createdAt - b.createdAt);
       }
 
+      const members = useMemberStore.getState().members;
+
       const items: PinnedCommentBadge[] = [];
+      // ID 중복(예: 엔터로 블록 분할 시 일시적으로 같은 id) 가 있을 때 첫 번째만 카드 렌더 — 카드 복제 방지
+      const seenIds = new Set<string>();
       editor.state.doc.descendants((node, pos) => {
         if (!node.isBlock) return;
         const id = node.attrs?.id as string | undefined;
         if (!id) return;
-        const count = countByBlockId.get(id) ?? 0;
+        if (seenIds.has(id)) return;
+        seenIds.add(id);
+        const msgs = messagesByBlockId.get(id);
+        const count = msgs?.length ?? 0;
         if (count === 0) return;
 
         const dom = editor.view.nodeDOM(pos);
@@ -539,6 +578,13 @@ export function BlockHandles({
         const top = rect.top - wrapperRectInner.top + HANDLE_TOP_OFFSET_PX;
         const commentLeft =
           rect.right - wrapperRectInner.left + COMMENT_BTN_GAP_PX;
+        const rendered = (msgs ?? []).map((m) => ({
+          id: m.id,
+          bodyText: m.bodyText,
+          authorName:
+            members.find((mb) => mb.memberId === m.authorMemberId)?.name ||
+            "구성원",
+        }));
         items.push({
           key: `${pos}-${id}`,
           blockStart: pos,
@@ -546,6 +592,7 @@ export function BlockHandles({
           count,
           top,
           commentLeft,
+          messages: rendered,
         });
       });
 
@@ -553,13 +600,20 @@ export function BlockHandles({
     };
 
     refreshPinned();
+    // 초기 렌더 직후 DOM/레이아웃이 안정된 뒤 한 번 더 새로고침 — 새로고침 시 카드 누락 방지
+    const deferred = window.setTimeout(refreshPinned, 50);
+    const deferred2 = window.setTimeout(refreshPinned, 250);
     const unsub = useBlockCommentStore.subscribe(refreshPinned);
+    const unsubMembers = useMemberStore.subscribe(refreshPinned);
     editor.on("update", refreshPinned);
     const scroller = containerRef.current?.closest(".overflow-y-auto") ?? window;
     scroller.addEventListener("scroll", refreshPinned, { passive: true });
     window.addEventListener("resize", refreshPinned, { passive: true });
     return () => {
+      window.clearTimeout(deferred);
+      window.clearTimeout(deferred2);
       unsub();
+      unsubMembers();
       editor.off("update", refreshPinned);
       scroller.removeEventListener("scroll", refreshPinned);
       window.removeEventListener("resize", refreshPinned);
@@ -638,7 +692,7 @@ export function BlockHandles({
   };
 
   const openBlockCommentAtStart = (
-    e: ReactMouseEvent<HTMLButtonElement>,
+    e: ReactMouseEvent<HTMLElement>,
     blockStart: number,
   ) => {
     if (!editor || !activePageId) return;
@@ -694,7 +748,21 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
+  // 컬럼 레이아웃 노드도 같은 프리셋 색상 시스템을 공유한다.
+  const applyColumnLayoutPreset = (preset: CalloutPresetId) => {
+    if (!editor || !hover) return;
+    editor
+      .chain()
+      .focus()
+      .setNodeSelection(hover.blockStart)
+      .updateColumnLayoutPreset(preset)
+      .run();
+    setPresetOpen(false);
+    setMenuOpen(false);
+  };
+
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
+  const isColumnLayout = hover?.node.type.name === "columnLayout";
   const isAttachmentBlock =
     hover ? isAttachmentBlockNodeType(hover.node.type.name) : false;
   const shouldShowTypeChange =
@@ -795,17 +863,17 @@ export function BlockHandles({
     });
   }, [editor, boxSelectionActive, boxSelectedStarts]);
 
-  if (boxSelecting) return null;
-
+  // 박스 드래그(마퀴) 중에는 그립·호버 UI만 숨긴다 — 고정 댓글 배지는 계속 보이게 함
   return (
     <div
       ref={containerRef}
+      data-qn-editor-chrome="block-handles"
       className={[
         "pointer-events-none absolute inset-0",
         menuOpen ? "z-[320]" : "z-10",
       ].join(" ")}
     >
-      {hover && bar && wrapperRect ? (
+      {!boxSelecting && hover && bar && wrapperRect ? (
         <>
         <div
           className="pointer-events-auto absolute z-30 flex items-start"
@@ -967,6 +1035,49 @@ export function BlockHandles({
                   </div>
                 )}
 
+                {/* 컬럼 레이아웃 컬러 변경 (컬럼 블록일 때만) */}
+                {isColumnLayout && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onMouseEnter={() => setPresetOpen(true)}
+                      onMouseLeave={() => setPresetOpen(false)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      <span className="flex items-center gap-2">
+                        <LayoutTemplate size={14} />
+                        컬러 변경
+                      </span>
+                      <span className="text-zinc-400">›</span>
+                    </button>
+                    {presetOpen && (
+                      <div
+                        className="absolute left-full top-0 z-50 max-h-64 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        onMouseEnter={() => setPresetOpen(true)}
+                        onMouseLeave={() => setPresetOpen(false)}
+                      >
+                        {CALLOUT_PRESETS.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => applyColumnLayoutPreset(p.id)}
+                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          >
+                            <span className="w-6 shrink-0 text-center text-base leading-6">
+                              {p.emoji || "·"}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                                {p.label}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
 
                 <button
@@ -1007,27 +1118,118 @@ export function BlockHandles({
         <div
           key={pin.key}
           data-qn-comment-badge-block-id={pin.blockId}
-          className="pointer-events-auto absolute z-30 flex items-start"
-          style={{ top: pin.top, left: pin.commentLeft }}
-        >
-          <button
-            type="button"
-            onClick={(e) => {
+          role="button"
+          tabIndex={0}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openBlockCommentAtStart(e, pin.blockStart);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               e.stopPropagation();
-              openBlockCommentAtStart(e, pin.blockStart);
-            }}
-            title={`댓글 ${pin.count}개`}
-            aria-label={`블록 댓글 ${pin.count}개`}
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent bg-white/90 text-amber-500 shadow-sm ring-1 ring-amber-200/90 hover:bg-amber-50 dark:bg-zinc-900/90 dark:text-amber-400 dark:ring-amber-800/70 dark:hover:bg-amber-950/30"
-          >
-            <MessageSquare size={18} strokeWidth={2} className="text-amber-500 dark:text-amber-400" />
-            <span className="absolute -right-0.5 -top-0.5 flex min-h-[16px] min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-[4px] text-[10px] font-bold tabular-nums leading-none text-white shadow-sm dark:bg-amber-600">
-              {pin.count > 99 ? "99+" : pin.count}
-            </span>
-          </button>
+              openBlockCommentAtStart(
+                e as unknown as React.MouseEvent<HTMLElement>,
+                pin.blockStart,
+              );
+            }
+          }}
+          title={`댓글 ${pin.count}개 — 클릭해서 열기`}
+          aria-label={`블록 댓글 ${pin.count}개`}
+          className={
+            compactComments
+              ? "pointer-events-auto absolute z-30 flex h-7 w-7 cursor-pointer select-none items-center justify-center rounded-md border border-zinc-200 bg-white shadow-sm hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-amber-950/30"
+              : "pointer-events-auto absolute z-30 cursor-pointer select-none overflow-hidden rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-left shadow-sm transition hover:border-amber-300 hover:bg-amber-50/40 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-amber-700 dark:hover:bg-amber-950/30"
+          }
+          // 컴팩트(피크): 작은 정사각 배지(블록 우측 가장자리)
+          // 일반: 232px 카드 — wrapper 우측 가장자리 사이드바 컬럼에 고정 정렬 (전체너비 토글 시 자연스러운 확장)
+          style={
+            compactComments
+              ? { top: pin.top, left: pin.commentLeft }
+              : { top: pin.top, right: 12, width: 232, maxHeight: 240 }
+          }
+        >
+          {compactComments ? (
+            <div className="relative flex items-center justify-center">
+              <MessageSquare
+                size={14}
+                strokeWidth={2}
+                className="text-amber-500 dark:text-amber-400"
+              />
+              <span className="absolute -right-1.5 -top-1.5 flex min-h-[14px] min-w-[14px] items-center justify-center rounded-full bg-amber-500 px-[3px] text-[9px] font-bold tabular-nums leading-none text-white shadow-sm dark:bg-amber-600">
+                {pin.count > 99 ? "99+" : pin.count}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="mb-1 flex items-center gap-1.5">
+                <MessageSquare
+                  size={11}
+                  strokeWidth={2}
+                  className="shrink-0 text-amber-500 dark:text-amber-400"
+                />
+                <span className="min-w-0 flex-1 text-[11px] font-semibold text-zinc-700 dark:text-zinc-200">
+                  댓글 {pin.count}개
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {pin.messages.map((m, idx) => (
+                  <div
+                    key={m.id}
+                    className={
+                      idx > 0
+                        ? "border-t border-zinc-100 pt-1.5 dark:border-zinc-800"
+                        : ""
+                    }
+                  >
+                    <div className="truncate text-[11px] font-semibold text-zinc-700 dark:text-zinc-200">
+                      {m.authorName}
+                    </div>
+                    <div className="line-clamp-3 whitespace-pre-wrap text-[11px] leading-snug text-zinc-600 dark:text-zinc-300">
+                      {m.bodyText || (
+                        <span className="italic text-zinc-400">내용 없음</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       ))}
+      {/* 댓글이 없는 호버 블록의 오른쪽 바깥에 작은 댓글 추가 버튼 표시 — 블록 바로 오른쪽에 정렬 */}
+      {!boxSelecting && hover && wrapperRect && (() => {
+        const hBlockId = hover.node.attrs?.id as string | undefined;
+        if (!hBlockId) return null;
+        if (pinnedCommentBadges.some((p) => p.blockId === hBlockId)) return null;
+        const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX + 2;
+        const left = hover.rect.right - wrapperRect.left + COMMENT_BTN_GAP_PX;
+        return (
+          <div
+            className="pointer-events-auto absolute z-30 flex items-start"
+            style={{ top, left }}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                openBlockCommentAtStart(e, hover.blockStart);
+              }}
+              title="댓글 추가"
+              aria-label="댓글 추가"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-300 opacity-0 transition-opacity hover:bg-amber-50 hover:text-amber-500 group-hover:opacity-100 dark:text-zinc-600 dark:hover:bg-amber-950/30 dark:hover:text-amber-400"
+              style={{ opacity: 1 }}
+            >
+              <MessageSquarePlus size={14} />
+            </button>
+          </div>
+        );
+      })()}
       {downloadNotice ? (
         <div className="pointer-events-none fixed bottom-5 right-5 z-[420]">
           <div

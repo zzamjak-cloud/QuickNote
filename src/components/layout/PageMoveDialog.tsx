@@ -63,6 +63,30 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
     return true;
   });
 
+  // 데이터베이스 항목(row 페이지) 목록을 DB 별로 묶어서 보여준다.
+  // 일반 페이지를 항목의 자식으로 넣거나, 항목 자식인 페이지를 다른 항목으로 옮길 때 사용.
+  const rowTargetGroups = dbList
+    .map((d) => {
+      const rows = Object.values(pages)
+        .filter((p) => p.databaseId === d.id)
+        .filter((p) => p.id !== pageId)
+        .sort((a, b) => a.order - b.order);
+      return { db: d, rows };
+    })
+    .filter((g) => g.rows.length > 0)
+    .map((g) => {
+      if (!normalizedQuery) return g;
+      const dbMatch = g.db.meta.title.toLowerCase().includes(normalizedQuery);
+      if (dbMatch) return g;
+      return {
+        db: g.db,
+        rows: g.rows.filter((r) =>
+          (r.title || "").toLowerCase().includes(normalizedQuery),
+        ),
+      };
+    })
+    .filter((g) => g.rows.length > 0);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
@@ -131,6 +155,39 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
                 <span className="truncate">{node.title || "제목 없음"}</span>
               </button>
             ))
+          )}
+          {rowTargetGroups.length > 0 && (
+            <>
+              <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+              <div className="px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                데이터베이스 항목의 하위 페이지로 이동
+              </div>
+              {rowTargetGroups.map(({ db, rows }) => (
+                <div key={db.id}>
+                  <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-400">
+                    {db.meta.title || "제목 없음"}
+                  </div>
+                  {rows.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        // 항목의 자식으로 넣기 위해 먼저 row 속성을 떼어 일반 페이지로 만든다.
+                        if (isRowPage) detachRowToNormalPage(pageId);
+                        movePage(pageId, r.id, Number.MAX_SAFE_INTEGER);
+                        onClose();
+                      }}
+                      className="flex w-full items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      style={{ paddingLeft: 22 }}
+                      title="이 항목 페이지의 자식으로 이동"
+                    >
+                      <span className="w-5 text-center">{r.icon ?? "📄"}</span>
+                      <span className="truncate">{r.title || "제목 없음"}</span>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </>
           )}
           <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
           <div className="px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">

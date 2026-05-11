@@ -6,6 +6,7 @@ import {
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useHistoryStore } from "../../store/historyStore";
 import type { GqlDatabase, GqlPage } from "../../lib/sync/graphql/operations";
 
 function gqlPage(ws: string, id = "pg-1"): GqlPage {
@@ -45,6 +46,12 @@ describe("storeApply 워크스페이스 가드", () => {
       cacheWorkspaceId: null,
     });
     useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
+    useHistoryStore.setState({
+      pageEventsByPageId: {},
+      dbEventsByDatabaseId: {},
+      deletedRowTombstonesByDbId: {},
+      cacheWorkspaceId: null,
+    });
   });
 
   it("현재 워크스페이스와 일치하면 페이지·DB 가 반영된다", () => {
@@ -80,6 +87,25 @@ describe("storeApply 워크스페이스 가드", () => {
     expect(usePageStore.getState().pages["pg-1"]?.coverImage).toBe(
       "data:image/png;base64,QUJD",
     );
+  });
+
+  it("원격 DB 적용 시 로컬 rowPageOrder 가 비어 있으면 databaseId 행 페이지로 복구한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const row = gqlPage("ws-a", "row-1");
+    row.databaseId = "db-1";
+    applyRemotePageToStore(row);
+    applyRemoteDatabaseToStore(gqlDb("ws-a", "db-1"));
+    expect(useDatabaseStore.getState().databases["db-1"]?.rowPageOrder).toEqual([
+      "row-1",
+    ]);
+  });
+
+  it("원격 DB 최초 적용 시 로컬 히스토리가 비어 있으면 db.create 베이스라인을 남긴다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    applyRemoteDatabaseToStore(gqlDb("ws-a", "db-seed"));
+    const events = useHistoryStore.getState().dbEventsByDatabaseId["db-seed"] ?? [];
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    expect(events[0]?.kind).toBe("db.create");
   });
 
   it("원격 workspaceId 가 비면 적용하지 않는다", () => {

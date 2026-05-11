@@ -54,6 +54,7 @@ type UiStoreState = {
   /** 블록 댓글 스레드 패널 */
   commentThread: CommentThreadPayload | null;
   peekPageId: string | null;
+  peekHistory: string[];
   openColumnMenuId: string | null;
   textPrompt: TextPromptRequest | null;
   rowBackTargetByPageId: Record<string, string>;
@@ -77,6 +78,8 @@ type UiStoreActions = {
   closeFavoritesPanel: () => void;
   openPeek: (pageId: string) => void;
   closePeek: () => void;
+  peekNavigate: (pageId: string) => void;
+  peekBack: () => void;
   setOpenColumnMenu: (id: string | null) => void;
   requestTextPrompt: (
     title: string,
@@ -108,6 +111,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   notificationCenterOpen: false,
   commentThread: null,
   peekPageId: null,
+  peekHistory: [],
   openColumnMenuId: null,
   textPrompt: null,
   rowBackTargetByPageId: {},
@@ -129,15 +133,32 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
     set((s) => ({ notificationCenterOpen: !s.notificationCenterOpen })),
   closeNotificationCenter: () => set({ notificationCenterOpen: false }),
 
-  openCommentThread: (payload) => set({ commentThread: payload }),
+  // 같은 클릭 사이클에서 포털 배경이 먼저 올라가 mouseup/click 이 배경으로 가며
+  // 즉시 닫히는 고스트 클릭을 피하기 위해, 현재 이벤트 처리가 끝난 뒤에 연다.
+  openCommentThread: (payload) => {
+    queueMicrotask(() => {
+      set({ commentThread: payload });
+    });
+  },
   closeCommentThread: () => set({ commentThread: null }),
 
   toggleFavoritesPanel: () => get().toggleRightPanel("favorites"),
   openFavoritesPanel: () => get().openRightPanel("favorites"),
   closeFavoritesPanel: () => get().closeRightPanel(),
 
-  openPeek: (pageId) => set({ peekPageId: pageId }),
-  closePeek: () => set({ peekPageId: null }),
+  openPeek: (pageId) => set({ peekPageId: pageId, peekHistory: [] }),
+  closePeek: () => set({ peekPageId: null, peekHistory: [] }),
+  peekNavigate: (pageId) =>
+    set((s) => ({
+      peekHistory: s.peekPageId ? [...s.peekHistory, s.peekPageId] : s.peekHistory,
+      peekPageId: pageId,
+    })),
+  peekBack: () =>
+    set((s) => {
+      const history = [...s.peekHistory];
+      const prevId = history.pop() ?? null;
+      return { peekPageId: prevId, peekHistory: history };
+    }),
   setOpenColumnMenu: (id) => set({ openColumnMenuId: id }),
   requestTextPrompt: (title, opts) =>
     new Promise<string | null>((resolve) => {

@@ -14,7 +14,7 @@ import type { GqlBridge } from "../engine";
 function normalizeAwsJsonFields(input: unknown): unknown {
   if (!input || typeof input !== "object") return input;
   const i = { ...(input as Record<string, unknown>) };
-  for (const key of ["doc", "dbCells", "columns"] as const) {
+  for (const key of ["doc", "dbCells", "columns", "blockComments"] as const) {
     const v = i[key];
     if (v != null && typeof v !== "string") {
       i[key] = JSON.stringify(v);

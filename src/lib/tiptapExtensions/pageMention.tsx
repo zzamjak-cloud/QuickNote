@@ -1,7 +1,7 @@
-import { ReactRenderer } from "@tiptap/react";
+import { ReactRenderer, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
+import type { NodeViewProps } from "@tiptap/react";
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes } from "@tiptap/core";
-import { Plugin } from "prosemirror-state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import {
   forwardRef,
@@ -11,6 +11,7 @@ import {
 } from "react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useUiStore } from "../../store/uiStore";
 
 type Item = { id: string; title: string; icon: string | null };
 
@@ -81,27 +82,50 @@ const MentionList = forwardRef<RefHandle, SuggestionProps>(
 );
 MentionList.displayName = "MentionList";
 
+/** 페이지 멘션 노드뷰 — 스토어를 구독하므로 페이지 제목 변경 시 즉시 반영 */
+function PageMentionView({ node }: NodeViewProps) {
+  const id = node.attrs.id as string;
+  const label = (node.attrs.label as string) ?? "";
+  const page = usePageStore((s) => s.pages[id]);
+  const peekPageId = useUiStore((s) => s.peekPageId);
+  const peekNavigate = useUiStore((s) => s.peekNavigate);
+  const icon = page?.icon ?? "📄";
+  const displayTitle = page?.title ?? label ?? "페이지";
+
+  return (
+    <NodeViewWrapper as="span" contentEditable={false}>
+      <button
+        type="button"
+        onClick={(e) => {
+          const isInPeek = !!(e.currentTarget.closest(".qn-peek-editor"));
+          if (isInPeek && peekPageId) {
+            peekNavigate(id);
+          } else {
+            usePageStore.getState().setActivePage(id);
+            useSettingsStore.getState().setCurrentTabPage(id);
+          }
+        }}
+        className="page-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-zinc-100 px-1 py-0.5 align-middle text-sm text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+        data-type="mention"
+        data-id={id}
+      >
+        <span
+          className="select-none text-[11px] font-semibold text-zinc-500 dark:text-zinc-400"
+          aria-hidden="true"
+        >
+          @
+        </span>
+        <span className="text-base leading-none">{icon}</span>
+        {" "}
+        <span className="truncate font-medium">{displayTitle}</span>
+      </button>
+    </NodeViewWrapper>
+  );
+}
+
 const PageMentionNode = Mention.extend({
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        props: {
-          handleDOMEvents: {
-            click(_view, event) {
-              const target = event.target as HTMLElement;
-              const mention = target.closest<HTMLElement>('[data-type="mention"][data-id]');
-              if (!mention) return false;
-              const id = mention.getAttribute("data-id");
-              if (!id) return false;
-              event.preventDefault();
-              usePageStore.getState().setActivePage(id);
-              useSettingsStore.getState().setCurrentTabPage(id);
-              return true;
-            },
-          },
-        },
-      }),
-    ];
+  addNodeView() {
+    return ReactNodeViewRenderer(PageMentionView);
   },
 
   renderHTML({ node, HTMLAttributes }) {
