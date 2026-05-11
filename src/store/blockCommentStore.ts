@@ -177,7 +177,7 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
         msg,
       );
       usePageStore.getState().appendPageBlockComment(input.pageId, msg);
-      const pageOwner = usePageStore.getState().pages[input.pageId]?.createdByMemberId;
+      const pageOwner = page?.createdByMemberId;
       dispatchNotificationsForBlockCommentMessage(msg, prior, pageOwner);
       return msg;
     },
