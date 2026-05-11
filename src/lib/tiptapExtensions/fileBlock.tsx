@@ -120,7 +120,7 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     return (
       <NodeViewWrapper
         as="div"
-        className="qn-file-shell my-2 leading-none"
+        className="qn-file-shell my-1 leading-none"
         data-drag-handle
       >
         {url ? (

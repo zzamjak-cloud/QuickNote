@@ -15,6 +15,7 @@ import {
   History,
 } from "lucide-react";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
+import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 
 /** 페이지 메뉴 드롭다운 왼쪽 아이콘 공통 스타일 */
 const MENU_ITEM_ICON =
@@ -106,7 +107,7 @@ export function TopBar() {
         e.preventDefault();
         setMenuOpen(false);
         void navigator.clipboard
-          .writeText(`quicknote://page/${activeId}`)
+          .writeText(buildQuickNotePageUrl({ pageId: activeId }))
           .then(() => showToast("페이지 링크 복사 완료!", { kind: "success" }))
           .catch(() =>
             showToast("페이지 링크 복사에 실패했습니다.", { kind: "error" }),
@@ -127,7 +128,7 @@ export function TopBar() {
   const copyPageLink = () => {
     if (!activeId) return;
     void navigator.clipboard
-      .writeText(`quicknote://page/${activeId}`)
+      .writeText(buildQuickNotePageUrl({ pageId: activeId }))
       .then(() => showToast("페이지 링크 복사 완료!", { kind: "success" }))
       .catch(() => showToast("페이지 링크 복사에 실패했습니다.", { kind: "error" }));
     setMenuOpen(false);
@@ -174,7 +175,7 @@ export function TopBar() {
   };
 
   return (
-    <header className="flex h-10 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+    <header className="relative z-[350] flex h-10 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
       <button
         type="button"
         onClick={() => navigateToParentPage()}

@@ -31,6 +31,8 @@ import {
 import { IconPickerPanel } from "../../components/common/IconPicker";
 import { PageIconDisplay } from "../../components/common/PageIconDisplay";
 import { useUiStore } from "../../store/uiStore";
+import { usePageStore } from "../../store/pageStore";
+import { buildQuickNotePageUrl } from "../navigation/quicknoteLinks";
 import { encodeLucidePageIcon } from "../pageIcon";
 import { pickTabPanelShells } from "./tabPanelDom";
 
@@ -497,9 +499,12 @@ const TabBlockView = memo(function TabBlockView({
     if (!tab) return;
     const id = tab.id ?? newTabId();
     if (!tab.id) updateTabAttrs(index, { id });
-    const base = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+    const pageId = usePageStore.getState().activePageId;
+    const href = pageId
+      ? buildQuickNotePageUrl({ pageId, tab: id })
+      : `${window.location.origin}${window.location.pathname}${window.location.search}#tab-${encodeURIComponent(id)}`;
     void navigator.clipboard
-      .writeText(`${base}#tab-${encodeURIComponent(id)}`)
+      .writeText(href)
       .then(() =>
         useUiStore.getState().showToast("탭 링크 복사 완료!", { kind: "success" }),
       )
@@ -572,6 +577,7 @@ const TabBlockView = memo(function TabBlockView({
             }}
             key={tab.index}
             type="button"
+            data-qn-tab-id={tab.id}
             onClick={(event) => {
               if (tab.index === activeIndex) {
                 openTabMenu(tab.index, event.currentTarget);

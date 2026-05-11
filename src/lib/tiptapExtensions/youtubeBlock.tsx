@@ -82,7 +82,10 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
     <NodeViewWrapper
       as="div"
       {...mergeAttributes(
-        { "data-youtube-video": "", class: "qn-youtube-shell my-2 max-w-full" },
+        {
+          "data-youtube-video": "",
+          class: "qn-youtube-shell my-1 max-w-full leading-none",
+        },
         opts.HTMLAttributes ?? {},
       )}
     >

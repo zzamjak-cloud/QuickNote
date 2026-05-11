@@ -20,7 +20,7 @@ export function TabBar() {
   const favoritesPanelOpen = rightPanelOpen && rightPanelTab === "favorites";
 
   return (
-    <div className="flex h-9 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50 px-1 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="relative z-[350] flex h-9 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50 px-1 dark:border-zinc-800 dark:bg-zinc-900">
       <button
         type="button"
         onClick={prevTab}

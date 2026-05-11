@@ -36,6 +36,8 @@ const EMOJI_PICKER_WIDTH = 320;
 const EMOJI_PICKER_HEIGHT = 380;
 const EMOJI_PICKER_GAP = 8;
 const EMOJI_PICKER_MARGIN = 12;
+const PASTE_URL_MENU_WIDTH = 288;
+const PASTE_URL_MENU_HEIGHT = 156;
 
 type EmojiAnchor = {
   top: number;
@@ -43,23 +45,34 @@ type EmojiAnchor = {
   insertPos: number;
 };
 
+type PasteUrlChoice = {
+  url: string;
+  range: { from: number; to: number };
+  top: number;
+  left: number;
+};
+
 function clampFloatingPanelPosition(
   rect: { top: number; bottom: number; left: number },
+  panel: { width: number; height: number } = {
+    width: EMOJI_PICKER_WIDTH,
+    height: EMOJI_PICKER_HEIGHT,
+  },
 ): { top: number; left: number } {
   const viewportWidth = window.innerWidth;
   const viewportHeight = window.innerHeight;
   const maxLeft = Math.max(
     EMOJI_PICKER_MARGIN,
-    viewportWidth - EMOJI_PICKER_WIDTH - EMOJI_PICKER_MARGIN,
+    viewportWidth - panel.width - EMOJI_PICKER_MARGIN,
   );
   const maxTop = Math.max(
     EMOJI_PICKER_MARGIN,
-    viewportHeight - EMOJI_PICKER_HEIGHT - EMOJI_PICKER_MARGIN,
+    viewportHeight - panel.height - EMOJI_PICKER_MARGIN,
   );
   const preferredBelow = rect.bottom + EMOJI_PICKER_GAP;
-  const preferredAbove = rect.top - EMOJI_PICKER_HEIGHT - EMOJI_PICKER_GAP;
+  const preferredAbove = rect.top - panel.height - EMOJI_PICKER_GAP;
   const hasRoomBelow =
-    preferredBelow + EMOJI_PICKER_HEIGHT <= viewportHeight - EMOJI_PICKER_MARGIN;
+    preferredBelow + panel.height <= viewportHeight - EMOJI_PICKER_MARGIN;
   const top = hasRoomBelow ? preferredBelow : preferredAbove;
 
   return {
@@ -94,6 +107,7 @@ import {
 import { DatabaseBlock } from "../../lib/tiptapExtensions/databaseBlock";
 import { PageLink } from "../../lib/tiptapExtensions/pageLink";
 import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
+import { BookmarkBlock } from "../../lib/tiptapExtensions/bookmarkBlock";
 import { LucideInlineIcon } from "../../lib/tiptapExtensions/lucideInlineIcon";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
@@ -103,9 +117,10 @@ import { BubbleToolbar } from "./BubbleToolbar";
 import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
 import { ColumnReorderHandles } from "./ColumnReorderHandles";
+import { TableBlockControls } from "./TableBlockControls";
 import type { JSONContent } from "@tiptap/react";
 import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
-import { isAllowedTipTapLinkUri } from "../../lib/safeUrl";
+import { isAllowedTipTapLinkUri, isTrustedYoutubeInput } from "../../lib/safeUrl";
 import { useBoxSelect } from "../../hooks/useBoxSelect";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { tipTapJsonDocEquals } from "../../lib/pm/jsonDocEquals";
@@ -137,6 +152,10 @@ import {
   unregisterEditorNavigation,
   scrollToBlockId,
 } from "../../lib/editor/editorNavigationBridge";
+import {
+  parseQuickNoteLink,
+  quickNoteLinkLabel,
+} from "../../lib/navigation/quicknoteLinks";
 import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
@@ -281,6 +300,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
   const [imageOpen, setImageOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [emojiAnchor, setEmojiAnchor] = useState<EmojiAnchor | null>(null);
+  const [pasteUrlChoice, setPasteUrlChoice] = useState<PasteUrlChoice | null>(null);
 
   const columnDropRef = useRef<ColumnDropState>(null);
   const [blockDropIndicator, setBlockDropIndicator] =
@@ -429,6 +449,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       DatabaseBlock,
       PageLink,
       ButtonBlock,
+      BookmarkBlock,
       LucideInlineIcon,
       SlashCommand.configure({
         suggestion: {
@@ -492,31 +513,73 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         // image 는 image 노드, 그 외 file 항목은 fileBlock 노드로 삽입.
         // string item(text/html 등) 은 PM 기본 paste 흐름에 위임.
         const fileItems = extractClipboardFiles(event.clipboardData);
-        if (fileItems.length === 0) return false;
-        event.preventDefault();
-        let handled = false;
-        for (const item of fileItems) {
-          const { file } = item;
-          handled = true;
-          if (item.isImage) {
-            void handleEditorInsertImage(file, (attrs) => {
-              view.dispatch(
-                view.state.tr.replaceSelectionWith(
-                  view.state.schema.nodes.image!.create(attrs),
-                ),
-              );
-            });
-          } else {
-            void insertFileFromFile(file, (attrs) => {
-              const fileNode = view.state.schema.nodes.fileBlock?.create(attrs);
-              if (!fileNode) return;
-              view.dispatch(
-                view.state.tr.replaceSelectionWith(fileNode).scrollIntoView(),
-              );
-            });
+        if (fileItems.length > 0) {
+          event.preventDefault();
+          for (const item of fileItems) {
+            const { file } = item;
+            if (item.isImage) {
+              void handleEditorInsertImage(file, (attrs) => {
+                view.dispatch(
+                  view.state.tr.replaceSelectionWith(
+                    view.state.schema.nodes.image!.create(attrs),
+                  ),
+                );
+              });
+            } else {
+              void insertFileFromFile(file, (attrs) => {
+                const fileNode = view.state.schema.nodes.fileBlock?.create(attrs);
+                if (!fileNode) return;
+                view.dispatch(
+                  view.state.tr.replaceSelectionWith(fileNode).scrollIntoView(),
+                );
+              });
+            }
           }
+          return true;
         }
-        return handled;
+
+        const text = event.clipboardData?.getData("text/plain")?.trim() ?? "";
+        if (!text || /\s/.test(text)) return false;
+
+        const internalTarget = parseQuickNoteLink(text);
+        if (internalTarget) {
+          event.preventDefault();
+          const title = usePageStore.getState().pages[internalTarget.pageId]?.title;
+          const buttonType = view.state.schema.nodes.buttonBlock;
+          if (!buttonType) return true;
+          view.dispatch(
+            view.state.tr.replaceSelectionWith(
+              buttonType.create({
+                label: quickNoteLinkLabel(title, internalTarget),
+                href: text,
+              }),
+            ),
+          );
+          return true;
+        }
+
+        let parsedUrl: URL | null = null;
+        try {
+          parsedUrl = new URL(text);
+        } catch {
+          return false;
+        }
+        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+          return false;
+        }
+        event.preventDefault();
+        const coords = view.coordsAtPos(view.state.selection.from);
+        const pos = clampFloatingPanelPosition(coords, {
+          width: PASTE_URL_MENU_WIDTH,
+          height: PASTE_URL_MENU_HEIGHT,
+        });
+        setPasteUrlChoice({
+          url: text,
+          range: { from: view.state.selection.from, to: view.state.selection.to },
+          top: pos.top,
+          left: pos.left,
+        });
+        return true;
       },
       handleDrop: createEditorHandleDrop({
         columnDropRef,
@@ -548,6 +611,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       clearBlockDropIndicator,
       handleEditorInsertImage,
       handleAtOpenMention,
+      setPasteUrlChoice,
     ],
   );
 
@@ -568,6 +632,64 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
       },
     },
     [lowlightApi, isFullPageDatabase],
+  );
+
+  const applyPasteUrlChoice = useCallback(
+    (mode: "mention" | "url" | "bookmark" | "embed") => {
+      if (!editor || !pasteUrlChoice) return;
+      const { url, range } = pasteUrlChoice;
+      const chain = editor.chain().focus().deleteRange(range);
+      if (mode === "embed" && isTrustedYoutubeInput(url)) {
+        chain.setYoutubeVideo({ src: url }).run();
+      } else if (mode === "url") {
+        chain
+          .insertContent({
+            type: "text",
+            text: url,
+            marks: [{ type: "link", attrs: { href: url } }],
+          })
+          .run();
+      } else if (mode === "bookmark") {
+        const fallbackHost = (() => {
+          try {
+            return new URL(url).hostname.replace(/^www\./, "");
+          } catch {
+            return "웹 페이지";
+          }
+        })();
+        chain
+          .insertContent({
+            type: "bookmarkBlock",
+            attrs: {
+              href: url,
+              title: fallbackHost,
+              description: url,
+              siteName: fallbackHost,
+              status: "loading",
+            },
+          })
+          .run();
+      } else {
+        const host = (() => {
+          try {
+            return new URL(url).hostname.replace(/^www\./, "");
+          } catch {
+            return "링크";
+          }
+        })();
+        chain
+          .insertContent({
+            type: "buttonBlock",
+            attrs: {
+              label: mode === "mention" ? host : `북마크 · ${host}`,
+              href: url,
+            },
+          })
+          .run();
+      }
+      setPasteUrlChoice(null);
+    },
+    [editor, pasteUrlChoice],
   );
 
   const commentThread = useUiStore((s) => s.commentThread);
@@ -929,6 +1051,7 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
           {!isFullPageDatabase && (
             <ColumnReorderHandles editor={editor} boxSelectedStarts={boxSelectedStarts} />
           )}
+          {!isFullPageDatabase && <TableBlockControls editor={editor} />}
           {!isFullPageDatabase && (
             <BlockHandles
               editor={editor}
@@ -953,6 +1076,40 @@ export function Editor({ pageId, bodyOnly = false }: EditorProps = {}) {
         onClose={() => setImageOpen(false)}
         editor={editor}
       />
+      {pasteUrlChoice && (
+        <div
+          className="fixed inset-0 z-[480]"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setPasteUrlChoice(null);
+          }}
+        >
+          <div
+            className="absolute w-72 max-w-[calc(100vw-24px)] rounded-lg border border-zinc-200 bg-white p-1 text-xs shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            style={{ top: pasteUrlChoice.top, left: pasteUrlChoice.left }}
+          >
+            <div className="truncate px-2 py-1.5 text-[11px] text-zinc-400">
+              {pasteUrlChoice.url}
+            </div>
+            {[
+              ["mention", "멘션"],
+              ["url", "URL"],
+              ["bookmark", "북마크"],
+              ["embed", isTrustedYoutubeInput(pasteUrlChoice.url) ? "임베드" : "버튼"],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() =>
+                  applyPasteUrlChoice(mode as "mention" | "url" | "bookmark" | "embed")
+                }
+                className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {emojiPickerOpen && emojiAnchor && (
         <div
           className="fixed inset-0 z-50"
@@ -1058,6 +1215,31 @@ function createSlashRenderer() {
         interactive: true,
         trigger: "manual",
         placement: "bottom-start",
+        offset: [0, 8],
+        popperOptions: {
+          modifiers: [
+            {
+              name: "flip",
+              options: {
+                fallbackPlacements: [
+                  "top-start",
+                  "bottom-end",
+                  "top-end",
+                  "right-start",
+                  "left-start",
+                ],
+              },
+            },
+            {
+              name: "preventOverflow",
+              options: {
+                boundary: "viewport",
+                padding: 8,
+                altAxis: true,
+              },
+            },
+          ],
+        },
         theme: "quicknote-suggestion",
         arrow: false,
       });

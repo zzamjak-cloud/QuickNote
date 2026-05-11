@@ -18,6 +18,8 @@ import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
 import { zustandStorage } from "./lib/storage/index";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
+import { parseQuickNoteLink } from "./lib/navigation/quicknoteLinks";
+import { scrollToBlockPosition } from "./lib/editor/editorNavigationBridge";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -40,6 +42,7 @@ function App() {
   const activePage = usePageStore((s) =>
     activePageId ? s.pages[activePageId] : undefined,
   );
+  const pages = usePageStore((s) => s.pages);
 
   const [migrating, setMigrating] = useState(
     () => isTauri && hasLocalStorageData(),
@@ -59,6 +62,33 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    const applyLocationLink = () => {
+      const target = parseQuickNoteLink(window.location.href);
+      if (!target) return;
+      if (!usePageStore.getState().pages[target.pageId]) return;
+      setActivePage(target.pageId);
+      setCurrentTabPage(target.pageId);
+      window.setTimeout(() => {
+        if (target.block != null) scrollToBlockPosition(target.block);
+        if (target.tab) {
+          document
+            .querySelector<HTMLButtonElement>(
+              `[data-qn-tab-id="${CSS.escape(target.tab)}"]`,
+            )
+            ?.click();
+        }
+      }, 120);
+    };
+    applyLocationLink();
+    window.addEventListener("popstate", applyLocationLink);
+    window.addEventListener("hashchange", applyLocationLink);
+    return () => {
+      window.removeEventListener("popstate", applyLocationLink);
+      window.removeEventListener("hashchange", applyLocationLink);
+    };
+  }, [pages, setActivePage, setCurrentTabPage]);
 
   // 마운트 시: 탭은 비어 있는데 페이지 스토어에 활성 페이지만 있는 경우(영속 불일치) 탭만 맞춤.
   useLayoutEffect(() => {

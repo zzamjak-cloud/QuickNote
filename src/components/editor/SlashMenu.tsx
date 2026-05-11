@@ -3,6 +3,7 @@ import {
   useEffect,
   useImperativeHandle,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { ChevronLeft } from "lucide-react";
@@ -23,9 +24,36 @@ type Props = {
   command: (item: SlashLeafItem) => void;
 };
 
+function slashGroupTitle(item: SlashMenuEntry): string {
+  const title = item.title;
+  if (title.startsWith("DB") || title === "표") return "데이터";
+  if (
+    title.includes("제목") ||
+    title === "본문" ||
+    title.includes("목록") ||
+    title === "할 일" ||
+    title === "인용" ||
+    title === "코드 블록" ||
+    title === "구분선"
+  ) {
+    return "텍스트";
+  }
+  if (
+    title === "이미지" ||
+    title === "유튜브 임베드" ||
+    title === "버튼" ||
+    title === "페이지 링크" ||
+    title === "새 페이지"
+  ) {
+    return "링크·미디어";
+  }
+  return "레이아웃";
+}
+
 export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
   ({ entries, query, command }, ref) => {
     const [stack, setStack] = useState<SlashCategoryItem[]>([]);
+    const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
     useEffect(() => {
       setStack([]);
@@ -44,6 +72,13 @@ export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
       setSelected(0);
     }, [visible, stack, query]);
 
+    useEffect(() => {
+      itemRefs.current[selected]?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
+    }, [selected]);
+
     useImperativeHandle(ref, () => ({
       onKeyDown: (e: KeyboardEvent) => {
         if (visible.length === 0) return false;
@@ -55,8 +90,15 @@ export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
           setSelected((i) => (i + 1) % visible.length);
           return true;
         }
-        if (e.key === "ArrowLeft" && stack.length > 0) {
-          setStack((s) => s.slice(0, -1));
+        if (e.key === "ArrowLeft") {
+          if (stack.length > 0) {
+            setStack((s) => s.slice(0, -1));
+          }
+          return true;
+        }
+        if (e.key === "ArrowRight") {
+          const it = visible[selected];
+          if (it?.kind === "category") setStack((s) => [...s, it]);
           return true;
         }
         if (e.key === "Enter") {
@@ -82,7 +124,7 @@ export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
     }
 
     return (
-      <div className="max-h-72 w-64 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 text-zinc-900 shadow-xl ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-white/10">
+      <div className="max-h-[420px] w-72 max-w-[calc(100vw-32px)] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 text-zinc-900 shadow-xl ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-white/10">
         {stack.length > 0 && (
           <button
             type="button"
@@ -97,9 +139,18 @@ export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
           const Icon = item.icon;
           const active = idx === selected;
           const isCat = item.kind === "category";
+          const groupTitle = slashGroupTitle(item);
+          const prev = visible[idx - 1];
+          const showGroup = !prev || slashGroupTitle(prev) !== groupTitle;
           return (
+            <div key={`${item.title}-${idx}`}>
+            {showGroup && idx > 0 ? (
+              <div className="my-1 h-px bg-zinc-200 dark:bg-zinc-700" />
+            ) : null}
             <button
-              key={`${item.title}-${idx}`}
+              ref={(el) => {
+                itemRefs.current[idx] = el;
+              }}
               type="button"
               onMouseEnter={() => setSelected(idx)}
               onClick={() => {
@@ -129,6 +180,7 @@ export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
                 </div>
               </div>
             </button>
+            </div>
           );
         })}
       </div>

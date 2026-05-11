@@ -61,11 +61,15 @@ export function useBoxSelectMarquee({
     dragRectOverlay.style.display = "none";
     dragRectOverlay.setAttribute("aria-hidden", "true");
     document.body.appendChild(dragRectOverlay);
+    let lockedScroll: { left: number; top: number } | null = null;
 
     const showDragOverlay = (r: Rect) => {
       if (Math.max(r.w, r.h) < 1) {
         dragRectOverlay.style.display = "none";
         return;
+      }
+      if (!dragRectOverlay.isConnected) {
+        document.body.appendChild(dragRectOverlay);
       }
       dragRectOverlay.style.display = "block";
       dragRectOverlay.style.left = `${r.x}px`;
@@ -78,9 +82,40 @@ export function useBoxSelectMarquee({
       dragRectOverlay.style.display = "none";
     };
 
+    const lockEditorScroll = () => {
+      lockedScroll = {
+        left: editorHost.scrollLeft,
+        top: editorHost.scrollTop,
+      };
+    };
+
+    const restoreLockedScroll = () => {
+      if (!lockedScroll) return;
+      if (
+        editorHost.scrollTop !== lockedScroll.top ||
+        editorHost.scrollLeft !== lockedScroll.left
+      ) {
+        editorHost.scrollTo({
+          left: lockedScroll.left,
+          top: lockedScroll.top,
+          behavior: "instant",
+        });
+      }
+    };
+
     const endMarqueeChrome = () => {
       document.body.classList.remove("qn-box-select-dragging");
       document.body.classList.remove("qn-box-select-tracking");
+      lockedScroll = null;
+    };
+
+    const resetMarqueeState = () => {
+      startRef.current = null;
+      activeRef.current = false;
+      dragRectRef.current = null;
+      hideDragOverlay();
+      endMarqueeChrome();
+      document.removeEventListener("selectstart", onSelectStartWhileTracking, true);
     };
 
     const onSelectStartWhileTracking = (e: Event) => {
@@ -107,7 +142,9 @@ export function useBoxSelectMarquee({
     };
 
     const beginMarqueeTracking = (ev: MouseEvent) => {
+      ev.preventDefault();
       clearSelection();
+      lockEditorScroll();
       startRef.current = { x: ev.clientX, y: ev.clientY };
       activeRef.current = false;
       document.body.classList.add("qn-box-select-tracking");
@@ -154,6 +191,8 @@ export function useBoxSelectMarquee({
 
     const onMouseMove = (e: MouseEvent) => {
       if (!startRef.current) return;
+      e.preventDefault();
+      restoreLockedScroll();
       const dx = e.clientX - startRef.current.x;
       const dy = e.clientY - startRef.current.y;
 
@@ -182,11 +221,16 @@ export function useBoxSelectMarquee({
       dragRectRef.current = rect;
       showDragOverlay(rect);
       updateSelectionDom(rect);
+      restoreLockedScroll();
     };
 
-    const onMouseUp = () => {
+    const onMouseUp = (e: MouseEvent) => {
       const wasTracking = startRef.current !== null;
       const wasActive = activeRef.current;
+      if (wasTracking) {
+        e.preventDefault();
+        restoreLockedScroll();
+      }
       const lastRect = dragRectRef.current;
       startRef.current = null;
       if (wasTracking && wasActive && lastRect) {
@@ -204,9 +248,26 @@ export function useBoxSelectMarquee({
       activeRef.current = false;
     };
 
+    const onWindowBlur = () => {
+      if (!startRef.current && !activeRef.current) return;
+      resetMarqueeState();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") return;
+      resetMarqueeState();
+    };
+
+    const onPointerCancel = () => {
+      resetMarqueeState();
+    };
+
     window.addEventListener("mousedown", onMouseDown, true);
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("blur", onWindowBlur);
+    window.addEventListener("pointercancel", onPointerCancel, true);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     const clearSelectionAfterDocChange = () => {
       if (activeRef.current) return;
@@ -265,6 +326,9 @@ export function useBoxSelectMarquee({
       window.removeEventListener("mousedown", onMouseDown, true);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("blur", onWindowBlur);
+      window.removeEventListener("pointercancel", onPointerCancel, true);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       document.removeEventListener("selectstart", onSelectStartWhileTracking, true);
       document.body.classList.remove("qn-box-select-dragging");
       document.body.classList.remove("qn-box-select-tracking");

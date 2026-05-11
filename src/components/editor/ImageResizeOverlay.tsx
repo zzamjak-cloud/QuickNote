@@ -65,7 +65,7 @@ function cursorFor(h: HandleId): string {
   return m[h];
 }
 
-/** 이미지 노드 선택 시 테두리에 비율 유지 리사이즈 핸들 */
+/** 이미지/동영상/유튜브 노드 선택 시 테두리에 비율 유지 리사이즈 핸들 */
 export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   const [box, setBox] = useState<{
     pos: number;
@@ -90,7 +90,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       nodeName === "fileBlock" &&
       typeof sel.node.attrs.mime === "string" &&
       (sel.node.attrs.mime as string).startsWith("video/");
-    if (nodeName !== "image" && !isVideoFileBlock) {
+    if (nodeName !== "image" && nodeName !== "youtube" && !isVideoFileBlock) {
       setBox((prev) => (prev === null ? prev : null));
       return;
     }
@@ -101,7 +101,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       return;
     }
     // outer wrapper 가 block 이면 row 전체를 차지하므로 실제 미디어 element 의 rect 를 사용.
-    const mediaEl = el.querySelector("img,video") as HTMLElement | null;
+    const mediaEl = el.querySelector("img,video,iframe") as HTMLElement | null;
     const target: HTMLElement = mediaEl ?? el;
     const r = target.getBoundingClientRect();
     const next = {
@@ -140,7 +140,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
         nodeName === "fileBlock" &&
         typeof sel.node.attrs.mime === "string" &&
         (sel.node.attrs.mime as string).startsWith("video/");
-      if (nodeName !== "image" && !isVideo) return;
+      if (nodeName !== "image" && nodeName !== "youtube" && !isVideo) return;
       const node = sel.node;
       const attrs = node.attrs as {
         width?: number | null;
@@ -148,21 +148,26 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       };
       const dom = editor.view.nodeDOM(sel.from);
       const shell = dom instanceof HTMLElement ? dom : null;
-      const mediaEl = shell?.querySelector("img,video") as
+      const mediaEl = shell?.querySelector("img,video,iframe") as
         | HTMLImageElement
         | HTMLVideoElement
+        | HTMLIFrameElement
         | null;
       const rect = (mediaEl ?? shell)?.getBoundingClientRect();
       if (!rect) return;
 
-      const natW =
+      const natW = Number(
         (mediaEl as HTMLImageElement | null)?.naturalWidth ??
         (mediaEl as HTMLVideoElement | null)?.videoWidth ??
-        1;
-      const natH =
+        (mediaEl as HTMLIFrameElement | null)?.width ??
+        1,
+      );
+      const natH = Number(
         (mediaEl as HTMLImageElement | null)?.naturalHeight ??
         (mediaEl as HTMLVideoElement | null)?.videoHeight ??
-        1;
+        (mediaEl as HTMLIFrameElement | null)?.height ??
+        1,
+      );
       let ratio: number;
       if (
         attrs.width != null &&
@@ -260,7 +265,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
         const shellNow = editor.view.nodeDOM(d.pos);
         const el = shellNow instanceof HTMLElement ? shellNow : null;
         if (el) {
-          const mediaNow = el.querySelector("img,video") as HTMLElement | null;
+          const mediaNow = el.querySelector("img,video,iframe") as HTMLElement | null;
           const nr = (mediaNow ?? el).getBoundingClientRect();
           setBox({
             pos: d.pos,

@@ -1,11 +1,7 @@
 import type { Editor, Range } from "@tiptap/react";
 import {
-  GanttChartSquare,
-  GalleryHorizontal,
   IndentIncrease,
-  Kanban,
   PanelTop,
-  Table2,
 } from "lucide-react";
 import { usePageStore } from "../../../store/pageStore";
 import { useDatabaseStore } from "../../../store/databaseStore";
@@ -14,6 +10,7 @@ import type { DatabaseLayout, ViewKind } from "../../../types/database";
 import { scheduleSlashMutation } from "./commandHelpers";
 import { slashLeaf } from "./entryBuilders";
 import type { SlashLeafItem } from "./types";
+import { buildQuickNotePageUrl } from "../../navigation/quicknoteLinks";
 
 export function insertDatabaseBlock(
   editor: Editor,
@@ -70,8 +67,11 @@ export function insertFullPageDatabase(
       .focus()
       .deleteRange(stableRange)
       .insertContent({
-        type: "pageLink",
-        attrs: { id: pageId, label: actualTitle },
+        type: "buttonBlock",
+        attrs: {
+          label: `${actualTitle} DB`,
+          href: buildQuickNotePageUrl({ pageId }),
+        },
       })
       .insertContent(" ")
       .run();
@@ -81,66 +81,22 @@ export function insertFullPageDatabase(
 
 export const dbSlashChildren: SlashLeafItem[] = [
   slashLeaf({
-    title: "전체 페이지",
+    title: "DB - 전체 페이지",
     description: "새 페이지에 데이터베이스만 표시",
     icon: PanelTop,
-    keywords: ["full", "page", "전체", "페이지"],
+    keywords: ["db", "database", "full", "page", "전체", "페이지"],
     command: ({ editor, range }) =>
       insertFullPageDatabase(editor, range, "table"),
   }),
   slashLeaf({
-    title: "인라인",
+    title: "DB - 인라인",
     description: "현재 페이지에 블록 삽입",
     icon: IndentIncrease,
-    keywords: ["inline", "인라인"],
+    keywords: ["db", "database", "inline", "인라인"],
     command: ({ editor, range }) =>
       insertDatabaseBlock(editor, range, {
         layout: "inline",
         view: "table",
-      }),
-  }),
-  slashLeaf({
-    title: "표",
-    description: "표 보기 데이터베이스",
-    icon: Table2,
-    keywords: ["table", "표", "테이블"],
-    command: ({ editor, range }) =>
-      insertDatabaseBlock(editor, range, {
-        layout: "inline",
-        view: "table",
-      }),
-  }),
-  slashLeaf({
-    title: "칸반 보드",
-    description: "보드 보기",
-    icon: Kanban,
-    keywords: ["kanban", "board", "칸반"],
-    command: ({ editor, range }) =>
-      insertDatabaseBlock(editor, range, {
-        layout: "inline",
-        view: "kanban",
-      }),
-  }),
-  slashLeaf({
-    title: "갤러리",
-    description: "갤러리 카드 보기",
-    icon: GalleryHorizontal,
-    keywords: ["gallery", "갤러리"],
-    command: ({ editor, range }) =>
-      insertDatabaseBlock(editor, range, {
-        layout: "inline",
-        view: "gallery",
-      }),
-  }),
-  slashLeaf({
-    title: "타임라인",
-    description: "타임라인 보기",
-    icon: GanttChartSquare,
-    keywords: ["timeline", "time", "타임라인"],
-    command: ({ editor, range }) =>
-      insertDatabaseBlock(editor, range, {
-        layout: "inline",
-        view: "timeline",
       }),
   }),
 ];

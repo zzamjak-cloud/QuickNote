@@ -2,7 +2,11 @@ import { Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { useState, useRef, useEffect } from "react";
-import { ExternalLink, Pencil, Link } from "lucide-react";
+import { Database, ExternalLink, Pencil, Link } from "lucide-react";
+import { usePageStore } from "../../store/pageStore";
+import { useSettingsStore } from "../../store/settingsStore";
+import { parseQuickNoteLink } from "../navigation/quicknoteLinks";
+import { scrollToBlockPosition } from "../editor/editorNavigationBridge";
 
 type ButtonBlockAttrs = {
   label: string;
@@ -16,6 +20,8 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const [draftHref, setDraftHref] = useState(attrs.href);
   const popoverRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
+  const setActivePage = usePageStore((s) => s.setActivePage);
+  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
 
   useEffect(() => {
     if (!editing) return;
@@ -33,6 +39,22 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
 
   const handleClick = () => {
     if (!attrs.href) return;
+    const internal = parseQuickNoteLink(attrs.href);
+    if (internal) {
+      setActivePage(internal.pageId);
+      setCurrentTabPage(internal.pageId);
+      window.setTimeout(() => {
+        if (internal.block != null) scrollToBlockPosition(internal.block);
+        if (internal.tab) {
+          document
+            .querySelector<HTMLButtonElement>(
+              `[data-qn-tab-id="${CSS.escape(internal.tab)}"]`,
+            )
+            ?.click();
+        }
+      }, 80);
+      return;
+    }
     const href = attrs.href.startsWith("http") ? attrs.href : `https://${attrs.href}`;
     window.open(href, "_blank", "noopener,noreferrer");
   };
@@ -41,6 +63,8 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
     updateAttributes({ label: draftLabel, href: draftHref });
     setEditing(false);
   };
+  const looksLikeDatabaseButton = /\bDB\b|데이터베이스/.test(attrs.label);
+  const LeadingIcon = looksLikeDatabaseButton ? Database : Link;
 
   return (
     <NodeViewWrapper as="span" className="inline-block my-1">
@@ -50,15 +74,32 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
           onClick={handleClick}
           className={[
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
-            "border-zinc-300 bg-zinc-50 text-zinc-700 hover:border-zinc-400 hover:bg-zinc-100",
-            "dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-700",
+            looksLikeDatabaseButton
+              ? "border-blue-500 bg-blue-500 text-white hover:border-blue-600 hover:bg-blue-600 dark:border-blue-500 dark:bg-blue-500 dark:text-white dark:hover:bg-blue-600"
+              : "border-zinc-300 bg-zinc-50 text-zinc-700 hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-700",
             selected ? "ring-2 ring-blue-400" : "",
           ].join(" ")}
         >
-          <Link size={13} className="shrink-0 text-zinc-400 dark:text-zinc-500" />
+          <LeadingIcon
+            size={13}
+            className={[
+              "shrink-0",
+              looksLikeDatabaseButton
+                ? "text-white"
+                : "text-zinc-400 dark:text-zinc-500",
+            ].join(" ")}
+          />
           <span>{attrs.label || "버튼"}</span>
           {attrs.href && (
-            <ExternalLink size={11} className="shrink-0 text-zinc-400 dark:text-zinc-500" />
+            <ExternalLink
+              size={11}
+              className={[
+                "shrink-0",
+                looksLikeDatabaseButton
+                  ? "text-blue-100"
+                  : "text-zinc-400 dark:text-zinc-500",
+              ].join(" ")}
+            />
           )}
         </button>
         {/* 호버 시 편집 아이콘 */}

@@ -168,7 +168,7 @@ export const blockDefinitions: BlockDefinition[] = [
     group: "database",
     dnd: movableLeafDnd,
     toolbar: { kind: "database" },
-    slashTitles: ["DB"],
+    slashTitles: ["DB - 전체 페이지", "DB - 인라인"],
   }),
   defineBlock({
     id: "table",
@@ -186,6 +186,15 @@ export const blockDefinitions: BlockDefinition[] = [
     group: "interactive",
     dnd: movableLeafDnd,
     slashTitles: ["버튼"],
+  }),
+  defineBlock({
+    id: "bookmark",
+    title: "북마크",
+    nodeTypes: ["bookmarkBlock"],
+    group: "embed",
+    dnd: movableLeafDnd,
+    toolbar: { kind: "media" },
+    slashTitles: [],
   }),
   defineBlock({
     id: "callout",

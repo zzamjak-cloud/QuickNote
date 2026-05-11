@@ -212,6 +212,10 @@ body.quicknote-block-dragging .ProseMirror {
   line-height: 1.42;
 }
 
+.ProseMirror a[href] {
+  cursor: pointer;
+}
+
 .ProseMirror ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0;
@@ -636,6 +640,11 @@ body.qn-box-select-tracking [data-qn-editor-column],
 body.qn-box-select-tracking [data-qn-editor-column] * {
   user-select: none !important;
   -webkit-user-select: none !important;
+}
+
+body.qn-box-select-tracking iframe,
+body.qn-box-select-dragging iframe {
+  pointer-events: none !important;
 }
 
 /* 드래그 중에는 페이지 전체 텍스트 선택 억제 */

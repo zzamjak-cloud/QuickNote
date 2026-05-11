@@ -46,6 +46,7 @@ import {
   shouldSuppressBlockHandle,
   shouldUseDatabaseBlockChrome,
 } from "../../lib/blocks/uiPolicy";
+import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 
 type HoverInfo = {
   rect: DOMRect;
@@ -666,7 +667,7 @@ export function BlockHandles({
   const copyBlockLink = () => {
     if (!hover || !activePageId) return;
     void navigator.clipboard.writeText(
-      `quicknote://page/${activePageId}?block=${hover.blockStart}`,
+      buildQuickNotePageUrl({ pageId: activePageId, block: hover.blockStart }),
     );
     setMenuOpen(false);
   };
@@ -696,6 +697,11 @@ export function BlockHandles({
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isAttachmentBlock =
     hover ? isAttachmentBlockNodeType(hover.node.type.name) : false;
+  const shouldShowTypeChange =
+    hover != null &&
+    !["columnLayout", "column", "tabBlock", "tabPanel", "table"].includes(
+      hover.node.type.name,
+    );
   const menuAnchor =
     hover && bar && wrapperRect
       ? {
@@ -792,7 +798,13 @@ export function BlockHandles({
   if (boxSelecting) return null;
 
   return (
-    <div ref={containerRef} className="pointer-events-none absolute inset-0 z-10">
+    <div
+      ref={containerRef}
+      className={[
+        "pointer-events-none absolute inset-0",
+        menuOpen ? "z-[320]" : "z-10",
+      ].join(" ")}
+    >
       {hover && bar && wrapperRect ? (
         <>
         <div
@@ -849,7 +861,7 @@ export function BlockHandles({
                     <Download size={14} />
                     다운로드
                   </button>
-                ) : (
+                ) : shouldShowTypeChange ? (
                   <div className="relative border-t border-zinc-200 dark:border-zinc-700">
                     <button
                       type="button"
@@ -910,7 +922,7 @@ export function BlockHandles({
                       </div>
                     )}
                   </div>
-                )}
+                ) : null}
 
                 {/* 콜아웃 프리셋 (콜아웃 블럭일 때만) */}
                 {isCallout && (

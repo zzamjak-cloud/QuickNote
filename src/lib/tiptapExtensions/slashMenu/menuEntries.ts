@@ -3,7 +3,6 @@ import {
   CheckSquare,
   ChevronRight,
   Code2,
-  Database as DatabaseIcon,
   FileText,
   Heading1,
   Heading2,
@@ -27,7 +26,7 @@ import { useUiStore } from "../../../store/uiStore";
 import { isTrustedYoutubeInput } from "../../safeUrl";
 import { clearSlashRange, runSlashCommand } from "./commandHelpers";
 import { dbSlashChildren } from "./dbCommands";
-import { slashCategory, slashLeaf } from "./entryBuilders";
+import { slashLeaf } from "./entryBuilders";
 import type { SlashCommandContext, SlashMenuEntry } from "./types";
 
 function countProtectedMediaBlocks(node: unknown): number {
@@ -101,24 +100,7 @@ function runTabBlockCommand(
 }
 
 export const slashMenuEntries: SlashMenuEntry[] = [
-  slashCategory({
-    title: "DB",
-    description: "데이터베이스 삽입",
-    icon: DatabaseIcon,
-    keywords: [
-      "db",
-      "database",
-      "데이터",
-      "데이터베이스",
-      "노션",
-      "전체 페이지",
-      "인라인",
-      "칸반",
-      "갤러리",
-      "타임라인",
-    ],
-    children: dbSlashChildren,
-  }),
+  ...dbSlashChildren,
   slashLeaf({
     title: "탭",
     description: "탭으로 구분된 컨텐츠 블록",
