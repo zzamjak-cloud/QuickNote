@@ -45,6 +45,7 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
     const handler = (e: MouseEvent) => {
       if (ref.current?.contains(e.target as Node)) return;
       if (anchorEl?.contains(e.target as Node)) return;
+      if ((e.target as Element)?.closest("[data-qn-color-picker]")) return;
       onClose();
     };
     window.addEventListener("mousedown", handler);

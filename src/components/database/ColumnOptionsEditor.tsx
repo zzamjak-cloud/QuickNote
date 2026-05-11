@@ -135,8 +135,9 @@ function OptionColorSwatch({
         createPortal(
           <div
             ref={popRef}
+            data-qn-color-picker
             style={{ position: "fixed", top: coords.top, left: coords.left }}
-            className="z-[60] flex gap-1 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-[500] flex gap-1 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             {SELECT_COLOR_PRESETS.map((c) => (
               <button
