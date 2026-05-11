@@ -52,8 +52,13 @@ export function DatabasePropertyPanel({
               type="button"
               onClick={(e) => {
                 const id = titleColumn.id;
-                setOpenColumnMenu(openColumnMenuId === id ? null : id);
-                if (openColumnMenuId !== id) setColMenuAnchor(e.currentTarget);
+                if (openColumnMenuId === id) {
+                  setOpenColumnMenu(null);
+                  setColMenuAnchor(null);
+                } else {
+                  setOpenColumnMenu(id);
+                  setColMenuAnchor(e.currentTarget);
+                }
               }}
               className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
               title="클릭하여 속성 편집"

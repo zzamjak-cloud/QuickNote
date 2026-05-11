@@ -35,16 +35,22 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState(false);
   const [nameDraft, setNameDraft] = useState(column.name);
+  const committedRef = useRef(false);
 
   useEffect(() => {
+    committedRef.current = false;
     setNameDraft(column.name);
     const timer = setTimeout(() => nameInputRef.current?.select(), 60);
     return () => clearTimeout(timer);
   }, [column.name]);
 
   const commitName = () => {
+    if (committedRef.current) return;
     const t = nameDraft.trim() || column.name;
-    if (t !== column.name) updateColumn(databaseId, column.id, { name: t });
+    if (t !== column.name) {
+      committedRef.current = true;
+      updateColumn(databaseId, column.id, { name: t });
+    }
   };
 
   // 매 렌더마다 anchorEl 위치를 직접 계산 (useLayoutEffect 한 번만 실행하면 스크롤/리사이즈 후 좌표가 틀림)
