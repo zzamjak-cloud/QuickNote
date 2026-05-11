@@ -64,6 +64,8 @@ function reorderTableColumn(editor: Editor, pos: number, table: PMNode, from: nu
 export function TableBlockControls({ editor }: { editor: Editor | null }) {
   const [ui, setUi] = useState<TableUi | null>(null);
   const [drag, setDrag] = useState<{ kind: "row" | "col"; from: number } | null>(null);
+  const [hoveredRowIdx, setHoveredRowIdx] = useState<number | null>(null);
+  const [hoveredColIdx, setHoveredColIdx] = useState<number | null>(null);
   // 클로저 stale 방지 — mousemove 핸들러가 항상 최신 ui를 참조
   const uiRef = useRef<TableUi | null>(null);
   uiRef.current = ui;
@@ -106,16 +108,20 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
       if (!root.contains(rawTarget)) {
         const cur = uiRef.current;
         if (cur) {
-          const BUFFER = 56;
+          const BUFFER_LEFT = 60;
+          const BUFFER_TOP = 60;
+          const BUFFER_OTHER = 40;
           const { rect } = cur;
           const near =
-            e.clientX >= rect.left - BUFFER &&
-            e.clientX <= rect.right + BUFFER &&
-            e.clientY >= rect.top - BUFFER &&
-            e.clientY <= rect.bottom + BUFFER;
+            e.clientX >= rect.left - BUFFER_LEFT &&
+            e.clientX <= rect.right + BUFFER_OTHER &&
+            e.clientY >= rect.top - BUFFER_TOP &&
+            e.clientY <= rect.bottom + BUFFER_OTHER;
           if (near) return;
         }
         setUi(null);
+        setHoveredRowIdx(null);
+        setHoveredColIdx(null);
         return;
       }
       // SVGElement인 경우 closest로 가장 가까운 HTMLElement를 찾음
@@ -123,6 +129,21 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
         ? rawTarget
         : rawTarget.closest<HTMLElement>("td, th, table, [data-type]") ?? rawTarget.closest<HTMLElement>("*");
       measureFromTarget(target);
+      // uiRef.current는 이전 렌더 기준이지만 표 위치는 거의 동일하므로 hover 인덱스 계산에 충분히 정확
+      const prevUi = uiRef.current;
+      if (prevUi) {
+        const rIdx = prevUi.rowRects.findIndex(
+          (r) => e.clientY >= r.top && e.clientY <= r.bottom,
+        );
+        setHoveredRowIdx(rIdx === -1 ? null : rIdx);
+        const cIdx = prevUi.colRects.findIndex(
+          (r) => e.clientX >= r.left && e.clientX <= r.right,
+        );
+        setHoveredColIdx(cIdx === -1 ? null : cIdx);
+      } else {
+        setHoveredRowIdx(null);
+        setHoveredColIdx(null);
+      }
     };
     const refresh = () => {
       const cur = uiRef.current;
@@ -188,7 +209,11 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
             if (drag?.kind === "col") reorderTableColumn(editor, ui.pos, table, drag.from, index);
             setDrag(null);
           }}
-          className="pointer-events-auto fixed flex h-5 items-center justify-center rounded border border-zinc-200 bg-white px-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900"
+          className={[
+            "pointer-events-auto fixed flex h-5 items-center justify-center rounded border border-zinc-200 bg-white px-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900",
+            "transition-opacity duration-100",
+            hoveredColIdx === index ? "opacity-100" : "opacity-0",
+          ].join(" ")}
           style={{ left: rect.left + rect.width / 2 - 12, top: rect.top - 24 }}
         >
           <GripHorizontal size={14} />
@@ -210,7 +235,11 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
             if (drag?.kind === "row") reorderTableRow(editor, ui.pos, table, drag.from, index);
             setDrag(null);
           }}
-          className="pointer-events-auto fixed flex w-5 items-center justify-center rounded border border-zinc-200 bg-white py-1 text-zinc-400 opacity-0 shadow-sm hover:opacity-100 hover:text-zinc-700 focus:opacity-100 dark:border-zinc-700 dark:bg-zinc-900"
+          className={[
+            "pointer-events-auto fixed flex w-5 items-center justify-center rounded border border-zinc-200 bg-white py-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900",
+            "transition-opacity duration-100",
+            hoveredRowIdx === index ? "opacity-100" : "opacity-0",
+          ].join(" ")}
           style={{ left: rect.left - 26, top: rect.top + rect.height / 2 - 10 }}
         >
           <GripVertical size={14} />
