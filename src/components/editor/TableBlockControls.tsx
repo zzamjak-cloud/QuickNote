@@ -77,6 +77,8 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
       const tableEl = target.closest("table");
       if (!info || !(tableEl instanceof HTMLTableElement)) {
         setUi(null);
+        setHoveredRowIdx(null);
+        setHoveredColIdx(null);
         return;
       }
       const firstRow = tableEl.rows.item(0);
@@ -102,6 +104,8 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
       const rawTarget = e.target;
       if (!(rawTarget instanceof Element)) {
         setUi(null);
+        setHoveredRowIdx(null);
+        setHoveredColIdx(null);
         return;
       }
       // "+" 버튼·드래그 핸들은 에디터 밖 fixed 위치 — 테이블 근방이면 ui 유지
