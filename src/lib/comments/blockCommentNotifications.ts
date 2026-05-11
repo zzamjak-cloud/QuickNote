@@ -7,10 +7,12 @@ import { normalizeMentionMemberIds } from "./mentionMemberIds";
 export function dispatchNotificationsForBlockCommentMessage(
   msg: BlockCommentMsg,
   priorParticipants: string[],
+  pageCreatedByMemberId?: string,
 ): void {
   const notified = new Set<string>();
   const pageTitle = usePageStore.getState().pages[msg.pageId]?.title ?? "페이지";
 
+  // 멘션 알림
   for (const mid of normalizeMentionMemberIds(msg.mentionMemberIds)) {
     if (mid === msg.authorMemberId) continue;
     notified.add(mid);
@@ -27,12 +29,33 @@ export function dispatchNotificationsForBlockCommentMessage(
     });
   }
 
+  // 스레드 참여자 답글 알림
   for (const mid of priorParticipants) {
     if (mid === msg.authorMemberId) continue;
     if (notified.has(mid)) continue;
     notified.add(mid);
     useNotificationStore.getState().addNotification({
       recipientMemberId: mid,
+      kind: "thread_reply",
+      source: "comment",
+      pageTitle,
+      pageId: msg.pageId,
+      blockId: msg.blockId,
+      fromMemberId: msg.authorMemberId,
+      commentId: msg.id,
+      previewBody: msg.bodyText.slice(0, 140),
+    });
+  }
+
+  // 페이지 소유자 알림 — 소유자가 작성자도 아니고 이미 알림받지 않은 경우
+  if (
+    pageCreatedByMemberId &&
+    pageCreatedByMemberId !== msg.authorMemberId &&
+    !notified.has(pageCreatedByMemberId)
+  ) {
+    notified.add(pageCreatedByMemberId);
+    useNotificationStore.getState().addNotification({
+      recipientMemberId: pageCreatedByMemberId,
       kind: "thread_reply",
       source: "comment",
       pageTitle,

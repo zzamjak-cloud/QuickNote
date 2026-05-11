@@ -196,6 +196,7 @@ export function applyRemotePageToStore(
       databaseId: p.databaseId ?? undefined,
       dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
       ...(mergedBlockComments ? { blockComments: mergedBlockComments } : {}),
+      createdByMemberId: p.createdByMemberId ?? undefined,
       createdAt: isoToMs(p.createdAt) || Date.now(),
       updatedAt: isoToMs(p.updatedAt) || Date.now(),
     };

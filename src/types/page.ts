@@ -19,6 +19,8 @@ export type Page = {
   coverImage?: string | null;
   /** 블록 댓글·스레드 읽음 상태 — AppSync `Page.blockComments`(AWSJSON)와 동기화 */
   blockComments?: PageBlockCommentsSnapshot;
+  /** 페이지를 생성한 멤버 id — 댓글 알림 수신 대상 판별에 사용 */
+  createdByMemberId?: string;
 };
 
 export type PageMap = Record<string, Page>;
