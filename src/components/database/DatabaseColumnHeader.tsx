@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { GripVertical, ChevronDown } from "lucide-react";
 import type { ColumnDef } from "../../types/database";
 import { useUiStore } from "../../store/uiStore";
+import { useDatabaseStore } from "../../store/databaseStore";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
@@ -31,6 +32,7 @@ export function DatabaseColumnHeader({
   highlightDrop,
   onAutoFit,
 }: Props) {
+  const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
   const setOpenColumnMenu = useUiStore((s) => s.setOpenColumnMenu);
   const menuOpen = openColumnMenuId === column.id;
