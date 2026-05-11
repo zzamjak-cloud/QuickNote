@@ -159,11 +159,20 @@ export function applyRemotePageToStore(
         cacheWorkspaceId: p.workspaceId,
       };
     }
-    // 로컬이 더 신선하면 무시.
+    // 로컬이 더 신선하면 페이지 본문은 무시하되, blockComments는 항상 union 병합.
+    // (댓글 작성 시 낙관적 updatedAt 설정으로 guard가 의도치 않게 원격 댓글을 차단할 수 있음)
     if (local && !isRemoteNewer(local.updatedAt, p.updatedAt)) {
-      return s.cacheWorkspaceId === p.workspaceId
-        ? s
-        : { ...s, cacheWorkspaceId: p.workspaceId };
+      const remoteBC =
+        p.blockComments != null
+          ? coercePageBlockComments(parseAwsJson<unknown>(p.blockComments, null))
+          : undefined;
+      const mergedBC = mergePageBlockComments(remoteBC, local.blockComments);
+      const base = s.cacheWorkspaceId === p.workspaceId ? s : { ...s, cacheWorkspaceId: p.workspaceId };
+      if (mergedBC === local.blockComments) return base;
+      return {
+        ...base,
+        pages: { ...base.pages, [p.id]: { ...local, blockComments: mergedBC } },
+      };
     }
 
     const orderNum = (() => {
