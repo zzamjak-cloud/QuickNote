@@ -267,6 +267,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
       runSlashCommand(ctx, (chain) => chain.insertButtonBlock("버튼", "")),
   }),
   slashLeaf({
+    id: "callout",
     title: "콜아웃",
     description: "💡 강조 박스",
     icon: Lightbulb,
@@ -274,6 +275,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.setCallout("idea")),
   }),
   slashLeaf({
+    id: "toggle",
     title: "토글",
     description: "접고 펼 수 있는 블록",
     icon: ChevronRight,
@@ -281,6 +283,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.setToggle()),
   }),
   slashLeaf({
+    id: "headingToggle1",
     title: "제목 토글 목록 1",
     description: "큰 제목 스타일 토글",
     icon: Heading1,
@@ -288,6 +291,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHeadingToggle(1)),
   }),
   slashLeaf({
+    id: "headingToggle2",
     title: "제목 토글 목록 2",
     description: "중간 제목 스타일 토글",
     icon: Heading2,
@@ -295,6 +299,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHeadingToggle(2)),
   }),
   slashLeaf({
+    id: "headingToggle3",
     title: "제목 토글 목록 3",
     description: "작은 제목 스타일 토글",
     icon: Heading3,

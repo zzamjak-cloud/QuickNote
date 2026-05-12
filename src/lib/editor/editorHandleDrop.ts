@@ -8,6 +8,10 @@ import {
   QUICKNOTE_BLOCK_DRAG_MIME,
 } from "../startBlockNativeDrag";
 import {
+  isTableReorderDragEvent,
+  parseTableReorderDragData,
+} from "./tableReorderDrag";
+import {
   canDropNodeAtInsertionPos,
   resolveBlockDropTarget,
   resolveBlockDropIndicatorRect,
@@ -448,6 +452,11 @@ export function createEditorHandleDrop(options: {
     }
     clearBlockDropIndicator?.();
 
+    if (parseTableReorderDragData(event.dataTransfer)) {
+      event.preventDefault?.();
+      return true;
+    }
+
     if (moved && moveSelectedBlockIntoColumn(view, event)) {
       return true;
     }
@@ -556,6 +565,10 @@ export function createEditorHandleDragOver(options: {
 }) {
   const { showBlockDropIndicator, clearBlockDropIndicator } = options;
   return function handleDragOver(view: EditorView, event: DragEvent): boolean {
+    if (isTableReorderDragEvent(event.dataTransfer)) {
+      clearBlockDropIndicator();
+      return false;
+    }
     const starts = parseQuickNoteBlockDragStarts(event.dataTransfer);
     if (!starts) return false;
     const nodes = starts

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
+import { CellSelection } from "@tiptap/pm/tables";
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Bold,
   Italic,
   Strikethrough,
@@ -56,7 +60,30 @@ type Props = {
   editor: Editor | null;
 };
 
-// 텍스트 선택 또는 이미지 노드 선택 시 부유 툴바.
+/** 선택 앵커가 tableCell / tableHeader 안인지 */
+function isInTableCell(editor: Editor): boolean {
+  const { $from } = editor.state.selection;
+  for (let d = $from.depth; d > 0; d -= 1) {
+    const name = $from.node(d).type.name;
+    if (name === "tableCell" || name === "tableHeader") return true;
+  }
+  return false;
+}
+
+/** 앵커 기준 셀의 align 속성(null 이면 브라우저 기본 왼쪽) */
+function getTableCellAlign(editor: Editor): string | null {
+  const { $from } = editor.state.selection;
+  for (let d = $from.depth; d > 0; d -= 1) {
+    const node = $from.node(d);
+    if (node.type.name === "tableCell" || node.type.name === "tableHeader") {
+      const a = node.attrs.align as string | null | undefined;
+      return a ?? null;
+    }
+  }
+  return null;
+}
+
+// 텍스트 범위 선택·표 셀(CellSelection) 선택·이미지 노드 선택 시 부유 툴바(셀 안 커서만일 때는 숨김).
 export function BubbleToolbar({ editor }: Props) {
   const [mode, setMode] = useState<ToolbarMode>("hidden");
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -101,6 +128,15 @@ export function BubbleToolbar({ editor }: Props) {
           // 인라인 DB·HR 등 원자 블록의 NodeSelection — 텍스트 포매팅 툴바 숨김
           nextMode = "hidden";
           nextPos = null;
+        } else if (sel instanceof CellSelection) {
+          // 표 셀 드래그 선택 — 셀 정렬 등 부유 툴바
+          const start = editor.view.coordsAtPos(sel.from);
+          const end = editor.view.coordsAtPos(sel.to);
+          nextMode = "text";
+          nextPos = {
+            top: Math.min(start.top, end.top) + window.scrollY - 44,
+            left: (start.left + end.left) / 2 + window.scrollX,
+          };
         } else {
           const { from, to } = sel;
           if (from === to) {
@@ -118,10 +154,15 @@ export function BubbleToolbar({ editor }: Props) {
         }
       }
 
+      const curSel = editor.state.selection;
+      const cellAlignSig =
+        nextMode === "text" && isInTableCell(editor)
+          ? `:ca:${getTableCellAlign(editor) ?? "null"}:${curSel.from}:${curSel.to}`
+          : "";
       const sig =
         nextMode === "hidden"
           ? "hidden"
-          : `${nextMode}:${Math.round(nextPos!.top)}:${Math.round(nextPos!.left)}`;
+          : `${nextMode}:${Math.round(nextPos!.top)}:${Math.round(nextPos!.left)}${cellAlignSig}`;
       if (lastToolbarSigRef.current === sig) return;
       lastToolbarSigRef.current = sig;
 
@@ -161,6 +202,9 @@ export function BubbleToolbar({ editor }: Props) {
   }, [editor]);
 
   if (!editor || !pos || mode === "hidden") return null;
+
+  const showCellAlign = mode === "text" && isInTableCell(editor);
+  const cellAlign = showCellAlign ? getTableCellAlign(editor) : null;
 
   return (
     <div
@@ -277,6 +321,41 @@ export function BubbleToolbar({ editor }: Props) {
                 />
               )}
             </div>
+            {showCellAlign ? (
+              <>
+                <div
+                  className="mx-0.5 h-5 w-px shrink-0 bg-zinc-200 dark:bg-zinc-600"
+                  aria-hidden
+                />
+                <ToolbarBtn
+                  active={cellAlign == null || cellAlign === "left"}
+                  onClick={() =>
+                    editor.chain().focus().setCellAttribute("align", "left").run()
+                  }
+                  title="셀 텍스트 왼쪽 정렬"
+                >
+                  <AlignLeft size={14} />
+                </ToolbarBtn>
+                <ToolbarBtn
+                  active={cellAlign === "center"}
+                  onClick={() =>
+                    editor.chain().focus().setCellAttribute("align", "center").run()
+                  }
+                  title="셀 텍스트 가운데 정렬"
+                >
+                  <AlignCenter size={14} />
+                </ToolbarBtn>
+                <ToolbarBtn
+                  active={cellAlign === "right"}
+                  onClick={() =>
+                    editor.chain().focus().setCellAttribute("align", "right").run()
+                  }
+                  title="셀 텍스트 오른쪽 정렬"
+                >
+                  <AlignRight size={14} />
+                </ToolbarBtn>
+              </>
+            ) : null}
           </>
         )}
       </div>

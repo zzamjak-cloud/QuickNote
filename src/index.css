@@ -56,6 +56,8 @@ body,
   table-layout: fixed;
   width: 100%;
   overflow: hidden;
+  /* 표 안 제스처가 부모 스크롤 체인으로 넘어가며 페이지가 튀는 것 완화 */
+  overscroll-behavior: contain;
 }
 .ProseMirror table td,
 .ProseMirror table th {
@@ -708,6 +710,17 @@ body.quicknote-column-reorder-dragging [data-qn-block-grip] {
 
 body.quicknote-column-reorder-dragging .qn-column-drop-indicator,
 body.quicknote-column-reorder-dragging .qn-dropcursor {
+  display: none !important;
+}
+
+/* TipTap 표 행·열 순서 드래그 중: 블록 드롭·dropcursor·블록 그립 숨김 (열 레이아웃 재정렬과 동일 취지) */
+body.quicknote-table-reorder-dragging [data-qn-block-grip] {
+  visibility: hidden;
+}
+
+body.quicknote-table-reorder-dragging .qn-block-drop-indicator,
+body.quicknote-table-reorder-dragging .qn-dropcursor,
+body.quicknote-table-reorder-dragging .qn-column-drop-indicator {
   display: none !important;
 }
 
