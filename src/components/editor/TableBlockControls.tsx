@@ -5,6 +5,7 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { AlignCenter, AlignLeft, AlignRight, GripHorizontal, GripVertical, Plus } from "lucide-react";
 import {
   setTableReorderDragData,
+  isTableReorderDragEvent,
   TABLE_REORDER_DRAG_BODY_CLASS,
 } from "../../lib/editor/tableReorderDrag";
 
@@ -514,6 +515,17 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
     if (!editor || editor.isDestroyed) setGripMenu(null);
   }, [editor]);
 
+  // 표 열 드래그: useEffect 지연 없이 에디터 DOM에 즉시 dragover 허용 — 첫 이벤트 취소 방지
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const dom = editor.view.dom;
+    const onDragOver = (e: DragEvent) => {
+      if (isTableReorderDragEvent(e.dataTransfer)) e.preventDefault();
+    };
+    dom.addEventListener("dragover", onDragOver);
+    return () => dom.removeEventListener("dragover", onDragOver);
+  }, [editor]);
+
   // 표 셀 내부에서 텍스트 선택 드래그 시 부모 스크롤 컨테이너 자동스크롤 방지
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -577,32 +589,55 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
           style={{ left: menuLeft, top: menuTop }}
         >
           <div className="px-1 py-1">
-            {!gripMenu.deleteArmed && (
-              <button
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                onClick={() => {
-                  const tableEl = getTableElement(editor, gripMenu.tablePos);
-                  const cell = tableEl?.rows[0]?.cells[0];
-                  if (cell) {
-                    try {
-                      const pos = editor.view.posAtDOM(cell, 0);
-                      if (gripMenu.kind === "row") {
-                        editor.chain().focus().setTextSelection(pos).toggleHeaderRow().run();
-                      } else {
-                        editor.chain().focus().setTextSelection(pos).toggleHeaderColumn().run();
-                      }
-                    } catch { /* 셀 위치 조회 실패 무시 */ }
-                  }
-                  setGripMenu(null);
-                }}
-              >
-                {gripMenu.kind === "row"
-                  ? headerRowActive ? "헤더행 비활성화" : "헤더행 활성화"
-                  : headerColActive ? "헤더열 비활성화" : "헤더열 활성화"}
-              </button>
-            )}
+            {!gripMenu.deleteArmed && (() => {
+              const toggleHeader = (kind: "row" | "col") => {
+                const tableEl = getTableElement(editor, gripMenu.tablePos);
+                const cell = tableEl?.rows[0]?.cells[0];
+                if (cell) {
+                  try {
+                    const pos = editor.view.posAtDOM(cell, 0);
+                    editor.chain().focus().setTextSelection(pos).run();
+                    if (kind === "row") editor.commands.toggleHeaderRow();
+                    else editor.commands.toggleHeaderColumn();
+                  } catch { /* 셀 위치 조회 실패 */ }
+                }
+                setGripMenu(null);
+              };
+              return (
+                <>
+                  {(["row", "col"] as const).map((kind) => {
+                    const active = kind === "row" ? headerRowActive : headerColActive;
+                    return (
+                      <button
+                        key={kind}
+                        type="button"
+                        role="menuitem"
+                        className="flex w-full items-center justify-between rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        onClick={() => toggleHeader(kind)}
+                      >
+                        <span className="text-sm text-zinc-800 dark:text-zinc-200">
+                          {kind === "row" ? "헤더행" : "헤더열"}
+                        </span>
+                        <div
+                          className={[
+                            "relative inline-flex h-[18px] w-8 flex-shrink-0 items-center rounded-full transition-colors duration-200",
+                            active ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-600",
+                          ].join(" ")}
+                        >
+                          <span
+                            className={[
+                              "inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform duration-200",
+                              active ? "translate-x-[18px]" : "translate-x-[3px]",
+                            ].join(" ")}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                  <div className="my-1 border-t border-zinc-100 dark:border-zinc-700" />
+                </>
+              );
+            })()}
             <button
               type="button"
               role="menuitem"
