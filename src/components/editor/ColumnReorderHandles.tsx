@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { Fragment, type Node as PMNode } from "@tiptap/pm/model";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 
 type Props = {
   editor: Editor | null;
@@ -85,7 +86,15 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [hoveringLayout, setHoveringLayout] = useState(false);
   const [hoveredColumnIndex, setHoveredColumnIndex] = useState<number | null>(null);
-  const [deleteConfirmIndex, setDeleteConfirmIndex] = useState<number | null>(null);
+  const [menu, setMenu] = useState<{
+    layoutStart: number;
+    index: number;
+    clientX: number;
+    clientY: number;
+    deleteArmed: boolean;
+  } | null>(null);
+  /** 핸들 클릭(메뉴) vs 드래그 구분 — pointerdown~click 동안 이동 여부 추적 */
+  const handleSessionRef = useRef<{ moved: boolean } | null>(null);
   const [boxSelecting, setBoxSelecting] = useState(false);
   const [pmRangeSelecting, setPmRangeSelecting] = useState(false);
   const boxSelectionActive = boxSelectedStarts.length > 0 || pmRangeSelecting;
@@ -341,8 +350,22 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       );
       editor.view.dispatch(tr.scrollIntoView());
       editor.view.focus();
-      setDeleteConfirmIndex(null);
       setHoveredColumnIndex(Math.max(0, Math.min(index - 1, cols.length - 1)));
+      requestAnimationFrame(refresh);
+      return true;
+    },
+    [editor, refresh],
+  );
+
+  /** 컬럼 레이아웃 노드 전체 삭제 */
+  const removeColumnLayout = useCallback(
+    (layoutStart: number) => {
+      if (!editor || editor.isDestroyed) return false;
+      const layout = editor.state.doc.nodeAt(layoutStart);
+      if (!layout || layout.type.name !== "columnLayout") return false;
+      const tr = editor.state.tr.delete(layoutStart, layoutStart + layout.nodeSize);
+      editor.view.dispatch(tr.scrollIntoView());
+      editor.view.focus();
       requestAnimationFrame(refresh);
       return true;
     },
@@ -489,16 +512,12 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       }
       setHoveringLayout(inside);
       setHoveredColumnIndex(nextHoveredIndex);
-      if (nextHoveredIndex !== deleteConfirmIndex) {
-        setDeleteConfirmIndex(null);
-      }
       if (nextLayoutEl) requestAnimationFrame(refresh);
     };
     const onLeave = () => {
       hoveredLayoutElRef.current = null;
       setHoveringLayout(false);
       setHoveredColumnIndex(null);
-      setDeleteConfirmIndex(null);
     };
     window.addEventListener("mousemove", onMove, { passive: true });
     window.addEventListener("blur", onLeave);
@@ -506,7 +525,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("blur", onLeave);
     };
-  }, [deleteConfirmIndex, editor, handles, refresh]);
+  }, [editor, handles, refresh]);
 
   useEffect(() => {
     if (!handles) return;
@@ -536,6 +555,29 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       window.removeEventListener("drop", onWindowDrop);
     };
   }, [handles, dropIndex, reorderColumns, getNearestColumnIndexByClientX]);
+
+  // 컬럼 그립 메뉴 외부 클릭/Esc/스크롤로 닫기
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onPointerDownCapture = (ev: PointerEvent) => {
+      const el = ev.target;
+      if (el instanceof Element && el.closest("[data-qn-column-grip-menu]")) return;
+      if (el instanceof Element && el.closest("[data-qn-column-grip]")) return;
+      close();
+    };
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") close();
+    };
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menu]);
 
   const hasRealHandles = !!handles && handles.items.length > 0;
   // 박스 선택 상태에서는 일반 컬럼 hover 핸들을 모두 끄고 단일(좌상단) 핸들만 노출.
@@ -629,16 +671,34 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
           <button
             type="button"
             draggable
+            data-qn-column-grip=""
             className={[
               "flex h-6 w-7 cursor-grab items-center justify-center rounded-md border bg-white/95 text-zinc-500 shadow-sm active:cursor-grabbing dark:bg-zinc-900/95 dark:text-zinc-300",
               dropIndex === item.index
                 ? "border-blue-500 ring-2 ring-blue-300/70 text-blue-600 dark:border-blue-400 dark:ring-blue-500/40 dark:text-blue-300"
                 : "border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 dark:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
             ].join(" ")}
-            title="드래그로 컬럼 순서 변경"
-            aria-label={`컬럼 ${item.index + 1} 이동`}
+            title="클릭: 메뉴 · 드래그: 컬럼 순서 변경"
+            aria-label={`컬럼 ${item.index + 1} 메뉴/이동`}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              const sx = e.clientX;
+              const sy = e.clientY;
+              handleSessionRef.current = { moved: false };
+              const onMove = (ev: PointerEvent) => {
+                const s = handleSessionRef.current;
+                if (!s) return;
+                if ((ev.clientX - sx) ** 2 + (ev.clientY - sy) ** 2 > 36) s.moved = true;
+              };
+              const onUp = () => {
+                window.removeEventListener("pointermove", onMove);
+              };
+              window.addEventListener("pointermove", onMove);
+              window.addEventListener("pointerup", onUp, { once: true });
+            }}
             onDragStart={(e) => {
               if (!handles) return;
+              if (handleSessionRef.current) handleSessionRef.current.moved = true;
               e.stopPropagation();
               setDragging(true);
               setDropIndex(item.index);
@@ -681,6 +741,20 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
               setDropIndex(null);
               reorderColumns(payload.layoutStart, payload.fromIndex, item.index);
             }}
+            onClick={(e) => {
+              const s = handleSessionRef.current;
+              handleSessionRef.current = null;
+              if (s?.moved) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setMenu({
+                layoutStart: activeHandles.layoutStart,
+                index: item.index,
+                clientX: e.clientX,
+                clientY: e.clientY,
+                deleteArmed: false,
+              });
+            }}
           >
             <span className="grid grid-cols-3 gap-0.5">
               {Array.from({ length: 6 }).map((_, idx) => (
@@ -691,40 +765,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
               ))}
             </span>
           </button>
-          {activeHandles.items.length > 2 ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (deleteConfirmIndex === item.index) {
-                  removeColumn(activeHandles.layoutStart, item.index);
-                  return;
-                }
-                setDeleteConfirmIndex(item.index);
-              }}
-              className={[
-                "flex h-6 items-center justify-center rounded-md border bg-white/95 text-zinc-500 shadow-sm dark:bg-zinc-900/95",
-                deleteConfirmIndex === item.index
-                  ? "gap-1 whitespace-nowrap border-red-300 px-2 text-[11px] font-medium text-red-600 hover:bg-red-50 dark:border-red-700/80 dark:text-red-300 dark:hover:bg-red-950/40"
-                  : "border-zinc-200 text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-red-950/40 dark:hover:text-red-300",
-                deleteConfirmIndex === item.index ? "" : "w-6",
-              ].join(" ")}
-              title={
-                deleteConfirmIndex === item.index
-                  ? "삭제 확인"
-                  : "컬럼 삭제"
-              }
-              aria-label={
-                deleteConfirmIndex === item.index
-                  ? `컬럼 ${item.index + 1} 삭제 확인`
-                  : `컬럼 ${item.index + 1} 삭제`
-              }
-            >
-              <X size={12} />
-              {deleteConfirmIndex === item.index ? (
-                <span>삭제 확인</span>
-              ) : null}
-            </button>
-          ) : null}
         </div>
       )) : null}
       {activeHandles && activeHandles.items.length < 4 && addButtonItem ? (
@@ -747,6 +787,63 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
           <Plus size={14} />
         </button>
       ) : null}
+      {menu
+        ? createPortal(
+            <div
+              data-qn-column-grip-menu="1"
+              role="menu"
+              className="pointer-events-auto fixed z-[120] min-w-[11rem] overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+              style={{
+                left: Math.min(
+                  Math.max(8, menu.clientX - 8),
+                  typeof window !== "undefined" ? window.innerWidth - 8 - 208 : menu.clientX,
+                ),
+                top: Math.min(
+                  Math.max(8, menu.clientY - 8),
+                  typeof window !== "undefined" ? window.innerHeight - 8 - 120 : menu.clientY,
+                ),
+              }}
+            >
+              <div className="px-1 py-1">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={
+                    menu.deleteArmed
+                      ? "flex w-full items-center rounded px-2 py-1.5 text-left font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                      : "flex w-full items-center rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  }
+                  onClick={() => {
+                    if (!menu.deleteArmed) {
+                      setMenu((m) => (m ? { ...m, deleteArmed: true } : m));
+                      return;
+                    }
+                    removeColumn(menu.layoutStart, menu.index);
+                    setMenu(null);
+                  }}
+                >
+                  {menu.deleteArmed ? "삭제확인" : "열 삭제"}
+                </button>
+                {!menu.deleteArmed && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    onClick={() => {
+                      const ok = window.confirm("컬럼 전체를 삭제하시겠습니까?");
+                      if (!ok) return;
+                      removeColumnLayout(menu.layoutStart);
+                      setMenu(null);
+                    }}
+                  >
+                    컬럼 전체 삭제
+                  </button>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

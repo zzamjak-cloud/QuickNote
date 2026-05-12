@@ -431,7 +431,12 @@ const TabBlockView = memo(function TabBlockView({
     updateMenuPosition();
     const close = (event: MouseEvent) => {
       const target = event.target as globalThis.Node;
+      // 포탈로 렌더되는 탭 위치 메뉴는 menuRef 외부에 있어 contains 검사로 안 잡힘 — 데이터 속성으로 식별
+      const isInsidePortalMenu =
+        target instanceof Element &&
+        target.closest("[data-tab-block-menu]") != null;
       if (
+        !isInsidePortalMenu &&
         !menuRef.current?.contains(target) &&
         !tabMenuRef.current?.contains(target) &&
         !iconPickerRef.current?.contains(target)
@@ -713,6 +718,7 @@ const TabBlockView = memo(function TabBlockView({
         {portalRoot && menuOpen
           ? createPortal(
               <div
+                data-tab-block-menu="1"
                 className="fixed z-[500] w-36 rounded-md border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
                 style={{ top: menuPosition.top, left: menuPosition.left }}
               >
