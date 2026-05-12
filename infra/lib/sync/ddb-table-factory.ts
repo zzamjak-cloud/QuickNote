@@ -2,7 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 
-export type SyncModelName = "Page" | "Database" | "Contact" | "ImageAsset";
+export type SyncModelName = "Page" | "Database" | "Contact" | "ImageAsset" | "Comment";
 
 export interface ModelTable {
   table: dynamodb.Table;
