@@ -581,8 +581,9 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
 
   const hasRealHandles = !!handles && handles.items.length > 0;
   // 박스 선택 상태에서는 일반 컬럼 hover 핸들을 모두 끄고 단일(좌상단) 핸들만 노출.
+  // 셀렉션이 컬럼 안에 있어도 마우스 호버하지 않으면 표시하지 않는다 — 메뉴 열림·드래그 중에는 유지.
   const showColumnHandles =
-    hasRealHandles && !boxSelectionActive && (dragging || hoveringLayout || !boxSelecting);
+    hasRealHandles && !boxSelectionActive && (dragging || hoveringLayout || menu != null);
   const activeHandles = showColumnHandles ? handles : null;
   const visibleColumnItems =
     activeHandles
