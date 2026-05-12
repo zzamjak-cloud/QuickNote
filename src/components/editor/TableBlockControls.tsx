@@ -5,7 +5,6 @@ import type { Node as PMNode } from "@tiptap/pm/model";
 import { AlignCenter, AlignLeft, AlignRight, GripHorizontal, GripVertical, Plus } from "lucide-react";
 import {
   setTableReorderDragData,
-  isTableReorderDragEvent,
   TABLE_REORDER_DRAG_BODY_CLASS,
 } from "../../lib/editor/tableReorderDrag";
 
@@ -263,6 +262,57 @@ function isHeaderColActive(table: PMNode): boolean {
   return table.child(1).maybeChild(0)?.type.name === "tableHeader";
 }
 
+/**
+ * 첫 행의 셀들을 tableHeader↔tableCell 로 직접 변환한다.
+ * TipTap toggleHeaderRow 명령이 셀렉션 위치·확장 등록 상태에 따라 실패할 수 있어 PM 트랜잭션으로 처리.
+ */
+function applyHeaderRowToggle(editor: Editor, tablePos: number): boolean {
+  const state = editor.state;
+  const table = state.doc.nodeAt(tablePos);
+  if (!table || table.type.name !== "table") return false;
+  const firstRow = table.maybeChild(0);
+  if (!firstRow) return false;
+  const headerType = state.schema.nodes.tableHeader;
+  const cellType = state.schema.nodes.tableCell;
+  if (!headerType || !cellType) return false;
+  const targetType = isHeaderRowActive(table) ? cellType : headerType;
+  const newCells: PMNode[] = [];
+  firstRow.forEach((cell) => {
+    newCells.push(targetType.createChecked(cell.attrs, cell.content, cell.marks));
+  });
+  const newRow = firstRow.type.createChecked(firstRow.attrs, newCells, firstRow.marks);
+  const rowFrom = tablePos + 1; // 테이블 노드 진입 후 첫 자식
+  const rowTo = rowFrom + firstRow.nodeSize;
+  editor.view.dispatch(state.tr.replaceWith(rowFrom, rowTo, newRow));
+  return true;
+}
+
+/** 각 행의 첫 셀을 tableHeader↔tableCell 로 직접 변환 — 테이블 전체 재생성 트랜잭션. */
+function applyHeaderColToggle(editor: Editor, tablePos: number): boolean {
+  const state = editor.state;
+  const table = state.doc.nodeAt(tablePos);
+  if (!table || table.type.name !== "table") return false;
+  const headerType = state.schema.nodes.tableHeader;
+  const cellType = state.schema.nodes.tableCell;
+  if (!headerType || !cellType) return false;
+  const targetType = isHeaderColActive(table) ? cellType : headerType;
+  const newRows: PMNode[] = [];
+  table.forEach((row) => {
+    const newCells: PMNode[] = [];
+    row.forEach((cell, _offset, i) => {
+      if (i === 0) {
+        newCells.push(targetType.createChecked(cell.attrs, cell.content, cell.marks));
+      } else {
+        newCells.push(cell);
+      }
+    });
+    newRows.push(row.type.createChecked(row.attrs, newCells, row.marks));
+  });
+  const newTable = table.type.createChecked(table.attrs, newRows, table.marks);
+  editor.view.dispatch(state.tr.replaceWith(tablePos, tablePos + table.nodeSize, newTable));
+  return true;
+}
+
 export function TableBlockControls({ editor }: { editor: Editor | null }) {
   const [ui, setUi] = useState<TableUi | null>(null);
   const [drag, setDrag] = useState<{ kind: "row" | "col"; from: number } | null>(null);
@@ -515,15 +565,17 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
     if (!editor || editor.isDestroyed) setGripMenu(null);
   }, [editor]);
 
-  // 표 열 드래그: useEffect 지연 없이 에디터 DOM에 즉시 dragover 허용 — 첫 이벤트 취소 방지
+  // 표 행/열 드래그: dragstart 즉시 추가되는 body class를 기준으로 모든 dragover를 캡처 허용 —
+  // useEffect 지연 없이, MIME 타입 가시성에 의존하지 않음 (일부 브라우저는 dragover에서 custom types를 숨김)
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const dom = editor.view.dom;
     const onDragOver = (e: DragEvent) => {
-      if (isTableReorderDragEvent(e.dataTransfer)) e.preventDefault();
+      if (document.body.classList.contains(TABLE_REORDER_DRAG_BODY_CLASS)) {
+        e.preventDefault();
+      }
     };
-    dom.addEventListener("dragover", onDragOver);
-    return () => dom.removeEventListener("dragover", onDragOver);
+    document.addEventListener("dragover", onDragOver, true);
+    return () => document.removeEventListener("dragover", onDragOver, true);
   }, [editor]);
 
   // 표 셀 내부에서 텍스트 선택 드래그 시 부모 스크롤 컨테이너 자동스크롤 방지
@@ -591,16 +643,8 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
           <div className="px-1 py-1">
             {!gripMenu.deleteArmed && (() => {
               const toggleHeader = (kind: "row" | "col") => {
-                const tableEl = getTableElement(editor, gripMenu.tablePos);
-                const cell = tableEl?.rows[0]?.cells[0];
-                if (cell) {
-                  try {
-                    const pos = editor.view.posAtDOM(cell, 0);
-                    editor.chain().focus().setTextSelection(pos).run();
-                    if (kind === "row") editor.commands.toggleHeaderRow();
-                    else editor.commands.toggleHeaderColumn();
-                  } catch { /* 셀 위치 조회 실패 */ }
-                }
+                if (kind === "row") applyHeaderRowToggle(editor, gripMenu.tablePos);
+                else applyHeaderColToggle(editor, gripMenu.tablePos);
                 setGripMenu(null);
               };
               return (
@@ -802,46 +846,76 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
           key={`col-${index}`}
           type="button"
           data-qn-table-grip-col=""
-          draggable
           title="클릭: 메뉴 · 드래그: 열 순서 이동"
-          onPointerDown={(e) => bindGripPointerSession(`col:${index}`, e)}
-          onDragStart={(e) => {
-            // 세션 체크 없이 항상 허용 — dragstart 발화 자체가 이동 의도의 증거
-            if (!e.dataTransfer) return;
-            const s = gripPointerSessionRef.current;
-            if (s?.key === `col:${index}`) s.moved = true;
-            document.body.classList.add(TABLE_REORDER_DRAG_BODY_CLASS);
-            e.dataTransfer.effectAllowed = "move";
-            setTableReorderDragData(e.dataTransfer, {
-              kind: "col",
-              tablePos: ui.pos,
-              from: index,
-            });
-            setDrag({ kind: "col", from: index });
-            setDragOverIdx(index);
-          }}
-          onClick={(e) => {
-            const key = `col:${index}`;
-            const s = gripPointerSessionRef.current;
-            if (s?.key !== key || s.moved) {
-              gripPointerSessionRef.current = null;
-              return;
-            }
-            gripPointerSessionRef.current = null;
-            e.preventDefault();
-            e.stopPropagation();
-            setGripMenu({
-              kind: "col",
-              index,
-              tablePos: ui.pos,
-              clientX: e.clientX,
-              clientY: e.clientY,
-              deleteArmed: false,
-            });
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOverIdx(index);
+          // 열 그립은 HTML5 DnD 대신 포인터 이벤트로 처리 — 테이블 위에 위치한 탓에
+          // dragover가 셀에 떨어지면 브라우저가 즉시 드래그를 취소하는 문제를 회피
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const startPos = ui.pos;
+            let dragActive = false;
+
+            const onMove = (ev: PointerEvent) => {
+              const dist =
+                (ev.clientX - startX) ** 2 + (ev.clientY - startY) ** 2;
+              if (!dragActive) {
+                if (dist > GRIP_DRAG_THRESHOLD_SQ) {
+                  dragActive = true;
+                  document.body.classList.add(TABLE_REORDER_DRAG_BODY_CLASS);
+                  setDrag({ kind: "col", from: index });
+                  setDragOverIdx(index);
+                }
+                return;
+              }
+              const cur = uiRef.current;
+              if (!cur) return;
+              const newIdx = resolveHoverColumnIndex(cur, ev.clientX);
+              setDragOverIdx((prev) => (prev === newIdx ? prev : newIdx));
+            };
+
+            const onUp = (ev: PointerEvent) => {
+              window.removeEventListener("pointermove", onMove);
+              window.removeEventListener("pointerup", onUp);
+              window.removeEventListener("pointercancel", onUp);
+
+              if (dragActive) {
+                document.body.classList.remove(TABLE_REORDER_DRAG_BODY_CLASS);
+                const cur = uiRef.current;
+                if (cur && editor && !editor.isDestroyed) {
+                  const toIdx = resolveHoverColumnIndex(cur, ev.clientX);
+                  const tableNode = editor.state.doc.nodeAt(cur.pos);
+                  if (
+                    tableNode?.type.name === "table" &&
+                    toIdx !== index
+                  ) {
+                    reorderTableColumn(
+                      editor,
+                      cur.pos,
+                      tableNode,
+                      index,
+                      toIdx,
+                    );
+                  }
+                }
+                setDrag(null);
+                setDragOverIdx(null);
+                return;
+              }
+              // 드래그 미발생 → 메뉴 표시
+              setGripMenu({
+                kind: "col",
+                index,
+                tablePos: startPos,
+                clientX: ev.clientX,
+                clientY: ev.clientY,
+                deleteArmed: false,
+              });
+            };
+
+            window.addEventListener("pointermove", onMove);
+            window.addEventListener("pointerup", onUp);
+            window.addEventListener("pointercancel", onUp);
           }}
           className={[
             "pointer-events-auto fixed flex h-5 items-center justify-center rounded border border-zinc-200 bg-white px-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900",
