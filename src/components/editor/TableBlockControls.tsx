@@ -248,6 +248,20 @@ function focusCellAndDeleteRow(editor: Editor, tablePos: number, rowIndex: numbe
   editor.chain().focus().setTextSelection(pos).deleteRow().run();
 }
 
+function isHeaderRowActive(table: PMNode): boolean {
+  const firstRow = table.maybeChild(0);
+  if (!firstRow || firstRow.childCount === 0) return false;
+  for (let i = 0; i < firstRow.childCount; i++) {
+    if (firstRow.child(i).type.name !== "tableHeader") return false;
+  }
+  return true;
+}
+
+function isHeaderColActive(table: PMNode): boolean {
+  if (table.childCount < 2) return false;
+  return table.child(1).maybeChild(0)?.type.name === "tableHeader";
+}
+
 export function TableBlockControls({ editor }: { editor: Editor | null }) {
   const [ui, setUi] = useState<TableUi | null>(null);
   const [drag, setDrag] = useState<{ kind: "row" | "col"; from: number } | null>(null);
@@ -308,6 +322,12 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
       if (!editor || editor.isDestroyed) return;
       // SVG·리사이즈 핸들 등은 HTMLElement가 아님 — 이전과 같이 상태를 건드리지 않음(무조건 clear 금지)
       if (!(target instanceof HTMLElement)) return;
+      if (document.body.classList.contains("qn-box-select-dragging")) {
+        setUi(null);
+        setHoveredRowIdx(null);
+        setHoveredColIdx(null);
+        return;
+      }
       const info = findTableAtElement(editor, target);
       const tableEl = target.closest("table");
       if (!info || !(tableEl instanceof HTMLTableElement)) {
@@ -494,6 +514,29 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
     if (!editor || editor.isDestroyed) setGripMenu(null);
   }, [editor]);
 
+  // 표 셀 내부에서 텍스트 선택 드래그 시 부모 스크롤 컨테이너 자동스크롤 방지
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const dom = editor.view.dom;
+    const onMouseDown = (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return;
+      if (!e.target.closest("td, th")) return;
+      let scrollEl: HTMLElement | null = null;
+      let el: HTMLElement | null = e.target.closest<HTMLElement>("table")?.parentElement ?? null;
+      while (el && el !== document.documentElement) {
+        const ov = window.getComputedStyle(el).overflowY;
+        if (ov === "auto" || ov === "scroll") { scrollEl = el; break; }
+        el = el.parentElement;
+      }
+      if (!scrollEl) return;
+      const saved = scrollEl.style.overflowY;
+      scrollEl.style.overflowY = "hidden";
+      document.addEventListener("mouseup", () => { scrollEl!.style.overflowY = saved; }, { once: true });
+    };
+    dom.addEventListener("mousedown", onMouseDown);
+    return () => dom.removeEventListener("mousedown", onMouseDown);
+  }, [editor]);
+
   if (!editor || editor.isDestroyed) return null;
 
   const tableAtUi = ui != null ? editor.state.doc.nodeAt(ui.pos) : null;
@@ -502,6 +545,9 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
   const menuTableForGrip =
     gripMenu != null ? editor.state.doc.nodeAt(gripMenu.tablePos) : null;
   const menuTableValid = menuTableForGrip?.type.name === "table";
+  const menuTableNode = menuTableValid && menuTableForGrip ? menuTableForGrip : null;
+  const headerRowActive = menuTableNode ? isHeaderRowActive(menuTableNode) : false;
+  const headerColActive = menuTableNode ? isHeaderColActive(menuTableNode) : false;
 
   const dragColRect =
     ui && drag?.kind === "col" && dragOverIdx != null ? (ui.colRects[dragOverIdx] ?? null) : null;
@@ -517,7 +563,7 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
   const menuTop = gripMenu
     ? Math.min(
         Math.max(8, gripMenu.clientY - 8),
-        typeof window !== "undefined" ? window.innerHeight - 8 - 140 : gripMenu.clientY,
+        typeof window !== "undefined" ? window.innerHeight - 8 - 200 : gripMenu.clientY,
       )
     : 0;
 
@@ -531,6 +577,32 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
           style={{ left: menuLeft, top: menuTop }}
         >
           <div className="px-1 py-1">
+            {!gripMenu.deleteArmed && (
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                onClick={() => {
+                  const tableEl = getTableElement(editor, gripMenu.tablePos);
+                  const cell = tableEl?.rows[0]?.cells[0];
+                  if (cell) {
+                    try {
+                      const pos = editor.view.posAtDOM(cell, 0);
+                      if (gripMenu.kind === "row") {
+                        editor.chain().focus().setTextSelection(pos).toggleHeaderRow().run();
+                      } else {
+                        editor.chain().focus().setTextSelection(pos).toggleHeaderColumn().run();
+                      }
+                    } catch { /* 셀 위치 조회 실패 무시 */ }
+                  }
+                  setGripMenu(null);
+                }}
+              >
+                {gripMenu.kind === "row"
+                  ? headerRowActive ? "헤더행 비활성화" : "헤더행 활성화"
+                  : headerColActive ? "헤더열 비활성화" : "헤더열 활성화"}
+              </button>
+            )}
             <button
               type="button"
               role="menuitem"
@@ -699,16 +771,10 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
           title="클릭: 메뉴 · 드래그: 열 순서 이동"
           onPointerDown={(e) => bindGripPointerSession(`col:${index}`, e)}
           onDragStart={(e) => {
-            const key = `col:${index}`;
+            // 세션 체크 없이 항상 허용 — dragstart 발화 자체가 이동 의도의 증거
+            if (!e.dataTransfer) return;
             const s = gripPointerSessionRef.current;
-            if (!e.dataTransfer || !s || s.key !== key) {
-              e.preventDefault();
-              e.stopPropagation();
-              if (s?.key === key) gripPointerSessionRef.current = null;
-              return;
-            }
-            // 브라우저가 dragstart 를 발화한 시점 = 이미 이동 의도 확인 — s.moved 강제 설정으로 click 메뉴 방지
-            s.moved = true;
+            if (s?.key === `col:${index}`) s.moved = true;
             document.body.classList.add(TABLE_REORDER_DRAG_BODY_CLASS);
             e.dataTransfer.effectAllowed = "move";
             setTableReorderDragData(e.dataTransfer, {

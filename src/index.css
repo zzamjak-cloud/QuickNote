@@ -654,6 +654,13 @@ body.qn-box-select-dragging {
   user-select: none !important;
 }
 
+/* 박스 드래그 선택 중: 표 그립 핸들 호버 효과 차단 */
+body.qn-box-select-dragging [data-qn-table-grip-col],
+body.qn-box-select-dragging [data-qn-table-grip-row] {
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
 /* 다중 블록 선택 시각은 PM DOM 밖(에디터 스크롤 호스트 내)의 그룹 오버레이(#qn-block-group-overlay)
    에서 그린다 — useBoxSelect.ts 참고. PM view.update 가 노드를
    재렌더해도 영향을 받지 않는다. dark 톤은 오버레이 자체에서 별도 처리하지 않음(두 톤 모두에서 가독). */
