@@ -1,9 +1,32 @@
+import type { Editor } from "@tiptap/react";
 import { getSlashMenuEntries } from "../../blocks/registry";
 import type {
   SlashCategoryItem,
   SlashLeafItem,
   SlashMenuEntry,
 } from "./types";
+
+// 조상 노드 타입 → 차단할 entry id 목록
+const CONTEXT_BLOCK_RULES: Record<string, string[]> = {
+  // 테이블 셀/헤더 안: 레이아웃·미디어·DB 전부 차단
+  tableCell: ["tabBlock", "columnLayout", "table", "youtube", "image", "dbInline", "dbFullPage"],
+  tableHeader: ["tabBlock", "columnLayout", "table", "youtube", "image", "dbInline", "dbFullPage"],
+  // 탭 패널 안: 탭·DB 차단 (중첩 탭 및 너비 충돌)
+  tabPanel: ["tabBlock", "dbInline", "dbFullPage"],
+  // 컬럼 안: 컬럼·표 차단 (중첩 불가)
+  column: ["columnLayout", "table"],
+};
+
+function getBlockedIds(editor: Editor): Set<string> {
+  const { $from } = editor.state.selection;
+  const blocked = new Set<string>();
+  for (let d = $from.depth; d > 0; d--) {
+    const nodeTypeName = $from.node(d).type.name;
+    const ids = CONTEXT_BLOCK_RULES[nodeTypeName];
+    if (ids) ids.forEach((id) => blocked.add(id));
+  }
+  return blocked;
+}
 
 // 한국어 초성 목록 (Unicode 자모 순서)
 const CHOSUNG = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
@@ -50,10 +73,24 @@ function koreanIncludes(text: string, query: string): boolean {
 }
 
 /** 루트 목록만 필터 (서브메뉴는 SlashMenu 내부에서 처리) */
-export function filterSlashMenuEntries(query: string): SlashMenuEntry[] {
-  const slashMenuEntries = getSlashMenuEntries();
+export function filterSlashMenuEntries(query: string, editor?: Editor): SlashMenuEntry[] {
+  const allEntries = getSlashMenuEntries();
+  const blocked = editor ? getBlockedIds(editor) : new Set<string>();
+
+  const isLeafBlocked = (item: SlashLeafItem) =>
+    item.id !== undefined && blocked.has(item.id);
+
+  // 컨텍스트 필터 적용
+  const contextFiltered: SlashMenuEntry[] = blocked.size === 0
+    ? allEntries
+    : allEntries.flatMap<SlashMenuEntry>((e) => {
+        if (e.kind === "leaf") return isLeafBlocked(e) ? [] : [e];
+        const children = e.children.filter((c) => !isLeafBlocked(c));
+        return children.length > 0 ? [{ ...e, children }] : [];
+      });
+
   const q = query.trim().toLowerCase();
-  if (!q) return slashMenuEntries;
+  if (!q) return contextFiltered;
 
   function leafMatch(item: SlashLeafItem): boolean {
     if (koreanIncludes(item.title.toLowerCase(), q)) return true;
@@ -67,7 +104,7 @@ export function filterSlashMenuEntries(query: string): SlashMenuEntry[] {
     return cat.children.some((c) => leafMatch(c));
   }
 
-  return slashMenuEntries.filter((e) => {
+  return contextFiltered.filter((e) => {
     if (e.kind === "leaf") return leafMatch(e);
     return categoryMatch(e);
   });

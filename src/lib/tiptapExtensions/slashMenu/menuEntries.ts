@@ -102,6 +102,7 @@ function runTabBlockCommand(
 
 export const slashMenuEntries: SlashMenuEntry[] = [
   slashLeaf({
+    id: "tabBlock",
     title: "탭",
     description: "탭으로 구분된 컨텐츠 블록",
     icon: PanelTop,
@@ -182,6 +183,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHorizontalRule()),
   }),
   slashLeaf({
+    id: "image",
     title: "이미지",
     description: "이미지 업로드",
     icon: ImageIcon,
@@ -246,6 +248,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     },
   }),
   slashLeaf({
+    id: "table",
     title: "표",
     description: "3 × 3 표 삽입",
     icon: TableIcon,
@@ -299,6 +302,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHeadingToggle(3)),
   }),
   slashLeaf({
+    id: "columnLayout",
     title: "컬럼",
     description: "나란히 두 열 레이아웃",
     icon: LayoutGrid,
@@ -321,6 +325,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: ({ editor }) => runColumnLayoutCommand(editor),
   }),
   slashLeaf({
+    id: "youtube",
     title: "유튜브 임베드",
     description: "YouTube URL 삽입",
     icon: YoutubeIcon,

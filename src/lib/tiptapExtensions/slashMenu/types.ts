@@ -8,6 +8,8 @@ export type SlashCommandContext = {
 
 export type SlashLeafItem = {
   kind: "leaf";
+  /** 컨텍스트 필터링용 식별자 */
+  id?: string;
   title: string;
   description: string;
   icon: LucideIcon;

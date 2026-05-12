@@ -81,6 +81,7 @@ export function insertFullPageDatabase(
 
 export const dbSlashChildren: SlashLeafItem[] = [
   slashLeaf({
+    id: "dbFullPage",
     title: "DB - 전체 페이지",
     description: "새 페이지에 데이터베이스만 표시",
     icon: PanelTop,
@@ -89,6 +90,7 @@ export const dbSlashChildren: SlashLeafItem[] = [
       insertFullPageDatabase(editor, range, "table"),
   }),
   slashLeaf({
+    id: "dbInline",
     title: "DB - 인라인",
     description: "현재 페이지에 블록 삽입",
     icon: IndentIncrease,

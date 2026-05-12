@@ -146,7 +146,9 @@ import {
   ReplaceStep,
   type Step,
 } from "@tiptap/pm/transform";
-import type { Transaction } from "@tiptap/pm/state";
+import { TextSelection, type Transaction } from "@tiptap/pm/state";
+import type { ResolvedPos } from "@tiptap/pm/model";
+import { CellSelection } from "@tiptap/pm/tables";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
 import {
@@ -174,6 +176,30 @@ import {
   isFullPageDatabaseDoc,
   normalizeFullPageDatabaseDoc,
 } from "../../lib/blocks/editorPolicy";
+
+/** 표 노드 내부 위치인지 */
+function isResolvedPosInTable($pos: ResolvedPos): boolean {
+  for (let d = $pos.depth; d > 0; d--) {
+    if ($pos.node(d).type.name === "table") return true;
+  }
+  return false;
+}
+
+/**
+ * 셀 드래그·표 안 텍스트 범위 선택 시 selection-follow 스크롤이
+ * 에디터 밖(페이지)까지 전파되는 것을 막는다. (PM scrollToSelection 생략)
+ */
+function suppressScrollToSelectionForTableInteraction(view: PmEditorView): boolean {
+  const { selection, doc } = view.state;
+  if (selection instanceof CellSelection) return true;
+  if (selection instanceof TextSelection && selection.from !== selection.to) {
+    return (
+      isResolvedPosInTable(doc.resolve(selection.from)) &&
+      isResolvedPosInTable(doc.resolve(selection.to))
+    );
+  }
+  return false;
+}
 
 /**
  * UniqueID.configure.filterTransaction 에서 `view.composing` 을 읽기 위한 핸들.
@@ -490,7 +516,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
               e.command({ editor, range });
             }
           },
-          items: ({ query }) => filterSlashMenuEntries(query).slice(0, 40),
+          items: ({ editor, query }) => filterSlashMenuEntries(query, editor).slice(0, 40),
           render: createSlashRenderer,
           shouldShow: ({ editor }) => {
             const { $from } = editor.state.selection;
@@ -636,6 +662,8 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
         if (handleAtOpenMention(view, event)) return true;
         return false;
       },
+      handleScrollToSelection: (view: PmEditorView) =>
+        suppressScrollToSelectionForTableInteraction(view),
     }),
     [
       clearColumnDropUi,
@@ -1324,7 +1352,7 @@ function createSlashRenderer() {
   let popup: TippyInstance[] = [];
 
   const pickProps = (p: RendererProps) => ({
-    entries: filterSlashMenuEntries(p.query),
+    entries: filterSlashMenuEntries(p.query, p.editor),
     query: p.query,
     command: (item: SlashLeafItem) => p.command(item),
   });
