@@ -19,6 +19,10 @@ export function mergePageBlockComments(
     byId.set(m.id, m);
   }
   const messages = [...byId.values()].sort((a, b) => a.createdAt - b.createdAt);
-  const threadVisitedAt = { ...local.threadVisitedAt, ...remote.threadVisitedAt };
+  // 양쪽 중 더 최근 방문 시각을 유지 (spread 는 remote 가 항상 덮어쓰므로 max 병합)
+  const threadVisitedAt: Record<string, number> = { ...local.threadVisitedAt };
+  for (const [blockId, t] of Object.entries(remote.threadVisitedAt ?? {})) {
+    threadVisitedAt[blockId] = Math.max(threadVisitedAt[blockId] ?? 0, t);
+  }
   return { messages, threadVisitedAt };
 }

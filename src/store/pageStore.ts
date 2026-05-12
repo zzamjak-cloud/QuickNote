@@ -66,12 +66,16 @@ function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> 
     createdAt: new Date(p.createdAt).toISOString(),
     updatedAt: new Date(p.updatedAt).toISOString(),
   };
-  base.blockComments =
-    p.blockComments &&
-    (p.blockComments.messages.length > 0 ||
-      Object.keys(p.blockComments.threadVisitedAt).length > 0)
-      ? JSON.stringify(p.blockComments)
-      : null;
+  // blockComments가 undefined면 key 자체를 생략 → Lambda가 DynamoDB 기존 값 보존.
+  // 이는 다른 기기의 댓글을 본인의 비어 있는 로컬 상태로 덮어쓰는 것을 방지한다.
+  // blockComments가 할당됐지만 비어 있으면 null 전송 → 명시적 삭제를 서버에 반영.
+  if (p.blockComments != null) {
+    base.blockComments =
+      p.blockComments.messages.length > 0 ||
+      Object.keys(p.blockComments.threadVisitedAt).length > 0
+        ? JSON.stringify(p.blockComments)
+        : null;
+  }
   return base;
 }
 
