@@ -19,6 +19,7 @@ const cognitoStack = new CognitoStack(app, "QuicknoteCognitoStack", {
   desktopCallbackUrls: app.node.tryGetContext("desktopCallbackUrls") as string[],
   desktopLogoutUrls: app.node.tryGetContext("desktopLogoutUrls") as string[],
   googleSecretName: app.node.tryGetContext("googleSecretName") as string,
+  membersTableName: app.node.tryGetContext("membersTableName") as string | undefined,
 });
 
 const imagesBucketName =

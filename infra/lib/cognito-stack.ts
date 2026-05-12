@@ -15,6 +15,8 @@ export interface CognitoStackProps extends cdk.StackProps {
   desktopCallbackUrls: string[];
   desktopLogoutUrls: string[];
   googleSecretName: string;
+  /** 실제 배포된 Members DynamoDB 테이블 이름. 기본값: "quicknote-members" */
+  membersTableName?: string;
 }
 
 export class CognitoStack extends cdk.Stack {
@@ -25,6 +27,8 @@ export class CognitoStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: CognitoStackProps) {
     super(scope, id, props);
 
+    const membersTableName = props.membersTableName ?? "quicknote-members";
+
     // Members 테이블 GSI(byEmail) 조회로 가입 허용 여부를 검증하는 Lambda.
     const preSignUpFn = new lambdaNode.NodejsFunction(this, "PreSignUpFn", {
       entry: path.join(__dirname, "..", "lambda", "pre-sign-up", "index.ts"),
@@ -34,7 +38,7 @@ export class CognitoStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(5),
       logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {
-        MEMBERS_TABLE_NAME: "quicknote-members",
+        MEMBERS_TABLE_NAME: membersTableName,
       },
       bundling: {
         minify: true,
@@ -50,8 +54,8 @@ export class CognitoStack extends cdk.Stack {
           new iam.PolicyStatement({
             actions: ["dynamodb:Query"],
             resources: [
-              `arn:aws:dynamodb:${this.region}:${this.account}:table/quicknote-members`,
-              `arn:aws:dynamodb:${this.region}:${this.account}:table/quicknote-members/index/byEmail`,
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/${membersTableName}`,
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/${membersTableName}/index/byEmail`,
             ],
           }),
         ],
@@ -67,7 +71,7 @@ export class CognitoStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(5),
       logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {
-        MEMBERS_TABLE_NAME: "quicknote-members",
+        MEMBERS_TABLE_NAME: membersTableName,
       },
       bundling: {
         minify: true,
@@ -83,8 +87,8 @@ export class CognitoStack extends cdk.Stack {
           new iam.PolicyStatement({
             actions: ["dynamodb:Query", "dynamodb:UpdateItem"],
             resources: [
-              `arn:aws:dynamodb:${this.region}:${this.account}:table/quicknote-members`,
-              `arn:aws:dynamodb:${this.region}:${this.account}:table/quicknote-members/index/byEmail`,
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/${membersTableName}`,
+              `arn:aws:dynamodb:${this.region}:${this.account}:table/${membersTableName}/index/byEmail`,
             ],
           }),
         ],
