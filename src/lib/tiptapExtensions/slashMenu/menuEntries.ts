@@ -162,6 +162,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.toggleTaskList()),
   }),
   slashLeaf({
+    id: "codeBlock",
     title: "코드 블록",
     description: "구문 강조 코드",
     icon: Code2,

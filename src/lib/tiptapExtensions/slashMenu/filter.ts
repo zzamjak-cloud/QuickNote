@@ -9,8 +9,8 @@ import type {
 // 조상 노드 타입 → 차단할 entry id 목록
 const CONTEXT_BLOCK_RULES: Record<string, string[]> = {
   // 테이블 셀/헤더 안: 레이아웃·미디어·DB·컨테이너 블록 차단
-  tableCell: ["tabBlock", "columnLayout", "table", "youtube", "image", "dbInline", "dbFullPage", "callout", "toggle", "headingToggle1", "headingToggle2", "headingToggle3"],
-  tableHeader: ["tabBlock", "columnLayout", "table", "youtube", "image", "dbInline", "dbFullPage", "callout", "toggle", "headingToggle1", "headingToggle2", "headingToggle3"],
+  tableCell: ["tabBlock", "columnLayout", "table", "youtube", "image", "dbInline", "dbFullPage", "callout", "toggle", "headingToggle1", "headingToggle2", "headingToggle3", "codeBlock"],
+  tableHeader: ["tabBlock", "columnLayout", "table", "youtube", "image", "dbInline", "dbFullPage", "callout", "toggle", "headingToggle1", "headingToggle2", "headingToggle3", "codeBlock"],
   // 탭 패널 안: 탭·DB 차단 (중첩 탭 및 너비 충돌)
   tabPanel: ["tabBlock", "dbInline", "dbFullPage"],
   // 컬럼 안: 컬럼·표 차단 (중첩 불가)

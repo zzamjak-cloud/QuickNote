@@ -52,7 +52,8 @@ body,
 /* TipTap 표 스타일 (노션 풍) */
 .ProseMirror table {
   border-collapse: collapse;
-  margin: 0.5rem 0;
+  /* 인접 블록(컬럼/탭/콜아웃)과 시각·호버 분리: 위아래 마진 확장 */
+  margin: 1.25rem 0;
   table-layout: fixed;
   width: 100%;
   overflow: hidden;
@@ -671,6 +672,13 @@ body.qn-box-select-dragging [data-qn-table-grip-row] {
   border-radius: 10px;
   padding: 10px 12px;
   background: rgba(250, 250, 250, 0.35);
+  /* 인접 블록(특히 위쪽 표/탭)과 호버 간섭 분리 */
+  margin: 1rem 0;
+}
+
+/* 탭 블록도 인접 블록과 호버 간섭 분리를 위해 위아래 마진 부여 */
+.ProseMirror [data-tab-block] {
+  margin: 1rem 0;
 }
 
 .dark .ProseMirror [data-column-layout] {

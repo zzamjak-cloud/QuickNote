@@ -66,12 +66,17 @@ function reorderTableColumn(editor: Editor, pos: number, table: PMNode, from: nu
   editor.view.dispatch(editor.state.tr.replaceWith(pos, pos + table.nodeSize, nextTable));
 }
 
-/** 표·행열 핸들·+ 버튼 사이 빈 구간에서도 크롬이 유지되도록 테이블 bbox를 비대칭 확장 */
+/** 표·행열 핸들·+ 버튼 사이 빈 구간에서도 크롬이 유지되도록 테이블 bbox를 비대칭 확장.
+ *  인접 블록(컬럼/탭 등)이 가까이 있을 때 호버가 새는 것을 막기 위해 가능한 한 타이트하게:
+ *  - 좌: 행 그립(left:-26, w~20) + 여유
+ *  - 상: 열 그립(top:-24, h:20) + 여유
+ *  - 우/하: + 버튼(offset:+6, w/h:24) + 최소 여유
+ */
 function isPointerNearTableChrome(rect: DOMRect, clientX: number, clientY: number): boolean {
-  const left = rect.left - 64;
-  const top = rect.top - 56;
-  const right = rect.right + 88;
-  const bottom = rect.bottom + 88;
+  const left = rect.left - 40;
+  const top = rect.top - 40;
+  const right = rect.right + 40;
+  const bottom = rect.bottom + 40;
   return clientX >= left && clientX <= right && clientY >= top && clientY <= bottom;
 }
 
@@ -201,6 +206,15 @@ function applyHeaderRowToggle(editor: Editor, tablePos: number): boolean {
   const rowFrom = tablePos + 1; // 테이블 노드 진입 후 첫 자식
   const rowTo = rowFrom + firstRow.nodeSize;
   editor.view.dispatch(state.tr.replaceWith(rowFrom, rowTo, newRow));
+  return true;
+}
+
+/** 표 전체 삭제: 테이블 노드 자체를 문서에서 제거. */
+function applyDeleteTable(editor: Editor, tablePos: number): boolean {
+  const state = editor.state;
+  const table = state.doc.nodeAt(tablePos);
+  if (!table || table.type.name !== "table") return false;
+  editor.view.dispatch(state.tr.delete(tablePos, tablePos + table.nodeSize));
   return true;
 }
 
@@ -643,6 +657,21 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
                   ? "열 삭제"
                   : "행 삭제"}
             </button>
+            {!gripMenu.deleteArmed && (
+              <button
+                type="button"
+                role="menuitem"
+                className="flex w-full items-center rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                onClick={() => {
+                  const ok = window.confirm("표를 삭제하시겠습니까?");
+                  if (!ok) return;
+                  applyDeleteTable(editor, gripMenu.tablePos);
+                  setGripMenu(null);
+                }}
+              >
+                표 전체 삭제
+              </button>
+            )}
           </div>
         </div>,
         document.body,
