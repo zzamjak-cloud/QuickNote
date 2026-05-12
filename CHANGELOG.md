@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.3.0] - 2026-05-12
+
+### Added
+
+- **블록 배경색 프리셋**: 텍스트·제목·인용·토글·목록 블럭에 10가지 파스텔 배경색 적용 기능 추가 (블럭 핸들 메뉴 → 배경색).
+- **DB 이름 셀 아이콘**: 표·칸반·갤러리 뷰의 이름 셀에 페이지 아이콘 표시 및 클릭으로 변경 가능.
+- **디폴트 페이지 아이콘**: 아이콘 미설정 시 일반 페이지는 FileText, DB 페이지는 Database 아이콘으로 표시.
+- **DB 템플릿**: 새 행 생성 시 기본 셀 값을 미리 지정하는 템플릿 기능 추가 (`DatabaseTemplate` 타입, `DatabaseTemplateButton` 컴포넌트).
+
+### Changed
+
+- **IconPicker 팝업**: `createPortal`로 `document.body`에 렌더링 → DB 컨테이너 overflow clip 해소.
+- **표 블럭 스크롤**: JS wheel 이벤트 차단 제거, CSS `overscroll-behavior-x: contain`으로 자연스러운 터치패드 스크롤 지원.
+- **DB fullPage 스크롤**: `layout` prop 기반으로 `max-h-[60vh]` 제한을 fullPage에서만 제거.
+- **DB 전체 페이지 BlockHandles**: fullPage DB 뷰에서 블럭 핸들러 제거.
+
+### Fixed
+
+- **표 헤더 토글 교차 셀**: 헤더행 활성 상태에서 헤더열 비활성화 시 교차 셀 스타일 유지.
+- **DB 테이블 체크박스 정렬**: 1열 체크박스 셀 중앙 정렬.
+- **DB 테이블 아이콘 즉시 반영**: 이름 셀에서 아이콘 변경 시 실시간 업데이트.
+- **템플릿 페이지 rowPageOrder 제외**: `_qn_isTemplate` 마커가 있는 페이지를 행 목록에서 제외.
+
 ## [5.0.19] - 2026-05-11
 
 ### Added
