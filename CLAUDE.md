@@ -20,6 +20,32 @@
 
 ---
 
+## 버전 동기화 (배포 전 필수)
+
+GitHub Actions `Publish Release` 워크플로우는 다음 세 값이 **모두 일치**해야 통과한다:
+
+| 파일 | 키 |
+|------|----|
+| `package.json` | `version` |
+| `src-tauri/tauri.conf.json` | `version` |
+| git 태그 | `v{version}` |
+
+**버전 bump 시 반드시 두 파일을 함께 수정하고, 커밋 후 태그를 생성한다.**
+
+```bash
+# 올바른 순서
+1. package.json "version" 수정
+2. src-tauri/tauri.conf.json "version" 수정
+3. CHANGELOG.md 업데이트
+4. git commit
+5. git tag v{version}
+6. git push origin main && git push origin v{version}
+```
+
+> 반복 실패 이력: 태그 생성 전 `src-tauri/tauri.conf.json` 버전 누락으로 Actions 실패 다수 발생.
+
+---
+
 ## 배포 순서 (반드시 지킬 것)
 
 ### 스키마/API 변경이 포함된 작업
