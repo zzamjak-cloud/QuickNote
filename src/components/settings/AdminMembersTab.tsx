@@ -6,11 +6,19 @@ import { useTeamStore } from "../../store/teamStore";
 import { CreateMemberModal } from "./CreateMemberModal";
 import { MemberModal } from "./MemberModal";
 
-function toUpperRole(role: Member["workspaceRole"]): "OWNER" | "MANAGER" | "MEMBER" {
-  if (role === "owner") return "OWNER";
-  if (role === "manager") return "MANAGER";
-  return "MEMBER";
+/** 역할 표시 문자열 반환 */
+function toUpperRole(role: Member["workspaceRole"]): string {
+  const map: Record<Member["workspaceRole"], string> = {
+    developer: "Developer",
+    owner: "Owner",
+    leader: "Leader",
+    manager: "Manager",
+    member: "Member",
+  };
+  return map[role] ?? role;
 }
+
+type TabType = "active" | "archived";
 
 export function AdminMembersTab() {
   const members = useMemberStore((s) => s.members);
@@ -18,8 +26,10 @@ export function AdminMembersTab() {
   const upsertMember = useMemberStore((s) => s.upsertMember);
   const removeMemberFromCache = useMemberStore((s) => s.removeMemberFromCache);
   const [query, setQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<TabType>("active");
   const [openCreate, setOpenCreate] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [archivedMember, setArchivedMember] = useState<Member | null>(null);
 
   const teamNamesByMemberId = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -33,10 +43,11 @@ export function AdminMembersTab() {
     return map;
   }, [teams]);
 
-  const filtered = useMemo(() => {
+  /** 검색 필터 적용 */
+  const applyFilter = (list: Member[]) => {
     const q = query.trim().toLowerCase();
-    if (!q) return members;
-    return members.filter((m) => {
+    if (!q) return list;
+    return list.filter((m) => {
       const teamInfo = (teamNamesByMemberId.get(m.memberId) ?? []).join(" ").toLowerCase();
       return (
         m.name.toLowerCase().includes(q) ||
@@ -45,7 +56,17 @@ export function AdminMembersTab() {
         teamInfo.includes(q)
       );
     });
-  }, [members, query, teamNamesByMemberId]);
+  };
+
+  const activeMembers = useMemo(
+    () => applyFilter(members.filter((m) => m.status === "active")),
+    [members, query, teamNamesByMemberId],
+  );
+
+  const archivedMembers = useMemo(
+    () => applyFilter(members.filter((m) => m.status === "removed")),
+    [members, query, teamNamesByMemberId],
+  );
 
   const onCreate = async (input: { email: string; name: string; jobRole: string }) => {
     const created = await createMemberApi({
@@ -59,6 +80,8 @@ export function AdminMembersTab() {
     });
   };
 
+  const displayList = activeTab === "active" ? activeMembers : archivedMembers;
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -70,6 +93,32 @@ export function AdminMembersTab() {
         >
           <Plus size={12} />
           구성원 추가
+        </button>
+      </div>
+
+      {/* 구성원 / 보관함 탭 */}
+      <div className="flex border-b border-zinc-200 dark:border-zinc-700">
+        <button
+          type="button"
+          onClick={() => setActiveTab("active")}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === "active"
+              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
+              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          }`}
+        >
+          구성원
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("archived")}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === "archived"
+              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
+              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          }`}
+        >
+          보관함
         </button>
       </div>
 
@@ -95,18 +144,24 @@ export function AdminMembersTab() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {displayList.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-3 py-4 text-zinc-500">
                   결과가 없습니다.
                 </td>
               </tr>
             ) : (
-              filtered.map((m) => (
+              displayList.map((m) => (
                 <tr
                   key={m.memberId}
                   className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900/50"
-                  onClick={() => setSelectedMember(m)}
+                  onClick={() => {
+                    if (activeTab === "active") {
+                      setSelectedMember(m);
+                    } else {
+                      setArchivedMember(m);
+                    }
+                  }}
                 >
                   <td className="whitespace-nowrap px-3 py-2">{m.name}</td>
                   <td className="whitespace-nowrap px-3 py-2">{m.email}</td>
@@ -127,6 +182,8 @@ export function AdminMembersTab() {
         onClose={() => setOpenCreate(false)}
         onCreate={onCreate}
       />
+
+      {/* 구성원 탭 편집 모달 */}
       {selectedMember && (
         <MemberModal
           mode="edit"
@@ -144,6 +201,37 @@ export function AdminMembersTab() {
           onRemoved={(memberId) => {
             removeMemberFromCache(memberId);
             setSelectedMember(null);
+          }}
+        />
+      )}
+
+      {/* 보관함 탭 편집 모달 */}
+      {archivedMember && (
+        <MemberModal
+          mode="edit"
+          open={true}
+          onClose={() => setArchivedMember(null)}
+          member={archivedMember}
+          archived={true}
+          onUpdated={(updated) => {
+            upsertMember({
+              ...updated,
+              workspaceRole: updated.workspaceRole ?? "member",
+              status: updated.status ?? "active",
+            });
+            setArchivedMember(null);
+          }}
+          onRemoved={(memberId) => {
+            removeMemberFromCache(memberId);
+            setArchivedMember(null);
+          }}
+          onRestored={(member) => {
+            upsertMember(member);
+            setArchivedMember(null);
+          }}
+          onPermanentDeleted={(memberId) => {
+            removeMemberFromCache(memberId);
+            setArchivedMember(null);
           }}
         />
       )}

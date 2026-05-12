@@ -24,7 +24,10 @@ export function MemberRowActions({
   const [confirm, setConfirm] = useState<null | "promote" | "demote" | "remove">(null);
   const [busy, setBusy] = useState(false);
 
-  const canManageMembers = meRole === "owner" || meRole === "manager";
+  const ROLE_RANK: Record<import("../../store/memberStore").MemberRole, number> = {
+    developer: 5, owner: 4, leader: 3, manager: 2, member: 1,
+  };
+  const canManageMembers = (ROLE_RANK[meRole] ?? 0) >= ROLE_RANK["leader"];
 
   const executeConfirm = async () => {
     if (!confirm) return;
@@ -94,7 +97,7 @@ export function MemberRowActions({
               <ArrowDownToLine size={14} />
             </button>
           ) : null}
-          {member.workspaceRole !== "owner" ? (
+          {member.workspaceRole !== "owner" && member.workspaceRole !== "developer" ? (
             <button
               type="button"
               onClick={() => setConfirm("remove")}

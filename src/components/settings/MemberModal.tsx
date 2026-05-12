@@ -7,6 +7,8 @@ import {
   promoteToManagerApi,
   demoteToMemberApi,
   removeMemberApi,
+  restoreMemberApi,
+  permanentDeleteMemberApi,
 } from "../../lib/sync/memberApi";
 import { updateWorkspaceOptionsApi } from "../../lib/sync/workspaceApi";
 import { resizeAvatar } from "../../lib/images/resizeAvatar";
@@ -25,6 +27,9 @@ type EditProps = {
   member: Member;
   onUpdated: (member: Member) => void;
   onRemoved: (memberId: string) => void;
+  archived?: boolean; // 보관함 모드
+  onRestored?: (member: Member) => void;
+  onPermanentDeleted?: (memberId: string) => void;
 };
 
 type Props = CreateProps | EditProps;
@@ -137,6 +142,8 @@ export function MemberModal(props: Props) {
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   // 아바타 미리보기 (편집 모드 초기값은 기존 URL)
   const [avatarPreview, setAvatarPreview] = useState<string | undefined>(
     props.mode === "edit" ? props.member.avatarUrl ?? undefined : undefined,
@@ -157,6 +164,8 @@ export function MemberModal(props: Props) {
         workspaceRole !== (initial?.workspaceRole ?? "member");
 
   if (!props.open) return null;
+
+  const isArchived = props.mode === "edit" && props.archived === true;
 
   // 아바타 파일 선택 시 리사이즈 처리
   const handleAvatarFile = async (file: File) => {
@@ -221,6 +230,34 @@ export function MemberModal(props: Props) {
     }
   };
 
+  const handleRestore = async () => {
+    if (props.mode !== "edit" || !props.onRestored) return;
+    setSubmitting(true);
+    try {
+      const restored = await restoreMemberApi(props.member.memberId);
+      props.onRestored(restored);
+      props.onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "복원에 실패했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handlePermanentDelete = async () => {
+    if (props.mode !== "edit" || !props.onPermanentDeleted) return;
+    setSubmitting(true);
+    try {
+      await permanentDeleteMemberApi(props.member.memberId);
+      props.onPermanentDeleted(props.member.memberId);
+      props.onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "영구 삭제에 실패했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const isOwner = workspaceRole === "owner";
 
   return (
@@ -276,10 +313,17 @@ export function MemberModal(props: Props) {
             <>
               <div className="text-sm font-semibold">{name || initial?.name}</div>
               <div className="flex gap-1">
-                {workspaceRole !== "member" && (
-                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9px] text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                    {workspaceRole === "owner" ? "Owner" : "Manager"}
-                  </span>
+                {workspaceRole === "developer" && (
+                  <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[9px] text-purple-700 dark:bg-purple-900 dark:text-purple-300">Developer</span>
+                )}
+                {workspaceRole === "owner" && (
+                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9px] text-blue-700 dark:bg-blue-900 dark:text-blue-300">Owner</span>
+                )}
+                {workspaceRole === "leader" && (
+                  <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] text-green-700 dark:bg-green-900 dark:text-green-300">Leader</span>
+                )}
+                {workspaceRole === "manager" && (
+                  <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[9px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">Manager</span>
                 )}
                 {jobTitle && (
                   <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[9px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
@@ -380,8 +424,14 @@ export function MemberModal(props: Props) {
                 className="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isOwner && <option value="owner">Owner</option>}
-                <option value="member">Member</option>
-                <option value="manager">Manager</option>
+                {workspaceRole === "developer" && <option value="developer">Developer</option>}
+                {workspaceRole !== "developer" && workspaceRole !== "owner" ? (
+                  <>
+                    <option value="leader">Leader</option>
+                    <option value="manager">Manager</option>
+                    <option value="member">Member</option>
+                  </>
+                ) : null}
               </select>
             </div>
             <div>
@@ -397,32 +447,95 @@ export function MemberModal(props: Props) {
 
           {error && <p className="mt-2 text-xs text-red-500">{error}</p>}
 
-          <div className="mt-3 flex items-center justify-between">
-            {props.mode === "edit" && !isOwner ? (
-              <button
-                type="button"
-                onClick={() => void handleRemove()}
-                disabled={submitting}
-                className="rounded bg-red-50 px-3 py-1 text-xs text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 disabled:opacity-60"
-              >
-                구성원 제거
-              </button>
-            ) : (
-              <span />
-            )}
-            <div className="flex gap-2">
-              <button type="button" onClick={props.onClose} className="rounded border px-3 py-1 text-xs">
-                취소
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSubmit()}
-                disabled={submitting || (props.mode === "edit" && !dirty)}
-                className="rounded bg-zinc-900 px-3 py-1 text-xs text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
-              >
-                {submitting ? "처리 중..." : props.mode === "create" ? "추가" : "갱신"}
-              </button>
+          {/* 영구 삭제 확인 UI */}
+          {showDeleteConfirm && props.mode === "edit" && (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs dark:border-red-800 dark:bg-red-950/30">
+              <p className="mb-2 text-red-700 dark:text-red-300">
+                <strong>{props.member.name}</strong>을(를) 삭제하려면 아래에 이름을 입력하세요.
+              </p>
+              <input
+                autoFocus
+                value={deleteConfirmName}
+                onChange={(e) => setDeleteConfirmName(e.target.value)}
+                placeholder={props.member.name}
+                className="mb-2 w-full rounded border border-red-300 px-2 py-1 outline-none focus:border-red-500 dark:border-red-700 dark:bg-zinc-900"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteConfirmName("");
+                  }}
+                  className="rounded border px-3 py-1 text-xs"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePermanentDelete()}
+                  disabled={submitting || deleteConfirmName !== props.member.name}
+                  className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-40"
+                >
+                  {submitting ? "처리 중..." : "영구 삭제"}
+                </button>
+              </div>
             </div>
+          )}
+
+          <div className="mt-3 flex items-center justify-between">
+            {isArchived ? (
+              /* 보관함 모드: 구성원으로 이동 + 영구 삭제 */
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleRestore()}
+                  disabled={submitting}
+                  className="rounded bg-blue-50 px-3 py-1 text-xs text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 disabled:opacity-60"
+                >
+                  구성원으로 이동
+                </button>
+                {!showDeleteConfirm && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    disabled={submitting}
+                    className="rounded bg-red-50 px-3 py-1 text-xs text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 disabled:opacity-60"
+                  >
+                    영구 삭제
+                  </button>
+                )}
+              </div>
+            ) : (
+              /* 일반 편집 모드: 보관함으로 이동 */
+              props.mode === "edit" && !isOwner ? (
+                <button
+                  type="button"
+                  onClick={() => void handleRemove()}
+                  disabled={submitting}
+                  className="rounded bg-red-50 px-3 py-1 text-xs text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 disabled:opacity-60"
+                >
+                  보관함으로 이동
+                </button>
+              ) : (
+                <span />
+              )
+            )}
+            {!isArchived && (
+              <div className="flex gap-2">
+                <button type="button" onClick={props.onClose} className="rounded border px-3 py-1 text-xs">
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSubmit()}
+                  disabled={submitting || (props.mode === "edit" && !dirty)}
+                  className="rounded bg-zinc-900 px-3 py-1 text-xs text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  {submitting ? "처리 중..." : props.mode === "create" ? "추가" : "갱신"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

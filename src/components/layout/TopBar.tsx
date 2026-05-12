@@ -469,7 +469,7 @@ export function TopBar() {
                 >
                   <FileText className={MENU_ITEM_ICON} aria-hidden />
                   <span className="min-w-0 flex-1">
-                    마크다운(.md)으로 내보내기
+                    마크다운 내보내기
                   </span>
                 </button>
                 <button

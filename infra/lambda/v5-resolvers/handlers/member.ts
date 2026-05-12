@@ -1,5 +1,6 @@
 import {
   DynamoDBDocumentClient,
+  DeleteCommand,
   GetCommand,
   QueryCommand,
   ScanCommand,
@@ -36,14 +37,14 @@ export type CreateMemberInput = {
   email: string;
   name: string;
   jobRole: string;
-  workspaceRole?: "OWNER" | "MANAGER" | "MEMBER";
+  workspaceRole?: "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER";
   teamIds?: string[] | null;
 };
 
 type MemberFilterInput = {
   status?: "ACTIVE" | "REMOVED";
   teamId?: string;
-  workspaceRole?: "OWNER" | "MANAGER" | "MEMBER";
+  workspaceRole?: "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER";
 };
 
 type TxItem = NonNullable<TransactWriteCommandInput["TransactItems"]>[number];
@@ -116,11 +117,19 @@ export async function createMember(args: {
   caller: Member;
   input: CreateMemberInput;
 }): Promise<Member> {
-  requireRoleAtLeast(args.caller, "manager");
-
-  // OWNER 등록은 Owner 만 (transferOwnership 이외에는 보통 막음)
-  if (args.input.workspaceRole === "OWNER" && args.caller.workspaceRole !== "owner") {
-    badRequest("Manager 는 Owner 등록 불가");
+  requireRoleAtLeast(args.caller, "leader");
+  const inputRole = (args.input.workspaceRole ?? "MEMBER").toLowerCase();
+  // DEVELOPER 등록은 Developer 만
+  if (inputRole === "developer" && args.caller.workspaceRole !== "developer") {
+    badRequest("Developer 만 Developer 등록 가능");
+  }
+  // OWNER 등록은 Developer 만
+  if (inputRole === "owner" && args.caller.workspaceRole !== "developer") {
+    badRequest("Developer 만 Owner 등록 가능");
+  }
+  // LEADER 등록은 Developer, Owner 만
+  if (inputRole === "leader" && !["developer", "owner"].includes(args.caller.workspaceRole)) {
+    badRequest("Owner 이상만 Leader 등록 가능");
   }
 
   // 이메일 중복 사전 검사 (TransactWrite ConditionExpression 도 있지만 GSI 검사가 더 명확)
@@ -604,11 +613,14 @@ export async function removeMember(args: {
   caller: Member;
   memberId: string;
 }): Promise<Member> {
-  requireRoleAtLeast(args.caller, "manager");
+  requireRoleAtLeast(args.caller, "leader");
 
   const target = await getMemberById(args.doc, args.tables, args.memberId);
   if (!target) notFound("Member 없음");
-  if (target.workspaceRole === "owner") forbidden("Owner 는 제거 불가");
+  if (target.workspaceRole === "developer") forbidden("Developer 는 제거 불가");
+  if (target.workspaceRole === "owner" && args.caller.workspaceRole !== "developer") {
+    forbidden("Owner 는 Developer 만 제거 가능");
+  }
   if (target.status !== "active") badRequest("이미 제거된 멤버");
 
   const now = new Date().toISOString();
@@ -734,4 +746,54 @@ export async function unassignMemberFromTeam(args: {
   );
 
   return { memberId: args.memberId, teamId: args.teamId };
+}
+
+// ─── restoreMember ─────────────────────────────────────────────────────────────
+export async function restoreMember(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  memberId: string;
+}): Promise<Member> {
+  requireRoleAtLeast(args.caller, "leader");
+
+  const target = await getMemberById(args.doc, args.tables, args.memberId);
+  if (!target) notFound("Member 없음");
+  if (target.status !== "removed") badRequest("이미 활성 멤버");
+
+  await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Members,
+      Key: { memberId: args.memberId },
+      UpdateExpression: "SET #s = :active REMOVE removedAt",
+      ExpressionAttributeNames: { "#s": "status" },
+      ExpressionAttributeValues: { ":active": "active" },
+    }),
+  );
+
+  return { ...target, status: "active", removedAt: undefined };
+}
+
+// ─── permanentDeleteMember ─────────────────────────────────────────────────────
+export async function permanentDeleteMember(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  memberId: string;
+}): Promise<Member> {
+  requireRoleAtLeast(args.caller, "leader");
+
+  const target = await getMemberById(args.doc, args.tables, args.memberId);
+  if (!target) notFound("Member 없음");
+  if (target.workspaceRole === "developer") forbidden("Developer 는 영구 삭제 불가");
+  if (target.status === "active") badRequest("보관함으로 이동 후 영구 삭제 가능");
+
+  await args.doc.send(
+    new DeleteCommand({
+      TableName: args.tables.Members,
+      Key: { memberId: args.memberId },
+    }),
+  );
+
+  return target;
 }

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type MemberRole = "owner" | "manager" | "member";
+export type MemberRole = "developer" | "owner" | "leader" | "manager" | "member";
 export type MemberStatus = "active" | "removed";
 
 export type Member = {

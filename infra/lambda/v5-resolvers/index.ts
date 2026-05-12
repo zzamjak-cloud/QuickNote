@@ -13,6 +13,8 @@ import {
   demoteToMember,
   transferOwnership,
   removeMember,
+  restoreMember,
+  permanentDeleteMember,
   assignMemberToTeam,
   unassignMemberFromTeam,
 } from "./handlers/member";
@@ -70,8 +72,10 @@ type AppsyncEvent = {
   info: { fieldName: string };
 };
 
-function roleToGql(role: string): "OWNER" | "MANAGER" | "MEMBER" {
+function roleToGql(role: string): "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER" {
+  if (role === "developer") return "DEVELOPER";
   if (role === "owner") return "OWNER";
+  if (role === "leader") return "LEADER";
   if (role === "manager") return "MANAGER";
   return "MEMBER";
 }
@@ -144,7 +148,7 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return (await listMembers({
           ...base,
           filter: event.arguments.filter as
-            | { status?: "ACTIVE" | "REMOVED"; teamId?: string; workspaceRole?: "OWNER" | "MANAGER" | "MEMBER" }
+            | { status?: "ACTIVE" | "REMOVED"; teamId?: string; workspaceRole?: "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER" }
             | undefined,
         })).map((m) => normalizeMemberForGql(m as unknown as Record<string, unknown>));
       case "getMember":
@@ -175,6 +179,16 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return normalizeMemberForGql((await transferOwnership({ ...base, toMemberId: event.arguments.toMemberId as string })) as Record<string, unknown>);
       case "removeMember":
         return normalizeMemberForGql((await removeMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
+      case "restoreMember":
+        return normalizeMemberForGql((await restoreMember({
+          ...base,
+          memberId: event.arguments.memberId as string,
+        })) as Record<string, unknown>);
+      case "permanentDeleteMember":
+        return normalizeMemberForGql((await permanentDeleteMember({
+          ...base,
+          memberId: event.arguments.memberId as string,
+        })) as Record<string, unknown>);
       case "assignMemberToTeam":
         await assignMemberToTeam({ ...base, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
         return true;

@@ -414,6 +414,8 @@ export function response(ctx) {
     v5Ds.createResolver("DemoteToMemberMutation", { typeName: "Mutation", fieldName: "demoteToMember" });
     v5Ds.createResolver("TransferOwnershipMutation", { typeName: "Mutation", fieldName: "transferOwnership" });
     v5Ds.createResolver("RemoveMemberMutation", { typeName: "Mutation", fieldName: "removeMember" });
+    v5Ds.createResolver("RestoreMemberMutation", { typeName: "Mutation", fieldName: "restoreMember" });
+    v5Ds.createResolver("PermanentDeleteMemberMutation", { typeName: "Mutation", fieldName: "permanentDeleteMember" });
     v5Ds.createResolver("AssignMemberToTeamMutation", { typeName: "Mutation", fieldName: "assignMemberToTeam" });
     v5Ds.createResolver("UnassignMemberFromTeamMutation", { typeName: "Mutation", fieldName: "unassignMemberFromTeam" });
     v5Ds.createResolver("ListTeamsQuery", { typeName: "Query", fieldName: "listTeams" });

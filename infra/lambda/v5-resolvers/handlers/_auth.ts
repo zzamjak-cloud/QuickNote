@@ -2,7 +2,7 @@
 // Members 테이블 GSI(byCognitoSub) 조회해 caller 의 active Member 를 찾는다.
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
-export type WorkspaceRole = "owner" | "manager" | "member";
+export type WorkspaceRole = "developer" | "owner" | "leader" | "manager" | "member";
 export type Member = {
   memberId: string;
   email: string;
@@ -18,7 +18,7 @@ export type Member = {
   removedAt?: string | null;
 };
 
-const ROLE_RANK: Record<WorkspaceRole, number> = { owner: 3, manager: 2, member: 1 };
+const ROLE_RANK: Record<WorkspaceRole, number> = { developer: 5, owner: 4, leader: 3, manager: 2, member: 1 };
 
 export class ResolverError extends Error {
   constructor(message: string, public errorType: string) {
@@ -61,6 +61,10 @@ export function requireRoleAtLeast(caller: Member, required: WorkspaceRole): voi
 
 export function requireOwnerOnly(caller: Member): void {
   if (caller.workspaceRole !== "owner") forbidden("Owner 만 가능");
+}
+
+export function requireOwnerOrAbove(caller: Member): void {
+  if (ROLE_RANK[caller.workspaceRole] < ROLE_RANK["owner"]) forbidden("Owner 이상만 가능");
 }
 
 export function preventOwnerMutation(caller: Member, target: Member): void {
@@ -135,7 +139,7 @@ export async function requireWorkspaceAccess(args: {
 }): Promise<AccessLevel> {
   // owner는 WorkspaceAccess 테이블 엔트리 없이도 암묵적으로 edit 권한을 가짐.
   // 개인 워크스페이스처럼 access 엔트리가 생성되지 않은 경우도 정상 동작.
-  if (args.caller.workspaceRole === "owner") return "edit";
+  if (args.caller.workspaceRole === "developer" || args.caller.workspaceRole === "owner" || args.caller.workspaceRole === "leader") return "edit";
 
   const teamIds = await getMemberTeamIds(args.doc, args.memberTeamsTableName, args.caller.memberId);
   const entries = await getWorkspaceAccessEntries(args.doc, args.workspaceAccessTableName, args.workspaceId);

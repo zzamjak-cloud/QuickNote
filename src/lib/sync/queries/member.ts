@@ -95,3 +95,15 @@ export const UPDATE_MEMBER = `
     ) { ${MEMBER_FIELDS} }
   }
 `;
+
+export const RESTORE_MEMBER = `
+  mutation RestoreMember($memberId: ID!) {
+    restoreMember(memberId: $memberId) { ${MEMBER_FIELDS} }
+  }
+`;
+
+export const PERMANENT_DELETE_MEMBER = `
+  mutation PermanentDeleteMember($memberId: ID!) {
+    permanentDeleteMember(memberId: $memberId) { ${MEMBER_FIELDS} }
+  }
+`;

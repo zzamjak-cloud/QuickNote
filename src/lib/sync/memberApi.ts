@@ -10,6 +10,8 @@ import {
   REMOVE_MEMBER,
   UNASSIGN_MEMBER_FROM_TEAM,
   UPDATE_MEMBER,
+  RESTORE_MEMBER,
+  PERMANENT_DELETE_MEMBER,
 } from "./queries/member";
 import type { Member, MemberMini } from "../../store/memberStore";
 
@@ -17,7 +19,7 @@ type CreateMemberInput = {
   email: string;
   name: string;
   jobRole: string;
-  workspaceRole?: "OWNER" | "MANAGER" | "MEMBER";
+  workspaceRole?: "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER";
   teamIds?: string[];
 };
 
@@ -31,7 +33,7 @@ type UpdateMemberInput = {
 };
 
 type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
-  workspaceRole: "OWNER" | "MANAGER" | "MEMBER";
+  workspaceRole: "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER";
   status: "ACTIVE" | "REMOVED";
   cognitoSub?: string | null;
   createdAt: string;
@@ -43,7 +45,9 @@ type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
 type GqlMePayload = GqlMember;
 
 function toMemberRole(role: GqlMember["workspaceRole"] | Member["workspaceRole"]): Member["workspaceRole"] {
+  if (role === "DEVELOPER" || role === "developer") return "developer";
   if (role === "OWNER" || role === "owner") return "owner";
+  if (role === "LEADER" || role === "leader") return "leader";
   if (role === "MANAGER" || role === "manager") return "manager";
   return "member";
 }
@@ -177,4 +181,24 @@ export async function searchMembersForMentionApi(
     },
   })) as { data?: { searchMembersForMention?: MemberMini[] } };
   return result.data?.searchMembersForMention ?? [];
+}
+
+export async function restoreMemberApi(memberId: string): Promise<Member> {
+  const result = (await appsyncClient().graphql({
+    query: RESTORE_MEMBER,
+    variables: { memberId },
+  })) as { data?: { restoreMember?: GqlMember } };
+  const member = result.data?.restoreMember;
+  if (!member) throw new Error("restoreMember 응답이 비어 있습니다.");
+  return normalizeMemberFields(member);
+}
+
+export async function permanentDeleteMemberApi(memberId: string): Promise<Member> {
+  const result = (await appsyncClient().graphql({
+    query: PERMANENT_DELETE_MEMBER,
+    variables: { memberId },
+  })) as { data?: { permanentDeleteMember?: GqlMember } };
+  const member = result.data?.permanentDeleteMember;
+  if (!member) throw new Error("permanentDeleteMember 응답이 비어 있습니다.");
+  return normalizeMemberFields(member);
 }
