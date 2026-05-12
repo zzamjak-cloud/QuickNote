@@ -67,7 +67,7 @@ describe("persisted store migrations", () => {
     ]);
   });
 
-  it("blockCommentStore migration normalizes mentions and drops invalid messages", () => {
+  it("blockCommentStore migration은 messages를 비우고 threadVisitedAt을 빈 객체로 반환한다 (messages는 서버에서 재로드)", () => {
     const migrated = migrateBlockCommentStore(
       {
         messages: [
@@ -81,30 +81,14 @@ describe("persisted store migrations", () => {
             parentId: undefined,
             createdAt: 11,
           },
-          { id: "broken" },
         ],
-        threadVisitedAt: {
-          "p1:b1": "22",
-          bad: "x",
-        },
+        threadVisitedAt: { "p1:b1": "22" },
       },
       1,
     );
 
-    expect(migrated.messages).toEqual([
-      {
-        id: "c1",
-        workspaceId: null,
-        pageId: "p1",
-        blockId: "b1",
-        authorMemberId: "author",
-        bodyText: "body",
-        mentionMemberIds: ["me"],
-        parentId: null,
-        createdAt: 11,
-      },
-    ]);
-    expect(migrated.threadVisitedAt).toEqual({ "p1:b1": 22 });
+    expect(migrated.messages).toEqual([]);
+    expect(migrated.threadVisitedAt).toEqual({});
   });
 
   it("pageStore migration preserves valid pages and quarantines invalid records", () => {
