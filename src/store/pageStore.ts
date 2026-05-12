@@ -3,10 +3,8 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { zustandStorage } from "../lib/storage/index";
 import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../types/page";
-import type { BlockCommentMsg, PageBlockCommentsSnapshot } from "../types/blockComment";
 import type { CellValue } from "../types/database";
 import { coercePageBlockComments } from "../lib/comments/blockCommentSnapshot";
-import { normalizeMentionMemberIds } from "../lib/comments/mentionMemberIds";
 import { newId } from "../lib/id";
 import {
   shouldWriteAnchor,
@@ -30,7 +28,6 @@ import {
   type PersistedObject,
   type PersistedQuarantine,
 } from "../lib/migrations/persistedStore";
-import { refreshBlockCommentDecorationsForPage } from "../lib/editor/editorByPageRegistry";
 
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
 // 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
@@ -66,16 +63,6 @@ function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> 
     createdAt: new Date(p.createdAt).toISOString(),
     updatedAt: new Date(p.updatedAt).toISOString(),
   };
-  // blockComments가 undefined면 key 자체를 생략 → Lambda가 DynamoDB 기존 값 보존.
-  // 이는 다른 기기의 댓글을 본인의 비어 있는 로컬 상태로 덮어쓰는 것을 방지한다.
-  // blockComments가 할당됐지만 비어 있으면 null 전송 → 명시적 삭제를 서버에 반영.
-  if (p.blockComments != null) {
-    base.blockComments =
-      p.blockComments.messages.length > 0 ||
-      Object.keys(p.blockComments.threadVisitedAt).length > 0
-        ? JSON.stringify(p.blockComments)
-        : null;
-  }
   return base;
 }
 
@@ -279,15 +266,6 @@ type PageStoreActions = {
   duplicatePage: (id: string) => string;
   // 행 페이지의 dbCells 한 항목을 갱신 (title 컬럼 제외)
   setPageDbCell: (pageId: string, columnId: string, value: CellValue) => void;
-  /** 블록 댓글 추가 — 페이지 JSON·원격 upsert(디바운스)와 동기화 */
-  appendPageBlockComment: (pageId: string, msg: BlockCommentMsg) => void;
-  updatePageBlockComment: (
-    pageId: string,
-    messageId: string,
-    patch: { bodyText: string; mentionMemberIds: string[] },
-  ) => void;
-  deletePageBlockComment: (pageId: string, messageId: string) => void;
-  markPageBlockCommentThreadVisited: (pageId: string, blockId: string) => void;
   restorePageFromLatestHistory: (pageId: string) => boolean;
   restorePageFromHistoryEvent: (pageId: string, eventId: string) => boolean;
 };
@@ -296,14 +274,6 @@ export type PageStore = PageStoreState & PageStoreActions;
 
 /** zustand persist `version` 과 동일 — 메타 schemaVersion 과 맞춘다 */
 const PAGE_STORE_PERSIST_VERSION = 4;
-
-/** 블록 댓글 upsert 는 doc 보다 덜 자주 바뀌지만 멀티 디바이스 동기를 위해 doc 보다 짧게 디바운스 */
-/** 너무 길면 다른 기기에서 댓글 도착이 늦게 보인다 */
-const PAGE_BLOCK_COMMENT_DEBOUNCE_MS = 450;
-
-function ensureBlockComments(page: Page): PageBlockCommentsSnapshot {
-  return page.blockComments ?? { messages: [], threadVisitedAt: {} };
-}
 
 const PAGE_STORE_DATA_KEYS = [
   "pages",
@@ -994,150 +964,6 @@ export const usePageStore = create<PageStore>()(
           );
           enqueueUpsertPage(after);
         }
-      },
-
-      appendPageBlockComment: (pageId, msg) => {
-        const page = get().pages[pageId];
-        if (!page) return;
-        const bc = ensureBlockComments(page);
-        const ws = getCurrentWorkspaceId();
-        const nextMsg: BlockCommentMsg = {
-          ...msg,
-          workspaceId: msg.workspaceId ?? (ws || null),
-        };
-        if (bc.messages.some((m) => m.id === nextMsg.id)) return;
-        set((state) => {
-          const cur = state.pages[pageId];
-          if (!cur) return state;
-          const snap = ensureBlockComments(cur);
-          return {
-            pages: {
-              ...state.pages,
-              [pageId]: {
-                ...cur,
-                updatedAt: Date.now(),
-                blockComments: {
-                  messages: [...snap.messages, nextMsg],
-                  threadVisitedAt: { ...snap.threadVisitedAt },
-                },
-              },
-            },
-          };
-        });
-        // 즉시 outbox 적재 — 탭/앱 종료 전 debounce 미실행 시 유실 방지
-        const committed = get().pages[pageId];
-        if (committed) enqueueUpsertPage(committed);
-        // 연속 작성 시 최신 스냅샷으로 코얼레스 (outbox dedup이 중간 항목 제거)
-        debouncePerKey(`page-bc:${pageId}`, PAGE_BLOCK_COMMENT_DEBOUNCE_MS, () => {
-          const latest = get().pages[pageId];
-          if (latest) enqueueUpsertPage(latest);
-        });
-        refreshBlockCommentDecorationsForPage(pageId);
-      },
-
-      updatePageBlockComment: (pageId, messageId, patch) => {
-        const page = get().pages[pageId];
-        if (!page?.blockComments) return;
-        const hit = page.blockComments.messages.find((m) => m.id === messageId);
-        if (!hit) return;
-        const nextMentions = normalizeMentionMemberIds(patch.mentionMemberIds);
-        set((state) => {
-          const cur = state.pages[pageId];
-          if (!cur?.blockComments) return state;
-          return {
-            pages: {
-              ...state.pages,
-              [pageId]: {
-                ...cur,
-                updatedAt: Date.now(),
-                blockComments: {
-                  ...cur.blockComments,
-                  messages: cur.blockComments.messages.map((m) =>
-                    m.id === messageId
-                      ? { ...m, bodyText: patch.bodyText, mentionMemberIds: nextMentions }
-                      : m,
-                  ),
-                },
-              },
-            },
-          };
-        });
-        // 즉시 outbox 적재 — 탭/앱 종료 전 debounce 미실행 시 유실 방지
-        const committed = get().pages[pageId];
-        if (committed) enqueueUpsertPage(committed);
-        debouncePerKey(`page-bc:${pageId}`, PAGE_BLOCK_COMMENT_DEBOUNCE_MS, () => {
-          const latest = get().pages[pageId];
-          if (latest) enqueueUpsertPage(latest);
-        });
-        refreshBlockCommentDecorationsForPage(pageId);
-      },
-
-      deletePageBlockComment: (pageId, messageId) => {
-        const page = get().pages[pageId];
-        if (!page?.blockComments) return;
-        set((state) => {
-          const cur = state.pages[pageId];
-          if (!cur?.blockComments) return state;
-          const messages = cur.blockComments.messages.filter((m) => m.id !== messageId);
-          return {
-            pages: {
-              ...state.pages,
-              [pageId]: {
-                ...cur,
-                updatedAt: Date.now(),
-                blockComments: {
-                  messages,
-                  threadVisitedAt: { ...cur.blockComments.threadVisitedAt },
-                },
-              },
-            },
-          };
-        });
-        // 즉시 outbox 적재 — 탭/앱 종료 전 debounce 미실행 시 유실 방지
-        const committed = get().pages[pageId];
-        if (committed) enqueueUpsertPage(committed);
-        debouncePerKey(`page-bc:${pageId}`, PAGE_BLOCK_COMMENT_DEBOUNCE_MS, () => {
-          const latest = get().pages[pageId];
-          if (latest) enqueueUpsertPage(latest);
-        });
-        refreshBlockCommentDecorationsForPage(pageId);
-      },
-
-      markPageBlockCommentThreadVisited: (pageId, blockId) => {
-        const page = get().pages[pageId];
-        if (!page) return;
-        set((state) => {
-          const cur = state.pages[pageId];
-          if (!cur) return state;
-          const snap = ensureBlockComments(cur);
-          return {
-            pages: {
-              ...state.pages,
-              [pageId]: {
-                ...cur,
-                // updatedAt 은 올리지 않음 — thread 방문은 doc 변경 아님.
-                // 올리면 LWW guard 가 다른 기기의 doc 편집을 차단할 수 있음.
-                blockComments: {
-                  ...snap,
-                  threadVisitedAt: {
-                    ...snap.threadVisitedAt,
-                    [blockId]: Date.now(),
-                  },
-                },
-              },
-            },
-          };
-        });
-        // threadVisitedAt 은 서버에 동기화해야 하므로 upsert 적재.
-        // local state의 updatedAt 은 올리지 않으므로 upsert payload 에서만 현재 시각 세팅.
-        const committed = get().pages[pageId];
-        if (committed) enqueueUpsertPage({ ...committed, updatedAt: Date.now() });
-        // 연속 방문 시 코얼레스 (outbox dedup이 중간 항목 제거)
-        debouncePerKey(`page-bc:${pageId}`, PAGE_BLOCK_COMMENT_DEBOUNCE_MS, () => {
-          const latest = get().pages[pageId];
-          if (latest) enqueueUpsertPage({ ...latest, updatedAt: Date.now() });
-        });
-        refreshBlockCommentDecorationsForPage(pageId);
       },
 
       restorePageFromLatestHistory: (pageId) => {

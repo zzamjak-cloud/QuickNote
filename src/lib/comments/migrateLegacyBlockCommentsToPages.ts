@@ -1,7 +1,6 @@
 import { zustandStorage } from "../storage/index";
 import type { BlockCommentMsg } from "../../types/blockComment";
 import { enqueuePageUpsertForSync, usePageStore } from "../../store/pageStore";
-import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { migrateBlockCommentMsg, migrateThreadVisitedAt } from "./blockCommentSnapshot";
 
 const LEGACY_STORAGE_KEY = "quicknote.blockComments.v1";
@@ -109,7 +108,6 @@ export async function migrateLegacyBlockCommentsToPagesOnce(): Promise<void> {
     if (p) enqueuePageUpsertForSync(p);
   }
 
-  useBlockCommentStore.getState().resyncFromPages();
   await Promise.resolve(zustandStorage.removeItem(LEGACY_STORAGE_KEY));
   sessionStorage.setItem(SESSION_FLAG, "1");
 }

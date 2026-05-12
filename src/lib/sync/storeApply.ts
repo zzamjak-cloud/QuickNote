@@ -7,25 +7,21 @@ import type {
   GqlPage,
   GqlDatabase,
 } from "./graphql/operations";
+import type { GqlComment } from "./queries/comment";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { Page } from "../../types/page";
-import type { PageBlockCommentsSnapshot } from "../../types/blockComment";
-import { coercePageBlockComments } from "../comments/blockCommentSnapshot";
-import { mergePageBlockComments } from "../comments/mergePageBlockComments";
-import { notifyRemoteBlockCommentDelta } from "../comments/notifyRemoteBlockCommentDelta";
-import { useMemberStore } from "../../store/memberStore";
-import type {
-  ColumnDef,
-  DatabaseBundle,
-} from "../../types/database";
+import type { ColumnDef, DatabaseBundle } from "../../types/database";
 import type { JSONContent } from "@tiptap/react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
+import { notifyRemoteBlockCommentDelta } from "../comments/notifyRemoteBlockCommentDelta";
+import { useMemberStore } from "../../store/memberStore";
+import type { BlockCommentMsg } from "../../types/blockComment";
 
 /**
  * 구독 레이스·백엔드 오류로 다른 워크스페이스 스냅샷이 내려올 때 로컬 캐시가 오염되지 않게 한다.
- * currentWorkspaceId 가 없으면(부트 초기 등) 검사를 생략한다.
  */
 function shouldApplyRemoteSnapshot(remoteWorkspaceId: string | null | undefined): boolean {
   if (remoteWorkspaceId == null || remoteWorkspaceId === "") {
@@ -52,7 +48,6 @@ function isoToMs(iso: string | null | undefined): number {
 }
 
 // AppSync AWSJSON 응답은 보통 JSON 문자열로 도착한다(Amplify 가 자동 parse 해주는 경우도 있어 객체일 수 있음).
-// 둘 다 안전하게 처리한다.
 function parseAwsJson<T>(v: unknown, fallback: T): T {
   if (v == null) return fallback;
   if (typeof v === "string") {
@@ -136,16 +131,12 @@ function ensurePageInDatabaseRowOrder(databaseId: string, pageId: string): void 
 
 export function applyRemotePageToStore(
   p: GqlPage | null | undefined,
-  options?: { skipBlockCommentNotifications?: boolean },
 ): void {
   if (!p) return;
   if (!shouldApplyRemoteSnapshot(p.workspaceId)) return;
 
-  const before = usePageStore.getState().pages[p.id];
-
   usePageStore.setState((s) => {
     const local = s.pages[p.id];
-    // tombstone — 로컬에서 제거.
     if (p.deletedAt) {
       if (!local) return s;
       const rest = { ...s.pages };
@@ -159,20 +150,8 @@ export function applyRemotePageToStore(
         cacheWorkspaceId: p.workspaceId,
       };
     }
-    // 로컬이 더 신선하면 페이지 본문은 무시하되, blockComments는 항상 union 병합.
-    // (댓글 작성 시 낙관적 updatedAt 설정으로 guard가 의도치 않게 원격 댓글을 차단할 수 있음)
     if (local && !isRemoteNewer(local.updatedAt, p.updatedAt)) {
-      const remoteBC =
-        p.blockComments != null
-          ? coercePageBlockComments(parseAwsJson<unknown>(p.blockComments, null))
-          : undefined;
-      const mergedBC = mergePageBlockComments(remoteBC, local.blockComments);
-      const base = s.cacheWorkspaceId === p.workspaceId ? s : { ...s, cacheWorkspaceId: p.workspaceId };
-      if (mergedBC === local.blockComments) return base;
-      return {
-        ...base,
-        pages: { ...base.pages, [p.id]: { ...local, blockComments: mergedBC } },
-      };
+      return s.cacheWorkspaceId === p.workspaceId ? s : { ...s, cacheWorkspaceId: p.workspaceId };
     }
 
     const orderNum = (() => {
@@ -180,16 +159,6 @@ export function applyRemotePageToStore(
       if (!Number.isNaN(n)) return n;
       return isoToMs(p.updatedAt);
     })();
-
-    const remoteBlockComments: PageBlockCommentsSnapshot | undefined =
-      p.blockComments != null
-        ? coercePageBlockComments(parseAwsJson<unknown>(p.blockComments, null))
-        : undefined;
-    // 원격에 blockComments 가 없거나 비어 있으면 로컬 스레드가 통째로 사라지지 않게 합친다.
-    const mergedBlockComments = mergePageBlockComments(
-      remoteBlockComments,
-      local?.blockComments,
-    );
 
     const merged: Page = {
       id: p.id,
@@ -204,7 +173,6 @@ export function applyRemotePageToStore(
       order: orderNum,
       databaseId: p.databaseId ?? undefined,
       dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
-      ...(mergedBlockComments ? { blockComments: mergedBlockComments } : {}),
       createdByMemberId: p.createdByMemberId ?? undefined,
       createdAt: isoToMs(p.createdAt) || Date.now(),
       updatedAt: isoToMs(p.updatedAt) || Date.now(),
@@ -217,6 +185,7 @@ export function applyRemotePageToStore(
   });
 
   if (p.deletedAt) {
+    const before = usePageStore.getState().pages[p.id];
     const dbId = before?.databaseId;
     if (dbId) removePageIdFromDatabaseRowOrder(dbId, p.id);
     return;
@@ -226,13 +195,43 @@ export function applyRemotePageToStore(
   if (after?.databaseId) {
     ensurePageInDatabaseRowOrder(after.databaseId, after.id);
   }
+}
 
-  if (options?.skipBlockCommentNotifications !== true) {
-    const myMemberId = useMemberStore.getState().me?.memberId;
+/** 원격 Comment 엔티티를 blockCommentStore 에 LWW 적용 */
+export function applyRemoteCommentToStore(
+  c: GqlComment | null | undefined,
+): void {
+  if (!c) return;
+  if (!shouldApplyRemoteSnapshot(c.workspaceId)) return;
+
+  const mentionMemberIds = parseAwsJson<string[]>(c.mentionMemberIds, []);
+
+  if (c.deletedAt) {
+    useBlockCommentStore.getState().removeMessage(c.id);
+    return;
+  }
+
+  const msg: BlockCommentMsg = {
+    id: c.id,
+    workspaceId: c.workspaceId,
+    pageId: c.pageId,
+    blockId: c.blockId,
+    authorMemberId: c.authorMemberId,
+    bodyText: c.bodyText,
+    mentionMemberIds,
+    parentId: c.parentId ?? null,
+    createdAt: isoToMs(c.createdAt) || Date.now(),
+  };
+
+  const before = useBlockCommentStore.getState().messages.find((m) => m.id === c.id);
+  useBlockCommentStore.getState().applyRemoteMessage(msg);
+
+  const myMemberId = useMemberStore.getState().me?.memberId;
+  if (myMemberId) {
     notifyRemoteBlockCommentDelta(
       myMemberId,
-      before?.blockComments,
-      after?.blockComments,
+      before ? { messages: [before], threadVisitedAt: {} } : undefined,
+      { messages: [msg], threadVisitedAt: {} },
     );
   }
 }
@@ -266,7 +265,6 @@ export function applyRemoteDatabaseToStore(
   }
 
   const columns = parseAwsJson<ColumnDef[]>(d.columns, []);
-  // 원격은 rowPageOrder 를 모르므로: 로컬 순서 보존 + 페이지 스토어에서 역산해 빈 캐시 복구.
   const derivedRowOrder = collectRowPageIdsForDatabase(d.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
 
@@ -287,6 +285,5 @@ export function applyRemoteDatabaseToStore(
     cacheWorkspaceId: d.workspaceId,
   }));
 
-  // 서버에서 온 DB는 로컬에 db.create 가 없을 수 있다. 고아 패치만 있으면 타임라인이 비게 된다.
   repairDbHistoryBaselineIfNeeded(d.id, structuredClone(bundle));
 }

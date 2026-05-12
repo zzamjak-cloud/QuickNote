@@ -5,6 +5,7 @@ import {
   type GqlPage,
   type GqlDatabase,
 } from "./graphql/operations";
+import { ON_COMMENT_CHANGED, type GqlComment } from "./queries/comment";
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 
 // 자기 workspaceId 의 변경 푸시를 수신해 LWW 적용 콜백을 호출.
@@ -15,6 +16,7 @@ import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 export type SubscribeHandlers = {
   onPage: (item: GqlPage) => void;
   onDatabase: (item: GqlDatabase) => void;
+  onComment: (item: GqlComment) => void;
 };
 
 type Subscribable = {
@@ -34,14 +36,17 @@ export function startSubscriptions(
   let stopped = false;
   let pageSub: { unsubscribe: () => void } | null = null;
   let dbSub: { unsubscribe: () => void } | null = null;
+  let commentSub: { unsubscribe: () => void } | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryAttempts = 0;
 
   const clearSubs = () => {
     try { pageSub?.unsubscribe(); } catch { /* noop */ }
     try { dbSub?.unsubscribe(); } catch { /* noop */ }
+    try { commentSub?.unsubscribe(); } catch { /* noop */ }
     pageSub = null;
     dbSub = null;
+    commentSub = null;
   };
 
   const scheduleRetry = () => {
@@ -61,7 +66,6 @@ export function startSubscriptions(
 
     // AppSync USER_POOL 인증에서 subscription 의 connection_init 핸드셰이크에는
     // Amplify 의 headers 함수 대신 authToken 옵션으로 직접 토큰을 주입해야 한다.
-    // (defaultAuthMode "none" + 수동 헤더 방식은 query/mutation 에만 작동)
     const tokens = await ensureFreshTokensForAppSync();
     const authToken = tokens?.idToken;
 
@@ -109,6 +113,29 @@ export function startSubscriptions(
       },
       error: (e) => {
         console.error("[sub:database]", e);
+        scheduleRetry();
+      },
+    });
+
+    let commentObs: Subscribable;
+    try {
+      commentObs = c.graphql({
+        query: ON_COMMENT_CHANGED,
+        variables: { workspaceId },
+        authToken,
+      } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
+    } catch (e) {
+      console.error("[sub:comment]", e);
+      scheduleRetry();
+      return;
+    }
+    commentSub = commentObs.subscribe({
+      next: ({ data }) => {
+        retryAttempts = 0;
+        handlers.onComment(data.onCommentChanged as GqlComment);
+      },
+      error: (e) => {
+        console.error("[sub:comment]", e);
         scheduleRetry();
       },
     });

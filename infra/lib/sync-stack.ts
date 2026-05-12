@@ -28,6 +28,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
   public readonly pageTable: ModelTable;
   public readonly databaseTable: ModelTable;
   public readonly imageAssetTable: ModelTable;
+  public readonly commentTable: ModelTable;
   public readonly imagesBucket: s3.Bucket;
   public readonly api: appsync.GraphqlApi;
   public readonly membersTable: dynamodb.Table;
@@ -48,6 +49,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     // 4개 owner-scoped 테이블을 팩토리로 생성.
     this.pageTable = createSyncTable(this, "PageTable", "Page");
     this.databaseTable = createSyncTable(this, "DatabaseTable", "Database");
+    this.commentTable = createSyncTable(this, "CommentTable", "Comment");
     this.imageAssetTable = createSyncTable(this, "ImageAssetTable", "ImageAsset", {
       ttlAttribute: "expireAt", // pending 1일 자동 삭제용
     });
@@ -67,8 +69,16 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    this.commentTable.table.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndUpdatedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     new cdk.CfnOutput(this, "PageTableName", { value: this.pageTable.table.tableName });
     new cdk.CfnOutput(this, "DatabaseTableName", { value: this.databaseTable.table.tableName });
+    new cdk.CfnOutput(this, "CommentTableName", { value: this.commentTable.table.tableName });
     new cdk.CfnOutput(this, "ImageAssetTableName", {
       value: this.imageAssetTable.table.tableName,
     });
@@ -358,6 +368,7 @@ export function response(ctx) {
         WORKSPACE_ACCESS_TABLE_NAME: this.workspaceAccessTable.tableName,
         PAGES_TABLE_NAME: this.pageTable.table.tableName,
         DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
+        COMMENTS_TABLE_NAME: this.commentTable.table.tableName,
       },
       bundling: {
         minify: true,
@@ -375,6 +386,7 @@ export function response(ctx) {
     this.workspaceAccessTable.grantReadWriteData(v5ResolversFn);
     this.pageTable.table.grantReadWriteData(v5ResolversFn);
     this.databaseTable.table.grantReadWriteData(v5ResolversFn);
+    this.commentTable.table.grantReadWriteData(v5ResolversFn);
 
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
@@ -445,6 +457,23 @@ export function response(ctx) {
       fieldName: "softDeletePage",
     });
     (softDeletePageResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationsoftDeletePage005AAFF7");
+
+    v5Ds.createResolver("QuerylistComments", {
+      typeName: "Query",
+      fieldName: "listComments",
+    });
+    v5Ds.createResolver("MutationupsertComment", {
+      typeName: "Mutation",
+      fieldName: "upsertComment",
+    });
+    v5Ds.createResolver("MutationsoftDeleteComment", {
+      typeName: "Mutation",
+      fieldName: "softDeleteComment",
+    });
+    v5Ds.createResolver("SubscriptiononCommentChanged", {
+      typeName: "Subscription",
+      fieldName: "onCommentChanged",
+    });
 
     v5Ds.createResolver("MutationrestorePage", {
       typeName: "Mutation",

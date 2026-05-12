@@ -58,5 +58,18 @@ export function buildOutboxEntryMeta(
         entityType: "memberPrefs",
         entityId: id,
       };
+    case "upsertComment":
+      return {
+        workspaceId: workspaceFromPayload,
+        entityType: "comment",
+        entityId: id,
+        baseVersion,
+      };
+    case "softDeleteComment":
+      return {
+        workspaceId: workspaceFromPayload,
+        entityType: "comment",
+        entityId: id,
+      };
   }
 }

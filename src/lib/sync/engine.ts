@@ -18,6 +18,8 @@ export interface GqlBridge {
   softDeleteDatabase(id: string, workspaceId: string, updatedAt: string): Promise<void>;
   /** 멤버 본인 clientPrefs(즐겨찾기 등) 동기화. */
   updateMyClientPrefs(clientPrefsJson: string): Promise<void>;
+  upsertComment(input: unknown): Promise<void>;
+  softDeleteComment(id: string, workspaceId: string, updatedAt: string): Promise<void>;
 }
 
 const MAX_BACKOFF_MS = 60_000;
@@ -211,6 +213,10 @@ export class SyncEngine {
         return this.gql.softDeletePage(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
       case "softDeleteDatabase":
         return this.gql.softDeleteDatabase(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
+      case "upsertComment":
+        return this.gql.upsertComment(p);
+      case "softDeleteComment":
+        return this.gql.softDeleteComment(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
       case "updateMyClientPrefs": {
         const json = (p as { clientPrefs?: string }).clientPrefs;
         if (typeof json !== "string" || !json) {

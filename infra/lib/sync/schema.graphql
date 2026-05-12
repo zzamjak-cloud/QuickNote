@@ -102,6 +102,22 @@ type Database {
   deletedAt: AWSDateTime
 }
 
+type Comment {
+  id: ID!
+  workspaceId: ID!
+  pageId: ID!
+  blockId: String!
+  authorMemberId: ID!
+  bodyText: String!
+  mentionMemberIds: AWSJSON!
+  parentId: ID
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  deletedAt: AWSDateTime
+}
+
+type CommentConnection { items: [Comment!]! nextToken: String }
+
 type ImageAsset {
   id: ID!
   ownerId: ID!
@@ -147,6 +163,19 @@ input DatabaseInput {
   createdByMemberId: ID
   title: String!
   columns: AWSJSON!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+input CommentInput {
+  id: ID!
+  workspaceId: ID!
+  pageId: ID!
+  blockId: String!
+  authorMemberId: ID!
+  bodyText: String!
+  mentionMemberIds: AWSJSON!
+  parentId: ID
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
 }
@@ -223,6 +252,7 @@ type Query {
   getWorkspace(workspaceId: ID!): Workspace
 
   listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
+  listComments(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): CommentConnection!
   """삭제 후 보관 기간(30일) 내 페이지만, 삭제 시각 최신순(페이지당 최대 50개·nextToken 연속 조회)"""
   listTrashedPages(workspaceId: ID!, limit: Int, nextToken: String): PageConnection!
   listDatabases(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): DatabaseConnection!
@@ -252,6 +282,9 @@ type Mutation {
   setWorkspaceAccess(workspaceId: ID!, entries: [WorkspaceAccessInput!]!): Workspace!
   deleteWorkspace(workspaceId: ID!): Boolean!
 
+  upsertComment(input: CommentInput!): Comment!
+  softDeleteComment(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Comment!
+
   upsertPage(input: PageInput!): Page!
   softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Page!
   """휴지통 페이지 복원(deletedAt 제거)"""
@@ -265,6 +298,8 @@ type Mutation {
 
 # ========== Subscription ==========
 type Subscription {
+  onCommentChanged(workspaceId: ID!): Comment
+    @aws_subscribe(mutations: ["upsertComment", "softDeleteComment"])
   onPageChanged(workspaceId: ID!): Page
     @aws_subscribe(mutations: ["upsertPage", "softDeletePage", "restorePage"])
   onDatabaseChanged(workspaceId: ID!): Database

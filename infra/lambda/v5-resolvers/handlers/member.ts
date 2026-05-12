@@ -29,6 +29,7 @@ export type Tables = {
   WorkspaceAccess: string;
   Pages?: string;
   Databases?: string;
+  Comments?: string;
 };
 
 export type CreateMemberInput = {

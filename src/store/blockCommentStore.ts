@@ -1,12 +1,12 @@
 /**
- * 블록 댓글의 저장 위치는 `usePageStore.pages[*].blockComments` 이며,
- * AppSync `Page.blockComments`(AWSJSON) 및 upsert outbox 와 동기화된다.
- * 이 스토어는 페이지 맵을 집계해 기존 UI 헬퍼(messagesForBlock 등)를 유지한다.
+ * 블록 댓글 스토어 — Comment 독립 엔티티 아키텍처.
+ * 메시지는 AppSync Comment 테이블과 직접 동기화되며 Page JSON 에 임베딩되지 않는다.
+ * threadVisitedAt 은 디바이스 로컬 상태로만 유지된다(서버 미동기).
  */
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import { newId } from "../lib/id";
 import type { BlockCommentMsg } from "../types/blockComment";
-import { usePageStore } from "./pageStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import { normalizeMentionMemberIds } from "../lib/comments/mentionMemberIds";
 import {
@@ -14,36 +14,18 @@ import {
   dispatchNotificationsForBlockCommentMessage,
 } from "../lib/comments/blockCommentNotifications";
 import { priorParticipantIdsForNewMessage } from "../lib/comments/blockCommentSnapshot";
-import type { Page } from "../types/page";
-import type { PersistedObject } from "../lib/migrations/persistedStore";
-import { migratePersistedStore } from "../lib/migrations/persistedStore";
-import { migrateBlockCommentMsg, migrateThreadVisitedAt } from "../lib/comments/blockCommentSnapshot";
+import { usePageStore } from "./pageStore";
+import { enqueueAsync } from "../lib/sync/runtime";
 
 export type { BlockCommentMsg } from "../types/blockComment";
+import type { PersistedObject } from "../lib/migrations/persistedStore";
 
-const PAGE_SUB_GUARD_KEY = "__qnBlockCommentPageSubscribed";
-
-/** doc 만 바뀐 경우 집계 시그니처는 동일 → blockCommentStore 불필요 갱신 생략 */
-function serializeBlockCommentAggregateSig(agg: {
-  messages: BlockCommentMsg[];
-  threadVisitedAt: Record<string, number>;
-}): string {
-  const msgPart = agg.messages
-    .map(
-      (m) =>
-        `${m.id}\t${m.pageId}\t${m.blockId}\t${m.createdAt}\t${m.bodyText}\t${m.mentionMemberIds.join(",")}`,
-    )
-    .sort()
-    .join("\n");
-  const tvPart = Object.entries(agg.threadVisitedAt)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("|");
-  return `${msgPart}~~${tvPart}`;
-}
-
-function threadKey(pageId: string, blockId: string): string {
-  return `${pageId}:${blockId}`;
+/** @deprecated 레거시 persist 마이그레이션 — messages 가 더 이상 persist 되지 않으므로 no-op */
+export function migrateBlockCommentStore(
+  _persisted: unknown,
+  _fromVersion: number,
+): PersistedObject {
+  return { messages: [], threadVisitedAt: {} };
 }
 
 function getCurrentWorkspaceId(): string | null {
@@ -55,28 +37,40 @@ function messageBelongsToCurrentWorkspace(msg: BlockCommentMsg): boolean {
   return !current || msg.workspaceId == null || msg.workspaceId === current;
 }
 
-function aggregateFromPages(pages: Record<string, Page>): {
-  messages: BlockCommentMsg[];
-  threadVisitedAt: Record<string, number>;
-} {
-  const messages: BlockCommentMsg[] = [];
-  const threadVisitedAt: Record<string, number> = {};
-  for (const page of Object.values(pages)) {
-    const bc = page.blockComments;
-    if (!bc) continue;
-    for (const m of bc.messages) {
-      messages.push(m);
-    }
-    for (const [blockId, t] of Object.entries(bc.threadVisitedAt ?? {})) {
-      const k = threadKey(page.id, blockId);
-      threadVisitedAt[k] = Math.max(threadVisitedAt[k] ?? 0, t);
-    }
-  }
-  return { messages, threadVisitedAt };
+function threadKey(pageId: string, blockId: string): string {
+  return `${pageId}:${blockId}`;
+}
+
+function msToIso(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+function enqueueUpsertComment(msg: BlockCommentMsg): void {
+  enqueueAsync("upsertComment", {
+    id: msg.id,
+    workspaceId: msg.workspaceId ?? getCurrentWorkspaceId() ?? "",
+    pageId: msg.pageId,
+    blockId: msg.blockId,
+    authorMemberId: msg.authorMemberId,
+    bodyText: msg.bodyText,
+    mentionMemberIds: JSON.stringify(msg.mentionMemberIds),
+    parentId: msg.parentId,
+    createdAt: msToIso(msg.createdAt),
+    updatedAt: msToIso(Date.now()),
+  });
+}
+
+function enqueueSoftDeleteComment(id: string, workspaceId: string): void {
+  enqueueAsync("softDeleteComment", {
+    id,
+    workspaceId,
+    updatedAt: msToIso(Date.now()),
+  });
 }
 
 type BlockCommentState = {
   messages: BlockCommentMsg[];
+  /** 스레드별 마지막 확인 시각 — 디바이스 로컬 전용, 서버 미동기 */
   threadVisitedAt: Record<string, number>;
 };
 
@@ -97,163 +91,141 @@ type BlockCommentActions = {
     blockId: string,
     myMemberId: string | undefined,
   ) => boolean;
-  /** 페이지 스토어 변경 후 집계를 강제 갱신(테스트·마이그레이션용) */
-  resyncFromPages: () => void;
+  /** 원격에서 수신한 메시지를 스토어에 upsert (storeApply 에서 호출) */
+  applyRemoteMessage: (msg: BlockCommentMsg) => void;
+  /** 원격에서 softDelete 된 메시지 제거 (storeApply 에서 호출) */
+  removeMessage: (id: string) => void;
+  /** 워크스페이스 전환 시 댓글 상태 초기화 */
+  clearMessages: () => void;
 };
 
-export const BLOCK_COMMENT_STORE_VERSION = 2;
+export const useBlockCommentStore = create<BlockCommentState & BlockCommentActions>()(
+  persist(
+    (set, get) => ({
+      messages: [],
+      threadVisitedAt: {},
 
-/** 레거시 persist 마이그레이션 단위 테스트용 — 런타임 persist 는 제거됨 */
-export function migrateBlockCommentStore(
-  persisted: unknown,
-  fromVersion: number,
-): PersistedObject {
-  return migratePersistedStore(
-    persisted,
-    fromVersion,
-    [
-      {
-        version: 2,
-        migrate: (state) => ({
-          ...state,
-          messages: Array.isArray(state.messages)
-            ? state.messages.map(migrateBlockCommentMsg).filter(Boolean)
-            : [],
-          threadVisitedAt: migrateThreadVisitedAt(state.threadVisitedAt),
-        }),
-      },
-    ],
-    { messages: [], threadVisitedAt: {} },
-  );
-}
-
-export const useBlockCommentStore = create<BlockCommentState & BlockCommentActions>()((set, get) => {
-  const syncFromPages = (): void => {
-    set(aggregateFromPages(usePageStore.getState().pages));
-  };
-
-  if (typeof window !== "undefined") {
-    queueMicrotask(() => {
-      syncFromPages();
-      const g = globalThis as Record<string, unknown>;
-      if (!g[PAGE_SUB_GUARD_KEY]) {
-        g[PAGE_SUB_GUARD_KEY] = true;
-        let lastSig = serializeBlockCommentAggregateSig(
-          aggregateFromPages(usePageStore.getState().pages),
+      addMessage: (input) => {
+        const page = usePageStore.getState().pages[input.pageId];
+        const msg: BlockCommentMsg = {
+          id: input.id ?? newId(),
+          workspaceId: input.workspaceId ?? getCurrentWorkspaceId(),
+          pageId: input.pageId,
+          blockId: input.blockId,
+          authorMemberId: input.authorMemberId,
+          bodyText: input.bodyText,
+          mentionMemberIds: normalizeMentionMemberIds(input.mentionMemberIds),
+          parentId: input.parentId,
+          createdAt: Date.now(),
+        };
+        // 중복 방지
+        if (get().messages.some((m) => m.id === msg.id)) return msg;
+        const prior = priorParticipantIdsForNewMessage(
+          get().messages.filter((m) => m.pageId === input.pageId && m.blockId === input.blockId),
+          input.pageId,
+          input.blockId,
+          msg,
         );
-        usePageStore.subscribe((s) => {
-          const next = aggregateFromPages(s.pages);
-          const sig = serializeBlockCommentAggregateSig(next);
-          if (sig === lastSig) return;
-          lastSig = sig;
-          set(next);
-        });
-      }
-    });
-  }
+        set((s) => ({ messages: [...s.messages, msg] }));
+        enqueueUpsertComment(msg);
+        const pageOwner = page?.createdByMemberId;
+        dispatchNotificationsForBlockCommentMessage(msg, prior, pageOwner);
+        return msg;
+      },
 
-  return {
-    messages: [],
-    threadVisitedAt: {},
-    resyncFromPages: syncFromPages,
-
-    addMessage: (input) => {
-      const page = usePageStore.getState().pages[input.pageId];
-      const msg: BlockCommentMsg = {
-        id: input.id ?? newId(),
-        workspaceId: getCurrentWorkspaceId(),
-        pageId: input.pageId,
-        blockId: input.blockId,
-        authorMemberId: input.authorMemberId,
-        bodyText: input.bodyText,
-        mentionMemberIds: normalizeMentionMemberIds(input.mentionMemberIds),
-        parentId: input.parentId,
-        createdAt: Date.now(),
-      };
-      const prior = priorParticipantIdsForNewMessage(
-        page?.blockComments?.messages ?? [],
-        input.pageId,
-        input.blockId,
-        msg,
-      );
-      usePageStore.getState().appendPageBlockComment(input.pageId, msg);
-      const pageOwner = page?.createdByMemberId;
-      dispatchNotificationsForBlockCommentMessage(msg, prior, pageOwner);
-      return msg;
-    },
-
-    updateMessage: (id, patch) => {
-      const pages = usePageStore.getState().pages;
-      let pageId: string | null = null;
-      let prev: BlockCommentMsg | null = null;
-      for (const p of Object.values(pages)) {
-        const hit = p.blockComments?.messages.find((m) => m.id === id);
-        if (hit) {
-          pageId = p.id;
-          prev = hit;
-          break;
+      updateMessage: (id, patch) => {
+        const existing = get().messages.find((m) => m.id === id);
+        if (!existing) return false;
+        const prevMentions = new Set(normalizeMentionMemberIds(existing.mentionMemberIds));
+        const nextMentions = normalizeMentionMemberIds(patch.mentionMemberIds);
+        const newlyMentioned = nextMentions.filter((mid) => !prevMentions.has(mid));
+        const updated: BlockCommentMsg = {
+          ...existing,
+          bodyText: patch.bodyText,
+          mentionMemberIds: nextMentions,
+        };
+        set((s) => ({
+          messages: s.messages.map((m) => (m.id === id ? updated : m)),
+        }));
+        enqueueUpsertComment(updated);
+        if (newlyMentioned.length > 0) {
+          dispatchNewMentionNotificationsForComment(updated, newlyMentioned);
         }
-      }
-      if (!pageId || !prev) return false;
-      const prevMentions = new Set(normalizeMentionMemberIds(prev.mentionMemberIds));
-      const nextMentions = normalizeMentionMemberIds(patch.mentionMemberIds);
-      const newlyMentioned = nextMentions.filter((mid) => !prevMentions.has(mid));
-      usePageStore.getState().updatePageBlockComment(pageId, id, patch);
-      const updated: BlockCommentMsg = {
-        ...prev,
-        bodyText: patch.bodyText,
-        mentionMemberIds: nextMentions,
-      };
-      if (newlyMentioned.length > 0) {
-        dispatchNewMentionNotificationsForComment(updated, newlyMentioned);
-      }
-      return true;
-    },
+        return true;
+      },
 
-    deleteMessage: (id) => {
-      for (const p of Object.values(usePageStore.getState().pages)) {
-        if (p.blockComments?.messages.some((m) => m.id === id)) {
-          usePageStore.getState().deletePageBlockComment(p.id, id);
-          return;
+      deleteMessage: (id) => {
+        const msg = get().messages.find((m) => m.id === id);
+        if (!msg) return;
+        set((s) => ({ messages: s.messages.filter((m) => m.id !== id) }));
+        enqueueSoftDeleteComment(id, msg.workspaceId ?? getCurrentWorkspaceId() ?? "");
+      },
+
+      messagesForBlock: (pageId, blockId) =>
+        get()
+          .messages.filter(
+            (m) =>
+              messageBelongsToCurrentWorkspace(m) &&
+              m.pageId === pageId &&
+              m.blockId === blockId,
+          )
+          .sort((a, b) => a.createdAt - b.createdAt),
+
+      participantIdsForBlock: (pageId, blockId) => {
+        const ids = new Set<string>();
+        for (const m of get().messages) {
+          if (!messageBelongsToCurrentWorkspace(m)) continue;
+          if (m.pageId !== pageId || m.blockId !== blockId) continue;
+          ids.add(m.authorMemberId);
         }
-      }
-    },
+        return [...ids];
+      },
 
-    messagesForBlock: (pageId, blockId) =>
-      get()
-        .messages.filter(
+      markThreadVisited: (pageId, blockId) => {
+        set((s) => ({
+          threadVisitedAt: {
+            ...s.threadVisitedAt,
+            [threadKey(pageId, blockId)]: Date.now(),
+          },
+        }));
+      },
+
+      hasUnreadFromOthers: (pageId, blockId, myMemberId) => {
+        if (!myMemberId) return false;
+        const visited = get().threadVisitedAt[threadKey(pageId, blockId)] ?? 0;
+        return get().messages.some(
           (m) =>
             messageBelongsToCurrentWorkspace(m) &&
             m.pageId === pageId &&
-            m.blockId === blockId,
-        )
-        .sort((a, b) => a.createdAt - b.createdAt),
+            m.blockId === blockId &&
+            m.authorMemberId !== myMemberId &&
+            m.createdAt > visited,
+        );
+      },
 
-    participantIdsForBlock: (pageId, blockId) => {
-      const ids = new Set<string>();
-      for (const m of get().messages) {
-        if (!messageBelongsToCurrentWorkspace(m)) continue;
-        if (m.pageId !== pageId || m.blockId !== blockId) continue;
-        ids.add(m.authorMemberId);
-      }
-      return [...ids];
-    },
+      applyRemoteMessage: (msg) => {
+        set((s) => {
+          const idx = s.messages.findIndex((m) => m.id === msg.id);
+          if (idx === -1) return { messages: [...s.messages, msg] };
+          const next = [...s.messages];
+          next[idx] = msg;
+          return { messages: next };
+        });
+      },
 
-    markThreadVisited: (pageId, blockId) => {
-      usePageStore.getState().markPageBlockCommentThreadVisited(pageId, blockId);
-    },
+      removeMessage: (id) => {
+        set((s) => ({ messages: s.messages.filter((m) => m.id !== id) }));
+      },
 
-    hasUnreadFromOthers: (pageId, blockId, myMemberId) => {
-      if (!myMemberId) return false;
-      const visited = get().threadVisitedAt[threadKey(pageId, blockId)] ?? 0;
-      return get().messages.some(
-        (m) =>
-          messageBelongsToCurrentWorkspace(m) &&
-          m.pageId === pageId &&
-          m.blockId === blockId &&
-          m.authorMemberId !== myMemberId &&
-          m.createdAt > visited,
-      );
+      clearMessages: () => {
+        set({ messages: [] });
+      },
+    }),
+    {
+      name: "quicknote.blockComments.v1",
+      storage: createJSONStorage(() => localStorage),
+      // threadVisitedAt 만 localStorage 에 유지. messages 는 부트 시 서버에서 재로드.
+      partialize: (s) => ({ threadVisitedAt: s.threadVisitedAt }),
     },
-  };
-});
+  ),
+);

@@ -43,6 +43,11 @@ import {
   upsertPage,
   validateWorkspaceSubscription,
 } from "./handlers/pageDatabase";
+import {
+  listComments,
+  upsertComment,
+  softDeleteComment,
+} from "./handlers/commentDatabase";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -56,6 +61,7 @@ const tables: Tables = {
   WorkspaceAccess: process.env.WORKSPACE_ACCESS_TABLE_NAME!,
   Pages: process.env.PAGES_TABLE_NAME,
   Databases: process.env.DATABASES_TABLE_NAME,
+  Comments: process.env.COMMENTS_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -270,6 +276,25 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           workspaceId: event.arguments.workspaceId as string,
           updatedAt: event.arguments.updatedAt as string,
         });
+      case "listComments":
+        return await listComments({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          updatedAfter: event.arguments.updatedAfter as string | undefined,
+          limit: event.arguments.limit as number | undefined,
+          nextToken: event.arguments.nextToken as string | undefined,
+        });
+      case "upsertComment":
+        return await upsertComment({ ...base, input: event.arguments.input as Record<string, unknown> });
+      case "softDeleteComment":
+        return await softDeleteComment({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
+          updatedAt: event.arguments.updatedAt as string,
+        });
+      case "onCommentChanged":
+        return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
       case "onPageChanged":
         return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
       case "onDatabaseChanged":

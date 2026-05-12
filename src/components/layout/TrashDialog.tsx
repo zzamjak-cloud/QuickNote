@@ -73,7 +73,7 @@ export function TrashDialog({ open, onClose }: Props) {
     if (!currentWorkspaceId) return;
     try {
       const p = await restorePageRemote(id, currentWorkspaceId);
-      applyRemotePageToStore(p, { skipBlockCommentNotifications: true });
+      applyRemotePageToStore(p);
       setItems((prev) => prev.filter((x) => x.id !== id));
       setActivePage(id);
       setCurrentTabPage(id);

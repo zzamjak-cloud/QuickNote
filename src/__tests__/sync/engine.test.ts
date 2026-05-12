@@ -23,6 +23,12 @@ function makeGql(): GqlBridge & { calls: Call[] } {
     updateMyClientPrefs: async (json) => {
       calls.push(["updateMyClientPrefs", json]);
     },
+    upsertComment: async (i) => {
+      calls.push(["upsertComment", i]);
+    },
+    softDeleteComment: async (id, workspaceId, u) => {
+      calls.push(["softDeleteComment", id, workspaceId, u]);
+    },
   };
 }
 

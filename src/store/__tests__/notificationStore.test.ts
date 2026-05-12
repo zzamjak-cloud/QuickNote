@@ -6,7 +6,8 @@ import { usePageStore } from "../pageStore";
 describe("notificationStore", () => {
   beforeEach(() => {
     useNotificationStore.setState({ items: [] });
-    // 댓글은 pageStore.pages[*].blockComments 에 저장되므로 최소 페이지가 있어야 updateMessage 가 동작한다.
+    useBlockCommentStore.setState({ messages: [] });
+    // addMessage 에서 page owner 조회에 pageStore 가 필요하다.
     usePageStore.setState((s) => ({
       ...s,
       pages: {
@@ -24,7 +25,6 @@ describe("notificationStore", () => {
       },
       activePageId: "p1",
     }));
-    useBlockCommentStore.getState().resyncFromPages();
   });
 
   it("댓글 멤버 멘션의 m: prefix 를 제거해서 내 알림으로 조회한다", () => {

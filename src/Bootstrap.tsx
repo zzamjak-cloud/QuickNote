@@ -5,12 +5,14 @@ import { useAuthStore } from "./store/authStore";
 import {
   fetchPagesByWorkspace,
   fetchDatabasesByWorkspace,
+  fetchCommentsByWorkspace,
   startSubscriptions,
 } from "./lib/sync";
 import { getSyncEngine } from "./lib/sync/runtime";
 import {
   applyRemotePageToStore,
   applyRemoteDatabaseToStore,
+  applyRemoteCommentToStore,
 } from "./lib/sync/storeApply";
 import { applyWorkspaceSwitch } from "./lib/sync/workspaceSwitch";
 import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
@@ -33,6 +35,8 @@ import { listTeamsApi } from "./lib/sync/teamApi";
 import { useTeamStore } from "./store/teamStore";
 import { useUiStore } from "./store/uiStore";
 import { migrateLegacyBlockCommentsToPagesOnce } from "./lib/comments/migrateLegacyBlockCommentsToPages";
+import { useBlockCommentStore } from "./store/blockCommentStore";
+import { migratePageBlockCommentsToServerOnce } from "./lib/comments/migratePageBlockCommentsToServer";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -159,16 +163,20 @@ function useSyncBootstrap(): boolean {
           prevWorkspaceId,
           currentWorkspaceId,
         );
+        useBlockCommentStore.getState().clearMessages();
         const fetchApply = async (): Promise<void> => {
           await migrateLegacyBlockCommentsToPagesOnce();
-          const [pages, dbs] = await Promise.all([
+          const [pages, dbs, comments] = await Promise.all([
             fetchPagesByWorkspace(currentWorkspaceId),
             fetchDatabasesByWorkspace(currentWorkspaceId),
+            fetchCommentsByWorkspace(currentWorkspaceId),
           ]);
           if (cancelled) return;
           for (const p of pages)
-            applyRemotePageToStore(p, { skipBlockCommentNotifications: true });
+            applyRemotePageToStore(p);
           for (const d of dbs) applyRemoteDatabaseToStore(d);
+          for (const c of comments) applyRemoteCommentToStore(c);
+          migratePageBlockCommentsToServerOnce(currentWorkspaceId);
         };
         const setHold = useUiStore.getState().setOutboxWorkspaceSwitchHold;
         if (switchResult.reason === "pending-outbox") {
@@ -210,6 +218,7 @@ function useSyncBootstrap(): boolean {
         unsub = startSubscriptions(currentWorkspaceId, {
           onPage: applyRemotePageToStore,
           onDatabase: applyRemoteDatabaseToStore,
+          onComment: applyRemoteCommentToStore,
         });
 
         const engine = await getSyncEngine();
@@ -275,13 +284,14 @@ function useSyncBootstrap(): boolean {
         }
         try {
           const fetchApply = async (): Promise<void> => {
-            const [pages, dbs] = await Promise.all([
+            const [pages, dbs, comments] = await Promise.all([
               fetchPagesByWorkspace(wsId),
               fetchDatabasesByWorkspace(wsId),
+              fetchCommentsByWorkspace(wsId),
             ]);
-            // 온라인 복귀 시 알림 활성화 — 오프라인 중 도착한 댓글 알림을 생성해야 함
             for (const p of pages) applyRemotePageToStore(p);
             for (const d of dbs) applyRemoteDatabaseToStore(d);
+            for (const c of comments) applyRemoteCommentToStore(c);
           };
           await fetchApply();
           const engine = await getSyncEngine();

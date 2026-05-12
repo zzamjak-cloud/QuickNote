@@ -6,10 +6,12 @@ export type OutboxOp =
   | "upsertDatabase"
   | "softDeletePage"
   | "softDeleteDatabase"
-  | "updateMyClientPrefs";
+  | "updateMyClientPrefs"
+  | "upsertComment"
+  | "softDeleteComment";
 
 /** outbox 엔트리에 붙는 엔티티 분류(플러시·관측용). */
-export type OutboxEntityType = "page" | "database" | "memberPrefs";
+export type OutboxEntityType = "page" | "database" | "memberPrefs" | "comment";
 
 export type OutboxEntry = {
   id: string;
