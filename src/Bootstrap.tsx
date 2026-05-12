@@ -279,8 +279,8 @@ function useSyncBootstrap(): boolean {
               fetchPagesByWorkspace(wsId),
               fetchDatabasesByWorkspace(wsId),
             ]);
-            for (const p of pages)
-              applyRemotePageToStore(p, { skipBlockCommentNotifications: true });
+            // 온라인 복귀 시 알림 활성화 — 오프라인 중 도착한 댓글 알림을 생성해야 함
+            for (const p of pages) applyRemotePageToStore(p);
             for (const d of dbs) applyRemoteDatabaseToStore(d);
           };
           await fetchApply();

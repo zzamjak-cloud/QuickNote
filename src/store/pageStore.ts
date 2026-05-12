@@ -1020,6 +1020,10 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+        // 즉시 outbox 적재 — 탭/앱 종료 전 debounce 미실행 시 유실 방지
+        const committed = get().pages[pageId];
+        if (committed) enqueueUpsertPage(committed);
+        // 연속 작성 시 최신 스냅샷으로 코얼레스 (outbox dedup이 중간 항목 제거)
         debouncePerKey(`page-bc:${pageId}`, PAGE_BLOCK_COMMENT_DEBOUNCE_MS, () => {
           const latest = get().pages[pageId];
           if (latest) enqueueUpsertPage(latest);
@@ -1054,6 +1058,9 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+        // 즉시 outbox 적재 — 탭/앱 종료 전 debounce 미실행 시 유실 방지
+        const committed = get().pages[pageId];
+        if (committed) enqueueUpsertPage(committed);
         debouncePerKey(`page-bc:${pageId}`, PAGE_BLOCK_COMMENT_DEBOUNCE_MS, () => {
           const latest = get().pages[pageId];
           if (latest) enqueueUpsertPage(latest);
@@ -1082,6 +1089,9 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+        // 즉시 outbox 적재 — 탭/앱 종료 전 debounce 미실행 시 유실 방지
+        const committed = get().pages[pageId];
+        if (committed) enqueueUpsertPage(committed);
         debouncePerKey(`page-bc:${pageId}`, PAGE_BLOCK_COMMENT_DEBOUNCE_MS, () => {
           const latest = get().pages[pageId];
           if (latest) enqueueUpsertPage(latest);
@@ -1101,7 +1111,8 @@ export const usePageStore = create<PageStore>()(
               ...state.pages,
               [pageId]: {
                 ...cur,
-                updatedAt: Date.now(),
+                // updatedAt 은 올리지 않음 — thread 방문은 doc 변경 아님.
+                // 올리면 LWW guard 가 다른 기기의 doc 편집을 차단할 수 있음.
                 blockComments: {
                   ...snap,
                   threadVisitedAt: {
@@ -1113,9 +1124,14 @@ export const usePageStore = create<PageStore>()(
             },
           };
         });
+        // threadVisitedAt 은 서버에 동기화해야 하므로 upsert 적재.
+        // local state의 updatedAt 은 올리지 않으므로 upsert payload 에서만 현재 시각 세팅.
+        const committed = get().pages[pageId];
+        if (committed) enqueueUpsertPage({ ...committed, updatedAt: Date.now() });
+        // 연속 방문 시 코얼레스 (outbox dedup이 중간 항목 제거)
         debouncePerKey(`page-bc:${pageId}`, PAGE_BLOCK_COMMENT_DEBOUNCE_MS, () => {
           const latest = get().pages[pageId];
-          if (latest) enqueueUpsertPage(latest);
+          if (latest) enqueueUpsertPage({ ...latest, updatedAt: Date.now() });
         });
         refreshBlockCommentDecorationsForPage(pageId);
       },
