@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { AlignCenter, AlignLeft, AlignRight, GripHorizontal, GripVertical, Plus } from "lucide-react";
+import { GripHorizontal, GripVertical, Plus } from "lucide-react";
 import {
   setTableReorderDragData,
   TABLE_REORDER_DRAG_BODY_CLASS,
@@ -163,90 +163,7 @@ type GripMenuState = {
   deleteArmed: boolean;
 };
 
-function getTableElement(editor: Editor, tablePos: number): HTMLTableElement | null {
-  const dom = editor.view.nodeDOM(tablePos);
-  if (dom instanceof HTMLTableElement) return dom;
-  if (dom instanceof HTMLElement) {
-    const t = dom.closest("table");
-    if (t instanceof HTMLTableElement) return t;
-  }
-  return null;
-}
 
-/** 해당 열의 모든 셀에 텍스트 정렬(align 속성) 적용 */
-function setColumnCellAlign(
-  editor: Editor,
-  tablePos: number,
-  colIndex: number,
-  align: "left" | "center" | "right",
-): void {
-  const tableEl = getTableElement(editor, tablePos);
-  if (!tableEl) return;
-  for (let r = 0; r < tableEl.rows.length; r += 1) {
-    const cell = tableEl.rows[r]?.cells[colIndex];
-    if (!cell) continue;
-    let pos: number;
-    try {
-      pos = editor.view.posAtDOM(cell, 0);
-    } catch {
-      continue;
-    }
-    editor.chain().focus().setTextSelection(pos).setCellAttribute("align", align).run();
-  }
-}
-
-/** 해당 행의 모든 셀에 텍스트 정렬 적용 */
-function setRowCellAlign(
-  editor: Editor,
-  tablePos: number,
-  rowIndex: number,
-  align: "left" | "center" | "right",
-): void {
-  const tableEl = getTableElement(editor, tablePos);
-  if (!tableEl) return;
-  const row = tableEl.rows[rowIndex];
-  if (!row) return;
-  for (let c = 0; c < row.cells.length; c += 1) {
-    const cell = row.cells[c];
-    if (!cell) continue;
-    let pos: number;
-    try {
-      pos = editor.view.posAtDOM(cell, 0);
-    } catch {
-      continue;
-    }
-    editor.chain().focus().setTextSelection(pos).setCellAttribute("align", align).run();
-  }
-}
-
-function focusCellAndDeleteColumn(editor: Editor, tablePos: number, colIndex: number): void {
-  const tableEl = getTableElement(editor, tablePos);
-  if (!tableEl) return;
-  const cell = tableEl.rows[0]?.cells[colIndex];
-  if (!cell) return;
-  let pos: number;
-  try {
-    pos = editor.view.posAtDOM(cell, 0);
-  } catch {
-    return;
-  }
-  editor.chain().focus().setTextSelection(pos).deleteColumn().run();
-}
-
-function focusCellAndDeleteRow(editor: Editor, tablePos: number, rowIndex: number): void {
-  const tableEl = getTableElement(editor, tablePos);
-  if (!tableEl) return;
-  const row = tableEl.rows[rowIndex];
-  if (!row?.cells[0]) return;
-  const cell = row.cells[0];
-  let pos: number;
-  try {
-    pos = editor.view.posAtDOM(cell, 0);
-  } catch {
-    return;
-  }
-  editor.chain().focus().setTextSelection(pos).deleteRow().run();
-}
 
 function isHeaderRowActive(table: PMNode): boolean {
   const firstRow = table.maybeChild(0);
@@ -284,6 +201,44 @@ function applyHeaderRowToggle(editor: Editor, tablePos: number): boolean {
   const rowFrom = tablePos + 1; // 테이블 노드 진입 후 첫 자식
   const rowTo = rowFrom + firstRow.nodeSize;
   editor.view.dispatch(state.tr.replaceWith(rowFrom, rowTo, newRow));
+  return true;
+}
+
+/** 열 삭제: 각 행에서 colIndex 셀을 제거한 새 테이블로 교체 — TipTap deleteColumn 신뢰성 문제 회피. */
+function applyDeleteColumn(editor: Editor, tablePos: number, colIndex: number): boolean {
+  const state = editor.state;
+  const table = state.doc.nodeAt(tablePos);
+  if (!table || table.type.name !== "table") return false;
+  const firstRow = table.maybeChild(0);
+  if (!firstRow) return false;
+  if (colIndex < 0 || colIndex >= firstRow.childCount) return false;
+  if (firstRow.childCount <= 1) return false; // 마지막 열은 삭제 불가
+  const newRows: PMNode[] = [];
+  table.forEach((row) => {
+    const cells: PMNode[] = [];
+    row.forEach((cell, _o, i) => {
+      if (i !== colIndex) cells.push(cell);
+    });
+    newRows.push(row.type.createChecked(row.attrs, cells, row.marks));
+  });
+  const newTable = table.type.createChecked(table.attrs, newRows, table.marks);
+  editor.view.dispatch(state.tr.replaceWith(tablePos, tablePos + table.nodeSize, newTable));
+  return true;
+}
+
+/** 행 삭제: rowIndex 행만 제거한 새 테이블로 교체. */
+function applyDeleteRow(editor: Editor, tablePos: number, rowIndex: number): boolean {
+  const state = editor.state;
+  const table = state.doc.nodeAt(tablePos);
+  if (!table || table.type.name !== "table") return false;
+  if (rowIndex < 0 || rowIndex >= table.childCount) return false;
+  if (table.childCount <= 1) return false;
+  const newRows: PMNode[] = [];
+  table.forEach((row, _o, i) => {
+    if (i !== rowIndex) newRows.push(row);
+  });
+  const newTable = table.type.createChecked(table.attrs, newRows, table.marks);
+  editor.view.dispatch(state.tr.replaceWith(tablePos, tablePos + table.nodeSize, newTable));
   return true;
 }
 
@@ -346,27 +301,6 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
   }, []);
-
-  /** 열·행 순서 드래그 중 하이라이트 열/행에 정렬 적용 */
-  const applyReorderDragAlign = useCallback(
-    (align: "left" | "center" | "right") => {
-      if (!editor || editor.isDestroyed) return;
-      const d = dragRef.current;
-      const cur = uiRef.current;
-      if (!d || !cur) return;
-      const rawIdx = dragOverIdx ?? d.from;
-      if (d.kind === "col") {
-        const max = cur.colRects.length - 1;
-        const idx = Math.max(0, Math.min(rawIdx, max));
-        setColumnCellAlign(editor, cur.pos, idx, align);
-      } else {
-        const max = cur.rowRects.length - 1;
-        const idx = Math.max(0, Math.min(rawIdx, max));
-        setRowCellAlign(editor, cur.pos, idx, align);
-      }
-    },
-    [editor, dragOverIdx],
-  );
 
   const measureFromTarget = useCallback(
     (target: EventTarget | null, clientX?: number, clientY?: number) => {
@@ -696,29 +630,19 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
                   return;
                 }
                 if (gripMenu.kind === "col") {
-                  focusCellAndDeleteColumn(editor, gripMenu.tablePos, gripMenu.index);
+                  applyDeleteColumn(editor, gripMenu.tablePos, gripMenu.index);
                 } else {
-                  focusCellAndDeleteRow(editor, gripMenu.tablePos, gripMenu.index);
+                  applyDeleteRow(editor, gripMenu.tablePos, gripMenu.index);
                 }
                 setGripMenu(null);
               }}
             >
               {gripMenu.deleteArmed
-                ? "삭제 확인 — 다시 클릭하면 삭제됩니다"
+                ? "삭제확인"
                 : gripMenu.kind === "col"
                   ? "열 삭제"
                   : "행 삭제"}
             </button>
-            {gripMenu.deleteArmed ? (
-              <button
-                type="button"
-                role="menuitem"
-                className="mt-0.5 flex w-full items-center rounded px-2 py-1 text-left text-xs text-zinc-500 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                onClick={() => setGripMenu((m) => (m ? { ...m, deleteArmed: false } : m))}
-              >
-                취소
-              </button>
-            ) : null}
           </div>
         </div>,
         document.body,
@@ -729,33 +653,6 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
     return <>{gripMenuPortal}</>;
   }
 
-  const rawDragAlignIdx = drag != null ? (dragOverIdx ?? drag.from) : null;
-  const DRAG_ALIGN_TOOLBAR_W = 104;
-  const padPx = 8;
-  const vwPx = typeof window !== "undefined" ? window.innerWidth : 1200;
-  let dragAlignToolbarStyle: CSSProperties | undefined;
-  if (drag != null && rawDragAlignIdx != null) {
-    const idx =
-      drag.kind === "col"
-        ? Math.max(0, Math.min(rawDragAlignIdx, ui.colRects.length - 1))
-        : Math.max(0, Math.min(rawDragAlignIdx, ui.rowRects.length - 1));
-    if (drag.kind === "col" && ui.colRects[idx] != null) {
-      const r = ui.colRects[idx]!;
-      const left = r.left + r.width / 2 - DRAG_ALIGN_TOOLBAR_W / 2;
-      dragAlignToolbarStyle = {
-        left: Math.min(Math.max(padPx, left), vwPx - DRAG_ALIGN_TOOLBAR_W - padPx),
-        top: Math.max(padPx, ui.rect.top - 44),
-      };
-    } else if (drag.kind === "row" && ui.rowRects[idx] != null) {
-      const r = ui.rowRects[idx]!;
-      const left = ui.rect.left + ui.rect.width / 2 - DRAG_ALIGN_TOOLBAR_W / 2;
-      dragAlignToolbarStyle = {
-        left: Math.min(Math.max(padPx, left), vwPx - DRAG_ALIGN_TOOLBAR_W - padPx),
-        top: Math.max(padPx, r.top - 44),
-      };
-    }
-  }
-
   return (
     <>
       {gripMenuPortal}
@@ -763,40 +660,6 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
         data-qn-editor-chrome="table-block-controls"
         className="pointer-events-none fixed inset-0 z-[36]"
       >
-      {drag != null && dragAlignToolbarStyle != null ? (
-        <div
-          data-qn-table-reorder-align-toolbar=""
-          role="toolbar"
-          aria-label="텍스트 정렬"
-          className="pointer-events-auto fixed z-[38] flex items-center gap-0.5 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
-          style={dragAlignToolbarStyle}
-        >
-          <button
-            type="button"
-            title="왼쪽 정렬"
-            className="rounded-md p-1.5 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            onClick={() => applyReorderDragAlign("left")}
-          >
-            <AlignLeft className="h-4 w-4" strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            title="가운데 정렬"
-            className="rounded-md p-1.5 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            onClick={() => applyReorderDragAlign("center")}
-          >
-            <AlignCenter className="h-4 w-4" strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            title="오른쪽 정렬"
-            className="rounded-md p-1.5 text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            onClick={() => applyReorderDragAlign("right")}
-          >
-            <AlignRight className="h-4 w-4" strokeWidth={2} />
-          </button>
-        </div>
-      ) : null}
       {dragColRect ? (
         <div
           aria-hidden
