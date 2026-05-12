@@ -371,14 +371,35 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
       setDrag(null);
     };
 
+    // 열 드래그는 그립 버튼이 아닌 테이블 내부로 드롭하는 경우를 처리하기 위해 window 레벨에서 처리
+    const onWinDrop = (e: DragEvent) => {
+      const d = dragRef.current;
+      const cur = uiRef.current;
+      if (!d || !cur || !editor || editor.isDestroyed) return;
+      e.preventDefault();
+      const toIdx =
+        d.kind === "col"
+          ? resolveHoverColumnIndex(cur, e.clientX)
+          : resolveHoverRowIndex(cur, e.clientY);
+      const tableNode = editor.state.doc.nodeAt(cur.pos);
+      if (!tableNode || tableNode.type.name !== "table") return;
+      if (d.kind === "col") reorderTableColumn(editor, cur.pos, tableNode, d.from, toIdx);
+      else reorderTableRow(editor, cur.pos, tableNode, d.from, toIdx);
+      gripPointerSessionRef.current = null;
+      setDrag(null);
+      setDragOverIdx(null);
+    };
+
     window.addEventListener("dragover", onWinDragOver);
     window.addEventListener("dragend", onDragEnd);
+    window.addEventListener("drop", onWinDrop);
     return () => {
       window.removeEventListener("dragover", onWinDragOver);
       window.removeEventListener("dragend", onDragEnd);
+      window.removeEventListener("drop", onWinDrop);
       document.body.classList.remove(TABLE_REORDER_DRAG_BODY_CLASS);
     };
-  }, [drag]);
+  }, [drag, editor]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -721,13 +742,6 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
             e.preventDefault();
             setDragOverIdx(index);
           }}
-          onDrop={(e) => {
-            e.preventDefault();
-            const d = dragRef.current;
-            if (d?.kind === "col") reorderTableColumn(editor, ui.pos, table, d.from, index);
-            setDrag(null);
-            setDragOverIdx(null);
-          }}
           className={[
             "pointer-events-auto fixed flex h-5 items-center justify-center rounded border border-zinc-200 bg-white px-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900",
             "transition-opacity duration-100",
@@ -789,13 +803,6 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
           onDragOver={(e) => {
             e.preventDefault();
             setDragOverIdx(index);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            const d = dragRef.current;
-            if (d?.kind === "row") reorderTableRow(editor, ui.pos, table, d.from, index);
-            setDrag(null);
-            setDragOverIdx(null);
           }}
           className={[
             "pointer-events-auto fixed flex w-5 items-center justify-center rounded border border-zinc-200 bg-white py-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900",
