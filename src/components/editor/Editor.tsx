@@ -114,7 +114,7 @@ import { DateInline } from "../../lib/tiptapExtensions/dateInline";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker, IconPickerPanel } from "../common/IconPicker";
-import { Star } from "lucide-react";
+import { Star, FileText, Database } from "lucide-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
@@ -138,6 +138,7 @@ import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
 import { extractClipboardFiles } from "../../lib/editor/clipboardFiles";
 import { FileBlock } from "../../lib/tiptapExtensions/fileBlock";
+import { BlockBackground } from "../../lib/tiptapExtensions/blockBackground";
 import UniqueID from "@tiptap/extension-unique-id";
 import {
   AddMarkStep,
@@ -506,6 +507,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
       BookmarkBlock,
       LucideInlineIcon,
       DateInline,
+      BlockBackground,
       SlashCommand.configure({
         suggestion: {
           char: "/",
@@ -1104,7 +1106,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   return (
     <div
       ref={editorScrollHostRef}
-      className="qn-editor-body-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto bg-white dark:bg-zinc-950"
+      className="qn-editor-body-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto bg-white dark:bg-[#111111]"
     >
       {/* 커버는 max-w- 컬럼 밖에 두어 좁은 본문 폭에서도 에디터 패널 전체 너비로 펼친다(웹·Tauri 공통). */}
       {!bodyOnly && page.coverImage ? (
@@ -1145,6 +1147,11 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
                   current={page.icon}
                   onChange={(icon) => setIcon(effectivePageId, icon)}
                   onUploadMessage={(msg) => setSimpleAlert(msg)}
+                  defaultIcon={
+                    isFullPageDatabase
+                      ? <Database size={28} className="text-zinc-400" />
+                      : <FileText size={28} className="text-zinc-400" />
+                  }
                 />
                 <input
                   ref={titleRef}
@@ -1214,13 +1221,15 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
             카드를 렌더할 수 있어야 하므로 inner relative 컨테이너 밖, 외곽 wrapper 의 직접 자식으로 둠.
             pageId 를 명시 전달해 피크 뷰처럼 activePageId 와 다른 페이지를 편집 중일 때도
             올바른 페이지의 댓글로 필터링됨. */}
-        <BlockHandles
-          editor={editor}
-          pageId={effectivePageId ?? null}
-          compactComments={peek}
-          boxSelectedStarts={boxSelectedStarts}
-          onClearBoxSelection={clearBoxSelection}
-        />
+        {!isFullPageDatabase && (
+          <BlockHandles
+            editor={editor}
+            pageId={effectivePageId ?? null}
+            compactComments={peek}
+            boxSelectedStarts={boxSelectedStarts}
+            onClearBoxSelection={clearBoxSelection}
+          />
+        )}
         <div
           aria-hidden
           className="qn-editor-scroll-tail-spacer shrink-0 select-none"

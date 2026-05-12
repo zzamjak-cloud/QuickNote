@@ -18,6 +18,8 @@ type Props = {
   setPanelState: (p: Partial<DatabasePanelState>) => void;
   /** 헤더 안에 표 컬럼으로 둘 때(<th>) true. */
   asTh?: boolean;
+  /** 인라인/전체페이지 레이아웃 구분 — 항목 표시 섹션에서 사용. */
+  layout?: "inline" | "fullPage";
 };
 
 /**
@@ -30,6 +32,7 @@ export function DatabaseColumnSettingsButton({
   panelState,
   setPanelState,
   asTh,
+  layout,
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
@@ -124,12 +127,14 @@ export function DatabaseColumnSettingsButton({
     setOpenColumnMenu(menuKey);
   };
 
+  const ITEM_LIMITS = [10, 30, 50, 100] as const;
+
   const Btn = (
     <button
       ref={buttonRef}
       type="button"
       onClick={toggle}
-      title="속성 표시 설정"
+      title="표시 설정"
       className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
     >
       <Settings2 size={14} />
@@ -153,9 +158,6 @@ export function DatabaseColumnSettingsButton({
             style={{ position: "fixed", top: coords.top, left: coords.left, width: 240 }}
             className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
-            <div className="px-2 py-1 text-[10px] uppercase text-zinc-500">
-              속성 표시 · 순서
-            </div>
             <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
               <div className="px-1 py-1 text-[10px] uppercase text-zinc-500">
                 모드 표시
@@ -190,6 +192,42 @@ export function DatabaseColumnSettingsButton({
                   </button>
                 );
               })}
+            </div>
+            {/* 항목 표시 섹션 */}
+            <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
+              <div className="px-1 py-1 text-[10px] uppercase text-zinc-500">
+                항목 표시
+              </div>
+              {layout === "fullPage" ? (
+                <div className="flex items-center gap-1 px-1 py-1">
+                  <span className="text-zinc-400">전체 표시 (고정)</span>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1 px-1 py-1">
+                  {ITEM_LIMITS.map((val) => {
+                    const active = (panelState.itemLimit ?? 30) === val;
+                    return (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setPanelState({ itemLimit: val })}
+                        className={[
+                          "rounded border px-2 py-0.5 text-[11px]",
+                          active
+                            ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                            : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400 dark:hover:bg-zinc-800",
+                        ].join(" ")}
+                      >
+                        {val}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {/* 속성 표시 카테고리 */}
+            <div className="px-1 py-1 text-[10px] uppercase text-zinc-500">
+              속성 표시 · 순서
             </div>
             {items.map((it, idx) => {
               const isTitle = it.col.type === "title";

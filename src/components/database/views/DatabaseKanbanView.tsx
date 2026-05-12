@@ -10,6 +10,7 @@ import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { DatabaseCell } from "../DatabaseCell";
 import { usePageStore } from "../../../store/pageStore";
+import { IconPicker } from "../../common/IconPicker";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
@@ -18,6 +19,8 @@ type Props = {
   databaseId: string;
   panelState: DatabasePanelState;
   setPanelState: (p: Partial<DatabasePanelState>) => void;
+  /** 표시할 최대 행 수. 미지정 시 전체 표시. */
+  visibleRowLimit?: number;
 };
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
@@ -39,11 +42,16 @@ export function DatabaseKanbanView({
   databaseId,
   panelState,
   setPanelState,
+  visibleRowLimit,
 }: Props) {
-  const { bundle, rows, columns } = useProcessedRows(databaseId, panelState);
+  const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
+  // 표시 제한이 있으면 slice 적용.
+  const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
+  const pages = usePageStore((s) => s.pages);
+  const setIcon = usePageStore((s) => s.setIcon);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openPeek = useUiStore((s) => s.openPeek);
@@ -185,6 +193,8 @@ export function DatabaseKanbanView({
                       databaseId={databaseId}
                       visibleCardCols={visibleCardCols}
                       colColor={col.color}
+                      pageIcon={pages[row.pageId]?.icon ?? null}
+                      onIconChange={(icon) => setIcon(row.pageId, icon)}
                       onOpenFull={() => openFull(row.pageId)}
                       onOpenPeek={() => openPeek(row.pageId)}
                       onDelete={() => setRowDeletePageId(row.pageId)}
@@ -229,6 +239,8 @@ function KanbanCard({
   databaseId,
   visibleCardCols,
   colColor,
+  pageIcon,
+  onIconChange,
   onOpenFull,
   onOpenPeek,
   onDelete,
@@ -237,6 +249,8 @@ function KanbanCard({
   databaseId: string;
   visibleCardCols: ColumnDef[];
   colColor: string | undefined;
+  pageIcon: string | null;
+  onIconChange: (icon: string | null) => void;
   onOpenFull: () => void;
   onOpenPeek: () => void;
   onDelete: () => void;
@@ -256,8 +270,11 @@ function KanbanCard({
       }}
     >
       <div className="mb-1 flex items-start justify-between gap-1">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-          {row.title || "제목 없음"}
+        <span className="flex min-w-0 flex-1 items-center gap-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+            <IconPicker current={pageIcon} size="sm" onChange={onIconChange} />
+          </span>
+          <span className="truncate">{row.title || "제목 없음"}</span>
         </span>
         <div className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">
           <button

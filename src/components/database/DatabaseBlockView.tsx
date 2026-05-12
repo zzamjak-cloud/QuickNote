@@ -10,6 +10,7 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent,
 } from "react";
+import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import { Check, Minus, Trash2 } from "lucide-react";
 import { startBlockNativeDrag } from "../../lib/startBlockNativeDrag";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
@@ -84,13 +85,23 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const inlineTitleLocked =
     layout === "inline" && (readOnlyTitleAttr || dbHomePageId != null);
 
+  // 내비게이션 히스토리 (인라인→전체 DB 전환 시 뒤로가기 지원).
+  const pushBack = useNavigationHistoryStore((s) => s.pushBack);
+  const popBack = useNavigationHistoryStore((s) => s.popBack);
+  const previousPageId = useNavigationHistoryStore((s) => s.peekBack());
+
   const openDbHomePage = useCallback(
     (pageId: string) => {
+      // 현재 활성 페이지를 히스토리에 쌓은 후 이동.
+      if (activePageId) pushBack(activePageId);
       setActivePageNav(pageId);
       setCurrentTabPage(pageId);
     },
-    [setActivePageNav, setCurrentTabPage],
+    [activePageId, pushBack, setActivePageNav, setCurrentTabPage],
   );
+
+  // 더보기 — 추가로 표시할 행 수.
+  const [extraRows, setExtraRows] = useState(0);
 
   const displayDbTitle = bundle?.meta.title ?? "데이터베이스";
   const deleteConfirmPhrase = useMemo(() => {
@@ -323,6 +334,12 @@ export function DatabaseBlockView(props: NodeViewProps) {
       ? "my-4 w-[calc(100%+6rem)] max-w-none -mx-12"
       : "my-4";
 
+  // fullPage는 제한 없이 전체 표시, inline은 itemLimit + extraRows 적용.
+  const visibleRowLimit =
+    layout === "fullPage"
+      ? undefined
+      : (panelState.itemLimit ?? 30) + extraRows;
+
   const activeViewComponent = useMemo(() => {
     if (!bundle) return null;
     switch (view) {
@@ -332,6 +349,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
+            layout={layout}
           />
         );
       case "kanban":
@@ -340,6 +359,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       case "gallery":
@@ -348,6 +368,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       case "timeline":
@@ -356,12 +377,13 @@ export function DatabaseBlockView(props: NodeViewProps) {
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       default:
         return null;
     }
-  }, [databaseId, bundle, panelState, setPanelState, view]);
+  }, [databaseId, bundle, panelState, setPanelState, view, visibleRowLimit]);
 
   return (
     <NodeViewWrapper className="qn-database-block">
@@ -413,6 +435,14 @@ export function DatabaseBlockView(props: NodeViewProps) {
               <DatabaseBlockFullPageHeader
                 onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
+                hasPreviousPage={!!previousPageId}
+                onGoBack={() => {
+                  const prev = popBack();
+                  if (prev) {
+                    setActivePageNav(prev);
+                    setCurrentTabPage(prev);
+                  }
+                }}
               />
             )}
 
@@ -423,6 +453,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
               onViewChange={setView}
               panelState={panelState}
               setPanelState={setPanelState}
+              layout={layout}
             />
 
             {linkOpen && (
@@ -436,6 +467,22 @@ export function DatabaseBlockView(props: NodeViewProps) {
             <DatabaseBlockDataArea bundleGone={bundleGone}>
               {activeViewComponent}
             </DatabaseBlockDataArea>
+
+            {/* 더보기 버튼 — 인라인 레이아웃에서 항목 수가 limit을 초과할 때 표시. */}
+            {layout !== "fullPage" && bundle && (() => {
+              const limit = (panelState.itemLimit ?? 30) + extraRows;
+              const totalRows = bundle.rowPageOrder.length;
+              if (totalRows <= limit) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => setExtraRows((e) => e + 10)}
+                  className="mt-1 w-full rounded-md border border-zinc-200 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  + 더보기 ({totalRows - limit}개 남음)
+                </button>
+              );
+            })()}
           </>
         )}
       </div>

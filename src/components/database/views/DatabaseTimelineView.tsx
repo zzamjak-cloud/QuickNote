@@ -34,6 +34,8 @@ type Props = {
   databaseId: string;
   panelState: DatabasePanelState;
   setPanelState: (p: Partial<DatabasePanelState>) => void;
+  /** 표시할 최대 행 수. 미지정 시 전체 표시. */
+  visibleRowLimit?: number;
 };
 
 type Granularity = "day" | "week";
@@ -56,8 +58,11 @@ export function DatabaseTimelineView({
   databaseId,
   panelState,
   setPanelState,
+  visibleRowLimit,
 }: Props) {
-  const { bundle, rows, columns } = useProcessedRows(databaseId, panelState);
+  const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
+  // 표시 제한이 있으면 slice 적용.
+  const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const setActivePage = usePageStore((s) => s.setActivePage);

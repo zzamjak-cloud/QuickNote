@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import * as LucideIcons from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { insertImageFromFile, MAX_EDITOR_IMAGE_BYTES } from "../../lib/editor/insertImageFromFile";
@@ -247,6 +248,8 @@ type Props = {
   size?: "lg" | "sm";
   /** 이미지 업로드 실패·용량 초과 시 알림 */
   onUploadMessage?: (message: string) => void;
+  /** current가 null일 때 표시할 기본 아이콘. 미지정 시 + 아이콘 */
+  defaultIcon?: React.ReactNode;
 };
 
 type CustomIconPreset = {
@@ -497,9 +500,12 @@ export function IconPicker({
   onChange,
   size = "lg",
   onUploadMessage,
+  defaultIcon,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [popoverCoords, setPopoverCoords] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [customIcons, setCustomIcons] = useState<CustomIconPreset[]>(() =>
     typeof window === "undefined" ? [] : loadCustomIcons(),
@@ -508,30 +514,46 @@ export function IconPicker({
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!ref.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false);
     };
     window.addEventListener("mousedown", onClick);
     return () => window.removeEventListener("mousedown", onClick);
   }, [open]);
 
+  const openPicker = () => {
+    if (open) { setOpen(false); return; }
+    const rect = ref.current?.getBoundingClientRect();
+    if (rect) {
+      const panelW = 340;
+      const panelH = 380;
+      let left = rect.left;
+      let top = rect.bottom + 4;
+      if (left + panelW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - panelW - 8);
+      if (top + panelH > window.innerHeight - 8) top = Math.max(8, rect.top - panelH - 4);
+      setPopoverCoords({ top, left });
+    }
+    setOpen(true);
+  };
+
   const trigger =
     size === "lg" ? (
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={openPicker}
         className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md text-3xl hover:bg-zinc-100 dark:hover:bg-zinc-800"
         aria-label="페이지 아이콘"
       >
         {current ? (
           <PageIconDisplay icon={current} size="lg" />
         ) : (
-          <LucideIcons.Plus size={18} className="text-zinc-400" />
+          defaultIcon ?? <LucideIcons.Plus size={18} className="text-zinc-400" />
         )}
       </button>
     ) : (
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={openPicker}
         className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded text-base hover:bg-zinc-100 dark:hover:bg-zinc-800"
         aria-label="페이지 아이콘"
       >
@@ -588,8 +610,11 @@ export function IconPicker({
         className="hidden"
         onChange={(e) => void onPickImageFile(e.target.files?.[0])}
       />
-      {open && (
-        <div className="absolute left-0 top-14 z-50">
+      {open && popoverCoords && createPortal(
+        <div
+          ref={panelRef}
+          style={{ position: "fixed", top: popoverCoords.top, left: popoverCoords.left, zIndex: 9999 }}
+        >
           <IconPickerPanel
             onPickLucide={(name, nextColor) => {
               onChange(encodeLucidePageIcon(name, nextColor));
@@ -635,7 +660,8 @@ export function IconPicker({
               </>
             }
           />
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

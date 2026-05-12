@@ -18,6 +18,7 @@ import { DatabaseCell } from "../DatabaseCell";
 import { DatabaseColumnHeader } from "../DatabaseColumnHeader";
 import { DatabaseAddColumnButton } from "../DatabaseAddColumnButton";
 import { usePageStore } from "../../../store/pageStore";
+import { IconPicker } from "../../common/IconPicker";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
@@ -28,17 +29,24 @@ type Props = {
   databaseId: string;
   panelState: DatabasePanelState;
   setPanelState: (p: Partial<DatabasePanelState>) => void;
+  /** 표시할 최대 행 수. 미지정 시 전체 표시. */
+  visibleRowLimit?: number;
+  layout?: "inline" | "fullPage";
 };
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
 
-export function DatabaseTableView({ databaseId, panelState, setPanelState }: Props) {
+export function DatabaseTableView({ databaseId, panelState, setPanelState, visibleRowLimit, layout }: Props) {
   void setPanelState;
-  const { bundle, rows } = useProcessedRows(databaseId, panelState);
+  const { bundle, rows: allRows } = useProcessedRows(databaseId, panelState);
+  // 표시 제한이 있으면 slice 적용.
+  const rows = visibleRowLimit != null ? (allRows ?? []).slice(0, visibleRowLimit) : allRows;
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const moveColumn = useDatabaseStore((s) => s.moveColumn);
   const setRowOrder = useDatabaseStore((s) => s.setRowOrder);
+  const pages = usePageStore((s) => s.pages);
+  const setIcon = usePageStore((s) => s.setIcon);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
@@ -200,8 +208,9 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
   if (!bundle) return null;
 
   return (
-    // 헤더 sticky를 위해 wrapper에 max-h + overflow-y-auto. 가로 스크롤도 동일 wrapper.
-    <div className="relative max-h-[60vh] overflow-x-auto overflow-y-auto">
+    // fullPage: 페이지 스크롤에 맡겨 터치패드 스크롤이 자연스럽게 작동.
+    // inline: 60vh 내에서만 스크롤.
+    <div className={`relative overflow-x-auto ${layout === "fullPage" ? "" : "max-h-[60vh] overflow-y-auto"}`}>
       {/* table-layout:fixed + w-full 조합은 한 컬럼 리사이즈 시 다른 컬럼 폭을 100%
           맞추려고 자동 재배분한다 → 사용자가 의도한 폭으로 조절 불가.
           natural-width(table-layout:fixed, no w-full) 로 두어 각 col 의 width 가 그대로 유지되게.
@@ -302,7 +311,8 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
               >
                 {/* 행 선택 체크박스 — 평소엔 희미, hover/체크 시 진하게. Shift+클릭 으로 범위 선택.
                     native input 의 controlled state 갱신 타이밍 이슈를 피하려 button + aria-checked 로 구현. */}
-                <td className="px-1 py-1 text-center align-middle">
+                <td className="px-1 py-0 align-middle">
+                  <div className="flex h-full min-h-[28px] items-center justify-center">
                   <button
                     type="button"
                     role="checkbox"
@@ -325,6 +335,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
                       <Check size={10} strokeWidth={3} />
                     ) : null}
                   </button>
+                  </div>
                 </td>
                 {visibleCols.map((col, cIdx) => {
                   const isFirst = cIdx === 0;
@@ -363,12 +374,23 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState }: Pro
                       */}
                       <div className="min-w-0 max-w-full truncate">
                         {col.type === "title" ? (
-                          <DatabaseCell
-                            databaseId={databaseId}
-                            rowId={row.pageId}
-                            column={col}
-                            value={row.title}
-                          />
+                          <div className="flex min-w-0 items-center gap-1">
+                            <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+                              <IconPicker
+                                current={pages[row.pageId]?.icon ?? null}
+                                size="sm"
+                                onChange={(icon) => setIcon(row.pageId, icon)}
+                              />
+                            </span>
+                            <div className="min-w-0 flex-1 truncate">
+                              <DatabaseCell
+                                databaseId={databaseId}
+                                rowId={row.pageId}
+                                column={col}
+                                value={row.title}
+                              />
+                            </div>
+                          </div>
                         ) : (
                           <DatabaseCell
                             databaseId={databaseId}

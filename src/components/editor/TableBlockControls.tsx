@@ -197,10 +197,17 @@ function applyHeaderRowToggle(editor: Editor, tablePos: number): boolean {
   const headerType = state.schema.nodes.tableHeader;
   const cellType = state.schema.nodes.tableCell;
   if (!headerType || !cellType) return false;
-  const targetType = isHeaderRowActive(table) ? cellType : headerType;
+  const deactivating = isHeaderRowActive(table);
+  const targetType = deactivating ? cellType : headerType;
+  const headerColActive = isHeaderColActive(table);
   const newCells: PMNode[] = [];
-  firstRow.forEach((cell) => {
-    newCells.push(targetType.createChecked(cell.attrs, cell.content, cell.marks));
+  firstRow.forEach((cell, _o, i) => {
+    // 헤더행 비활성화 시, 헤더열이 활성화된 상태라면 첫 셀은 헤더열 타입 유지
+    if (deactivating && headerColActive && i === 0) {
+      newCells.push(headerType.createChecked(cell.attrs, cell.content, cell.marks));
+    } else {
+      newCells.push(targetType.createChecked(cell.attrs, cell.content, cell.marks));
+    }
   });
   const newRow = firstRow.type.createChecked(firstRow.attrs, newCells, firstRow.marks);
   const rowFrom = tablePos + 1; // 테이블 노드 진입 후 첫 자식
@@ -264,13 +271,20 @@ function applyHeaderColToggle(editor: Editor, tablePos: number): boolean {
   const headerType = state.schema.nodes.tableHeader;
   const cellType = state.schema.nodes.tableCell;
   if (!headerType || !cellType) return false;
-  const targetType = isHeaderColActive(table) ? cellType : headerType;
+  const deactivating = isHeaderColActive(table);
+  const targetType = deactivating ? cellType : headerType;
+  const headerRowActive = isHeaderRowActive(table);
   const newRows: PMNode[] = [];
-  table.forEach((row) => {
+  table.forEach((row, _o, rowIdx) => {
     const newCells: PMNode[] = [];
     row.forEach((cell, _offset, i) => {
       if (i === 0) {
-        newCells.push(targetType.createChecked(cell.attrs, cell.content, cell.marks));
+        // 헤더열 비활성화 시, 헤더행이 활성화된 상태라면 첫 행의 첫 셀은 헤더행 타입 유지
+        if (deactivating && headerRowActive && rowIdx === 0) {
+          newCells.push(headerType.createChecked(cell.attrs, cell.content, cell.marks));
+        } else {
+          newCells.push(targetType.createChecked(cell.attrs, cell.content, cell.marks));
+        }
       } else {
         newCells.push(cell);
       }
@@ -526,7 +540,8 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
     return () => document.removeEventListener("dragover", onDragOver, true);
   }, [editor]);
 
-  // 표 셀 내부에서 텍스트 선택 드래그 시 부모 스크롤 컨테이너 자동스크롤 방지
+  // 표 셀 내부에서 텍스트 선택 드래그 시 부모 스크롤 컨테이너 자동스크롤 방지.
+  // mousedown 즉시가 아닌 실제 드래그(mousemove) 시작 시에만 차단해 트랙패드 스크롤 간섭 방지.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const dom = editor.view.dom;
@@ -541,9 +556,19 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
         el = el.parentElement;
       }
       if (!scrollEl) return;
-      const saved = scrollEl.style.overflowY;
-      scrollEl.style.overflowY = "hidden";
-      document.addEventListener("mouseup", () => { scrollEl!.style.overflowY = saved; }, { once: true });
+      const target = scrollEl;
+      const saved = target.style.overflowY;
+      let blocked = false;
+      const onMove = () => {
+        if (!blocked) { blocked = true; target.style.overflowY = "hidden"; }
+      };
+      const cleanup = () => {
+        if (blocked) target.style.overflowY = saved;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", cleanup);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", cleanup, { once: true });
     };
     dom.addEventListener("mousedown", onMouseDown);
     return () => dom.removeEventListener("mousedown", onMouseDown);

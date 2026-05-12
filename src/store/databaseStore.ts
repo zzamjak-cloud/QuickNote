@@ -7,6 +7,7 @@ import type {
   ColumnType,
   DatabaseBundle,
   DatabaseMeta,
+  DatabaseTemplate,
 } from "../types/database";
 import { DATABASE_STORE_VERSION } from "../types/database";
 import { newId } from "../lib/id";
@@ -110,6 +111,8 @@ type DatabaseStoreState = {
   cacheWorkspaceId: string | null;
   /** 자동 복구하지 못한 persisted 원본. 사용자 데이터 안전을 위해 삭제하지 않는다. */
   migrationQuarantine: PersistedQuarantine[];
+  /** DB별 템플릿 목록 (로컬 전용). */
+  dbTemplates: Record<string, DatabaseTemplate[]>;
 };
 
 type DatabaseStoreActions = {
@@ -144,6 +147,14 @@ type DatabaseStoreActions = {
   getBundle: (databaseId: string) => DatabaseBundle | undefined;
   /** 스키마·행을 소스와 공유하는지 */
   resolveBundle: (databaseId: string) => DatabaseBundle | undefined;
+  /** 빈 템플릿 생성 후 templateId 반환. */
+  addTemplate: (databaseId: string) => string;
+  /** 템플릿 필드 일부 갱신. */
+  updateTemplate: (databaseId: string, templateId: string, patch: Partial<DatabaseTemplate>) => void;
+  /** 템플릿 삭제. */
+  deleteTemplate: (databaseId: string, templateId: string) => void;
+  /** 템플릿을 적용해 새 행 생성 후 새 pageId 반환. */
+  applyTemplate: (databaseId: string, templateId: string) => string;
 };
 
 export type DatabaseStore = DatabaseStoreState & DatabaseStoreActions;
@@ -155,6 +166,7 @@ const DATABASE_STORE_DATA_KEYS = [
   "databases",
   "cacheWorkspaceId",
   "migrationQuarantine",
+  "dbTemplates",
 ] as const satisfies readonly (keyof DatabaseStoreState)[];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -422,6 +434,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
       databases: {},
       cacheWorkspaceId: null,
       migrationQuarantine: [],
+      dbTemplates: {},
 
       createDatabase: (title = "새 데이터베이스") => {
         const id = newId();
@@ -1270,6 +1283,145 @@ export const useDatabaseStore = create<DatabaseStore>()(
         return true;
       },
 
+    addTemplate: (databaseId) => {
+      const id = newId();
+      // 템플릿 전용 페이지 생성 — dbCells에 마커를 심어 행과 구분한다.
+      const pageId = createRowPage(databaseId, "새 템플릿");
+      const t = Date.now();
+      usePageStore.setState((s) => {
+        const page = s.pages[pageId];
+        if (!page) return s;
+        return {
+          pages: {
+            ...s.pages,
+            [pageId]: {
+              ...page,
+              dbCells: { ...(page.dbCells ?? {}), _qn_isTemplate: "1" },
+              updatedAt: t,
+            },
+          },
+        };
+      });
+      const page = usePageStore.getState().pages[pageId];
+      if (page) enqueueUpsertPageRaw(page);
+      const tmpl: DatabaseTemplate = { id, title: "새 템플릿", cells: {}, pageId };
+      set((state) => ({
+        dbTemplates: {
+          ...state.dbTemplates,
+          [databaseId]: [...(state.dbTemplates[databaseId] ?? []), tmpl],
+        },
+      }));
+      return pageId;
+    },
+
+    updateTemplate: (databaseId, templateId, patch) => {
+      set((state) => {
+        const list = state.dbTemplates[databaseId] ?? [];
+        return {
+          dbTemplates: {
+            ...state.dbTemplates,
+            [databaseId]: list.map((t) =>
+              t.id === templateId ? { ...t, ...patch } : t,
+            ),
+          },
+        };
+      });
+    },
+
+    deleteTemplate: (databaseId, templateId) => {
+      const tmpl = (get().dbTemplates[databaseId] ?? []).find((t) => t.id === templateId);
+      // 연결된 템플릿 페이지도 함께 삭제.
+      if (tmpl?.pageId) {
+        usePageStore.getState().deletePage(tmpl.pageId);
+      }
+      set((state) => {
+        const list = state.dbTemplates[databaseId] ?? [];
+        return {
+          dbTemplates: {
+            ...state.dbTemplates,
+            [databaseId]: list.filter((t) => t.id !== templateId),
+          },
+        };
+      });
+    },
+
+    applyTemplate: (databaseId, templateId) => {
+      const bundle = get().databases[databaseId];
+      if (!bundle) return "";
+      const tmpl = (get().dbTemplates[databaseId] ?? []).find(
+        (t) => t.id === templateId,
+      );
+      // 템플릿 페이지가 있으면 실제 페이지의 셀 값을 복사한다.
+      const templatePage = tmpl?.pageId
+        ? usePageStore.getState().pages[tmpl.pageId]
+        : null;
+      const rawTemplateCells = templatePage?.dbCells ?? tmpl?.cells ?? {};
+      // _qn_isTemplate 마커는 새 행에 복사하지 않는다.
+      const templateCells: Record<string, CellValue> = {};
+      for (const [k, v] of Object.entries(rawTemplateCells)) {
+        if (k !== "_qn_isTemplate") templateCells[k] = v as CellValue;
+      }
+      const templateTitle = templatePage?.title ?? tmpl?.title;
+      const baseTitle =
+        templateTitle && templateTitle !== "새 템플릿"
+          ? templateTitle
+          : `항목 ${bundle.rowPageOrder.length + 1}`;
+      // 기존 행 제목과 중복 시 (1), (2), ... 접미사 추가.
+      const existingTitles = new Set(
+        bundle.rowPageOrder
+          .map((id) => usePageStore.getState().pages[id]?.title)
+          .filter(Boolean),
+      );
+      let uniqueTitle = baseTitle;
+      if (existingTitles.has(uniqueTitle)) {
+        let n = 1;
+        while (existingTitles.has(`${baseTitle} (${n})`)) n++;
+        uniqueTitle = `${baseTitle} (${n})`;
+      }
+      const pageId = createRowPage(databaseId, uniqueTitle);
+      // 기본값 컬럼 + 템플릿 셀 값 병합 주입.
+      const defaults: Record<string, CellValue> = {};
+      for (const col of bundle.columns) {
+        const def = defaultCellValueForColumn(col);
+        if (def != null) defaults[col.id] = def;
+      }
+      const cells = { ...defaults, ...templateCells };
+      if (Object.keys(cells).length > 0) {
+        const t = Date.now();
+        usePageStore.setState((s) => {
+          const page = s.pages[pageId];
+          if (!page) return s;
+          return {
+            pages: {
+              ...s.pages,
+              [pageId]: {
+                ...page,
+                dbCells: { ...(page.dbCells ?? {}), ...cells },
+                updatedAt: t,
+              },
+            },
+          };
+        });
+      }
+      set((state) => {
+        const b = state.databases[databaseId];
+        if (!b) return state;
+        return {
+          databases: {
+            ...state.databases,
+            [databaseId]: {
+              ...b,
+              rowPageOrder: [...b.rowPageOrder, pageId],
+              meta: { ...b.meta, updatedAt: now() },
+            },
+          },
+        };
+      });
+      const bundleAfter = get().databases[databaseId];
+      if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
+      return pageId;
+    },
+
     getBundle: (databaseId) => get().databases[databaseId],
     resolveBundle: (databaseId) => get().getBundle(databaseId),
     }),
@@ -1284,6 +1436,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
             databases: state.databases,
             cacheWorkspaceId: state.cacheWorkspaceId,
             migrationQuarantine: state.migrationQuarantine,
+            dbTemplates: state.dbTemplates,
           },
           {
             schemaVersion: DATABASE_STORE_PERSIST_VERSION,

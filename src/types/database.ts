@@ -132,6 +132,18 @@ export type DatabasePanelState = {
   viewConfigs: ViewConfigsMap;
   /** 비활성화한 뷰 모드. table은 항상 표시되므로 저장되어 있어도 무시한다. */
   hiddenViewKinds: ViewKind[];
+  /** 인라인 뷰에서 한 번에 표시할 최대 항목 수 (기본 30). fullPage는 무시. */
+  itemLimit?: number;
+};
+
+/** DB 템플릿 — 새 행 생성 시 기본 셀 값을 미리 지정. */
+export type DatabaseTemplate = {
+  id: string;
+  title: string;
+  /** 기본 셀 값 */
+  cells: Record<string, CellValue>;
+  /** 템플릿 전용 페이지 ID — 페이지로 이동해 속성·내용을 편집. */
+  pageId?: string;
 };
 
 export const emptyPanelState = (): DatabasePanelState => ({

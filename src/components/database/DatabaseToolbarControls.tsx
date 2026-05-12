@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronDown,
   ChevronUp,
@@ -19,6 +20,7 @@ import type {
 import { useDatabaseStore } from "../../store/databaseStore";
 import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
 import { DatabaseViewKindToggle } from "./DatabaseViewKindToggle";
+import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
 
 type Props = {
   databaseId: string;
@@ -27,6 +29,8 @@ type Props = {
   onViewChange: (v: ViewKind) => void;
   panelState: DatabasePanelState;
   setPanelState: (p: Partial<DatabasePanelState>) => void;
+  /** 인라인/전체페이지 레이아웃 구분 — 설정 팝업 항목 표시 섹션에서 사용. */
+  layout?: "inline" | "fullPage";
 };
 
 export function DatabaseToolbarControls({
@@ -36,19 +40,18 @@ export function DatabaseToolbarControls({
   onViewChange,
   panelState,
   setPanelState,
+  layout,
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
-  const [filterExpanded, setFilterExpanded] = useState(false);
-  const [sortExpanded, setSortExpanded] = useState(false);
+  const [rulesExpanded, setRulesExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(
     panelState.searchQuery.trim().length > 0,
   );
 
-  // 검색창 — 한글 IME 입력 깨짐 방지(#3): composition 동안 panelState commit 보류.
+  // 검색창 — 한글 IME 입력 깨짐 방지: composition 동안 panelState commit 보류.
   const [searchDraft, setSearchDraft] = useState(panelState.searchQuery);
   const composingRef = useRef(false);
   useEffect(() => {
-    // 외부에서 panelState가 바뀌면(다른 인스턴스 등) draft 동기화.
     if (!composingRef.current) setSearchDraft(panelState.searchQuery);
   }, [panelState.searchQuery]);
   useEffect(() => {
@@ -60,17 +63,36 @@ export function DatabaseToolbarControls({
     }
   }, [onViewChange, panelState.hiddenViewKinds, view]);
 
-  const sortOptions = useMemo(() => {
-    const cols = bundle?.columns ?? [];
-    return cols.map((c) => (
-      <option key={c.id} value={c.id}>
-        {c.name}
-      </option>
-    ));
-  }, [bundle]);
+  // 규칙 팝오버 — 한 번에 하나만 열림.
+  const [openRuleKey, setOpenRuleKey] = useState<string | null>(null);
+  const [ruleCoords, setRuleCoords] = useState<{ top: number; left: number } | null>(null);
+  const rulePopoverRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!openRuleKey) return;
+    const handler = (e: MouseEvent) => {
+      if (rulePopoverRef.current?.contains(e.target as Node)) return;
+      setOpenRuleKey(null);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [openRuleKey]);
+
+  const openPopover = (key: string, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    const left = Math.min(rect.left, window.innerWidth - 220 - 8);
+    setRuleCoords({ top: rect.bottom + 4, left: Math.max(8, left) });
+    setOpenRuleKey((prev) => (prev === key ? null : key));
+  };
 
   const columns = bundle?.columns ?? [];
-  // 구버전 sortColumnId 마이그레이션: sortRules가 비어 있고 sortColumnId가 있으면 한 번 채워서 보여줌.
+
+  const sortOptions = useMemo(
+    () => columns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>),
+    [columns],
+  );
+
+  // 구버전 sortColumnId 마이그레이션.
   const effectiveSortRules: SortRule[] =
     panelState.sortRules && panelState.sortRules.length > 0
       ? panelState.sortRules
@@ -87,10 +109,8 @@ export function DatabaseToolbarControls({
       operator: "contains",
       value: "",
     };
-    setPanelState({
-      filterRules: [...panelState.filterRules, rule],
-    });
-    setFilterExpanded(true);
+    setPanelState({ filterRules: [...panelState.filterRules, rule] });
+    setRulesExpanded(true);
   };
 
   const updateRule = (id: string, patch: Partial<FilterRule>) => {
@@ -105,17 +125,16 @@ export function DatabaseToolbarControls({
     setPanelState({
       filterRules: panelState.filterRules.filter((r) => r.id !== id),
     });
+    if (openRuleKey === id) setOpenRuleKey(null);
   };
 
-  // 다중 정렬(#4)
   const addSort = () => {
-    // 이미 사용 중이지 않은 첫 컬럼을 기본 선택.
     const used = new Set(effectiveSortRules.map((r) => r.columnId));
     const first = columns.find((c) => !used.has(c.id)) ?? columns[0];
     if (!first) return;
     const next: SortRule[] = [...effectiveSortRules, { columnId: first.id, dir: "asc" }];
     setPanelState({ sortRules: next, sortColumnId: null });
-    setSortExpanded(true);
+    setRulesExpanded(true);
   };
 
   const updateSortRule = (idx: number, patch: Partial<SortRule>) => {
@@ -126,10 +145,24 @@ export function DatabaseToolbarControls({
   const removeSortRule = (idx: number) => {
     const next = effectiveSortRules.filter((_, i) => i !== idx);
     setPanelState({ sortRules: next, sortColumnId: null });
+    const key = `sort:${idx}`;
+    if (openRuleKey === key) setOpenRuleKey(null);
   };
+
+  const hasAnyRules =
+    panelState.filterRules.length > 0 || effectiveSortRules.length > 0;
+
+  // 현재 열린 필터 규칙
+  const openFilterRule = panelState.filterRules.find((r) => r.id === openRuleKey) ?? null;
+  // 현재 열린 정렬 규칙 idx
+  const openSortIdx = openRuleKey?.startsWith("sort:")
+    ? parseInt(openRuleKey.slice(5), 10)
+    : -1;
+  const openSortRule = openSortIdx >= 0 ? (effectiveSortRules[openSortIdx] ?? null) : null;
 
   return (
     <div className="select-none border-b border-zinc-200 px-2 py-2 dark:border-zinc-700">
+      {/* 툴바 메인 행 */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap items-center gap-0.5">
           <DatabaseViewKindToggle
@@ -139,6 +172,7 @@ export function DatabaseToolbarControls({
           />
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+          {/* 검색 버튼 */}
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -161,54 +195,22 @@ export function DatabaseToolbarControls({
               value={searchDraft}
               onChange={(e) => {
                 setSearchDraft(e.target.value);
-                // composition 중에는 panelState commit 보류.
                 if (!composingRef.current) {
                   setPanelState({ searchQuery: e.target.value });
                 }
               }}
-              onCompositionStart={() => {
-                composingRef.current = true;
-              }}
+              onCompositionStart={() => { composingRef.current = true; }}
               onCompositionEnd={(e) => {
                 composingRef.current = false;
-                setPanelState({
-                  searchQuery: (e.target as HTMLInputElement).value,
-                });
+                setPanelState({ searchQuery: (e.target as HTMLInputElement).value });
               }}
               className="w-44 select-text rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
             />
           )}
 
-          {/* 정렬 — 다중 규칙 (#4) */}
+          {/* 필터 | 정렬 | V 그룹 버튼 */}
           <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-600">
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={addSort}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              <ArrowUpDown size={12} />
-              {effectiveSortRules.length > 0 && (
-                <span className="rounded bg-zinc-200 px-1 text-[10px] text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
-                  {effectiveSortRules.length}
-                </span>
-              )}
-            </button>
-            {effectiveSortRules.length > 0 && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setSortExpanded((v) => !v)}
-                title={sortExpanded ? "정렬 접기" : "정렬 펼치기"}
-                className="flex items-center border-l border-zinc-300 px-1.5 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
-              >
-                {sortExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              </button>
-            )}
-          </div>
-
-          {/* 필터 */}
-          <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-600">
+            {/* 필터 버튼 */}
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
@@ -222,116 +224,204 @@ export function DatabaseToolbarControls({
                 </span>
               )}
             </button>
-            {panelState.filterRules.length > 0 && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setFilterExpanded((v) => !v)}
-                title={filterExpanded ? "조건 접기" : "조건 펼치기"}
-                className="flex items-center border-l border-zinc-300 px-1.5 text-zinc-500 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
-              >
-                {filterExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-              </button>
+
+            <span className="w-px bg-zinc-300 dark:bg-zinc-600" />
+
+            {/* 정렬 버튼 */}
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={addSort}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              <ArrowUpDown size={12} />
+              {effectiveSortRules.length > 0 && (
+                <span className="rounded bg-zinc-200 px-1 text-[10px] text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
+                  {effectiveSortRules.length}
+                </span>
+              )}
+            </button>
+
+            {/* 펼침/접힘 버튼 — 규칙이 있을 때만 표시 */}
+            {hasAnyRules && (
+              <>
+                <span className="w-px bg-zinc-300 dark:bg-zinc-600" />
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setRulesExpanded((v) => !v)}
+                  title={rulesExpanded ? "규칙 접기" : "규칙 펼치기"}
+                  className="flex items-center px-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  {rulesExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </button>
+              </>
             )}
           </div>
 
+          {/* 표시 설정 버튼 */}
           <DatabaseColumnSettingsButton
             databaseId={databaseId}
             viewKind={viewKind}
             panelState={panelState}
             setPanelState={setPanelState}
+            layout={layout}
           />
+
+          {/* 템플릿 버튼 */}
+          <DatabaseTemplateButton databaseId={databaseId} />
         </div>
       </div>
 
-      {sortExpanded && effectiveSortRules.length > 0 && (
-        <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-          {effectiveSortRules.map((rule, idx) => (
-            <div key={`${rule.columnId}:${idx}`} className="flex flex-wrap items-center gap-1 text-xs">
-              <span className="text-[10px] text-zinc-400">{idx === 0 ? "1차" : `${idx + 1}차`}</span>
-              <select
-                value={rule.columnId}
-                onChange={(e) => updateSortRule(idx, { columnId: e.target.value })}
-                className="rounded border border-zinc-300 bg-white px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
+      {/* 필터·정렬 규칙 인라인 펼침 영역 */}
+      {rulesExpanded && hasAnyRules && (
+        <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+          {/* 필터 박스들 — [요약 버튼] [x] */}
+          {panelState.filterRules.map((rule) => {
+            const col = columns.find((c) => c.id === rule.columnId);
+            const op = FILTER_OPERATORS.find((o) => o.id === rule.operator);
+            const hasValue = !["isEmpty", "isNotEmpty"].includes(rule.operator);
+            const summary = [
+              col?.name ?? "컬럼",
+              op?.label,
+              hasValue && rule.value ? `"${rule.value}"` : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ");
+            return (
+              <div
+                key={rule.id}
+                className="flex items-center gap-0 rounded border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
               >
-                {sortOptions}
-              </select>
-              <button
-                type="button"
-                onClick={() =>
-                  updateSortRule(idx, { dir: rule.dir === "asc" ? "desc" : "asc" })
-                }
-                className="rounded border border-zinc-300 px-1 dark:border-zinc-600"
-                title={rule.dir === "asc" ? "오름차순" : "내림차순"}
+                <button
+                  type="button"
+                  onClick={(e) => openPopover(rule.id, e.currentTarget)}
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-zinc-700 hover:bg-blue-100 dark:text-zinc-300 dark:hover:bg-blue-900/30"
+                >
+                  <span className="max-w-[160px] truncate">{summary}</span>
+                  <ChevronDown size={10} className="shrink-0 text-zinc-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeRule(rule.id)}
+                  className="border-l border-blue-200 px-1 py-0.5 text-blue-400 hover:bg-blue-100 hover:text-blue-700 dark:border-blue-800 dark:hover:bg-blue-900/30"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            );
+          })}
+
+          {/* 필터·정렬 구분선 */}
+          {panelState.filterRules.length > 0 && effectiveSortRules.length > 0 && (
+            <span className="select-none px-0.5 text-zinc-300 dark:text-zinc-600">|</span>
+          )}
+
+          {/* 정렬 박스들 — [요약 버튼] [x] */}
+          {effectiveSortRules.map((rule, idx) => {
+            const col = columns.find((c) => c.id === rule.columnId);
+            const key = `sort:${idx}`;
+            const summary = `${col?.name ?? "컬럼"} ${rule.dir === "asc" ? "↑" : "↓"}`;
+            return (
+              <div
+                key={`${rule.columnId}:${idx}`}
+                className="flex items-center gap-0 rounded border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30"
               >
-                {rule.dir === "asc" ? "↑" : "↓"}
-              </button>
-              <button
-                type="button"
-                onClick={() => removeSortRule(idx)}
-                title="정렬 규칙 삭제"
-                className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  onClick={(e) => openPopover(key, e.currentTarget)}
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-zinc-700 hover:bg-green-100 dark:text-zinc-300 dark:hover:bg-green-900/30"
+                >
+                  <span className="max-w-[120px] truncate">{summary}</span>
+                  <ChevronDown size={10} className="shrink-0 text-zinc-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeSortRule(idx)}
+                  className="border-l border-green-200 px-1 py-0.5 text-green-400 hover:bg-green-100 hover:text-green-700 dark:border-green-800 dark:hover:bg-green-900/30"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {filterExpanded && panelState.filterRules.length > 0 && (
-        <div className="mt-2 space-y-1 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-          {panelState.filterRules.map((rule) => (
-            <div key={rule.id} className="flex flex-wrap items-center gap-1 text-xs">
+      {/* 규칙 팝오버 — 필터 */}
+      {openFilterRule && ruleCoords &&
+        createPortal(
+          <div
+            ref={rulePopoverRef}
+            style={{ position: "fixed", top: ruleCoords.top, left: ruleCoords.left, width: 220 }}
+            className="z-50 space-y-2 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase text-zinc-400">컬럼</div>
               <select
-                value={rule.columnId}
-                onChange={(e) =>
-                  updateRule(rule.id, { columnId: e.target.value })
-                }
-                className="rounded border border-zinc-300 bg-white px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
+                value={openFilterRule.columnId}
+                onChange={(e) => updateRule(openFilterRule.id, { columnId: e.target.value })}
+                className="w-full rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-800"
               >
-                {columns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
+                {columns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase text-zinc-400">조건</div>
               <select
-                value={rule.operator}
-                onChange={(e) =>
-                  updateRule(rule.id, {
-                    operator: e.target.value as FilterOperator,
-                  })
-                }
-                className="rounded border border-zinc-300 bg-white px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
+                value={openFilterRule.operator}
+                onChange={(e) => updateRule(openFilterRule.id, { operator: e.target.value as FilterOperator })}
+                className="w-full rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-800"
               >
-                {FILTER_OPERATORS.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
+                {FILTER_OPERATORS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
               </select>
-              {!["isEmpty", "isNotEmpty"].includes(rule.operator) && (
+            </div>
+            {!["isEmpty", "isNotEmpty"].includes(openFilterRule.operator) && (
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase text-zinc-400">값</div>
                 <input
-                  value={rule.value ?? ""}
-                  onChange={(e) =>
-                    updateRule(rule.id, { value: e.target.value })
-                  }
-                  className="min-w-[80px] flex-1 select-text rounded border border-zinc-300 px-1 py-0.5 dark:border-zinc-600 dark:bg-zinc-900"
-                  placeholder="값"
+                  value={openFilterRule.value ?? ""}
+                  onChange={(e) => updateRule(openFilterRule.id, { value: e.target.value })}
+                  placeholder="값 입력…"
+                  className="w-full select-text rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-800"
                 />
-              )}
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+
+      {/* 규칙 팝오버 — 정렬 */}
+      {openSortRule && ruleCoords &&
+        createPortal(
+          <div
+            ref={rulePopoverRef}
+            style={{ position: "fixed", top: ruleCoords.top, left: ruleCoords.left, width: 200 }}
+            className="z-50 space-y-2 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase text-zinc-400">컬럼</div>
+              <select
+                value={openSortRule.columnId}
+                onChange={(e) => updateSortRule(openSortIdx, { columnId: e.target.value })}
+                className="w-full rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-800"
+              >
+                {sortOptions}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase text-zinc-400">방향</div>
               <button
                 type="button"
-                className="text-red-600 hover:underline"
-                onClick={() => removeRule(rule.id)}
+                onClick={() => updateSortRule(openSortIdx, { dir: openSortRule.dir === "asc" ? "desc" : "asc" })}
+                className="w-full rounded border border-zinc-300 px-2 py-1 text-left text-xs hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
               >
-                삭제
+                {openSortRule.dir === "asc" ? "↑ 오름차순" : "↓ 내림차순"}
               </button>
             </div>
-          ))}
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

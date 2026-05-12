@@ -13,6 +13,7 @@ import { DatabaseCell } from "../DatabaseCell";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { getDatabaseFile } from "../../../lib/databaseFileStorage";
 import { usePageStore } from "../../../store/pageStore";
+import { IconPicker } from "../../common/IconPicker";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
@@ -21,6 +22,8 @@ type Props = {
   databaseId: string;
   panelState: DatabasePanelState;
   setPanelState: (p: Partial<DatabasePanelState>) => void;
+  /** 표시할 최대 행 수. 미지정 시 전체 표시. */
+  visibleRowLimit?: number;
 };
 
 /** 페이지 doc(JSONContent)에서 첫 이미지 src를 깊이우선으로 탐색. */
@@ -48,8 +51,11 @@ export function DatabaseGalleryView({
   databaseId,
   panelState,
   setPanelState,
+  visibleRowLimit,
 }: Props) {
-  const { bundle, rows, columns } = useProcessedRows(databaseId, panelState);
+  const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
+  // 표시 제한이 있으면 slice 적용.
+  const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
 
@@ -153,6 +159,8 @@ function GalleryCard({
       visibleColumns.every((c, i) => c.id === columns[i]?.id);
     return allEqual ? explicit.slice(0, 2) : explicit;
   })();
+  const pages = usePageStore((s) => s.pages);
+  const setIcon = usePageStore((s) => s.setIcon);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openPeek = useUiStore((s) => s.openPeek);
@@ -173,8 +181,11 @@ function GalleryCard({
       />
       <div className="p-2">
         <div className="flex items-center justify-between gap-1">
-          <div className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">
-            {row.title || "제목 없음"}
+          <div className="flex min-w-0 items-center gap-1 text-xs font-medium text-zinc-900 dark:text-zinc-100">
+            <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+              <IconPicker current={pages[row.pageId]?.icon ?? null} size="sm" onChange={(icon) => setIcon(row.pageId, icon)} />
+            </span>
+            <span className="truncate">{row.title || "제목 없음"}</span>
           </div>
           <div className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">
             <button

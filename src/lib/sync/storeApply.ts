@@ -64,11 +64,16 @@ function isRemoteNewer(localUpdatedMs: number, remoteIso: string): boolean {
   return isoToMs(remoteIso) > localUpdatedMs;
 }
 
-/** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다. */
+/** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다.
+ *  _qn_isTemplate 마커가 있는 페이지는 템플릿이므로 행 목록에서 제외한다. */
 function collectRowPageIdsForDatabase(databaseId: string): string[] {
   const pages = usePageStore.getState().pages;
   return Object.values(pages)
-    .filter((page) => page.databaseId === databaseId)
+    .filter(
+      (page) =>
+        page.databaseId === databaseId &&
+        page.dbCells?.["_qn_isTemplate"] !== "1",
+    )
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
     .map((page) => page.id);
 }
@@ -111,8 +116,11 @@ function removePageIdFromDatabaseRowOrder(databaseId: string, pageId: string): v
   });
 }
 
-/** 구독 순서상 DB 스냅샷보다 행 페이지가 먼저 올 때 rowPageOrder 에 id 가 빠지지 않게 한다. */
+/** 구독 순서상 DB 스냅샷보다 행 페이지가 먼저 올 때 rowPageOrder 에 id 가 빠지지 않게 한다.
+ *  템플릿 페이지(_qn_isTemplate)는 rowPageOrder 에 추가하지 않는다. */
 function ensurePageInDatabaseRowOrder(databaseId: string, pageId: string): void {
+  const page = usePageStore.getState().pages[pageId];
+  if (page?.dbCells?.["_qn_isTemplate"] === "1") return;
   useDatabaseStore.setState((s) => {
     const db = s.databases[databaseId];
     if (!db || db.rowPageOrder.includes(pageId)) return s;
