@@ -83,8 +83,8 @@ export const UPDATE_MEMBER = `
     $thumbnailUrl: String
   ) {
     updateMember(
-      memberId: $memberId
       input: {
+        memberId: $memberId
         name: $name
         jobRole: $jobRole
         jobTitle: $jobTitle

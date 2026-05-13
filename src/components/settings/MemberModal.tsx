@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { ChevronDown } from "lucide-react";
 import type { Member } from "../../store/memberStore";
 import { useWorkspaceOptionsStore } from "../../store/workspaceOptionsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
@@ -32,7 +33,7 @@ type EditProps = {
 
 type Props = CreateProps | EditProps;
 
-// 드롭다운 + 직접 추가 서브컴포넌트
+// 드롭다운 + 직접 추가 서브컴포넌트 (옵션별 삭제 버튼, 알파벳 정렬)
 function DropdownWithAdd({
   label,
   value,
@@ -48,8 +49,23 @@ function DropdownWithAdd({
   onAdd: (v: string) => void | Promise<void>;
   onRemove: (v: string) => void | Promise<void>;
 }) {
+  const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const sorted = [...options].sort((a, b) => a.localeCompare(b, "ko"));
 
   const handleAdd = () => {
     const v = newValue.trim();
@@ -58,62 +74,87 @@ function DropdownWithAdd({
     onChange(v);
     setNewValue("");
     setAdding(false);
+    setOpen(false);
   };
 
   return (
-    <div>
+    <div ref={wrapRef} className="relative">
       <div className="mb-0.5 text-[9px] font-medium text-zinc-500">{label}</div>
-      <select
-        value={value}
-        onChange={(e) => {
-          if (e.target.value === "__add__") setAdding(true);
-          else onChange(e.target.value);
-        }}
-        className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"
+      <button
+        type="button"
+        onClick={() => { setOpen((o) => !o); setAdding(false); }}
+        className="flex w-full items-center justify-between rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"
       >
-        <option value="">선택</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-        <option disabled>────────</option>
-        <option value="__add__">+ 직접 추가...</option>
-      </select>
-      {adding && (
-        <div className="mt-1 flex gap-1">
-          <input
-            autoFocus
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="새 항목 입력..."
-            className="flex-1 rounded border border-blue-400 px-2 py-1 text-xs outline-none"
-          />
-          <button
-            type="button"
-            onClick={handleAdd}
-            className="rounded bg-zinc-900 px-2 py-1 text-xs text-white"
-          >
-            추가
-          </button>
-          <button
-            type="button"
-            onClick={() => setAdding(false)}
-            className="rounded border px-2 py-1 text-xs"
-          >
-            취소
-          </button>
+        <span className={value ? "" : "text-zinc-400"}>{value || "선택"}</span>
+        <ChevronDown size={10} className="text-zinc-400" />
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-0.5 w-full rounded border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="max-h-36 overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => { onChange(""); setOpen(false); }}
+              className="w-full px-2 py-1 text-left text-xs text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            >
+              선택 안 함
+            </button>
+            {sorted.map((o) => (
+              <div key={o} className="flex items-center hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => { onChange(o); setOpen(false); }}
+                  className={`flex-1 px-2 py-1 text-left text-xs ${value === o ? "font-semibold" : ""}`}
+                >
+                  {o}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); void onRemove(o); }}
+                  className="px-1.5 py-1 text-[10px] text-zinc-300 hover:text-red-500"
+                  title="삭제"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-zinc-100 dark:border-zinc-800">
+            {adding ? (
+              <div className="flex gap-1 p-1">
+                <input
+                  autoFocus
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+                  placeholder="새 항목..."
+                  className="flex-1 rounded border border-blue-400 px-1.5 py-0.5 text-xs outline-none dark:bg-zinc-950"
+                />
+                <button
+                  type="button"
+                  onClick={handleAdd}
+                  className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] text-white dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  추가
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdding(false)}
+                  className="rounded border px-1.5 py-0.5 text-[10px]"
+                >
+                  취소
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                className="w-full px-2 py-1 text-left text-[10px] text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+              >
+                + 직접 추가...
+              </button>
+            )}
+          </div>
         </div>
-      )}
-      {value && options.includes(value) && (
-        <button
-          type="button"
-          onClick={() => onRemove(value)}
-          className="mt-0.5 text-[9px] text-red-400 hover:text-red-600"
-        >
-          "{value}" 항목 삭제
-        </button>
       )}
     </div>
   );
@@ -206,7 +247,14 @@ export function MemberModal(props: Props) {
         props.onClose();
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "오류가 발생했습니다.");
+      if (e instanceof Error) {
+        setError(e.message);
+      } else if (e && typeof e === "object" && "errors" in e) {
+        const gqlErrors = (e as { errors: Array<{ message?: string }> }).errors;
+        setError(gqlErrors[0]?.message ?? "오류가 발생했습니다.");
+      } else {
+        setError("오류가 발생했습니다.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -251,7 +299,7 @@ export function MemberModal(props: Props) {
       <div
         role="dialog"
         aria-modal="true"
-        className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* 상단 프로필 영역 */}
@@ -402,18 +450,20 @@ export function MemberModal(props: Props) {
               <select
                 value={workspaceRole}
                 onChange={(e) => setWorkspaceRole(e.target.value as Member["workspaceRole"])}
-                disabled={isOwner}
+                disabled={isOwner || workspaceRole === "developer"}
                 className="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isOwner && <option value="owner">Owner</option>}
                 {workspaceRole === "developer" && <option value="developer">Developer</option>}
-                {workspaceRole !== "developer" && workspaceRole !== "owner" ? (
+                {workspaceRole === "owner" ? (
+                  <option value="owner">Owner</option>
+                ) : (
                   <>
+                    <option value="owner">Owner</option>
                     <option value="leader">Leader</option>
                     <option value="manager">Manager</option>
                     <option value="member">Member</option>
                   </>
-                ) : null}
+                )}
               </select>
             </div>
             <div>
