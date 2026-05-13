@@ -84,6 +84,7 @@ function useSyncBootstrap(): boolean {
       useWorkspaceOptionsStore.getState().clear();
       clearMembers();
       clearTeams();
+      useNotificationStore.getState().setNotifications([]);
       return;
     }
     let cancelled = false;

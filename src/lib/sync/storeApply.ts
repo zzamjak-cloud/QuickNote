@@ -16,24 +16,7 @@ import type { ColumnDef, DatabaseBundle } from "../../types/database";
 import type { JSONContent } from "@tiptap/react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
-import { useNotificationStore } from "../../store/notificationStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
-
-// 원격 댓글 변경 수신 후 서버에서 알림을 다시 조회한다(debounce 800ms).
-let _notificationFetchTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleFetchNotifications(): void {
-  if (_notificationFetchTimer) clearTimeout(_notificationFetchTimer);
-  _notificationFetchTimer = setTimeout(() => {
-    _notificationFetchTimer = null;
-    void (async () => {
-      try {
-        const { fetchMyNotificationsApi } = await import("./notificationApi");
-        const items = await fetchMyNotificationsApi();
-        useNotificationStore.getState().setNotifications(items);
-      } catch { /* 알림 리프레시 실패는 무시 */ }
-    })();
-  }, 800);
-}
 
 /**
  * 구독 레이스·백엔드 오류로 다른 워크스페이스 스냅샷이 내려올 때 로컬 캐시가 오염되지 않게 한다.
@@ -247,8 +230,6 @@ export function applyRemoteCommentToStore(
   };
 
   useBlockCommentStore.getState().applyRemoteMessage(msg);
-
-  scheduleFetchNotifications();
 }
 
 export function applyRemoteDatabaseToStore(
