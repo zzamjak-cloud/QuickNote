@@ -415,7 +415,6 @@ export function response(ctx) {
     v5Ds.createResolver("TransferOwnershipMutation", { typeName: "Mutation", fieldName: "transferOwnership" });
     v5Ds.createResolver("RemoveMemberMutation", { typeName: "Mutation", fieldName: "removeMember" });
     v5Ds.createResolver("RestoreMemberMutation", { typeName: "Mutation", fieldName: "restoreMember" });
-    v5Ds.createResolver("PermanentDeleteMemberMutation", { typeName: "Mutation", fieldName: "permanentDeleteMember" });
     v5Ds.createResolver("AssignMemberToTeamMutation", { typeName: "Mutation", fieldName: "assignMemberToTeam" });
     v5Ds.createResolver("UnassignMemberFromTeamMutation", { typeName: "Mutation", fieldName: "unassignMemberFromTeam" });
     v5Ds.createResolver("ListTeamsQuery", { typeName: "Query", fieldName: "listTeams" });
@@ -423,10 +422,14 @@ export function response(ctx) {
     v5Ds.createResolver("CreateTeamMutation", { typeName: "Mutation", fieldName: "createTeam" });
     v5Ds.createResolver("UpdateTeamMutation", { typeName: "Mutation", fieldName: "updateTeam" });
     v5Ds.createResolver("DeleteTeamMutation", { typeName: "Mutation", fieldName: "deleteTeam" });
+    v5Ds.createResolver("ArchiveTeamMutation", { typeName: "Mutation", fieldName: "archiveTeam" });
+    v5Ds.createResolver("RestoreTeamMutation", { typeName: "Mutation", fieldName: "restoreTeam" });
     v5Ds.createResolver("CreateWorkspaceMutation", { typeName: "Mutation", fieldName: "createWorkspace" });
     v5Ds.createResolver("UpdateWorkspaceMutation", { typeName: "Mutation", fieldName: "updateWorkspace" });
     v5Ds.createResolver("SetWorkspaceAccessMutation", { typeName: "Mutation", fieldName: "setWorkspaceAccess" });
     v5Ds.createResolver("DeleteWorkspaceMutation", { typeName: "Mutation", fieldName: "deleteWorkspace" });
+    v5Ds.createResolver("ArchiveWorkspaceMutation", { typeName: "Mutation", fieldName: "archiveWorkspace" });
+    v5Ds.createResolver("RestoreWorkspaceMutation", { typeName: "Mutation", fieldName: "restoreWorkspace" });
     v5Ds.createResolver("ListMyWorkspacesQuery", { typeName: "Query", fieldName: "listMyWorkspaces" });
     v5Ds.createResolver("GetWorkspaceQuery", { typeName: "Query", fieldName: "getWorkspace" });
     v5Ds.createResolver("SearchMembersForMentionQuery", { typeName: "Query", fieldName: "searchMembersForMention" });

@@ -1,29 +1,34 @@
 import { useMemo, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
-import { createTeamApi, deleteTeamApi, updateTeamApi } from "../../lib/sync/teamApi";
+import { archiveTeamApi, createTeamApi, restoreTeamApi, updateTeamApi } from "../../lib/sync/teamApi";
 import { useTeamStore } from "../../store/teamStore";
 import { useMemberStore } from "../../store/memberStore";
 import { assignMemberToTeamApi, unassignMemberFromTeamApi } from "../../lib/sync/memberApi";
-import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+
+type TabType = "active" | "archived";
 
 export function AdminTeamsTab() {
   const teams = useTeamStore((s) => s.teams);
   const members = useMemberStore((s) => s.members);
   const upsertTeam = useTeamStore((s) => s.upsertTeam);
-  const removeTeam = useTeamStore((s) => s.removeTeam);
+  const [activeTab, setActiveTab] = useState<TabType>("active");
   const [openCreate, setOpenCreate] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
-  const [confirmDeleteTeamId, setConfirmDeleteTeamId] = useState<string | null>(null);
   const [openAssignTeamId, setOpenAssignTeamId] = useState<string | null>(null);
   const [editingTeamName, setEditingTeamName] = useState("");
   const [search, setSearch] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // 활성/보관 팀 분류
+  const activeTeams = useMemo(() => teams.filter((t) => !t.removedAt), [teams]);
+  const archivedTeams = useMemo(() => teams.filter((t) => !!t.removedAt), [teams]);
+
   const assignTeam = useMemo(
     () => teams.find((t) => t.teamId === openAssignTeamId) ?? null,
     [teams, openAssignTeamId],
   );
+
   const filteredMembers = useMemo(() => {
     const q = search.trim().toLowerCase();
     const selected = new Set(selectedMemberIds);
@@ -51,16 +56,19 @@ export function AdminTeamsTab() {
     setOpenCreate(false);
   };
 
-  const onDeleteTeam = async () => {
-    if (!confirmDeleteTeamId) return;
-    const ok = await deleteTeamApi(confirmDeleteTeamId);
-    if (ok) {
-      removeTeam(confirmDeleteTeamId);
-      if (openAssignTeamId === confirmDeleteTeamId) {
-        setOpenAssignTeamId(null);
-      }
+  // 보관함으로 이동 (assign 모달 내에서 호출)
+  const onArchiveTeam = async (teamId: string) => {
+    const archived = await archiveTeamApi(teamId);
+    if (archived) {
+      upsertTeam(archived);
+      if (openAssignTeamId === teamId) setOpenAssignTeamId(null);
     }
-    setConfirmDeleteTeamId(null);
+  };
+
+  // 보관 팀 복원 (클릭 즉시)
+  const onRestoreTeam = async (teamId: string) => {
+    const restored = await restoreTeamApi(teamId);
+    if (restored) upsertTeam(restored);
   };
 
   const onOpenAssignModal = (teamId: string) => {
@@ -107,55 +115,106 @@ export function AdminTeamsTab() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">팀 관리</h3>
+        {activeTab === "active" && (
+          <button
+            type="button"
+            onClick={() => setOpenCreate(true)}
+            className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            <Plus size={12} />
+            팀 추가
+          </button>
+        )}
+      </div>
+
+      {/* 팀 / 보관함 탭 */}
+      <div className="flex border-b border-zinc-200 dark:border-zinc-700">
         <button
           type="button"
-          onClick={() => setOpenCreate(true)}
-          className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          onClick={() => setActiveTab("active")}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === "active"
+              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
+              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          }`}
         >
-          <Plus size={12} />
-          팀 추가
+          팀
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("archived")}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            activeTab === "archived"
+              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
+              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          }`}
+        >
+          보관함
         </button>
       </div>
 
-      <div className="rounded-md border border-zinc-200 dark:border-zinc-700">
-        <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
-          팀 목록
-        </div>
-        <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
-          {teams.length === 0 ? (
-            <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
-              등록된 팀이 없습니다.
-            </li>
-          ) : (
-            teams.map((team) => (
-              <li key={team.teamId}>
-                <button
-                  type="button"
-                  aria-label={`${team.name} 구성원 관리`}
-                  onClick={() => onOpenAssignModal(team.teamId)}
-                  className="flex w-full items-center justify-between rounded border border-blue-200 bg-blue-50 px-3 py-2 text-left text-blue-950 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/35 dark:text-blue-100 dark:hover:bg-blue-950/55"
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {team.name} ({team.members.length}명)
-                  </span>
-                </button>
+      {activeTab === "active" ? (
+        /* 활성 팀 목록 */
+        <div className="rounded-md border border-zinc-200 dark:border-zinc-700">
+          <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
+            팀 목록
+          </div>
+          <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+            {activeTeams.length === 0 ? (
+              <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
+                등록된 팀이 없습니다.
               </li>
-            ))
-          )}
-        </ul>
-      </div>
+            ) : (
+              activeTeams.map((team) => (
+                <li key={team.teamId}>
+                  <button
+                    type="button"
+                    aria-label={`${team.name} 구성원 관리`}
+                    onClick={() => onOpenAssignModal(team.teamId)}
+                    className="flex w-full items-center justify-between rounded border border-blue-200 bg-blue-50 px-3 py-2 text-left text-blue-950 hover:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/35 dark:text-blue-100 dark:hover:bg-blue-950/55"
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {team.name} ({team.members.length}명)
+                    </span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      ) : (
+        /* 보관된 팀 목록 */
+        <div className="rounded-md border border-zinc-200 dark:border-zinc-700">
+          <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
+            보관된 팀
+          </div>
+          <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+            {archivedTeams.length === 0 ? (
+              <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
+                보관된 팀 없음
+              </li>
+            ) : (
+              archivedTeams.map((team) => (
+                <li key={team.teamId}>
+                  <button
+                    type="button"
+                    aria-label={`${team.name} 복원`}
+                    onClick={() => void onRestoreTeam(team.teamId)}
+                    className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">
+                      {team.name}
+                    </span>
+                    <span className="ml-2 shrink-0 text-[10px] text-blue-500">복원</span>
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
 
-      <SimpleConfirmDialog
-        open={confirmDeleteTeamId !== null}
-        title="팀 삭제"
-        message="이 팀을 삭제하시겠습니까?"
-        confirmLabel="삭제"
-        cancelLabel="취소"
-        danger
-        onCancel={() => setConfirmDeleteTeamId(null)}
-        onConfirm={() => void onDeleteTeam()}
-      />
-
+      {/* 팀 추가 모달 */}
       {openCreate && (
         <div
           className="fixed inset-0 z-[530] flex items-center justify-center bg-black/45 p-4"
@@ -202,6 +261,7 @@ export function AdminTeamsTab() {
         </div>
       )}
 
+      {/* 팀 구성원 관리 모달 */}
       {openAssignTeamId && assignTeam ? (
         <div
           className="fixed inset-0 z-[530] flex items-center justify-center bg-black/45 p-4"
@@ -293,29 +353,29 @@ export function AdminTeamsTab() {
             <div className="mt-4 flex justify-between gap-2">
               <button
                 type="button"
-                onClick={() => setConfirmDeleteTeamId(assignTeam.teamId)}
-                className="rounded border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-950/40"
+                onClick={() => void onArchiveTeam(assignTeam.teamId)}
+                className="rounded border border-amber-200 px-3 py-1 text-xs text-amber-700 hover:bg-amber-50 dark:border-amber-900/50 dark:text-amber-400 dark:hover:bg-amber-950/40"
                 disabled={saving}
               >
-                팀 삭제
+                보관함으로 이동
               </button>
               <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setOpenAssignTeamId(null)}
-                className="rounded border px-3 py-1 text-xs"
-                disabled={saving}
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                onClick={() => void onSaveMembers()}
-                disabled={saving}
-                className="rounded bg-zinc-900 px-3 py-1 text-xs text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
-              >
-                {saving ? "저장 중..." : "저장"}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setOpenAssignTeamId(null)}
+                  className="rounded border px-3 py-1 text-xs"
+                  disabled={saving}
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onSaveMembers()}
+                  disabled={saving}
+                  className="rounded bg-zinc-900 px-3 py-1 text-xs text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  {saving ? "저장 중..." : "저장"}
+                </button>
               </div>
             </div>
           </div>

@@ -228,7 +228,7 @@ export function NotificationBell() {
         <div
           ref={panelRef}
           data-qn-notification-panel
-          className="fixed z-[300] w-80 max-w-[calc(100vw-16px)] rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          className="fixed z-[400] w-80 max-w-[calc(100vw-16px)] rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
           style={{ top: panelPos.top, left: panelPos.left, width: PANEL_W }}
           role="menu"
         >

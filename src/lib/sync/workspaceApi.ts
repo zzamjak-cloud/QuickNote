@@ -1,9 +1,11 @@
 import { appsyncClient } from "./graphql/client";
 import {
+  ARCHIVE_WORKSPACE,
   CREATE_WORKSPACE,
   DELETE_WORKSPACE,
   GET_WORKSPACE,
   LIST_MY_WORKSPACES,
+  RESTORE_WORKSPACE,
   SET_WORKSPACE_ACCESS,
   UPDATE_WORKSPACE,
 } from "./queries/workspace";
@@ -118,4 +120,22 @@ export async function deleteWorkspaceApi(workspaceId: string): Promise<boolean> 
     variables: { workspaceId },
   })) as { data?: { deleteWorkspace?: boolean } };
   return Boolean(result.data?.deleteWorkspace);
+}
+
+export async function archiveWorkspaceApi(workspaceId: string): Promise<WorkspaceSummary | null> {
+  const result = (await appsyncClient().graphql({
+    query: ARCHIVE_WORKSPACE,
+    variables: { workspaceId },
+  })) as { data?: { archiveWorkspace?: WorkspaceResponse } };
+  const ws = result.data?.archiveWorkspace;
+  return ws ? normalizeWorkspace(ws) : null;
+}
+
+export async function restoreWorkspaceApi(workspaceId: string): Promise<WorkspaceSummary | null> {
+  const result = (await appsyncClient().graphql({
+    query: RESTORE_WORKSPACE,
+    variables: { workspaceId },
+  })) as { data?: { restoreWorkspace?: WorkspaceResponse } };
+  const ws = result.data?.restoreWorkspace;
+  return ws ? normalizeWorkspace(ws) : null;
 }

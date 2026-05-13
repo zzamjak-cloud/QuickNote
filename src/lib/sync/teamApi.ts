@@ -1,5 +1,5 @@
 import { appsyncClient } from "./graphql/client";
-import { CREATE_TEAM, DELETE_TEAM, LIST_TEAMS, UPDATE_TEAM } from "./queries/team";
+import { ARCHIVE_TEAM, CREATE_TEAM, DELETE_TEAM, LIST_TEAMS, RESTORE_TEAM, UPDATE_TEAM } from "./queries/team";
 import type { Team } from "../../store/teamStore";
 import type { Member } from "../../store/memberStore";
 
@@ -62,4 +62,22 @@ export async function updateTeamApi(teamId: string, name: string): Promise<Team>
   const team = result.data?.updateTeam;
   if (!team) throw new Error("updateTeam 응답이 비어 있습니다.");
   return normalizeTeam(team);
+}
+
+export async function archiveTeamApi(teamId: string): Promise<Team | null> {
+  const result = (await appsyncClient().graphql({
+    query: ARCHIVE_TEAM,
+    variables: { teamId },
+  })) as { data?: { archiveTeam?: GqlTeam } };
+  const team = result.data?.archiveTeam;
+  return team ? normalizeTeam(team) : null;
+}
+
+export async function restoreTeamApi(teamId: string): Promise<Team | null> {
+  const result = (await appsyncClient().graphql({
+    query: RESTORE_TEAM,
+    variables: { teamId },
+  })) as { data?: { restoreTeam?: GqlTeam } };
+  const team = result.data?.restoreTeam;
+  return team ? normalizeTeam(team) : null;
 }

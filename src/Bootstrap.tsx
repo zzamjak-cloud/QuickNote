@@ -115,7 +115,7 @@ function useSyncBootstrap(): boolean {
         // memberId 확정 직후 즐겨찾기를 서버로 올리고 flush(워크스페이스 부트와 무관)
         await flushClientPrefsToServerNow();
 
-        const isAdmin = me.workspaceRole === "owner" || me.workspaceRole === "manager";
+        const isAdmin = me.workspaceRole === "developer" || me.workspaceRole === "owner" || me.workspaceRole === "leader" || me.workspaceRole === "manager";
         if (!isAdmin) {
           setMembers([]);
           setTeams([]);

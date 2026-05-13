@@ -21,7 +21,7 @@ export function SettingsModal({ open, onClose }: Props) {
   const role = useMemberStore((s) => s.me?.workspaceRole ?? "member");
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
-  const isAdmin = role === "owner" || role === "manager";
+  const isAdmin = role === "developer" || role === "owner" || role === "leader" || role === "manager";
   const [tab, setTab] = useState<TabId>("profile");
 
   const tabs = useMemo(() => {

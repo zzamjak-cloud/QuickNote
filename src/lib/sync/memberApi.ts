@@ -11,7 +11,6 @@ import {
   UNASSIGN_MEMBER_FROM_TEAM,
   UPDATE_MEMBER,
   RESTORE_MEMBER,
-  PERMANENT_DELETE_MEMBER,
 } from "./queries/member";
 import type { Member, MemberMini } from "../../store/memberStore";
 
@@ -193,12 +192,3 @@ export async function restoreMemberApi(memberId: string): Promise<Member> {
   return normalizeMemberFields(member);
 }
 
-export async function permanentDeleteMemberApi(memberId: string): Promise<Member> {
-  const result = (await appsyncClient().graphql({
-    query: PERMANENT_DELETE_MEMBER,
-    variables: { memberId },
-  })) as { data?: { permanentDeleteMember?: GqlMember } };
-  const member = result.data?.permanentDeleteMember;
-  if (!member) throw new Error("permanentDeleteMember 응답이 비어 있습니다.");
-  return normalizeMemberFields(member);
-}

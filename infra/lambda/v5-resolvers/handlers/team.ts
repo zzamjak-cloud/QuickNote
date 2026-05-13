@@ -16,6 +16,7 @@ export type Team = {
   teamId: string;
   name: string;
   createdAt: string;
+  removedAt?: string;
   members: Member[];
 };
 
@@ -183,4 +184,52 @@ export async function deleteTeam(args: {
     }),
   );
   return true;
+}
+
+export async function archiveTeam(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  teamId: string;
+}): Promise<Team> {
+  requireRoleAtLeast(args.caller, "manager");
+  const existing = await getTeamById(args.doc, args.tables, args.teamId);
+  if (!existing) notFound("Team 없음");
+  const now = new Date().toISOString();
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Teams,
+      Key: { teamId: args.teamId },
+      UpdateExpression: "SET removedAt = :t",
+      ExpressionAttributeValues: { ":t": now },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return {
+    ...(r.Attributes as { teamId: string; name: string; createdAt: string; removedAt: string }),
+    members: await resolveTeamMembers(args.doc, args.tables, args.teamId),
+  };
+}
+
+export async function restoreTeam(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  teamId: string;
+}): Promise<Team> {
+  requireRoleAtLeast(args.caller, "manager");
+  const existing = await getTeamById(args.doc, args.tables, args.teamId);
+  if (!existing) notFound("Team 없음");
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Teams,
+      Key: { teamId: args.teamId },
+      UpdateExpression: "REMOVE removedAt",
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return {
+    ...(r.Attributes as { teamId: string; name: string; createdAt: string }),
+    members: await resolveTeamMembers(args.doc, args.tables, args.teamId),
+  };
 }

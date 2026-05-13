@@ -47,6 +47,7 @@ type Team {
   name: String!
   members: [Member!]!
   createdAt: AWSDateTime!
+  removedAt: AWSDateTime
 }
 
 type WorkspaceOptions {
@@ -62,6 +63,7 @@ type Workspace {
   access: [WorkspaceAccessEntry!]!
   myEffectiveLevel: AccessLevel!
   createdAt: AWSDateTime!
+  removedAt: AWSDateTime
   options: WorkspaceOptions!
 }
 
@@ -269,7 +271,6 @@ type Mutation {
   transferOwnership(toMemberId: ID!): Member!
   removeMember(memberId: ID!): Member!
   restoreMember(memberId: ID!): Member!
-  permanentDeleteMember(memberId: ID!): Member!
   assignMemberToTeam(memberId: ID!, teamId: ID!): Boolean!
   unassignMemberFromTeam(memberId: ID!, teamId: ID!): Boolean!
   """로그인한 멤버 본인의 clientPrefs 저장(LWW 타임스탬프 포함 JSON). MEMBER 역할 허용."""
@@ -278,11 +279,15 @@ type Mutation {
   createTeam(name: String!): Team!
   updateTeam(teamId: ID!, name: String!): Team!
   deleteTeam(teamId: ID!): Boolean!
+  archiveTeam(teamId: ID!): Team!
+  restoreTeam(teamId: ID!): Team!
 
   createWorkspace(input: CreateWorkspaceInput!): Workspace!
   updateWorkspace(input: UpdateWorkspaceInput!): Workspace!
   setWorkspaceAccess(workspaceId: ID!, entries: [WorkspaceAccessInput!]!): Workspace!
   deleteWorkspace(workspaceId: ID!): Boolean!
+  archiveWorkspace(workspaceId: ID!): Workspace!
+  restoreWorkspace(workspaceId: ID!): Workspace!
 
   upsertComment(input: CommentInput!): Comment!
   softDeleteComment(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Comment!

@@ -6,6 +6,7 @@ export type Team = {
   name: string;
   members: Member[];
   createdAt?: string;
+  removedAt?: string;
 };
 
 type TeamStoreState = {

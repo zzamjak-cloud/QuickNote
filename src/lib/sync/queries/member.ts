@@ -102,8 +102,3 @@ export const RESTORE_MEMBER = `
   }
 `;
 
-export const PERMANENT_DELETE_MEMBER = `
-  mutation PermanentDeleteMember($memberId: ID!) {
-    permanentDeleteMember(memberId: $memberId) { ${MEMBER_FIELDS} }
-  }
-`;

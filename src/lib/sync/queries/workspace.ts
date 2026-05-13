@@ -11,6 +11,7 @@ const WORKSPACE_FIELDS = `
   ownerMemberId
   myEffectiveLevel
   createdAt
+  removedAt
   access { ${ACCESS_ENTRY_FIELDS} }
   options { jobFunctions jobTitles }
 `;
@@ -48,5 +49,17 @@ export const SET_WORKSPACE_ACCESS = `
 export const DELETE_WORKSPACE = `
   mutation DeleteWorkspace($workspaceId: ID!) {
     deleteWorkspace(workspaceId: $workspaceId)
+  }
+`;
+
+export const ARCHIVE_WORKSPACE = `
+  mutation ArchiveWorkspace($workspaceId: ID!) {
+    archiveWorkspace(workspaceId: $workspaceId) { ${WORKSPACE_FIELDS} }
+  }
+`;
+
+export const RESTORE_WORKSPACE = `
+  mutation RestoreWorkspace($workspaceId: ID!) {
+    restoreWorkspace(workspaceId: $workspaceId) { ${WORKSPACE_FIELDS} }
   }
 `;

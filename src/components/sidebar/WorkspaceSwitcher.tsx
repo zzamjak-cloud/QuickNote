@@ -7,9 +7,15 @@ export function WorkspaceSwitcher() {
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
 
+  // 보관된 워크스페이스는 선택 목록에서 제외
+  const activeWorkspaces = useMemo(
+    () => workspaces.filter((w) => !w.removedAt),
+    [workspaces],
+  );
+
   const selected = useMemo(
-    () => workspaces.find((w) => w.workspaceId === currentWorkspaceId) ?? null,
-    [workspaces, currentWorkspaceId],
+    () => activeWorkspaces.find((w) => w.workspaceId === currentWorkspaceId) ?? null,
+    [activeWorkspaces, currentWorkspaceId],
   );
 
   return (
@@ -20,10 +26,10 @@ export function WorkspaceSwitcher() {
         onChange={(e) => setCurrentWorkspaceId(e.target.value || null)}
         className="w-full appearance-none rounded-md border border-zinc-200 bg-white py-1 pl-2 pr-7 text-xs text-zinc-800 outline-none hover:bg-zinc-50 focus:border-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:focus:border-zinc-600"
       >
-        {workspaces.length === 0 ? (
+        {activeWorkspaces.length === 0 ? (
           <option value="">워크스페이스 없음</option>
         ) : (
-          workspaces.map((ws) => (
+          activeWorkspaces.map((ws) => (
             <option key={ws.workspaceId} value={ws.workspaceId}>
               {ws.name}
               {ws.myEffectiveLevel === "view" ? " (view)" : ""}

@@ -33,6 +33,7 @@ type WorkspaceRow = {
   type: "personal" | "shared";
   ownerMemberId: string;
   createdAt: string;
+  removedAt?: string;
   jobFunctions?: string[];
   jobTitles?: string[];
 };
@@ -106,19 +107,25 @@ async function getCallerTeamIds(
   return (r.Items ?? []).map((i) => i.teamId as string);
 }
 
+const LEVEL_RANK: Record<AccessLevel, number> = { edit: 2, view: 1 };
+
 export function computeEffectiveLevel(
   entries: WorkspaceAccessEntry[],
   caller: Member,
   callerTeamIds: Set<string>,
 ): AccessLevel | null {
+  // 모든 매칭 엔트리 중 최고 레벨 반환 (everyone보다 member/team 전용 edit이 우선)
+  let best: AccessLevel | null = null;
   for (const e of entries) {
     const matched =
       (e.subjectType === "member" && e.subjectId === caller.memberId) ||
       (e.subjectType === "team" && e.subjectId && callerTeamIds.has(e.subjectId)) ||
       e.subjectType === "everyone";
-    if (matched) return e.level;
+    if (matched && (best === null || LEVEL_RANK[e.level] > LEVEL_RANK[best])) {
+      best = e.level;
+    }
   }
-  return null;
+  return best;
 }
 
 async function hydrateWorkspace(
@@ -129,8 +136,8 @@ async function hydrateWorkspace(
   callerTeamIds: Set<string>,
 ): Promise<Workspace | null> {
   const access = await getWorkspaceAccess(doc, tables, row.workspaceId);
-  // owner는 WorkspaceAccess 엔트리 없이도 암묵적으로 edit 권한
-  const level = caller.workspaceRole === "owner"
+  // developer/owner/leader는 WorkspaceAccess 엔트리 없이도 암묵적으로 edit 권한
+  const level = (caller.workspaceRole === "developer" || caller.workspaceRole === "owner" || caller.workspaceRole === "leader")
     ? "edit"
     : computeEffectiveLevel(access, caller, callerTeamIds);
   if (!level) return null;
@@ -481,4 +488,63 @@ export async function listWorkspacesForDebug(args: {
 }): Promise<WorkspaceRow[]> {
   const r = await args.doc.send(new ScanCommand({ TableName: args.tables.Workspaces }));
   return (r.Items ?? []) as WorkspaceRow[];
+}
+
+export async function archiveWorkspace(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  workspaceId: string;
+}): Promise<Workspace> {
+  requireRoleAtLeast(args.caller, "leader");
+  const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
+  if (!row) notFound("워크스페이스 없음");
+  const now = new Date().toISOString();
+  await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Workspaces,
+      Key: { workspaceId: args.workspaceId },
+      UpdateExpression: "SET removedAt = :t",
+      ExpressionAttributeValues: { ":t": now },
+    }),
+  );
+  const access = await getWorkspaceAccess(args.doc, args.tables, args.workspaceId);
+  return {
+    ...row,
+    removedAt: now,
+    access,
+    myEffectiveLevel: "edit",
+    options: {
+      jobFunctions: row.jobFunctions ?? [],
+      jobTitles: row.jobTitles ?? [],
+    },
+  };
+}
+
+export async function restoreWorkspace(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  workspaceId: string;
+}): Promise<Workspace> {
+  requireRoleAtLeast(args.caller, "leader");
+  const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
+  if (!row) notFound("워크스페이스 없음");
+  await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Workspaces,
+      Key: { workspaceId: args.workspaceId },
+      UpdateExpression: "REMOVE removedAt",
+    }),
+  );
+  const access = await getWorkspaceAccess(args.doc, args.tables, args.workspaceId);
+  return {
+    ...row,
+    access,
+    myEffectiveLevel: "edit",
+    options: {
+      jobFunctions: row.jobFunctions ?? [],
+      jobTitles: row.jobTitles ?? [],
+    },
+  };
 }

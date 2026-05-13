@@ -14,7 +14,6 @@ import {
   transferOwnership,
   removeMember,
   restoreMember,
-  permanentDeleteMember,
   assignMemberToTeam,
   unassignMemberFromTeam,
 } from "./handlers/member";
@@ -24,6 +23,8 @@ import {
   getTeam,
   listTeams,
   updateTeam,
+  archiveTeam,
+  restoreTeam,
 } from "./handlers/team";
 import {
   createWorkspace,
@@ -32,6 +33,8 @@ import {
   listMyWorkspaces,
   setWorkspaceAccess,
   updateWorkspace,
+  archiveWorkspace,
+  restoreWorkspace,
 } from "./handlers/workspace";
 import { searchMembersForMention } from "./handlers/mention";
 import {
@@ -184,11 +187,6 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           ...base,
           memberId: event.arguments.memberId as string,
         })) as Record<string, unknown>);
-      case "permanentDeleteMember":
-        return normalizeMemberForGql((await permanentDeleteMember({
-          ...base,
-          memberId: event.arguments.memberId as string,
-        })) as Record<string, unknown>);
       case "assignMemberToTeam":
         await assignMemberToTeam({ ...base, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
         return true;
@@ -212,6 +210,10 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         })) as Record<string, unknown>);
       case "deleteTeam":
         return await deleteTeam({ ...base, teamId: event.arguments.teamId as string });
+      case "archiveTeam":
+        return normalizeTeamForGql(await archiveTeam({ ...base, teamId: event.arguments.teamId as string }) as Record<string, unknown>);
+      case "restoreTeam":
+        return normalizeTeamForGql(await restoreTeam({ ...base, teamId: event.arguments.teamId as string }) as Record<string, unknown>);
       case "createWorkspace":
         return normalizeWorkspaceForGql((await createWorkspace({
           ...base,
@@ -230,6 +232,10 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         })) as Record<string, unknown>);
       case "deleteWorkspace":
         return await deleteWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string });
+      case "archiveWorkspace":
+        return normalizeWorkspaceForGql(await archiveWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string }) as Record<string, unknown>);
+      case "restoreWorkspace":
+        return normalizeWorkspaceForGql(await restoreWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string }) as Record<string, unknown>);
       case "listMyWorkspaces":
         return (await listMyWorkspaces(base)).map((w) => normalizeWorkspaceForGql(w as unknown as Record<string, unknown>));
       case "getWorkspace":

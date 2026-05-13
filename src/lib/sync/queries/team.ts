@@ -2,6 +2,7 @@ const TEAM_FIELDS = `
   teamId
   name
   createdAt
+  removedAt
   members {
     memberId
     email
@@ -43,5 +44,17 @@ export const DELETE_TEAM = `
 export const UPDATE_TEAM = `
   mutation UpdateTeam($teamId: ID!, $name: String!) {
     updateTeam(teamId: $teamId, name: $name) { ${TEAM_FIELDS} }
+  }
+`;
+
+export const ARCHIVE_TEAM = `
+  mutation ArchiveTeam($teamId: ID!) {
+    archiveTeam(teamId: $teamId) { ${TEAM_FIELDS} }
+  }
+`;
+
+export const RESTORE_TEAM = `
+  mutation RestoreTeam($teamId: ID!) {
+    restoreTeam(teamId: $teamId) { ${TEAM_FIELDS} }
   }
 `;

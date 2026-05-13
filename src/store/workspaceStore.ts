@@ -12,6 +12,7 @@ export type WorkspaceSummary = {
   ownerMemberId: string;
   myEffectiveLevel: WorkspaceAccessLevel;
   createdAt?: string;
+  removedAt?: string;
 };
 
 type WorkspaceStoreState = {

@@ -119,14 +119,18 @@ export function computeEffectiveLevel(
   memberTeamIds: string[],
 ): AccessLevel | null {
   const teamSet = new Set(memberTeamIds);
+  // 모든 매칭 엔트리 중 최고 레벨 반환 (everyone보다 member/team 전용 edit이 우선)
+  let best: AccessLevel | null = null;
   for (const e of entries) {
     const matched =
       (e.subjectType === "member" && e.subjectId === memberId) ||
       (e.subjectType === "team" && e.subjectId !== null && teamSet.has(e.subjectId)) ||
       e.subjectType === "everyone";
-    if (matched) return e.level;
+    if (matched && (best === null || LEVEL_RANK[e.level] > LEVEL_RANK[best])) {
+      best = e.level;
+    }
   }
-  return null;
+  return best;
 }
 
 export async function requireWorkspaceAccess(args: {

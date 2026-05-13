@@ -229,10 +229,6 @@ export function AdminMembersTab() {
             upsertMember(member);
             setArchivedMember(null);
           }}
-          onPermanentDeleted={(memberId) => {
-            removeMemberFromCache(memberId);
-            setArchivedMember(null);
-          }}
         />
       )}
     </div>

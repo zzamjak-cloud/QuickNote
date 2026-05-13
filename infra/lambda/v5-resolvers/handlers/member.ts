@@ -1,6 +1,5 @@
 import {
   DynamoDBDocumentClient,
-  DeleteCommand,
   GetCommand,
   QueryCommand,
   ScanCommand,
@@ -774,26 +773,3 @@ export async function restoreMember(args: {
   return { ...target, status: "active", removedAt: undefined };
 }
 
-// ─── permanentDeleteMember ─────────────────────────────────────────────────────
-export async function permanentDeleteMember(args: {
-  doc: DynamoDBDocumentClient;
-  tables: Tables;
-  caller: Member;
-  memberId: string;
-}): Promise<Member> {
-  requireRoleAtLeast(args.caller, "leader");
-
-  const target = await getMemberById(args.doc, args.tables, args.memberId);
-  if (!target) notFound("Member 없음");
-  if (target.workspaceRole === "developer") forbidden("Developer 는 영구 삭제 불가");
-  if (target.status === "active") badRequest("보관함으로 이동 후 영구 삭제 가능");
-
-  await args.doc.send(
-    new DeleteCommand({
-      TableName: args.tables.Members,
-      Key: { memberId: args.memberId },
-    }),
-  );
-
-  return target;
-}
