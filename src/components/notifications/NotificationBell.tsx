@@ -14,6 +14,10 @@ import {
 } from "../../lib/editor/editorNavigationBridge";
 import { computeDropdownBelowAnchor } from "../../lib/ui/clampFloatingPanel";
 import { waitForPageDeepLink } from "../../lib/navigation/waitForPageDeepLink";
+import {
+  markNotificationReadApi,
+  deleteMyNotificationApi,
+} from "../../lib/sync/notificationApi";
 
 const PANEL_W = 320;
 /** 헤더+목록 근사 높이 — 위치 클램프용 */
@@ -163,6 +167,7 @@ export function NotificationBell() {
       const n = useNotificationStore.getState().items.find((x) => x.id === id);
       if (!n) return;
       markRead(n.id);
+      markNotificationReadApi(n.id).catch(() => {});
       closeNotificationCenter();
 
       const switchWorkspace =
@@ -306,6 +311,7 @@ export function NotificationBell() {
                       e.preventDefault();
                       e.stopPropagation();
                       removeNotification(n.id);
+                      deleteMyNotificationApi(n.id).catch(() => {});
                     }}
                     onClick={(e) => e.preventDefault()}
                   >

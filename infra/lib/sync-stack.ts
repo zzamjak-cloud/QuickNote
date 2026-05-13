@@ -76,12 +76,32 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    this.commentTable.table.addGlobalSecondaryIndex({
+      indexName: "byBlockId",
+      partitionKey: { name: "blockId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.INCLUDE,
+      nonKeyAttributes: ["authorMemberId", "workspaceId"],
+    });
+
     new cdk.CfnOutput(this, "PageTableName", { value: this.pageTable.table.tableName });
     new cdk.CfnOutput(this, "DatabaseTableName", { value: this.databaseTable.table.tableName });
     new cdk.CfnOutput(this, "CommentTableName", { value: this.commentTable.table.tableName });
     new cdk.CfnOutput(this, "ImageAssetTableName", {
       value: this.imageAssetTable.table.tableName,
     });
+
+    const notificationTable = new dynamodb.Table(this, "NotificationTable", {
+      tableName: "quicknote-notification",
+      partitionKey: { name: "recipientMemberId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "notificationId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+      timeToLiveAttribute: "expiresAt",
+    });
+    new cdk.CfnOutput(this, "NotificationTableName", { value: notificationTable.tableName });
 
     // v5 신규 테이블 5종 — workspace 기반 멀티 유저 협업 인프라
     const membersTable = new dynamodb.Table(this, "MembersTable", {
@@ -369,6 +389,7 @@ export function response(ctx) {
         PAGES_TABLE_NAME: this.pageTable.table.tableName,
         DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
         COMMENTS_TABLE_NAME: this.commentTable.table.tableName,
+        NOTIFICATIONS_TABLE_NAME: notificationTable.tableName,
       },
       bundling: {
         minify: true,
@@ -387,6 +408,7 @@ export function response(ctx) {
     this.pageTable.table.grantReadWriteData(v5ResolversFn);
     this.databaseTable.table.grantReadWriteData(v5ResolversFn);
     this.commentTable.table.grantReadWriteData(v5ResolversFn);
+    notificationTable.grantReadWriteData(v5ResolversFn);
 
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
@@ -474,6 +496,18 @@ export function response(ctx) {
     v5Ds.createResolver("MutationsoftDeleteComment", {
       typeName: "Mutation",
       fieldName: "softDeleteComment",
+    });
+    v5Ds.createResolver("QuerylistMyNotifications", {
+      typeName: "Query",
+      fieldName: "listMyNotifications",
+    });
+    v5Ds.createResolver("MutationmarkNotificationRead", {
+      typeName: "Mutation",
+      fieldName: "markNotificationRead",
+    });
+    v5Ds.createResolver("MutationdeleteMyNotification", {
+      typeName: "Mutation",
+      fieldName: "deleteMyNotification",
     });
     v5Ds.createResolver("SubscriptiononCommentChanged", {
       typeName: "Subscription",

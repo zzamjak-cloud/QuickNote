@@ -30,6 +30,7 @@ export type Tables = {
   Pages?: string;
   Databases?: string;
   Comments?: string;
+  Notifications?: string;
 };
 
 export type CreateMemberInput = {

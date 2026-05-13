@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { badRequest, requireWorkspaceAccess, type Member } from "./_auth";
 import type { Tables } from "./member";
+import { generateNotificationsForComment } from "./notification";
 
 type Connection<T> = { items: T[]; nextToken?: string | null };
 
@@ -92,6 +93,25 @@ export async function upsertComment(args: {
     updatedAt: (input.updatedAt as string | undefined) ?? now,
   };
   await args.doc.send(new PutCommand({ TableName: args.tables.Comments, Item: item }));
+
+  // 새 댓글에 한해 알림 생성 (updatedAt이 없거나 createdAt과 동일)
+  const isNewComment = !input.updatedAt || input.createdAt === input.updatedAt;
+  if (isNewComment) {
+    await generateNotificationsForComment({
+      doc: args.doc,
+      tables: args.tables,
+      comment: {
+        id: item.id as string,
+        workspaceId: item.workspaceId as string,
+        pageId: item.pageId as string,
+        blockId: item.blockId as string,
+        authorMemberId: item.authorMemberId as string,
+        bodyText: item.bodyText as string,
+        mentionMemberIds: item.mentionMemberIds as string,
+      },
+    });
+  }
+
   return item;
 }
 

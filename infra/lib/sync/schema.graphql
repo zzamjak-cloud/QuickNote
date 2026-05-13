@@ -120,6 +120,23 @@ type Comment {
 
 type CommentConnection { items: [Comment!]! nextToken: String }
 
+type Notification {
+  notificationId: ID!
+  workspaceId: ID!
+  recipientMemberId: ID!
+  kind: String!
+  source: String
+  fromMemberId: ID!
+  pageId: ID!
+  blockId: ID!
+  commentId: ID!
+  previewBody: String
+  workspaceName: String
+  pageTitle: String
+  read: Boolean!
+  createdAt: AWSDateTime!
+}
+
 type ImageAsset {
   id: ID!
   ownerId: ID!
@@ -260,6 +277,7 @@ type Query {
   listDatabases(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): DatabaseConnection!
 
   getImageDownloadUrl(imageId: ID!): String!
+  listMyNotifications: [Notification!]!
 }
 
 # ========== Mutation ==========
@@ -301,6 +319,9 @@ type Mutation {
 
   getImageUploadUrl(input: ImageUploadInput!): ImageUploadResult!
   confirmImage(imageId: ID!): ImageAsset!
+
+  markNotificationRead(notificationId: ID!): Notification!
+  deleteMyNotification(notificationId: ID!): Boolean!
 }
 
 # ========== Subscription ==========

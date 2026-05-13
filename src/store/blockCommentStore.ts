@@ -9,12 +9,6 @@ import { newId } from "../lib/id";
 import type { BlockCommentMsg } from "../types/blockComment";
 import { useWorkspaceStore } from "./workspaceStore";
 import { normalizeMentionMemberIds } from "../lib/comments/mentionMemberIds";
-import {
-  dispatchNewMentionNotificationsForComment,
-  dispatchNotificationsForBlockCommentMessage,
-} from "../lib/comments/blockCommentNotifications";
-import { priorParticipantIdsForNewMessage } from "../lib/comments/blockCommentSnapshot";
-import { usePageStore } from "./pageStore";
 import { enqueueAsync } from "../lib/sync/runtime";
 
 export type { BlockCommentMsg } from "../types/blockComment";
@@ -106,7 +100,6 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
       threadVisitedAt: {},
 
       addMessage: (input) => {
-        const page = usePageStore.getState().pages[input.pageId];
         const msg: BlockCommentMsg = {
           id: input.id ?? newId(),
           workspaceId: input.workspaceId ?? getCurrentWorkspaceId(),
@@ -120,25 +113,15 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
         };
         // 중복 방지
         if (get().messages.some((m) => m.id === msg.id)) return msg;
-        const prior = priorParticipantIdsForNewMessage(
-          get().messages.filter((m) => m.pageId === input.pageId && m.blockId === input.blockId),
-          input.pageId,
-          input.blockId,
-          msg,
-        );
         set((s) => ({ messages: [...s.messages, msg] }));
         enqueueUpsertComment(msg);
-        const pageOwner = page?.createdByMemberId;
-        dispatchNotificationsForBlockCommentMessage(msg, prior, pageOwner);
         return msg;
       },
 
       updateMessage: (id, patch) => {
         const existing = get().messages.find((m) => m.id === id);
         if (!existing) return false;
-        const prevMentions = new Set(normalizeMentionMemberIds(existing.mentionMemberIds));
         const nextMentions = normalizeMentionMemberIds(patch.mentionMemberIds);
-        const newlyMentioned = nextMentions.filter((mid) => !prevMentions.has(mid));
         const updated: BlockCommentMsg = {
           ...existing,
           bodyText: patch.bodyText,
@@ -148,9 +131,6 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
           messages: s.messages.map((m) => (m.id === id ? updated : m)),
         }));
         enqueueUpsertComment(updated);
-        if (newlyMentioned.length > 0) {
-          dispatchNewMentionNotificationsForComment(updated, newlyMentioned);
-        }
         return true;
       },
 

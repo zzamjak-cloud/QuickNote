@@ -53,6 +53,7 @@ import {
   upsertComment,
   softDeleteComment,
 } from "./handlers/commentDatabase";
+import { listMyNotifications, markNotificationRead, deleteMyNotification } from "./handlers/notification";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -67,6 +68,7 @@ const tables: Tables = {
   Pages: process.env.PAGES_TABLE_NAME,
   Databases: process.env.DATABASES_TABLE_NAME,
   Comments: process.env.COMMENTS_TABLE_NAME,
+  Notifications: process.env.NOTIFICATIONS_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -313,6 +315,12 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           workspaceId: event.arguments.workspaceId as string,
           updatedAt: event.arguments.updatedAt as string,
         });
+      case "listMyNotifications":
+        return await listMyNotifications({ doc, tables, caller });
+      case "markNotificationRead":
+        return await markNotificationRead({ doc, tables, caller, notificationId: event.arguments.notificationId as string });
+      case "deleteMyNotification":
+        return await deleteMyNotification({ doc, tables, caller, notificationId: event.arguments.notificationId as string });
       case "onCommentChanged":
         return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
       case "onPageChanged":

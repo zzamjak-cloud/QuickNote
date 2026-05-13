@@ -29,7 +29,10 @@ type NotificationState = {
   items: InAppNotification[];
 };
 
+const MAX_NOTIFICATIONS = 500;
+
 type NotificationActions = {
+  setNotifications: (items: InAppNotification[]) => void;
   addNotification: (input: Omit<InAppNotification, "id" | "createdAt" | "read">) => void;
   removeNotification: (id: string) => void;
   removeNotificationByCommentId: (commentId: string) => void;
@@ -105,6 +108,8 @@ export const useNotificationStore = create<NotificationState & NotificationActio
   persist(
     (set, get) => ({
       items: [],
+      setNotifications: (items) =>
+        set(() => ({ items: items.slice(0, MAX_NOTIFICATIONS) })),
       addNotification: (input) => {
         const recipientMemberId =
           normalizeMentionMemberId(input.recipientMemberId) ??
@@ -146,7 +151,7 @@ export const useNotificationStore = create<NotificationState & NotificationActio
           createdAt: Date.now(),
           read: false,
         };
-        set((s) => ({ items: [n, ...s.items].slice(0, 500) }));
+        set((s) => ({ items: [n, ...s.items].slice(0, MAX_NOTIFICATIONS) }));
       },
       removeNotification: (id) =>
         set((s) => ({ items: s.items.filter((x) => x.id !== id) })),

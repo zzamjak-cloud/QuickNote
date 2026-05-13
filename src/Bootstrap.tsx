@@ -37,6 +37,7 @@ import { useUiStore } from "./store/uiStore";
 import { migrateLegacyBlockCommentsToPagesOnce } from "./lib/comments/migrateLegacyBlockCommentsToPages";
 import { useBlockCommentStore } from "./store/blockCommentStore";
 import { migratePageBlockCommentsToServerOnce } from "./lib/comments/migratePageBlockCommentsToServer";
+import { useNotificationStore } from "./store/notificationStore";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -114,6 +115,13 @@ function useSyncBootstrap(): boolean {
 
         // memberId 확정 직후 즐겨찾기를 서버로 올리고 flush(워크스페이스 부트와 무관)
         await flushClientPrefsToServerNow();
+
+        // 알림 초기 로드 (실패해도 부트스트랩 계속)
+        try {
+          const { fetchMyNotificationsApi } = await import("./lib/sync/notificationApi");
+          const notifications = await fetchMyNotificationsApi();
+          useNotificationStore.getState().setNotifications(notifications);
+        } catch { /* 알림 로드 실패는 무시 */ }
 
         const isAdmin = me.workspaceRole === "developer" || me.workspaceRole === "owner" || me.workspaceRole === "leader" || me.workspaceRole === "manager";
         if (!isAdmin) {
