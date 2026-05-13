@@ -94,8 +94,10 @@ export async function upsertComment(args: {
   };
   await args.doc.send(new PutCommand({ TableName: args.tables.Comments, Item: item }));
 
-  // 새 댓글에 한해 알림 생성 (updatedAt이 없거나 createdAt과 동일)
-  const isNewComment = !input.updatedAt || input.createdAt === input.updatedAt;
+  // 새 댓글에 한해 알림 생성 (updatedAt이 없거나 createdAt 기준 30초 이내)
+  const createdMs = input.createdAt ? new Date(input.createdAt as string).getTime() : 0;
+  const updatedMs = input.updatedAt ? new Date(input.updatedAt as string).getTime() : Date.now();
+  const isNewComment = !input.updatedAt || (updatedMs - createdMs) < 30_000;
   if (isNewComment) {
     await generateNotificationsForComment({
       doc: args.doc,
