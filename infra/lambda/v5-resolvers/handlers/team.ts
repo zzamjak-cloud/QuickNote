@@ -88,6 +88,41 @@ export async function createTeam(args: {
   requireRoleAtLeast(args.caller, "manager");
   const name = args.name.trim();
   if (!name) badRequest("팀 이름은 비어 있을 수 없음");
+  // 동일 이름 중복 생성 방지 — trim + case-insensitive 비교.
+  // 활성 팀이 있으면 그대로 반환, 보관(removedAt) 팀이 있으면 복원 후 반환.
+  const normalized = name.toLowerCase();
+  const scan = await args.doc.send(new ScanCommand({ TableName: args.tables.Teams }));
+  const items = (scan.Items ?? []) as Array<{
+    teamId: string;
+    name: string;
+    createdAt: string;
+    removedAt?: string;
+  }>;
+  const matched = items.find((t) => t.name.trim().toLowerCase() === normalized);
+  if (matched) {
+    if (matched.removedAt) {
+      // 보관된 동명 팀 복원
+      const r = await args.doc.send(
+        new UpdateCommand({
+          TableName: args.tables.Teams,
+          Key: { teamId: matched.teamId },
+          UpdateExpression: "REMOVE removedAt",
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      const restored = r.Attributes as { teamId: string; name: string; createdAt: string };
+      return {
+        ...restored,
+        members: await resolveTeamMembers(args.doc, args.tables, matched.teamId),
+      };
+    }
+    return {
+      teamId: matched.teamId,
+      name: matched.name,
+      createdAt: matched.createdAt,
+      members: await resolveTeamMembers(args.doc, args.tables, matched.teamId),
+    };
+  }
   const now = new Date().toISOString();
   const teamId = uuid();
   await args.doc.send(

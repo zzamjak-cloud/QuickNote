@@ -36,11 +36,19 @@ export function AdminWorkspacesTab() {
     [workspaces],
   );
   const activeWorkspaces = useMemo(
-    () => sharedAll.filter((w) => !w.removedAt),
+    () =>
+      sharedAll
+        .filter((w) => !w.removedAt)
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
     [sharedAll],
   );
   const archivedWorkspaces = useMemo(
-    () => sharedAll.filter((w) => !!w.removedAt),
+    () =>
+      sharedAll
+        .filter((w) => !!w.removedAt)
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
     [sharedAll],
   );
 
@@ -131,7 +139,7 @@ export function AdminWorkspacesTab() {
           <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
             공유 워크스페이스
           </div>
-          <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
             {activeWorkspaces.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 공유 워크스페이스가 없습니다.
@@ -164,7 +172,7 @@ export function AdminWorkspacesTab() {
           <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
             보관된 워크스페이스
           </div>
-          <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
             {archivedWorkspaces.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 보관된 워크스페이스 없음

@@ -99,11 +99,15 @@ export function CsvImportModal({ open, onClose }: Props) {
           rows,
           () => "tmp-" + Math.random().toString(36).slice(2),
         );
+        // 미리보기 카운트도 백엔드 dedup 규칙(trim + lowercase)에 맞춰 비교
+        const norm = (s: string) => s.trim().toLowerCase();
+        const existingOrgKeys = new Set(existingOrgs.map((e) => norm(e.name)));
+        const existingTeamKeys = new Set(existingTeams.map((e) => norm(e.name)));
         const newOrgs = buildOrganizationsFromRows(rows).filter(
-          (o) => !existingOrgs.some((e) => e.name === o.name),
+          (o) => !existingOrgKeys.has(norm(o.name)),
         );
         const newTeams = buildTeamsFromRows(rows).filter(
-          (t) => !existingTeams.some((e) => e.name === t.name),
+          (t) => !existingTeamKeys.has(norm(t.name)),
         );
         setPreview({
           rows,
@@ -215,23 +219,27 @@ export function CsvImportModal({ open, onClose }: Props) {
         ),
       ];
 
-      // 팀명 → teamId 맵: 기존 재사용, 신규 AppSync 생성
+      // 팀명 → teamId 맵: 기존 재사용, 신규 AppSync 생성.
+      // 키는 trim + lowercase 정규화 — 백엔드 createTeam 의 dedup 규칙과 동일.
+      const normalize = (s: string) => s.trim().toLowerCase();
       const teamNameToId = new Map<string, string>();
       const latestTeamObjects = new Map<string, Team>();
 
       for (const t of useTeamStore.getState().teams) {
-        teamNameToId.set(t.name, t.teamId);
+        teamNameToId.set(normalize(t.name), t.teamId);
         latestTeamObjects.set(t.teamId, t);
       }
 
-      const newTeamNames = csvTeamNames.filter((name) => !teamNameToId.has(name));
+      const newTeamNames = csvTeamNames.filter(
+        (name) => !teamNameToId.has(normalize(name)),
+      );
       for (let i = 0; i < newTeamNames.length; i++) {
         const name = newTeamNames[i];
         if (!name) continue;
         setProgress({ phase: "팀 생성 중", current: i + 1, total: newTeamNames.length });
         try {
           const created = await createTeamApi(name);
-          teamNameToId.set(name, created.teamId);
+          teamNameToId.set(normalize(created.name), created.teamId);
           latestTeamObjects.set(created.teamId, created);
           upsertTeam(created);
           teamSuccessCount++;
@@ -245,7 +253,7 @@ export function CsvImportModal({ open, onClose }: Props) {
       const teamAssignList: Array<{ memberId: string; teamId: string }> = [];
       for (const m of activeMembers) {
         if (!m.team) continue;
-        const teamId = teamNameToId.get(m.team.trim());
+        const teamId = teamNameToId.get(normalize(m.team));
         if (teamId) teamAssignList.push({ memberId: m.memberId, teamId });
       }
       for (let i = 0; i < teamAssignList.length; i++) {
@@ -264,7 +272,7 @@ export function CsvImportModal({ open, onClose }: Props) {
       // 팀 로컬 스토어 멤버 목록 갱신
       for (const [teamId, teamObj] of latestTeamObjects) {
         const membersOfTeam = activeMembers.filter(
-          (m) => m.team && teamNameToId.get(m.team.trim()) === teamId,
+          (m) => m.team && teamNameToId.get(normalize(m.team)) === teamId,
         );
         const existing = useTeamStore.getState().teams.find((t) => t.teamId === teamId);
         const merged = existing
@@ -282,23 +290,26 @@ export function CsvImportModal({ open, onClose }: Props) {
         ),
       ];
 
-      // 조직명 → organizationId 맵: 기존 재사용, 신규 AppSync 생성
+      // 조직명 → organizationId 맵: 기존 재사용, 신규 AppSync 생성.
+      // 키는 trim + lowercase 정규화 — 백엔드 createOrganization 의 dedup 규칙과 동일.
       const orgNameToId = new Map<string, string>();
       const latestOrgObjects = new Map<string, Organization>();
 
       for (const o of useOrganizationStore.getState().organizations) {
-        orgNameToId.set(o.name, o.organizationId);
+        orgNameToId.set(normalize(o.name), o.organizationId);
         latestOrgObjects.set(o.organizationId, o);
       }
 
-      const newOrgNames = csvOrgNames.filter((name) => !orgNameToId.has(name));
+      const newOrgNames = csvOrgNames.filter(
+        (name) => !orgNameToId.has(normalize(name)),
+      );
       for (let i = 0; i < newOrgNames.length; i++) {
         const name = newOrgNames[i];
         if (!name) continue;
         setProgress({ phase: "조직 생성 중", current: i + 1, total: newOrgNames.length });
         try {
           const created = await createOrganizationApi(name);
-          orgNameToId.set(name, created.organizationId);
+          orgNameToId.set(normalize(created.name), created.organizationId);
           latestOrgObjects.set(created.organizationId, created);
           upsertOrganization(created);
           orgSuccessCount++;
@@ -312,7 +323,7 @@ export function CsvImportModal({ open, onClose }: Props) {
       const orgAssignList: Array<{ memberId: string; organizationId: string }> = [];
       for (const m of activeMembers) {
         if (!m.department) continue;
-        const organizationId = orgNameToId.get(m.department.trim());
+        const organizationId = orgNameToId.get(normalize(m.department));
         if (organizationId) orgAssignList.push({ memberId: m.memberId, organizationId });
       }
       for (let i = 0; i < orgAssignList.length; i++) {
@@ -331,7 +342,7 @@ export function CsvImportModal({ open, onClose }: Props) {
       // 조직 로컬 스토어 멤버 목록 갱신
       for (const [organizationId, orgObj] of latestOrgObjects) {
         const membersOfOrg = activeMembers.filter(
-          (m) => m.department && orgNameToId.get(m.department.trim()) === organizationId,
+          (m) => m.department && orgNameToId.get(normalize(m.department)) === organizationId,
         );
         const existing = useOrganizationStore.getState().organizations.find(
           (o) => o.organizationId === organizationId,

@@ -23,9 +23,23 @@ export function AdminOrganizationsTab() {
   const [saving, setSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  // 활성/보관 조직 분류 (removedAt 기반)
-  const activeOrgs = useMemo(() => organizations.filter((o) => !o.removedAt), [organizations]);
-  const archivedOrgs = useMemo(() => organizations.filter((o) => !!o.removedAt), [organizations]);
+  // 활성/보관 조직 분류 (removedAt 기반) + 이름 정렬
+  const activeOrgs = useMemo(
+    () =>
+      organizations
+        .filter((o) => !o.removedAt)
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+    [organizations],
+  );
+  const archivedOrgs = useMemo(
+    () =>
+      organizations
+        .filter((o) => !!o.removedAt)
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+    [organizations],
+  );
 
   const assignOrg = useMemo(
     () => organizations.find((o) => o.organizationId === openAssignOrgId) ?? null,
@@ -156,7 +170,7 @@ export function AdminOrganizationsTab() {
           <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
             조직 목록
           </div>
-          <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
             {activeOrgs.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 등록된 조직이 없습니다.
@@ -184,7 +198,7 @@ export function AdminOrganizationsTab() {
           <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
             보관된 조직
           </div>
-          <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
             {archivedOrgs.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 보관된 조직 없음

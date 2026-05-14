@@ -60,13 +60,20 @@ export function AdminMembersTab() {
     });
   };
 
+  // 이름 알파벳/가나다 정렬 적용
   const activeMembers = useMemo(
-    () => applyFilter(members.filter((m) => m.status === "active")),
+    () =>
+      applyFilter(members.filter((m) => m.status === "active"))
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
     [members, query, teamNamesByMemberId],
   );
 
   const archivedMembers = useMemo(
-    () => applyFilter(members.filter((m) => m.status === "removed")),
+    () =>
+      applyFilter(members.filter((m) => m.status === "removed"))
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
     [members, query, teamNamesByMemberId],
   );
 

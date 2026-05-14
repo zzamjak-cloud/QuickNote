@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
+import { useExclusiveDropdown } from "../../hooks/useExclusiveDropdown";
 import type { EmploymentStatus, Member } from "../../store/memberStore";
 import { useWorkspaceOptionsStore } from "../../store/workspaceOptionsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
@@ -52,7 +53,8 @@ function DropdownWithAdd({
   onAdd: (v: string) => void | Promise<void>;
   onRemove: (v: string) => void | Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
+  // 프로필 팝업 내에서 한 번에 하나의 드롭다운만 열리도록 — 다른 드롭다운 클릭 시 자동으로 닫힘
+  const { open, setOpen } = useExclusiveDropdown("memberModal");
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -66,7 +68,7 @@ function DropdownWithAdd({
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  }, [open, setOpen]);
 
   const sorted = [...options].sort((a, b) => a.localeCompare(b, "ko"));
 

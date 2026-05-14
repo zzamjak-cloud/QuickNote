@@ -22,9 +22,23 @@ export function AdminTeamsTab() {
   const [archivedActionId, setArchivedActionId] = useState<string | null>(null);
   const [archivedActionLoading, setArchivedActionLoading] = useState(false);
 
-  // 활성/보관 팀 분류
-  const activeTeams = useMemo(() => teams.filter((t) => !t.removedAt), [teams]);
-  const archivedTeams = useMemo(() => teams.filter((t) => !!t.removedAt), [teams]);
+  // 활성/보관 팀 분류 + 이름 알파벳/가나다 정렬
+  const activeTeams = useMemo(
+    () =>
+      teams
+        .filter((t) => !t.removedAt)
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+    [teams],
+  );
+  const archivedTeams = useMemo(
+    () =>
+      teams
+        .filter((t) => !!t.removedAt)
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+    [teams],
+  );
 
   const assignTeam = useMemo(
     () => teams.find((t) => t.teamId === openAssignTeamId) ?? null,
@@ -161,7 +175,7 @@ export function AdminTeamsTab() {
           <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
             팀 목록
           </div>
-          <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
             {activeTeams.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 등록된 팀이 없습니다.
@@ -190,7 +204,7 @@ export function AdminTeamsTab() {
           <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
             보관된 팀
           </div>
-          <ul className="grid max-h-[420px] grid-cols-1 gap-2 overflow-y-auto p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
             {archivedTeams.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 보관된 팀 없음

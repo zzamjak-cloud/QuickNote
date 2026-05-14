@@ -87,6 +87,54 @@ export async function createOrganization(args: {
   requireRoleAtLeast(args.caller, "manager");
   const name = args.name.trim();
   if (!name) badRequest("조직 이름은 비어 있을 수 없음");
+  // 동일 이름 중복 생성 방지 — trim + case-insensitive 비교.
+  // 활성 조직이 있으면 그대로 반환, 보관(removedAt) 조직이 있으면 복원 후 반환.
+  const normalized = name.toLowerCase();
+  const scan = await args.doc.send(
+    new ScanCommand({ TableName: args.tables.Organizations! }),
+  );
+  const items = (scan.Items ?? []) as Array<{
+    organizationId: string;
+    name: string;
+    createdAt: string;
+    removedAt?: string;
+  }>;
+  const matched = items.find((o) => o.name.trim().toLowerCase() === normalized);
+  if (matched) {
+    if (matched.removedAt) {
+      const r = await args.doc.send(
+        new UpdateCommand({
+          TableName: args.tables.Organizations!,
+          Key: { organizationId: matched.organizationId },
+          UpdateExpression: "REMOVE removedAt",
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      const restored = r.Attributes as {
+        organizationId: string;
+        name: string;
+        createdAt: string;
+      };
+      return {
+        ...restored,
+        members: await resolveOrgMembers(
+          args.doc,
+          args.tables,
+          matched.organizationId,
+        ),
+      };
+    }
+    return {
+      organizationId: matched.organizationId,
+      name: matched.name,
+      createdAt: matched.createdAt,
+      members: await resolveOrgMembers(
+        args.doc,
+        args.tables,
+        matched.organizationId,
+      ),
+    };
+  }
   const now = new Date().toISOString();
   const organizationId = uuid();
   await args.doc.send(
