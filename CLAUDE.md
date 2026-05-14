@@ -61,25 +61,92 @@ legacy-peer-deps=true
 
 ---
 
-## 배포 순서 (반드시 지킬 것)
+## 배포 프로세스 (완전한 체크리스트)
 
-### 스키마/API 변경이 포함된 작업
+> **반복 실패 이력**: 미커밋 파일 방치, 버전 불일치, CDK 미배포 순서 오류가 반복됨.
+> 아래 순서를 **건너뛰지 말고** 위에서 아래로 실행한다.
+
+### STEP 0 — 미커밋 파일 없는지 반드시 확인
+
+```bash
+git status
+```
+
+- 수정된 파일이 있으면 **무조건 먼저 커밋**한다.
+- `infra/` 파일이 수정됐으면 STEP 2 (CDK 배포)가 필요하다.
+- `git status` 가 clean 이어야 다음 단계로 진행한다.
+
+```bash
+# 수정 파일이 있을 경우
+git add <파일들>
+git commit -m "feat/fix: 설명"
+```
+
+### STEP 1 — 버전 bump (두 파일 동시에)
+
+```bash
+# package.json 과 src-tauri/tauri.conf.json 의 version 을 같은 값으로 수정
+# 수정 후 확인
+grep '"version"' package.json src-tauri/tauri.conf.json
+```
+
+버전이 일치하는지 눈으로 확인한 뒤 커밋:
+
+```bash
+git add package.json src-tauri/tauri.conf.json
+git commit -m "chore: 버전 X.Y.Z bump"
+```
+
+### STEP 2 — CDK 배포 (infra/ 변경이 있을 때만)
+
+```bash
+cd infra && npx cdk deploy --all
+```
+
+- `infra/` 에 변경이 **없으면** 이 단계를 건너뛴다.
+- CDK 배포가 완료되기 전에 프론트엔드를 push 하면 AppSync 뮤테이션이 실패한다.
+- `Page.blockComments` 처럼 스키마에 필드가 없으면 데이터 손실 위험.
+
+### STEP 3 — 태그 생성 및 push
+
+```bash
+git tag v{version}
+git push origin main
+git push origin v{version}
+```
+
+- **태그를 먼저 만들고** push 한다 (`v{version}` 태그가 없으면 GitHub Actions 실패).
+- `git push origin main` 이 Vercel 자동 배포를 트리거한다.
+
+### STEP 4 — Vercel 배포 확인
+
+```bash
+vercel ls   # 최신 항목이 ● Ready 인지 확인
+```
+
+- 배포가 `● Error` 면 `vercel inspect <url> --logs` 로 원인 확인.
+- 브라우저에서 여전히 이전 버전이 보이면 **강제 새로고침** (`Cmd+Shift+R`).
+
+### 전체 요약 (순서도)
 
 ```
-1. CDK 배포 (Lambda 리졸버 먼저)
-   cd infra && npx cdk deploy --all
-
-2. 프론트엔드 배포 (CDK 배포 확인 후)
-   npm run build
-   - `Page.blockComments` 는 항상 GraphQL 조회·구독·upsert 에 포함된다(CDK 스키마에 필드가 있어야 함).
-
-3. Zustand persist 버전 bump (스키마 변경 시만)
-   → 아래 "스키마 버전 관리" 섹션 참고
+git status → clean? → YES
+  ↓
+버전 bump (package.json + tauri.conf.json 동시)
+  ↓
+infra/ 변경 있음? → YES → CDK deploy → 완료 확인
+                 → NO  → 건너뜀
+  ↓
+git tag v{version}
+git push origin main && git push origin v{version}
+  ↓
+vercel ls → ● Ready 확인
 ```
 
 **이 순서를 어기면:**
 - CDK 미배포 상태에서 프론트 배포 → AppSync 뮤테이션 실패 → 데이터가 로컬에만 쌓임
 - 이후 localStorage 마이그레이션 → 로컬 캐시 초기화 → **데이터 영구 손실**
+- 미커밋 파일 방치 → 버전 태그와 실제 코드 불일치 → 재배포 시 원인 불명 버그
 
 ---
 
