@@ -18,8 +18,10 @@ export function createBlockCommentDecorations(
     addProseMirrorPlugins() {
       const myId = myMemberId;
 
-      // 캐시 키: 메시지 내용 해시 + doc revision. 동일하면 이전 DecorationSet 재사용.
+      // 캐시 키: 메시지 내용 해시 + 페이지/멤버 식별자. doc 자체는 reference 동일성으로 비교.
+      // PM doc 은 immutable 이라 transaction 없으면 동일 reference 유지된다.
       let cachedKey = "";
+      let cachedDoc: import("@tiptap/pm/model").Node | null = null;
       let cachedSet: DecorationSet | null = null;
 
       return [
@@ -36,10 +38,11 @@ export function createBlockCommentDecorations(
                 (m) => m.pageId === currentPageId,
               );
 
-              // 메시지 목록 해시 (id + bodyText 기반) + doc revision 으로 캐시 키 계산
+              // 메시지 목록 해시 + 페이지/멤버 식별자로 캐시 키 계산.
+              // doc 변경은 state.doc reference 비교로 감지.
               const msgHash = messages.map((m) => `${m.id}:${m.bodyText}`).join("|");
-              const cacheKey = `${currentPageId}|${msgHash}|${state.doc.version ?? 0}|${currentMemberId ?? ""}`;
-              if (cacheKey === cachedKey && cachedSet) {
+              const cacheKey = `${currentPageId}|${msgHash}|${currentMemberId ?? ""}`;
+              if (cacheKey === cachedKey && cachedDoc === state.doc && cachedSet) {
                 return cachedSet;
               }
 
@@ -76,6 +79,7 @@ export function createBlockCommentDecorations(
 
               const result = DecorationSet.create(state.doc, decos);
               cachedKey = cacheKey;
+              cachedDoc = state.doc;
               cachedSet = result;
               return result;
             },
