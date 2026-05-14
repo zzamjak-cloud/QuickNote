@@ -635,17 +635,26 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[id];
         if (before && after) {
-          notifyNewPageMentions(id, before.doc, after.doc);
+          // @멘션 감지: 전체 doc 순회 비용이 크므로 1.5초 디바운스로 처리
+          debouncePerKey(`mention:${id}`, 1500, () => {
+            const latest = get().pages[id];
+            if (latest) notifyNewPageMentions(id, before.doc, latest.doc);
+          });
           const skipHistory = options?.skipHistory === true;
           if (!skipHistory) {
-            const hs = useHistoryStore.getState();
-            const events = hs.pageEventsByPageId[id] ?? [];
-            hs.recordPageEvent(
-              id,
-              "page.doc",
-              { id, doc: structuredClone(after.doc) },
-              shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
-            );
+            // 히스토리 기록: structuredClone 비용을 줄이기 위해 300ms 디바운스
+            debouncePerKey(`history:${id}`, 300, () => {
+              const latest = get().pages[id];
+              if (!latest) return;
+              const hs = useHistoryStore.getState();
+              const events = hs.pageEventsByPageId[id] ?? [];
+              hs.recordPageEvent(
+                id,
+                "page.doc",
+                { id, doc: structuredClone(latest.doc) },
+                shouldWriteAnchor(events.length + 1) ? toPageSnapshot(latest) : undefined,
+              );
+            });
           }
           // 페이지 doc 은 한 글자마다 호출되므로 2초 idle 디바운스로 enqueue 횟수를 줄인다.
           // 발사 시점에 최신 스냅샷을 다시 읽어 최종 본만 보낸다.
