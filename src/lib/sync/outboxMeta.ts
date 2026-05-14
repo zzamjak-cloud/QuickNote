@@ -58,13 +58,21 @@ export function buildOutboxEntryMeta(
         entityType: "memberPrefs",
         entityId: id,
       };
-    case "upsertComment":
+    case "upsertComment": {
+      // workspaceId 없는 comment 는 워크스페이스 전환 시 영영 flush 안 될 수 있으므로 경고 기록
+      if (!workspaceFromPayload) {
+        console.warn(
+          "[sync] upsertComment outbox: workspaceId 누락 — 이 항목은 flush 범위에서 벗어날 수 있습니다.",
+          { commentId: id },
+        );
+      }
       return {
         workspaceId: workspaceFromPayload,
         entityType: "comment",
         entityId: id,
         baseVersion,
       };
+    }
     case "softDeleteComment":
       return {
         workspaceId: workspaceFromPayload,

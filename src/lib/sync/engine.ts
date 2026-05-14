@@ -6,6 +6,7 @@ import type {
 } from "./outbox/types";
 import { buildOutboxEntryMeta } from "./outboxMeta";
 import { sortOutboxBatchForFlush } from "./outboxFlushOrder";
+import { useUiStore } from "../../store/uiStore";
 
 // 동기화 엔진. enqueue 시 outbox 에 적재 → 백그라운드 워커가 mutation 으로 flush.
 // 같은 (op, id) 의 새 enqueue 는 dedupe 로 마지막 본만 남김.
@@ -25,7 +26,8 @@ export interface GqlBridge {
 const MAX_BACKOFF_MS = 60_000;
 // 영구 실패 entry 를 자동 정리하는 attempts 상한.
 // 이 값을 넘긴 entry 는 head 에 영원히 남아 후속 entries 처리를 막는 stuck-head 위험이 있어 outbox 에서 제거한다.
-const MAX_ATTEMPTS = 50;
+// 빠른 사용자 인지를 위해 15 회로 축소(이전: 50).
+const MAX_ATTEMPTS = 15;
 
 export type EnqueuePayload = {
   id: string;
@@ -140,7 +142,7 @@ export class SyncEngine {
             });
             const attempts = entry.attempts + 1;
             if (attempts >= MAX_ATTEMPTS) {
-              // 영구 실패로 간주하고 dead-letter 처리(드롭).
+              // 영구 실패로 간주하고 dead-letter 처리.
               // 이 entry 가 head 에 남아있으면 후속 enqueue 가 영원히 처리되지 못한다.
               console.warn(
                 "[sync] dropping entry after max attempts",
@@ -156,6 +158,11 @@ export class SyncEngine {
                 "max-attempts-exceeded",
               );
               await this.outbox.remove(entry.id);
+              // 사용자에게 저장 실패 알림
+              useUiStore.getState().showToast(
+                "데이터 일부가 저장되지 못했습니다. 네트워크 상태를 확인해 주세요.",
+                { kind: "error" },
+              );
               continue;
             }
             const backoff = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** entry.attempts);

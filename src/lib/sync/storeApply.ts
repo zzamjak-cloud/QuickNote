@@ -59,7 +59,12 @@ function parseAwsJson<T>(v: unknown, fallback: T): T {
 }
 
 function isRemoteNewer(localUpdatedMs: number, remoteIso: string): boolean {
-  return isoToMs(remoteIso) > localUpdatedMs;
+  const remoteMs = isoToMs(remoteIso);
+  if (remoteMs === localUpdatedMs && localUpdatedMs > 0) {
+    // LWW tie: 동일 타임스탬프 — 로컬 우선(보수적). 진단용으로만 기록.
+    console.debug("[sync] LWW tie detected", { localUpdatedMs, remoteMs });
+  }
+  return remoteMs > localUpdatedMs;
 }
 
 /** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다.
@@ -203,12 +208,30 @@ export function applyRemotePageToStore(
   }
 }
 
+// 페이지 댓글 sentinel (PageCommentBar 와 동일 값 유지)
+const PAGE_COMMENT_SENTINEL = "__page__";
+
+/** blockId/pageId 유효성 검사 — 빈 문자열·whitespace 는 거부 */
+function isValidCommentId(id: string | null | undefined): boolean {
+  return typeof id === "string" && id.trim().length > 0;
+}
+
 /** 원격 Comment 엔티티를 blockCommentStore 에 LWW 적용 */
 export function applyRemoteCommentToStore(
   c: GqlComment | null | undefined,
 ): void {
   if (!c) return;
   if (!shouldApplyRemoteSnapshot(c.workspaceId)) return;
+
+  // 손상된 페이로드 방어: pageId 와 blockId 가 유효해야 적용
+  if (!isValidCommentId(c.pageId)) {
+    console.warn("[sync] applyRemoteCommentToStore: pageId 누락 — 무시", c.id);
+    return;
+  }
+  if (!isValidCommentId(c.blockId) && c.blockId !== PAGE_COMMENT_SENTINEL) {
+    console.warn("[sync] applyRemoteCommentToStore: blockId 누락 — 무시", c.id);
+    return;
+  }
 
   const mentionMemberIds = parseAwsJson<string[]>(c.mentionMemberIds, []);
 

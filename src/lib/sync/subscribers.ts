@@ -7,6 +7,7 @@ import {
 } from "./graphql/operations";
 import { ON_COMMENT_CHANGED, type GqlComment } from "./queries/comment";
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
+import { getSyncEngine } from "./runtime";
 
 // 자기 workspaceId 의 변경 푸시를 수신해 LWW 적용 콜백을 호출.
 // 구독 에러 및 네트워크 단절 시 지수 백오프(최대 30초)로 자동 재연결.
@@ -139,9 +140,12 @@ export function startSubscriptions(
         scheduleRetry();
       },
     });
+
+    // 구독 연결 완료 후 오프라인 중 쌓인 outbox 즉시 flush
+    void getSyncEngine().then((e) => e.scheduleFlush(0));
   };
 
-  // 온라인 복귀 시 즉시 재연결 (재시도 카운트 초기화)
+  // 온라인 복귀 시 즉시 재연결 + outbox flush (재시도 카운트 초기화)
   const onOnline = () => {
     if (stopped) return;
     if (retryTimer) {
@@ -150,6 +154,8 @@ export function startSubscriptions(
     }
     retryAttempts = 0;
     void connect();
+    // 네트워크 복귀 즉시 오프라인 중 쌓인 outbox 전송
+    void getSyncEngine().then((e) => e.scheduleFlush(0));
   };
   window.addEventListener("online", onOnline);
 
