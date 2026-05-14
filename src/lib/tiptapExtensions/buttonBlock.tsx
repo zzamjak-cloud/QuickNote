@@ -6,11 +6,13 @@ import { Database, ExternalLink, Pencil, Link } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { parseQuickNoteLink } from "../navigation/quicknoteLinks";
+import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import { scrollToBlockPosition } from "../editor/editorNavigationBridge";
 
 type ButtonBlockAttrs = {
   label: string;
   href: string;
+  databaseId?: string;
 };
 
 function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
@@ -41,6 +43,11 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
     if (!attrs.href) return;
     const internal = parseQuickNoteLink(attrs.href);
     if (internal) {
+      // 이전 페이지를 히스토리 스택에 push
+      const currentPageId = usePageStore.getState().activePageId;
+      if (currentPageId) {
+        useNavigationHistoryStore.getState().pushBack(currentPageId);
+      }
       setActivePage(internal.pageId);
       setCurrentTabPage(internal.pageId);
       window.setTimeout(() => {
@@ -188,6 +195,7 @@ export const ButtonBlock = TiptapNode.create({
     return {
       label: { default: "버튼" },
       href: { default: "" },
+      databaseId: { default: "" },
     };
   },
 

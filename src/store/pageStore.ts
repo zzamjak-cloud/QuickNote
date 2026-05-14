@@ -289,7 +289,7 @@ type PageStoreActions = {
   restorePageFromLatestHistory: (pageId: string) => boolean;
   restorePageFromHistoryEvent: (pageId: string, eventId: string) => boolean;
   // DB 제목 변경 시 해당 DB를 가리키는 buttonBlock 레이블 동기화
-  updateButtonBlockLabels: (dbId: string, newLabel: string) => void;
+  updateButtonBlockLabels: (homePageId: string, newLabel: string) => void;
 };
 
 export type PageStore = PageStoreState & PageStoreActions;
@@ -1090,8 +1090,8 @@ export const usePageStore = create<PageStore>()(
         return true;
       },
 
-      updateButtonBlockLabels: (dbId, newLabel) => {
-        const dbRef = `quicknote://database/${dbId}`;
+      updateButtonBlockLabels: (homePageId, newLabel) => {
+        const dbRef = `quicknote://page/${homePageId}`;
         const pages = get().pages;
         const changed: Page[] = [];
         for (const page of Object.values(pages)) {

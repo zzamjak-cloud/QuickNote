@@ -71,6 +71,7 @@ export function insertFullPageDatabase(
         attrs: {
           label: `${actualTitle} DB`,
           href: buildQuickNotePageUrl({ pageId }),
+          databaseId: dbId,
         },
       })
       .insertContent(" ")

@@ -799,6 +799,7 @@ export function BlockHandles({
 
   const isDatabaseBlock = hover?.node.type.name === "database";
   const isDatabaseFullPage = isDatabaseBlock && hover?.node.attrs.layout === "fullPage";
+  const isDatabaseButtonBlock = hover?.node.type.name === "buttonBlock" && !!hover?.node.attrs.databaseId;
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isColumnLayout = hover?.node.type.name === "columnLayout";
   const isTextBlock = hover
@@ -1232,6 +1233,34 @@ export function BlockHandles({
                         .setNodeSelection(hover.blockStart)
                         .updateAttributes("database", { layout: "inline" })
                         .run();
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <LayoutTemplate size={14} />
+                    인라인 보기로 변경
+                  </button>
+                )}
+
+                {/* buttonBlock → databaseBlock 인라인 보기로 변경 */}
+                {isDatabaseButtonBlock && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!editor || !hover) return;
+                      const databaseId = hover.node.attrs.databaseId as string;
+                      if (!databaseId) return;
+                      const dbNode = editor.state.schema.nodes.databaseBlock?.create({
+                        databaseId,
+                        layout: "inline",
+                      });
+                      if (!dbNode) return;
+                      const tr = editor.state.tr.replaceWith(
+                        hover.blockStart,
+                        hover.blockStart + hover.node.nodeSize,
+                        dbNode,
+                      );
+                      editor.view.dispatch(tr);
                       setMenuOpen(false);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"

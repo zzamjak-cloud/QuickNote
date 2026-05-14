@@ -529,7 +529,10 @@ export const useDatabaseStore = create<DatabaseStore>()(
           enqueueUpsertDatabase(bundleAfter);
         }
         // DB 제목 변경 시 해당 DB를 가리키는 buttonBlock 레이블 동기화
-        usePageStore.getState().updateButtonBlockLabels(id, nextTitle);
+        const homePageId = usePageStore.getState().findFullPagePageIdForDatabase(id);
+        if (homePageId) {
+          usePageStore.getState().updateButtonBlockLabels(homePageId, nextTitle);
+        }
         return true;
       },
 

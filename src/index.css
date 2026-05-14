@@ -972,3 +972,5 @@ html.dark .ProseMirror [data-bg-color="brown"]   { background-color: rgba(90,55,
 [data-indent="4"] { margin-left: 6rem; }
 [data-indent="5"] { margin-left: 7.5rem; }
 [data-indent="6"] { margin-left: 9rem; }
+/* 리스트 아이템 내부에서는 들여쓰기 CSS 적용 제외 */
+li [data-indent] { margin-left: 0; }
