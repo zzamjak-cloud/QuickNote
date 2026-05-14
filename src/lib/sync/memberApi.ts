@@ -14,6 +14,7 @@ import {
   RESTORE_MEMBER,
 } from "./queries/member";
 import type { Member, MemberMini } from "../../store/memberStore";
+import { GqlMemberSchema, parseGqlList } from "./schemas";
 
 type CreateMemberInput = {
   email: string;
@@ -113,8 +114,13 @@ export async function meApi(): Promise<Member> {
 export async function listMembersApi(): Promise<Member[]> {
   const result = (await appsyncClient().graphql({
     query: LIST_MEMBERS,
-  })) as { data?: { listMembers?: GqlMember[] } };
-  return (result.data?.listMembers ?? []).map(normalizeMemberFields);
+  })) as { data?: { listMembers?: unknown } };
+  const parsed = parseGqlList(
+    result.data?.listMembers ?? [],
+    GqlMemberSchema,
+    "listMembers",
+  );
+  return parsed.map((m) => normalizeMemberFields(m as unknown as GqlMember));
 }
 
 export async function createMemberApi(input: CreateMemberInput): Promise<Member> {
