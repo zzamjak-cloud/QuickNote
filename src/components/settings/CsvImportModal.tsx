@@ -1,5 +1,7 @@
 // CSV 임직원 일괄 가져오기 모달
 // 파일 선택 → 파싱 → 미리보기 → AppSync 순차 적용
+// 팀: AppSync createTeam + assignMemberToTeam 으로 동기화
+// 조직(실): AppSync mutation 미구현 — 로컬 스토어 전용
 
 import { useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
@@ -7,6 +9,7 @@ import type { Member } from "../../store/memberStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
+import type { Team } from "../../store/teamStore";
 import { useWorkspaceOptionsStore } from "../../store/workspaceOptionsStore";
 import { useUiStore } from "../../store/uiStore";
 import {
@@ -19,7 +22,8 @@ import {
   extractJobDetails,
   type CsvMemberRow,
 } from "../../lib/parsing/csvMembers";
-import { createMemberApi, updateMemberApi } from "../../lib/sync/memberApi";
+import { createMemberApi, updateMemberApi, assignMemberToTeamApi } from "../../lib/sync/memberApi";
+import { createTeamApi } from "../../lib/sync/teamApi";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 
 type Props = {
@@ -43,7 +47,9 @@ type PreviewResult = {
   teamCount: number;
 };
 
-type ApplyProgress = {
+type PhaseProgress = {
+  /** 현재 단계 이름 */
+  phase: string;
   current: number;
   total: number;
 };
@@ -53,7 +59,7 @@ export function CsvImportModal({ open, onClose }: Props) {
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
-  const [progress, setProgress] = useState<ApplyProgress | null>(null);
+  const [progress, setProgress] = useState<PhaseProgress | null>(null);
   const [done, setDone] = useState(false);
 
   const existingMembers = useMemberStore((s) => s.members);
@@ -89,7 +95,6 @@ export function CsvImportModal({ open, onClose }: Props) {
           rows,
           () => "tmp-" + Math.random().toString(36).slice(2),
         );
-        // 신규 조직·팀 수 계산
         const newOrgs = buildOrganizationsFromRows(rows).filter(
           (o) => !existingOrgs.some((e) => e.name === o.name),
         );
@@ -115,32 +120,33 @@ export function CsvImportModal({ open, onClose }: Props) {
     setApplying(true);
     setProgress(null);
 
+    let memberSuccessCount = 0;
+    let memberFailCount = 0;
+    let teamSuccessCount = 0;
+
     try {
-      // 최신 existingMembers 로 다시 머지 (미리보기 이후 변경 반영)
+      // ── 1단계: 멤버 동기화 ──────────────────────────────────────────────
       const { updated, created } = mergeMembersFromCsv(
         useMemberStore.getState().members,
         preview.rows,
         () => "local-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2),
       );
 
-      const total = updated.length + created.length;
-      let current = 0;
-      let failCount = 0;
+      const memberTotal = updated.length + created.length;
+      let memberCurrent = 0;
 
-      // ── 신규 멤버: createMember → updateMember(신규 7개 필드) ──
+      // 신규 멤버: createMember → updateMember(신규 7개 필드)
       const finalCreated: Member[] = [];
       for (const m of created) {
-        current++;
-        setProgress({ current, total });
+        memberCurrent++;
+        setProgress({ phase: "멤버 동기화 중", current: memberCurrent, total: memberTotal });
         try {
-          // 1단계: AppSync createMember 로 서버에서 memberId 발급
           const newMember = await createMemberApi({
             email: m.email,
             name: m.name,
             jobRole: m.jobRole || "",
             workspaceRole: "MEMBER",
           });
-          // 2단계: 신규 7개 필드 updateMember 로 채우기
           const withFields = await updateMemberApi(newMember.memberId, {
             employmentStatus: m.employmentStatus ?? null,
             employeeNumber: m.employeeNumber ?? null,
@@ -151,23 +157,23 @@ export function CsvImportModal({ open, onClose }: Props) {
             jobDetail: m.jobDetail ?? null,
             joinedAt: m.joinedAt ?? null,
           });
-          // 서버 발급 ID로 로컬 스토어 반영
           upsertMember(withFields);
           finalCreated.push(withFields);
+          memberSuccessCount++;
         } catch (err) {
-          failCount++;
+          memberFailCount++;
           reportNonFatal(err, "csvImport.createMember");
           console.error("[CSV import] 신규 멤버 생성 실패", m.email, err);
         }
       }
 
-      // ── 기존 멤버: updateMember 로 필드 갱신 ──
+      // 기존 멤버: updateMember 로 필드 갱신
       const finalUpdated: Member[] = [];
       for (const m of updated) {
-        current++;
-        setProgress({ current, total });
+        memberCurrent++;
+        setProgress({ phase: "멤버 동기화 중", current: memberCurrent, total: memberTotal });
         try {
-          const updated = await updateMemberApi(m.memberId, {
+          const refreshed = await updateMemberApi(m.memberId, {
             name: m.name,
             jobRole: m.jobRole ?? null,
             jobTitle: m.jobTitle ?? null,
@@ -179,10 +185,11 @@ export function CsvImportModal({ open, onClose }: Props) {
             jobDetail: m.jobDetail ?? null,
             joinedAt: m.joinedAt ?? null,
           });
-          upsertMember(updated);
-          finalUpdated.push(updated);
+          upsertMember(refreshed);
+          finalUpdated.push(refreshed);
+          memberSuccessCount++;
         } catch (err) {
-          failCount++;
+          memberFailCount++;
           reportNonFatal(err, "csvImport.updateMember");
           console.error("[CSV import] 멤버 업데이트 실패", m.memberId, m.email, err);
           // 실패해도 로컬 스토어는 CSV 값으로 유지
@@ -194,7 +201,79 @@ export function CsvImportModal({ open, onClose }: Props) {
       const allFinalMembers = [...finalCreated, ...finalUpdated];
       const activeMembers = allFinalMembers.filter((m) => m.employmentStatus !== "퇴사");
 
-      // ── 조직(실) 로컬 스토어 반영 (AppSync organization mutation 미구현 — 로컬 전용) ──
+      // ── 2단계: 팀 동기화 (AppSync createTeam + assignMemberToTeam) ──────
+      // CSV 의 unique 팀 이름 추출 (활성 멤버 기준)
+      const csvTeamNames = [
+        ...new Set(
+          preview.rows
+            .filter((r) => r.employmentStatus !== "퇴사" && r.team.trim())
+            .map((r) => r.team.trim()),
+        ),
+      ];
+
+      // 팀명 → teamId 맵 구축: 기존 팀은 재사용, 신규 팀은 AppSync 생성
+      const teamNameToId = new Map<string, string>();
+      const latestTeamObjects = new Map<string, Team>();
+
+      // 현재 스토어 팀 목록 초기화
+      for (const t of useTeamStore.getState().teams) {
+        teamNameToId.set(t.name, t.teamId);
+        latestTeamObjects.set(t.teamId, t);
+      }
+
+      const newTeamNames = csvTeamNames.filter((name) => !teamNameToId.has(name));
+
+      // 신규 팀 AppSync 생성
+      for (let i = 0; i < newTeamNames.length; i++) {
+        const name = newTeamNames[i];
+        if (!name) continue;
+        setProgress({ phase: "팀 생성 중", current: i + 1, total: newTeamNames.length });
+        try {
+          const created = await createTeamApi(name);
+          teamNameToId.set(name, created.teamId);
+          latestTeamObjects.set(created.teamId, created);
+          upsertTeam(created);
+          teamSuccessCount++;
+        } catch (err) {
+          reportNonFatal(err, "csvImport.createTeam");
+          console.error("[CSV import] 팀 생성 실패", name, err);
+        }
+      }
+
+      // 팀 배정: 활성 멤버를 각자의 팀에 assign
+      const teamAssignList: Array<{ memberId: string; teamId: string }> = [];
+      for (const m of activeMembers) {
+        if (!m.team) continue;
+        const teamId = teamNameToId.get(m.team.trim());
+        if (teamId) teamAssignList.push({ memberId: m.memberId, teamId });
+      }
+
+      for (let i = 0; i < teamAssignList.length; i++) {
+        const item = teamAssignList[i];
+        if (!item) continue;
+        setProgress({ phase: "팀 배정 중", current: i + 1, total: teamAssignList.length });
+        try {
+          await assignMemberToTeamApi(item.memberId, item.teamId);
+        } catch (err) {
+          // 이미 배정된 경우 서버가 에러 반환할 수 있으므로 warn 수준만
+          reportNonFatal(err, "csvImport.assignMemberToTeam");
+          console.warn("[CSV import] 팀 배정 실패 (이미 배정됐을 수 있음)", item, err);
+        }
+      }
+
+      // 팀 로컬 스토어 멤버 목록 갱신 (assign 이후 최신 반영)
+      for (const [teamId, teamObj] of latestTeamObjects) {
+        const membersOfTeam = activeMembers.filter(
+          (m) => m.team && teamNameToId.get(m.team.trim()) === teamId,
+        );
+        const existing = useTeamStore.getState().teams.find((t) => t.teamId === teamId);
+        const merged = existing
+          ? mergeByMemberId(existing.members, membersOfTeam)
+          : membersOfTeam;
+        upsertTeam({ ...teamObj, members: merged });
+      }
+
+      // ── 3단계: 조직(실) — AppSync mutation 미구현, 로컬 스토어 전용 ────
       const orgRows = buildOrganizationsFromRows(preview.rows);
       for (const org of orgRows) {
         const membersOfOrg = activeMembers.filter((m) => m.department === org.name);
@@ -202,52 +281,31 @@ export function CsvImportModal({ open, onClose }: Props) {
         const merged = existing
           ? mergeByMemberId(existing.members, membersOfOrg)
           : membersOfOrg;
-        upsertOrganization({
-          ...(existing ?? org),
-          members: merged,
-        });
+        upsertOrganization({ ...(existing ?? org), members: merged });
       }
 
-      // ── 팀 로컬 스토어 반영 (AppSync team mutation 미구현 — 로컬 전용) ──
-      const teamRows = buildTeamsFromRows(preview.rows);
-      for (const team of teamRows) {
-        const membersOfTeam = activeMembers.filter((m) => m.team === team.name);
-        const existing = existingTeams.find((e) => e.name === team.name);
-        const merged = existing
-          ? mergeByMemberId(existing.members, membersOfTeam)
-          : membersOfTeam;
-        upsertTeam({
-          ...(existing ?? team),
-          members: merged,
-        });
-      }
-
-      // 직책·직무카테고리·상세직무 리스트 병합
-      const newTitles = extractJobTitles(preview.rows);
-      const newCats = extractJobCategories(preview.rows);
-      const newDetails = extractJobDetails(preview.rows);
-
-      const mergedTitles = [...new Set([...currentJobTitles, ...newTitles])].sort((a, b) =>
-        a.localeCompare(b, "ko"),
+      // ── 4단계: 직무 목록 병합 ───────────────────────────────────────────
+      const mergedTitles = [...new Set([...currentJobTitles, ...extractJobTitles(preview.rows)])].sort(
+        (a, b) => a.localeCompare(b, "ko"),
       );
-      const mergedCats = [...new Set([...currentJobCategories, ...newCats])].sort((a, b) =>
-        a.localeCompare(b, "ko"),
+      const mergedCats = [...new Set([...currentJobCategories, ...extractJobCategories(preview.rows)])].sort(
+        (a, b) => a.localeCompare(b, "ko"),
       );
-      const mergedDetails = [...new Set([...currentJobDetails, ...newDetails])].sort((a, b) =>
-        a.localeCompare(b, "ko"),
+      const mergedDetails = [...new Set([...currentJobDetails, ...extractJobDetails(preview.rows)])].sort(
+        (a, b) => a.localeCompare(b, "ko"),
       );
+      setOptions({ jobTitles: mergedTitles, jobCategories: mergedCats, jobDetails: mergedDetails });
 
-      setOptions({
-        jobTitles: mergedTitles,
-        jobCategories: mergedCats,
-        jobDetails: mergedDetails,
-      });
-
-      // 부분 실패 토스트
-      if (failCount > 0) {
+      // 완료 토스트
+      if (memberFailCount > 0) {
         showToast(
-          `${total - failCount}명 저장 완료, ${failCount}명 저장 실패. 콘솔을 확인해주세요.`,
+          `구성원 ${memberSuccessCount}명 / 팀 ${teamSuccessCount}개 동기화 완료, ${memberFailCount}명 저장 실패. 콘솔을 확인해주세요.`,
           { kind: "error" },
+        );
+      } else {
+        showToast(
+          `구성원 ${memberSuccessCount}명 / 팀 ${teamSuccessCount}개 동기화 완료`,
+          { kind: "success" },
         );
       }
 
@@ -322,21 +380,15 @@ export function CsvImportModal({ open, onClose }: Props) {
           {preview && !done && (
             <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 space-y-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800/50">
               <div className="font-semibold text-zinc-700 dark:text-zinc-200">적용 예정 내역</div>
-              <div className="text-zinc-600 dark:text-zinc-300">
-                · 전체 파싱: <strong>{preview.rows.length}</strong>명
-              </div>
-              <div className="text-zinc-600 dark:text-zinc-300">
-                · 기존 멤버 업데이트: <strong>{preview.updatedCount}</strong>명
-              </div>
-              <div className="text-zinc-600 dark:text-zinc-300">
-                · 신규 멤버 추가: <strong>{preview.createdCount}</strong>명
-              </div>
-              <div className="text-zinc-600 dark:text-zinc-300">
-                · 신규 조직(실) 생성: <strong>{preview.orgCount}</strong>개
-              </div>
-              <div className="text-zinc-600 dark:text-zinc-300">
-                · 신규 팀 생성: <strong>{preview.teamCount}</strong>개
-              </div>
+              <div className="text-zinc-600 dark:text-zinc-300">· 전체 파싱: <strong>{preview.rows.length}</strong>명</div>
+              <div className="text-zinc-600 dark:text-zinc-300">· 기존 멤버 업데이트: <strong>{preview.updatedCount}</strong>명</div>
+              <div className="text-zinc-600 dark:text-zinc-300">· 신규 멤버 추가: <strong>{preview.createdCount}</strong>명</div>
+              <div className="text-zinc-600 dark:text-zinc-300">· 신규 조직(실) 생성: <strong>{preview.orgCount}</strong>개</div>
+              <div className="text-zinc-600 dark:text-zinc-300">· 신규 팀 생성: <strong>{preview.teamCount}</strong>개</div>
+              {/* 조직 로컬 전용 안내 */}
+              <p className="mt-1 rounded bg-amber-50 px-2 py-1.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                ℹ 조직(실) 정보는 현재 이 기기에만 저장됩니다. 디바이스 간 동기화는 인프라 확장 후 지원 예정입니다.
+              </p>
             </div>
           )}
 
@@ -344,7 +396,7 @@ export function CsvImportModal({ open, onClose }: Props) {
           {applying && progress && (
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs text-zinc-500">
-                <span>AppSync 전송 중...</span>
+                <span>{progress.phase}...</span>
                 <span>{progress.current} / {progress.total}</span>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
@@ -359,7 +411,10 @@ export function CsvImportModal({ open, onClose }: Props) {
           {/* 완료 메시지 */}
           {done && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
-              가져오기 완료. 구성원·조직·팀·직무 목록이 업데이트되었습니다.
+              가져오기 완료. 구성원·팀·직무 목록이 동기화되었습니다.
+              <p className="mt-1 text-amber-600 dark:text-amber-400">
+                조직(실) 정보는 이 기기에만 저장됩니다.
+              </p>
             </div>
           )}
         </div>
@@ -378,7 +433,12 @@ export function CsvImportModal({ open, onClose }: Props) {
             <span />
           )}
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} disabled={applying} className="rounded border px-3 py-1 text-xs disabled:opacity-50">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={applying}
+              className="rounded border px-3 py-1 text-xs disabled:opacity-50"
+            >
               {done ? "닫기" : "취소"}
             </button>
             {preview && !done && (
