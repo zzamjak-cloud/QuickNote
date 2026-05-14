@@ -948,6 +948,8 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   ]);
 
   // 디바운스 자동 저장
+  // doc 가 실제로 변경됐을 때만 normalize/저장 — 이전 저장 시점 doc 참조로 빠른 skip
+  const lastSavedDocRef = useRef<unknown>(null);
   useEffect(() => {
     if (!editor) return;
     const handler = () => {
@@ -958,6 +960,10 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
       debounceRef.current = window.setTimeout(() => {
         if (!effectivePageId) return;
         if (!storeDocHydratedRef.current) return;
+        // PM doc 참조가 바뀌지 않았으면 내용 변경 없음 — normalize/저장 skip
+        const currentDoc = editor.state.doc;
+        if (currentDoc === lastSavedDocRef.current) return;
+        lastSavedDocRef.current = currentDoc;
         const json = normalizeFullPageDatabaseDoc(editor.getJSON());
         updateDoc(effectivePageId, json);
       }, AUTOSAVE_DEBOUNCE_MS);

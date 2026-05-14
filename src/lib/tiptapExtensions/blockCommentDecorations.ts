@@ -17,6 +17,11 @@ export function createBlockCommentDecorations(
     name: "blockCommentDecorations",
     addProseMirrorPlugins() {
       const myId = myMemberId;
+
+      // 캐시 키: 메시지 내용 해시 + doc revision. 동일하면 이전 DecorationSet 재사용.
+      let cachedKey = "";
+      let cachedSet: DecorationSet | null = null;
+
       return [
         new Plugin({
           key: blockCommentDecoKey,
@@ -30,6 +35,14 @@ export function createBlockCommentDecorations(
               const messages = useBlockCommentStore.getState().messages.filter(
                 (m) => m.pageId === currentPageId,
               );
+
+              // 메시지 목록 해시 (id + bodyText 기반) + doc revision 으로 캐시 키 계산
+              const msgHash = messages.map((m) => `${m.id}:${m.bodyText}`).join("|");
+              const cacheKey = `${currentPageId}|${msgHash}|${state.doc.version ?? 0}|${currentMemberId ?? ""}`;
+              if (cacheKey === cachedKey && cachedSet) {
+                return cachedSet;
+              }
+
               const countBy = new Map<string, number>();
               for (const m of messages) {
                 countBy.set(m.blockId, (countBy.get(m.blockId) ?? 0) + 1);
@@ -60,7 +73,11 @@ export function createBlockCommentDecorations(
                   Decoration.node(pos, pos + node.nodeSize, { class: classes }),
                 );
               });
-              return DecorationSet.create(state.doc, decos);
+
+              const result = DecorationSet.create(state.doc, decos);
+              cachedKey = cacheKey;
+              cachedSet = result;
+              return result;
             },
           },
         }),

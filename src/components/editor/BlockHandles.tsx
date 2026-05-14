@@ -367,6 +367,13 @@ export function BlockHandles({
     [editor],
   );
 
+  // menuOpen·boxSelectionActive 를 ref 로 관리 — mousemove 핸들러가 최신값을 읽되
+  // 값 변경마다 리스너를 재등록하지 않도록 deps 에서 제거
+  const menuOpenRef = useRef(menuOpen);
+  const boxSelectionActiveRef = useRef(boxSelectionActive);
+  useEffect(() => { menuOpenRef.current = menuOpen; }, [menuOpen]);
+  useEffect(() => { boxSelectionActiveRef.current = boxSelectionActive; }, [boxSelectionActive]);
+
   useEffect(() => {
     const syncBoxSelecting = () => {
       const cls = document.body.classList;
@@ -382,7 +389,6 @@ export function BlockHandles({
 
   useEffect(() => {
     if (!editor) return;
-    if (boxSelectionActive) return;
     const root = containerRef.current?.parentElement;
     if (!root) return;
 
@@ -393,7 +399,7 @@ export function BlockHandles({
       rafId = null;
       const e = pending;
       pending = null;
-      if (!e || menuOpen) return;
+      if (!e || menuOpenRef.current) return;
       setHover((prev) => {
         const next = computeHover(e);
         const wrapperRect =
@@ -441,14 +447,14 @@ export function BlockHandles({
     };
 
     const onMove = (e: MouseEvent) => {
-      if (menuOpen) return;
+      if (menuOpenRef.current || boxSelectionActiveRef.current) return;
       pending = e;
       if (rafId == null) {
         rafId = requestAnimationFrame(flushHover);
       }
     };
     const onLeave = (e: MouseEvent) => {
-      if (menuOpen) return;
+      if (menuOpenRef.current) return;
       pending = null;
       if (rafId != null) {
         cancelAnimationFrame(rafId);
@@ -471,7 +477,7 @@ export function BlockHandles({
       root.removeEventListener("mousemove", onMove);
       root.removeEventListener("mouseleave", onLeave);
     };
-  }, [editor, computeHover, menuOpen, boxSelectionActive]);
+  }, [editor, computeHover]);
 
   useEffect(() => {
     if (!menuOpen) return;
