@@ -9,16 +9,27 @@ import {
   shouldWriteAnchor,
   useHistoryStore,
 } from "./historyStore";
-import type { PageSnapshot } from "../types/history";
-import { enqueueAsync } from "../lib/sync/runtime";
-import { useAuthStore } from "./authStore";
-import { useWorkspaceStore } from "./workspaceStore";
 import { useSettingsStore } from "./settingsStore";
-import { useMemberStore } from "./memberStore";
 import { useNotificationStore } from "./notificationStore";
+import { useWorkspaceStore } from "./workspaceStore";
+import { enqueueAsync } from "../lib/sync/runtime";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
+import {
+  EMPTY_DOC,
+  blockPreviewById,
+  enqueueUpsertPage,
+  getCreatedByMemberId,
+  getCurrentMemberId,
+  getCurrentWorkspaceId,
+  isDescendant,
+  nextOrderForParent,
+  toPageSnapshot,
+  updateButtonLabelsInDoc,
+} from "./pageStore/helpers";
+
+export { enqueueUpsertPage as enqueuePageUpsertForSync, isDescendant } from "./pageStore/helpers";
 import {
   attachPersistedMeta,
   mergePersistedSubset,
@@ -32,130 +43,8 @@ import {
 
 export { migratePageStore } from "./pageStore/migrations";
 
-// 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
-// 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
-function getCreatedByMemberId(): string {
-  const s = useAuthStore.getState().state;
-  return s.status === "authenticated" ? s.user.sub : "";
-}
-
-function getCurrentMemberId(): string {
-  return useMemberStore.getState().me?.memberId ?? getCreatedByMemberId();
-}
-
-function getCurrentWorkspaceId(): string {
-  return useWorkspaceStore.getState().currentWorkspaceId ?? "";
-}
-
-// 클라이언트 number(epoch ms) → GraphQL 경계 string/ISO 변환.
-// AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다 — 객체를 그대로 보내면
-// 'Variable has an invalid value' 검증 오류로 mutation 이 거부된다.
-function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> {
-  const base: Record<string, unknown> = {
-    id: p.id,
-    workspaceId: getCurrentWorkspaceId(),
-    createdByMemberId,
-    title: p.title,
-    icon: p.icon ?? null,
-    coverImage: p.coverImage ?? null,
-    parentId: p.parentId ?? null,
-    order: String(p.order),
-    databaseId: p.databaseId ?? null,
-    doc: JSON.stringify(p.doc),
-    dbCells: p.dbCells ? JSON.stringify(p.dbCells) : null,
-    createdAt: new Date(p.createdAt).toISOString(),
-    updatedAt: new Date(p.updatedAt).toISOString(),
-  };
-  return base;
-}
-
-function enqueueUpsertPage(p: Page): void {
-  // 인증/부트스트랩 미완료 시점에 enqueue 되면 서버 검증에서 거부되어 outbox 에 stale 로 남는다.
-  if (!getCurrentWorkspaceId()) {
-    console.warn("[sync] upsertPage skipped: workspaceId 미설정", { pageId: p.id });
-    return;
-  }
-  enqueueAsync(
-    "upsertPage",
-    toGqlPage(p, getCreatedByMemberId()) as unknown as Record<string, unknown> & {
-      id: string;
-      updatedAt?: string;
-    },
-  );
-}
-
-/** 레거시 댓글 마이그레이션 등 스토어 외부에서 upsert 큐에 태울 때 사용 */
-export function enqueuePageUpsertForSync(p: Page): void {
-  enqueueUpsertPage(p);
-}
-
-/** href 에서 pageId 를 추출 — HTTP URL (?page=xxx) 과 quicknote://page/xxx 스킴 모두 처리 */
-function extractPageIdFromHref(href: string): string | null {
-  if (!href) return null;
-  try {
-    const url = new URL(href);
-    // HTTP/HTTPS: ?page=xxx
-    const qp = url.searchParams.get("page");
-    if (qp) return qp;
-    // quicknote://page/xxx
-    if (url.protocol === "quicknote:" && url.hostname === "page") {
-      return url.pathname.replace(/^\/+/, "") || null;
-    }
-  } catch {
-    // 상대 URL 등 파싱 실패 — 직접 파싱
-    const m = href.match(/[?&]page=([^&]+)/);
-    if (m) return decodeURIComponent(m[1]!);
-  }
-  return null;
-}
-
-function updateButtonLabelsInDoc(
-  node: JSONContent,
-  homePageId: string,
-  newLabel: string,
-  markDirty: () => void,
-): JSONContent {
-  if (
-    node.type === "buttonBlock" &&
-    extractPageIdFromHref(node.attrs?.href ?? "") === homePageId
-  ) {
-    markDirty();
-    return { ...node, attrs: { ...node.attrs, label: newLabel } };
-  }
-  if (!node.content?.length) return node;
-  const newContent = node.content.map((c) =>
-    updateButtonLabelsInDoc(c, homePageId, newLabel, markDirty),
-  );
-  if (newContent.every((c, i) => c === node.content![i])) return node;
-  return { ...node, content: newContent };
-}
-
-function jsonText(node: JSONContent | null | undefined): string {
-  if (!node) return "";
-  if (node.type === "mention") {
-    return "";
-  }
-  const own = typeof node.text === "string" ? node.text : "";
-  const child = node.content?.map(jsonText).join(" ") ?? "";
-  return `${own} ${child}`.replace(/\s+/g, " ").trim();
-}
-
-function blockPreviewById(doc: JSONContent, blockId: string): string {
-  let found = "";
-  const walk = (node: JSONContent | null | undefined): boolean => {
-    if (!node) return false;
-    if (node.attrs && node.attrs.id === blockId) {
-      found = jsonText(node);
-      return true;
-    }
-    for (const child of node.content ?? []) {
-      if (walk(child)) return true;
-    }
-    return false;
-  };
-  walk(doc);
-  return found;
-}
+// 동기화·헬퍼는 ./pageStore/helpers.ts 로 분리됨.
+// 단, notifyNewPageMentions 는 usePageStore 를 참조하므로 순환 회피용으로 본 파일 유지.
 
 function notifyNewPageMentions(pageId: string, before: JSONContent, after: JSONContent): void {
   const authorMemberId = getCurrentMemberId();
@@ -245,11 +134,6 @@ function notifyNewPageMentions(pageId: string, before: JSONContent, after: JSONC
   }
 }
 
-const EMPTY_DOC: JSONContent = {
-  type: "doc",
-  content: [{ type: "paragraph" }],
-};
-
 type DeletedBatch = {
   /** 삭제 직전의 page 스냅샷들(자손 포함) */
   pages: Page[];
@@ -321,42 +205,7 @@ type PageStoreActions = {
 export type PageStore = PageStoreState & PageStoreActions;
 
 // persist 마이그레이션·coerce 헬퍼는 ./pageStore/migrations.ts 로 분리됨.
-
-function nextOrderForParent(pages: PageMap, parentId: string | null): number {
-  const siblings = Object.values(pages).filter((p) => p.parentId === parentId);
-  if (siblings.length === 0) return 0;
-  return Math.max(...siblings.map((s) => s.order)) + 1;
-}
-
-function toPageSnapshot(page: Page): PageSnapshot {
-  return {
-    id: page.id,
-    title: page.title,
-    icon: page.icon,
-    doc: structuredClone(page.doc),
-    parentId: page.parentId,
-    order: page.order,
-    databaseId: page.databaseId,
-    dbCells: page.dbCells ? structuredClone(page.dbCells) : undefined,
-    blockComments: page.blockComments
-      ? structuredClone(page.blockComments)
-      : undefined,
-  };
-}
-
-export function isDescendant(
-  pages: PageMap,
-  candidateAncestorId: string,
-  nodeId: string,
-): boolean {
-  // candidateAncestorId가 nodeId의 조상인지 검사 (순환 방지용)
-  let cursor: string | null = nodeId;
-  while (cursor) {
-    if (cursor === candidateAncestorId) return true;
-    cursor = pages[cursor]?.parentId ?? null;
-  }
-  return false;
-}
+// 순수 헬퍼(nextOrderForParent, toPageSnapshot, isDescendant, EMPTY_DOC 등)는 ./pageStore/helpers.ts 로 분리됨.
 
 export const usePageStore = create<PageStore>()(
   persist(
