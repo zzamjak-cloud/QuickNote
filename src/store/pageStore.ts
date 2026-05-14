@@ -101,7 +101,7 @@ function extractPageIdFromHref(href: string): string | null {
   } catch {
     // 상대 URL 등 파싱 실패 — 직접 파싱
     const m = href.match(/[?&]page=([^&]+)/);
-    if (m) return decodeURIComponent(m[1]);
+    if (m) return decodeURIComponent(m[1]!);
   }
   return null;
 }
