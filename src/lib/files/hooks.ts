@@ -57,7 +57,7 @@ export function useFileUrl(
         if (!canceled) setUrl(u);
       },
       (e) => {
-        if (!canceled) setError(String(e));
+        if (!canceled) setError(e instanceof Error ? e.message : String(e));
       },
     );
     return () => {

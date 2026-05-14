@@ -86,6 +86,24 @@ export function enqueuePageUpsertForSync(p: Page): void {
   enqueueUpsertPage(p);
 }
 
+function updateButtonLabelsInDoc(
+  node: JSONContent,
+  dbRef: string,
+  newLabel: string,
+  markDirty: () => void,
+): JSONContent {
+  if (node.type === "buttonBlock" && node.attrs?.href === dbRef) {
+    markDirty();
+    return { ...node, attrs: { ...node.attrs, label: newLabel } };
+  }
+  if (!node.content?.length) return node;
+  const newContent = node.content.map((c) =>
+    updateButtonLabelsInDoc(c, dbRef, newLabel, markDirty),
+  );
+  if (newContent.every((c, i) => c === node.content![i])) return node;
+  return { ...node, content: newContent };
+}
+
 function jsonText(node: JSONContent | null | undefined): string {
   if (!node) return "";
   if (node.type === "mention") {
@@ -270,6 +288,8 @@ type PageStoreActions = {
   setPageDbCell: (pageId: string, columnId: string, value: CellValue) => void;
   restorePageFromLatestHistory: (pageId: string) => boolean;
   restorePageFromHistoryEvent: (pageId: string, eventId: string) => boolean;
+  // DB 제목 변경 시 해당 DB를 가리키는 buttonBlock 레이블 동기화
+  updateButtonBlockLabels: (dbId: string, newLabel: string) => void;
 };
 
 export type PageStore = PageStoreState & PageStoreActions;
@@ -1068,6 +1088,25 @@ export const usePageStore = create<PageStore>()(
         const after = get().pages[pageId];
         if (after) enqueueUpsertPage(after);
         return true;
+      },
+
+      updateButtonBlockLabels: (dbId, newLabel) => {
+        const dbRef = `quicknote://database/${dbId}`;
+        const pages = get().pages;
+        const changed: Page[] = [];
+        for (const page of Object.values(pages)) {
+          if (!page.doc) continue;
+          let dirty = false;
+          const doc = updateButtonLabelsInDoc(page.doc, dbRef, newLabel, () => { dirty = true; });
+          if (dirty) changed.push({ ...page, doc, updatedAt: Date.now() });
+        }
+        if (changed.length === 0) return;
+        set((s) => {
+          const next = { ...s.pages };
+          for (const p of changed) next[p.id] = p;
+          return { pages: next };
+        });
+        for (const p of changed) enqueueUpsertPage(p);
       },
 
       findFullPagePageIdForDatabase: (databaseId) => {
