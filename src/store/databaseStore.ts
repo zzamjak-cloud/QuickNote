@@ -20,13 +20,17 @@ import { useAuthStore } from "./authStore";
 import { useWorkspaceStore } from "./workspaceStore";
 import type { Page } from "../types/page";
 import {
-  attachQuarantine,
   attachPersistedMeta,
   mergePersistedSubset,
-  migratePersistedStore,
-  type PersistedObject,
   type PersistedQuarantine,
 } from "../lib/migrations/persistedStore";
+import {
+  DATABASE_STORE_DATA_KEYS,
+  DATABASE_STORE_PERSIST_VERSION,
+  migrateDatabaseStore,
+} from "./databaseStore/migrations";
+
+export { migrateDatabaseStore } from "./databaseStore/migrations";
 
 // v5 fallback: 아직 memberStore(me.memberId)와 완전 연동 전이라 auth sub 를 사용.
 function getCreatedByMemberId(): string {
@@ -97,6 +101,8 @@ function now(): number {
   return Date.now();
 }
 
+// migration/coerce 헬퍼는 ./databaseStore/migrations.ts 로 분리됨.
+
 function seedColumns(): ColumnDef[] {
   return [
     { id: newId(), name: "이름", type: "title" },
@@ -158,171 +164,6 @@ type DatabaseStoreActions = {
 };
 
 export type DatabaseStore = DatabaseStoreState & DatabaseStoreActions;
-
-/** zustand persist `version` 과 동일 — 메타 schemaVersion 과 맞춘다 */
-const DATABASE_STORE_PERSIST_VERSION = 3;
-
-const DATABASE_STORE_DATA_KEYS = [
-  "databases",
-  "cacheWorkspaceId",
-  "migrationQuarantine",
-  "dbTemplates",
-] as const satisfies readonly (keyof DatabaseStoreState)[];
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-const COLUMN_TYPES = new Set<ColumnType>([
-  "title",
-  "text",
-  "number",
-  "select",
-  "multiSelect",
-  "status",
-  "date",
-  "person",
-  "file",
-  "checkbox",
-  "url",
-  "phone",
-  "email",
-]);
-
-function coerceColumn(value: unknown): ColumnDef | null {
-  if (!isPlainObject(value)) return null;
-  if (
-    typeof value.id !== "string" ||
-    typeof value.name !== "string" ||
-    typeof value.type !== "string" ||
-    !COLUMN_TYPES.has(value.type as ColumnType)
-  ) {
-    return null;
-  }
-  return {
-    id: value.id,
-    name: value.name,
-    type: value.type as ColumnType,
-    width: typeof value.width === "number" ? value.width : undefined,
-    config: isPlainObject(value.config)
-      ? (value.config as ColumnDef["config"])
-      : undefined,
-  };
-}
-
-function coerceDatabaseBundle(value: unknown): DatabaseBundle | null {
-  if (!isPlainObject(value) || !isPlainObject(value.meta)) return null;
-  const createdAt = Number(value.meta.createdAt);
-  const updatedAt = Number(value.meta.updatedAt);
-  if (
-    typeof value.meta.id !== "string" ||
-    typeof value.meta.title !== "string" ||
-    !Number.isFinite(createdAt) ||
-    !Number.isFinite(updatedAt) ||
-    !Array.isArray(value.columns) ||
-    !Array.isArray(value.rowPageOrder)
-  ) {
-    return null;
-  }
-  const columns = value.columns.map(coerceColumn).filter(Boolean) as ColumnDef[];
-  if (columns.length !== value.columns.length) return null;
-  return {
-    meta: {
-      id: value.meta.id,
-      title: value.meta.title,
-      createdAt,
-      updatedAt,
-    },
-    columns,
-    rowPageOrder: value.rowPageOrder.filter(
-      (pageId): pageId is string => typeof pageId === "string",
-    ),
-  };
-}
-
-function coerceDatabaseMap(value: unknown): {
-  databases: DbMap;
-  quarantined: Record<string, unknown>;
-} {
-  const databases: DbMap = {};
-  const quarantined: Record<string, unknown> = {};
-  if (!isPlainObject(value)) return { databases, quarantined };
-  for (const [key, raw] of Object.entries(value)) {
-    const bundle = coerceDatabaseBundle(raw);
-    if (bundle) {
-      databases[bundle.meta.id || key] = bundle;
-    } else {
-      quarantined[key] = raw;
-    }
-  }
-  return { databases, quarantined };
-}
-
-function validateDatabasePersistedState(state: PersistedObject): boolean {
-  return (
-    isPlainObject(state.databases) &&
-    (state.cacheWorkspaceId == null || typeof state.cacheWorkspaceId === "string")
-  );
-}
-
-function normalizeDatabasePersistedState(
-  state: PersistedObject,
-  fromVersion: number,
-): PersistedObject {
-  const { databases, quarantined } = coerceDatabaseMap(state.databases);
-  const next: PersistedObject = {
-    ...state,
-    databases,
-    cacheWorkspaceId:
-      typeof state.cacheWorkspaceId === "string" ? state.cacheWorkspaceId : null,
-    migrationQuarantine: Array.isArray(state.migrationQuarantine)
-      ? state.migrationQuarantine
-      : [],
-  };
-  if (Object.keys(quarantined).length > 0) {
-    return attachQuarantine(next, quarantined, fromVersion, {
-      quarantineReason: "invalid-database-records",
-    });
-  }
-  return next;
-}
-
-export function migrateDatabaseStore(
-  persisted: unknown,
-  fromVersion: number,
-): PersistedObject {
-  const next = migratePersistedStore(
-    persisted,
-    fromVersion,
-    [
-      {
-        version: 1,
-        migrate: (state) =>
-          normalizeDatabasePersistedState(state, fromVersion),
-      },
-      {
-        version: 2,
-        migrate: (state) => ({ ...state, cacheWorkspaceId: null }),
-      },
-      {
-        version: 3,
-        migrate: (state) =>
-          normalizeDatabasePersistedState(state, fromVersion),
-      },
-    ],
-    { databases: {}, cacheWorkspaceId: null, migrationQuarantine: [] },
-    {
-      validate: validateDatabasePersistedState,
-      quarantineReason: "invalid-database-store",
-    },
-  );
-  if (fromVersion < DATABASE_STORE_PERSIST_VERSION) {
-    return attachPersistedMeta(next, {
-      migratedAt: new Date().toISOString(),
-    });
-  }
-  return next;
-}
 
 /** 컬럼별 기본 셀 값 — 현재는 status만 첫 옵션을 채움, 나머지는 null. */
 function defaultCellValueForColumn(col: ColumnDef): CellValue {
