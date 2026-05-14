@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useMemberStore } from "../../store/memberStore";
+import { deleteOrganizationApi } from "../../lib/sync/organizationApi";
 
 type TabType = "active" | "archived";
 
@@ -22,6 +23,11 @@ export function AdminOrganizationsTab() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [singleDeleting, setSingleDeleting] = useState(false);
+  // 보관함 다중 선택 일괄 삭제 상태
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // 활성/보관 조직 분류 (removedAt 기반) + 이름 정렬
   const activeOrgs = useMemo(
@@ -123,6 +129,82 @@ export function AdminOrganizationsTab() {
     upsertOrganization({ ...org, removedAt: undefined });
   };
 
+  /** 영구 삭제 — 서버 deleteOrganizationApi 호출 후 성공 시에만 로컬 제거 */
+  const onPermanentDeleteOrg = async (orgId: string) => {
+    setSingleDeleting(true);
+    try {
+      const ok = await deleteOrganizationApi(orgId);
+      if (ok) {
+        removeOrganization(orgId);
+        setDeleteConfirmId(null);
+      } else {
+        alert(
+          "삭제 실패: 서버에서 조직을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.",
+        );
+      }
+    } catch (err) {
+      console.error("[AdminOrgs] 영구 삭제 실패", orgId, err);
+      alert(
+        "삭제 실패: 권한 또는 네트워크 문제일 수 있습니다. 콘솔을 확인해주세요.",
+      );
+    } finally {
+      setSingleDeleting(false);
+    }
+  };
+
+  /** 보관함 일괄 영구 삭제 */
+  const onBulkPermanentDelete = async () => {
+    if (bulkSelectedIds.size === 0) return;
+    setBulkDeleting(true);
+    let okCount = 0;
+    let failCount = 0;
+    try {
+      const ids = Array.from(bulkSelectedIds);
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const ok = await deleteOrganizationApi(id);
+            return { id, ok };
+          } catch (err) {
+            console.error("[AdminOrgs] 영구 삭제 실패", id, err);
+            return { id, ok: false };
+          }
+        }),
+      );
+      for (const r of results) {
+        if (r.ok) {
+          okCount++;
+          removeOrganization(r.id);
+        } else {
+          failCount++;
+        }
+      }
+      setBulkSelectedIds(new Set());
+      setBulkConfirmOpen(false);
+      if (failCount > 0) {
+        alert(`삭제 완료 ${okCount}개, 실패 ${failCount}개. 콘솔을 확인해주세요.`);
+      }
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleBulkSelect = (orgId: string) =>
+    setBulkSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orgId)) next.delete(orgId);
+      else next.add(orgId);
+      return next;
+    });
+
+  const toggleSelectAll = () => {
+    if (bulkSelectedIds.size === archivedOrgs.length) {
+      setBulkSelectedIds(new Set());
+    } else {
+      setBulkSelectedIds(new Set(archivedOrgs.map((o) => o.organizationId)));
+    }
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -195,8 +277,38 @@ export function AdminOrganizationsTab() {
         </div>
       ) : (
         <div className="rounded-md border border-zinc-200 dark:border-zinc-700">
-          <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
-            보관된 조직
+          <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              {archivedOrgs.length > 0 && (
+                <input
+                  type="checkbox"
+                  aria-label="전체 선택"
+                  checked={bulkSelectedIds.size === archivedOrgs.length}
+                  ref={(el) => {
+                    if (el) {
+                      el.indeterminate =
+                        bulkSelectedIds.size > 0 &&
+                        bulkSelectedIds.size < archivedOrgs.length;
+                    }
+                  }}
+                  onChange={toggleSelectAll}
+                />
+              )}
+              <span>
+                보관된 조직
+                {bulkSelectedIds.size > 0 && ` (${bulkSelectedIds.size}개 선택)`}
+              </span>
+            </div>
+            {bulkSelectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setBulkConfirmOpen(true)}
+                disabled={bulkDeleting}
+                className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
+              >
+                선택한 {bulkSelectedIds.size}개 영구 삭제
+              </button>
+            )}
           </div>
           <ul className="grid grid-cols-1 gap-2 p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
             {archivedOrgs.length === 0 ? (
@@ -206,16 +318,22 @@ export function AdminOrganizationsTab() {
             ) : (
               archivedOrgs.map((org) => (
                 <li key={org.organizationId}>
-                  <button
-                    type="button"
-                    aria-label={`${org.name} 관리`}
-                    onClick={() => setDeleteConfirmId(org.organizationId)}
-                    className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                  >
-                    <span className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">
+                  <div className="flex items-center gap-2 rounded border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                    <input
+                      type="checkbox"
+                      aria-label={`${org.name} 선택`}
+                      checked={bulkSelectedIds.has(org.organizationId)}
+                      onChange={() => toggleBulkSelect(org.organizationId)}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`${org.name} 관리`}
+                      onClick={() => setDeleteConfirmId(org.organizationId)}
+                      className="min-w-0 flex-1 truncate text-left text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                    >
                       {org.name}
-                    </span>
-                  </button>
+                    </button>
+                  </div>
                 </li>
               ))
             )}
@@ -244,23 +362,26 @@ export function AdminOrganizationsTab() {
               <div className="mt-4 flex justify-between gap-2">
                 <button
                   type="button"
-                  onClick={() => { removeOrganization(org.organizationId); setDeleteConfirmId(null); }}
-                  className="rounded border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
+                  disabled={singleDeleting}
+                  onClick={() => void onPermanentDeleteOrg(org.organizationId)}
+                  className="rounded border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
                 >
-                  조직 영구 삭제
+                  {singleDeleting ? "삭제 중..." : "조직 영구 삭제"}
                 </button>
                 <div className="flex gap-2">
                   <button
                     type="button"
+                    disabled={singleDeleting}
                     onClick={() => setDeleteConfirmId(null)}
-                    className="rounded border px-3 py-1 text-xs"
+                    className="rounded border px-3 py-1 text-xs disabled:opacity-60"
                   >
                     닫기
                   </button>
                   <button
                     type="button"
+                    disabled={singleDeleting}
                     onClick={() => { onRestoreOrg(org.organizationId); setDeleteConfirmId(null); }}
-                    className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
+                    className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-60"
                   >
                     복원
                   </button>
@@ -435,6 +556,47 @@ export function AdminOrganizationsTab() {
           </div>
         </div>
       ) : null}
+
+      {/* 일괄 영구 삭제 확인 다이얼로그 */}
+      {bulkConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[540] flex items-center justify-center bg-black/45 p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !bulkDeleting) setBulkConfirmOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h4 className="text-sm font-semibold">선택한 {bulkSelectedIds.size}개 조직 영구 삭제</h4>
+            <p className="mt-2 text-xs text-zinc-500">
+              이 작업은 되돌릴 수 없습니다. DB 에서 완전히 제거되며 멤버 배정도 함께 해제됩니다.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkConfirmOpen(false)}
+                disabled={bulkDeleting}
+                className="rounded border px-3 py-1 text-xs disabled:opacity-60"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void onBulkPermanentDelete()}
+                disabled={bulkDeleting}
+                className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {bulkDeleting ? "삭제 중..." : "영구 삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

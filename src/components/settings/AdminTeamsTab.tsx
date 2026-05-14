@@ -21,6 +21,10 @@ export function AdminTeamsTab() {
   const [saving, setSaving] = useState(false);
   const [archivedActionId, setArchivedActionId] = useState<string | null>(null);
   const [archivedActionLoading, setArchivedActionLoading] = useState(false);
+  // 보관함 다중 선택 일괄 삭제 상태
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // 활성/보관 팀 분류 + 이름 알파벳/가나다 정렬
   const activeTeams = useMemo(
@@ -85,6 +89,67 @@ export function AdminTeamsTab() {
   const onRestoreTeam = async (teamId: string) => {
     const restored = await restoreTeamApi(teamId);
     if (restored) upsertTeam(restored);
+  };
+
+  // 보관함 일괄 영구 삭제 — 선택된 팀들을 병렬로 deleteTeamApi 호출
+  const onBulkPermanentDelete = async () => {
+    if (bulkSelectedIds.size === 0) return;
+    setBulkDeleting(true);
+    let okCount = 0;
+    let failCount = 0;
+    try {
+      const ids = Array.from(bulkSelectedIds);
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const ok = await deleteTeamApi(id);
+            return { id, ok };
+          } catch (err) {
+            console.error("[AdminTeams] 영구 삭제 실패", id, err);
+            return { id, ok: false };
+          }
+        }),
+      );
+      const removedIds = new Set<string>();
+      for (const r of results) {
+        if (r.ok) {
+          okCount++;
+          removedIds.add(r.id);
+        } else {
+          failCount++;
+        }
+      }
+      // 서버 삭제 성공한 항목만 로컬에서 제거
+      if (removedIds.size > 0) {
+        const remaining = useTeamStore
+          .getState()
+          .teams.filter((t) => !removedIds.has(t.teamId));
+        useTeamStore.setState({ teams: remaining });
+      }
+      setBulkSelectedIds(new Set());
+      setBulkConfirmOpen(false);
+      if (failCount > 0) {
+        alert(`삭제 완료 ${okCount}개, 실패 ${failCount}개. 콘솔을 확인해주세요.`);
+      }
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleBulkSelect = (teamId: string) =>
+    setBulkSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(teamId)) next.delete(teamId);
+      else next.add(teamId);
+      return next;
+    });
+
+  const toggleSelectAll = () => {
+    if (bulkSelectedIds.size === archivedTeams.length) {
+      setBulkSelectedIds(new Set());
+    } else {
+      setBulkSelectedIds(new Set(archivedTeams.map((t) => t.teamId)));
+    }
   };
 
   const onOpenAssignModal = (teamId: string) => {
@@ -199,10 +264,40 @@ export function AdminTeamsTab() {
           </ul>
         </div>
       ) : (
-        /* 보관된 팀 목록 */
+        /* 보관된 팀 목록 — 다중 선택 후 일괄 영구 삭제 가능 */
         <div className="rounded-md border border-zinc-200 dark:border-zinc-700">
-          <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium dark:border-zinc-800">
-            보관된 팀
+          <div className="flex items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              {archivedTeams.length > 0 && (
+                <input
+                  type="checkbox"
+                  aria-label="전체 선택"
+                  checked={bulkSelectedIds.size === archivedTeams.length}
+                  ref={(el) => {
+                    if (el) {
+                      el.indeterminate =
+                        bulkSelectedIds.size > 0 &&
+                        bulkSelectedIds.size < archivedTeams.length;
+                    }
+                  }}
+                  onChange={toggleSelectAll}
+                />
+              )}
+              <span>
+                보관된 팀
+                {bulkSelectedIds.size > 0 && ` (${bulkSelectedIds.size}개 선택)`}
+              </span>
+            </div>
+            {bulkSelectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => setBulkConfirmOpen(true)}
+                disabled={bulkDeleting}
+                className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
+              >
+                선택한 {bulkSelectedIds.size}개 영구 삭제
+              </button>
+            )}
           </div>
           <ul className="grid grid-cols-1 gap-2 p-2 text-xs md:grid-cols-2 xl:grid-cols-3">
             {archivedTeams.length === 0 ? (
@@ -212,16 +307,22 @@ export function AdminTeamsTab() {
             ) : (
               archivedTeams.map((team) => (
                 <li key={team.teamId}>
-                  <button
-                    type="button"
-                    aria-label={`${team.name} 관리`}
-                    onClick={() => setArchivedActionId(team.teamId)}
-                    className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                  >
-                    <span className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">
+                  <div className="flex items-center gap-2 rounded border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                    <input
+                      type="checkbox"
+                      aria-label={`${team.name} 선택`}
+                      checked={bulkSelectedIds.has(team.teamId)}
+                      onChange={() => toggleBulkSelect(team.teamId)}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`${team.name} 관리`}
+                      onClick={() => setArchivedActionId(team.teamId)}
+                      className="min-w-0 flex-1 truncate text-left text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                    >
                       {team.name}
-                    </span>
-                  </button>
+                    </button>
+                  </div>
                 </li>
               ))
             )}
@@ -254,14 +355,24 @@ export function AdminTeamsTab() {
                   onClick={async () => {
                     setArchivedActionLoading(true);
                     try {
-                      await deleteTeamApi(team.teamId);
-                      const current = useTeamStore.getState().teams.filter(
-                        (t) => t.teamId !== team.teamId,
+                      // 서버 반환값을 확인해 실제 삭제 성공 시에만 로컬 제거
+                      const ok = await deleteTeamApi(team.teamId);
+                      if (ok) {
+                        const current = useTeamStore.getState().teams.filter(
+                          (t) => t.teamId !== team.teamId,
+                        );
+                        useTeamStore.setState({ teams: current });
+                        setArchivedActionId(null);
+                      } else {
+                        alert(
+                          "삭제 실패: 서버에서 팀을 찾지 못했습니다. 새로고침 후 다시 시도해주세요.",
+                        );
+                      }
+                    } catch (err) {
+                      console.error("[AdminTeams] 영구 삭제 실패", team.teamId, err);
+                      alert(
+                        "삭제 실패: 권한 또는 네트워크 문제일 수 있습니다. 콘솔을 확인해주세요.",
                       );
-                      useTeamStore.setState({ teams: current });
-                      setArchivedActionId(null);
-                    } catch {
-                      // 실패 시 조용히 처리
                     } finally {
                       setArchivedActionLoading(false);
                     }
@@ -469,6 +580,47 @@ export function AdminTeamsTab() {
           </div>
         </div>
       ) : null}
+
+      {/* 일괄 영구 삭제 확인 다이얼로그 */}
+      {bulkConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[540] flex items-center justify-center bg-black/45 p-4"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !bulkDeleting) setBulkConfirmOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h4 className="text-sm font-semibold">선택한 {bulkSelectedIds.size}개 팀 영구 삭제</h4>
+            <p className="mt-2 text-xs text-zinc-500">
+              이 작업은 되돌릴 수 없습니다. DB 에서 완전히 제거되며 멤버 배정도 함께 해제됩니다.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setBulkConfirmOpen(false)}
+                disabled={bulkDeleting}
+                className="rounded border px-3 py-1 text-xs disabled:opacity-60"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => void onBulkPermanentDelete()}
+                disabled={bulkDeleting}
+                className="rounded bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {bulkDeleting ? "삭제 중..." : "영구 삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
