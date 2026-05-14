@@ -564,6 +564,8 @@ export function BlockHandles({
       >();
       for (const m of useBlockCommentStore.getState().messages) {
         if (m.pageId !== activePageId) continue;
+        // 페이지 레벨 댓글(sentinel)은 블록 배지에서 제외
+        if (m.blockId === "__page__") continue;
         const arr = messagesByBlockId.get(m.blockId) ?? [];
         arr.push({
           id: m.id,
@@ -846,7 +848,18 @@ export function BlockHandles({
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isColumnLayout = hover?.node.type.name === "columnLayout";
   const isTextBlock = hover
-    ? ["paragraph", "heading", "blockquote", "toggle", "bulletList", "orderedList", "taskList"].includes(hover.node.type.name)
+    ? [
+        "paragraph",
+        "heading",
+        "blockquote",
+        "toggle",
+        "bulletList",
+        "orderedList",
+        "taskList",
+        // 마크다운 형식 블록 — 글머리·번호·체크 항목 개별 단위에도 배경 프리셋 적용
+        "listItem",
+        "taskItem",
+      ].includes(hover.node.type.name)
     : false;
   const isAttachmentBlock =
     hover ? isAttachmentBlockNodeType(hover.node.type.name) : false;

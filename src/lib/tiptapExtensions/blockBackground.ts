@@ -110,6 +110,9 @@ export const BlockBackground = Extension.create({
           "bulletList",
           "orderedList",
           "taskList",
+          // 마크다운 형식 블록 — 개별 항목 단위로도 배경색을 적용할 수 있도록 listItem/taskItem 포함.
+          "listItem",
+          "taskItem",
         ],
         attributes: {
           backgroundColor: {

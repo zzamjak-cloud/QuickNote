@@ -41,6 +41,8 @@ export type ColumnDef = {
     options?: SelectOption[];
     /** 날짜 범위 UI 표시 */
     dateShowEnd?: boolean;
+    /** @deprecated 미사용 — 데이터 호환을 위해 필드는 유지 */
+    textAlign?: "left" | "center" | "right";
   };
 };
 

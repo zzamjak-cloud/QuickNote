@@ -15,6 +15,7 @@ import { PageMoveDialog } from "../layout/PageMoveDialog";
 import { useMemberStore } from "../../store/memberStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
+import { PageCommentBar } from "../comments/PageCommentBar";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const allPages = usePageStore((s) => s.pages);
@@ -204,6 +205,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
       </div>
 
       <DatabasePropertyPanel databaseId={databaseId} pageId={pageId} />
+      <PageCommentBar pageId={pageId} />
       </div>{/* close px-12 */}
       </div>{/* close column wrapper */}
 

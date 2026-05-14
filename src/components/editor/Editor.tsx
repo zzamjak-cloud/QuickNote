@@ -173,6 +173,7 @@ import {
   dispatchDecoRefresh,
 } from "../../lib/tiptapExtensions/blockCommentDecorations";
 import { registerEditorForPage } from "../../lib/editor/editorByPageRegistry";
+import { PageCommentBar } from "../comments/PageCommentBar";
 import { MentionSearchModal } from "./MentionSearchModal";
 import type { EditorView as PmEditorView } from "@tiptap/pm/view";
 import {
@@ -904,22 +905,28 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   // deps 에 page?.updatedAt 을 포함해 다른 클라이언트의 push (subscription → applyRemotePageToStore) 가
   // 즉시 editor 에 반영되도록 한다. 자기 타이핑은 editor.getJSON() === safeDoc 비교로 걸러지므로 무한 루프 없음.
   // 사용자 입력 중(focused)이면 cursor 보존을 위해 blur 까지 setContent 를 보류.
+  const lastSyncedPageIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!editor || !pageDoc || !safePageDoc || !effectivePageId) return;
     if (!tipTapJsonDocEquals(editor.schema, safePageDoc, pageDoc)) {
       updateDoc(effectivePageId, safePageDoc, { skipHistory: true });
     }
+    // 페이지 자체가 바뀌었으면 blur 대기 없이 즉시 본문을 교체한다.
+    // (같은 페이지 안에서 원격 변경 등으로 doc 만 갱신될 때만 cursor 보존을 위한 blur 대기 의미가 있음.)
+    const pageChanged = lastSyncedPageIdRef.current !== effectivePageId;
     const sync = () => {
       if (editor.isDestroyed) return;
       const current = editor.getJSON();
       if (tipTapJsonDocEquals(editor.schema, current, safePageDoc)) {
         storeDocHydratedRef.current = true;
+        lastSyncedPageIdRef.current = effectivePageId;
         return;
       }
       editor.commands.setContent(safePageDoc, { emitUpdate: false });
       storeDocHydratedRef.current = true;
+      lastSyncedPageIdRef.current = effectivePageId;
     };
-    if (editor.isFocused) {
+    if (!pageChanged && editor.isFocused) {
       const onBlur = () => {
         editor.off("blur", onBlur);
         scheduleEditorMutation(sync);
@@ -1141,7 +1148,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   return (
     <div
       ref={editorScrollHostRef}
-      className="qn-editor-body-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto bg-white dark:bg-[#111111]"
+      className={`qn-editor-body-scroll relative flex flex-col bg-white dark:bg-[#111111] ${bodyOnly ? "min-h-0" : "min-h-0 flex-1 overflow-y-auto"}`}
     >
       {/* 커버는 max-w- 컬럼 밖에 두어 좁은 본문 폭에서도 에디터 패널 전체 너비로 펼친다(웹·Tauri 공통). */}
       {!bodyOnly && page.coverImage ? (
@@ -1232,6 +1239,10 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
                   />
                 </button>
               </div>
+            </div>
+            {/* 페이지 레벨 댓글 — 제목 바로 아래 */}
+            <div className="px-12">
+              <PageCommentBar pageId={effectivePageId ?? pageId ?? ""} />
             </div>
           </>
         )}

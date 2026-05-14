@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { GripVertical, ChevronDown } from "lucide-react";
 import type { ColumnDef } from "../../types/database";
@@ -38,6 +38,33 @@ export function DatabaseColumnHeader({
   const menuOpen = openColumnMenuId === column.id;
   const thRef = useRef<HTMLTableCellElement>(null);
 
+  // 핸들 위치 — th BoundingClientRect 를 state 로 추적해 portal 핸들이 올바른 위치에 그려지도록.
+  // 렌더 사이클의 IIFE 로는 초기 null ref / 0px rect 문제가 발생하므로 useEffect 로 업데이트.
+  const [thRect, setThRect] = useState<DOMRect | null>(null);
+  // portal span 은 body 에 있어 th 의 group-hover 와 연결 불가 — isHovered 로 명시적 제어
+  const [isHovered, setIsHovered] = useState(false);
+  useEffect(() => {
+    const th = thRef.current;
+    if (!th) return;
+    const update = () => setThRect(th.getBoundingClientRect());
+    update();
+    // 스크롤·리사이즈 시 위치 동기화
+    const scroller = th.closest<HTMLElement>(".overflow-x-auto, .overflow-y-auto");
+    scroller?.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update, { passive: true });
+    return () => {
+      scroller?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // 드래그 종료 안전망 — dragend 가 portal span 에서 누락되는 브라우저 quirk 대응
+  useEffect(() => {
+    const cleanup = () => document.body.classList.remove("quicknote-db-col-dragging");
+    window.addEventListener("dragend", cleanup);
+    return () => window.removeEventListener("dragend", cleanup);
+  }, []);
+
   // 노션 스타일 — 드래그 중엔 컬럼 폭을 즉시 갱신하지 않고 가이드 라인만 표시,
   // mouseup 에서 한 번만 width 커밋. 다른 컬럼 폭이 매 프레임 재배분되며 흔들리는 문제 방지.
   const [resizeGuideX, setResizeGuideX] = useState<number | null>(null);
@@ -73,6 +100,12 @@ export function DatabaseColumnHeader({
     <th
       ref={thRef}
       data-qn-col-id={column.id}
+      onMouseEnter={() => {
+        setIsHovered(true);
+        const th = thRef.current;
+        if (th) setThRect(th.getBoundingClientRect());
+      }}
+      onMouseLeave={() => setIsHovered(false)}
       onDragOver={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -86,26 +119,58 @@ export function DatabaseColumnHeader({
       className={[
         // sticky thead 시 본문이 비치지 않도록 bg를 셀에 직접 부여.
         "group relative whitespace-nowrap border-b border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400",
-        highlightDrop === "left" ? "border-l-2 border-dashed border-l-blue-400" : "",
-        highlightDrop === "right" ? "border-r-2 border-dashed border-r-blue-400" : "",
+        // 드롭 대상 — 파란 ring-inset (점선 제거)
+        highlightDrop !== null ? "ring-2 ring-inset ring-blue-500" : "",
       ].join(" ")}
     >
-      <div className="flex items-center gap-1">
+      {/* 헤더 상단 경계에 반쯤 걸친 드래그 핸들 — hover 시만 표시, portal로 overflow 클리핑 우회 */}
+      {createPortal(
         <span
           draggable
+          onMouseEnter={() => {
+            // hover 시 rect 최신화 — 스크롤 후 위치가 어긋나는 것 방지
+            const th = thRef.current;
+            if (th) setThRect(th.getBoundingClientRect());
+          }}
           onDragStart={(e) => {
             e.stopPropagation();
             e.dataTransfer.effectAllowed = "move";
             e.dataTransfer.setData(DRAG_MIME, `col:${index}`);
+            // 브라우저 ghost 이미지 제거 — DOM에 먼저 추가 후 setDragImage
+            const img = document.createElement("img");
+            img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+            img.style.position = "fixed";
+            img.style.top = "-9999px";
+            document.body.appendChild(img);
+            e.dataTransfer.setDragImage(img, 0, 0);
+            requestAnimationFrame(() => img.remove());
+            // DB 컬럼 드래그 중 — dropcursor/indicator 숨김
+            document.body.classList.add("quicknote-db-col-dragging");
             onDragStart(index);
           }}
-          onDragEnd={(e) => e.stopPropagation()}
-          className="cursor-grab opacity-0 group-hover:opacity-100 active:cursor-grabbing"
+          onDragEnd={(e) => {
+            e.stopPropagation();
+            document.body.classList.remove("quicknote-db-col-dragging");
+          }}
+          style={
+            thRect
+              ? {
+                  position: "fixed" as const,
+                  left: thRect.left + thRect.width / 2 - 12,
+                  top: thRect.top - 10,
+                  zIndex: 9999,
+                }
+              : { display: "none" }
+          }
+          className={`flex h-6 w-6 cursor-grab items-center justify-center rounded-md border border-zinc-200 bg-white/95 text-zinc-500 shadow-sm transition-opacity active:cursor-grabbing dark:border-zinc-700 dark:bg-zinc-900/95 dark:text-zinc-300 ${isHovered ? "opacity-100" : "opacity-0"}`}
           title="컬럼 이동"
         >
-          <GripVertical size={12} className="text-zinc-400" />
-        </span>
+          <GripVertical size={12} />
+        </span>,
+        document.body,
+      )}
 
+      <div className="flex items-center">
         <button
           type="button"
           onClick={() => setOpenColumnMenu(menuOpen ? null : column.id)}

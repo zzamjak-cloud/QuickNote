@@ -755,6 +755,12 @@ body.quicknote-table-reorder-dragging .qn-column-drop-indicator {
   display: none !important;
 }
 
+/* DB 컬럼 reorder 드래그 중 — dropcursor·블록 드롭 인디케이터 숨김 */
+body.quicknote-db-col-dragging .qn-dropcursor,
+body.quicknote-db-col-dragging .qn-block-drop-indicator {
+  display: none !important;
+}
+
 .ProseMirror [data-tab-block][data-tab-placement="bottom"] .qn-tab-panels {
   margin-bottom: 0.5rem;
 }

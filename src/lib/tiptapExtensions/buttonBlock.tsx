@@ -10,17 +10,39 @@ import { parseQuickNoteLink } from "../navigation/quicknoteLinks";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import { scrollToBlockPosition } from "../editor/editorNavigationBridge";
 
+type ButtonColor = "default" | "blue" | "red" | "purple" | "green" | "orange" | "darkGray";
+
 type ButtonBlockAttrs = {
   label: string;
   href: string;
   databaseId?: string;
+  color: ButtonColor;
 };
+
+/** 컬러 프리셋 — 라벨·배경·도트 색상 */
+const COLOR_PRESETS: { id: ButtonColor; label: string; dot: string; btn: string }[] = [
+  {
+    id: "default",
+    label: "기본",
+    dot: "bg-zinc-200 dark:bg-zinc-600",
+    btn: "border-zinc-300 bg-zinc-50 text-zinc-700 hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-700",
+  },
+  { id: "blue",     label: "파랑",      dot: "bg-blue-500",    btn: "border-blue-500 bg-blue-500 text-white hover:bg-blue-600 hover:border-blue-600" },
+  { id: "red",      label: "빨강",      dot: "bg-red-500",     btn: "border-red-500 bg-red-500 text-white hover:bg-red-600 hover:border-red-600" },
+  { id: "purple",   label: "보라",      dot: "bg-purple-500",  btn: "border-purple-500 bg-purple-500 text-white hover:bg-purple-600 hover:border-purple-600" },
+  { id: "green",    label: "녹색",      dot: "bg-emerald-500", btn: "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600 hover:border-emerald-600" },
+  { id: "orange",   label: "주황",      dot: "bg-orange-500",  btn: "border-orange-500 bg-orange-500 text-white hover:bg-orange-600 hover:border-orange-600" },
+  { id: "darkGray", label: "진한 회색", dot: "bg-zinc-700",    btn: "border-zinc-700 bg-zinc-700 text-white hover:bg-zinc-800 hover:border-zinc-800" },
+];
+
+function colorPreset(color: ButtonColor) {
+  return COLOR_PRESETS.find((p) => p.id === color) ?? COLOR_PRESETS[0]!;
+}
 
 function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const attrs = node.attrs as ButtonBlockAttrs;
+  const color: ButtonColor = (attrs.color as ButtonColor) ?? "default";
   const isDbButton = Boolean(attrs.databaseId);
-  // DB 전용 버튼: 연결된 DB 의 제목을 실시간으로 반영한다.
-  // 일반 버튼: attrs.label 그대로 사용.
   const dbTitle = useDatabaseStore((s) =>
     isDbButton ? s.databases[attrs.databaseId!]?.meta.title ?? null : null,
   );
@@ -31,12 +53,12 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const [editing, setEditing] = useState(false);
   const [draftLabel, setDraftLabel] = useState(attrs.label);
   const [draftHref, setDraftHref] = useState(attrs.href);
+  const [draftColor, setDraftColor] = useState<ButtonColor>(color);
   const popoverRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
 
-  // DB 제목이 바뀌면 attrs.label 에도 반영해 doc 직렬화 시 최신 제목이 보존되도록 한다.
   useEffect(() => {
     if (!isDbButton || dbTitle == null) return;
     const desired = `${dbTitle} DB`;
@@ -53,17 +75,17 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
         setEditing(false);
         setDraftLabel(attrs.label);
         setDraftHref(attrs.href);
+        setDraftColor((attrs.color as ButtonColor) ?? "default");
       }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [editing, attrs.label, attrs.href]);
+  }, [editing, attrs.label, attrs.href, attrs.color]);
 
   const handleClick = () => {
     if (!attrs.href) return;
     const internal = parseQuickNoteLink(attrs.href);
     if (internal) {
-      // 이전 페이지를 히스토리 스택에 push
       const currentPageId = usePageStore.getState().activePageId;
       if (currentPageId) {
         useNavigationHistoryStore.getState().pushBack(currentPageId);
@@ -87,12 +109,30 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   };
 
   const handleSave = () => {
-    updateAttributes({ label: draftLabel, href: draftHref });
+    updateAttributes({ label: draftLabel, href: draftHref, color: draftColor });
     setEditing(false);
   };
-  // DB 전용 버튼은 항상 데이터베이스 스타일. 일반 버튼은 라벨 휴리스틱으로 결정.
+
+  // DB 전용 버튼은 파란 스타일 고정. 일반 버튼은 color attr 따름.
   const looksLikeDatabaseButton = isDbButton || /\bDB\b|데이터베이스/.test(attrs.label);
   const LeadingIcon = looksLikeDatabaseButton ? Database : Link;
+
+  // 버튼 스타일 — DB 버튼은 파랑 고정, 일반 버튼은 color 프리셋
+  const btnClass = looksLikeDatabaseButton
+    ? "border-blue-500 bg-blue-500 text-white hover:border-blue-600 hover:bg-blue-600 dark:border-blue-500 dark:bg-blue-500 dark:text-white dark:hover:bg-blue-600"
+    : colorPreset(color).btn;
+
+  const iconClass = looksLikeDatabaseButton
+    ? "text-white"
+    : color === "default"
+      ? "text-zinc-400 dark:text-zinc-500"
+      : "text-white/80";
+
+  const extIconClass = looksLikeDatabaseButton
+    ? "text-blue-100"
+    : color === "default"
+      ? "text-zinc-400 dark:text-zinc-500"
+      : "text-white/60";
 
   return (
     <NodeViewWrapper as="span" className="inline-block my-1">
@@ -102,35 +142,18 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
           onClick={handleClick}
           className={[
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
-            looksLikeDatabaseButton
-              ? "border-blue-500 bg-blue-500 text-white hover:border-blue-600 hover:bg-blue-600 dark:border-blue-500 dark:bg-blue-500 dark:text-white dark:hover:bg-blue-600"
-              : "border-zinc-300 bg-zinc-50 text-zinc-700 hover:border-zinc-400 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:border-zinc-500 dark:hover:bg-zinc-700",
+            btnClass,
             selected ? "ring-2 ring-blue-400" : "",
           ].join(" ")}
         >
-          <LeadingIcon
-            size={13}
-            className={[
-              "shrink-0",
-              looksLikeDatabaseButton
-                ? "text-white"
-                : "text-zinc-400 dark:text-zinc-500",
-            ].join(" ")}
-          />
+          <LeadingIcon size={13} className={["shrink-0", iconClass].join(" ")} />
           <span>{displayedLabel || "버튼"}</span>
           {attrs.href && (
-            <ExternalLink
-              size={11}
-              className={[
-                "shrink-0",
-                looksLikeDatabaseButton
-                  ? "text-blue-100"
-                  : "text-zinc-400 dark:text-zinc-500",
-              ].join(" ")}
-            />
+            <ExternalLink size={11} className={["shrink-0", extIconClass].join(" ")} />
           )}
         </button>
-        {/* 호버 시 편집 아이콘 — DB 전용 버튼은 임의 편집을 막아 별도 편집 진입점을 두지 않는다. */}
+
+        {/* 호버 시 편집 아이콘 — DB 전용 버튼은 편집 비활성 */}
         {!isDbButton && (
           <button
             type="button"
@@ -139,6 +162,7 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
               e.stopPropagation();
               setDraftLabel(attrs.label);
               setDraftHref(attrs.href);
+              setDraftColor((attrs.color as ButtonColor) ?? "default");
               setEditing(true);
             }}
             className="ml-1 rounded p-0.5 text-zinc-400 opacity-0 transition-opacity hover:bg-zinc-100 hover:text-zinc-700 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
@@ -177,10 +201,30 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
                   setEditing(false);
                   setDraftLabel(attrs.label);
                   setDraftHref(attrs.href);
+                  setDraftColor((attrs.color as ButtonColor) ?? "default");
                 }
               }}
               className="mb-3 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
             />
+            {/* 컬러 프리셋 */}
+            <label className="mb-1.5 block text-[11px] text-zinc-500">색상</label>
+            <div className="mb-3 flex items-center gap-1.5 flex-wrap">
+              {COLOR_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  title={p.label}
+                  onClick={() => setDraftColor(p.id)}
+                  className={[
+                    "h-5 w-5 rounded-full border-2 transition-all",
+                    p.dot,
+                    draftColor === p.id
+                      ? "border-zinc-900 dark:border-zinc-100 scale-110"
+                      : "border-transparent hover:scale-110",
+                  ].join(" ")}
+                />
+              ))}
+            </div>
             <div className="flex justify-end gap-1.5">
               <button
                 type="button"
@@ -188,6 +232,7 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
                   setEditing(false);
                   setDraftLabel(attrs.label);
                   setDraftHref(attrs.href);
+                  setDraftColor((attrs.color as ButtonColor) ?? "default");
                 }}
                 className="rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >
@@ -219,6 +264,11 @@ export const ButtonBlock = TiptapNode.create({
       label: { default: "버튼" },
       href: { default: "" },
       databaseId: { default: "" },
+      color: {
+        default: "default",
+        parseHTML: (el) => (el.getAttribute("data-color") as ButtonColor) ?? "default",
+        renderHTML: (attrs) => ({ "data-color": attrs.color ?? "default" }),
+      },
     };
   },
 
@@ -233,6 +283,7 @@ export const ButtonBlock = TiptapNode.create({
         "data-button-block": "",
         "data-label": node.attrs.label,
         "data-href": node.attrs.href,
+        "data-color": node.attrs.color ?? "default",
       }),
       node.attrs.label || "버튼",
     ];
@@ -249,7 +300,7 @@ export const ButtonBlock = TiptapNode.create({
         ({ commands }) =>
           commands.insertContent({
             type: this.name,
-            attrs: { label, href },
+            attrs: { label, href, color: "default" },
           }),
     };
   },

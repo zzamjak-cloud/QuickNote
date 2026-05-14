@@ -184,71 +184,95 @@ export function DatabaseToolbarControls({
           />
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-          {/* 검색 버튼 */}
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              if (searchOpen && searchDraft.length > 0) {
-                setSearchDraft("");
-                setPanelState({ searchQuery: "" });
-              }
-              setSearchOpen((v) => !v);
-            }}
-            title={searchOpen ? "검색 닫기" : "검색 열기"}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            <Search size={13} />
-          </button>
-          {searchOpen && (
-            <input
-              type="search"
-              placeholder="검색…"
-              value={searchDraft}
-              onChange={(e) => {
-                setSearchDraft(e.target.value);
-                if (!composingRef.current) {
-                  setPanelState({ searchQuery: e.target.value });
+          {/* 검색 — 활성 시 슬라이드 펼침 */}
+          <div className={[
+            "inline-flex items-center gap-1 transition-all",
+            searchOpen ? "rounded-md border border-zinc-300 bg-white px-1.5 dark:border-zinc-600 dark:bg-zinc-900" : "",
+          ].join(" ")}>
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (searchOpen && searchDraft.length > 0) {
+                  setSearchDraft("");
+                  setPanelState({ searchQuery: "" });
                 }
+                setSearchOpen((v) => !v);
               }}
-              onCompositionStart={() => { composingRef.current = true; }}
-              onCompositionEnd={(e) => {
-                composingRef.current = false;
-                setPanelState({ searchQuery: (e.target as HTMLInputElement).value });
-              }}
-              className="w-44 select-text rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-900"
-            />
-          )}
+              title={searchOpen ? "검색 닫기" : "검색 열기"}
+              className="inline-flex h-7 w-7 items-center justify-center text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+            >
+              <Search size={13} />
+            </button>
+            {searchOpen && (
+              <input
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+                type="search"
+                placeholder="검색…"
+                value={searchDraft}
+                onChange={(e) => {
+                  setSearchDraft(e.target.value);
+                  if (!composingRef.current) {
+                    setPanelState({ searchQuery: e.target.value });
+                  }
+                }}
+                onCompositionStart={() => { composingRef.current = true; }}
+                onCompositionEnd={(e) => {
+                  composingRef.current = false;
+                  setPanelState({ searchQuery: (e.target as HTMLInputElement).value });
+                }}
+                onBlur={() => {
+                  // 비어있으면 접힘
+                  if (!searchDraft.trim()) setSearchOpen(false);
+                }}
+                className="w-36 select-text bg-transparent py-1 text-xs outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
+              />
+            )}
+          </div>
 
-          {/* 필터 | 정렬 | V 그룹 버튼 */}
-          <div className="inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-600">
+          {/* 필터 | 정렬 — 항목 있을 때만 박스+컬러 */}
+          <div className={[
+            "inline-flex overflow-hidden",
+            hasAnyRules ? "rounded-md border border-zinc-300 dark:border-zinc-600" : "",
+          ].join(" ")}>
             {/* 필터 버튼 */}
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={addFilter}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className={[
+                "flex items-center gap-1 px-2 py-1 text-xs",
+                panelState.filterRules.length > 0
+                  ? "bg-blue-500 text-white hover:bg-blue-600"
+                  : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+              ].join(" ")}
             >
               <Funnel size={12} />
               {panelState.filterRules.length > 0 && (
-                <span className="rounded bg-zinc-200 px-1 text-[10px] text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
+                <span className="rounded bg-blue-700 px-1 text-[10px] text-white">
                   {panelState.filterRules.length}
                 </span>
               )}
             </button>
 
-            <span className="w-px bg-zinc-300 dark:bg-zinc-600" />
+            {hasAnyRules && <span className="w-px bg-zinc-300 dark:bg-zinc-600" />}
 
             {/* 정렬 버튼 */}
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={addSort}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className={[
+                "flex items-center gap-1 px-2 py-1 text-xs",
+                effectiveSortRules.length > 0
+                  ? "bg-orange-500 text-white hover:bg-orange-600"
+                  : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+              ].join(" ")}
             >
               <ArrowUpDown size={12} />
               {effectiveSortRules.length > 0 && (
-                <span className="rounded bg-zinc-200 px-1 text-[10px] text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
+                <span className="rounded bg-orange-700 px-1 text-[10px] text-white">
                   {effectiveSortRules.length}
                 </span>
               )}
@@ -303,20 +327,20 @@ export function DatabaseToolbarControls({
             return (
               <div
                 key={rule.id}
-                className="flex items-center gap-0 rounded border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30"
+                className="flex items-center gap-0 overflow-hidden rounded bg-blue-500"
               >
                 <button
                   type="button"
                   onClick={(e) => openPopover(rule.id, e.currentTarget)}
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-zinc-700 hover:bg-blue-100 dark:text-zinc-300 dark:hover:bg-blue-900/30"
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-white hover:bg-blue-600"
                 >
                   <span className="max-w-[160px] truncate">{summary}</span>
-                  <ChevronDown size={10} className="shrink-0 text-zinc-400" />
+                  <ChevronDown size={10} className="shrink-0 text-blue-200" />
                 </button>
                 <button
                   type="button"
                   onClick={() => removeRule(rule.id)}
-                  className="border-l border-blue-200 px-1 py-0.5 text-blue-400 hover:bg-blue-100 hover:text-blue-700 dark:border-blue-800 dark:hover:bg-blue-900/30"
+                  className="border-l border-blue-400 px-1 py-0.5 text-blue-100 hover:bg-blue-600"
                 >
                   <X size={11} />
                 </button>
@@ -337,20 +361,20 @@ export function DatabaseToolbarControls({
             return (
               <div
                 key={`${rule.columnId}:${idx}`}
-                className="flex items-center gap-0 rounded border border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/30"
+                className="flex items-center gap-0 overflow-hidden rounded bg-orange-500"
               >
                 <button
                   type="button"
                   onClick={(e) => openPopover(key, e.currentTarget)}
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-zinc-700 hover:bg-green-100 dark:text-zinc-300 dark:hover:bg-green-900/30"
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-white hover:bg-orange-600"
                 >
                   <span className="max-w-[120px] truncate">{summary}</span>
-                  <ChevronDown size={10} className="shrink-0 text-zinc-400" />
+                  <ChevronDown size={10} className="shrink-0 text-orange-200" />
                 </button>
                 <button
                   type="button"
                   onClick={() => removeSortRule(idx)}
-                  className="border-l border-green-200 px-1 py-0.5 text-green-400 hover:bg-green-100 hover:text-green-700 dark:border-green-800 dark:hover:bg-green-900/30"
+                  className="border-l border-orange-400 px-1 py-0.5 text-orange-100 hover:bg-orange-600"
                 >
                   <X size={11} />
                 </button>

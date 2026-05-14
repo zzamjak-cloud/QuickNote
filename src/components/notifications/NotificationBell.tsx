@@ -198,6 +198,8 @@ export function NotificationBell() {
 
       setCurrentTabPage(n.pageId);
       setActivePage(n.pageId);
+      // 페이지 레벨 댓글(sentinel) — 블록 스크롤 없이 페이지로만 이동
+      if (n.blockId === "__page__") return;
       afterStableLayout(() => {
         focusNotificationTarget(n.blockId, (blockStart) => {
           afterStableLayout(() => {

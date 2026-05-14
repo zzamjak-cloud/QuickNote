@@ -12,6 +12,7 @@ import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { PageMoveDialog } from "../layout/PageMoveDialog";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
+import { PageCommentBar } from "../comments/PageCommentBar";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
@@ -157,7 +158,7 @@ export function DatabaseRowPeek() {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ width }}
-        className="absolute right-0 top-0 flex h-full flex-col overflow-y-auto border-l border-zinc-200 bg-white p-8 shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
+        className="absolute right-0 top-0 flex h-full flex-col overflow-hidden border-l border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
       >
         {/* 좌측 리사이즈 핸들 — hover 시 파란 띠 */}
         <div
@@ -169,6 +170,8 @@ export function DatabaseRowPeek() {
           className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-blue-400/60"
         />
 
+        {/* 상단 툴바 — 스크롤 밖에 고정 */}
+        <div className="shrink-0 px-8 pt-8">
         <div className="mb-8 flex items-center justify-between gap-1">
           {peekHistory.length > 0 ? (
             <button
@@ -254,6 +257,10 @@ export function DatabaseRowPeek() {
           </button>
           </div>{/* 우측 버튼 그룹 끝 */}
         </div>
+        </div>{/* 상단 툴바 끝 */}
+
+        {/* 단일 스크롤 영역 — 제목·속성·본문·하위페이지 모두 포함 */}
+        <div className="flex-1 overflow-y-auto px-8 pb-8">
         <input
           type="text"
           value={titleDraft}
@@ -268,8 +275,9 @@ export function DatabaseRowPeek() {
         {isDbRow && databaseId ? (
           <DatabasePropertyPanel databaseId={databaseId} pageId={peekPageId} />
         ) : null}
+        <PageCommentBar pageId={peekPageId} />
         {/* 노션 스타일: 피크에서도 본문 편집 가능 — Editor에 pageId 주입, bodyOnly로 제목/아이콘 영역 숨김 */}
-        <div className="qn-peek-editor mt-2 -mx-8 flex flex-1 flex-col">
+        <div className="qn-peek-editor mt-2 -mx-8">
           <Editor key={peekPageId} pageId={peekPageId} bodyOnly peek />
         </div>
         {/* 항목 내 하위 페이지 목록 */}
@@ -291,6 +299,7 @@ export function DatabaseRowPeek() {
             </div>
           </div>
         )}
+        </div>{/* 단일 스크롤 영역 끝 */}
         <PageMoveDialog
           pageId={moveDialogOpen ? peekPageId : null}
           onClose={() => setMoveDialogOpen(false)}

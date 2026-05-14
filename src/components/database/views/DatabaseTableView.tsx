@@ -92,6 +92,19 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     if (selectedRowIds.size === 0) setSelectionMenuOpen(false);
   }, [selectedRowIds.size]);
 
+  // drag cancel(drop 없이 dragend) 시 col/row drag state 완전 리셋 안전망
+  useEffect(() => {
+    const cleanup = () => {
+      setColDragFrom(null);
+      setColDragOver(null);
+      setRowDragFrom(null);
+      setRowDragOver(null);
+      document.body.classList.remove("quicknote-db-col-dragging");
+    };
+    window.addEventListener("dragend", cleanup);
+    return () => window.removeEventListener("dragend", cleanup);
+  }, []);
+
   // 뷰별 가시·정렬 컬럼 (#9)
   const visibleCols = getVisibleOrderedColumns(
     bundle?.columns ?? [],
@@ -121,6 +134,8 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
         if (from >= 0 && to >= 0) moveColumn(databaseId, from, to);
       }
     }
+    // DB 컬럼 드래그 종료 — dropcursor/indicator 복구
+    document.body.classList.remove("quicknote-db-col-dragging");
     setColDragFrom(null);
     setColDragOver(null);
   };
@@ -216,7 +231,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
           natural-width(table-layout:fixed, no w-full) 로 두어 각 col 의 width 가 그대로 유지되게.
           parent 가 더 넓으면 좌측 정렬, 좁으면 가로 스크롤(이미 overflow-x-auto). */}
       <table
-        className="border-collapse text-left text-xs"
+        className="border-collapse text-left text-sm"
         style={{ tableLayout: "fixed", width: `${tableWidthPx}px` }}
       >
         <colgroup>

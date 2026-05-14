@@ -39,47 +39,12 @@ export function DatabasePropertyPanel({
   const openColumnMenuId = localOpenColumnId;
   const [showAdd, setShowAdd] = useState(false);
   const [colMenuAnchor, setColMenuAnchor] = useState<HTMLElement | null>(null);
-  const titleColumn = bundle?.columns.find((c) => c.type === "title");
 
   if (!bundle || !page) return null;
 
+  // "이름"(title) 속성은 페이지 제목과 동일 정보라 속성 패널에서는 노출하지 않는다.
   return (
-    <div className="my-3 space-y-1 border-y border-zinc-200 py-3 text-xs dark:border-zinc-800">
-      {titleColumn && (
-        <div className="flex items-start gap-2">
-          <div className="w-32 shrink-0 pt-0.5 text-zinc-500">
-            <button
-              type="button"
-              onClick={(e) => {
-                const id = titleColumn.id;
-                if (openColumnMenuId === id) {
-                  setOpenColumnMenu(null);
-                  setColMenuAnchor(null);
-                } else {
-                  setOpenColumnMenu(id);
-                  setColMenuAnchor(e.currentTarget);
-                }
-              }}
-              className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              title="클릭하여 속성 편집"
-            >
-              <span className="min-w-0 flex-1 truncate">{titleColumn.name}</span>
-              <ChevronDown size={10} className="shrink-0 opacity-60" />
-            </button>
-            {openColumnMenuId === titleColumn.id && colMenuAnchor && (
-              <DatabaseColumnMenu
-                databaseId={databaseId}
-                column={titleColumn}
-                anchorEl={colMenuAnchor}
-                onClose={() => { setOpenColumnMenu(null); setColMenuAnchor(null); }}
-              />
-            )}
-          </div>
-          <div className="min-w-0 flex-1 truncate px-1 py-0.5 text-zinc-700 dark:text-zinc-200">
-            {page.title || "제목 없음"}
-          </div>
-        </div>
-      )}
+    <div className="my-3 space-y-1 border-y border-zinc-200 py-3 text-sm dark:border-zinc-800">
       {bundle.columns
         .filter((c) => c.type !== "title")
         .map((col) => {
