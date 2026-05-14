@@ -276,7 +276,8 @@ export async function updateMember(args: {
   // name/jobRole 업데이트
   const sets: string[] = [];
   const vals: Record<string, unknown> = {};
-  if (args.input.name != null) { sets.push("name = :n"); vals[":n"] = args.input.name; }
+  const exprNames: Record<string, string> = {};
+  if (args.input.name != null) { sets.push("#name = :n"); vals[":n"] = args.input.name; exprNames["#name"] = "name"; }
   if (args.input.jobRole != null) { sets.push("jobRole = :j"); vals[":j"] = args.input.jobRole; }
   if (args.input.jobTitle !== undefined) { sets.push("jobTitle = :jt"); vals[":jt"] = args.input.jobTitle ?? null; }
   if (args.input.phone !== undefined) { sets.push("phone = :ph"); vals[":ph"] = args.input.phone ?? null; }
@@ -291,6 +292,7 @@ export async function updateMember(args: {
         Key: { memberId: args.input.memberId },
         UpdateExpression: `SET ${sets.join(", ")}`,
         ExpressionAttributeValues: vals,
+        ...(Object.keys(exprNames).length > 0 && { ExpressionAttributeNames: exprNames }),
         ReturnValues: "ALL_NEW",
       }),
     );
@@ -416,6 +418,42 @@ export async function updateMyClientPrefs(args: {
       Key: { memberId: args.caller.memberId },
       UpdateExpression: "SET clientPrefs = :cp",
       ExpressionAttributeValues: { ":cp": toSave },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return r.Attributes as Member;
+}
+
+// ─── setMemberRole ────────────────────────────────────────────────────────────
+
+export async function setMemberRole(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  memberId: string;
+  role: WorkspaceRole;
+}): Promise<Member> {
+  requireRoleAtLeast(args.caller, "leader");
+  const target = await getMemberById(args.doc, args.tables, args.memberId);
+  if (!target) notFound("Member 없음");
+  if (target.status !== "active") badRequest("비활성 멤버");
+  preventOwnerMutation(args.caller, target);
+  if (target.workspaceRole === "owner") forbidden("Owner 는 권한 변경 불가");
+  if (target.workspaceRole === "developer") forbidden("Developer 는 권한 변경 불가");
+
+  // leader/owner 지정은 owner 이상만
+  if (args.role === "leader" && !["developer", "owner"].includes(args.caller.workspaceRole)) {
+    forbidden("Owner 이상만 Leader 지정 가능");
+  }
+  if (args.role === "owner") forbidden("transferOwnership 을 사용하세요");
+  if (args.role === "developer") forbidden("Developer 권한은 변경 불가");
+
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Members,
+      Key: { memberId: args.memberId },
+      UpdateExpression: "SET workspaceRole = :r",
+      ExpressionAttributeValues: { ":r": args.role },
       ReturnValues: "ALL_NEW",
     }),
   );

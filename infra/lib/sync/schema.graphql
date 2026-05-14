@@ -286,6 +286,7 @@ type Mutation {
   updateMember(input: UpdateMemberInput!): Member!
   promoteToManager(memberId: ID!): Member!
   demoteToMember(memberId: ID!): Member!
+  setMemberRole(memberId: ID!, role: WorkspaceRole!): Member!
   transferOwnership(toMemberId: ID!): Member!
   removeMember(memberId: ID!): Member!
   restoreMember(memberId: ID!): Member!

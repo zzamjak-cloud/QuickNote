@@ -62,10 +62,12 @@ export function useTableRowSelection(rowIds: readonly string[]) {
   }, []);
 
   // rowIds 변경(행 삭제 등) 시 사라진 id 자동 제거
+  // 참조가 아닌 내용 기준으로 비교해 무한 루프 방지
+  const rowIdsKey = rowIds.join(",");
   useEffect(() => {
     setSelectedRowIds((prev) => {
       if (prev.size === 0) return prev;
-      const valid = new Set(rowIds);
+      const valid = new Set(rowIdsRef.current);
       let changed = false;
       const next = new Set<string>();
       prev.forEach((id) => {
@@ -74,7 +76,8 @@ export function useTableRowSelection(rowIds: readonly string[]) {
       });
       return changed ? next : prev;
     });
-  }, [rowIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowIdsKey]);
 
   return { selectedRowIds, handleCheckboxClick, toggleAll, clearSelection };
 }

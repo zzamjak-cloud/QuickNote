@@ -11,6 +11,7 @@ import {
   updateMyClientPrefs,
   promoteToManager,
   demoteToMember,
+  setMemberRole,
   transferOwnership,
   removeMember,
   restoreMember,
@@ -180,6 +181,12 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return normalizeMemberForGql((await promoteToManager({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
       case "demoteToMember":
         return normalizeMemberForGql((await demoteToMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
+      case "setMemberRole":
+        return normalizeMemberForGql((await setMemberRole({
+          ...base,
+          memberId: event.arguments.memberId as string,
+          role: (event.arguments.role as string).toLowerCase() as import("./handlers/_auth").WorkspaceRole,
+        })) as Record<string, unknown>);
       case "transferOwnership":
         return normalizeMemberForGql((await transferOwnership({ ...base, toMemberId: event.arguments.toMemberId as string })) as Record<string, unknown>);
       case "removeMember":
