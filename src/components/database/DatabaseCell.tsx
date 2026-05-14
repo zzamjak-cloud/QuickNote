@@ -676,7 +676,10 @@ function normalizePersonValue(v: string | string[] | null | undefined): string[]
 /** select 칩과 동일한 고정 컬러 배열 — 이름 첫 글자 코드로 배정. */
 const PERSON_CHIP_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"];
 function personChipColor(name: string): string {
-  return PERSON_CHIP_COLORS[Math.abs(name.charCodeAt(0)) % PERSON_CHIP_COLORS.length];
+  return (
+    PERSON_CHIP_COLORS[Math.abs(name.charCodeAt(0)) % PERSON_CHIP_COLORS.length] ??
+    PERSON_CHIP_COLORS[0]!
+  );
 }
 
 /** 사람(person) 셀 — 칩 배열 형태로 멤버를 관리.
