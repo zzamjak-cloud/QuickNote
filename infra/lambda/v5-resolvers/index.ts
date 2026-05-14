@@ -28,6 +28,14 @@ import {
   restoreTeam,
 } from "./handlers/team";
 import {
+  createOrganization,
+  deleteOrganization,
+  listOrganizations,
+  updateOrganization,
+  assignMemberToOrganization,
+  unassignMemberFromOrganization,
+} from "./handlers/organization";
+import {
   createWorkspace,
   deleteWorkspace,
   getWorkspace,
@@ -70,6 +78,9 @@ const tables: Tables = {
   Databases: process.env.DATABASES_TABLE_NAME,
   Comments: process.env.COMMENTS_TABLE_NAME,
   Notifications: process.env.NOTIFICATIONS_TABLE_NAME,
+  // 조직(실) 관련 테이블 — CDK 배포 후 env 주입
+  Organizations: process.env.ORGANIZATIONS_TABLE_NAME,
+  MemberOrganizations: process.env.MEMBER_ORGANIZATIONS_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -133,6 +144,14 @@ function normalizeTeamForGql(team: Record<string, unknown>) {
   const members = Array.isArray(team.members) ? team.members : [];
   return {
     ...team,
+    members: members.map((m) => normalizeMemberForGql(m as Record<string, unknown>)),
+  };
+}
+
+function normalizeOrgForGql(org: Record<string, unknown>) {
+  const members = Array.isArray(org.members) ? org.members : [];
+  return {
+    ...org,
     members: members.map((m) => normalizeMemberForGql(m as Record<string, unknown>)),
   };
 }
@@ -223,6 +242,25 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return normalizeTeamForGql(await archiveTeam({ ...base, teamId: event.arguments.teamId as string }) as Record<string, unknown>);
       case "restoreTeam":
         return normalizeTeamForGql(await restoreTeam({ ...base, teamId: event.arguments.teamId as string }) as Record<string, unknown>);
+      // ── 조직(실) ──────────────────────────────────────────────────────────
+      case "listOrganizations":
+        return (await listOrganizations(base)).map((o) => normalizeOrgForGql(o as unknown as Record<string, unknown>));
+      case "createOrganization":
+        return normalizeOrgForGql((await createOrganization({ ...base, name: event.arguments.name as string })) as unknown as Record<string, unknown>);
+      case "updateOrganization":
+        return normalizeOrgForGql((await updateOrganization({
+          ...base,
+          organizationId: event.arguments.organizationId as string,
+          name: event.arguments.name as string,
+        })) as unknown as Record<string, unknown>);
+      case "deleteOrganization":
+        return await deleteOrganization({ ...base, organizationId: event.arguments.organizationId as string });
+      case "assignMemberToOrganization":
+        await assignMemberToOrganization({ ...base, memberId: event.arguments.memberId as string, organizationId: event.arguments.organizationId as string });
+        return true;
+      case "unassignMemberFromOrganization":
+        await unassignMemberFromOrganization({ ...base, memberId: event.arguments.memberId as string, organizationId: event.arguments.organizationId as string });
+        return true;
       case "createWorkspace":
         return normalizeWorkspaceForGql((await createWorkspace({
           ...base,

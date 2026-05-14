@@ -1,0 +1,199 @@
+// 조직(실) CRUD 핸들러 — Team 핸들러의 미러 구조.
+// DynamoDB 테이블: quicknote-organizations (organizationId PK)
+// 관계 테이블: quicknote-member-organizations (memberId PK, organizationId SK, byOrganization GSI)
+
+import {
+  BatchWriteCommand,
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  ScanCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { v4 as uuid } from "uuid";
+import { badRequest, notFound, requireRoleAtLeast, type Member } from "./_auth";
+import type { Tables } from "./member";
+
+export type Organization = {
+  organizationId: string;
+  name: string;
+  createdAt: string;
+  removedAt?: string;
+  members: Member[];
+};
+
+/** organizationId 로 단건 조회 (멤버 없이) */
+async function getOrgById(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  organizationId: string,
+): Promise<{ organizationId: string; name: string; createdAt: string } | undefined> {
+  const r = await doc.send(
+    new GetCommand({ TableName: tables.Organizations!, Key: { organizationId } }),
+  );
+  return r.Item as { organizationId: string; name: string; createdAt: string } | undefined;
+}
+
+/** MemberOrganizations 관계 테이블에서 조직 소속 멤버 목록 조회 */
+async function resolveOrgMembers(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  organizationId: string,
+): Promise<Member[]> {
+  const rel = await doc.send(
+    new QueryCommand({
+      TableName: tables.MemberOrganizations!,
+      IndexName: "byOrganization",
+      KeyConditionExpression: "organizationId = :o",
+      ExpressionAttributeValues: { ":o": organizationId },
+    }),
+  );
+  const memberIds = (rel.Items ?? []).map((v) => v.memberId as string);
+  if (memberIds.length === 0) return [];
+  const rows = await Promise.all(
+    memberIds.map((memberId) =>
+      doc.send(new GetCommand({ TableName: tables.Members, Key: { memberId } })),
+    ),
+  );
+  return rows
+    .map((r) => r.Item as Member | undefined)
+    .filter((m): m is Member => Boolean(m && m.status === "active"));
+}
+
+export async function listOrganizations(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+}): Promise<Organization[]> {
+  requireRoleAtLeast(args.caller, "manager");
+  const r = await args.doc.send(new ScanCommand({ TableName: args.tables.Organizations! }));
+  const base = (r.Items ?? []) as Array<{ organizationId: string; name: string; createdAt: string }>;
+  return Promise.all(
+    base.map(async (o) => ({
+      ...o,
+      members: await resolveOrgMembers(args.doc, args.tables, o.organizationId),
+    })),
+  );
+}
+
+export async function createOrganization(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  name: string;
+}): Promise<Organization> {
+  requireRoleAtLeast(args.caller, "manager");
+  const name = args.name.trim();
+  if (!name) badRequest("조직 이름은 비어 있을 수 없음");
+  const now = new Date().toISOString();
+  const organizationId = uuid();
+  await args.doc.send(
+    new PutCommand({
+      TableName: args.tables.Organizations!,
+      Item: { organizationId, name, createdAt: now },
+      ConditionExpression: "attribute_not_exists(organizationId)",
+    }),
+  );
+  return { organizationId, name, createdAt: now, members: [] };
+}
+
+export async function updateOrganization(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  organizationId: string;
+  name: string;
+}): Promise<Organization> {
+  requireRoleAtLeast(args.caller, "manager");
+  const existing = await getOrgById(args.doc, args.tables, args.organizationId);
+  if (!existing) notFound("Organization 없음");
+  const name = args.name.trim();
+  if (!name) badRequest("조직 이름은 비어 있을 수 없음");
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Organizations!,
+      Key: { organizationId: args.organizationId },
+      UpdateExpression: "SET #n = :n",
+      ExpressionAttributeNames: { "#n": "name" },
+      ExpressionAttributeValues: { ":n": name },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return {
+    ...(r.Attributes as { organizationId: string; name: string; createdAt: string }),
+    members: await resolveOrgMembers(args.doc, args.tables, args.organizationId),
+  };
+}
+
+export async function deleteOrganization(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  organizationId: string;
+}): Promise<boolean> {
+  requireRoleAtLeast(args.caller, "manager");
+  const existing = await getOrgById(args.doc, args.tables, args.organizationId);
+  if (!existing) return false;
+
+  // 관계 행 일괄 삭제
+  const memberLinks = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.MemberOrganizations!,
+      IndexName: "byOrganization",
+      KeyConditionExpression: "organizationId = :o",
+      ExpressionAttributeValues: { ":o": args.organizationId },
+    }),
+  );
+  const memberDeletes = (memberLinks.Items ?? []).map((i) => ({
+    DeleteRequest: { Key: { memberId: i.memberId as string, organizationId: i.organizationId as string } },
+  }));
+  for (let i = 0; i < memberDeletes.length; i += 25) {
+    await args.doc.send(
+      new BatchWriteCommand({
+        RequestItems: { [args.tables.MemberOrganizations!]: memberDeletes.slice(i, i + 25) },
+      }),
+    );
+  }
+
+  await args.doc.send(
+    new DeleteCommand({
+      TableName: args.tables.Organizations!,
+      Key: { organizationId: args.organizationId },
+    }),
+  );
+  return true;
+}
+
+export async function assignMemberToOrganization(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  memberId: string;
+  organizationId: string;
+}): Promise<void> {
+  requireRoleAtLeast(args.caller, "manager");
+  await args.doc.send(
+    new PutCommand({
+      TableName: args.tables.MemberOrganizations!,
+      Item: { memberId: args.memberId, organizationId: args.organizationId },
+    }),
+  );
+}
+
+export async function unassignMemberFromOrganization(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  memberId: string;
+  organizationId: string;
+}): Promise<void> {
+  requireRoleAtLeast(args.caller, "manager");
+  await args.doc.send(
+    new DeleteCommand({
+      TableName: args.tables.MemberOrganizations!,
+      Key: { memberId: args.memberId, organizationId: args.organizationId },
+    }),
+  );
+}

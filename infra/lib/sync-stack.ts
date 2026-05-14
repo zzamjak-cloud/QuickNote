@@ -22,6 +22,10 @@ export interface SyncStackProps extends cdk.StackProps {
   memberTeamsTableName?: string;
   workspacesTableName?: string;
   workspaceAccessTableName?: string;
+  /** 조직(실) 테이블 이름 (기본값: quicknote-organizations) */
+  organizationsTableName?: string;
+  /** 멤버-조직 관계 테이블 이름 (기본값: quicknote-member-organizations) */
+  memberOrganizationsTableName?: string;
 }
 
 export class QuicknoteSyncStack extends cdk.Stack {
@@ -36,6 +40,8 @@ export class QuicknoteSyncStack extends cdk.Stack {
   public readonly memberTeamsTable: dynamodb.Table;
   public readonly workspacesTable: dynamodb.Table;
   public readonly workspaceAccessTable: dynamodb.Table;
+  public readonly organizationsTable: dynamodb.Table;
+  public readonly memberOrganizationsTable: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: SyncStackProps) {
     super(scope, id, props);
@@ -179,17 +185,48 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // 조직(실) 테이블
+    const organizationsTable = new dynamodb.Table(this, "OrganizationsTable", {
+      tableName: props.organizationsTableName ?? "quicknote-organizations",
+      partitionKey: { name: "organizationId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // 멤버-조직 관계 테이블 (memberId PK, organizationId SK, byOrganization GSI)
+    const memberOrganizationsTable = new dynamodb.Table(this, "MemberOrganizationsTable", {
+      tableName: props.memberOrganizationsTableName ?? "quicknote-member-organizations",
+      partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "organizationId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    memberOrganizationsTable.addGlobalSecondaryIndex({
+      indexName: "byOrganization",
+      partitionKey: { name: "organizationId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     new cdk.CfnOutput(this, "MembersTableName", { value: membersTable.tableName });
     new cdk.CfnOutput(this, "TeamsTableName", { value: teamsTable.tableName });
     new cdk.CfnOutput(this, "MemberTeamsTableName", { value: memberTeamsTable.tableName });
     new cdk.CfnOutput(this, "WorkspacesTableName", { value: workspacesTable.tableName });
     new cdk.CfnOutput(this, "WorkspaceAccessTableName", { value: workspaceAccessTable.tableName });
+    new cdk.CfnOutput(this, "OrganizationsTableName", { value: organizationsTable.tableName });
+    new cdk.CfnOutput(this, "MemberOrganizationsTableName", { value: memberOrganizationsTable.tableName });
 
     this.membersTable = membersTable;
     this.teamsTable = teamsTable;
     this.memberTeamsTable = memberTeamsTable;
     this.workspacesTable = workspacesTable;
     this.workspaceAccessTable = workspaceAccessTable;
+    this.organizationsTable = organizationsTable;
+    this.memberOrganizationsTable = memberOrganizationsTable;
 
     // 이미지 업로드용 S3 버킷. PreSignedURL 만 유효해 사실상 안전.
     const imagesBucket = new s3.Bucket(this, "ImagesBucket", {
@@ -390,6 +427,8 @@ export function response(ctx) {
         DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
         COMMENTS_TABLE_NAME: this.commentTable.table.tableName,
         NOTIFICATIONS_TABLE_NAME: notificationTable.tableName,
+        ORGANIZATIONS_TABLE_NAME: this.organizationsTable.tableName,
+        MEMBER_ORGANIZATIONS_TABLE_NAME: this.memberOrganizationsTable.tableName,
       },
       bundling: {
         minify: true,
@@ -409,6 +448,8 @@ export function response(ctx) {
     this.databaseTable.table.grantReadWriteData(v5ResolversFn);
     this.commentTable.table.grantReadWriteData(v5ResolversFn);
     notificationTable.grantReadWriteData(v5ResolversFn);
+    this.organizationsTable.grantReadWriteData(v5ResolversFn);
+    this.memberOrganizationsTable.grantReadWriteData(v5ResolversFn);
 
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
@@ -447,6 +488,13 @@ export function response(ctx) {
     v5Ds.createResolver("DeleteTeamMutation", { typeName: "Mutation", fieldName: "deleteTeam" });
     v5Ds.createResolver("ArchiveTeamMutation", { typeName: "Mutation", fieldName: "archiveTeam" });
     v5Ds.createResolver("RestoreTeamMutation", { typeName: "Mutation", fieldName: "restoreTeam" });
+    // 조직(실) resolver wiring
+    v5Ds.createResolver("ListOrganizationsQuery", { typeName: "Query", fieldName: "listOrganizations" });
+    v5Ds.createResolver("CreateOrganizationMutation", { typeName: "Mutation", fieldName: "createOrganization" });
+    v5Ds.createResolver("UpdateOrganizationMutation", { typeName: "Mutation", fieldName: "updateOrganization" });
+    v5Ds.createResolver("DeleteOrganizationMutation", { typeName: "Mutation", fieldName: "deleteOrganization" });
+    v5Ds.createResolver("AssignMemberToOrganizationMutation", { typeName: "Mutation", fieldName: "assignMemberToOrganization" });
+    v5Ds.createResolver("UnassignMemberFromOrganizationMutation", { typeName: "Mutation", fieldName: "unassignMemberFromOrganization" });
     v5Ds.createResolver("CreateWorkspaceMutation", { typeName: "Mutation", fieldName: "createWorkspace" });
     v5Ds.createResolver("UpdateWorkspaceMutation", { typeName: "Mutation", fieldName: "updateWorkspace" });
     v5Ds.createResolver("SetWorkspaceAccessMutation", { typeName: "Mutation", fieldName: "setWorkspaceAccess" });

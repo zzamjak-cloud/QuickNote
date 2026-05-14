@@ -31,6 +31,10 @@ export type Tables = {
   Databases?: string;
   Comments?: string;
   Notifications?: string;
+  /** 조직(실) 테이블 */
+  Organizations?: string;
+  /** 멤버-조직 관계 테이블 (memberId PK, organizationId SK) */
+  MemberOrganizations?: string;
 };
 
 export type CreateMemberInput = {

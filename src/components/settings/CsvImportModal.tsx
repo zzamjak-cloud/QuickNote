@@ -1,13 +1,14 @@
 // CSV 임직원 일괄 가져오기 모달
 // 파일 선택 → 파싱 → 미리보기 → AppSync 순차 적용
-// 팀: AppSync createTeam + assignMemberToTeam 으로 동기화
-// 조직(실): AppSync mutation 미구현 — 로컬 스토어 전용
+// 팀: AppSync createTeam + assignMemberToTeam
+// 조직(실): AppSync createOrganization + assignMemberToOrganization
 
 import { useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
 import type { Member } from "../../store/memberStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useOrganizationStore } from "../../store/organizationStore";
+import type { Organization } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import type { Team } from "../../store/teamStore";
 import { useWorkspaceOptionsStore } from "../../store/workspaceOptionsStore";
@@ -24,6 +25,10 @@ import {
 } from "../../lib/parsing/csvMembers";
 import { createMemberApi, updateMemberApi, assignMemberToTeamApi } from "../../lib/sync/memberApi";
 import { createTeamApi } from "../../lib/sync/teamApi";
+import {
+  createOrganizationApi,
+  assignMemberToOrganizationApi,
+} from "../../lib/sync/organizationApi";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 
 type Props = {
@@ -48,7 +53,6 @@ type PreviewResult = {
 };
 
 type PhaseProgress = {
-  /** 현재 단계 이름 */
   phase: string;
   current: number;
   total: number;
@@ -123,6 +127,7 @@ export function CsvImportModal({ open, onClose }: Props) {
     let memberSuccessCount = 0;
     let memberFailCount = 0;
     let teamSuccessCount = 0;
+    let orgSuccessCount = 0;
 
     try {
       // ── 1단계: 멤버 동기화 ──────────────────────────────────────────────
@@ -202,7 +207,6 @@ export function CsvImportModal({ open, onClose }: Props) {
       const activeMembers = allFinalMembers.filter((m) => m.employmentStatus !== "퇴사");
 
       // ── 2단계: 팀 동기화 (AppSync createTeam + assignMemberToTeam) ──────
-      // CSV 의 unique 팀 이름 추출 (활성 멤버 기준)
       const csvTeamNames = [
         ...new Set(
           preview.rows
@@ -211,19 +215,16 @@ export function CsvImportModal({ open, onClose }: Props) {
         ),
       ];
 
-      // 팀명 → teamId 맵 구축: 기존 팀은 재사용, 신규 팀은 AppSync 생성
+      // 팀명 → teamId 맵: 기존 재사용, 신규 AppSync 생성
       const teamNameToId = new Map<string, string>();
       const latestTeamObjects = new Map<string, Team>();
 
-      // 현재 스토어 팀 목록 초기화
       for (const t of useTeamStore.getState().teams) {
         teamNameToId.set(t.name, t.teamId);
         latestTeamObjects.set(t.teamId, t);
       }
 
       const newTeamNames = csvTeamNames.filter((name) => !teamNameToId.has(name));
-
-      // 신규 팀 AppSync 생성
       for (let i = 0; i < newTeamNames.length; i++) {
         const name = newTeamNames[i];
         if (!name) continue;
@@ -240,14 +241,13 @@ export function CsvImportModal({ open, onClose }: Props) {
         }
       }
 
-      // 팀 배정: 활성 멤버를 각자의 팀에 assign
+      // 팀 배정
       const teamAssignList: Array<{ memberId: string; teamId: string }> = [];
       for (const m of activeMembers) {
         if (!m.team) continue;
         const teamId = teamNameToId.get(m.team.trim());
         if (teamId) teamAssignList.push({ memberId: m.memberId, teamId });
       }
-
       for (let i = 0; i < teamAssignList.length; i++) {
         const item = teamAssignList[i];
         if (!item) continue;
@@ -255,13 +255,13 @@ export function CsvImportModal({ open, onClose }: Props) {
         try {
           await assignMemberToTeamApi(item.memberId, item.teamId);
         } catch (err) {
-          // 이미 배정된 경우 서버가 에러 반환할 수 있으므로 warn 수준만
+          // 이미 배정된 경우 서버 에러 가능 — warn 수준
           reportNonFatal(err, "csvImport.assignMemberToTeam");
           console.warn("[CSV import] 팀 배정 실패 (이미 배정됐을 수 있음)", item, err);
         }
       }
 
-      // 팀 로컬 스토어 멤버 목록 갱신 (assign 이후 최신 반영)
+      // 팀 로컬 스토어 멤버 목록 갱신
       for (const [teamId, teamObj] of latestTeamObjects) {
         const membersOfTeam = activeMembers.filter(
           (m) => m.team && teamNameToId.get(m.team.trim()) === teamId,
@@ -273,38 +273,96 @@ export function CsvImportModal({ open, onClose }: Props) {
         upsertTeam({ ...teamObj, members: merged });
       }
 
-      // ── 3단계: 조직(실) — AppSync mutation 미구현, 로컬 스토어 전용 ────
-      const orgRows = buildOrganizationsFromRows(preview.rows);
-      for (const org of orgRows) {
-        const membersOfOrg = activeMembers.filter((m) => m.department === org.name);
-        const existing = existingOrgs.find((e) => e.name === org.name);
+      // ── 3단계: 조직(실) 동기화 (AppSync createOrganization + assign) ───
+      const csvOrgNames = [
+        ...new Set(
+          preview.rows
+            .filter((r) => r.employmentStatus !== "퇴사" && r.department.trim())
+            .map((r) => r.department.trim()),
+        ),
+      ];
+
+      // 조직명 → organizationId 맵: 기존 재사용, 신규 AppSync 생성
+      const orgNameToId = new Map<string, string>();
+      const latestOrgObjects = new Map<string, Organization>();
+
+      for (const o of useOrganizationStore.getState().organizations) {
+        orgNameToId.set(o.name, o.organizationId);
+        latestOrgObjects.set(o.organizationId, o);
+      }
+
+      const newOrgNames = csvOrgNames.filter((name) => !orgNameToId.has(name));
+      for (let i = 0; i < newOrgNames.length; i++) {
+        const name = newOrgNames[i];
+        if (!name) continue;
+        setProgress({ phase: "조직 생성 중", current: i + 1, total: newOrgNames.length });
+        try {
+          const created = await createOrganizationApi(name);
+          orgNameToId.set(name, created.organizationId);
+          latestOrgObjects.set(created.organizationId, created);
+          upsertOrganization(created);
+          orgSuccessCount++;
+        } catch (err) {
+          reportNonFatal(err, "csvImport.createOrganization");
+          console.error("[CSV import] 조직 생성 실패", name, err);
+        }
+      }
+
+      // 조직 배정
+      const orgAssignList: Array<{ memberId: string; organizationId: string }> = [];
+      for (const m of activeMembers) {
+        if (!m.department) continue;
+        const organizationId = orgNameToId.get(m.department.trim());
+        if (organizationId) orgAssignList.push({ memberId: m.memberId, organizationId });
+      }
+      for (let i = 0; i < orgAssignList.length; i++) {
+        const item = orgAssignList[i];
+        if (!item) continue;
+        setProgress({ phase: "조직 배정 중", current: i + 1, total: orgAssignList.length });
+        try {
+          await assignMemberToOrganizationApi(item.memberId, item.organizationId);
+        } catch (err) {
+          // 이미 배정된 경우 서버 에러 가능 — warn 수준
+          reportNonFatal(err, "csvImport.assignMemberToOrganization");
+          console.warn("[CSV import] 조직 배정 실패 (이미 배정됐을 수 있음)", item, err);
+        }
+      }
+
+      // 조직 로컬 스토어 멤버 목록 갱신
+      for (const [organizationId, orgObj] of latestOrgObjects) {
+        const membersOfOrg = activeMembers.filter(
+          (m) => m.department && orgNameToId.get(m.department.trim()) === organizationId,
+        );
+        const existing = useOrganizationStore.getState().organizations.find(
+          (o) => o.organizationId === organizationId,
+        );
         const merged = existing
           ? mergeByMemberId(existing.members, membersOfOrg)
           : membersOfOrg;
-        upsertOrganization({ ...(existing ?? org), members: merged });
+        upsertOrganization({ ...orgObj, members: merged });
       }
 
       // ── 4단계: 직무 목록 병합 ───────────────────────────────────────────
-      const mergedTitles = [...new Set([...currentJobTitles, ...extractJobTitles(preview.rows)])].sort(
-        (a, b) => a.localeCompare(b, "ko"),
-      );
-      const mergedCats = [...new Set([...currentJobCategories, ...extractJobCategories(preview.rows)])].sort(
-        (a, b) => a.localeCompare(b, "ko"),
-      );
-      const mergedDetails = [...new Set([...currentJobDetails, ...extractJobDetails(preview.rows)])].sort(
-        (a, b) => a.localeCompare(b, "ko"),
-      );
+      const mergedTitles = [
+        ...new Set([...currentJobTitles, ...extractJobTitles(preview.rows)]),
+      ].sort((a, b) => a.localeCompare(b, "ko"));
+      const mergedCats = [
+        ...new Set([...currentJobCategories, ...extractJobCategories(preview.rows)]),
+      ].sort((a, b) => a.localeCompare(b, "ko"));
+      const mergedDetails = [
+        ...new Set([...currentJobDetails, ...extractJobDetails(preview.rows)]),
+      ].sort((a, b) => a.localeCompare(b, "ko"));
       setOptions({ jobTitles: mergedTitles, jobCategories: mergedCats, jobDetails: mergedDetails });
 
       // 완료 토스트
       if (memberFailCount > 0) {
         showToast(
-          `구성원 ${memberSuccessCount}명 / 팀 ${teamSuccessCount}개 동기화 완료, ${memberFailCount}명 저장 실패. 콘솔을 확인해주세요.`,
+          `구성원 ${memberSuccessCount}명 / 팀 ${teamSuccessCount}개 / 조직 ${orgSuccessCount}개 동기화 완료, ${memberFailCount}명 저장 실패. 콘솔을 확인해주세요.`,
           { kind: "error" },
         );
       } else {
         showToast(
-          `구성원 ${memberSuccessCount}명 / 팀 ${teamSuccessCount}개 동기화 완료`,
+          `구성원 ${memberSuccessCount}명 / 팀 ${teamSuccessCount}개 / 조직 ${orgSuccessCount}개 동기화 완료`,
           { kind: "success" },
         );
       }
@@ -385,10 +443,6 @@ export function CsvImportModal({ open, onClose }: Props) {
               <div className="text-zinc-600 dark:text-zinc-300">· 신규 멤버 추가: <strong>{preview.createdCount}</strong>명</div>
               <div className="text-zinc-600 dark:text-zinc-300">· 신규 조직(실) 생성: <strong>{preview.orgCount}</strong>개</div>
               <div className="text-zinc-600 dark:text-zinc-300">· 신규 팀 생성: <strong>{preview.teamCount}</strong>개</div>
-              {/* 조직 로컬 전용 안내 */}
-              <p className="mt-1 rounded bg-amber-50 px-2 py-1.5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-                ℹ 조직(실) 정보는 현재 이 기기에만 저장됩니다. 디바이스 간 동기화는 인프라 확장 후 지원 예정입니다.
-              </p>
             </div>
           )}
 
@@ -411,10 +465,7 @@ export function CsvImportModal({ open, onClose }: Props) {
           {/* 완료 메시지 */}
           {done && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
-              가져오기 완료. 구성원·팀·직무 목록이 동기화되었습니다.
-              <p className="mt-1 text-amber-600 dark:text-amber-400">
-                조직(실) 정보는 이 기기에만 저장됩니다.
-              </p>
+              가져오기 완료. 구성원·조직·팀·직무 목록이 동기화되었습니다.
             </div>
           )}
         </div>
