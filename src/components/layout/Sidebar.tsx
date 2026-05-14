@@ -9,7 +9,6 @@ import {
   type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Search } from "lucide-react";
 import {
   resolveSidebarDrop,
   sidebarPageTreeCollision,
@@ -58,7 +57,6 @@ export function Sidebar() {
   const scrollHostRef = useRef<HTMLDivElement | null>(null);
   const scrollRafRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
-  const [query, setQuery] = useState("");
   const [moveTargetId, setMoveTargetId] = useState<string | null>(null);
   const [dbManagerOpen, setDbManagerOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
@@ -74,12 +72,12 @@ export function Sidebar() {
     return () => window.removeEventListener("pointermove", onMove);
   }, []);
 
-  const tree = usePageStore((s) => filterPageTree(s, query));
+  const tree = usePageStore((s) => filterPageTree(s, ""));
   const createPage = usePageStore((s) => s.createPage);
   const movePage = usePageStore((s) => s.movePage);
   const movePageRelative = usePageStore((s) => s.movePageRelative);
   const pagesMap = usePageStore((s) => s.pages);
-  const dndEnabled = query.trim().length === 0;
+  const dndEnabled = true;
 
   const duplicatePage = usePageStore((s) => s.duplicatePage);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -343,22 +341,10 @@ export function Sidebar() {
         onOpenSettings={() => setSettingsOpen(true)}
         onCollapseSidebar={() => setSidebarCollapsed(true)}
       />
-      <div className="mb-2 flex items-center gap-1.5 rounded-md bg-white px-2 py-1 ring-1 ring-zinc-200 focus-within:ring-zinc-400 dark:bg-zinc-950 dark:ring-zinc-800 dark:focus-within:ring-zinc-600">
-        <Search size={13} className="text-zinc-400" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="페이지 검색"
-          className="flex-1 bg-transparent text-xs outline-none placeholder:text-zinc-400"
-          data-search-input="true"
-        />
-      </div>
       <div ref={scrollHostRef} className="flex-1 overflow-y-auto">
         {tree.length === 0 ? (
           <p className="mt-4 px-2 text-xs text-zinc-400">
-            {query
-              ? "일치하는 페이지가 없습니다."
-              : "+ 버튼으로 페이지를 만드세요."}
+            + 버튼으로 페이지를 만드세요.
           </p>
         ) : (
           <DndContext

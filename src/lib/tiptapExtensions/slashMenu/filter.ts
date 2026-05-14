@@ -28,49 +28,7 @@ function getBlockedIds(editor: Editor): Set<string> {
   return blocked;
 }
 
-// 한국어 초성 목록 (Unicode 자모 순서)
-const CHOSUNG = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
-
-function getChosung(c: string): string {
-  const code = c.charCodeAt(0);
-  if (code >= 0xAC00 && code <= 0xD7A3)
-    return CHOSUNG[Math.floor((code - 0xAC00) / 588)] ?? c;
-  return c;
-}
-
-/** 마지막 음절의 받침 제거 — IME 조합 중 상태 처리 (예: "펭" → "페") */
-function stripLastJongseong(s: string): string {
-  const last = s.charCodeAt(s.length - 1);
-  if (last < 0xAC00 || last > 0xD7A3) return s;
-  const jongseong = (last - 0xAC00) % 28;
-  if (jongseong === 0) return s;
-  return s.slice(0, -1) + String.fromCharCode(last - jongseong);
-}
-
-/** 자음만으로 구성된 문자열인지 검사 (초성 검색용) */
-function isAllChosung(s: string): boolean {
-  return s.length > 0 && Array.from(s).every((c) => {
-    const code = c.charCodeAt(0);
-    return code >= 0x3131 && code <= 0x314E;
-  });
-}
-
-/**
- * 한국어 포함 검색:
- * 1. 직접 포함 매칭
- * 2. 마지막 받침 제거 후 매칭 (IME 조합 중: "펭" → "페")
- * 3. 초성만 입력한 경우 초성 매칭 (예: "ㅍ" → "페이지")
- */
-function koreanIncludes(text: string, query: string): boolean {
-  if (text.includes(query)) return true;
-  const stripped = stripLastJongseong(query);
-  if (stripped !== query && text.includes(stripped)) return true;
-  if (isAllChosung(query)) {
-    const titleChosung = Array.from(text).map(getChosung).join('');
-    if (titleChosung.includes(query)) return true;
-  }
-  return false;
-}
+import { koreanIncludes } from "../../koreanSearch";
 
 /** 루트 목록만 필터 (서브메뉴는 SlashMenu 내부에서 처리) */
 export function filterSlashMenuEntries(query: string, editor?: Editor): SlashMenuEntry[] {

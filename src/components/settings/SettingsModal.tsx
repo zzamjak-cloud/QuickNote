@@ -82,7 +82,7 @@ export function SettingsModal({ open, onClose }: Props) {
               </button>
             ))}
           </nav>
-          <div className="mt-auto border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <div className="mt-auto space-y-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
             <button
               type="button"
               onClick={toggleDarkMode}
@@ -104,6 +104,13 @@ export function SettingsModal({ open, onClose }: Props) {
                 />
               </span>
             </button>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="w-full rounded-md px-2 py-2 text-left text-xs text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            >
+              로그아웃
+            </button>
           </div>
         </aside>
 
@@ -113,17 +120,6 @@ export function SettingsModal({ open, onClose }: Props) {
           {tab === "teams" && isAdmin && <AdminTeamsTab />}
           {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
 
-          {tab === "profile" ? (
-            <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-              <button
-                type="button"
-                onClick={() => void signOut()}
-                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-900"
-              >
-                로그아웃
-              </button>
-            </div>
-          ) : null}
         </section>
 
         <p

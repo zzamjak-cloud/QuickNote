@@ -571,7 +571,7 @@ const TabBlockView = memo(function TabBlockView({
   const tabList = (
     <div
       contentEditable={false}
-      className="qn-tab-list flex min-w-0 items-center gap-1 rounded-md bg-zinc-100 p-1 dark:bg-zinc-800/70"
+      className="qn-tab-list flex min-w-0 items-center gap-1 bg-zinc-100 px-2 py-1 dark:bg-zinc-800/70"
       data-tab-placement={placement}
     >
       <div className="qn-tab-items flex min-w-0 flex-1 items-center gap-1">
@@ -596,8 +596,8 @@ const TabBlockView = memo(function TabBlockView({
               "qn-tab-button min-w-0 shrink-0 rounded-md border px-2.5 py-1 text-left text-xs font-medium",
               "max-w-36 truncate transition-colors",
               tab.index === activeIndex
-                ? "border-blue-400 bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-200 dark:border-blue-500/70 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-500/30"
-                : "border-transparent text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+                ? "border-emerald-600 bg-emerald-600 font-bold text-white shadow-sm dark:border-emerald-700 dark:bg-emerald-700 dark:text-white"
+                : "border-transparent text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100",
             ].join(" ")}
             title={tab.title}
             aria-pressed={tab.index === activeIndex}
@@ -759,9 +759,9 @@ const TabBlockView = memo(function TabBlockView({
       data-tab-placement={placement}
       data-active-index={activeIndex}
       className={[
-        "qn-tab-block my-2 rounded-[10px] border border-zinc-300/40 bg-zinc-50/40",
-        "p-2 dark:border-zinc-700/70 dark:bg-zinc-900/30",
-        placement === "left" || placement === "right" ? "flex gap-2" : "block",
+        "qn-tab-block my-2 overflow-hidden rounded-[10px] border border-zinc-300/40 bg-zinc-50/40",
+        "dark:border-zinc-700/70 dark:bg-zinc-900/30",
+        placement === "left" || placement === "right" ? "flex" : "block",
         placement === "right" ? "flex-row-reverse" : "",
       ].join(" ")}
     >
@@ -770,7 +770,7 @@ const TabBlockView = memo(function TabBlockView({
       <div ref={panelsShellRef} className="contents">
         <NodeViewContent
           as="div"
-          className="qn-tab-panels relative min-w-0 flex-1 overflow-hidden rounded-md bg-white/70 p-2 dark:bg-zinc-950/30"
+          className="qn-tab-panels relative min-w-0 flex-1 overflow-hidden bg-white/70 p-2 dark:bg-zinc-950/30"
         />
       </div>
       {placement === "bottom" && tabList}

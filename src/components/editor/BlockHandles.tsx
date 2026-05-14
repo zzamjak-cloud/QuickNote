@@ -26,6 +26,9 @@ import {
   Link2,
   MessageSquare,
   MessageSquarePlus,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from "lucide-react";
 import {
   CALLOUT_PRESETS,
@@ -1095,6 +1098,39 @@ export function BlockHandles({
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* 텍스트 블록 정렬 */}
+                {isTextBlock && (
+                  <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                    <div className="mb-1 text-[10px] text-zinc-500 dark:text-zinc-400">정렬</div>
+                    <div className="flex gap-1">
+                      {([
+                        { icon: AlignLeft, label: '좌측', align: 'left' },
+                        { icon: AlignCenter, label: '중앙', align: 'center' },
+                        { icon: AlignRight, label: '우측', align: 'right' },
+                      ] as const).map(({ icon: Icon, label, align }) => (
+                        <button
+                          key={align}
+                          type="button"
+                          title={label}
+                          onClick={() => {
+                            if (!editor || !hover) return;
+                            editor
+                              .chain()
+                              .focus()
+                              .setNodeSelection(hover.blockStart)
+                              .setTextAlign(align)
+                              .run();
+                            setMenuOpen(false);
+                          }}
+                          className="flex flex-1 items-center justify-center rounded py-1 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                        >
+                          <Icon size={14} />
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 

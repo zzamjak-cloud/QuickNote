@@ -87,6 +87,18 @@ export function DatabaseToolbarControls({
 
   const columns = bundle?.columns ?? [];
 
+  // 속성 타입 기반으로 사용 불가 뷰를 자동 숨김
+  const hasSelectCol = columns.some((c) => c.type === "select");
+  const hasDateCol = columns.some((c) => c.type === "date");
+  const autoHiddenViews: ViewKind[] = [
+    ...(!hasSelectCol ? (["kanban"] as ViewKind[]) : []),
+    ...(!hasDateCol ? (["timeline"] as ViewKind[]) : []),
+  ];
+  const effectiveHiddenViewKinds = [
+    ...(panelState.hiddenViewKinds ?? []),
+    ...autoHiddenViews.filter((v) => !(panelState.hiddenViewKinds ?? []).includes(v)),
+  ];
+
   const sortOptions = useMemo(
     () => columns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>),
     [columns],
@@ -168,7 +180,7 @@ export function DatabaseToolbarControls({
           <DatabaseViewKindToggle
             view={view}
             onViewChange={onViewChange}
-            hiddenViewKinds={panelState.hiddenViewKinds}
+            hiddenViewKinds={effectiveHiddenViewKinds}
           />
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">

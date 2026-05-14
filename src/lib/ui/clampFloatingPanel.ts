@@ -65,9 +65,9 @@ export function computeDropdownBelowAnchor(options: {
   const vh = options.vh ?? (typeof window !== "undefined" ? window.innerHeight : 768);
   const { anchor, panelWidth: pw, panelHeight: ph } = options;
 
-  let left = anchor.right - pw;
-  if (left < MARGIN) left = MARGIN;
+  let left = anchor.left;
   if (left + pw > vw - MARGIN) left = vw - MARGIN - pw;
+  if (left < MARGIN) left = MARGIN;
 
   let top = anchor.bottom + MARGIN;
   if (top + ph > vh - MARGIN) {

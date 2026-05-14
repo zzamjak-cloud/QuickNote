@@ -43,10 +43,10 @@ export function MyProfileSection() {
   return (
     <div className="space-y-3 text-xs text-zinc-700 dark:text-zinc-200">
       <h3 className="text-sm font-semibold">내 프로필</h3>
-      <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+      <div className="w-full rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         <div className="flex flex-col items-center gap-1.5 border-b border-zinc-100 px-4 pb-3 pt-4 dark:border-zinc-800">
           <div className="relative">
-            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-zinc-200 bg-zinc-100 text-2xl dark:border-zinc-700 dark:bg-zinc-800">
+            <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-2xl border-2 border-zinc-200 bg-zinc-100 text-4xl dark:border-zinc-700 dark:bg-zinc-800">
               {avatar ? (
                 <img src={avatar} className="h-full w-full object-cover" alt="" />
               ) : (

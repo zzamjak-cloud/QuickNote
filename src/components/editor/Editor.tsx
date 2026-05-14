@@ -27,6 +27,8 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { YoutubeBlock } from "../../lib/tiptapExtensions/youtubeBlock";
+import { InsertBeforeBlock } from "../../lib/tiptapExtensions/insertBeforeBlock";
+import TextAlign from "@tiptap/extension-text-align";
 import type { createLowlight } from "lowlight";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
@@ -505,6 +507,8 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
       PageLink,
       ButtonBlock,
       BookmarkBlock,
+      InsertBeforeBlock,
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
       LucideInlineIcon,
       DateInline,
       BlockBackground,
@@ -1074,6 +1078,13 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   const { selectedStarts: boxSelectedStarts, clearSelection: clearBoxSelection } =
     useBoxSelect(isFullPageDatabase ? null : editor);
 
+  // InsertBeforeBlock 익스텐션이 박스 선택 위치를 참조할 수 있도록 storage 동기화.
+  useEffect(() => {
+    if (!editor) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (editor.storage as any).insertBeforeBlock.boxSelectedStarts = boxSelectedStarts;
+  }, [editor, boxSelectedStarts]);
+
   useLayoutEffect(() => {
     const host = editorScrollHostRef.current;
     /* 호스트 미마운트(페이지 미선택 등)에서는 스킵 — page 는 early return 과 별개로 ref 만 본다 */
@@ -1126,8 +1137,8 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
               ? "max-w-none pl-4 pr-[260px]"
               : "max-w-none px-4"
             : hasPageComments && !peek
-              ? "max-w-[1056px] pr-[256px]"
-              : "max-w-3xl"
+              ? "max-w-[1256px] pr-[256px]"
+              : "max-w-[968px]"
         }`}
         data-qn-editor-column
       >

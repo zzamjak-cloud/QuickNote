@@ -1,3 +1,5 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -47,6 +49,7 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', sans-serif;
 }
 
 /* TipTap 표 스타일 (노션 풍) */
@@ -127,13 +130,16 @@ body,
   content: "▶";
   font-size: 10px;
   position: absolute;
-  left: 4px;
-  top: 50%;
-  transform: translateY(-50%) rotate(0deg);
+  left: 0;
+  top: 4px;
+  width: 18px;
+  text-align: center;
+  cursor: pointer;
+  transform: rotate(0deg);
   transition: transform 120ms;
 }
 .toggle-block[open] summary::before {
-  transform: translateY(-50%) rotate(90deg);
+  transform: rotate(90deg);
 }
 
 /* tippy 기본 검정 박스 제거 — 슬래시/멘션 메뉴는 자체 outline + shadow 사용 */
@@ -670,12 +676,10 @@ body.qn-box-select-dragging [data-qn-table-grip-row] {
    에서 그린다 — useBoxSelect.ts 참고. PM view.update 가 노드를
    재렌더해도 영향을 받지 않는다. dark 톤은 오버레이 자체에서 별도 처리하지 않음(두 톤 모두에서 가독). */
 
-/* 컬럼 레이아웃: 바깥 얇은 박스 + 컬럼 사이 얇은 구분선 */
+/* 컬럼 레이아웃: 컬럼 사이 얇은 구분선 */
 .ProseMirror [data-column-layout] {
-  border: 1px solid rgba(161, 161, 170, 0.22);
   border-radius: 10px;
   padding: 10px 12px;
-  background: rgba(250, 250, 250, 0.35);
   /* 인접 블록(특히 위쪽 표/탭)과 호버 간섭 분리 */
   margin: 1.5rem 0;
 }
@@ -695,8 +699,7 @@ body.qn-box-select-dragging [data-qn-table-grip-row] {
 }
 
 .dark .ProseMirror [data-column-layout] {
-  border-color: rgba(113, 113, 122, 0.35);
-  background: rgba(39, 39, 42, 0.25);
+  background: rgba(39, 39, 42, 0.15);
 }
 
 .ProseMirror [data-column-layout] > [data-column] {

@@ -8,7 +8,7 @@ type Props = {
 
 export function DatabaseBlockDataArea({ bundleGone, children }: Props) {
   return (
-    <div className="p-2">
+    <div className="p-0">
       {bundleGone ? (
         <div className="flex items-center gap-2 px-2 py-8 text-sm text-amber-700 dark:text-amber-400">
           <ArrowLeft size={16} />

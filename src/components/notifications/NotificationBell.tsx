@@ -1,6 +1,7 @@
 // 사이드바 헤더용 알림 벨 + 드롭다운 (fixed + 뷰포트 클램프)
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Bell, Trash2 } from "lucide-react";
 import { useNotificationStore } from "../../store/notificationStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -72,6 +73,8 @@ export function NotificationBell() {
   const bellRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [panelPos, setPanelPos] = useState<{ top: number; left: number } | null>(null);
+  // 여러 인스턴스 중 이 벨이 직접 열었을 때만 포털을 렌더
+  const [isThisAnchor, setIsThisAnchor] = useState(false);
 
   const memberId = me?.memberId;
   const items = memberId
@@ -104,6 +107,10 @@ export function NotificationBell() {
   useLayoutEffect(() => {
     reposition();
   }, [reposition, items.length]);
+
+  useEffect(() => {
+    if (!open) setIsThisAnchor(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -216,7 +223,7 @@ export function NotificationBell() {
         ref={bellRef}
         type="button"
         data-qn-notification-bell
-        onClick={() => toggleNotificationCenter()}
+        onClick={() => { setIsThisAnchor(true); toggleNotificationCenter(); }}
         className="relative rounded-md p-1 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
         aria-label="알림"
         title="알림"
@@ -229,11 +236,11 @@ export function NotificationBell() {
         ) : null}
       </button>
 
-      {open && panelPos ? (
+      {open && panelPos && isThisAnchor ? createPortal(
         <div
           ref={panelRef}
           data-qn-notification-panel
-          className="fixed z-[400] w-80 max-w-[calc(100vw-16px)] rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          className="fixed z-[9999] w-80 max-w-[calc(100vw-16px)] rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
           style={{ top: panelPos.top, left: panelPos.left, width: PANEL_W }}
           role="menu"
         >
@@ -321,7 +328,8 @@ export function NotificationBell() {
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </div>
   );

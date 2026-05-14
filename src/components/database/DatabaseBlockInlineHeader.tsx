@@ -61,7 +61,7 @@ export function DatabaseBlockInlineHeader({
           <Database size={16} className="shrink-0 text-zinc-500" />
           {inlineTitleLocked ? (
             <span
-              className="min-w-0 truncate text-left text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              className="min-w-0 truncate text-left text-xl font-semibold text-zinc-800 dark:text-zinc-200"
               title={displayDbTitle}
             >
               {displayDbTitle}
@@ -79,7 +79,7 @@ export function DatabaseBlockInlineHeader({
               }}
               placeholder="데이터베이스 이름"
               title="이름 변경"
-              className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 text-left text-sm font-medium text-zinc-800 outline-none focus:border-zinc-300 dark:text-zinc-200 dark:focus:border-zinc-600"
+              className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 text-left text-xl font-semibold text-zinc-800 outline-none focus:border-zinc-300 dark:text-zinc-200 dark:focus:border-zinc-600"
             />
           )}
         </div>

@@ -28,7 +28,7 @@ export function DatabaseViewKindToggle({
             className={[
               "flex items-center gap-1 rounded px-2 py-1 text-xs",
               on
-                ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
+                ? "bg-emerald-600 font-bold text-white"
                 : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800",
             ].join(" ")}
           >
