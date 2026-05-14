@@ -5,6 +5,7 @@ import { useUiStore } from "../../store/uiStore";
 import {
   archiveWorkspaceApi,
   createWorkspaceApi,
+  deleteWorkspaceApi,
   getWorkspaceApi,
   restoreWorkspaceApi,
   setWorkspaceAccessApi,
@@ -26,6 +27,8 @@ export function AdminWorkspacesTab() {
   const [openCreate, setOpenCreate] = useState(false);
   const [openEdit, setOpenEdit] = useState(false);
   const [editEntries, setEditEntries] = useState<WorkspaceAccessInput[]>([]);
+  const [archivedActionId, setArchivedActionId] = useState<string | null>(null);
+  const [archivedActionLoading, setArchivedActionLoading] = useState(false);
 
   // 활성/보관 공유 워크스페이스 분류
   const sharedAll = useMemo(
@@ -171,15 +174,14 @@ export function AdminWorkspacesTab() {
                 <li key={ws.workspaceId}>
                   <button
                     type="button"
-                    aria-label={`${ws.name} 복원`}
-                    onClick={() => void onRestoreWorkspace(ws.workspaceId)}
+                    aria-label={`${ws.name} 관리`}
+                    onClick={() => setArchivedActionId(ws.workspaceId)}
                     className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-zinc-600 dark:text-zinc-300">{ws.name}</span>
                       <span className="block text-[10px] text-zinc-400">workspace</span>
                     </span>
-                    <span className="ml-2 shrink-0 text-[10px] text-blue-500">복원</span>
                   </button>
                 </li>
               ))
@@ -196,6 +198,79 @@ export function AdminWorkspacesTab() {
           upsertWorkspace(created);
         }}
       />
+      {/* 보관된 워크스페이스 액션 팝업 */}
+      {archivedActionId && (() => {
+        const ws = archivedWorkspaces.find((w) => w.workspaceId === archivedActionId);
+        if (!ws) return null;
+        return (
+          <div
+            className="fixed inset-0 z-[530] flex items-center justify-center bg-black/45 p-4"
+            role="presentation"
+            onMouseDown={(e) => { if (e.target === e.currentTarget) setArchivedActionId(null); }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <h4 className="text-sm font-semibold">{ws.name}</h4>
+              <p className="mt-1 text-xs text-zinc-500">보관된 워크스페이스입니다.</p>
+              <div className="mt-4 flex justify-between gap-2">
+                <button
+                  type="button"
+                  disabled={archivedActionLoading}
+                  onClick={async () => {
+                    setArchivedActionLoading(true);
+                    try {
+                      await deleteWorkspaceApi(ws.workspaceId);
+                      const removeWs = useWorkspaceStore.getState().workspaces.filter(
+                        (w) => w.workspaceId !== ws.workspaceId,
+                      );
+                      useWorkspaceStore.setState({ workspaces: removeWs });
+                      setArchivedActionId(null);
+                    } catch {
+                      showToast("삭제에 실패했습니다.", { kind: "error" });
+                    } finally {
+                      setArchivedActionLoading(false);
+                    }
+                  }}
+                  className="rounded border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
+                >
+                  영구 삭제
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setArchivedActionId(null)}
+                    disabled={archivedActionLoading}
+                    className="rounded border px-3 py-1 text-xs disabled:opacity-60"
+                  >
+                    닫기
+                  </button>
+                  <button
+                    type="button"
+                    disabled={archivedActionLoading}
+                    onClick={async () => {
+                      setArchivedActionLoading(true);
+                      try {
+                        await onRestoreWorkspace(ws.workspaceId);
+                        setArchivedActionId(null);
+                      } finally {
+                        setArchivedActionLoading(false);
+                      }
+                    }}
+                    className="rounded bg-blue-600 px-3 py-1 text-xs text-white disabled:opacity-60 hover:bg-blue-700"
+                  >
+                    복원
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {editingWorkspace ? (
         <EditWorkspaceModal
           open={openEdit}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
-import { archiveTeamApi, createTeamApi, restoreTeamApi, updateTeamApi } from "../../lib/sync/teamApi";
+import { archiveTeamApi, createTeamApi, deleteTeamApi, restoreTeamApi, updateTeamApi } from "../../lib/sync/teamApi";
 import { useTeamStore } from "../../store/teamStore";
 import { useMemberStore } from "../../store/memberStore";
 import { assignMemberToTeamApi, unassignMemberFromTeamApi } from "../../lib/sync/memberApi";
@@ -19,6 +19,8 @@ export function AdminTeamsTab() {
   const [search, setSearch] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [archivedActionId, setArchivedActionId] = useState<string | null>(null);
+  const [archivedActionLoading, setArchivedActionLoading] = useState(false);
 
   // 활성/보관 팀 분류
   const activeTeams = useMemo(() => teams.filter((t) => !t.removedAt), [teams]);
@@ -198,14 +200,13 @@ export function AdminTeamsTab() {
                 <li key={team.teamId}>
                   <button
                     type="button"
-                    aria-label={`${team.name} 복원`}
-                    onClick={() => void onRestoreTeam(team.teamId)}
+                    aria-label={`${team.name} 관리`}
+                    onClick={() => setArchivedActionId(team.teamId)}
                     className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
                   >
                     <span className="min-w-0 flex-1 truncate text-zinc-600 dark:text-zinc-300">
                       {team.name}
                     </span>
-                    <span className="ml-2 shrink-0 text-[10px] text-blue-500">복원</span>
                   </button>
                 </li>
               ))
@@ -213,6 +214,79 @@ export function AdminTeamsTab() {
           </ul>
         </div>
       )}
+
+      {/* 보관된 팀 액션 팝업 */}
+      {archivedActionId && (() => {
+        const team = archivedTeams.find((t) => t.teamId === archivedActionId);
+        if (!team) return null;
+        return (
+          <div
+            className="fixed inset-0 z-[530] flex items-center justify-center bg-black/45 p-4"
+            role="presentation"
+            onMouseDown={(e) => { if (e.target === e.currentTarget) setArchivedActionId(null); }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <h4 className="text-sm font-semibold">{team.name}</h4>
+              <p className="mt-1 text-xs text-zinc-500">보관된 팀입니다.</p>
+              <div className="mt-4 flex justify-between gap-2">
+                <button
+                  type="button"
+                  disabled={archivedActionLoading}
+                  onClick={async () => {
+                    setArchivedActionLoading(true);
+                    try {
+                      await deleteTeamApi(team.teamId);
+                      const current = useTeamStore.getState().teams.filter(
+                        (t) => t.teamId !== team.teamId,
+                      );
+                      useTeamStore.setState({ teams: current });
+                      setArchivedActionId(null);
+                    } catch {
+                      // 실패 시 조용히 처리
+                    } finally {
+                      setArchivedActionLoading(false);
+                    }
+                  }}
+                  className="rounded border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/40"
+                >
+                  팀 영구 삭제
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setArchivedActionId(null)}
+                    disabled={archivedActionLoading}
+                    className="rounded border px-3 py-1 text-xs disabled:opacity-60"
+                  >
+                    닫기
+                  </button>
+                  <button
+                    type="button"
+                    disabled={archivedActionLoading}
+                    onClick={async () => {
+                      setArchivedActionLoading(true);
+                      try {
+                        await onRestoreTeam(team.teamId);
+                        setArchivedActionId(null);
+                      } finally {
+                        setArchivedActionLoading(false);
+                      }
+                    }}
+                    className="rounded bg-blue-600 px-3 py-1 text-xs text-white disabled:opacity-60 hover:bg-blue-700"
+                  >
+                    복원
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 팀 추가 모달 */}
       {openCreate && (

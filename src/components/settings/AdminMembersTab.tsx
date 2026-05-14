@@ -68,10 +68,11 @@ export function AdminMembersTab() {
     [members, query, teamNamesByMemberId],
   );
 
-  const onCreate = async (input: { email: string; name: string; jobRole: string }) => {
+  const onCreate = async (input: { email: string; name: string; jobRole: string; workspaceRole: string }) => {
+    const { workspaceRole, ...rest } = input;
     const created = await createMemberApi({
-      ...input,
-      workspaceRole: "MEMBER",
+      ...rest,
+      workspaceRole: workspaceRole.toUpperCase() as "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER",
     });
     upsertMember({
       ...created,

@@ -32,6 +32,7 @@ import { NotificationBell } from "../notifications/NotificationBell";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageMoveDialog } from "./PageMoveDialog";
+import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 
@@ -57,6 +58,7 @@ export function TopBar() {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -441,6 +443,17 @@ export function TopBar() {
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
+                    setCopyToWorkspaceOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <CopyPlus className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">다른 워크스페이스로 복제</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
                     setMoveDialogOpen(true);
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -642,6 +655,10 @@ export function TopBar() {
           </div>
         </div>
       )}
+      <PageCopyToWorkspaceDialog
+        pageId={copyToWorkspaceOpen ? activeId : null}
+        onClose={() => setCopyToWorkspaceOpen(false)}
+      />
       <PageMoveDialog
         pageId={moveDialogOpen ? activeId : null}
         onClose={() => setMoveDialogOpen(false)}

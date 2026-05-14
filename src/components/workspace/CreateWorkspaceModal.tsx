@@ -12,6 +12,7 @@ export function CreateWorkspaceModal({ open, onClose, onCreate }: Props) {
   const [name, setName] = useState("");
   const [entries, setEntries] = useState<WorkspaceAccessInput[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   if (!open) return null;
 
@@ -22,10 +23,17 @@ export function CreateWorkspaceModal({ open, onClose, onCreate }: Props) {
       return;
     }
     setError(null);
-    await onCreate({ name: n, access: entries });
-    setName("");
-    setEntries([]);
-    onClose();
+    setSaving(true);
+    try {
+      await onCreate({ name: n, access: entries });
+      setName("");
+      setEntries([]);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -47,9 +55,9 @@ export function CreateWorkspaceModal({ open, onClose, onCreate }: Props) {
         {error ? <p className="mt-2 text-xs text-red-500">{error}</p> : null}
 
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded border px-3 py-1 text-xs">취소</button>
-          <button type="button" onClick={() => void submit()} className="rounded bg-zinc-900 px-3 py-1 text-xs text-white dark:bg-zinc-100 dark:text-zinc-900">
-            저장
+          <button type="button" onClick={onClose} disabled={saving} className="rounded border px-3 py-1 text-xs disabled:opacity-60">취소</button>
+          <button type="button" onClick={() => void submit()} disabled={saving} className="rounded bg-zinc-900 px-3 py-1 text-xs text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900">
+            {saving ? "저장 중..." : "저장"}
           </button>
         </div>
       </div>

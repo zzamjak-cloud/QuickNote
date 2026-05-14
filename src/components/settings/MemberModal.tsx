@@ -7,6 +7,7 @@ import {
   updateMemberApi,
   promoteToManagerApi,
   demoteToMemberApi,
+  setMemberRoleApi,
   removeMemberApi,
   restoreMemberApi,
 } from "../../lib/sync/memberApi";
@@ -17,7 +18,7 @@ type CreateProps = {
   mode: "create";
   open: boolean;
   onClose: () => void;
-  onCreate: (input: { email: string; name: string; jobRole: string }) => Promise<void>;
+  onCreate: (input: { email: string; name: string; jobRole: string; workspaceRole: Member["workspaceRole"] }) => Promise<void>;
 };
 
 type EditProps = {
@@ -222,7 +223,7 @@ export function MemberModal(props: Props) {
           setSubmitting(false);
           return;
         }
-        await props.onCreate({ email: email.trim(), name: name.trim(), jobRole });
+        await props.onCreate({ email: email.trim(), name: name.trim(), jobRole, workspaceRole });
         props.onClose();
       } else {
         // 1. 필드 업데이트
@@ -241,6 +242,8 @@ export function MemberModal(props: Props) {
             updated = await promoteToManagerApi(props.member.memberId);
           } else if (workspaceRole === "member" && prevRole === "manager") {
             updated = await demoteToMemberApi(props.member.memberId);
+          } else if (workspaceRole && workspaceRole !== "owner" && workspaceRole !== "developer") {
+            updated = await setMemberRoleApi(props.member.memberId, workspaceRole);
           }
         }
         props.onUpdated({ ...props.member, ...updated });

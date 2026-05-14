@@ -3,7 +3,7 @@ import { MemberModal } from "./MemberModal";
 type Props = {
   open: boolean;
   onClose: () => void;
-  onCreate: (input: { email: string; name: string; jobRole: string }) => Promise<void> | void;
+  onCreate: (input: { email: string; name: string; jobRole: string; workspaceRole: string }) => Promise<void> | void;
 };
 
 export function CreateMemberModal({ open, onClose, onCreate }: Props) {

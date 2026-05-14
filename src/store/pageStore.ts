@@ -264,6 +264,8 @@ type PageStoreActions = {
   ) => void;
   // 페이지(와 자손)를 복제하여 원본 바로 다음에 삽입. 복제된 루트의 id를 반환.
   duplicatePage: (id: string) => string;
+  // 페이지(와 자손 전체)를 다른 워크스페이스로 복제. 복제된 페이지 수를 반환.
+  duplicatePageToWorkspace: (id: string, targetWorkspaceId: string) => number;
   // 행 페이지의 dbCells 한 항목을 갱신 (title 컬럼 제외)
   setPageDbCell: (pageId: string, columnId: string, value: CellValue) => void;
   restorePageFromLatestHistory: (pageId: string) => boolean;
@@ -658,7 +660,10 @@ export const usePageStore = create<PageStore>()(
         set({ activePageId: id });
         const ws = getCurrentWorkspaceId();
         if (ws && id) {
-          useSettingsStore.getState().setLastVisitedPageForWorkspace(ws, id);
+          // 렌더 커밋 중 다른 스토어 setState 호출 시 React 무한 루프 발생 방지
+          window.setTimeout(() => {
+            useSettingsStore.getState().setLastVisitedPageForWorkspace(ws, id);
+          }, 0);
         }
       },
 
@@ -937,6 +942,58 @@ export const usePageStore = create<PageStore>()(
         }
 
         return cloneMap.get(id) ?? "";
+      },
+
+      duplicatePageToWorkspace: (id, targetWorkspaceId) => {
+        const state = get();
+        const source = state.pages[id];
+        if (!source) return 0;
+
+        const cloneMap = new Map<string, string>();
+        const cloneSubtree = (pageId: string): void => {
+          if (!state.pages[pageId]) return;
+          cloneMap.set(pageId, newId());
+          const children = Object.values(state.pages).filter((p) => p.parentId === pageId);
+          for (const child of children) cloneSubtree(child.id);
+        };
+        cloneSubtree(id);
+
+        const now = Date.now();
+        const createdByMemberId = getCreatedByMemberId();
+
+        for (const [origId, newPageId] of cloneMap.entries()) {
+          const orig = state.pages[origId]!;
+          const isRoot = origId === id;
+          const cloned: Page = {
+            ...orig,
+            id: newPageId,
+            doc: structuredClone(orig.doc),
+            dbCells: orig.dbCells ? structuredClone(orig.dbCells) : orig.dbCells,
+            blockComments: undefined,
+            title: isRoot ? `${orig.title} (복사본)` : orig.title,
+            parentId: isRoot ? null : (cloneMap.get(orig.parentId ?? "") ?? null),
+            order: orig.order,
+            createdAt: now,
+            updatedAt: now,
+          };
+          enqueueAsync("upsertPage", {
+            id: cloned.id,
+            workspaceId: targetWorkspaceId,
+            createdByMemberId,
+            title: cloned.title,
+            icon: cloned.icon ?? null,
+            coverImage: cloned.coverImage ?? null,
+            parentId: cloned.parentId ?? null,
+            order: String(cloned.order),
+            databaseId: null,
+            doc: JSON.stringify(cloned.doc),
+            dbCells: null,
+            createdAt: new Date(cloned.createdAt).toISOString(),
+            updatedAt: new Date(cloned.updatedAt).toISOString(),
+          } as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
+        }
+
+        return cloneMap.size;
       },
 
       setPageDbCell: (pageId, columnId, value) => {
