@@ -10,33 +10,18 @@ import {
   UPDATE_ORGANIZATION,
 } from "./queries/organization";
 import type { Organization } from "../../store/organizationStore";
-import type { Member } from "../../store/memberStore";
 import { GqlOrganizationSchema, parseGqlList } from "./schemas";
-
-type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
-  workspaceRole: "OWNER" | "MANAGER" | "MEMBER";
-  status: "ACTIVE" | "REMOVED";
-};
+import {
+  type GqlMember,
+  normalizeMemberFields,
+} from "./memberNormalize";
 
 type GqlOrganization = Omit<Organization, "members"> & {
   members: GqlMember[];
 };
 
-function normalizeMember(member: GqlMember): Member {
-  return {
-    ...member,
-    workspaceRole:
-      member.workspaceRole === "OWNER"
-        ? "owner"
-        : member.workspaceRole === "MANAGER"
-          ? "manager"
-          : "member",
-    status: member.status === "REMOVED" ? "removed" : "active",
-  };
-}
-
 function normalizeOrganization(org: GqlOrganization): Organization {
-  return { ...org, members: org.members.map(normalizeMember) };
+  return { ...org, members: org.members.map(normalizeMemberFields) };
 }
 
 export async function listOrganizationsApi(): Promise<Organization[]> {

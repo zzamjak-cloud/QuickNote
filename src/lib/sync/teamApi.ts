@@ -1,33 +1,18 @@
 import { appsyncClient } from "./graphql/client";
 import { ARCHIVE_TEAM, CREATE_TEAM, DELETE_TEAM, LIST_TEAMS, RESTORE_TEAM, UPDATE_TEAM } from "./queries/team";
 import type { Team } from "../../store/teamStore";
-import type { Member } from "../../store/memberStore";
 import { GqlTeamSchema, parseGqlList } from "./schemas";
-
-type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
-  workspaceRole: "OWNER" | "MANAGER" | "MEMBER";
-  status: "ACTIVE" | "REMOVED";
-};
+import {
+  type GqlMember,
+  normalizeMemberFields,
+} from "./memberNormalize";
 
 type GqlTeam = Omit<Team, "members"> & {
   members: GqlMember[];
 };
 
-function normalizeMember(member: GqlMember): Member {
-  return {
-    ...member,
-    workspaceRole:
-      member.workspaceRole === "OWNER"
-        ? "owner"
-        : member.workspaceRole === "MANAGER"
-          ? "manager"
-          : "member",
-    status: member.status === "REMOVED" ? "removed" : "active",
-  };
-}
-
 function normalizeTeam(team: GqlTeam): Team {
-  return { ...team, members: team.members.map(normalizeMember) };
+  return { ...team, members: team.members.map(normalizeMemberFields) };
 }
 
 export async function listTeamsApi(): Promise<Team[]> {

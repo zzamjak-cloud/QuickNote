@@ -15,6 +15,10 @@ import {
 } from "./queries/member";
 import type { Member, MemberMini } from "../../store/memberStore";
 import { GqlMemberSchema, parseGqlList } from "./schemas";
+import {
+  type GqlMember,
+  normalizeMemberFields,
+} from "./memberNormalize";
 
 type CreateMemberInput = {
   email: string;
@@ -41,53 +45,8 @@ type UpdateMemberInput = {
   joinedAt?: string | null;
 };
 
-type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
-  workspaceRole: "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER";
-  status: "ACTIVE" | "REMOVED";
-  cognitoSub?: string | null;
-  createdAt: string;
-  removedAt?: string | null;
-  clientPrefs?: unknown;
-};
-
-/** me 쿼리 전체 결과 + 동기화용 clientPrefs 원본 */
+// member 정규화 헬퍼는 ./memberNormalize 로 분리됨.
 type GqlMePayload = GqlMember;
-
-function toMemberRole(role: GqlMember["workspaceRole"] | Member["workspaceRole"]): Member["workspaceRole"] {
-  if (role === "DEVELOPER" || role === "developer") return "developer";
-  if (role === "OWNER" || role === "owner") return "owner";
-  if (role === "LEADER" || role === "leader") return "leader";
-  if (role === "MANAGER" || role === "manager") return "manager";
-  return "member";
-}
-
-function toMemberStatus(status: GqlMember["status"] | Member["status"]): Member["status"] {
-  return status === "REMOVED" || status === "removed" ? "removed" : "active";
-}
-
-function normalizeMemberFields(member: GqlMember | Member): Member {
-  return {
-    memberId: member.memberId,
-    email: member.email,
-    name: member.name,
-    jobRole: member.jobRole,
-    workspaceRole: toMemberRole(member.workspaceRole),
-    status: toMemberStatus(member.status),
-    jobTitle: member.jobTitle,
-    phone: member.phone,
-    avatarUrl: member.avatarUrl,
-    thumbnailUrl: member.thumbnailUrl,
-    personalWorkspaceId: member.personalWorkspaceId,
-    // 신규 필드 — GraphQL 응답에 포함된 경우에만 세팅
-    employmentStatus: (member as Record<string, unknown>).employmentStatus as Member["employmentStatus"] | undefined,
-    employeeNumber: (member as Record<string, unknown>).employeeNumber as string | undefined,
-    department: (member as Record<string, unknown>).department as string | undefined,
-    team: (member as Record<string, unknown>).team as string | undefined,
-    jobCategory: (member as Record<string, unknown>).jobCategory as string | undefined,
-    jobDetail: (member as Record<string, unknown>).jobDetail as string | undefined,
-    joinedAt: (member as Record<string, unknown>).joinedAt as string | undefined,
-  };
-}
 
 /** 인증 초기 로드 및 prefs 동기화에 사용한다. clientPrefs 로컬 적용 후 member 만 스토어에 넣으면 된다. */
 export type MeWithPrefs = {
