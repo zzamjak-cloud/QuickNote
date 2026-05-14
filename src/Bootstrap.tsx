@@ -33,6 +33,8 @@ import {
 } from "./lib/sync/clientPrefsSync";
 import { listTeamsApi } from "./lib/sync/teamApi";
 import { useTeamStore } from "./store/teamStore";
+import { listOrganizationsApi } from "./lib/sync/organizationApi";
+import { useOrganizationStore } from "./store/organizationStore";
 import { useUiStore } from "./store/uiStore";
 import { migrateLegacyBlockCommentsToPagesOnce } from "./lib/comments/migrateLegacyBlockCommentsToPages";
 import { useBlockCommentStore } from "./store/blockCommentStore";
@@ -54,6 +56,8 @@ function useSyncBootstrap(): boolean {
   const clearMembers = useMemberStore((s) => s.clear);
   const setTeams = useTeamStore((s) => s.setTeams);
   const clearTeams = useTeamStore((s) => s.clear);
+  const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
+  const clearOrganizations = useOrganizationStore((s) => s.clear);
   const pageCacheWorkspaceId = usePageStore((s) => s.cacheWorkspaceId);
   const pageCacheCount = usePageStore((s) => Object.keys(s.pages).length);
   const databaseCacheWorkspaceId = useDatabaseStore((s) => s.cacheWorkspaceId);
@@ -84,6 +88,7 @@ function useSyncBootstrap(): boolean {
       useWorkspaceOptionsStore.getState().clear();
       clearMembers();
       clearTeams();
+      clearOrganizations();
       useNotificationStore.getState().setNotifications([]);
       return;
     }
@@ -128,13 +133,19 @@ function useSyncBootstrap(): boolean {
         if (!isAdmin) {
           setMembers([]);
           setTeams([]);
+          setOrganizations([]);
           return;
         }
 
-        const [members, teams] = await Promise.all([listMembersApi(), listTeamsApi()]);
+        const [members, teams, organizations] = await Promise.all([
+          listMembersApi(),
+          listTeamsApi(),
+          listOrganizationsApi(),
+        ]);
         if (cancelled) return;
         setMembers(members);
         setTeams(teams);
+        setOrganizations(organizations);
       } catch (err) {
         console.error("[sync] auth bootstrap failed", err);
       }
@@ -142,7 +153,7 @@ function useSyncBootstrap(): boolean {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, authSub, setMe, setMembers, setTeams, setWorkspaces, clearWorkspaces, clearMembers, clearTeams]);
+  }, [authStatus, authSub, setMe, setMembers, setTeams, setOrganizations, setWorkspaces, clearWorkspaces, clearMembers, clearTeams, clearOrganizations]);
 
   useEffect(() => {
     if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) {
