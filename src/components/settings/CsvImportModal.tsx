@@ -29,10 +29,11 @@ import {
   unassignMemberFromTeamApi,
   updateMemberApi,
 } from "../../lib/sync/memberApi";
-import { createTeamApi } from "../../lib/sync/teamApi";
+import { createTeamApi, listTeamsApi } from "../../lib/sync/teamApi";
 import {
   assignMemberToOrganizationApi,
   createOrganizationApi,
+  listOrganizationsApi,
   unassignMemberFromOrganizationApi,
 } from "../../lib/sync/organizationApi";
 import { reportNonFatal } from "../../lib/reportNonFatal";
@@ -219,11 +220,22 @@ export function CsvImportModal({ open, onClose }: Props) {
 
       // 팀명 → teamId 맵: 기존 재사용, 신규 AppSync 생성.
       // 키는 trim + lowercase 정규화 — 백엔드 createTeam 의 dedup 규칙과 동일.
+      // 다른 사용자/탭이 동시에 만든 팀까지 반영하기 위해 적용 직전에 서버에서 최신 목록 재페치.
       const normalize = (s: string) => s.trim().toLowerCase();
       const teamNameToId = new Map<string, string>();
       const latestTeamObjects = new Map<string, Team>();
 
-      for (const t of useTeamStore.getState().teams) {
+      let serverTeams: Team[] = [];
+      try {
+        serverTeams = await listTeamsApi();
+        // 로컬 스토어도 최신화 — 후속 diff 가 정확해지도록
+        for (const t of serverTeams) upsertTeam(t);
+      } catch (err) {
+        reportNonFatal(err, "csvImport.listTeams.refresh");
+        // 실패 시 로컬 스토어로 폴백
+        serverTeams = useTeamStore.getState().teams;
+      }
+      for (const t of serverTeams) {
         teamNameToId.set(normalize(t.name), t.teamId);
         latestTeamObjects.set(t.teamId, t);
       }
@@ -321,10 +333,19 @@ export function CsvImportModal({ open, onClose }: Props) {
 
       // 조직명 → organizationId 맵: 기존 재사용, 신규 AppSync 생성.
       // 키는 trim + lowercase 정규화 — 백엔드 createOrganization 의 dedup 규칙과 동일.
+      // 적용 직전 서버에서 최신 목록 재페치(동시 생성·삭제 반영).
       const orgNameToId = new Map<string, string>();
       const latestOrgObjects = new Map<string, Organization>();
 
-      for (const o of useOrganizationStore.getState().organizations) {
+      let serverOrgs: Organization[] = [];
+      try {
+        serverOrgs = await listOrganizationsApi();
+        for (const o of serverOrgs) upsertOrganization(o);
+      } catch (err) {
+        reportNonFatal(err, "csvImport.listOrganizations.refresh");
+        serverOrgs = useOrganizationStore.getState().organizations;
+      }
+      for (const o of serverOrgs) {
         orgNameToId.set(normalize(o.name), o.organizationId);
         latestOrgObjects.set(o.organizationId, o);
       }
