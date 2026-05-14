@@ -28,6 +28,8 @@ import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { YoutubeBlock } from "../../lib/tiptapExtensions/youtubeBlock";
 import { InsertBeforeBlock } from "../../lib/tiptapExtensions/insertBeforeBlock";
+import { Indentation } from "../../lib/tiptapExtensions/indentation";
+import { BracketAutoClose } from "../../lib/tiptapExtensions/bracketAutoClose";
 import TextAlign from "@tiptap/extension-text-align";
 import type { createLowlight } from "lowlight";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
@@ -370,6 +372,13 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   } | null>(null);
 
   const editorScrollHostRef = useRef<HTMLDivElement | null>(null);
+
+  // 페이지 전환 시 스크롤 최상단으로 초기화
+  useEffect(() => {
+    const host = editorScrollHostRef.current;
+    if (host) host.scrollTop = 0;
+  }, [effectivePageId]);
+
   const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(420);
 
   const clearColumnDropUi = useCallback(() => {
@@ -554,6 +563,8 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
           };
         },
       }),
+      Indentation,
+      BracketAutoClose,
       UniqueID.configure({
         types: EDITOR_UNIQUE_ID_TYPES,
         updateDocument: !isFullPageDatabase,
@@ -668,8 +679,21 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
         if (handleAtOpenMention(view, event)) return true;
         return false;
       },
-      handleScrollToSelection: (view: PmEditorView) =>
-        suppressScrollToSelectionForTableInteraction(view),
+      handleScrollToSelection: (view: PmEditorView) => {
+        if (suppressScrollToSelectionForTableInteraction(view)) return true;
+        const host = editorScrollHostRef.current;
+        if (!host) return false;
+        const { from } = view.state.selection;
+        try {
+          const coords = view.coordsAtPos(from);
+          const rect = host.getBoundingClientRect();
+          // 커서가 이미 뷰포트 안에 있으면 PM의 자동 스크롤 억제
+          if (coords.top >= rect.top && coords.bottom <= rect.bottom) return true;
+        } catch {
+          // coordsAtPos가 실패하면 기본 동작에 위임
+        }
+        return false;
+      },
     }),
     [
       clearColumnDropUi,

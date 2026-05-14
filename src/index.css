@@ -964,3 +964,11 @@ html.dark .ProseMirror [data-bg-color="teal"]    { background-color: rgba(10,80,
 html.dark .ProseMirror [data-bg-color="green"]   { background-color: rgba(20,80,20,0.35); }
 html.dark .ProseMirror [data-bg-color="gray"]    { background-color: rgba(70,70,80,0.40); }
 html.dark .ProseMirror [data-bg-color="brown"]   { background-color: rgba(90,55,20,0.38); }
+
+/* 블록 들여쓰기 레벨 (Tab/Shift+Tab) */
+[data-indent="1"] { margin-left: 1.5rem; }
+[data-indent="2"] { margin-left: 3rem; }
+[data-indent="3"] { margin-left: 4.5rem; }
+[data-indent="4"] { margin-left: 6rem; }
+[data-indent="5"] { margin-left: 7.5rem; }
+[data-indent="6"] { margin-left: 9rem; }

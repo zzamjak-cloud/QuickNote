@@ -486,6 +486,22 @@ export function BlockHandles({
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
 
+  // 팝업 열림 상태에서 Backspace/Delete 키로 블록 삭제
+  const deleteBlockRef = useRef<() => void>(() => {});
+  useEffect(() => { deleteBlockRef.current = deleteBlock; });
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        deleteBlockRef.current();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+
   const hoverBlockStart = hover?.blockStart;
 
   useEffect(() => {
@@ -781,6 +797,8 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
+  const isDatabaseBlock = hover?.node.type.name === "database";
+  const isDatabaseFullPage = isDatabaseBlock && hover?.node.attrs.layout === "fullPage";
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isColumnLayout = hover?.node.type.name === "columnLayout";
   const isTextBlock = hover
@@ -1203,6 +1221,25 @@ export function BlockHandles({
                   <Copy size={14} />
                   복제
                 </button>
+
+                {/* DB 인라인 보기로 변경 */}
+                {isDatabaseFullPage && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!editor || !hover) return;
+                      editor.chain()
+                        .setNodeSelection(hover.blockStart)
+                        .updateAttributes("database", { layout: "inline" })
+                        .run();
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <LayoutTemplate size={14} />
+                    인라인 보기로 변경
+                  </button>
+                )}
 
                 {/* 삭제 */}
                 <button
