@@ -256,7 +256,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     // 이미지 PreSignedURL 발급·검증 Lambda. AppSync 가 invoke.
     const presignFn = new lambdaNode.NodejsFunction(this, "ImagePresignFn", {
       entry: path.join(__dirname, "..", "lambda", "image-presign", "index.ts"),
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
       memorySize: 256,
       timeout: cdk.Duration.seconds(10),
@@ -317,7 +317,7 @@ export function response(ctx) {
     // 야간 image GC Lambda — 30일 미참조 이미지 정리.
     const gcFn = new lambdaNode.NodejsFunction(this, "ImageGcFn", {
       entry: path.join(__dirname, "..", "lambda", "image-gc", "index.ts"),
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
       memorySize: 512,
       timeout: cdk.Duration.minutes(5),
@@ -348,7 +348,7 @@ export function response(ctx) {
     // 휴지통 보관(30일) 만료 페이지 — DynamoDB 에서 영구 삭제
     const trashPurgeFn = new lambdaNode.NodejsFunction(this, "TrashPurgeFn", {
       entry: path.join(__dirname, "..", "lambda", "trash-purge", "index.ts"),
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
       memorySize: 256,
       timeout: cdk.Duration.minutes(5),
@@ -375,7 +375,7 @@ export function response(ctx) {
     // v5-resolvers Lambda — 모든 v5 admin/workspace mutation/query 라우터
     const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
       memorySize: 256,
       timeout: cdk.Duration.seconds(15),
@@ -547,7 +547,7 @@ export function response(ctx) {
     // v5 데이터 마이그레이션 Lambda (v4 ownerId -> v5 workspace/member 필드 보강)
     const v5MigrationFn = new lambdaNode.NodejsFunction(this, "V5MigrationFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-migration", "index.ts"),
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
       memorySize: 512,
       timeout: cdk.Duration.minutes(5),

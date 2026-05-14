@@ -32,7 +32,7 @@ export class CognitoStack extends cdk.Stack {
     // Members 테이블 GSI(byEmail) 조회로 가입 허용 여부를 검증하는 Lambda.
     const preSignUpFn = new lambdaNode.NodejsFunction(this, "PreSignUpFn", {
       entry: path.join(__dirname, "..", "lambda", "pre-sign-up", "index.ts"),
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
       memorySize: 128,
       timeout: cdk.Duration.seconds(5),
@@ -65,7 +65,7 @@ export class CognitoStack extends cdk.Stack {
     // Cognito 가입 완료 후 cognitoSub 를 Members 테이블에 매핑하는 Lambda.
     const postConfirmationFn = new lambdaNode.NodejsFunction(this, "PostConfirmationFn", {
       entry: path.join(__dirname, "..", "lambda", "post-confirmation", "index.ts"),
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
       memorySize: 128,
       timeout: cdk.Duration.seconds(5),

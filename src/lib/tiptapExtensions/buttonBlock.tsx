@@ -4,6 +4,7 @@ import type { NodeViewProps } from "@tiptap/react";
 import { useState, useRef, useEffect } from "react";
 import { Database, ExternalLink, Pencil, Link } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { parseQuickNoteLink } from "../navigation/quicknoteLinks";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
@@ -17,6 +18,16 @@ type ButtonBlockAttrs = {
 
 function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const attrs = node.attrs as ButtonBlockAttrs;
+  const isDbButton = Boolean(attrs.databaseId);
+  // DB 전용 버튼: 연결된 DB 의 제목을 실시간으로 반영한다.
+  // 일반 버튼: attrs.label 그대로 사용.
+  const dbTitle = useDatabaseStore((s) =>
+    isDbButton ? s.databases[attrs.databaseId!]?.meta.title ?? null : null,
+  );
+  const displayedLabel = isDbButton
+    ? `${dbTitle ?? attrs.label.replace(/\s*DB$/, "")} DB`
+    : attrs.label;
+
   const [editing, setEditing] = useState(false);
   const [draftLabel, setDraftLabel] = useState(attrs.label);
   const [draftHref, setDraftHref] = useState(attrs.href);
@@ -24,6 +35,15 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const labelRef = useRef<HTMLInputElement>(null);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+
+  // DB 제목이 바뀌면 attrs.label 에도 반영해 doc 직렬화 시 최신 제목이 보존되도록 한다.
+  useEffect(() => {
+    if (!isDbButton || dbTitle == null) return;
+    const desired = `${dbTitle} DB`;
+    if (attrs.label !== desired) {
+      updateAttributes({ label: desired });
+    }
+  }, [isDbButton, dbTitle, attrs.label, updateAttributes]);
 
   useEffect(() => {
     if (!editing) return;
@@ -70,7 +90,8 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
     updateAttributes({ label: draftLabel, href: draftHref });
     setEditing(false);
   };
-  const looksLikeDatabaseButton = /\bDB\b|데이터베이스/.test(attrs.label);
+  // DB 전용 버튼은 항상 데이터베이스 스타일. 일반 버튼은 라벨 휴리스틱으로 결정.
+  const looksLikeDatabaseButton = isDbButton || /\bDB\b|데이터베이스/.test(attrs.label);
   const LeadingIcon = looksLikeDatabaseButton ? Database : Link;
 
   return (
@@ -96,7 +117,7 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
                 : "text-zinc-400 dark:text-zinc-500",
             ].join(" ")}
           />
-          <span>{attrs.label || "버튼"}</span>
+          <span>{displayedLabel || "버튼"}</span>
           {attrs.href && (
             <ExternalLink
               size={11}
@@ -109,24 +130,26 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
             />
           )}
         </button>
-        {/* 호버 시 편집 아이콘 */}
-        <button
-          type="button"
-          contentEditable={false}
-          onClick={(e) => {
-            e.stopPropagation();
-            setDraftLabel(attrs.label);
-            setDraftHref(attrs.href);
-            setEditing(true);
-          }}
-          className="ml-1 rounded p-0.5 text-zinc-400 opacity-0 transition-opacity hover:bg-zinc-100 hover:text-zinc-700 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-          title="편집"
-        >
-          <Pencil size={12} />
-        </button>
+        {/* 호버 시 편집 아이콘 — DB 전용 버튼은 임의 편집을 막아 별도 편집 진입점을 두지 않는다. */}
+        {!isDbButton && (
+          <button
+            type="button"
+            contentEditable={false}
+            onClick={(e) => {
+              e.stopPropagation();
+              setDraftLabel(attrs.label);
+              setDraftHref(attrs.href);
+              setEditing(true);
+            }}
+            className="ml-1 rounded p-0.5 text-zinc-400 opacity-0 transition-opacity hover:bg-zinc-100 hover:text-zinc-700 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+            title="편집"
+          >
+            <Pencil size={12} />
+          </button>
+        )}
 
         {/* 편집 팝오버 */}
-        {editing && (
+        {!isDbButton && editing && (
           <div
             ref={popoverRef}
             contentEditable={false}

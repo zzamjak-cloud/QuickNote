@@ -83,7 +83,7 @@ const MentionList = forwardRef<RefHandle, SuggestionProps>(
 MentionList.displayName = "MentionList";
 
 /** 페이지 멘션 노드뷰 — 스토어를 구독하므로 페이지 제목 변경 시 즉시 반영 */
-function PageMentionView({ node }: NodeViewProps) {
+function PageMentionView({ node, editor }: NodeViewProps) {
   const id = node.attrs.id as string;
   const label = (node.attrs.label as string) ?? "";
   const page = usePageStore((s) => s.pages[id]);
@@ -101,6 +101,13 @@ function PageMentionView({ node }: NodeViewProps) {
           if (isInPeek && peekPageId) {
             peekNavigate(id);
           } else {
+            // 에디터가 포커스 상태로 남아있으면 Editor.tsx 의 본문 sync useEffect 가
+            // blur 이벤트를 기다리며 setContent 를 지연 → 페이지 본문이 갱신되지 않는 문제 방지.
+            try {
+              editor?.commands.blur();
+            } catch {
+              /* noop */
+            }
             usePageStore.getState().setActivePage(id);
             useSettingsStore.getState().setCurrentTabPage(id);
           }

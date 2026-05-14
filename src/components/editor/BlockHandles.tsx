@@ -801,12 +801,28 @@ export function BlockHandles({
   const isDatabaseBlock = hover?.node.type.name === "database";
   const isDatabaseFullPage = isDatabaseBlock && hover?.node.attrs.layout === "fullPage";
 
-  // buttonBlock 의 databaseId — attrs 에 저장된 값 우선, 없으면 href 에서 pageId 추출 후 대상 페이지 doc 에서 조회
+  // buttonBlock 의 databaseId — buttonBlock 은 inline atom 이라 hover 는 보통 paragraph.
+  // hover 노드 자체와 그 inline 자식에서 buttonBlock 을 찾고, attrs 에 저장된 databaseId 우선,
+  // 없으면 href 에서 pageId 추출 후 대상 페이지의 fullPage databaseBlock 조회로 fallback.
+  const buttonBlockNode: PMNode | null = (() => {
+    if (!hover?.node) return null;
+    if (hover.node.type.name === "buttonBlock") return hover.node;
+    let found: PMNode | null = null;
+    hover.node.descendants((child) => {
+      if (found) return false;
+      if (child.type.name === "buttonBlock") {
+        found = child;
+        return false;
+      }
+      return true;
+    });
+    return found;
+  })();
   const buttonBlockDbId: string | null = (() => {
-    if (hover?.node.type.name !== "buttonBlock") return null;
-    const stored = hover.node.attrs.databaseId as string | undefined;
+    if (!buttonBlockNode) return null;
+    const stored = buttonBlockNode.attrs.databaseId as string | undefined;
     if (stored) return stored;
-    const href = hover.node.attrs.href as string | undefined;
+    const href = buttonBlockNode.attrs.href as string | undefined;
     if (!href) return null;
     let targetPageId: string | null = null;
     try {

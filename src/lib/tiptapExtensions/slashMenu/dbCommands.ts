@@ -1,11 +1,11 @@
 import type { Editor, Range } from "@tiptap/react";
 import {
   IndentIncrease,
-  Link,
   PanelTop,
 } from "lucide-react";
 import { usePageStore } from "../../../store/pageStore";
 import { useDatabaseStore } from "../../../store/databaseStore";
+import { useNavigationHistoryStore } from "../../../store/navigationHistoryStore";
 import { emptyPanelState } from "../../../types/database";
 import type { DatabaseLayout, ViewKind } from "../../../types/database";
 import { scheduleSlashMutation } from "./commandHelpers";
@@ -36,12 +36,11 @@ export function insertDatabaseBlock(
   });
 }
 
-/** DB 전체 페이지 생성 + 버튼 삽입 공통 로직 */
-function createFullPageDatabase(
+/** "DB - 전체 페이지": DB·전용 홈 페이지 생성 후 현재 페이지에는 자동으로 DB 전용 버튼을 삽입하고, DB 페이지로 이동한다. */
+export function insertFullPageDatabase(
   editor: Editor,
   range: Range,
   view: ViewKind,
-  navigate: boolean,
 ): void {
   const seedTitle = "새 데이터베이스";
   scheduleSlashMutation(range, (stableRange) => {
@@ -72,6 +71,7 @@ function createFullPageDatabase(
       .insertContent({
         type: "buttonBlock",
         attrs: {
+          // DB 전용 버튼: label 은 buttonBlock 의 DB 모드에서 store 제목을 따라 자동 동기화된다.
           label: `${actualTitle} DB`,
           href: buildQuickNotePageUrl({ pageId: homePageId }),
           databaseId: dbId,
@@ -79,28 +79,18 @@ function createFullPageDatabase(
       })
       .insertContent(" ")
       .run();
-    if (navigate) {
-      store.setActivePage(homePageId);
+    // setActivePage 가 호출되면 에디터가 곧바로 다른 페이지로 unmount 되어
+    // autosave 디바운스(700ms) 가 취소되고 방금 삽입한 DB 버튼이 소실된다.
+    // 즉시 호스트 페이지 doc 을 store 에 반영해 영구화한다.
+    const hostPageId =
+      (editor.storage.pageContext as { pageId?: string | null } | undefined)?.pageId ?? null;
+    if (hostPageId) {
+      store.updateDoc(hostPageId, editor.getJSON());
+      // DB 페이지에서 "< 이전 페이지" 로 돌아갈 수 있도록 호스트 페이지를 히스토리에 push.
+      useNavigationHistoryStore.getState().pushBack(hostPageId);
     }
+    store.setActivePage(homePageId);
   });
-}
-
-/** "DB - 전체 페이지": 생성 즉시 DB 페이지로 이동 */
-export function insertFullPageDatabase(
-  editor: Editor,
-  range: Range,
-  view: ViewKind,
-): void {
-  createFullPageDatabase(editor, range, view, true);
-}
-
-/** "DB - 버튼": DB 전체 페이지를 생성하고 버튼만 삽입, 현재 페이지 유지 */
-export function insertDatabaseButton(
-  editor: Editor,
-  range: Range,
-  view: ViewKind,
-): void {
-  createFullPageDatabase(editor, range, view, false);
 }
 
 export const dbSlashChildren: SlashLeafItem[] = [
@@ -112,15 +102,6 @@ export const dbSlashChildren: SlashLeafItem[] = [
     keywords: ["db", "database", "full", "page", "전체", "페이지", "데이터", "데이터베이스"],
     command: ({ editor, range }) =>
       insertFullPageDatabase(editor, range, "table"),
-  }),
-  slashLeaf({
-    id: "dbButton",
-    title: "DB - 버튼",
-    description: "DB 페이지 생성 후 현재 페이지에 버튼 삽입",
-    icon: Link,
-    keywords: ["db", "database", "button", "버튼", "데이터", "데이터베이스"],
-    command: ({ editor, range }) =>
-      insertDatabaseButton(editor, range, "table"),
   }),
   slashLeaf({
     id: "dbInline",

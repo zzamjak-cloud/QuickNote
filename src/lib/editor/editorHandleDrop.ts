@@ -482,6 +482,28 @@ export function createEditorHandleDrop(options: {
     const basePos = coord?.pos ?? view.state.selection.from;
     let insertPos = basePos;
     for (const f of Array.from(files)) {
+      // 마크다운 파일은 코드 블럭으로 변환해 삽입한다.
+      const isMarkdown =
+        f.type === "text/markdown" ||
+        f.type === "text/x-markdown" ||
+        /\.(md|markdown)$/i.test(f.name);
+      if (isMarkdown) {
+        const codeBlockType = view.state.schema.nodes.codeBlock;
+        if (!codeBlockType) continue;
+        const at = insertPos;
+        // 파일 내용을 비동기로 읽고, 읽은 시점의 doc 에 코드 블럭을 삽입한다.
+        void f.text().then((text) => {
+          const tr = view.state.tr.insert(
+            Math.min(at, view.state.doc.content.size),
+            codeBlockType.create(
+              { language: "markdown" },
+              text ? view.state.schema.text(text) : null,
+            ),
+          );
+          view.dispatch(tr.scrollIntoView());
+        });
+        continue;
+      }
       const isImage = f.type.startsWith("image/");
       const fileBlockType = view.state.schema.nodes.fileBlock;
       if (!fileBlockType) continue;
