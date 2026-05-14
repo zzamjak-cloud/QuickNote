@@ -1,5 +1,6 @@
 const MEMBER_FIELDS = `
   memberId email name jobRole jobTitle phone avatarUrl thumbnailUrl workspaceRole status personalWorkspaceId cognitoSub createdAt removedAt clientPrefs
+  employmentStatus employeeNumber department team jobCategory jobDetail joinedAt
 `;
 
 export const ME = `

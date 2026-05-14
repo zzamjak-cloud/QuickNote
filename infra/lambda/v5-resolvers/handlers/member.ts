@@ -259,6 +259,20 @@ export type UpdateMemberInput = {
   avatarUrl?: string | null;
   thumbnailUrl?: string | null;
   teamIds?: string[] | null;
+  /** 재직 상태 (재직중 | 휴직 | 병가 | 퇴사) */
+  employmentStatus?: string | null;
+  /** 사번 */
+  employeeNumber?: string | null;
+  /** 소속(실) */
+  department?: string | null;
+  /** 소속(팀) 명칭 */
+  team?: string | null;
+  /** 직무 카테고리 */
+  jobCategory?: string | null;
+  /** 상세직무 */
+  jobDetail?: string | null;
+  /** 입사일 (YYYY-MM-DD) */
+  joinedAt?: string | null;
 };
 
 export async function updateMember(args: {
@@ -283,6 +297,14 @@ export async function updateMember(args: {
   if (args.input.phone !== undefined) { sets.push("phone = :ph"); vals[":ph"] = args.input.phone ?? null; }
   if (args.input.avatarUrl !== undefined) { sets.push("avatarUrl = :av"); vals[":av"] = args.input.avatarUrl ?? null; }
   if (args.input.thumbnailUrl !== undefined) { sets.push("thumbnailUrl = :th"); vals[":th"] = args.input.thumbnailUrl ?? null; }
+  // 신규 필드 — CSV 마이그레이션 및 설정 UI 에서 설정
+  if (args.input.employmentStatus !== undefined) { sets.push("employmentStatus = :es"); vals[":es"] = args.input.employmentStatus ?? null; }
+  if (args.input.employeeNumber !== undefined) { sets.push("employeeNumber = :en"); vals[":en"] = args.input.employeeNumber ?? null; }
+  if (args.input.department !== undefined) { sets.push("department = :dep"); vals[":dep"] = args.input.department ?? null; }
+  if (args.input.team !== undefined) { sets.push("#team = :tm"); vals[":tm"] = args.input.team ?? null; exprNames["#team"] = "team"; }
+  if (args.input.jobCategory !== undefined) { sets.push("jobCategory = :jc"); vals[":jc"] = args.input.jobCategory ?? null; }
+  if (args.input.jobDetail !== undefined) { sets.push("jobDetail = :jd"); vals[":jd"] = args.input.jobDetail ?? null; }
+  if (args.input.joinedAt !== undefined) { sets.push("joinedAt = :ja"); vals[":ja"] = args.input.joinedAt ?? null; }
 
   let updated: Member = target;
   if (sets.length > 0) {

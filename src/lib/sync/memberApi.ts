@@ -30,6 +30,14 @@ type UpdateMemberInput = {
   phone?: string | null;
   avatarUrl?: string | null;
   thumbnailUrl?: string | null;
+  // 신규 필드
+  employmentStatus?: string | null;
+  employeeNumber?: string | null;
+  department?: string | null;
+  team?: string | null;
+  jobCategory?: string | null;
+  jobDetail?: string | null;
+  joinedAt?: string | null;
 };
 
 type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
@@ -69,6 +77,14 @@ function normalizeMemberFields(member: GqlMember | Member): Member {
     avatarUrl: member.avatarUrl,
     thumbnailUrl: member.thumbnailUrl,
     personalWorkspaceId: member.personalWorkspaceId,
+    // 신규 필드 — GraphQL 응답에 포함된 경우에만 세팅
+    employmentStatus: (member as Record<string, unknown>).employmentStatus as Member["employmentStatus"] | undefined,
+    employeeNumber: (member as Record<string, unknown>).employeeNumber as string | undefined,
+    department: (member as Record<string, unknown>).department as string | undefined,
+    team: (member as Record<string, unknown>).team as string | undefined,
+    jobCategory: (member as Record<string, unknown>).jobCategory as string | undefined,
+    jobDetail: (member as Record<string, unknown>).jobDetail as string | undefined,
+    joinedAt: (member as Record<string, unknown>).joinedAt as string | undefined,
   };
 }
 

@@ -34,6 +34,20 @@ type Member {
   teams: [Team!]!
   createdAt: AWSDateTime!
   removedAt: AWSDateTime
+  """재직 상태 (재직중 | 휴직 | 병가 | 퇴사)"""
+  employmentStatus: String
+  """사번"""
+  employeeNumber: String
+  """소속(실)"""
+  department: String
+  """소속(팀) 명칭"""
+  team: String
+  """직무 카테고리"""
+  jobCategory: String
+  """상세직무"""
+  jobDetail: String
+  """입사일 (YYYY-MM-DD)"""
+  joinedAt: String
 }
 
 type MemberMini {
@@ -222,6 +236,13 @@ input UpdateMemberInput {
   avatarUrl: String
   thumbnailUrl: String
   teamIds: [ID!]
+  employmentStatus: String
+  employeeNumber: String
+  department: String
+  team: String
+  jobCategory: String
+  jobDetail: String
+  joinedAt: String
 }
 
 input WorkspaceAccessInput {
