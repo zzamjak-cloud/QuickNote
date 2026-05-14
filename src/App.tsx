@@ -43,8 +43,6 @@ function App() {
   const activePage = usePageStore((s) =>
     activePageId ? s.pages[activePageId] : undefined,
   );
-  const pages = usePageStore((s) => s.pages);
-
   const [migrating, setMigrating] = useState(
     () => isTauri && hasLocalStorageData(),
   );
@@ -89,7 +87,7 @@ function App() {
       window.removeEventListener("popstate", applyLocationLink);
       window.removeEventListener("hashchange", applyLocationLink);
     };
-  }, [pages, setActivePage, setCurrentTabPage]);
+  }, [setActivePage, setCurrentTabPage]);
 
   // 마운트 시: 탭은 비어 있는데 페이지 스토어에 활성 페이지만 있는 경우(영속 불일치) 탭만 맞춤.
   useLayoutEffect(() => {
