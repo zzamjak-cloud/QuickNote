@@ -23,11 +23,17 @@ import {
   extractJobDetails,
   type CsvMemberRow,
 } from "../../lib/parsing/csvMembers";
-import { createMemberApi, updateMemberApi, assignMemberToTeamApi } from "../../lib/sync/memberApi";
+import {
+  assignMemberToTeamApi,
+  createMemberApi,
+  unassignMemberFromTeamApi,
+  updateMemberApi,
+} from "../../lib/sync/memberApi";
 import { createTeamApi } from "../../lib/sync/teamApi";
 import {
-  createOrganizationApi,
   assignMemberToOrganizationApi,
+  createOrganizationApi,
+  unassignMemberFromOrganizationApi,
 } from "../../lib/sync/organizationApi";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 
@@ -35,14 +41,6 @@ type Props = {
   open: boolean;
   onClose: () => void;
 };
-
-/** memberId 기준 머지 — 새 데이터로 덮어쓰며 중복 제거 */
-function mergeByMemberId(existing: Member[], incoming: Member[]): Member[] {
-  const byId = new Map<string, Member>();
-  for (const m of existing) byId.set(m.memberId, m);
-  for (const m of incoming) byId.set(m.memberId, m);
-  return Array.from(byId.values());
-}
 
 type PreviewResult = {
   rows: CsvMemberRow[];
@@ -249,36 +247,67 @@ export function CsvImportModal({ open, onClose }: Props) {
         }
       }
 
-      // 팀 배정
-      const teamAssignList: Array<{ memberId: string; teamId: string }> = [];
-      for (const m of activeMembers) {
-        if (!m.team) continue;
-        const teamId = teamNameToId.get(normalize(m.team));
-        if (teamId) teamAssignList.push({ memberId: m.memberId, teamId });
+      // 팀 배정 — CSV 를 단일 진실로 삼아 기존 배정과 diff:
+      //   - 현재 배정되어 있으나 CSV 가 다른 팀(또는 없음)을 지정 → unassign
+      //   - CSV 가 지정한 팀이 현재 미배정 → assign
+      // memberId → 현재 서버에서 속해있는 teamId 집합
+      const currentMemberTeams = new Map<string, Set<string>>();
+      for (const t of useTeamStore.getState().teams) {
+        for (const m of t.members) {
+          const set = currentMemberTeams.get(m.memberId) ?? new Set<string>();
+          set.add(t.teamId);
+          currentMemberTeams.set(m.memberId, set);
+        }
       }
-      for (let i = 0; i < teamAssignList.length; i++) {
-        const item = teamAssignList[i];
-        if (!item) continue;
-        setProgress({ phase: "팀 배정 중", current: i + 1, total: teamAssignList.length });
-        try {
-          await assignMemberToTeamApi(item.memberId, item.teamId);
-        } catch (err) {
-          // 이미 배정된 경우 서버 에러 가능 — warn 수준
-          reportNonFatal(err, "csvImport.assignMemberToTeam");
-          console.warn("[CSV import] 팀 배정 실패 (이미 배정됐을 수 있음)", item, err);
+      // memberId → CSV 가 원하는 단일 teamId (없으면 null)
+      const csvDesiredTeam = new Map<string, string | null>();
+      for (const m of activeMembers) {
+        const tid = m.team ? teamNameToId.get(normalize(m.team)) ?? null : null;
+        csvDesiredTeam.set(m.memberId, tid);
+      }
+
+      const teamOps: Array<
+        { kind: "assign" | "unassign"; memberId: string; teamId: string }
+      > = [];
+      for (const m of activeMembers) {
+        const current = currentMemberTeams.get(m.memberId) ?? new Set<string>();
+        const desired = csvDesiredTeam.get(m.memberId) ?? null;
+        for (const tid of current) {
+          if (tid !== desired) {
+            teamOps.push({ kind: "unassign", memberId: m.memberId, teamId: tid });
+          }
+        }
+        if (desired && !current.has(desired)) {
+          teamOps.push({ kind: "assign", memberId: m.memberId, teamId: desired });
         }
       }
 
-      // 팀 로컬 스토어 멤버 목록 갱신
+      for (let i = 0; i < teamOps.length; i++) {
+        const op = teamOps[i];
+        if (!op) continue;
+        setProgress({
+          phase: op.kind === "assign" ? "팀 배정 중" : "팀 배정 해제 중",
+          current: i + 1,
+          total: teamOps.length,
+        });
+        try {
+          if (op.kind === "assign") {
+            await assignMemberToTeamApi(op.memberId, op.teamId);
+          } else {
+            await unassignMemberFromTeamApi(op.memberId, op.teamId);
+          }
+        } catch (err) {
+          reportNonFatal(err, `csvImport.${op.kind}MemberTeam`);
+          console.warn(`[CSV import] 팀 ${op.kind} 실패`, op, err);
+        }
+      }
+
+      // 팀 로컬 스토어 멤버 목록 갱신 — CSV 가 단일 진실이므로 교체(merge 아님)
       for (const [teamId, teamObj] of latestTeamObjects) {
         const membersOfTeam = activeMembers.filter(
           (m) => m.team && teamNameToId.get(normalize(m.team)) === teamId,
         );
-        const existing = useTeamStore.getState().teams.find((t) => t.teamId === teamId);
-        const merged = existing
-          ? mergeByMemberId(existing.members, membersOfTeam)
-          : membersOfTeam;
-        upsertTeam({ ...teamObj, members: merged });
+        upsertTeam({ ...teamObj, members: membersOfTeam });
       }
 
       // ── 3단계: 조직(실) 동기화 (AppSync createOrganization + assign) ───
@@ -319,38 +348,75 @@ export function CsvImportModal({ open, onClose }: Props) {
         }
       }
 
-      // 조직 배정
-      const orgAssignList: Array<{ memberId: string; organizationId: string }> = [];
-      for (const m of activeMembers) {
-        if (!m.department) continue;
-        const organizationId = orgNameToId.get(normalize(m.department));
-        if (organizationId) orgAssignList.push({ memberId: m.memberId, organizationId });
+      // 조직 배정 — 팀과 동일하게 CSV 단일 진실 diff 방식
+      const currentMemberOrgs = new Map<string, Set<string>>();
+      for (const o of useOrganizationStore.getState().organizations) {
+        for (const m of o.members) {
+          const set = currentMemberOrgs.get(m.memberId) ?? new Set<string>();
+          set.add(o.organizationId);
+          currentMemberOrgs.set(m.memberId, set);
+        }
       }
-      for (let i = 0; i < orgAssignList.length; i++) {
-        const item = orgAssignList[i];
-        if (!item) continue;
-        setProgress({ phase: "조직 배정 중", current: i + 1, total: orgAssignList.length });
-        try {
-          await assignMemberToOrganizationApi(item.memberId, item.organizationId);
-        } catch (err) {
-          // 이미 배정된 경우 서버 에러 가능 — warn 수준
-          reportNonFatal(err, "csvImport.assignMemberToOrganization");
-          console.warn("[CSV import] 조직 배정 실패 (이미 배정됐을 수 있음)", item, err);
+      const csvDesiredOrg = new Map<string, string | null>();
+      for (const m of activeMembers) {
+        const oid = m.department
+          ? orgNameToId.get(normalize(m.department)) ?? null
+          : null;
+        csvDesiredOrg.set(m.memberId, oid);
+      }
+
+      const orgOps: Array<
+        { kind: "assign" | "unassign"; memberId: string; organizationId: string }
+      > = [];
+      for (const m of activeMembers) {
+        const current = currentMemberOrgs.get(m.memberId) ?? new Set<string>();
+        const desired = csvDesiredOrg.get(m.memberId) ?? null;
+        for (const oid of current) {
+          if (oid !== desired) {
+            orgOps.push({
+              kind: "unassign",
+              memberId: m.memberId,
+              organizationId: oid,
+            });
+          }
+        }
+        if (desired && !current.has(desired)) {
+          orgOps.push({
+            kind: "assign",
+            memberId: m.memberId,
+            organizationId: desired,
+          });
         }
       }
 
-      // 조직 로컬 스토어 멤버 목록 갱신
+      for (let i = 0; i < orgOps.length; i++) {
+        const op = orgOps[i];
+        if (!op) continue;
+        setProgress({
+          phase: op.kind === "assign" ? "조직 배정 중" : "조직 배정 해제 중",
+          current: i + 1,
+          total: orgOps.length,
+        });
+        try {
+          if (op.kind === "assign") {
+            await assignMemberToOrganizationApi(op.memberId, op.organizationId);
+          } else {
+            await unassignMemberFromOrganizationApi(op.memberId, op.organizationId);
+          }
+        } catch (err) {
+          reportNonFatal(err, `csvImport.${op.kind}MemberOrganization`);
+          console.warn(`[CSV import] 조직 ${op.kind} 실패`, op, err);
+        }
+      }
+
+      // 조직 로컬 스토어 멤버 목록 갱신 — CSV 가 단일 진실
       for (const [organizationId, orgObj] of latestOrgObjects) {
         const membersOfOrg = activeMembers.filter(
-          (m) => m.department && orgNameToId.get(normalize(m.department)) === organizationId,
+          (m) =>
+            m.department &&
+            orgNameToId.get(normalize(m.department)) === organizationId,
         );
-        const existing = useOrganizationStore.getState().organizations.find(
-          (o) => o.organizationId === organizationId,
-        );
-        const merged = existing
-          ? mergeByMemberId(existing.members, membersOfOrg)
-          : membersOfOrg;
-        upsertOrganization({ ...orgObj, members: merged });
+        upsertOrganization({ ...orgObj, members: membersOfOrg });
       }
 
       // ── 4단계: 직무 목록 병합 ───────────────────────────────────────────
