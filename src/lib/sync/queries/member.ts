@@ -88,6 +88,13 @@ export const UPDATE_MEMBER = `
     $phone: String
     $avatarUrl: String
     $thumbnailUrl: String
+    $employmentStatus: String
+    $employeeNumber: String
+    $department: String
+    $team: String
+    $jobCategory: String
+    $jobDetail: String
+    $joinedAt: String
   ) {
     updateMember(
       input: {
@@ -98,6 +105,13 @@ export const UPDATE_MEMBER = `
         phone: $phone
         avatarUrl: $avatarUrl
         thumbnailUrl: $thumbnailUrl
+        employmentStatus: $employmentStatus
+        employeeNumber: $employeeNumber
+        department: $department
+        team: $team
+        jobCategory: $jobCategory
+        jobDetail: $jobDetail
+        joinedAt: $joinedAt
       }
     ) { ${MEMBER_FIELDS} }
   }
