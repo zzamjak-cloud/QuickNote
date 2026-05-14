@@ -10,7 +10,7 @@ export const blockCommentDecoKey = new PluginKey("qn-block-comment-deco");
 
 /** 댓글/미확인 블록 — PM Decoration으로 DOM class 유지(React NodeView·classList 덮어쓰기 대응) */
 export function createBlockCommentDecorations(
-  pageId: string | undefined,
+  _pageId: string | undefined,
   myMemberId: string | undefined,
 ) {
   return Extension.create({
