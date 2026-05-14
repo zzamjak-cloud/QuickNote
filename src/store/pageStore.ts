@@ -86,19 +86,42 @@ export function enqueuePageUpsertForSync(p: Page): void {
   enqueueUpsertPage(p);
 }
 
+/** href 에서 pageId 를 추출 — HTTP URL (?page=xxx) 과 quicknote://page/xxx 스킴 모두 처리 */
+function extractPageIdFromHref(href: string): string | null {
+  if (!href) return null;
+  try {
+    const url = new URL(href);
+    // HTTP/HTTPS: ?page=xxx
+    const qp = url.searchParams.get("page");
+    if (qp) return qp;
+    // quicknote://page/xxx
+    if (url.protocol === "quicknote:" && url.hostname === "page") {
+      return url.pathname.replace(/^\/+/, "") || null;
+    }
+  } catch {
+    // 상대 URL 등 파싱 실패 — 직접 파싱
+    const m = href.match(/[?&]page=([^&]+)/);
+    if (m) return decodeURIComponent(m[1]);
+  }
+  return null;
+}
+
 function updateButtonLabelsInDoc(
   node: JSONContent,
-  dbRef: string,
+  homePageId: string,
   newLabel: string,
   markDirty: () => void,
 ): JSONContent {
-  if (node.type === "buttonBlock" && node.attrs?.href === dbRef) {
+  if (
+    node.type === "buttonBlock" &&
+    extractPageIdFromHref(node.attrs?.href ?? "") === homePageId
+  ) {
     markDirty();
     return { ...node, attrs: { ...node.attrs, label: newLabel } };
   }
   if (!node.content?.length) return node;
   const newContent = node.content.map((c) =>
-    updateButtonLabelsInDoc(c, dbRef, newLabel, markDirty),
+    updateButtonLabelsInDoc(c, homePageId, newLabel, markDirty),
   );
   if (newContent.every((c, i) => c === node.content![i])) return node;
   return { ...node, content: newContent };
@@ -1091,13 +1114,12 @@ export const usePageStore = create<PageStore>()(
       },
 
       updateButtonBlockLabels: (homePageId, newLabel) => {
-        const dbRef = `quicknote://page/${homePageId}`;
         const pages = get().pages;
         const changed: Page[] = [];
         for (const page of Object.values(pages)) {
           if (!page.doc) continue;
           let dirty = false;
-          const doc = updateButtonLabelsInDoc(page.doc, dbRef, newLabel, () => { dirty = true; });
+          const doc = updateButtonLabelsInDoc(page.doc, homePageId, newLabel, () => { dirty = true; });
           if (dirty) changed.push({ ...page, doc, updatedAt: Date.now() });
         }
         if (changed.length === 0) return;

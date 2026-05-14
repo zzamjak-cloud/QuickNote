@@ -800,7 +800,32 @@ export function BlockHandles({
 
   const isDatabaseBlock = hover?.node.type.name === "database";
   const isDatabaseFullPage = isDatabaseBlock && hover?.node.attrs.layout === "fullPage";
-  const isDatabaseButtonBlock = hover?.node.type.name === "buttonBlock" && !!hover?.node.attrs.databaseId;
+
+  // buttonBlock 의 databaseId — attrs 에 저장된 값 우선, 없으면 href 에서 pageId 추출 후 대상 페이지 doc 에서 조회
+  const buttonBlockDbId: string | null = (() => {
+    if (hover?.node.type.name !== "buttonBlock") return null;
+    const stored = hover.node.attrs.databaseId as string | undefined;
+    if (stored) return stored;
+    const href = hover.node.attrs.href as string | undefined;
+    if (!href) return null;
+    let targetPageId: string | null = null;
+    try {
+      const url = new URL(href);
+      targetPageId = url.searchParams.get("page") ?? url.pathname.replace(/^\/+/, "") || null;
+    } catch {
+      const m = href.match(/[?&]page=([^&]+)/);
+      if (m) targetPageId = decodeURIComponent(m[1]);
+    }
+    if (!targetPageId) return null;
+    const targetPage = usePageStore.getState().pages[targetPageId];
+    const first = targetPage?.doc?.content?.[0];
+    if (first?.type === "databaseBlock" && first.attrs?.layout === "fullPage") {
+      return (first.attrs?.databaseId as string) || null;
+    }
+    return null;
+  })();
+
+  const isDatabaseButtonBlock = !!buttonBlockDbId;
   const isDatabaseInlineBlock = hover?.node.type.name === "databaseBlock" && hover?.node.attrs.layout !== "fullPage";
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isColumnLayout = hover?.node.type.name === "columnLayout";
@@ -1249,9 +1274,8 @@ export function BlockHandles({
                   <button
                     type="button"
                     onClick={() => {
-                      if (!editor || !hover) return;
-                      const databaseId = hover.node.attrs.databaseId as string;
-                      if (!databaseId) return;
+                      if (!editor || !hover || !buttonBlockDbId) return;
+                      const databaseId = buttonBlockDbId;
                       const dbNode = editor.state.schema.nodes.databaseBlock?.create({
                         databaseId,
                         layout: "inline",
