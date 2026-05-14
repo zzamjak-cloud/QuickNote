@@ -56,6 +56,26 @@ export const GqlMemberSchema = z
 
 export type GqlMemberParsed = z.infer<typeof GqlMemberSchema>;
 
+export const GqlTeamSchema = z
+  .object({
+    teamId: z.string(),
+    name: z.string(),
+    members: z.array(GqlMemberSchema).default([]),
+  })
+  .passthrough();
+
+export type GqlTeamParsed = z.infer<typeof GqlTeamSchema>;
+
+export const GqlOrganizationSchema = z
+  .object({
+    organizationId: z.string(),
+    name: z.string(),
+    members: z.array(GqlMemberSchema).default([]),
+  })
+  .passthrough();
+
+export type GqlOrganizationParsed = z.infer<typeof GqlOrganizationSchema>;
+
 /**
  * GraphQL 응답 배열을 검증하고 실패한 항목은 reportNonFatal 후 제외.
  * 부분 실패에도 나머지 정상 항목은 유지 — 앱 안 죽음.

@@ -11,6 +11,7 @@ import {
 } from "./queries/organization";
 import type { Organization } from "../../store/organizationStore";
 import type { Member } from "../../store/memberStore";
+import { GqlOrganizationSchema, parseGqlList } from "./schemas";
 
 type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
   workspaceRole: "OWNER" | "MANAGER" | "MEMBER";
@@ -41,8 +42,13 @@ function normalizeOrganization(org: GqlOrganization): Organization {
 export async function listOrganizationsApi(): Promise<Organization[]> {
   const result = (await appsyncClient().graphql({
     query: LIST_ORGANIZATIONS,
-  })) as { data?: { listOrganizations?: GqlOrganization[] } };
-  return (result.data?.listOrganizations ?? []).map(normalizeOrganization);
+  })) as { data?: { listOrganizations?: unknown } };
+  const parsed = parseGqlList(
+    result.data?.listOrganizations ?? [],
+    GqlOrganizationSchema,
+    "listOrganizations",
+  );
+  return parsed.map((o) => normalizeOrganization(o as unknown as GqlOrganization));
 }
 
 export async function createOrganizationApi(name: string): Promise<Organization> {

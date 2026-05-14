@@ -2,6 +2,7 @@ import { appsyncClient } from "./graphql/client";
 import { ARCHIVE_TEAM, CREATE_TEAM, DELETE_TEAM, LIST_TEAMS, RESTORE_TEAM, UPDATE_TEAM } from "./queries/team";
 import type { Team } from "../../store/teamStore";
 import type { Member } from "../../store/memberStore";
+import { GqlTeamSchema, parseGqlList } from "./schemas";
 
 type GqlMember = Omit<Member, "workspaceRole" | "status"> & {
   workspaceRole: "OWNER" | "MANAGER" | "MEMBER";
@@ -32,8 +33,13 @@ function normalizeTeam(team: GqlTeam): Team {
 export async function listTeamsApi(): Promise<Team[]> {
   const result = (await appsyncClient().graphql({
     query: LIST_TEAMS,
-  })) as { data?: { listTeams?: GqlTeam[] } };
-  return (result.data?.listTeams ?? []).map(normalizeTeam);
+  })) as { data?: { listTeams?: unknown } };
+  const parsed = parseGqlList(
+    result.data?.listTeams ?? [],
+    GqlTeamSchema,
+    "listTeams",
+  );
+  return parsed.map((t) => normalizeTeam(t as unknown as GqlTeam));
 }
 
 export async function createTeamApi(name: string): Promise<Team> {
