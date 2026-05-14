@@ -7,6 +7,7 @@ import {
   ME,
   SEARCH_MEMBERS_FOR_MENTION,
   PROMOTE_TO_MANAGER,
+  SET_MEMBER_ROLE,
   REMOVE_MEMBER,
   UNASSIGN_MEMBER_FROM_TEAM,
   UPDATE_MEMBER,
@@ -129,6 +130,16 @@ export async function demoteToMemberApi(memberId: string): Promise<Member> {
   })) as { data?: { demoteToMember?: GqlMember } };
   const member = result.data?.demoteToMember;
   if (!member) throw new Error("demoteToMember 응답이 비어 있습니다.");
+  return normalizeMemberFields(member);
+}
+
+export async function setMemberRoleApi(memberId: string, role: string): Promise<Member> {
+  const result = (await appsyncClient().graphql({
+    query: SET_MEMBER_ROLE,
+    variables: { memberId, role: role.toUpperCase() },
+  })) as { data?: { setMemberRole?: GqlMember } };
+  const member = result.data?.setMemberRole;
+  if (!member) throw new Error("setMemberRole 응답이 비어 있습니다.");
   return normalizeMemberFields(member);
 }
 

@@ -38,6 +38,12 @@ export const DEMOTE_TO_MEMBER = `
   }
 `;
 
+export const SET_MEMBER_ROLE = `
+  mutation SetMemberRole($memberId: ID!, $role: WorkspaceRole!) {
+    setMemberRole(memberId: $memberId, role: $role) { ${MEMBER_FIELDS} }
+  }
+`;
+
 export const REMOVE_MEMBER = `
   mutation RemoveMember($memberId: ID!) {
     removeMember(memberId: $memberId) { ${MEMBER_FIELDS} }
