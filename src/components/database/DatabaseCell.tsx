@@ -12,7 +12,18 @@ import {
 } from "../../lib/databaseFileStorage";
 import { newId } from "../../lib/id";
 import { searchMembersForMentionApi } from "../../lib/sync/memberApi";
-import { SELECT_COLOR_PRESETS } from "./ColumnOptionsEditor";
+import {
+  formatDate,
+  formatPhone,
+  normalizePersonValue,
+  optionStyle,
+  personChipColor,
+  sameDay,
+  stripTime,
+  toDate,
+  toIsoEnd,
+  toIsoStart,
+} from "./cells/utils";
 
 type Props = {
   databaseId: string;
@@ -207,10 +218,6 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
       );
   }
 });
-
-function optionStyle(color: string | undefined) {
-  return { backgroundColor: color ?? SELECT_COLOR_PRESETS[0] };
-}
 
 function SelectCell({
   column,
@@ -633,56 +640,7 @@ function CalendarMonth({
 }
 
 // ---- 날짜 헬퍼들 ----
-function toDate(iso: string): Date {
-  return new Date(iso);
-}
-function toIsoStart(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}T00:00:00`;
-}
-function toIsoEnd(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}T23:59:59`;
-}
-function stripTime(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-function sameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
-}
-function formatDate(d: Date): string {
-  const yy = String(d.getFullYear() % 100).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yy}. ${mm}. ${dd}`;
-}
-
-/** 콤마/줄바꿈 구분 문자열 또는 배열을 칩 배열로 정규화. */
-function normalizePersonValue(v: string | string[] | null | undefined): string[] {
-  if (Array.isArray(v)) return v.filter(Boolean);
-  if (typeof v === "string" && v.trim()) {
-    // 기존 데이터가 "이름1,이름2" 형태로 저장된 경우 분리
-    return v.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
-  }
-  return [];
-}
-
-/** select 칩과 동일한 고정 컬러 배열 — 이름 첫 글자 코드로 배정. */
-const PERSON_CHIP_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6"];
-function personChipColor(name: string): string {
-  return (
-    PERSON_CHIP_COLORS[Math.abs(name.charCodeAt(0)) % PERSON_CHIP_COLORS.length] ??
-    PERSON_CHIP_COLORS[0]!
-  );
-}
+// 셀 공통 유틸(date/person/phone 헬퍼)은 ./cells/utils 로 분리됨.
 
 /** 사람(person) 셀 — 칩 배열 형태로 멤버를 관리.
  *  - @ 또는 일반 텍스트 입력 시 팝업 열림
@@ -1064,13 +1022,6 @@ function UrlCell({
 }
 
 /** 숫자만 추출해 3-4-4 자리로 하이픈 삽입 (최대 11자리). */
-function formatPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "").slice(0, 11);
-  if (digits.length < 4) return digits;
-  if (digits.length < 8) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-}
-
 /** 일반 텍스트 입력 — 값에 "@" 가 없으면 빨간 글자로 경고 표시 */
 function EmailCell({
   value,
