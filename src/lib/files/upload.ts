@@ -32,8 +32,14 @@ export async function uploadFile(file: File): Promise<UploadedFile> {
   if (file.size > MAX_BYTES) {
     throw new Error(`too large: ${(file.size / 1024 / 1024).toFixed(1)} MB > 100 MB`);
   }
-  // 탐색기 → Ctrl+V 등 일부 케이스에서 file.type 이 비어 있다 — octet-stream 폴백.
-  const mimeType = file.type || "application/octet-stream";
+  // 탐색기 → Ctrl+V 등 일부 케이스에서 file.type 이 비어 있다.
+  // .md 파일은 MIME 이 비어 있는 경우가 많아 text/markdown 으로 강제 지정.
+  let mimeType = file.type;
+  if (!mimeType) {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (ext === "md" || ext === "markdown") mimeType = "text/markdown; charset=utf-8";
+    else mimeType = "application/octet-stream";
+  }
 
   const buf = await file.arrayBuffer();
   const sha256 = await sha256Hex(buf);

@@ -1,7 +1,7 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 
-const PAIRS: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+const PAIRS: Record<string, string> = { "(": ")", "[": "]", "{": "}", "“": "”" };
 
 export const BracketAutoClose = Extension.create({
   name: "bracketAutoClose",

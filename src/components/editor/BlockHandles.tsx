@@ -44,6 +44,7 @@ import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -800,6 +801,7 @@ export function BlockHandles({
   const isDatabaseBlock = hover?.node.type.name === "database";
   const isDatabaseFullPage = isDatabaseBlock && hover?.node.attrs.layout === "fullPage";
   const isDatabaseButtonBlock = hover?.node.type.name === "buttonBlock" && !!hover?.node.attrs.databaseId;
+  const isDatabaseInlineBlock = hover?.node.type.name === "databaseBlock" && hover?.node.attrs.layout !== "fullPage";
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isColumnLayout = hover?.node.type.name === "columnLayout";
   const isTextBlock = hover
@@ -1267,6 +1269,39 @@ export function BlockHandles({
                   >
                     <LayoutTemplate size={14} />
                     인라인 보기로 변경
+                  </button>
+                )}
+
+                {/* databaseBlock(인라인) → buttonBlock 으로 변경 */}
+                {isDatabaseInlineBlock && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!editor || !hover) return;
+                      const databaseId = hover.node.attrs.databaseId as string;
+                      if (!databaseId) return;
+                      const homePageId = usePageStore.getState().findFullPagePageIdForDatabase(databaseId);
+                      if (!homePageId) return;
+                      const dbTitle = useDatabaseStore.getState().databases[databaseId]?.meta.title ?? "데이터베이스";
+                      const href = buildQuickNotePageUrl({ pageId: homePageId });
+                      const btnNode = editor.state.schema.nodes.buttonBlock?.create({
+                        label: `${dbTitle} DB`,
+                        href,
+                        databaseId,
+                      });
+                      if (!btnNode) return;
+                      const tr = editor.state.tr.replaceWith(
+                        hover.blockStart,
+                        hover.blockStart + hover.node.nodeSize,
+                        btnNode,
+                      );
+                      editor.view.dispatch(tr);
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <LayoutTemplate size={14} />
+                    버튼 보기로 변경
                   </button>
                 )}
 

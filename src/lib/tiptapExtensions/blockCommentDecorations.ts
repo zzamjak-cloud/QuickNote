@@ -16,14 +16,14 @@ export function createBlockCommentDecorations(
   return Extension.create({
     name: "blockCommentDecorations",
     addProseMirrorPlugins() {
-      const pid = pageId;
       const myId = myMemberId;
       return [
         new Plugin({
           key: blockCommentDecoKey,
           props: {
             decorations(state) {
-              const currentPageId = pid ?? usePageStore.getState().activePageId ?? undefined;
+              // 클로저 pageId 는 플러그인 생성 시점에 고정되므로 항상 스토어에서 최신값을 읽는다.
+              const currentPageId = usePageStore.getState().activePageId ?? undefined;
               if (!currentPageId) return null;
               const currentMemberId = myId ?? useMemberStore.getState().me?.memberId;
               const hasUnread = useBlockCommentStore.getState().hasUnreadFromOthers;
