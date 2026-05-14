@@ -1,5 +1,5 @@
 // CSV 임직원 일괄 가져오기 모달
-// 파일 선택 → 파싱 → 미리보기 → 적용
+// 파일 선택 → 파싱 → 미리보기 → AppSync 순차 적용
 
 import { useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
@@ -8,6 +8,7 @@ import { useMemberStore } from "../../store/memberStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useWorkspaceOptionsStore } from "../../store/workspaceOptionsStore";
+import { useUiStore } from "../../store/uiStore";
 import {
   parseCsvText,
   mergeMembersFromCsv,
@@ -18,6 +19,8 @@ import {
   extractJobDetails,
   type CsvMemberRow,
 } from "../../lib/parsing/csvMembers";
+import { createMemberApi, updateMemberApi } from "../../lib/sync/memberApi";
+import { reportNonFatal } from "../../lib/reportNonFatal";
 
 type Props = {
   open: boolean;
@@ -40,11 +43,17 @@ type PreviewResult = {
   teamCount: number;
 };
 
+type ApplyProgress = {
+  current: number;
+  total: number;
+};
+
 export function CsvImportModal({ open, onClose }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [progress, setProgress] = useState<ApplyProgress | null>(null);
   const [done, setDone] = useState(false);
 
   const existingMembers = useMemberStore((s) => s.members);
@@ -57,6 +66,7 @@ export function CsvImportModal({ open, onClose }: Props) {
   const currentJobTitles = useWorkspaceOptionsStore((s) => s.jobTitles);
   const currentJobCategories = useWorkspaceOptionsStore((s) => s.jobCategories);
   const currentJobDetails = useWorkspaceOptionsStore((s) => s.jobDetails);
+  const showToast = useUiStore((s) => s.showToast);
 
   if (!open) return null;
 
@@ -100,31 +110,95 @@ export function CsvImportModal({ open, onClose }: Props) {
     reader.readAsText(file, "utf-8");
   };
 
-  const handleApply = () => {
+  const handleApply = async () => {
     if (!preview) return;
     setApplying(true);
+    setProgress(null);
+
     try {
+      // 최신 existingMembers 로 다시 머지 (미리보기 이후 변경 반영)
       const { updated, created } = mergeMembersFromCsv(
-        existingMembers,
+        useMemberStore.getState().members,
         preview.rows,
         () => "local-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2),
       );
 
-      // 멤버 upsert
-      const allFinalMembers = [...updated, ...created];
-      for (const m of allFinalMembers) {
-        upsertMember(m);
+      const total = updated.length + created.length;
+      let current = 0;
+      let failCount = 0;
+
+      // ── 신규 멤버: createMember → updateMember(신규 7개 필드) ──
+      const finalCreated: Member[] = [];
+      for (const m of created) {
+        current++;
+        setProgress({ current, total });
+        try {
+          // 1단계: AppSync createMember 로 서버에서 memberId 발급
+          const newMember = await createMemberApi({
+            email: m.email,
+            name: m.name,
+            jobRole: m.jobRole || "",
+            workspaceRole: "MEMBER",
+          });
+          // 2단계: 신규 7개 필드 updateMember 로 채우기
+          const withFields = await updateMemberApi(newMember.memberId, {
+            employmentStatus: m.employmentStatus ?? null,
+            employeeNumber: m.employeeNumber ?? null,
+            department: m.department ?? null,
+            team: m.team ?? null,
+            jobTitle: m.jobTitle ?? null,
+            jobCategory: m.jobCategory ?? null,
+            jobDetail: m.jobDetail ?? null,
+            joinedAt: m.joinedAt ?? null,
+          });
+          // 서버 발급 ID로 로컬 스토어 반영
+          upsertMember(withFields);
+          finalCreated.push(withFields);
+        } catch (err) {
+          failCount++;
+          reportNonFatal(err, "csvImport.createMember");
+          console.error("[CSV import] 신규 멤버 생성 실패", m.email, err);
+        }
       }
 
-      // 재직중·휴직·병가 멤버만 조직/팀에 자동 소속시킨다 (퇴사 제외)
+      // ── 기존 멤버: updateMember 로 필드 갱신 ──
+      const finalUpdated: Member[] = [];
+      for (const m of updated) {
+        current++;
+        setProgress({ current, total });
+        try {
+          const updated = await updateMemberApi(m.memberId, {
+            name: m.name,
+            jobRole: m.jobRole ?? null,
+            jobTitle: m.jobTitle ?? null,
+            employmentStatus: m.employmentStatus ?? null,
+            employeeNumber: m.employeeNumber ?? null,
+            department: m.department ?? null,
+            team: m.team ?? null,
+            jobCategory: m.jobCategory ?? null,
+            jobDetail: m.jobDetail ?? null,
+            joinedAt: m.joinedAt ?? null,
+          });
+          upsertMember(updated);
+          finalUpdated.push(updated);
+        } catch (err) {
+          failCount++;
+          reportNonFatal(err, "csvImport.updateMember");
+          console.error("[CSV import] 멤버 업데이트 실패", m.memberId, m.email, err);
+          // 실패해도 로컬 스토어는 CSV 값으로 유지
+          upsertMember(m);
+          finalUpdated.push(m);
+        }
+      }
+
+      const allFinalMembers = [...finalCreated, ...finalUpdated];
       const activeMembers = allFinalMembers.filter((m) => m.employmentStatus !== "퇴사");
 
-      // 조직(실) upsert + 소속 멤버 자동 등록
+      // ── 조직(실) 로컬 스토어 반영 (AppSync organization mutation 미구현 — 로컬 전용) ──
       const orgRows = buildOrganizationsFromRows(preview.rows);
       for (const org of orgRows) {
         const membersOfOrg = activeMembers.filter((m) => m.department === org.name);
         const existing = existingOrgs.find((e) => e.name === org.name);
-        // 기존 조직: 기존 멤버 + 새 멤버 머지(중복 제거), 신규 조직: 새 멤버만.
         const merged = existing
           ? mergeByMemberId(existing.members, membersOfOrg)
           : membersOfOrg;
@@ -134,7 +208,7 @@ export function CsvImportModal({ open, onClose }: Props) {
         });
       }
 
-      // 팀 upsert + 소속 멤버 자동 등록
+      // ── 팀 로컬 스토어 반영 (AppSync team mutation 미구현 — 로컬 전용) ──
       const teamRows = buildTeamsFromRows(preview.rows);
       for (const team of teamRows) {
         const membersOfTeam = activeMembers.filter((m) => m.team === team.name);
@@ -169,9 +243,18 @@ export function CsvImportModal({ open, onClose }: Props) {
         jobDetails: mergedDetails,
       });
 
+      // 부분 실패 토스트
+      if (failCount > 0) {
+        showToast(
+          `${total - failCount}명 저장 완료, ${failCount}명 저장 실패. 콘솔을 확인해주세요.`,
+          { kind: "error" },
+        );
+      }
+
       setDone(true);
     } finally {
       setApplying(false);
+      setProgress(null);
     }
   };
 
@@ -257,6 +340,22 @@ export function CsvImportModal({ open, onClose }: Props) {
             </div>
           )}
 
+          {/* 진행 상태 바 */}
+          {applying && progress && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs text-zinc-500">
+                <span>AppSync 전송 중...</span>
+                <span>{progress.current} / {progress.total}</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                <div
+                  className="h-full rounded-full bg-zinc-800 transition-all dark:bg-zinc-200"
+                  style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* 완료 메시지 */}
           {done && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
@@ -270,7 +369,8 @@ export function CsvImportModal({ open, onClose }: Props) {
             <button
               type="button"
               onClick={handleReset}
-              className="rounded border px-3 py-1 text-xs"
+              disabled={applying}
+              className="rounded border px-3 py-1 text-xs disabled:opacity-50"
             >
               다시 선택
             </button>
@@ -278,13 +378,13 @@ export function CsvImportModal({ open, onClose }: Props) {
             <span />
           )}
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="rounded border px-3 py-1 text-xs">
+            <button type="button" onClick={onClose} disabled={applying} className="rounded border px-3 py-1 text-xs disabled:opacity-50">
               {done ? "닫기" : "취소"}
             </button>
             {preview && !done && (
               <button
                 type="button"
-                onClick={handleApply}
+                onClick={() => { void handleApply(); }}
                 disabled={applying}
                 className="rounded bg-zinc-900 px-3 py-1 text-xs text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
               >
