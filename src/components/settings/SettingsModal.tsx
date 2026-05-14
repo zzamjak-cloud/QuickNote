@@ -8,13 +8,14 @@ import { MyProfileSection } from "./MyProfileSection";
 import { AdminMembersTab } from "./AdminMembersTab";
 import { AdminTeamsTab } from "./AdminTeamsTab";
 import { AdminWorkspacesTab } from "./AdminWorkspacesTab";
+import { AdminOrganizationsTab } from "./AdminOrganizationsTab";
 
 type Props = {
   open: boolean;
   onClose: () => void;
 };
 
-type TabId = "profile" | "members" | "teams" | "workspaces";
+type TabId = "profile" | "members" | "teams" | "organizations" | "workspaces";
 
 export function SettingsModal({ open, onClose }: Props) {
   const signOut = useAuthStore((s) => s.signOut);
@@ -30,6 +31,7 @@ export function SettingsModal({ open, onClose }: Props) {
       base.push(
         { id: "members", label: "구성원" },
         { id: "teams", label: "팀" },
+        { id: "organizations", label: "조직" },
         { id: "workspaces", label: "워크스페이스" },
       );
     }
@@ -118,6 +120,7 @@ export function SettingsModal({ open, onClose }: Props) {
           {tab === "profile" && <MyProfileSection />}
           {tab === "members" && isAdmin && <AdminMembersTab />}
           {tab === "teams" && isAdmin && <AdminTeamsTab />}
+          {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
           {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
 
         </section>

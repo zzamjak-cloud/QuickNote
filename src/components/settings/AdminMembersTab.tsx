@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Upload } from "lucide-react";
 import { createMemberApi } from "../../lib/sync/memberApi";
 import { useMemberStore, type Member } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
 import { CreateMemberModal } from "./CreateMemberModal";
 import { MemberModal } from "./MemberModal";
+import { CsvImportModal } from "./CsvImportModal";
 
 /** 역할 표시 문자열 반환 */
 function toUpperRole(role: Member["workspaceRole"]): string {
@@ -28,6 +29,7 @@ export function AdminMembersTab() {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [openCreate, setOpenCreate] = useState(false);
+  const [openCsvImport, setOpenCsvImport] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [archivedMember, setArchivedMember] = useState<Member | null>(null);
 
@@ -87,14 +89,24 @@ export function AdminMembersTab() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">구성원 관리</h3>
-        <button
-          type="button"
-          onClick={() => setOpenCreate(true)}
-          className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-        >
-          <Plus size={12} />
-          구성원 추가
-        </button>
+        <div className="flex gap-1.5">
+          <button
+            type="button"
+            onClick={() => setOpenCsvImport(true)}
+            className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            <Upload size={12} />
+            CSV 가져오기
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpenCreate(true)}
+            className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          >
+            <Plus size={12} />
+            구성원 추가
+          </button>
+        </div>
       </div>
 
       {/* 구성원 / 보관함 탭 */}
@@ -177,6 +189,11 @@ export function AdminMembersTab() {
           </tbody>
         </table>
       </div>
+
+      <CsvImportModal
+        open={openCsvImport}
+        onClose={() => setOpenCsvImport(false)}
+      />
 
       <CreateMemberModal
         open={openCreate}

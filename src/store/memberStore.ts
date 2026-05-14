@@ -2,6 +2,8 @@ import { create } from "zustand";
 
 export type MemberRole = "developer" | "owner" | "leader" | "manager" | "member";
 export type MemberStatus = "active" | "removed";
+/** CSV 상태 컬럼 — 재직 여부 표시 (기존 status 와 별개) */
+export type EmploymentStatus = "재직중" | "휴직" | "병가" | "퇴사";
 
 export type Member = {
   memberId: string;
@@ -15,6 +17,20 @@ export type Member = {
   avatarUrl?: string;
   thumbnailUrl?: string;
   personalWorkspaceId: string;
+  /** 재직 상태 (CSV 상태 컬럼) */
+  employmentStatus?: EmploymentStatus;
+  /** 사번 */
+  employeeNumber?: string;
+  /** 소속(실) */
+  department?: string;
+  /** 소속(팀) */
+  team?: string;
+  /** 직무 카테고리 */
+  jobCategory?: string;
+  /** 상세직무 */
+  jobDetail?: string;
+  /** 입사일 (YYYY-MM-DD) */
+  joinedAt?: string;
 };
 
 export type MemberMini = {

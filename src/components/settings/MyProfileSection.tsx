@@ -71,10 +71,20 @@ export function MyProfileSection() {
             />
           </div>
           <div className="text-sm font-semibold">{name || "-"}</div>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap justify-center gap-1">
             {role !== "member" ? (
               <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9px] text-blue-700 dark:bg-blue-900 dark:text-blue-300">
                 {role === "owner" ? "Owner" : "Manager"}
+              </span>
+            ) : null}
+            {me?.employmentStatus && me.employmentStatus !== "재직중" ? (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                {me.employmentStatus}
+              </span>
+            ) : null}
+            {me?.department ? (
+              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                {me.department}
               </span>
             ) : null}
             {me?.jobTitle ? (
@@ -99,8 +109,40 @@ export function MyProfileSection() {
             <input value={email || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
           </label>
           <label className="block">
+            <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">사번</span>
+            <input value={me?.employeeNumber || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">재직 상태</span>
+            <input value={me?.employmentStatus || "재직중"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">소속(실)</span>
+            <input value={me?.department || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">소속(팀)</span>
+            <input value={me?.team || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">직책</span>
+            <input value={me?.jobTitle || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
+          </label>
+          <label className="block">
             <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">직무</span>
             <input value={me?.jobRole || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">직무 카테고리</span>
+            <input value={me?.jobCategory || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">상세직무</span>
+            <input value={me?.jobDetail || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">입사일</span>
+            <input value={me?.joinedAt || "-"} disabled className="w-full rounded border border-zinc-100 bg-zinc-50 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950" />
           </label>
           <label className="block">
             <span className="mb-0.5 block text-[9px] font-medium text-zinc-500">권한</span>

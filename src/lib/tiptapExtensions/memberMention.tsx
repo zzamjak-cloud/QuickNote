@@ -87,17 +87,51 @@ function showMemberProfilePopup(memberId: string, anchor: HTMLElement): void {
     "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-200";
   avatar.textContent = (member?.name ?? "구").slice(0, 1);
   const body = document.createElement("div");
-  body.className = "min-w-0";
+  body.className = "min-w-0 space-y-0.5";
   const name = document.createElement("div");
   name.className = "truncate font-semibold text-zinc-900 dark:text-zinc-100";
   name.textContent = member?.name ?? "구성원";
-  const role = document.createElement("div");
-  role.className = "truncate text-xs text-zinc-500 dark:text-zinc-400";
-  role.textContent = member?.jobRole || "멤버";
+
+  // 직책 + 직무 한 줄
+  const roleRow = document.createElement("div");
+  roleRow.className = "truncate text-xs text-zinc-500 dark:text-zinc-400";
+  const titlePart = member?.jobTitle ? member.jobTitle : "";
+  const rolePart = member?.jobRole || member?.jobCategory || "멤버";
+  roleRow.textContent = titlePart ? `${titlePart} · ${rolePart}` : rolePart;
+
+  // 소속(실) + 팀
+  const deptRow = document.createElement("div");
+  deptRow.className = "truncate text-xs text-zinc-500 dark:text-zinc-400";
+  const deptPart = member?.department ?? "";
+  const teamPart = member?.team ?? "";
+  deptRow.textContent = deptPart && teamPart
+    ? `${deptPart} / ${teamPart}`
+    : deptPart || teamPart;
+
   const email = document.createElement("div");
-  email.className = "mt-1 truncate text-xs text-zinc-500 dark:text-zinc-400";
+  email.className = "mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400";
   email.textContent = member?.email ?? "";
-  body.append(name, role, email);
+
+  // 입사일 + 재직상태
+  const metaRow = document.createElement("div");
+  metaRow.className = "flex gap-1.5 mt-0.5";
+  if (member?.employmentStatus && member.employmentStatus !== "재직중") {
+    const badge = document.createElement("span");
+    badge.className = "rounded bg-amber-100 px-1 py-0.5 text-[9px] text-amber-700";
+    badge.textContent = member.employmentStatus;
+    metaRow.append(badge);
+  }
+  if (member?.joinedAt) {
+    const joined = document.createElement("span");
+    joined.className = "text-[10px] text-zinc-400";
+    joined.textContent = `입사 ${member.joinedAt}`;
+    metaRow.append(joined);
+  }
+
+  body.append(name, roleRow);
+  if (deptRow.textContent) body.append(deptRow);
+  body.append(email);
+  if (metaRow.childNodes.length > 0) body.append(metaRow);
   row.append(avatar, body);
   panel.append(row);
   document.body.appendChild(panel);
