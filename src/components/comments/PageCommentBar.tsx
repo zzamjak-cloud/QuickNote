@@ -1,11 +1,12 @@
 // 페이지 레벨 댓글 바 — 제목 아래 / 속성 패널 아래에 인라인으로 표시
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useMemberStore } from "../../store/memberStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
+import type { JSONContent } from "@tiptap/react";
 import { CommentComposer } from "./CommentComposer";
 
 /** 페이지 댓글임을 나타내는 sentinel — blockId 자리에 사용 */
@@ -75,12 +76,12 @@ export function PageCommentBar({ pageId }: Props) {
     <div data-qn-page-comment className="mt-2 mb-1 border-t border-zinc-100 pt-2 dark:border-zinc-800">
       {/* 댓글 헤더 행 */}
       <div className="flex items-center gap-2">
-        <MessageSquare size={13} className="shrink-0 text-zinc-400" />
+        <MessageSquare size={15} className="shrink-0 text-zinc-400" />
         {hasComments && !expanded && (
           <button
             type="button"
             onClick={() => setExpanded(true)}
-            className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
           >
             {messages.length}개 보기
           </button>
@@ -89,7 +90,7 @@ export function PageCommentBar({ pageId }: Props) {
           <button
             type="button"
             onClick={() => { userCollapsedRef.current = true; setExpanded(false); }}
-            className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
           >
             접기
           </button>
@@ -99,7 +100,7 @@ export function PageCommentBar({ pageId }: Props) {
           <button
             type="button"
             onClick={() => { setComposerVisible(true); if (hasComments) setExpanded(true); }}
-            className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+            className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
           >
             + 댓글 추가
           </button>
@@ -156,6 +157,22 @@ function CommentRow({
 }) {
   const [editing, setEditing] = useState(false);
 
+  // 수정 모드 진입 시 기존 본문을 paragraph JSON 으로 감싸 composer 초기값으로 전달
+  const initialJson = useMemo<JSONContent>(
+    () => ({
+      type: "doc",
+      content: [
+        msg.bodyText.trim()
+          ? {
+              type: "paragraph",
+              content: [{ type: "text", text: msg.bodyText }],
+            }
+          : { type: "paragraph" },
+      ],
+    }),
+    [msg.bodyText],
+  );
+
   if (editing) {
     return (
       <div className="rounded bg-zinc-50 px-2 py-1 dark:bg-zinc-800/60">
@@ -164,6 +181,8 @@ function CommentRow({
           placeholder="수정 내용 입력 (@ 로 멘션 검색)"
           submitLabel="저장"
           clearOnSubmit={false}
+          initialJson={initialJson}
+          initialJsonVersion={msg.id}
           onSubmit={(text, mentionIds) => {
             if (text) onUpdate(text, mentionIds);
             setEditing(false);
@@ -174,28 +193,27 @@ function CommentRow({
     );
   }
 
+  // 한 라인 레이아웃: [작성자 | 내용] 좌측 / [시간 | 버튼] 우측 (모두 상단 정렬, 내용 멀티라인)
   return (
-    <div className="group flex items-start gap-2 rounded bg-zinc-50 px-2 py-1 dark:bg-zinc-800/60">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200">
-            {authorName}
-          </span>
-          <span className="text-[10px] text-zinc-400">{formatTime(msg.createdAt)}</span>
-        </div>
-        <p className="mt-0.5 whitespace-pre-wrap text-xs text-zinc-700 dark:text-zinc-300">
-          {msg.bodyText}
-        </p>
-      </div>
+    <div className="group flex items-start gap-3 rounded bg-zinc-50 px-2 py-1 dark:bg-zinc-800/60">
+      <span className="shrink-0 pt-0.5 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+        {authorName}
+      </span>
+      <p className="min-w-0 flex-1 whitespace-pre-wrap pt-0.5 text-sm text-zinc-700 dark:text-zinc-300">
+        {msg.bodyText}
+      </p>
+      <span className="shrink-0 pt-0.5 text-xs text-zinc-400">
+        {formatTime(msg.createdAt)}
+      </span>
       {isOwn && (
-        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="flex shrink-0 items-start gap-1 pt-0.5 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             type="button"
             onClick={() => setEditing(true)}
             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
             title="편집"
           >
-            <Pencil size={11} />
+            <Pencil size={13} />
           </button>
           <button
             type="button"
@@ -203,7 +221,7 @@ function CommentRow({
             className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
             title="삭제"
           >
-            <Trash2 size={11} />
+            <Trash2 size={13} />
           </button>
         </div>
       )}

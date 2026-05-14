@@ -126,7 +126,7 @@ import {
   dispatchDecoRefresh,
 } from "../../lib/tiptapExtensions/blockCommentDecorations";
 import { registerEditorForPage } from "../../lib/editor/editorByPageRegistry";
-import { PageCommentBar } from "../comments/PageCommentBar";
+import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBar";
 import { MentionSearchModal } from "./MentionSearchModal";
 import type { EditorView as PmEditorView } from "@tiptap/pm/view";
 import {
@@ -192,11 +192,16 @@ const MemoImageResizeOverlay = memo(ImageResizeOverlay);
 export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps = {}) {
   const activeId = usePageStore((s) => s.activePageId);
   const effectivePageId = pageId ?? activeId;
-  // 페이지에 댓글이 하나라도 존재하면 사이드바 공간을 예약해 본문을 좌측으로 밀어냄.
+  // 블록 댓글이 하나라도 존재하면 사이드바 공간을 예약해 본문을 좌측으로 밀어냄.
+  // 페이지 레벨 댓글(PAGE_COMMENT_SENTINEL)은 PageCommentBar 가 인라인 처리 → 우측 거터 불필요.
   // 단, 피크 모드에서는 사이드바 공간을 만들지 않고 컴팩트 배지만 표시 → hasPageComments 무시.
   const hasPageComments = useBlockCommentStore((s) =>
     effectivePageId
-      ? s.messages.some((m) => m.pageId === effectivePageId)
+      ? s.messages.some(
+          (m) =>
+            m.pageId === effectivePageId &&
+            m.blockId !== PAGE_COMMENT_SENTINEL,
+        )
       : false,
   );
   const page = usePageStore((s) =>
@@ -1044,9 +1049,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
       <div
         className={`relative mx-auto w-full ${
           fullWidth
-            ? hasPageComments && !peek
-              ? "max-w-none pl-4 pr-[260px]"
-              : "max-w-none px-4"
+            ? "max-w-none px-4"
             : hasPageComments && !peek
               ? "max-w-[1256px] pr-[256px]"
               : "max-w-[968px]"
