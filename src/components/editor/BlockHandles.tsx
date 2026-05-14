@@ -811,7 +811,7 @@ export function BlockHandles({
     let targetPageId: string | null = null;
     try {
       const url = new URL(href);
-      targetPageId = url.searchParams.get("page") ?? url.pathname.replace(/^\/+/, "") || null;
+      targetPageId = (url.searchParams.get("page") ?? url.pathname.replace(/^\/+/, "")) || null;
     } catch {
       const m = href.match(/[?&]page=([^&]+)/);
       if (m) targetPageId = decodeURIComponent(m[1]);
