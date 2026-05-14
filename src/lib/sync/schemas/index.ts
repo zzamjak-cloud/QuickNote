@@ -76,6 +76,61 @@ export const GqlOrganizationSchema = z
 
 export type GqlOrganizationParsed = z.infer<typeof GqlOrganizationSchema>;
 
+export const GqlPageSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    createdByMemberId: z.string(),
+    title: z.string(),
+    icon: z.string().nullish(),
+    coverImage: z.string().nullish(),
+    parentId: z.string().nullish(),
+    order: z.string(),
+    databaseId: z.string().nullish(),
+    doc: z.unknown(),
+    dbCells: z.unknown().nullish(),
+    blockComments: z.unknown().nullish(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullish(),
+  })
+  .passthrough();
+
+export type GqlPageParsed = z.infer<typeof GqlPageSchema>;
+
+export const GqlDatabaseSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    createdByMemberId: z.string(),
+    title: z.string(),
+    columns: z.unknown(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullish(),
+  })
+  .passthrough();
+
+export type GqlDatabaseParsed = z.infer<typeof GqlDatabaseSchema>;
+
+export const GqlCommentSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    pageId: z.string(),
+    blockId: z.string(),
+    authorMemberId: z.string(),
+    bodyText: z.string(),
+    mentionMemberIds: z.unknown(),
+    parentId: z.string().nullish(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullish(),
+  })
+  .passthrough();
+
+export type GqlCommentParsed = z.infer<typeof GqlCommentSchema>;
+
 /**
  * GraphQL 응답 배열을 검증하고 실패한 항목은 reportNonFatal 후 제외.
  * 부분 실패에도 나머지 정상 항목은 유지 — 앱 안 죽음.

@@ -8,6 +8,12 @@ import {
 import { ON_COMMENT_CHANGED, type GqlComment } from "./queries/comment";
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import { getSyncEngine } from "./runtime";
+import {
+  GqlCommentSchema,
+  GqlDatabaseSchema,
+  GqlPageSchema,
+  parseGqlOne,
+} from "./schemas";
 
 // 자기 workspaceId 의 변경 푸시를 수신해 LWW 적용 콜백을 호출.
 // 구독 에러 및 네트워크 단절 시 지수 백오프(최대 30초)로 자동 재연결.
@@ -87,7 +93,12 @@ export function startSubscriptions(
     pageSub = pageObs.subscribe({
       next: ({ data }) => {
         retryAttempts = 0;
-        handlers.onPage(data.onPageChanged as GqlPage);
+        const parsed = parseGqlOne(
+          data.onPageChanged,
+          GqlPageSchema,
+          "onPageChanged",
+        );
+        if (parsed) handlers.onPage(parsed as unknown as GqlPage);
       },
       error: (e) => {
         console.error("[sub:page]", e);
@@ -110,7 +121,12 @@ export function startSubscriptions(
     dbSub = dbObs.subscribe({
       next: ({ data }) => {
         retryAttempts = 0;
-        handlers.onDatabase(data.onDatabaseChanged as GqlDatabase);
+        const parsed = parseGqlOne(
+          data.onDatabaseChanged,
+          GqlDatabaseSchema,
+          "onDatabaseChanged",
+        );
+        if (parsed) handlers.onDatabase(parsed as unknown as GqlDatabase);
       },
       error: (e) => {
         console.error("[sub:database]", e);
@@ -133,7 +149,12 @@ export function startSubscriptions(
     commentSub = commentObs.subscribe({
       next: ({ data }) => {
         retryAttempts = 0;
-        handlers.onComment(data.onCommentChanged as GqlComment);
+        const parsed = parseGqlOne(
+          data.onCommentChanged,
+          GqlCommentSchema,
+          "onCommentChanged",
+        );
+        if (parsed) handlers.onComment(parsed as unknown as GqlComment);
       },
       error: (e) => {
         console.error("[sub:comment]", e);
