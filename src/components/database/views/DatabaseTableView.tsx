@@ -111,8 +111,9 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     "table",
     panelState.viewConfigs,
   );
-  const resolvedColWidths = visibleCols.map(
-    (col) => col.width ?? defaultMinWidthForType(col.type),
+  const resolvedColWidths = useMemo(
+    () => visibleCols.map((col) => col.width ?? defaultMinWidthForType(col.type)),
+    [visibleCols],
   );
   const CHECKBOX_COL = 28;
   const ADD_COL = 32;
@@ -120,8 +121,9 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     CHECKBOX_COL + ADD_COL + resolvedColWidths.reduce((acc, w) => acc + w, 0);
 
   // moveColumn은 bundle.columns 기준 인덱스를 받으므로 visibleCols 인덱스를 변환.
-  const colIdToBundleIdx = new Map(
-    (bundle?.columns ?? []).map((c, i) => [c.id, i]),
+  const colIdToBundleIdx = useMemo(
+    () => new Map((bundle?.columns ?? []).map((c, i) => [c.id, i])),
+    [bundle?.columns],
   );
 
   const onColDrop = () => {

@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
+import { useShallow } from "zustand/react/shallow";
 import { Check, Minus, Trash2 } from "lucide-react";
 import { startBlockNativeDrag } from "../../lib/startBlockNativeDrag";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
@@ -54,8 +55,10 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const view = (rawView === "list" ? "table" : rawView) as ViewKind;
   const panelStateRaw = String(node.attrs.panelState ?? "{}");
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
-  const members = useMemberStore((s) => s.members);
-  const me = useMemberStore((s) => s.me);
+  // members 는 큰 객체 — useShallow 로 얕은 비교해 무관 멤버 변경 시 리렌더 방지
+  const { members, me } = useMemberStore(
+    useShallow((s) => ({ members: s.members, me: s.me })),
+  );
   const panelState = useDatabaseViewPrefsStore((s) =>
     databaseId
       ? s.getPanelState(databaseId, panelStateRaw)

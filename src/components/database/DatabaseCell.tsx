@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, Download, Plus, Trash2 } from "lucide-react";
 import type { CellValue, ColumnDef, FileCellItem } from "../../types/database";
@@ -73,7 +73,9 @@ function TitleCell({
   );
 }
 
-export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
+// 500+ 셀이 각자 store 구독 시 한 셀 변경으로 전체 셀 shouldUpdate 트리거 방지
+// props 얕은 비교: column 객체·value 모두 불변 패턴으로 전달되므로 memo 효과 있음
+export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, column, value }: Props) {
   const updateCell = useDatabaseStore((s) => s.updateCell);
 
   const setVal = (v: CellValue) => {
@@ -204,7 +206,7 @@ export function DatabaseCell({ databaseId, rowId, column, value }: Props) {
         <span className="text-xs text-zinc-400">{String(value ?? "")}</span>
       );
   }
-}
+});
 
 function optionStyle(color: string | undefined) {
   return { backgroundColor: color ?? SELECT_COLOR_PRESETS[0] };
