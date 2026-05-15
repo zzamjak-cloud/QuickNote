@@ -245,3 +245,60 @@ export async function unassignMemberFromOrganization(args: {
     }),
   );
 }
+
+export async function archiveOrganization(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  organizationId: string;
+}): Promise<Organization> {
+  requireRoleAtLeast(args.caller, "manager");
+  const existing = await getOrgById(args.doc, args.tables, args.organizationId);
+  if (!existing) notFound("Organization 없음");
+  const now = new Date().toISOString();
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Organizations!,
+      Key: { organizationId: args.organizationId },
+      UpdateExpression: "SET removedAt = :t",
+      ExpressionAttributeValues: { ":t": now },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return {
+    ...(r.Attributes as {
+      organizationId: string;
+      name: string;
+      createdAt: string;
+      removedAt: string;
+    }),
+    members: await resolveOrgMembers(args.doc, args.tables, args.organizationId),
+  };
+}
+
+export async function restoreOrganization(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  organizationId: string;
+}): Promise<Organization> {
+  requireRoleAtLeast(args.caller, "manager");
+  const existing = await getOrgById(args.doc, args.tables, args.organizationId);
+  if (!existing) notFound("Organization 없음");
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Organizations!,
+      Key: { organizationId: args.organizationId },
+      UpdateExpression: "REMOVE removedAt",
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return {
+    ...(r.Attributes as {
+      organizationId: string;
+      name: string;
+      createdAt: string;
+    }),
+    members: await resolveOrgMembers(args.doc, args.tables, args.organizationId),
+  };
+}

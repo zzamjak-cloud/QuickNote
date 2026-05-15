@@ -2,10 +2,12 @@
 
 import { appsyncClient } from "./graphql/client";
 import {
+  ARCHIVE_ORGANIZATION,
   ASSIGN_MEMBER_TO_ORGANIZATION,
   CREATE_ORGANIZATION,
   DELETE_ORGANIZATION,
   LIST_ORGANIZATIONS,
+  RESTORE_ORGANIZATION,
   UNASSIGN_MEMBER_FROM_ORGANIZATION,
   UPDATE_ORGANIZATION,
 } from "./queries/organization";
@@ -84,4 +86,26 @@ export async function unassignMemberFromOrganizationApi(
     variables: { memberId, organizationId },
   })) as { data?: { unassignMemberFromOrganization?: boolean } };
   return Boolean(result.data?.unassignMemberFromOrganization);
+}
+
+export async function archiveOrganizationApi(
+  organizationId: string,
+): Promise<Organization | null> {
+  const result = (await appsyncClient().graphql({
+    query: ARCHIVE_ORGANIZATION,
+    variables: { organizationId },
+  })) as { data?: { archiveOrganization?: GqlOrganization } };
+  const org = result.data?.archiveOrganization;
+  return org ? normalizeOrganization(org) : null;
+}
+
+export async function restoreOrganizationApi(
+  organizationId: string,
+): Promise<Organization | null> {
+  const result = (await appsyncClient().graphql({
+    query: RESTORE_ORGANIZATION,
+    variables: { organizationId },
+  })) as { data?: { restoreOrganization?: GqlOrganization } };
+  const org = result.data?.restoreOrganization;
+  return org ? normalizeOrganization(org) : null;
 }

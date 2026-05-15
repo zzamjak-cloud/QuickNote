@@ -34,6 +34,8 @@ import {
   updateOrganization,
   assignMemberToOrganization,
   unassignMemberFromOrganization,
+  archiveOrganization,
+  restoreOrganization,
 } from "./handlers/organization";
 import {
   createWorkspace,
@@ -255,6 +257,10 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         })) as unknown as Record<string, unknown>);
       case "deleteOrganization":
         return await deleteOrganization({ ...base, organizationId: event.arguments.organizationId as string });
+      case "archiveOrganization":
+        return normalizeOrgForGql(await archiveOrganization({ ...base, organizationId: event.arguments.organizationId as string }) as unknown as Record<string, unknown>);
+      case "restoreOrganization":
+        return normalizeOrgForGql(await restoreOrganization({ ...base, organizationId: event.arguments.organizationId as string }) as unknown as Record<string, unknown>);
       case "assignMemberToOrganization":
         await assignMemberToOrganization({ ...base, memberId: event.arguments.memberId as string, organizationId: event.arguments.organizationId as string });
         return true;

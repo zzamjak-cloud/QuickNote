@@ -54,3 +54,15 @@ export const UNASSIGN_MEMBER_FROM_ORGANIZATION = `
     unassignMemberFromOrganization(memberId: $memberId, organizationId: $organizationId)
   }
 `;
+
+export const ARCHIVE_ORGANIZATION = `
+  mutation ArchiveOrganization($organizationId: ID!) {
+    archiveOrganization(organizationId: $organizationId) { ${ORGANIZATION_FIELDS} }
+  }
+`;
+
+export const RESTORE_ORGANIZATION = `
+  mutation RestoreOrganization($organizationId: ID!) {
+    restoreOrganization(organizationId: $organizationId) { ${ORGANIZATION_FIELDS} }
+  }
+`;

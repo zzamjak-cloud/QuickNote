@@ -335,6 +335,8 @@ type Mutation {
   createOrganization(name: String!): Organization!
   updateOrganization(organizationId: ID!, name: String!): Organization!
   deleteOrganization(organizationId: ID!): Boolean!
+  archiveOrganization(organizationId: ID!): Organization!
+  restoreOrganization(organizationId: ID!): Organization!
   assignMemberToOrganization(memberId: ID!, organizationId: ID!): Boolean!
   unassignMemberFromOrganization(memberId: ID!, organizationId: ID!): Boolean!
 

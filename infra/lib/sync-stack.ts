@@ -495,6 +495,8 @@ export function response(ctx) {
     v5Ds.createResolver("DeleteOrganizationMutation", { typeName: "Mutation", fieldName: "deleteOrganization" });
     v5Ds.createResolver("AssignMemberToOrganizationMutation", { typeName: "Mutation", fieldName: "assignMemberToOrganization" });
     v5Ds.createResolver("UnassignMemberFromOrganizationMutation", { typeName: "Mutation", fieldName: "unassignMemberFromOrganization" });
+    v5Ds.createResolver("ArchiveOrganizationMutation", { typeName: "Mutation", fieldName: "archiveOrganization" });
+    v5Ds.createResolver("RestoreOrganizationMutation", { typeName: "Mutation", fieldName: "restoreOrganization" });
     v5Ds.createResolver("CreateWorkspaceMutation", { typeName: "Mutation", fieldName: "createWorkspace" });
     v5Ds.createResolver("UpdateWorkspaceMutation", { typeName: "Mutation", fieldName: "updateWorkspace" });
     v5Ds.createResolver("SetWorkspaceAccessMutation", { typeName: "Mutation", fieldName: "setWorkspaceAccess" });

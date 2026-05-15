@@ -4,7 +4,11 @@ import { useMemo, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useMemberStore } from "../../store/memberStore";
-import { deleteOrganizationApi } from "../../lib/sync/organizationApi";
+import {
+  archiveOrganizationApi,
+  deleteOrganizationApi,
+  restoreOrganizationApi,
+} from "../../lib/sync/organizationApi";
 
 type TabType = "active" | "archived";
 
@@ -114,19 +118,29 @@ export function AdminOrganizationsTab() {
     }
   };
 
-  /** 조직 보관함 이동 */
-  const onArchiveOrg = (orgId: string) => {
-    const org = organizations.find((o) => o.organizationId === orgId);
-    if (!org) return;
-    upsertOrganization({ ...org, removedAt: new Date().toISOString() });
-    if (openAssignOrgId === orgId) setOpenAssignOrgId(null);
+  /** 조직 보관함 이동 — 서버에 removedAt 설정 후 로컬 반영 */
+  const onArchiveOrg = async (orgId: string) => {
+    try {
+      const archived = await archiveOrganizationApi(orgId);
+      if (archived) {
+        upsertOrganization(archived);
+        if (openAssignOrgId === orgId) setOpenAssignOrgId(null);
+      }
+    } catch (err) {
+      console.error("[AdminOrgs] 보관함 이동 실패", orgId, err);
+      alert("보관함 이동 실패. 콘솔을 확인해주세요.");
+    }
   };
 
-  /** 보관 조직 복원 */
-  const onRestoreOrg = (orgId: string) => {
-    const org = organizations.find((o) => o.organizationId === orgId);
-    if (!org) return;
-    upsertOrganization({ ...org, removedAt: undefined });
+  /** 보관 조직 복원 — 서버에서 removedAt 제거 후 로컬 반영 */
+  const onRestoreOrg = async (orgId: string) => {
+    try {
+      const restored = await restoreOrganizationApi(orgId);
+      if (restored) upsertOrganization(restored);
+    } catch (err) {
+      console.error("[AdminOrgs] 복원 실패", orgId, err);
+      alert("복원 실패. 콘솔을 확인해주세요.");
+    }
   };
 
   /** 영구 삭제 — 서버 deleteOrganizationApi 호출 후 성공 시에만 로컬 제거 */
@@ -380,7 +394,7 @@ export function AdminOrganizationsTab() {
                   <button
                     type="button"
                     disabled={singleDeleting}
-                    onClick={() => { onRestoreOrg(org.organizationId); setDeleteConfirmId(null); }}
+                    onClick={() => { void onRestoreOrg(org.organizationId); setDeleteConfirmId(null); }}
                     className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-60"
                   >
                     복원
@@ -528,7 +542,7 @@ export function AdminOrganizationsTab() {
             <div className="mt-4 flex justify-between gap-2">
               <button
                 type="button"
-                onClick={() => onArchiveOrg(assignOrg.organizationId)}
+                onClick={() => void onArchiveOrg(assignOrg.organizationId)}
                 className="rounded border border-amber-200 px-3 py-1 text-xs text-amber-700 hover:bg-amber-50 dark:border-amber-900/50 dark:text-amber-400 dark:hover:bg-amber-950/40"
                 disabled={saving}
               >
