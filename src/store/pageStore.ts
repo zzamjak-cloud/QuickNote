@@ -522,13 +522,15 @@ export const usePageStore = create<PageStore>()(
           for (const p of Object.values(state.pages)) {
             next[p.id] = p;
           }
+          // 동일 타임스탬프로 묶어 LWW·upsertPage 가 형제 순서 전체를 한 번에 인지하도록 함
+          const ts = Date.now();
           // 1) 원래 부모에서 제거 후 형제들의 order 재조정
           const oldParent = target.parentId;
           const oldSiblings = Object.values(next)
             .filter((p) => p.parentId === oldParent && p.id !== id)
             .sort((a, b) => a.order - b.order);
           oldSiblings.forEach((p, i) => {
-            next[p.id] = { ...p, order: i };
+            next[p.id] = { ...p, order: i, updatedAt: ts };
           });
           // 2) 새 부모의 형제 목록에 인덱스 위치로 삽입
           const newSiblings = Object.values(next)
@@ -541,12 +543,8 @@ export const usePageStore = create<PageStore>()(
             order: 0,
           });
           newSiblings.forEach((p, i) => {
-            next[p.id] = { ...p, order: i };
+            next[p.id] = { ...p, order: i, updatedAt: ts };
           });
-          next[id] = {
-            ...next[id]!,
-            updatedAt: Date.now(),
-          };
           return { pages: next };
         });
         const after = get().pages[id];

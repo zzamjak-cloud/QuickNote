@@ -63,7 +63,7 @@ import {
 } from "../../lib/tiptapExtensions/toggle";
 import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
 import { TabBlock, TabPanel } from "../../lib/tiptapExtensions/tabBlock";
-import { CodeBlockLowlightStable } from "../../lib/tiptapExtensions/codeBlockLowlightStable";
+import { CodeBlockLowlightWithMarkdownPreview } from "../../lib/tiptapExtensions/markdownCodeBlockPreview";
 import { CodeBlockCopy } from "../../lib/tiptapExtensions/codeBlockCopy";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
 import { MemberMention } from "../../lib/tiptapExtensions/memberMention";
@@ -354,7 +354,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
       TaskItem.configure({ nested: true }),
       ...(lowlightApi
         ? [
-            CodeBlockLowlightStable.configure({
+            CodeBlockLowlightWithMarkdownPreview.configure({
               lowlight: lowlightApi,
               /* null + fallbackLanguage: highlightAuto 없이 고정 언어로만 강조(입력 중 색 요동 방지) */
               defaultLanguage: null,

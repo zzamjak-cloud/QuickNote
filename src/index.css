@@ -500,8 +500,9 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
 .ProseMirror pre.hljs .hljs-template-variable,
 .ProseMirror pre.hljs .hljs-type,
 .ProseMirror pre.hljs .hljs-variable.language_ {
-  color: #ff7b72 !important;
+  color: #fb923c !important;
 }
+/* 제목·클래스명·마크다운 섹션 — 파랑/보라 대신 앰버·주황 계열 */
 .prose .ProseMirror pre.hljs .hljs-title,
 .prose .ProseMirror pre.hljs .hljs-title.class_,
 .prose .ProseMirror pre.hljs .hljs-title.class_.inherited__,
@@ -510,7 +511,11 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
 .ProseMirror pre.hljs .hljs-title.class_,
 .ProseMirror pre.hljs .hljs-title.class_.inherited__,
 .ProseMirror pre.hljs .hljs-title.function_ {
-  color: #d2a8ff !important;
+  color: #fdba74 !important;
+}
+.prose .ProseMirror pre.hljs .hljs-section,
+.ProseMirror pre.hljs .hljs-section {
+  color: #f97316 !important;
 }
 .prose .ProseMirror pre.hljs .hljs-attr,
 .prose .ProseMirror pre.hljs .hljs-attribute,
@@ -532,7 +537,7 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
 .ProseMirror pre.hljs .hljs-selector-attr,
 .ProseMirror pre.hljs .hljs-selector-class,
 .ProseMirror pre.hljs .hljs-selector-id {
-  color: #79c0ff !important;
+  color: #fde68a !important;
 }
 .prose .ProseMirror pre.hljs .hljs-regexp,
 .prose .ProseMirror pre.hljs .hljs-string,
@@ -540,13 +545,13 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
 .ProseMirror pre.hljs .hljs-regexp,
 .ProseMirror pre.hljs .hljs-string,
 .ProseMirror pre.hljs .hljs-meta .hljs-string {
-  color: #a5d6ff !important;
+  color: #ffedd5 !important;
 }
 .prose .ProseMirror pre.hljs .hljs-built_in,
 .prose .ProseMirror pre.hljs .hljs-symbol,
 .ProseMirror pre.hljs .hljs-built_in,
 .ProseMirror pre.hljs .hljs-symbol {
-  color: #ffa657 !important;
+  color: #ea580c !important;
 }
 .prose .ProseMirror pre.hljs .hljs-comment,
 .prose .ProseMirror pre.hljs .hljs-code,
@@ -554,7 +559,7 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
 .ProseMirror pre.hljs .hljs-comment,
 .ProseMirror pre.hljs .hljs-code,
 .ProseMirror pre.hljs .hljs-formula {
-  color: #8b949e !important;
+  color: #a1a1aa !important;
 }
 .prose .ProseMirror pre.hljs .hljs-name,
 .prose .ProseMirror pre.hljs .hljs-quote,
@@ -564,7 +569,7 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
 .ProseMirror pre.hljs .hljs-quote,
 .ProseMirror pre.hljs .hljs-selector-tag,
 .ProseMirror pre.hljs .hljs-selector-pseudo {
-  color: #7ee787 !important;
+  color: #fcd34d !important;
 }
 
 .qn-code-copy-anchor {

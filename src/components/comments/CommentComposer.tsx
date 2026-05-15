@@ -2,6 +2,7 @@
 
 import { useEffect, useCallback, useRef, useState } from "react";
 import Document from "@tiptap/extension-document";
+import HardBreak from "@tiptap/extension-hard-break";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { EditorContent, useEditor } from "@tiptap/react";
@@ -53,6 +54,7 @@ export function CommentComposer({
       Document,
       Paragraph,
       Text,
+      HardBreak,
       MemberMention,
     ],
     content:
@@ -83,6 +85,16 @@ export function CommentComposer({
           });
           return true;
         }
+        // Shift+Enter: 줄바꿈 (HardBreak)
+        if (event.key === "Enter" && event.shiftKey) {
+          if (mentionModalOpenRef.current) return false;
+          const ed = editorRef.current;
+          if (!ed || ed.isDestroyed) return false;
+          event.preventDefault();
+          ed.chain().focus().setHardBreak().run();
+          return true;
+        }
+        // Enter: 전송
         if (event.key !== "Enter" || event.shiftKey) return false;
         if (mentionModalOpenRef.current) return false;
         if (
