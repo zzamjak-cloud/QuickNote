@@ -31,6 +31,7 @@ import { useUiStore } from "../../store/uiStore";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistorySelection } from "../history/useHistorySelection";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 import { PageMoveDialog } from "./PageMoveDialog";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { useMemberStore } from "../../store/memberStore";
@@ -292,7 +293,17 @@ export function TopBar() {
                     : "",
                 ].join(" ")}
               >
-                <span>{node.icon ?? "·"}</span>
+                {node.icon ? (
+                  <PageIconDisplay
+                    icon={node.icon}
+                    size="sm"
+                    className="shrink-0"
+                  />
+                ) : (
+                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-zinc-400">
+                    ·
+                  </span>
+                )}
                 <span className="max-w-32 truncate">
                   {node.title || "제목 없음"}
                 </span>

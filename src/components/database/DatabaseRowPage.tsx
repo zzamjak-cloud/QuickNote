@@ -15,7 +15,7 @@ import { PageMoveDialog } from "../layout/PageMoveDialog";
 import { useMemberStore } from "../../store/memberStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
-import { PageCommentBar } from "../comments/PageCommentBar";
+import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBar";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const allPages = usePageStore((s) => s.pages);
@@ -30,9 +30,13 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
   const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
   const fullWidth = pageFullWidthById[pageId] ?? globalFullWidth;
-  // 댓글이 하나라도 존재하면 사이드바 공간을 위해 외곽 너비를 확장
+  // 블록 댓글(우측 스레드)이 있을 때만 에디터 컬럼과 동일하게 우측 거터 예약.
+  // 페이지 레벨 댓글(PAGE_COMMENT_SENTINEL)은 PageCommentBar 인라인 → Editor 와 동일 기준.
   const hasPageComments = useBlockCommentStore((s) =>
-    s.messages.some((m) => m.pageId === pageId),
+    s.messages.some(
+      (m) =>
+        m.pageId === pageId && m.blockId !== PAGE_COMMENT_SENTINEL,
+    ),
   );
   const getRowBackTarget = useUiStore((s) => s.getRowBackTarget);
   const clearRowBackTarget = useUiStore((s) => s.clearRowBackTarget);
@@ -105,14 +109,12 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
     setCurrentTabPage(firstNormal?.id ?? null);
   };
 
-  // 에디터 wrapper 와 동일한 클래스 — 외부 헤더·속성 패널·하위 페이지가 본문(컨텐츠) 폭과 일치하도록
+  // Editor.tsx data-qn-editor-column 과 동일 — 속성 패널·헤더 폭이 본문과 일치하도록
   const columnClass = fullWidth
-    ? hasPageComments
-      ? "max-w-none pl-4 pr-[260px]"
-      : "max-w-none px-4"
+    ? "max-w-none px-4"
     : hasPageComments
-      ? "max-w-[1056px] pr-[256px]"
-      : "max-w-3xl";
+      ? "max-w-[1256px] pr-[256px]"
+      : "max-w-[968px]";
 
   return (
     <div className="py-8">
@@ -170,6 +172,9 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
           current={page.icon}
           onChange={(icon) => setIcon(pageId, icon)}
           onUploadMessage={(msg) => setIconAlert(msg)}
+          defaultIcon={
+            <FileText size={28} className="text-zinc-400" />
+          }
         />
         <input
           type="text"
