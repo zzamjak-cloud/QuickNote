@@ -17,10 +17,19 @@ function widgetPosForCodeBlock(node: PMNode, blockPos: number): number {
   return blockPos + node.nodeSize - 1;
 }
 
+/** 마크다운 언어 블록은 NodeView 가 패널 우상단 고정 복사 UI를 담당한다 */
+function isMarkdownCodeBlockLanguage(lang: unknown): boolean {
+  const s = String(lang ?? "")
+    .toLowerCase()
+    .trim();
+  return s === "markdown" || s === "md";
+}
+
 function buildDecorations(doc: PMNode): Decoration[] {
   const decos: Decoration[] = [];
   doc.descendants((node, pos) => {
     if (node.type.name !== "codeBlock") return true;
+    if (isMarkdownCodeBlockLanguage(node.attrs.language)) return false;
     const wpos = widgetPosForCodeBlock(node, pos);
     const blockStart = pos;
     decos.push(

@@ -260,6 +260,11 @@ function useSyncBootstrap(): boolean {
 
     return () => {
       cancelled = true;
+      // 동일 키로 effect 가 다시 돌 때(React Strict Mode 등) startedForRef 가 남으면
+      // 조기 return 으로 구독이 영구히 생기지 않을 수 있어 정리 시 초기화한다.
+      if (startedForRef.current === startedKey) {
+        startedForRef.current = null;
+      }
       try {
         unsub?.();
       } catch (err) {

@@ -476,6 +476,22 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
   color: #c9d1d9;
 }
 
+/* 마크다운 언어 블록 소스 탭: 전역 pre.hljs(position:relative 등)보다 우선 — 박스 안 스크롤 */
+.ProseMirror .qn-markdown-code-block pre.qn-markdown-code-source.hljs {
+  position: absolute !important;
+  inset: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  padding: 2.25rem 3rem 0.75rem 1rem !important;
+  font-size: 15px !important;
+  line-height: 1.6 !important;
+  overflow: auto !important;
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
 .ProseMirror pre.qn-code-block code,
 .ProseMirror pre.hljs code {
   background: transparent !important;

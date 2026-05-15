@@ -85,7 +85,8 @@ export const GqlPageSchema = z
     icon: z.string().nullish(),
     coverImage: z.string().nullish(),
     parentId: z.string().nullish(),
-    order: z.string(),
+    // AppSync/구독 경로에서 number 로 내려오는 경우가 있어 문자열로 정규화
+    order: z.coerce.string(),
     databaseId: z.string().nullish(),
     doc: z.unknown(),
     dbCells: z.unknown().nullish(),

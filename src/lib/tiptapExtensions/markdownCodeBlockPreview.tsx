@@ -6,6 +6,27 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlockLowlightStable } from "./codeBlockLowlightStable";
 
+/** codeBlockCopy 와 동일 복사 아이콘(버튼 스타일 일관) */
+function MarkdownCodeCopyIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  );
+}
+
 function isMarkdownLanguage(lang: unknown): boolean {
   const s = String(lang ?? "")
     .toLowerCase()
@@ -15,6 +36,9 @@ function isMarkdownLanguage(lang: unknown): boolean {
 
 const tabBtnBase =
   "rounded px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400";
+
+/** 탭 아래 본문: 미리보기·소스 공통 뷰포트(박스 높이 = 스크롤 영역) */
+const MARKDOWN_PANEL_H = "min(70vh,560px)";
 
 function MarkdownCodeBlockNodeView(props: NodeViewProps) {
   const { node } = props;
@@ -28,8 +52,8 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
           <code
             className={
               node.attrs.language
-                ? `language-${String(node.attrs.language)}`
-                : undefined
+                ? `language-${String(node.attrs.language)} block px-3 py-2.5 text-[15px] leading-relaxed`
+                : "block px-3 py-2.5 text-[15px] leading-relaxed"
             }
           >
             <NodeViewContent spellCheck={false} />
@@ -76,24 +100,45 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
           마크다운
         </button>
       </div>
-      <div className="relative">
-        {previewActive ? (
-          <div className="prose prose-sm prose-zinc relative z-10 max-w-none min-h-[4rem] max-h-[min(70vh,560px)] overflow-y-auto px-3 py-2 dark:prose-invert prose-headings:text-orange-700 prose-a:text-amber-700 dark:prose-headings:text-orange-300 dark:prose-a:text-amber-400 prose-strong:text-zinc-800 dark:prose-strong:text-zinc-100">
-            {text.trim() ? (
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-            ) : (
-              <p className="my-0 text-sm text-zinc-400">비어 있습니다. 「마크다운」 탭에서 편집하세요.</p>
-            )}
-          </div>
-        ) : null}
-        <pre
-          className={
-            previewActive
-              ? "pointer-events-none invisible absolute inset-0 z-0 m-0 max-h-[min(70vh,560px)] overflow-auto border-0 bg-zinc-50 dark:bg-zinc-900"
-              : "relative z-10 m-0 max-h-[min(70vh,560px)] overflow-auto rounded-b-md border-0 bg-zinc-50 dark:bg-zinc-900"
-          }
+      {/* 고정 높이 한 덩어리: 테두리·스크롤 경계가 동일(미리보기/소스 규격 일치) */}
+      <div
+        className="relative w-full overflow-hidden rounded-b-lg"
+        style={{ height: MARKDOWN_PANEL_H }}
+      >
+        <button
+          type="button"
+          className="qn-code-copy-btn pointer-events-auto absolute right-2 top-2 z-30"
+          title="코드 복사"
+          aria-label="코드 복사"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void navigator.clipboard.writeText(props.node.textContent);
+          }}
         >
-          <code className="language-markdown block px-3 py-2 text-sm">
+          <MarkdownCodeCopyIcon />
+          <span className="qn-code-copy-label">복사</span>
+        </button>
+        <div
+          className={`absolute inset-0 box-border overflow-y-auto bg-zinc-100 px-3 pb-2 pl-3 pr-14 pt-10 prose prose-sm prose-zinc max-w-none dark:bg-zinc-950 dark:prose-invert prose-headings:text-orange-700 prose-a:text-amber-700 dark:prose-headings:text-orange-300 dark:prose-a:text-amber-400 prose-strong:text-zinc-800 dark:prose-strong:text-zinc-100 ${
+            previewActive ? "z-10" : "pointer-events-none invisible z-0"
+          }`}
+        >
+          {text.trim() ? (
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+          ) : (
+            <p className="my-0 text-sm text-zinc-500 dark:text-zinc-400">
+              비어 있습니다. 「마크다운」 탭에서 편집하세요.
+            </p>
+          )}
+        </div>
+        <pre
+          className={`qn-markdown-code-source hljs absolute inset-0 m-0 box-border overflow-auto rounded-b-lg border-0 bg-[#2d2d32] text-zinc-200 dark:bg-[#2d2d32] dark:text-zinc-200 ${
+            previewActive ? "pointer-events-none invisible z-0" : "z-10"
+          }`}
+        >
+          <code className="language-markdown block text-[15px] leading-relaxed">
             <NodeViewContent spellCheck={false} />
           </code>
         </pre>

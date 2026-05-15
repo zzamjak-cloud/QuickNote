@@ -117,4 +117,61 @@ describe("storeApply 워크스페이스 가드", () => {
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
+
+  it("LWW 동률이어도 order 가 다르면 원격 메타를 반영한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const iso = "2026-05-06T12:00:00.000Z";
+    const ms = Date.parse(iso);
+    usePageStore.setState({
+      pages: {
+        "pg-1": {
+          id: "pg-1",
+          title: "Local",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: ms,
+          updatedAt: ms,
+        },
+      },
+      activePageId: null,
+      cacheWorkspaceId: "ws-a",
+    });
+    const remote = gqlPage("ws-a", "pg-1");
+    remote.updatedAt = iso;
+    remote.order = "3";
+    remote.title = "RemoteTitle";
+    applyRemotePageToStore(remote);
+    expect(usePageStore.getState().pages["pg-1"]?.order).toBe(3);
+    expect(usePageStore.getState().pages["pg-1"]?.title).toBe("RemoteTitle");
+  });
+
+  it("LWW 동률이고 order·parentId 가 같으면 덮어쓰지 않는다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const iso = "2026-05-06T12:00:00.000Z";
+    const ms = Date.parse(iso);
+    usePageStore.setState({
+      pages: {
+        "pg-1": {
+          id: "pg-1",
+          title: "KeepMe",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: ms,
+          updatedAt: ms,
+        },
+      },
+      activePageId: null,
+      cacheWorkspaceId: "ws-a",
+    });
+    const remote = gqlPage("ws-a", "pg-1");
+    remote.updatedAt = iso;
+    remote.order = "0";
+    remote.title = "OtherTitle";
+    applyRemotePageToStore(remote);
+    expect(usePageStore.getState().pages["pg-1"]?.title).toBe("KeepMe");
+  });
 });

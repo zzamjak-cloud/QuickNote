@@ -60,11 +60,43 @@ function parseAwsJson<T>(v: unknown, fallback: T): T {
 
 function isRemoteNewer(localUpdatedMs: number, remoteIso: string): boolean {
   const remoteMs = isoToMs(remoteIso);
-  if (remoteMs === localUpdatedMs && localUpdatedMs > 0) {
-    // LWW tie: 동일 타임스탬프 — 로컬 우선(보수적). 진단용으로만 기록.
-    console.debug("[sync] LWW tie detected", { localUpdatedMs, remoteMs });
-  }
   return remoteMs > localUpdatedMs;
+}
+
+/** GraphQL Page 의 order 를 스토어 number 와 동일 규칙으로 정규화 */
+function gqlOrderNumber(p: { order: string; updatedAt: string }): number {
+  const n = Number(p.order);
+  if (!Number.isNaN(n)) return n;
+  return isoToMs(p.updatedAt);
+}
+
+function gqlDatabaseId(p: GqlPage): string | null {
+  return p.databaseId ?? null;
+}
+
+/** 동일 updatedAt(LWW 동률)일 때 사이드바 트리가 어긋나 있으면 원격 메타를 받아들인다 */
+function isPageStructuralDrift(local: Page, p: GqlPage): boolean {
+  const remoteParent = p.parentId ?? null;
+  const remoteOrder = gqlOrderNumber(p);
+  const remoteDb = gqlDatabaseId(p);
+  const localDb = local.databaseId ?? null;
+  return (
+    local.parentId !== remoteParent ||
+    local.order !== remoteOrder ||
+    localDb !== remoteDb
+  );
+}
+
+/** 페이지 원격 덮어쓰기 여부 — 순수 초과 외에 LWW 동률+구조 불일치도 허용 */
+function shouldApplyRemotePageOverwrite(local: Page | undefined, p: GqlPage): boolean {
+  if (!local) return true;
+  const remoteMs = isoToMs(p.updatedAt);
+  const localMs = local.updatedAt;
+  if (remoteMs > localMs) return true;
+  if (remoteMs === localMs && localMs > 0 && isPageStructuralDrift(local, p)) {
+    return true;
+  }
+  return false;
 }
 
 /** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다.
@@ -161,15 +193,11 @@ export function applyRemotePageToStore(
         cacheWorkspaceId: p.workspaceId,
       };
     }
-    if (local && !isRemoteNewer(local.updatedAt, p.updatedAt)) {
+    if (local && !shouldApplyRemotePageOverwrite(local, p)) {
       return s.cacheWorkspaceId === p.workspaceId ? s : { ...s, cacheWorkspaceId: p.workspaceId };
     }
 
-    const orderNum = (() => {
-      const n = Number(p.order);
-      if (!Number.isNaN(n)) return n;
-      return isoToMs(p.updatedAt);
-    })();
+    const orderNum = gqlOrderNumber(p);
 
     const merged: Page = {
       id: p.id,

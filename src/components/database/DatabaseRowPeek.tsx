@@ -7,6 +7,7 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { DatabasePropertyPanel } from "./DatabasePropertyPanel";
 import { Editor } from "../editor/Editor";
+import { IconPicker } from "../common/IconPicker";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { PageMoveDialog } from "../layout/PageMoveDialog";
@@ -50,6 +51,7 @@ export function DatabaseRowPeek() {
     ? Object.values(allPages).filter((p) => p.parentId === peekPageId)
     : [];
   const renamePage = usePageStore((s) => s.renamePage);
+  const setIcon = usePageStore((s) => s.setIcon);
   const restorePageFromHistoryEvent = usePageStore(
     (s) => s.restorePageFromHistoryEvent,
   );
@@ -261,17 +263,24 @@ export function DatabaseRowPeek() {
 
         {/* 단일 스크롤 영역 — 제목·속성·본문·하위페이지 모두 포함 */}
         <div className="flex-1 overflow-y-auto px-8 pb-8">
-        <input
-          type="text"
-          value={titleDraft}
-          onChange={(e) => setTitleDraft(e.target.value)}
-          onBlur={() => renamePage(peekPageId, titleDraft.trim() || "제목 없음")}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-          }}
-          placeholder="제목 없음"
-          className="mb-2 w-full bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
-        />
+        <div className="mb-2 flex min-w-0 items-center gap-2">
+          <IconPicker
+            current={page.icon}
+            onChange={(icon) => setIcon(peekPageId, icon)}
+            defaultIcon={<FileText size={28} className="text-zinc-400" />}
+          />
+          <input
+            type="text"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => renamePage(peekPageId, titleDraft.trim() || "제목 없음")}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+            placeholder="제목 없음"
+            className="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
+          />
+        </div>
         {isDbRow && databaseId ? (
           <DatabasePropertyPanel databaseId={databaseId} pageId={peekPageId} />
         ) : null}
