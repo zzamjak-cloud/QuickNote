@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.11] - 2026-05-15
+
+### Fixed
+
+- **TopBar 경로**: Lucide 페이지 아이콘이 `quicknote-lucide:…` 문자열로 보이던 문제를 `PageIconDisplay`로 수정.
+- **DB 항목 페이지**: 속성 패널·헤더 영역 최대 너비를 본문 에디터 컬럼(`max-w-[968px]` / `max-w-[1256px]` 등)과 동일하게 맞춤.
+- **DB 항목 페이지**: 제목 옆 `IconPicker`에 아이콘 미설정 시 `FileText` 기본 아이콘이 보이도록 복구.
+- **DB 항목 페이지**: 우측 댓글 거터 예약 여부를 에디터와 동일하게(페이지 인라인 댓글 제외) 계산.
+
 ## [5.3.0] - 2026-05-12
 
 ### Added
