@@ -43,6 +43,7 @@ type UpdateMemberInput = {
   jobCategory?: string | null;
   jobDetail?: string | null;
   joinedAt?: string | null;
+  rowCount?: number | null;
 };
 
 // member 정규화 헬퍼는 ./memberNormalize 로 분리됨.
@@ -183,4 +184,3 @@ export async function restoreMemberApi(memberId: string): Promise<Member> {
   if (!member) throw new Error("restoreMember 응답이 비어 있습니다.");
   return normalizeMemberFields(member);
 }
-

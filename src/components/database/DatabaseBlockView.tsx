@@ -27,6 +27,7 @@ import { DatabaseTableView } from "./views/DatabaseTableView";
 import { DatabaseKanbanView } from "./views/DatabaseKanbanView";
 import { DatabaseGalleryView } from "./views/DatabaseGalleryView";
 import { DatabaseTimelineView } from "./views/DatabaseTimelineView";
+import { DatabaseListView } from "./views/DatabaseListView";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
 import { DatabaseBlockBinding } from "./DatabaseBlockBinding";
@@ -52,7 +53,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const readOnlyTitleAttr = Boolean(node.attrs.readOnlyTitle);
   const layout = (node.attrs.layout ?? "inline") as DatabaseLayout;
   const rawView = String(node.attrs.view ?? "table");
-  const view = (rawView === "list" ? "table" : rawView) as ViewKind;
+  const view = rawView as ViewKind;
   const panelStateRaw = String(node.attrs.panelState ?? "{}");
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   // members 는 큰 객체 — useShallow 로 얕은 비교해 무관 멤버 변경 시 리렌더 방지
@@ -354,6 +355,15 @@ export function DatabaseBlockView(props: NodeViewProps) {
             setPanelState={setPanelState}
             visibleRowLimit={visibleRowLimit}
             layout={layout}
+          />
+        );
+      case "list":
+        return (
+          <DatabaseListView
+            databaseId={databaseId}
+            panelState={panelState}
+            setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       case "kanban":

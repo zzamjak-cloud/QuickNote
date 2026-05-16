@@ -247,13 +247,13 @@ export function NotificationBell() {
           role="menu"
         >
           <div className="flex items-center justify-between border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
-            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">
+            <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
               알림
             </span>
             {unread > 0 ? (
               <button
                 type="button"
-                className="text-[11px] text-emerald-600 hover:underline dark:text-emerald-400"
+                className="text-xs text-emerald-600 hover:underline dark:text-emerald-400"
                 onClick={() => markAllReadForMember(memberId)}
               >
                 모두 읽음
@@ -262,7 +262,7 @@ export function NotificationBell() {
           </div>
           <div className="max-h-72 overflow-y-auto">
             {items.length === 0 ? (
-              <p className="px-3 py-4 text-center text-xs text-zinc-500">
+              <p className="px-3 py-4 text-center text-sm text-zinc-500">
                 알림이 없습니다.
               </p>
             ) : (
@@ -284,7 +284,7 @@ export function NotificationBell() {
                     }}
                     onClick={(e) => e.preventDefault()}
                   >
-                    <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <div className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
                       <span
                         className={[
                           "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
@@ -304,10 +304,10 @@ export function NotificationBell() {
                         </span>
                       ) : null}
                     </div>
-                    <div className="mt-0.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                    <div className="mt-0.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
                       {metaLabelOf(n)}
                     </div>
-                    <p className="mt-0.5 line-clamp-2 text-xs text-zinc-800 dark:text-zinc-100">
+                    <p className="mt-0.5 line-clamp-2 text-sm text-zinc-800 dark:text-zinc-100">
                       {n.previewBody}
                     </p>
                   </button>

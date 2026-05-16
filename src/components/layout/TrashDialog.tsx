@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { RefreshCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { RefreshCcw, Search, Trash2, X } from "lucide-react";
 import { applyRemotePageToStore } from "../../lib/sync/storeApply";
 import {
   fetchTrashedPagesBatch,
@@ -30,6 +30,13 @@ export function TrashDialog({ open, onClose }: Props) {
   >([]);
   /** 다음 배치 조회용 서버 커서 */
   const [cursor, setCursor] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  const filteredItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((p) => (p.title ?? "").toLowerCase().includes(q));
+  }, [items, query]);
 
   const loadFirst = useCallback(async () => {
     if (!currentWorkspaceId) return;
@@ -109,37 +116,49 @@ export function TrashDialog({ open, onClose }: Props) {
           <div>
             <h2
               id="qn-trash-title"
-              className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+              className="flex items-center gap-2 text-xl font-bold text-zinc-900 dark:text-zinc-100"
             >
+              <Trash2 size={20} />
               휴지통
             </h2>
-            <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+            <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
               삭제된 페이지는 {RETENTION_DAYS}일 동안만 보관되며, 이후 영구
-              삭제됩니다. (매일 서버에서 정리)
+              삭제됩니다.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
           >
-            닫기
+            <X size={16} />
           </button>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+            <div className="flex items-center gap-2 rounded-md border border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+              <Search size={13} className="shrink-0 text-zinc-400" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="페이지 제목 검색"
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
+              />
+            </div>
+          </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
             {loading ? (
-              <p className="px-2 py-6 text-center text-xs text-zinc-500">
+              <p className="px-2 py-6 text-center text-sm text-zinc-500">
                 불러오는 중…
               </p>
-            ) : items.length === 0 ? (
-              <p className="px-2 py-6 text-center text-xs text-zinc-500">
-                휴지통이 비어 있습니다.
+            ) : filteredItems.length === 0 ? (
+              <p className="px-2 py-6 text-center text-sm text-zinc-500">
+                {query.trim() ? "검색 결과가 없습니다." : "휴지통이 비어 있습니다."}
               </p>
             ) : (
-              <ul className="space-y-1">
-                {items.map((p) => {
+              <ul>
+                {filteredItems.map((p) => {
                   const deletedAt = p.deletedAt
                     ? new Date(p.deletedAt).toLocaleString("ko-KR")
                     : "";
@@ -147,25 +166,21 @@ export function TrashDialog({ open, onClose }: Props) {
                   return (
                     <li
                       key={p.id}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                      className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800"
                     >
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-100">
-                          {p.icon ? (
-                            <span className="mr-1">{p.icon}</span>
-                          ) : null}
-                          {title}
-                        </div>
-                        <div className="text-[10px] text-zinc-500">
-                          삭제: {deletedAt}
-                        </div>
-                      </div>
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                        {p.icon ? (
+                          <span className="mr-1">{p.icon}</span>
+                        ) : null}
+                        {title}
+                      </span>
+                      <span className="shrink-0 text-xs text-zinc-400">{deletedAt}</span>
                       <button
                         type="button"
                         onClick={() => void restore(p.id, title)}
-                        className="inline-flex shrink-0 items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-[11px] hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+                        className="inline-flex shrink-0 items-center gap-1 rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
                       >
-                        <RefreshCcw size={12} />
+                        <RefreshCcw size={11} />
                         복원
                       </button>
                     </li>

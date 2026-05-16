@@ -111,7 +111,7 @@ export function DatabaseKanbanView({
   };
 
   return (
-    <div>
+    <div className="pt-3">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="text-zinc-600 dark:text-zinc-400">그룹 컬럼</span>
         <select
@@ -168,7 +168,7 @@ export function DatabaseKanbanView({
                 ].join(" ")}
               >
                 <div
-                  className="flex items-center justify-between gap-2 rounded-t-lg px-2 py-1.5 text-[11px] font-medium"
+                  className="flex items-center justify-between gap-2 rounded-t-lg px-2 py-1.5 text-sm font-medium"
                   style={{
                     backgroundColor: hexToRgba(col.color, 0.18),
                     color: "inherit",
@@ -319,10 +319,10 @@ function KanbanCard({
         <div className="space-y-1">
           {visibleCardCols.map((c) => (
             <div key={c.id} className="flex items-baseline gap-1">
-              <span className="shrink-0 text-[9px] uppercase text-zinc-400">
+              <span className="shrink-0 text-xs uppercase text-zinc-400">
                 {c.name}
               </span>
-              <div className="min-w-0 flex-1 truncate text-[11px]">
+              <div className="min-w-0 flex-1 truncate text-sm">
                 <DatabaseCell
                   databaseId={databaseId}
                   rowId={row.pageId}

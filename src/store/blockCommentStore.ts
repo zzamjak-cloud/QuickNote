@@ -8,6 +8,8 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { newId } from "../lib/id";
 import type { BlockCommentMsg } from "../types/blockComment";
 import { useWorkspaceStore } from "./workspaceStore";
+import { useNotificationStore } from "./notificationStore";
+import { usePageStore } from "./pageStore";
 import { normalizeMentionMemberIds } from "../lib/comments/mentionMemberIds";
 import { enqueueAsync } from "../lib/sync/runtime";
 
@@ -62,6 +64,38 @@ function enqueueSoftDeleteComment(id: string, workspaceId: string): void {
   });
 }
 
+function notifyCommentMentions(
+  before: BlockCommentMsg | null,
+  after: BlockCommentMsg,
+): void {
+  const beforeIds = new Set(before?.mentionMemberIds ?? []);
+  const page = usePageStore.getState().pages[after.pageId];
+  const notificationStore = useNotificationStore.getState();
+
+  for (const memberId of after.mentionMemberIds) {
+    if (beforeIds.has(memberId)) {
+      notificationStore.updateNotificationByCommentId(after.id, {
+        pageTitle: page?.title ?? "페이지",
+        previewBody: after.bodyText,
+      });
+      continue;
+    }
+
+    notificationStore.addNotification({
+      recipientMemberId: memberId,
+      kind: "mention",
+      source: "comment",
+      workspaceId: after.workspaceId ?? getCurrentWorkspaceId(),
+      pageTitle: page?.title ?? "페이지",
+      pageId: after.pageId,
+      blockId: after.blockId,
+      fromMemberId: after.authorMemberId,
+      commentId: after.id,
+      previewBody: after.bodyText,
+    });
+  }
+}
+
 type BlockCommentState = {
   messages: BlockCommentMsg[];
   /** 스레드별 마지막 확인 시각 — 디바이스 로컬 전용, 서버 미동기 */
@@ -114,6 +148,7 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
         // 중복 방지
         if (get().messages.some((m) => m.id === msg.id)) return msg;
         set((s) => ({ messages: [...s.messages, msg] }));
+        notifyCommentMentions(null, msg);
         enqueueUpsertComment(msg);
         return msg;
       },
@@ -130,6 +165,7 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
         set((s) => ({
           messages: s.messages.map((m) => (m.id === id ? updated : m)),
         }));
+        notifyCommentMentions(existing, updated);
         enqueueUpsertComment(updated);
         return true;
       },

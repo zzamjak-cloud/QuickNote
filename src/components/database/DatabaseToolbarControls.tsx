@@ -58,7 +58,7 @@ export function DatabaseToolbarControls({
     if (panelState.searchQuery.trim().length > 0) setSearchOpen(true);
   }, [panelState.searchQuery]);
   useEffect(() => {
-    if (view !== "table" && panelState.hiddenViewKinds.includes(view)) {
+    if (view !== "table" && view !== "list" && panelState.hiddenViewKinds.includes(view)) {
       onViewChange("table");
     }
   }, [onViewChange, panelState.hiddenViewKinds, view]);
@@ -206,7 +206,6 @@ export function DatabaseToolbarControls({
             </button>
             {searchOpen && (
               <input
-                // eslint-disable-next-line jsx-a11y/no-autofocus
                 autoFocus
                 type="search"
                 placeholder="검색…"

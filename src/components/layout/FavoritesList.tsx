@@ -96,7 +96,7 @@ function FavoriteRow({ pageId }: { pageId: string }) {
           setCurrentTabPage(pageId);
           setActivePage(pageId);
         }}
-        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs text-zinc-800 dark:text-zinc-100"
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm text-zinc-800 dark:text-zinc-100"
       >
         <PageIconDisplay icon={page?.icon ?? favoriteMeta?.pageIcon ?? null} size="sm" />
         <span className="truncate">{page?.title || favoriteMeta?.pageTitle || "제목 없음"}</span>
@@ -188,7 +188,7 @@ export function FavoritesList() {
 
   if (validIds.length === 0) {
     return (
-      <p className="px-1 text-[11px] text-zinc-400">즐겨찾기한 페이지가 없습니다.</p>
+      <p className="px-1 text-sm text-zinc-400">즐겨찾기한 페이지가 없습니다.</p>
     );
   }
 

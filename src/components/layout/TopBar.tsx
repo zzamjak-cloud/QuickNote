@@ -2,6 +2,7 @@ import {
   ArrowLeftRight,
   ChevronLeft,
   ChevronRight,
+  Code,
   FileText,
   MoreHorizontal,
   Printer,
@@ -15,6 +16,7 @@ import {
   History,
 } from "lucide-react";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
+import { pageDocToHtml } from "../../lib/export/pageToHtml";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import { emptyPanelState } from "../../types/database";
 
@@ -226,6 +228,23 @@ export function TopBar() {
     setMenuOpen(false);
   };
 
+  // HTML 파일로 현재 페이지 내보내기
+  const handleExportHtml = () => {
+    if (!activeId) return;
+    const page = pages[activeId];
+    if (!page) return;
+    const title = page.title || "untitled";
+    const html = pageDocToHtml(title, page.doc);
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title}.html`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    setMenuOpen(false);
+  };
+
   // 데이터베이스 관리 팝업과 동일한 로직 — 스토어 함수로 기존 페이지 조회 (중복 생성 방지)
   const openDatabase = (databaseId: string, title: string) => {
     const existingId = usePageStore
@@ -270,7 +289,7 @@ export function TopBar() {
       <div className="flex flex-1 items-center gap-1 overflow-hidden text-xs text-zinc-500 dark:text-zinc-400">
         {breadcrumb.length === 0 ? (
           <span>페이지를 선택하거나 새로 만드세요</span>
-        ) : (
+        ) : breadcrumb.length === 1 && breadcrumb[0]?.id === activeId ? null : (
           breadcrumb.map((node, idx) => (
             <div key={node.id} className="flex items-center gap-1">
               {idx > 0 && (
@@ -502,7 +521,15 @@ export function TopBar() {
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   <Printer className={MENU_ITEM_ICON} aria-hidden />
-                  <span className="min-w-0 flex-1">PDF로 내보내기</span>
+                  <span className="min-w-0 flex-1">PDF 내보내기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportHtml}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Code className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">HTML 내보내기</span>
                 </button>
                 <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
                 <button
@@ -534,20 +561,20 @@ export function TopBar() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="qn-page-history-title"
-            className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            className="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between gap-2">
               <h2
                 id="qn-page-history-title"
-                className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+                className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
               >
                 페이지 버전 히스토리
               </h2>
               <button
                 type="button"
                 onClick={() => setHistoryDialogOpen(false)}
-                className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="rounded px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >
                 닫기
               </button>
@@ -556,7 +583,7 @@ export function TopBar() {
               <button
                 type="button"
                 onClick={toggleTimelineAll}
-                className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
               >
                 {selectedTimelineIds.size > 0 &&
                 selectedTimelineIds.size === timelineIds.length ? (
@@ -578,7 +605,7 @@ export function TopBar() {
                     });
                     setDeleteConfirmOpen(true);
                   }}
-                  className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/30"
+                  className="rounded border border-red-200 px-2 py-1 text-sm text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/30"
                 >
                   선택 삭제
                 </button>
@@ -586,7 +613,7 @@ export function TopBar() {
             </div>
             <div className="max-h-[55vh] overflow-y-auto rounded-md border border-zinc-200 dark:border-zinc-700">
               {pageHistoryTimeline.length === 0 ? (
-                <div className="px-3 py-2 text-xs text-zinc-500">
+                <div className="px-3 py-2 text-sm text-zinc-500">
                   버전 기록이 없습니다.
                 </div>
               ) : (
@@ -612,7 +639,7 @@ export function TopBar() {
                     }}
                     role="button"
                     tabIndex={0}
-                    className="flex w-full items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                    className="flex w-full items-center gap-2 border-b border-zinc-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                   >
                     <button
                       type="button"
@@ -632,15 +659,13 @@ export function TopBar() {
                         <Check size={10} strokeWidth={3} />
                       ) : null}
                     </button>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-zinc-700 dark:text-zinc-200">
-                        {`버전 ${arr.length - idx}`}
-                      </span>
-                      <span className="block text-[11px] text-zinc-400">
-                        {formatPageHistoryEditorLine(entry, { members, me })}
-                      </span>
+                    <span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-200">
+                      {`버전 ${arr.length - idx}`}
                     </span>
-                    <span className="shrink-0 text-[11px] text-zinc-400">
+                    <span className="shrink-0 text-xs text-zinc-400">
+                      {formatPageHistoryEditorLine(entry, { members, me })}
+                    </span>
+                    <span className="shrink-0 text-xs text-zinc-400">
                       {new Date(entry.endTs).toLocaleString()}
                     </span>
                     <button

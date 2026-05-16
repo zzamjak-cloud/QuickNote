@@ -212,6 +212,42 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // LC 스케줄러 프로젝트 테이블 — 신규 생성
+    const projectsTable = new dynamodb.Table(this, "SchedulerProjectsTable", {
+      tableName: "quicknote-scheduler-projects",
+      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    projectsTable.addGlobalSecondaryIndex({
+      indexName: "byWorkspace",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // LC 스케줄러 공휴일 테이블 — 신규 생성
+    const holidaysTable = new dynamodb.Table(this, "SchedulerHolidaysTable", {
+      tableName: "quicknote-scheduler-holidays",
+      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    holidaysTable.addGlobalSecondaryIndex({
+      indexName: "byWorkspace",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // LC 스케줄러 일정 테이블 — 1차 배포 시 이미 생성됐으므로 import로 참조.
+    // GSI 권한 부여를 위해 fromTableAttributes 로 인덱스를 함께 등록한다.
+    const schedulesTable = dynamodb.Table.fromTableAttributes(this, "SchedulesTable", {
+      tableName: "quicknote-schedules",
+      globalIndexes: ["byWorkspaceAndStartAt"],
+    });
+    new cdk.CfnOutput(this, "SchedulesTableName", { value: schedulesTable.tableName });
+
     new cdk.CfnOutput(this, "MembersTableName", { value: membersTable.tableName });
     new cdk.CfnOutput(this, "TeamsTableName", { value: teamsTable.tableName });
     new cdk.CfnOutput(this, "MemberTeamsTableName", { value: memberTeamsTable.tableName });
@@ -429,6 +465,9 @@ export function response(ctx) {
         NOTIFICATIONS_TABLE_NAME: notificationTable.tableName,
         ORGANIZATIONS_TABLE_NAME: this.organizationsTable.tableName,
         MEMBER_ORGANIZATIONS_TABLE_NAME: this.memberOrganizationsTable.tableName,
+        SCHEDULES_TABLE_NAME: schedulesTable.tableName,
+        PROJECTS_TABLE_NAME: projectsTable.tableName,
+        HOLIDAYS_TABLE_NAME: holidaysTable.tableName,
       },
       bundling: {
         minify: true,
@@ -450,6 +489,9 @@ export function response(ctx) {
     notificationTable.grantReadWriteData(v5ResolversFn);
     this.organizationsTable.grantReadWriteData(v5ResolversFn);
     this.memberOrganizationsTable.grantReadWriteData(v5ResolversFn);
+    schedulesTable.grantReadWriteData(v5ResolversFn);
+    projectsTable.grantReadWriteData(v5ResolversFn);
+    holidaysTable.grantReadWriteData(v5ResolversFn);
 
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
@@ -593,6 +635,24 @@ export function response(ctx) {
       fieldName: "onDatabaseChanged",
     });
     (onDatabaseChangedResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiSubscriptiononDatabaseChangedE8BD5823");
+
+    v5Ds.createResolver("QuerylistSchedules", { typeName: "Query", fieldName: "listSchedules" });
+    v5Ds.createResolver("MutationcreateSchedule", { typeName: "Mutation", fieldName: "createSchedule" });
+    v5Ds.createResolver("MutationupdateSchedule", { typeName: "Mutation", fieldName: "updateSchedule" });
+    v5Ds.createResolver("MutationdeleteSchedule", { typeName: "Mutation", fieldName: "deleteSchedule" });
+    v5Ds.createResolver("SubscriptiononScheduleChanged", { typeName: "Subscription", fieldName: "onScheduleChanged" });
+    // 프로젝트 resolver wiring
+    v5Ds.createResolver("QuerylistProjects", { typeName: "Query", fieldName: "listProjects" });
+    v5Ds.createResolver("MutationcreateProject", { typeName: "Mutation", fieldName: "createProject" });
+    v5Ds.createResolver("MutationupdateProject", { typeName: "Mutation", fieldName: "updateProject" });
+    v5Ds.createResolver("MutationdeleteProject", { typeName: "Mutation", fieldName: "deleteProject" });
+    v5Ds.createResolver("SubscriptiononProjectChanged", { typeName: "Subscription", fieldName: "onProjectChanged" });
+    // 공휴일 resolver wiring
+    v5Ds.createResolver("QuerylistHolidays", { typeName: "Query", fieldName: "listHolidays" });
+    v5Ds.createResolver("MutationcreateHoliday", { typeName: "Mutation", fieldName: "createHoliday" });
+    v5Ds.createResolver("MutationupdateHoliday", { typeName: "Mutation", fieldName: "updateHoliday" });
+    v5Ds.createResolver("MutationdeleteHoliday", { typeName: "Mutation", fieldName: "deleteHoliday" });
+    v5Ds.createResolver("SubscriptiononHolidayChanged", { typeName: "Subscription", fieldName: "onHolidayChanged" });
 
     // v5 데이터 마이그레이션 Lambda (v4 ownerId -> v5 workspace/member 필드 보강)
     const v5MigrationFn = new lambdaNode.NodejsFunction(this, "V5MigrationFn", {

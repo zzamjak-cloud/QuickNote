@@ -4,7 +4,6 @@ import {
   GripVertical,
   ArrowUpRight,
   PanelRight,
-  X,
   Check,
   Minus,
   MoreHorizontal,
@@ -438,14 +437,6 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
                           >
                             <PanelRight size={12} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setRowDeletePageId(row.pageId)}
-                            title="행 삭제"
-                            className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                          >
-                            <X size={12} />
                           </button>
                         </div>
                       )}

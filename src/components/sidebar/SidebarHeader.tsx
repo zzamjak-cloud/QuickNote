@@ -41,9 +41,9 @@ export function SidebarHeader({
         ) : null}
         <span className="min-w-0 flex-1" aria-hidden="true" />
         {/* 좁은 화면에서는 TopBar 알림으로 대체 — 중복 방지 */}
-        <span className="hidden lg:inline-flex">
+        <div className="hidden lg:flex items-center">
           <NotificationBell />
-        </span>
+        </div>
         {/* 검색 버튼 */}
         <button
           ref={searchBtnRef}
@@ -67,7 +67,7 @@ export function SidebarHeader({
         <button
           type="button"
           onClick={onCreatePage}
-          className="rounded-md p-1 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          className="rounded-md bg-blue-600 p-1 text-white hover:bg-blue-700"
           aria-label="새 페이지"
           title="새 페이지 (Cmd/Ctrl+N)"
         >

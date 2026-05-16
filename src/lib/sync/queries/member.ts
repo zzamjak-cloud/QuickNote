@@ -1,6 +1,6 @@
 const MEMBER_FIELDS = `
   memberId email name jobRole jobTitle phone avatarUrl thumbnailUrl workspaceRole status personalWorkspaceId cognitoSub createdAt removedAt clientPrefs
-  employmentStatus employeeNumber department team jobCategory jobDetail joinedAt
+  employmentStatus employeeNumber department team jobCategory jobDetail joinedAt rowCount
 `;
 
 export const ME = `
@@ -95,6 +95,7 @@ export const UPDATE_MEMBER = `
     $jobCategory: String
     $jobDetail: String
     $joinedAt: String
+    $rowCount: Int
   ) {
     updateMember(
       input: {
@@ -112,6 +113,7 @@ export const UPDATE_MEMBER = `
         jobCategory: $jobCategory
         jobDetail: $jobDetail
         joinedAt: $joinedAt
+        rowCount: $rowCount
       }
     ) { ${MEMBER_FIELDS} }
   }
@@ -122,4 +124,3 @@ export const RESTORE_MEMBER = `
     restoreMember(memberId: $memberId) { ${MEMBER_FIELDS} }
   }
 `;
-

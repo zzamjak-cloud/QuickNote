@@ -65,6 +65,24 @@ import {
   softDeleteComment,
 } from "./handlers/commentDatabase";
 import { listMyNotifications, markNotificationRead, deleteMyNotification } from "./handlers/notification";
+import {
+  listSchedules,
+  createSchedule,
+  updateSchedule,
+  deleteSchedule,
+} from "./handlers/schedule";
+import {
+  listProjects,
+  createProject,
+  updateProject,
+  deleteProject,
+} from "./handlers/project";
+import {
+  listHolidays,
+  createHoliday,
+  updateHoliday,
+  deleteHoliday,
+} from "./handlers/holiday";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -83,6 +101,9 @@ const tables: Tables = {
   // 조직(실) 관련 테이블 — CDK 배포 후 env 주입
   Organizations: process.env.ORGANIZATIONS_TABLE_NAME,
   MemberOrganizations: process.env.MEMBER_ORGANIZATIONS_TABLE_NAME,
+  Schedules: process.env.SCHEDULES_TABLE_NAME,
+  Projects: process.env.PROJECTS_TABLE_NAME,
+  Holidays: process.env.HOLIDAYS_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -378,6 +399,129 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
       case "onDatabaseChanged":
         return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
+      case "listSchedules":
+        return await listSchedules({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          from: event.arguments.from as string,
+          to: event.arguments.to as string,
+        });
+      case "createSchedule":
+        return await createSchedule({
+          ...base,
+          input: event.arguments.input as {
+            workspaceId: string;
+            title: string;
+            startAt: string;
+            endAt: string;
+            assigneeId?: string;
+            color?: string;
+          },
+        });
+      case "updateSchedule":
+        return await updateSchedule({
+          ...base,
+          input: event.arguments.input as {
+            id: string;
+            workspaceId: string;
+            title?: string;
+            startAt?: string;
+            endAt?: string;
+            assigneeId?: string;
+            color?: string;
+          },
+        });
+      case "deleteSchedule":
+        return await deleteSchedule({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "onScheduleChanged":
+        return await validateWorkspaceSubscription({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "listProjects":
+        return await listProjects({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "createProject":
+        return await createProject({
+          ...base,
+          input: event.arguments.input as {
+            workspaceId: string;
+            name: string;
+            color: string;
+            description?: string;
+            memberIds?: string[];
+            isHidden?: boolean;
+          },
+        });
+      case "updateProject":
+        return await updateProject({
+          ...base,
+          input: event.arguments.input as {
+            id: string;
+            workspaceId: string;
+            name?: string;
+            color?: string;
+            description?: string;
+            memberIds?: string[];
+            isHidden?: boolean;
+          },
+        });
+      case "deleteProject":
+        return await deleteProject({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "onProjectChanged":
+        return await validateWorkspaceSubscription({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "listHolidays":
+        return await listHolidays({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "createHoliday":
+        return await createHoliday({
+          ...base,
+          input: event.arguments.input as {
+            workspaceId: string;
+            title: string;
+            date: string;
+            type: string;
+            color: string;
+          },
+        });
+      case "updateHoliday":
+        return await updateHoliday({
+          ...base,
+          input: event.arguments.input as {
+            id: string;
+            workspaceId: string;
+            title?: string;
+            date?: string;
+            type?: string;
+            color?: string;
+          },
+        });
+      case "deleteHoliday":
+        return await deleteHoliday({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "onHolidayChanged":
+        return await validateWorkspaceSubscription({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
       default:
         throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");
     }

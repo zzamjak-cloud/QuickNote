@@ -1,10 +1,13 @@
 import { ChevronLeft, ChevronRight, ListTree, Plus, Star, X } from "lucide-react";
+import { useState } from "react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import { PageIconDisplay } from "../common/PageIconDisplay";
+import { LCSchedulerModal } from "../scheduler/LCSchedulerModal";
 
 export function TabBar() {
+  const [schedulerOpen, setSchedulerOpen] = useState(false);
   const tabs = useSettingsStore((s) => s.tabs);
   const activeIdx = useSettingsStore((s) => s.activeTabIndex);
   const setActiveTab = useSettingsStore((s) => s.setActiveTab);
@@ -87,6 +90,14 @@ export function TabBar() {
           <Plus size={14} />
         </button>
       </div>
+      <button
+        type="button"
+        onClick={() => setSchedulerOpen(true)}
+        style={{ backgroundColor: "#edac46" }}
+        className="ml-1 shrink-0 rounded px-2 py-0.5 text-xs font-semibold text-white hover:opacity-90"
+      >
+        LC 스케줄러
+      </button>
       <div
         className="ml-1 flex items-center gap-1 rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-700 dark:bg-zinc-900"
         role="radiogroup"
@@ -127,6 +138,11 @@ export function TabBar() {
           />
         </button>
       </div>
+      {schedulerOpen && (
+        <LCSchedulerModal
+          onClose={() => setSchedulerOpen(false)}
+        />
+      )}
     </div>
   );
 }

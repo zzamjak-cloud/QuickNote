@@ -35,6 +35,12 @@ export type Tables = {
   Organizations?: string;
   /** 멤버-조직 관계 테이블 (memberId PK, organizationId SK) */
   MemberOrganizations?: string;
+  /** LC 스케줄러 일정 테이블 */
+  Schedules?: string;
+  /** LC 스케줄러 프로젝트 테이블 */
+  Projects?: string;
+  /** LC 스케줄러 공휴일 테이블 */
+  Holidays?: string;
 };
 
 export type CreateMemberInput = {
@@ -75,6 +81,7 @@ export function buildCreateMemberTxItems(args: {
         workspaceRole: role,
         status: "active",
         personalWorkspaceId: args.personalWorkspaceId,
+        rowCount: 1,
         createdAt: args.now,
       },
       ConditionExpression: "attribute_not_exists(memberId)",
@@ -177,6 +184,7 @@ export async function createMember(args: {
     status: "active",
     personalWorkspaceId,
     cognitoSub: null,
+    rowCount: 1,
     createdAt: now,
   };
 }
@@ -187,8 +195,6 @@ export async function listMembers(args: {
   caller: Member;
   filter?: MemberFilterInput;
 }): Promise<Member[]> {
-  requireRoleAtLeast(args.caller, "manager");
-
   // teamId 필터: MemberTeams.GSI byTeam 으로 memberIds 추출 후 GetItem
   if (args.filter?.teamId) {
     const r = await args.doc.send(
@@ -277,6 +283,8 @@ export type UpdateMemberInput = {
   jobDetail?: string | null;
   /** 입사일 (YYYY-MM-DD) */
   joinedAt?: string | null;
+  /** 구성원별 타임라인 행 개수 */
+  rowCount?: number | null;
 };
 
 export async function updateMember(args: {
@@ -309,6 +317,7 @@ export async function updateMember(args: {
   if (args.input.jobCategory !== undefined) { sets.push("jobCategory = :jc"); vals[":jc"] = args.input.jobCategory ?? null; }
   if (args.input.jobDetail !== undefined) { sets.push("jobDetail = :jd"); vals[":jd"] = args.input.jobDetail ?? null; }
   if (args.input.joinedAt !== undefined) { sets.push("joinedAt = :ja"); vals[":ja"] = args.input.joinedAt ?? null; }
+  if (args.input.rowCount !== undefined) { sets.push("rowCount = :rc"); vals[":rc"] = args.input.rowCount ?? 1; }
 
   let updated: Member = target;
   if (sets.length > 0) {
@@ -683,7 +692,7 @@ export async function removeMember(args: {
   if (!target) notFound("Member 없음");
   if (target.workspaceRole === "developer") forbidden("Developer 는 제거 불가");
   if (target.workspaceRole === "owner" && args.caller.workspaceRole !== "developer") {
-    forbidden("Owner 는 Developer 만 제거 가능");
+    forbidden("Owner 는 제거 불가");
   }
   if (target.status !== "active") badRequest("이미 제거된 멤버");
 
@@ -837,4 +846,3 @@ export async function restoreMember(args: {
 
   return { ...target, status: "active", removedAt: undefined };
 }
-

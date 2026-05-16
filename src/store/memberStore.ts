@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export type MemberRole = "developer" | "owner" | "leader" | "manager" | "member";
 export type MemberStatus = "active" | "removed";
@@ -31,6 +32,8 @@ export type Member = {
   jobDetail?: string;
   /** 입사일 (YYYY-MM-DD) */
   joinedAt?: string;
+  /** 구성원별 타임라인 행 개수 */
+  rowCount?: number;
 };
 
 export type MemberMini = {
@@ -42,13 +45,14 @@ export type MemberMini = {
 type MemberStoreState = {
   me: Member | null;
   members: Member[];
+  cacheWorkspaceId: string | null;
   mentionCandidates: MemberMini[];
   mentionQuery: string;
 };
 
 type MemberStoreActions = {
   setMe: (member: Member | null) => void;
-  setMembers: (members: Member[]) => void;
+  setMembers: (members: Member[], workspaceId?: string | null) => void;
   upsertMember: (member: Member) => void;
   removeMemberFromCache: (memberId: string) => void;
   setMentionCandidates: (query: string, candidates: MemberMini[]) => void;
@@ -58,53 +62,70 @@ type MemberStoreActions = {
 
 export type MemberStore = MemberStoreState & MemberStoreActions;
 
-export const useMemberStore = create<MemberStore>()((set) => ({
-  me: null,
-  members: [],
-  mentionCandidates: [],
-  mentionQuery: "",
-
-  setMe: (member) => set({ me: member }),
-  setMembers: (members) => set({ members }),
-
-  upsertMember: (member) =>
-    set((state) => {
-      const exists = state.members.some((m) => m.memberId === member.memberId);
-      return {
-        members: exists
-          ? state.members.map((m) => (m.memberId === member.memberId ? member : m))
-          : [...state.members, member],
-        me:
-          state.me?.memberId === member.memberId
-            ? member
-            : state.me,
-      };
-    }),
-
-  removeMemberFromCache: (memberId) =>
-    set((state) => ({
-      members: state.members.filter((m) => m.memberId !== memberId),
-      me: state.me?.memberId === memberId ? null : state.me,
-      mentionCandidates: state.mentionCandidates.filter((m) => m.memberId !== memberId),
-    })),
-
-  setMentionCandidates: (query, candidates) =>
-    set({
-      mentionQuery: query,
-      mentionCandidates: candidates,
-    }),
-
-  clearMentions: () =>
-    set({
-      mentionQuery: "",
-      mentionCandidates: [],
-    }),
-
-  clear: () =>
-    set({
+export const useMemberStore = create<MemberStore>()(
+  persist(
+    (set) => ({
       me: null,
       members: [],
+      cacheWorkspaceId: null,
       mentionCandidates: [],
       mentionQuery: "",
+
+      setMe: (member) => set({ me: member }),
+      setMembers: (members, workspaceId) => set((state) => ({
+        members,
+        cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
+      })),
+
+      upsertMember: (member) =>
+        set((state) => {
+          const exists = state.members.some((m) => m.memberId === member.memberId);
+          return {
+            members: exists
+              ? state.members.map((m) => (m.memberId === member.memberId ? member : m))
+              : [...state.members, member],
+            me:
+              state.me?.memberId === member.memberId
+                ? member
+                : state.me,
+          };
+        }),
+
+      removeMemberFromCache: (memberId) =>
+        set((state) => ({
+          members: state.members.filter((m) => m.memberId !== memberId),
+          me: state.me?.memberId === memberId ? null : state.me,
+          mentionCandidates: state.mentionCandidates.filter((m) => m.memberId !== memberId),
+        })),
+
+      setMentionCandidates: (query, candidates) =>
+        set({
+          mentionQuery: query,
+          mentionCandidates: candidates,
+        }),
+
+      clearMentions: () =>
+        set({
+          mentionQuery: "",
+          mentionCandidates: [],
+        }),
+
+      clear: () =>
+        set({
+          me: null,
+          members: [],
+          cacheWorkspaceId: null,
+          mentionCandidates: [],
+          mentionQuery: "",
+        }),
     }),
-}));
+    {
+      name: "quicknote.members.cache.v1",
+      partialize: (state) => ({
+        me: state.me,
+        members: state.members,
+        cacheWorkspaceId: state.cacheWorkspaceId,
+      }),
+    },
+  ),
+);

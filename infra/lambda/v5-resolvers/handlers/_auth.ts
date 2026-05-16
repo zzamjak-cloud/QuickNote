@@ -16,6 +16,7 @@ export type Member = {
   clientPrefs?: string | null;
   createdAt: string;
   removedAt?: string | null;
+  rowCount?: number | null;
 };
 
 const ROLE_RANK: Record<WorkspaceRole, number> = { developer: 5, owner: 4, leader: 3, manager: 2, member: 1 };
@@ -78,6 +79,7 @@ type SubjectType = "member" | "team" | "everyone";
 type AccessEntry = { subjectType: SubjectType; subjectId: string | null; level: AccessLevel };
 
 const LEVEL_RANK: Record<AccessLevel, number> = { edit: 2, view: 1 };
+const LC_SCHEDULER_WORKSPACE_ID = "lc-scheduler-global";
 
 async function getMemberTeamIds(
   doc: DynamoDBDocumentClient,
@@ -141,6 +143,8 @@ export async function requireWorkspaceAccess(args: {
   workspaceId: string;
   required: AccessLevel;
 }): Promise<AccessLevel> {
+  if (args.workspaceId === LC_SCHEDULER_WORKSPACE_ID) return "edit";
+
   // owner는 WorkspaceAccess 테이블 엔트리 없이도 암묵적으로 edit 권한을 가짐.
   // 개인 워크스페이스처럼 access 엔트리가 생성되지 않은 경우도 정상 동작.
   if (args.caller.workspaceRole === "developer" || args.caller.workspaceRole === "owner" || args.caller.workspaceRole === "leader") return "edit";

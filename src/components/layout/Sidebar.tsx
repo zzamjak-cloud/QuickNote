@@ -373,14 +373,14 @@ export function Sidebar() {
       <button
         type="button"
         onClick={() => setDbManagerOpen(true)}
-        className="mt-2 w-full rounded-md border border-zinc-200 px-2 py-1 text-left text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        className="mt-2 w-full rounded-md border border-zinc-200 px-2 py-1 text-left text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >
         데이터베이스 관리
       </button>
       <button
         type="button"
         onClick={() => setTrashOpen(true)}
-        className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1 text-left text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        className="mt-1 w-full rounded-md border border-zinc-200 px-2 py-1 text-left text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >
         휴지통
       </button>

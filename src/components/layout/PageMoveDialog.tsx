@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowUpToLine, Search } from "lucide-react";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 import {
   usePageStore,
   selectPageTree,
@@ -93,23 +94,23 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-96 rounded-lg bg-white p-3 shadow-xl dark:bg-zinc-900"
+        className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl dark:bg-zinc-900"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-2 px-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        <h3 className="mb-3 px-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
           "{target.title}" 이동
         </h3>
-        <div className="mb-2 flex items-center gap-1.5 rounded-md bg-white px-2 py-1 ring-1 ring-zinc-200 focus-within:ring-zinc-400 dark:bg-zinc-950 dark:ring-zinc-800">
-          <Search size={13} className="text-zinc-400" />
+        <div className="mb-3 flex items-center gap-1.5 rounded-md bg-white px-2 py-1.5 ring-1 ring-zinc-200 focus-within:ring-zinc-400 dark:bg-zinc-950 dark:ring-zinc-800">
+          <Search size={15} className="text-zinc-400" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="페이지/DB 검색"
             autoFocus
-            className="flex-1 bg-transparent text-xs outline-none placeholder:text-zinc-400"
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
           />
         </div>
-        <div className="max-h-72 overflow-y-auto">
+        <div className="max-h-[60vh] overflow-y-auto">
           <button
             type="button"
             onClick={() => {
@@ -124,7 +125,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
           </button>
           <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
           {flatList.length === 0 ? (
-            <p className="px-2 py-2 text-xs text-zinc-400">
+            <p className="px-2 py-2 text-sm text-zinc-400">
               일치하는 페이지가 없습니다.
             </p>
           ) : (
@@ -151,7 +152,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
                     : "여기 자식으로 이동"
                 }
               >
-                <span className="w-5 text-center">{node.icon ?? "📄"}</span>
+                <PageIconDisplay icon={node.icon ?? null} size="sm" />
                 <span className="truncate">{node.title || "제목 없음"}</span>
               </button>
             ))
@@ -159,12 +160,12 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
           {rowTargetGroups.length > 0 && (
             <>
               <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
-              <div className="px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+              <div className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">
                 데이터베이스 항목의 하위 페이지로 이동
               </div>
               {rowTargetGroups.map(({ db, rows }) => (
                 <div key={db.id}>
-                  <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-zinc-400">
+                  <div className="px-2 py-1 text-xs uppercase tracking-wide text-zinc-400">
                     {db.meta.title || "제목 없음"}
                   </div>
                   {rows.map((r) => (
@@ -181,7 +182,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
                       style={{ paddingLeft: 22 }}
                       title="이 항목 페이지의 자식으로 이동"
                     >
-                      <span className="w-5 text-center">{r.icon ?? "📄"}</span>
+                      <PageIconDisplay icon={r.icon ?? null} size="sm" />
                       <span className="truncate">{r.title || "제목 없음"}</span>
                     </button>
                   ))}
@@ -190,11 +191,11 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
             </>
           )}
           <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
-          <div className="px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+          <div className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">
             데이터베이스 항목으로 이동
           </div>
           {selectableDbList.length === 0 ? (
-            <p className="px-2 py-2 text-xs text-zinc-400">
+            <p className="px-2 py-2 text-sm text-zinc-400">
               일치하는 데이터베이스가 없습니다.
             </p>
           ) : (
@@ -219,7 +220,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
           >
             취소
           </button>

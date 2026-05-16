@@ -6,7 +6,8 @@ export type ViewKind =
   | "table"
   | "kanban"
   | "timeline"
-  | "gallery";
+  | "gallery"
+  | "list";
 
 export type DatabaseLayout = "inline" | "fullPage";
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { RefreshCcw, Search } from "lucide-react";
+import { Database, RefreshCcw, Search, X } from "lucide-react";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { usePageStore } from "../../store/pageStore";
@@ -94,24 +94,25 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2
             id="qn-db-manager-title"
-            className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+            className="flex items-center gap-2 text-xl font-bold text-zinc-900 dark:text-zinc-100"
           >
+            <Database size={20} />
             데이터베이스 관리
           </h2>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowDeleted(true)}
-              className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="rounded px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               🗑 삭제된 DB 보기
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
             >
-              닫기
+              <X size={16} />
             </button>
           </div>
         </div>
@@ -121,40 +122,35 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="DB 검색"
-            className="flex-1 bg-transparent text-xs outline-none placeholder:text-zinc-400"
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
           />
         </div>
 
-        <section className="rounded-md border border-zinc-200 dark:border-zinc-700">
-          <div className="border-b border-zinc-100 px-3 py-2 text-xs font-medium text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
-            데이터베이스
-          </div>
-          <div className="max-h-72 overflow-y-auto">
-            {visibleActive.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-zinc-500">
-                표시할 데이터베이스가 없습니다.
-              </div>
-            ) : (
-              visibleActive.map((d) => (
-                <div
-                  key={d.id}
-                  className="flex items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-xs last:border-b-0 dark:border-zinc-800"
+        <div className="max-h-72 overflow-y-auto">
+          {visibleActive.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-zinc-500">
+              표시할 데이터베이스가 없습니다.
+            </div>
+          ) : (
+            visibleActive.map((d) => (
+              <div
+                key={d.id}
+                className="flex items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800"
+              >
+                <span className="truncate text-sm text-zinc-700 dark:text-zinc-200">
+                  {d.meta.title}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openDatabase(d.id, d.meta.title)}
+                  className="shrink-0 rounded bg-blue-600 px-2 py-1 text-sm text-white hover:bg-blue-700"
                 >
-                  <span className="truncate text-zinc-700 dark:text-zinc-200">
-                    {d.meta.title}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => openDatabase(d.id, d.meta.title)}
-                    className="shrink-0 rounded border border-zinc-200 px-2 py-1 text-[11px] hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                  >
-                    열기
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
+                  열기
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {/* 삭제된 DB 별도 중첩 모달 */}

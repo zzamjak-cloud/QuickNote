@@ -33,6 +33,7 @@ node_modules/.vitest/
 
 # Claude Code 로컬 설정 (개인 권한 등)
 .claude/settings.local.json
+.codex/
 Plan
 .playwright-mcp
 .full-review

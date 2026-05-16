@@ -12,7 +12,7 @@ export function DatabaseViewKindToggle({
   onViewChange,
   hiddenViewKinds = [],
 }: Props) {
-  const hidden = new Set<ViewKind>(hiddenViewKinds.filter((kind) => kind !== "table"));
+  const hidden = new Set<ViewKind>(hiddenViewKinds.filter((kind) => kind !== "table" && kind !== "list"));
   return (
     <>
       {(Object.keys(VIEW_ICONS) as ViewKind[]).map((vk) => {

@@ -67,7 +67,6 @@ export async function listOrganizations(args: {
   tables: Tables;
   caller: Member;
 }): Promise<Organization[]> {
-  requireRoleAtLeast(args.caller, "manager");
   const r = await args.doc.send(new ScanCommand({ TableName: args.tables.Organizations! }));
   const base = (r.Items ?? []) as Array<{ organizationId: string; name: string; createdAt: string }>;
   return Promise.all(

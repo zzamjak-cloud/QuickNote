@@ -48,6 +48,8 @@ type Member {
   jobDetail: String
   """입사일 (YYYY-MM-DD)"""
   joinedAt: String
+  """구성원별 타임라인 행 개수"""
+  rowCount: Int
 }
 
 type MemberMini {
@@ -252,6 +254,7 @@ input UpdateMemberInput {
   jobCategory: String
   jobDetail: String
   joinedAt: String
+  rowCount: Int
 }
 
 input WorkspaceAccessInput {
@@ -309,6 +312,10 @@ type Query {
 
   getImageDownloadUrl(imageId: ID!): String!
   listMyNotifications: [Notification!]!
+
+  listSchedules(workspaceId: ID!, from: AWSDateTime!, to: AWSDateTime!): [Schedule!]!
+  listProjects(workspaceId: ID!): [Project!]!
+  listHolidays(workspaceId: ID!): [Holiday!]!
 }
 
 # ========== Mutation ==========
@@ -362,6 +369,18 @@ type Mutation {
 
   markNotificationRead(notificationId: ID!): Notification!
   deleteMyNotification(notificationId: ID!): Boolean!
+
+  createSchedule(input: CreateScheduleInput!): Schedule!
+  updateSchedule(input: UpdateScheduleInput!): Schedule!
+  deleteSchedule(id: ID!, workspaceId: ID!): Boolean!
+
+  createProject(input: CreateProjectInput!): Project!
+  updateProject(input: UpdateProjectInput!): Project!
+  deleteProject(id: ID!, workspaceId: ID!): Boolean!
+
+  createHoliday(input: CreateHolidayInput!): Holiday!
+  updateHoliday(input: UpdateHolidayInput!): Holiday!
+  deleteHoliday(id: ID!, workspaceId: ID!): Boolean!
 }
 
 # ========== Subscription ==========
@@ -372,4 +391,126 @@ type Subscription {
     @aws_subscribe(mutations: ["upsertPage", "softDeletePage", "restorePage"])
   onDatabaseChanged(workspaceId: ID!): Database
     @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase"])
+  onScheduleChanged(workspaceId: ID!): Schedule
+    @aws_subscribe(mutations: ["createSchedule", "updateSchedule"])
+  onProjectChanged(workspaceId: ID!): Project
+    @aws_subscribe(mutations: ["createProject", "updateProject"])
+  onHolidayChanged(workspaceId: ID!): Holiday
+    @aws_subscribe(mutations: ["createHoliday", "updateHoliday"])
+}
+
+# ========== Schedule ==========
+type Schedule {
+  id: ID!
+  workspaceId: ID!
+  title: String!
+  """일정 코멘트(툴팁/편집팝업)"""
+  comment: String
+  """관련 링크 URL"""
+  link: String
+  """소속 프로젝트/조직 ID"""
+  projectId: ID
+  startAt: AWSDateTime!
+  endAt: AWSDateTime!
+  assigneeId: ID
+  color: String
+  """카드 텍스트 색상(hex)"""
+  textColor: String
+  """같은 멤버 내 행 인덱스(다중 일정 겹침 방지)"""
+  rowIndex: Int
+  createdByMemberId: ID!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+input CreateScheduleInput {
+  workspaceId: ID!
+  title: String!
+  comment: String
+  link: String
+  projectId: ID
+  startAt: AWSDateTime!
+  endAt: AWSDateTime!
+  assigneeId: ID
+  color: String
+  textColor: String
+  rowIndex: Int
+}
+
+input UpdateScheduleInput {
+  id: ID!
+  workspaceId: ID!
+  title: String
+  comment: String
+  link: String
+  projectId: ID
+  startAt: AWSDateTime
+  endAt: AWSDateTime
+  assigneeId: ID
+  color: String
+  textColor: String
+  rowIndex: Int
+}
+
+# ========== Project ==========
+type Project {
+  id: ID!
+  workspaceId: ID!
+  name: String!
+  color: String!
+  description: String
+  memberIds: [ID!]!
+  isHidden: Boolean!
+  createdByMemberId: ID!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+input CreateProjectInput {
+  workspaceId: ID!
+  name: String!
+  color: String!
+  description: String
+  memberIds: [ID!]!
+  isHidden: Boolean
+}
+
+input UpdateProjectInput {
+  id: ID!
+  workspaceId: ID!
+  name: String
+  color: String
+  description: String
+  memberIds: [ID!]
+  isHidden: Boolean
+}
+
+# ========== Holiday ==========
+type Holiday {
+  id: ID!
+  workspaceId: ID!
+  title: String!
+  date: String!
+  type: String!
+  color: String!
+  createdByMemberId: ID!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+input CreateHolidayInput {
+  workspaceId: ID!
+  title: String!
+  date: String!
+  type: String!
+  color: String!
+}
+
+input UpdateHolidayInput {
+  id: ID!
+  workspaceId: ID!
+  title: String
+  date: String
+  type: String
+  color: String
 }

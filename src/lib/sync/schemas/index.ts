@@ -51,6 +51,7 @@ export const GqlMemberSchema = z
     jobCategory: z.string().nullish(),
     jobDetail: z.string().nullish(),
     joinedAt: z.string().nullish(),
+    rowCount: z.number().int().nullish(),
   })
   .passthrough();
 

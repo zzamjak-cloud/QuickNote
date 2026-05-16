@@ -58,5 +58,6 @@ export function normalizeMemberFields(member: GqlMember | Member): Member {
     jobCategory: (member as Record<string, unknown>).jobCategory as string | undefined,
     jobDetail: (member as Record<string, unknown>).jobDetail as string | undefined,
     joinedAt: (member as Record<string, unknown>).joinedAt as string | undefined,
+    rowCount: (member as Record<string, unknown>).rowCount as number | undefined,
   };
 }

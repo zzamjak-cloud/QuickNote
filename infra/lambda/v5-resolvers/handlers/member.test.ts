@@ -80,9 +80,10 @@ describe("createMember", () => {
 });
 
 describe("listMembers", () => {
-  it("Member 권한 거부", async () => {
-    const doc = mockDoc();
-    await expect(listMembers({ doc, tables, caller: memberCaller })).rejects.toThrow(/권한 부족/);
+  it("Member caller도 조회 가능", async () => {
+    const doc = mockDoc({ Items: [{ ...memberCaller, memberId: "m1" }] });
+    const result = await listMembers({ doc, tables, caller: memberCaller });
+    expect(result.map((m) => m.memberId)).toEqual(["m1"]);
   });
   it("필터 없음 — Scan 결과 모두 반환", async () => {
     const doc = mockDoc({ Items: [

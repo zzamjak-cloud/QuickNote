@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Search } from "lucide-react";
+import { Database, Search } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore, listDatabases } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { koreanIncludes } from "../../lib/koreanSearch";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 
 type Props = {
   anchorEl: HTMLElement | null;
@@ -115,7 +116,7 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
                 onClick={() => handlePageClick(page.id)}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
-                <span className="shrink-0">{page.icon ?? "📄"}</span>
+                <PageIconDisplay icon={page.icon ?? null} size="sm" />
                 <span className="truncate">{page.title || "제목 없음"}</span>
               </button>
             ))}
@@ -134,7 +135,7 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
                 onClick={() => handlePageClick(db.id)}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
-                <span className="shrink-0">🗃️</span>
+                <Database size={15} className="shrink-0 text-zinc-400" />
                 <span className="truncate">{db.meta.title || "제목 없음"}</span>
               </button>
             ))}

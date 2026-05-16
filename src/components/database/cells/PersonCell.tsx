@@ -173,7 +173,7 @@ export function PersonCell({
               }, 50);
             }}
             className={[
-              "group/chip relative inline-flex cursor-default items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium text-white outline-none",
+              "group/chip relative inline-flex cursor-default items-center gap-0.5 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium text-white outline-none",
               chipFocusIdx === idx ? "ring-2 ring-white ring-offset-1" : "",
             ].join(" ")}
             style={{ backgroundColor: personChipColor(name) }}

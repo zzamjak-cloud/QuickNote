@@ -201,8 +201,6 @@ export function MemberModal(props: Props) {
   const jobTitles = useWorkspaceOptionsStore((s) => s.jobTitles);
   const jobCategories = useWorkspaceOptionsStore((s) => s.jobCategories);
   const jobDetails = useWorkspaceOptionsStore((s) => s.jobDetails);
-  const addJobFunction = useWorkspaceOptionsStore((s) => s.addJobFunction);
-  const removeJobFunction = useWorkspaceOptionsStore((s) => s.removeJobFunction);
   const addJobTitle = useWorkspaceOptionsStore((s) => s.addJobTitle);
   const removeJobTitle = useWorkspaceOptionsStore((s) => s.removeJobTitle);
   const addJobCategory = useWorkspaceOptionsStore((s) => s.addJobCategory);
@@ -509,9 +507,17 @@ export function MemberModal(props: Props) {
               <div className="mb-0.5 text-[9px] font-medium text-zinc-500">재직 상태</div>
               <select
                 value={employmentStatus}
-                onChange={(e) => setEmploymentStatus(e.target.value as EmploymentStatus)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (!EMPLOYMENT_STATUS_OPTIONS.includes(value as EmploymentStatus)) {
+                    setJobRole(value);
+                    return;
+                  }
+                  setEmploymentStatus(value as EmploymentStatus);
+                }}
                 className="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-950"
               >
+                <option value="PM" className="hidden">PM</option>
                 {EMPLOYMENT_STATUS_OPTIONS.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
@@ -539,6 +545,20 @@ export function MemberModal(props: Props) {
           {/* 직무 정보 섹션 */}
           <div className="mb-3 mt-4 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">직무 정보</div>
           <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <div className="mb-0.5 text-[9px] font-medium text-zinc-500">직무</div>
+              <select
+                aria-label="직무"
+                value={jobRole}
+                onChange={(e) => setJobRole(e.target.value)}
+                className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"
+              >
+                <option value="">선택</option>
+                {[...new Set([...jobFunctions, "PM"])].map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </div>
             <DropdownWithAdd
               label="직책"
               value={jobTitle}
@@ -557,28 +577,6 @@ export function MemberModal(props: Props) {
                 if (currentWorkspaceId) {
                   await updateWorkspaceOptionsApi(currentWorkspaceId, {
                     jobTitles: useWorkspaceOptionsStore.getState().jobTitles,
-                  });
-                }
-              }}
-            />
-            <DropdownWithAdd
-              label="직무"
-              value={jobRole}
-              options={jobFunctions}
-              onChange={setJobRole}
-              onAdd={async (v) => {
-                addJobFunction(v);
-                if (currentWorkspaceId) {
-                  await updateWorkspaceOptionsApi(currentWorkspaceId, {
-                    jobFunctions: useWorkspaceOptionsStore.getState().jobFunctions,
-                  });
-                }
-              }}
-              onRemove={async (v) => {
-                removeJobFunction(v);
-                if (currentWorkspaceId) {
-                  await updateWorkspaceOptionsApi(currentWorkspaceId, {
-                    jobFunctions: useWorkspaceOptionsStore.getState().jobFunctions,
                   });
                 }
               }}
@@ -635,7 +633,7 @@ export function MemberModal(props: Props) {
                 type="button"
                 onClick={() => void handleRestore()}
                 disabled={submitting}
-                className="rounded bg-blue-50 px-3 py-1 text-xs text-blue-600 hover:bg-blue-100 dark:bg-blue-950/30 dark:text-blue-400 disabled:opacity-60"
+                className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 구성원으로 이동
               </button>
@@ -645,7 +643,7 @@ export function MemberModal(props: Props) {
                   type="button"
                   onClick={() => void handleRemove()}
                   disabled={submitting}
-                  className="rounded bg-red-50 px-3 py-1 text-xs text-red-600 hover:bg-red-100 dark:bg-red-950/30 dark:text-red-400 disabled:opacity-60"
+                  className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700 disabled:opacity-60"
                 >
                   보관함으로 이동
                 </button>
@@ -655,14 +653,14 @@ export function MemberModal(props: Props) {
             )}
             {!isArchived && (
               <div className="flex gap-2">
-                <button type="button" onClick={props.onClose} className="rounded border px-3 py-1 text-xs">
+                <button type="button" onClick={props.onClose} className="rounded border px-3 py-1 text-sm">
                   취소
                 </button>
                 <button
                   type="button"
                   onClick={() => void handleSubmit()}
                   disabled={submitting || (props.mode === "edit" && !dirty)}
-                  className="rounded bg-zinc-900 px-3 py-1 text-xs text-white disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900"
+                  className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-40"
                 >
                   {submitting ? "처리 중..." : props.mode === "create" ? "추가" : "갱신"}
                 </button>

@@ -55,7 +55,7 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
 
   // 매 렌더마다 anchorEl 위치를 직접 계산 (useLayoutEffect 한 번만 실행하면 스크롤/리사이즈 후 좌표가 틀림)
   const rect = anchorEl?.getBoundingClientRect();
-  const width = 224;
+  const width = 260;
   const coords = rect
     ? { top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) }
     : null;
@@ -80,8 +80,8 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
   return createPortal(
     <div
       ref={ref}
-      style={{ position: "fixed", top: coords.top, left: coords.left, width: 224 }}
-      className="z-[490] rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      style={{ position: "fixed", top: coords.top, left: coords.left, width: 260 }}
+      className="z-[490] rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     >
       {/* 속성 이름 편집 — title 컬럼 포함 항상 표시 */}
       <div className="border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
@@ -96,13 +96,13 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
             if (e.key === "Escape") { setNameDraft(column.name); onClose(); }
           }}
           placeholder="속성 이름"
-          className="w-full rounded border border-zinc-200 bg-white px-2 py-1 text-xs outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900"
+          className="w-full rounded border border-zinc-200 bg-white px-2 py-1 text-sm outline-none focus:border-blue-400 dark:border-zinc-600 dark:bg-zinc-900"
         />
       </div>
 
       {!isTitle && (
         <div className="px-2 py-1">
-          <div className="flex items-center gap-1 text-[10px] text-zinc-500">
+          <div className="flex items-center gap-1 text-xs text-zinc-500">
             <Type size={11} /> 타입
           </div>
           <select

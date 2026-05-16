@@ -40,6 +40,7 @@ import { migrateLegacyBlockCommentsToPagesOnce } from "./lib/comments/migrateLeg
 import { useBlockCommentStore } from "./store/blockCommentStore";
 import { migratePageBlockCommentsToServerOnce } from "./lib/comments/migratePageBlockCommentsToServer";
 import { useNotificationStore } from "./store/notificationStore";
+import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -122,30 +123,23 @@ function useSyncBootstrap(): boolean {
         // memberId 확정 직후 즐겨찾기를 서버로 올리고 flush(워크스페이스 부트와 무관)
         await flushClientPrefsToServerNow();
 
-        // 알림 초기 로드 (실패해도 부트스트랩 계속)
-        try {
-          const { fetchMyNotificationsApi } = await import("./lib/sync/notificationApi");
-          const notifications = await fetchMyNotificationsApi();
-          useNotificationStore.getState().setNotifications(notifications);
-        } catch { /* 알림 로드 실패는 무시 */ }
-
-        const isAdmin = me.workspaceRole === "developer" || me.workspaceRole === "owner" || me.workspaceRole === "leader" || me.workspaceRole === "manager";
-        if (!isAdmin) {
-          setMembers([]);
-          setTeams([]);
-          setOrganizations([]);
-          return;
-        }
-
         const [members, teams, organizations] = await Promise.all([
           listMembersApi(),
           listTeamsApi(),
           listOrganizationsApi(),
         ]);
         if (cancelled) return;
-        setMembers(members);
-        setTeams(teams);
-        setOrganizations(organizations);
+        setMembers(members, LC_SCHEDULER_WORKSPACE_ID);
+        setTeams(teams, LC_SCHEDULER_WORKSPACE_ID);
+        setOrganizations(organizations, LC_SCHEDULER_WORKSPACE_ID);
+
+        // 알림 초기 로드는 스케줄러 첫 화면과 무관하므로 뒤에서 갱신한다.
+        void import("./lib/sync/notificationApi")
+          .then(({ fetchMyNotificationsApi }) => fetchMyNotificationsApi())
+          .then((notifications) => {
+            if (!cancelled) useNotificationStore.getState().setNotifications(notifications);
+          })
+          .catch(() => { /* 알림 로드 실패는 무시 */ });
       } catch (err) {
         console.error("[sync] auth bootstrap failed", err);
       }

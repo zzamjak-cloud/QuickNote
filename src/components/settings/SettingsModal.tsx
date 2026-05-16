@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { Building, Building2, User, Users, UsersRound, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import pkg from "../../../package.json";
 import { useAuthStore } from "../../store/authStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -17,6 +18,8 @@ type Props = {
 
 type TabId = "profile" | "members" | "teams" | "organizations" | "workspaces";
 
+type TabDef = { id: TabId; label: string; title: string; icon: LucideIcon };
+
 export function SettingsModal({ open, onClose }: Props) {
   const signOut = useAuthStore((s) => s.signOut);
   const role = useMemberStore((s) => s.me?.workspaceRole ?? "member");
@@ -26,13 +29,15 @@ export function SettingsModal({ open, onClose }: Props) {
   const [tab, setTab] = useState<TabId>("profile");
 
   const tabs = useMemo(() => {
-    const base: Array<{ id: TabId; label: string }> = [{ id: "profile", label: "내 프로필" }];
+    const base: TabDef[] = [
+      { id: "profile", label: "내 프로필", title: "내 프로필", icon: User },
+    ];
     if (isAdmin) {
       base.push(
-        { id: "members", label: "구성원" },
-        { id: "teams", label: "팀" },
-        { id: "organizations", label: "조직" },
-        { id: "workspaces", label: "워크스페이스" },
+        { id: "members", label: "구성원", title: "구성원 관리", icon: Users },
+        { id: "teams", label: "팀", title: "팀 관리", icon: UsersRound },
+        { id: "organizations", label: "조직", title: "조직 관리", icon: Building2 },
+        { id: "workspaces", label: "워크스페이스", title: "워크스페이스 관리", icon: Building },
       );
     }
     return base;
@@ -68,21 +73,25 @@ export function SettingsModal({ open, onClose }: Props) {
             </button>
           </div>
           <nav className="space-y-1">
-            {tabs.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id)}
-                className={[
-                  "w-full rounded px-2 py-1.5 text-left text-xs",
-                  tab === t.id
-                    ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
-                    : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
-                ].join(" ")}
-              >
-                {t.label}
-              </button>
-            ))}
+            {tabs.map((t) => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  className={[
+                    "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm",
+                    tab === t.id
+                      ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
+                      : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                  ].join(" ")}
+                >
+                  <Icon size={15} className="shrink-0" />
+                  {t.label}
+                </button>
+              );
+            })}
           </nav>
           <div className="mt-auto space-y-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
             <button
@@ -116,13 +125,25 @@ export function SettingsModal({ open, onClose }: Props) {
           </div>
         </aside>
 
-        <section className="flex-1 overflow-y-auto p-6">
-          {tab === "profile" && <MyProfileSection />}
-          {tab === "members" && isAdmin && <AdminMembersTab />}
-          {tab === "teams" && isAdmin && <AdminTeamsTab />}
-          {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
-          {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
-
+        <section className="flex flex-1 flex-col overflow-hidden">
+          {(() => {
+            const cur = tabs.find((t) => t.id === tab);
+            if (!cur) return null;
+            const Icon = cur.icon;
+            return (
+              <div className="flex h-14 shrink-0 items-center gap-3 border-b border-zinc-100 px-6 dark:border-zinc-800">
+                <Icon size={22} className="shrink-0 text-zinc-500 dark:text-zinc-400" />
+                <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">{cur.title}</h2>
+              </div>
+            );
+          })()}
+          <div className="flex-1 overflow-y-auto p-6">
+            {tab === "profile" && <MyProfileSection />}
+            {tab === "members" && isAdmin && <AdminMembersTab />}
+            {tab === "teams" && isAdmin && <AdminTeamsTab />}
+            {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
+            {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
+          </div>
         </section>
 
         <p

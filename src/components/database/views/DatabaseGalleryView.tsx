@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { JSONContent } from "@tiptap/react";
-import { ArrowUpRight, PanelRight, X } from "lucide-react";
+import { Image } from "lucide-react";
 import type {
   DatabasePanelState,
   DatabaseRowView,
@@ -14,9 +15,7 @@ import { getVisibleOrderedColumns } from "../../../types/database";
 import { getDatabaseFile } from "../../../lib/databaseFileStorage";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
-import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
-import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 
 type Props = {
   databaseId: string;
@@ -25,6 +24,25 @@ type Props = {
   /** 표시할 최대 행 수. 미지정 시 전체 표시. */
   visibleRowLimit?: number;
 };
+
+/** 페이지 doc(JSONContent)에서 모든 이미지 src를 깊이우선으로 수집. */
+function findAllImageSrcs(doc: JSONContent | undefined): string[] {
+  if (!doc) return [];
+  const results: string[] = [];
+  const visit = (node: JSONContent | undefined): void => {
+    if (!node) return;
+    if (node.type === "image" || node.type === "imageBlock") {
+      const src = (node.attrs?.src ?? "") as string;
+      if (typeof src === "string" && src) results.push(src);
+    }
+    const children = node.content;
+    if (Array.isArray(children)) {
+      for (const c of children) visit(c);
+    }
+  };
+  visit(doc);
+  return results;
+}
 
 /** 페이지 doc(JSONContent)에서 첫 이미지 src를 깊이우선으로 탐색. */
 function findFirstImageSrc(doc: JSONContent | undefined): string | null {
@@ -50,16 +68,16 @@ function findFirstImageSrc(doc: JSONContent | undefined): string | null {
 export function DatabaseGalleryView({
   databaseId,
   panelState,
-  setPanelState,
+  setPanelState: _setPanelState,
   visibleRowLimit,
 }: Props) {
   const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
   const addRow = useDatabaseStore((s) => s.addRow);
-  const deleteRow = useDatabaseStore((s) => s.deleteRow);
 
-  const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
+  // 행별 커버 이미지 오버라이드 (세션 한정)
+  const [coverOverrides, setCoverOverrides] = useState<Map<string, string>>(new Map());
 
   const coverCandidates = columns.filter(
     (c) => c.type === "file" || c.type === "url",
@@ -70,26 +88,7 @@ export function DatabaseGalleryView({
   if (!bundle) return null;
 
   return (
-    <div>
-      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-zinc-600 dark:text-zinc-400">커버</span>
-        <select
-          value={coverColId ?? ""}
-          onChange={(e) =>
-            setPanelState({
-              galleryCoverColumnId: e.target.value || null,
-            })
-          }
-          className="rounded border border-zinc-300 bg-white px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900"
-        >
-          <option value="">페이지 본문 첫 이미지</option>
-          {coverCandidates.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
+    <div className="pt-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
         {rows.map((row) => (
           <GalleryCard
@@ -98,12 +97,20 @@ export function DatabaseGalleryView({
             row={row}
             columns={columns}
             coverColumn={columns.find((c) => c.id === coverColId)}
+            coverSrcOverride={coverOverrides.get(row.pageId)}
             visibleColumns={getVisibleOrderedColumns(
               columns,
               "gallery",
               panelState.viewConfigs,
             )}
-            onRequestDelete={() => setRowDeletePageId(row.pageId)}
+            onSetCoverSrc={(src) => {
+              setCoverOverrides((prev) => {
+                const next = new Map(prev);
+                if (src) next.set(row.pageId, src);
+                else next.delete(row.pageId);
+                return next;
+              });
+            }}
           />
         ))}
       </div>
@@ -114,18 +121,6 @@ export function DatabaseGalleryView({
       >
         + 새 항목
       </button>
-      <SimpleConfirmDialog
-        open={rowDeletePageId !== null}
-        title="행 삭제"
-        message="이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)"
-        confirmLabel="삭제"
-        danger
-        onCancel={() => setRowDeletePageId(null)}
-        onConfirm={() => {
-          if (rowDeletePageId) deleteRow(databaseId, rowDeletePageId);
-          setRowDeletePageId(null);
-        }}
-      />
     </div>
   );
 }
@@ -135,87 +130,82 @@ function GalleryCard({
   row,
   columns,
   coverColumn,
+  coverSrcOverride,
   visibleColumns,
-  onRequestDelete,
+  onSetCoverSrc,
 }: {
   databaseId: string;
   row: DatabaseRowView;
   columns: ColumnDef[];
   coverColumn?: ColumnDef;
+  coverSrcOverride?: string;
   visibleColumns: ColumnDef[];
-  onRequestDelete: () => void;
+  onSetCoverSrc?: (src: string | null) => void;
 }) {
   const titleCol = columns.find((c) => c.type === "title");
-  // viewConfigs.gallery.visibleColumnIds가 명시돼 있으면 그 순서대로 모두 표시,
-  // 미지정이면 title·cover 제외 첫 2개만 (기본값).
   const cardCols = (() => {
     const explicit = visibleColumns.filter(
       (c) => c.id !== titleCol?.id && c.id !== coverColumn?.id,
     );
-    // viewConfigs가 지정되었으면 visibleColumns가 columns와 다를 가능성 있음 → 그대로 사용.
-    // 미지정 시(=visibleColumns가 columns와 동일) 처음 2개로 제한.
     const allEqual =
       visibleColumns.length === columns.length &&
       visibleColumns.every((c, i) => c.id === columns[i]?.id);
-    return allEqual ? explicit.slice(0, 2) : explicit;
+    return allEqual ? [] : explicit;
   })();
   const pages = usePageStore((s) => s.pages);
   const setIcon = usePageStore((s) => s.setIcon);
-  const setActivePage = usePageStore((s) => s.setActivePage);
-  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openPeek = useUiStore((s) => s.openPeek);
-  // 행 페이지 doc에서 첫 이미지를 fallback 커버로 사용
   const pageDoc = usePageStore((s) => s.pages[row.pageId]?.doc);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerBtnRef = useRef<HTMLButtonElement>(null);
 
-  const openFull = () => {
-    setActivePage(row.pageId);
-    setCurrentTabPage(row.pageId);
-  };
+  const imageSrcs = findAllImageSrcs(pageDoc);
 
   return (
-    <div className="group overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-      <CoverImage
-        column={coverColumn}
-        cell={row.cells[coverColumn?.id ?? ""]}
-        pageDoc={pageDoc}
-      />
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => openPeek(row.pageId)}
+      onKeyDown={(e) => e.key === "Enter" && openPeek(row.pageId)}
+      className="group w-full cursor-pointer overflow-hidden rounded-xl border border-zinc-200 bg-white text-left shadow-sm transition-shadow hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900"
+    >
+      {/* 커버 영역 — 이미지 설정 버튼 오버레이 */}
+      <div className="relative">
+        <CoverImage
+          column={coverColumn}
+          cell={row.cells[coverColumn?.id ?? ""]}
+          pageDoc={pageDoc}
+          overrideSrc={coverSrcOverride}
+        />
+        <button
+          ref={pickerBtnRef}
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setPickerOpen((v) => !v); }}
+          title="커버 이미지 설정"
+          className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded bg-black/50 px-1.5 py-0.5 text-xs text-white opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100 hover:bg-black/70"
+        >
+          <Image size={11} />
+          커버
+        </button>
+        {pickerOpen && createPortal(
+          <CoverImagePicker
+            anchorEl={pickerBtnRef.current}
+            imageSrcs={imageSrcs}
+            onSelect={(src) => { onSetCoverSrc?.(src); setPickerOpen(false); }}
+            onClose={() => setPickerOpen(false)}
+          />,
+          document.body,
+        )}
+      </div>
       <div className="p-2">
-        <div className="flex items-center justify-between gap-1">
-          <div className="flex min-w-0 items-center gap-1 text-xs font-medium text-zinc-900 dark:text-zinc-100">
-            <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
-              <IconPicker current={pages[row.pageId]?.icon ?? null} size="sm" onChange={(icon) => setIcon(row.pageId, icon)} />
-            </span>
-            <span className="truncate">{row.title || "제목 없음"}</span>
-          </div>
-          <div className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">
-            <button
-              type="button"
-              onClick={openFull}
-              title="페이지로 열기"
-              className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-            >
-              <ArrowUpRight size={11} />
-            </button>
-            <button
-              type="button"
-              onClick={() => openPeek(row.pageId)}
-              title="사이드 피크 열기"
-              className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-            >
-              <PanelRight size={11} />
-            </button>
-            <button
-              type="button"
-              onClick={onRequestDelete}
-              title="항목 삭제"
-              className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-            >
-              <X size={11} />
-            </button>
-          </div>
+        <div className="flex min-w-0 items-center gap-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+            <IconPicker current={pages[row.pageId]?.icon ?? null} size="sm" onChange={(icon) => setIcon(row.pageId, icon)} />
+          </span>
+          <span className="truncate">{row.title || "제목 없음"}</span>
         </div>
         {cardCols.map((c) => (
-          <div key={c.id} className="mt-1">
+          <div key={c.id} className="mt-1 text-sm">
             <DatabaseCell
               databaseId={databaseId}
               rowId={row.pageId}
@@ -229,18 +219,86 @@ function GalleryCard({
   );
 }
 
+function CoverImagePicker({
+  anchorEl,
+  imageSrcs,
+  onSelect,
+  onClose,
+}: {
+  anchorEl: HTMLElement | null;
+  imageSrcs: string[];
+  onSelect: (src: string | null) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
+
+  useEffect(() => {
+    if (!anchorEl) return;
+    const r = anchorEl.getBoundingClientRect();
+    setStyle({
+      position: "fixed",
+      top: r.bottom + 4,
+      left: Math.max(8, r.left),
+      zIndex: 9999,
+    });
+  }, [anchorEl]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      style={style}
+      className="w-64 rounded-xl border border-zinc-200 bg-white p-2 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+    >
+      <p className="mb-2 text-xs font-medium text-zinc-500">커버 이미지 선택</p>
+      {imageSrcs.length === 0 ? (
+        <p className="py-3 text-center text-xs text-zinc-400">표시할 이미지가 없습니다.</p>
+      ) : (
+        <div className="grid grid-cols-3 gap-1.5">
+          {imageSrcs.map((src, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onSelect(src)}
+              className="aspect-video overflow-hidden rounded border border-zinc-200 hover:ring-2 hover:ring-blue-400 dark:border-zinc-700"
+            >
+              <img src={src} alt="" className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CoverImage({
   column,
   cell,
   pageDoc,
+  overrideSrc,
 }: {
   column?: ColumnDef;
   cell: import("../../../types/database").CellValue;
   pageDoc?: JSONContent;
+  overrideSrc?: string;
 }) {
   const [src, setSrc] = useState<string | null>(null);
 
   useEffect(() => {
+    // 오버라이드 src가 있으면 즉시 사용
+    if (overrideSrc) {
+      setSrc(overrideSrc);
+      return;
+    }
+
     let revoked: string | null = null;
     let cancelled = false;
 
@@ -281,7 +339,7 @@ function CoverImage({
       cancelled = true;
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [column, cell, pageDoc]);
+  }, [column, cell, pageDoc, overrideSrc]);
 
   if (!src) {
     return (

@@ -27,7 +27,7 @@ export function MemberRowActions({
   const ROLE_RANK: Record<import("../../store/memberStore").MemberRole, number> = {
     developer: 5, owner: 4, leader: 3, manager: 2, member: 1,
   };
-  const canManageMembers = (ROLE_RANK[meRole] ?? 0) >= ROLE_RANK["leader"];
+  const canManageMembers = (ROLE_RANK[meRole] ?? 0) >= ROLE_RANK["manager"];
 
   const executeConfirm = async () => {
     if (!confirm) return;

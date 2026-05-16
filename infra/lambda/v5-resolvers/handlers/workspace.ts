@@ -108,24 +108,35 @@ async function getCallerTeamIds(
 }
 
 const LEVEL_RANK: Record<AccessLevel, number> = { edit: 2, view: 1 };
+const SUBJECT_RANK: Record<WorkspaceAccessEntry["subjectType"], number> = {
+  member: 3,
+  team: 2,
+  everyone: 1,
+};
 
 export function computeEffectiveLevel(
   entries: WorkspaceAccessEntry[],
   caller: Member,
   callerTeamIds: Set<string>,
 ): AccessLevel | null {
-  // 모든 매칭 엔트리 중 최고 레벨 반환 (everyone보다 member/team 전용 edit이 우선)
-  let best: AccessLevel | null = null;
+  // 전용 규칙(member/team)이 전체 공개(everyone)보다 우선한다.
+  let best: WorkspaceAccessEntry | null = null;
   for (const e of entries) {
     const matched =
       (e.subjectType === "member" && e.subjectId === caller.memberId) ||
       (e.subjectType === "team" && e.subjectId && callerTeamIds.has(e.subjectId)) ||
       e.subjectType === "everyone";
-    if (matched && (best === null || LEVEL_RANK[e.level] > LEVEL_RANK[best])) {
-      best = e.level;
+    if (!matched) continue;
+    if (
+      best === null ||
+      SUBJECT_RANK[e.subjectType] > SUBJECT_RANK[best.subjectType] ||
+      (SUBJECT_RANK[e.subjectType] === SUBJECT_RANK[best.subjectType] &&
+        LEVEL_RANK[e.level] > LEVEL_RANK[best.level])
+    ) {
+      best = e;
     }
   }
-  return best;
+  return best?.level ?? null;
 }
 
 async function hydrateWorkspace(
@@ -318,7 +329,15 @@ export async function setWorkspaceAccess(args: {
       }),
     );
   }
-  return { ...row, access: normalized, myEffectiveLevel: "edit" };
+  return {
+    ...row,
+    access: normalized,
+    myEffectiveLevel: "edit",
+    options: {
+      jobFunctions: row.jobFunctions ?? [],
+      jobTitles: row.jobTitles ?? [],
+    },
+  };
 }
 
 export async function deleteWorkspace(args: {

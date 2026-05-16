@@ -94,34 +94,31 @@ export function AdminMembersTab() {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">구성원 관리</h3>
-        <div className="flex gap-1.5">
+      <div className="flex items-center justify-end gap-1.5">
           <button
             type="button"
             onClick={() => setOpenCsvImport(true)}
-            className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
           >
-            <Upload size={12} />
+            <Upload size={13} />
             CSV 가져오기
           </button>
           <button
             type="button"
             onClick={() => setOpenCreate(true)}
-            className="inline-flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
           >
-            <Plus size={12} />
+            <Plus size={13} />
             구성원 추가
           </button>
-        </div>
       </div>
 
-      {/* 구성원 / 보관함 탭 */}
-      <div className="flex border-b border-zinc-200 dark:border-zinc-700">
+      {/* 구성원 / 보관함 탭 + 검색 */}
+      <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700">
         <button
           type="button"
           onClick={() => setActiveTab("active")}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
             activeTab === "active"
               ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
               : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
@@ -132,7 +129,7 @@ export function AdminMembersTab() {
         <button
           type="button"
           onClick={() => setActiveTab("archived")}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
             activeTab === "archived"
               ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
               : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
@@ -140,20 +137,19 @@ export function AdminMembersTab() {
         >
           보관함
         </button>
-      </div>
-
-      <div className="flex items-center gap-1.5 rounded-md border border-zinc-200 px-2 py-1 dark:border-zinc-700">
-        <Search size={13} className="text-zinc-400" />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="이름/이메일/직무 검색"
-          className="flex-1 bg-transparent text-xs outline-none"
-        />
+        <div className="ml-auto flex items-center gap-1.5 rounded-md border border-zinc-200 px-2 py-1 dark:border-zinc-700">
+          <Search size={13} className="text-zinc-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="이름/이메일/직무 검색"
+            className="w-40 bg-transparent text-sm outline-none placeholder:text-zinc-400"
+          />
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-700">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-left text-sm">
           <thead className="bg-zinc-50 dark:bg-zinc-900">
             <tr>
               <th className="px-3 py-2 font-medium">이름</th>

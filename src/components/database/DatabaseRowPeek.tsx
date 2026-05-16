@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { X, MoreHorizontal, Trash2, Check, Minus, Maximize2, ChevronLeft, FileText, ArrowLeftRight } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -85,6 +85,41 @@ export function DatabaseRowPeek() {
     eventIds: string[];
   } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // 슬라이드·딤머 애니메이션 상태
+  const [visible, setVisible] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  // 피크가 열릴 때: 다음 프레임에 visible=true 로 슬라이드-인 트리거
+  useEffect(() => {
+    if (!peekPageId) return;
+    if (closeTimerRef.current != null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = requestAnimationFrame(() => {
+        setVisible(true);
+        rafRef.current = null;
+      });
+    });
+    return () => {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [peekPageId]);
+
+  // 애니메이션 포함 닫기: slide-out 후 closePeek 호출
+  const handleClose = useCallback(() => {
+    setVisible(false);
+    closeTimerRef.current = setTimeout(() => {
+      closePeek();
+      closeTimerRef.current = null;
+    }, 280);
+  }, [closePeek]);
   const timelineIds = pageHistoryTimeline.map((e) => e.id);
   const {
     selectedIds: selectedTimelineIds,
@@ -104,11 +139,11 @@ export function DatabaseRowPeek() {
   useEffect(() => {
     if (!peekPageId) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closePeek();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [peekPageId, closePeek]);
+  }, [peekPageId, handleClose]);
   useEffect(() => {
     if (!menuOpen) return;
     const close = (e: MouseEvent) => {
@@ -153,14 +188,21 @@ export function DatabaseRowPeek() {
 
   return (
     <div
-      onClick={closePeek}
+      onClick={handleClose}
       // z-[400] : TopBar(z-[350]) 위로 올려 배경 본문 헤더까지 dim 효과 적용
-      className="fixed inset-0 z-[400] bg-black/40"
+      className={[
+        "fixed inset-0 z-[400] bg-black/40 transition-opacity duration-300",
+        visible ? "opacity-100" : "opacity-0",
+      ].join(" ")}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ width }}
-        className="absolute right-0 top-0 flex h-full flex-col overflow-hidden border-l border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
+        className={[
+          "absolute right-0 top-0 flex h-full flex-col overflow-hidden border-l border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950",
+          "transition-transform duration-300 ease-out",
+          visible ? "translate-x-0" : "translate-x-full",
+        ].join(" ")}
       >
         {/* 좌측 리사이즈 핸들 — hover 시 파란 띠 */}
         <div
@@ -252,7 +294,7 @@ export function DatabaseRowPeek() {
           </div>
           <button
             type="button"
-            onClick={closePeek}
+            onClick={handleClose}
             className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
           >
             <X size={16} />
