@@ -275,7 +275,7 @@ export function DatabasePropertyPanel({
           <button
             type="button"
             onClick={() => setPresetMenuOpen((v) => !v)}
-            className="flex items-center gap-1 rounded border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+            className="flex items-center gap-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             <span className="max-w-[210px] truncate">{statusLabel}</span>
             <ChevronDown size={12} />
@@ -299,10 +299,10 @@ export function DatabasePropertyPanel({
                         onClick={() => applyPresetToCurrentRow(preset.id)}
                         className="min-w-0 flex-1 text-left"
                       >
-                        <p className="truncate text-xs font-medium text-zinc-800 dark:text-zinc-100">
+                        <p className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
                           {preset.name}
                         </p>
-                        <p className="truncate text-[11px] text-zinc-400">
+                        <p className="truncate text-sm text-zinc-400">
                           {scopeLabel(preset.scope as PresetScope)}
                         </p>
                       </button>
@@ -321,12 +321,12 @@ export function DatabasePropertyPanel({
                           autoFocus
                           value={editPresetName}
                           onChange={(e) => setEditPresetName(e.target.value)}
-                          className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                          className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-1.5 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
                         />
                         <button
                           type="button"
                           onClick={handleEditPresetSave}
-                          className="rounded bg-amber-500 px-2 py-1 text-[11px] text-white hover:bg-amber-600"
+                          className="rounded bg-amber-500 px-2 py-1 text-sm text-white hover:bg-amber-600"
                         >
                           저장
                         </button>
@@ -335,7 +335,7 @@ export function DatabasePropertyPanel({
                   </div>
                 ))}
                 {filteredPresets.length === 0 && (
-                  <div className="rounded border border-dashed border-zinc-300 px-2 py-3 text-center text-xs text-zinc-400 dark:border-zinc-700">
+                  <div className="rounded border border-dashed border-zinc-300 px-2 py-3 text-center text-sm text-zinc-400 dark:border-zinc-700">
                     선택 가능한 프리셋이 없습니다.
                   </div>
                 )}
@@ -347,7 +347,7 @@ export function DatabasePropertyPanel({
                     setSavePresetOpen((v) => !v);
                     setEditPresetId(null);
                   }}
-                  className="flex w-full items-center justify-between rounded px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center justify-between rounded px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   <span>현재 속성값으로 프리셋 저장</span>
                   <Save size={11} />
@@ -358,12 +358,12 @@ export function DatabasePropertyPanel({
                       value={savePresetName}
                       onChange={(e) => setSavePresetName(e.target.value)}
                       placeholder="프리셋 이름"
-                      className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                      className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
                     />
                     <select
                       value={savePresetScope}
                       onChange={(e) => setSavePresetScope(e.target.value as PresetScope)}
-                      className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                      className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
                     >
                       <option value="workspace">프리셋을 모두가 사용</option>
                       <option value="organization">프리셋을 조직에서만 사용</option>
@@ -374,7 +374,7 @@ export function DatabasePropertyPanel({
                       <select
                         value={savePresetScopeId}
                         onChange={(e) => setSavePresetScopeId(e.target.value)}
-                        className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                        className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
                       >
                         {saveScopeOptions.length === 0 && (
                           <option value="">대상 없음</option>
@@ -389,7 +389,7 @@ export function DatabasePropertyPanel({
                     <button
                       type="button"
                       onClick={handleCreatePresetFromCurrent}
-                      className="flex w-full items-center justify-center gap-1 rounded bg-amber-500 px-2 py-1 text-xs text-white hover:bg-amber-600"
+                      className="flex w-full items-center justify-center gap-1 rounded bg-amber-500 px-2 py-1 text-sm text-white hover:bg-amber-600"
                     >
                       <Check size={11} />
                       저장
