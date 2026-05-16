@@ -1,4 +1,5 @@
 import type { ColumnDef, DatabaseBundle, DatabaseRowPreset } from "../../types/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "./scope";
 
 export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
 export const LC_SCHEDULER_DATABASE_TITLE = "LC스케줄러";
@@ -269,7 +270,9 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
 
   if (same) {
     useDatabaseStore.setState((s) =>
-      s.cacheWorkspaceId === workspaceId ? s : { ...s, cacheWorkspaceId: workspaceId },
+      workspaceId === LC_SCHEDULER_WORKSPACE_ID
+        ? s
+        : s.cacheWorkspaceId === workspaceId ? s : { ...s, cacheWorkspaceId: workspaceId },
     );
     return;
   }
@@ -277,7 +280,9 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
   useDatabaseStore.setState((s) => ({
     ...s,
     databases: { ...s.databases, [databaseId]: next },
-    cacheWorkspaceId: workspaceId,
+    cacheWorkspaceId: workspaceId === LC_SCHEDULER_WORKSPACE_ID
+      ? s.cacheWorkspaceId
+      : workspaceId,
   }));
   enqueueUpsertDatabase(next);
 }

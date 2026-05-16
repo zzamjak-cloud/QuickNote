@@ -42,6 +42,13 @@ function shouldApplyRemoteSnapshot(remoteWorkspaceId: string | null | undefined)
   return true;
 }
 
+function resolveNextCacheWorkspaceId(
+  current: string | null,
+  remoteWorkspaceId: string,
+): string | null {
+  return remoteWorkspaceId === LC_SCHEDULER_WORKSPACE_ID ? current : remoteWorkspaceId;
+}
+
 // 원격 ISO 문자열 → epoch ms (실패 시 0).
 function isoToMs(iso: string | null | undefined): number {
   if (!iso) return 0;
@@ -181,9 +188,11 @@ export function applyRemotePageToStore(
 ): void {
   if (!p) return;
   if (!shouldApplyRemoteSnapshot(p.workspaceId)) return;
+  const deletedDbId = p.deletedAt ? usePageStore.getState().pages[p.id]?.databaseId : null;
 
   usePageStore.setState((s) => {
     const local = s.pages[p.id];
+    const nextCacheWorkspaceId = resolveNextCacheWorkspaceId(s.cacheWorkspaceId, p.workspaceId);
     if (p.deletedAt) {
       if (!local) return s;
       const rest = { ...s.pages };
@@ -194,11 +203,13 @@ export function applyRemotePageToStore(
         ...s,
         pages: rest,
         activePageId: nextActive,
-        cacheWorkspaceId: p.workspaceId,
+        cacheWorkspaceId: nextCacheWorkspaceId,
       };
     }
     if (local && !shouldApplyRemotePageOverwrite(local, p)) {
-      return s.cacheWorkspaceId === p.workspaceId ? s : { ...s, cacheWorkspaceId: p.workspaceId };
+      return s.cacheWorkspaceId === nextCacheWorkspaceId
+        ? s
+        : { ...s, cacheWorkspaceId: nextCacheWorkspaceId };
     }
 
     const orderNum = gqlOrderNumber(p);
@@ -223,14 +234,12 @@ export function applyRemotePageToStore(
     return {
       ...s,
       pages: { ...s.pages, [p.id]: merged },
-      cacheWorkspaceId: p.workspaceId,
+      cacheWorkspaceId: nextCacheWorkspaceId,
     };
   });
 
   if (p.deletedAt) {
-    const before = usePageStore.getState().pages[p.id];
-    const dbId = before?.databaseId;
-    if (dbId) removePageIdFromDatabaseRowOrder(dbId, p.id);
+    if (deletedDbId) removePageIdFromDatabaseRowOrder(deletedDbId, p.id);
     return;
   }
 
@@ -298,9 +307,9 @@ export function applyRemoteDatabaseToStore(
   if (d.deletedAt) {
     if (isLCSchedulerDatabaseId(d.id)) {
       useDatabaseStore.setState((s) =>
-        s.cacheWorkspaceId === d.workspaceId
+        s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId)
           ? s
-          : { ...s, cacheWorkspaceId: d.workspaceId },
+          : { ...s, cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId) },
       );
       return;
     }
@@ -316,9 +325,9 @@ export function applyRemoteDatabaseToStore(
 
   if (local && !isRemoteNewer(local.meta.updatedAt, d.updatedAt)) {
     useDatabaseStore.setState((s) =>
-      s.cacheWorkspaceId === d.workspaceId
+      s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId)
         ? s
-        : { ...s, cacheWorkspaceId: d.workspaceId },
+        : { ...s, cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId) },
     );
     return;
   }
@@ -343,7 +352,7 @@ export function applyRemoteDatabaseToStore(
   useDatabaseStore.setState((s) => ({
     ...s,
     databases: { ...s.databases, [d.id]: bundle },
-    cacheWorkspaceId: d.workspaceId,
+    cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId),
   }));
 
   repairDbHistoryBaselineIfNeeded(d.id, structuredClone(bundle));

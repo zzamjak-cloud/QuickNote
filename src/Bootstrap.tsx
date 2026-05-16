@@ -175,16 +175,25 @@ function useSyncBootstrap(): boolean {
         useBlockCommentStore.getState().clearMessages();
         const fetchApply = async (): Promise<void> => {
           await migrateLegacyBlockCommentsToPagesOnce();
-          const [pages, dbs, comments] = await Promise.all([
+          const shouldFetchLcScheduler = currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID;
+          const [pages, dbs, comments, lcPages, lcDbs] = await Promise.all([
             fetchPagesByWorkspace(currentWorkspaceId),
             fetchDatabasesByWorkspace(currentWorkspaceId),
             fetchCommentsByWorkspace(currentWorkspaceId),
+            shouldFetchLcScheduler
+              ? fetchPagesByWorkspace(LC_SCHEDULER_WORKSPACE_ID)
+              : Promise.resolve([]),
+            shouldFetchLcScheduler
+              ? fetchDatabasesByWorkspace(LC_SCHEDULER_WORKSPACE_ID)
+              : Promise.resolve([]),
           ]);
           if (cancelled) return;
           for (const p of pages)
             applyRemotePageToStore(p);
           for (const d of dbs) applyRemoteDatabaseToStore(d);
-          await ensureLCSchedulerDatabase(currentWorkspaceId);
+          for (const p of lcPages) applyRemotePageToStore(p);
+          for (const d of lcDbs) applyRemoteDatabaseToStore(d);
+          await ensureLCSchedulerDatabase(LC_SCHEDULER_WORKSPACE_ID);
           if (cancelled) return;
           for (const c of comments) applyRemoteCommentToStore(c);
           migratePageBlockCommentsToServerOnce(currentWorkspaceId);
@@ -230,7 +239,7 @@ function useSyncBootstrap(): boolean {
           if (schedulerRefreshTimer) return;
           schedulerRefreshTimer = setTimeout(() => {
             schedulerRefreshTimer = null;
-            useSchedulerStore.getState().refreshVisibleRangeFromLocal(currentWorkspaceId);
+            useSchedulerStore.getState().refreshVisibleRangeFromLocal(LC_SCHEDULER_WORKSPACE_ID);
           }, 80);
         };
         unsub = startSubscriptions(currentWorkspaceId, {
@@ -340,14 +349,23 @@ function useSyncBootstrap(): boolean {
         }
         try {
           const fetchApply = async (): Promise<void> => {
-            const [pages, dbs, comments] = await Promise.all([
+            const shouldFetchLcScheduler = wsId !== LC_SCHEDULER_WORKSPACE_ID;
+            const [pages, dbs, comments, lcPages, lcDbs] = await Promise.all([
               fetchPagesByWorkspace(wsId),
               fetchDatabasesByWorkspace(wsId),
               fetchCommentsByWorkspace(wsId),
+              shouldFetchLcScheduler
+                ? fetchPagesByWorkspace(LC_SCHEDULER_WORKSPACE_ID)
+                : Promise.resolve([]),
+              shouldFetchLcScheduler
+                ? fetchDatabasesByWorkspace(LC_SCHEDULER_WORKSPACE_ID)
+                : Promise.resolve([]),
             ]);
             for (const p of pages) applyRemotePageToStore(p);
             for (const d of dbs) applyRemoteDatabaseToStore(d);
-            await ensureLCSchedulerDatabase(wsId);
+            for (const p of lcPages) applyRemotePageToStore(p);
+            for (const d of lcDbs) applyRemoteDatabaseToStore(d);
+            await ensureLCSchedulerDatabase(LC_SCHEDULER_WORKSPACE_ID);
             for (const c of comments) applyRemoteCommentToStore(c);
           };
           await fetchApply();
