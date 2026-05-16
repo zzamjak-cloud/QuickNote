@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useWorkspaceStore, type WorkspaceSummary } from "../workspaceStore";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 
 function ws(partial: Partial<WorkspaceSummary> & { workspaceId: string; name: string }): WorkspaceSummary {
   return {
@@ -14,6 +15,8 @@ function ws(partial: Partial<WorkspaceSummary> & { workspaceId: string; name: st
 
 describe("workspaceStore", () => {
   beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
     useWorkspaceStore.setState({ currentWorkspaceId: null, workspaces: [] });
   });
 
@@ -30,7 +33,7 @@ describe("workspaceStore", () => {
       ws({ workspaceId: "ws-2", name: "B" }),
     ]);
     const state = useWorkspaceStore.getState();
-    expect(state.workspaces).toHaveLength(2);
+    expect(state.workspaces).toHaveLength(3);
     expect(state.currentWorkspaceId).toBe("ws-1");
   });
 
@@ -40,6 +43,18 @@ describe("workspaceStore", () => {
       ws({ workspaceId: "ws-1", name: "A" }),
       ws({ workspaceId: "ws-2", name: "B" }),
     ]);
+    expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-2");
+  });
+
+  it("current가 비어 있으면 마지막 방문 워크스페이스를 우선 복원한다", () => {
+    useWorkspaceStore.getState().setCurrentWorkspaceId("ws-2");
+    useWorkspaceStore.setState({ currentWorkspaceId: null, workspaces: [] });
+
+    useWorkspaceStore.getState().setWorkspaces([
+      ws({ workspaceId: "ws-1", name: "A" }),
+      ws({ workspaceId: "ws-2", name: "B" }),
+    ]);
+
     expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-2");
   });
 
@@ -57,10 +72,10 @@ describe("workspaceStore", () => {
     useWorkspaceStore.getState().upsertWorkspace(
       ws({ workspaceId: "ws-1", name: "A-Updated", myEffectiveLevel: "view" }),
     );
-    expect(useWorkspaceStore.getState().workspaces[0]?.name).toBe("A-Updated");
+    expect(useWorkspaceStore.getState().workspaces.find((item) => item.workspaceId === "ws-1")?.name).toBe("A-Updated");
 
     useWorkspaceStore.getState().upsertWorkspace(ws({ workspaceId: "ws-2", name: "B" }));
-    expect(useWorkspaceStore.getState().workspaces).toHaveLength(2);
+    expect(useWorkspaceStore.getState().workspaces).toHaveLength(3);
   });
 
   it("removeWorkspace는 현재 선택된 워크스페이스 제거 시 다음 항목으로 이동", () => {
@@ -72,7 +87,7 @@ describe("workspaceStore", () => {
     useWorkspaceStore.getState().removeWorkspace("ws-1");
 
     const state = useWorkspaceStore.getState();
-    expect(state.workspaces.map((w) => w.workspaceId)).toEqual(["ws-2"]);
+    expect(state.workspaces.map((w) => w.workspaceId)).toEqual([LC_SCHEDULER_WORKSPACE_ID, "ws-2"]);
     expect(state.currentWorkspaceId).toBe("ws-2");
   });
 });

@@ -52,6 +52,26 @@ function defaultWorkspaceId(workspaces: WorkspaceSummary[]): string | null {
     ?? null;
 }
 
+const LAST_WORKSPACE_ID_KEY = "quicknote.workspace.lastVisited.v1";
+
+function readLastWorkspaceId(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(LAST_WORKSPACE_ID_KEY);
+}
+
+function writeLastWorkspaceId(workspaceId: string | null): void {
+  if (typeof window === "undefined" || !workspaceId) return;
+  window.localStorage.setItem(LAST_WORKSPACE_ID_KEY, workspaceId);
+}
+
+function fallbackWorkspaceId(workspaces: WorkspaceSummary[]): string | null {
+  const lastWorkspaceId = readLastWorkspaceId();
+  if (lastWorkspaceId && workspaces.some((workspace) => workspace.workspaceId === lastWorkspaceId)) {
+    return lastWorkspaceId;
+  }
+  return defaultWorkspaceId(workspaces);
+}
+
 const tabWorkspaceStorage = {
   getItem: (key: string): string | null => {
     if (typeof window === "undefined") return null;
@@ -73,7 +93,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       currentWorkspaceId: null,
       workspaces: [],
 
-      setCurrentWorkspaceId: (workspaceId) => set({ currentWorkspaceId: workspaceId }),
+      setCurrentWorkspaceId: (workspaceId) => {
+        writeLastWorkspaceId(workspaceId);
+        set({ currentWorkspaceId: workspaceId });
+      },
 
       setWorkspaces: (workspaces) =>
         set((state) => {
@@ -90,7 +113,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             currentWorkspaceId:
               currentExists
                 ? state.currentWorkspaceId
-                : defaultWorkspaceId(nextWorkspaces),
+                : fallbackWorkspaceId(nextWorkspaces),
           };
         }),
 
@@ -108,7 +131,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           return {
             workspaces,
             currentWorkspaceId:
-              state.currentWorkspaceId ?? defaultWorkspaceId(workspaces),
+              state.currentWorkspaceId ?? fallbackWorkspaceId(workspaces),
           };
         }),
 
@@ -118,7 +141,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           const workspaces = state.workspaces.filter((w) => w.workspaceId !== workspaceId);
           const currentWorkspaceId =
             state.currentWorkspaceId === workspaceId
-              ? defaultWorkspaceId(workspaces)
+              ? fallbackWorkspaceId(workspaces)
               : state.currentWorkspaceId;
           return { workspaces, currentWorkspaceId };
         }),
