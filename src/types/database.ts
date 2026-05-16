@@ -14,6 +14,7 @@ export type DatabaseLayout = "inline" | "fullPage";
 export type ColumnType =
   | "title"
   | "text"
+  | "json"
   | "number"
   | "select"
   | "multiSelect"
@@ -59,12 +60,16 @@ export type FileCellItem = {
   size: number;
 };
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
 /** 셀 값 — 컬럼 타입과 함께 해석 */
 export type CellValue =
   | string
   | number
   | boolean
   | string[]
+  | JsonValue
   | DateRangeValue
   | FileCellItem[]
   | null
@@ -149,6 +154,27 @@ export type DatabaseTemplate = {
   pageId?: string;
 };
 
+export type DatabaseRowPreset = {
+  id: string;
+  databaseId: string;
+  name: string;
+  description?: string;
+  scope: "workspace" | "organization" | "team" | "project";
+  scopeId?: string;
+  columnDefaults: Record<string, CellValue>;
+  requiredColumnIds: string[];
+  visibleColumnIds: string[];
+  hiddenColumnIds: string[];
+  schedulerDefaults?: {
+    durationDays?: number;
+    color?: string;
+    titlePrefix?: string;
+    assigneeIds?: string[];
+  };
+  createdAt: number;
+  updatedAt: number;
+};
+
 export const emptyPanelState = (): DatabasePanelState => ({
   searchQuery: "",
   filterRules: [],
@@ -167,6 +193,7 @@ export function defaultMinWidthForType(type: ColumnType): number {
   switch (type) {
     case "title": return 200;
     case "text": return 160;
+    case "json": return 220;
     case "number": return 100;
     case "select":
     case "status": return 140;
@@ -209,6 +236,7 @@ export function getVisibleOrderedColumns(
 export type DatabaseBundle = {
   meta: DatabaseMeta;
   columns: ColumnDef[];
+  presets?: DatabaseRowPreset[];
   /** 행 페이지 id 배열 — 실제 행 데이터는 pageStore.pages[pageId] */
   rowPageOrder: string[];
 };

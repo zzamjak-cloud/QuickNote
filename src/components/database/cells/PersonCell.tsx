@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import type { CellValue } from "../../../types/database";
 import { searchMembersForMentionApi } from "../../../lib/sync/memberApi";
 import { normalizePersonValue, personChipColor } from "./utils";
+import { useMemberStore } from "../../../store/memberStore";
 
 export function PersonCell({
   value,
@@ -21,6 +22,7 @@ export function PersonCell({
 }) {
   // string[]으로 정규화 — 콤마 구분 기존 데이터 포함
   const chips = normalizePersonValue(value);
+  const members = useMemberStore((s) => s.members);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -56,9 +58,12 @@ export function PersonCell({
     return () => { cancelled = true; };
   }, [open, draft]);
 
-  const addChip = (name: string) => {
-    if (!chips.includes(name)) {
-      onChange([...chips, name]);
+  const memberNameById = new Map(members.map((member) => [member.memberId, member.name]));
+  const chipLabel = (raw: string) => memberNameById.get(raw) ?? raw;
+
+  const addChip = (memberId: string) => {
+    if (!chips.includes(memberId)) {
+      onChange([...chips, memberId]);
     }
     setDraft("");
     setOpen(false);
@@ -93,7 +98,7 @@ export function PersonCell({
       }
       if (e.key === "Enter") {
         e.preventDefault();
-        if (items[activeIdx]) addChip(items[activeIdx].name);
+        if (items[activeIdx]) addChip(items[activeIdx].memberId);
         return;
       }
       if (e.key === "Escape") {
@@ -163,7 +168,7 @@ export function PersonCell({
             key={`${name}-${idx}`}
             tabIndex={0}
             role="button"
-            aria-label={`${name} 키보드로 이동`}
+            aria-label={`${chipLabel(name)} 키보드로 이동`}
             onKeyDown={(e) => handleChipKeyDown(e, idx)}
             onFocus={() => setChipFocusIdx(idx)}
             onBlur={() => {
@@ -178,12 +183,12 @@ export function PersonCell({
             ].join(" ")}
             style={{ backgroundColor: personChipColor(name) }}
           >
-            {name}
+            {chipLabel(name)}
             {/* 칩 X 버튼 — hover 시 표시 */}
             <button
               type="button"
               tabIndex={-1}
-              aria-label={`${name} 제거`}
+              aria-label={`${chipLabel(name)} 제거`}
               onMouseDown={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -227,7 +232,9 @@ export function PersonCell({
       {open && coords && createPortal(
         <div
           style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width }}
-          className="z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="z-[700] max-h-52 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
         >
           {items.length === 0 ? (
             <div className="px-2 py-1 text-xs text-zinc-500">멤버 검색 결과가 없습니다.</div>
@@ -237,7 +244,7 @@ export function PersonCell({
                 key={m.memberId}
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addChip(m.name)}
+                onClick={() => addChip(m.memberId)}
                 className={[
                   "flex w-full items-center justify-between rounded px-2 py-1 text-left",
                   idx === activeIdx

@@ -7,6 +7,7 @@ import type {
   ColumnType,
   DatabaseBundle,
   DatabaseMeta,
+  DatabaseRowPreset,
   DatabaseTemplate,
 } from "../types/database";
 import { DATABASE_STORE_VERSION } from "../types/database";
@@ -26,6 +27,11 @@ import {
   type DbMap,
   migrateDatabaseStore,
 } from "./databaseStore/migrations";
+import {
+  LC_SCHEDULER_DATABASE_TITLE,
+  isLCSchedulerDatabaseId,
+  isLCSchedulerRequiredColumnId,
+} from "../lib/scheduler/database";
 import {
   allocateUniqueDatabaseTitle,
   createRowPage,
@@ -101,6 +107,17 @@ type DatabaseStoreActions = {
   deleteTemplate: (databaseId: string, templateId: string) => void;
   /** 템플릿을 적용해 새 행 생성 후 새 pageId 반환. */
   applyTemplate: (databaseId: string, templateId: string) => string;
+  addPreset: (
+    databaseId: string,
+    preset?: Partial<Omit<DatabaseRowPreset, "id" | "databaseId" | "createdAt" | "updatedAt">>,
+  ) => string;
+  updatePreset: (
+    databaseId: string,
+    presetId: string,
+    patch: Partial<Omit<DatabaseRowPreset, "id" | "databaseId" | "createdAt">>,
+  ) => void;
+  deletePreset: (databaseId: string, presetId: string) => void;
+  applyPresetToRow: (databaseId: string, pageId: string, presetId: string) => boolean;
 };
 
 export type DatabaseStore = DatabaseStoreState & DatabaseStoreActions;
@@ -144,6 +161,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       deleteDatabase: (id) => {
+        if (isLCSchedulerDatabaseId(id)) return;
         const bundle = get().databases[id];
         if (bundle) {
           for (const pageId of bundle.rowPageOrder) {
@@ -179,6 +197,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const state = get();
         const b = state.databases[id];
         if (!b) return false;
+        if (isLCSchedulerDatabaseId(id)) {
+          return normalizeDbTitle(title) === LC_SCHEDULER_DATABASE_TITLE;
+        }
         const nextTitle = normalizeDbTitle(title);
         if (isDatabaseTitleTaken(state.databases, nextTitle, id)) {
           return false;
@@ -283,16 +304,24 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       updateColumn: (databaseId, columnId, patch) => {
+        let patchForColumn = patch;
+        if (
+          isLCSchedulerDatabaseId(databaseId) &&
+          isLCSchedulerRequiredColumnId(columnId)
+        ) {
+          const { type: _ignoredType, ...rest } = patch;
+          patchForColumn = rest;
+        }
         set((state) => {
           const bundle = state.databases[databaseId];
           if (!bundle) return state;
           const next = bundle.columns.map((c) => {
             if (c.id !== columnId) return c;
             // title 컬럼의 type 변경 차단
-            if (c.type === "title" && patch.type && patch.type !== "title") {
+            if (c.type === "title" && patchForColumn.type && patchForColumn.type !== "title") {
               return c;
             }
-            return { ...c, ...patch, id: c.id };
+            return { ...c, ...patchForColumn, id: c.id };
           });
           return {
             databases: {
@@ -322,6 +351,12 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       removeColumn: (databaseId, columnId) => {
+        if (
+          isLCSchedulerDatabaseId(databaseId) &&
+          isLCSchedulerRequiredColumnId(columnId)
+        ) {
+          return;
+        }
         const bundleBefore = get().databases[databaseId];
         if (!bundleBefore) return;
         const target = bundleBefore.columns.find((c) => c.id === columnId);
@@ -966,7 +1001,157 @@ export const useDatabaseStore = create<DatabaseStore>()(
         return true;
       },
 
-    addTemplate: (databaseId) => {
+      addPreset: (databaseId, presetPatch) => {
+        const id = newId();
+        const t = now();
+        const preset: DatabaseRowPreset = {
+          id,
+          databaseId,
+          name: presetPatch?.name ?? "새 프리셋",
+          description: presetPatch?.description,
+          scope: presetPatch?.scope ?? "workspace",
+          scopeId: presetPatch?.scopeId,
+          columnDefaults: structuredClone(presetPatch?.columnDefaults ?? {}),
+          requiredColumnIds: [...(presetPatch?.requiredColumnIds ?? [])],
+          visibleColumnIds: [...(presetPatch?.visibleColumnIds ?? [])],
+          hiddenColumnIds: [...(presetPatch?.hiddenColumnIds ?? [])],
+          schedulerDefaults: presetPatch?.schedulerDefaults
+            ? structuredClone(presetPatch.schedulerDefaults)
+            : undefined,
+          createdAt: t,
+          updatedAt: t,
+        };
+        set((state) => {
+          const b = state.databases[databaseId];
+          if (!b) return state;
+          return {
+            databases: {
+              ...state.databases,
+              [databaseId]: {
+                ...b,
+                presets: [...(b.presets ?? []), preset],
+                meta: { ...b.meta, updatedAt: t },
+              },
+            },
+          };
+        });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.preset",
+            { presets: structuredClone(bundleAfter.presets ?? []) },
+            shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundleAfter) : undefined,
+          );
+          enqueueUpsertDatabase(bundleAfter);
+        }
+        return id;
+      },
+
+      updatePreset: (databaseId, presetId, patch) => {
+        const t = now();
+        set((state) => {
+          const b = state.databases[databaseId];
+          if (!b) return state;
+          return {
+            databases: {
+              ...state.databases,
+              [databaseId]: {
+                ...b,
+                presets: (b.presets ?? []).map((preset) =>
+                  preset.id === presetId
+                    ? { ...preset, ...structuredClone(patch), updatedAt: t }
+                    : preset,
+                ),
+                meta: { ...b.meta, updatedAt: t },
+              },
+            },
+          };
+        });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.preset",
+            { presets: structuredClone(bundleAfter.presets ?? []) },
+            shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundleAfter) : undefined,
+          );
+          enqueueUpsertDatabase(bundleAfter);
+        }
+      },
+
+      deletePreset: (databaseId, presetId) => {
+        set((state) => {
+          const b = state.databases[databaseId];
+          if (!b) return state;
+          return {
+            databases: {
+              ...state.databases,
+              [databaseId]: {
+                ...b,
+                presets: (b.presets ?? []).filter((preset) => preset.id !== presetId),
+                meta: { ...b.meta, updatedAt: now() },
+              },
+            },
+          };
+        });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) {
+          const hs = useHistoryStore.getState();
+          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+          hs.recordDbEvent(
+            databaseId,
+            "db.preset",
+            { presets: structuredClone(bundleAfter.presets ?? []) },
+            shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundleAfter) : undefined,
+          );
+          enqueueUpsertDatabase(bundleAfter);
+        }
+      },
+
+      applyPresetToRow: (databaseId, pageId, presetId) => {
+        const bundle = get().databases[databaseId];
+        const preset = bundle?.presets?.find((item) => item.id === presetId);
+        if (!preset) return false;
+        const titleColumn = bundle?.columns.find((column) => column.type === "title");
+        const titleValue = titleColumn
+          ? preset.columnDefaults[titleColumn.id]
+          : undefined;
+        const cellDefaults = { ...structuredClone(preset.columnDefaults) };
+        if (titleColumn) delete cellDefaults[titleColumn.id];
+        const t = Date.now();
+        usePageStore.setState((s) => {
+          const page = s.pages[pageId];
+          if (!page || page.databaseId !== databaseId) return s;
+          return {
+            pages: {
+              ...s.pages,
+              [pageId]: {
+                ...page,
+                title: typeof titleValue === "string" && titleValue.trim()
+                  ? titleValue.trim()
+                  : page.title,
+                dbCells: {
+                  ...(page.dbCells ?? {}),
+                  ...cellDefaults,
+                },
+                updatedAt: t,
+              },
+            },
+          };
+        });
+        const pageAfter = usePageStore.getState().pages[pageId];
+        if (pageAfter) {
+          enqueueUpsertPageRaw(pageAfter);
+        }
+        return true;
+      },
+
+      addTemplate: (databaseId) => {
       const id = newId();
       // 템플릿 전용 페이지 생성 — dbCells에 마커를 심어 행과 구분한다.
       const pageId = createRowPage(databaseId, "새 템플릿");
@@ -1139,7 +1324,12 @@ export const useDatabaseStore = create<DatabaseStore>()(
 export function listDatabases(state: DatabaseStore): { id: string; meta: DatabaseMeta }[] {
   return Object.entries(state.databases)
     .map(([id, b]) => ({ id, meta: b.meta }))
-    .sort((a, b) => b.meta.updatedAt - a.meta.updatedAt);
+    .sort((a, b) => {
+      const aScheduler = isLCSchedulerDatabaseId(a.id);
+      const bScheduler = isLCSchedulerDatabaseId(b.id);
+      if (aScheduler !== bScheduler) return aScheduler ? -1 : 1;
+      return b.meta.updatedAt - a.meta.updatedAt;
+    });
 }
 
 /** 속성 추가 시 타입별 기본 컬럼 정의 */

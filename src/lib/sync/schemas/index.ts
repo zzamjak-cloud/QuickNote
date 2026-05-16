@@ -107,6 +107,7 @@ export const GqlDatabaseSchema = z
     createdByMemberId: z.string(),
     title: z.string(),
     columns: z.unknown(),
+    presets: z.unknown().nullish(),
     createdAt: z.string(),
     updatedAt: z.string(),
     deletedAt: z.string().nullish(),

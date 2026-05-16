@@ -5,6 +5,7 @@ import { useHistoryStore } from "../../store/historyStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { emptyPanelState } from "../../types/database";
+import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 
 type Props = {
   open: boolean;
@@ -32,9 +33,14 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     [dbList],
   );
   const q = query.trim().toLowerCase();
-  const visibleActive = dbList.filter((d) =>
-    d.meta.title.toLowerCase().includes(q),
-  );
+  const visibleActive = dbList
+    .filter((d) => d.meta.title.toLowerCase().includes(q))
+    .sort((a, b) => {
+      const aScheduler = isLCSchedulerDatabaseId(a.id);
+      const bScheduler = isLCSchedulerDatabaseId(b.id);
+      if (aScheduler !== bScheduler) return aScheduler ? -1 : 1;
+      return b.meta.updatedAt - a.meta.updatedAt;
+    });
   const visibleDeleted = deletedDbRestorePoints
     .filter((d) => !activeDbIds.has(d.databaseId))
     .filter((d) => d.title.toLowerCase().includes(q));
@@ -137,8 +143,15 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                 key={d.id}
                 className="flex items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800"
               >
-                <span className="truncate text-sm text-zinc-700 dark:text-zinc-200">
-                  {d.meta.title}
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm text-zinc-700 dark:text-zinc-200">
+                    {d.meta.title}
+                  </span>
+                  {isLCSchedulerDatabaseId(d.id) ? (
+                    <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">
+                      고정
+                    </span>
+                  ) : null}
                 </span>
                 <button
                   type="button"
@@ -218,4 +231,3 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     </div>
   );
 }
-

@@ -41,6 +41,7 @@ export type DbHistoryKind =
   | "db.column.update"
   | "db.column.remove"
   | "db.column.move"
+  | "db.preset"
   | "db.row.add"
   | "db.row.delete"
   | "db.row.order"

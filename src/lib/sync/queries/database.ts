@@ -1,5 +1,5 @@
 const DATABASE_FIELDS = `
-  id workspaceId createdByMemberId title columns createdAt updatedAt deletedAt
+  id workspaceId createdByMemberId title columns presets createdAt updatedAt deletedAt
 `;
 
 export const LIST_DATABASES = `
@@ -35,6 +35,7 @@ export type GqlDatabase = {
   createdByMemberId: string;
   title: string;
   columns: unknown;
+  presets?: unknown | null;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;

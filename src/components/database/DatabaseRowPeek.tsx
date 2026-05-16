@@ -189,9 +189,9 @@ export function DatabaseRowPeek() {
   return (
     <div
       onClick={handleClose}
-      // z-[400] : TopBar(z-[350]) 위로 올려 배경 본문 헤더까지 dim 효과 적용
+      // 스케줄러 모달(z-[500]) 위에서도 항목 피커가 보여야 한다.
       className={[
-        "fixed inset-0 z-[400] bg-black/40 transition-opacity duration-300",
+        "fixed inset-0 z-[650] bg-black/40 transition-opacity duration-300",
         visible ? "opacity-100" : "opacity-0",
       ].join(" ")}
     >
@@ -357,7 +357,7 @@ export function DatabaseRowPeek() {
         />
         {historyDialogOpen && (
           <div
-            className="fixed inset-0 z-[420] flex items-center justify-center bg-black/45 p-4"
+            className="fixed inset-0 z-[670] flex items-center justify-center bg-black/45 p-4"
             role="presentation"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) setHistoryDialogOpen(false);

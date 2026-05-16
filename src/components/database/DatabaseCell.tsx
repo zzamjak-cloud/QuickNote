@@ -1,6 +1,12 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CellValue, ColumnDef, FileCellItem } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
+import {
+  parseJsonValueInput,
+  stringifyJsonValue,
+  summarizeJsonValue,
+} from "../../lib/database/jsonCell";
 import { DateCell } from "./cells/DateCell";
 import { PersonCell } from "./cells/PersonCell";
 import { MultiSelectCell, SelectCell, StatusCell } from "./cells/OptionCells";
@@ -65,6 +71,102 @@ function TitleCell({
   );
 }
 
+function JsonCell({ value, onChange }: { value: CellValue; onChange: (v: CellValue) => void }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(() => stringifyJsonValue(value));
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) setDraft(stringifyJsonValue(value));
+  }, [open, value]);
+
+  const commit = () => {
+    const parsed = parseJsonValueInput(draft);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    onChange(parsed.value);
+    setError(null);
+    setOpen(false);
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setDraft(stringifyJsonValue(value));
+          setError(null);
+          setOpen(true);
+        }}
+        className="flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        title="JSON 편집"
+      >
+        <span className="truncate text-zinc-600 dark:text-zinc-300">{summarizeJsonValue(value)}</span>
+        <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800">
+          JSON
+        </span>
+      </button>
+
+      {open &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[760] flex items-center justify-center bg-black/25 p-4"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setOpen(false);
+            }}
+          >
+            <div className="w-full max-w-2xl rounded-lg border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">JSON 값</div>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="rounded px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  닫기
+                </button>
+              </div>
+              <textarea
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setError(null);
+                }}
+                spellCheck={false}
+                className="h-72 w-full resize-none rounded border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 outline-none focus:border-blue-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                placeholder={`{\n  "key": "value"\n}`}
+              />
+              {error && <div className="mt-2 text-xs text-red-500">{error}</div>}
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraft("");
+                    setError(null);
+                  }}
+                  className="rounded px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  비우기
+                </button>
+                <button
+                  type="button"
+                  onClick={commit}
+                  className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  적용
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 // 500+ 셀이 각자 store 구독 시 한 셀 변경으로 전체 셀 shouldUpdate 트리거 방지
 // props 얕은 비교: column 객체·value 모두 불변 패턴으로 전달되므로 memo 효과 있음
 export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, column, value }: Props) {
@@ -93,6 +195,8 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
           className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
         />
       );
+    case "json":
+      return <JsonCell value={value} onChange={setVal} />;
     case "phone":
       return (
         <PhoneCell value={typeof value === "string" ? value : ""} onChange={setVal} />
@@ -155,7 +259,7 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
           value={
             Array.isArray(value) &&
             value.every((x) => typeof x === "string")
-              ? value
+              ? (value as string[])
               : []
           }
           onChange={setVal}
@@ -199,4 +303,3 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
       );
   }
 });
-

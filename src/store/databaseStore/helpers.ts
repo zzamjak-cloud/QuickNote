@@ -6,6 +6,7 @@ import type {
   ColumnDef,
   DatabaseBundle,
   DatabaseMeta,
+  DatabaseRowPreset,
 } from "../../types/database";
 import type { DatabaseSnapshot, PageSnapshot } from "../../types/history";
 import type { Page } from "../../types/page";
@@ -33,6 +34,7 @@ export function toGqlDatabase(
   meta: DatabaseMeta,
   columns: ColumnDef[],
   createdByMemberId: string,
+  presets?: DatabaseRowPreset[],
 ): Record<string, unknown> {
   return {
     id: meta.id,
@@ -40,6 +42,7 @@ export function toGqlDatabase(
     createdByMemberId,
     title: meta.title,
     columns: JSON.stringify(columns),
+    presets: JSON.stringify(presets ?? []),
     createdAt: new Date(meta.createdAt).toISOString(),
     updatedAt: new Date(meta.updatedAt).toISOString(),
   };
@@ -50,7 +53,12 @@ export function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
     console.warn("[sync] upsertDatabase skipped: workspaceId 미설정", { dbId: bundle.meta.id });
     return;
   }
-  const payload = toGqlDatabase(bundle.meta, bundle.columns, getCreatedByMemberId());
+  const payload = toGqlDatabase(
+    bundle.meta,
+    bundle.columns,
+    getCreatedByMemberId(),
+    bundle.presets,
+  );
   enqueueAsync(
     "upsertDatabase",
     payload as Record<string, unknown> & { id: string; updatedAt?: string },
@@ -191,4 +199,3 @@ export function isValidDatabaseSnapshot(
   if (!snapshot.meta || typeof snapshot.meta.id !== "string") return false;
   return true;
 }
-

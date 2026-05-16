@@ -84,13 +84,15 @@ export function DateCell({
         createPortal(
           <div
             ref={pop.popoverRef}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             style={{
               position: "fixed",
               top: pop.coords.top,
               left: pop.coords.left,
               width: 248,
             }}
-            className="z-50 rounded-md border border-zinc-200 bg-white p-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-[700] rounded-md border border-zinc-200 bg-white p-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <CalendarMonth
               viewMonth={viewMonth}

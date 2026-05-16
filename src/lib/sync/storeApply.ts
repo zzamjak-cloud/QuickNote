@@ -12,11 +12,12 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { Page } from "../../types/page";
-import type { ColumnDef, DatabaseBundle } from "../../types/database";
+import type { ColumnDef, DatabaseBundle, DatabaseRowPreset } from "../../types/database";
 import type { JSONContent } from "@tiptap/react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
+import { isLCSchedulerDatabaseId } from "../scheduler/database";
 
 /**
  * 구독 레이스·백엔드 오류로 다른 워크스페이스 스냅샷이 내려올 때 로컬 캐시가 오염되지 않게 한다.
@@ -292,6 +293,14 @@ export function applyRemoteDatabaseToStore(
   const local = useDatabaseStore.getState().databases[d.id];
 
   if (d.deletedAt) {
+    if (isLCSchedulerDatabaseId(d.id)) {
+      useDatabaseStore.setState((s) =>
+        s.cacheWorkspaceId === d.workspaceId
+          ? s
+          : { ...s, cacheWorkspaceId: d.workspaceId },
+      );
+      return;
+    }
     useDatabaseStore.setState((s) => {
       const bundle = s.databases[d.id];
       if (!bundle) return s;
@@ -312,6 +321,7 @@ export function applyRemoteDatabaseToStore(
   }
 
   const columns = parseAwsJson<ColumnDef[]>(d.columns, []);
+  const presets = parseAwsJson<DatabaseRowPreset[]>(d.presets, []);
   const derivedRowOrder = collectRowPageIdsForDatabase(d.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
 
@@ -323,6 +333,7 @@ export function applyRemoteDatabaseToStore(
       updatedAt: isoToMs(d.updatedAt) || Date.now(),
     },
     columns,
+    presets,
     rowPageOrder,
   };
 

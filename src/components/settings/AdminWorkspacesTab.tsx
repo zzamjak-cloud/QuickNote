@@ -14,6 +14,7 @@ import {
 import { CreateWorkspaceModal } from "../workspace/CreateWorkspaceModal";
 import { EditWorkspaceModal } from "../workspace/EditWorkspaceModal";
 import { WorkspaceDeleteConfirmDialog } from "../workspace/WorkspaceDeleteConfirmDialog";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 
 type TabType = "active" | "archived";
 
@@ -59,6 +60,8 @@ export function AdminWorkspacesTab() {
     () => sharedAll.find((w) => w.workspaceId === editingWorkspaceId) ?? null,
     [sharedAll, editingWorkspaceId],
   );
+  const editingWorkspaceLocked =
+    editingWorkspace?.workspaceId === LC_SCHEDULER_WORKSPACE_ID;
 
   const openEditModal = async (workspaceId: string) => {
     const target = sharedAll.find((w) => w.workspaceId === workspaceId);
@@ -67,7 +70,11 @@ export function AdminWorkspacesTab() {
     setOpenEdit(false);
     try {
       const detail = await getWorkspaceApi(target.workspaceId);
-      setEditEntries(detail.access);
+      setEditEntries(
+        target.workspaceId === LC_SCHEDULER_WORKSPACE_ID
+          ? [{ subjectType: "EVERYONE", level: "EDIT" }]
+          : detail.access,
+      );
       setEditingWorkspaceId(target.workspaceId);
       setOpenEdit(true);
     } catch {
@@ -280,6 +287,10 @@ export function AdminWorkspacesTab() {
           }}
           onSave={async ({ name, entries }) => {
             if (!editingWorkspace) return;
+            if (editingWorkspaceLocked) {
+              showToast("LC스케줄러 권한은 모든 구성원 편집으로 고정됩니다.", { kind: "info" });
+              return;
+            }
             const updated = await updateWorkspaceApi({
               workspaceId: editingWorkspace.workspaceId,
               name,
@@ -298,6 +309,11 @@ export function AdminWorkspacesTab() {
             setDeleteWorkspaceId(editingWorkspace.workspaceId);
             setDeletePhraseDraft("");
           }}
+          lockedReason={
+            editingWorkspaceLocked
+              ? "LC스케줄러 워크스페이스는 모든 구성원 편집 권한으로 고정됩니다."
+              : undefined
+          }
         />
       ) : null}
       {editingWorkspace ? (

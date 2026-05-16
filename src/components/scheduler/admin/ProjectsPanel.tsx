@@ -1,6 +1,6 @@
 // 설정 모달 — 프로젝트 관리 패널 (추가/편집/삭제/멤버 배정/활성화 토글).
-import { useState } from "react";
-import { Plus, Pencil, Trash2, Eye, EyeOff, Check, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, Pencil, Trash2, Eye, Check, X, Search } from "lucide-react";
 import { useMemberStore } from "../../../store/memberStore";
 import {
   useSchedulerProjectsStore,
@@ -33,6 +33,10 @@ export function ProjectsPanel() {
   // 현재 인라인 편집 중인 프로젝트 ID + 폼 값
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM);
+  const [showArchive, setShowArchive] = useState(false);
+
+  const activeProjects = projects.filter((project) => !project.isHidden);
+  const archivedProjects = projects.filter((project) => project.isHidden);
 
   // 멤버 체크박스 토글 헬퍼
   function toggleMember(
@@ -100,14 +104,68 @@ export function ProjectsPanel() {
     <div className="space-y-3">
       {/* 추가 버튼 */}
       {!showAddForm && (
-        <button
-          type="button"
-          onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors"
-        >
-          <Plus size={13} />
-          프로젝트 추가
-        </button>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setShowArchive((v) => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+          >
+            프로젝트 보관함
+            <span className="text-[10px] text-zinc-400">({archivedProjects.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+          >
+            <Plus size={13} />
+            +프로젝트 추가
+          </button>
+        </div>
+      )}
+
+      {/* 프로젝트 보관함 */}
+      {showArchive && (
+        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/60">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+              보관된 프로젝트
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowArchive(false)}
+              className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+            >
+              닫기
+            </button>
+          </div>
+          {archivedProjects.length === 0 && (
+            <div className="rounded border border-dashed border-zinc-300 px-2 py-4 text-center text-xs text-zinc-400 dark:border-zinc-700">
+              보관된 프로젝트가 없습니다.
+            </div>
+          )}
+          <div className="space-y-1">
+            {archivedProjects.map((project) => (
+              <div
+                key={project.id}
+                className="flex items-center gap-2 rounded border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-700 dark:bg-zinc-800"
+              >
+                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
+                <span className="min-w-0 flex-1 truncate text-sm text-zinc-500 dark:text-zinc-400 line-through">
+                  {project.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => workspaceId && void updateProject({ id: project.id, workspaceId, isHidden: false })}
+                  className="rounded p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                  title="복원"
+                >
+                  <Eye size={14} className="text-amber-500" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* 추가 폼 */}
@@ -124,13 +182,13 @@ export function ProjectsPanel() {
       )}
 
       {/* 프로젝트 목록 */}
-      {projects.length === 0 && !showAddForm && (
+      {activeProjects.length === 0 && !showAddForm && (
         <div className="flex items-center justify-center h-24 text-sm text-zinc-400">
           등록된 프로젝트가 없습니다.
         </div>
       )}
 
-      {projects.map((project) => (
+      {activeProjects.map((project) => (
         <div
           key={project.id}
           className="border border-zinc-200 dark:border-zinc-700 rounded-md overflow-hidden"
@@ -158,14 +216,10 @@ export function ProjectsPanel() {
             <button
               type="button"
               onClick={() => workspaceId && void updateProject({ id: project.id, workspaceId, isHidden: !project.isHidden })}
-              title={project.isHidden ? "활성화" : "비활성화"}
+              title="보관함으로 이동"
               className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
             >
-              {project.isHidden ? (
-                <EyeOff size={15} className="text-zinc-400" />
-              ) : (
-                <Eye size={15} className="text-amber-500" />
-              )}
+              <Eye size={15} className="text-amber-500" />
             </button>
             {/* 편집 버튼 */}
             <button
@@ -230,67 +284,140 @@ function ProjectForm({
   onCancel,
   saveLabel,
 }: ProjectFormProps) {
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
+  const [memberQuery, setMemberQuery] = useState("");
+  const normalizedMemberQuery = memberQuery.trim().toLowerCase();
+  const filteredMembers = normalizedMemberQuery
+    ? activeMembers.filter((m) => m.name.toLowerCase().includes(normalizedMemberQuery))
+    : activeMembers;
+  const selectedMembers = activeMembers.filter((m) => form.memberIds.includes(m.memberId));
+
+  useEffect(() => {
+    const el = descriptionRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(72, el.scrollHeight)}px`;
+  }, [form.description]);
+
   return (
     <div className="space-y-3">
-      {/* 이름 */}
-      <div>
-        <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-          프로젝트 이름
-        </label>
-        <input
-          type="text"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="프로젝트 이름"
-          className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
-        />
-      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="space-y-3">
+          {/* 이름 */}
+          <div>
+            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
+              프로젝트 이름
+            </label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="프로젝트 이름"
+              className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+          </div>
 
-      {/* 설명 */}
-      <div>
-        <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-          설명 (선택)
-        </label>
-        <input
-          type="text"
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          placeholder="프로젝트 설명"
-          className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
-        />
-      </div>
+          {/* 설명 */}
+          <div>
+            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
+              프로젝트 설명 (선택)
+            </label>
+            <textarea
+              ref={descriptionRef}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              onInput={(e) => {
+                const target = e.currentTarget;
+                target.style.height = "auto";
+                target.style.height = `${Math.max(72, target.scrollHeight)}px`;
+              }}
+              placeholder="프로젝트 설명"
+              rows={3}
+              className="w-full min-h-[72px] px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none overflow-hidden"
+            />
+          </div>
+        </div>
 
-      {/* 색상 */}
-      <div>
-        <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
-          색상
-        </label>
-        <ColorPickerGrid value={form.color} onChange={(c) => setForm({ ...form, color: c })} />
+        {/* 색상 */}
+        <div>
+          <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
+            색상
+          </label>
+          <ColorPickerGrid value={form.color} onChange={(c) => setForm({ ...form, color: c })} />
+        </div>
       </div>
 
       {/* 구성원 선택 */}
       {activeMembers.length > 0 && (
-        <div>
-          <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
-            구성원
-          </label>
-          <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto">
-            {activeMembers.map((m) => (
-              <label
-                key={m.memberId}
-                className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
-              >
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
+              등록된 구성원 ({selectedMembers.length})
+            </label>
+            <div className="max-h-40 overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
+              {selectedMembers.length === 0 && (
+                <div className="px-2 py-3 text-center text-xs text-zinc-400">
+                  아직 등록된 구성원이 없습니다.
+                </div>
+              )}
+              {selectedMembers.map((m) => (
+                <label
+                  key={m.memberId}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                >
+                  <input
+                    type="checkbox"
+                    checked
+                    onChange={() => onToggleMember(m.memberId)}
+                    className="accent-amber-500"
+                  />
+                  <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">
+                    {m.name}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
+              구성원 검색/추가
+            </label>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 rounded border border-zinc-200 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900">
+                <Search size={12} className="shrink-0 text-zinc-400" />
                 <input
-                  type="checkbox"
-                  checked={form.memberIds.includes(m.memberId)}
-                  onChange={() => onToggleMember(m.memberId)}
-                  className="accent-amber-500"
+                  type="search"
+                  value={memberQuery}
+                  onChange={(e) => setMemberQuery(e.target.value)}
+                  placeholder="구성원 검색"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
                 />
-                <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">
-                  {m.name}
-                </span>
-              </label>
-            ))}
+              </div>
+              <div className="grid max-h-40 grid-cols-1 gap-1 overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
+                {filteredMembers.map((m) => (
+                  <label
+                    key={m.memberId}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.memberIds.includes(m.memberId)}
+                      onChange={() => onToggleMember(m.memberId)}
+                      className="accent-amber-500"
+                    />
+                    <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">
+                      {m.name}
+                    </span>
+                  </label>
+                ))}
+                {filteredMembers.length === 0 && (
+                  <div className="px-2 py-3 text-center text-xs text-zinc-400">
+                    검색 결과가 없습니다.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

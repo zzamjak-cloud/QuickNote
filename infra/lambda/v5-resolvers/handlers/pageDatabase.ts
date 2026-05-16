@@ -35,7 +35,15 @@ function decodeTrashCursor(s: string | null | undefined): TrashListCursor | null
     return null;
   }
 }
-import { badRequest, notFound, requireWorkspaceAccess, type Member } from "./_auth";
+import {
+  badRequest,
+  forbidden,
+  getLCSchedulerWorkspaceIdFromDatabaseId,
+  isLCSchedulerDatabaseId,
+  notFound,
+  requireWorkspaceAccess,
+  type Member,
+} from "./_auth";
 import type { Tables } from "./member";
 
 type Connection<T> = { items: T[]; nextToken?: string | null };
@@ -239,6 +247,12 @@ export async function upsertDatabase(args: {
   input: Record<string, unknown>;
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Databases) badRequest("Databases table 미설정");
+  const id = typeof args.input.id === "string" ? args.input.id : "";
+  const workspaceId = typeof args.input.workspaceId === "string" ? args.input.workspaceId : "";
+  const schedulerWorkspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(id);
+  if (schedulerWorkspaceId && schedulerWorkspaceId !== workspaceId) {
+    badRequest("LC스케줄러 DB ID와 워크스페이스가 일치하지 않습니다");
+  }
   return upsertRecord({ ...args, tableName: args.tables.Databases });
 }
 
@@ -303,6 +317,9 @@ export async function softDeleteDatabase(args: {
   updatedAt: string;
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Databases) badRequest("Databases table 미설정");
+  if (isLCSchedulerDatabaseId(args.id)) {
+    forbidden("LC스케줄러 데이터베이스는 삭제할 수 없습니다");
+  }
   return softDeleteRecord({ ...args, tableName: args.tables.Databases });
 }
 

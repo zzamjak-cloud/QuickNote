@@ -41,6 +41,7 @@ import { useBlockCommentStore } from "./store/blockCommentStore";
 import { migratePageBlockCommentsToServerOnce } from "./lib/comments/migratePageBlockCommentsToServer";
 import { useNotificationStore } from "./store/notificationStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
+import { ensureLCSchedulerDatabase } from "./lib/scheduler/database";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -189,6 +190,8 @@ function useSyncBootstrap(): boolean {
           for (const p of pages)
             applyRemotePageToStore(p);
           for (const d of dbs) applyRemoteDatabaseToStore(d);
+          await ensureLCSchedulerDatabase(currentWorkspaceId);
+          if (cancelled) return;
           for (const c of comments) applyRemoteCommentToStore(c);
           migratePageBlockCommentsToServerOnce(currentWorkspaceId);
         };
@@ -310,6 +313,7 @@ function useSyncBootstrap(): boolean {
             ]);
             for (const p of pages) applyRemotePageToStore(p);
             for (const d of dbs) applyRemoteDatabaseToStore(d);
+            await ensureLCSchedulerDatabase(wsId);
             for (const c of comments) applyRemoteCommentToStore(c);
           };
           await fetchApply();

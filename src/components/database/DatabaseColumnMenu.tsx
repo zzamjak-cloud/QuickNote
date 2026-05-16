@@ -4,9 +4,11 @@ import { Trash2, Type } from "lucide-react";
 import type { ColumnDef, ColumnType } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { ColumnOptionsEditor } from "./ColumnOptionsEditor";
+import { isLCSchedulerDatabaseId, isLCSchedulerRequiredColumnId } from "../../lib/scheduler/database";
 
 const TYPE_LABELS: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
+  { id: "json", label: "JSON" },
   { id: "number", label: "숫자" },
   { id: "select", label: "선택" },
   { id: "multiSelect", label: "다중 선택" },
@@ -72,6 +74,8 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
   }, [onClose, anchorEl]);
 
   const isTitle = column.type === "title";
+  const isProtectedSchedulerColumn =
+    isLCSchedulerDatabaseId(databaseId) && isLCSchedulerRequiredColumnId(column.id);
   const isSelectKind =
     column.type === "select" || column.type === "multiSelect" || column.type === "status";
 
@@ -81,7 +85,9 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
     <div
       ref={ref}
       style={{ position: "fixed", top: coords.top, left: coords.left, width: 260 }}
-      className="z-[490] rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      className="z-[700] rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     >
       {/* 속성 이름 편집 — title 컬럼 포함 항상 표시 */}
       <div className="border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
@@ -125,7 +131,7 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
         </div>
       )}
 
-      {!isTitle && (
+      {!isTitle && !isProtectedSchedulerColumn && (
         <button
           type="button"
           onClick={() => {
