@@ -1,10 +1,12 @@
 import { ChevronLeft, ChevronRight, ListTree, Plus, Star, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { LCSchedulerModal } from "../scheduler/LCSchedulerModal";
+
+const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
 
 export function TabBar() {
   const [schedulerOpen, setSchedulerOpen] = useState(false);
@@ -21,6 +23,12 @@ export function TabBar() {
   const rightPanelTab = useUiStore((s) => s.rightPanelTab);
   const tocPanelOpen = rightPanelOpen && rightPanelTab === "toc";
   const favoritesPanelOpen = rightPanelOpen && rightPanelTab === "favorites";
+
+  useEffect(() => {
+    const closeScheduler = () => setSchedulerOpen(false);
+    window.addEventListener(CLOSE_LC_SCHEDULER_EVENT, closeScheduler);
+    return () => window.removeEventListener(CLOSE_LC_SCHEDULER_EVENT, closeScheduler);
+  }, []);
 
   return (
     <div className="relative z-[350] flex h-9 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50 px-1 dark:border-zinc-800 dark:bg-zinc-900">

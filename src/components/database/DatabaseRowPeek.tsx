@@ -19,6 +19,7 @@ const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
 const MIN_PEEK_WIDTH = 380;
 const MAX_PEEK_WIDTH_RATIO = 0.9; // 화면 폭의 90%까지 허용
+const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
 
 function loadPeekWidth(): number {
   if (typeof window === "undefined") return DEFAULT_PEEK_WIDTH;
@@ -60,6 +61,7 @@ export function DatabaseRowPeek() {
   // 항목 페이지를 활성화하여 전체 페이지 뷰(DatabaseRowPage)가 보이게 한다.
   const openFullPage = () => {
     if (!peekPageId) return;
+    window.dispatchEvent(new CustomEvent(CLOSE_LC_SCHEDULER_EVENT));
     if (activePageId) setRowBackTarget(peekPageId, activePageId);
     setActivePage(peekPageId);
     setCurrentTabPage(peekPageId);

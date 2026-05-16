@@ -18,7 +18,6 @@ import { ScheduleEditPopup } from './ScheduleEditPopup'
 import type { Member } from '../../store/memberStore'
 import { getHolidaysForYear } from '../../lib/scheduler/koreanHolidays'
 import { LC_SCHEDULER_WORKSPACE_ID } from '../../lib/scheduler/scope'
-import { useWorkspaceStore } from '../../store/workspaceStore'
 
 // date-fns 미설치 → 인라인 날짜 유틸
 function addWeeks(d: Date, n: number): Date {
@@ -513,7 +512,6 @@ export function WeekScheduleView() {
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId)
   const multiSelectedIds = useSchedulerViewStore((s) => s.multiSelectedIds)
   const weekendColor = useSchedulerViewStore((s) => s.weekendColor)
-  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId)
 
   const visibleMembers = useVisibleMembers()
 
@@ -535,7 +533,7 @@ export function WeekScheduleView() {
     return [...orgs, ...tms]
   }, [organizations, teams])
 
-  const workspaceId = currentWorkspaceId ?? LC_SCHEDULER_WORKSPACE_ID
+  const workspaceId = LC_SCHEDULER_WORKSPACE_ID
 
   // 공식 공휴일 + 사용자 등록 공휴일 합집합으로 holidayMap/holidayTimeSet 구성
   const storeHolidays = useSchedulerHolidaysStore((s) => s.holidays)

@@ -8,7 +8,6 @@ import { useSchedulerHolidaysStore } from "../../store/schedulerHolidaysStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useSchedulerFiltersStore } from "../../store/schedulerFiltersStore";
-import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import type { SelectOption } from "../../types/database";
@@ -45,8 +44,7 @@ export function LCSchedulerModal({ onClose }: Props) {
   const disabledTeamIds = useSchedulerFiltersStore((s) => s.disabledTeamIds);
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
-  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
-  const schedulerWorkspaceId = currentWorkspaceId ?? LC_SCHEDULER_WORKSPACE_ID;
+  const schedulerWorkspaceId = LC_SCHEDULER_WORKSPACE_ID;
   const schedulerDatabaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const schedulerDbUpdatedAt = useDatabaseStore(
     (s) => s.databases[schedulerDatabaseId]?.meta.updatedAt ?? 0,
