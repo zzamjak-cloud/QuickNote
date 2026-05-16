@@ -18,6 +18,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
 import { isLCSchedulerDatabaseId } from "../scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 
 /**
  * 구독 레이스·백엔드 오류로 다른 워크스페이스 스냅샷이 내려올 때 로컬 캐시가 오염되지 않게 한다.
@@ -27,6 +28,8 @@ function shouldApplyRemoteSnapshot(remoteWorkspaceId: string | null | undefined)
     console.warn("[sync] storeApply: workspaceId 없는 원격 항목은 적용하지 않음");
     return false;
   }
+  // LC 스케줄러는 공용 워크스페이스이므로 현재 선택 워크스페이스와 무관하게 반영한다.
+  if (remoteWorkspaceId === LC_SCHEDULER_WORKSPACE_ID) return true;
   const current = useWorkspaceStore.getState().currentWorkspaceId;
   if (!current) return true;
   if (current !== remoteWorkspaceId) {

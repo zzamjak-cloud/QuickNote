@@ -171,6 +171,7 @@ function useSyncBootstrap(): boolean {
     startedForRef.current = startedKey;
 
     let unsub: (() => void) | undefined;
+    let unsubLcScheduler: (() => void) | undefined;
     let cancelled = false;
     let schedulerRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -259,6 +260,24 @@ function useSyncBootstrap(): boolean {
           },
           onComment: applyRemoteCommentToStore,
         });
+        // LC 스케줄러는 공용 워크스페이스이므로 항상 별도 구독을 유지한다.
+        if (currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
+          unsubLcScheduler = startSubscriptions(LC_SCHEDULER_WORKSPACE_ID, {
+            onPage: (p) => {
+              applyRemotePageToStore(p);
+              if (isLCSchedulerDatabaseId(p.databaseId ?? null)) {
+                scheduleSchedulerRefresh();
+              }
+            },
+            onDatabase: (d) => {
+              applyRemoteDatabaseToStore(d);
+              if (isLCSchedulerDatabaseId(d.id)) {
+                scheduleSchedulerRefresh();
+              }
+            },
+            onComment: applyRemoteCommentToStore,
+          });
+        }
 
         const engine = await getSyncEngine();
         await engine.flush();
@@ -290,6 +309,7 @@ function useSyncBootstrap(): boolean {
       }
       try {
         unsub?.();
+        unsubLcScheduler?.();
       } catch (err) {
         console.error("[sync] unsubscribe failed", err);
       }
