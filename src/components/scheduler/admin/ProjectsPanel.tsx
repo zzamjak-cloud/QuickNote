@@ -1,6 +1,6 @@
 // 설정 모달 — 프로젝트 관리 패널 (추가/편집/삭제/멤버 배정/활성화 토글).
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Eye, EyeOff, Check, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, EyeOff, Check, X, Search } from "lucide-react";
 import { useMemberStore } from "../../../store/memberStore";
 import {
   useSchedulerProjectsStore,
@@ -230,6 +230,12 @@ function ProjectForm({
   onCancel,
   saveLabel,
 }: ProjectFormProps) {
+  const [memberQuery, setMemberQuery] = useState("");
+  const normalizedMemberQuery = memberQuery.trim().toLowerCase();
+  const filteredMembers = normalizedMemberQuery
+    ? activeMembers.filter((m) => m.name.toLowerCase().includes(normalizedMemberQuery))
+    : activeMembers;
+
   return (
     <div className="space-y-3">
       {/* 이름 */}
@@ -274,8 +280,18 @@ function ProjectForm({
           <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
             구성원
           </label>
-          <div className="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto">
-            {activeMembers.map((m) => (
+          <div className="mb-1.5 flex items-center gap-1.5 rounded border border-zinc-200 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900">
+            <Search size={12} className="shrink-0 text-zinc-400" />
+            <input
+              type="search"
+              value={memberQuery}
+              onChange={(e) => setMemberQuery(e.target.value)}
+              placeholder="구성원 검색"
+              className="min-w-0 flex-1 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
+            />
+          </div>
+          <div className="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto">
+            {filteredMembers.map((m) => (
               <label
                 key={m.memberId}
                 className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
@@ -291,6 +307,11 @@ function ProjectForm({
                 </span>
               </label>
             ))}
+            {filteredMembers.length === 0 && (
+              <div className="col-span-2 px-2 py-3 text-center text-xs text-zinc-400">
+                검색 결과가 없습니다.
+              </div>
+            )}
           </div>
         </div>
       )}
