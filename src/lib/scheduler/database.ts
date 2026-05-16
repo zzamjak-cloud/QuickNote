@@ -14,11 +14,14 @@ export const LC_SCHEDULER_COLUMN_IDS = {
   milestone: "lc-scheduler:milestone",
   version: "lc-scheduler:version",
   feature: "lc-scheduler:feature",
-  estimateMm: "lc-scheduler:estimateMm",
-  actualMm: "lc-scheduler:actualMm",
   color: "lc-scheduler:color",
   meta: "lc-scheduler:meta",
 } as const;
+
+const LEGACY_REMOVED_COLUMN_IDS = new Set<string>([
+  "lc-scheduler:estimateMm",
+  "lc-scheduler:actualMm",
+]);
 
 export const LC_SCHEDULER_REQUIRED_COLUMN_IDS = new Set<string>([
   LC_SCHEDULER_COLUMN_IDS.title,
@@ -98,8 +101,6 @@ function lcSchedulerColumns(): ColumnDef[] {
     { id: LC_SCHEDULER_COLUMN_IDS.milestone, name: "마일스톤", type: "select", width: 140, config: { options: [] } },
     { id: LC_SCHEDULER_COLUMN_IDS.version, name: "버전", type: "text", width: 120 },
     { id: LC_SCHEDULER_COLUMN_IDS.feature, name: "피쳐", type: "text", width: 160 },
-    { id: LC_SCHEDULER_COLUMN_IDS.estimateMm, name: "예상 MM", type: "number", width: 100 },
-    { id: LC_SCHEDULER_COLUMN_IDS.actualMm, name: "실적 MM", type: "number", width: 100 },
     {
       id: LC_SCHEDULER_COLUMN_IDS.color,
       name: "카드 색상",
@@ -134,8 +135,6 @@ function defaultPresets(databaseId: string, t: number): DatabaseRowPreset[] {
     LC_SCHEDULER_COLUMN_IDS.milestone,
     LC_SCHEDULER_COLUMN_IDS.version,
     LC_SCHEDULER_COLUMN_IDS.feature,
-    LC_SCHEDULER_COLUMN_IDS.estimateMm,
-    LC_SCHEDULER_COLUMN_IDS.actualMm,
     LC_SCHEDULER_COLUMN_IDS.color,
     LC_SCHEDULER_COLUMN_IDS.meta,
   ];
@@ -194,9 +193,25 @@ function mergeColumns(existing: ColumnDef[] | undefined): ColumnDef[] {
   });
   const requiredIds = new Set(required.map((column) => column.id));
   for (const column of existing ?? []) {
+    if (LEGACY_REMOVED_COLUMN_IDS.has(column.id)) continue;
     if (!requiredIds.has(column.id)) merged.push(column);
   }
   return merged;
+}
+
+function sanitizePreset(preset: DatabaseRowPreset): DatabaseRowPreset {
+  const columnDefaults = { ...(preset.columnDefaults ?? {}) };
+  for (const id of LEGACY_REMOVED_COLUMN_IDS) {
+    delete columnDefaults[id];
+  }
+  const filterIds = (ids: string[]) => ids.filter((id) => !LEGACY_REMOVED_COLUMN_IDS.has(id));
+  return {
+    ...preset,
+    columnDefaults,
+    requiredColumnIds: filterIds(preset.requiredColumnIds ?? []),
+    visibleColumnIds: filterIds(preset.visibleColumnIds ?? []),
+    hiddenColumnIds: filterIds(preset.hiddenColumnIds ?? []),
+  };
 }
 
 function mergePresets(
@@ -204,7 +219,7 @@ function mergePresets(
   existing: DatabaseRowPreset[] | undefined,
   t: number,
 ): DatabaseRowPreset[] {
-  const presets = [...(existing ?? [])];
+  const presets = [...(existing ?? [])].map(sanitizePreset);
   const existingIds = new Set(presets.map((preset) => preset.id));
   for (const preset of defaultPresets(databaseId, t)) {
     if (!existingIds.has(preset.id)) presets.push(preset);
