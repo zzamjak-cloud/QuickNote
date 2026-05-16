@@ -33,7 +33,7 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
 
   return (
     <div className="ml-4 mt-2 space-y-1 border-l border-zinc-100 pl-2 dark:border-zinc-800">
-      <div className="text-[10px] font-medium text-zinc-500">선택 옵션</div>
+      <div className="text-sm font-medium text-zinc-500">선택 옵션</div>
       {opts.map((o) => (
         <div key={o.id} className="flex items-center gap-1">
           <OptionColorSwatch
@@ -53,7 +53,7 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
                 ),
               )
             }
-            className="min-w-0 flex-1 rounded border border-zinc-200 px-1 py-0.5 text-[11px] dark:border-zinc-700 dark:bg-zinc-900"
+            className="min-w-0 flex-1 rounded border border-zinc-200 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           />
           <button
             type="button"
@@ -79,7 +79,7 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
         }
         className="flex items-center gap-1 text-[11px] text-blue-600 hover:underline dark:text-blue-400"
       >
-        <Plus size={12} /> 옵션 추가
+        <Plus size={14} /> 옵션 추가
       </button>
     </div>
   );

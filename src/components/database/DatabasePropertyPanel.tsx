@@ -365,10 +365,10 @@ export function DatabasePropertyPanel({
                       onChange={(e) => setSavePresetScope(e.target.value as PresetScope)}
                       className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
                     >
-                      <option value="workspace">워크스페이스</option>
-                      <option value="organization">조직</option>
-                      <option value="team">팀</option>
-                      <option value="project">프로젝트</option>
+                      <option value="workspace">프리셋을 모두가 사용</option>
+                      <option value="organization">프리셋을 조직에서만 사용</option>
+                      <option value="team">프리셋을 팀에서만 사용</option>
+                      <option value="project">프리셋을 프로젝트에서만 사용</option>
                     </select>
                     {savePresetScope !== "workspace" && (
                       <select
