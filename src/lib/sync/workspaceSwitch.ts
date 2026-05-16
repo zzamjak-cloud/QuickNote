@@ -2,6 +2,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { getSyncEngine } from "./runtime";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 
 // 워크스페이스 전환 시 이전 워크스페이스에 속하던 페이지/DB 캐시를 제거한다.
 // 로컬 스토어는 workspaceId 스코프가 없는 평면 맵이라, 새 워크스페이스 데이터를
@@ -69,7 +70,13 @@ export async function applyWorkspaceSwitch(
   let pending = 0;
   try {
     const engine = await getSyncEngine();
-    pending = await engine.peekPending();
+    const snapshot = (await engine.debugSnapshot()) as Array<{ workspaceId?: string | null }>;
+    pending = snapshot.filter((entry) => {
+      const ws = typeof entry.workspaceId === "string" ? entry.workspaceId : null;
+      // LC 스케줄러 공용 outbox 항목은 일반 워크스페이스 캐시 전환 보류 사유에서 제외한다.
+      if (ws === LC_SCHEDULER_WORKSPACE_ID) return false;
+      return true;
+    }).length;
   } catch {
     /* outbox 조회 실패 시 클리어 보류 쪽으로 안전 처리 */
   }
