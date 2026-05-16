@@ -4,6 +4,7 @@ import { Trash2, Type } from "lucide-react";
 import type { ColumnDef, ColumnType } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { ColumnOptionsEditor } from "./ColumnOptionsEditor";
+import { isLCSchedulerDatabaseId, isLCSchedulerRequiredColumnId } from "../../lib/scheduler/database";
 
 const TYPE_LABELS: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -73,6 +74,8 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
   }, [onClose, anchorEl]);
 
   const isTitle = column.type === "title";
+  const isProtectedSchedulerColumn =
+    isLCSchedulerDatabaseId(databaseId) && isLCSchedulerRequiredColumnId(column.id);
   const isSelectKind =
     column.type === "select" || column.type === "multiSelect" || column.type === "status";
 
@@ -128,7 +131,7 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
         </div>
       )}
 
-      {!isTitle && (
+      {!isTitle && !isProtectedSchedulerColumn && (
         <button
           type="button"
           onClick={() => {

@@ -6,15 +6,13 @@ import { OrganizationsPanel } from "./admin/OrganizationsPanel";
 import { TeamsPanel } from "./admin/TeamsPanel";
 import { ProjectsPanel } from "./admin/ProjectsPanel";
 import { HolidaysPanel } from "./admin/HolidaysPanel";
-import { PropertyPresetsPanel } from "./admin/PropertyPresetsPanel";
 
-type Tab = "organizations" | "teams" | "projects" | "presets" | "holidays";
+type Tab = "organizations" | "teams" | "projects" | "holidays";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "organizations", label: "조직" },
   { id: "teams", label: "팀" },
   { id: "projects", label: "프로젝트" },
-  { id: "presets", label: "속성 프리셋" },
   { id: "holidays", label: "공휴일" },
 ];
 
@@ -82,7 +80,6 @@ export function SchedulerSettingsModal({ onClose }: Props) {
           {activeTab === "organizations" && <OrganizationsPanel />}
           {activeTab === "teams" && <TeamsPanel />}
           {activeTab === "projects" && <ProjectsPanel />}
-          {activeTab === "presets" && <PropertyPresetsPanel />}
           {activeTab === "holidays" && <HolidaysPanel />}
         </div>
       </div>
