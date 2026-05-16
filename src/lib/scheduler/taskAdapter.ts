@@ -10,6 +10,7 @@ import {
   makeLCSchedulerDatabaseId,
   ensureLCSchedulerDatabase,
 } from "./database";
+import { readRememberedSchedulerPropertyValues } from "./lastPropertyMemory";
 import {
   parseSchedulerTaskMeta,
   setSchedulerTaskRowIndex,
@@ -160,6 +161,11 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
     : "lc-scheduler-preset:task";
   if (bundle?.presets?.some((preset) => preset.id === presetId)) {
     useDatabaseStore.getState().applyPresetToRow(databaseId, pageId, presetId);
+  }
+  // 사용자가 마지막으로 적용한 속성값을 새 일정 생성 시 기본값으로 복원한다.
+  const remembered = readRememberedSchedulerPropertyValues(input.workspaceId);
+  for (const [columnId, value] of Object.entries(remembered)) {
+    setCell(databaseId, pageId, columnId, value);
   }
   return updateLCSchedulerSchedule({
     id: makeScheduleInstanceId(pageId, input.assigneeId ?? null),

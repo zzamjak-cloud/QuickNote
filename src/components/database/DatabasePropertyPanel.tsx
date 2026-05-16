@@ -9,7 +9,9 @@ import {
   isLCSchedulerDatabaseId,
   isLCSchedulerHiddenPropertyColumnId,
   LC_SCHEDULER_COLUMN_IDS,
+  getLCSchedulerWorkspaceIdFromDatabaseId,
 } from "../../lib/scheduler/database";
+import { rememberSchedulerPropertyValues } from "../../lib/scheduler/lastPropertyMemory";
 
 const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -159,6 +161,13 @@ export function DatabasePropertyPanel({
     const preset = presets.find((item) => item.id === selectedPresetId);
     setHiddenColumnIds([...(preset?.hiddenColumnIds ?? [])]);
   }, [presets, selectedPresetId]);
+
+  useEffect(() => {
+    if (!isSchedulerDb) return;
+    const workspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(databaseId);
+    if (!workspaceId) return;
+    rememberSchedulerPropertyValues(workspaceId, rowCells);
+  }, [databaseId, isSchedulerDb, rowCells]);
 
   useEffect(() => {
     if (savePresetScope === "workspace") {
