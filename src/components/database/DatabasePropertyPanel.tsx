@@ -47,6 +47,13 @@ function readPresetIdFromMeta(metaCell: CellValue): string | null {
   return typeof candidate === "string" && candidate.trim() ? candidate : null;
 }
 
+function scopeColumnId(scope: PresetScope): string | null {
+  if (scope === "organization") return LC_SCHEDULER_COLUMN_IDS.organization;
+  if (scope === "team") return LC_SCHEDULER_COLUMN_IDS.team;
+  if (scope === "project") return LC_SCHEDULER_COLUMN_IDS.project;
+  return null;
+}
+
 export function DatabasePropertyPanel({
   databaseId,
   pageId,
@@ -74,6 +81,7 @@ export function DatabasePropertyPanel({
   const [savePresetOpen, setSavePresetOpen] = useState(false);
   const [savePresetName, setSavePresetName] = useState("");
   const [savePresetScope, setSavePresetScope] = useState<PresetScope>("workspace");
+  const [savePresetScopeId, setSavePresetScopeId] = useState("");
   const [editPresetId, setEditPresetId] = useState<string | null>(null);
   const [editPresetName, setEditPresetName] = useState("");
   const presetMenuRef = useRef<HTMLDivElement | null>(null);
@@ -104,6 +112,14 @@ export function DatabasePropertyPanel({
     }),
     [rowOrganizationId, rowProjectId, rowTeamId],
   );
+
+  const saveScopeOptions = useMemo(() => {
+    if (savePresetScope === "workspace") return [];
+    const columnId = scopeColumnId(savePresetScope);
+    if (!columnId) return [];
+    const column = bundle?.columns.find((c) => c.id === columnId);
+    return column?.config?.options ?? [];
+  }, [bundle?.columns, savePresetScope]);
 
   const filteredPresets = useMemo(() => {
     if (!isSchedulerDb) return presets;
@@ -144,6 +160,19 @@ export function DatabasePropertyPanel({
     setHiddenColumnIds([...(preset?.hiddenColumnIds ?? [])]);
   }, [presets, selectedPresetId]);
 
+  useEffect(() => {
+    if (savePresetScope === "workspace") {
+      setSavePresetScopeId("");
+      return;
+    }
+    const rowScopeId = rowScopeIdByType[savePresetScope];
+    if (rowScopeId) {
+      setSavePresetScopeId(rowScopeId);
+      return;
+    }
+    setSavePresetScopeId(saveScopeOptions[0]?.id ?? "");
+  }, [rowScopeIdByType, savePresetScope, saveScopeOptions]);
+
   const visibleColumns = editableColumns.filter((col) => !hiddenColumnIds.includes(col.id));
 
   const currentPreset = presets.find((preset) => preset.id === selectedPresetId) ?? null;
@@ -166,7 +195,7 @@ export function DatabasePropertyPanel({
 
   function resolveScopeId(scope: PresetScope): string | undefined {
     if (scope === "workspace") return undefined;
-    return rowScopeIdByType[scope] ?? undefined;
+    return savePresetScopeId || undefined;
   }
 
   function buildPresetColumnDefaults(): Record<string, CellValue> {
@@ -194,7 +223,7 @@ export function DatabasePropertyPanel({
     }
     const scopeId = resolveScopeId(savePresetScope);
     if (savePresetScope !== "workspace" && !scopeId) {
-      window.alert(`${scopeLabel(savePresetScope)} 값이 없는 카드에서는 해당 스코프로 저장할 수 없습니다.`);
+      window.alert(`${scopeLabel(savePresetScope)} 대상을 선택해 주세요.`);
       return;
     }
     const presetId = addPreset(databaseId, {
@@ -341,6 +370,22 @@ export function DatabasePropertyPanel({
                       <option value="team">팀</option>
                       <option value="project">프로젝트</option>
                     </select>
+                    {savePresetScope !== "workspace" && (
+                      <select
+                        value={savePresetScopeId}
+                        onChange={(e) => setSavePresetScopeId(e.target.value)}
+                        className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                      >
+                        {saveScopeOptions.length === 0 && (
+                          <option value="">대상 없음</option>
+                        )}
+                        {saveScopeOptions.map((opt) => (
+                          <option key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <button
                       type="button"
                       onClick={handleCreatePresetFromCurrent}
