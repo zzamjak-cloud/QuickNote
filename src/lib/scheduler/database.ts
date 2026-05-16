@@ -126,10 +126,10 @@ function defaultPresets(databaseId: string, t: number): DatabaseRowPreset[] {
     LC_SCHEDULER_COLUMN_IDS.title,
     LC_SCHEDULER_COLUMN_IDS.assignees,
     LC_SCHEDULER_COLUMN_IDS.period,
-    LC_SCHEDULER_COLUMN_IDS.project,
     LC_SCHEDULER_COLUMN_IDS.status,
   ];
   const hiddenColumnIds = [
+    LC_SCHEDULER_COLUMN_IDS.project,
     LC_SCHEDULER_COLUMN_IDS.organization,
     LC_SCHEDULER_COLUMN_IDS.team,
     LC_SCHEDULER_COLUMN_IDS.milestone,
@@ -220,11 +220,24 @@ function mergePresets(
   t: number,
 ): DatabaseRowPreset[] {
   const presets = [...(existing ?? [])].map(sanitizePreset);
-  const existingIds = new Set(presets.map((preset) => preset.id));
-  for (const preset of defaultPresets(databaseId, t)) {
-    if (!existingIds.has(preset.id)) presets.push(preset);
+  const defaults = defaultPresets(databaseId, t);
+  const defaultById = new Map(defaults.map((preset) => [preset.id, preset]));
+  const nextPresets = presets.map((preset) => {
+    const base = defaultById.get(preset.id);
+    if (!base) return preset;
+    defaultById.delete(preset.id);
+    return {
+      ...preset,
+      requiredColumnIds: [...base.requiredColumnIds],
+      visibleColumnIds: [...base.visibleColumnIds],
+      hiddenColumnIds: [...base.hiddenColumnIds],
+      databaseId,
+    };
+  });
+  for (const preset of defaultById.values()) {
+    nextPresets.push(preset);
   }
-  return presets.map((preset) => ({ ...preset, databaseId }));
+  return nextPresets.map((preset) => ({ ...preset, databaseId }));
 }
 
 export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<void> {

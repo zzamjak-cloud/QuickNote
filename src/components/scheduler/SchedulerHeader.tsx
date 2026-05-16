@@ -49,9 +49,39 @@ export function SchedulerHeader({ onClose }: Props) {
   );
   const visibleProjects = projects.filter((p) => !p.isHidden);
 
-  // 선택값 없으면 첫 조직 → 첫 팀 → 첫 프로젝트 순으로 자동 선택
+  const hasSelectedInVisibleOptions = (() => {
+    if (!selectedProjectId) return false;
+    if (selectedProjectId.startsWith("org:")) {
+      const orgId = selectedProjectId.slice(4);
+      return visibleOrgs.some((org) => org.organizationId === orgId);
+    }
+    if (selectedProjectId.startsWith("team:")) {
+      const teamId = selectedProjectId.slice(5);
+      return visibleTeams.some((team) => team.teamId === teamId);
+    }
+    if (selectedProjectId.startsWith("proj:")) {
+      const projectId = selectedProjectId.slice(5);
+      return visibleProjects.some((project) => project.id === projectId);
+    }
+    return false;
+  })();
+
+  // 선택값이 없거나 현재 옵션에서 사라진 경우, 첫 조직 → 첫 팀 → 첫 프로젝트 순으로 자동 보정
   useEffect(() => {
-    if (selectedProjectId) return;
+    if (selectedProjectId && hasSelectedInVisibleOptions) return;
+
+    if (selectedProjectId?.startsWith("team:")) {
+      const teamId = selectedProjectId.slice(5);
+      const selectedTeam = teams.find((team) => team.teamId === teamId);
+      const sameNamedOrg = selectedTeam
+        ? visibleOrgs.find((org) => org.name.trim() === selectedTeam.name.trim())
+        : null;
+      if (sameNamedOrg) {
+        setSelectedProjectId(`org:${sameNamedOrg.organizationId}`);
+        return;
+      }
+    }
+
     if (visibleOrgs.length > 0 && visibleOrgs[0]) {
       setSelectedProjectId(`org:${visibleOrgs[0].organizationId}`);
     } else if (visibleTeams.length > 0 && visibleTeams[0]) {
@@ -61,6 +91,8 @@ export function SchedulerHeader({ onClose }: Props) {
     }
   }, [
     selectedProjectId,
+    hasSelectedInVisibleOptions,
+    teams,
     visibleOrgs,
     visibleTeams,
     visibleProjects,

@@ -7,6 +7,7 @@ import { useSchedulerStore, type Schedule, type CreateScheduleInput, type Update
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { pickTextColor } from "../../lib/scheduler/colors";
 import { ColorPickerGrid } from "./ColorPickerGrid";
+import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 // Date → "YYYY-MM-DD" 변환
 function toDateInputValue(iso: string): string {
@@ -75,6 +76,7 @@ export function ScheduleEditPopup({
   );
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // ESC 닫기
   useEffect(() => {
@@ -127,8 +129,7 @@ export function ScheduleEditPopup({
 
   const handleDelete = useCallback(async () => {
     if (!schedule) return;
-    const ok = window.confirm(`"${schedule.title || "제목 없음"}" 일정을 삭제하시겠습니까?`);
-    if (!ok) return;
+    setDeleteConfirmOpen(false);
     onClose();
     setDeleting(true);
     try {
@@ -139,7 +140,7 @@ export function ScheduleEditPopup({
     } finally {
       setDeleting(false);
     }
-  }, [schedule, workspaceId, deleteSchedule, onClose]);
+  }, [schedule, workspaceId, deleteSchedule, onClose, setDeleteConfirmOpen]);
 
   return createPortal(
     <div
@@ -253,7 +254,7 @@ export function ScheduleEditPopup({
           {isEdit && (
             <button
               type="button"
-              onClick={() => void handleDelete()}
+              onClick={() => setDeleteConfirmOpen(true)}
               disabled={deleting}
               className="px-3 py-1.5 text-sm rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white transition-colors mr-auto"
             >
@@ -277,6 +278,16 @@ export function ScheduleEditPopup({
           </button>
         </div>
       </div>
+      <SimpleConfirmDialog
+        open={deleteConfirmOpen}
+        title="일정 삭제"
+        message={`"${schedule?.title || "제목 없음"}" 일정을 삭제하시겠습니까?`}
+        confirmLabel="삭제"
+        danger
+        zIndex={900}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => void handleDelete()}
+      />
     </div>,
     document.body,
   );

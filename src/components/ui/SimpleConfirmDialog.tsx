@@ -5,6 +5,7 @@ type Props = {
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
+  zIndex?: number;
   onCancel: () => void;
   onConfirm: () => void;
 };
@@ -16,6 +17,7 @@ export function SimpleConfirmDialog({
   confirmLabel = "확인",
   cancelLabel = "취소",
   danger = false,
+  zIndex = 500,
   onCancel,
   onConfirm,
 }: Props) {
@@ -23,7 +25,8 @@ export function SimpleConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[500] flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 flex items-center justify-center bg-black/45 p-4"
+      style={{ zIndex }}
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
