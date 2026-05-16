@@ -55,6 +55,7 @@ export function ScheduleEditPopup({
   const members = useMemberStore((s) => s.members);
   const activeMembers = members.filter((m) => m.status === "active");
   const defaultColor = useSchedulerViewStore((s) => s.defaultScheduleColor);
+  const selectedScopeKey = useSchedulerViewStore((s) => s.selectedProjectId);
 
   const { createSchedule, updateSchedule, deleteSchedule } = useSchedulerStore();
 
@@ -112,6 +113,7 @@ export function ScheduleEditPopup({
           comment: comment || null,
           link: link || null,
           projectId: defaultProjectId ?? null,
+          selectedScopeKey,
           assigneeId: assigneeId || null,
           color,
           textColor: pickTextColor(color),
@@ -125,7 +127,7 @@ export function ScheduleEditPopup({
     } finally {
       setSaving(false);
     }
-  }, [isEdit, schedule, title, comment, link, assigneeId, color, startVal, endVal, workspaceId, defaultProjectId, defaultRowIndex, createSchedule, updateSchedule, onClose]);
+  }, [isEdit, schedule, title, comment, link, assigneeId, color, startVal, endVal, workspaceId, defaultProjectId, defaultRowIndex, selectedScopeKey, createSchedule, updateSchedule, onClose]);
 
   const handleDelete = useCallback(async () => {
     if (!schedule) return;

@@ -66,10 +66,14 @@ type SchedulerStore = {
   loading: boolean;
   /** 마지막으로 캐시된 workspaceId — 워크스페이스 전환 시 캐시 무효화에 사용 */
   cachedWorkspaceId: string | null;
+  /** 마지막 렌더 범위(캐시 재투영 기준) */
+  visibleRangeFrom: string | null;
+  visibleRangeTo: string | null;
   fetchSchedules: (workspaceId: string, from: string, to: string) => Promise<void>;
   createSchedule: (input: CreateScheduleInput) => Promise<Schedule>;
   updateSchedule: (input: UpdateScheduleInput) => Promise<Schedule>;
   deleteSchedule: (id: string, workspaceId: string) => Promise<void>;
+  refreshVisibleRangeFromLocal: (workspaceId?: string | null) => void;
   applyRemote: (s: Schedule) => void;
   removeLocal: (id: string) => void;
 };
@@ -95,6 +99,8 @@ export const useSchedulerStore = create<SchedulerStore>()(
       schedules: [],
       loading: false,
       cachedWorkspaceId: null,
+      visibleRangeFrom: null,
+      visibleRangeTo: null,
 
       fetchSchedules: async (workspaceId, from, to) => {
         // 워크스페이스가 다르면 캐시를 비우고 시작 (다른 워크스페이스 데이터 노출 방지)
@@ -106,6 +112,8 @@ export const useSchedulerStore = create<SchedulerStore>()(
         set({
           schedules: projectSchedulesForStore(workspaceId, from, to),
           cachedWorkspaceId: workspaceId,
+          visibleRangeFrom: from,
+          visibleRangeTo: to,
           loading: false,
         });
       },
@@ -115,13 +123,23 @@ export const useSchedulerStore = create<SchedulerStore>()(
           ...input,
           selectedScopeKey: input.selectedScopeKey ?? useSchedulerViewStore.getState().selectedProjectId,
         });
-        set({ schedules: projectSchedulesForStore(input.workspaceId), cachedWorkspaceId: input.workspaceId });
+        const rangeFrom = get().visibleRangeFrom ?? undefined;
+        const rangeTo = get().visibleRangeTo ?? undefined;
+        set({
+          schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
+          cachedWorkspaceId: input.workspaceId,
+        });
         return s;
       },
 
       updateSchedule: async (input) => {
         const s = await updateLCSchedulerSchedule(input);
-        set({ schedules: projectSchedulesForStore(input.workspaceId), cachedWorkspaceId: input.workspaceId });
+        const rangeFrom = get().visibleRangeFrom ?? undefined;
+        const rangeTo = get().visibleRangeTo ?? undefined;
+        set({
+          schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
+          cachedWorkspaceId: input.workspaceId,
+        });
         return s;
       },
 
@@ -130,11 +148,27 @@ export const useSchedulerStore = create<SchedulerStore>()(
         set((st) => ({ schedules: st.schedules.filter((x) => x.id !== id) }));
         try {
           await deleteLCSchedulerSchedule(id, workspaceId);
-          set({ schedules: projectSchedulesForStore(workspaceId), cachedWorkspaceId: workspaceId });
+          const rangeFrom = get().visibleRangeFrom ?? undefined;
+          const rangeTo = get().visibleRangeTo ?? undefined;
+          set({
+            schedules: projectSchedulesForStore(workspaceId, rangeFrom, rangeTo),
+            cachedWorkspaceId: workspaceId,
+          });
         } catch (error) {
           set({ schedules: prevSchedules });
           throw error;
         }
+      },
+
+      refreshVisibleRangeFromLocal: (workspaceId) => {
+        const targetWorkspaceId = workspaceId ?? get().cachedWorkspaceId;
+        if (!targetWorkspaceId) return;
+        const rangeFrom = get().visibleRangeFrom ?? undefined;
+        const rangeTo = get().visibleRangeTo ?? undefined;
+        set({
+          schedules: projectSchedulesForStore(targetWorkspaceId, rangeFrom, rangeTo),
+          cachedWorkspaceId: targetWorkspaceId,
+        });
       },
 
       applyRemote: (s) => {
@@ -157,6 +191,8 @@ export const useSchedulerStore = create<SchedulerStore>()(
       partialize: (st) => ({
         schedules: st.schedules,
         cachedWorkspaceId: st.cachedWorkspaceId,
+        visibleRangeFrom: st.visibleRangeFrom,
+        visibleRangeTo: st.visibleRangeTo,
       }),
     },
   ),

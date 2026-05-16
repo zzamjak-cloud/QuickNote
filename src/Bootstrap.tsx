@@ -41,7 +41,11 @@ import { useBlockCommentStore } from "./store/blockCommentStore";
 import { migratePageBlockCommentsToServerOnce } from "./lib/comments/migratePageBlockCommentsToServer";
 import { useNotificationStore } from "./store/notificationStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
-import { ensureLCSchedulerDatabase } from "./lib/scheduler/database";
+import {
+  ensureLCSchedulerDatabase,
+  isLCSchedulerDatabaseId,
+} from "./lib/scheduler/database";
+import { useSchedulerStore } from "./store/schedulerStore";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -168,6 +172,7 @@ function useSyncBootstrap(): boolean {
 
     let unsub: (() => void) | undefined;
     let cancelled = false;
+    let schedulerRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     (async () => {
       try {
@@ -232,9 +237,26 @@ function useSyncBootstrap(): boolean {
         applyWorkspaceLanding(currentWorkspaceId);
 
         if (cancelled) return;
+        const scheduleSchedulerRefresh = () => {
+          if (schedulerRefreshTimer) return;
+          schedulerRefreshTimer = setTimeout(() => {
+            schedulerRefreshTimer = null;
+            useSchedulerStore.getState().refreshVisibleRangeFromLocal(currentWorkspaceId);
+          }, 80);
+        };
         unsub = startSubscriptions(currentWorkspaceId, {
-          onPage: applyRemotePageToStore,
-          onDatabase: applyRemoteDatabaseToStore,
+          onPage: (p) => {
+            applyRemotePageToStore(p);
+            if (isLCSchedulerDatabaseId(p.databaseId ?? null)) {
+              scheduleSchedulerRefresh();
+            }
+          },
+          onDatabase: (d) => {
+            applyRemoteDatabaseToStore(d);
+            if (isLCSchedulerDatabaseId(d.id)) {
+              scheduleSchedulerRefresh();
+            }
+          },
           onComment: applyRemoteCommentToStore,
         });
 
@@ -257,6 +279,10 @@ function useSyncBootstrap(): boolean {
 
     return () => {
       cancelled = true;
+      if (schedulerRefreshTimer) {
+        clearTimeout(schedulerRefreshTimer);
+        schedulerRefreshTimer = null;
+      }
       // 동일 키로 effect 가 다시 돌 때(React Strict Mode 등) startedForRef 가 남으면
       // 조기 return 으로 구독이 영구히 생기지 않을 수 있어 정리 시 초기화한다.
       if (startedForRef.current === startedKey) {

@@ -198,9 +198,9 @@ export function DatabasePropertyPanel({
         : null;
   const effectiveHiddenColumnIds = useMemo(() => {
     const next = new Set(hiddenColumnIds);
+    if (activeScopeColumnId) next.delete(activeScopeColumnId);
     if (isSpecialSchedulerCard) {
       next.add(LC_SCHEDULER_COLUMN_IDS.assignees);
-      if (activeScopeColumnId) next.delete(activeScopeColumnId);
     }
     return next;
   }, [activeScopeColumnId, hiddenColumnIds, isSpecialSchedulerCard]);
