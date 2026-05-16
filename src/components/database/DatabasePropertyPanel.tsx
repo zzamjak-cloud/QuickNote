@@ -6,6 +6,7 @@ import { useDatabaseStore, defaultColumnForType } from "../../store/databaseStor
 import { usePageStore } from "../../store/pageStore";
 import { DatabaseCell } from "./DatabaseCell";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
+import { isLCSchedulerHiddenPropertyColumnId } from "../../lib/scheduler/database";
 
 const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -47,7 +48,7 @@ export function DatabasePropertyPanel({
   return (
     <div className="my-3 space-y-1 border-y border-zinc-200 py-3 text-sm dark:border-zinc-800">
       {bundle.columns
-        .filter((c) => c.type !== "title")
+        .filter((c) => c.type !== "title" && !isLCSchedulerHiddenPropertyColumnId(c.id))
         .map((col) => {
           const value = (col.id in (page.dbCells ?? {}))
             ? page.dbCells![col.id]

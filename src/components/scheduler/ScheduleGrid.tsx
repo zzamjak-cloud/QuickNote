@@ -135,6 +135,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
   const updateSchedule = useSchedulerStore((s) => s.updateSchedule);
   const deleteSchedule = useSchedulerStore((s) => s.deleteSchedule);
   const openPeek = useUiStore((s) => s.openPeek);
+  const peekPageId = useUiStore((s) => s.peekPageId);
   const members = useMemberStore((s) => s.members);
   const {
     zoomLevel,
@@ -647,7 +648,14 @@ export function ScheduleGrid({ workspaceId }: Props) {
   ]);
 
   useEffect(() => {
+    const isEditableTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      return Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']"));
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (peekPageId || isEditableTarget(e.target)) return;
+
       if (e.key === "Escape" && selectedCardIds.size > 0) {
         clearSelection();
         return;
@@ -681,6 +689,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
     clearSelection,
     deleteSchedule,
     openSchedulePage,
+    peekPageId,
     schedules,
     selectedCardIds.size,
     selectSchedule,

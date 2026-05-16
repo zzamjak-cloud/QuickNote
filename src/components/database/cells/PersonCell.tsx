@@ -232,7 +232,9 @@ export function PersonCell({
       {open && coords && createPortal(
         <div
           style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width }}
-          className="z-50 max-h-52 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="z-[700] max-h-52 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
         >
           {items.length === 0 ? (
             <div className="px-2 py-1 text-xs text-zinc-500">멤버 검색 결과가 없습니다.</div>

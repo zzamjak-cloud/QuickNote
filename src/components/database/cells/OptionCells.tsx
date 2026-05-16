@@ -41,13 +41,15 @@ export function SelectCell({
         createPortal(
           <div
             ref={pop.popoverRef}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             style={{
               position: "fixed",
               top: pop.coords.top,
               left: pop.coords.left,
               width: 180,
             }}
-            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-[700] max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <button
               type="button"
@@ -132,8 +134,10 @@ export function MultiSelectCell({
         createPortal(
           <div
             ref={pop.popoverRef}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             style={{ position: "fixed", top: pop.coords.top, left: pop.coords.left, width: 200 }}
-            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-[700] max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             {opts.length === 0 ? (
               <div className="px-2 py-1 text-xs text-zinc-500">
@@ -212,13 +216,15 @@ export function StatusCell({
         createPortal(
           <div
             ref={pop.popoverRef}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             style={{
               position: "fixed",
               top: pop.coords.top,
               left: pop.coords.left,
               width: 180,
             }}
-            className="z-50 rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-[700] rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             {opts.length === 0 ? (
               <div className="px-2 py-1 text-xs text-zinc-500">옵션이 없습니다</div>

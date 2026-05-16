@@ -56,6 +56,10 @@ export function isLCSchedulerRequiredColumnId(columnId: string): boolean {
   return LC_SCHEDULER_REQUIRED_COLUMN_IDS.has(columnId);
 }
 
+export function isLCSchedulerHiddenPropertyColumnId(columnId: string): boolean {
+  return columnId === LC_SCHEDULER_COLUMN_IDS.meta;
+}
+
 function lcSchedulerColumns(): ColumnDef[] {
   return [
     { id: LC_SCHEDULER_COLUMN_IDS.title, name: "작업명", type: "title", width: 220 },

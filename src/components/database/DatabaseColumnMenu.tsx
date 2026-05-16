@@ -82,7 +82,9 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
     <div
       ref={ref}
       style={{ position: "fixed", top: coords.top, left: coords.left, width: 260 }}
-      className="z-[490] rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      className="z-[700] rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     >
       {/* 속성 이름 편집 — title 컬럼 포함 항상 표시 */}
       <div className="border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
