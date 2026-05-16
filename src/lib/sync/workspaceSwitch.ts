@@ -3,6 +3,7 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { getSyncEngine } from "./runtime";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
+import { isLCSchedulerDatabaseId } from "../scheduler/database";
 
 // 워크스페이스 전환 시 이전 워크스페이스에 속하던 페이지/DB 캐시를 제거한다.
 // 로컬 스토어는 workspaceId 스코프가 없는 평면 맵이라, 새 워크스페이스 데이터를
@@ -12,16 +13,25 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 // 그렇지 않으면 서버에 도달하지 못한 새 페이지가 영구 손실된다.
 //
 function hasLocalWorkspaceCache(): boolean {
+  const hasNonSchedulerPages = Object.values(usePageStore.getState().pages).some(
+    (page) => !isLCSchedulerDatabaseId(page.databaseId),
+  );
+  const hasNonSchedulerDatabases = Object.keys(useDatabaseStore.getState().databases).some(
+    (databaseId) => !isLCSchedulerDatabaseId(databaseId),
+  );
   return (
-    Object.keys(usePageStore.getState().pages).length > 0 ||
-    Object.keys(useDatabaseStore.getState().databases).length > 0
+    hasNonSchedulerPages ||
+    hasNonSchedulerDatabases
   );
 }
 
 export function cacheBelongsToWorkspace(workspaceId: string): boolean {
-  const hasPageCache = Object.keys(usePageStore.getState().pages).length > 0;
-  const hasDatabaseCache =
-    Object.keys(useDatabaseStore.getState().databases).length > 0;
+  const hasPageCache = Object.values(usePageStore.getState().pages).some(
+    (page) => !isLCSchedulerDatabaseId(page.databaseId),
+  );
+  const hasDatabaseCache = Object.keys(useDatabaseStore.getState().databases).some(
+    (databaseId) => !isLCSchedulerDatabaseId(databaseId),
+  );
   const pageCacheWorkspaceId = usePageStore.getState().cacheWorkspaceId;
   const databaseCacheWorkspaceId = useDatabaseStore.getState().cacheWorkspaceId;
   if (hasPageCache && pageCacheWorkspaceId !== workspaceId) return false;
@@ -36,13 +46,23 @@ export function workspaceCacheNeedsPrepaintClear(workspaceId: string | null): bo
 }
 
 function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
+  const schedulerPages = Object.fromEntries(
+    Object.entries(usePageStore.getState().pages).filter(([, page]) =>
+      isLCSchedulerDatabaseId(page.databaseId),
+    ),
+  );
+  const schedulerDatabases = Object.fromEntries(
+    Object.entries(useDatabaseStore.getState().databases).filter(([databaseId]) =>
+      isLCSchedulerDatabaseId(databaseId),
+    ),
+  );
   usePageStore.setState({
-    pages: {},
+    pages: schedulerPages,
     activePageId: null,
     cacheWorkspaceId: nextWorkspaceId,
   });
   useDatabaseStore.setState({
-    databases: {},
+    databases: schedulerDatabases,
     cacheWorkspaceId: nextWorkspaceId,
   });
   useSettingsStore.setState({

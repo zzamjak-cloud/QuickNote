@@ -7,6 +7,7 @@ import type {
 import { buildOutboxEntryMeta } from "./outboxMeta";
 import { sortOutboxBatchForFlush } from "./outboxFlushOrder";
 import { useUiStore } from "../../store/uiStore";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 
 // 동기화 엔진. enqueue 시 outbox 에 적재 → 백그라운드 워커가 mutation 으로 flush.
 // 같은 (op, id) 의 새 enqueue 는 dedupe 로 마지막 본만 남김.
@@ -196,6 +197,7 @@ export class SyncEngine {
     const uiWs = fn();
     const entryWs = entry.workspaceId;
     if (!uiWs || entryWs == null || entryWs === "") return;
+    if (entryWs === LC_SCHEDULER_WORKSPACE_ID) return;
     if (entryWs !== uiWs) {
       console.warn(
         "[sync] outbox flush: UI 워크스페이스와 엔트리 메타 workspaceId 불일치 (payload 기준으로 전송 진행)",
