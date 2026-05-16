@@ -151,6 +151,22 @@ function replaceAssignee(
   return next;
 }
 
+function applySpecialScopeDefaults(
+  databaseId: string,
+  pageId: string,
+  selectedScopeKey: string | null | undefined,
+): void {
+  if (!selectedScopeKey) return;
+  const nextOrg = selectedScopeKey.startsWith("org:") ? selectedScopeKey.slice(4) : null;
+  const nextTeam = selectedScopeKey.startsWith("team:") ? selectedScopeKey.slice(5) : null;
+  const nextProject = selectedScopeKey.startsWith("proj:") ? selectedScopeKey.slice(5) : null;
+
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.assignees, []);
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.organization, nextOrg);
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.team, nextTeam);
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.project, nextProject);
+}
+
 export async function createLCSchedulerSchedule(input: CreateScheduleInput): Promise<Schedule> {
   await ensureLCSchedulerDatabase(input.workspaceId);
   const databaseId = makeLCSchedulerDatabaseId(input.workspaceId);
@@ -166,6 +182,9 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
   const remembered = readRememberedSchedulerPropertyValues(input.workspaceId);
   for (const [columnId, value] of Object.entries(remembered)) {
     setCell(databaseId, pageId, columnId, value);
+  }
+  if ((input.assigneeId ?? null) === null) {
+    applySpecialScopeDefaults(databaseId, pageId, input.selectedScopeKey);
   }
   return updateLCSchedulerSchedule({
     id: makeScheduleInstanceId(pageId, input.assigneeId ?? null),

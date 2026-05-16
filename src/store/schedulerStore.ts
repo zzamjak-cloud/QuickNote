@@ -41,6 +41,8 @@ export type CreateScheduleInput = {
   color?: string | null;
   textColor?: string | null;
   rowIndex?: number | null;
+  /** 현재 헤더 선택 스코프("org:{id}" | "team:{id}" | "proj:{id}") */
+  selectedScopeKey?: string | null;
 };
 
 export type UpdateScheduleInput = {

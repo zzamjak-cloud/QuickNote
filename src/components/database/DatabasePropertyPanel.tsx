@@ -43,6 +43,12 @@ function readRowStringCell(cells: Record<string, CellValue> | undefined, columnI
   return typeof val === "string" && val.trim() ? val : null;
 }
 
+function hasAssigneeValue(value: CellValue): boolean {
+  if (Array.isArray(value)) return value.some((item) => typeof item === "string" && item.trim().length > 0);
+  if (typeof value === "string") return value.trim().length > 0;
+  return false;
+}
+
 function readPresetIdFromMeta(metaCell: CellValue): string | null {
   if (!metaCell || typeof metaCell !== "object" || Array.isArray(metaCell)) return null;
   const candidate = (metaCell as Record<string, unknown>).presetId;
@@ -105,6 +111,7 @@ export function DatabasePropertyPanel({
   const rowProjectId = readRowStringCell(rowCells, LC_SCHEDULER_COLUMN_IDS.project);
   const rowOrganizationId = readRowStringCell(rowCells, LC_SCHEDULER_COLUMN_IDS.organization);
   const rowTeamId = readRowStringCell(rowCells, LC_SCHEDULER_COLUMN_IDS.team);
+  const isSpecialSchedulerCard = isSchedulerDb && !hasAssigneeValue(rowCells[LC_SCHEDULER_COLUMN_IDS.assignees]);
   const rowScopeIdByType = useMemo<Record<PresetScope, string | null>>(
     () => ({
       workspace: null,
@@ -182,7 +189,22 @@ export function DatabasePropertyPanel({
     setSavePresetScopeId(saveScopeOptions[0]?.id ?? "");
   }, [rowScopeIdByType, savePresetScope, saveScopeOptions]);
 
-  const visibleColumns = editableColumns.filter((col) => !hiddenColumnIds.includes(col.id));
+  const activeScopeColumnId = rowProjectId
+    ? LC_SCHEDULER_COLUMN_IDS.project
+    : rowTeamId
+      ? LC_SCHEDULER_COLUMN_IDS.team
+      : rowOrganizationId
+        ? LC_SCHEDULER_COLUMN_IDS.organization
+        : null;
+  const effectiveHiddenColumnIds = useMemo(() => {
+    const next = new Set(hiddenColumnIds);
+    if (isSpecialSchedulerCard) {
+      next.add(LC_SCHEDULER_COLUMN_IDS.assignees);
+      if (activeScopeColumnId) next.delete(activeScopeColumnId);
+    }
+    return next;
+  }, [activeScopeColumnId, hiddenColumnIds, isSpecialSchedulerCard]);
+  const visibleColumns = editableColumns.filter((col) => !effectiveHiddenColumnIds.has(col.id));
 
   const currentPreset = presets.find((preset) => preset.id === selectedPresetId) ?? null;
 

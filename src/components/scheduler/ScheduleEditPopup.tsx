@@ -58,6 +58,7 @@ export function ScheduleEditPopup({
   const { createSchedule, updateSchedule, deleteSchedule } = useSchedulerStore();
 
   const isEdit = schedule !== null;
+  const isSpecialCard = (schedule?.assigneeId ?? defaultAssigneeId ?? null) === null;
   const initColor = schedule?.color ?? defaultColor;
 
   const [title, setTitle] = useState(schedule?.title ?? "");
@@ -205,6 +206,7 @@ export function ScheduleEditPopup({
           <select
             value={assigneeId}
             onChange={(e) => setAssigneeId(e.target.value)}
+            disabled={isSpecialCard}
             className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
           >
             <option value="">(특이사항 — 담당자 없음)</option>
