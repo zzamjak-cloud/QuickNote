@@ -1,5 +1,5 @@
 // 설정 모달 — 프로젝트 관리 패널 (추가/편집/삭제/멤버 배정/활성화 토글).
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, Eye, EyeOff, Check, X, Search } from "lucide-react";
 import { useMemberStore } from "../../../store/memberStore";
 import {
@@ -230,88 +230,140 @@ function ProjectForm({
   onCancel,
   saveLabel,
 }: ProjectFormProps) {
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const [memberQuery, setMemberQuery] = useState("");
   const normalizedMemberQuery = memberQuery.trim().toLowerCase();
   const filteredMembers = normalizedMemberQuery
     ? activeMembers.filter((m) => m.name.toLowerCase().includes(normalizedMemberQuery))
     : activeMembers;
+  const selectedMembers = activeMembers.filter((m) => form.memberIds.includes(m.memberId));
+
+  useEffect(() => {
+    const el = descriptionRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(72, el.scrollHeight)}px`;
+  }, [form.description]);
 
   return (
     <div className="space-y-3">
-      {/* 이름 */}
-      <div>
-        <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-          프로젝트 이름
-        </label>
-        <input
-          type="text"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="프로젝트 이름"
-          className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
-        />
-      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="space-y-3">
+          {/* 이름 */}
+          <div>
+            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
+              프로젝트 이름
+            </label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="프로젝트 이름"
+              className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+          </div>
 
-      {/* 설명 */}
-      <div>
-        <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-          설명 (선택)
-        </label>
-        <input
-          type="text"
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-          placeholder="프로젝트 설명"
-          className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
-        />
-      </div>
+          {/* 설명 */}
+          <div>
+            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
+              프로젝트 설명 (선택)
+            </label>
+            <textarea
+              ref={descriptionRef}
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              onInput={(e) => {
+                const target = e.currentTarget;
+                target.style.height = "auto";
+                target.style.height = `${Math.max(72, target.scrollHeight)}px`;
+              }}
+              placeholder="프로젝트 설명"
+              rows={3}
+              className="w-full min-h-[72px] px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none overflow-hidden"
+            />
+          </div>
+        </div>
 
-      {/* 색상 */}
-      <div>
-        <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
-          색상
-        </label>
-        <ColorPickerGrid value={form.color} onChange={(c) => setForm({ ...form, color: c })} />
+        {/* 색상 */}
+        <div>
+          <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
+            색상
+          </label>
+          <ColorPickerGrid value={form.color} onChange={(c) => setForm({ ...form, color: c })} />
+        </div>
       </div>
 
       {/* 구성원 선택 */}
       {activeMembers.length > 0 && (
-        <div>
-          <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
-            구성원
-          </label>
-          <div className="mb-1.5 flex items-center gap-1.5 rounded border border-zinc-200 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900">
-            <Search size={12} className="shrink-0 text-zinc-400" />
-            <input
-              type="search"
-              value={memberQuery}
-              onChange={(e) => setMemberQuery(e.target.value)}
-              placeholder="구성원 검색"
-              className="min-w-0 flex-1 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
-            />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
+              등록된 구성원 ({selectedMembers.length})
+            </label>
+            <div className="max-h-40 overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
+              {selectedMembers.length === 0 && (
+                <div className="px-2 py-3 text-center text-xs text-zinc-400">
+                  아직 등록된 구성원이 없습니다.
+                </div>
+              )}
+              {selectedMembers.map((m) => (
+                <label
+                  key={m.memberId}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                >
+                  <input
+                    type="checkbox"
+                    checked
+                    onChange={() => onToggleMember(m.memberId)}
+                    className="accent-amber-500"
+                  />
+                  <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">
+                    {m.name}
+                  </span>
+                </label>
+              ))}
+            </div>
           </div>
-          <div className="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto">
-            {filteredMembers.map((m) => (
-              <label
-                key={m.memberId}
-                className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
-              >
+
+          <div>
+            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
+              구성원 검색/추가
+            </label>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 rounded border border-zinc-200 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900">
+                <Search size={12} className="shrink-0 text-zinc-400" />
                 <input
-                  type="checkbox"
-                  checked={form.memberIds.includes(m.memberId)}
-                  onChange={() => onToggleMember(m.memberId)}
-                  className="accent-amber-500"
+                  type="search"
+                  value={memberQuery}
+                  onChange={(e) => setMemberQuery(e.target.value)}
+                  placeholder="구성원 검색"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
                 />
-                <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">
-                  {m.name}
-                </span>
-              </label>
-            ))}
-            {filteredMembers.length === 0 && (
-              <div className="col-span-2 px-2 py-3 text-center text-xs text-zinc-400">
-                검색 결과가 없습니다.
               </div>
-            )}
+              <div className="grid max-h-40 grid-cols-1 gap-1 overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
+                {filteredMembers.map((m) => (
+                  <label
+                    key={m.memberId}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.memberIds.includes(m.memberId)}
+                      onChange={() => onToggleMember(m.memberId)}
+                      className="accent-amber-500"
+                    />
+                    <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">
+                      {m.name}
+                    </span>
+                  </label>
+                ))}
+                {filteredMembers.length === 0 && (
+                  <div className="px-2 py-3 text-center text-xs text-zinc-400">
+                    검색 결과가 없습니다.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
