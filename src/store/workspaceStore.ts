@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { zustandStorage } from "../lib/storage/index";
+import {
+  LC_SCHEDULER_WORKSPACE_ID,
+  LC_SCHEDULER_WORKSPACE_NAME,
+} from "../lib/scheduler/scope";
 
 export type WorkspaceAccessLevel = "edit" | "view";
 export type WorkspaceType = "personal" | "shared";
@@ -30,6 +33,40 @@ type WorkspaceStoreActions = {
 
 export type WorkspaceStore = WorkspaceStoreState & WorkspaceStoreActions;
 
+export const LC_SCHEDULER_WORKSPACE_SUMMARY: WorkspaceSummary = {
+  workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+  name: LC_SCHEDULER_WORKSPACE_NAME,
+  type: "shared",
+  ownerMemberId: "system",
+  myEffectiveLevel: "edit",
+};
+
+function withLCSchedulerWorkspace(workspaces: WorkspaceSummary[]): WorkspaceSummary[] {
+  const active = workspaces.filter((workspace) => workspace.workspaceId !== LC_SCHEDULER_WORKSPACE_ID);
+  return [LC_SCHEDULER_WORKSPACE_SUMMARY, ...active];
+}
+
+function defaultWorkspaceId(workspaces: WorkspaceSummary[]): string | null {
+  return workspaces.find((workspace) => workspace.workspaceId !== LC_SCHEDULER_WORKSPACE_ID)?.workspaceId
+    ?? workspaces[0]?.workspaceId
+    ?? null;
+}
+
+const tabWorkspaceStorage = {
+  getItem: (key: string): string | null => {
+    if (typeof window === "undefined") return null;
+    return window.sessionStorage.getItem(key);
+  },
+  setItem: (key: string, value: string): void => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(key, value);
+  },
+  removeItem: (key: string): void => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.removeItem(key);
+  },
+};
+
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
     (set) => ({
@@ -40,43 +77,48 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
       setWorkspaces: (workspaces) =>
         set((state) => {
+          const nextWorkspaces = withLCSchedulerWorkspace(workspaces);
           // 빈 배열이면 기존 유지 — API 일시 실패·레이스로 선택 WS 가 첫 항목으로 덮이는 것 방지
-          if (workspaces.length === 0) {
+          if (workspaces.length === 0 && state.workspaces.length > 0) {
             return state;
           }
           const currentExists =
             state.currentWorkspaceId !== null &&
-            workspaces.some((w) => w.workspaceId === state.currentWorkspaceId);
+            nextWorkspaces.some((w) => w.workspaceId === state.currentWorkspaceId);
           return {
-            workspaces,
+            workspaces: nextWorkspaces,
             currentWorkspaceId:
               currentExists
                 ? state.currentWorkspaceId
-                : (workspaces[0]?.workspaceId ?? null),
+                : defaultWorkspaceId(nextWorkspaces),
           };
         }),
 
       upsertWorkspace: (workspace) =>
         set((state) => {
-          const exists = state.workspaces.some((w) => w.workspaceId === workspace.workspaceId);
-          const workspaces = exists
+          const nextWorkspace = workspace.workspaceId === LC_SCHEDULER_WORKSPACE_ID
+            ? LC_SCHEDULER_WORKSPACE_SUMMARY
+            : workspace;
+          const exists = state.workspaces.some((w) => w.workspaceId === nextWorkspace.workspaceId);
+          const workspaces = withLCSchedulerWorkspace(exists
             ? state.workspaces.map((w) =>
-                w.workspaceId === workspace.workspaceId ? workspace : w,
+                w.workspaceId === nextWorkspace.workspaceId ? nextWorkspace : w,
               )
-            : [...state.workspaces, workspace];
+            : [...state.workspaces, nextWorkspace]);
           return {
             workspaces,
             currentWorkspaceId:
-              state.currentWorkspaceId ?? workspace.workspaceId,
+              state.currentWorkspaceId ?? defaultWorkspaceId(workspaces),
           };
         }),
 
       removeWorkspace: (workspaceId) =>
         set((state) => {
+          if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) return state;
           const workspaces = state.workspaces.filter((w) => w.workspaceId !== workspaceId);
           const currentWorkspaceId =
             state.currentWorkspaceId === workspaceId
-              ? (workspaces[0]?.workspaceId ?? null)
+              ? defaultWorkspaceId(workspaces)
               : state.currentWorkspaceId;
           return { workspaces, currentWorkspaceId };
         }),
@@ -84,8 +126,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       clear: () => set({ currentWorkspaceId: null, workspaces: [] }),
     }),
     {
-      name: "quicknote.workspace.v1",
-      storage: createJSONStorage(() => zustandStorage),
+      name: "quicknote.workspace.session.v1",
+      storage: createJSONStorage(() => tabWorkspaceStorage),
       partialize: (state) => ({ currentWorkspaceId: state.currentWorkspaceId }),
     },
   ),

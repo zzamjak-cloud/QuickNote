@@ -31,6 +31,10 @@ import { PageIconDisplay } from "../common/PageIconDisplay";
 
 type DropTarget = { id: string; mode: SidebarDropMode } | null;
 
+function isLCSchedulerModalOpen(): boolean {
+  return Boolean(document.querySelector("[data-lc-scheduler-modal='true']"));
+}
+
 function SidebarDragPreview({ pageId }: { pageId: string }) {
   const page = usePageStore((s) => s.pages[pageId]);
   if (!page) return null;
@@ -94,6 +98,7 @@ export function Sidebar() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isLCSchedulerModalOpen()) return;
       const activeEl = document.activeElement as HTMLElement | null;
       const tag = activeEl?.tagName;
       const isInput =

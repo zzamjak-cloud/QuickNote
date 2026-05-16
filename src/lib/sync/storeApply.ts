@@ -19,6 +19,7 @@ import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
 import { isLCSchedulerDatabaseId } from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
+import { isDeletedSchedulePage } from "../scheduler/deletedSchedulePages";
 
 /**
  * 구독 레이스·백엔드 오류로 다른 워크스페이스 스냅샷이 내려올 때 로컬 캐시가 오염되지 않게 한다.
@@ -188,6 +189,16 @@ export function applyRemotePageToStore(
 ): void {
   if (!p) return;
   if (!shouldApplyRemoteSnapshot(p.workspaceId)) return;
+  if (
+    p.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
+    !p.deletedAt &&
+    p.databaseId &&
+    isLCSchedulerDatabaseId(p.databaseId) &&
+    isDeletedSchedulePage(p.id)
+  ) {
+    removePageIdFromDatabaseRowOrder(p.databaseId, p.id);
+    return;
+  }
   const deletedDbId = p.deletedAt ? usePageStore.getState().pages[p.id]?.databaseId : null;
 
   usePageStore.setState((s) => {

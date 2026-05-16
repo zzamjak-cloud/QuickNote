@@ -16,6 +16,7 @@ import {
   setSchedulerTaskRowIndex,
   type SchedulerTaskMeta,
 } from "./taskMeta";
+import { isDeletedSchedulePage, markDeletedSchedulePage } from "./deletedSchedulePages";
 
 const INSTANCE_SEPARATOR = "::";
 const GLOBAL_ASSIGNEE_ID = "__global__";
@@ -111,6 +112,7 @@ export function projectLCSchedulerSchedules(
   const pages = usePageStore.getState().pages;
   const rows = Object.values(pages)
     .filter((page) => page.databaseId === databaseId)
+    .filter((page) => !isDeletedSchedulePage(page.id))
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   const schedules: Schedule[] = [];
   for (const page of rows) {
@@ -269,5 +271,6 @@ export async function deleteLCSchedulerSchedule(id: string, workspaceId: string)
   const parsed = parseScheduleInstanceId(id);
   if (!parsed) throw new Error("LC스케줄러 카드 ID가 올바르지 않습니다");
   const databaseId = makeLCSchedulerDatabaseId(workspaceId);
+  markDeletedSchedulePage(parsed.pageId);
   useDatabaseStore.getState().deleteRow(databaseId, parsed.pageId);
 }

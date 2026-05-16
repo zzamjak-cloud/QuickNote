@@ -11,11 +11,11 @@ import {
 } from "./historyStore";
 import { useSettingsStore } from "./settingsStore";
 import { useNotificationStore } from "./notificationStore";
-import { useWorkspaceStore } from "./workspaceStore";
 import { enqueueAsync } from "../lib/sync/runtime";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
+import { getLCSchedulerWorkspaceIdFromDatabaseId } from "../lib/scheduler/database";
 import {
   EMPTY_DOC,
   blockPreviewById,
@@ -45,6 +45,18 @@ export { migratePageStore } from "./pageStore/migrations";
 
 // 동기화·헬퍼는 ./pageStore/helpers.ts 로 분리됨.
 // 단, notifyNewPageMentions 는 usePageStore 를 참조하므로 순환 회피용으로 본 파일 유지.
+
+function resolveDeletedPageWorkspaceId(page: Page, removedPageById: Map<string, Page>): string {
+  let cursor: Page | undefined = page;
+  while (cursor) {
+    if (cursor.databaseId) {
+      const schedulerWorkspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(cursor.databaseId);
+      if (schedulerWorkspaceId) return schedulerWorkspaceId;
+    }
+    cursor = cursor.parentId ? removedPageById.get(cursor.parentId) : undefined;
+  }
+  return getCurrentWorkspaceId();
+}
 
 function notifyNewPageMentions(pageId: string, before: JSONContent, after: JSONContent): void {
   const authorMemberId = getCurrentMemberId();
@@ -307,8 +319,12 @@ export const usePageStore = create<PageStore>()(
         }
         // 삭제된 모든 페이지(자손 포함) 각각에 대해 softDeletePage 를 enqueue.
         const nowIso = new Date().toISOString();
-        const workspaceId = useWorkspaceStore.getState().currentWorkspaceId ?? "";
+        const removedPageById = new Map(removedPages.map((page) => [page.id, page]));
         for (const removedId of removedIds) {
+          const removedPage = removedPageById.get(removedId);
+          const workspaceId = removedPage
+            ? resolveDeletedPageWorkspaceId(removedPage, removedPageById)
+            : getCurrentWorkspaceId();
           enqueueAsync("softDeletePage", { id: removedId, workspaceId, updatedAt: nowIso });
         }
         if (removedIds.length > 0) {

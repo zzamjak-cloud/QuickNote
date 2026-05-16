@@ -8,6 +8,9 @@ import {
 import { UPDATE_MY_CLIENT_PREFS } from "../queries/member";
 import { UPSERT_COMMENT, SOFT_DELETE_COMMENT } from "../queries/comment";
 import type { GqlBridge } from "../engine";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
+
+const FORCE_DELETE_UPDATED_AT = "9999-12-31T23:59:59.999Z";
 
 // AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다.
 // v5.0.4 이전 형식(객체)으로 큐잉된 outbox stale entry 도 송신 직전에 정규화해
@@ -22,6 +25,38 @@ function normalizeAwsJsonFields(input: unknown): unknown {
     }
   }
   return i;
+}
+
+function getGraphQLErrorMessage(error: unknown): string {
+  const errors = (error as { errors?: unknown[] } | null)?.errors;
+  const first = Array.isArray(errors) ? errors[0] : null;
+  return (first as { message?: string } | null)?.message
+    ?? (error instanceof Error ? error.message : String(error));
+}
+
+async function softDeletePageRequest(id: string, workspaceId: string, updatedAt: string): Promise<void> {
+  await appsyncClient().graphql({
+    query: SOFT_DELETE_PAGE,
+    variables: { id, workspaceId, updatedAt },
+  });
+}
+
+async function softDeletePageWithForceRetry(id: string, workspaceId: string, updatedAt: string): Promise<void> {
+  try {
+    await softDeletePageRequest(id, workspaceId, updatedAt);
+  } catch (error) {
+    if (!getGraphQLErrorMessage(error).includes("The conditional request failed")) {
+      throw error;
+    }
+    try {
+      await softDeletePageRequest(id, workspaceId, FORCE_DELETE_UPDATED_AT);
+    } catch (retryError) {
+      if (getGraphQLErrorMessage(retryError).includes("The conditional request failed")) {
+        return;
+      }
+      throw retryError;
+    }
+  }
 }
 
 // AppSync 호출 어댑터 — SyncEngine 에 주입.
@@ -39,10 +74,19 @@ export const realGqlBridge: GqlBridge = {
     });
   },
   softDeletePage: async (id, workspaceId, updatedAt) => {
-    await appsyncClient().graphql({
-      query: SOFT_DELETE_PAGE,
-      variables: { id, workspaceId, updatedAt },
-    });
+    try {
+      await softDeletePageWithForceRetry(id, workspaceId, updatedAt);
+    } catch (error) {
+      const message = getGraphQLErrorMessage(error);
+      if (
+        workspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
+        message.includes("The conditional request failed")
+      ) {
+        await softDeletePageWithForceRetry(id, LC_SCHEDULER_WORKSPACE_ID, updatedAt);
+        return;
+      }
+      throw error;
+    }
   },
   softDeleteDatabase: async (id, workspaceId, updatedAt) => {
     await appsyncClient().graphql({

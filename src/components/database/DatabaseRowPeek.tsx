@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, MoreHorizontal, Trash2, Check, Minus, Maximize2, ChevronLeft, FileText, ArrowLeftRight } from "lucide-react";
+import { X, MoreHorizontal, Trash2, Check, Minus, Maximize2, ChevronLeft, FileText, ArrowLeftRight, Loader2 } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
@@ -48,6 +48,7 @@ export function DatabaseRowPeek() {
     : globalFullWidth;
   const allPages = usePageStore((s) => s.pages);
   const page = peekPageId ? allPages[peekPageId] : undefined;
+  const isPendingPageCreation = Boolean(peekPageId?.startsWith("lc-scheduler:creating:") && !page);
   const childPages = peekPageId
     ? Object.values(allPages).filter((p) => p.parentId === peekPageId)
     : [];
@@ -61,7 +62,9 @@ export function DatabaseRowPeek() {
   // 항목 페이지를 활성화하여 전체 페이지 뷰(DatabaseRowPage)가 보이게 한다.
   const openFullPage = () => {
     if (!peekPageId) return;
-    window.dispatchEvent(new CustomEvent(CLOSE_LC_SCHEDULER_EVENT));
+    window.dispatchEvent(new CustomEvent(CLOSE_LC_SCHEDULER_EVENT, {
+      detail: { keepSchedulerWorkspace: true },
+    }));
     if (activePageId) setRowBackTarget(peekPageId, activePageId);
     setActivePage(peekPageId);
     setCurrentTabPage(peekPageId);
@@ -87,6 +90,7 @@ export function DatabaseRowPeek() {
     eventIds: string[];
   } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const openedAtRef = useRef(0);
 
   // 슬라이드·딤머 애니메이션 상태
   const [visible, setVisible] = useState(false);
@@ -96,6 +100,11 @@ export function DatabaseRowPeek() {
   // 피크가 열릴 때: 다음 프레임에 visible=true 로 슬라이드-인 트리거
   useEffect(() => {
     if (!peekPageId) return;
+    openedAtRef.current = Date.now();
+    if (isPendingPageCreation) {
+      setVisible(true);
+      return;
+    }
     if (closeTimerRef.current != null) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
@@ -112,7 +121,7 @@ export function DatabaseRowPeek() {
         rafRef.current = null;
       }
     };
-  }, [peekPageId]);
+  }, [isPendingPageCreation, peekPageId]);
 
   // 애니메이션 포함 닫기: slide-out 후 closePeek 호출
   const handleClose = useCallback(() => {
@@ -122,6 +131,10 @@ export function DatabaseRowPeek() {
       closeTimerRef.current = null;
     }, 280);
   }, [closePeek]);
+  const handleBackdropClick = useCallback(() => {
+    if (Date.now() - openedAtRef.current < 160) return;
+    handleClose();
+  }, [handleClose]);
   const timelineIds = pageHistoryTimeline.map((e) => e.id);
   const {
     selectedIds: selectedTimelineIds,
@@ -185,12 +198,12 @@ export function DatabaseRowPeek() {
 
   // 피크는 DB 항목뿐 아니라 하위 일반 페이지 등 모든 페이지를 렌더할 수 있어야 함
   // (DB 항목에서 /새 페이지 로 만든 하위 페이지 클릭 시 peekNavigate 로 진입)
-  if (!peekPageId || !page) return null;
+  if (!peekPageId || (!page && !isPendingPageCreation)) return null;
   const isDbRow = !!(databaseId && bundle);
 
   return (
     <div
-      onClick={handleClose}
+      onClick={handleBackdropClick}
       // 스케줄러 모달(z-[500]) 위에서도 항목 피커가 보여야 한다.
       className={[
         "fixed inset-0 z-[650] bg-black/40 transition-opacity duration-300",
@@ -251,7 +264,8 @@ export function DatabaseRowPeek() {
           <button
             type="button"
             onClick={openFullPage}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            disabled={isPendingPageCreation}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
             title="전체 페이지로 열기"
             aria-label="전체 페이지로 열기"
           >
@@ -261,7 +275,8 @@ export function DatabaseRowPeek() {
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
-              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              disabled={isPendingPageCreation}
+              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
               title="항목 페이지 메뉴"
               aria-label="항목 페이지 메뉴"
             >
@@ -307,6 +322,16 @@ export function DatabaseRowPeek() {
 
         {/* 단일 스크롤 영역 — 제목·속성·본문·하위페이지 모두 포함 */}
         <div className="flex-1 overflow-y-auto px-8 pb-8">
+        {isPendingPageCreation ? (
+          <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 text-center">
+            <Loader2 size={22} className="animate-spin text-blue-500" />
+            <div>
+              <p className="text-base font-medium text-zinc-800 dark:text-zinc-100">페이지 생성중...</p>
+              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">일정 카드는 먼저 표시되고, 항목 페이지를 준비하고 있습니다.</p>
+            </div>
+          </div>
+        ) : page ? (
+          <>
         <div className="mb-2 flex min-w-0 items-center gap-2">
           <IconPicker
             current={page.icon}
@@ -352,6 +377,8 @@ export function DatabaseRowPeek() {
             </div>
           </div>
         )}
+          </>
+        ) : null}
         </div>{/* 단일 스크롤 영역 끝 */}
         <PageMoveDialog
           pageId={moveDialogOpen ? peekPageId : null}

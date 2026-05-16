@@ -1,8 +1,10 @@
 import { ChevronLeft, ChevronRight, ListTree, Plus, Star, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { LCSchedulerModal } from "../scheduler/LCSchedulerModal";
 
@@ -21,14 +23,33 @@ export function TabBar() {
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
   const rightPanelTab = useUiStore((s) => s.rightPanelTab);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
   const tocPanelOpen = rightPanelOpen && rightPanelTab === "toc";
   const favoritesPanelOpen = rightPanelOpen && rightPanelTab === "favorites";
 
-  useEffect(() => {
-    const closeScheduler = () => setSchedulerOpen(false);
-    window.addEventListener(CLOSE_LC_SCHEDULER_EVENT, closeScheduler);
-    return () => window.removeEventListener(CLOSE_LC_SCHEDULER_EVENT, closeScheduler);
+  const openScheduler = useCallback(() => {
+    setSchedulerOpen(true);
   }, []);
+
+  const closeScheduler = useCallback((options?: { keepSchedulerWorkspace?: boolean }) => {
+    setSchedulerOpen(false);
+    if (options?.keepSchedulerWorkspace) {
+      if (currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
+        setCurrentWorkspaceId(LC_SCHEDULER_WORKSPACE_ID);
+      }
+      return;
+    }
+  }, [currentWorkspaceId, setCurrentWorkspaceId]);
+
+  useEffect(() => {
+    const handleCloseScheduler = (event: Event) => {
+      const detail = (event as CustomEvent<{ keepSchedulerWorkspace?: boolean }>).detail;
+      closeScheduler({ keepSchedulerWorkspace: detail?.keepSchedulerWorkspace === true });
+    };
+    window.addEventListener(CLOSE_LC_SCHEDULER_EVENT, handleCloseScheduler);
+    return () => window.removeEventListener(CLOSE_LC_SCHEDULER_EVENT, handleCloseScheduler);
+  }, [closeScheduler]);
 
   return (
     <div className="relative z-[350] flex h-9 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50 px-1 dark:border-zinc-800 dark:bg-zinc-900">
@@ -100,7 +121,7 @@ export function TabBar() {
       </div>
       <button
         type="button"
-        onClick={() => setSchedulerOpen(true)}
+        onClick={openScheduler}
         style={{ backgroundColor: "#edac46" }}
         className="ml-1 shrink-0 rounded px-2 py-0.5 text-xs font-semibold text-white hover:opacity-90"
       >
@@ -148,7 +169,7 @@ export function TabBar() {
       </div>
       {schedulerOpen && (
         <LCSchedulerModal
-          onClose={() => setSchedulerOpen(false)}
+          onClose={() => closeScheduler()}
         />
       )}
     </div>

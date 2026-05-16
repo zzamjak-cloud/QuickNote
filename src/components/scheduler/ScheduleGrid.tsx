@@ -108,6 +108,7 @@ const DATE_AXIS_HEIGHT = 52;
 
 // Ctrl/Alt+드래그 마퀴 시작 임계값 (px)
 const MARQUEE_ACTIVATE_PX = 4;
+const PENDING_SCHEDULE_PAGE_ID_PREFIX = "lc-scheduler:creating:";
 
 // 특이사항 이벤트 기본 색상 (앰버)
 const DEFAULT_GLOBAL_EVENT_COLOR = "#f59e0b";
@@ -622,10 +623,10 @@ export function ScheduleGrid({ workspaceId }: Props) {
           }).catch((error) => {
             console.error(error);
             window.alert("연차 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-          }).finally(() => {
-            setPendingCreateMarquee(null);
           });
+          queueMicrotask(() => setPendingCreateMarquee(null));
         } else {
+          const pendingPeekPageId = `${PENDING_SCHEDULE_PAGE_ID_PREFIX}${Date.now()}`;
           setPendingCreateMarquee({
             kind: cur.kind,
             rowTop: cur.rowTop,
@@ -634,6 +635,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
             endDayIdx,
             assigneeId: cur.assigneeId,
           });
+          openPeek(pendingPeekPageId);
           void createSchedule({
             workspaceId,
             title: "새 일정",
@@ -647,13 +649,18 @@ export function ScheduleGrid({ workspaceId }: Props) {
             rowIndex: cur.rowIndex,
           }).then((schedule) => {
             selectSchedule(schedule.id);
-            openSchedulePage(schedule.id);
+            const currentPeekPageId = useUiStore.getState().peekPageId;
+            if (!currentPeekPageId || currentPeekPageId === pendingPeekPageId) {
+              openSchedulePage(schedule.id);
+            }
           }).catch((error) => {
             console.error(error);
+            if (useUiStore.getState().peekPageId === pendingPeekPageId) {
+              useUiStore.getState().closePeek();
+            }
             window.alert("일정 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-          }).finally(() => {
-            setPendingCreateMarquee(null);
           });
+          queueMicrotask(() => setPendingCreateMarquee(null));
         }
       }
       dragRef.current = null;
@@ -671,6 +678,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
     cellWidth,
     createSchedule,
     currentYear,
+    openPeek,
     openSchedulePage,
     selectSchedule,
     selectedProjectFilterId,
@@ -1030,13 +1038,14 @@ export function ScheduleGrid({ workspaceId }: Props) {
         danger
         onCancel={() => setDeleteConfirmTarget(null)}
         onConfirm={() => {
-          if (!deleteConfirmTarget) return;
-          void deleteSchedule(deleteConfirmTarget.id, workspaceId).catch((error) => {
+          const target = deleteConfirmTarget;
+          if (!target) return;
+          setDeleteConfirmTarget(null);
+          selectSchedule(null);
+          void deleteSchedule(target.id, workspaceId).catch((error) => {
             console.error(error);
             window.alert("일정 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
           });
-          selectSchedule(null);
-          setDeleteConfirmTarget(null);
         }}
       />
     </div>

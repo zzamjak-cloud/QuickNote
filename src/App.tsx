@@ -24,6 +24,10 @@ import { scrollToBlockPosition } from "./lib/editor/editorNavigationBridge";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+function isLCSchedulerModalOpen(): boolean {
+  return Boolean(document.querySelector("[data-lc-scheduler-modal='true']"));
+}
+
 function App() {
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
@@ -152,6 +156,7 @@ function App() {
   // 글로벌 단축키
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (isLCSchedulerModalOpen()) return;
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
       if (e.key === "n") {

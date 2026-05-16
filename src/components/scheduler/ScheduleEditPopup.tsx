@@ -76,7 +76,6 @@ export function ScheduleEditPopup({
     schedule ? toDateInputValue(schedule.endAt) : (defaultEndAt ? toDateInputValue(defaultEndAt) : toDateInputValue(new Date().toISOString())),
   );
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   // ESC 닫기
@@ -129,19 +128,15 @@ export function ScheduleEditPopup({
     }
   }, [isEdit, schedule, title, comment, link, assigneeId, color, startVal, endVal, workspaceId, defaultProjectId, defaultRowIndex, selectedScopeKey, createSchedule, updateSchedule, onClose]);
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(() => {
     if (!schedule) return;
+    const scheduleId = schedule.id;
     setDeleteConfirmOpen(false);
     onClose();
-    setDeleting(true);
-    try {
-      await deleteSchedule(schedule.id, workspaceId);
-    } catch (error) {
+    void deleteSchedule(scheduleId, workspaceId).catch((error) => {
       console.error(error);
       window.alert("일정 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-    } finally {
-      setDeleting(false);
-    }
+    });
   }, [schedule, workspaceId, deleteSchedule, onClose, setDeleteConfirmOpen]);
 
   return createPortal(
@@ -257,10 +252,9 @@ export function ScheduleEditPopup({
             <button
               type="button"
               onClick={() => setDeleteConfirmOpen(true)}
-              disabled={deleting}
-              className="px-3 py-1.5 text-sm rounded bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white transition-colors mr-auto"
+              className="px-3 py-1.5 text-sm rounded bg-red-500 hover:bg-red-600 text-white transition-colors mr-auto"
             >
-              {deleting ? "삭제 중…" : "삭제"}
+              삭제
             </button>
           )}
           <button

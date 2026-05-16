@@ -23,6 +23,10 @@ import { emptyPanelState } from "../../types/database";
 /** 페이지 메뉴 드롭다운 왼쪽 아이콘 공통 스타일 */
 const MENU_ITEM_ICON =
   "size-4 shrink-0 text-zinc-500 dark:text-zinc-400";
+
+function isLCSchedulerModalOpen(): boolean {
+  return Boolean(document.querySelector("[data-lc-scheduler-modal='true']"));
+}
 import { useState, useEffect, useRef } from "react";
 import type { Page } from "../../types/page";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -155,6 +159,7 @@ export function TopBar() {
   }, [menuOpen]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (isLCSchedulerModalOpen()) return;
       const mod = e.metaKey || e.ctrlKey;
       if (!mod || !activeId) return;
       if (e.key === "l" || e.key === "L") {

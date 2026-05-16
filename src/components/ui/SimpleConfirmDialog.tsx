@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+
 type Props = {
   open: boolean;
   title?: string;
@@ -21,6 +23,23 @@ export function SimpleConfirmDialog({
   onCancel,
   onConfirm,
 }: Props) {
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      if (e.key === "Enter") {
+        onConfirm();
+      } else {
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [onCancel, onConfirm, open]);
+
   if (!open) return null;
 
   return (

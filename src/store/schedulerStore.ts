@@ -9,6 +9,11 @@ import {
   updateLCSchedulerSchedule,
 } from "../lib/scheduler/taskAdapter";
 import { ensureLCSchedulerDatabase } from "../lib/scheduler/database";
+import {
+  DEFAULT_SCHEDULE_COLOR,
+  GLOBAL_EVENT_COLOR,
+  pickTextColor,
+} from "../lib/scheduler/colors";
 import { useMemberStore } from "./memberStore";
 import { useSchedulerViewStore } from "./schedulerViewStore";
 
@@ -93,6 +98,35 @@ function projectSchedulesForStore(workspaceId: string, from?: string, to?: strin
   return projected.filter((schedule) => scheduleOverlapsRange(schedule, from, to));
 }
 
+function makeOptimisticSchedule(input: CreateScheduleInput): Schedule {
+  const now = new Date().toISOString();
+  const color = input.color ?? ((input.assigneeId ?? null) === null ? GLOBAL_EVENT_COLOR : DEFAULT_SCHEDULE_COLOR);
+  const idSeed = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return {
+    id: `optimistic:${idSeed}`,
+    workspaceId: input.workspaceId,
+    title: input.title,
+    comment: input.comment ?? null,
+    link: input.link ?? null,
+    projectId: input.projectId ?? null,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    assigneeId: input.assigneeId ?? null,
+    color,
+    textColor: input.textColor ?? pickTextColor(color),
+    rowIndex: input.rowIndex ?? 0,
+    createdByMemberId: "",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function isOptimisticScheduleId(id: string): boolean {
+  return id.startsWith("optimistic:");
+}
+
 export const useSchedulerStore = create<SchedulerStore>()(
   persist(
     (set, get) => ({
@@ -119,17 +153,35 @@ export const useSchedulerStore = create<SchedulerStore>()(
       },
 
       createSchedule: async (input) => {
-        const s = await createLCSchedulerSchedule({
-          ...input,
-          selectedScopeKey: input.selectedScopeKey ?? useSchedulerViewStore.getState().selectedProjectId,
-        });
         const rangeFrom = get().visibleRangeFrom ?? undefined;
         const rangeTo = get().visibleRangeTo ?? undefined;
-        set({
-          schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
-          cachedWorkspaceId: input.workspaceId,
-        });
-        return s;
+        const optimistic = makeOptimisticSchedule(input);
+        const shouldShowOptimistic = !rangeFrom || !rangeTo || scheduleOverlapsRange(optimistic, rangeFrom, rangeTo);
+        if (shouldShowOptimistic) {
+          set((st) => ({
+            schedules: [
+              ...st.schedules.filter((schedule) => schedule.id !== optimistic.id),
+              optimistic,
+            ],
+            cachedWorkspaceId: input.workspaceId,
+          }));
+        }
+        try {
+          const s = await createLCSchedulerSchedule({
+            ...input,
+            selectedScopeKey: input.selectedScopeKey ?? useSchedulerViewStore.getState().selectedProjectId,
+          });
+          set({
+            schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
+            cachedWorkspaceId: input.workspaceId,
+          });
+          return s;
+        } catch (error) {
+          set((st) => ({
+            schedules: st.schedules.filter((schedule) => schedule.id !== optimistic.id),
+          }));
+          throw error;
+        }
       },
 
       updateSchedule: async (input) => {
@@ -144,20 +196,14 @@ export const useSchedulerStore = create<SchedulerStore>()(
       },
 
       deleteSchedule: async (id, workspaceId) => {
-        const prevSchedules = get().schedules;
         set((st) => ({ schedules: st.schedules.filter((x) => x.id !== id) }));
-        try {
-          await deleteLCSchedulerSchedule(id, workspaceId);
-          const rangeFrom = get().visibleRangeFrom ?? undefined;
-          const rangeTo = get().visibleRangeTo ?? undefined;
-          set({
-            schedules: projectSchedulesForStore(workspaceId, rangeFrom, rangeTo),
-            cachedWorkspaceId: workspaceId,
-          });
-        } catch (error) {
-          set({ schedules: prevSchedules });
-          throw error;
-        }
+        await deleteLCSchedulerSchedule(id, workspaceId);
+        const rangeFrom = get().visibleRangeFrom ?? undefined;
+        const rangeTo = get().visibleRangeTo ?? undefined;
+        set({
+          schedules: projectSchedulesForStore(workspaceId, rangeFrom, rangeTo),
+          cachedWorkspaceId: workspaceId,
+        });
       },
 
       refreshVisibleRangeFromLocal: (workspaceId) => {
@@ -189,7 +235,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
       name: "quicknote.scheduler.cache.schedules.v1",
       // 휘발성 상태(loading)는 제외하고 데이터 배열과 workspaceId만 저장
       partialize: (st) => ({
-        schedules: st.schedules,
+        schedules: st.schedules.filter((schedule) => !isOptimisticScheduleId(schedule.id)),
         cachedWorkspaceId: st.cachedWorkspaceId,
         visibleRangeFrom: st.visibleRangeFrom,
         visibleRangeTo: st.visibleRangeTo,

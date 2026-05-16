@@ -1,4 +1,4 @@
-// LC 스케줄러 풀스크린 모달 — createPortal, ESC 닫기, 뷰 모드 라우팅.
+// LC 스케줄러 풀스크린 모달 — createPortal, 뷰 모드 라우팅.
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/schedulerStore";
@@ -123,17 +123,11 @@ export function LCSchedulerModal({ onClose }: Props) {
     updateColumn,
   ]);
 
-  // ESC 키 닫기
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
   return createPortal(
-    <div className="fixed inset-0 z-[500] bg-zinc-50 dark:bg-zinc-950 flex flex-col">
+    <div
+      data-lc-scheduler-modal="true"
+      className="fixed inset-0 z-[500] bg-zinc-50 dark:bg-zinc-950 flex flex-col"
+    >
       {/* 헤더 */}
       <SchedulerHeader onClose={onClose} />
 
