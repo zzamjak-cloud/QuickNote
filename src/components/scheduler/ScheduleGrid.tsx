@@ -3,7 +3,7 @@
 //   Ctrl/Alt+드래그 → 점선 마퀴로 신규 일정 생성
 //   Shift+드래그    → 파란 실선 마퀴로 다중 카드 박스 선택
 //   클릭           → 카드 단일 선택 / 빈 영역 클릭 → 선택 해제
-//   더블클릭        → 편집 팝업
+//   더블클릭        → DB 항목 페이지 피커
 // 원본: TeamScheduler/src/components/schedule/ScheduleGrid.tsx 기반
 import { useRef, useMemo, useCallback, useState, useEffect } from "react";
 import { Plus, Minus, Star } from "lucide-react";
@@ -31,9 +31,12 @@ import { parseIsoDate } from "../../lib/scheduler/dateUtils";
 import { DateAxis } from "./DateAxis";
 import { GridRow } from "./GridRow";
 import { ScheduleCard } from "./ScheduleCard";
-import { ScheduleEditPopup } from "./ScheduleEditPopup";
 import type { Schedule } from "../../store/schedulerStore";
-import { ANNUAL_LEAVE_COLOR, pickTextColor } from "../../lib/scheduler/colors";
+import {
+  ANNUAL_LEAVE_COLOR,
+  DEFAULT_SCHEDULE_COLOR,
+  pickTextColor,
+} from "../../lib/scheduler/colors";
 import { updateMemberApi } from "../../lib/sync/memberApi";
 import { parseScheduleInstanceId } from "../../lib/scheduler/taskAdapter";
 import { useUiStore } from "../../store/uiStore";
@@ -163,14 +166,6 @@ export function ScheduleGrid({ workspaceId }: Props) {
   } | null>(null);
   // useEffect 클로저 문제 방지용 ref — mouseup 핸들러에서 최신 상태 직접 참조
   const dragRef = useRef<typeof dragState>(null);
-
-  // 드래그 완료 후 팝업에 전달할 기본값 (assigneeId=null 이면 특이사항)
-  const [newScheduleDefaults, setNewScheduleDefaults] = useState<{
-    startAt: string;
-    endAt: string;
-    assigneeId: string | null;
-    rowIndex: number;
-  } | null>(null);
 
   // 멤버별 사용자 지정 행 수 (최소 1, 최대 10)
   const [memberRowCounts, setMemberRowCounts] = useState<Record<string, number>>({});
@@ -609,11 +604,22 @@ export function ScheduleGrid({ workspaceId }: Props) {
             window.alert("연차 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
           });
         } else {
-          setNewScheduleDefaults({
+          void createSchedule({
+            workspaceId,
+            title: "새 일정",
+            projectId: selectedProjectFilterId ?? null,
+            assigneeId: cur.assigneeId,
+            color: DEFAULT_SCHEDULE_COLOR,
+            textColor: pickTextColor(DEFAULT_SCHEDULE_COLOR),
             startAt,
             endAt,
-            assigneeId: cur.assigneeId,
             rowIndex: cur.rowIndex,
+          }).then((schedule) => {
+            selectSchedule(schedule.id);
+            openSchedulePage(schedule.id);
+          }).catch((error) => {
+            console.error(error);
+            window.alert("일정 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
           });
         }
       }
@@ -628,12 +634,20 @@ export function ScheduleGrid({ workspaceId }: Props) {
       window.removeEventListener("mouseup", onMouseUp);
     };
    
-  }, [cellWidth, createSchedule, currentYear, selectedProjectFilterId, totalWidth, workspaceId, xToDayIndex]);
+  }, [
+    cellWidth,
+    createSchedule,
+    currentYear,
+    openSchedulePage,
+    selectSchedule,
+    selectedProjectFilterId,
+    totalWidth,
+    workspaceId,
+    xToDayIndex,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (newScheduleDefaults) return;
-
       if (e.key === "Escape" && selectedCardIds.size > 0) {
         clearSelection();
         return;
@@ -666,7 +680,6 @@ export function ScheduleGrid({ workspaceId }: Props) {
   }, [
     clearSelection,
     deleteSchedule,
-    newScheduleDefaults,
     openSchedulePage,
     schedules,
     selectedCardIds.size,
@@ -955,20 +968,6 @@ export function ScheduleGrid({ workspaceId }: Props) {
           </div>
         </div>
       </div>
-
-      {/* Ctrl/Alt+드래그로 생성하는 새 일정 팝업 */}
-      {newScheduleDefaults && (
-        <ScheduleEditPopup
-          schedule={null}
-          workspaceId={workspaceId}
-          defaultStartAt={newScheduleDefaults.startAt}
-          defaultEndAt={newScheduleDefaults.endAt}
-          defaultAssigneeId={newScheduleDefaults.assigneeId}
-          defaultRowIndex={newScheduleDefaults.rowIndex}
-          defaultProjectId={selectedProjectFilterId}
-          onClose={() => setNewScheduleDefaults(null)}
-        />
-      )}
     </div>
   );
 }
