@@ -43,8 +43,9 @@ export function SchedulerHeader({ onClose }: Props) {
   const visibleOrgs = organizations.filter(
     (o) => !disabledOrgIds.includes(o.organizationId),
   );
+  const visibleOrgNameSet = new Set(visibleOrgs.map((org) => org.name.trim()).filter(Boolean));
   const visibleTeams = teams.filter(
-    (t) => !disabledTeamIds.includes(t.teamId),
+    (t) => !disabledTeamIds.includes(t.teamId) && !visibleOrgNameSet.has(t.name.trim()),
   );
   const visibleProjects = projects.filter((p) => !p.isHidden);
 

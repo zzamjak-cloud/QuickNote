@@ -165,6 +165,13 @@ export function ScheduleGrid({ workspaceId }: Props) {
     currentDayIdx: number;
     active: boolean;  // 임계값 초과 여부
   } | null>(null);
+  const [pendingCreateMarquee, setPendingCreateMarquee] = useState<{
+    kind: "schedule" | "leave";
+    rowTop: number;
+    rowHeight: number;
+    startDayIdx: number;
+    endDayIdx: number;
+  } | null>(null);
   // useEffect 클로저 문제 방지용 ref — mouseup 핸들러에서 최신 상태 직접 참조
   const dragRef = useRef<typeof dragState>(null);
 
@@ -590,11 +597,19 @@ export function ScheduleGrid({ workspaceId }: Props) {
         const startAt = dayIndexToDateIso(startDayIdx, currentYear, false);
         const endAt = dayIndexToDateIso(endDayIdx, currentYear, true);
         if (cur.kind === "leave" && cur.assigneeId) {
+          setPendingCreateMarquee({
+            kind: cur.kind,
+            rowTop: cur.rowTop,
+            rowHeight: cur.rowHeight,
+            startDayIdx,
+            endDayIdx,
+          });
           void createSchedule({
             workspaceId,
             title: "연차",
             projectId: selectedProjectFilterId ?? null,
             assigneeId: cur.assigneeId,
+            selectedScopeKey: selectedProjectId,
             color: ANNUAL_LEAVE_COLOR,
             textColor: pickTextColor(ANNUAL_LEAVE_COLOR),
             startAt,
@@ -603,14 +618,23 @@ export function ScheduleGrid({ workspaceId }: Props) {
           }).catch((error) => {
             console.error(error);
             window.alert("연차 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+          }).finally(() => {
+            setPendingCreateMarquee(null);
           });
         } else {
+          setPendingCreateMarquee({
+            kind: cur.kind,
+            rowTop: cur.rowTop,
+            rowHeight: cur.rowHeight,
+            startDayIdx,
+            endDayIdx,
+          });
           void createSchedule({
             workspaceId,
             title: "새 일정",
             projectId: selectedProjectFilterId ?? null,
             assigneeId: cur.assigneeId,
-            selectedScopeKey: cur.assigneeId == null ? selectedProjectId : null,
+            selectedScopeKey: selectedProjectId,
             color: DEFAULT_SCHEDULE_COLOR,
             textColor: pickTextColor(DEFAULT_SCHEDULE_COLOR),
             startAt,
@@ -622,6 +646,8 @@ export function ScheduleGrid({ workspaceId }: Props) {
           }).catch((error) => {
             console.error(error);
             window.alert("일정 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+          }).finally(() => {
+            setPendingCreateMarquee(null);
           });
         }
       }
@@ -702,17 +728,27 @@ export function ScheduleGrid({ workspaceId }: Props) {
   // Ctrl/Alt+드래그 마퀴 overlay 위치 — 컨텐츠 좌표 그대로(내부 div 의 position:relative 기준)
   // 활성화 임계값 통과 전에도 즉시 작은 사각형이 보이도록 active 검사 제거
   const createMarqueeStyle = useMemo(() => {
-    if (!dragState) return null;
-    const startDayIdx = Math.min(dragState.startDayIdx, dragState.currentDayIdx);
-    const endDayIdx = Math.max(dragState.startDayIdx, dragState.currentDayIdx);
+    if (!dragState && !pendingCreateMarquee) return null;
+    const styleSource = dragState
+      ? {
+          kind: dragState.kind,
+          rowTop: dragState.rowTop,
+          rowHeight: dragState.rowHeight,
+          startDayIdx: Math.min(dragState.startDayIdx, dragState.currentDayIdx),
+          endDayIdx: Math.max(dragState.startDayIdx, dragState.currentDayIdx),
+        }
+      : pendingCreateMarquee;
+    if (!styleSource) return null;
+    const startDayIdx = styleSource.startDayIdx;
+    const endDayIdx = styleSource.endDayIdx;
     return {
-      kind: dragState.kind,
+      kind: styleSource.kind,
       left: startDayIdx * cellWidth,
-      top: dragState.rowTop,
+      top: styleSource.rowTop,
       width: Math.max(cellWidth, (endDayIdx - startDayIdx + 1) * cellWidth),
-      height: dragState.rowHeight,
+      height: styleSource.rowHeight,
     };
-  }, [dragState, cellWidth]);
+  }, [dragState, pendingCreateMarquee, cellWidth]);
 
   // Shift+드래그 박스 선택 마퀴 overlay 위치 계산 (스크롤 보정)
   // Shift+드래그 박스 선택 마퀴 — 컨텐츠 좌표 그대로 사용

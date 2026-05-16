@@ -10,6 +10,7 @@ import {
 } from "../lib/scheduler/taskAdapter";
 import { ensureLCSchedulerDatabase } from "../lib/scheduler/database";
 import { useMemberStore } from "./memberStore";
+import { useSchedulerViewStore } from "./schedulerViewStore";
 
 export type Schedule = {
   id: string;
@@ -110,7 +111,10 @@ export const useSchedulerStore = create<SchedulerStore>()(
       },
 
       createSchedule: async (input) => {
-        const s = await createLCSchedulerSchedule(input);
+        const s = await createLCSchedulerSchedule({
+          ...input,
+          selectedScopeKey: input.selectedScopeKey ?? useSchedulerViewStore.getState().selectedProjectId,
+        });
         set({ schedules: projectSchedulesForStore(input.workspaceId), cachedWorkspaceId: input.workspaceId });
         return s;
       },

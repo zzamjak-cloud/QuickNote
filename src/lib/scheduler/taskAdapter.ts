@@ -167,6 +167,12 @@ function applySpecialScopeDefaults(
   setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.project, nextProject);
 }
 
+function resolveCreateColor(input: CreateScheduleInput): string | null {
+  const isSpecial = (input.assigneeId ?? null) === null;
+  if (isSpecial) return "#f59e0b";
+  return input.color ?? null;
+}
+
 export async function createLCSchedulerSchedule(input: CreateScheduleInput): Promise<Schedule> {
   await ensureLCSchedulerDatabase(input.workspaceId);
   const databaseId = makeLCSchedulerDatabaseId(input.workspaceId);
@@ -183,9 +189,8 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
   for (const [columnId, value] of Object.entries(remembered)) {
     setCell(databaseId, pageId, columnId, value);
   }
-  if ((input.assigneeId ?? null) === null) {
-    applySpecialScopeDefaults(databaseId, pageId, input.selectedScopeKey);
-  }
+  applySpecialScopeDefaults(databaseId, pageId, input.selectedScopeKey);
+  const color = resolveCreateColor(input);
   return updateLCSchedulerSchedule({
     id: makeScheduleInstanceId(pageId, input.assigneeId ?? null),
     workspaceId: input.workspaceId,
@@ -194,8 +199,8 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
     startAt: input.startAt,
     endAt: input.endAt,
     assigneeId: input.assigneeId ?? null,
-    color: input.color ?? null,
-    textColor: input.textColor ?? null,
+    color,
+    textColor: input.textColor ?? (color ? pickTextColor(color) : null),
     rowIndex: input.rowIndex ?? 0,
   });
 }
