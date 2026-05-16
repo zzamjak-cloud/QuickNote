@@ -34,12 +34,14 @@ function SortableRule({
   label,
   onRemove,
   onLevelChange,
+  readOnly,
 }: {
   rule: RuleRow;
   index: number;
   label: string;
   onRemove: () => void;
   onLevelChange: (level: Level) => void;
+  readOnly?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: rule._key });
@@ -51,6 +53,7 @@ function SortableRule({
   };
 
   const isEveryone = rule.subjectType === "EVERYONE";
+  const locked = readOnly || isEveryone;
 
   return (
     <div
@@ -63,8 +66,8 @@ function SortableRule({
       }`}
     >
       <span
-        {...(isEveryone ? {} : { ...attributes, ...listeners })}
-        className={`cursor-grab text-zinc-400 ${isEveryone ? "cursor-not-allowed opacity-30" : ""}`}
+        {...(locked ? {} : { ...attributes, ...listeners })}
+        className={`cursor-grab text-zinc-400 ${locked ? "cursor-not-allowed opacity-30" : ""}`}
       >
         <GripVertical size={12} />
       </span>
@@ -81,13 +84,13 @@ function SortableRule({
       <select
         value={rule.level}
         onChange={(e) => onLevelChange(e.target.value as Level)}
-        disabled={isEveryone}
+        disabled={locked}
         className="rounded border border-zinc-200 bg-white px-1 py-0.5 text-[10px] outline-none dark:border-zinc-700 dark:bg-zinc-900 disabled:opacity-50"
       >
         <option value="EDIT">모든 편집 가능</option>
         <option value="VIEW">보기만 가능</option>
       </select>
-      <button type="button" onClick={onRemove}
+      <button type="button" onClick={onRemove} disabled={locked}
         className="text-zinc-400 hover:text-red-500">✕</button>
     </div>
   );
@@ -96,9 +99,11 @@ function SortableRule({
 type Props = {
   value: WorkspaceAccessInput[];
   onChange: (next: WorkspaceAccessInput[]) => void;
+  readOnly?: boolean;
+  readOnlyReason?: string;
 };
 
-export function AccessEntriesEditor({ value, onChange }: Props) {
+export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason }: Props) {
   const members = useMemberStore((s) => s.members);
   const teams = useTeamStore((s) => s.teams);
   const [addType, setAddType] = useState<SubjectType>("MEMBER");
@@ -123,6 +128,7 @@ export function AccessEntriesEditor({ value, onChange }: Props) {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
+    if (readOnly) return;
     if (!over || active.id === over.id) return;
     // EVERYONE 항목은 이동 불가
     const activeKey = active.id as string;
@@ -179,11 +185,16 @@ export function AccessEntriesEditor({ value, onChange }: Props) {
           접근 규칙
           <span className="ml-1 text-xs font-normal text-zinc-400">낮은 숫자의 규칙을 최우선 적용합니다.</span>
         </div>
-        <button type="button" onClick={() => setShowAdd(true)}
+        <button type="button" onClick={() => setShowAdd(true)} disabled={readOnly}
           className="inline-flex items-center gap-0.5 rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700">
           <Plus size={10} /> 규칙 추가
         </button>
       </div>
+      {readOnly && readOnlyReason ? (
+        <div className="rounded border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+          {readOnlyReason}
+        </div>
+      ) : null}
 
       {/* 규칙 추가 폼 */}
       {showAdd && (
@@ -243,6 +254,7 @@ export function AccessEntriesEditor({ value, onChange }: Props) {
               label={getLabel(rule)}
               onRemove={() => onChange(value.filter((v) => makeKey(v) !== rule._key))}
               onLevelChange={(level) => onChange(value.map((v) => makeKey(v) === rule._key ? { ...v, level } : v))}
+              readOnly={readOnly}
             />
           ))}
         </SortableContext>

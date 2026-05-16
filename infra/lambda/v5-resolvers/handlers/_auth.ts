@@ -79,7 +79,26 @@ type SubjectType = "member" | "team" | "everyone";
 type AccessEntry = { subjectType: SubjectType; subjectId: string | null; level: AccessLevel };
 
 const LEVEL_RANK: Record<AccessLevel, number> = { edit: 2, view: 1 };
-const LC_SCHEDULER_WORKSPACE_ID = "lc-scheduler-global";
+export const LC_SCHEDULER_WORKSPACE_ID = "lc-scheduler-global";
+export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
+
+export function isLCSchedulerDatabaseId(databaseId: string | null | undefined): boolean {
+  return Boolean(databaseId?.startsWith(LC_SCHEDULER_DATABASE_ID_PREFIX));
+}
+
+export function getLCSchedulerWorkspaceIdFromDatabaseId(databaseId: string): string | null {
+  if (!isLCSchedulerDatabaseId(databaseId)) return null;
+  return databaseId.slice(LC_SCHEDULER_DATABASE_ID_PREFIX.length) || null;
+}
+
+export function isLCSchedulerScope(
+  workspaceId: string | null | undefined,
+  databaseId?: string | null,
+): boolean {
+  if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) return true;
+  if (!workspaceId || !databaseId) return false;
+  return getLCSchedulerWorkspaceIdFromDatabaseId(databaseId) === workspaceId;
+}
 
 async function getMemberTeamIds(
   doc: DynamoDBDocumentClient,

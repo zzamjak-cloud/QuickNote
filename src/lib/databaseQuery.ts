@@ -6,6 +6,7 @@ import type {
   FilterRule,
   SortRule,
 } from "../types/database";
+import { stringifyJsonValue } from "./database/jsonCell";
 
 export function cellToSearchString(
   value: CellValue,
@@ -31,7 +32,7 @@ export function cellToSearchString(
     const d = value as { start?: string; end?: string };
     return [d.start, d.end].filter(Boolean).join(" ");
   }
-  return String(value);
+  return stringifyJsonValue(value);
 }
 
 /**

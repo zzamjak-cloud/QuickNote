@@ -2,14 +2,14 @@
 // persist 미들웨어로 로컬 캐시를 유지하여 초기 로딩 시 빈 화면 방지.
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { appsyncClient } from "../lib/sync/graphql/client";
 import {
-  LIST_SCHEDULES,
-  CREATE_SCHEDULE,
-  UPDATE_SCHEDULE,
-  DELETE_SCHEDULE,
-  type GqlSchedule,
-} from "../lib/sync/graphql/operations";
+  createLCSchedulerSchedule,
+  deleteLCSchedulerSchedule,
+  projectLCSchedulerSchedules,
+  updateLCSchedulerSchedule,
+} from "../lib/scheduler/taskAdapter";
+import { ensureLCSchedulerDatabase } from "../lib/scheduler/database";
+import { useMemberStore } from "./memberStore";
 
 export type Schedule = {
   id: string;
@@ -71,6 +71,21 @@ type SchedulerStore = {
   removeLocal: (id: string) => void;
 };
 
+function scheduleOverlapsRange(schedule: Schedule, from: string, to: string): boolean {
+  const start = Date.parse(schedule.startAt);
+  const end = Date.parse(schedule.endAt);
+  const rangeStart = Date.parse(from);
+  const rangeEnd = Date.parse(to);
+  if ([start, end, rangeStart, rangeEnd].some((value) => Number.isNaN(value))) return true;
+  return start < rangeEnd && end > rangeStart;
+}
+
+function projectSchedulesForStore(workspaceId: string, from?: string, to?: string): Schedule[] {
+  const projected = projectLCSchedulerSchedules(workspaceId, useMemberStore.getState().members);
+  if (!from || !to) return projected;
+  return projected.filter((schedule) => scheduleOverlapsRange(schedule, from, to));
+}
+
 export const useSchedulerStore = create<SchedulerStore>()(
   persist(
     (set, get) => ({
@@ -84,36 +99,23 @@ export const useSchedulerStore = create<SchedulerStore>()(
           set({ schedules: [], cachedWorkspaceId: workspaceId });
         }
         // loading을 true로 올리지 않음 — 기존 캐시로 화면이 이미 그려진 상태 유지
-        try {
-          const r = await (appsyncClient().graphql({
-            query: LIST_SCHEDULES,
-            variables: { workspaceId, from, to },
-          }) as Promise<{ data: { listSchedules: GqlSchedule[] } }>);
-          set({ schedules: r.data.listSchedules as Schedule[], cachedWorkspaceId: workspaceId });
-        } finally {
-          set({ loading: false });
-        }
+        await ensureLCSchedulerDatabase(workspaceId);
+        set({
+          schedules: projectSchedulesForStore(workspaceId, from, to),
+          cachedWorkspaceId: workspaceId,
+          loading: false,
+        });
       },
 
       createSchedule: async (input) => {
-        const r = await (appsyncClient().graphql({
-          query: CREATE_SCHEDULE,
-          variables: { input },
-        }) as Promise<{ data: { createSchedule: GqlSchedule } }>);
-        const s = r.data.createSchedule as Schedule;
-        set((st) => ({ schedules: [...st.schedules, s] }));
+        const s = await createLCSchedulerSchedule(input);
+        set({ schedules: projectSchedulesForStore(input.workspaceId), cachedWorkspaceId: input.workspaceId });
         return s;
       },
 
       updateSchedule: async (input) => {
-        const r = await (appsyncClient().graphql({
-          query: UPDATE_SCHEDULE,
-          variables: { input },
-        }) as Promise<{ data: { updateSchedule: GqlSchedule } }>);
-        const s = r.data.updateSchedule as Schedule;
-        set((st) => ({
-          schedules: st.schedules.map((x) => (x.id === s.id ? s : x)),
-        }));
+        const s = await updateLCSchedulerSchedule(input);
+        set({ schedules: projectSchedulesForStore(input.workspaceId), cachedWorkspaceId: input.workspaceId });
         return s;
       },
 
@@ -121,10 +123,8 @@ export const useSchedulerStore = create<SchedulerStore>()(
         const prevSchedules = get().schedules;
         set((st) => ({ schedules: st.schedules.filter((x) => x.id !== id) }));
         try {
-          await appsyncClient().graphql({
-            query: DELETE_SCHEDULE,
-            variables: { id, workspaceId },
-          });
+          await deleteLCSchedulerSchedule(id, workspaceId);
+          set({ schedules: projectSchedulesForStore(workspaceId), cachedWorkspaceId: workspaceId });
         } catch (error) {
           set({ schedules: prevSchedules });
           throw error;

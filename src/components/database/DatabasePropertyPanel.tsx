@@ -9,6 +9,7 @@ import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 
 const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
+  { id: "json", label: "JSON" },
   { id: "number", label: "숫자" },
   { id: "select", label: "선택" },
   { id: "multiSelect", label: "다중 선택" },

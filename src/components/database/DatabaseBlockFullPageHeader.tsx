@@ -7,6 +7,7 @@ type Props = {
   hasPreviousPage?: boolean;
   /** 뒤로가기 클릭 핸들러. */
   onGoBack?: () => void;
+  deleteDisabled?: boolean;
 };
 
 export function DatabaseBlockFullPageHeader({
@@ -14,6 +15,7 @@ export function DatabaseBlockFullPageHeader({
   onOpenDeleteModal,
   hasPreviousPage,
   onGoBack,
+  deleteDisabled,
 }: Props) {
   return (
     <div className="flex flex-wrap items-center gap-1 px-2 py-1.5">
@@ -39,9 +41,10 @@ export function DatabaseBlockFullPageHeader({
         </button>
         <button
           type="button"
-          title="데이터베이스 영구 삭제…"
+          title={deleteDisabled ? "LC스케줄러 DB는 삭제할 수 없습니다." : "데이터베이스 영구 삭제…"}
           onClick={onOpenDeleteModal}
-          className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+          disabled={deleteDisabled}
+          className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400 dark:hover:bg-red-950/40 dark:hover:text-red-400"
         >
           <Trash2 size={15} />
         </button>

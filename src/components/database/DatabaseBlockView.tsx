@@ -34,6 +34,7 @@ import { DatabaseBlockBinding } from "./DatabaseBlockBinding";
 import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
 import { DatabaseBlockFullPageHeader } from "./DatabaseBlockFullPageHeader";
 import { DatabaseBlockInlineHeader } from "./DatabaseBlockInlineHeader";
+import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { DatabaseBlockLinkExistingPanel } from "./DatabaseBlockLinkExistingPanel";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
 import {
@@ -74,6 +75,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const hasDatabaseId = databaseId.length > 0;
   const needsBinding = !hasDatabaseId;
   const bundleGone = hasDatabaseId && !bundle;
+  const isProtectedDatabase = isLCSchedulerDatabaseId(databaseId);
 
   const setDatabaseTitle = useDatabaseStore((s) => s.setDatabaseTitle);
   const deleteDatabaseFromStore = useDatabaseStore((s) => s.deleteDatabase);
@@ -87,7 +89,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
   );
 
   const inlineTitleLocked =
-    layout === "inline" && (readOnlyTitleAttr || dbHomePageId != null);
+    isProtectedDatabase ||
+    (layout === "inline" && (readOnlyTitleAttr || dbHomePageId != null));
 
   // 내비게이션 히스토리 (인라인→전체 DB 전환 시 뒤로가기 지원).
   const pushBack = useNavigationHistoryStore((s) => s.pushBack);
@@ -164,6 +167,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const selectedDbEventIds = selectedDbTimelineEntries.flatMap((e) => e.eventIds);
 
   const openDeleteDatabaseModal = () => {
+    if (isProtectedDatabase) return;
     setDeletePhraseDraft("");
     setDeleteModalOpen(true);
   };
@@ -175,6 +179,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
+    if (isProtectedDatabase) return;
     if (deletePhraseDraft.trim() !== deleteConfirmPhrase) {
       alert(
         `다음 문구를 정확히 입력하세요:\n「${deleteConfirmPhrase}」`,
@@ -441,6 +446,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
                 onOpenLink={() => setLinkOpen((v) => !v)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
+                deleteDisabled={isProtectedDatabase}
                 onTitleDragStart={onInlineTitleDragStart}
                 onTitleDragEnd={onInlineTitleDragEnd}
               />
@@ -448,6 +454,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
               <DatabaseBlockFullPageHeader
                 onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
+                deleteDisabled={isProtectedDatabase}
                 hasPreviousPage={!!previousPageId}
                 onGoBack={() => {
                   const prev = popBack();
@@ -554,7 +561,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 <button
                   type="button"
                   onClick={() => setDbPermanentDeleteOpen(true)}
-                  className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/30"
+                  disabled={isProtectedDatabase}
+                  title={isProtectedDatabase ? "LC스케줄러 DB는 삭제할 수 없습니다." : undefined}
+                  className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-red-900/40 dark:hover:bg-red-950/30"
                 >
                   영구삭제
                 </button>
@@ -692,7 +701,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
         danger
         onCancel={() => setDbPermanentDeleteOpen(false)}
         onConfirm={() => {
-          if (hasDatabaseId) {
+          if (hasDatabaseId && !isProtectedDatabase) {
             deleteDatabaseFromStore(databaseId);
             if (layout === "fullPage" && activePageId) {
               usePageStore.getState().deletePage(activePageId);

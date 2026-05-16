@@ -5,12 +5,16 @@ import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { useSchedulerHolidaysStore } from "../../store/schedulerHolidaysStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useDatabaseStore } from "../../store/databaseStore";
+import { usePageStore } from "../../store/pageStore";
 import {
   startOfYear,
   toIsoStartOfDay,
   toIsoEndOfDay,
 } from "../../lib/scheduler/dateUtils";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import { makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { SchedulerHeader } from "./SchedulerHeader";
 import { SchedulerTeamTabs } from "./SchedulerTeamTabs";
 import { SchedulerToolbar } from "./SchedulerToolbar";
@@ -32,13 +36,31 @@ export function LCSchedulerModal({ onClose }: Props) {
   const fetchHolidays = useSchedulerHolidaysStore((s) => s.fetchHolidays);
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const schedulerWorkspaceId = currentWorkspaceId ?? LC_SCHEDULER_WORKSPACE_ID;
+  const schedulerDatabaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
+  const schedulerDbUpdatedAt = useDatabaseStore(
+    (s) => s.databases[schedulerDatabaseId]?.meta.updatedAt ?? 0,
+  );
+  const schedulerRowsUpdatedAt = usePageStore((s) =>
+    Object.values(s.pages)
+      .filter((page) => page.databaseId === schedulerDatabaseId)
+      .map((page) => `${page.id}:${page.updatedAt}`)
+      .join("|"),
+  );
 
   // 마운트 시 + 연도 변경 시 해당 연도 일정 페치
   useEffect(() => {
     const from = toIsoStartOfDay(startOfYear(currentYear));
     const to = toIsoEndOfDay(endOfYear(currentYear));
-    void fetchSchedules(LC_SCHEDULER_WORKSPACE_ID, from, to);
-  }, [currentYear, fetchSchedules]);
+    void fetchSchedules(schedulerWorkspaceId, from, to);
+  }, [
+    currentYear,
+    fetchSchedules,
+    schedulerWorkspaceId,
+    schedulerDbUpdatedAt,
+    schedulerRowsUpdatedAt,
+  ]);
 
   // 프로젝트·공휴일은 첫 페인트 이후 갱신한다.
   useEffect(() => {
@@ -76,7 +98,7 @@ export function LCSchedulerModal({ onClose }: Props) {
 
       {/* 본문: 연간 뷰 or 주간 뷰 */}
       {viewMode === "year" ? (
-        <ScheduleGrid workspaceId={LC_SCHEDULER_WORKSPACE_ID} />
+        <ScheduleGrid workspaceId={schedulerWorkspaceId} />
       ) : (
         <WeekScheduleView />
       )}

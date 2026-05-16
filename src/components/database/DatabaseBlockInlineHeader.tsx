@@ -12,6 +12,7 @@ type Props = {
   onOpenDbHistory: () => void;
   onOpenLink: () => void;
   onOpenDeleteModal: () => void;
+  deleteDisabled?: boolean;
   /** 제목 영역 드래그 — 인라인 DB 블럭을 통째로 이동 */
   onTitleDragStart?: (e: ReactDragEvent<HTMLDivElement>) => void;
   onTitleDragEnd?: () => void;
@@ -28,6 +29,7 @@ export function DatabaseBlockInlineHeader({
   onOpenDbHistory,
   onOpenLink,
   onOpenDeleteModal,
+  deleteDisabled,
   onTitleDragStart,
   onTitleDragEnd,
 }: Props) {
@@ -112,9 +114,10 @@ export function DatabaseBlockInlineHeader({
           </button>
           <button
             type="button"
-            title="데이터베이스 영구 삭제…"
+            title={deleteDisabled ? "LC스케줄러 DB는 삭제할 수 없습니다." : "데이터베이스 영구 삭제…"}
             onClick={onOpenDeleteModal}
-            className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+            disabled={deleteDisabled}
+            className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400 dark:hover:bg-red-950/40 dark:hover:text-red-400"
           >
             <Trash2 size={15} />
           </button>

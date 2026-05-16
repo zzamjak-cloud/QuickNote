@@ -9,6 +9,7 @@ type Props = {
   onClose: () => void;
   onSave: (input: { name: string; entries: WorkspaceAccessInput[] }) => Promise<void> | void;
   onRequestDelete?: () => void;
+  lockedReason?: string;
 };
 
 export function EditWorkspaceModal({
@@ -18,6 +19,7 @@ export function EditWorkspaceModal({
   onClose,
   onSave,
   onRequestDelete,
+  lockedReason,
 }: Props) {
   const [name, setName] = useState(workspaceName);
   const [entries, setEntries] = useState<WorkspaceAccessInput[]>(initialEntries);
@@ -34,6 +36,10 @@ export function EditWorkspaceModal({
   if (!open) return null;
 
   const submit = async () => {
+    if (lockedReason) {
+      onClose();
+      return;
+    }
     const n = name.trim();
     if (!n) {
       setError("워크스페이스 이름을 입력해 주세요.");
@@ -61,15 +67,21 @@ export function EditWorkspaceModal({
             placeholder="워크스페이스 이름"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            disabled={Boolean(lockedReason)}
             className="w-full rounded border border-transparent bg-transparent px-2 py-1 text-xl font-bold outline-none hover:border-zinc-200 focus:border-zinc-400 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
           />
           <div className="mt-4">
-            <AccessEntriesEditor value={entries} onChange={setEntries} />
+            <AccessEntriesEditor
+              value={entries}
+              onChange={setEntries}
+              readOnly={Boolean(lockedReason)}
+              readOnlyReason={lockedReason}
+            />
           </div>
           {error ? <p className="mt-2 text-sm text-red-500">{error}</p> : null}
         </div>
         <div className="flex justify-between gap-2 border-t border-zinc-100 p-4 dark:border-zinc-800">
-          {onRequestDelete ? (
+          {onRequestDelete && !lockedReason ? (
             <button
               type="button"
               onClick={onRequestDelete}
@@ -81,7 +93,7 @@ export function EditWorkspaceModal({
           <div className="flex gap-2">
             <button type="button" onClick={onClose} disabled={saving} className="rounded border px-3 py-1 text-sm disabled:opacity-50">취소</button>
             <button type="button" onClick={() => void submit()} disabled={saving} className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-60">
-              {saving ? "저장 중..." : "저장"}
+              {lockedReason ? "닫기" : saving ? "저장 중..." : "저장"}
             </button>
           </div>
         </div>

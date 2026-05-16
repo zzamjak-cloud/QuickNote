@@ -124,6 +124,7 @@ type Database {
   createdByMemberId: ID!
   title: String!
   columns: AWSJSON!
+  presets: AWSJSON
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
   deletedAt: AWSDateTime
@@ -207,6 +208,7 @@ input DatabaseInput {
   createdByMemberId: ID
   title: String!
   columns: AWSJSON!
+  presets: AWSJSON
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
 }

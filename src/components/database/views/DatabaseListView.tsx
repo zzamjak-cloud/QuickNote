@@ -1,5 +1,6 @@
 import { getVisibleOrderedColumns } from "../../../types/database";
 import type { DatabasePanelState } from "../../../types/database";
+import { summarizeJsonValue } from "../../../lib/database/jsonCell";
 import { useProcessedRows } from "../useProcessedRows";
 import { usePageStore } from "../../../store/pageStore";
 import { useUiStore } from "../../../store/uiStore";
@@ -65,11 +66,12 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
             </span>
             {extraCols.map((col) => {
               const cell = row.cells[col.id];
-              const display = Array.isArray(cell)
-                ? (cell as string[]).join(", ")
-                : cell != null
-                  ? String(cell)
-                  : "";
+              let display = "";
+              if (cell != null) {
+                if (col.type === "json") display = summarizeJsonValue(cell);
+                else if (Array.isArray(cell)) display = (cell as string[]).join(", ");
+                else display = String(cell);
+              }
               if (!display) return null;
               return (
                 <span

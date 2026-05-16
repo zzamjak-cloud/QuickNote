@@ -35,6 +35,8 @@ import { ScheduleEditPopup } from "./ScheduleEditPopup";
 import type { Schedule } from "../../store/schedulerStore";
 import { ANNUAL_LEAVE_COLOR, pickTextColor } from "../../lib/scheduler/colors";
 import { updateMemberApi } from "../../lib/sync/memberApi";
+import { parseScheduleInstanceId } from "../../lib/scheduler/taskAdapter";
+import { useUiStore } from "../../store/uiStore";
 
 // ── 특이사항 이벤트 카드 ──────────────────────────────────────────────────────
 type GlobalEventCardProps = {
@@ -129,6 +131,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
   const createSchedule = useSchedulerStore((s) => s.createSchedule);
   const updateSchedule = useSchedulerStore((s) => s.updateSchedule);
   const deleteSchedule = useSchedulerStore((s) => s.deleteSchedule);
+  const openPeek = useUiStore((s) => s.openPeek);
   const members = useMemberStore((s) => s.members);
   const {
     zoomLevel,
@@ -145,8 +148,6 @@ export function ScheduleGrid({ workspaceId }: Props) {
   // 마운트 시 1회 + 연도 변경 시에만 오늘 스크롤을 실행하기 위한 가드
   const didInitialScrollRef = useRef(false);
   const prevYearRef = useRef(currentYear);
-
-  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
 
   // ── Ctrl/Alt+드래그 신규 일정 생성 상태 ────────────────────────────────────
   // dragMode: "create" = Ctrl/Alt 드래그, "box" = Shift 드래그 (useBoxSelection이 담당)
@@ -371,6 +372,12 @@ export function ScheduleGrid({ workspaceId }: Props) {
       clearSelection();
     }
   }, [clearSelection, isCardSelected, selectSchedule]);
+
+  const openSchedulePage = useCallback((id: string) => {
+    const parsed = parseScheduleInstanceId(id);
+    if (!parsed) return;
+    openPeek(parsed.pageId);
+  }, [openPeek]);
 
   // 오늘로 스크롤
   const scrollToToday = useCallback(() => {
@@ -625,7 +632,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (newScheduleDefaults || editingSchedule) return;
+      if (newScheduleDefaults) return;
 
       if (e.key === "Escape" && selectedCardIds.size > 0) {
         clearSelection();
@@ -638,7 +645,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
 
       if (e.key === "Enter") {
         e.preventDefault();
-        setEditingSchedule(selected);
+        openSchedulePage(selected.id);
         return;
       }
 
@@ -659,8 +666,8 @@ export function ScheduleGrid({ workspaceId }: Props) {
   }, [
     clearSelection,
     deleteSchedule,
-    editingSchedule,
     newScheduleDefaults,
+    openSchedulePage,
     schedules,
     selectedCardIds.size,
     selectSchedule,
@@ -844,10 +851,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                       rowCount={globalRowCount}
                       isSelected={selectedScheduleId === s.id}
                       onSelect={(id) => { selectSchedule(id); clearSelection(); }}
-                      onEdit={(id) => {
-                        const found = schedules.find((x) => x.id === id) ?? null;
-                        setEditingSchedule(found);
-                      }}
+                      onEdit={openSchedulePage}
                     />
                   ))}
                 </div>
@@ -890,10 +894,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                       onMultiDragMove={handleMultiDragMove}
                       onMultiDragEnd={handleMultiDragComplete}
                       onSelect={handleScheduleSelect}
-                      onEdit={(id) => {
-                        const found = schedules.find((x) => x.id === id) ?? null;
-                        setEditingSchedule(found);
-                      }}
+                      onEdit={openSchedulePage}
                     />
                   ))}
                 </div>
@@ -954,15 +955,6 @@ export function ScheduleGrid({ workspaceId }: Props) {
           </div>
         </div>
       </div>
-
-      {/* 일정 편집 팝업 */}
-      {editingSchedule && (
-        <ScheduleEditPopup
-          schedule={editingSchedule}
-          workspaceId={workspaceId}
-          onClose={() => setEditingSchedule(null)}
-        />
-      )}
 
       {/* Ctrl/Alt+드래그로 생성하는 새 일정 팝업 */}
       {newScheduleDefaults && (
