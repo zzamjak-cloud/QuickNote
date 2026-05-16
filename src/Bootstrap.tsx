@@ -20,7 +20,6 @@ import { applyWorkspaceLanding } from "./lib/sync/workspaceLanding";
 import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspaceCacheAfterFlush";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { usePageStore } from "./store/pageStore";
-import { useDatabaseStore } from "./store/databaseStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
 import { listMembersApi, fetchMeWithClientPrefs } from "./lib/sync/memberApi";
@@ -64,18 +63,7 @@ function useSyncBootstrap(): boolean {
   const clearTeams = useTeamStore((s) => s.clear);
   const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
   const clearOrganizations = useOrganizationStore((s) => s.clear);
-  const pageCacheWorkspaceId = usePageStore((s) => s.cacheWorkspaceId);
-  const pageCacheCount = usePageStore((s) => Object.keys(s.pages).length);
-  const databaseCacheWorkspaceId = useDatabaseStore((s) => s.cacheWorkspaceId);
-  const databaseCacheCount = useDatabaseStore(
-    (s) => Object.keys(s.databases).length,
-  );
-  const cacheNeedsClear = Boolean(
-    currentWorkspaceId &&
-      ((pageCacheCount > 0 && pageCacheWorkspaceId !== currentWorkspaceId) ||
-        (databaseCacheCount > 0 &&
-          databaseCacheWorkspaceId !== currentWorkspaceId)),
-  );
+  const cacheNeedsClear = workspaceCacheNeedsPrepaintClear(currentWorkspaceId);
   const [workspaceCacheReady, setWorkspaceCacheReady] = useState(() =>
     !workspaceCacheNeedsPrepaintClear(
       useWorkspaceStore.getState().currentWorkspaceId,

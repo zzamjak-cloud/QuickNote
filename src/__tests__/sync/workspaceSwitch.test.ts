@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { applyWorkspaceSwitch } from "../../lib/sync/workspaceSwitch";
+import { applyWorkspaceSwitch, workspaceCacheNeedsPrepaintClear } from "../../lib/sync/workspaceSwitch";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -7,17 +7,30 @@ import { useSettingsStore } from "../../store/settingsStore";
 // runtime.getSyncEngine 을 mock 하여 outbox 상태(peekPending)를 제어한다.
 vi.mock("../../lib/sync/runtime", () => {
   let pending = 0;
+  let snapshot: Array<{ workspaceId?: string | null }> | null = null;
   return {
-    __setPending: (n: number) => (pending = n),
+    __setPending: (n: number) => {
+      pending = n;
+      snapshot = null;
+    },
+    __setSnapshot: (items: Array<{ workspaceId?: string | null }> | null) => {
+      snapshot = items;
+    },
     getSyncEngine: async () => ({
       peekPending: async () => pending,
+      debugSnapshot: async () =>
+        snapshot ?? Array.from({ length: pending }, () => ({ workspaceId: "ws-pending" })),
     }),
   };
 });
 
 import * as runtime from "../../lib/sync/runtime";
-const setPending = (runtime as unknown as { __setPending: (n: number) => void })
-  .__setPending;
+const runtimeMock = runtime as unknown as {
+  __setPending: (n: number) => void;
+  __setSnapshot: (items: Array<{ workspaceId?: string | null }> | null) => void;
+};
+const setPending = runtimeMock.__setPending;
+const setSnapshot = runtimeMock.__setSnapshot;
 
 beforeEach(() => {
   localStorage.clear();
@@ -25,6 +38,7 @@ beforeEach(() => {
   useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
   useSettingsStore.setState({ tabs: [{ pageId: null }], activeTabIndex: 0 });
   setPending(0);
+  setSnapshot(null);
 });
 
 describe("applyWorkspaceSwitch", () => {
@@ -118,5 +132,50 @@ describe("applyWorkspaceSwitch", () => {
     expect(result.cleared).toBe(false);
     expect(result.reason).toBe("pending-outbox");
     expect(Object.keys(usePageStore.getState().pages).length).toBe(1);
+  });
+
+  it("LC 스케줄러 공용 캐시만 있으면 현재 워크스페이스 prepaint 차단 대상으로 보지 않는다", () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "lc-scheduler-global",
+      pages: {
+        "row-1": {
+          id: "row-1",
+          title: "일정",
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 1,
+          databaseId: "lc-scheduler-db:lc-scheduler-global",
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      },
+    });
+    useDatabaseStore.setState({
+      cacheWorkspaceId: "lc-scheduler-global",
+      databases: {
+        "lc-scheduler-db:lc-scheduler-global": {
+          meta: {
+            id: "lc-scheduler-db:lc-scheduler-global",
+            title: "LC스케줄러",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+          columns: [],
+          rowPageOrder: ["row-1"],
+        },
+      },
+    });
+
+    expect(workspaceCacheNeedsPrepaintClear("ws-1")).toBe(false);
+  });
+
+  it("LC 스케줄러 공용 outbox 만 있으면 캐시 클리어 보류 사유에서 제외한다", async () => {
+    usePageStore.getState().createPage("a");
+    usePageStore.setState({ cacheWorkspaceId: "ws-1" });
+    setSnapshot([{ workspaceId: "lc-scheduler-global" }]);
+
+    const result = await applyWorkspaceSwitch("ws-1", "ws-2");
+    expect(result.cleared).toBe(true);
+    expect(result.pending).toBe(0);
   });
 });
