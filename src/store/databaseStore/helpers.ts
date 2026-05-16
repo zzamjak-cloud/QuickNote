@@ -16,6 +16,7 @@ import { enqueueAsync } from "../../lib/sync/runtime";
 import { useAuthStore } from "../authStore";
 import { useWorkspaceStore } from "../workspaceStore";
 import { usePageStore } from "../pageStore";
+import { getLCSchedulerWorkspaceIdFromDatabaseId } from "../../lib/scheduler/database";
 import type { DbMap } from "./migrations";
 
 // v5 fallback: 아직 memberStore(me.memberId)와 완전 연동 전이라 auth sub 를 사용.
@@ -28,6 +29,14 @@ export function getCurrentWorkspaceId(): string {
   return useWorkspaceStore.getState().currentWorkspaceId ?? "";
 }
 
+function resolveWorkspaceIdByDatabaseId(databaseId: string | null | undefined): string {
+  if (databaseId) {
+    const schedulerWorkspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(databaseId);
+    if (schedulerWorkspaceId) return schedulerWorkspaceId;
+  }
+  return getCurrentWorkspaceId();
+}
+
 // 클라이언트 number(epoch ms) → GraphQL 경계 ISO 문자열 변환.
 // AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다.
 export function toGqlDatabase(
@@ -38,7 +47,7 @@ export function toGqlDatabase(
 ): Record<string, unknown> {
   return {
     id: meta.id,
-    workspaceId: getCurrentWorkspaceId(),
+    workspaceId: resolveWorkspaceIdByDatabaseId(meta.id),
     createdByMemberId,
     title: meta.title,
     columns: JSON.stringify(columns),
@@ -49,7 +58,8 @@ export function toGqlDatabase(
 }
 
 export function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
-  if (!getCurrentWorkspaceId()) {
+  const workspaceId = resolveWorkspaceIdByDatabaseId(bundle.meta.id);
+  if (!workspaceId) {
     console.warn("[sync] upsertDatabase skipped: workspaceId 미설정", { dbId: bundle.meta.id });
     return;
   }
@@ -69,11 +79,12 @@ export function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
 // doc/dbCells 는 AppSync AWSJSON 요구사항에 맞춰 JSON.stringify 로 직렬화.
 export function enqueueUpsertPageRaw(p: Page): void {
   const createdByMemberId = getCreatedByMemberId();
+  const workspaceId = resolveWorkspaceIdByDatabaseId(p.databaseId ?? null);
   enqueueAsync(
     "upsertPage",
     {
       id: p.id,
-      workspaceId: getCurrentWorkspaceId(),
+      workspaceId,
       createdByMemberId,
       title: p.title,
       icon: p.icon ?? null,
