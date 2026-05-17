@@ -14,6 +14,7 @@ import { useVisibleMembers } from "./hooks/useVisibleMembers";
 import { useBoxSelection } from "./hooks/useBoxSelection";
 import {
   daysInYear,
+  dayIndex,
   todayIndex as calcTodayIndex,
   startOfYear,
   addDays,
@@ -28,6 +29,7 @@ import {
 import { computeRowCount } from "../../lib/scheduler/collisionDetection";
 import { dateToX, widthForRange } from "../../lib/scheduler/gridUtils";
 import { parseIsoDate } from "../../lib/scheduler/dateUtils";
+import { parseDateKey } from "../../lib/scheduler/mm/weekUtils";
 import { DateAxis } from "./DateAxis";
 import { GridRow } from "./GridRow";
 import { ScheduleCard } from "./ScheduleCard";
@@ -147,6 +149,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
     selectedProjectId,
     selectedScheduleId,
     multiSelectedIds,
+    mmWeekStart,
     weekendColor,
     selectSchedule,
   } = useSchedulerViewStore();
@@ -771,6 +774,21 @@ export function ScheduleGrid({ workspaceId }: Props) {
     };
   }, [isBoxSelecting, selectionRect]);
 
+  const mmWeekIndicatorStyle = useMemo(() => {
+    if (!mmWeekStart) return null;
+    const start = parseDateKey(mmWeekStart);
+    const end = addDays(start, 4);
+    const startIdx = dayIndex(currentYear, start);
+    const endIdx = dayIndex(currentYear, end);
+    const clampedStart = Math.max(0, startIdx);
+    const clampedEnd = Math.min(total - 1, endIdx);
+    if (clampedEnd < 0 || clampedStart >= total || clampedStart > clampedEnd) return null;
+    return {
+      left: clampedStart * cellWidth + CARD_MARGIN,
+      width: Math.max(2, (clampedEnd - clampedStart + 1) * cellWidth - CARD_MARGIN * 2),
+    };
+  }, [cellWidth, currentYear, mmWeekStart, total]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* 본문: 좌측 고정 멤버 컬럼 + 우측 스크롤 타임라인 */}
@@ -984,8 +1002,21 @@ export function ScheduleGrid({ workspaceId }: Props) {
                   height: TIMELINE_BOTTOM_SPACER_HEIGHT,
                   minHeight: 240,
                   width: totalWidth,
+                  position: "relative",
                 }}
-              />
+              >
+                {mmWeekIndicatorStyle && (
+                  <div
+                    className="absolute rounded-full bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.25)]"
+                    style={{
+                      left: mmWeekIndicatorStyle.left,
+                      top: 28,
+                      width: mmWeekIndicatorStyle.width,
+                      height: 4,
+                    }}
+                  />
+                )}
+              </div>
             )}
 
             {/* Ctrl/Alt+드래그 생성 마퀴 — 내부 컨텐츠 좌표 기준 */}

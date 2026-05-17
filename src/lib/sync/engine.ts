@@ -8,6 +8,7 @@ import { buildOutboxEntryMeta } from "./outboxMeta";
 import { sortOutboxBatchForFlush } from "./outboxFlushOrder";
 import { useUiStore } from "../../store/uiStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
+import { isLCSchedulerDatabaseId } from "../scheduler/database";
 
 // 동기화 엔진. enqueue 시 outbox 에 적재 → 백그라운드 워커가 mutation 으로 flush.
 // 같은 (op, id) 의 새 enqueue 는 dedupe 로 마지막 본만 남김.
@@ -60,6 +61,9 @@ export class SyncEngine {
   }
 
   async enqueue(op: OutboxOp, payload: EnqueuePayload): Promise<void> {
+    if (op === "softDeleteDatabase" && isLCSchedulerDatabaseId(payload.id)) {
+      return;
+    }
     const meta = buildOutboxEntryMeta(
       op,
       payload as Record<string, unknown>,
@@ -221,6 +225,7 @@ export class SyncEngine {
       case "softDeletePage":
         return this.gql.softDeletePage(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
       case "softDeleteDatabase":
+        if (isLCSchedulerDatabaseId(p.id)) return;
         return this.gql.softDeleteDatabase(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
       case "upsertComment":
         return this.gql.upsertComment(p);

@@ -3,6 +3,8 @@ import { buildWeeklyMmSuggestion, type MmScheduleSource } from "../mmSuggestion"
 import { getDefaultMmWeek, shiftMmWeek, toDateKey } from "../weekUtils";
 import { canEditWeeklyMmInput } from "../mmPermissions";
 import { getMemberSubmissionStates, toCsvMmValue, validateMmBuckets } from "../mmValidation";
+import { buildMmCsvRows } from "../mmAggregation";
+import type { MmEntry } from "../mmTypes";
 
 function schedule(partial: Partial<MmScheduleSource>): MmScheduleSource {
   return {
@@ -15,6 +17,23 @@ function schedule(partial: Partial<MmScheduleSource>): MmScheduleSource {
     projectId: partial.projectId ?? null,
     teamId: partial.teamId ?? null,
     organizationId: partial.organizationId ?? null,
+  };
+}
+
+function mmEntry(partial: Partial<MmEntry>): MmEntry {
+  return {
+    id: partial.id ?? "e1",
+    workspaceId: partial.workspaceId ?? "w",
+    memberId: partial.memberId ?? "m1",
+    weekStart: partial.weekStart ?? "2026-05-04",
+    weekEnd: partial.weekEnd ?? "2026-05-08",
+    status: partial.status ?? "submitted",
+    buckets: partial.buckets ?? [],
+    organizationId: partial.organizationId ?? null,
+    teamId: partial.teamId ?? null,
+    submittedByMemberId: partial.submittedByMemberId ?? "m1",
+    submittedAt: partial.submittedAt ?? new Date(2026, 4, 9).toISOString(),
+    updatedAt: partial.updatedAt ?? new Date(2026, 4, 9).toISOString(),
   };
 }
 
@@ -81,6 +100,68 @@ describe("MM 검증과 권한", () => {
     expect(toCsvMmValue(10000)).toBe("1");
     expect(toCsvMmValue(2000)).toBe("0.2");
     expect(toCsvMmValue(1250)).toBe("0.125");
+  });
+
+  it("월간 CSV는 구성원별 요약 컬럼만 출력한다", () => {
+    const csv = buildMmCsvRows({
+      rangeKind: "month",
+      periodLabel: "2026-05",
+      scope: "all",
+      memberNameById: { m1: "최진평" },
+      entries: [
+        mmEntry({
+          id: "e1",
+          buckets: [
+            { id: "organization:o1", kind: "organization", scopeId: "o1", label: "CAT", ratioBp: 5000, editable: true },
+            { id: "project:p1", kind: "project", scopeId: "p1", label: "A프로젝트", ratioBp: 5000, editable: true },
+          ],
+        }),
+        mmEntry({
+          id: "e2",
+          weekStart: "2026-05-11",
+          weekEnd: "2026-05-15",
+          buckets: [
+            { id: "project:p2", kind: "project", scopeId: "p2", label: "B프로젝트", ratioBp: 8000, editable: true },
+            { id: "other", kind: "other", scopeId: null, label: "기타", ratioBp: 2000, editable: false },
+          ],
+        }),
+      ],
+    });
+    expect(csv.split("\n")).toEqual([
+      "월,구성원,조직MM,팀MM,프로젝트MM,기타MM",
+      "2026-05,최진평,CAT 0.25,,A프로젝트 0.25; B프로젝트 0.4,0.1",
+    ]);
+  });
+
+  it("프로젝트 스코프 CSV는 기간 전체 대비 해당 프로젝트 MM만 계산한다", () => {
+    const csv = buildMmCsvRows({
+      rangeKind: "month",
+      periodLabel: "2026-05",
+      scope: "project:p1",
+      memberNameById: { m1: "최진평" },
+      projectNameById: { p1: "A프로젝트" },
+      entries: [
+        mmEntry({
+          id: "e1",
+          buckets: [
+            { id: "project:p1", kind: "project", scopeId: "p1", label: "A", ratioBp: 5000, editable: true },
+            { id: "project:p2", kind: "project", scopeId: "p2", label: "B", ratioBp: 5000, editable: true },
+          ],
+        }),
+        mmEntry({
+          id: "e2",
+          weekStart: "2026-05-11",
+          weekEnd: "2026-05-15",
+          buckets: [
+            { id: "project:p2", kind: "project", scopeId: "p2", label: "B", ratioBp: 10000, editable: true },
+          ],
+        }),
+      ],
+    });
+    expect(csv.split("\n")).toEqual([
+      "월,구성원,조직MM,팀MM,프로젝트MM,기타MM",
+      "2026-05,최진평,,,A프로젝트 0.25,",
+    ]);
   });
 
   it("누락/제출완료 상태를 계산한다", () => {

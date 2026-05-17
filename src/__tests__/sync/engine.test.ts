@@ -60,6 +60,44 @@ describe("SyncEngine", () => {
     expect((first[1] as { updatedAt: string }).updatedAt).toBe("t2");
   });
 
+  it("LC스케줄러 DB 삭제 mutation 은 enqueue 하지 않는다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    await engine.enqueue("softDeleteDatabase", {
+      id: "lc-scheduler-db:legacy-ws",
+      workspaceId: "legacy-ws",
+      updatedAt: "2026-05-17T00:00:00.000Z",
+    });
+    expect(await outbox.list(10)).toEqual([]);
+    await engine.flush();
+    expect(gql.calls).toEqual([]);
+  });
+
+  it("이미 outbox 에 남은 LC스케줄러 DB 삭제 mutation 은 성공 처리로 제거한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    await outbox.put({
+      id: "entry-1",
+      op: "softDeleteDatabase",
+      payload: {
+        id: "lc-scheduler-db:legacy-ws",
+        workspaceId: "legacy-ws",
+        updatedAt: "2026-05-17T00:00:00.000Z",
+      },
+      enqueuedAt: 1,
+      attempts: 1,
+      dedupeKey: "softDeleteDatabase:lc-scheduler-db:legacy-ws",
+      workspaceId: "legacy-ws",
+      entityType: "database",
+      entityId: "lc-scheduler-db:legacy-ws",
+    });
+    await engine.flush();
+    expect(await outbox.list(10)).toEqual([]);
+    expect(gql.calls).toEqual([]);
+  });
+
   it("retries on failure with backoff bookkeeping", async () => {
     const outbox = new MemoryOutboxAdapter();
     let fail = true;

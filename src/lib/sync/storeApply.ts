@@ -386,15 +386,6 @@ export function applyRemoteDatabaseToStore(
       delete rest[remote.id];
       return { ...s, databases: rest };
     });
-    if (!remote.deletedAt) {
-      queueMicrotask(() => {
-        enqueueAsync("softDeleteDatabase", {
-          id: remote.id,
-          workspaceId: remote.workspaceId,
-          updatedAt: new Date().toISOString(),
-        });
-      });
-    }
     return;
   }
 

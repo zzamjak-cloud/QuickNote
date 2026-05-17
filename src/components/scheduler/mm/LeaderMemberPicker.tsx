@@ -1,4 +1,4 @@
-import { Search, X } from "lucide-react";
+import { Crown, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Member } from "../../../store/memberStore";
 
@@ -62,6 +62,7 @@ export function LeaderMemberPicker({
                 className="inline-flex items-center gap-1 rounded bg-white px-2 py-1 text-xs text-zinc-700 shadow-sm dark:bg-zinc-900 dark:text-zinc-200"
               >
                 {member.name}
+                <Crown size={11} className="text-amber-500" />
                 <button
                   type="button"
                   onClick={() => toggle(member.memberId)}

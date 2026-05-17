@@ -1,6 +1,6 @@
 // 설정 모달 — 조직 활성/비활성 패널.
 import { useState } from "react";
-import { Check, Eye, EyeOff, Pencil, X } from "lucide-react";
+import { Check, Crown, Eye, EyeOff, Pencil, X } from "lucide-react";
 import { useOrganizationStore } from "../../../store/organizationStore";
 import { useSchedulerFiltersStore } from "../../../store/schedulerFiltersStore";
 import { updateOrganizationApi } from "../../../lib/sync/organizationApi";
@@ -36,6 +36,10 @@ export function OrganizationsPanel() {
       </p>
       {organizations.map((org) => {
         const isDisabled = disabledOrgIds.includes(org.organizationId);
+        const leaderIds = org.leaderMemberIds?.length
+          ? org.leaderMemberIds
+          : inferLeaderMemberIds("organization", org.members);
+        const leaderMembers = org.members.filter((member) => leaderIds.includes(member.memberId));
         return (
           <div key={org.organizationId} className="rounded-md border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-800">
             <div className="flex items-center justify-between px-3 py-2.5">
@@ -50,8 +54,21 @@ export function OrganizationsPanel() {
                   {org.name}
                 </span>
                 <span className="text-xs text-zinc-400">
-                  조직장 {(org.leaderMemberIds ?? []).length}명
+                  조직장 {leaderMembers.length}명
                 </span>
+                {leaderMembers.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {leaderMembers.map((member) => (
+                      <span
+                        key={member.memberId}
+                        className="inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"
+                      >
+                        {member.name}
+                        <Crown size={11} className="text-amber-500" />
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-1">
                 <button

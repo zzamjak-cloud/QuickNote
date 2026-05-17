@@ -42,6 +42,7 @@ type ViewState = {
   // 선택 상태(드래그·다중 선택)
   selectedScheduleId: string | null;
   multiSelectedIds: string[];
+  mmWeekStart: string | null;
 };
 
 type ViewActions = {
@@ -61,6 +62,7 @@ type ViewActions = {
   setWeekViewProjectScope: (s: "all" | "project") => void;
   selectSchedule: (id: string | null) => void;
   setMultiSelected: (ids: string[]) => void;
+  setMmWeekStart: (weekStart: string | null) => void;
   clear: () => void;
 };
 
@@ -82,6 +84,7 @@ const initial: ViewState = {
   weekViewProjectScope: "all",
   selectedScheduleId: null,
   multiSelectedIds: [],
+  mmWeekStart: null,
 };
 
 export const useSchedulerViewStore = create<SchedulerViewStore>()(
@@ -107,6 +110,7 @@ export const useSchedulerViewStore = create<SchedulerViewStore>()(
       setWeekViewProjectScope: (weekViewProjectScope) => set({ weekViewProjectScope }),
       selectSchedule: (selectedScheduleId) => set({ selectedScheduleId }),
       setMultiSelected: (multiSelectedIds) => set({ multiSelectedIds }),
+      setMmWeekStart: (mmWeekStart) => set({ mmWeekStart }),
       clear: () => set(initial),
     }),
     {
