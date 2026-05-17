@@ -91,14 +91,30 @@ function isLCSchedulerPage(p: GqlPage): boolean {
   return Boolean(p.databaseId && isLCSchedulerDatabaseId(p.databaseId));
 }
 
+function toPageInputPayload(p: GqlPage): Record<string, unknown> & { id: string; updatedAt?: string } {
+  return {
+    id: p.id,
+    workspaceId: p.workspaceId,
+    createdByMemberId: p.createdByMemberId,
+    title: p.title,
+    icon: p.icon ?? null,
+    coverImage: p.coverImage ?? null,
+    parentId: p.parentId ?? null,
+    order: p.order,
+    databaseId: p.databaseId ?? null,
+    doc: p.doc,
+    dbCells: p.dbCells ?? null,
+    blockComments: p.blockComments ?? null,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  };
+}
+
 function normalizeLCSchedulerPageWorkspace(p: GqlPage): GqlPage {
   if (p.deletedAt || !isLCSchedulerPage(p) || p.workspaceId === LC_SCHEDULER_WORKSPACE_ID) return p;
   const repaired = { ...p, workspaceId: LC_SCHEDULER_WORKSPACE_ID };
   queueMicrotask(() => {
-    enqueueAsync(
-      "upsertPage",
-      repaired as unknown as Record<string, unknown> & { id: string; updatedAt?: string },
-    );
+    enqueueAsync("upsertPage", toPageInputPayload(repaired));
   });
   return repaired;
 }

@@ -27,6 +27,31 @@ function normalizeAwsJsonFields(input: unknown): unknown {
   return i;
 }
 
+function normalizePageInput(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const i = input as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of [
+    "id",
+    "workspaceId",
+    "createdByMemberId",
+    "title",
+    "icon",
+    "coverImage",
+    "parentId",
+    "order",
+    "databaseId",
+    "doc",
+    "dbCells",
+    "blockComments",
+    "createdAt",
+    "updatedAt",
+  ]) {
+    if (key in i) out[key] = i[key];
+  }
+  return out;
+}
+
 function getGraphQLErrorMessage(error: unknown): string {
   const errors = (error as { errors?: unknown[] } | null)?.errors;
   const first = Array.isArray(errors) ? errors[0] : null;
@@ -64,7 +89,7 @@ export const realGqlBridge: GqlBridge = {
   upsertPage: async (input) => {
     await appsyncClient().graphql({
       query: UPSERT_PAGE,
-      variables: { input: normalizeAwsJsonFields(input) },
+      variables: { input: normalizeAwsJsonFields(normalizePageInput(input)) },
     });
   },
   upsertDatabase: async (input) => {
