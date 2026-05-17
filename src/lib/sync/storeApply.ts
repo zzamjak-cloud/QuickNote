@@ -177,6 +177,26 @@ function shouldApplyRemotePageOverwrite(local: Page | undefined, p: GqlPage): bo
   return false;
 }
 
+function gqlPageToLocalPage(p: GqlPage): Page {
+  return {
+    id: p.id,
+    title: p.title,
+    icon: p.icon ?? null,
+    coverImage: typeof p.coverImage === "string" ? p.coverImage : null,
+    doc: parseAwsJson<JSONContent>(p.doc, {
+      type: "doc",
+      content: [{ type: "paragraph" }],
+    }),
+    parentId: p.parentId ?? null,
+    order: gqlOrderNumber(p),
+    databaseId: p.databaseId ?? undefined,
+    dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
+    createdByMemberId: p.createdByMemberId ?? undefined,
+    createdAt: isoToMs(p.createdAt) || Date.now(),
+    updatedAt: isoToMs(p.updatedAt) || Date.now(),
+  };
+}
+
 /** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다.
  *  _qn_isTemplate 마커가 있는 페이지는 템플릿이므로 행 목록에서 제외한다. */
 function collectRowPageIdsForDatabase(databaseId: string): string[] {
@@ -189,6 +209,36 @@ function collectRowPageIdsForDatabase(databaseId: string): string[] {
     )
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
     .map((page) => page.id);
+}
+
+function collectRowPageIdsForDatabases(databaseIds: Set<string>): Map<string, string[]> {
+  const out = new Map<string, Page[]>();
+  for (const id of databaseIds) out.set(id, []);
+  if (out.size === 0) return new Map();
+  const pages = usePageStore.getState().pages;
+  for (const page of Object.values(pages)) {
+    if (!page.databaseId || !databaseIds.has(page.databaseId)) continue;
+    if (page.dbCells?.["_qn_isTemplate"] === "1") continue;
+    out.get(page.databaseId)?.push(page);
+  }
+  const sorted = new Map<string, string[]>();
+  for (const [databaseId, pagesForDb] of out) {
+    sorted.set(
+      databaseId,
+      pagesForDb
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+        .map((page) => page.id),
+    );
+  }
+  return sorted;
+}
+
+function stringArrayEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 /** 로컬 순서를 우선하되, 원격에서 새로 내려온 행 페이지는 끝에 붙인다. */
@@ -210,6 +260,26 @@ function mergeRowPageOrderWithDerived(
     if (!seen.has(id)) out.push(id);
   }
   return out;
+}
+
+function reconcileDatabaseRowOrders(databaseIds: Set<string>): void {
+  if (databaseIds.size === 0) return;
+  const derivedByDbId = collectRowPageIdsForDatabases(databaseIds);
+  useDatabaseStore.setState((s) => {
+    let databases = s.databases;
+    let changed = false;
+    for (const databaseId of databaseIds) {
+      const db = databases[databaseId];
+      if (!db) continue;
+      const derived = derivedByDbId.get(databaseId) ?? [];
+      const rowPageOrder = mergeRowPageOrderWithDerived(db.rowPageOrder, derived);
+      if (stringArrayEqual(db.rowPageOrder, rowPageOrder)) continue;
+      if (!changed) databases = { ...s.databases };
+      changed = true;
+      databases[databaseId] = { ...db, rowPageOrder };
+    }
+    return changed ? { ...s, databases } : s;
+  });
 }
 
 function removePageIdFromDatabaseRowOrder(databaseId: string, pageId: string): void {
@@ -290,25 +360,7 @@ export function applyRemotePageToStore(
         : { ...s, cacheWorkspaceId: nextCacheWorkspaceId };
     }
 
-    const orderNum = gqlOrderNumber(p);
-
-    const merged: Page = {
-      id: p.id,
-      title: p.title,
-      icon: p.icon ?? null,
-      coverImage: typeof p.coverImage === "string" ? p.coverImage : null,
-      doc: parseAwsJson<JSONContent>(p.doc, {
-        type: "doc",
-        content: [{ type: "paragraph" }],
-      }),
-      parentId: p.parentId ?? null,
-      order: orderNum,
-      databaseId: p.databaseId ?? undefined,
-      dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
-      createdByMemberId: p.createdByMemberId ?? undefined,
-      createdAt: isoToMs(p.createdAt) || Date.now(),
-      updatedAt: isoToMs(p.updatedAt) || Date.now(),
-    };
+    const merged = gqlPageToLocalPage(p);
     return {
       ...s,
       pages: { ...s.pages, [p.id]: merged },
@@ -325,6 +377,79 @@ export function applyRemotePageToStore(
   if (after?.databaseId) {
     ensurePageInDatabaseRowOrder(after.databaseId, after.id);
   }
+}
+
+export function applyRemotePagesToStore(
+  remotePages: Array<GqlPage | null | undefined>,
+): void {
+  if (remotePages.length === 0) return;
+  const pages = remotePages
+    .filter((remotePage): remotePage is GqlPage => Boolean(remotePage))
+    .map(normalizeLCSchedulerPageWorkspace)
+    .filter((p) => shouldApplyRemoteSnapshot(p.workspaceId));
+  if (pages.length === 0) return;
+
+  const affectedDatabaseIds = new Set<string>();
+
+  usePageStore.setState((s) => {
+    let nextPages = s.pages;
+    let nextActive = s.activePageId;
+    let nextCacheWorkspaceId = s.cacheWorkspaceId;
+    let changed = false;
+
+    const ensurePagesCopy = () => {
+      if (nextPages === s.pages) nextPages = { ...s.pages };
+    };
+
+    for (const p of pages) {
+      nextCacheWorkspaceId = resolveNextCacheWorkspaceId(nextCacheWorkspaceId, p.workspaceId);
+
+      if (
+        p.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
+        !p.deletedAt &&
+        p.databaseId &&
+        isLCSchedulerDatabaseId(p.databaseId) &&
+        isDeletedSchedulePage(p.id)
+      ) {
+        affectedDatabaseIds.add(p.databaseId);
+        continue;
+      }
+
+      const local = nextPages[p.id];
+      if (p.deletedAt) {
+        if (!local) continue;
+        ensurePagesCopy();
+        delete nextPages[p.id];
+        if (nextActive === p.id) nextActive = null;
+        if (local.databaseId) affectedDatabaseIds.add(local.databaseId);
+        changed = true;
+        continue;
+      }
+
+      if (local && !shouldApplyRemotePageOverwrite(local, p)) continue;
+      const merged = gqlPageToLocalPage(p);
+      ensurePagesCopy();
+      nextPages[p.id] = merged;
+      if (merged.databaseId) affectedDatabaseIds.add(merged.databaseId);
+      changed = true;
+    }
+
+    if (
+      !changed &&
+      nextActive === s.activePageId &&
+      nextCacheWorkspaceId === s.cacheWorkspaceId
+    ) {
+      return s;
+    }
+    return {
+      ...s,
+      pages: nextPages,
+      activePageId: nextActive,
+      cacheWorkspaceId: nextCacheWorkspaceId,
+    };
+  });
+
+  reconcileDatabaseRowOrders(affectedDatabaseIds);
 }
 
 // 페이지 댓글 sentinel (PageCommentBar 와 동일 값 유지)
@@ -372,6 +497,62 @@ export function applyRemoteCommentToStore(
   };
 
   useBlockCommentStore.getState().applyRemoteMessage(msg);
+}
+
+export function applyRemoteCommentsToStore(
+  comments: Array<GqlComment | null | undefined>,
+): void {
+  if (comments.length === 0) return;
+  const upserts: BlockCommentMsg[] = [];
+  const deletes = new Set<string>();
+
+  for (const c of comments) {
+    if (!c) continue;
+    if (!shouldApplyRemoteSnapshot(c.workspaceId)) continue;
+    if (!isValidCommentId(c.pageId)) {
+      console.warn("[sync] applyRemoteCommentsToStore: pageId 누락 — 무시", c.id);
+      continue;
+    }
+    if (!isValidCommentId(c.blockId) && c.blockId !== PAGE_COMMENT_SENTINEL) {
+      console.warn("[sync] applyRemoteCommentsToStore: blockId 누락 — 무시", c.id);
+      continue;
+    }
+    if (c.deletedAt) {
+      deletes.add(c.id);
+      continue;
+    }
+    upserts.push({
+      id: c.id,
+      workspaceId: c.workspaceId,
+      pageId: c.pageId,
+      blockId: c.blockId,
+      authorMemberId: c.authorMemberId,
+      bodyText: c.bodyText,
+      mentionMemberIds: parseAwsJson<string[]>(c.mentionMemberIds, []),
+      parentId: c.parentId ?? null,
+      createdAt: isoToMs(c.createdAt) || Date.now(),
+    });
+  }
+
+  if (upserts.length === 0 && deletes.size === 0) return;
+
+  useBlockCommentStore.setState((s) => {
+    const byId = new Map(s.messages.map((message) => [message.id, message]));
+    for (const id of deletes) byId.delete(id);
+    for (const msg of upserts) byId.set(msg.id, msg);
+    const messages = Array.from(byId.values());
+    if (messages.length === s.messages.length) {
+      let same = true;
+      for (let i = 0; i < messages.length; i += 1) {
+        if (messages[i] !== s.messages[i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return s;
+    }
+    return { ...s, messages };
+  });
 }
 
 export function applyRemoteDatabaseToStore(
@@ -468,4 +649,116 @@ export function applyRemoteDatabaseToStore(
   }));
 
   repairDbHistoryBaselineIfNeeded(db.id, structuredClone(bundle));
+}
+
+export function applyRemoteDatabasesToStore(
+  remoteDatabases: Array<GqlDatabase | null | undefined>,
+): void {
+  if (remoteDatabases.length === 0) return;
+  const normalizedDatabases: GqlDatabase[] = [];
+  const legacyDeleteIds = new Set<string>();
+  const candidateDatabaseIds = new Set<string>();
+
+  for (const d of remoteDatabases) {
+    if (!d) continue;
+    if (isLegacyLCSchedulerDatabaseId(d.id)) {
+      legacyDeleteIds.add(d.id);
+      continue;
+    }
+    const normalizedDatabase = isLCSchedulerDatabaseId(d.id)
+      ? {
+          ...d,
+          id: LC_SCHEDULER_DATABASE_ID,
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          title: LC_SCHEDULER_DATABASE_TITLE,
+        }
+      : d;
+    if (normalizedDatabase !== d) {
+      queueMicrotask(() => {
+        enqueueAsync("upsertDatabase", {
+          id: normalizedDatabase.id,
+          workspaceId: normalizedDatabase.workspaceId,
+          createdByMemberId: normalizedDatabase.createdByMemberId,
+          title: normalizedDatabase.title,
+          columns: normalizedDatabase.columns,
+          presets: normalizedDatabase.presets,
+          createdAt: normalizedDatabase.createdAt,
+          updatedAt: normalizedDatabase.updatedAt,
+        });
+      });
+    }
+    if (!shouldApplyRemoteSnapshot(normalizedDatabase.workspaceId)) continue;
+    normalizedDatabases.push(normalizedDatabase);
+    if (!normalizedDatabase.deletedAt) candidateDatabaseIds.add(normalizedDatabase.id);
+  }
+
+  if (normalizedDatabases.length === 0 && legacyDeleteIds.size === 0) return;
+
+  const derivedByDbId = collectRowPageIdsForDatabases(candidateDatabaseIds);
+  const repairedBundles: DatabaseBundle[] = [];
+
+  useDatabaseStore.setState((s) => {
+    let databases = s.databases;
+    let nextCacheWorkspaceId = s.cacheWorkspaceId;
+    let changed = false;
+
+    const ensureDatabasesCopy = () => {
+      if (databases === s.databases) databases = { ...s.databases };
+    };
+
+    for (const id of legacyDeleteIds) {
+      if (!databases[id]) continue;
+      ensureDatabasesCopy();
+      delete databases[id];
+      changed = true;
+    }
+
+    for (const db of normalizedDatabases) {
+      nextCacheWorkspaceId = resolveNextCacheWorkspaceId(nextCacheWorkspaceId, db.workspaceId);
+
+      if (db.deletedAt) {
+        if (isLCSchedulerDatabaseId(db.id)) continue;
+        if (!databases[db.id]) continue;
+        ensureDatabasesCopy();
+        delete databases[db.id];
+        changed = true;
+        continue;
+      }
+
+      const local = databases[db.id];
+      if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) continue;
+
+      const columns = parseAwsJson<ColumnDef[]>(db.columns, []);
+      const presets = parseAwsJson<DatabaseRowPreset[]>(db.presets, []);
+      const derivedRowOrder = derivedByDbId.get(db.id) ?? [];
+      const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
+      const bundle: DatabaseBundle = {
+        meta: {
+          id: db.id,
+          title: db.title,
+          createdAt: isoToMs(db.createdAt) || Date.now(),
+          updatedAt: isoToMs(db.updatedAt) || Date.now(),
+        },
+        columns,
+        presets,
+        rowPageOrder,
+      };
+
+      ensureDatabasesCopy();
+      databases[db.id] = bundle;
+      repairedBundles.push(bundle);
+      changed = true;
+    }
+
+    if (!changed && nextCacheWorkspaceId === s.cacheWorkspaceId) return s;
+    return {
+      ...s,
+      databases,
+      cacheWorkspaceId: nextCacheWorkspaceId,
+    };
+  });
+
+  for (const bundle of repairedBundles) {
+    repairDbHistoryBaselineIfNeeded(bundle.meta.id, structuredClone(bundle));
+  }
 }

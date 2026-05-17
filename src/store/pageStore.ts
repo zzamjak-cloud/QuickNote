@@ -898,6 +898,7 @@ export const usePageStore = create<PageStore>()(
 
 // 트리 셀렉터·필터는 ./pageStore/selectors.ts 로 분리됨.
 export {
+  createFilterPageTreeSelector,
   filterPageTree,
   isFullPageDatabaseHomePage,
   selectPageTree,

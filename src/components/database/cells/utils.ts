@@ -1,7 +1,7 @@
 // 데이터베이스 셀 공통 유틸 — 순수 함수만 모음.
 // DatabaseCell.tsx 에서 분리 — 동작 변경 없음.
 
-import { SELECT_COLOR_PRESETS } from "../ColumnOptionsEditor";
+import { SELECT_COLOR_PRESETS } from "../selectColorPresets";
 
 export function toDate(iso: string): Date {
   return new Date(iso);

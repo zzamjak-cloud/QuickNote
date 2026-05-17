@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -18,18 +18,27 @@ import {
 import {
   isDescendant,
   usePageStore,
-  filterPageTree,
+  createFilterPageTreeSelector,
 } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageMoveDialog } from "./PageMoveDialog";
-import { DatabaseManagerDialog } from "./DatabaseManagerDialog";
-import { TrashDialog } from "./TrashDialog";
 import { SidebarHeader } from "../sidebar/SidebarHeader";
-import { SettingsModal } from "../settings/SettingsModal";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 
 type DropTarget = { id: string; mode: SidebarDropMode } | null;
+
+const DatabaseManagerDialog = lazy(() =>
+  import("./DatabaseManagerDialog").then((m) => ({
+    default: m.DatabaseManagerDialog,
+  })),
+);
+const TrashDialog = lazy(() =>
+  import("./TrashDialog").then((m) => ({ default: m.TrashDialog })),
+);
+const SettingsModal = lazy(() =>
+  import("../settings/SettingsModal").then((m) => ({ default: m.SettingsModal })),
+);
 
 function isLCSchedulerModalOpen(): boolean {
   return Boolean(document.querySelector("[data-lc-scheduler-modal='true']"));
@@ -76,11 +85,11 @@ export function Sidebar() {
     return () => window.removeEventListener("pointermove", onMove);
   }, []);
 
-  const tree = usePageStore((s) => filterPageTree(s, ""));
+  const sidebarTreeSelector = useMemo(() => createFilterPageTreeSelector(""), []);
+  const tree = usePageStore(sidebarTreeSelector);
   const createPage = usePageStore((s) => s.createPage);
   const movePage = usePageStore((s) => s.movePage);
   const movePageRelative = usePageStore((s) => s.movePageRelative);
-  const pagesMap = usePageStore((s) => s.pages);
   const dndEnabled = true;
 
   const duplicatePage = usePageStore((s) => s.duplicatePage);
@@ -233,6 +242,7 @@ export function Sidebar() {
     const activeId = String(active.id);
 
     const expandedIds = useSettingsStore.getState().expandedIds;
+    const pagesMap = usePageStore.getState().pages;
     const isExpanded = (id: string) => expandedIds.includes(id);
     const isBlocked = (candidate: string) =>
       isDescendant(pagesMap, activeId, candidate);
@@ -308,6 +318,7 @@ export function Sidebar() {
     endDragSession();
     if (!last || last.mode === "disabled") return;
     const activeId = String(active.id);
+    const pagesMap = usePageStore.getState().pages;
     const overPage = pagesMap[last.overId];
     const activePage = pagesMap[activeId];
     if (!activePage || !overPage) return;
@@ -393,15 +404,17 @@ export function Sidebar() {
         pageId={moveTargetId}
         onClose={() => setMoveTargetId(null)}
       />
-      <DatabaseManagerDialog
-        open={dbManagerOpen}
-        onClose={() => setDbManagerOpen(false)}
-      />
-      <TrashDialog open={trashOpen} onClose={() => setTrashOpen(false)} />
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
+      <Suspense fallback={null}>
+        <DatabaseManagerDialog
+          open={dbManagerOpen}
+          onClose={() => setDbManagerOpen(false)}
+        />
+        <TrashDialog open={trashOpen} onClose={() => setTrashOpen(false)} />
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+        />
+      </Suspense>
       </aside>
       {/* 사이드바 폭 조절 핸들 */}
       <button

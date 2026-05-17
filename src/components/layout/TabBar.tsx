@@ -1,14 +1,19 @@
 import { ChevronLeft, ChevronRight, ListTree, Plus, Star, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { PageIconDisplay } from "../common/PageIconDisplay";
-import { LCSchedulerModal } from "../scheduler/LCSchedulerModal";
 
 const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
+
+const LCSchedulerModal = lazy(() =>
+  import("../scheduler/LCSchedulerModal").then((m) => ({
+    default: m.LCSchedulerModal,
+  })),
+);
 
 export function TabBar() {
   const [schedulerOpen, setSchedulerOpen] = useState(false);
@@ -168,9 +173,11 @@ export function TabBar() {
         </button>
       </div>
       {schedulerOpen && (
-        <LCSchedulerModal
-          onClose={() => closeScheduler()}
-        />
+        <Suspense fallback={null}>
+          <LCSchedulerModal
+            onClose={() => closeScheduler()}
+          />
+        </Suspense>
       )}
     </div>
   );

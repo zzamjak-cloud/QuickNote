@@ -11,6 +11,14 @@ export type MmAggregateRow = {
   entryCount: number;
 };
 
+export type MmAggregateMemberGroup = {
+  entryCount: number;
+  rows: MmAggregateRow[];
+};
+
+export type MmCsvRangeKind = "week" | "month" | "year";
+export type MmCsvScopeFilter = "all" | `organization:${string}` | `team:${string}` | `project:${string}`;
+
 export function aggregateMmEntries(entries: MmEntry[]): MmAggregateRow[] {
   const rows = new Map<string, MmAggregateRow>();
   for (const entry of entries) {
@@ -41,14 +49,61 @@ export function aggregateMmEntries(entries: MmEntry[]): MmAggregateRow[] {
   );
 }
 
+export function filterMmEntriesByRange(
+  entries: MmEntry[],
+  workspaceId: string,
+  fromWeekStart: string,
+  toWeekStart: string,
+): MmEntry[] {
+  return entries
+    .filter((entry) => entry.workspaceId === workspaceId)
+    .filter((entry) => entry.weekStart >= fromWeekStart && entry.weekStart <= toWeekStart);
+}
+
+export function mmEntryMatchesScope(entry: MmEntry, scope: MmCsvScopeFilter): boolean {
+  if (scope === "all") return true;
+  const [kind, id] = scope.split(":");
+  if (kind === "organization" && entry.organizationId === id) return true;
+  if (kind === "team" && entry.teamId === id) return true;
+  return entry.buckets.some((bucket) => bucket.kind === kind && bucket.scopeId === id);
+}
+
+export function filterMmEntriesByScope(entries: MmEntry[], scope: MmCsvScopeFilter): MmEntry[] {
+  if (scope === "all") return entries;
+  return entries.filter((entry) => mmEntryMatchesScope(entry, scope));
+}
+
+export function aggregateMmEntriesByMemberAverage(entries: MmEntry[]): Map<string, MmAggregateMemberGroup> {
+  const aggregateRows = aggregateMmEntries(entries);
+  const rowsByMember = new Map<string, MmAggregateMemberGroup>();
+  const entryCountByMember = new Map<string, number>();
+  for (const entry of entries) {
+    entryCountByMember.set(
+      entry.memberId,
+      (entryCountByMember.get(entry.memberId) ?? 0) + 1,
+    );
+  }
+  for (const row of aggregateRows) {
+    const entryCount = Math.max(1, entryCountByMember.get(row.memberId) ?? row.entryCount);
+    const nextRow = {
+      ...row,
+      ratioBp: Math.round(row.ratioBp / entryCount),
+    };
+    const prev = rowsByMember.get(row.memberId);
+    if (prev) {
+      prev.rows.push(nextRow);
+    } else {
+      rowsByMember.set(row.memberId, { entryCount, rows: [nextRow] });
+    }
+  }
+  return rowsByMember;
+}
+
 function escapeCsv(value: unknown): string {
   const text = String(value ?? "");
   if (!/[",\n]/.test(text)) return text;
   return `"${text.replaceAll("\"", "\"\"")}"`;
 }
-
-type MmCsvRangeKind = "week" | "month" | "year";
-type MmCsvScopeFilter = "all" | `organization:${string}` | `team:${string}` | `project:${string}`;
 
 export function buildMmCsvRows(args: {
   entries: MmEntry[];
@@ -141,19 +196,11 @@ function buildSummaryMmCsvRows(args: {
 function resolveExportMemberIds(entries: MmEntry[], scope: MmCsvScopeFilter): string[] {
   const memberIds = new Set<string>();
   for (const entry of entries) {
-    if (scope === "all" || entryMatchesExportScope(entry, scope)) {
+    if (mmEntryMatchesScope(entry, scope)) {
       memberIds.add(entry.memberId);
     }
   }
   return Array.from(memberIds).sort((a, b) => a.localeCompare(b));
-}
-
-function entryMatchesExportScope(entry: MmEntry, scope: MmCsvScopeFilter): boolean {
-  if (scope === "all") return true;
-  const [kind, id] = scope.split(":");
-  if (kind === "organization" && entry.organizationId === id) return true;
-  if (kind === "team" && entry.teamId === id) return true;
-  return entry.buckets.some((bucket) => bucket.kind === kind && bucket.scopeId === id);
 }
 
 function shouldIncludeBucketForExport(entry: MmEntry, bucket: MmBucket, scope: MmCsvScopeFilter): boolean {

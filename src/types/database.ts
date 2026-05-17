@@ -80,6 +80,7 @@ export type DatabaseRowView = {
   pageId: string;
   databaseId: string;
   title: string;
+  icon?: string | null;
   /** titleColId 포함 (=title), 그 외는 page.dbCells */
   cells: Record<string, CellValue>;
 };

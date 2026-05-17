@@ -128,3 +128,39 @@ export function filterPageTree(
     }));
   return build(null);
 }
+
+function pageTreeSignature(state: PageStore, query: string): string {
+  const q = query.trim().toLowerCase();
+  return Object.values(state.pages)
+    .map((p) => {
+      const first = p.doc?.content?.[0] as
+        | { type?: string; attrs?: Record<string, unknown> }
+        | undefined;
+      return [
+        p.id,
+        p.title,
+        p.icon ?? "",
+        p.parentId ?? "",
+        p.order,
+        p.databaseId ?? "",
+        first?.type ?? "",
+        first?.attrs?.layout ?? "",
+        first?.attrs?.databaseId ?? "",
+        q ? p.title.toLowerCase() : "",
+      ].join("\u001f");
+    })
+    .join("\u001e");
+}
+
+export function createFilterPageTreeSelector(query: string) {
+  let lastSignature = "";
+  let lastTree: PageNode[] = [];
+
+  return (state: PageStore): PageNode[] => {
+    const signature = pageTreeSignature(state, query);
+    if (signature === lastSignature) return lastTree;
+    lastSignature = signature;
+    lastTree = filterPageTree(state, query);
+    return lastTree;
+  };
+}

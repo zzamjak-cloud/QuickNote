@@ -16,11 +16,13 @@ import { useMemberStore } from "../../store/memberStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBar";
+import { useShallow } from "zustand/react/shallow";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
-  const allPages = usePageStore((s) => s.pages);
-  const page = allPages[pageId];
-  const childPages = Object.values(allPages).filter((p) => p.parentId === pageId);
+  const page = usePageStore((s) => s.pages[pageId]);
+  const childPages = usePageStore(
+    useShallow((s) => Object.values(s.pages).filter((p) => p.parentId === pageId)),
+  );
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
   const setActivePage = usePageStore((s) => s.setActivePage);

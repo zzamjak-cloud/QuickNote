@@ -401,7 +401,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       default:
         return null;
     }
-  }, [databaseId, bundle, panelState, setPanelState, view, visibleRowLimit]);
+  }, [databaseId, bundle, layout, panelState, setPanelState, view, visibleRowLimit]);
 
   return (
     <NodeViewWrapper className="qn-database-block">

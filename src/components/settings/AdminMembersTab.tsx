@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Plus, Search, Upload } from "lucide-react";
 import { createMemberApi } from "../../lib/sync/memberApi";
 import { useMemberStore, type Member } from "../../store/memberStore";
@@ -46,7 +46,7 @@ export function AdminMembersTab() {
   }, [teams]);
 
   /** 검색 필터 적용 */
-  const applyFilter = (list: Member[]) => {
+  const applyFilter = useCallback((list: Member[]) => {
     const q = query.trim().toLowerCase();
     if (!q) return list;
     return list.filter((m) => {
@@ -58,7 +58,7 @@ export function AdminMembersTab() {
         teamInfo.includes(q)
       );
     });
-  };
+  }, [query, teamNamesByMemberId]);
 
   // 이름 알파벳/가나다 정렬 적용
   const activeMembers = useMemo(
@@ -66,7 +66,7 @@ export function AdminMembersTab() {
       applyFilter(members.filter((m) => m.status === "active"))
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name, "ko")),
-    [members, query, teamNamesByMemberId],
+    [members, applyFilter],
   );
 
   const archivedMembers = useMemo(
@@ -74,7 +74,7 @@ export function AdminMembersTab() {
       applyFilter(members.filter((m) => m.status === "removed"))
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name, "ko")),
-    [members, query, teamNamesByMemberId],
+    [members, applyFilter],
   );
 
   const onCreate = async (input: { email: string; name: string; jobRole: string; workspaceRole: string }) => {

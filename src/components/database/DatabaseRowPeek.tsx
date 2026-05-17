@@ -14,6 +14,7 @@ import { PageMoveDialog } from "../layout/PageMoveDialog";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { PageCommentBar } from "../comments/PageCommentBar";
+import { useShallow } from "zustand/react/shallow";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
@@ -46,12 +47,15 @@ export function DatabaseRowPeek() {
   const peekFullWidth = peekPageId
     ? (pageFullWidthById[peekPageId] ?? globalFullWidth)
     : globalFullWidth;
-  const allPages = usePageStore((s) => s.pages);
-  const page = peekPageId ? allPages[peekPageId] : undefined;
+  const page = usePageStore((s) => (peekPageId ? s.pages[peekPageId] : undefined));
   const isPendingPageCreation = Boolean(peekPageId?.startsWith("lc-scheduler:creating:") && !page);
-  const childPages = peekPageId
-    ? Object.values(allPages).filter((p) => p.parentId === peekPageId)
-    : [];
+  const childPages = usePageStore(
+    useShallow((s) =>
+      peekPageId
+        ? Object.values(s.pages).filter((p) => p.parentId === peekPageId)
+        : [],
+    ),
+  );
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
   const restorePageFromHistoryEvent = usePageStore(

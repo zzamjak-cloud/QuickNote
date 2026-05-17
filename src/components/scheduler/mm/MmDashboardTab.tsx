@@ -1,7 +1,13 @@
 import { ChevronLeft, ChevronRight, Download, Lock, RefreshCw, ShieldCheck, Unlock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
-import { aggregateMmEntries, buildMmCsvRows, type MmAggregateRow } from "../../../lib/scheduler/mm/mmAggregation";
+import {
+  aggregateMmEntriesByMemberAverage,
+  buildMmCsvRows,
+  filterMmEntriesByRange,
+  filterMmEntriesByScope,
+  type MmAggregateRow,
+} from "../../../lib/scheduler/mm/mmAggregation";
 import {
   getDefaultMmWeek,
   getMmWeekLabel,
@@ -42,14 +48,6 @@ function rangeWeeks(kind: RangeKind, weekStart: string, year: number, monthIndex
   if (kind === "week") return [weekStart];
   if (kind === "month") return weeksInMonth(year, monthIndex);
   return weeksInYear(year);
-}
-
-function entryMatchesScope(entry: MmEntry, scope: ScopeFilter): boolean {
-  if (scope === "all") return true;
-  const [kind, id] = scope.split(":");
-  if (kind === "organization" && entry.organizationId === id) return true;
-  if (kind === "team" && entry.teamId === id) return true;
-  return entry.buckets.some((bucket) => bucket.kind === kind && bucket.scopeId === id);
 }
 
 function memberIdsOf(items: Array<{ memberId: string }>): string[] {
@@ -229,7 +227,7 @@ function MmAggregateMemberCard({
 }
 
 export function MmDashboardTab() {
-  const members = useMemberStore((s) => s.members).filter((member) => member.status === "active");
+  const allMembers = useMemberStore((s) => s.members);
   const me = useMemberStore((s) => s.me);
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
@@ -249,7 +247,14 @@ export function MmDashboardTab() {
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [didApplyDefaultScope, setDidApplyDefaultScope] = useState(false);
 
-  const weeks = rangeWeeks(rangeKind, weekStart, year, monthIndex);
+  const members = useMemo(
+    () => allMembers.filter((member) => member.status === "active"),
+    [allMembers],
+  );
+  const weeks = useMemo(
+    () => rangeWeeks(rangeKind, weekStart, year, monthIndex),
+    [monthIndex, rangeKind, weekStart, year],
+  );
   const fromWeekStart = weeks[0] ?? weekStart;
   const toWeekStart = weeks[weeks.length - 1] ?? weekStart;
 
@@ -306,43 +311,46 @@ export function MmDashboardTab() {
     return members;
   }, [members, organizations, projects, scope, teams]);
 
-  const rangeEntries = entries
-    .filter((entry) => entry.workspaceId === LC_SCHEDULER_WORKSPACE_ID)
-    .filter((entry) => entry.weekStart >= fromWeekStart && entry.weekStart <= toWeekStart);
-  const visibleEntries = rangeEntries
-    .filter((entry) => entryMatchesScope(entry, scope));
-  const weeklyStates = getMemberSubmissionStates(scopeMembers, visibleEntries, weekStart);
-  const aggregateRows = aggregateMmEntries(visibleEntries);
-  const aggregateRowsByMember = new Map<string, { entryCount: number; rows: MmAggregateRow[] }>();
-  const aggregateEntryCountByMember = new Map<string, number>();
-  for (const entry of visibleEntries) {
-    aggregateEntryCountByMember.set(
-      entry.memberId,
-      (aggregateEntryCountByMember.get(entry.memberId) ?? 0) + 1,
-    );
-  }
-  for (const row of aggregateRows) {
-    const entryCount = Math.max(1, aggregateEntryCountByMember.get(row.memberId) ?? row.entryCount);
-    const nextRow = {
-      ...row,
-      ratioBp: Math.round(row.ratioBp / entryCount),
-    };
-    const prev = aggregateRowsByMember.get(row.memberId);
-    if (prev) {
-      prev.rows.push(nextRow);
-    } else {
-      aggregateRowsByMember.set(row.memberId, { entryCount, rows: [nextRow] });
-    }
-  }
+  const rangeEntries = useMemo(
+    () => filterMmEntriesByRange(entries, LC_SCHEDULER_WORKSPACE_ID, fromWeekStart, toWeekStart),
+    [entries, fromWeekStart, toWeekStart],
+  );
+  const visibleEntries = useMemo(
+    () => filterMmEntriesByScope(rangeEntries, scope),
+    [rangeEntries, scope],
+  );
+  const weeklyStates = useMemo(
+    () => getMemberSubmissionStates(scopeMembers, visibleEntries, weekStart),
+    [scopeMembers, visibleEntries, weekStart],
+  );
+  const aggregateRowsByMember = useMemo(
+    () => aggregateMmEntriesByMemberAverage(visibleEntries),
+    [visibleEntries],
+  );
 
-  const memberNameById = mapById(members, (m) => m.memberId, (m) => m.name);
-  const orgNameById = mapById(organizations, (o) => o.organizationId, (o) => o.name);
-  const teamNameById = mapById(teams, (t) => t.teamId, (t) => t.name);
-  const projectNameById = mapById(projects, (p) => p.id, (p) => p.name);
+  const memberNameById = useMemo(
+    () => mapById(members, (m) => m.memberId, (m) => m.name),
+    [members],
+  );
+  const orgNameById = useMemo(
+    () => mapById(organizations, (o) => o.organizationId, (o) => o.name),
+    [organizations],
+  );
+  const teamNameById = useMemo(
+    () => mapById(teams, (t) => t.teamId, (t) => t.name),
+    [teams],
+  );
+  const projectNameById = useMemo(
+    () => mapById(projects, (p) => p.id, (p) => p.name),
+    [projects],
+  );
 
-  const submittedCount = rangeKind === "week"
-    ? weeklyStates.filter((state) => state.label === "제출완료").length
-    : new Set(visibleEntries.map((entry) => entry.memberId)).size;
+  const submittedCount = useMemo(
+    () => rangeKind === "week"
+      ? weeklyStates.filter((state) => state.label === "제출완료").length
+      : new Set(visibleEntries.map((entry) => entry.memberId)).size,
+    [rangeKind, visibleEntries, weeklyStates],
+  );
   const missingCount = rangeKind === "week" ? weeklyStates.length - submittedCount : 0;
 
   function exportCsv() {
@@ -363,12 +371,15 @@ export function MmDashboardTab() {
     downloadCsv(`lc-scheduler-mm-${rangeKind}-${fromWeekStart}-${toWeekStart}.csv`, csv);
   }
 
-  const scopeOptions: Array<{ value: ScopeFilter; label: string }> = [
-    { value: "all", label: "전체" },
-    ...organizations.filter((org) => !org.removedAt).map((org) => ({ value: `organization:${org.organizationId}` as ScopeFilter, label: `조직 · ${org.name}` })),
-    ...teams.filter((team) => !team.removedAt).map((team) => ({ value: `team:${team.teamId}` as ScopeFilter, label: `팀 · ${team.name}` })),
-    ...projects.filter((project) => !project.isHidden).map((project) => ({ value: `project:${project.id}` as ScopeFilter, label: `프로젝트 · ${project.name}` })),
-  ];
+  const scopeOptions: Array<{ value: ScopeFilter; label: string }> = useMemo(
+    () => [
+      { value: "all", label: "전체" },
+      ...organizations.filter((org) => !org.removedAt).map((org) => ({ value: `organization:${org.organizationId}` as ScopeFilter, label: `조직 · ${org.name}` })),
+      ...teams.filter((team) => !team.removedAt).map((team) => ({ value: `team:${team.teamId}` as ScopeFilter, label: `팀 · ${team.name}` })),
+      ...projects.filter((project) => !project.isHidden).map((project) => ({ value: `project:${project.id}` as ScopeFilter, label: `프로젝트 · ${project.name}` })),
+    ],
+    [organizations, projects, teams],
+  );
 
   return (
     <div className="space-y-4">

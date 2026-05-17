@@ -41,7 +41,14 @@ import {
 } from "../../lib/scheduler/colors";
 import { updateMemberApi } from "../../lib/sync/memberApi";
 import { parseScheduleInstanceId } from "../../lib/scheduler/taskAdapter";
+import { groupSchedulesByMember } from "../../lib/scheduler/selectors/scheduleSelectors";
+import {
+  buildVirtualRows,
+  getVirtualRowsHeight,
+  getVisibleVirtualRows,
+} from "../../lib/scheduler/selectors/rowVirtualization";
 import { useUiStore } from "../../store/uiStore";
+import type { Member } from "../../store/memberStore";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 // ── 특이사항 이벤트 카드 ──────────────────────────────────────────────────────
@@ -117,9 +124,19 @@ const DEFAULT_GLOBAL_EVENT_COLOR = "#f59e0b";
 
 // 마지막 구성원도 화면 중앙 근처까지 올려 볼 수 있도록 하단 스크롤 여백을 둔다.
 const TIMELINE_BOTTOM_SPACER_HEIGHT = "50vh";
+const TIMELINE_ROW_OVERSCAN_PX = 720;
 
 type Props = {
   workspaceId: string;
+};
+
+type MemberRowItem = {
+  member: Member;
+  memberSchedules: Schedule[];
+  rowCount: number;
+  rowHeight: number;
+  cardRows: number;
+  canRemove: boolean;
 };
 
 // 일 인덱스 → 날짜 ISO 문자열 변환
@@ -187,6 +204,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
   // 특이사항 행 수 (별도 관리)
   const [globalRowCount, setGlobalRowCount] = useState(1);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<Schedule | null>(null);
+  const [viewportState, setViewportState] = useState({ scrollTop: 0, height: 0 });
 
   useEffect(() => {
     const next: Record<string, number> = {};
@@ -220,24 +238,10 @@ export function ScheduleGrid({ workspaceId }: Props) {
 
   // 일정 필터링 + 멤버별 그룹화
   // assigneeId === null 이고 projectId === selectedProjectId → 특이사항(글로벌 이벤트)
-  const { schedulesByMember, globalSchedules } = useMemo(() => {
-    const map: Record<string, Schedule[]> = {};
-    const globals: Schedule[] = [];
-    let filtered = schedules;
-    if (selectedProjectFilterId) {
-      filtered = filtered.filter((s) => s.projectId === selectedProjectFilterId);
-    }
-    for (const s of filtered) {
-      if (s.assigneeId == null) {
-        globals.push(s);
-      } else {
-        const aid = s.assigneeId!;
-        if (!map[aid]) map[aid] = [];
-        map[aid].push(s);
-      }
-    }
-    return { schedulesByMember: map, globalSchedules: globals };
-  }, [schedules, selectedProjectFilterId]);
+  const { schedulesByMember, globalSchedules } = useMemo(
+    () => groupSchedulesByMember(schedules, selectedProjectFilterId),
+    [schedules, selectedProjectFilterId],
+  );
 
   // 멤버 실제 행 수 계산
   const rowCountForMember = useCallback(
@@ -247,6 +251,43 @@ export function ScheduleGrid({ workspaceId }: Props) {
       return Math.max(cardRows, userRows);
     },
     [memberRowCounts],
+  );
+
+  const memberRowItems = useMemo<MemberRowItem[]>(() => (
+    visibleMembers.map((member) => {
+      const memberSchedules = schedulesByMember[member.memberId] ?? [];
+      const rowCount = rowCountForMember(member.memberId, memberSchedules);
+      const rowHeight = getRowHeight(rowCount, zoomLevel);
+      const cardRows = computeRowCount(memberSchedules);
+      return {
+        member,
+        memberSchedules,
+        rowCount,
+        rowHeight,
+        cardRows,
+        canRemove: (memberRowCounts[member.memberId] ?? 1) > Math.max(1, cardRows),
+      };
+    })
+  ), [memberRowCounts, rowCountForMember, schedulesByMember, visibleMembers, zoomLevel]);
+
+  const memberVirtualRows = useMemo(
+    () => buildVirtualRows(memberRowItems, (item) => item.rowHeight),
+    [memberRowItems],
+  );
+  const memberRowsHeight = useMemo(
+    () => getVirtualRowsHeight(memberVirtualRows),
+    [memberVirtualRows],
+  );
+  const globalRowHeight = showGlobalRow ? getRowHeight(globalRowCount, zoomLevel) : 0;
+  const memberRowsTop = DATE_AXIS_HEIGHT + globalRowHeight;
+  const visibleMemberRows = useMemo(
+    () => getVisibleVirtualRows(
+      memberVirtualRows,
+      Math.max(0, viewportState.scrollTop - memberRowsTop),
+      viewportState.height,
+      TIMELINE_ROW_OVERSCAN_PX,
+    ),
+    [memberRowsTop, memberVirtualRows, viewportState.height, viewportState.scrollTop],
   );
 
   // 행 추가 핸들러
@@ -398,8 +439,15 @@ export function ScheduleGrid({ workspaceId }: Props) {
   }, [todayIdx, cellWidth]);
 
   const syncLeftColumnScroll = useCallback(() => {
-    if (!containerRef.current || !leftColRef.current) return;
-    leftColRef.current.scrollTop = containerRef.current.scrollTop;
+    const container = containerRef.current;
+    if (!container) return;
+    if (leftColRef.current) {
+      leftColRef.current.scrollTop = container.scrollTop;
+    }
+    const next = { scrollTop: container.scrollTop, height: container.clientHeight };
+    setViewportState((prev) => (
+      prev.scrollTop === next.scrollTop && prev.height === next.height ? prev : next
+    ));
   }, []);
 
   const handleLeftColumnWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -417,6 +465,10 @@ export function ScheduleGrid({ workspaceId }: Props) {
       window.removeEventListener("lc-scheduler:scroll-today", scrollToToday);
     };
   }, [scrollToToday]);
+
+  useEffect(() => {
+    syncLeftColumnScroll();
+  }, [cellWidth, currentYear, memberRowsHeight, syncLeftColumnScroll, visibleMembers.length]);
 
   // 마운트 시 1회 오늘로 자동 스크롤.
   // 연도 변경 시에도 재실행하되, 줌 변경(cellWidth만 변경)은 재실행하지 않음.
@@ -455,43 +507,37 @@ export function ScheduleGrid({ workspaceId }: Props) {
     (x: number, y: number): { top: number; height: number; rowIndex: number; assigneeId: string | null } | null => {
       if (x < 0 || x > totalWidth || y < DATE_AXIS_HEIGHT) return null;
 
-      let accum = DATE_AXIS_HEIGHT;
       // 특이사항 행이 표시 중이면 먼저 확인
       if (showGlobalRow) {
-        const globalH = getRowHeight(globalRowCount, zoomLevel);
-        if (y < accum + globalH) {
-          const slotH = globalRowCount > 0 ? globalH / globalRowCount : globalH;
-          const rowIndex = Math.max(0, Math.min(globalRowCount - 1, Math.floor((y - accum) / slotH)));
-          return { top: accum + rowIndex * slotH, height: slotH, rowIndex, assigneeId: null };
+        if (y < DATE_AXIS_HEIGHT + globalRowHeight) {
+          const slotH = globalRowCount > 0 ? globalRowHeight / globalRowCount : globalRowHeight;
+          const rowIndex = Math.max(0, Math.min(globalRowCount - 1, Math.floor((y - DATE_AXIS_HEIGHT) / slotH)));
+          return { top: DATE_AXIS_HEIGHT + rowIndex * slotH, height: slotH, rowIndex, assigneeId: null };
         }
-        accum += globalH;
       }
-      for (const member of visibleMembers) {
-        const memberSchedules = schedulesByMember[member.memberId] ?? [];
-        const rowCount = rowCountForMember(member.memberId, memberSchedules);
-        const rowH = getRowHeight(rowCount, zoomLevel);
-        if (y < accum + rowH) {
-          const slotH = rowCount > 0 ? rowH / rowCount : rowH;
-          const rowIndex = Math.max(0, Math.min(rowCount - 1, Math.floor((y - accum) / slotH)));
+
+      for (const row of memberVirtualRows) {
+        const rowTop = memberRowsTop + row.top;
+        if (y < rowTop + row.height) {
+          const slotH = row.item.rowCount > 0 ? row.height / row.item.rowCount : row.height;
+          const rowIndex = Math.max(0, Math.min(row.item.rowCount - 1, Math.floor((y - rowTop) / slotH)));
           return {
-            top: accum + rowIndex * slotH,
+            top: rowTop + rowIndex * slotH,
             height: slotH,
             rowIndex,
-            assigneeId: member.memberId,
+            assigneeId: row.item.member.memberId,
           };
         }
-        accum += rowH;
       }
       return null;
     },
     [
       totalWidth,
-      visibleMembers,
-      schedulesByMember,
-      rowCountForMember,
-      zoomLevel,
       showGlobalRow,
       globalRowCount,
+      globalRowHeight,
+      memberRowsTop,
+      memberVirtualRows,
     ],
   );
 
@@ -843,48 +889,44 @@ export function ScheduleGrid({ workspaceId }: Props) {
           })()}
 
           {/* 멤버 이름 + +/- 버튼 */}
-          {visibleMembers.map((member) => {
-            const memberSchedules = schedulesByMember[member.memberId] ?? [];
-            const rowCount = rowCountForMember(member.memberId, memberSchedules);
-            const rowH = getRowHeight(rowCount, zoomLevel);
-            const cardRows = computeRowCount(memberSchedules);
-            const canRemove = (memberRowCounts[member.memberId] ?? 1) > Math.max(1, cardRows);
-
-            return (
+          {memberRowsHeight > 0 && (
+            <div style={{ height: memberRowsHeight, position: "relative" }}>
+              {visibleMemberRows.map(({ item, top }) => (
               <div
-                key={member.memberId}
-                className="group relative border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-center px-2"
-                style={{ height: rowH }}
+                key={item.member.memberId}
+                className="group absolute left-0 right-0 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-center px-2"
+                style={{ top, height: item.rowHeight }}
               >
                 {/* 멤버 이름 — 셀 중앙 정렬 */}
                 <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-full text-center">
-                  {member.name}
+                  {item.member.name}
                 </span>
 
                 {/* +/- 버튼 — 절대위치 우측 하단, 호버 시만 표시 */}
                 <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     type="button"
-                    onClick={() => handleAddRow(member.memberId, memberSchedules)}
+                    onClick={() => handleAddRow(item.member.memberId, item.memberSchedules)}
                     title="행 추가"
-                    disabled={(memberRowCounts[member.memberId] ?? 1) >= 10}
+                    disabled={(memberRowCounts[item.member.memberId] ?? 1) >= 10}
                     className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
                   >
                     <Plus size={10} />
                   </button>
                   <button
                     type="button"
-                    onClick={() => handleRemoveRow(member.memberId, memberSchedules)}
+                    onClick={() => handleRemoveRow(item.member.memberId, item.memberSchedules)}
                     title="행 제거"
-                    disabled={!canRemove}
+                    disabled={!item.canRemove}
                     className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
                   >
                     <Minus size={10} />
                   </button>
                 </div>
               </div>
-            );
-          })}
+              ))}
+            </div>
+          )}
 
           {/* 멤버가 없을 때 좌측 공간 */}
           {visibleMembers.length === 0 && (
@@ -946,16 +988,13 @@ export function ScheduleGrid({ workspaceId }: Props) {
             })()}
 
             {/* 멤버별 행 */}
-            {visibleMembers.map((member) => {
-              const memberSchedules = schedulesByMember[member.memberId] ?? [];
-              const rowCount = rowCountForMember(member.memberId, memberSchedules);
-              const rowH = getRowHeight(rowCount, zoomLevel);
-
-              return (
+            {memberRowsHeight > 0 && (
+              <div style={{ height: memberRowsHeight, position: "relative", width: totalWidth }}>
+                {visibleMemberRows.map(({ item, top }) => (
                 <div
-                  key={member.memberId}
-                  className="relative border-b border-zinc-200 dark:border-zinc-800"
-                  style={{ height: rowH, width: totalWidth }}
+                  key={item.member.memberId}
+                  className="absolute left-0 border-b border-zinc-200 dark:border-zinc-800"
+                  style={{ top, height: item.rowHeight, width: totalWidth }}
                 >
                   {/* 행 배경 */}
                   <GridRow
@@ -965,14 +1004,14 @@ export function ScheduleGrid({ workspaceId }: Props) {
                   />
 
                   {/* 일정 카드들 */}
-                  {memberSchedules.map((s) => (
+                  {item.memberSchedules.map((s) => (
                     <ScheduleCard
                       key={s.id}
                       schedule={s}
                       year={currentYear}
                       cellWidth={cellWidth}
-                      rowHeight={rowH}
-                      rowCount={rowCount}
+                      rowHeight={item.rowHeight}
+                      rowCount={item.rowCount}
                       isSelected={selectedScheduleId === s.id || isCardSelected(s.id)}
                       isMultiSelected={isCardSelected(s.id)}
                       multiDragDeltaX={isMultiDragging && isCardSelected(s.id) ? multiDragDeltaX : null}
@@ -985,8 +1024,9 @@ export function ScheduleGrid({ workspaceId }: Props) {
                     />
                   ))}
                 </div>
-              );
-            })}
+                ))}
+              </div>
+            )}
 
             {/* 멤버가 없을 때 */}
             {visibleMembers.length === 0 && (

@@ -85,7 +85,7 @@ export function DatabaseToolbarControls({
     setOpenRuleKey((prev) => (prev === key ? null : key));
   };
 
-  const columns = bundle?.columns ?? [];
+  const columns = useMemo(() => bundle?.columns ?? [], [bundle?.columns]);
 
   // 속성 타입 기반으로 사용 불가 뷰를 자동 숨김
   const hasSelectCol = columns.some((c) => c.type === "select");

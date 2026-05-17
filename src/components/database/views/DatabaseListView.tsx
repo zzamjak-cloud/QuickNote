@@ -5,6 +5,7 @@ import { useProcessedRows } from "../useProcessedRows";
 import { usePageStore } from "../../../store/pageStore";
 import { useUiStore } from "../../../store/uiStore";
 import { IconPicker } from "../../common/IconPicker";
+import { useWindowedRows } from "./useWindowedRows";
 
 type Props = {
   databaseId: string;
@@ -17,9 +18,17 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
   const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
   const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
 
-  const pages = usePageStore((s) => s.pages);
   const setIcon = usePageStore((s) => s.setIcon);
   const openPeek = useUiStore((s) => s.openPeek);
+  const virtualRows = useWindowedRows({
+    count: rows.length,
+    estimateSize: 34,
+    enabled: visibleRowLimit == null && rows.length > 160,
+    overscan: 12,
+  });
+  const renderedRows = virtualRows.enabled
+    ? rows.slice(virtualRows.start, virtualRows.end)
+    : rows;
 
   if (!bundle) return null;
 
@@ -40,10 +49,12 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
   }
 
   return (
-    <div className="pt-2">
-      {rows.map((row) => {
-        const page = pages[row.pageId];
-        const title = page?.title || row.title || "제목 없음";
+    <div ref={virtualRows.containerRef} className="pt-2">
+      {virtualRows.topPadding > 0 && (
+        <div aria-hidden="true" style={{ height: virtualRows.topPadding }} />
+      )}
+      {renderedRows.map((row) => {
+        const title = row.title || "제목 없음";
 
         return (
           <div
@@ -56,7 +67,7 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
               onClick={(e) => e.stopPropagation()}
             >
               <IconPicker
-                current={page?.icon ?? null}
+                current={row.icon ?? null}
                 size="sm"
                 onChange={(icon) => setIcon(row.pageId, icon)}
               />
@@ -85,6 +96,9 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
           </div>
         );
       })}
+      {virtualRows.bottomPadding > 0 && (
+        <div aria-hidden="true" style={{ height: virtualRows.bottomPadding }} />
+      )}
     </div>
   );
 }

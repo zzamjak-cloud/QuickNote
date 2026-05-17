@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowUpRight, PanelRight, Plus, X } from "lucide-react";
 import type {
   ColumnDef,
   DatabasePanelState,
   DatabaseRowView,
+  SelectOption,
 } from "../../../types/database";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
@@ -25,6 +26,7 @@ type Props = {
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
 const UNCATEGORIZED = "__none__";
+const EMPTY_OPTIONS: SelectOption[] = [];
 
 /** 16진 컬러를 옅은 RGBA로(카드 배경용). */
 function hexToRgba(hex: string | undefined, alpha: number): string {
@@ -50,7 +52,6 @@ export function DatabaseKanbanView({
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
-  const pages = usePageStore((s) => s.pages);
   const setIcon = usePageStore((s) => s.setIcon);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
@@ -58,8 +59,6 @@ export function DatabaseKanbanView({
 
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
-
-  if (!bundle) return null;
 
   // 그룹 컬럼: panelState 우선 → 첫 status → 첫 select.
   const selectableCols = columns.filter(
@@ -70,27 +69,35 @@ export function DatabaseKanbanView({
   const groupColId =
     panelState.kanbanGroupColumnId ?? statusFirst?.id ?? selectFirst?.id ?? null;
   const groupCol: ColumnDef | undefined = columns.find((c) => c.id === groupColId);
-  const options = groupCol?.config?.options ?? [];
+  const options = useMemo<SelectOption[]>(
+    () => groupCol?.config?.options ?? EMPTY_OPTIONS,
+    [groupCol?.config?.options],
+  );
 
   // 카드에 표시할 속성 (#7) — viewConfigs.kanban 우선, 없으면 title 외 첫 2개.
-  const visibleCardCols = (() => {
+  const visibleCardCols = useMemo(() => {
     const v = getVisibleOrderedColumns(columns, "kanban", panelState.viewConfigs);
     if (panelState.viewConfigs?.kanban?.visibleColumnIds) {
       return v.filter((c) => c.type !== "title");
     }
     return columns.filter((c) => c.type !== "title").slice(0, 2);
-  })();
+  }, [columns, panelState.viewConfigs]);
 
   // 버킷 구성
-  const buckets = new Map<string, DatabaseRowView[]>();
-  for (const o of options) buckets.set(o.id, []);
-  buckets.set(UNCATEGORIZED, []);
-  for (const row of rows) {
-    const raw = row.cells[groupColId ?? ""];
-    const key =
-      typeof raw === "string" && raw && buckets.has(raw) ? raw : UNCATEGORIZED;
-    buckets.get(key)!.push(row);
-  }
+  const buckets = useMemo(() => {
+    const next = new Map<string, DatabaseRowView[]>();
+    for (const o of options) next.set(o.id, []);
+    next.set(UNCATEGORIZED, []);
+    for (const row of rows) {
+      const raw = row.cells[groupColId ?? ""];
+      const key =
+        typeof raw === "string" && raw && next.has(raw) ? raw : UNCATEGORIZED;
+      next.get(key)!.push(row);
+    }
+    return next;
+  }, [groupColId, options, rows]);
+
+  if (!bundle) return null;
 
   const openFull = (pageId: string) => {
     setActivePage(pageId);
@@ -193,7 +200,7 @@ export function DatabaseKanbanView({
                       databaseId={databaseId}
                       visibleCardCols={visibleCardCols}
                       colColor={col.color}
-                      pageIcon={pages[row.pageId]?.icon ?? null}
+                      pageIcon={row.icon ?? null}
                       onIconChange={(icon) => setIcon(row.pageId, icon)}
                       onOpenFull={() => openFull(row.pageId)}
                       onOpenPeek={() => openPeek(row.pageId)}

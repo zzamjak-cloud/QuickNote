@@ -76,7 +76,6 @@ export function useTableRowSelection(rowIds: readonly string[]) {
       });
       return changed ? next : prev;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rowIdsKey]);
 
   return { selectedRowIds, handleCheckboxClick, toggleAll, clearSelection };

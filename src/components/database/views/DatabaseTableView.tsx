@@ -23,6 +23,7 @@ import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import { useTableRowSelection } from "./useTableRowSelection";
 import { useHistoryStore } from "../../../store/historyStore";
+import { useWindowedRows } from "./useWindowedRows";
 
 type Props = {
   databaseId: string;
@@ -44,7 +45,6 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const moveColumn = useDatabaseStore((s) => s.moveColumn);
   const setRowOrder = useDatabaseStore((s) => s.setRowOrder);
-  const pages = usePageStore((s) => s.pages);
   const setIcon = usePageStore((s) => s.setIcon);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -118,6 +118,15 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   const ADD_COL = 32;
   const tableWidthPx =
     CHECKBOX_COL + ADD_COL + resolvedColWidths.reduce((acc, w) => acc + w, 0);
+  const virtualRows = useWindowedRows({
+    count: rows.length,
+    estimateSize: 32,
+    enabled: visibleRowLimit == null && rows.length > 120,
+    overscan: 10,
+  });
+  const renderedRows = virtualRows.enabled
+    ? rows.slice(virtualRows.start, virtualRows.end)
+    : rows;
 
   // moveColumn은 bundle.columns 기준 인덱스를 받으므로 visibleCols 인덱스를 변환.
   const colIdToBundleIdx = useMemo(
@@ -226,7 +235,10 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   return (
     // fullPage: 페이지 스크롤에 맡겨 터치패드 스크롤이 자연스럽게 작동.
     // inline: 60vh 내에서만 스크롤.
-    <div className={`relative overflow-x-auto ${layout === "fullPage" ? "" : "max-h-[60vh] overflow-y-auto"}`}>
+    <div
+      ref={virtualRows.containerRef}
+      className={`relative overflow-x-auto ${layout === "fullPage" ? "" : "max-h-[60vh] overflow-y-auto"}`}
+    >
       {/* table-layout:fixed + w-full 조합은 한 컬럼 리사이즈 시 다른 컬럼 폭을 100%
           맞추려고 자동 재배분한다 → 사용자가 의도한 폭으로 조절 불가.
           natural-width(table-layout:fixed, no w-full) 로 두어 각 col 의 width 가 그대로 유지되게.
@@ -301,7 +313,16 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, rIdx) => {
+          {virtualRows.topPadding > 0 && (
+            <tr aria-hidden="true">
+              <td
+                colSpan={visibleCols.length + 2}
+                style={{ height: virtualRows.topPadding, padding: 0, border: 0 }}
+              />
+            </tr>
+          )}
+          {renderedRows.map((row, localIdx) => {
+            const rIdx = virtualRows.start + localIdx;
             const isDropTarget = rowDragFrom != null && rowDragOver === rIdx && rowDragFrom !== rIdx;
             const isBoxSelected = selectedRowIds.has(row.pageId);
             return (
@@ -393,7 +414,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                           <div className="flex min-w-0 items-center gap-1">
                             <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
                               <IconPicker
-                                current={pages[row.pageId]?.icon ?? null}
+                                current={row.icon ?? null}
                                 size="sm"
                                 onChange={(icon) => setIcon(row.pageId, icon)}
                               />
@@ -448,6 +469,14 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
               </tr>
             );
           })}
+          {virtualRows.bottomPadding > 0 && (
+            <tr aria-hidden="true">
+              <td
+                colSpan={visibleCols.length + 2}
+                style={{ height: virtualRows.bottomPadding, padding: 0, border: 0 }}
+              />
+            </tr>
+          )}
         </tbody>
       </table>
       <div className="mt-2 flex items-center justify-between gap-2">

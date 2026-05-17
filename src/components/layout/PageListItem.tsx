@@ -83,9 +83,6 @@ const PageListItemInner = function PageListItem({
   const restorePageFromLatestHistory = usePageStore(
     (s) => s.restorePageFromLatestHistory,
   );
-  const restorePageFromHistoryEvent = usePageStore(
-    (s) => s.restorePageFromHistoryEvent,
-  );
   const activePageId = usePageStore((s) => s.activePageId);
   const expanded = useSettingsStore((s) =>
     s.expandedIds.includes(node.id),
@@ -98,11 +95,6 @@ const PageListItemInner = function PageListItem({
   const [menuOpen, setMenuOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [historyDeleteOpen, setHistoryDeleteOpen] = useState(false);
-  const [historyDeleteTarget, setHistoryDeleteTarget] = useState<{
-    label: string;
-    eventIds: string[];
-  } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -157,21 +149,6 @@ const PageListItemInner = function PageListItem({
 
   const rowPadLeft = depth * 14;
   const childGuideLeft = (depth + 1) * 14;
-  const pageHistoryTimeline = useHistoryStore((s) => s.getPageTimeline(node.id));
-  const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
-  const members = useMemberStore((s) => s.members);
-  const me = useMemberStore((s) => s.me);
-  const timelineIds = pageHistoryTimeline.map((e) => e.id);
-  const {
-    selectedIds: selectedTimelineIds,
-    toggleOne: toggleTimelineOne,
-    toggleAll: toggleTimelineAll,
-    clearSelection: clearTimelineSelection,
-  } = useHistorySelection(timelineIds);
-  const selectedEntries = pageHistoryTimeline.filter((e) =>
-    selectedTimelineIds.has(e.id),
-  );
-  const selectedEventIds = selectedEntries.flatMap((e) => e.eventIds);
 
   return (
     <div className="flex flex-col gap-0.5">
@@ -384,105 +361,13 @@ const PageListItemInner = function PageListItem({
               버전 히스토리
             </button>
             {historyOpen && (
-              <div className="mx-2 mb-1 mt-1 max-h-44 overflow-y-auto rounded border border-zinc-200 dark:border-zinc-700">
-                <div className="flex items-center justify-between gap-1 border-b border-zinc-100 px-2 py-1 dark:border-zinc-800">
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => toggleTimelineAll()}
-                    className="rounded px-1 py-0.5 text-[11px] text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                  >
-                    전체 선택
-                  </button>
-                  {selectedTimelineIds.size > 0 && (
-                    <button
-                      type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => {
-                        setHistoryDeleteTarget({
-                          label: `${selectedTimelineIds.size}개 선택 항목`,
-                          eventIds: selectedEventIds,
-                        });
-                        setHistoryDeleteOpen(true);
-                      }}
-                      className="rounded px-1 py-0.5 text-[11px] text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
-                    >
-                      선택 삭제
-                    </button>
-                  )}
-                </div>
-                {pageHistoryTimeline.length === 0 ? (
-                  <div className="px-2 py-1.5 text-[11px] text-zinc-500">
-                    버전 기록이 없습니다.
-                  </div>
-                ) : (
-                  pageHistoryTimeline.slice(0, 30).map((entry, idx, arr) => (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => {
-                        const targetEventId =
-                          entry.eventIds[entry.eventIds.length - 1];
-                        if (targetEventId) {
-                          restorePageFromHistoryEvent(node.id, targetEventId);
-                        }
-                        setMenuOpen(false);
-                        setHistoryOpen(false);
-                      }}
-                      className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    >
-                      <button
-                        type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleTimelineOne(entry.id, { shiftKey: e.shiftKey });
-                        }}
-                        className={[
-                          "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border",
-                          selectedTimelineIds.has(entry.id)
-                            ? "border-blue-500 bg-blue-500 text-white"
-                            : "border-zinc-400",
-                        ].join(" ")}
-                        aria-label="히스토리 선택"
-                      >
-                        {selectedTimelineIds.has(entry.id) ? (
-                          <Check size={10} strokeWidth={3} />
-                        ) : null}
-                      </button>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-zinc-600 dark:text-zinc-300">
-                          {`버전 ${arr.length - idx}`}
-                        </span>
-                        <span className="block truncate text-[10px] text-zinc-400">
-                          {formatPageHistoryEditorLine(entry, { members, me })}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-zinc-400">
-                        {new Date(entry.endTs).toLocaleTimeString()}
-                      </span>
-                      <button
-                        type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setHistoryDeleteTarget({
-                            label: `버전 ${arr.length - idx}`,
-                            eventIds: entry.eventIds,
-                          });
-                          setHistoryDeleteOpen(true);
-                        }}
-                        className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                        title="히스토리 항목 삭제"
-                        aria-label="히스토리 항목 삭제"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    </button>
-                  ))
-                )}
-              </div>
+              <PageHistoryMenu
+                pageId={node.id}
+                onClose={() => {
+                  setMenuOpen(false);
+                  setHistoryOpen(false);
+                }}
+              />
             )}
             <button
               type="button"
@@ -515,25 +400,6 @@ const PageListItemInner = function PageListItem({
           deletePage(node.id);
         }}
       />
-      <SimpleConfirmDialog
-        open={historyDeleteOpen}
-        title="히스토리 항목 삭제"
-        message={`"${historyDeleteTarget?.label ?? "선택한 항목"}" 히스토리를 삭제할까요?`}
-        confirmLabel="삭제"
-        danger
-        onCancel={() => {
-          setHistoryDeleteOpen(false);
-          setHistoryDeleteTarget(null);
-        }}
-        onConfirm={() => {
-          if (historyDeleteTarget) {
-            deletePageHistoryEvents(node.id, historyDeleteTarget.eventIds);
-          }
-          setHistoryDeleteOpen(false);
-          setHistoryDeleteTarget(null);
-          clearTimelineSelection();
-        }}
-      />
       {hasChildren && expanded && (
         <PageListGroup
           nodes={node.children}
@@ -546,5 +412,158 @@ const PageListItemInner = function PageListItem({
     </div>
   );
 };
+
+function PageHistoryMenu({
+  pageId,
+  onClose,
+}: {
+  pageId: string;
+  onClose: () => void;
+}) {
+  const restorePageFromHistoryEvent = usePageStore(
+    (s) => s.restorePageFromHistoryEvent,
+  );
+  const pageHistoryTimeline = useHistoryStore((s) => s.getPageTimeline(pageId));
+  const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
+  const members = useMemberStore((s) => s.members);
+  const me = useMemberStore((s) => s.me);
+  const timelineIds = pageHistoryTimeline.map((e) => e.id);
+  const {
+    selectedIds: selectedTimelineIds,
+    toggleOne: toggleTimelineOne,
+    toggleAll: toggleTimelineAll,
+    clearSelection: clearTimelineSelection,
+  } = useHistorySelection(timelineIds);
+  const selectedEntries = pageHistoryTimeline.filter((e) =>
+    selectedTimelineIds.has(e.id),
+  );
+  const selectedEventIds = selectedEntries.flatMap((e) => e.eventIds);
+  const [historyDeleteOpen, setHistoryDeleteOpen] = useState(false);
+  const [historyDeleteTarget, setHistoryDeleteTarget] = useState<{
+    label: string;
+    eventIds: string[];
+  } | null>(null);
+
+  return (
+    <>
+      <div className="mx-2 mb-1 mt-1 max-h-44 overflow-y-auto rounded border border-zinc-200 dark:border-zinc-700">
+        <div className="flex items-center justify-between gap-1 border-b border-zinc-100 px-2 py-1 dark:border-zinc-800">
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => toggleTimelineAll()}
+            className="rounded px-1 py-0.5 text-[11px] text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            전체 선택
+          </button>
+          {selectedTimelineIds.size > 0 && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => {
+                setHistoryDeleteTarget({
+                  label: `${selectedTimelineIds.size}개 선택 항목`,
+                  eventIds: selectedEventIds,
+                });
+                setHistoryDeleteOpen(true);
+              }}
+              className="rounded px-1 py-0.5 text-[11px] text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+            >
+              선택 삭제
+            </button>
+          )}
+        </div>
+        {pageHistoryTimeline.length === 0 ? (
+          <div className="px-2 py-1.5 text-[11px] text-zinc-500">
+            버전 기록이 없습니다.
+          </div>
+        ) : (
+          pageHistoryTimeline.slice(0, 30).map((entry, idx, arr) => (
+            <button
+              key={entry.id}
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => {
+                const targetEventId = entry.eventIds[entry.eventIds.length - 1];
+                if (targetEventId) {
+                  restorePageFromHistoryEvent(pageId, targetEventId);
+                }
+                onClose();
+              }}
+              className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-[11px] hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleTimelineOne(entry.id, { shiftKey: e.shiftKey });
+                }}
+                className={[
+                  "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border",
+                  selectedTimelineIds.has(entry.id)
+                    ? "border-blue-500 bg-blue-500 text-white"
+                    : "border-zinc-400",
+                ].join(" ")}
+                aria-label="히스토리 선택"
+              >
+                {selectedTimelineIds.has(entry.id) ? (
+                  <Check size={10} strokeWidth={3} />
+                ) : null}
+              </button>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-zinc-600 dark:text-zinc-300">
+                  {`버전 ${arr.length - idx}`}
+                </span>
+                <span className="block truncate text-[10px] text-zinc-400">
+                  {formatPageHistoryEditorLine(entry, { members, me })}
+                </span>
+              </span>
+              <span className="shrink-0 text-zinc-400">
+                {new Date(entry.endTs).toLocaleTimeString()}
+              </span>
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setHistoryDeleteTarget({
+                    label: `버전 ${arr.length - idx}`,
+                    eventIds: entry.eventIds,
+                  });
+                  setHistoryDeleteOpen(true);
+                }}
+                className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                title="히스토리 항목 삭제"
+                aria-label="히스토리 항목 삭제"
+              >
+                <Trash2 size={11} />
+              </button>
+            </button>
+          ))
+        )}
+      </div>
+      <SimpleConfirmDialog
+        open={historyDeleteOpen}
+        title="히스토리 항목 삭제"
+        message={`"${historyDeleteTarget?.label ?? "선택한 항목"}" 히스토리를 삭제할까요?`}
+        confirmLabel="삭제"
+        danger
+        onCancel={() => {
+          setHistoryDeleteOpen(false);
+          setHistoryDeleteTarget(null);
+        }}
+        onConfirm={() => {
+          if (historyDeleteTarget) {
+            deletePageHistoryEvents(pageId, historyDeleteTarget.eventIds);
+          }
+          setHistoryDeleteOpen(false);
+          setHistoryDeleteTarget(null);
+          clearTimelineSelection();
+        }}
+      />
+    </>
+  );
+}
 
 export const PageListItem = memo(PageListItemInner, pageListItemPropsEqual);

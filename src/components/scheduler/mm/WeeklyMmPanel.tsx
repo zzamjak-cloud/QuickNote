@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronLeft, ChevronRight, Lock, Save } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 import { buildWeeklyMmSuggestion, toMmScheduleSource } from "../../../lib/scheduler/mm/mmSuggestion";
 import {
@@ -69,28 +69,35 @@ export function WeeklyMmPanel() {
     : null;
   const targetMember = selectedVisibleMember ?? null;
   const effectiveTargetMemberId = targetMember?.memberId ?? null;
-  const scopeIncludesMe = (() => {
+  const organizationMemberIdsById = useMemo(
+    () => new Map(organizations.map((org) => [org.organizationId, memberIdSet(org.members)])),
+    [organizations],
+  );
+  const teamMemberIdsById = useMemo(
+    () => new Map(teams.map((team) => [team.teamId, memberIdSet(team.members)])),
+    [teams],
+  );
+  const projectMemberIdsById = useMemo(
+    () => new Map(projects.map((project) => [project.id, new Set(project.memberIds)])),
+    [projects],
+  );
+
+  const scopeIncludesMe = useMemo(() => {
     if (!me || !selectedProjectId) return false;
     if (selectedProjectId.startsWith("org:")) {
       const orgId = selectedProjectId.slice(4);
-      return organizations.some((org) =>
-        org.organizationId === orgId && memberIdSet(org.members).has(me.memberId),
-      );
+      return organizationMemberIdsById.get(orgId)?.has(me.memberId) ?? false;
     }
     if (selectedProjectId.startsWith("team:")) {
       const teamId = selectedProjectId.slice(5);
-      return teams.some((team) =>
-        team.teamId === teamId && memberIdSet(team.members).has(me.memberId),
-      );
+      return teamMemberIdsById.get(teamId)?.has(me.memberId) ?? false;
     }
     if (selectedProjectId.startsWith("proj:")) {
       const projectId = selectedProjectId.slice(5);
-      return projects.some((project) =>
-        project.id === projectId && project.memberIds.includes(me.memberId),
-      );
+      return projectMemberIdsById.get(projectId)?.has(me.memberId) ?? false;
     }
     return false;
-  })();
+  }, [me, organizationMemberIdsById, projectMemberIdsById, selectedProjectId, teamMemberIdsById]);
   const shouldRenderButton = Boolean(
     me &&
     selectedMemberId &&
@@ -115,25 +122,41 @@ export function WeeklyMmPanel() {
     });
   }, [effectiveTargetMemberId, fetchEntries, open, weekStart]);
 
-  const projectNames = labelMap(projects.map((project) => ({ id: project.id, name: project.name })));
-  const teamNames = labelMap(teams.map((team) => ({ id: team.teamId, name: team.name })));
-  const orgNames = labelMap(organizations.map((org) => ({ id: org.organizationId, name: org.name })));
-
-  const existingEntry = entries.find((entry) =>
-    entry.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
-    entry.memberId === effectiveTargetMemberId &&
-    entry.weekStart === weekStart,
+  const projectNames = useMemo(
+    () => labelMap(projects.map((project) => ({ id: project.id, name: project.name }))),
+    [projects],
+  );
+  const teamNames = useMemo(
+    () => labelMap(teams.map((team) => ({ id: team.teamId, name: team.name }))),
+    [teams],
+  );
+  const orgNames = useMemo(
+    () => labelMap(organizations.map((org) => ({ id: org.organizationId, name: org.name }))),
+    [organizations],
   );
 
-  const suggestion = effectiveTargetMemberId
-    ? buildWeeklyMmSuggestion({
-      memberId: effectiveTargetMemberId,
-      weekStart,
-      schedules: schedules.map(toMmScheduleSource),
-      holidays,
-      labels: { projects: projectNames, teams: teamNames, organizations: orgNames },
-    })
-    : null;
+  const existingEntry = useMemo(
+    () => entries.find((entry) =>
+      entry.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
+      entry.memberId === effectiveTargetMemberId &&
+      entry.weekStart === weekStart,
+    ),
+    [effectiveTargetMemberId, entries, weekStart],
+  );
+
+  const mmScheduleSources = useMemo(() => schedules.map(toMmScheduleSource), [schedules]);
+  const suggestion = useMemo(
+    () => effectiveTargetMemberId
+      ? buildWeeklyMmSuggestion({
+        memberId: effectiveTargetMemberId,
+        weekStart,
+        schedules: mmScheduleSources,
+        holidays,
+        labels: { projects: projectNames, teams: teamNames, organizations: orgNames },
+      })
+      : null,
+    [effectiveTargetMemberId, holidays, mmScheduleSources, orgNames, projectNames, teamNames, weekStart],
+  );
 
   useEffect(() => {
     const nextKey = existingEntry
@@ -163,12 +186,18 @@ export function WeeklyMmPanel() {
   const statusLabel = existingEntry && existingEntry.status !== "draft" ? "제출완료" : "누락";
   const statusTone = statusLabel === "제출완료" ? "text-emerald-600 bg-emerald-50" : "text-red-600 bg-red-50";
 
-  const memberOrg = effectiveTargetMemberId
-    ? organizations.find((org) => memberIdSet(org.members).has(effectiveTargetMemberId)) ?? null
-    : null;
-  const memberTeam = effectiveTargetMemberId
-    ? teams.find((team) => memberIdSet(team.members).has(effectiveTargetMemberId)) ?? null
-    : null;
+  const memberOrg = useMemo(
+    () => effectiveTargetMemberId
+      ? organizations.find((org) => organizationMemberIdsById.get(org.organizationId)?.has(effectiveTargetMemberId)) ?? null
+      : null,
+    [effectiveTargetMemberId, organizationMemberIdsById, organizations],
+  );
+  const memberTeam = useMemo(
+    () => effectiveTargetMemberId
+      ? teams.find((team) => teamMemberIdsById.get(team.teamId)?.has(effectiveTargetMemberId)) ?? null
+      : null,
+    [effectiveTargetMemberId, teamMemberIdsById, teams],
+  );
 
   function updateBucketRatio(id: string, value: string) {
     const next = percentToBp(Number(value));

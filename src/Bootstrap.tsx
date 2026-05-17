@@ -13,6 +13,9 @@ import {
   applyRemotePageToStore,
   applyRemoteDatabaseToStore,
   applyRemoteCommentToStore,
+  applyRemotePagesToStore,
+  applyRemoteDatabasesToStore,
+  applyRemoteCommentsToStore,
 } from "./lib/sync/storeApply";
 import { applyWorkspaceSwitch } from "./lib/sync/workspaceSwitch";
 import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
@@ -188,14 +191,11 @@ function useSyncBootstrap(): boolean {
               : Promise.resolve([]),
           ]);
           if (cancelled) return;
-          for (const p of pages)
-            applyRemotePageToStore(p);
-          for (const d of dbs) applyRemoteDatabaseToStore(d);
-          for (const p of lcPages) applyRemotePageToStore(p);
-          for (const d of lcDbs) applyRemoteDatabaseToStore(d);
+          applyRemotePagesToStore([...pages, ...lcPages]);
+          applyRemoteDatabasesToStore([...dbs, ...lcDbs]);
           await ensureLCSchedulerDatabase(LC_SCHEDULER_WORKSPACE_ID);
           if (cancelled) return;
-          for (const c of comments) applyRemoteCommentToStore(c);
+          applyRemoteCommentsToStore(comments);
           migratePageBlockCommentsToServerOnce(currentWorkspaceId);
         };
         const setHold = useUiStore.getState().setOutboxWorkspaceSwitchHold;
@@ -361,12 +361,10 @@ function useSyncBootstrap(): boolean {
                 ? fetchDatabasesByWorkspace(LC_SCHEDULER_WORKSPACE_ID)
                 : Promise.resolve([]),
             ]);
-            for (const p of pages) applyRemotePageToStore(p);
-            for (const d of dbs) applyRemoteDatabaseToStore(d);
-            for (const p of lcPages) applyRemotePageToStore(p);
-            for (const d of lcDbs) applyRemoteDatabaseToStore(d);
+            applyRemotePagesToStore([...pages, ...lcPages]);
+            applyRemoteDatabasesToStore([...dbs, ...lcDbs]);
             await ensureLCSchedulerDatabase(LC_SCHEDULER_WORKSPACE_ID);
-            for (const c of comments) applyRemoteCommentToStore(c);
+            applyRemoteCommentsToStore(comments);
           };
           await fetchApply();
           const engine = await getSyncEngine();

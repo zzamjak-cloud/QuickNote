@@ -16,6 +16,8 @@ import {
 } from "../lib/scheduler/colors";
 import { useMemberStore } from "./memberStore";
 import { useSchedulerViewStore } from "./schedulerViewStore";
+import { filterSchedulesByRange, scheduleOverlapsRange } from "../lib/scheduler/selectors/scheduleSelectors";
+import { logSchedulerPerf, nowSchedulerPerf } from "../lib/scheduler/performance";
 
 export type Schedule = {
   id: string;
@@ -83,19 +85,9 @@ type SchedulerStore = {
   removeLocal: (id: string) => void;
 };
 
-function scheduleOverlapsRange(schedule: Schedule, from: string, to: string): boolean {
-  const start = Date.parse(schedule.startAt);
-  const end = Date.parse(schedule.endAt);
-  const rangeStart = Date.parse(from);
-  const rangeEnd = Date.parse(to);
-  if ([start, end, rangeStart, rangeEnd].some((value) => Number.isNaN(value))) return true;
-  return start < rangeEnd && end > rangeStart;
-}
-
 function projectSchedulesForStore(workspaceId: string, from?: string, to?: string): Schedule[] {
   const projected = projectLCSchedulerSchedules(workspaceId, useMemberStore.getState().members);
-  if (!from || !to) return projected;
-  return projected.filter((schedule) => scheduleOverlapsRange(schedule, from, to));
+  return filterSchedulesByRange(projected, from, to);
 }
 
 function makeOptimisticSchedule(input: CreateScheduleInput): Schedule {
@@ -123,6 +115,23 @@ function makeOptimisticSchedule(input: CreateScheduleInput): Schedule {
   };
 }
 
+function applyOptimisticScheduleUpdate(schedule: Schedule, input: UpdateScheduleInput): Schedule {
+  return {
+    ...schedule,
+    title: input.title !== undefined && input.title !== null ? input.title : schedule.title,
+    comment: input.comment !== undefined ? input.comment : schedule.comment,
+    link: input.link !== undefined ? input.link : schedule.link,
+    projectId: input.projectId !== undefined ? input.projectId : schedule.projectId,
+    startAt: input.startAt ?? schedule.startAt,
+    endAt: input.endAt ?? schedule.endAt,
+    assigneeId: input.assigneeId !== undefined ? input.assigneeId : schedule.assigneeId,
+    color: input.color !== undefined ? input.color : schedule.color,
+    textColor: input.textColor !== undefined ? input.textColor : schedule.textColor,
+    rowIndex: input.rowIndex !== undefined ? input.rowIndex : schedule.rowIndex,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function isOptimisticScheduleId(id: string): boolean {
   return id.startsWith("optimistic:");
 }
@@ -137,6 +146,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
       visibleRangeTo: null,
 
       fetchSchedules: async (workspaceId, from, to) => {
+        const startedAt = nowSchedulerPerf();
         // 워크스페이스가 다르면 캐시를 비우고 시작 (다른 워크스페이스 데이터 노출 방지)
         if (get().cachedWorkspaceId !== workspaceId) {
           set({ schedules: [], cachedWorkspaceId: workspaceId });
@@ -149,6 +159,12 @@ export const useSchedulerStore = create<SchedulerStore>()(
           visibleRangeFrom: from,
           visibleRangeTo: to,
           loading: false,
+        });
+        logSchedulerPerf("fetchSchedules:project-visible-range", startedAt, {
+          workspaceId,
+          from,
+          to,
+          count: get().schedules.length,
         });
       },
 
@@ -185,28 +201,49 @@ export const useSchedulerStore = create<SchedulerStore>()(
       },
 
       updateSchedule: async (input) => {
-        const s = await updateLCSchedulerSchedule(input);
         const rangeFrom = get().visibleRangeFrom ?? undefined;
         const rangeTo = get().visibleRangeTo ?? undefined;
-        set({
-          schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
-          cachedWorkspaceId: input.workspaceId,
-        });
-        return s;
+        const previousSchedules = get().schedules;
+        if (previousSchedules.some((schedule) => schedule.id === input.id)) {
+          set((state) => ({
+            schedules: state.schedules.map((schedule) => (
+              schedule.id === input.id ? applyOptimisticScheduleUpdate(schedule, input) : schedule
+            )),
+            cachedWorkspaceId: input.workspaceId,
+          }));
+        }
+        try {
+          const s = await updateLCSchedulerSchedule(input);
+          set({
+            schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
+            cachedWorkspaceId: input.workspaceId,
+          });
+          return s;
+        } catch (error) {
+          set({ schedules: previousSchedules, cachedWorkspaceId: input.workspaceId });
+          throw error;
+        }
       },
 
       deleteSchedule: async (id, workspaceId) => {
+        const previousSchedules = get().schedules;
         set((st) => ({ schedules: st.schedules.filter((x) => x.id !== id) }));
-        await deleteLCSchedulerSchedule(id, workspaceId);
         const rangeFrom = get().visibleRangeFrom ?? undefined;
         const rangeTo = get().visibleRangeTo ?? undefined;
-        set({
-          schedules: projectSchedulesForStore(workspaceId, rangeFrom, rangeTo),
-          cachedWorkspaceId: workspaceId,
-        });
+        try {
+          await deleteLCSchedulerSchedule(id, workspaceId);
+          set({
+            schedules: projectSchedulesForStore(workspaceId, rangeFrom, rangeTo),
+            cachedWorkspaceId: workspaceId,
+          });
+        } catch (error) {
+          set({ schedules: previousSchedules, cachedWorkspaceId: workspaceId });
+          throw error;
+        }
       },
 
       refreshVisibleRangeFromLocal: (workspaceId) => {
+        const startedAt = nowSchedulerPerf();
         const targetWorkspaceId = workspaceId ?? get().cachedWorkspaceId;
         if (!targetWorkspaceId) return;
         const rangeFrom = get().visibleRangeFrom ?? undefined;
@@ -214,6 +251,12 @@ export const useSchedulerStore = create<SchedulerStore>()(
         set({
           schedules: projectSchedulesForStore(targetWorkspaceId, rangeFrom, rangeTo),
           cachedWorkspaceId: targetWorkspaceId,
+        });
+        logSchedulerPerf("refreshVisibleRangeFromLocal", startedAt, {
+          workspaceId: targetWorkspaceId,
+          from: rangeFrom,
+          to: rangeTo,
+          count: get().schedules.length,
         });
       },
 

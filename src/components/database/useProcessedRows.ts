@@ -3,13 +3,21 @@ import { applyFilterSortSearch } from "../../lib/databaseQuery";
 import type { CellValue, DatabasePanelState, DatabaseRowView } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
+import { createDatabaseRowSourcesSelector } from "./databaseRowSources";
+
+const EMPTY_ROW_PAGE_ORDER: readonly string[] = [];
 
 export function useProcessedRows(
   databaseId: string,
   panelState: DatabasePanelState,
 ) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
-  const pages = usePageStore((s) => s.pages);
+  const rowPageOrder = bundle?.rowPageOrder ?? EMPTY_ROW_PAGE_ORDER;
+  const rowSourcesSelector = useMemo(
+    () => createDatabaseRowSourcesSelector(rowPageOrder),
+    [rowPageOrder],
+  );
+  const rowSources = usePageStore(rowSourcesSelector);
 
   const processed = useMemo(() => {
     if (
@@ -21,15 +29,14 @@ export function useProcessedRows(
     }
     const titleCol = bundle.columns.find((c) => c.type === "title");
     const ordered: DatabaseRowView[] = [];
-    for (const pageId of bundle.rowPageOrder ?? []) {
-      const page = pages[pageId];
-      if (!page) continue;
-      const cells: Record<string, CellValue> = { ...(page.dbCells ?? {}) };
-      if (titleCol) cells[titleCol.id] = page.title;
+    for (const source of rowSources) {
+      const cells: Record<string, CellValue> = { ...(source.dbCells ?? {}) };
+      if (titleCol) cells[titleCol.id] = source.title;
       ordered.push({
-        pageId,
-        databaseId,
-        title: page.title,
+        pageId: source.pageId,
+        databaseId: source.databaseId || databaseId,
+        title: source.title,
+        icon: source.icon,
         cells,
       });
     }
@@ -48,7 +55,7 @@ export function useProcessedRows(
       effectiveSortRules,
     );
     return { rows, columns: bundle.columns };
-  }, [bundle, pages, databaseId, panelState]);
+  }, [bundle, rowSources, databaseId, panelState]);
 
   return { bundle, rows: processed.rows, columns: processed.columns };
 }

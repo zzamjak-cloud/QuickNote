@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Page } from "../../../types/page";
 import type { PageStore } from "../../pageStore";
 import {
+  createFilterPageTreeSelector,
   filterPageTree,
   isFullPageDatabaseHomePage,
   selectPageTree,
@@ -152,6 +153,21 @@ describe("pageStore/selectors", () => {
     it("대소문자 무시", () => {
       const store = makeStore([makePage("a", "HELLO", null, 0)]);
       expect(filterPageTree(store, "hello")).toHaveLength(1);
+    });
+  });
+
+  describe("createFilterPageTreeSelector", () => {
+    it("본문만 바뀐 페이지 업데이트에는 이전 트리 참조를 유지한다", () => {
+      const selector = createFilterPageTreeSelector("");
+      const first = selector(makeStore([makePage("a", "A", null, 0)]));
+      const second = selector(
+        makeStore([
+          makePage("a", "A", null, 0, {
+            doc: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "본문" }] }] },
+          }),
+        ]),
+      );
+      expect(second).toBe(first);
     });
   });
 });

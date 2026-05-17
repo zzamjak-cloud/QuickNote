@@ -28,6 +28,7 @@ import {
   timelineWeekLabel as weekLabel,
   timelineWeekdayIndex as weekdayIndex,
 } from "../../../lib/database/timelineGeometry";
+import { useWindowedRows } from "./useWindowedRows";
 
 type Props = {
   databaseId: string;
@@ -64,6 +65,16 @@ export function DatabaseTimelineView({
   const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
+  const virtualRows = useWindowedRows({
+    count: rows.length,
+    estimateSize: ROW_HEIGHT + ROW_GAP,
+    enabled: visibleRowLimit == null && rows.length > 120,
+    overscan: 10,
+  });
+  const renderedRows = virtualRows.enabled
+    ? rows.slice(virtualRows.start, virtualRows.end)
+    : rows;
+  const totalRowsHeight = rows.length * (ROW_HEIGHT + ROW_GAP);
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
@@ -359,13 +370,16 @@ export function DatabaseTimelineView({
             </div>
 
             {/* 본문 */}
-            <div className="flex">
+            <div ref={virtualRows.containerRef} className="flex">
               {/* 좌측 라벨 컬럼 — 수평 스크롤 시 고정 */}
               <div
                 className="sticky left-0 z-[5] shrink-0 border-r border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950"
                 style={{ width: SIDE_LABEL_W }}
               >
-                {rows.map((row) => (
+                {virtualRows.topPadding > 0 && (
+                  <div aria-hidden="true" style={{ height: virtualRows.topPadding }} />
+                )}
+                {renderedRows.map((row) => (
                   <div
                     key={row.pageId}
                     className="group relative flex items-center gap-1 truncate border-b border-zinc-100 px-2 dark:border-zinc-800"
@@ -400,6 +414,9 @@ export function DatabaseTimelineView({
                     </div>
                   </div>
                 ))}
+                {virtualRows.bottomPadding > 0 && (
+                  <div aria-hidden="true" style={{ height: virtualRows.bottomPadding }} />
+                )}
               </div>
 
               {/* 우측 트랙 + 카드 */}
@@ -408,8 +425,8 @@ export function DatabaseTimelineView({
                 className="relative flex-1"
                 style={
                   granularity === "day"
-                    ? { width: axis.totalW, height: rows.length * (ROW_HEIGHT + ROW_GAP) }
-                    : { height: rows.length * (ROW_HEIGHT + ROW_GAP) }
+                    ? { width: axis.totalW, height: totalRowsHeight }
+                    : { height: totalRowsHeight }
                 }
               >
                 {/* 주말 배경 */}
@@ -452,12 +469,14 @@ export function DatabaseTimelineView({
                 {todayX >= 0 && todayX <= (granularity === "day" ? axis.totalW : trackPxWidth) && (
                   <div
                     className="absolute top-0 z-[1] w-px bg-red-400/80"
-                    style={{ left: todayX, height: rows.length * (ROW_HEIGHT + ROW_GAP) }}
+                    style={{ left: todayX, height: totalRowsHeight }}
                   />
                 )}
 
                 {/* 행별 트랙 배경 */}
-                {rows.map((row, rIdx) => (
+                {renderedRows.map((row, localIdx) => {
+                  const rIdx = virtualRows.start + localIdx;
+                  return (
                   <div
                     key={`track:${row.pageId}`}
                     className="absolute left-0 right-0 border-b border-zinc-100 dark:border-zinc-800"
@@ -466,10 +485,12 @@ export function DatabaseTimelineView({
                       height: ROW_HEIGHT + ROW_GAP,
                     }}
                   />
-                ))}
+                  );
+                })}
 
                 {/* 주 모드: pxPerDay 측정 전엔 미렌더 */}
-                {(granularity === "day" || (Number.isFinite(pxPerDay) && pxPerDay > 0)) && rows.map((row, rIdx) => {
+                {(granularity === "day" || (Number.isFinite(pxPerDay) && pxPerDay > 0)) && renderedRows.map((row, localIdx) => {
+                  const rIdx = virtualRows.start + localIdx;
                   const range = getRange(row.cells[dateColId]);
                   if (!range) return null;
                   let visStart = Math.max(range.start, axis.minT);

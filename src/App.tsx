@@ -1,15 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
 import { SidebarCollapsedRail } from "./components/layout/SidebarCollapsedRail";
 import { FavoritesPanel } from "./components/layout/FavoritesPanel";
 import { TopBar } from "./components/layout/TopBar";
 import { TabBar } from "./components/layout/TabBar";
 import { Editor } from "./components/editor/Editor";
-import { DatabaseRowPage } from "./components/database/DatabaseRowPage";
-import { DatabaseRowPeek } from "./components/database/DatabaseRowPeek";
-import { BlockCommentThreadPanel } from "./components/comments/BlockCommentThreadPanel";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
-import { AutoUpdateDialog } from "./components/ui/AutoUpdateDialog";
 import { ToastViewport } from "./components/ui/ToastViewport";
 import { WorkspaceSyncBanner } from "./components/sync/WorkspaceSyncBanner";
 import { AuthGate } from "./components/auth/AuthGate";
@@ -23,6 +19,27 @@ import { parseQuickNoteLink } from "./lib/navigation/quicknoteLinks";
 import { scrollToBlockPosition } from "./lib/editor/editorNavigationBridge";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+const DatabaseRowPage = lazy(() =>
+  import("./components/database/DatabaseRowPage").then((m) => ({
+    default: m.DatabaseRowPage,
+  })),
+);
+const DatabaseRowPeek = lazy(() =>
+  import("./components/database/DatabaseRowPeek").then((m) => ({
+    default: m.DatabaseRowPeek,
+  })),
+);
+const BlockCommentThreadPanel = lazy(() =>
+  import("./components/comments/BlockCommentThreadPanel").then((m) => ({
+    default: m.BlockCommentThreadPanel,
+  })),
+);
+const AutoUpdateDialog = lazy(() =>
+  import("./components/ui/AutoUpdateDialog").then((m) => ({
+    default: m.AutoUpdateDialog,
+  })),
+);
 
 function isLCSchedulerModalOpen(): boolean {
   return Boolean(document.querySelector("[data-lc-scheduler-modal='true']"));
@@ -209,29 +226,35 @@ function App() {
           <TopBar />
           {activePage?.databaseId ? (
             <div className="flex-1 overflow-y-auto">
-              <DatabaseRowPage pageId={activePage.id} />
+              <Suspense fallback={null}>
+                <DatabaseRowPage pageId={activePage.id} />
+              </Suspense>
             </div>
           ) : (
             <Editor />
           )}
         </div>
         <FavoritesPanel />
-        <DatabaseRowPeek />
-        <BlockCommentThreadPanel editor={null} />
+        <Suspense fallback={null}>
+          <DatabaseRowPeek />
+          <BlockCommentThreadPanel editor={null} />
+        </Suspense>
         <TextPromptDialog />
         <ToastViewport />
         {autoUpdate.isSupported && (
-          <AutoUpdateDialog
-            open={autoUpdate.open}
-            version={autoUpdate.latestVersion}
-            notes={autoUpdate.releaseNotes}
-            state={autoUpdate.state}
-            progressPercent={autoUpdate.progressPercent}
-            errorMessage={autoUpdate.errorMessage}
-            onClose={autoUpdate.closeDialog}
-            onUpdate={autoUpdate.startUpdate}
-            onRestart={autoUpdate.restartNow}
-          />
+          <Suspense fallback={null}>
+            <AutoUpdateDialog
+              open={autoUpdate.open}
+              version={autoUpdate.latestVersion}
+              notes={autoUpdate.releaseNotes}
+              state={autoUpdate.state}
+              progressPercent={autoUpdate.progressPercent}
+              errorMessage={autoUpdate.errorMessage}
+              onClose={autoUpdate.closeDialog}
+              onUpdate={autoUpdate.startUpdate}
+              onRestart={autoUpdate.restartNow}
+            />
+          </Suspense>
         )}
       </div>
     </AuthGate>

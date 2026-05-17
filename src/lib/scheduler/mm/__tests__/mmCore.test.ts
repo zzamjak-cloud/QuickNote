@@ -3,7 +3,7 @@ import { buildWeeklyMmSuggestion, type MmScheduleSource } from "../mmSuggestion"
 import { getDefaultMmWeek, shiftMmWeek, toDateKey } from "../weekUtils";
 import { canEditWeeklyMmInput } from "../mmPermissions";
 import { getMemberSubmissionStates, toCsvMmValue, validateMmBuckets } from "../mmValidation";
-import { buildMmCsvRows } from "../mmAggregation";
+import { aggregateMmEntriesByMemberAverage, buildMmCsvRows, filterMmEntriesByRange, filterMmEntriesByScope } from "../mmAggregation";
 import type { MmEntry } from "../mmTypes";
 
 function schedule(partial: Partial<MmScheduleSource>): MmScheduleSource {
@@ -131,6 +131,40 @@ describe("MM 검증과 권한", () => {
       "월,구성원,조직MM,팀MM,프로젝트MM,기타MM",
       "2026-05,최진평,CAT 0.25,,A프로젝트 0.25; B프로젝트 0.4,0.1",
     ]);
+  });
+
+  it("MM range/scope 필터와 구성원 평균 집계를 분리해서 계산한다", () => {
+    const entries = [
+      mmEntry({
+        id: "e1",
+        workspaceId: "lc",
+        weekStart: "2026-05-04",
+        organizationId: "o1",
+        buckets: [
+          { id: "project:p1", kind: "project", scopeId: "p1", label: "A", ratioBp: 6000, editable: true },
+          { id: "other", kind: "other", scopeId: null, label: "기타", ratioBp: 4000, editable: false },
+        ],
+      }),
+      mmEntry({
+        id: "e2",
+        workspaceId: "lc",
+        weekStart: "2026-05-11",
+        organizationId: "o1",
+        buckets: [
+          { id: "project:p1", kind: "project", scopeId: "p1", label: "A", ratioBp: 4000, editable: true },
+          { id: "other", kind: "other", scopeId: null, label: "기타", ratioBp: 6000, editable: false },
+        ],
+      }),
+      mmEntry({ id: "out", workspaceId: "other", weekStart: "2026-05-11" }),
+    ];
+
+    const rangeEntries = filterMmEntriesByRange(entries, "lc", "2026-05-01", "2026-05-31");
+    const visibleEntries = filterMmEntriesByScope(rangeEntries, "project:p1");
+    const groups = aggregateMmEntriesByMemberAverage(visibleEntries);
+
+    expect(visibleEntries.map((entry) => entry.id)).toEqual(["e1", "e2"]);
+    expect(groups.get("m1")?.entryCount).toBe(2);
+    expect(groups.get("m1")?.rows.find((row) => row.scopeId === "p1")?.ratioBp).toBe(5000);
   });
 
   it("프로젝트 스코프 CSV는 기간 전체 대비 해당 프로젝트 MM만 계산한다", () => {

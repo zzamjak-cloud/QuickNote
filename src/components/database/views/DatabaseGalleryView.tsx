@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { JSONContent } from "@tiptap/react";
 import { Image } from "lucide-react";
@@ -84,6 +84,19 @@ export function DatabaseGalleryView({
   );
   const coverColId =
     panelState.galleryCoverColumnId ?? coverCandidates[0]?.id ?? null;
+  const coverColumn = useMemo(
+    () => columns.find((c) => c.id === coverColId),
+    [columns, coverColId],
+  );
+  const visibleColumns = useMemo(
+    () =>
+      getVisibleOrderedColumns(
+        columns,
+        "gallery",
+        panelState.viewConfigs,
+      ),
+    [columns, panelState.viewConfigs],
+  );
 
   if (!bundle) return null;
 
@@ -96,13 +109,9 @@ export function DatabaseGalleryView({
             databaseId={databaseId}
             row={row}
             columns={columns}
-            coverColumn={columns.find((c) => c.id === coverColId)}
+            coverColumn={coverColumn}
             coverSrcOverride={coverOverrides.get(row.pageId)}
-            visibleColumns={getVisibleOrderedColumns(
-              columns,
-              "gallery",
-              panelState.viewConfigs,
-            )}
+            visibleColumns={visibleColumns}
             onSetCoverSrc={(src) => {
               setCoverOverrides((prev) => {
                 const next = new Map(prev);
@@ -125,7 +134,7 @@ export function DatabaseGalleryView({
   );
 }
 
-function GalleryCard({
+const GalleryCard = memo(function GalleryCard({
   databaseId,
   row,
   columns,
@@ -152,14 +161,13 @@ function GalleryCard({
       visibleColumns.every((c, i) => c.id === columns[i]?.id);
     return allEqual ? [] : explicit;
   })();
-  const pages = usePageStore((s) => s.pages);
   const setIcon = usePageStore((s) => s.setIcon);
   const openPeek = useUiStore((s) => s.openPeek);
   const pageDoc = usePageStore((s) => s.pages[row.pageId]?.doc);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerBtnRef = useRef<HTMLButtonElement>(null);
 
-  const imageSrcs = findAllImageSrcs(pageDoc);
+  const imageSrcs = useMemo(() => findAllImageSrcs(pageDoc), [pageDoc]);
 
   return (
     <div
@@ -167,6 +175,7 @@ function GalleryCard({
       tabIndex={0}
       onClick={() => openPeek(row.pageId)}
       onKeyDown={(e) => e.key === "Enter" && openPeek(row.pageId)}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "220px" }}
       className="group w-full cursor-pointer overflow-hidden rounded-xl border border-zinc-200 bg-white text-left shadow-sm transition-shadow hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900"
     >
       {/* 커버 영역 — 이미지 설정 버튼 오버레이 */}
@@ -200,7 +209,7 @@ function GalleryCard({
       <div className="p-2">
         <div className="flex min-w-0 items-center gap-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
           <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-            <IconPicker current={pages[row.pageId]?.icon ?? null} size="sm" onChange={(icon) => setIcon(row.pageId, icon)} />
+            <IconPicker current={row.icon ?? null} size="sm" onChange={(icon) => setIcon(row.pageId, icon)} />
           </span>
           <span className="truncate">{row.title || "제목 없음"}</span>
         </div>
@@ -217,7 +226,7 @@ function GalleryCard({
       </div>
     </div>
   );
-}
+});
 
 function CoverImagePicker({
   anchorEl,
