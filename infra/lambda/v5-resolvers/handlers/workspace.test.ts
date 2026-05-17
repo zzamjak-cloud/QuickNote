@@ -83,6 +83,7 @@ describe("workspace handlers", () => {
       { Items: [] },
       { Items: [] },
       { Item: { workspaceId: caller.personalWorkspaceId, name: "P", type: "personal", ownerMemberId: caller.memberId, createdAt: "now" } },
+      {},
       { Items: [{ workspaceId: caller.personalWorkspaceId, subjectType: "member", subjectId: caller.memberId, level: "edit" }] },
     );
     const list = await listMyWorkspaces({ doc, tables, caller });

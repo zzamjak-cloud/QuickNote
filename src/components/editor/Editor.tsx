@@ -27,7 +27,10 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { YoutubeBlock } from "../../lib/tiptapExtensions/youtubeBlock";
-import { InsertBeforeBlock } from "../../lib/tiptapExtensions/insertBeforeBlock";
+import {
+  InsertBeforeBlock,
+  syncInsertBeforeBlockSelection,
+} from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { Indentation } from "../../lib/tiptapExtensions/indentation";
 import { BracketAutoClose } from "../../lib/tiptapExtensions/bracketAutoClose";
 import TextAlign from "@tiptap/extension-text-align";
@@ -997,8 +1000,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   // InsertBeforeBlock 익스텐션이 박스 선택 위치를 참조할 수 있도록 storage 동기화.
   useEffect(() => {
     if (!editor) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (editor.storage as any).insertBeforeBlock.boxSelectedStarts = boxSelectedStarts;
+    syncInsertBeforeBlockSelection(editor, boxSelectedStarts);
   }, [editor, boxSelectedStarts]);
 
   useLayoutEffect(() => {

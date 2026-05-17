@@ -1,5 +1,17 @@
-import { Extension } from "@tiptap/core";
+import { Extension, type Editor } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+
+export function syncInsertBeforeBlockSelection(
+  editor: Editor,
+  boxSelectedStarts: readonly number[],
+): void {
+  const storage = (editor.storage as { insertBeforeBlock?: { boxSelectedStarts?: number[] } })
+    .insertBeforeBlock as
+    | { boxSelectedStarts?: number[] }
+    | undefined;
+  if (!storage) return;
+  storage.boxSelectedStarts = [...boxSelectedStarts];
+}
 
 /**
  * Alt+Enter: 현재 커서가 있는 doc 최상위 블럭의 위에 빈 paragraph를 삽입하고 커서를 이동.
