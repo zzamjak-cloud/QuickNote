@@ -5,6 +5,7 @@ import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../../types/page";
 import type { PageSnapshot } from "../../types/history";
 import { enqueueAsync } from "../../lib/sync/runtime";
+import { getLCSchedulerWorkspaceIdFromDatabaseId } from "../../lib/scheduler/database";
 import { useAuthStore } from "../authStore";
 import { useMemberStore } from "../memberStore";
 import { useWorkspaceStore } from "../workspaceStore";
@@ -24,13 +25,21 @@ export function getCurrentWorkspaceId(): string {
   return useWorkspaceStore.getState().currentWorkspaceId ?? "";
 }
 
+function resolvePageWorkspaceId(p: Page): string {
+  const schedulerWorkspaceId = p.databaseId
+    ? getLCSchedulerWorkspaceIdFromDatabaseId(p.databaseId)
+    : null;
+  return schedulerWorkspaceId ?? getCurrentWorkspaceId();
+}
+
 // 클라이언트 number(epoch ms) → GraphQL 경계 string/ISO 변환.
 // AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다 — 객체를 그대로 보내면
 // 'Variable has an invalid value' 검증 오류로 mutation 이 거부된다.
 export function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> {
+  const workspaceId = resolvePageWorkspaceId(p);
   const base: Record<string, unknown> = {
     id: p.id,
-    workspaceId: getCurrentWorkspaceId(),
+    workspaceId,
     createdByMemberId,
     title: p.title,
     icon: p.icon ?? null,
@@ -48,7 +57,8 @@ export function toGqlPage(p: Page, createdByMemberId: string): Record<string, un
 
 export function enqueueUpsertPage(p: Page): void {
   // 인증/부트스트랩 미완료 시점에 enqueue 되면 서버 검증에서 거부되어 outbox 에 stale 로 남는다.
-  if (!getCurrentWorkspaceId()) {
+  const workspaceId = resolvePageWorkspaceId(p);
+  if (!workspaceId) {
     console.warn("[sync] upsertPage skipped: workspaceId 미설정", { pageId: p.id });
     return;
   }

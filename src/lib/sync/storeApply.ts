@@ -17,6 +17,7 @@ import type { JSONContent } from "@tiptap/react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
+import { enqueueAsync } from "./runtime";
 import { isLCSchedulerDatabaseId } from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { isDeletedSchedulePage } from "../scheduler/deletedSchedulePages";
@@ -84,6 +85,22 @@ function gqlOrderNumber(p: { order: string; updatedAt: string }): number {
 
 function gqlDatabaseId(p: GqlPage): string | null {
   return p.databaseId ?? null;
+}
+
+function isLCSchedulerPage(p: GqlPage): boolean {
+  return Boolean(p.databaseId && isLCSchedulerDatabaseId(p.databaseId));
+}
+
+function normalizeLCSchedulerPageWorkspace(p: GqlPage): GqlPage {
+  if (p.deletedAt || !isLCSchedulerPage(p) || p.workspaceId === LC_SCHEDULER_WORKSPACE_ID) return p;
+  const repaired = { ...p, workspaceId: LC_SCHEDULER_WORKSPACE_ID };
+  queueMicrotask(() => {
+    enqueueAsync(
+      "upsertPage",
+      repaired as unknown as Record<string, unknown> & { id: string; updatedAt?: string },
+    );
+  });
+  return repaired;
 }
 
 /** 동일 updatedAt(LWW 동률)일 때 사이드바 트리가 어긋나 있으면 원격 메타를 받아들인다 */
@@ -185,9 +202,10 @@ function ensurePageInDatabaseRowOrder(databaseId: string, pageId: string): void 
 }
 
 export function applyRemotePageToStore(
-  p: GqlPage | null | undefined,
+  remotePage: GqlPage | null | undefined,
 ): void {
-  if (!p) return;
+  if (!remotePage) return;
+  const p = normalizeLCSchedulerPageWorkspace(remotePage);
   if (!shouldApplyRemoteSnapshot(p.workspaceId)) return;
   if (
     p.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
