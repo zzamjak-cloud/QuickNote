@@ -5,6 +5,7 @@ import type { Member } from "./memberStore";
 export type Team = {
   teamId: string;
   name: string;
+  leaderMemberIds: string[];
   members: Member[];
   createdAt?: string;
   removedAt?: string;
@@ -25,6 +26,10 @@ type TeamStoreActions = {
 
 export type TeamStore = TeamStoreState & TeamStoreActions;
 
+function normalizeTeam(team: Team): Team {
+  return { ...team, leaderMemberIds: team.leaderMemberIds ?? [] };
+}
+
 export const useTeamStore = create<TeamStore>()(
   persist(
     (set, get) => ({
@@ -32,17 +37,18 @@ export const useTeamStore = create<TeamStore>()(
       cacheWorkspaceId: null,
 
       setTeams: (teams, workspaceId) => set((state) => ({
-        teams,
+        teams: teams.map(normalizeTeam),
         cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
       })),
 
       upsertTeam: (team) =>
         set((state) => {
-          const exists = state.teams.some((t) => t.teamId === team.teamId);
+          const normalized = normalizeTeam(team);
+          const exists = state.teams.some((t) => t.teamId === normalized.teamId);
           return {
             teams: exists
-              ? state.teams.map((t) => (t.teamId === team.teamId ? team : t))
-              : [...state.teams, team],
+              ? state.teams.map((t) => (t.teamId === normalized.teamId ? normalized : t))
+              : [...state.teams, normalized],
           };
         }),
 

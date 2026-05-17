@@ -173,6 +173,7 @@ export function buildOrganizationsFromRows(rows: CsvMemberRow[]): Organization[]
   return names.map((name) => ({
     organizationId: "org-" + slugify(name),
     name,
+    leaderMemberIds: [],
     members: [],
     createdAt: new Date().toISOString(),
   }));
@@ -184,6 +185,7 @@ export function buildTeamsFromRows(rows: CsvMemberRow[]): Team[] {
   return names.map((name) => ({
     teamId: "team-" + slugify(name),
     name,
+    leaderMemberIds: [],
     members: [],
     createdAt: new Date().toISOString(),
   }));

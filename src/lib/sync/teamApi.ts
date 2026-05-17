@@ -12,7 +12,11 @@ type GqlTeam = Omit<Team, "members"> & {
 };
 
 function normalizeTeam(team: GqlTeam): Team {
-  return { ...team, members: team.members.map(normalizeMemberFields) };
+  return {
+    ...team,
+    leaderMemberIds: team.leaderMemberIds ?? [],
+    members: team.members.map(normalizeMemberFields),
+  };
 }
 
 export async function listTeamsApi(): Promise<Team[]> {
@@ -45,10 +49,14 @@ export async function deleteTeamApi(teamId: string): Promise<boolean> {
   return Boolean(result.data?.deleteTeam);
 }
 
-export async function updateTeamApi(teamId: string, name: string): Promise<Team> {
+export async function updateTeamApi(
+  teamId: string,
+  name: string | undefined,
+  leaderMemberIds?: string[],
+): Promise<Team> {
   const result = (await appsyncClient().graphql({
     query: UPDATE_TEAM,
-    variables: { teamId, name },
+    variables: { teamId, name, leaderMemberIds },
   })) as { data?: { updateTeam?: GqlTeam } };
   const team = result.data?.updateTeam;
   if (!team) throw new Error("updateTeam 응답이 비어 있습니다.");

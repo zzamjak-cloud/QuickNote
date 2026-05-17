@@ -15,7 +15,7 @@ function member(id: string, name: string): Member {
 }
 
 function team(id: string, name: string, members: Member[] = []): Team {
-  return { teamId: id, name, members };
+  return { teamId: id, name, leaderMemberIds: [], members };
 }
 
 describe("teamStore", () => {

@@ -240,6 +240,27 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // LC 스케줄러 주간 MM 원본 테이블
+    const mmEntriesTable = new dynamodb.Table(this, "SchedulerMmEntriesTable", {
+      tableName: "quicknote-scheduler-mm-entries",
+      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    mmEntriesTable.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndWeek",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "weekStart", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    mmEntriesTable.addGlobalSecondaryIndex({
+      indexName: "byEntry",
+      partitionKey: { name: "entryId", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
     // LC 스케줄러 일정 테이블 — 1차 배포 시 이미 생성됐으므로 import로 참조.
     // GSI 권한 부여를 위해 fromTableAttributes 로 인덱스를 함께 등록한다.
     const schedulesTable = dynamodb.Table.fromTableAttributes(this, "SchedulesTable", {
@@ -468,6 +489,7 @@ export function response(ctx) {
         SCHEDULES_TABLE_NAME: schedulesTable.tableName,
         PROJECTS_TABLE_NAME: projectsTable.tableName,
         HOLIDAYS_TABLE_NAME: holidaysTable.tableName,
+        MM_ENTRIES_TABLE_NAME: mmEntriesTable.tableName,
       },
       bundling: {
         minify: true,
@@ -492,6 +514,7 @@ export function response(ctx) {
     schedulesTable.grantReadWriteData(v5ResolversFn);
     projectsTable.grantReadWriteData(v5ResolversFn);
     holidaysTable.grantReadWriteData(v5ResolversFn);
+    mmEntriesTable.grantReadWriteData(v5ResolversFn);
 
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
@@ -653,6 +676,14 @@ export function response(ctx) {
     v5Ds.createResolver("MutationupdateHoliday", { typeName: "Mutation", fieldName: "updateHoliday" });
     v5Ds.createResolver("MutationdeleteHoliday", { typeName: "Mutation", fieldName: "deleteHoliday" });
     v5Ds.createResolver("SubscriptiononHolidayChanged", { typeName: "Subscription", fieldName: "onHolidayChanged" });
+    // 주간 MM resolver wiring
+    v5Ds.createResolver("QuerylistMmEntries", { typeName: "Query", fieldName: "listMmEntries" });
+    v5Ds.createResolver("QuerylistMmRevisions", { typeName: "Query", fieldName: "listMmRevisions" });
+    v5Ds.createResolver("MutationupsertMmEntry", { typeName: "Mutation", fieldName: "upsertMmEntry" });
+    v5Ds.createResolver("MutationreviewMmEntry", { typeName: "Mutation", fieldName: "reviewMmEntry" });
+    v5Ds.createResolver("MutationlockMmEntry", { typeName: "Mutation", fieldName: "lockMmEntry" });
+    v5Ds.createResolver("MutationunlockMmEntry", { typeName: "Mutation", fieldName: "unlockMmEntry" });
+    v5Ds.createResolver("SubscriptiononMmEntryChanged", { typeName: "Subscription", fieldName: "onMmEntryChanged" });
 
     // v5 데이터 마이그레이션 Lambda (v4 ownerId -> v5 workspace/member 필드 보강)
     const v5MigrationFn = new lambdaNode.NodejsFunction(this, "V5MigrationFn", {

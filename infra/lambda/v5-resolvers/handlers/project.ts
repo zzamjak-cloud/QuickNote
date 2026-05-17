@@ -17,6 +17,7 @@ type ProjectRecord = {
   color: string;
   description?: string;
   memberIds: string[];
+  leaderMemberIds: string[];
   isHidden: boolean;
   createdByMemberId: string;
   createdAt: string;
@@ -51,7 +52,10 @@ export async function listProjects(args: {
       ExpressionAttributeValues: { ":w": args.workspaceId },
     }),
   );
-  return (r.Items ?? []) as ProjectRecord[];
+  return ((r.Items ?? []) as ProjectRecord[]).map((project) => ({
+    ...project,
+    leaderMemberIds: project.leaderMemberIds ?? [],
+  }));
 }
 
 export async function createProject(args: {
@@ -64,6 +68,7 @@ export async function createProject(args: {
     color: string;
     description?: string | null;
     memberIds?: string[] | null;
+    leaderMemberIds?: string[] | null;
     isHidden?: boolean | null;
   };
 }): Promise<ProjectRecord> {
@@ -83,6 +88,7 @@ export async function createProject(args: {
     name: args.input.name,
     color: args.input.color,
     memberIds: args.input.memberIds ?? [],
+    leaderMemberIds: args.input.leaderMemberIds ?? [],
     isHidden: args.input.isHidden ?? false,
     createdByMemberId: args.caller.memberId,
     createdAt: now,
@@ -105,6 +111,7 @@ export async function updateProject(args: {
     color?: string | null;
     description?: string | null;
     memberIds?: string[] | null;
+    leaderMemberIds?: string[] | null;
     isHidden?: boolean | null;
   };
 }): Promise<ProjectRecord> {
@@ -130,6 +137,7 @@ export async function updateProject(args: {
   if (args.input.color != null) { updates.push("color = :c"); vals[":c"] = args.input.color; }
   if (args.input.description != null) { updates.push("description = :d"); vals[":d"] = args.input.description; }
   if (args.input.memberIds != null) { updates.push("memberIds = :m"); vals[":m"] = args.input.memberIds; }
+  if (args.input.leaderMemberIds != null) { updates.push("leaderMemberIds = :l"); vals[":l"] = args.input.leaderMemberIds; }
   if (args.input.isHidden != null) { updates.push("isHidden = :h"); vals[":h"] = args.input.isHidden; }
 
   const r = await args.doc.send(
@@ -142,7 +150,8 @@ export async function updateProject(args: {
       ReturnValues: "ALL_NEW",
     }),
   );
-  return r.Attributes as ProjectRecord;
+  const next = r.Attributes as ProjectRecord;
+  return { ...next, leaderMemberIds: next.leaderMemberIds ?? [] };
 }
 
 export async function deleteProject(args: {

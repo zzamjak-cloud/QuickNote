@@ -6,6 +6,7 @@ import type { Member } from "./memberStore";
 export type Organization = {
   organizationId: string;
   name: string;
+  leaderMemberIds: string[];
   members: Member[];
   createdAt?: string;
   removedAt?: string;
@@ -26,6 +27,10 @@ type OrganizationStoreActions = {
 
 export type OrganizationStore = OrganizationStoreState & OrganizationStoreActions;
 
+function normalizeOrganization(org: Organization): Organization {
+  return { ...org, leaderMemberIds: org.leaderMemberIds ?? [] };
+}
+
 export const useOrganizationStore = create<OrganizationStore>()(
   persist(
     (set, get) => ({
@@ -33,17 +38,18 @@ export const useOrganizationStore = create<OrganizationStore>()(
       cacheWorkspaceId: null,
 
       setOrganizations: (organizations, workspaceId) => set((state) => ({
-        organizations,
+        organizations: organizations.map(normalizeOrganization),
         cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
       })),
 
       upsertOrganization: (org) =>
         set((state) => {
-          const exists = state.organizations.some((o) => o.organizationId === org.organizationId);
+          const normalized = normalizeOrganization(org);
+          const exists = state.organizations.some((o) => o.organizationId === normalized.organizationId);
           return {
             organizations: exists
-              ? state.organizations.map((o) => (o.organizationId === org.organizationId ? org : o))
-              : [...state.organizations, org],
+              ? state.organizations.map((o) => (o.organizationId === normalized.organizationId ? normalized : o))
+              : [...state.organizations, normalized],
           };
         }),
 

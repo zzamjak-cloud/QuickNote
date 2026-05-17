@@ -83,6 +83,13 @@ import {
   updateHoliday,
   deleteHoliday,
 } from "./handlers/holiday";
+import {
+  listMmEntries,
+  listMmRevisions,
+  upsertMmEntry,
+  reviewMmEntry,
+  setMmEntryLock,
+} from "./handlers/mm";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -104,6 +111,7 @@ const tables: Tables = {
   Schedules: process.env.SCHEDULES_TABLE_NAME,
   Projects: process.env.PROJECTS_TABLE_NAME,
   Holidays: process.env.HOLIDAYS_TABLE_NAME,
+  MmEntries: process.env.MM_ENTRIES_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -167,6 +175,7 @@ function normalizeTeamForGql(team: Record<string, unknown>) {
   const members = Array.isArray(team.members) ? team.members : [];
   return {
     ...team,
+    leaderMemberIds: Array.isArray(team.leaderMemberIds) ? team.leaderMemberIds : [],
     members: members.map((m) => normalizeMemberForGql(m as Record<string, unknown>)),
   };
 }
@@ -175,7 +184,49 @@ function normalizeOrgForGql(org: Record<string, unknown>) {
   const members = Array.isArray(org.members) ? org.members : [];
   return {
     ...org,
+    leaderMemberIds: Array.isArray(org.leaderMemberIds) ? org.leaderMemberIds : [],
     members: members.map((m) => normalizeMemberForGql(m as Record<string, unknown>)),
+  };
+}
+
+function mmStatusToGql(status: string): "DRAFT" | "SUBMITTED" | "REVIEWED" | "LOCKED" {
+  if (status === "draft") return "DRAFT";
+  if (status === "reviewed") return "REVIEWED";
+  if (status === "locked") return "LOCKED";
+  return "SUBMITTED";
+}
+
+function mmKindToGql(kind: string): "ORGANIZATION" | "TEAM" | "PROJECT" | "OTHER" {
+  if (kind === "organization") return "ORGANIZATION";
+  if (kind === "team") return "TEAM";
+  if (kind === "project") return "PROJECT";
+  return "OTHER";
+}
+
+function mmReasonTypeToGql(type: string): "HOLIDAY" | "LEAVE" | "EMPTY" | "UNCLASSIFIED" {
+  if (type === "holiday") return "HOLIDAY";
+  if (type === "leave") return "LEAVE";
+  if (type === "empty") return "EMPTY";
+  return "UNCLASSIFIED";
+}
+
+function normalizeMmEntryForGql(entry: Record<string, unknown>) {
+  const buckets = Array.isArray(entry.buckets) ? entry.buckets : [];
+  return {
+    ...entry,
+    status: mmStatusToGql(String(entry.status ?? "submitted")),
+    buckets: buckets.map((bucket) => {
+      const b = bucket as Record<string, unknown>;
+      const reasons = Array.isArray(b.reasons) ? b.reasons : [];
+      return {
+        ...b,
+        kind: mmKindToGql(String(b.kind ?? "other")),
+        reasons: reasons.map((reason) => {
+          const r = reason as Record<string, unknown>;
+          return { ...r, type: mmReasonTypeToGql(String(r.type ?? "unclassified")) };
+        }),
+      };
+    }),
   };
 }
 
@@ -257,7 +308,8 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return normalizeTeamForGql((await updateTeam({
           ...base,
           teamId: event.arguments.teamId as string,
-          name: event.arguments.name as string,
+          name: event.arguments.name as string | undefined,
+          leaderMemberIds: event.arguments.leaderMemberIds as string[] | undefined,
         })) as Record<string, unknown>);
       case "deleteTeam":
         return await deleteTeam({ ...base, teamId: event.arguments.teamId as string });
@@ -274,7 +326,8 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return normalizeOrgForGql((await updateOrganization({
           ...base,
           organizationId: event.arguments.organizationId as string,
-          name: event.arguments.name as string,
+          name: event.arguments.name as string | undefined,
+          leaderMemberIds: event.arguments.leaderMemberIds as string[] | undefined,
         })) as unknown as Record<string, unknown>);
       case "deleteOrganization":
         return await deleteOrganization({ ...base, organizationId: event.arguments.organizationId as string });
@@ -456,6 +509,7 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
             color: string;
             description?: string;
             memberIds?: string[];
+            leaderMemberIds?: string[];
             isHidden?: boolean;
           },
         });
@@ -469,6 +523,7 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
             color?: string;
             description?: string;
             memberIds?: string[];
+            leaderMemberIds?: string[];
             isHidden?: boolean;
           },
         });
@@ -518,6 +573,51 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           workspaceId: event.arguments.workspaceId as string,
         });
       case "onHolidayChanged":
+        return await validateWorkspaceSubscription({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "listMmEntries":
+        return (await listMmEntries({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          fromWeekStart: event.arguments.fromWeekStart as string,
+          toWeekStart: event.arguments.toWeekStart as string,
+          memberId: event.arguments.memberId as string | undefined,
+        })).map((entry) => normalizeMmEntryForGql(entry as unknown as Record<string, unknown>));
+      case "listMmRevisions":
+        return await listMmRevisions({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          entryId: event.arguments.entryId as string,
+        });
+      case "upsertMmEntry":
+        return normalizeMmEntryForGql((await upsertMmEntry({
+          ...base,
+          input: event.arguments.input as Parameters<typeof upsertMmEntry>[0]["input"],
+        })) as unknown as Record<string, unknown>);
+      case "reviewMmEntry":
+        return normalizeMmEntryForGql((await reviewMmEntry({
+          ...base,
+          input: event.arguments.input as Parameters<typeof reviewMmEntry>[0]["input"],
+        })) as unknown as Record<string, unknown>);
+      case "lockMmEntry":
+        return normalizeMmEntryForGql((await setMmEntryLock({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          entryId: event.arguments.entryId as string,
+          locked: true,
+          note: event.arguments.note as string | undefined,
+        })) as unknown as Record<string, unknown>);
+      case "unlockMmEntry":
+        return normalizeMmEntryForGql((await setMmEntryLock({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          entryId: event.arguments.entryId as string,
+          locked: false,
+          note: event.arguments.note as string | undefined,
+        })) as unknown as Record<string, unknown>);
+      case "onMmEntryChanged":
         return await validateWorkspaceSubscription({
           ...base,
           workspaceId: event.arguments.workspaceId as string,

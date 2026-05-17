@@ -80,7 +80,13 @@ export function AdminOrganizationsTab() {
     const name = newOrgName.trim();
     if (!name) return;
     const orgId = "org-" + Date.now().toString(36);
-    upsertOrganization({ organizationId: orgId, name, members: [], createdAt: new Date().toISOString() });
+    upsertOrganization({
+      organizationId: orgId,
+      name,
+      leaderMemberIds: [],
+      members: [],
+      createdAt: new Date().toISOString(),
+    });
     setNewOrgName("");
     setOpenCreate(false);
   };

@@ -23,6 +23,7 @@ import { SchedulerTeamTabs } from "./SchedulerTeamTabs";
 import { SchedulerToolbar } from "./SchedulerToolbar";
 import { ScheduleGrid } from "./ScheduleGrid";
 import { WeekScheduleView } from "./WeekScheduleView";
+import { WeeklyMmPanel } from "./mm/WeeklyMmPanel";
 
 // 연도의 마지막 날짜
 function endOfYear(year: number): Date {
@@ -143,6 +144,8 @@ export function LCSchedulerModal({ onClose }: Props) {
       ) : (
         <WeekScheduleView />
       )}
+
+      <WeeklyMmPanel />
     </div>,
     document.body,
   );

@@ -3,6 +3,7 @@
 const ORGANIZATION_FIELDS = `
   organizationId
   name
+  leaderMemberIds
   createdAt
   removedAt
   members {
@@ -32,8 +33,8 @@ export const CREATE_ORGANIZATION = `
 `;
 
 export const UPDATE_ORGANIZATION = `
-  mutation UpdateOrganization($organizationId: ID!, $name: String!) {
-    updateOrganization(organizationId: $organizationId, name: $name) { ${ORGANIZATION_FIELDS} }
+  mutation UpdateOrganization($organizationId: ID!, $name: String, $leaderMemberIds: [ID!]) {
+    updateOrganization(organizationId: $organizationId, name: $name, leaderMemberIds: $leaderMemberIds) { ${ORGANIZATION_FIELDS} }
   }
 `;
 

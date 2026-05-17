@@ -6,14 +6,16 @@ import { OrganizationsPanel } from "./admin/OrganizationsPanel";
 import { TeamsPanel } from "./admin/TeamsPanel";
 import { ProjectsPanel } from "./admin/ProjectsPanel";
 import { HolidaysPanel } from "./admin/HolidaysPanel";
+import { MmDashboardTab } from "./mm/MmDashboardTab";
 
-type Tab = "organizations" | "teams" | "projects" | "holidays";
+type Tab = "organizations" | "teams" | "projects" | "holidays" | "mm";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "organizations", label: "조직" },
   { id: "teams", label: "팀" },
   { id: "projects", label: "프로젝트" },
   { id: "holidays", label: "공휴일" },
+  { id: "mm", label: "MM 대시보드" },
 ];
 
 type Props = {
@@ -39,7 +41,7 @@ export function SchedulerSettingsModal({ onClose }: Props) {
     >
       {/* 모달 카드 */}
       <div
-        className="bg-white dark:bg-zinc-900 rounded-lg shadow-xl w-[900px] h-[680px] flex flex-col"
+        className="bg-white dark:bg-zinc-900 rounded-lg shadow-xl w-[1120px] h-[760px] max-w-[96vw] max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
@@ -81,6 +83,7 @@ export function SchedulerSettingsModal({ onClose }: Props) {
           {activeTab === "teams" && <TeamsPanel />}
           {activeTab === "projects" && <ProjectsPanel />}
           {activeTab === "holidays" && <HolidaysPanel />}
+          {activeTab === "mm" && <MmDashboardTab />}
         </div>
       </div>
     </div>,

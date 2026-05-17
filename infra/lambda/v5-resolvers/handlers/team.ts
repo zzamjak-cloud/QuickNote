@@ -15,6 +15,7 @@ import type { Tables } from "./member";
 export type Team = {
   teamId: string;
   name: string;
+  leaderMemberIds: string[];
   createdAt: string;
   removedAt?: string;
   members: Member[];
@@ -24,9 +25,9 @@ async function getTeamById(
   doc: DynamoDBDocumentClient,
   tables: Tables,
   teamId: string,
-): Promise<{ teamId: string; name: string; createdAt: string } | undefined> {
+): Promise<{ teamId: string; name: string; leaderMemberIds?: string[]; createdAt: string } | undefined> {
   const r = await doc.send(new GetCommand({ TableName: tables.Teams, Key: { teamId } }));
-  return r.Item as { teamId: string; name: string; createdAt: string } | undefined;
+  return r.Item as { teamId: string; name: string; leaderMemberIds?: string[]; createdAt: string } | undefined;
 }
 
 async function resolveTeamMembers(
@@ -60,9 +61,9 @@ export async function listTeams(args: {
   caller: Member;
 }): Promise<Team[]> {
   const r = await args.doc.send(new ScanCommand({ TableName: args.tables.Teams }));
-  const base = (r.Items ?? []) as Array<{ teamId: string; name: string; createdAt: string }>;
+  const base = (r.Items ?? []) as Array<{ teamId: string; name: string; leaderMemberIds?: string[]; createdAt: string }>;
   return Promise.all(
-    base.map(async (t) => ({ ...t, members: await resolveTeamMembers(args.doc, args.tables, t.teamId) })),
+    base.map(async (t) => ({ ...t, leaderMemberIds: t.leaderMemberIds ?? [], members: await resolveTeamMembers(args.doc, args.tables, t.teamId) })),
   );
 }
 
@@ -75,7 +76,11 @@ export async function getTeam(args: {
   requireRoleAtLeast(args.caller, "manager");
   const team = await getTeamById(args.doc, args.tables, args.teamId);
   if (!team) return null;
-  return { ...team, members: await resolveTeamMembers(args.doc, args.tables, args.teamId) };
+  return {
+    ...team,
+    leaderMemberIds: team.leaderMemberIds ?? [],
+    members: await resolveTeamMembers(args.doc, args.tables, args.teamId),
+  };
 }
 
 export async function createTeam(args: {
@@ -109,15 +114,17 @@ export async function createTeam(args: {
           ReturnValues: "ALL_NEW",
         }),
       );
-      const restored = r.Attributes as { teamId: string; name: string; createdAt: string };
+      const restored = r.Attributes as { teamId: string; name: string; leaderMemberIds?: string[]; createdAt: string };
       return {
         ...restored,
+        leaderMemberIds: restored.leaderMemberIds ?? [],
         members: await resolveTeamMembers(args.doc, args.tables, matched.teamId),
       };
     }
     return {
       teamId: matched.teamId,
       name: matched.name,
+      leaderMemberIds: [],
       createdAt: matched.createdAt,
       members: await resolveTeamMembers(args.doc, args.tables, matched.teamId),
     };
@@ -127,11 +134,11 @@ export async function createTeam(args: {
   await args.doc.send(
     new PutCommand({
       TableName: args.tables.Teams,
-      Item: { teamId, name, createdAt: now },
+      Item: { teamId, name, leaderMemberIds: [], createdAt: now },
       ConditionExpression: "attribute_not_exists(teamId)",
     }),
   );
-  return { teamId, name, createdAt: now, members: [] };
+  return { teamId, name, leaderMemberIds: [], createdAt: now, members: [] };
 }
 
 export async function updateTeam(args: {
@@ -139,25 +146,40 @@ export async function updateTeam(args: {
   tables: Tables;
   caller: Member;
   teamId: string;
-  name: string;
+  name?: string;
+  leaderMemberIds?: string[];
 }): Promise<Team> {
   requireRoleAtLeast(args.caller, "manager");
   const existing = await getTeamById(args.doc, args.tables, args.teamId);
   if (!existing) notFound("Team 없음");
-  const name = args.name.trim();
-  if (!name) badRequest("팀 이름은 비어 있을 수 없음");
+  const sets: string[] = [];
+  const names: Record<string, string> = {};
+  const vals: Record<string, unknown> = {};
+  if (args.name !== undefined) {
+    const name = args.name.trim();
+    if (!name) badRequest("팀 이름은 비어 있을 수 없음");
+    sets.push("#n = :n");
+    names["#n"] = "name";
+    vals[":n"] = name;
+  }
+  if (args.leaderMemberIds !== undefined) {
+    sets.push("leaderMemberIds = :l");
+    vals[":l"] = args.leaderMemberIds;
+  }
+  if (!sets.length) badRequest("변경할 팀 정보가 없습니다");
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: args.tables.Teams,
       Key: { teamId: args.teamId },
-      UpdateExpression: "SET #n = :n",
-      ExpressionAttributeNames: { "#n": "name" },
-      ExpressionAttributeValues: { ":n": name },
+      UpdateExpression: `SET ${sets.join(", ")}`,
+      ExpressionAttributeNames: Object.keys(names).length ? names : undefined,
+      ExpressionAttributeValues: vals,
       ReturnValues: "ALL_NEW",
     }),
   );
   return {
-    ...(r.Attributes as { teamId: string; name: string; createdAt: string }),
+    ...(r.Attributes as { teamId: string; name: string; leaderMemberIds?: string[]; createdAt: string }),
+    leaderMemberIds: ((r.Attributes as { leaderMemberIds?: string[] }).leaderMemberIds ?? []),
     members: await resolveTeamMembers(args.doc, args.tables, args.teamId),
   };
 }
@@ -241,6 +263,7 @@ export async function archiveTeam(args: {
   );
   return {
     ...(r.Attributes as { teamId: string; name: string; createdAt: string; removedAt: string }),
+    leaderMemberIds: ((r.Attributes as { leaderMemberIds?: string[] }).leaderMemberIds ?? []),
     members: await resolveTeamMembers(args.doc, args.tables, args.teamId),
   };
 }
@@ -264,6 +287,7 @@ export async function restoreTeam(args: {
   );
   return {
     ...(r.Attributes as { teamId: string; name: string; createdAt: string }),
+    leaderMemberIds: ((r.Attributes as { leaderMemberIds?: string[] }).leaderMemberIds ?? []),
     members: await resolveTeamMembers(args.doc, args.tables, args.teamId),
   };
 }

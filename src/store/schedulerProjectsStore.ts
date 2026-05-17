@@ -17,6 +17,7 @@ export type SchedulerProject = {
   color: string;
   description?: string | null;
   memberIds: string[];
+  leaderMemberIds: string[];
   isHidden: boolean;
   createdByMemberId: string;
   createdAt: string;
@@ -29,6 +30,7 @@ export type CreateProjectInput = {
   color: string;
   description?: string | null;
   memberIds?: string[];
+  leaderMemberIds?: string[];
   isHidden?: boolean;
 };
 
@@ -39,6 +41,7 @@ export type UpdateProjectInput = {
   color?: string | null;
   description?: string | null;
   memberIds?: string[] | null;
+  leaderMemberIds?: string[] | null;
   isHidden?: boolean | null;
 };
 
@@ -54,6 +57,14 @@ type SchedulerProjectsStore = {
   applyRemote: (project: SchedulerProject) => void;
   removeLocal: (id: string) => void;
 };
+
+function normalizeProject(project: GqlProject): SchedulerProject {
+  return {
+    ...(project as SchedulerProject),
+    leaderMemberIds: project.leaderMemberIds ?? [],
+    memberIds: project.memberIds ?? [],
+  };
+}
 
 export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
   persist(
@@ -73,7 +84,7 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
             query: LIST_PROJECTS,
             variables: { workspaceId },
           }) as Promise<{ data: { listProjects: GqlProject[] } }>);
-          set({ projects: r.data.listProjects as SchedulerProject[], workspaceId });
+          set({ projects: r.data.listProjects.map(normalizeProject), workspaceId });
         } finally {
           set({ loading: false });
         }
@@ -84,7 +95,7 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
           query: CREATE_PROJECT,
           variables: { input },
         }) as Promise<{ data: { createProject: GqlProject } }>);
-        const p = r.data.createProject as SchedulerProject;
+        const p = normalizeProject(r.data.createProject);
         set((st) => ({ projects: [...st.projects, p] }));
         return p;
       },
@@ -94,7 +105,7 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
           query: UPDATE_PROJECT,
           variables: { input },
         }) as Promise<{ data: { updateProject: GqlProject } }>);
-        const p = r.data.updateProject as SchedulerProject;
+        const p = normalizeProject(r.data.updateProject);
         set((st) => ({
           projects: st.projects.map((x) => (x.id === p.id ? p : x)),
         }));

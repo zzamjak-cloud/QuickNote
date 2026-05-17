@@ -74,3 +74,14 @@ export {
   ON_HOLIDAY_CHANGED,
   type GqlHoliday,
 } from "./queries/holiday";
+export {
+  LIST_MM_ENTRIES,
+  LIST_MM_REVISIONS,
+  UPSERT_MM_ENTRY,
+  REVIEW_MM_ENTRY,
+  LOCK_MM_ENTRY,
+  UNLOCK_MM_ENTRY,
+  ON_MM_ENTRY_CHANGED,
+  type GqlMmEntry,
+  type GqlMmRevision,
+} from "./queries/mm";

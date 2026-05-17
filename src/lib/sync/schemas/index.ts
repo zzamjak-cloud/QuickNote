@@ -61,6 +61,7 @@ export const GqlTeamSchema = z
   .object({
     teamId: z.string(),
     name: z.string(),
+    leaderMemberIds: z.array(z.string()).default([]),
     members: z.array(GqlMemberSchema).default([]),
   })
   .passthrough();
@@ -71,6 +72,7 @@ export const GqlOrganizationSchema = z
   .object({
     organizationId: z.string(),
     name: z.string(),
+    leaderMemberIds: z.array(z.string()).default([]),
     members: z.array(GqlMemberSchema).default([]),
   })
   .passthrough();

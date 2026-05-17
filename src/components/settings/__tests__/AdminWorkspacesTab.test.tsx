@@ -69,7 +69,7 @@ describe("AdminWorkspacesTab", () => {
       mentionQuery: "",
     });
     useTeamStore.setState({
-      teams: [{ teamId: "t-1", name: "Core", members: [] }],
+      teams: [{ teamId: "t-1", name: "Core", leaderMemberIds: [], members: [] }],
     });
   });
 

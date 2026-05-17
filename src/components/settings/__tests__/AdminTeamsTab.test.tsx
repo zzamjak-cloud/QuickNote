@@ -20,6 +20,7 @@ describe("AdminTeamsTab", () => {
         {
           teamId: "t1",
           name: "Design",
+          leaderMemberIds: [],
           members: [
             {
               memberId: "m1",
@@ -46,6 +47,7 @@ describe("AdminTeamsTab", () => {
     createTeamApiMock.mockResolvedValue({
       teamId: "t2",
       name: "Platform",
+      leaderMemberIds: [],
       members: [],
     });
     deleteTeamApiMock.mockResolvedValue(true);

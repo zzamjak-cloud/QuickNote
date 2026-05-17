@@ -1,6 +1,7 @@
 const TEAM_FIELDS = `
   teamId
   name
+  leaderMemberIds
   createdAt
   removedAt
   members {
@@ -42,8 +43,8 @@ export const DELETE_TEAM = `
 `;
 
 export const UPDATE_TEAM = `
-  mutation UpdateTeam($teamId: ID!, $name: String!) {
-    updateTeam(teamId: $teamId, name: $name) { ${TEAM_FIELDS} }
+  mutation UpdateTeam($teamId: ID!, $name: String, $leaderMemberIds: [ID!]) {
+    updateTeam(teamId: $teamId, name: $name, leaderMemberIds: $leaderMemberIds) { ${TEAM_FIELDS} }
   }
 `;
 

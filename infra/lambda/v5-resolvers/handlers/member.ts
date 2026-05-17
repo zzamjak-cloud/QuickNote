@@ -41,6 +41,8 @@ export type Tables = {
   Projects?: string;
   /** LC 스케줄러 공휴일 테이블 */
   Holidays?: string;
+  /** LC 스케줄러 주간 MM 원본/리비전 테이블 */
+  MmEntries?: string;
 };
 
 export type CreateMemberInput = {

@@ -23,7 +23,11 @@ type GqlOrganization = Omit<Organization, "members"> & {
 };
 
 function normalizeOrganization(org: GqlOrganization): Organization {
-  return { ...org, members: org.members.map(normalizeMemberFields) };
+  return {
+    ...org,
+    leaderMemberIds: org.leaderMemberIds ?? [],
+    members: org.members.map(normalizeMemberFields),
+  };
 }
 
 export async function listOrganizationsApi(): Promise<Organization[]> {
@@ -48,10 +52,14 @@ export async function createOrganizationApi(name: string): Promise<Organization>
   return normalizeOrganization(org);
 }
 
-export async function updateOrganizationApi(organizationId: string, name: string): Promise<Organization> {
+export async function updateOrganizationApi(
+  organizationId: string,
+  name: string | undefined,
+  leaderMemberIds?: string[],
+): Promise<Organization> {
   const result = (await appsyncClient().graphql({
     query: UPDATE_ORGANIZATION,
-    variables: { organizationId, name },
+    variables: { organizationId, name, leaderMemberIds },
   })) as { data?: { updateOrganization?: GqlOrganization } };
   const org = result.data?.updateOrganization;
   if (!org) throw new Error("updateOrganization 응답이 비어 있습니다.");

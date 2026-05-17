@@ -19,6 +19,7 @@ import type { Tables } from "./member";
 export type Organization = {
   organizationId: string;
   name: string;
+  leaderMemberIds: string[];
   createdAt: string;
   removedAt?: string;
   members: Member[];
@@ -29,11 +30,11 @@ async function getOrgById(
   doc: DynamoDBDocumentClient,
   tables: Tables,
   organizationId: string,
-): Promise<{ organizationId: string; name: string; createdAt: string } | undefined> {
+): Promise<{ organizationId: string; name: string; leaderMemberIds?: string[]; createdAt: string } | undefined> {
   const r = await doc.send(
     new GetCommand({ TableName: tables.Organizations!, Key: { organizationId } }),
   );
-  return r.Item as { organizationId: string; name: string; createdAt: string } | undefined;
+  return r.Item as { organizationId: string; name: string; leaderMemberIds?: string[]; createdAt: string } | undefined;
 }
 
 /** MemberOrganizations 관계 테이블에서 조직 소속 멤버 목록 조회 */
@@ -68,10 +69,11 @@ export async function listOrganizations(args: {
   caller: Member;
 }): Promise<Organization[]> {
   const r = await args.doc.send(new ScanCommand({ TableName: args.tables.Organizations! }));
-  const base = (r.Items ?? []) as Array<{ organizationId: string; name: string; createdAt: string }>;
+  const base = (r.Items ?? []) as Array<{ organizationId: string; name: string; leaderMemberIds?: string[]; createdAt: string }>;
   return Promise.all(
     base.map(async (o) => ({
       ...o,
+      leaderMemberIds: o.leaderMemberIds ?? [],
       members: await resolveOrgMembers(args.doc, args.tables, o.organizationId),
     })),
   );
@@ -112,10 +114,12 @@ export async function createOrganization(args: {
       const restored = r.Attributes as {
         organizationId: string;
         name: string;
+        leaderMemberIds?: string[];
         createdAt: string;
       };
       return {
         ...restored,
+        leaderMemberIds: restored.leaderMemberIds ?? [],
         members: await resolveOrgMembers(
           args.doc,
           args.tables,
@@ -126,6 +130,7 @@ export async function createOrganization(args: {
     return {
       organizationId: matched.organizationId,
       name: matched.name,
+      leaderMemberIds: [],
       createdAt: matched.createdAt,
       members: await resolveOrgMembers(
         args.doc,
@@ -139,11 +144,11 @@ export async function createOrganization(args: {
   await args.doc.send(
     new PutCommand({
       TableName: args.tables.Organizations!,
-      Item: { organizationId, name, createdAt: now },
+      Item: { organizationId, name, leaderMemberIds: [], createdAt: now },
       ConditionExpression: "attribute_not_exists(organizationId)",
     }),
   );
-  return { organizationId, name, createdAt: now, members: [] };
+  return { organizationId, name, leaderMemberIds: [], createdAt: now, members: [] };
 }
 
 export async function updateOrganization(args: {
@@ -151,25 +156,40 @@ export async function updateOrganization(args: {
   tables: Tables;
   caller: Member;
   organizationId: string;
-  name: string;
+  name?: string;
+  leaderMemberIds?: string[];
 }): Promise<Organization> {
   requireRoleAtLeast(args.caller, "manager");
   const existing = await getOrgById(args.doc, args.tables, args.organizationId);
   if (!existing) notFound("Organization 없음");
-  const name = args.name.trim();
-  if (!name) badRequest("조직 이름은 비어 있을 수 없음");
+  const sets: string[] = [];
+  const names: Record<string, string> = {};
+  const vals: Record<string, unknown> = {};
+  if (args.name !== undefined) {
+    const name = args.name.trim();
+    if (!name) badRequest("조직 이름은 비어 있을 수 없음");
+    sets.push("#n = :n");
+    names["#n"] = "name";
+    vals[":n"] = name;
+  }
+  if (args.leaderMemberIds !== undefined) {
+    sets.push("leaderMemberIds = :l");
+    vals[":l"] = args.leaderMemberIds;
+  }
+  if (!sets.length) badRequest("변경할 조직 정보가 없습니다");
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: args.tables.Organizations!,
       Key: { organizationId: args.organizationId },
-      UpdateExpression: "SET #n = :n",
-      ExpressionAttributeNames: { "#n": "name" },
-      ExpressionAttributeValues: { ":n": name },
+      UpdateExpression: `SET ${sets.join(", ")}`,
+      ExpressionAttributeNames: Object.keys(names).length ? names : undefined,
+      ExpressionAttributeValues: vals,
       ReturnValues: "ALL_NEW",
     }),
   );
   return {
-    ...(r.Attributes as { organizationId: string; name: string; createdAt: string }),
+    ...(r.Attributes as { organizationId: string; name: string; leaderMemberIds?: string[]; createdAt: string }),
+    leaderMemberIds: ((r.Attributes as { leaderMemberIds?: string[] }).leaderMemberIds ?? []),
     members: await resolveOrgMembers(args.doc, args.tables, args.organizationId),
   };
 }
@@ -268,9 +288,11 @@ export async function archiveOrganization(args: {
     ...(r.Attributes as {
       organizationId: string;
       name: string;
+      leaderMemberIds?: string[];
       createdAt: string;
       removedAt: string;
     }),
+    leaderMemberIds: ((r.Attributes as { leaderMemberIds?: string[] }).leaderMemberIds ?? []),
     members: await resolveOrgMembers(args.doc, args.tables, args.organizationId),
   };
 }
@@ -296,8 +318,10 @@ export async function restoreOrganization(args: {
     ...(r.Attributes as {
       organizationId: string;
       name: string;
+      leaderMemberIds?: string[];
       createdAt: string;
     }),
+    leaderMemberIds: ((r.Attributes as { leaderMemberIds?: string[] }).leaderMemberIds ?? []),
     members: await resolveOrgMembers(args.doc, args.tables, args.organizationId),
   };
 }

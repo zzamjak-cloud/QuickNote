@@ -1,13 +1,15 @@
 // 설정 모달 — 프로젝트 관리 패널 (추가/편집/삭제/멤버 배정/활성화 토글).
 import { useEffect, useRef, useState } from "react";
 import { Plus, Pencil, Trash2, Eye, Check, X, Search } from "lucide-react";
-import { useMemberStore } from "../../../store/memberStore";
+import { useMemberStore, type Member } from "../../../store/memberStore";
 import {
   useSchedulerProjectsStore,
   type SchedulerProject,
 } from "../../../store/schedulerProjectsStore";
 import { ColorPickerGrid } from "../ColorPickerGrid";
 import { DEFAULT_SCHEDULE_COLOR } from "../../../lib/scheduler/colors";
+import { inferLeaderMemberIds } from "../../../lib/scheduler/mm/leaderDefaults";
+import { LeaderMemberPicker } from "../mm/LeaderMemberPicker";
 
 // 인라인 편집 상태 초기값
 const EMPTY_FORM = {
@@ -15,6 +17,7 @@ const EMPTY_FORM = {
   color: DEFAULT_SCHEDULE_COLOR,
   description: "",
   memberIds: [] as string[],
+  leaderMemberIds: [] as string[],
 };
 
 type FormState = typeof EMPTY_FORM;
@@ -49,6 +52,9 @@ export function ProjectsPanel() {
       memberIds: form.memberIds.includes(memberId)
         ? form.memberIds.filter((id) => id !== memberId)
         : [...form.memberIds, memberId],
+      leaderMemberIds: form.memberIds.includes(memberId)
+        ? form.leaderMemberIds.filter((id) => id !== memberId)
+        : form.leaderMemberIds,
     });
   }
 
@@ -61,6 +67,7 @@ export function ProjectsPanel() {
       color: addForm.color,
       description: addForm.description.trim() || undefined,
       memberIds: addForm.memberIds,
+      leaderMemberIds: addForm.leaderMemberIds,
       isHidden: false,
     });
     setAddForm(EMPTY_FORM);
@@ -75,6 +82,7 @@ export function ProjectsPanel() {
       color: project.color,
       description: project.description ?? "",
       memberIds: [...project.memberIds],
+      leaderMemberIds: [...(project.leaderMemberIds ?? [])],
     });
   }
 
@@ -88,6 +96,7 @@ export function ProjectsPanel() {
       color: editForm.color,
       description: editForm.description.trim() || undefined,
       memberIds: editForm.memberIds,
+      leaderMemberIds: editForm.leaderMemberIds,
     });
     setEditingId(null);
   }
@@ -263,8 +272,6 @@ export function ProjectsPanel() {
 
 // ─── 공용 폼 컴포넌트 ─────────────────────────────────────────────────────────
 
-type Member = { memberId: string; name: string };
-
 type ProjectFormProps = {
   form: FormState;
   setForm: (f: FormState) => void;
@@ -291,6 +298,8 @@ function ProjectForm({
     ? activeMembers.filter((m) => m.name.toLowerCase().includes(normalizedMemberQuery))
     : activeMembers;
   const selectedMembers = activeMembers.filter((m) => form.memberIds.includes(m.memberId));
+  const projectMembers = activeMembers.filter((m) => form.memberIds.includes(m.memberId));
+  const recommendedLeaderIds = inferLeaderMemberIds("project", projectMembers);
 
   useEffect(() => {
     const el = descriptionRef.current;
@@ -420,6 +429,16 @@ function ProjectForm({
             </div>
           </div>
         </div>
+      )}
+
+      {projectMembers.length > 0 && (
+        <LeaderMemberPicker
+          label="프로젝트장"
+          members={projectMembers}
+          value={form.leaderMemberIds}
+          recommendedIds={recommendedLeaderIds}
+          onChange={(leaderMemberIds) => setForm({ ...form, leaderMemberIds })}
+        />
       )}
 
       {/* 저장/취소 버튼 */}

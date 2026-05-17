@@ -14,6 +14,9 @@ enum AccessLevel  { EDIT VIEW }
 enum AccessSubjectType { TEAM MEMBER EVERYONE }
 enum MemberStatus { ACTIVE REMOVED }
 enum ImageStatus { PENDING READY }
+enum MmEntryStatus { DRAFT SUBMITTED REVIEWED LOCKED }
+enum MmScopeKind { ORGANIZATION TEAM PROJECT OTHER }
+enum MmAutoReasonType { HOLIDAY LEAVE EMPTY UNCLASSIFIED }
 
 # ========== Domain Types ==========
 type Member {
@@ -62,6 +65,7 @@ type Team {
   teamId: ID!
   name: String!
   members: [Member!]!
+  leaderMemberIds: [ID!]!
   createdAt: AWSDateTime!
   removedAt: AWSDateTime
 }
@@ -71,6 +75,7 @@ type Organization {
   organizationId: ID!
   name: String!
   members: [Member!]!
+  leaderMemberIds: [ID!]!
   createdAt: AWSDateTime!
   removedAt: AWSDateTime
 }
@@ -318,6 +323,8 @@ type Query {
   listSchedules(workspaceId: ID!, from: AWSDateTime!, to: AWSDateTime!): [Schedule!]!
   listProjects(workspaceId: ID!): [Project!]!
   listHolidays(workspaceId: ID!): [Holiday!]!
+  listMmEntries(workspaceId: ID!, fromWeekStart: String!, toWeekStart: String!, memberId: ID): [MmEntry!]!
+  listMmRevisions(workspaceId: ID!, entryId: ID!): [MmRevision!]!
 }
 
 # ========== Mutation ==========
@@ -336,13 +343,13 @@ type Mutation {
   updateMyClientPrefs(input: UpdateMyClientPrefsInput!): Member!
 
   createTeam(name: String!): Team!
-  updateTeam(teamId: ID!, name: String!): Team!
+  updateTeam(teamId: ID!, name: String, leaderMemberIds: [ID!]): Team!
   deleteTeam(teamId: ID!): Boolean!
   archiveTeam(teamId: ID!): Team!
   restoreTeam(teamId: ID!): Team!
 
   createOrganization(name: String!): Organization!
-  updateOrganization(organizationId: ID!, name: String!): Organization!
+  updateOrganization(organizationId: ID!, name: String, leaderMemberIds: [ID!]): Organization!
   deleteOrganization(organizationId: ID!): Boolean!
   archiveOrganization(organizationId: ID!): Organization!
   restoreOrganization(organizationId: ID!): Organization!
@@ -383,6 +390,11 @@ type Mutation {
   createHoliday(input: CreateHolidayInput!): Holiday!
   updateHoliday(input: UpdateHolidayInput!): Holiday!
   deleteHoliday(id: ID!, workspaceId: ID!): Boolean!
+
+  upsertMmEntry(input: MmEntryInput!): MmEntry!
+  reviewMmEntry(input: MmReviewInput!): MmEntry!
+  lockMmEntry(workspaceId: ID!, entryId: ID!, note: String): MmEntry!
+  unlockMmEntry(workspaceId: ID!, entryId: ID!, note: String): MmEntry!
 }
 
 # ========== Subscription ==========
@@ -399,6 +411,8 @@ type Subscription {
     @aws_subscribe(mutations: ["createProject", "updateProject"])
   onHolidayChanged(workspaceId: ID!): Holiday
     @aws_subscribe(mutations: ["createHoliday", "updateHoliday"])
+  onMmEntryChanged(workspaceId: ID!): MmEntry
+    @aws_subscribe(mutations: ["upsertMmEntry", "reviewMmEntry", "lockMmEntry", "unlockMmEntry"])
 }
 
 # ========== Schedule ==========
@@ -462,6 +476,7 @@ type Project {
   color: String!
   description: String
   memberIds: [ID!]!
+  leaderMemberIds: [ID!]!
   isHidden: Boolean!
   createdByMemberId: ID!
   createdAt: AWSDateTime!
@@ -474,6 +489,7 @@ input CreateProjectInput {
   color: String!
   description: String
   memberIds: [ID!]!
+  leaderMemberIds: [ID!]
   isHidden: Boolean
 }
 
@@ -484,6 +500,7 @@ input UpdateProjectInput {
   color: String
   description: String
   memberIds: [ID!]
+  leaderMemberIds: [ID!]
   isHidden: Boolean
 }
 
@@ -515,4 +532,93 @@ input UpdateHolidayInput {
   date: String
   type: String
   color: String
+}
+
+# ========== Weekly MM ==========
+type MmAutoReason {
+  date: String!
+  type: MmAutoReasonType!
+  label: String!
+  ratioBp: Int!
+}
+
+type MmBucket {
+  id: ID!
+  kind: MmScopeKind!
+  scopeId: ID
+  label: String!
+  ratioBp: Int!
+  editable: Boolean!
+  reasons: [MmAutoReason!]!
+}
+
+type MmEntry {
+  id: ID!
+  workspaceId: ID!
+  memberId: ID!
+  weekStart: String!
+  weekEnd: String!
+  status: MmEntryStatus!
+  buckets: [MmBucket!]!
+  sourceSnapshot: AWSJSON
+  organizationId: ID
+  teamId: ID
+  submittedByMemberId: ID!
+  submittedAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  reviewedByMemberId: ID
+  reviewedAt: AWSDateTime
+  lockedByMemberId: ID
+  lockedAt: AWSDateTime
+  note: String
+}
+
+input MmAutoReasonInput {
+  date: String!
+  type: MmAutoReasonType!
+  label: String!
+  ratioBp: Int!
+}
+
+input MmBucketInput {
+  id: ID!
+  kind: MmScopeKind!
+  scopeId: ID
+  label: String!
+  ratioBp: Int!
+  editable: Boolean!
+  reasons: [MmAutoReasonInput!]
+}
+
+input MmEntryInput {
+  workspaceId: ID!
+  memberId: ID!
+  weekStart: String!
+  weekEnd: String!
+  buckets: [MmBucketInput!]!
+  sourceSnapshot: AWSJSON
+  organizationId: ID
+  teamId: ID
+  note: String
+}
+
+input MmReviewInput {
+  workspaceId: ID!
+  entryId: ID!
+  buckets: [MmBucketInput!]
+  note: String
+}
+
+type MmRevision {
+  id: ID!
+  entryId: ID!
+  workspaceId: ID!
+  memberId: ID!
+  weekStart: String!
+  actorMemberId: ID!
+  action: String!
+  before: AWSJSON
+  after: AWSJSON
+  createdAt: AWSDateTime!
+  note: String
 }
