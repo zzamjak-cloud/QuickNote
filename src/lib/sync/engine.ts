@@ -45,6 +45,7 @@ export class SyncEngine {
   private readonly outbox: OutboxAdapter;
   private readonly gql: GqlBridge;
   private readonly clock: () => number;
+  private enqueueTail: Promise<void> = Promise.resolve();
   /** 플러시 시 UI 워크스페이스와 엔트리 메타 불일치 진단용(옵션). */
   private readonly getCurrentWorkspaceIdForLog?: () => string | null;
 
@@ -61,6 +62,12 @@ export class SyncEngine {
   }
 
   async enqueue(op: OutboxOp, payload: EnqueuePayload): Promise<void> {
+    const task = this.enqueueTail.then(() => this.enqueueNow(op, payload));
+    this.enqueueTail = task.catch(() => undefined);
+    return task;
+  }
+
+  private async enqueueNow(op: OutboxOp, payload: EnqueuePayload): Promise<void> {
     if (op === "softDeleteDatabase" && isLCSchedulerDatabaseId(payload.id)) {
       return;
     }

@@ -31,6 +31,9 @@ const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
 
 type PresetScope = "workspace" | "organization" | "team" | "project";
 
+const PROPERTY_HIDDEN_COLUMN_IDS_META_KEY = "propertyHiddenColumnIds";
+const PROPERTY_PANEL_META_CELL_ID = "_qn_property_panel_meta";
+
 function scopeLabel(scope: PresetScope): string {
   if (scope === "organization") return "조직";
   if (scope === "team") return "팀";
@@ -53,6 +56,17 @@ function readPresetIdFromMeta(metaCell: CellValue): string | null {
   if (!metaCell || typeof metaCell !== "object" || Array.isArray(metaCell)) return null;
   const candidate = (metaCell as Record<string, unknown>).presetId;
   return typeof candidate === "string" && candidate.trim() ? candidate : null;
+}
+
+function readHiddenColumnIdsFromMeta(metaCell: CellValue): string[] | null {
+  if (!metaCell || typeof metaCell !== "object" || Array.isArray(metaCell)) return null;
+  const record = metaCell as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(record, PROPERTY_HIDDEN_COLUMN_IDS_META_KEY)) return null;
+  const candidate = record[PROPERTY_HIDDEN_COLUMN_IDS_META_KEY];
+  if (!Array.isArray(candidate)) return [];
+  return candidate
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim());
 }
 
 function scopeColumnId(scope: PresetScope): string | null {
@@ -101,6 +115,9 @@ export function DatabasePropertyPanel({
   const rowCells = useMemo(() => page?.dbCells ?? {}, [page?.dbCells]);
 
   const isSchedulerDb = isLCSchedulerDatabaseId(databaseId);
+  const propertyPanelMetaCellId = isSchedulerDb
+    ? LC_SCHEDULER_COLUMN_IDS.meta
+    : PROPERTY_PANEL_META_CELL_ID;
   const allPropertyColumns = useMemo(
     () => (bundle?.columns ?? []).filter((c) => c.type !== "title"),
     [bundle?.columns],
@@ -155,19 +172,24 @@ export function DatabasePropertyPanel({
   }, [presetMenuOpen]);
 
   useEffect(() => {
-    const fromMeta = readPresetIdFromMeta(rowCells[LC_SCHEDULER_COLUMN_IDS.meta]);
+    const fromMeta = readPresetIdFromMeta(rowCells[propertyPanelMetaCellId]);
     if (fromMeta) {
       setSelectedPresetId(fromMeta);
       return;
     }
     if (selectedPresetId && presets.some((preset) => preset.id === selectedPresetId)) return;
     setSelectedPresetId(filteredPresets[0]?.id ?? null);
-  }, [rowCells, filteredPresets, presets, selectedPresetId]);
+  }, [filteredPresets, presets, propertyPanelMetaCellId, rowCells, selectedPresetId]);
 
   useEffect(() => {
+    const persistedHiddenColumnIds = readHiddenColumnIdsFromMeta(rowCells[propertyPanelMetaCellId]);
+    if (persistedHiddenColumnIds) {
+      setHiddenColumnIds(persistedHiddenColumnIds);
+      return;
+    }
     const preset = presets.find((item) => item.id === selectedPresetId);
     setHiddenColumnIds([...(preset?.hiddenColumnIds ?? [])]);
-  }, [presets, selectedPresetId]);
+  }, [presets, propertyPanelMetaCellId, rowCells, selectedPresetId]);
 
   useEffect(() => {
     if (!isSchedulerDb) return;
@@ -208,20 +230,35 @@ export function DatabasePropertyPanel({
 
   const currentPreset = presets.find((preset) => preset.id === selectedPresetId) ?? null;
 
-  function applyPresetToCurrentRow(presetId: string) {
-    const ok = applyPresetToRow(databaseId, pageId, presetId);
-    if (!ok) return;
-    const metaCell = rowCells[LC_SCHEDULER_COLUMN_IDS.meta];
+  function persistHiddenColumnIds(nextHiddenColumnIds: string[]) {
+    const latestCells = usePageStore.getState().pages[pageId]?.dbCells ?? rowCells;
+    const metaCell = latestCells[propertyPanelMetaCellId];
     const baseMeta = (metaCell && typeof metaCell === "object" && !Array.isArray(metaCell))
       ? { ...(metaCell as Record<string, unknown>) }
       : {};
-    updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.meta, {
+    updateCell(databaseId, pageId, propertyPanelMetaCellId, {
+      ...baseMeta,
+      [PROPERTY_HIDDEN_COLUMN_IDS_META_KEY]: nextHiddenColumnIds,
+    });
+  }
+
+  function applyPresetToCurrentRow(presetId: string) {
+    const ok = applyPresetToRow(databaseId, pageId, presetId);
+    if (!ok) return;
+    const preset = presets.find((item) => item.id === presetId);
+    const presetHiddenColumnIds = [...(preset?.hiddenColumnIds ?? [])];
+    const latestCells = usePageStore.getState().pages[pageId]?.dbCells ?? rowCells;
+    const metaCell = latestCells[propertyPanelMetaCellId];
+    const baseMeta = (metaCell && typeof metaCell === "object" && !Array.isArray(metaCell))
+      ? { ...(metaCell as Record<string, unknown>) }
+      : {};
+    updateCell(databaseId, pageId, propertyPanelMetaCellId, {
       ...baseMeta,
       presetId,
+      [PROPERTY_HIDDEN_COLUMN_IDS_META_KEY]: presetHiddenColumnIds,
     });
     setSelectedPresetId(presetId);
-    const preset = presets.find((item) => item.id === presetId);
-    if (preset) setHiddenColumnIds([...(preset.hiddenColumnIds ?? [])]);
+    setHiddenColumnIds(presetHiddenColumnIds);
   }
 
   function resolveScopeId(scope: PresetScope): string | undefined {
@@ -236,10 +273,14 @@ export function DatabasePropertyPanel({
       if (typeof v === "undefined") continue;
       next[col.id] = v;
     }
-    const metaCell = next[LC_SCHEDULER_COLUMN_IDS.meta];
+    const metaCell = next[propertyPanelMetaCellId];
     if (metaCell && typeof metaCell === "object" && !Array.isArray(metaCell)) {
-      const { presetId: _presetId, ...metaRest } = metaCell as Record<string, CellValue>;
-      next[LC_SCHEDULER_COLUMN_IDS.meta] = {
+      const {
+        presetId: _presetId,
+        propertyHiddenColumnIds: _propertyHiddenColumnIds,
+        ...metaRest
+      } = metaCell as Record<string, CellValue>;
+      next[propertyPanelMetaCellId] = {
         ...metaRest,
       };
     }
@@ -299,140 +340,140 @@ export function DatabasePropertyPanel({
 
   if (!hasData || !bundle || !page) return null;
 
-  return (
-    <div className="my-3 space-y-1 border-y border-zinc-200 py-3 text-sm dark:border-zinc-800">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="relative" ref={presetMenuRef}>
-          <button
-            type="button"
-            onClick={() => setPresetMenuOpen((v) => !v)}
-            className="flex items-center gap-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            <span className="max-w-[210px] truncate">{statusLabel}</span>
-            <ChevronDown size={12} />
-          </button>
+  const presetDropdown = (
+    <div className="relative min-w-0" ref={presetMenuRef}>
+      <button
+        type="button"
+        onClick={() => setPresetMenuOpen((v) => !v)}
+        className="flex max-w-[180px] items-center gap-1 rounded border border-zinc-200 bg-white px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+      >
+        <span className="min-w-0 truncate">{statusLabel}</span>
+        <ChevronDown size={12} className="shrink-0" />
+      </button>
 
-          {presetMenuOpen && (
-            <div className="absolute left-0 top-full z-[710] mt-1 w-[300px] rounded border border-zinc-200 bg-white p-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-              <div className="max-h-56 space-y-1 overflow-y-auto p-1">
-                {filteredPresets.map((preset) => (
-                  <div
-                    key={preset.id}
-                    className={`rounded border px-2 py-1 ${
-                      preset.id === selectedPresetId
-                        ? "border-amber-300 bg-amber-50 dark:border-amber-500 dark:bg-amber-900/20"
-                        : "border-zinc-200 dark:border-zinc-700"
-                    }`}
+      {presetMenuOpen && (
+        <div className="absolute bottom-full left-0 z-[710] mb-1 w-[300px] rounded border border-zinc-200 bg-white p-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="max-h-56 space-y-1 overflow-y-auto p-1">
+            {filteredPresets.map((preset) => (
+              <div
+                key={preset.id}
+                className={`rounded border px-2 py-1 ${
+                  preset.id === selectedPresetId
+                    ? "border-amber-300 bg-amber-50 dark:border-amber-500 dark:bg-amber-900/20"
+                    : "border-zinc-200 dark:border-zinc-700"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <button
+                    type="button"
+                    onClick={() => applyPresetToCurrentRow(preset.id)}
+                    className="min-w-0 flex-1 text-left"
                   >
-                    <div className="flex items-center justify-between gap-1">
-                      <button
-                        type="button"
-                        onClick={() => applyPresetToCurrentRow(preset.id)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <p className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
-                          {preset.name}
-                        </p>
-                        <p className="truncate text-sm text-zinc-400">
-                          {scopeLabel(preset.scope as PresetScope)}
-                        </p>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => startEditPreset(preset)}
-                        className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                        title="현재 속성으로 덮어쓰기 편집"
-                      >
-                        <Pencil size={11} />
-                      </button>
-                    </div>
-                    {editPresetId === preset.id && (
-                      <div className="mt-1 flex items-center gap-1">
-                        <input
-                          autoFocus
-                          value={editPresetName}
-                          onChange={(e) => setEditPresetName(e.target.value)}
-                          className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-1.5 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleEditPresetSave}
-                          className="rounded bg-amber-500 px-2 py-1 text-sm text-white hover:bg-amber-600"
-                        >
-                          저장
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {filteredPresets.length === 0 && (
-                  <div className="rounded border border-dashed border-zinc-300 px-2 py-3 text-center text-sm text-zinc-400 dark:border-zinc-700">
-                    선택 가능한 프리셋이 없습니다.
-                  </div>
-                )}
-              </div>
-              <div className="border-t border-zinc-100 p-1 dark:border-zinc-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSavePresetOpen((v) => !v);
-                    setEditPresetId(null);
-                  }}
-                  className="flex w-full items-center justify-between rounded px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  <span>현재 속성값으로 프리셋 저장</span>
-                  <Save size={11} />
-                </button>
-                {savePresetOpen && (
-                  <div className="mt-1 space-y-1 rounded border border-zinc-200 p-2 dark:border-zinc-700">
+                    <p className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                      {preset.name}
+                    </p>
+                    <p className="truncate text-sm text-zinc-400">
+                      {scopeLabel(preset.scope as PresetScope)}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startEditPreset(preset)}
+                    className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                    title="현재 속성으로 덮어쓰기 편집"
+                  >
+                    <Pencil size={11} />
+                  </button>
+                </div>
+                {editPresetId === preset.id && (
+                  <div className="mt-1 flex items-center gap-1">
                     <input
-                      value={savePresetName}
-                      onChange={(e) => setSavePresetName(e.target.value)}
-                      placeholder="프리셋 이름"
-                      className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                      autoFocus
+                      value={editPresetName}
+                      onChange={(e) => setEditPresetName(e.target.value)}
+                      className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-1.5 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
                     />
-                    <select
-                      value={savePresetScope}
-                      onChange={(e) => setSavePresetScope(e.target.value as PresetScope)}
-                      className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
-                    >
-                      <option value="workspace">프리셋을 모두가 사용</option>
-                      <option value="organization">프리셋을 조직에서만 사용</option>
-                      <option value="team">프리셋을 팀에서만 사용</option>
-                      <option value="project">프리셋을 프로젝트에서만 사용</option>
-                    </select>
-                    {savePresetScope !== "workspace" && (
-                      <select
-                        value={savePresetScopeId}
-                        onChange={(e) => setSavePresetScopeId(e.target.value)}
-                        className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
-                      >
-                        {saveScopeOptions.length === 0 && (
-                          <option value="">대상 없음</option>
-                        )}
-                        {saveScopeOptions.map((opt) => (
-                          <option key={opt.id} value={opt.id}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
                     <button
                       type="button"
-                      onClick={handleCreatePresetFromCurrent}
-                      className="flex w-full items-center justify-center gap-1 rounded bg-amber-500 px-2 py-1 text-sm text-white hover:bg-amber-600"
+                      onClick={handleEditPresetSave}
+                      className="rounded bg-amber-500 px-2 py-1 text-sm text-white hover:bg-amber-600"
                     >
-                      <Check size={11} />
                       저장
                     </button>
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            ))}
+            {filteredPresets.length === 0 && (
+              <div className="rounded border border-dashed border-zinc-300 px-2 py-3 text-center text-sm text-zinc-400 dark:border-zinc-700">
+                선택 가능한 프리셋이 없습니다.
+              </div>
+            )}
+          </div>
+          <div className="border-t border-zinc-100 p-1 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={() => {
+                setSavePresetOpen((v) => !v);
+                setEditPresetId(null);
+              }}
+              className="flex w-full items-center justify-between rounded px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              <span>현재 속성값으로 프리셋 저장</span>
+              <Save size={11} />
+            </button>
+            {savePresetOpen && (
+              <div className="mt-1 space-y-1 rounded border border-zinc-200 p-2 dark:border-zinc-700">
+                <input
+                  value={savePresetName}
+                  onChange={(e) => setSavePresetName(e.target.value)}
+                  placeholder="프리셋 이름"
+                  className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                />
+                <select
+                  value={savePresetScope}
+                  onChange={(e) => setSavePresetScope(e.target.value as PresetScope)}
+                  className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                >
+                  <option value="workspace">프리셋을 모두가 사용</option>
+                  <option value="organization">프리셋을 조직에서만 사용</option>
+                  <option value="team">프리셋을 팀에서만 사용</option>
+                  <option value="project">프리셋을 프로젝트에서만 사용</option>
+                </select>
+                {savePresetScope !== "workspace" && (
+                  <select
+                    value={savePresetScopeId}
+                    onChange={(e) => setSavePresetScopeId(e.target.value)}
+                    className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
+                  >
+                    {saveScopeOptions.length === 0 && (
+                      <option value="">대상 없음</option>
+                    )}
+                    {saveScopeOptions.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  type="button"
+                  onClick={handleCreatePresetFromCurrent}
+                  className="flex w-full items-center justify-center gap-1 rounded bg-amber-500 px-2 py-1 text-sm text-white hover:bg-amber-600"
+                >
+                  <Check size={11} />
+                  저장
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+    </div>
+  );
 
+  return (
+    <div className="my-3 space-y-1 border-y border-zinc-200 py-3 text-sm dark:border-zinc-800">
       {visibleColumns.map((col) => {
         const value = (col.id in rowCells)
           ? rowCells[col.id]
@@ -457,7 +498,11 @@ export function DatabasePropertyPanel({
                 <button
                   type="button"
                   onClick={() => {
-                    setHiddenColumnIds((prev) => (prev.includes(col.id) ? prev : [...prev, col.id]));
+                    const next = hiddenColumnIds.includes(col.id)
+                      ? hiddenColumnIds
+                      : [...hiddenColumnIds, col.id];
+                    setHiddenColumnIds(next);
+                    persistHiddenColumnIds(next);
                   }}
                   className="rounded p-1 opacity-70 hover:bg-zinc-100 hover:opacity-100 dark:hover:bg-zinc-800"
                   title={hidden ? "속성 표시" : "속성 숨기기"}
@@ -498,7 +543,9 @@ export function DatabasePropertyPanel({
                   key={col.id}
                   type="button"
                   onClick={() => {
-                    setHiddenColumnIds((prev) => prev.filter((id) => id !== col.id));
+                    const next = hiddenColumnIds.filter((id) => id !== col.id);
+                    setHiddenColumnIds(next);
+                    persistHiddenColumnIds(next);
                   }}
                   className="rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-500 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
@@ -509,7 +556,7 @@ export function DatabasePropertyPanel({
         </div>
       )}
 
-      <div className="pt-2">
+      <div className="flex items-center gap-2 pt-2">
         {showAdd ? (
           <select
             autoFocus
@@ -540,6 +587,7 @@ export function DatabasePropertyPanel({
             <Plus size={12} /> 속성 추가
           </button>
         )}
+        {presetDropdown}
       </div>
     </div>
   );

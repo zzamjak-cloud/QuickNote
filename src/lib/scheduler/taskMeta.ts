@@ -4,6 +4,7 @@ export type SchedulerTaskMeta = {
   kind?: SchedulerTaskKind;
   rowIndexByAssigneeId?: Record<string, number>;
   textColor?: string | null;
+  [key: string]: unknown;
 };
 
 export function parseSchedulerTaskMeta(value: unknown): SchedulerTaskMeta {
@@ -22,6 +23,7 @@ export function parseSchedulerTaskMeta(value: unknown): SchedulerTaskMeta {
         ) as Record<string, number>
       : undefined;
   return {
+    ...record,
     kind,
     rowIndexByAssigneeId,
     textColor: typeof record.textColor === "string" ? record.textColor : null,

@@ -265,7 +265,7 @@ export async function updateLCSchedulerSchedule(input: UpdateScheduleInput): Pro
     input.assigneeId ?? parsed.assigneeId,
     input.rowIndex,
   );
-  setCell(databaseId, page.id, LC_SCHEDULER_COLUMN_IDS.meta, nextMeta);
+  setCell(databaseId, page.id, LC_SCHEDULER_COLUMN_IDS.meta, nextMeta as CellValue);
 
   const projected = projectLCSchedulerSchedules(input.workspaceId, useMemberStore.getState().members);
   const schedule = projected.find((item) => item.id === (

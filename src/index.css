@@ -467,7 +467,7 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
   font-size: 13px;
   line-height: 1.55;
   /* 우측 상단 복사 버튼 영역 */
-  padding: 2.25rem 2.5rem 12px 14px;
+  padding: 2.25rem 4.25rem 12px 14px;
   border-radius: 8px;
   overflow-x: auto;
   -webkit-font-smoothing: subpixel-antialiased;
@@ -482,7 +482,7 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
   inset: 0 !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  padding: 2.25rem 3rem 0.75rem 1rem !important;
+  padding: 2.25rem 4.25rem 0.75rem 1rem !important;
   font-size: 15px !important;
   line-height: 1.6 !important;
   overflow: auto !important;
@@ -591,7 +591,7 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
 .qn-code-copy-anchor {
   position: absolute;
   top: 0.5rem;
-  right: 0.5rem;
+  right: 2.25rem;
   z-index: 30;
   pointer-events: auto;
   user-select: none;
