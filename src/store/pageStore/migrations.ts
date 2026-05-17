@@ -10,9 +10,10 @@ import {
   migratePersistedStore,
   type PersistedObject,
 } from "../../lib/migrations/persistedStore";
+import { isLegacyLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 
 /** zustand persist `version` 과 동일 — 메타 schemaVersion 과 맞춘다 */
-export const PAGE_STORE_PERSIST_VERSION = 4;
+export const PAGE_STORE_PERSIST_VERSION = 5;
 
 export const PAGE_STORE_DATA_KEYS = [
   "pages",
@@ -114,6 +115,26 @@ function normalizePagePersistedState(
   return next;
 }
 
+function cleanupLegacyLCSchedulerPages(state: PersistedObject): PersistedObject {
+  if (!isPlainObject(state.pages)) return state;
+  const pages = { ...(state.pages as PageMap) };
+  let changed = false;
+  for (const [pageId, page] of Object.entries(pages)) {
+    if (!isLegacyLCSchedulerDatabaseId(page.databaseId)) continue;
+    delete pages[pageId];
+    changed = true;
+  }
+  if (!changed) return state;
+  return {
+    ...state,
+    pages,
+    activePageId:
+      typeof state.activePageId === "string" && pages[state.activePageId]
+        ? state.activePageId
+        : null,
+  };
+}
+
 export function migratePageStore(
   persisted: unknown,
   fromVersion: number,
@@ -137,6 +158,13 @@ export function migratePageStore(
       {
         version: 4,
         migrate: (state) => normalizePagePersistedState(state, fromVersion),
+      },
+      {
+        version: 5,
+        migrate: (state) =>
+          cleanupLegacyLCSchedulerPages(
+            normalizePagePersistedState(state, fromVersion),
+          ),
       },
     ],
     {

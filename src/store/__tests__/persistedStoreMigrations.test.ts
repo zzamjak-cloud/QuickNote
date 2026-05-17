@@ -4,6 +4,7 @@ import { migrateDatabaseStore } from "../databaseStore";
 import { migrateNotificationStore } from "../notificationStore";
 import { migratePageStore } from "../pageStore";
 import { migrateSettingsStore } from "../settingsStore";
+import { LC_SCHEDULER_DATABASE_ID } from "../../lib/scheduler/database";
 
 describe("persisted store migrations", () => {
   it("settingsStore migration keeps existing prefs and adds missing fields", () => {
@@ -142,5 +143,67 @@ describe("persisted store migrations", () => {
     expect(migrated.migrationQuarantine).toEqual([
       expect.objectContaining({ reason: "invalid-database-records" }),
     ]);
+  });
+
+  it("databaseStore migration removes legacy LC scheduler databases", () => {
+    const migrated = migrateDatabaseStore(
+      {
+        databases: {
+          [LC_SCHEDULER_DATABASE_ID]: {
+            meta: { id: LC_SCHEDULER_DATABASE_ID, title: "LC스케줄러", createdAt: 1, updatedAt: 2 },
+            columns: [{ id: "title", name: "Name", type: "title" }],
+            rowPageOrder: [],
+          },
+          "lc-scheduler-db:personal-ws": {
+            meta: { id: "lc-scheduler-db:personal-ws", title: "LC스케줄러", createdAt: 1, updatedAt: 3 },
+            columns: [{ id: "title", name: "Name", type: "title" }],
+            rowPageOrder: ["legacy-row"],
+          },
+        },
+      },
+      3,
+    );
+
+    expect(Object.keys(migrated.databases as Record<string, unknown>)).toEqual([
+      LC_SCHEDULER_DATABASE_ID,
+    ]);
+  });
+
+  it("pageStore migration removes pages linked to legacy LC scheduler databases", () => {
+    const migrated = migratePageStore(
+      {
+        pages: {
+          keep: {
+            id: "keep",
+            title: "Keep",
+            icon: null,
+            doc: { type: "doc", content: [{ type: "paragraph" }] },
+            parentId: null,
+            order: 1,
+            databaseId: LC_SCHEDULER_DATABASE_ID,
+            createdAt: 10,
+            updatedAt: 20,
+          },
+          legacy: {
+            id: "legacy",
+            title: "Legacy",
+            icon: null,
+            doc: { type: "doc", content: [{ type: "paragraph" }] },
+            parentId: null,
+            order: 2,
+            databaseId: "lc-scheduler-db:personal-ws",
+            createdAt: 10,
+            updatedAt: 20,
+          },
+        },
+        activePageId: "legacy",
+      },
+      4,
+    );
+
+    expect(Object.keys(migrated.pages as Record<string, unknown>)).toEqual([
+      "keep",
+    ]);
+    expect(migrated.activePageId).toBeNull();
   });
 });

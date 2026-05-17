@@ -1,8 +1,9 @@
 import type { ColumnDef, DatabaseBundle, DatabaseRowPreset } from "../../types/database";
-import { LC_SCHEDULER_WORKSPACE_ID } from "./scope";
+import { LC_SCHEDULER_WORKSPACE_ID, resolveLCSchedulerWorkspaceId } from "./scope";
 
 export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
 export const LC_SCHEDULER_DATABASE_TITLE = "LC스케줄러";
+export const LC_SCHEDULER_DATABASE_ID = `${LC_SCHEDULER_DATABASE_ID_PREFIX}${LC_SCHEDULER_WORKSPACE_ID}`;
 
 export const LC_SCHEDULER_COLUMN_IDS = {
   title: "lc-scheduler:title",
@@ -40,6 +41,15 @@ export function makeLCSchedulerDatabaseId(workspaceId: string): string {
 
 export function isLCSchedulerDatabaseId(databaseId: string | null | undefined): boolean {
   return Boolean(databaseId?.startsWith(LC_SCHEDULER_DATABASE_ID_PREFIX));
+}
+
+export function isLegacyLCSchedulerDatabaseId(databaseId: string | null | undefined): boolean {
+  return Boolean(databaseId && isLCSchedulerDatabaseId(databaseId) && databaseId !== LC_SCHEDULER_DATABASE_ID);
+}
+
+export function resolveLCSchedulerDatabaseId(databaseId: string | null | undefined): string | null {
+  if (!databaseId) return null;
+  return isLCSchedulerDatabaseId(databaseId) ? LC_SCHEDULER_DATABASE_ID : databaseId;
 }
 
 export function getLCSchedulerWorkspaceIdFromDatabaseId(databaseId: string): string | null {
@@ -246,7 +256,8 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
     import("../../store/databaseStore"),
     import("../../store/databaseStore/helpers"),
   ]);
-  const databaseId = makeLCSchedulerDatabaseId(workspaceId);
+  const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
+  const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const t = Date.now();
   const state = useDatabaseStore.getState();
   const existing = state.databases[databaseId];
@@ -270,9 +281,11 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
 
   if (same) {
     useDatabaseStore.setState((s) =>
-      workspaceId === LC_SCHEDULER_WORKSPACE_ID
+      schedulerWorkspaceId === LC_SCHEDULER_WORKSPACE_ID
         ? s
-        : s.cacheWorkspaceId === workspaceId ? s : { ...s, cacheWorkspaceId: workspaceId },
+        : s.cacheWorkspaceId === schedulerWorkspaceId
+          ? s
+          : { ...s, cacheWorkspaceId: schedulerWorkspaceId },
     );
     return;
   }
@@ -280,9 +293,9 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
   useDatabaseStore.setState((s) => ({
     ...s,
     databases: { ...s.databases, [databaseId]: next },
-    cacheWorkspaceId: workspaceId === LC_SCHEDULER_WORKSPACE_ID
+    cacheWorkspaceId: schedulerWorkspaceId === LC_SCHEDULER_WORKSPACE_ID
       ? s.cacheWorkspaceId
-      : workspaceId,
+      : schedulerWorkspaceId,
   }));
   enqueueUpsertDatabase(next);
 }

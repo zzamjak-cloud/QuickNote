@@ -18,7 +18,12 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
 import { enqueueAsync } from "./runtime";
-import { isLCSchedulerDatabaseId } from "../scheduler/database";
+import {
+  LC_SCHEDULER_DATABASE_ID,
+  LC_SCHEDULER_DATABASE_TITLE,
+  isLCSchedulerDatabaseId,
+  isLegacyLCSchedulerDatabaseId,
+} from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { isDeletedSchedulePage } from "../scheduler/deletedSchedulePages";
 
@@ -111,11 +116,39 @@ function toPageInputPayload(p: GqlPage): Record<string, unknown> & { id: string;
 }
 
 function normalizeLCSchedulerPageWorkspace(p: GqlPage): GqlPage {
-  if (p.deletedAt || !isLCSchedulerPage(p) || p.workspaceId === LC_SCHEDULER_WORKSPACE_ID) return p;
-  const repaired = { ...p, workspaceId: LC_SCHEDULER_WORKSPACE_ID };
-  queueMicrotask(() => {
-    enqueueAsync("upsertPage", toPageInputPayload(repaired));
-  });
+  if (!isLCSchedulerPage(p)) return p;
+  if (isLegacyLCSchedulerDatabaseId(p.databaseId)) {
+    if (!p.deletedAt) {
+      queueMicrotask(() => {
+        enqueueAsync("softDeletePage", {
+          id: p.id,
+          workspaceId: p.workspaceId,
+          updatedAt: new Date().toISOString(),
+        });
+      });
+    }
+    return {
+      ...p,
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      deletedAt: p.deletedAt ?? new Date().toISOString(),
+    };
+  }
+  const nextDatabaseId = isLCSchedulerDatabaseId(p.databaseId)
+    ? LC_SCHEDULER_DATABASE_ID
+    : p.databaseId;
+  const repaired = {
+    ...p,
+    workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    databaseId: nextDatabaseId,
+  };
+  const changed =
+    repaired.workspaceId !== p.workspaceId ||
+    repaired.databaseId !== p.databaseId;
+  if (!p.deletedAt && changed) {
+    queueMicrotask(() => {
+      enqueueAsync("upsertPage", toPageInputPayload(repaired));
+    });
+  }
   return repaired;
 }
 
@@ -345,49 +378,92 @@ export function applyRemoteDatabaseToStore(
   d: GqlDatabase | null | undefined,
 ): void {
   if (!d) return;
-  if (!shouldApplyRemoteSnapshot(d.workspaceId)) return;
+  const remote = d;
+  if (isLegacyLCSchedulerDatabaseId(remote.id)) {
+    useDatabaseStore.setState((s) => {
+      if (!s.databases[remote.id]) return s;
+      const rest = { ...s.databases };
+      delete rest[remote.id];
+      return { ...s, databases: rest };
+    });
+    if (!remote.deletedAt) {
+      queueMicrotask(() => {
+        enqueueAsync("softDeleteDatabase", {
+          id: remote.id,
+          workspaceId: remote.workspaceId,
+          updatedAt: new Date().toISOString(),
+        });
+      });
+    }
+    return;
+  }
 
-  const local = useDatabaseStore.getState().databases[d.id];
+  const normalizedDatabase = isLCSchedulerDatabaseId(remote.id)
+    ? {
+        ...remote,
+        id: LC_SCHEDULER_DATABASE_ID,
+        workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+        title: LC_SCHEDULER_DATABASE_TITLE,
+      }
+    : remote;
+  if (normalizedDatabase !== remote) {
+    queueMicrotask(() => {
+      enqueueAsync("upsertDatabase", {
+        id: normalizedDatabase.id,
+        workspaceId: normalizedDatabase.workspaceId,
+        createdByMemberId: normalizedDatabase.createdByMemberId,
+        title: normalizedDatabase.title,
+        columns: normalizedDatabase.columns,
+        presets: normalizedDatabase.presets,
+        createdAt: normalizedDatabase.createdAt,
+        updatedAt: normalizedDatabase.updatedAt,
+      });
+    });
+  }
+  const db = normalizedDatabase;
+  if (!shouldApplyRemoteSnapshot(db.workspaceId)) return;
 
-  if (d.deletedAt) {
-    if (isLCSchedulerDatabaseId(d.id)) {
+  const local = useDatabaseStore.getState().databases[db.id];
+
+  if (db.deletedAt) {
+    if (isLCSchedulerDatabaseId(db.id)) {
       useDatabaseStore.setState((s) =>
-        s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId)
+        s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId)
           ? s
-          : { ...s, cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId) },
+          : { ...s, cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId) },
       );
       return;
     }
     useDatabaseStore.setState((s) => {
-      const bundle = s.databases[d.id];
+      const bundle = s.databases[db.id];
       if (!bundle) return s;
       const rest = { ...s.databases };
-      delete rest[d.id];
-      return { ...s, databases: rest, cacheWorkspaceId: d.workspaceId };
+      delete rest[db.id];
+      return { ...s, databases: rest, cacheWorkspaceId: db.workspaceId };
     });
     return;
   }
 
-  if (local && !isRemoteNewer(local.meta.updatedAt, d.updatedAt)) {
+  if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) {
     useDatabaseStore.setState((s) =>
-      s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId)
+      s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId)
         ? s
-        : { ...s, cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId) },
+        : { ...s, cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId) },
     );
     return;
   }
 
-  const columns = parseAwsJson<ColumnDef[]>(d.columns, []);
-  const presets = parseAwsJson<DatabaseRowPreset[]>(d.presets, []);
-  const derivedRowOrder = collectRowPageIdsForDatabase(d.id);
+  const columns = parseAwsJson<ColumnDef[]>(db.columns, []);
+  const presets = parseAwsJson<DatabaseRowPreset[]>(db.presets, []);
+  const derivedRowOrder = collectRowPageIdsForDatabase(db.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
 
   const bundle: DatabaseBundle = {
     meta: {
-      id: d.id,
-      title: d.title,
-      createdAt: isoToMs(d.createdAt) || Date.now(),
-      updatedAt: isoToMs(d.updatedAt) || Date.now(),
+      id: db.id,
+      title: db.title,
+      createdAt: isoToMs(db.createdAt) || Date.now(),
+      updatedAt: isoToMs(db.updatedAt) || Date.now(),
     },
     columns,
     presets,
@@ -396,9 +472,9 @@ export function applyRemoteDatabaseToStore(
 
   useDatabaseStore.setState((s) => ({
     ...s,
-    databases: { ...s.databases, [d.id]: bundle },
-    cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, d.workspaceId),
+    databases: { ...s.databases, [db.id]: bundle },
+    cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
 
-  repairDbHistoryBaselineIfNeeded(d.id, structuredClone(bundle));
+  repairDbHistoryBaselineIfNeeded(db.id, structuredClone(bundle));
 }

@@ -10,6 +10,7 @@ import {
   makeLCSchedulerDatabaseId,
   ensureLCSchedulerDatabase,
 } from "./database";
+import { resolveLCSchedulerWorkspaceId } from "./scope";
 import { readRememberedSchedulerPropertyValues } from "./lastPropertyMemory";
 import {
   parseSchedulerTaskMeta,
@@ -108,7 +109,8 @@ export function projectLCSchedulerSchedules(
   workspaceId: string,
   members: MemberLike[],
 ): Schedule[] {
-  const databaseId = makeLCSchedulerDatabaseId(workspaceId);
+  const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
+  const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const pages = usePageStore.getState().pages;
   const rows = Object.values(pages)
     .filter((page) => page.databaseId === databaseId)
@@ -176,8 +178,9 @@ function resolveCreateColor(input: CreateScheduleInput): string | null {
 }
 
 export async function createLCSchedulerSchedule(input: CreateScheduleInput): Promise<Schedule> {
-  await ensureLCSchedulerDatabase(input.workspaceId);
-  const databaseId = makeLCSchedulerDatabaseId(input.workspaceId);
+  const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(input.workspaceId);
+  await ensureLCSchedulerDatabase(schedulerWorkspaceId);
+  const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const pageId = useDatabaseStore.getState().addRow(databaseId);
   const bundle = useDatabaseStore.getState().databases[databaseId];
   const presetId = input.title === "연차"
@@ -187,7 +190,7 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
     useDatabaseStore.getState().applyPresetToRow(databaseId, pageId, presetId);
   }
   // 사용자가 마지막으로 적용한 속성값을 새 일정 생성 시 기본값으로 복원한다.
-  const remembered = readRememberedSchedulerPropertyValues(input.workspaceId);
+  const remembered = readRememberedSchedulerPropertyValues(schedulerWorkspaceId);
   for (const [columnId, value] of Object.entries(remembered)) {
     setCell(databaseId, pageId, columnId, value);
   }
@@ -208,9 +211,10 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
 }
 
 export async function updateLCSchedulerSchedule(input: UpdateScheduleInput): Promise<Schedule> {
+  const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(input.workspaceId);
   const parsed = parseScheduleInstanceId(input.id);
   if (!parsed) throw new Error("LC스케줄러 카드 ID가 올바르지 않습니다");
-  const databaseId = makeLCSchedulerDatabaseId(input.workspaceId);
+  const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const page = usePageStore.getState().pages[parsed.pageId];
   if (!page || page.databaseId !== databaseId) {
     throw new Error("LC스케줄러 행 페이지를 찾을 수 없습니다");
@@ -268,9 +272,10 @@ export async function updateLCSchedulerSchedule(input: UpdateScheduleInput): Pro
 }
 
 export async function deleteLCSchedulerSchedule(id: string, workspaceId: string): Promise<void> {
+  const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
   const parsed = parseScheduleInstanceId(id);
   if (!parsed) throw new Error("LC스케줄러 카드 ID가 올바르지 않습니다");
-  const databaseId = makeLCSchedulerDatabaseId(workspaceId);
+  const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   markDeletedSchedulePage(parsed.pageId);
   useDatabaseStore.getState().deleteRow(databaseId, parsed.pageId);
 }

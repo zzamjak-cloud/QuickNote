@@ -16,7 +16,8 @@ import { enqueueAsync } from "../../lib/sync/runtime";
 import { useAuthStore } from "../authStore";
 import { useWorkspaceStore } from "../workspaceStore";
 import { usePageStore } from "../pageStore";
-import { getLCSchedulerWorkspaceIdFromDatabaseId } from "../../lib/scheduler/database";
+import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import type { DbMap } from "./migrations";
 
 // v5 fallback: 아직 memberStore(me.memberId)와 완전 연동 전이라 auth sub 를 사용.
@@ -30,10 +31,7 @@ export function getCurrentWorkspaceId(): string {
 }
 
 function resolveWorkspaceIdByDatabaseId(databaseId: string | null | undefined): string {
-  if (databaseId) {
-    const schedulerWorkspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(databaseId);
-    if (schedulerWorkspaceId) return schedulerWorkspaceId;
-  }
+  if (isLCSchedulerDatabaseId(databaseId)) return LC_SCHEDULER_WORKSPACE_ID;
   return getCurrentWorkspaceId();
 }
 

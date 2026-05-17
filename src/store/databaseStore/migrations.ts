@@ -9,13 +9,16 @@ import {
   type PersistedObject,
   type PersistedQuarantine,
 } from "../../lib/migrations/persistedStore";
+import {
+  isLegacyLCSchedulerDatabaseId,
+} from "../../lib/scheduler/database";
 
 export type DbMap = Record<string, DatabaseBundle>;
 
 export type DatabaseQuarantine = PersistedQuarantine;
 
 /** zustand persist `version` 과 동일 — 메타 schemaVersion 과 맞춘다 */
-export const DATABASE_STORE_PERSIST_VERSION = 3;
+export const DATABASE_STORE_PERSIST_VERSION = 4;
 
 export const DATABASE_STORE_DATA_KEYS = [
   "databases",
@@ -185,6 +188,21 @@ function normalizeDatabasePersistedState(
   return next;
 }
 
+function cleanupLegacyLCSchedulerDatabases(state: PersistedObject): PersistedObject {
+  if (!isPlainObject(state.databases)) return state;
+  const databases = { ...(state.databases as DbMap) };
+  let changed = false;
+
+  for (const databaseId of Object.keys(databases)) {
+    if (!isLegacyLCSchedulerDatabaseId(databaseId)) continue;
+    delete databases[databaseId];
+    changed = true;
+  }
+
+  if (!changed) return state;
+  return { ...state, databases };
+}
+
 export function migrateDatabaseStore(
   persisted: unknown,
   fromVersion: number,
@@ -206,6 +224,13 @@ export function migrateDatabaseStore(
         version: 3,
         migrate: (state) =>
           normalizeDatabasePersistedState(state, fromVersion),
+      },
+      {
+        version: 4,
+        migrate: (state) =>
+          cleanupLegacyLCSchedulerDatabases(
+            normalizeDatabasePersistedState(state, fromVersion),
+          ),
       },
     ],
     { databases: {}, cacheWorkspaceId: null, migrationQuarantine: [] },
