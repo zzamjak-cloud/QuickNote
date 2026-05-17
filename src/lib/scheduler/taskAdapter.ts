@@ -82,6 +82,8 @@ function scheduleFromPage(args: {
   range: DateRangeValue;
   color: string | null;
   projectId: string | null;
+  teamId: string | null;
+  organizationId: string | null;
 }): Schedule {
   const color = args.color ?? (args.meta.kind === "leave" ? "#E74C3C" : "#3498DB");
   return {
@@ -91,6 +93,8 @@ function scheduleFromPage(args: {
     comment: null,
     link: null,
     projectId: args.projectId,
+    teamId: args.teamId,
+    organizationId: args.organizationId,
     startAt: args.range.start ?? new Date(args.page.createdAt).toISOString(),
     endAt: args.range.end ?? args.range.start ?? new Date(args.page.createdAt).toISOString(),
     assigneeId: args.assigneeId,
@@ -124,16 +128,18 @@ export function projectLCSchedulerSchedules(
     const meta = parseSchedulerTaskMeta(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.meta]);
     const color = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.color]);
     const projectId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.project]);
+    const teamId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.team]);
+    const organizationId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.organization]);
     const assigneeIds = normalizeAssignees(
       page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.assignees],
       members,
     );
     if (!assigneeIds.length) {
-      schedules.push(scheduleFromPage({ page, workspaceId, assigneeId: null, meta, range, color, projectId }));
+      schedules.push(scheduleFromPage({ page, workspaceId, assigneeId: null, meta, range, color, projectId, teamId, organizationId }));
       continue;
     }
     for (const assigneeId of assigneeIds) {
-      schedules.push(scheduleFromPage({ page, workspaceId, assigneeId, meta, range, color, projectId }));
+      schedules.push(scheduleFromPage({ page, workspaceId, assigneeId, meta, range, color, projectId, teamId, organizationId }));
     }
   }
   return schedules;

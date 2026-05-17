@@ -26,6 +26,8 @@ export type Schedule = {
   comment?: string | null;
   link?: string | null;
   projectId?: string | null;
+  teamId?: string | null;
+  organizationId?: string | null;
   startAt: string;
   endAt: string;
   assigneeId?: string | null;
@@ -93,6 +95,7 @@ function projectSchedulesForStore(workspaceId: string, from?: string, to?: strin
 function makeOptimisticSchedule(input: CreateScheduleInput): Schedule {
   const now = new Date().toISOString();
   const color = input.color ?? ((input.assigneeId ?? null) === null ? GLOBAL_EVENT_COLOR : DEFAULT_SCHEDULE_COLOR);
+  const selectedScopeKey = input.selectedScopeKey ?? useSchedulerViewStore.getState().selectedProjectId;
   const idSeed = typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -103,6 +106,8 @@ function makeOptimisticSchedule(input: CreateScheduleInput): Schedule {
     comment: input.comment ?? null,
     link: input.link ?? null,
     projectId: input.projectId ?? null,
+    teamId: selectedScopeKey?.startsWith("team:") ? selectedScopeKey.slice(5) : null,
+    organizationId: selectedScopeKey?.startsWith("org:") ? selectedScopeKey.slice(4) : null,
     startAt: input.startAt,
     endAt: input.endAt,
     assigneeId: input.assigneeId ?? null,

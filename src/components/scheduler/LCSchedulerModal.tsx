@@ -22,7 +22,7 @@ import { SchedulerHeader } from "./SchedulerHeader";
 import { SchedulerTeamTabs } from "./SchedulerTeamTabs";
 import { SchedulerToolbar } from "./SchedulerToolbar";
 import { ScheduleGrid } from "./ScheduleGrid";
-import { WeekScheduleView } from "./WeekScheduleView";
+import { MonthScheduleView, WeekScheduleView } from "./WeekScheduleView";
 import { WeeklyMmPanel } from "./mm/WeeklyMmPanel";
 
 // 연도의 마지막 날짜
@@ -138,9 +138,11 @@ export function LCSchedulerModal({ onClose }: Props) {
       {/* 툴바: 연도·월·직군·이름 필터 + 오늘·열너비·줌·도움말 */}
       <SchedulerToolbar />
 
-      {/* 본문: 연간 뷰 or 주간 뷰 */}
+      {/* 본문: 연간 / 월간 / 주간 뷰 */}
       {viewMode === "year" ? (
         <ScheduleGrid workspaceId={schedulerWorkspaceId} />
+      ) : viewMode === "month" ? (
+        <MonthScheduleView />
       ) : (
         <WeekScheduleView />
       )}

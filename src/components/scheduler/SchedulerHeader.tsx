@@ -146,7 +146,20 @@ export function SchedulerHeader({ onClose }: Props) {
                   : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
               }`}
             >
-              연간 보기
+              연간
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === "month"}
+              onClick={() => setViewMode("month")}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                viewMode === "month"
+                  ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+              }`}
+            >
+              월간
             </button>
             <button
               type="button"
@@ -159,7 +172,7 @@ export function SchedulerHeader({ onClose }: Props) {
                   : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
               }`}
             >
-              주간 보기
+              주간
             </button>
           </div>
         </div>

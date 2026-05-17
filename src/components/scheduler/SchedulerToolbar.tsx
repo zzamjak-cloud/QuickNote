@@ -56,8 +56,8 @@ export function SchedulerToolbar() {
 
       {/* 우측: 컨트롤 그룹 */}
       <div className="flex items-center gap-2 flex-wrap justify-end">
-        {/* 오늘 버튼 (연간 타임라인 전용) */}
-        {viewMode === "year" && (
+        {/* 오늘 버튼 */}
+        {(viewMode === "year" || viewMode === "month" || viewMode === "week") && (
           <button
             onClick={scrollToToday}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-md transition-colors text-sm font-medium text-zinc-900 dark:text-zinc-100"
@@ -109,8 +109,8 @@ export function SchedulerToolbar() {
           </div>
         )}
 
-        {/* 줌 컨트롤 (연간 전용) */}
-        {viewMode === "year" && (
+        {/* 줌 컨트롤 */}
+        {(viewMode === "year" || viewMode === "month" || viewMode === "week") && (
           <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-md p-1">
             <button
               onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.25))}

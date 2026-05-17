@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { DEFAULT_SCHEDULE_COLOR, DEFAULT_WEEKEND_COLOR } from "../lib/scheduler/colors";
 
-export type SchedulerViewMode = "year" | "week";
+export type SchedulerViewMode = "year" | "month" | "week";
 
 export type MonthVisibility = Record<number, boolean>;
 

@@ -1,23 +1,34 @@
 // 주간 보기 — 지난주·이번주·다음주 × 평일 5일(월~금), 주 단위로만 카드 분할·주 내에서는 연결
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Rnd } from 'react-rnd'
+import { ChevronLeft, ChevronRight, ExternalLink, Minus, Plus } from 'lucide-react'
 import {
   addDays,
   startOfDay,
   isSameDay,
   startOfWeek,
+  toIsoEndOfDay,
+  toIsoStartOfDay,
 } from '../../lib/scheduler/dateUtils'
 import { useSchedulerStore, type Schedule } from '../../store/schedulerStore'
 import { useSchedulerViewStore } from '../../store/schedulerViewStore'
 import { useOrganizationStore } from '../../store/organizationStore'
 import { useTeamStore } from '../../store/teamStore'
 import { useSchedulerHolidaysStore } from '../../store/schedulerHolidaysStore'
+import { useSchedulerProjectsStore } from '../../store/schedulerProjectsStore'
 import { useVisibleMembers } from './hooks/useVisibleMembers'
-import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR } from '../../lib/scheduler/colors'
-import { ScheduleEditPopup } from './ScheduleEditPopup'
-import type { Member } from '../../store/memberStore'
+import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR, pickTextColor } from '../../lib/scheduler/colors'
+import { useMemberStore, type Member } from '../../store/memberStore'
 import { getHolidaysForYear } from '../../lib/scheduler/koreanHolidays'
 import { LC_SCHEDULER_WORKSPACE_ID } from '../../lib/scheduler/scope'
+import { parseScheduleInstanceId } from '../../lib/scheduler/taskAdapter'
+import { useUiStore } from '../../store/uiStore'
+import { computeRowCount, hasCollision } from '../../lib/scheduler/collisionDetection'
+import { ContextMenu } from './ContextMenu'
+import { updateMemberApi } from '../../lib/sync/memberApi'
+import { getRowHeight } from '../../lib/scheduler/grid'
 
 // date-fns 미설치 → 인라인 날짜 유틸
 function addWeeks(d: Date, n: number): Date {
@@ -54,26 +65,17 @@ function isAnnualLeaveSchedule(s: Schedule): boolean {
 type ProjectMeta = {
   id: string
   name: string
-  type: 'organization' | 'project'
+  type: 'organization' | 'team' | 'project'
 }
 
 const COL_BG = ['#9ca3af', '#3b82f6', '#1e3a8a'] as const
 const PAST_WEEK_GRAY = '#9ca3af'
 
-function darkenHexColor(hex: string, amount: number): string {
-  const clean = hex.replace('#', '')
-  if (!/^[0-9a-fA-F]{6}$/.test(clean)) return hex
-  const n = parseInt(clean, 16)
-  const r = (n >> 16) & 0xff
-  const g = (n >> 8) & 0xff
-  const b = n & 0xff
-  const nr = Math.max(0, Math.round(r * (1 - amount)))
-  const ng = Math.max(0, Math.round(g * (1 - amount)))
-  const nb = Math.max(0, Math.round(b * (1 - amount)))
-  return `#${nr.toString(16).padStart(2, '0')}${ng.toString(16).padStart(2, '0')}${nb.toString(16).padStart(2, '0')}`
-}
-
-const GRID_15 = { gridTemplateColumns: 'repeat(15, minmax(0, 1fr))' } as const
+const WEEK_SLOT_COUNT = 15
+const WEEK_HEADER_HEIGHT = 76
+const WEEK_CARD_MARGIN = 2
+const MARQUEE_ACTIVATE_PX = 4
+const PENDING_SCHEDULE_PAGE_ID_PREFIX = 'lc-scheduler:creating:'
 
 // Schedule 은 ISO 문자열 기반 → ms 변환 헬퍼
 function scheduleStartMs(s: Schedule): number {
@@ -90,52 +92,28 @@ function overlapsDay(s: Schedule, day: Date): boolean {
   return scheduleStartMs(s) < dayEndEx && scheduleEndMs(s) > dayStart
 }
 
-function fmtYMD(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function formatScheduleRange(s: Schedule): string {
-  const start = startOfDay(new Date(scheduleStartMs(s)))
-  const endExclusive = startOfDay(new Date(scheduleEndMs(s)))
-  const endInclusive = subDays(endExclusive, 1)
-  if (endInclusive < start) {
-    return fmtMD(start)
-  }
-  if (fmtYMD(start) === fmtYMD(endInclusive)) {
-    return fmtMD(start)
-  }
-  return `${fmtMD(start)} ~ ${fmtMD(endInclusive)}`
-}
-
 type WeekDaySlot = {
   weekIndex: 0 | 1 | 2
   dow: number
   date: Date
 }
 
-/** 한 주(월~금) 안에서 일정이 덮는 연속 구간(주 경계에서만 분할) */
-type WeekFragment = {
-  weekIndex: 0 | 1 | 2
-  minD: number
-  maxD: number
-}
-
 type ScheduleWeekLayout = {
   schedule: Schedule
-  fragments: WeekFragment[]
-  intervals: Array<{ start: number; end: number }>
-  firstStart: number
+  startSlot: number
+  endSlot: number
 }
 
-type ProjectPackedGroup = {
-  key: string
-  rows: ScheduleWeekLayout[][]
-  groupStart: number
-}
-
-type MemberWeeklyStat = {
-  label: string
-  percent: number
+type MemberRowItem = {
+  member: Member
+  memberSchedules: Schedule[]
+  layouts: ScheduleWeekLayout[]
+  rowCount: number
+  rowHeight: number
+  slotHeight: number
+  top: number
+  cardRows: number
+  canRemove: boolean
 }
 
 function buildWeekDaySlots(
@@ -158,380 +136,532 @@ function buildWeekDaySlots(
   return slots
 }
 
-/** 15칸 그리드에서 1-based 시작 열과 span (한 주 안 연속) */
-function getScheduleWeekFragments(
-  s: Schedule,
-  weekMondays: readonly [Date, Date, Date]
-): WeekFragment[] {
-  const out: WeekFragment[] = []
-  for (let wi = 0; wi < 3; wi++) {
-    const mon = startOfDay(weekMondays[wi]!)
-    const hits: boolean[] = []
-    for (let dow = 0; dow < 5; dow++) {
-      hits.push(overlapsDay(s, addDays(mon, dow)))
-    }
-    if (!hits.some(Boolean)) continue
-    let d = 0
-    while (d < 5) {
-      if (!hits[d]) {
-        d++
-        continue
-      }
-      let e = d
-      while (e < 5 && hits[e]) e++
-      out.push({ weekIndex: wi as 0 | 1 | 2, minD: d, maxD: e - 1 })
-      d = e
-    }
-  }
-  return out
+function relativeWeekTitle(offset: number): string {
+  if (offset === -1) return '지난주'
+  if (offset === 0) return '이번주'
+  if (offset === 1) return '다음주'
+  return offset < -1 ? '과거' : '미래'
 }
 
 function scheduleOverlapsAnyDaySlot(s: Schedule, slots: WeekDaySlot[]): boolean {
   return slots.some((slot) => overlapsDay(s, slot.date))
 }
 
-function intervalsOverlap(a: { start: number; end: number }, b: { start: number; end: number }): boolean {
-  return a.start <= b.end && b.start <= a.end
-}
-
-function layoutsOverlap(a: ScheduleWeekLayout, b: ScheduleWeekLayout): boolean {
-  for (const ia of a.intervals) {
-    for (const ib of b.intervals) {
-      if (intervalsOverlap(ia, ib)) return true
-    }
-  }
-  return false
-}
-
-function packTetrisRows(items: ScheduleWeekLayout[]): ScheduleWeekLayout[][] {
-  const rows: ScheduleWeekLayout[][] = []
-  for (const item of items) {
-    let placed = false
-    for (const row of rows) {
-      const collides = row.some((r) => layoutsOverlap(r, item))
-      if (!collides) {
-        row.push(item)
-        placed = true
-        break
-      }
-    }
-    if (!placed) rows.push([item])
-  }
-  return rows
-}
-
-/** 주간 행 그룹 정렬: 프로젝트·미배정 먼저, 조직(organization)은 뒤로 */
-function groupSortTier(groupKey: string, projects: ProjectMeta[]): number {
-  if (groupKey === '__unassigned__') return 0
-  const p = projects.find((x) => x.id === groupKey)
-  if (!p) return 0
-  return p.type === 'organization' ? 1 : 0
-}
-
-/**
- * 구성원 내부에서 프로젝트 단위로 먼저 분리한 뒤,
- * 각 프로젝트 그룹 안에서만 테트리스 배치.
- */
-function packRowsByProject(items: ScheduleWeekLayout[], projects: ProjectMeta[]): ProjectPackedGroup[] {
-  const byProject = new Map<string, ScheduleWeekLayout[]>()
-  for (const item of items) {
-    const key = item.schedule.projectId || '__unassigned__'
-    const arr = byProject.get(key)
-    if (arr) arr.push(item)
-    else byProject.set(key, [item])
-  }
-
-  const groups: ProjectPackedGroup[] = []
-  byProject.forEach((groupItems, key) => {
-    const sorted = [...groupItems].sort((a, b) => a.firstStart - b.firstStart)
-    groups.push({
-      key,
-      rows: packTetrisRows(sorted),
-      groupStart: sorted[0]?.firstStart ?? Number.MAX_SAFE_INTEGER,
-    })
+function getScheduleSlotRange(s: Schedule, slots: WeekDaySlot[]): ScheduleWeekLayout | null {
+  let startSlot = -1
+  let endSlot = -1
+  slots.forEach((slot, index) => {
+    if (!overlapsDay(s, slot.date)) return
+    if (startSlot < 0) startSlot = index
+    endSlot = index
   })
-
-  // 1) 프로젝트·미배정 → 조직 순, 2) 동일 티어에서는 첫 카드 시작 위치
-  groups.sort((a, b) => {
-    const ta = groupSortTier(a.key, projects)
-    const tb = groupSortTier(b.key, projects)
-    if (ta !== tb) return ta - tb
-    return a.groupStart - b.groupStart
-  })
-  return groups
-}
-
-function projectLabelForStats(projectId: string | null | undefined, projects: ProjectMeta[]): string {
-  if (!projectId) return '미지정'
-  const p = projects.find((x) => x.id === projectId)
-  return p?.name?.trim() || '미지정'
+  if (startSlot < 0 || endSlot < 0) return null
+  return { schedule: s, startSlot, endSlot }
 }
 
 // 프로젝트 메타 인라인 헬퍼
-function getScheduleProjectMeta(
-  projectId: string | null | undefined,
-  projects: ProjectMeta[]
+function getScheduleScopeMeta(
+  schedule: Schedule,
+  scopes: ProjectMeta[]
 ): { displayText: string; tooltip: string } {
-  if (!projectId) return { displayText: '미지정', tooltip: '미지정' }
-  const p = projects.find((x) => x.id === projectId)
-  if (!p) return { displayText: '미지정', tooltip: '미지정' }
-  return { displayText: p.name, tooltip: p.name }
-}
-
-/**
- * 지난주(월~금) 업무 비율 계산.
- * - 하루 단위 100%를 해당 일의 업무 카드 수만큼 균등 분배
- * - 연차가 포함된 날은 업무일에서 제외(분모 감소)
- * - 주간 합계는 100%가 되도록 정수 반올림 보정
- */
-function buildLastWeekStats(memberSchedules: Schedule[], lastMonday: Date, projects: ProjectMeta[]): MemberWeeklyStat[] {
-  const dayKeys = [0, 1, 2, 3, 4].map((d) => startOfDay(addDays(lastMonday, d)))
-  const projectShares = new Map<string, number>()
-  let workingDayCount = 0
-
-  dayKeys.forEach((day) => {
-    const daily = memberSchedules.filter((s) => overlapsDay(s, day))
-    if (daily.length === 0) return
-
-    if (daily.some((s) => isAnnualLeaveSchedule(s))) {
-      return
-    }
-
-    const eachShare = 1 / daily.length
-    daily.forEach((s) => {
-      const label = projectLabelForStats(s.projectId, projects)
-      projectShares.set(label, (projectShares.get(label) || 0) + eachShare)
-    })
-    workingDayCount += 1
-  })
-
-  if (workingDayCount === 0 || projectShares.size === 0) {
-    return []
+  const project = schedule.projectId
+    ? scopes.find((x) => x.type === 'project' && x.id === schedule.projectId)
+    : null
+  if (project) {
+    return { displayText: `프로젝트 · ${project.name}`, tooltip: project.name }
   }
 
-  const raw = Array.from(projectShares.entries()).map(([label, shareDays]) => {
-    const exact = (shareDays / workingDayCount) * 100
-    const floored = Math.floor(exact)
-    return {
-      label,
-      exact,
-      floored,
-      remainder: exact - floored,
-    }
-  })
-
-  const allocated = raw.reduce((sum, x) => sum + x.floored, 0)
-  let remain = 100 - allocated
-  if (remain > 0) {
-    const byRemainder = [...raw].sort((a, b) => {
-      if (b.remainder !== a.remainder) return b.remainder - a.remainder
-      return b.exact - a.exact
-    })
-    let idx = 0
-    while (remain > 0 && byRemainder.length > 0) {
-      byRemainder[idx % byRemainder.length]!.floored += 1
-      remain -= 1
-      idx += 1
-    }
+  const team = schedule.teamId
+    ? scopes.find((x) => x.type === 'team' && x.id === schedule.teamId)
+    : null
+  if (team) {
+    return { displayText: `팀 · ${team.name}`, tooltip: team.name }
   }
 
-  return raw
-    .map((x) => ({ label: x.label, percent: x.floored }))
-    .filter((x) => x.percent > 0)
-    .sort((a, b) => b.percent - a.percent || a.label.localeCompare(b.label, 'ko'))
+  const organization = schedule.organizationId
+    ? scopes.find((x) => x.type === 'organization' && x.id === schedule.organizationId)
+    : null
+  if (organization) {
+    return { displayText: `조직 · ${organization.name}`, tooltip: organization.name }
+  }
+
+  return { displayText: '기타 업무', tooltip: '기타 업무' }
 }
 
-function getSafePopupPosition(x: number, y: number): { x: number; y: number } {
-  const POPUP_WIDTH = 300
-  const POPUP_HEIGHT = 360
-  const MARGIN = 8
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
+type TooltipPos = { top: number; left: number }
 
-  let nx = x - 170
-  let ny = y - 120
-  if (ny + POPUP_HEIGHT > viewportHeight) ny = y - POPUP_HEIGHT - MARGIN
-  if (nx + POPUP_WIDTH > viewportWidth) nx = viewportWidth - POPUP_WIDTH - MARGIN
-  if (nx < MARGIN) nx = MARGIN
-  if (ny < MARGIN) ny = MARGIN
-  return { x: nx, y: ny }
+function slotRangeToIso(slots: WeekDaySlot[], startSlot: number, endSlot: number): { startAt: string; endAt: string } {
+  return {
+    startAt: toIsoStartOfDay(slots[startSlot]!.date),
+    endAt: toIsoEndOfDay(slots[endSlot]!.date),
+  }
 }
 
-function ScheduleWeekSpanCell({
+function clampSlotStart(startSlot: number, span: number, slotCount: number): number {
+  return Math.max(0, Math.min(slotCount - span, startSlot))
+}
+
+function ScheduleWeekCard({
   schedule: s,
   projects,
-  weekIndex,
-  gridColumn,
-  onOpenEdit,
-  showLeftResizeHandle = false,
-  showRightResizeHandle = false,
-  rangeStart = 0,
-  rangeEnd = 0,
-  onResizeRange,
+  members,
+  slots,
+  startSlot,
+  endSlot,
+  slotCount,
+  cellWidth,
+  slotHeight,
+  rowCount,
+  allSchedules,
+  isSelected,
+  onSelect,
+  onOpenPage,
+  onUpdate,
+  onCreate,
 }: {
   schedule: Schedule
   projects: ProjectMeta[]
-  weekIndex: 0 | 1 | 2
-  gridColumn: string
-  onOpenEdit: (schedule: Schedule, position: { x: number; y: number }) => void
-  showLeftResizeHandle?: boolean
-  showRightResizeHandle?: boolean
-  rangeStart?: number
-  rangeEnd?: number
-  onResizeRange?: (nextStart: number, nextEnd: number) => void
+  members: Member[]
+  slots: WeekDaySlot[]
+  startSlot: number
+  endSlot: number
+  slotCount: number
+  cellWidth: number
+  slotHeight: number
+  rowCount: number
+  allSchedules: Schedule[]
+  isSelected: boolean
+  onSelect: (id: string) => void
+  onOpenPage: (id: string) => void
+  onUpdate: ReturnType<typeof useSchedulerStore.getState>['updateSchedule']
+  onCreate: ReturnType<typeof useSchedulerStore.getState>['createSchedule']
 }) {
   const annual = isAnnualLeaveSchedule(s)
   const scheduleColor = s.color || DEFAULT_SCHEDULE_COLOR
+  const isPast = !annual && new Date(s.endAt).getTime() < Date.now()
   const bg = annual
     ? ANNUAL_LEAVE_COLOR
-    : weekIndex === 0
+    : isPast
       ? PAST_WEEK_GRAY
-      : weekIndex === 2
-        ? darkenHexColor(scheduleColor, 0.2)
-        : scheduleColor
-  const meta = getScheduleProjectMeta(s.projectId, projects)
-  const [previewInset, setPreviewInset] = useState<{ left: number; right: number }>({ left: 0, right: 0 })
-  const [isPreviewResizing, setIsPreviewResizing] = useState(false)
-  const [isHovered, setIsHovered] = useState(false)
+      : scheduleColor
+  const textColor = s.textColor ?? '#ffffff'
+  const meta = getScheduleScopeMeta(s, projects)
+  const span = Math.max(1, endSlot - startSlot + 1)
+  const x = startSlot * cellWidth
+  const w = span * cellWidth
+  const rowIdx = Math.max(0, Math.min(rowCount - 1, s.rowIndex ?? 0))
+  const y = rowIdx * slotHeight
+  const rndRef = useRef<Rnd>(null)
+  const dragMovedRef = useRef(false)
+  const isShiftDragRef = useRef(false)
+  const resizeStartRef = useRef<{ startSlot: number; endSlot: number } | null>(null)
+  const [localX, setLocalX] = useState(x)
+  const [localW, setLocalW] = useState(w)
+  const [localY, setLocalY] = useState(y)
+  const [tooltipPos, setTooltipPos] = useState<TooltipPos | null>(null)
+  const [contextMenuPos, setContextMenuPos] = useState<TooltipPos | null>(null)
 
-  const beginResize = (direction: 'left' | 'right', e: React.MouseEvent) => {
-    if (!onResizeRange) return
-    e.preventDefault()
-    e.stopPropagation()
-    const rowEl = (e.currentTarget as HTMLElement).closest('.week-row-grid') as HTMLElement | null
-    if (!rowEl) return
-    const rect = rowEl.getBoundingClientRect()
+  useEffect(() => {
+    setLocalX(x)
+    setLocalW(w)
+    setLocalY(y)
+  }, [s.id, x, w, y])
 
-    const calcIndex = (clientX: number) => {
-      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-      return Math.max(0, Math.min(14, Math.floor(ratio * 15)))
-    }
-
-    let lastClientX = e.clientX
-    setIsPreviewResizing(true)
-    const handleMove = (ev: MouseEvent) => {
-      lastClientX = ev.clientX
-      const delta = ev.clientX - e.clientX
-      if (direction === 'left') {
-        setPreviewInset({
-          left: Math.max(-rect.width + 8, Math.min(rect.width - 8, delta)),
-          right: 0,
-        })
-      } else {
-        setPreviewInset({
-          left: 0,
-          right: Math.max(-rect.width + 8, Math.min(rect.width - 8, -delta)),
-        })
+  const findAvailableRowIndex = useCallback(
+    (startAt: string, endAt: string, preferredRowIndex: number) => {
+      const tryRow = (rowIndex: number) => {
+        const candidate: Schedule = {
+          ...s,
+          startAt,
+          endAt,
+          rowIndex,
+        }
+        return !hasCollision(candidate, allSchedules)
       }
-    }
-    const handleUp = () => {
-      window.removeEventListener('mousemove', handleMove)
-      window.removeEventListener('mouseup', handleUp)
-      setIsPreviewResizing(false)
-      setPreviewInset({ left: 0, right: 0 })
-      const idx = calcIndex(lastClientX)
-      if (direction === 'left') {
-        onResizeRange(Math.min(idx, rangeEnd), rangeEnd)
-      } else {
-        onResizeRange(rangeStart, Math.max(idx, rangeStart))
-      }
-    }
 
-    window.addEventListener('mousemove', handleMove)
-    window.addEventListener('mouseup', handleUp)
-  }
+      if (tryRow(preferredRowIndex)) return preferredRowIndex
+      for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+        if (rowIndex === preferredRowIndex) continue
+        if (tryRow(rowIndex)) return rowIndex
+      }
+      return null
+    },
+    [allSchedules, rowCount, s],
+  )
+
+  const handleMouseEnter = useCallback(() => {
+    const el = rndRef.current?.getSelfElement()
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const tooltipHeight = 80
+    const gap = 6
+    let top = rect.top - tooltipHeight - gap
+    if (top < 4) top = rect.bottom + gap
+    setTooltipPos({ top, left: rect.left })
+  }, [])
+
+  const handleDragStart = useCallback((e: unknown) => {
+    dragMovedRef.current = false
+    setTooltipPos(null)
+    setContextMenuPos(null)
+    if (typeof e === 'object' && e && 'shiftKey' in e) {
+      isShiftDragRef.current = Boolean((e as { shiftKey?: boolean }).shiftKey)
+    }
+  }, [])
+
+  const handleDrag = useCallback((_e: unknown, data: { x: number; y: number }) => {
+    dragMovedRef.current = true
+    setLocalX(data.x - WEEK_CARD_MARGIN)
+    setLocalY(data.y - WEEK_CARD_MARGIN)
+  }, [])
+
+  const handleDragStop = useCallback(
+    (_e: unknown, data: { x: number; y: number }) => {
+      if (!dragMovedRef.current) {
+        onSelect(s.id)
+        return
+      }
+
+      const wasShiftDrag = isShiftDragRef.current
+      isShiftDragRef.current = false
+      const adjustedX = data.x - WEEK_CARD_MARGIN
+      const adjustedY = data.y - WEEK_CARD_MARGIN
+      const nextStartSlot = clampSlotStart(Math.round(adjustedX / cellWidth), span, slotCount)
+      const nextEndSlot = nextStartSlot + span - 1
+      const preferredRowIndex = Math.max(0, Math.min(rowCount - 1, Math.round(adjustedY / slotHeight)))
+      const { startAt, endAt } = slotRangeToIso(slots, nextStartSlot, nextEndSlot)
+      const newRowIndex = findAvailableRowIndex(startAt, endAt, preferredRowIndex)
+      if (newRowIndex == null) {
+        setLocalX(x)
+        setLocalY(y)
+        return
+      }
+
+      const nextLocalX = nextStartSlot * cellWidth
+      const nextLocalY = newRowIndex * slotHeight
+
+      if (wasShiftDrag) {
+        void onCreate({
+          workspaceId: s.workspaceId,
+          title: s.title,
+          comment: s.comment ?? null,
+          link: s.link ?? null,
+          projectId: s.projectId ?? null,
+          assigneeId: s.assigneeId ?? null,
+          selectedScopeKey: s.projectId
+            ? `proj:${s.projectId}`
+            : s.teamId
+              ? `team:${s.teamId}`
+              : s.organizationId
+                ? `org:${s.organizationId}`
+                : null,
+          color: s.color ?? null,
+          textColor: s.textColor ?? null,
+          startAt,
+          endAt,
+          rowIndex: newRowIndex,
+        })
+        setLocalX(x)
+        setLocalY(y)
+        return
+      }
+
+      setLocalX(nextLocalX)
+      setLocalY(nextLocalY)
+      void onUpdate({
+        id: s.id,
+        workspaceId: s.workspaceId,
+        startAt,
+        endAt,
+        rowIndex: newRowIndex,
+      }).catch(() => {
+        setLocalX(x)
+        setLocalY(y)
+      })
+    },
+    [cellWidth, findAvailableRowIndex, onCreate, onSelect, onUpdate, rowCount, s, slotCount, slotHeight, slots, span, x, y],
+  )
+
+  const handleResizeStart = useCallback(() => {
+    resizeStartRef.current = { startSlot, endSlot }
+    setTooltipPos(null)
+    setContextMenuPos(null)
+  }, [endSlot, startSlot])
+
+  const handleResizeStop = useCallback(
+    (
+      _e: unknown,
+      direction: string,
+      _ref: HTMLElement,
+      delta: { width: number },
+    ) => {
+      const start = resizeStartRef.current ?? { startSlot, endSlot }
+      const cellDelta = Math.round(delta.width / cellWidth)
+      const nextStartSlot = direction.includes('left')
+        ? Math.max(0, Math.min(start.endSlot, start.startSlot - cellDelta))
+        : start.startSlot
+      const nextEndSlot = direction.includes('left')
+        ? start.endSlot
+        : Math.max(start.startSlot, Math.min(slotCount - 1, start.endSlot + cellDelta))
+      const { startAt, endAt } = slotRangeToIso(slots, nextStartSlot, nextEndSlot)
+      const nextSchedule: Schedule = {
+        ...s,
+        startAt,
+        endAt,
+      }
+      if (hasCollision(nextSchedule, allSchedules)) {
+        setLocalX(x)
+        setLocalW(w)
+        resizeStartRef.current = null
+        return
+      }
+
+      setLocalX(nextStartSlot * cellWidth)
+      setLocalW((nextEndSlot - nextStartSlot + 1) * cellWidth)
+      resizeStartRef.current = null
+      void onUpdate({
+        id: s.id,
+        workspaceId: s.workspaceId,
+        startAt,
+        endAt,
+      }).catch(() => {
+        setLocalX(x)
+        setLocalW(w)
+        resizeStartRef.current = null
+      })
+    },
+    [allSchedules, cellWidth, endSlot, onUpdate, s, slotCount, slots, startSlot, w, x],
+  )
+
+  const handleColorChange = useCallback(
+    (color: string) => {
+      void onUpdate({
+        id: s.id,
+        workspaceId: s.workspaceId,
+        color,
+        textColor: pickTextColor(color),
+      }).catch(() => {
+        window.alert('색상 변경에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+      })
+    },
+    [onUpdate, s.id, s.workspaceId],
+  )
+
+  const handleTransfer = useCallback(
+    (targetMemberId: string) => {
+      const targetSchedules = allSchedules.filter((item) => item.assigneeId === targetMemberId)
+      let targetRowIndex = 0
+      for (; targetRowIndex <= targetSchedules.length; targetRowIndex += 1) {
+        const candidate: Schedule = {
+          ...s,
+          assigneeId: targetMemberId,
+          rowIndex: targetRowIndex,
+        }
+        if (!hasCollision(candidate, allSchedules)) break
+      }
+
+      void onUpdate({
+        id: s.id,
+        workspaceId: s.workspaceId,
+        assigneeId: targetMemberId,
+        rowIndex: targetRowIndex,
+      }).catch(() => {
+        window.alert('업무 이관에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+      })
+    },
+    [allSchedules, onUpdate, s],
+  )
 
   return (
-    <div
-      tabIndex={0}
-      role="button"
-      className="relative overflow-visible min-h-full rounded px-1.5 py-0.5 text-white shadow-sm border border-white/10 flex flex-col justify-start leading-tight cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/60"
-      style={{
-        gridColumn,
-        backgroundColor: bg,
-        marginLeft: previewInset.left === 0 ? undefined : `${previewInset.left}px`,
-        width:
-          previewInset.left === 0 && previewInset.right === 0
-            ? undefined
-            : `calc(100% - ${previewInset.left}px - ${previewInset.right}px)`,
-        zIndex: isPreviewResizing || isHovered ? 60 : 10,
-        outline: isPreviewResizing ? '2px dashed #ef4444' : undefined,
-        outlineOffset: isPreviewResizing ? '1px' : undefined,
-        boxShadow: isPreviewResizing ? '0 0 0 2px rgba(239,68,68,0.25)' : undefined,
-      }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      onDoubleClick={(e) => {
-        onOpenEdit(s, { x: e.clientX, y: e.clientY })
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          const target = e.currentTarget.getBoundingClientRect()
-          onOpenEdit(s, { x: target.left + target.width / 2, y: target.top + target.height / 2 })
-        }
-      }}
-    >
-      {showLeftResizeHandle && (
-        <button
-          type="button"
-          aria-label="시작일 조정"
-          onMouseDown={(e) => beginResize('left', e)}
-          className="absolute left-0 top-0 h-full w-3 z-30 cursor-ew-resize bg-white/45 opacity-0 hover:opacity-100 transition-opacity"
-        />
-      )}
-      {showRightResizeHandle && (
-        <button
-          type="button"
-          aria-label="종료일 조정"
-          onMouseDown={(e) => beginResize('right', e)}
-          className="absolute right-0 top-0 h-full w-3 z-30 cursor-ew-resize bg-white/45 opacity-0 hover:opacity-100 transition-opacity"
-        />
-      )}
-      <div
-        className="flex items-center gap-1 flex-wrap mb-0.5 min-w-0"
-        title={meta.tooltip || meta.displayText || undefined}
+    <>
+      <Rnd
+        ref={rndRef}
+        bounds="parent"
+        dragAxis={rowCount > 1 ? 'both' : 'x'}
+        dragGrid={[1, 1]}
+        resizeGrid={[cellWidth, 1]}
+        minWidth={Math.max(1, cellWidth - WEEK_CARD_MARGIN * 2)}
+        position={{ x: localX + WEEK_CARD_MARGIN, y: localY + WEEK_CARD_MARGIN }}
+        size={{
+          width: Math.max(0, localW - WEEK_CARD_MARGIN * 2),
+          height: Math.max(0, slotHeight - WEEK_CARD_MARGIN * 2),
+        }}
+        enableResizing={{ left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
+        resizeHandleStyles={{
+          left: { cursor: 'ew-resize', width: 8, left: 0 },
+          right: { cursor: 'ew-resize', width: 8, right: 0 },
+        }}
+        className={`schedule-card rounded-md select-none overflow-hidden border-2 transition-shadow cursor-move ${
+          isSelected
+            ? 'ring-2 ring-blue-500 border-white shadow-lg'
+            : 'border-transparent hover:border-white/40 hover:shadow-sm'
+        }`}
+        style={{ position: 'absolute', zIndex: isSelected ? 40 : 20 }}
+        onDragStart={handleDragStart}
+        onDrag={handleDrag}
+        onDragStop={handleDragStop}
+        onResizeStart={handleResizeStart}
+        onResizeStop={handleResizeStop}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setTooltipPos(null)}
       >
-        <span
-          className="text-[9px] font-semibold shrink-0 rounded px-1 py-px bg-slate-300/90 text-slate-800"
-          title={meta.tooltip || meta.displayText}
+        <div
+          tabIndex={0}
+          role="button"
+          className="w-full h-full flex items-center px-1.5 overflow-hidden focus:outline-none focus:ring-2 focus:ring-blue-500/60"
+          style={{ backgroundColor: bg, color: textColor }}
+          onMouseDown={() => onSelect(s.id)}
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect(s.id)
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onSelect(s.id)
+            setContextMenuPos({ left: e.clientX, top: e.clientY })
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            onOpenPage(s.id)
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              onOpenPage(s.id)
+            }
+          }}
         >
-          {meta.displayText}
-        </span>
-      </div>
-      <div className="text-[11px] font-semibold line-clamp-2">{annual ? s.title || '연차' : s.title}</div>
-      <div className="text-[10px] opacity-90 tabular-nums mt-px">{formatScheduleRange(s)}</div>
-    </div>
+          <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden">
+            <span className="text-[11px] font-semibold leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+              {annual ? s.title || '연차' : s.title || '제목 없음'}
+            </span>
+            {localW >= cellWidth * 1.5 && (
+              <span className="text-[10px] opacity-80 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                {meta.displayText}
+              </span>
+            )}
+          </div>
+          {s.link && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                window.open(s.link ?? '', '_blank', 'noopener,noreferrer')
+              }}
+              className="ml-1 p-0.5 rounded bg-black/25 hover:bg-black/35 transition-colors"
+              title="링크 열기"
+            >
+              <ExternalLink size={10} />
+            </button>
+          )}
+        </div>
+      </Rnd>
+
+      {tooltipPos !== null &&
+        createPortal(
+          <div
+            className="fixed bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md shadow-lg px-3 py-2 z-[600] text-xs pointer-events-none"
+            style={{ top: tooltipPos.top, left: tooltipPos.left, maxWidth: 240 }}
+          >
+            <div className="text-[10px] text-zinc-500 dark:text-zinc-400 mb-1">
+              {meta.displayText}
+            </div>
+            <div className="font-semibold text-zinc-900 dark:text-zinc-100 leading-snug">
+              {s.title || '제목 없음'}
+            </div>
+            {s.comment && (
+              <div className="text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed whitespace-pre-line">
+                {s.comment}
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+
+      {contextMenuPos &&
+        createPortal(
+          <ContextMenu
+            x={contextMenuPos.left}
+            y={contextMenuPos.top}
+            currentColor={bg}
+            onColorChange={handleColorChange}
+            members={members}
+            currentMemberId={s.assigneeId ?? null}
+            onTransfer={s.assigneeId ? handleTransfer : undefined}
+            onClose={() => setContextMenuPos(null)}
+          />,
+          document.body,
+        )}
+    </>
   )
 }
 
-export function WeekScheduleView() {
+function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const schedules = useSchedulerStore((s) => s.schedules)
-  const { updateSchedule } = useSchedulerStore()
+  const createSchedule = useSchedulerStore((s) => s.createSchedule)
+  const updateSchedule = useSchedulerStore((s) => s.updateSchedule)
+  const zoomLevel = useSchedulerViewStore((s) => s.zoomLevel)
+  const currentYear = useSchedulerViewStore((s) => s.currentYear)
+  const setCurrentYear = useSchedulerViewStore((s) => s.setCurrentYear)
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId)
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId)
   const multiSelectedIds = useSchedulerViewStore((s) => s.multiSelectedIds)
   const weekendColor = useSchedulerViewStore((s) => s.weekendColor)
+  const selectedScheduleId = useSchedulerViewStore((s) => s.selectedScheduleId)
+  const selectSchedule = useSchedulerViewStore((s) => s.selectSchedule)
+  const openPeek = useUiStore((s) => s.openPeek)
+  const allMembers = useMemberStore((s) => s.members)
 
+  const containerRef = useRef<HTMLDivElement>(null)
+  const leftRowsRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{
+    kind: 'schedule' | 'leave'
+    startSlot: number
+    currentSlot: number
+    rowTop: number
+    rowHeight: number
+    rowIndex: number
+    assigneeId: string
+    active: boolean
+  } | null>(null)
+  const [timelineWidth, setTimelineWidth] = useState(900)
+  const [memberRowCounts, setMemberRowCounts] = useState<Record<string, number>>({})
+  const [dragState, setDragState] = useState<typeof dragRef.current>(null)
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [monthIndex, setMonthIndex] = useState(() => new Date().getMonth())
+  const [pendingCreateMarquee, setPendingCreateMarquee] = useState<{
+    kind: 'schedule' | 'leave'
+    rowTop: number
+    rowHeight: number
+    startSlot: number
+    endSlot: number
+  } | null>(null)
   const visibleMembers = useVisibleMembers()
 
   const organizations = useOrganizationStore((s) => s.organizations)
   const teams = useTeamStore((s) => s.teams)
+  const schedulerProjects = useSchedulerProjectsStore((s) => s.projects)
 
-  // 조직·팀을 Project 호환 타입으로 변환
+  // 조직·팀·프로젝트를 MM scope 라벨 소스로 통합한다.
   const projects = useMemo<ProjectMeta[]>(() => {
     const orgs: ProjectMeta[] = organizations.map((o) => ({
-      id: `org:${o.organizationId}`,
+      id: o.organizationId,
       name: o.name,
       type: 'organization',
     }))
     const tms: ProjectMeta[] = teams.map((t) => ({
-      id: `team:${t.teamId}`,
+      id: t.teamId,
       name: t.name,
+      type: 'team',
+    }))
+    const projs: ProjectMeta[] = schedulerProjects.map((p) => ({
+      id: p.id,
+      name: p.name,
       type: 'project',
     }))
-    return [...orgs, ...tms]
-  }, [organizations, teams])
+    return [...orgs, ...tms, ...projs]
+  }, [organizations, schedulerProjects, teams])
 
   const workspaceId = LC_SCHEDULER_WORKSPACE_ID
 
@@ -540,9 +670,8 @@ export function WeekScheduleView() {
   const { holidayMap, holidayTimeSet } = useMemo(() => {
     const map = new Map<number, string>()
     const timeSet = new Set<number>()
-    const now = new Date()
-    // 지난주~다음주 범위의 연도를 커버 (연도 경계에서 두 연도 모두 처리)
-    const years = new Set([now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1])
+    // 표시 범위의 연도 경계를 커버한다.
+    const years = new Set([currentYear - 1, currentYear, currentYear + 1])
 
     for (const year of years) {
       // 공식 공휴일
@@ -561,20 +690,27 @@ export function WeekScheduleView() {
       }
     }
     return { holidayMap: map, holidayTimeSet: timeSet }
-  }, [storeHolidays])
+  }, [currentYear, storeHolidays])
 
-  const [editState, setEditState] = useState<{ schedule: Schedule; x: number; y: number } | null>(null)
-  const [newScheduleState, setNewScheduleState] = useState<{
-    defaultStartAt: string
-    defaultEndAt: string
-    x: number
-    y: number
-    assigneeId: string
-  } | null>(null)
+  const { slots, weekBlocks, mondays, slotCount } = useMemo(() => {
+    if (mode === 'month') {
+      const monthStart = startOfDay(new Date(currentYear, monthIndex, 1))
+      const days = new Date(currentYear, monthIndex + 1, 0).getDate()
+      const slots: WeekDaySlot[] = Array.from({ length: days }, (_, day) => ({
+        weekIndex: 1 as const,
+        dow: day,
+        date: addDays(monthStart, day),
+      }))
+      return {
+        slots,
+        weekBlocks: [],
+        mondays: [monthStart, monthStart, monthStart] as const,
+        slotCount: days,
+      }
+    }
 
-  const { slots, weekBlocks, mondays } = useMemo(() => {
     const now = new Date()
-    const thisWeekStart = startOfWeek(now)
+    const thisWeekStart = addWeeks(startOfWeek(now), weekOffset)
     const lastWeekStart = subDays(thisWeekStart, 7)
     const nextWeekStart = addWeeks(thisWeekStart, 1)
 
@@ -586,24 +722,26 @@ export function WeekScheduleView() {
 
     const slots = buildWeekDaySlots(mondays[0], mondays[1], mondays[2])
 
-    const titles = ['지난주', '이번주', '다음주'] as const
     const weekBlocks = mondays.map((mon, wi) => {
       const fri = addDays(mon, 4)
+      const relativeOffset = weekOffset + wi - 1
       return {
-        key: titles[wi],
-        title: titles[wi],
+        key: `${relativeOffset}:${mon.toISOString()}`,
+        title: relativeWeekTitle(relativeOffset),
         subtitle: `${fmtMD(mon)} – ${fmtMD(fri)} (월–금)`,
         weekIndex: wi as 0 | 1 | 2,
       }
     })
 
-    return { slots, weekBlocks, mondays }
-  }, [])
+    return { slots, weekBlocks, mondays, slotCount: WEEK_SLOT_COUNT }
+  }, [currentYear, mode, monthIndex, weekOffset])
 
   const todaySlotIndex = useMemo(() => {
     const today = startOfDay(new Date())
     const idx = slots.findIndex((slot) => isSameDay(slot.date, today))
     if (idx >= 0) return idx
+
+    if (mode === 'month') return null
 
     // 주말(토/일)은 월~금 뷰에 없으므로 같은 주의 금요일 칸에 라인 표시
     const thisMonday = startOfWeek(today)
@@ -617,7 +755,7 @@ export function WeekScheduleView() {
     const to = addDays(mondays[2], 6)
     const outOfRange = differenceInCalendarDays(today, from) < 0 || differenceInCalendarDays(today, to) > 0
     return outOfRange ? null : 4
-  }, [slots, mondays])
+  }, [mode, slots, mondays])
 
   const getSlotBackground = (slot: WeekDaySlot, alphaHex: string): string => {
     const key = startOfDay(slot.date).getTime()
@@ -627,6 +765,24 @@ export function WeekScheduleView() {
     }
     return `${COL_BG[slot.weekIndex]}${alphaHex}`
   }
+
+  useEffect(() => {
+    const next: Record<string, number> = {}
+    allMembers.forEach((member) => {
+      next[member.memberId] = Math.max(1, member.rowCount ?? 1)
+    })
+    setMemberRowCounts(next)
+  }, [allMembers])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const measure = () => setTimelineWidth(Math.max(900, container.clientWidth))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   // 멤버별 일정 맵 (assigneeId 기준)
   const schedulesByMemberId = useMemo(() => {
@@ -653,266 +809,599 @@ export function WeekScheduleView() {
   // selectedProjectId 가 있으면 해당 프로젝트 일정만 표시 (멤버 필터는 useVisibleMembers 가 처리)
   const effectiveSelectedProjectId =
     selectedProjectId?.startsWith('proj:') ? selectedProjectId.slice(5) : null
+  const cellWidth = timelineWidth / slotCount
+
+  const openSchedulePage = useCallback((id: string) => {
+    const parsed = parseScheduleInstanceId(id)
+    if (!parsed) return
+    openPeek(parsed.pageId)
+  }, [openPeek])
+
+  const memberRowItems = useMemo(() => (
+    filteredMembers.reduce<{ items: MemberRowItem[]; top: number }>((acc, member) => {
+      const allMember = schedulesByMemberId[member.memberId] || []
+      const raw = effectiveSelectedProjectId
+        ? allMember.filter((s) => s.projectId === effectiveSelectedProjectId)
+        : allMember
+      const memberSchedules = [...raw]
+        .filter((s) => scheduleOverlapsAnyDaySlot(s, slots))
+        .sort((a, b) => (a.rowIndex ?? 0) - (b.rowIndex ?? 0) || scheduleStartMs(a) - scheduleStartMs(b))
+      const layouts = memberSchedules
+        .map((schedule) => getScheduleSlotRange(schedule, slots))
+        .filter((layout): layout is ScheduleWeekLayout => layout !== null)
+      const cardRows = computeRowCount(memberSchedules)
+      const userRows = memberRowCounts[member.memberId] ?? member.rowCount ?? 1
+      const rowCount = Math.max(1, cardRows, userRows)
+      const rowHeight = getRowHeight(rowCount, zoomLevel)
+      const slotHeight = rowHeight / rowCount
+      const item: MemberRowItem = {
+        member,
+        memberSchedules,
+        layouts,
+        rowCount,
+        rowHeight,
+        slotHeight,
+        top: acc.top,
+        cardRows,
+        canRemove: userRows > Math.max(1, cardRows),
+      }
+      return {
+        items: [...acc.items, item],
+        top: acc.top + rowHeight,
+      }
+    }, { items: [], top: 0 }).items
+  ), [effectiveSelectedProjectId, filteredMembers, memberRowCounts, schedulesByMemberId, slots, zoomLevel])
+
+  const memberRowsHeight = useMemo(
+    () => memberRowItems.reduce((sum, item) => sum + item.rowHeight, 0),
+    [memberRowItems],
+  )
+
+  const handleAddRow = useCallback(
+    (memberId: string, memberSchedules: Schedule[]) => {
+      const cardRows = computeRowCount(memberSchedules)
+      const member = allMembers.find((item) => item.memberId === memberId)
+      const previousRowCount = member?.rowCount ?? memberRowCounts[memberId] ?? 1
+      const nextRowCount = Math.min(10, Math.max(previousRowCount, cardRows) + 1)
+
+      setMemberRowCounts((prev) => ({ ...prev, [memberId]: nextRowCount }))
+      useMemberStore.getState().upsertMember({
+        ...(member ?? {
+          memberId,
+          email: '',
+          name: '',
+          jobRole: '',
+          workspaceRole: 'member',
+          status: 'active',
+          personalWorkspaceId: '',
+        }),
+        rowCount: nextRowCount,
+      })
+
+      void updateMemberApi(memberId, { rowCount: nextRowCount }).catch(() => {
+        setMemberRowCounts((prev) => ({ ...prev, [memberId]: previousRowCount }))
+        if (member) {
+          useMemberStore.getState().upsertMember({ ...member, rowCount: previousRowCount })
+        }
+      })
+    },
+    [allMembers, memberRowCounts],
+  )
+
+  const handleRemoveRow = useCallback(
+    (memberId: string, memberSchedules: Schedule[]) => {
+      const cardRows = computeRowCount(memberSchedules)
+      const member = allMembers.find((item) => item.memberId === memberId)
+      const previousRowCount = member?.rowCount ?? memberRowCounts[memberId] ?? 1
+      const nextRowCount = Math.max(1, cardRows, previousRowCount - 1)
+      if (nextRowCount === previousRowCount) return
+
+      setMemberRowCounts((prev) => ({ ...prev, [memberId]: nextRowCount }))
+      if (member) {
+        useMemberStore.getState().upsertMember({ ...member, rowCount: nextRowCount })
+      }
+
+      void updateMemberApi(memberId, { rowCount: nextRowCount }).catch(() => {
+        setMemberRowCounts((prev) => ({ ...prev, [memberId]: previousRowCount }))
+        if (member) {
+          useMemberStore.getState().upsertMember({ ...member, rowCount: previousRowCount })
+        }
+      })
+    },
+    [allMembers, memberRowCounts],
+  )
+
+  const syncLeftColumnScroll = useCallback(() => {
+    const container = containerRef.current
+    if (!container || !leftRowsRef.current) return
+    leftRowsRef.current.scrollTop = container.scrollTop
+  }, [])
+
+  const handleLeftColumnWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      const container = containerRef.current
+      if (!container) return
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
+      e.preventDefault()
+      container.scrollTop += e.deltaY
+      syncLeftColumnScroll()
+    },
+    [syncLeftColumnScroll],
+  )
+
+  const xToSlot = useCallback(
+    (x: number) => Math.max(0, Math.min(slotCount - 1, Math.floor(x / cellWidth))),
+    [cellWidth, slotCount],
+  )
+
+  const pointToScheduleRow = useCallback(
+    (x: number, y: number): { top: number; height: number; rowIndex: number; assigneeId: string } | null => {
+      if (x < 0 || x > timelineWidth || y < WEEK_HEADER_HEIGHT) return null
+      const bodyY = y - WEEK_HEADER_HEIGHT
+      for (const item of memberRowItems) {
+        if (bodyY < item.top || bodyY >= item.top + item.rowHeight) continue
+        const rowIndex = Math.max(0, Math.min(item.rowCount - 1, Math.floor((bodyY - item.top) / item.slotHeight)))
+        return {
+          top: WEEK_HEADER_HEIGHT + item.top + rowIndex * item.slotHeight,
+          height: item.slotHeight,
+          rowIndex,
+          assigneeId: item.member.memberId,
+        }
+      }
+      return null
+    },
+    [memberRowItems, timelineWidth],
+  )
+
+  const handleContainerClick = useCallback(() => {
+    selectSchedule(null)
+  }, [selectSchedule])
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if ((e.target as HTMLElement).closest('.schedule-card')) return
+      const isCtrl = e.ctrlKey || e.metaKey
+      const isAlt = e.altKey
+      if (!isCtrl && !isAlt) return
+
+      const container = containerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      const x = e.clientX - rect.left + container.scrollLeft
+      const y = e.clientY - rect.top + container.scrollTop
+      const row = pointToScheduleRow(x, y)
+      if (!row) return
+
+      e.preventDefault()
+      const slot = xToSlot(Math.max(0, Math.min(timelineWidth - 1, x)))
+      const next = {
+        kind: isAlt ? 'leave' as const : 'schedule' as const,
+        startSlot: slot,
+        currentSlot: slot,
+        rowTop: row.top,
+        rowHeight: row.height,
+        rowIndex: row.rowIndex,
+        assigneeId: row.assigneeId,
+        active: false,
+      }
+      dragRef.current = next
+      setDragState(next)
+      selectSchedule(null)
+    },
+    [pointToScheduleRow, selectSchedule, timelineWidth, xToSlot],
+  )
+
+  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.ctrlKey || e.altKey || e.metaKey || dragRef.current) {
+      e.preventDefault()
+    }
+  }, [])
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return
+      const container = containerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      const rawX = e.clientX - rect.left + container.scrollLeft
+      const slot = xToSlot(Math.max(0, Math.min(timelineWidth - 1, rawX)))
+      const dx = Math.abs(slot - dragRef.current.startSlot) * cellWidth
+      const next = {
+        ...dragRef.current,
+        currentSlot: slot,
+        active: dragRef.current.active || dx > MARQUEE_ACTIVATE_PX,
+      }
+      dragRef.current = next
+      setDragState(next)
+    }
+
+    const onMouseUp = () => {
+      const cur = dragRef.current
+      if (!cur) return
+      if (cur.active) {
+        const startSlot = Math.min(cur.startSlot, cur.currentSlot)
+        const endSlot = Math.max(cur.startSlot, cur.currentSlot)
+        const { startAt, endAt } = slotRangeToIso(slots, startSlot, endSlot)
+        setPendingCreateMarquee({
+          kind: cur.kind,
+          rowTop: cur.rowTop,
+          rowHeight: cur.rowHeight,
+          startSlot,
+          endSlot,
+        })
+
+        if (cur.kind === 'leave') {
+          void createSchedule({
+            workspaceId,
+            title: '연차',
+            projectId: effectiveSelectedProjectId ?? null,
+            assigneeId: cur.assigneeId,
+            selectedScopeKey: selectedProjectId,
+            color: ANNUAL_LEAVE_COLOR,
+            textColor: pickTextColor(ANNUAL_LEAVE_COLOR),
+            startAt,
+            endAt,
+            rowIndex: cur.rowIndex,
+          }).catch((error) => {
+            console.error(error)
+            window.alert('연차 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+          })
+          queueMicrotask(() => setPendingCreateMarquee(null))
+        } else {
+          const pendingPeekPageId = `${PENDING_SCHEDULE_PAGE_ID_PREFIX}${Date.now()}`
+          openPeek(pendingPeekPageId)
+          void createSchedule({
+            workspaceId,
+            title: '새 일정',
+            projectId: effectiveSelectedProjectId ?? null,
+            assigneeId: cur.assigneeId,
+            selectedScopeKey: selectedProjectId,
+            color: DEFAULT_SCHEDULE_COLOR,
+            textColor: pickTextColor(DEFAULT_SCHEDULE_COLOR),
+            startAt,
+            endAt,
+            rowIndex: cur.rowIndex,
+          }).then((schedule) => {
+            selectSchedule(schedule.id)
+            const currentPeekPageId = useUiStore.getState().peekPageId
+            if (!currentPeekPageId || currentPeekPageId === pendingPeekPageId) {
+              openSchedulePage(schedule.id)
+            }
+          }).catch((error) => {
+            console.error(error)
+            if (useUiStore.getState().peekPageId === pendingPeekPageId) {
+              useUiStore.getState().closePeek()
+            }
+            window.alert('일정 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+          })
+          queueMicrotask(() => setPendingCreateMarquee(null))
+        }
+      }
+      dragRef.current = null
+      setDragState(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [
+    cellWidth,
+    createSchedule,
+    effectiveSelectedProjectId,
+    openPeek,
+    openSchedulePage,
+    selectSchedule,
+    selectedProjectId,
+    slots,
+    timelineWidth,
+    workspaceId,
+    xToSlot,
+  ])
+
+  const createMarqueeStyle = useMemo(() => {
+    if (!dragState && !pendingCreateMarquee) return null
+    const source = dragState
+      ? {
+          kind: dragState.kind,
+          rowTop: dragState.rowTop,
+          rowHeight: dragState.rowHeight,
+          startSlot: Math.min(dragState.startSlot, dragState.currentSlot),
+          endSlot: Math.max(dragState.startSlot, dragState.currentSlot),
+        }
+      : pendingCreateMarquee
+    if (!source) return null
+    return {
+      kind: source.kind,
+      left: source.startSlot * cellWidth,
+      top: source.rowTop,
+      width: Math.max(cellWidth, (source.endSlot - source.startSlot + 1) * cellWidth),
+      height: source.rowHeight,
+    }
+  }, [cellWidth, dragState, pendingCreateMarquee])
+
+  const shiftWeekRange = useCallback((delta: number) => {
+    setWeekOffset((value) => value + delta)
+  }, [])
+
+  const shiftMonthRange = useCallback((delta: number) => {
+    setMonthIndex((value) => {
+      const next = value + delta
+      if (next < 0) {
+        setCurrentYear(currentYear - 1)
+        return 11
+      }
+      if (next > 11) {
+        setCurrentYear(currentYear + 1)
+        return 0
+      }
+      return next
+    })
+  }, [currentYear, setCurrentYear])
+
+  useEffect(() => {
+    const handleScrollToday = () => {
+      const today = new Date()
+      if (mode === 'month') {
+        setCurrentYear(today.getFullYear())
+        setMonthIndex(today.getMonth())
+        return
+      }
+      setWeekOffset(0)
+    }
+
+    window.addEventListener('lc-scheduler:scroll-today', handleScrollToday)
+    return () => window.removeEventListener('lc-scheduler:scroll-today', handleScrollToday)
+  }, [mode, setCurrentYear])
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 overflow-auto bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800">
-      {/* 헤더: 3주 × 5일 */}
-      <div className="shrink-0 sticky top-0 z-20 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
-        <div className="flex-1 flex flex-col min-w-0 relative">
-          <div className="grid border-b border-zinc-200 dark:border-zinc-800" style={GRID_15}>
-            {weekBlocks.map((block) => (
+    <div className="flex flex-1 min-h-0 overflow-hidden bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800">
+      <div className="w-[120px] flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 z-30 flex flex-col overflow-hidden">
+        <div
+          className="border-b border-zinc-200 dark:border-zinc-800"
+          style={{ height: WEEK_HEADER_HEIGHT }}
+        />
+        <div ref={leftRowsRef} className="flex-1 overflow-hidden" onWheel={handleLeftColumnWheel}>
+          <div style={{ height: memberRowsHeight, position: 'relative' }}>
+            {memberRowItems.map((item) => (
               <div
-                key={block.key}
-                className="col-span-5 text-center py-1.5 border-r border-zinc-200 dark:border-zinc-800 last:border-r-0"
-                style={{ borderTop: `3px solid ${COL_BG[block.weekIndex]}` }}
+                key={item.member.memberId}
+                className="group absolute left-0 right-0 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-center px-2"
+                style={{ top: item.top, height: item.rowHeight }}
               >
-                <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{block.title}</div>
-                <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-tight px-1">{block.subtitle}</div>
+                <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-full text-center" title={item.member.name}>
+                  {item.member.name}
+                </span>
+                <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() => handleAddRow(item.member.memberId, item.memberSchedules)}
+                    title="행 추가"
+                    disabled={(memberRowCounts[item.member.memberId] ?? 1) >= 10}
+                    className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
+                  >
+                    <Plus size={10} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveRow(item.member.memberId, item.memberSchedules)}
+                    title="행 제거"
+                    disabled={!item.canRemove}
+                    className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
+                  >
+                    <Minus size={10} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
-          <div className="grid border-b border-zinc-200 dark:border-zinc-800" style={GRID_15}>
-            {slots.map((slot, i) => {
-              const holidayText = holidayMap.get(startOfDay(slot.date).getTime())
-              return (
-                <div
-                  key={`${slot.date.getTime()}-${i}`}
-                  className="text-[10px] text-center py-1 border-r border-zinc-200/60 dark:border-zinc-800/60 last:border-r-0 text-zinc-500 dark:text-zinc-400 leading-tight"
-                  style={{ backgroundColor: getSlotBackground(slot, '0f') }}
-                  title={holidayText || undefined}
+        </div>
+      </div>
+
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto relative"
+        onClick={handleContainerClick}
+        onMouseDown={handleMouseDown}
+        onContextMenu={handleContextMenu}
+        onScroll={syncLeftColumnScroll}
+        style={{ userSelect: dragState ? 'none' : undefined }}
+      >
+        <div
+          style={{
+            width: timelineWidth,
+            minWidth: timelineWidth,
+            minHeight: WEEK_HEADER_HEIGHT + memberRowsHeight,
+            position: 'relative',
+          }}
+        >
+          <div
+            className="sticky top-0 z-30 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800"
+            style={{ height: WEEK_HEADER_HEIGHT, width: timelineWidth }}
+          >
+            {mode === 'month' ? (
+              <div className="h-10 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => shiftMonthRange(-1)}
+                  className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  aria-label="이전 월"
                 >
-                  <div className="font-medium text-zinc-900/80 dark:text-zinc-100/80">{fmtDow(slot.date)}</div>
-                  <div className="tabular-nums">{fmtMD(slot.date)}</div>
-                  {holidayText ? (
-                    <div className="text-[9px] leading-tight mt-0.5 text-zinc-900/85 dark:text-zinc-100/85 truncate px-0.5">
-                      {holidayText}
-                    </div>
-                  ) : null}
+                  <ChevronLeft size={18} />
+                </button>
+                <div className="min-w-[96px] text-center text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  {monthIndex + 1}월
                 </div>
-              )
-            })}
+                <button
+                  type="button"
+                  onClick={() => shiftMonthRange(1)}
+                  className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  aria-label="다음 월"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            ) : (
+              <div
+                className="grid border-b border-zinc-200 dark:border-zinc-800"
+                style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', height: 40 }}
+              >
+                {weekBlocks.map((block) => (
+                  <div
+                    key={block.key}
+                    className="text-center border-r border-zinc-200 dark:border-zinc-800 last:border-r-0 flex items-center justify-center gap-1.5 px-1"
+                    style={{ borderTop: `3px solid ${COL_BG[block.weekIndex]}` }}
+                  >
+                    {block.weekIndex === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => shiftWeekRange(-1)}
+                        className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        aria-label="이전 주"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                    )}
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{block.title}</div>
+                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-tight px-1 truncate">{block.subtitle}</div>
+                    </div>
+                    {block.weekIndex === 2 && (
+                      <button
+                        type="button"
+                        onClick={() => shiftWeekRange(1)}
+                        className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        aria-label="다음 주"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="grid" style={{ gridTemplateColumns: `repeat(${slotCount}, minmax(0, 1fr))`, height: 36 }}>
+              {slots.map((slot, i) => {
+                const holidayText = holidayMap.get(startOfDay(slot.date).getTime())
+                return (
+                  <div
+                    key={`${slot.date.getTime()}-${i}`}
+                    className="text-[10px] text-center border-r border-zinc-200/60 dark:border-zinc-800/60 last:border-r-0 text-zinc-500 dark:text-zinc-400 leading-tight flex flex-col items-center justify-center"
+                    style={{ backgroundColor: getSlotBackground(slot, '0f') }}
+                    title={holidayText || undefined}
+                  >
+                    <div className="font-medium text-zinc-900/80 dark:text-zinc-100/80">{fmtDow(slot.date)}</div>
+                    <div className="tabular-nums">{fmtMD(slot.date)}</div>
+                    {holidayText ? (
+                      <div className="text-[9px] leading-tight text-zinc-900/85 dark:text-zinc-100/85 truncate px-0.5 max-w-full">
+                        {holidayText}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+            {todaySlotIndex !== null && (
+              <div
+                className="absolute top-0 bottom-0 bg-blue-500 z-20 pointer-events-none"
+                style={{
+                  left: todaySlotIndex * cellWidth + cellWidth / 2 - 2,
+                  width: 4,
+                  boxShadow: '0 0 8px rgba(59, 130, 246, 0.6)',
+                }}
+              />
+            )}
           </div>
+
           {todaySlotIndex !== null && (
             <div
-              className="absolute top-0 bottom-0 bg-blue-500 z-20 pointer-events-none"
+              className="absolute bottom-0 bg-blue-500 z-10 pointer-events-none"
               style={{
-                left: `calc(${(todaySlotIndex / 15) * 100}% + (100% / 15 / 2) - 2px)`,
+                top: WEEK_HEADER_HEIGHT,
+                left: todaySlotIndex * cellWidth + cellWidth / 2 - 2,
                 width: 4,
                 boxShadow: '0 0 8px rgba(59, 130, 246, 0.6)',
               }}
             />
           )}
-        </div>
-      </div>
 
-      <div className="relative">
-        {todaySlotIndex !== null && (
-          <div
-            className="absolute top-0 bottom-0 bg-blue-500 z-20 pointer-events-none"
-            style={{
-              left: `calc(${(todaySlotIndex / 15) * 100}% + (100% / 15 / 2) - 2px)`,
-              width: 4,
-              boxShadow: '0 0 8px rgba(59, 130, 246, 0.6)',
-            }}
-          />
-        )}
-        {filteredMembers.map((m) => {
-          const allMember = schedulesByMemberId[m.memberId] || []
-          // projectId 필터: selectedProjectId 가 있으면 해당 프로젝트 일정만
-          const raw = effectiveSelectedProjectId
-            ? allMember.filter((s) => s.projectId === effectiveSelectedProjectId)
-            : allMember
-          const lastWeekStats = buildLastWeekStats(raw, mondays[0], projects)
-          const lastWeekStatsText =
-            lastWeekStats.length > 0
-              ? lastWeekStats.map((s) => `${s.label} ${s.percent}%`).join(' / ')
-              : '지난주 업무 없음'
-          const memberSchedules = [...raw]
-            .filter((s) => scheduleOverlapsAnyDaySlot(s, slots))
-            .sort((a, b) => scheduleStartMs(a) - scheduleStartMs(b))
-
-          const scheduleLayouts = memberSchedules
-            .map((s) => {
-              const fragments = getScheduleWeekFragments(s, mondays)
-              if (fragments.length === 0) return null
-              const intervals = fragments.map((fr) => ({
-                start: fr.weekIndex * 5 + fr.minD,
-                end: fr.weekIndex * 5 + fr.maxD,
-              }))
-              const firstStart = Math.min(...intervals.map((x) => x.start))
-              return { schedule: s, fragments, intervals, firstStart }
-            })
-            .filter((x): x is ScheduleWeekLayout => x !== null)
-
-          const packedGroups = packRowsByProject(scheduleLayouts, projects)
-
-          return (
-            <div key={m.memberId} className="mb-4 border border-zinc-200/70 dark:border-zinc-800/70 rounded-sm bg-white dark:bg-zinc-900 relative">
-              {/* 구성원 헤더: 병합 셀 대신 15칸 배경 + 태그 오버레이 */}
-              <div className="relative min-h-[30px]">
-                <div className="absolute inset-0 grid pointer-events-none" style={GRID_15}>
+          <div className="relative" style={{ height: memberRowsHeight, width: timelineWidth }}>
+            {memberRowItems.map((item) => (
+              <div
+                key={item.member.memberId}
+                className="absolute left-0 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"
+                style={{ top: item.top, height: item.rowHeight, width: timelineWidth }}
+              >
+                <div
+                  className="absolute inset-0 grid pointer-events-none"
+                  style={{ gridTemplateColumns: `repeat(${slotCount}, minmax(0, 1fr))` }}
+                >
                   {slots.map((slot, i) => (
                     <div
-                      key={`head-bg-${m.memberId}-${i}`}
+                      key={`bg-${item.member.memberId}-${i}`}
                       className="border-r border-zinc-200/40 dark:border-zinc-800/40 last:border-r-0"
                       style={{ backgroundColor: getSlotBackground(slot, '14') }}
                     />
                   ))}
                 </div>
-                <div className="relative z-10 grid min-h-[30px]" style={GRID_15}>
-                  <div className="col-span-5 flex items-center justify-center px-2">
-                    <span className="max-w-full truncate rounded-md bg-zinc-50/85 dark:bg-zinc-950/85 border border-zinc-200/70 dark:border-zinc-800/70 px-2 py-0.5 text-[10px] font-medium text-zinc-900 dark:text-zinc-100" title={lastWeekStatsText}>
-                      {lastWeekStatsText}
-                    </span>
-                  </div>
-                  <div className="col-span-5 flex items-center justify-center px-2 gap-1.5">
-                    <span className="max-w-[70%] truncate rounded-md bg-zinc-50/90 dark:bg-zinc-950/90 border border-zinc-200/80 dark:border-zinc-800/80 px-2 py-0.5 text-[12px] font-semibold text-zinc-900 dark:text-zinc-100" title={m.name}>
-                      {m.name}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-[10px] px-2 py-0.5 rounded border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white"
-                      onClick={() => {
-                        if (!workspaceId) return
-                        const startAt = startOfDay(mondays[1]).toISOString()
-                        const endAt = addDays(startOfDay(mondays[1]), 5).toISOString()
-                        setNewScheduleState({
-                          defaultStartAt: startAt,
-                          defaultEndAt: endAt,
-                          assigneeId: m.memberId,
-                          ...getSafePopupPosition(window.innerWidth * 0.55, window.innerHeight * 0.35),
-                        })
-                      }}
-                      title={`이번주에 ${m.name} 일정 추가`}
-                    >
-                      + 일정추가
-                    </button>
-                  </div>
-                </div>
+                {item.layouts.map((layout) => (
+                  <ScheduleWeekCard
+                    key={layout.schedule.id}
+                    schedule={layout.schedule}
+                    projects={projects}
+                    members={allMembers}
+                    slots={slots}
+                    startSlot={layout.startSlot}
+                    endSlot={layout.endSlot}
+                    slotCount={slotCount}
+                    cellWidth={cellWidth}
+                    slotHeight={item.slotHeight}
+                    rowCount={item.rowCount}
+                    allSchedules={schedules}
+                    isSelected={selectedScheduleId === layout.schedule.id}
+                    onSelect={selectSchedule}
+                    onOpenPage={openSchedulePage}
+                    onUpdate={updateSchedule}
+                    onCreate={createSchedule}
+                  />
+                ))}
               </div>
+            ))}
+          </div>
 
-              <div className="border-t border-zinc-200/70 dark:border-zinc-800/70 items-start">
-                <div className="min-w-0 relative self-stretch min-h-[34px]">
-                  <div className="absolute inset-0 grid pointer-events-none" style={GRID_15}>
-                    {slots.map((slot, i) => (
-                      <div
-                        key={`bg-${m.memberId}-${i}`}
-                        className="border-r border-zinc-200/40 dark:border-zinc-800/40 last:border-r-0"
-                        style={{ backgroundColor: getSlotBackground(slot, '14') }}
-                      />
-                    ))}
-                  </div>
-                  <div className="relative z-10 flex flex-col gap-0 p-1">
-                    {packedGroups.length === 0 ? (
-                      <div className="grid w-full min-h-[28px] items-center" style={GRID_15}>
-                        <div className="col-span-15 text-[11px] text-center text-zinc-500 dark:text-zinc-400 py-1">
-                          표시할 업무가 없습니다.
-                        </div>
-                      </div>
-                    ) : (
-                      packedGroups.map((group, groupIdx) => (
-                        <div
-                          key={`${m.memberId}-group-${group.key}-${groupIdx}`}
-                          className={groupIdx > 0 ? 'mt-1 pt-1 border-t border-zinc-200/40 dark:border-zinc-800/40' : ''}
-                        >
-                          {group.rows.map((row, rowIdx) => (
-                            <div
-                              key={`${m.memberId}-group-${group.key}-row-${rowIdx}`}
-                              className="week-row-grid grid w-full items-stretch min-h-[28px] [&:not(:last-child)]:border-b border-zinc-200/40 dark:border-zinc-800/40"
-                              style={GRID_15}
-                            >
-                              {row.map((item) =>
-                                item.fragments.map((fr, fi) => {
-                                  const startCol = fr.weekIndex * 5 + fr.minD + 1
-                                  const span = fr.maxD - fr.minD + 1
-                                  const gridColumn = `${startCol} / span ${span}`
-                                  const rangeStart = Math.min(...item.intervals.map((x) => x.start))
-                                  const rangeEnd = Math.max(...item.intervals.map((x) => x.end))
-                                  return (
-                                    <ScheduleWeekSpanCell
-                                      key={`${item.schedule.id}-w${fr.weekIndex}-${fr.minD}-${fr.maxD}-${fi}`}
-                                      schedule={item.schedule}
-                                      projects={projects}
-                                      weekIndex={fr.weekIndex}
-                                      gridColumn={gridColumn}
-                                      showLeftResizeHandle={fr.weekIndex * 5 + fr.minD === rangeStart}
-                                      showRightResizeHandle={fr.weekIndex * 5 + fr.maxD === rangeEnd}
-                                      rangeStart={rangeStart}
-                                      rangeEnd={rangeEnd}
-                                      onResizeRange={async (nextStart, nextEnd) => {
-                                        if (!workspaceId) return
-                                        const newStartAt = startOfDay(slots[nextStart]!.date).toISOString()
-                                        const newEndAt = addDays(startOfDay(slots[nextEnd]!.date), 1).toISOString()
-                                        const current = item.schedule
-                                        if (newStartAt === current.startAt && newEndAt === current.endAt) return
+          {createMarqueeStyle && (
+            <div
+              className={`absolute z-50 pointer-events-none rounded-md border-2 ${
+                createMarqueeStyle.kind === 'leave'
+                  ? 'border-red-500 bg-red-500/20'
+                  : 'border-emerald-500 bg-emerald-500/20'
+              }`}
+              style={{
+                left: createMarqueeStyle.left + WEEK_CARD_MARGIN,
+                top: createMarqueeStyle.top + WEEK_CARD_MARGIN,
+                width: Math.max(0, createMarqueeStyle.width - WEEK_CARD_MARGIN * 2),
+                height: Math.max(0, createMarqueeStyle.height - WEEK_CARD_MARGIN * 2),
+              }}
+            />
+          )}
+        </div>
 
-                                        updateSchedule({
-                                          id: current.id,
-                                          workspaceId,
-                                          startAt: newStartAt,
-                                          endAt: newEndAt,
-                                        }).catch((error: unknown) => {
-                                          console.error('주간 보기 일정 리사이즈 실패:', error)
-                                        })
-                                      }}
-                                      onOpenEdit={(schedule, position) =>
-                                        setEditState({
-                                          schedule,
-                                          ...getSafePopupPosition(position.x, position.y),
-                                        })
-                                      }
-                                    />
-                                  )
-                                })
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        })}
+        {filteredMembers.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center text-zinc-500 dark:text-zinc-400 text-sm p-8 min-h-[120px]">
+            표시할 구성원이 없습니다. 필터를 조정해 보세요.
+          </div>
+        )}
       </div>
-
-      {filteredMembers.length === 0 && (
-        <div className="flex flex-1 items-center justify-center text-zinc-500 dark:text-zinc-400 text-sm p-8 min-h-[120px]">
-          표시할 구성원이 없습니다. 필터를 조정해 보세요.
-        </div>
-      )}
-
-      {/* 기존 일정 편집 팝업 */}
-      {editState && (
-        <div
-          className="fixed z-50"
-          style={{ left: editState.x, top: editState.y }}
-        >
-          <ScheduleEditPopup
-            schedule={editState.schedule}
-            workspaceId={workspaceId}
-            onClose={() => setEditState(null)}
-          />
-        </div>
-      )}
-
-      {/* 신규 일정 생성 팝업 */}
-      {newScheduleState && (
-        <div
-          className="fixed z-50"
-          style={{ left: newScheduleState.x, top: newScheduleState.y }}
-        >
-          <ScheduleEditPopup
-            schedule={null}
-            defaultStartAt={newScheduleState.defaultStartAt}
-            defaultEndAt={newScheduleState.defaultEndAt}
-            workspaceId={workspaceId}
-            onClose={() => setNewScheduleState(null)}
-          />
-        </div>
-      )}
     </div>
   )
+}
+
+export function WeekScheduleView() {
+  return <ScheduleRangeView mode="week" />
+}
+
+export function MonthScheduleView() {
+  return <ScheduleRangeView mode="month" />
 }
