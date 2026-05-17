@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.14] - 2026-05-17
+
+### Changed
+
+- **LC 스케줄러/MM 성능 기반**: 계획 문서, schedule selector, 행 virtualization, MM 집계 캐시, 낙관적 update/delete 보강.
+- **DB 렌더링 최적화**: DB 행 projection selector, table/list/timeline windowing, gallery/kanban 구독 축소.
+- **동기화 적용 최적화**: bootstrap fetch 결과를 page/database/comment 단위 batch apply로 반영해 초기 동기화 setState 횟수 축소.
+- **공통 UI 성능 정리**: 사이드바 트리 캐시, 히스토리 지연 마운트, 표 overlay 측정 rAF throttle, 주요 modal lazy chunk 분리.
+
 ## [5.4.13] - 2026-05-17
 
 ### Fixed
