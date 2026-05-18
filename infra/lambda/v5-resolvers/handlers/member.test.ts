@@ -358,6 +358,21 @@ describe("buildRemoveMemberPlan", () => {
     expect(plan.secondaryDeletes).toHaveLength(5);
   });
 
+  it("personal 워크스페이스 이관 시 removedAt 을 함께 기록한다", () => {
+    const now = "2026-05-06T00:00:00Z";
+    const plan = buildRemoveMemberPlan({
+      caller: ownerCaller,
+      target: activeMember,
+      targetTeams: [],
+      targetAccessEntries: [],
+      tables,
+      now,
+    });
+    const wsUpdate = plan.primaryItems.find((item) => "Update" in item && item.Update?.TableName === tables.Workspaces);
+    expect(wsUpdate && "Update" in wsUpdate ? wsUpdate.Update?.UpdateExpression : "").toContain("removedAt = :now");
+    expect(wsUpdate && "Update" in wsUpdate ? wsUpdate.Update?.ExpressionAttributeValues?.[":now"] : undefined).toBe(now);
+  });
+
   it("personal ws 의 access entry 는 secondary 에서 제외됨", () => {
     const plan = buildRemoveMemberPlan({
       caller: ownerCaller, target: activeMember,

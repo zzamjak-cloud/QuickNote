@@ -90,6 +90,30 @@ describe("workspace handlers", () => {
     expect(list.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("listMyWorkspaces: 타인 personal 워크스페이스는 제외", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      {
+        Items: [
+          { workspaceId: "ws-foreign-personal", subjectKey: "member#owner", subjectType: "member", subjectId: caller.memberId, level: "edit" },
+          { workspaceId: "ws-shared", subjectKey: "member#owner", subjectType: "member", subjectId: caller.memberId, level: "edit" },
+        ],
+      },
+      { Items: [] },
+      { Item: { workspaceId: caller.personalWorkspaceId, name: "P", type: "personal", ownerMemberId: caller.memberId, createdAt: "now" } },
+      {},
+      { Item: { workspaceId: "ws-foreign-personal", name: "타인의 개인 워크스페이스", type: "personal", ownerMemberId: "other", createdAt: "now" } },
+      { Item: { workspaceId: "ws-shared", name: "Shared", type: "shared", ownerMemberId: "other", createdAt: "now" } },
+      { Items: [{ workspaceId: caller.personalWorkspaceId, subjectType: "member", subjectId: caller.memberId, level: "edit" }] },
+      { Items: [{ workspaceId: "ws-shared", subjectType: "member", subjectId: caller.memberId, level: "edit" }] },
+    );
+
+    const list = await listMyWorkspaces({ doc, tables, caller });
+    expect(list.some((w) => w.workspaceId === "ws-foreign-personal")).toBe(false);
+    expect(list.some((w) => w.workspaceId === caller.personalWorkspaceId)).toBe(true);
+    expect(list.some((w) => w.workspaceId === "ws-shared")).toBe(true);
+  });
+
   it("getWorkspace: 접근 없으면 null", async () => {
     const memberCaller: Member = {
       ...caller,

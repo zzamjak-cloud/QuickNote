@@ -153,6 +153,10 @@ async function hydrateWorkspace(
   caller: Member,
   callerTeamIds: Set<string>,
 ): Promise<Workspace | null> {
+  // 타인의 개인 워크스페이스는 목록/조회 대상에서 제외한다.
+  if (row.type === "personal" && row.workspaceId !== caller.personalWorkspaceId) {
+    return null;
+  }
   const access = await getWorkspaceAccess(doc, tables, row.workspaceId);
   if (row.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
     return {

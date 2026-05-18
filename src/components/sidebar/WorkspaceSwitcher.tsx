@@ -10,7 +10,10 @@ export function WorkspaceSwitcher() {
 
   // 보관된 워크스페이스는 선택 목록에서 제외
   const activeWorkspaces = useMemo(
-    () => workspaces.filter((w) => !w.removedAt),
+    () =>
+      workspaces.filter(
+        (w) => !w.removedAt && !/의 개인 노트 \(제거됨\)$/.test(w.name),
+      ),
     [workspaces],
   );
 

@@ -53,4 +53,27 @@ describe("WorkspaceSwitcher", () => {
     render(<WorkspaceSwitcher />);
     expect(screen.getByText("view-only")).toBeTruthy();
   });
+
+  it("퇴사자 개인 워크스페이스 라벨은 목록에 노출하지 않는다", () => {
+    useWorkspaceStore.getState().setWorkspaces([
+      {
+        workspaceId: "ws-1",
+        name: "Workspace A",
+        type: "shared",
+        ownerMemberId: "m-1",
+        myEffectiveLevel: "edit",
+      },
+      {
+        workspaceId: "ws-removed",
+        name: "홍길동의 개인 노트 (제거됨)",
+        type: "personal",
+        ownerMemberId: "m-2",
+        myEffectiveLevel: "edit",
+      },
+    ]);
+    render(<WorkspaceSwitcher />);
+    const trigger = screen.getByLabelText("워크스페이스 선택");
+    fireEvent.click(trigger);
+    expect(screen.queryByText("홍길동의 개인 노트 (제거됨)")).toBeNull();
+  });
 });

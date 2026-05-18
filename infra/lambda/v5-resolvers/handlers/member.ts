@@ -643,11 +643,12 @@ export function buildRemoveMemberPlan(args: {
         Update: {
           TableName: tables.Workspaces,
           Key: { workspaceId: personalWsId },
-          UpdateExpression: "SET ownerMemberId = :caller, #n = :name",
+          UpdateExpression: "SET ownerMemberId = :caller, #n = :name, removedAt = :now",
           ExpressionAttributeNames: { "#n": "name" },
           ExpressionAttributeValues: {
             ":caller": caller.memberId,
             ":name": `${target.name}의 개인 노트 (제거됨)`,
+            ":now": now,
           },
         },
       },
