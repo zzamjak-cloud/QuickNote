@@ -170,6 +170,15 @@ export function useBoxSelectMarquee({
         return;
       }
 
+      // 본문(ProseMirror) 중앙 컨텐츠 영역에서는 마퀴 시작 금지.
+      // 텍스트 선택/드래그의 기본 동작을 우선한다.
+      if (target.closest(".qn-prose-marquee-host")) {
+        if (selectedStartsRef.current.length > 0) {
+          clearSelection();
+        }
+        return;
+      }
+
       // 그룹 오버레이는 pointer-events:none 이라 도달하지 않지만 방어
       if (isGroupOverlayTarget(target)) return;
 

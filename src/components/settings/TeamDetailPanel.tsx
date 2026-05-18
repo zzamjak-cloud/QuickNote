@@ -5,6 +5,7 @@ import { assignMemberToTeamApi, unassignMemberFromTeamApi } from "../../lib/sync
 import { useMemberStore } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
 import type { Team } from "../../store/teamStore";
+import { matchesMemberSearchQuery, sortByKoreanName } from "../../lib/memberSearch";
 
 type Props = {
   team: Team | null;
@@ -25,15 +26,11 @@ export function TeamDetailPanel({ team }: Props) {
   const filteredNonMembers = useMemo(() => {
     if (!team) return [];
     const teamMemberIds = new Set(team.members.map((m) => m.memberId));
-    const q = memberQuery.trim().toLowerCase();
-    return allMembers
-      .filter((m) => !teamMemberIds.has(m.memberId) && m.status === "active")
-      .filter(
-        (m) =>
-          !q ||
-          m.name.toLowerCase().includes(q) ||
-          m.email.toLowerCase().includes(q),
-      );
+    return sortByKoreanName(
+      allMembers
+        .filter((m) => !teamMemberIds.has(m.memberId) && m.status === "active")
+        .filter((m) => matchesMemberSearchQuery(m, memberQuery)),
+    );
   }, [allMembers, team, memberQuery]);
 
   if (!team) {

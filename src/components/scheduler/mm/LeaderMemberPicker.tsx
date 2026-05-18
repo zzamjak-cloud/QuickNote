@@ -1,6 +1,7 @@
 import { Crown, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Member } from "../../../store/memberStore";
+import { matchesMemberSearchQuery, sortByKoreanName } from "../../../lib/memberSearch";
 
 type Props = {
   label: string;
@@ -19,15 +20,20 @@ export function LeaderMemberPicker({
 }: Props) {
   const [query, setQuery] = useState("");
   const valueSet = useMemo(() => new Set(value), [value]);
-  const selectedMembers = members.filter((member) => valueSet.has(member.memberId));
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredMembers = members.filter((member) => {
-    if (member.status !== "active") return false;
-    if (!normalizedQuery) return true;
-    return [member.name, member.jobTitle, member.jobRole]
-      .filter(Boolean)
-      .some((text) => String(text).toLowerCase().includes(normalizedQuery));
-  });
+  const selectedMembers = useMemo(
+    () => sortByKoreanName(members.filter((member) => valueSet.has(member.memberId))),
+    [members, valueSet],
+  );
+  const filteredMembers = useMemo(
+    () =>
+      sortByKoreanName(
+        members.filter((member) => {
+          if (member.status !== "active") return false;
+          return matchesMemberSearchQuery(member, query);
+        }),
+      ),
+    [members, query],
+  );
 
   const toggle = (memberId: string) => {
     onChange(valueSet.has(memberId)

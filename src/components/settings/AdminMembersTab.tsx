@@ -143,14 +143,14 @@ export function AdminMembersTab() {
       </div>
 
       {/* 구성원 / 보관함 탭 + 검색 */}
-      <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700">
+      <div className="flex h-9 items-center gap-2 border-b border-zinc-200 dark:border-zinc-700">
         <button
           type="button"
           onClick={() => {
             setActiveTab("active");
             setQuery("");
           }}
-          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={`h-9 px-3 text-sm font-medium transition-colors ${
             activeTab === "active"
               ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
               : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
@@ -164,7 +164,7 @@ export function AdminMembersTab() {
             setActiveTab("archived");
             setQuery("");
           }}
-          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={`h-9 px-3 text-sm font-medium transition-colors ${
             activeTab === "archived"
               ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
               : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"

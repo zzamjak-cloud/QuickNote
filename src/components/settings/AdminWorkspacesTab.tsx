@@ -3,6 +3,7 @@ import { Plus, Search } from "lucide-react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
 import {
+  archiveWorkspaceApi,
   createWorkspaceApi,
   deleteWorkspaceApi,
   getWorkspaceApi,
@@ -66,15 +67,17 @@ export function AdminWorkspacesTab() {
   const openEditModal = async (workspaceId: string) => {
     const target = sharedAll.find((w) => w.workspaceId === workspaceId);
     if (!target) return;
+    if (target.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
+      setEditEntries([{ subjectType: "EVERYONE", level: "EDIT" }]);
+      setEditingWorkspaceId(target.workspaceId);
+      setOpenEdit(true);
+      return;
+    }
     setLoadingWorkspaceId(target.workspaceId);
     setOpenEdit(false);
     try {
       const detail = await getWorkspaceApi(target.workspaceId);
-      setEditEntries(
-        target.workspaceId === LC_SCHEDULER_WORKSPACE_ID
-          ? [{ subjectType: "EVERYONE", level: "EDIT" }]
-          : detail.access,
-      );
+      setEditEntries(detail.access);
       setEditingWorkspaceId(target.workspaceId);
       setOpenEdit(true);
     } catch {
@@ -157,9 +160,11 @@ export function AdminWorkspacesTab() {
                   className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate">{ws.name}</span>
-                    <span className="block text-xs lowercase text-zinc-500 dark:text-zinc-400">
-                      {loadingWorkspaceId === ws.workspaceId ? "불러오는 중..." : "workspace"}
+                    <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                      {ws.name}
+                    </span>
+                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+                      {loadingWorkspaceId === ws.workspaceId ? "불러오는 중..." : ""}
                     </span>
                   </span>
                 </button>
@@ -184,8 +189,9 @@ export function AdminWorkspacesTab() {
                   className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-zinc-600 dark:text-zinc-300">{ws.name}</span>
-                    <span className="block text-xs text-zinc-400">workspace</span>
+                    <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                      {ws.name}
+                    </span>
                   </span>
                 </button>
               </li>
@@ -288,7 +294,7 @@ export function AdminWorkspacesTab() {
           onSave={async ({ name, entries }) => {
             if (!editingWorkspace) return;
             if (editingWorkspaceLocked) {
-              showToast("LC스케줄러 권한은 모든 구성원 편집으로 고정됩니다.", { kind: "info" });
+              showToast("LC스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다.", { kind: "info" });
               return;
             }
             const updated = await updateWorkspaceApi({
@@ -306,12 +312,22 @@ export function AdminWorkspacesTab() {
             showToast("저장되었습니다.", { kind: "success" });
           }}
           onRequestDelete={() => {
-            setDeleteWorkspaceId(editingWorkspace.workspaceId);
-            setDeletePhraseDraft("");
+            if (editingWorkspace.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
+              showToast("LC스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다.", { kind: "info" });
+              return;
+            }
+            void (async () => {
+              const archived = await archiveWorkspaceApi(editingWorkspace.workspaceId);
+              if (archived) upsertWorkspace(archived);
+              setOpenEdit(false);
+              setEditingWorkspaceId(null);
+              setEditEntries([]);
+              showToast("보관함으로 이동되었습니다.", { kind: "success" });
+            })();
           }}
           lockedReason={
             editingWorkspaceLocked
-              ? "LC스케줄러 워크스페이스는 모든 구성원 편집 권한으로 고정됩니다."
+              ? "LC스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다."
               : undefined
           }
         />

@@ -87,7 +87,7 @@ export function EditWorkspaceModal({
               onClick={onRequestDelete}
               className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700"
             >
-              워크스페이스 삭제
+              보관함으로 이동
             </button>
           ) : <span />}
           <div className="flex gap-2">

@@ -23,6 +23,8 @@ import { SchedulerToolbar } from "./SchedulerToolbar";
 import { ScheduleGrid } from "./ScheduleGrid";
 import { MonthScheduleView, WeekScheduleView } from "./WeekScheduleView";
 import { WeeklyMmPanel } from "./mm/WeeklyMmPanel";
+import { listTeamsApi } from "../../lib/sync/teamApi";
+import { listOrganizationsApi } from "../../lib/sync/organizationApi";
 
 // 연도의 마지막 날짜
 function endOfYear(year: number): Date {
@@ -40,6 +42,8 @@ export function LCSchedulerModal({ onClose }: Props) {
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
+  const setTeams = useTeamStore((s) => s.setTeams);
+  const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
   const disabledOrgIds = useSchedulerFiltersStore((s) => s.disabledOrgIds);
   const disabledTeamIds = useSchedulerFiltersStore((s) => s.disabledTeamIds);
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
@@ -83,6 +87,54 @@ export function LCSchedulerModal({ onClose }: Props) {
     const id = setTimeout(loadSecondaryData, 0);
     return () => clearTimeout(id);
   }, [fetchProjects, fetchHolidays]);
+
+  // 모달이 열려있는 동안 프로젝트/조직/팀 메타를 주기적으로 재조회해 다중 클라이언트 변경을 빠르게 반영한다.
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+
+    const refreshSchedulerMeta = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const [teamsList, organizationsList] = await Promise.all([
+          listTeamsApi(),
+          listOrganizationsApi(),
+          fetchProjects(LC_SCHEDULER_WORKSPACE_ID),
+        ]);
+        if (cancelled) return;
+        setTeams(teamsList, LC_SCHEDULER_WORKSPACE_ID);
+        setOrganizations(organizationsList, LC_SCHEDULER_WORKSPACE_ID);
+      } catch (error) {
+        console.error("[LCSchedulerModal] 메타 동기화 실패", error);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const handleFocus = () => {
+      void refreshSchedulerMeta();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshSchedulerMeta();
+    };
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refreshSchedulerMeta();
+    }, 2500);
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchProjects, setOrganizations, setTeams]);
 
   // 프로젝트/조직/팀 옵션은 스케줄러 설정의 활성 목록과 자동 동기화한다.
   useEffect(() => {

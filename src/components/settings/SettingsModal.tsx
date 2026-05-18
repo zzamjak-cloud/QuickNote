@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Building, Building2, Folder, User, Users, UsersRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import pkg from "../../../package.json";
@@ -11,6 +11,12 @@ import { AdminTeamsTab } from "./AdminTeamsTab";
 import { AdminWorkspacesTab } from "./AdminWorkspacesTab";
 import { AdminOrganizationsTab } from "./AdminOrganizationsTab";
 import { ProjectsPanel } from "../scheduler/admin/ProjectsPanel";
+import { listTeamsApi } from "../../lib/sync/teamApi";
+import { listOrganizationsApi } from "../../lib/sync/organizationApi";
+import { useTeamStore } from "../../store/teamStore";
+import { useOrganizationStore } from "../../store/organizationStore";
+import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 
 type Props = {
   open: boolean;
@@ -26,6 +32,9 @@ export function SettingsModal({ open, onClose }: Props) {
   const role = useMemberStore((s) => s.me?.workspaceRole ?? "member");
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
+  const setTeams = useTeamStore((s) => s.setTeams);
+  const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
+  const fetchProjects = useSchedulerProjectsStore((s) => s.fetchProjects);
   const isAdmin = role === "developer" || role === "owner" || role === "leader" || role === "manager";
   const [tab, setTab] = useState<TabId>("profile");
 
@@ -44,6 +53,54 @@ export function SettingsModal({ open, onClose }: Props) {
     }
     return base;
   }, [isAdmin]);
+
+  useEffect(() => {
+    if (!open || !isAdmin) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const refreshAdminMetadata = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const [teams, organizations] = await Promise.all([
+          listTeamsApi(),
+          listOrganizationsApi(),
+          fetchProjects(LC_SCHEDULER_WORKSPACE_ID),
+        ]);
+        if (cancelled) return;
+        setTeams(teams, LC_SCHEDULER_WORKSPACE_ID);
+        setOrganizations(organizations, LC_SCHEDULER_WORKSPACE_ID);
+      } catch (error) {
+        console.error("[SettingsModal] 조직/팀/프로젝트 동기화 실패", error);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const handleFocus = () => {
+      void refreshAdminMetadata();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshAdminMetadata();
+    };
+
+    void refreshAdminMetadata();
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void refreshAdminMetadata();
+    }, 2500);
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchProjects, isAdmin, open, setOrganizations, setTeams]);
 
   if (!open) return null;
 

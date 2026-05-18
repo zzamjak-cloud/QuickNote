@@ -54,7 +54,7 @@ export function MyProfileSection() {
       {/* 아바타 영역 */}
       <div className="flex items-center gap-4 pb-4">
         <div className="relative shrink-0">
-          <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-2xl border-2 border-zinc-200 bg-zinc-100 text-5xl dark:border-zinc-700 dark:bg-zinc-800">
+          <div className="flex h-64 w-64 items-center justify-center overflow-hidden rounded-2xl border-2 border-zinc-200 bg-zinc-100 text-5xl dark:border-zinc-700 dark:bg-zinc-800">
             {avatar ? (
               <img src={avatar} className="h-full w-full object-cover" alt="" />
             ) : (

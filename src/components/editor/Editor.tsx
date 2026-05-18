@@ -262,7 +262,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
     if (host) host.scrollTop = 0;
   }, [effectivePageId]);
 
-  const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(420);
+  const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(240);
 
   const clearColumnDropUi = useCallback(() => {
     document.body.classList.remove("quicknote-column-drop");

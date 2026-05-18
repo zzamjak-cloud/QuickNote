@@ -7,6 +7,9 @@ import {
   type SchedulerProject,
 } from "../../../store/schedulerProjectsStore";
 import { DEFAULT_SCHEDULE_COLOR } from "../../../lib/scheduler/colors";
+import { useMemberSuggestionDropdown } from "../../../hooks/useMemberSuggestionDropdown";
+import { sortByKoreanName } from "../../../lib/memberSearch";
+import { AdminListHeader } from "../../settings/AdminListHeader";
 
 const EMPTY_FORM = {
   name: "",
@@ -18,57 +21,6 @@ const EMPTY_FORM = {
 
 type FormState = typeof EMPTY_FORM;
 type TabType = "active" | "archived";
-
-const CHOSEONG_LIST = [
-  "ㄱ",
-  "ㄲ",
-  "ㄴ",
-  "ㄷ",
-  "ㄸ",
-  "ㄹ",
-  "ㅁ",
-  "ㅂ",
-  "ㅃ",
-  "ㅅ",
-  "ㅆ",
-  "ㅇ",
-  "ㅈ",
-  "ㅉ",
-  "ㅊ",
-  "ㅋ",
-  "ㅌ",
-  "ㅍ",
-  "ㅎ",
-];
-
-function toChoseongText(value: string): string {
-  const chars = [...value];
-  return chars
-    .map((char) => {
-      const code = char.charCodeAt(0);
-      if (code >= 0xac00 && code <= 0xd7a3) {
-        const index = Math.floor((code - 0xac00) / 588);
-        return CHOSEONG_LIST[index] ?? char;
-      }
-      return char;
-    })
-    .join("")
-    .toLowerCase();
-}
-
-function matchesMemberQuery(member: Pick<Member, "name" | "email" | "jobRole">, rawQuery: string): boolean {
-  const query = rawQuery.trim().toLowerCase();
-  if (!query) return true;
-  const lowerName = member.name.toLowerCase();
-  const lowerEmail = member.email.toLowerCase();
-  const lowerJobRole = (member.jobRole ?? "").toLowerCase();
-  if (lowerName.includes(query) || lowerEmail.includes(query) || lowerJobRole.includes(query)) {
-    return true;
-  }
-  const choseongName = toChoseongText(member.name);
-  const choseongQuery = toChoseongText(query);
-  return choseongQuery.length > 0 && choseongName.includes(choseongQuery);
-}
 
 export function ProjectsPanel() {
   const { projects, workspaceId, createProject, updateProject, deleteProject } =
@@ -195,39 +147,14 @@ export function ProjectsPanel() {
         </button>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700">
-        <button
-          type="button"
-          onClick={() => setActiveTab("active")}
-          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-            activeTab === "active"
-              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-          }`}
-        >
-          프로젝트
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("archived")}
-          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-            activeTab === "archived"
-              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-          }`}
-        >
-          보관함
-        </button>
-        <div className="ml-auto flex items-center gap-1.5 rounded-md border border-zinc-200 px-2 py-1 dark:border-zinc-700">
-          <Search size={13} className="text-zinc-400" />
-          <input
-            value={listQuery}
-            onChange={(e) => setListQuery(e.target.value)}
-            placeholder="프로젝트 검색"
-            className="w-32 bg-transparent text-sm outline-none placeholder:text-zinc-400"
-          />
-        </div>
-      </div>
+      <AdminListHeader
+        leftLabel="프로젝트"
+        activeTab={activeTab}
+        query={listQuery}
+        queryPlaceholder="프로젝트 검색"
+        onChangeTab={setActiveTab}
+        onChangeQuery={setListQuery}
+      />
 
       {activeTab === "active" ? (
         activeProjects.length === 0 ? (
@@ -347,15 +274,15 @@ function ProjectManageModal({
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [isNameEditing, setIsNameEditing] = useState(mode === "create");
   const [memberQuery, setMemberQuery] = useState("");
-  const [suppressSuggestions, setSuppressSuggestions] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const dropdownWrapRef = useRef<HTMLDivElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const initializedProjectIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (mode === "edit" && project) {
+      if (initializedProjectIdRef.current === project.id) return;
       setForm({
         name: project.name,
         color: project.color,
@@ -363,10 +290,12 @@ function ProjectManageModal({
         memberIds: [...project.memberIds],
         leaderMemberIds: [...(project.leaderMemberIds ?? [])],
       });
+      initializedProjectIdRef.current = project.id;
       setIsNameEditing(false);
       return;
     }
     setForm(EMPTY_FORM);
+    initializedProjectIdRef.current = null;
     setIsNameEditing(true);
   }, [mode, project]);
 
@@ -381,52 +310,47 @@ function ProjectManageModal({
     });
   }, [isNameEditing, mode]);
 
+  const membersById = useMemo(
+    () => new Map(activeMembers.map((member) => [member.memberId, member])),
+    [activeMembers],
+  );
   const selectedMembers = useMemo(
-    () => activeMembers.filter((member) => form.memberIds.includes(member.memberId)),
-    [activeMembers, form.memberIds],
+    () => sortByKoreanName(
+      form.memberIds
+        .map((memberId) => membersById.get(memberId))
+        .filter((member): member is Member => Boolean(member)),
+    ),
+    [form.memberIds, membersById],
   );
 
-  const suggestionMembers = useMemo(() => {
-    const query = memberQuery.trim();
-    if (!query) return [];
-    return activeMembers
-      .filter((member) => !form.memberIds.includes(member.memberId))
-      .filter((member) => matchesMemberQuery(member, query));
-  }, [activeMembers, form.memberIds, memberQuery]);
+  const {
+    suggestionMembers,
+    isSuggestionOpen,
+    highlightedIndex,
+    handleQueryChange,
+    handleKeyDown,
+    selectMember,
+  } = useMemberSuggestionDropdown({
+    members: activeMembers,
+    query: memberQuery,
+    excludedMemberIds: form.memberIds,
+    dropdownWrapRef,
+  });
 
-  const isSuggestionOpen =
-    !suppressSuggestions &&
-    memberQuery.trim().length > 0 &&
-    suggestionMembers.length > 0;
-
-  useEffect(() => {
-    if (!isSuggestionOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (dropdownWrapRef.current?.contains(target)) return;
-      setSuppressSuggestions(true);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isSuggestionOpen]);
-
-  useEffect(() => {
-    if (!isSuggestionOpen) {
-      setHighlightedIndex(-1);
-      return;
-    }
-    setHighlightedIndex((prev) => {
-      if (prev < 0) return 0;
-      if (prev >= suggestionMembers.length) return suggestionMembers.length - 1;
-      return prev;
-    });
-  }, [isSuggestionOpen, suggestionMembers.length]);
+  const sortMemberIdsByName = (ids: string[]) =>
+    sortByKoreanName(
+      ids
+        .map((memberId) => membersById.get(memberId))
+        .filter((member): member is Member => Boolean(member)),
+    ).map((member) => member.memberId);
 
   const updateMemberIds = (nextIds: string[]) => {
+    const normalizedIds = Array.from(new Set(nextIds));
+    const sortedIds = sortMemberIdsByName(normalizedIds);
     setForm((current) => ({
       ...current,
-      memberIds: nextIds,
-      leaderMemberIds: current.leaderMemberIds.filter((leaderId) => nextIds.includes(leaderId)),
+      memberIds: sortedIds,
+      leaderMemberIds: current.leaderMemberIds.filter((leaderId) => sortedIds.includes(leaderId)),
     }));
   };
 
@@ -457,42 +381,15 @@ function ProjectManageModal({
   };
 
   const handleMemberQueryChange = (value: string) => {
-    setMemberQuery(value);
-    setSuppressSuggestions(false);
+    handleQueryChange(value, setMemberQuery);
   };
 
   const handleSelectSuggestion = (memberId: string) => {
-    addMember(memberId);
-    setSuppressSuggestions(true);
-    setHighlightedIndex(-1);
+    selectMember(memberId, addMember);
   };
 
-  const handleMemberQueryKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (!isSuggestionOpen) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlightedIndex((prev) => (prev + 1) % suggestionMembers.length);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlightedIndex((prev) =>
-        prev <= 0 ? suggestionMembers.length - 1 : prev - 1,
-      );
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const targetMember = suggestionMembers[highlightedIndex];
-      if (!targetMember) return;
-      handleSelectSuggestion(targetMember.memberId);
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setSuppressSuggestions(true);
-    }
-  };
+  const handleMemberQueryKeyDown = (event: KeyboardEvent<HTMLInputElement>) =>
+    handleKeyDown(event, addMember);
 
   const handleSave = async () => {
     setErrorMessage(null);
@@ -504,12 +401,19 @@ function ProjectManageModal({
       setErrorMessage("프로젝트 이름을 입력해 주세요.");
       return;
     }
+    const normalizedMemberIds = sortMemberIdsByName(form.memberIds);
+    const normalizedLeaderIds = form.leaderMemberIds.filter((leaderId) => normalizedMemberIds.includes(leaderId));
+    const nextForm: FormState = {
+      ...form,
+      memberIds: normalizedMemberIds,
+      leaderMemberIds: normalizedLeaderIds,
+    };
     setSubmitting(true);
     try {
       if (mode === "create") {
-        await onSaveCreate?.(form);
+        await onSaveCreate?.(nextForm);
       } else if (project) {
-        await onSaveEdit?.(project.id, form);
+        await onSaveEdit?.(project.id, nextForm);
       }
       onClose();
     } catch (error) {

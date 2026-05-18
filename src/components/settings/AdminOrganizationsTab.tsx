@@ -1,6 +1,6 @@
 // 조직(실) 관리 탭 — AdminTeamsTab 과 동일한 UX 구조
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Crown, Plus, Search } from "lucide-react";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -15,61 +15,11 @@ import {
 } from "../../lib/sync/organizationApi";
 import { inferLeaderMemberIds } from "../../lib/scheduler/mm/leaderDefaults";
 import { useUiStore } from "../../store/uiStore";
+import { useMemberSuggestionDropdown } from "../../hooks/useMemberSuggestionDropdown";
+import { sortByKoreanName } from "../../lib/memberSearch";
+import { AdminListHeader } from "./AdminListHeader";
 
 type TabType = "active" | "archived";
-
-const CHOSEONG_LIST = [
-  "ㄱ",
-  "ㄲ",
-  "ㄴ",
-  "ㄷ",
-  "ㄸ",
-  "ㄹ",
-  "ㅁ",
-  "ㅂ",
-  "ㅃ",
-  "ㅅ",
-  "ㅆ",
-  "ㅇ",
-  "ㅈ",
-  "ㅉ",
-  "ㅊ",
-  "ㅋ",
-  "ㅌ",
-  "ㅍ",
-  "ㅎ",
-];
-
-function toChoseongText(value: string): string {
-  return [...value]
-    .map((char) => {
-      const code = char.charCodeAt(0);
-      if (code >= 0xac00 && code <= 0xd7a3) {
-        const index = Math.floor((code - 0xac00) / 588);
-        return CHOSEONG_LIST[index] ?? char;
-      }
-      return char;
-    })
-    .join("")
-    .toLowerCase();
-}
-
-function matchesMemberQuery(
-  member: { name: string; email: string; jobRole?: string },
-  rawQuery: string,
-): boolean {
-  const query = rawQuery.trim().toLowerCase();
-  if (!query) return true;
-  const lowerName = member.name.toLowerCase();
-  const lowerEmail = member.email.toLowerCase();
-  const lowerJobRole = (member.jobRole ?? "").toLowerCase();
-  if (lowerName.includes(query) || lowerEmail.includes(query) || lowerJobRole.includes(query)) {
-    return true;
-  }
-  const choseongName = toChoseongText(member.name);
-  const choseongQuery = toChoseongText(query);
-  return choseongQuery.length > 0 && choseongName.includes(choseongQuery);
-}
 
 export function AdminOrganizationsTab() {
   const organizations = useOrganizationStore((s) => s.organizations);
@@ -84,8 +34,6 @@ export function AdminOrganizationsTab() {
   const [openAssignOrgId, setOpenAssignOrgId] = useState<string | null>(null);
   const [editingOrgName, setEditingOrgName] = useState("");
   const [memberQuery, setMemberQuery] = useState("");
-  const [suppressSuggestions, setSuppressSuggestions] = useState(false);
-  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [listQuery, setListQuery] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [selectedLeaderIds, setSelectedLeaderIds] = useState<string[]>([]);
@@ -128,50 +76,32 @@ export function AdminOrganizationsTab() {
   );
 
   const selectedMembers = useMemo(
-    () => selectedMemberIds
-      .map((memberId) => membersById.get(memberId))
-      .filter((member): member is NonNullable<typeof member> => Boolean(member)),
+    () => sortByKoreanName(
+      selectedMemberIds
+        .map((memberId) => membersById.get(memberId))
+        .filter((member): member is NonNullable<typeof member> => Boolean(member)),
+    ),
     [membersById, selectedMemberIds],
   );
-  const suggestionMembers = useMemo(() => {
-    const query = memberQuery.trim();
-    if (!query) return [];
-    return members
-      .filter((member) => !selectedMemberIds.includes(member.memberId))
-      .filter((member) => matchesMemberQuery(member, query));
-  }, [members, memberQuery, selectedMemberIds]);
-  const isSuggestionOpen =
-    !suppressSuggestions &&
-    memberQuery.trim().length > 0 &&
-    suggestionMembers.length > 0;
+  const {
+    suggestionMembers,
+    isSuggestionOpen,
+    highlightedIndex,
+    setSuppressSuggestions,
+    handleQueryChange,
+    handleKeyDown,
+    selectMember,
+  } = useMemberSuggestionDropdown({
+    members,
+    query: memberQuery,
+    excludedMemberIds: selectedMemberIds,
+    dropdownWrapRef,
+  });
 
   const setLeaderSelection = (nextIds: string[]) => {
     selectedLeaderIdsRef.current = nextIds;
     setSelectedLeaderIds(nextIds);
   };
-
-  useEffect(() => {
-    if (!isSuggestionOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (dropdownWrapRef.current?.contains(target)) return;
-      setSuppressSuggestions(true);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isSuggestionOpen]);
-
-  useEffect(() => {
-    if (!isSuggestionOpen) {
-      setHighlightedIndex(-1);
-      return;
-    }
-    setHighlightedIndex((prev) => {
-      if (prev < 0) return 0;
-      if (prev >= suggestionMembers.length) return suggestionMembers.length - 1;
-      return prev;
-    });
-  }, [isSuggestionOpen, suggestionMembers.length]);
 
   const buildLeaderSavedMessage = (leaderIds: string[]) => {
     if (leaderIds.length === 0) return "조직 리더 설정이 저장되었습니다.";
@@ -209,7 +139,6 @@ export function AdminOrganizationsTab() {
     setEditingOrgName(org?.name ?? "");
     setMemberQuery("");
     setSuppressSuggestions(false);
-    setHighlightedIndex(-1);
     setSelectedMemberIds(org?.members.map((m) => m.memberId) ?? []);
     const initialLeaderIds = (org?.leaderMemberIds?.length
       ? org.leaderMemberIds
@@ -250,42 +179,15 @@ export function AdminOrganizationsTab() {
   };
 
   const handleMemberQueryChange = (value: string) => {
-    setMemberQuery(value);
-    setSuppressSuggestions(false);
+    handleQueryChange(value, setMemberQuery);
   };
 
   const handleSelectSuggestion = (memberId: string) => {
-    addMember(memberId);
-    setSuppressSuggestions(true);
-    setHighlightedIndex(-1);
+    selectMember(memberId, addMember);
   };
 
-  const handleMemberQueryKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (!isSuggestionOpen) return;
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setHighlightedIndex((prev) => (prev + 1) % suggestionMembers.length);
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setHighlightedIndex((prev) =>
-        prev <= 0 ? suggestionMembers.length - 1 : prev - 1,
-      );
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const targetMember = suggestionMembers[highlightedIndex];
-      if (!targetMember) return;
-      handleSelectSuggestion(targetMember.memberId);
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setSuppressSuggestions(true);
-    }
-  };
+  const handleMemberQueryKeyDown = (event: KeyboardEvent<HTMLInputElement>) =>
+    handleKeyDown(event, addMember);
 
   /** 조직 구성원/리더 저장 */
   const onSaveMembers = async () => {
@@ -454,40 +356,14 @@ export function AdminOrganizationsTab() {
         </button>
       </div>
 
-      {/* 조직 / 보관함 탭 + 검색 */}
-      <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700">
-        <button
-          type="button"
-          onClick={() => setActiveTab("active")}
-          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-            activeTab === "active"
-              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-          }`}
-        >
-          조직
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("archived")}
-          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-            activeTab === "archived"
-              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-          }`}
-        >
-          보관함
-        </button>
-        <div className="ml-auto flex items-center gap-1.5 rounded-md border border-zinc-200 px-2 py-1 dark:border-zinc-700">
-          <Search size={13} className="text-zinc-400" />
-          <input
-            value={listQuery}
-            onChange={(e) => setListQuery(e.target.value)}
-            placeholder="조직 검색"
-            className="w-32 bg-transparent text-sm outline-none placeholder:text-zinc-400"
-          />
-        </div>
-      </div>
+      <AdminListHeader
+        leftLabel="조직"
+        activeTab={activeTab}
+        query={listQuery}
+        queryPlaceholder="조직 검색"
+        onChangeTab={setActiveTab}
+        onChangeQuery={setListQuery}
+      />
 
       {activeTab === "active" ? (
         <ul className="grid grid-cols-1 gap-2 text-sm">

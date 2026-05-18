@@ -10,6 +10,7 @@ const updateWorkspaceApiMock = vi.fn();
 const setWorkspaceAccessApiMock = vi.fn();
 const deleteWorkspaceApiMock = vi.fn();
 const getWorkspaceApiMock = vi.fn();
+const archiveWorkspaceApiMock = vi.fn();
 
 vi.mock("../../../lib/sync/workspaceApi", () => ({
   createWorkspaceApi: (...args: unknown[]) => createWorkspaceApiMock(...args),
@@ -17,6 +18,7 @@ vi.mock("../../../lib/sync/workspaceApi", () => ({
   setWorkspaceAccessApi: (...args: unknown[]) => setWorkspaceAccessApiMock(...args),
   deleteWorkspaceApi: (...args: unknown[]) => deleteWorkspaceApiMock(...args),
   getWorkspaceApi: (...args: unknown[]) => getWorkspaceApiMock(...args),
+  archiveWorkspaceApi: (...args: unknown[]) => archiveWorkspaceApiMock(...args),
 }));
 
 describe("AdminWorkspacesTab", () => {
@@ -26,6 +28,7 @@ describe("AdminWorkspacesTab", () => {
     setWorkspaceAccessApiMock.mockReset();
     deleteWorkspaceApiMock.mockReset();
     getWorkspaceApiMock.mockReset();
+    archiveWorkspaceApiMock.mockReset();
     useWorkspaceStore.setState({
       currentWorkspaceId: "ws-1",
       workspaces: [
@@ -80,7 +83,7 @@ describe("AdminWorkspacesTab", () => {
     expect(screen.getByText("Engineering")).toBeTruthy();
   });
 
-  it("행에 설정 편집 라벨이 있고, 클릭 시 편집 모달에서 삭제 버튼에 접근할 수 있다", async () => {
+  it("행에 설정 편집 라벨이 있고, 클릭 시 편집 모달에서 보관 버튼에 접근할 수 있다", async () => {
     getWorkspaceApiMock.mockResolvedValue({
       workspaceId: "ws-2",
       name: "HR",
@@ -97,10 +100,10 @@ describe("AdminWorkspacesTab", () => {
     await vi.waitFor(() => {
       expect(getWorkspaceApiMock).toHaveBeenCalledWith("ws-2");
     });
-    expect(screen.getByRole("button", { name: "워크스페이스 삭제" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "보관함으로 이동" })).toBeTruthy();
   });
 
-  it("생성 모달에서 EVERYONE EDIT 규칙 추가 후 생성한다", async () => {
+  it("생성 모달에서 워크스페이스를 생성한다", async () => {
     createWorkspaceApiMock.mockResolvedValue({
       workspaceId: "ws-9",
       name: "New WS",
@@ -116,20 +119,6 @@ describe("AdminWorkspacesTab", () => {
       target: { value: "New WS" },
     });
 
-    // 규칙 추가 폼 열기
-    fireEvent.click(screen.getByText("규칙 추가"));
-    // addType select(MEMBER/TEAM/EVERYONE)과 addLevel select(EDIT/VIEW)를 찾아 EVERYONE EDIT 선택
-    const selects = screen.getAllByRole("combobox");
-    const addTypeSelect = selects.find((s) =>
-      Array.from(s.querySelectorAll("option")).some((o) => (o as HTMLOptionElement).value === "EVERYONE"),
-    );
-    const addLevelSelect = selects.find((s) =>
-      Array.from(s.querySelectorAll("option")).some((o) => (o as HTMLOptionElement).value === "EDIT"),
-    );
-    fireEvent.change(addTypeSelect!, { target: { value: "EVERYONE" } });
-    fireEvent.change(addLevelSelect!, { target: { value: "EDIT" } });
-    fireEvent.click(screen.getByText("추가"));
-
     await act(async () => {
       fireEvent.click(screen.getByText("저장"));
     });
@@ -139,7 +128,7 @@ describe("AdminWorkspacesTab", () => {
     });
     expect(createWorkspaceApiMock).toHaveBeenCalledWith({
       name: "New WS",
-      access: [{ subjectType: "EVERYONE", subjectId: undefined, level: "EDIT" }],
+      access: [],
     });
   });
 
@@ -179,23 +168,6 @@ describe("AdminWorkspacesTab", () => {
     fireEvent.change(nameInput, {
       target: { value: "HR Updated" },
     });
-    // 규칙 추가 폼 열기 후 TEAM 규칙 추가 (EVERYONE은 이미 존재하여 dedup 처리됨)
-    fireEvent.click(screen.getByText("규칙 추가"));
-    const editSelects = screen.getAllByRole("combobox");
-    const editAddTypeSelect = editSelects.find((s) =>
-      Array.from(s.querySelectorAll("option")).some((o) => (o as HTMLOptionElement).value === "TEAM"),
-    );
-    const editAddLevelSelect = editSelects.find((s) =>
-      Array.from(s.querySelectorAll("option")).some((o) => (o as HTMLOptionElement).value === "EDIT"),
-    );
-    if (editAddTypeSelect) fireEvent.change(editAddTypeSelect, { target: { value: "TEAM" } });
-    if (editAddLevelSelect) fireEvent.change(editAddLevelSelect, { target: { value: "EDIT" } });
-    // 팀 검색 후 선택
-    const teamSearchInput = screen.getByPlaceholderText("팀 검색...");
-    fireEvent.change(teamSearchInput, { target: { value: "Core" } });
-    fireEvent.click(screen.getByText("Core"));
-    fireEvent.click(screen.getByText("추가"));
-
     await act(async () => {
       fireEvent.click(screen.getByText("저장"));
     });
@@ -210,15 +182,19 @@ describe("AdminWorkspacesTab", () => {
     });
     expect(setWorkspaceAccessApiMock).toHaveBeenCalledWith({
       workspaceId: "ws-2",
-      entries: [
-        { subjectType: "TEAM", subjectId: "t-1", level: "EDIT" },
-        { subjectType: "EVERYONE", subjectId: undefined, level: "VIEW" },
-      ],
+      entries: [{ subjectType: "EVERYONE", subjectId: undefined, level: "VIEW" }],
     });
   });
 
-  it("삭제 확인 시 deleteWorkspace 호출 후 목록에서 제거한다", async () => {
-    deleteWorkspaceApiMock.mockResolvedValue(true);
+  it("보관함 이동 클릭 시 archiveWorkspace 호출 후 활성 목록에서 제거한다", async () => {
+    archiveWorkspaceApiMock.mockResolvedValue({
+      workspaceId: "ws-2",
+      name: "HR",
+      type: "shared",
+      ownerMemberId: "m-owner",
+      myEffectiveLevel: "view",
+      removedAt: "2026-05-18T00:00:00.000Z",
+    });
     getWorkspaceApiMock.mockResolvedValue({
       workspaceId: "ws-2",
       name: "HR",
@@ -235,17 +211,13 @@ describe("AdminWorkspacesTab", () => {
     await vi.waitFor(() => {
       expect(getWorkspaceApiMock).toHaveBeenCalled();
     });
-    fireEvent.click(screen.getByRole("button", { name: "워크스페이스 삭제" }));
-    fireEvent.change(screen.getByPlaceholderText("HR 삭제"), {
-      target: { value: "HR 삭제" },
-    });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "삭제 실행" }));
+      fireEvent.click(screen.getByRole("button", { name: "보관함으로 이동" }));
     });
 
     await vi.waitFor(() => {
-      expect(deleteWorkspaceApiMock).toHaveBeenCalledWith("ws-2");
+      expect(archiveWorkspaceApiMock).toHaveBeenCalledWith("ws-2");
     });
     expect(screen.queryByText("HR")).toBeNull();
   });

@@ -19,6 +19,7 @@ import { useMemberStore } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
 import type { WorkspaceAccessInput } from "../../lib/sync/workspaceApi";
 import { AppSelect } from "../common/AppSelect";
+import { matchesMemberSearchQuery } from "../../lib/memberSearch";
 
 type Level = "EDIT" | "VIEW";
 type SubjectType = "MEMBER" | "TEAM" | "EVERYONE";
@@ -161,7 +162,7 @@ export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason 
         .slice(0, 8);
     }
     return members
-      .filter((m) => !q || m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q))
+      .filter((m) => matchesMemberSearchQuery(m, q))
       .slice(0, 8);
   }, [addType, query, teams, members]);
 

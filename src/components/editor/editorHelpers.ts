@@ -135,12 +135,12 @@ export function trySyncFullPageDatabaseTitle(
   return true;
 }
 
-/** 본문 스크롤 하단 여백(px) — 뷰포트 높이 42%, 최소 12rem, 최대 680px */
+/** 본문 스크롤 하단 여백(px) — 텍스트 드래그 시 급격한 자동 스크롤을 막기 위해 완만한 값으로 제한 */
 export function computeEditorTailSpacerPx(): number {
   const vh = window.visualViewport?.height ?? window.innerHeight;
   const rootRemPx =
     Number.parseFloat(getComputedStyle(document.documentElement).fontSize) ||
     16;
-  const minPx = Math.round(12 * rootRemPx);
-  return Math.min(680, Math.max(minPx, Math.round(vh * 0.42)));
+  const minPx = Math.round(8 * rootRemPx);
+  return Math.min(360, Math.max(minPx, Math.round(vh * 0.28)));
 }
