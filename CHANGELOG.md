@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.15] - 2026-05-18
+
+### Changed
+
+- **LC 스케줄러 부분 투영**: 일정 row page 변경 시 전체 스케줄러 DB를 재투영하지 않고 변경된 카드만 재계산하도록 개선.
+- **LC 스케줄러 진입 성능**: 모달 chunk preload와 즉시 fallback 표시로 버튼 클릭 후 팝업 체감 지연을 줄임.
+- **주간 MM 계산**: 주간 MM 열기·데이터 갱신 시점의 스냅샷 기반 계산으로 전환하고, 반차·시간차 근태를 기타 MM에 반영.
+
 ## [5.4.14] - 2026-05-17
 
 ### Changed
