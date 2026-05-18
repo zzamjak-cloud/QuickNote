@@ -12,6 +12,7 @@ import { useProcessedRows } from "../useProcessedRows";
 import { DatabaseCell } from "../DatabaseCell";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
+import { AppSelect } from "../../common/AppSelect";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
@@ -69,6 +70,13 @@ export function DatabaseKanbanView({
   const groupColId =
     panelState.kanbanGroupColumnId ?? statusFirst?.id ?? selectFirst?.id ?? null;
   const groupCol: ColumnDef | undefined = columns.find((c) => c.id === groupColId);
+  const groupColumnOptions = useMemo(
+    () => [
+      { value: "", label: "선택…" },
+      ...selectableCols.map((column) => ({ value: column.id, label: column.name })),
+    ],
+    [selectableCols],
+  );
   const options = useMemo<SelectOption[]>(
     () => groupCol?.config?.options ?? EMPTY_OPTIONS,
     [groupCol?.config?.options],
@@ -121,22 +129,17 @@ export function DatabaseKanbanView({
     <div className="pt-3">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
         <span className="text-zinc-600 dark:text-zinc-400">그룹 컬럼</span>
-        <select
+        <AppSelect
           value={groupColId ?? ""}
-          onChange={(e) =>
+          onChange={(nextValue) =>
             setPanelState({
-              kanbanGroupColumnId: e.target.value || null,
+              kanbanGroupColumnId: nextValue || null,
             })
           }
-          className="rounded border border-zinc-300 bg-white px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900"
-        >
-          <option value="">선택…</option>
-          {selectableCols.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
+          options={groupColumnOptions}
+          className="min-w-[180px]"
+          buttonClassName="py-1"
+        />
       </div>
       {!groupCol ? (
         <p className="py-6 text-center text-xs text-zinc-500">

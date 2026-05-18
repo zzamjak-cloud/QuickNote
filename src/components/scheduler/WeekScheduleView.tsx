@@ -895,6 +895,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     selectedProjectId?.startsWith('proj:') ? selectedProjectId.slice(5) : null
   const showGlobalRow = selectedProjectId !== null
 
+  // 구성원 일정은 선택 scope와 무관하게 고유 구성원 행에 모두 표시한다.
   const { schedulesByMember: schedulesByMemberId, globalSchedules } = useMemo(
     () => groupSchedulesByMember(schedules, effectiveSelectedProjectId),
     [effectiveSelectedProjectId, schedules],

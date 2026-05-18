@@ -21,6 +21,7 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
 import { DatabaseViewKindToggle } from "./DatabaseViewKindToggle";
 import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
+import { AppSelect } from "../common/AppSelect";
 
 type Props = {
   databaseId: string;
@@ -100,7 +101,7 @@ export function DatabaseToolbarControls({
   ];
 
   const sortOptions = useMemo(
-    () => columns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>),
+    () => columns.map((column) => ({ value: column.id, label: column.name })),
     [columns],
   );
 
@@ -393,23 +394,21 @@ export function DatabaseToolbarControls({
           >
             <div className="space-y-1">
               <div className="text-[10px] uppercase text-zinc-400">컬럼</div>
-              <select
+              <AppSelect
                 value={openFilterRule.columnId}
-                onChange={(e) => updateRule(openFilterRule.id, { columnId: e.target.value })}
-                className="w-full rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-800"
-              >
-                {columns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+                onChange={(nextValue) => updateRule(openFilterRule.id, { columnId: nextValue })}
+                options={columns.map((column) => ({ value: column.id, label: column.name }))}
+                buttonClassName="w-full px-1.5 py-1"
+              />
             </div>
             <div className="space-y-1">
               <div className="text-[10px] uppercase text-zinc-400">조건</div>
-              <select
+              <AppSelect
                 value={openFilterRule.operator}
-                onChange={(e) => updateRule(openFilterRule.id, { operator: e.target.value as FilterOperator })}
-                className="w-full rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-800"
-              >
-                {FILTER_OPERATORS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-              </select>
+                onChange={(nextValue) => updateRule(openFilterRule.id, { operator: nextValue as FilterOperator })}
+                options={FILTER_OPERATORS.map((operator) => ({ value: operator.id, label: operator.label }))}
+                buttonClassName="w-full px-1.5 py-1"
+              />
             </div>
             {!["isEmpty", "isNotEmpty"].includes(openFilterRule.operator) && (
               <div className="space-y-1">
@@ -436,13 +435,12 @@ export function DatabaseToolbarControls({
           >
             <div className="space-y-1">
               <div className="text-[10px] uppercase text-zinc-400">컬럼</div>
-              <select
+              <AppSelect
                 value={openSortRule.columnId}
-                onChange={(e) => updateSortRule(openSortIdx, { columnId: e.target.value })}
-                className="w-full rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-800"
-              >
-                {sortOptions}
-              </select>
+                onChange={(nextValue) => updateSortRule(openSortIdx, { columnId: nextValue })}
+                options={sortOptions}
+                buttonClassName="w-full px-1.5 py-1"
+              />
             </div>
             <div className="space-y-1">
               <div className="text-[10px] uppercase text-zinc-400">방향</div>

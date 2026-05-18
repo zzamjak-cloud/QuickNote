@@ -617,7 +617,10 @@ export function buildRemoveMemberPlan(args: {
   now: string;
 }): RemoveMemberPlan {
   const { caller, target, tables, now } = args;
-  const personalWsId = target.personalWorkspaceId;
+  const personalWsId =
+    typeof target.personalWorkspaceId === "string"
+      ? target.personalWorkspaceId.trim()
+      : "";
 
   const primaryItems: TxItem[] = [
     // 1. Members status = removed
@@ -630,40 +633,46 @@ export function buildRemoveMemberPlan(args: {
         ExpressionAttributeValues: { ":removed": "removed", ":now": now },
       },
     },
-    // 2. 개인 워크스페이스 소유권 이전 + 이름 변경
-    {
-      Update: {
-        TableName: tables.Workspaces,
-        Key: { workspaceId: personalWsId },
-        UpdateExpression: "SET ownerMemberId = :caller, #n = :name",
-        ExpressionAttributeNames: { "#n": "name" },
-        ExpressionAttributeValues: {
-          ":caller": caller.memberId,
-          ":name": `${target.name}의 개인 노트 (제거됨)`,
-        },
-      },
-    },
-    // 3. 기존 WorkspaceAccess (target) 제거
-    {
-      Delete: {
-        TableName: tables.WorkspaceAccess,
-        Key: { workspaceId: personalWsId, subjectKey: `member#${target.memberId}` },
-      },
-    },
-    // 4. 새 WorkspaceAccess (caller) 삽입
-    {
-      Put: {
-        TableName: tables.WorkspaceAccess,
-        Item: {
-          workspaceId: personalWsId,
-          subjectKey: `member#${caller.memberId}`,
-          subjectType: "member",
-          subjectId: caller.memberId,
-          level: "edit",
-        },
-      },
-    },
   ];
+
+  // personalWorkspaceId 가 유효한 경우에만 개인 워크스페이스 이관 절차 수행
+  if (personalWsId) {
+    primaryItems.push(
+      // 2. 개인 워크스페이스 소유권 이전 + 이름 변경
+      {
+        Update: {
+          TableName: tables.Workspaces,
+          Key: { workspaceId: personalWsId },
+          UpdateExpression: "SET ownerMemberId = :caller, #n = :name",
+          ExpressionAttributeNames: { "#n": "name" },
+          ExpressionAttributeValues: {
+            ":caller": caller.memberId,
+            ":name": `${target.name}의 개인 노트 (제거됨)`,
+          },
+        },
+      },
+      // 3. 기존 WorkspaceAccess (target) 제거
+      {
+        Delete: {
+          TableName: tables.WorkspaceAccess,
+          Key: { workspaceId: personalWsId, subjectKey: `member#${target.memberId}` },
+        },
+      },
+      // 4. 새 WorkspaceAccess (caller) 삽입
+      {
+        Put: {
+          TableName: tables.WorkspaceAccess,
+          Item: {
+            workspaceId: personalWsId,
+            subjectKey: `member#${caller.memberId}`,
+            subjectType: "member",
+            subjectId: caller.memberId,
+            level: "edit",
+          },
+        },
+      },
+    );
+  }
 
   // secondary: MemberTeams + WorkspaceAccess(bySubject) — batch 후처리
   const secondaryDeletes: RemoveMemberPlan["secondaryDeletes"] = [
@@ -672,7 +681,7 @@ export function buildRemoveMemberPlan(args: {
       key: { memberId: target.memberId, teamId },
     })),
     ...args.targetAccessEntries
-      .filter((e) => !(e.workspaceId === personalWsId && e.subjectKey === `member#${target.memberId}`))
+      .filter((e) => !personalWsId || !(e.workspaceId === personalWsId && e.subjectKey === `member#${target.memberId}`))
       .map((e) => ({
         table: tables.WorkspaceAccess,
         key: { workspaceId: e.workspaceId, subjectKey: e.subjectKey },

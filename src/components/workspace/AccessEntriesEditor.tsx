@@ -18,6 +18,7 @@ import { GripVertical, Plus } from "lucide-react";
 import { useMemberStore } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
 import type { WorkspaceAccessInput } from "../../lib/sync/workspaceApi";
+import { AppSelect } from "../common/AppSelect";
 
 type Level = "EDIT" | "VIEW";
 type SubjectType = "MEMBER" | "TEAM" | "EVERYONE";
@@ -81,15 +82,16 @@ function SortableRule({
         {index + 1}순위
       </span>
       <span className="truncate text-zinc-700 dark:text-zinc-300">{label}</span>
-      <select
+      <AppSelect
         value={rule.level}
-        onChange={(e) => onLevelChange(e.target.value as Level)}
+        onChange={(nextValue) => onLevelChange(nextValue as Level)}
         disabled={locked}
-        className="rounded border border-zinc-200 bg-white px-1 py-0.5 text-[10px] outline-none dark:border-zinc-700 dark:bg-zinc-900 disabled:opacity-50"
-      >
-        <option value="EDIT">모든 편집 가능</option>
-        <option value="VIEW">보기만 가능</option>
-      </select>
+        options={[
+          { value: "EDIT", label: "모든 편집 가능" },
+          { value: "VIEW", label: "보기만 가능" },
+        ]}
+        buttonClassName="w-[130px] px-1 py-0.5 text-sm shadow-none"
+      />
       <button type="button" onClick={onRemove} disabled={locked}
         className="text-zinc-400 hover:text-red-500">✕</button>
     </div>
@@ -200,12 +202,20 @@ export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason 
       {showAdd && (
         <div className="rounded border border-zinc-200 p-2 dark:border-zinc-700">
           <div className="flex flex-wrap items-center gap-1.5">
-            <select value={addType} onChange={(e) => { setAddType(e.target.value as SubjectType); setAddSubjectId(""); setQuery(""); }}
-              className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-900">
-              <option value="MEMBER">👤 특정 구성원</option>
-              <option value="TEAM">👥 특정 팀</option>
-              <option value="EVERYONE">🌐 모든 구성원</option>
-            </select>
+            <AppSelect
+              value={addType}
+              onChange={(nextValue) => {
+                setAddType(nextValue as SubjectType);
+                setAddSubjectId("");
+                setQuery("");
+              }}
+              options={[
+                { value: "MEMBER", label: "👤 특정 구성원" },
+                { value: "TEAM", label: "👥 특정 팀" },
+                { value: "EVERYONE", label: "🌐 모든 구성원" },
+              ]}
+              buttonClassName="w-[170px] px-2 py-1"
+            />
             {addType !== "EVERYONE" && (
               <div className="relative">
                 <input value={query} onChange={(e) => { setQuery(e.target.value); setAddSubjectId(""); }}
@@ -228,11 +238,15 @@ export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason 
                 )}
               </div>
             )}
-            <select value={addLevel} onChange={(e) => setAddLevel(e.target.value as Level)}
-              className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-900">
-              <option value="EDIT">모든 편집 가능</option>
-              <option value="VIEW">보기만 가능</option>
-            </select>
+            <AppSelect
+              value={addLevel}
+              onChange={(nextValue) => setAddLevel(nextValue as Level)}
+              options={[
+                { value: "EDIT", label: "모든 편집 가능" },
+                { value: "VIEW", label: "보기만 가능" },
+              ]}
+              buttonClassName="w-[150px] px-2 py-1"
+            />
           </div>
           <div className="mt-2 flex justify-end gap-1.5">
             <button type="button" onClick={handleAdd}

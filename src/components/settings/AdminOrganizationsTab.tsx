@@ -1,7 +1,7 @@
 // 조직(실) 관리 탭 — AdminTeamsTab 과 동일한 UX 구조
 
-import { useMemo, useRef, useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Crown, Plus, Search } from "lucide-react";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useMemberStore } from "../../store/memberStore";
 import {
@@ -14,10 +14,62 @@ import {
   updateOrganizationApi,
 } from "../../lib/sync/organizationApi";
 import { inferLeaderMemberIds } from "../../lib/scheduler/mm/leaderDefaults";
-import { LeaderMemberPicker } from "../scheduler/mm/LeaderMemberPicker";
 import { useUiStore } from "../../store/uiStore";
 
 type TabType = "active" | "archived";
+
+const CHOSEONG_LIST = [
+  "ㄱ",
+  "ㄲ",
+  "ㄴ",
+  "ㄷ",
+  "ㄸ",
+  "ㄹ",
+  "ㅁ",
+  "ㅂ",
+  "ㅃ",
+  "ㅅ",
+  "ㅆ",
+  "ㅇ",
+  "ㅈ",
+  "ㅉ",
+  "ㅊ",
+  "ㅋ",
+  "ㅌ",
+  "ㅍ",
+  "ㅎ",
+];
+
+function toChoseongText(value: string): string {
+  return [...value]
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      if (code >= 0xac00 && code <= 0xd7a3) {
+        const index = Math.floor((code - 0xac00) / 588);
+        return CHOSEONG_LIST[index] ?? char;
+      }
+      return char;
+    })
+    .join("")
+    .toLowerCase();
+}
+
+function matchesMemberQuery(
+  member: { name: string; email: string; jobRole?: string },
+  rawQuery: string,
+): boolean {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return true;
+  const lowerName = member.name.toLowerCase();
+  const lowerEmail = member.email.toLowerCase();
+  const lowerJobRole = (member.jobRole ?? "").toLowerCase();
+  if (lowerName.includes(query) || lowerEmail.includes(query) || lowerJobRole.includes(query)) {
+    return true;
+  }
+  const choseongName = toChoseongText(member.name);
+  const choseongQuery = toChoseongText(query);
+  return choseongQuery.length > 0 && choseongName.includes(choseongQuery);
+}
 
 export function AdminOrganizationsTab() {
   const organizations = useOrganizationStore((s) => s.organizations);
@@ -31,11 +83,14 @@ export function AdminOrganizationsTab() {
   const [newOrgName, setNewOrgName] = useState("");
   const [openAssignOrgId, setOpenAssignOrgId] = useState<string | null>(null);
   const [editingOrgName, setEditingOrgName] = useState("");
-  const [search, setSearch] = useState("");
+  const [memberQuery, setMemberQuery] = useState("");
+  const [suppressSuggestions, setSuppressSuggestions] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [listQuery, setListQuery] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [selectedLeaderIds, setSelectedLeaderIds] = useState<string[]>([]);
   const selectedLeaderIdsRef = useRef<string[]>([]);
+  const dropdownWrapRef = useRef<HTMLDivElement | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [singleDeleting, setSingleDeleting] = useState(false);
@@ -72,29 +127,51 @@ export function AdminOrganizationsTab() {
     [members],
   );
 
-  const filteredMembers = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const selected = new Set(selectedMemberIds);
-    const pool = members.filter((m) => !selected.has(m.memberId));
-    if (!q) return pool;
-    return pool.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.email.toLowerCase().includes(q) ||
-        (m.jobRole ?? "").toLowerCase().includes(q),
-    );
-  }, [members, search, selectedMemberIds]);
   const selectedMembers = useMemo(
     () => selectedMemberIds
       .map((memberId) => membersById.get(memberId))
       .filter((member): member is NonNullable<typeof member> => Boolean(member)),
     [membersById, selectedMemberIds],
   );
+  const suggestionMembers = useMemo(() => {
+    const query = memberQuery.trim();
+    if (!query) return [];
+    return members
+      .filter((member) => !selectedMemberIds.includes(member.memberId))
+      .filter((member) => matchesMemberQuery(member, query));
+  }, [members, memberQuery, selectedMemberIds]);
+  const isSuggestionOpen =
+    !suppressSuggestions &&
+    memberQuery.trim().length > 0 &&
+    suggestionMembers.length > 0;
 
   const setLeaderSelection = (nextIds: string[]) => {
     selectedLeaderIdsRef.current = nextIds;
     setSelectedLeaderIds(nextIds);
   };
+
+  useEffect(() => {
+    if (!isSuggestionOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (dropdownWrapRef.current?.contains(target)) return;
+      setSuppressSuggestions(true);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isSuggestionOpen]);
+
+  useEffect(() => {
+    if (!isSuggestionOpen) {
+      setHighlightedIndex(-1);
+      return;
+    }
+    setHighlightedIndex((prev) => {
+      if (prev < 0) return 0;
+      if (prev >= suggestionMembers.length) return suggestionMembers.length - 1;
+      return prev;
+    });
+  }, [isSuggestionOpen, suggestionMembers.length]);
 
   const buildLeaderSavedMessage = (leaderIds: string[]) => {
     if (leaderIds.length === 0) return "조직 리더 설정이 저장되었습니다.";
@@ -130,7 +207,9 @@ export function AdminOrganizationsTab() {
     const org = organizations.find((o) => o.organizationId === orgId);
     setOpenAssignOrgId(orgId);
     setEditingOrgName(org?.name ?? "");
-    setSearch("");
+    setMemberQuery("");
+    setSuppressSuggestions(false);
+    setHighlightedIndex(-1);
     setSelectedMemberIds(org?.members.map((m) => m.memberId) ?? []);
     const initialLeaderIds = (org?.leaderMemberIds?.length
       ? org.leaderMemberIds
@@ -138,15 +217,74 @@ export function AdminOrganizationsTab() {
     setLeaderSelection(initialLeaderIds);
   };
 
-  const onToggleMember = (memberId: string) => {
+  const updateSelectedMembers = (nextIds: string[]) => {
     setSelectedMemberIds((prev) => {
-      const next = prev.includes(memberId)
-        ? prev.filter((id) => id !== memberId)
-        : [...prev, memberId];
+      const normalized = Array.from(new Set(nextIds));
+      const next = normalized.length === prev.length &&
+        normalized.every((memberId, index) => memberId === prev[index])
+        ? prev
+        : normalized;
       const nextLeaderIds = selectedLeaderIdsRef.current.filter((id) => next.includes(id));
       setLeaderSelection(nextLeaderIds);
       return next;
     });
+  };
+
+  const addMember = (memberId: string) => {
+    updateSelectedMembers(
+      selectedMemberIds.includes(memberId)
+        ? selectedMemberIds
+        : [...selectedMemberIds, memberId],
+    );
+  };
+
+  const removeMember = (memberId: string) => {
+    updateSelectedMembers(selectedMemberIds.filter((id) => id !== memberId));
+  };
+
+  const toggleLeader = (memberId: string) => {
+    const nextLeaderIds = selectedLeaderIdsRef.current.includes(memberId)
+      ? selectedLeaderIdsRef.current.filter((leaderId) => leaderId !== memberId)
+      : [...selectedLeaderIdsRef.current, memberId];
+    setLeaderSelection(nextLeaderIds);
+  };
+
+  const handleMemberQueryChange = (value: string) => {
+    setMemberQuery(value);
+    setSuppressSuggestions(false);
+  };
+
+  const handleSelectSuggestion = (memberId: string) => {
+    addMember(memberId);
+    setSuppressSuggestions(true);
+    setHighlightedIndex(-1);
+  };
+
+  const handleMemberQueryKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!isSuggestionOpen) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightedIndex((prev) => (prev + 1) % suggestionMembers.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedIndex((prev) =>
+        prev <= 0 ? suggestionMembers.length - 1 : prev - 1,
+      );
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const targetMember = suggestionMembers[highlightedIndex];
+      if (!targetMember) return;
+      handleSelectSuggestion(targetMember.memberId);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSuppressSuggestions(true);
+    }
   };
 
   /** 조직 구성원/리더 저장 */
@@ -352,7 +490,7 @@ export function AdminOrganizationsTab() {
       </div>
 
       {activeTab === "active" ? (
-        <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+        <ul className="grid grid-cols-1 gap-2 text-sm">
           {activeOrgs.length === 0 ? (
             <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
               등록된 조직이 없습니다.
@@ -364,16 +502,24 @@ export function AdminOrganizationsTab() {
                   type="button"
                   aria-label={`${org.name} 구성원 관리`}
                   onClick={() => onOpenAssignModal(org.organizationId)}
-                  className="flex w-full items-center justify-between rounded border border-zinc-200 bg-white px-3 py-2 text-left text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                  className="flex w-full items-center justify-between rounded border border-zinc-200 bg-white px-4 py-3 text-left text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
                 >
-                  <span className="min-w-0 flex-1 truncate">
-                    {org.name} ({org.members.length}명)
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                      {org.name}
+                    </span>
+                    <span className="block text-sm text-zinc-500 dark:text-zinc-400">
+                      구성원 {org.members.length}명
+                    </span>
                   </span>
                   <span
-                    className="ml-3 max-w-[45%] shrink-0 truncate text-right text-xs text-zinc-500 dark:text-zinc-400"
+                    className="ml-4 flex max-w-[45%] shrink-0 items-center justify-end gap-1.5 text-right text-sm text-zinc-500 dark:text-zinc-400"
                     title={formatLeaderNames(org.leaderMemberIds ?? [])}
                   >
-                    {formatLeaderNames(org.leaderMemberIds ?? [])}
+                    <span className="truncate">{formatLeaderNames(org.leaderMemberIds ?? [])}</span>
+                    {(org.leaderMemberIds?.length ?? 0) > 0 && (
+                      <Crown size={13} className="shrink-0 text-amber-500" />
+                    )}
                   </span>
                 </button>
               </li>
@@ -414,7 +560,7 @@ export function AdminOrganizationsTab() {
               </button>
             )}
           </div>
-          <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-2 text-sm">
             {archivedOrgs.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 보관된 조직 없음
@@ -438,10 +584,13 @@ export function AdminOrganizationsTab() {
                       {org.name}
                     </button>
                     <span
-                      className="max-w-[45%] shrink-0 truncate text-right text-xs text-zinc-500 dark:text-zinc-400"
+                      className="flex max-w-[45%] shrink-0 items-center justify-end gap-1.5 text-right text-xs text-zinc-500 dark:text-zinc-400"
                       title={formatLeaderNames(org.leaderMemberIds ?? [])}
                     >
-                      {formatLeaderNames(org.leaderMemberIds ?? [])}
+                      <span className="truncate">{formatLeaderNames(org.leaderMemberIds ?? [])}</span>
+                      {(org.leaderMemberIds?.length ?? 0) > 0 && (
+                        <Crown size={12} className="shrink-0 text-amber-500" />
+                      )}
                     </span>
                   </div>
                 </li>
@@ -556,121 +705,134 @@ export function AdminOrganizationsTab() {
           <div
             role="dialog"
             aria-modal="true"
-            className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            className="flex max-h-[88vh] w-full max-w-md flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="p-4 pb-0">
+            <div className="flex-1 space-y-3 pr-1">
               <input
                 value={editingOrgName}
                 onChange={(e) => setEditingOrgName(e.target.value)}
-                className="w-full rounded border border-transparent bg-transparent px-2 py-1 text-xl font-bold outline-none hover:border-zinc-200 focus:border-zinc-400 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
+                className="w-full rounded border border-transparent bg-transparent px-2 py-1 text-2xl font-bold text-zinc-900 outline-none hover:border-zinc-200 focus:border-zinc-400 dark:text-zinc-100 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
               />
-            </div>
-            <div className="mt-3 grid flex-1 gap-0 overflow-hidden px-4 md:grid-cols-2 md:divide-x md:divide-zinc-200 md:dark:divide-zinc-700">
-              {/* 등록된 구성원 */}
-              <section className="flex min-h-0 flex-col pb-4 md:pr-3">
-                <div className="border-b border-zinc-100 px-2 py-2 text-sm font-medium dark:border-zinc-800">
-                  등록된 구성원
-                </div>
-                <ul className="flex-1 overflow-y-auto">
-                  {selectedMemberIds.map((memberId) => {
-                    const m = membersById.get(memberId);
-                    if (!m) return null;
-                    return (
-                      <li key={memberId} className="group flex items-center justify-between gap-2 border-b border-zinc-100 px-2 py-1.5 text-sm dark:border-zinc-800">
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">{m.name}</span>
-                          <span className="block truncate text-zinc-500">{m.email} · {m.jobRole}</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => onToggleMember(memberId)}
-                          className="opacity-0 group-hover:opacity-100 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                          aria-label={`${m.name} 제외`}
-                        >
-                          <X size={13} />
-                        </button>
-                      </li>
-                    );
-                  })}
-                  {selectedMemberIds.length === 0 ? (
-                    <li className="px-2 py-4 text-center text-sm text-zinc-500">
-                      등록된 구성원이 없습니다.
-                    </li>
-                  ) : null}
-                </ul>
-              </section>
 
-              {/* 전체 구성원 검색 */}
-              <section className="flex min-h-0 flex-col pb-4 md:pl-3">
-                <div className="flex items-center gap-1.5 border-b border-zinc-100 px-2 py-2 dark:border-zinc-800">
-                  <Search size={13} className="text-zinc-400" />
+              <section ref={dropdownWrapRef} className="relative">
+                <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">구성원 검색</label>
+                <div className="flex items-center gap-1.5 rounded border border-zinc-200 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-800">
+                  <Search size={14} className="shrink-0 text-zinc-400" />
                   <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="전체 구성원 검색"
-                    className="w-full bg-transparent text-sm outline-none"
+                    value={memberQuery}
+                    onChange={(e) => handleMemberQueryChange(e.target.value)}
+                    onKeyDown={handleMemberQueryKeyDown}
+                    placeholder="구성원 검색"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 outline-none dark:text-zinc-100"
                   />
                 </div>
-                <ul className="flex-1 overflow-y-auto">
-                  {filteredMembers.map((m) => (
-                    <li key={m.memberId}>
+                {isSuggestionOpen && (
+                  <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                    {suggestionMembers.map((member, index) => (
                       <button
+                        key={member.memberId}
                         type="button"
-                        onClick={() => onToggleMember(m.memberId)}
-                        className="flex w-full items-start gap-2 border-b border-zinc-100 px-2 py-1.5 text-left text-sm hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                        role="option"
+                        aria-selected={highlightedIndex === index}
+                        className={`flex w-full items-center px-2 py-1.5 text-left text-sm ${
+                          highlightedIndex === index
+                            ? "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                            : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        }`}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => handleSelectSuggestion(member.memberId)}
                       >
-                        <span>
-                          <span className="block font-medium">{m.name}</span>
-                          <span className="block text-zinc-500">{m.email} · {m.jobRole}</span>
-                        </span>
+                        {member.name}
                       </button>
-                    </li>
-                  ))}
-                  {filteredMembers.length === 0 ? (
-                    <li className="px-2 py-4 text-center text-sm text-zinc-500">
-                      추가할 구성원이 없습니다.
-                    </li>
-                  ) : null}
-                </ul>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <div className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
+                  등록된 구성원 ({selectedMembers.length})
+                </div>
+                <div className="max-h-[42vh] overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
+                  {selectedMembers.length === 0 ? (
+                    <div className="px-2 py-3 text-center text-sm text-zinc-400">
+                      아직 등록된 구성원이 없습니다.
+                    </div>
+                  ) : (
+                    selectedMembers.map((member) => {
+                      const isLeader = selectedLeaderIds.includes(member.memberId);
+                      return (
+                        <div
+                          key={member.memberId}
+                          className="group flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm text-zinc-900 dark:text-zinc-100">
+                              {member.name}
+                              {isLeader && (
+                                <span className="ml-1.5 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                                  리더
+                                </span>
+                              )}
+                            </div>
+                            <div className="truncate text-sm text-zinc-500 dark:text-zinc-400">
+                              {member.email} · {member.jobRole}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              type="button"
+                              onClick={() => toggleLeader(member.memberId)}
+                              className={`rounded px-1.5 py-1 text-xs ${
+                                isLeader
+                                  ? "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"
+                                  : "bg-green-600 text-white"
+                              }`}
+                            >
+                              {isLeader ? "리더 해제" : "리더 등록"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeMember(member.memberId)}
+                              className="rounded border border-zinc-200 px-1.5 py-1 text-xs text-zinc-500 hover:bg-zinc-200 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                            >
+                              제거
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </section>
             </div>
 
-            <div className="border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
-              <LeaderMemberPicker
-                label="조직 리더"
-                members={selectedMembers}
-                value={selectedLeaderIds}
-                recommendedIds={inferLeaderMemberIds("organization", selectedMembers)}
-                onChange={setLeaderSelection}
-              />
-            </div>
-
-            <div className="flex justify-between gap-2 border-t border-zinc-100 p-4 dark:border-zinc-800">
+            <div className="mt-4 flex items-center justify-between gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => void onArchiveOrg(assignOrg.organizationId)}
-                className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700 disabled:opacity-60"
+                className="rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-60"
                 disabled={saving}
               >
                 보관함으로 이동
               </button>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setOpenAssignOrgId(null)}
-                  className="rounded border px-3 py-1 text-sm"
-                  disabled={saving}
-                >
-                  취소
-                </button>
+              <div className="ml-auto flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => void onSaveMembers()}
                   disabled={saving}
-                  className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
+                  className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
                 >
                   {saving ? "저장 중..." : "저장"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOpenAssignOrgId(null)}
+                  className="rounded border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                  disabled={saving}
+                >
+                  취소
                 </button>
               </div>
             </div>

@@ -66,9 +66,16 @@ export const useOrganizationStore = create<OrganizationStore>()(
     {
       name: "quicknote.organizations.cache.v1",
       partialize: (state) => ({
-        organizations: state.organizations,
         cacheWorkspaceId: state.cacheWorkspaceId,
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<OrganizationStoreState> | undefined;
+        return {
+          ...currentState,
+          organizations: [],
+          cacheWorkspaceId: persisted?.cacheWorkspaceId ?? currentState.cacheWorkspaceId,
+        };
+      },
     },
   ),
 );

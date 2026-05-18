@@ -8,6 +8,7 @@ import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { pickTextColor } from "../../lib/scheduler/colors";
 import { ColorPickerGrid } from "./ColorPickerGrid";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+import { AppSelect } from "../common/AppSelect";
 
 // Date → "YYYY-MM-DD" 변환
 function toDateInputValue(iso: string): string {
@@ -77,6 +78,13 @@ export function ScheduleEditPopup({
   );
   const [saving, setSaving] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const assigneeOptions = [
+    { value: "", label: "(특이사항 — 담당자 없음)" },
+    ...activeMembers.map((member) => ({
+      value: member.memberId,
+      label: member.name,
+    })),
+  ];
 
   // ESC 닫기
   useEffect(() => {
@@ -201,19 +209,13 @@ export function ScheduleEditPopup({
         {/* 담당자 */}
         <div className="mb-3">
           <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">담당자</label>
-          <select
+          <AppSelect
             value={assigneeId}
-            onChange={(e) => setAssigneeId(e.target.value)}
+            onChange={(nextValue) => setAssigneeId(nextValue)}
             disabled={isSpecialCard}
-            className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
-          >
-            <option value="">(특이사항 — 담당자 없음)</option>
-            {activeMembers.map((m) => (
-              <option key={m.memberId} value={m.memberId}>
-                {m.name}
-              </option>
-            ))}
-          </select>
+            options={assigneeOptions}
+            buttonClassName="w-full px-2 py-1.5 focus:ring-amber-400 dark:bg-zinc-800"
+          />
         </div>
 
         {/* 색상 선택 */}

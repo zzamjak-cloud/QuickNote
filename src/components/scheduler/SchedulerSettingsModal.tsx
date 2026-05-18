@@ -1,19 +1,13 @@
-// 스케줄러 설정 모달 — 조직/팀/프로젝트/공휴일 관리 4탭.
+// 스케줄러 설정 모달 — 공휴일/MM 대시보드 관리 탭.
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { OrganizationsPanel } from "./admin/OrganizationsPanel";
-import { TeamsPanel } from "./admin/TeamsPanel";
-import { ProjectsPanel } from "./admin/ProjectsPanel";
 import { HolidaysPanel } from "./admin/HolidaysPanel";
 import { MmDashboardTab } from "./mm/MmDashboardTab";
 
-type Tab = "organizations" | "teams" | "projects" | "holidays" | "mm";
+type Tab = "holidays" | "mm";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "organizations", label: "조직" },
-  { id: "teams", label: "팀" },
-  { id: "projects", label: "프로젝트" },
   { id: "holidays", label: "공휴일" },
   { id: "mm", label: "MM 대시보드" },
 ];
@@ -23,7 +17,7 @@ type Props = {
 };
 
 export function SchedulerSettingsModal({ onClose }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>("organizations");
+  const [activeTab, setActiveTab] = useState<Tab>("holidays");
 
   // ESC 키로 닫기
   useEffect(() => {
@@ -79,9 +73,6 @@ export function SchedulerSettingsModal({ onClose }: Props) {
 
         {/* 탭 본문 */}
         <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === "organizations" && <OrganizationsPanel />}
-          {activeTab === "teams" && <TeamsPanel />}
-          {activeTab === "projects" && <ProjectsPanel />}
           {activeTab === "holidays" && <HolidaysPanel />}
           {activeTab === "mm" && <MmDashboardTab />}
         </div>

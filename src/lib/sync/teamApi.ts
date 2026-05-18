@@ -54,9 +54,16 @@ export async function updateTeamApi(
   name: string | undefined,
   leaderMemberIds?: string[],
 ): Promise<Team> {
+  const variables: {
+    teamId: string;
+    name?: string;
+    leaderMemberIds?: string[];
+  } = { teamId };
+  if (name !== undefined) variables.name = name;
+  if (leaderMemberIds !== undefined) variables.leaderMemberIds = leaderMemberIds;
   const result = (await appsyncClient().graphql({
     query: UPDATE_TEAM,
-    variables: { teamId, name, leaderMemberIds },
+    variables,
   })) as { data?: { updateTeam?: GqlTeam } };
   const team = result.data?.updateTeam;
   if (!team) throw new Error("updateTeam 응답이 비어 있습니다.");

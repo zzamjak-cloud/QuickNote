@@ -1,17 +1,13 @@
-// 설정 모달 — 프로젝트 관리 패널 (추가/편집/삭제/멤버 배정/활성화 토글).
-import { useEffect, useRef, useState } from "react";
-import { Plus, Pencil, Trash2, Eye, Check, X, Search } from "lucide-react";
+// 설정 모달 — 프로젝트 관리 패널 (리스트/보관함/편집 팝업).
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Crown, Plus, Search, Trash2 } from "lucide-react";
 import { useMemberStore, type Member } from "../../../store/memberStore";
 import {
   useSchedulerProjectsStore,
   type SchedulerProject,
 } from "../../../store/schedulerProjectsStore";
-import { ColorPickerGrid } from "../ColorPickerGrid";
 import { DEFAULT_SCHEDULE_COLOR } from "../../../lib/scheduler/colors";
-import { inferLeaderMemberIds } from "../../../lib/scheduler/mm/leaderDefaults";
-import { LeaderMemberPicker } from "../mm/LeaderMemberPicker";
 
-// 인라인 편집 상태 초기값
 const EMPTY_FORM = {
   name: "",
   color: DEFAULT_SCHEDULE_COLOR,
@@ -21,445 +17,716 @@ const EMPTY_FORM = {
 };
 
 type FormState = typeof EMPTY_FORM;
+type TabType = "active" | "archived";
+
+const CHOSEONG_LIST = [
+  "ㄱ",
+  "ㄲ",
+  "ㄴ",
+  "ㄷ",
+  "ㄸ",
+  "ㄹ",
+  "ㅁ",
+  "ㅂ",
+  "ㅃ",
+  "ㅅ",
+  "ㅆ",
+  "ㅇ",
+  "ㅈ",
+  "ㅉ",
+  "ㅊ",
+  "ㅋ",
+  "ㅌ",
+  "ㅍ",
+  "ㅎ",
+];
+
+function toChoseongText(value: string): string {
+  const chars = [...value];
+  return chars
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      if (code >= 0xac00 && code <= 0xd7a3) {
+        const index = Math.floor((code - 0xac00) / 588);
+        return CHOSEONG_LIST[index] ?? char;
+      }
+      return char;
+    })
+    .join("")
+    .toLowerCase();
+}
+
+function matchesMemberQuery(member: Pick<Member, "name" | "email" | "jobRole">, rawQuery: string): boolean {
+  const query = rawQuery.trim().toLowerCase();
+  if (!query) return true;
+  const lowerName = member.name.toLowerCase();
+  const lowerEmail = member.email.toLowerCase();
+  const lowerJobRole = (member.jobRole ?? "").toLowerCase();
+  if (lowerName.includes(query) || lowerEmail.includes(query) || lowerJobRole.includes(query)) {
+    return true;
+  }
+  const choseongName = toChoseongText(member.name);
+  const choseongQuery = toChoseongText(query);
+  return choseongQuery.length > 0 && choseongName.includes(choseongQuery);
+}
 
 export function ProjectsPanel() {
   const { projects, workspaceId, createProject, updateProject, deleteProject } =
     useSchedulerProjectsStore();
   const allMembers = useMemberStore((s) => s.members);
-  // 활성 멤버만 구성원 선택 대상
-  const activeMembers = allMembers.filter((m) => m.status === "active");
+  const activeMembers = useMemo(
+    () => allMembers.filter((member) => member.status === "active"),
+    [allMembers],
+  );
 
-  // 추가 폼 표시 여부
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [addForm, setAddForm] = useState<FormState>(EMPTY_FORM);
+  const [activeTab, setActiveTab] = useState<TabType>("active");
+  const [listQuery, setListQuery] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
 
-  // 현재 인라인 편집 중인 프로젝트 ID + 폼 값
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM);
-  const [showArchive, setShowArchive] = useState(false);
+  const activeProjects = useMemo(
+    () =>
+      projects
+        .filter((project) => !project.isHidden)
+        .filter((project) => {
+          const q = listQuery.trim().toLowerCase();
+          return !q || project.name.toLowerCase().includes(q);
+        })
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+    [listQuery, projects],
+  );
+  const archivedProjects = useMemo(
+    () =>
+      projects
+        .filter((project) => project.isHidden)
+        .filter((project) => {
+          const q = listQuery.trim().toLowerCase();
+          return !q || project.name.toLowerCase().includes(q);
+        })
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+    [listQuery, projects],
+  );
+  const editingProject = useMemo(
+    () => projects.find((project) => project.id === editingProjectId) ?? null,
+    [editingProjectId, projects],
+  );
+  const membersById = useMemo(
+    () => new Map(allMembers.map((member) => [member.memberId, member])),
+    [allMembers],
+  );
 
-  const activeProjects = projects.filter((project) => !project.isHidden);
-  const archivedProjects = projects.filter((project) => project.isHidden);
+  const formatLeaderNames = (leaderMemberIds: string[]) => {
+    if (leaderMemberIds.length === 0) return "-";
+    const names = leaderMemberIds
+      .map((leaderId) => membersById.get(leaderId)?.name)
+      .filter((name): name is string => Boolean(name));
+    if (names.length === 0) return "-";
+    return names.join(", ");
+  };
 
-  // 멤버 체크박스 토글 헬퍼
-  function toggleMember(
-    form: FormState,
-    setForm: (f: FormState) => void,
-    memberId: string,
-  ) {
-    setForm({
-      ...form,
-      memberIds: form.memberIds.includes(memberId)
-        ? form.memberIds.filter((id) => id !== memberId)
-        : [...form.memberIds, memberId],
-      leaderMemberIds: form.memberIds.includes(memberId)
-        ? form.leaderMemberIds.filter((id) => id !== memberId)
-        : form.leaderMemberIds,
-    });
-  }
+  const closeModal = () => {
+    setCreateOpen(false);
+    setEditingProjectId(null);
+  };
 
-  // 추가 저장
-  function handleAdd() {
-    if (!addForm.name.trim() || !workspaceId) return;
-    void createProject({
+  const handleCreate = async (form: FormState) => {
+    if (!workspaceId) return;
+    await createProject({
       workspaceId,
-      name: addForm.name.trim(),
-      color: addForm.color,
-      description: addForm.description.trim() || undefined,
-      memberIds: addForm.memberIds,
-      leaderMemberIds: addForm.leaderMemberIds,
+      name: form.name.trim(),
+      color: form.color,
+      description: form.description.trim() || undefined,
+      memberIds: form.memberIds,
+      leaderMemberIds: form.leaderMemberIds,
       isHidden: false,
     });
-    setAddForm(EMPTY_FORM);
-    setShowAddForm(false);
-  }
+  };
 
-  // 편집 시작
-  function startEdit(project: SchedulerProject) {
-    setEditingId(project.id);
-    setEditForm({
-      name: project.name,
-      color: project.color,
-      description: project.description ?? "",
-      memberIds: [...project.memberIds],
-      leaderMemberIds: [...(project.leaderMemberIds ?? [])],
-    });
-  }
-
-  // 편집 저장
-  function handleEditSave() {
-    if (!editingId || !editForm.name.trim() || !workspaceId) return;
-    void updateProject({
-      id: editingId,
-      workspaceId,
-      name: editForm.name.trim(),
-      color: editForm.color,
-      description: editForm.description.trim() || undefined,
-      memberIds: editForm.memberIds,
-      leaderMemberIds: editForm.leaderMemberIds,
-    });
-    setEditingId(null);
-  }
-
-  // 삭제 확인
-  function handleDelete(project: SchedulerProject) {
-    if (!window.confirm(`"${project.name}" 프로젝트를 삭제하시겠습니까?`)) return;
+  const handleUpdate = async (projectId: string, form: FormState) => {
     if (!workspaceId) return;
-    void deleteProject(project.id, workspaceId);
-    if (editingId === project.id) setEditingId(null);
-  }
+    await updateProject({
+      id: projectId,
+      workspaceId,
+      name: form.name.trim(),
+      color: form.color,
+      description: form.description.trim() || undefined,
+      memberIds: form.memberIds,
+      leaderMemberIds: form.leaderMemberIds,
+    });
+  };
+
+  const handleArchive = async (projectId: string) => {
+    if (!workspaceId) return;
+    await updateProject({
+      id: projectId,
+      workspaceId,
+      isHidden: true,
+    });
+  };
+
+  const handleRestore = async (projectId: string) => {
+    if (!workspaceId) return;
+    await updateProject({
+      id: projectId,
+      workspaceId,
+      isHidden: false,
+    });
+  };
+
+  const handleDelete = async (project: SchedulerProject) => {
+    if (!workspaceId) return;
+    if (!window.confirm(`"${project.name}" 프로젝트를 삭제하시겠습니까?`)) return;
+    await deleteProject(project.id, workspaceId);
+  };
 
   return (
     <div className="space-y-3">
-      {/* 추가 버튼 */}
-      {!showAddForm && (
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setShowArchive((v) => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-          >
-            프로젝트 보관함
-            <span className="text-[10px] text-zinc-400">({archivedProjects.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowAddForm(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors"
-          >
-            <Plus size={13} />
-            +프로젝트 추가
-          </button>
-        </div>
-      )}
+      <div className="flex h-9 items-center justify-end">
+        <button
+          type="button"
+          onClick={() => setCreateOpen(true)}
+          style={{ visibility: activeTab === "active" ? "visible" : "hidden" }}
+          className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
+        >
+          <Plus size={13} />
+          프로젝트 추가
+        </button>
+      </div>
 
-      {/* 프로젝트 보관함 */}
-      {showArchive && (
-        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/60">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
-              보관된 프로젝트
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowArchive(false)}
-              className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
-            >
-              닫기
-            </button>
+      <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700">
+        <button
+          type="button"
+          onClick={() => setActiveTab("active")}
+          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+            activeTab === "active"
+              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
+              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          }`}
+        >
+          프로젝트
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("archived")}
+          className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+            activeTab === "archived"
+              ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
+              : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          }`}
+        >
+          보관함
+        </button>
+        <div className="ml-auto flex items-center gap-1.5 rounded-md border border-zinc-200 px-2 py-1 dark:border-zinc-700">
+          <Search size={13} className="text-zinc-400" />
+          <input
+            value={listQuery}
+            onChange={(e) => setListQuery(e.target.value)}
+            placeholder="프로젝트 검색"
+            className="w-32 bg-transparent text-sm outline-none placeholder:text-zinc-400"
+          />
+        </div>
+      </div>
+
+      {activeTab === "active" ? (
+        activeProjects.length === 0 ? (
+          <div className="flex h-24 items-center justify-center text-sm text-zinc-400">
+            등록된 프로젝트가 없습니다.
           </div>
-          {archivedProjects.length === 0 && (
-            <div className="rounded border border-dashed border-zinc-300 px-2 py-4 text-center text-xs text-zinc-400 dark:border-zinc-700">
-              보관된 프로젝트가 없습니다.
-            </div>
-          )}
-          <div className="space-y-1">
-            {archivedProjects.map((project) => (
-              <div
+        ) : (
+          <div className="space-y-2">
+            {activeProjects.map((project) => (
+              <button
                 key={project.id}
-                className="flex items-center gap-2 rounded border border-zinc-200 bg-white px-2 py-2 dark:border-zinc-700 dark:bg-zinc-800"
+                type="button"
+                onClick={() => setEditingProjectId(project.id)}
+                className="flex w-full items-center justify-between rounded-md border border-zinc-200 bg-white px-4 py-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
               >
-                <span className="h-3 w-3 rounded-full" style={{ backgroundColor: project.color }} />
-                <span className="min-w-0 flex-1 truncate text-sm text-zinc-500 dark:text-zinc-400 line-through">
-                  {project.name}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                    {project.name}
+                  </span>
+                  <span className="block text-sm text-zinc-500 dark:text-zinc-400">
+                    구성원 {project.memberIds.length}명
+                  </span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => workspaceId && void updateProject({ id: project.id, workspaceId, isHidden: false })}
-                  className="rounded p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700"
-                  title="복원"
+                <span
+                  className="ml-4 flex max-w-[45%] shrink-0 items-center justify-end gap-1.5 text-right text-sm text-zinc-500 dark:text-zinc-400"
+                  title={formatLeaderNames(project.leaderMemberIds ?? [])}
                 >
-                  <Eye size={14} className="text-amber-500" />
-                </button>
-              </div>
+                  <span className="truncate">{formatLeaderNames(project.leaderMemberIds ?? [])}</span>
+                  {(project.leaderMemberIds ?? []).length > 0 && (
+                    <Crown size={13} className="shrink-0 text-amber-500" />
+                  )}
+                </span>
+              </button>
             ))}
           </div>
-        </div>
+        )
+      ) : (
+        <ul className="grid grid-cols-1 gap-2 text-sm">
+          {archivedProjects.length === 0 ? (
+            <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
+              보관된 프로젝트가 없습니다.
+            </li>
+          ) : (
+            archivedProjects.map((project) => (
+              <li key={project.id}>
+                <div className="flex items-center gap-2 rounded border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                  <span className="min-w-0 flex-1 truncate text-zinc-500 line-through dark:text-zinc-400">
+                    {project.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleRestore(project.id)}
+                    className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                  >
+                    복원
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(project)}
+                    className="rounded border border-red-200 p-1.5 text-red-500 hover:bg-red-50 dark:border-red-900/60 dark:hover:bg-red-900/20"
+                    aria-label={`${project.name} 삭제`}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </li>
+            ))
+          )}
+        </ul>
       )}
 
-      {/* 추가 폼 */}
-      {showAddForm && (
-        <ProjectForm
-          form={addForm}
-          setForm={setAddForm}
+      {createOpen && (
+        <ProjectManageModal
+          mode="create"
           activeMembers={activeMembers}
-          onToggleMember={(id) => toggleMember(addForm, setAddForm, id)}
-          onSave={handleAdd}
-          onCancel={() => { setShowAddForm(false); setAddForm(EMPTY_FORM); }}
-          saveLabel="추가"
+          workspaceId={workspaceId}
+          onClose={closeModal}
+          onSaveCreate={handleCreate}
         />
       )}
-
-      {/* 프로젝트 목록 */}
-      {activeProjects.length === 0 && !showAddForm && (
-        <div className="flex items-center justify-center h-24 text-sm text-zinc-400">
-          등록된 프로젝트가 없습니다.
-        </div>
+      {editingProject && (
+        <ProjectManageModal
+          mode="edit"
+          project={editingProject}
+          activeMembers={activeMembers}
+          workspaceId={workspaceId}
+          onClose={closeModal}
+          onSaveEdit={handleUpdate}
+          onArchive={handleArchive}
+        />
       )}
-
-      {activeProjects.map((project) => (
-        <div
-          key={project.id}
-          className="border border-zinc-200 dark:border-zinc-700 rounded-md overflow-hidden"
-        >
-          {/* 프로젝트 행 헤더 */}
-          <div className="flex items-center gap-2 px-3 py-2.5 bg-white dark:bg-zinc-800">
-            {/* 색상 점 */}
-            <span
-              className="w-3 h-3 rounded-full flex-shrink-0"
-              style={{ backgroundColor: project.color }}
-            />
-            <span
-              className={`flex-1 text-sm font-medium truncate ${
-                project.isHidden
-                  ? "text-zinc-400 dark:text-zinc-500 line-through"
-                  : "text-zinc-900 dark:text-zinc-100"
-              }`}
-            >
-              {project.name}
-            </span>
-            <span className="text-xs text-zinc-400">
-              {project.memberIds.length}명
-            </span>
-            {/* 활성/비활성 토글 */}
-            <button
-              type="button"
-              onClick={() => workspaceId && void updateProject({ id: project.id, workspaceId, isHidden: !project.isHidden })}
-              title="보관함으로 이동"
-              className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-            >
-              <Eye size={15} className="text-amber-500" />
-            </button>
-            {/* 편집 버튼 */}
-            <button
-              type="button"
-              onClick={() => editingId === project.id ? setEditingId(null) : startEdit(project)}
-              title="편집"
-              className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-            >
-              <Pencil size={14} className="text-zinc-500" />
-            </button>
-            {/* 삭제 버튼 */}
-            <button
-              type="button"
-              onClick={() => handleDelete(project)}
-              title="삭제"
-              className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-            >
-              <Trash2 size={14} className="text-red-400" />
-            </button>
-          </div>
-
-          {/* 인라인 편집 폼 */}
-          {editingId === project.id && (
-            <div className="border-t border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-3">
-              <ProjectForm
-                form={editForm}
-                setForm={setEditForm}
-                activeMembers={activeMembers}
-                onToggleMember={(id) => toggleMember(editForm, setEditForm, id)}
-                onSave={handleEditSave}
-                onCancel={() => setEditingId(null)}
-                saveLabel="저장"
-              />
-            </div>
-          )}
-        </div>
-      ))}
     </div>
   );
 }
 
-// ─── 공용 폼 컴포넌트 ─────────────────────────────────────────────────────────
-
-type ProjectFormProps = {
-  form: FormState;
-  setForm: (f: FormState) => void;
+type ProjectManageModalProps = {
+  mode: "create" | "edit";
+  project?: SchedulerProject;
   activeMembers: Member[];
-  onToggleMember: (id: string) => void;
-  onSave: () => void;
-  onCancel: () => void;
-  saveLabel: string;
+  workspaceId: string | null;
+  onClose: () => void;
+  onSaveCreate?: (form: FormState) => Promise<void>;
+  onSaveEdit?: (projectId: string, form: FormState) => Promise<void>;
+  onArchive?: (projectId: string) => Promise<void>;
 };
 
-function ProjectForm({
-  form,
-  setForm,
+function ProjectManageModal({
+  mode,
+  project,
   activeMembers,
-  onToggleMember,
-  onSave,
-  onCancel,
-  saveLabel,
-}: ProjectFormProps) {
-  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
+  workspaceId,
+  onClose,
+  onSaveCreate,
+  onSaveEdit,
+  onArchive,
+}: ProjectManageModalProps) {
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [isNameEditing, setIsNameEditing] = useState(mode === "create");
   const [memberQuery, setMemberQuery] = useState("");
-  const normalizedMemberQuery = memberQuery.trim().toLowerCase();
-  const filteredMembers = normalizedMemberQuery
-    ? activeMembers.filter((m) => m.name.toLowerCase().includes(normalizedMemberQuery))
-    : activeMembers;
-  const selectedMembers = activeMembers.filter((m) => form.memberIds.includes(m.memberId));
-  const projectMembers = activeMembers.filter((m) => form.memberIds.includes(m.memberId));
-  const recommendedLeaderIds = inferLeaderMemberIds("project", projectMembers);
+  const [suppressSuggestions, setSuppressSuggestions] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const dropdownWrapRef = useRef<HTMLDivElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const el = descriptionRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.max(72, el.scrollHeight)}px`;
-  }, [form.description]);
+    if (mode === "edit" && project) {
+      setForm({
+        name: project.name,
+        color: project.color,
+        description: project.description ?? "",
+        memberIds: [...project.memberIds],
+        leaderMemberIds: [...(project.leaderMemberIds ?? [])],
+      });
+      setIsNameEditing(false);
+      return;
+    }
+    setForm(EMPTY_FORM);
+    setIsNameEditing(true);
+  }, [mode, project]);
+
+  useEffect(() => {
+    if (!isNameEditing) return;
+    const input = nameInputRef.current;
+    if (!input) return;
+    requestAnimationFrame(() => {
+      input.focus();
+      if (mode === "create") return;
+      input.select();
+    });
+  }, [isNameEditing, mode]);
+
+  const selectedMembers = useMemo(
+    () => activeMembers.filter((member) => form.memberIds.includes(member.memberId)),
+    [activeMembers, form.memberIds],
+  );
+
+  const suggestionMembers = useMemo(() => {
+    const query = memberQuery.trim();
+    if (!query) return [];
+    return activeMembers
+      .filter((member) => !form.memberIds.includes(member.memberId))
+      .filter((member) => matchesMemberQuery(member, query));
+  }, [activeMembers, form.memberIds, memberQuery]);
+
+  const isSuggestionOpen =
+    !suppressSuggestions &&
+    memberQuery.trim().length > 0 &&
+    suggestionMembers.length > 0;
+
+  useEffect(() => {
+    if (!isSuggestionOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (dropdownWrapRef.current?.contains(target)) return;
+      setSuppressSuggestions(true);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isSuggestionOpen]);
+
+  useEffect(() => {
+    if (!isSuggestionOpen) {
+      setHighlightedIndex(-1);
+      return;
+    }
+    setHighlightedIndex((prev) => {
+      if (prev < 0) return 0;
+      if (prev >= suggestionMembers.length) return suggestionMembers.length - 1;
+      return prev;
+    });
+  }, [isSuggestionOpen, suggestionMembers.length]);
+
+  const updateMemberIds = (nextIds: string[]) => {
+    setForm((current) => ({
+      ...current,
+      memberIds: nextIds,
+      leaderMemberIds: current.leaderMemberIds.filter((leaderId) => nextIds.includes(leaderId)),
+    }));
+  };
+
+  const addMember = (memberId: string) => {
+    updateMemberIds(
+      form.memberIds.includes(memberId) ? form.memberIds : [...form.memberIds, memberId],
+    );
+  };
+
+  const removeMember = (memberId: string) => {
+    updateMemberIds(form.memberIds.filter((id) => id !== memberId));
+  };
+
+  const toggleLeader = (memberId: string) => {
+    setForm((current) => {
+      if (current.leaderMemberIds.includes(memberId)) {
+        return {
+          ...current,
+          leaderMemberIds: current.leaderMemberIds.filter((leaderId) => leaderId !== memberId),
+        };
+      }
+      if (!current.memberIds.includes(memberId)) return current;
+      return {
+        ...current,
+        leaderMemberIds: [...current.leaderMemberIds, memberId],
+      };
+    });
+  };
+
+  const handleMemberQueryChange = (value: string) => {
+    setMemberQuery(value);
+    setSuppressSuggestions(false);
+  };
+
+  const handleSelectSuggestion = (memberId: string) => {
+    addMember(memberId);
+    setSuppressSuggestions(true);
+    setHighlightedIndex(-1);
+  };
+
+  const handleMemberQueryKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!isSuggestionOpen) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightedIndex((prev) => (prev + 1) % suggestionMembers.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightedIndex((prev) =>
+        prev <= 0 ? suggestionMembers.length - 1 : prev - 1,
+      );
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const targetMember = suggestionMembers[highlightedIndex];
+      if (!targetMember) return;
+      handleSelectSuggestion(targetMember.memberId);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSuppressSuggestions(true);
+    }
+  };
+
+  const handleSave = async () => {
+    setErrorMessage(null);
+    if (!workspaceId) {
+      setErrorMessage("워크스페이스 정보를 확인할 수 없습니다.");
+      return;
+    }
+    if (!form.name.trim()) {
+      setErrorMessage("프로젝트 이름을 입력해 주세요.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (mode === "create") {
+        await onSaveCreate?.(form);
+      } else if (project) {
+        await onSaveEdit?.(project.id, form);
+      }
+      onClose();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "저장에 실패했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!project || !onArchive) return;
+    setErrorMessage(null);
+    setSubmitting(true);
+    try {
+      await onArchive(project.id);
+      onClose();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "보관함 이동에 실패했습니다.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="space-y-3">
-          {/* 이름 */}
-          <div>
-            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-              프로젝트 이름
-            </label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="프로젝트 이름"
-              className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
-            />
-          </div>
+    <div
+      className="fixed inset-0 z-[980] flex items-center justify-center bg-black/45 p-4"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        className="flex max-h-[88vh] w-full max-w-md flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <input
+          ref={nameInputRef}
+          value={form.name}
+          readOnly={!isNameEditing}
+          onDoubleClick={() => setIsNameEditing(true)}
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              name: event.target.value,
+            }))
+          }
+          onBlur={() => {
+            if (mode === "create") return;
+            setIsNameEditing(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              if (mode === "edit") {
+                setIsNameEditing(false);
+                event.currentTarget.blur();
+              }
+            }
+            if (event.key === "Escape") {
+              if (mode !== "edit") return;
+              event.preventDefault();
+              setForm((current) => ({
+                ...current,
+                name: project?.name ?? current.name,
+              }));
+              setIsNameEditing(false);
+              event.currentTarget.blur();
+            }
+          }}
+          placeholder="프로젝트 이름"
+          className={`w-full rounded border border-transparent bg-transparent px-2 py-1 text-2xl font-bold text-zinc-900 outline-none dark:text-zinc-100 ${
+            isNameEditing
+              ? "hover:border-zinc-200 focus:border-zinc-400 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
+              : "cursor-default"
+          }`}
+        />
 
-          {/* 설명 */}
+        <div className="mt-3 flex-1 space-y-3 pr-1">
           <div>
-            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">
-              프로젝트 설명 (선택)
-            </label>
+            <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">프로젝트 설명</label>
             <textarea
-              ref={descriptionRef}
               value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              onInput={(e) => {
-                const target = e.currentTarget;
-                target.style.height = "auto";
-                target.style.height = `${Math.max(72, target.scrollHeight)}px`;
-              }}
-              placeholder="프로젝트 설명"
+              onChange={(event) =>
+                setForm((current) => ({ ...current, description: event.target.value }))
+              }
               rows={3}
-              className="w-full min-h-[72px] px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none overflow-hidden"
+              placeholder="프로젝트 설명"
+              className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-amber-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
             />
           </div>
-        </div>
 
-        {/* 색상 */}
-        <div>
-          <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
-            색상
-          </label>
-          <ColorPickerGrid value={form.color} onChange={(c) => setForm({ ...form, color: c })} />
-        </div>
-      </div>
+          <div ref={dropdownWrapRef} className="relative">
+            <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">구성원 검색</label>
+            <div className="flex items-center gap-1.5 rounded border border-zinc-200 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-800">
+              <Search size={12} className="shrink-0 text-zinc-400" />
+              <input
+                type="text"
+                value={memberQuery}
+                onChange={(event) => handleMemberQueryChange(event.target.value)}
+                onKeyDown={handleMemberQueryKeyDown}
+                placeholder="구성원 검색"
+                className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 outline-none dark:text-zinc-100"
+              />
+            </div>
+            {isSuggestionOpen && (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                {suggestionMembers.map((member, index) => (
+                  <button
+                    key={member.memberId}
+                    type="button"
+                    role="option"
+                    aria-selected={highlightedIndex === index}
+                    className={`flex w-full items-center px-2 py-1.5 text-left text-sm ${
+                      highlightedIndex === index
+                        ? "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                        : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    }`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => handleSelectSuggestion(member.memberId)}
+                  >
+                    {member.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
 
-      {/* 구성원 선택 */}
-      {activeMembers.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
-            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
+            <div className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
               등록된 구성원 ({selectedMembers.length})
-            </label>
-            <div className="max-h-40 overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
-              {selectedMembers.length === 0 && (
-                <div className="px-2 py-3 text-center text-xs text-zinc-400">
+            </div>
+            <div className="max-h-[42vh] overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
+              {selectedMembers.length === 0 ? (
+                <div className="px-2 py-3 text-center text-sm text-zinc-400">
                   아직 등록된 구성원이 없습니다.
                 </div>
+              ) : (
+                selectedMembers.map((member) => {
+                  const isLeader = form.leaderMemberIds.includes(member.memberId);
+                  return (
+                    <div
+                      key={member.memberId}
+                      className="group flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                    >
+                      <div className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-200">
+                        {member.name}
+                        {isLeader && (
+                          <span className="ml-1.5 rounded bg-green-100 px-1 py-0.5 text-[10px] text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                            리더
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                        <button
+                          type="button"
+                          onClick={() => toggleLeader(member.memberId)}
+                          className={`rounded px-1.5 py-1 text-[10px] ${
+                            isLeader
+                              ? "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200"
+                              : "bg-green-600 text-white"
+                          }`}
+                        >
+                          {isLeader ? "리더 해제" : "리더 등록"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeMember(member.memberId)}
+                          className="rounded border border-zinc-200 px-1.5 py-1 text-[10px] text-zinc-500 hover:bg-zinc-200 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                        >
+                          제거
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
               )}
-              {selectedMembers.map((m) => (
-                <label
-                  key={m.memberId}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
-                >
-                  <input
-                    type="checkbox"
-                    checked
-                    onChange={() => onToggleMember(m.memberId)}
-                    className="accent-amber-500"
-                  />
-                  <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">
-                    {m.name}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">
-              구성원 검색/추가
-            </label>
-            <div className="space-y-1.5">
-              <div className="flex items-center gap-1.5 rounded border border-zinc-200 bg-white px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900">
-                <Search size={12} className="shrink-0 text-zinc-400" />
-                <input
-                  type="search"
-                  value={memberQuery}
-                  onChange={(e) => setMemberQuery(e.target.value)}
-                  placeholder="구성원 검색"
-                  className="min-w-0 flex-1 bg-transparent text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
-                />
-              </div>
-              <div className="grid max-h-40 grid-cols-1 gap-1 overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
-                {filteredMembers.map((m) => (
-                  <label
-                    key={m.memberId}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={form.memberIds.includes(m.memberId)}
-                      onChange={() => onToggleMember(m.memberId)}
-                      className="accent-amber-500"
-                    />
-                    <span className="text-xs text-zinc-800 dark:text-zinc-200 truncate">
-                      {m.name}
-                    </span>
-                  </label>
-                ))}
-                {filteredMembers.length === 0 && (
-                  <div className="px-2 py-3 text-center text-xs text-zinc-400">
-                    검색 결과가 없습니다.
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </div>
-      )}
 
-      {projectMembers.length > 0 && (
-        <LeaderMemberPicker
-          label="프로젝트장"
-          members={projectMembers}
-          value={form.leaderMemberIds}
-          recommendedIds={recommendedLeaderIds}
-          onChange={(leaderMemberIds) => setForm({ ...form, leaderMemberIds })}
-        />
-      )}
+        {errorMessage && <p className="mt-3 text-xs text-red-500">{errorMessage}</p>}
 
-      {/* 저장/취소 버튼 */}
-      <div className="flex items-center gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={!form.name.trim()}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-md bg-amber-500 hover:bg-amber-600 text-white transition-colors disabled:opacity-40"
-        >
-          <Check size={12} />
-          {saveLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-md border border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-        >
-          <X size={12} />
-          취소
-        </button>
+        <div className="mt-4 flex items-center justify-between">
+          {mode === "edit" ? (
+            <button
+              type="button"
+              onClick={() => void handleArchive()}
+              disabled={submitting}
+              className="rounded bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              보관함으로 이동
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={submitting}
+              className="rounded bg-amber-500 px-3 py-1.5 text-xs text-white hover:bg-amber-600 disabled:opacity-60"
+            >
+              저장
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="rounded border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            >
+              취소
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

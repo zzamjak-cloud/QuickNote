@@ -25,6 +25,7 @@ import { useOrganizationStore } from "../../../store/organizationStore";
 import { useTeamStore } from "../../../store/teamStore";
 import { useSchedulerProjectsStore } from "../../../store/schedulerProjectsStore";
 import type { MmEntry } from "../../../lib/scheduler/mm/mmTypes";
+import { AppSelect } from "../../common/AppSelect";
 
 type RangeKind = "week" | "month" | "year";
 type InnerTab = "member" | "leader";
@@ -371,15 +372,41 @@ export function MmDashboardTab() {
     downloadCsv(`lc-scheduler-mm-${rangeKind}-${fromWeekStart}-${toWeekStart}.csv`, csv);
   }
 
-  const scopeOptions: Array<{ value: ScopeFilter; label: string }> = useMemo(
+  const scopeGroups = useMemo(
     () => [
-      { value: "all", label: "전체" },
-      ...organizations.filter((org) => !org.removedAt).map((org) => ({ value: `organization:${org.organizationId}` as ScopeFilter, label: `조직 · ${org.name}` })),
-      ...teams.filter((team) => !team.removedAt).map((team) => ({ value: `team:${team.teamId}` as ScopeFilter, label: `팀 · ${team.name}` })),
-      ...projects.filter((project) => !project.isHidden).map((project) => ({ value: `project:${project.id}` as ScopeFilter, label: `프로젝트 · ${project.name}` })),
+      {
+        label: "조직",
+        options: [
+          { value: "all", label: "전체" },
+          ...organizations
+            .filter((org) => !org.removedAt)
+            .map((org) => ({ value: `organization:${org.organizationId}`, label: org.name })),
+        ],
+      },
+      {
+        label: "팀",
+        options: teams
+          .filter((team) => !team.removedAt)
+          .map((team) => ({ value: `team:${team.teamId}`, label: team.name })),
+      },
+      {
+        label: "프로젝트",
+        options: projects
+          .filter((project) => !project.isHidden)
+          .map((project) => ({ value: `project:${project.id}`, label: project.name })),
+      },
     ],
     [organizations, projects, teams],
   );
+  const rangeKindOptions = [
+    { value: "week", label: "주간" },
+    { value: "month", label: "월간" },
+    { value: "year", label: "연간" },
+  ];
+  const monthOptions = Array.from({ length: 12 }, (_, idx) => ({
+    value: String(idx),
+    label: `${idx + 1}월`,
+  }));
 
   return (
     <div className="space-y-4">
@@ -396,7 +423,7 @@ export function MmDashboardTab() {
                 onClick={() => setInnerTab(id)}
                 className={`rounded px-3 py-1.5 text-xs font-medium ${
                   innerTab === id
-                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100"
+                    ? "bg-green-600 text-white shadow-sm"
                     : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
                 }`}
               >
@@ -404,28 +431,33 @@ export function MmDashboardTab() {
               </button>
             ))}
           </div>
-          <select
+          <AppSelect
             value={rangeKind}
-            onChange={(event) => setRangeKind(event.target.value as RangeKind)}
-            className="rounded border-0 bg-white px-2 py-1.5 text-sm text-zinc-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-zinc-900 dark:text-zinc-200"
-          >
-            <option value="week">주간</option>
-            <option value="month">월간</option>
-            <option value="year">연간</option>
-          </select>
-          <select
+            onChange={(nextValue) => setRangeKind(nextValue as RangeKind)}
+            options={rangeKindOptions}
+            buttonClassName="rounded border-0 bg-white px-2 py-1.5 text-zinc-700 shadow-sm focus:ring-blue-400 dark:bg-zinc-900 dark:text-zinc-200"
+            selectedStyle="blue"
+            showSelectedCheck
+          />
+          <AppSelect
             value={scope}
-            onChange={(event) => setScope(event.target.value as ScopeFilter)}
-            className="rounded border-0 bg-white px-2 py-1.5 text-sm text-zinc-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-400 dark:bg-zinc-900 dark:text-zinc-200"
-          >
-            {scopeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
+            onChange={(nextValue) => setScope(nextValue as ScopeFilter)}
+            groups={scopeGroups}
+            buttonClassName="rounded border-0 bg-white px-2 py-1.5 text-zinc-700 shadow-sm focus:ring-blue-400 dark:bg-zinc-900 dark:text-zinc-200"
+            selectedStyle="blue"
+            showSelectedCheck
+            groupLayout="columns"
+            menuClassName="w-[680px] max-w-[calc(100vw-48px)] p-1"
+          />
           {rangeKind === "month" ? (
             <div className="flex items-center gap-2">
               <input type="number" value={year} onChange={(event) => setYear(Number(event.target.value))} className="w-24 rounded border-0 bg-white px-2 py-1.5 text-sm shadow-sm dark:bg-zinc-900" />
-              <select value={monthIndex} onChange={(event) => setMonthIndex(Number(event.target.value))} className="rounded border-0 bg-white px-2 py-1.5 text-sm shadow-sm dark:bg-zinc-900">
-                {Array.from({ length: 12 }, (_, idx) => <option key={idx} value={idx}>{idx + 1}월</option>)}
-              </select>
+              <AppSelect
+                value={String(monthIndex)}
+                onChange={(nextValue) => setMonthIndex(Number(nextValue))}
+                options={monthOptions}
+                buttonClassName="rounded border-0 bg-white px-2 py-1.5 shadow-sm dark:bg-zinc-900"
+              />
             </div>
           ) : rangeKind === "year" ? (
             <input type="number" value={year} onChange={(event) => setYear(Number(event.target.value))} className="w-24 rounded border-0 bg-white px-2 py-1.5 text-sm shadow-sm dark:bg-zinc-900" />

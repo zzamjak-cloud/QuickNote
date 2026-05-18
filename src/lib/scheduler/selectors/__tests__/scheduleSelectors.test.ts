@@ -31,15 +31,16 @@ describe("schedule selectors", () => {
     ).map((item) => item.id)).toEqual(["in"]);
   });
 
-  it("프로젝트 필터를 반영해 구성원 일정과 특이사항을 분리한다", () => {
+  it("프로젝트 필터는 특이사항에만 적용하고 구성원 일정은 숨기지 않는다", () => {
     const grouped = groupSchedulesByMember([
       schedule({ id: "m1", assigneeId: "m1", projectId: "p1" }),
       schedule({ id: "global", assigneeId: null, projectId: "p1" }),
-      schedule({ id: "hidden", assigneeId: "m2", projectId: "p2" }),
+      schedule({ id: "m2", assigneeId: "m2", projectId: "p2" }),
+      schedule({ id: "hidden-global", assigneeId: null, projectId: "p2" }),
     ], "p1");
 
     expect(grouped.schedulesByMember.m1?.map((item) => item.id)).toEqual(["m1"]);
+    expect(grouped.schedulesByMember.m2?.map((item) => item.id)).toEqual(["m2"]);
     expect(grouped.globalSchedules.map((item) => item.id)).toEqual(["global"]);
-    expect(grouped.schedulesByMember.m2).toBeUndefined();
   });
 });

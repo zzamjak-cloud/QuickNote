@@ -30,21 +30,20 @@ describe("WorkspaceSwitcher", () => {
 
   it("워크스페이스 목록을 렌더링하고 선택 변경 시 currentWorkspaceId를 갱신한다", () => {
     render(<WorkspaceSwitcher />);
-    const select = screen.getByLabelText("워크스페이스 선택") as HTMLSelectElement;
-    expect(select.value).toBe("ws-1");
-    expect(screen.getByText("LC 스케줄러")).toBeTruthy();
-    expect(screen.getByText("Workspace A")).toBeTruthy();
-    expect(screen.getByText("Workspace B (view)")).toBeTruthy();
+    const trigger = screen.getByLabelText("워크스페이스 선택");
+    expect(trigger.textContent).toContain("Workspace A");
 
-    fireEvent.change(select, { target: { value: "ws-2" } });
+    fireEvent.click(trigger);
+    expect(screen.getByText("Workspace B (view)")).toBeTruthy();
+    fireEvent.click(screen.getByText("Workspace B (view)"));
     expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-2");
   });
 
   it("LC 스케줄러 워크스페이스를 선택할 수 있다", () => {
     render(<WorkspaceSwitcher />);
-    const select = screen.getByLabelText("워크스페이스 선택") as HTMLSelectElement;
-
-    fireEvent.change(select, { target: { value: LC_SCHEDULER_WORKSPACE_ID } });
+    const trigger = screen.getByLabelText("워크스페이스 선택");
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByText("LC 스케줄러"));
 
     expect(useWorkspaceStore.getState().currentWorkspaceId).toBe(LC_SCHEDULER_WORKSPACE_ID);
   });

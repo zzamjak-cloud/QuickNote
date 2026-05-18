@@ -6,6 +6,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { DatabaseCell } from "./DatabaseCell";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
+import { AppSelect } from "../common/AppSelect";
 import {
   isLCSchedulerDatabaseId,
   isLCSchedulerHiddenPropertyColumnId,
@@ -490,31 +491,26 @@ export function DatabasePropertyPanel({
                   placeholder="프리셋 이름"
                   className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
                 />
-                <select
+                <AppSelect
                   value={savePresetScope}
-                  onChange={(e) => setSavePresetScope(e.target.value as PresetScope)}
-                  className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
-                >
-                  <option value="workspace">프리셋을 모두가 사용</option>
-                  <option value="organization">프리셋을 조직에서만 사용</option>
-                  <option value="team">프리셋을 팀에서만 사용</option>
-                  <option value="project">프리셋을 프로젝트에서만 사용</option>
-                </select>
+                  onChange={(nextValue) => setSavePresetScope(nextValue as PresetScope)}
+                  options={[
+                    { value: "workspace", label: "프리셋을 모두가 사용" },
+                    { value: "organization", label: "프리셋을 조직에서만 사용" },
+                    { value: "team", label: "프리셋을 팀에서만 사용" },
+                    { value: "project", label: "프리셋을 프로젝트에서만 사용" },
+                  ]}
+                  buttonClassName="w-full px-2 py-1 focus:ring-amber-400 dark:bg-zinc-800"
+                />
                 {savePresetScope !== "workspace" && (
-                  <select
+                  <AppSelect
                     value={savePresetScopeId}
-                    onChange={(e) => setSavePresetScopeId(e.target.value)}
-                    className="w-full rounded border border-zinc-300 bg-white px-2 py-1 text-sm outline-none focus:border-amber-400 dark:border-zinc-600 dark:bg-zinc-800"
-                  >
-                    {saveScopeOptions.length === 0 && (
-                      <option value="">대상 없음</option>
-                    )}
-                    {saveScopeOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(nextValue) => setSavePresetScopeId(nextValue)}
+                    options={saveScopeOptions.map((opt) => ({ value: opt.id, label: opt.label }))}
+                    placeholder={saveScopeOptions.length === 0 ? "대상 없음" : "대상 선택"}
+                    emptyLabel="대상 없음"
+                    buttonClassName="w-full px-2 py-1 focus:ring-amber-400 dark:bg-zinc-800"
+                  />
                 )}
                 <button
                   type="button"
@@ -618,12 +614,14 @@ export function DatabasePropertyPanel({
 
       <div className="flex items-center gap-2 pt-2">
         {showAdd ? (
-          <select
-            autoFocus
-            defaultValue=""
-            onBlur={() => setShowAdd(false)}
-            onChange={(e) => {
-              const t = e.target.value as ColumnType | "";
+          <AppSelect
+            value=""
+            openOnMount
+            onOpenChange={(open) => {
+              if (!open) setShowAdd(false);
+            }}
+            onChange={(nextValue) => {
+              const t = nextValue as ColumnType | "";
               if (t) {
                 const label = COLUMN_TYPES.find((x) => x.id === t)?.label ?? "속성";
                 const idx = bundle.columns.length + 1;
@@ -631,13 +629,11 @@ export function DatabasePropertyPanel({
               }
               setShowAdd(false);
             }}
-            className="rounded border border-zinc-300 bg-white px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900"
-          >
-            <option value="">선택…</option>
-            {COLUMN_TYPES.map((t) => (
-              <option key={t.id} value={t.id}>{t.label}</option>
-            ))}
-          </select>
+            options={COLUMN_TYPES.map((item) => ({ value: item.id, label: item.label }))}
+            placeholder="선택…"
+            className="w-[160px]"
+            buttonClassName="px-2 py-1 dark:bg-zinc-900"
+          />
         ) : (
           <button
             type="button"

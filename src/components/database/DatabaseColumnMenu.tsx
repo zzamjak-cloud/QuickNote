@@ -5,6 +5,7 @@ import type { ColumnDef, ColumnType } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { ColumnOptionsEditor } from "./ColumnOptionsEditor";
 import { isLCSchedulerDatabaseId, isLCSchedulerRequiredColumnId } from "../../lib/scheduler/database";
+import { AppSelect } from "../common/AppSelect";
 
 const TYPE_LABELS: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -111,17 +112,15 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
           <div className="flex items-center gap-1 text-xs text-zinc-500">
             <Type size={11} /> 타입
           </div>
-          <select
+          <AppSelect
             value={column.type}
-            onChange={(e) =>
-              updateColumn(databaseId, column.id, { type: e.target.value as ColumnType })
+            onChange={(nextValue) =>
+              updateColumn(databaseId, column.id, { type: nextValue as ColumnType })
             }
-            className="mt-0.5 w-full rounded border border-zinc-200 bg-white px-1 py-0.5 dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            {TYPE_LABELS.map((t) => (
-              <option key={t.id} value={t.id}>{t.label}</option>
-            ))}
-          </select>
+            options={TYPE_LABELS.map((item) => ({ value: item.id, label: item.label }))}
+            className="mt-0.5"
+            buttonClassName="w-full px-1 py-0.5"
+          />
         </div>
       )}
 

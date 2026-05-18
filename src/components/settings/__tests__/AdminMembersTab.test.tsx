@@ -78,6 +78,21 @@ describe("AdminMembersTab", () => {
     });
     expect(screen.getByText("Alice")).toBeTruthy();
     expect(screen.queryByText("Bob")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "검색어 전체 삭제" }));
+    expect((screen.getByPlaceholderText("이름/이메일/직무 검색") as HTMLInputElement).value).toBe("");
+
+    fireEvent.change(screen.getByPlaceholderText("이름/이메일/직무 검색"), {
+      target: { value: "alice" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "보관함" }));
+    expect((screen.getByPlaceholderText("이름/이메일/직무 검색") as HTMLInputElement).value).toBe("");
+
+    fireEvent.change(screen.getByPlaceholderText("이름/이메일/직무 검색"), {
+      target: { value: "bob" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "구성원" }));
+    expect((screen.getByPlaceholderText("이름/이메일/직무 검색") as HTMLInputElement).value).toBe("");
   });
 
   it("추가 모달 저장 시 createMember 호출", async () => {
@@ -96,11 +111,11 @@ describe("AdminMembersTab", () => {
 
     fireEvent.change(screen.getByPlaceholderText("이름"), { target: { value: "New" } });
     fireEvent.change(screen.getByPlaceholderText("이메일"), { target: { value: "new@x.com" } });
-    // 직무 필드는 select(combobox)로 변경됨 — 다이얼로그 내 첫 번째 combobox
+    // 직무 선택
     const dialog = screen.getByRole("dialog");
-    const [jobRoleSelect] = within(dialog).getAllByRole("combobox");
-    expect(jobRoleSelect).toBeTruthy();
-    fireEvent.change(jobRoleSelect as Element, { target: { value: "PM" } });
+    const jobRoleButton = within(dialog).getByRole("button", { name: "직무" });
+    fireEvent.click(jobRoleButton);
+    fireEvent.click(within(dialog).getByRole("option", { name: "PM" }));
     fireEvent.click(screen.getByText("추가"));
 
     await waitFor(() => expect(createMemberApiMock).toHaveBeenCalledTimes(1));

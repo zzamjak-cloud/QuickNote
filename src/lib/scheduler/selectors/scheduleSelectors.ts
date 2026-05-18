@@ -26,8 +26,8 @@ export function groupSchedulesByMember(
   const schedulesByMember: Record<string, Schedule[]> = {};
   const globalSchedules: Schedule[] = [];
   for (const schedule of schedules) {
-    if (selectedProjectFilterId && schedule.projectId !== selectedProjectFilterId) continue;
     if (schedule.assigneeId == null) {
+      if (selectedProjectFilterId && schedule.projectId !== selectedProjectFilterId) continue;
       globalSchedules.push(schedule);
       continue;
     }

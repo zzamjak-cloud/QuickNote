@@ -5,8 +5,10 @@ import { useTeamStore } from "../../../store/teamStore";
 
 const createTeamApiMock = vi.fn();
 const deleteTeamApiMock = vi.fn();
+const archiveTeamApiMock = vi.fn();
 
 vi.mock("../../../lib/sync/teamApi", () => ({
+  archiveTeamApi: (teamId: string) => archiveTeamApiMock(teamId),
   createTeamApi: (name: string) => createTeamApiMock(name),
   deleteTeamApi: (teamId: string) => deleteTeamApiMock(teamId),
 }));
@@ -15,6 +17,7 @@ describe("AdminTeamsTab", () => {
   beforeEach(() => {
     createTeamApiMock.mockReset();
     deleteTeamApiMock.mockReset();
+    archiveTeamApiMock.mockReset();
     useTeamStore.setState({
       teams: [
         {
@@ -43,14 +46,20 @@ describe("AdminTeamsTab", () => {
     expect(screen.getByLabelText("Design 구성원 관리")).toBeTruthy();
   });
 
-  it("팀 추가/삭제 액션이 API를 호출한다", async () => {
+  it("팀 추가/보관함 이동 액션이 API를 호출한다", async () => {
     createTeamApiMock.mockResolvedValue({
       teamId: "t2",
       name: "Platform",
       leaderMemberIds: [],
       members: [],
     });
-    deleteTeamApiMock.mockResolvedValue(true);
+    archiveTeamApiMock.mockResolvedValue({
+      teamId: "t1",
+      name: "Design",
+      leaderMemberIds: [],
+      members: [],
+      removedAt: "2026-05-18T00:00:00.000Z",
+    });
 
     render(<AdminTeamsTab />);
     // 모달 열기
@@ -64,8 +73,7 @@ describe("AdminTeamsTab", () => {
     await waitFor(() => expect(createTeamApiMock).toHaveBeenCalledWith("Platform"));
 
     fireEvent.click(screen.getByLabelText("Design 구성원 관리"));
-    fireEvent.click(screen.getByRole("button", { name: "팀 삭제" }));
-    fireEvent.click(screen.getByText("삭제"));
-    await waitFor(() => expect(deleteTeamApiMock).toHaveBeenCalledWith("t1"));
+    fireEvent.click(screen.getByRole("button", { name: "보관함으로 이동" }));
+    await waitFor(() => expect(archiveTeamApiMock).toHaveBeenCalledWith("t1"));
   });
 });

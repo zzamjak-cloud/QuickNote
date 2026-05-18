@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Building, Building2, User, Users, UsersRound, X } from "lucide-react";
+import { Building, Building2, Folder, User, Users, UsersRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import pkg from "../../../package.json";
 import { useAuthStore } from "../../store/authStore";
@@ -10,13 +10,14 @@ import { AdminMembersTab } from "./AdminMembersTab";
 import { AdminTeamsTab } from "./AdminTeamsTab";
 import { AdminWorkspacesTab } from "./AdminWorkspacesTab";
 import { AdminOrganizationsTab } from "./AdminOrganizationsTab";
+import { ProjectsPanel } from "../scheduler/admin/ProjectsPanel";
 
 type Props = {
   open: boolean;
   onClose: () => void;
 };
 
-type TabId = "profile" | "members" | "teams" | "organizations" | "workspaces";
+type TabId = "profile" | "members" | "projects" | "teams" | "organizations" | "workspaces";
 
 type TabDef = { id: TabId; label: string; title: string; icon: LucideIcon };
 
@@ -35,6 +36,7 @@ export function SettingsModal({ open, onClose }: Props) {
     if (isAdmin) {
       base.push(
         { id: "members", label: "구성원", title: "구성원 관리", icon: Users },
+        { id: "projects", label: "프로젝트", title: "프로젝트 관리", icon: Folder },
         { id: "teams", label: "팀", title: "팀 관리", icon: UsersRound },
         { id: "organizations", label: "조직", title: "조직 관리", icon: Building2 },
         { id: "workspaces", label: "워크스페이스", title: "워크스페이스 관리", icon: Building },
@@ -140,6 +142,7 @@ export function SettingsModal({ open, onClose }: Props) {
           <div className="flex-1 overflow-y-auto p-6">
             {tab === "profile" && <MyProfileSection />}
             {tab === "members" && isAdmin && <AdminMembersTab />}
+            {tab === "projects" && isAdmin && <ProjectsPanel />}
             {tab === "teams" && isAdmin && <AdminTeamsTab />}
             {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
             {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}

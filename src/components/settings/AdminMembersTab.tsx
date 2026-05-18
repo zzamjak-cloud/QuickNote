@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
-import { Plus, Search, Upload } from "lucide-react";
+import { Plus, Search, Upload, X } from "lucide-react";
 import { createMemberApi } from "../../lib/sync/memberApi";
 import { useMemberStore, type Member } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
+import { useOrganizationStore } from "../../store/organizationStore";
 import { CreateMemberModal } from "./CreateMemberModal";
 import { MemberModal } from "./MemberModal";
 import { CsvImportModal } from "./CsvImportModal";
@@ -24,8 +25,10 @@ type TabType = "active" | "archived";
 export function AdminMembersTab() {
   const members = useMemberStore((s) => s.members);
   const teams = useTeamStore((s) => s.teams);
+  const organizations = useOrganizationStore((s) => s.organizations);
   const upsertMember = useMemberStore((s) => s.upsertMember);
-  const removeMemberFromCache = useMemberStore((s) => s.removeMemberFromCache);
+  const upsertTeam = useTeamStore((s) => s.upsertTeam);
+  const upsertOrganization = useOrganizationStore((s) => s.upsertOrganization);
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [openCreate, setOpenCreate] = useState(false);
@@ -77,6 +80,32 @@ export function AdminMembersTab() {
     [members, applyFilter],
   );
 
+  const detachMemberFromGroupsInStore = useCallback((memberId: string) => {
+    for (const team of teams) {
+      const hasMember = team.members.some((member) => member.memberId === memberId);
+      const hasLeader = (team.leaderMemberIds ?? []).includes(memberId);
+      if (!hasMember && !hasLeader) continue;
+      upsertTeam({
+        ...team,
+        members: team.members.filter((member) => member.memberId !== memberId),
+        leaderMemberIds: (team.leaderMemberIds ?? []).filter((leaderId) => leaderId !== memberId),
+      });
+    }
+
+    for (const organization of organizations) {
+      const hasMember = organization.members.some((member) => member.memberId === memberId);
+      const hasLeader = (organization.leaderMemberIds ?? []).includes(memberId);
+      if (!hasMember && !hasLeader) continue;
+      upsertOrganization({
+        ...organization,
+        members: organization.members.filter((member) => member.memberId !== memberId),
+        leaderMemberIds: (organization.leaderMemberIds ?? []).filter(
+          (leaderId) => leaderId !== memberId,
+        ),
+      });
+    }
+  }, [organizations, teams, upsertOrganization, upsertTeam]);
+
   const onCreate = async (input: { email: string; name: string; jobRole: string; workspaceRole: string }) => {
     const { workspaceRole, ...rest } = input;
     const created = await createMemberApi({
@@ -117,7 +146,10 @@ export function AdminMembersTab() {
       <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-700">
         <button
           type="button"
-          onClick={() => setActiveTab("active")}
+          onClick={() => {
+            setActiveTab("active");
+            setQuery("");
+          }}
           className={`px-3 py-1.5 text-sm font-medium transition-colors ${
             activeTab === "active"
               ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
@@ -128,7 +160,10 @@ export function AdminMembersTab() {
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab("archived")}
+          onClick={() => {
+            setActiveTab("archived");
+            setQuery("");
+          }}
           className={`px-3 py-1.5 text-sm font-medium transition-colors ${
             activeTab === "archived"
               ? "border-b-2 border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
@@ -145,6 +180,16 @@ export function AdminMembersTab() {
             placeholder="이름/이메일/직무 검색"
             className="w-40 bg-transparent text-sm outline-none placeholder:text-zinc-400"
           />
+          <button
+            type="button"
+            onClick={() => setQuery("")}
+            className={`rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 ${
+              query ? "" : "pointer-events-none opacity-0"
+            }`}
+            aria-label="검색어 전체 삭제"
+          >
+            <X size={12} />
+          </button>
         </div>
       </div>
 
@@ -219,8 +264,13 @@ export function AdminMembersTab() {
             });
             setSelectedMember(null);
           }}
-          onRemoved={(memberId) => {
-            removeMemberFromCache(memberId);
+          onRemoved={(member) => {
+            detachMemberFromGroupsInStore(member.memberId);
+            upsertMember({
+              ...member,
+              workspaceRole: member.workspaceRole ?? "member",
+              status: member.status ?? "removed",
+            });
             setSelectedMember(null);
           }}
         />
@@ -242,8 +292,13 @@ export function AdminMembersTab() {
             });
             setArchivedMember(null);
           }}
-          onRemoved={(memberId) => {
-            removeMemberFromCache(memberId);
+          onRemoved={(member) => {
+            detachMemberFromGroupsInStore(member.memberId);
+            upsertMember({
+              ...member,
+              workspaceRole: member.workspaceRole ?? "member",
+              status: member.status ?? "removed",
+            });
             setArchivedMember(null);
           }}
           onRestored={(member) => {

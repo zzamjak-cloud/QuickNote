@@ -30,6 +30,7 @@ describe("SettingsModal role tabs", () => {
     expect(screen.getAllByText("내 프로필").length).toBeGreaterThan(0);
     expect(screen.getByText("로그아웃")).toBeTruthy();
     expect(screen.queryByText("구성원")).toBeNull();
+    expect(screen.queryByText("프로젝트")).toBeNull();
     expect(screen.queryByText("팀")).toBeNull();
     expect(screen.queryByText("워크스페이스")).toBeNull();
   });
@@ -49,6 +50,7 @@ describe("SettingsModal role tabs", () => {
 
     render(<SettingsModal open onClose={() => {}} />);
     expect(screen.getByText("구성원")).toBeTruthy();
+    expect(screen.getByText("프로젝트")).toBeTruthy();
     expect(screen.getByText("팀")).toBeTruthy();
     expect(screen.getByText("워크스페이스")).toBeTruthy();
   });

@@ -9,6 +9,7 @@ import {
 } from "../../../store/schedulerHolidaysStore";
 import { ColorPickerGrid } from "../ColorPickerGrid";
 import { DEFAULT_SCHEDULE_COLOR } from "../../../lib/scheduler/colors";
+import { AppSelect } from "../../common/AppSelect";
 
 const HOLIDAY_TYPE_LABELS: Record<HolidayType, string> = {
   holiday: "공휴일",
@@ -106,15 +107,14 @@ export function HolidaysPanel() {
     <div className="space-y-4">
       {/* 연도 선택 */}
       <div className="flex items-center gap-3">
-        <select
-          value={selectedYear}
-          onChange={(e) => setSelectedYear(Number(e.target.value))}
-          className="px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
-        >
-          {YEAR_OPTIONS.map((y) => (
-            <option key={y} value={y}>{y}년</option>
-          ))}
-        </select>
+        <AppSelect
+          value={String(selectedYear)}
+          onChange={(nextValue) => setSelectedYear(Number(nextValue))}
+          options={YEAR_OPTIONS.map((year) => ({ value: String(year), label: `${year}년` }))}
+          buttonClassName="w-[140px] px-2 py-1.5 focus:ring-amber-400 dark:bg-zinc-800"
+          selectedStyle="blue"
+          showSelectedCheck
+        />
       </div>
 
       {/* ── 공식 공휴일 (자동) ── */}
@@ -275,15 +275,15 @@ function HolidayForm({ form, setForm, onSave, onCancel, saveLabel }: HolidayForm
         {/* 타입 */}
         <div>
           <label className="block text-xs text-zinc-500 dark:text-zinc-400 mb-1">유형</label>
-          <select
+          <AppSelect
             value={form.type}
-            onChange={(e) => setForm({ ...form, type: e.target.value as HolidayType })}
-            className="w-full px-2 py-1.5 text-sm border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-amber-400"
-          >
-            {(Object.keys(HOLIDAY_TYPE_LABELS) as HolidayType[]).map((t) => (
-              <option key={t} value={t}>{HOLIDAY_TYPE_LABELS[t]}</option>
-            ))}
-          </select>
+            onChange={(nextValue) => setForm({ ...form, type: nextValue as HolidayType })}
+            options={(Object.keys(HOLIDAY_TYPE_LABELS) as HolidayType[]).map((type) => ({
+              value: type,
+              label: HOLIDAY_TYPE_LABELS[type],
+            }))}
+            buttonClassName="w-full px-2 py-1.5 focus:ring-amber-400 dark:bg-zinc-800"
+          />
         </div>
       </div>
 

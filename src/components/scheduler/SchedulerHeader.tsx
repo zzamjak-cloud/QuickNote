@@ -1,6 +1,6 @@
 // LC 스케줄러 헤더 — 뷰 모드 탭 + 조직/팀/프로젝트 선택 + 설정 버튼 + 닫기 버튼.
-import { useState, useEffect } from "react";
-import { Calendar, X, Settings } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Calendar, X, Settings, ChevronDown, Check } from "lucide-react";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
@@ -38,6 +38,18 @@ export function SchedulerHeader({ onClose }: Props) {
 
   // 설정 모달 표시 여부
   const [showSettings, setShowSettings] = useState(false);
+  const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
+  const scopeMenuRef = useRef<HTMLDivElement>(null);
+  const scopeListRefs = useRef<Record<string, HTMLDivElement | null>>({
+    org: null,
+    team: null,
+    project: null,
+  });
+  const [scopeScrollHintByColumn, setScopeScrollHintByColumn] = useState<Record<string, boolean>>({
+    org: false,
+    team: false,
+    project: false,
+  });
 
   // 활성 조직/팀/프로젝트만 필터링
   const visibleOrgs = organizations.filter(
@@ -99,6 +111,26 @@ export function SchedulerHeader({ onClose }: Props) {
     setSelectedProjectId,
   ]);
 
+  useEffect(() => {
+    if (!scopeMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (scopeMenuRef.current?.contains(event.target as Node)) return;
+      setScopeMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setScopeMenuOpen(false);
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [scopeMenuOpen]);
+
   // 헤더 타이틀 계산
   const headerTitle = (() => {
     if (!selectedProjectId) return "LC 스케줄러";
@@ -116,6 +148,74 @@ export function SchedulerHeader({ onClose }: Props) {
     }
     return "LC 스케줄러";
   })();
+
+  const scopeColumns = [
+    {
+      key: "org",
+      title: "조직",
+      items: visibleOrgs.map((org) => ({
+        id: org.organizationId,
+        label: org.name,
+        value: `org:${org.organizationId}`,
+      })),
+    },
+    {
+      key: "team",
+      title: "팀",
+      items: visibleTeams.map((team) => ({
+        id: team.teamId,
+        label: team.name,
+        value: `team:${team.teamId}`,
+      })),
+    },
+    {
+      key: "project",
+      title: "프로젝트",
+      items: visibleProjects.map((project) => ({
+        id: project.id,
+        label: project.name,
+        value: `proj:${project.id}`,
+      })),
+    },
+  ];
+
+  const handleSelectScope = (value: string) => {
+    setSelectedProjectId(value || null);
+    setScopeMenuOpen(false);
+  };
+
+  const updateScopeListHint = (columnKey: string) => {
+    const list = scopeListRefs.current[columnKey];
+    if (!list) return;
+    const hasOverflow = list.scrollHeight > list.clientHeight + 2;
+    const canScrollDown = list.scrollTop + list.clientHeight < list.scrollHeight - 2;
+    const showHint = hasOverflow && canScrollDown;
+    setScopeScrollHintByColumn((prev) =>
+      prev[columnKey] === showHint ? prev : { ...prev, [columnKey]: showHint },
+    );
+  };
+
+  useEffect(() => {
+    if (!scopeMenuOpen) {
+      setScopeScrollHintByColumn({ org: false, team: false, project: false });
+      return;
+    }
+    const raf = window.requestAnimationFrame(() => {
+      updateScopeListHint("org");
+      updateScopeListHint("team");
+      updateScopeListHint("project");
+    });
+    const onResize = () => {
+      updateScopeListHint("org");
+      updateScopeListHint("team");
+      updateScopeListHint("project");
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [scopeMenuOpen, visibleOrgs.length, visibleTeams.length, visibleProjects.length]);
 
   return (
     <>
@@ -142,7 +242,7 @@ export function SchedulerHeader({ onClose }: Props) {
               onClick={() => setViewMode("year")}
               className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
                 viewMode === "year"
-                  ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm"
+                  ? "bg-green-600 text-white shadow-sm"
                   : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
               }`}
             >
@@ -155,7 +255,7 @@ export function SchedulerHeader({ onClose }: Props) {
               onClick={() => setViewMode("month")}
               className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
                 viewMode === "month"
-                  ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm"
+                  ? "bg-green-600 text-white shadow-sm"
                   : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
               }`}
             >
@@ -168,7 +268,7 @@ export function SchedulerHeader({ onClose }: Props) {
               onClick={() => setViewMode("week")}
               className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
                 viewMode === "week"
-                  ? "bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-sm"
+                  ? "bg-green-600 text-white shadow-sm"
                   : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
               }`}
             >
@@ -180,40 +280,82 @@ export function SchedulerHeader({ onClose }: Props) {
         {/* 우측: 조직/팀/프로젝트 선택 + 설정 버튼 + 닫기 */}
         <div className="flex items-center gap-2">
           {/* 조직 / 팀 / 프로젝트 선택 드롭다운 */}
-          <select
-            value={selectedProjectId ?? ""}
-            onChange={(e) => setSelectedProjectId(e.target.value || null)}
-            className="px-2.5 py-1.5 text-xs border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700/60 focus:outline-none focus:ring-2 focus:ring-amber-400"
-            aria-label="조직 또는 팀 선택"
-          >
-            {visibleOrgs.length > 0 && (
-              <optgroup label="조직">
-                {visibleOrgs.map((o) => (
-                  <option key={o.organizationId} value={`org:${o.organizationId}`}>
-                    {o.name}
-                  </option>
+          <div ref={scopeMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setScopeMenuOpen((open) => !open)}
+              className="flex min-h-[32px] max-w-[260px] items-center gap-2 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm shadow-sm transition-colors hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-amber-400 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700/70"
+              aria-haspopup="menu"
+              aria-expanded={scopeMenuOpen}
+              aria-label="조직, 팀 또는 프로젝트 선택"
+            >
+              <span className="min-w-0 truncate text-zinc-800 dark:text-zinc-100">{headerTitle}</span>
+              <ChevronDown
+                size={14}
+                className={`shrink-0 text-zinc-500 transition-transform ${scopeMenuOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {scopeMenuOpen && (
+              <div
+                className="absolute right-0 top-full z-[720] mt-2 grid w-[680px] max-w-[calc(100vw-32px)] grid-cols-3 gap-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                role="menu"
+                aria-label="스케줄러 범위 선택"
+              >
+                {scopeColumns.map((column) => (
+                  <div
+                    key={column.key}
+                    className="min-w-0 border-r border-zinc-100 p-2 last:border-r-0 dark:border-zinc-800"
+                  >
+                    <div className="mb-1.5 px-2 font-semibold text-zinc-500 dark:text-zinc-400">
+                      {column.title}
+                    </div>
+                    <div className="relative">
+                      <div
+                        ref={(node) => {
+                          scopeListRefs.current[column.key] = node;
+                        }}
+                        onScroll={() => updateScopeListHint(column.key)}
+                        className="max-h-[420px] space-y-1 overflow-y-auto pb-6 pr-1"
+                      >
+                        {column.items.length === 0 ? (
+                          <div className="px-2 py-2 text-zinc-400 dark:text-zinc-500">
+                            없음
+                          </div>
+                        ) : (
+                          column.items.map((item) => {
+                            const selected = selectedProjectId === item.value;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                role="menuitemradio"
+                                aria-checked={selected}
+                                onClick={() => handleSelectScope(item.value)}
+                                className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+                                  selected
+                                    ? "bg-blue-600 font-semibold text-white"
+                                    : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                                }`}
+                              >
+                                <span className="truncate">{item.label}</span>
+                                {selected ? <Check size={13} strokeWidth={2.6} className="shrink-0" /> : null}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                      {scopeScrollHintByColumn[column.key] ? (
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-7 items-end justify-center bg-gradient-to-t from-white via-white/95 to-transparent pb-0.5 text-zinc-400 dark:from-zinc-900 dark:via-zinc-900/95 dark:text-zinc-500">
+                          <ChevronDown size={15} />
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
                 ))}
-              </optgroup>
+              </div>
             )}
-            {visibleTeams.length > 0 && (
-              <optgroup label="팀">
-                {visibleTeams.map((t) => (
-                  <option key={t.teamId} value={`team:${t.teamId}`}>
-                    {t.name}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {visibleProjects.length > 0 && (
-              <optgroup label="프로젝트">
-                {visibleProjects.map((p) => (
-                  <option key={p.id} value={`proj:${p.id}`}>
-                    {p.name}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+          </div>
 
           {/* 설정 버튼 — MANAGER 이상만 노출 */}
           {canManage && (

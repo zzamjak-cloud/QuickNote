@@ -156,8 +156,8 @@ export async function updateOrganization(args: {
   tables: Tables;
   caller: Member;
   organizationId: string;
-  name?: string;
-  leaderMemberIds?: string[];
+  name?: string | null;
+  leaderMemberIds?: string[] | null;
 }): Promise<Organization> {
   requireRoleAtLeast(args.caller, "manager");
   const existing = await getOrgById(args.doc, args.tables, args.organizationId);
@@ -165,14 +165,14 @@ export async function updateOrganization(args: {
   const sets: string[] = [];
   const names: Record<string, string> = {};
   const vals: Record<string, unknown> = {};
-  if (args.name !== undefined) {
+  if (typeof args.name === "string") {
     const name = args.name.trim();
     if (!name) badRequest("조직 이름은 비어 있을 수 없음");
     sets.push("#n = :n");
     names["#n"] = "name";
     vals[":n"] = name;
   }
-  if (args.leaderMemberIds !== undefined) {
+  if (Array.isArray(args.leaderMemberIds)) {
     sets.push("leaderMemberIds = :l");
     vals[":l"] = args.leaderMemberIds;
   }

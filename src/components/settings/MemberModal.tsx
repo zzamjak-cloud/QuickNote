@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
 import { useExclusiveDropdown } from "../../hooks/useExclusiveDropdown";
+import { AppSelect } from "../common/AppSelect";
 import type { EmploymentStatus, Member } from "../../store/memberStore";
 import { useWorkspaceOptionsStore } from "../../store/workspaceOptionsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
@@ -13,7 +14,9 @@ import {
   setMemberRoleApi,
   removeMemberApi,
   restoreMemberApi,
+  unassignMemberFromTeamApi,
 } from "../../lib/sync/memberApi";
+import { unassignMemberFromOrganizationApi } from "../../lib/sync/organizationApi";
 import { updateWorkspaceOptionsApi } from "../../lib/sync/workspaceApi";
 import { resizeAvatar } from "../../lib/images/resizeAvatar";
 
@@ -30,7 +33,7 @@ type EditProps = {
   onClose: () => void;
   member: Member;
   onUpdated: (member: Member) => void;
-  onRemoved: (memberId: string) => void;
+  onRemoved: (member: Member) => void;
   archived?: boolean;
   onRestored?: (member: Member) => void;
 };
@@ -180,16 +183,15 @@ function SimpleSelect({
   return (
     <div>
       <div className="mb-0.5 text-[9px] font-medium text-zinc-500">{label}</div>
-      <select
+      <AppSelect
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"
-      >
-        <option value="">선택 안 함</option>
-        {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
+        onChange={(nextValue) => onChange(nextValue)}
+        options={[
+          { value: "", label: "선택 안 함" },
+          ...options.map((option) => ({ value: option, label: option })),
+        ]}
+        buttonClassName="w-full px-2 py-1 dark:bg-zinc-950"
+      />
     </div>
   );
 }
@@ -264,6 +266,53 @@ export function MemberModal(props: Props) {
 
   const isArchived = props.mode === "edit" && props.archived === true;
 
+  const getErrorMessage = (error: unknown, fallback: string): string => {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === "object" && "errors" in error) {
+      const gqlErrors = (error as { errors?: Array<{ message?: string }> }).errors;
+      if (gqlErrors && gqlErrors.length > 0 && gqlErrors[0]?.message) {
+        return gqlErrors[0].message;
+      }
+    }
+    return fallback;
+  };
+
+  const mergeLocalProfileFields = (member: Member): Member => ({
+    ...member,
+    employmentStatus,
+    employeeNumber: employeeNumber || undefined,
+    department: department || undefined,
+    team: team || undefined,
+    jobCategory: jobCategory || undefined,
+    jobDetail: jobDetail || undefined,
+    joinedAt: joinedAt || undefined,
+  });
+
+  const detachMemberFromGroups = async (memberId: string) => {
+    const teamIds = teams
+      .filter((teamItem) => teamItem.members.some((member) => member.memberId === memberId))
+      .map((teamItem) => teamItem.teamId);
+    const organizationIds = organizations
+      .filter((orgItem) => orgItem.members.some((member) => member.memberId === memberId))
+      .map((orgItem) => orgItem.organizationId);
+
+    if (teamIds.length === 0 && organizationIds.length === 0) return;
+
+    const detachResults = await Promise.allSettled([
+      ...teamIds.map((teamId) => unassignMemberFromTeamApi(memberId, teamId)),
+      ...organizationIds.map((organizationId) =>
+        unassignMemberFromOrganizationApi(memberId, organizationId)),
+    ]);
+
+    if (detachResults.some((result) => result.status === "rejected")) {
+      console.warn("[MemberModal] 구성원 그룹 분리 일부 실패", {
+        memberId,
+        teamIds,
+        organizationIds,
+      });
+    }
+  };
+
   const handleAvatarFile = async (file: File) => {
     if (!file.type.startsWith("image/")) return;
     const { avatar256, thumbnail64 } = await resizeAvatar(file);
@@ -291,6 +340,13 @@ export function MemberModal(props: Props) {
           phone: phone || null,
           avatarUrl: avatarPreview ?? null,
           thumbnailUrl: thumbnailPreview ?? null,
+          employmentStatus,
+          employeeNumber: employeeNumber || null,
+          department: department || null,
+          team: team || null,
+          jobCategory: jobCategory || null,
+          jobDetail: jobDetail || null,
+          joinedAt: joinedAt || null,
         });
         const prevRole = initial?.workspaceRole;
         if (workspaceRole !== prevRole) {
@@ -302,18 +358,24 @@ export function MemberModal(props: Props) {
             updated = await setMemberRoleApi(props.member.memberId, workspaceRole);
           }
         }
-        // 로컬 전용 필드 병합 (API 미지원 필드)
-        props.onUpdated({
+        const mergedUpdated = mergeLocalProfileFields({
           ...props.member,
           ...updated,
-          employmentStatus,
-          employeeNumber: employeeNumber || undefined,
-          department: department || undefined,
-          team: team || undefined,
-          jobCategory: jobCategory || undefined,
-          jobDetail: jobDetail || undefined,
-          joinedAt: joinedAt || undefined,
         });
+
+        if (!isArchived && employmentStatus === "퇴사") {
+          await detachMemberFromGroups(props.member.memberId);
+          const removed = await removeMemberApi(props.member.memberId);
+          props.onRemoved(mergeLocalProfileFields({
+            ...mergedUpdated,
+            ...removed,
+            status: removed.status ?? "removed",
+          }));
+          props.onClose();
+          return;
+        }
+
+        props.onUpdated(mergedUpdated);
         props.onClose();
       }
     } catch (e) {
@@ -334,11 +396,16 @@ export function MemberModal(props: Props) {
     if (props.mode !== "edit") return;
     setSubmitting(true);
     try {
-      await removeMemberApi(props.member.memberId);
-      props.onRemoved(props.member.memberId);
+      await detachMemberFromGroups(props.member.memberId);
+      const removed = await removeMemberApi(props.member.memberId);
+      props.onRemoved(mergeLocalProfileFields({
+        ...props.member,
+        ...removed,
+        status: removed.status ?? "removed",
+      }));
       props.onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "제거에 실패했습니다.");
+      setError(getErrorMessage(e, "보관함 이동에 실패했습니다."));
     } finally {
       setSubmitting(false);
     }
@@ -352,7 +419,7 @@ export function MemberModal(props: Props) {
       props.onRestored(restored);
       props.onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "복원에 실패했습니다.");
+      setError(getErrorMessage(e, "복원에 실패했습니다."));
     } finally {
       setSubmitting(false);
     }
@@ -505,23 +572,22 @@ export function MemberModal(props: Props) {
             </div>
             <div>
               <div className="mb-0.5 text-[9px] font-medium text-zinc-500">재직 상태</div>
-              <select
+              <AppSelect
                 value={employmentStatus}
-                onChange={(e) => {
-                  const value = e.target.value;
+                onChange={(nextValue) => {
+                  const value = nextValue;
                   if (!EMPLOYMENT_STATUS_OPTIONS.includes(value as EmploymentStatus)) {
                     setJobRole(value);
                     return;
                   }
                   setEmploymentStatus(value as EmploymentStatus);
                 }}
-                className="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-950"
-              >
-                <option value="PM" className="hidden">PM</option>
-                {EMPLOYMENT_STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+                options={EMPLOYMENT_STATUS_OPTIONS.map((status) => ({
+                  value: status,
+                  label: status,
+                }))}
+                buttonClassName="w-full px-2 py-1 dark:bg-zinc-950"
+              />
             </div>
           </div>
 
@@ -547,17 +613,19 @@ export function MemberModal(props: Props) {
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
               <div className="mb-0.5 text-[9px] font-medium text-zinc-500">직무</div>
-              <select
-                aria-label="직무"
+              <AppSelect
+                ariaLabel="직무"
                 value={jobRole}
-                onChange={(e) => setJobRole(e.target.value)}
-                className="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"
-              >
-                <option value="">선택</option>
-                {[...new Set([...jobFunctions, "PM"])].map((option) => (
-                  <option key={option} value={option}>{option}</option>
-                ))}
-              </select>
+                onChange={(nextValue) => setJobRole(nextValue)}
+                options={[
+                  { value: "", label: "선택" },
+                  ...[...new Set([...jobFunctions, "PM"])].map((option) => ({
+                    value: option,
+                    label: option,
+                  })),
+                ]}
+                buttonClassName="w-full px-2 py-1 dark:bg-zinc-950"
+              />
             </div>
             <DropdownWithAdd
               label="직책"
@@ -604,24 +672,24 @@ export function MemberModal(props: Props) {
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
               <div className="mb-0.5 text-[9px] font-medium text-zinc-500">역할 (권한)</div>
-              <select
+              <AppSelect
                 value={workspaceRole}
-                onChange={(e) => setWorkspaceRole(e.target.value as Member["workspaceRole"])}
+                onChange={(nextValue) => setWorkspaceRole(nextValue as Member["workspaceRole"])}
                 disabled={isOwner || workspaceRole === "developer"}
-                className="w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {workspaceRole === "developer" && <option value="developer">Developer</option>}
-                {workspaceRole === "owner" ? (
-                  <option value="owner">Owner</option>
-                ) : (
-                  <>
-                    <option value="owner">Owner</option>
-                    <option value="leader">Leader</option>
-                    <option value="manager">Manager</option>
-                    <option value="member">Member</option>
-                  </>
-                )}
-              </select>
+                options={
+                  workspaceRole === "developer"
+                    ? [{ value: "developer", label: "Developer" }]
+                    : workspaceRole === "owner"
+                      ? [{ value: "owner", label: "Owner" }]
+                      : [
+                        { value: "owner", label: "Owner" },
+                        { value: "leader", label: "Leader" },
+                        { value: "manager", label: "Manager" },
+                        { value: "member", label: "Member" },
+                      ]
+                }
+                buttonClassName="w-full px-2 py-1 dark:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
+              />
             </div>
           </div>
 

@@ -237,8 +237,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
   const selectedProjectFilterId =
     selectedProjectId?.startsWith("proj:") ? selectedProjectId.slice(5) : null;
 
-  // 일정 필터링 + 멤버별 그룹화
-  // assigneeId === null 이고 projectId === selectedProjectId → 특이사항(글로벌 이벤트)
+  // 구성원 일정은 고유 구성원 기준으로 모두 표시하고, 프로젝트 필터는 특이사항에만 적용한다.
   const { schedulesByMember, globalSchedules } = useMemo(
     () => groupSchedulesByMember(schedules, selectedProjectFilterId),
     [schedules, selectedProjectFilterId],
