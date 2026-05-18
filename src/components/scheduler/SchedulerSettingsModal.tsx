@@ -8,8 +8,8 @@ import { MmDashboardTab } from "./mm/MmDashboardTab";
 type Tab = "holidays" | "mm";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "holidays", label: "공휴일" },
   { id: "mm", label: "MM 대시보드" },
+  { id: "holidays", label: "공휴일" },
 ];
 
 type Props = {
@@ -17,7 +17,7 @@ type Props = {
 };
 
 export function SchedulerSettingsModal({ onClose }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>("holidays");
+  const [activeTab, setActiveTab] = useState<Tab>("mm");
 
   // ESC 키로 닫기
   useEffect(() => {
@@ -35,7 +35,7 @@ export function SchedulerSettingsModal({ onClose }: Props) {
     >
       {/* 모달 카드 */}
       <div
-        className="bg-white dark:bg-zinc-900 rounded-lg shadow-xl w-[1120px] h-[760px] max-w-[96vw] max-h-[92vh] flex flex-col"
+        className="bg-white dark:bg-zinc-900 rounded-lg shadow-xl w-[1040px] h-[710px] max-w-[94vw] max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}

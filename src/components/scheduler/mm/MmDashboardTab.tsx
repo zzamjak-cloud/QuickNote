@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Download, Lock, RefreshCw, ShieldCheck, Unlock } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 import {
   aggregateMmEntriesByMemberAverage,
@@ -9,7 +9,6 @@ import {
   type MmAggregateRow,
 } from "../../../lib/scheduler/mm/mmAggregation";
 import {
-  getDefaultMmWeek,
   getMmWeekLabel,
   getWeekEndDate,
   parseDateKey,
@@ -24,12 +23,14 @@ import { useSchedulerMmStore } from "../../../store/schedulerMmStore";
 import { useOrganizationStore } from "../../../store/organizationStore";
 import { useTeamStore } from "../../../store/teamStore";
 import { useSchedulerProjectsStore } from "../../../store/schedulerProjectsStore";
+import {
+  useSchedulerMmDashboardViewStore,
+  type MmDashboardRangeKind as RangeKind,
+  type MmDashboardScopeFilter as ScopeFilter,
+} from "../../../store/schedulerMmDashboardViewStore";
 import type { MmEntry } from "../../../lib/scheduler/mm/mmTypes";
 import { AppSelect } from "../../common/AppSelect";
-
-type RangeKind = "week" | "month" | "year";
-type InnerTab = "member" | "leader";
-type ScopeFilter = "all" | `organization:${string}` | `team:${string}` | `project:${string}`;
+import { ScopeSelectDropdown } from "../common/ScopeSelectDropdown";
 
 function mapById<T>(items: T[], getId: (item: T) => string, getName: (item: T) => string): Record<string, string> {
   return Object.fromEntries(items.map((item) => [getId(item), getName(item)]));
@@ -239,14 +240,20 @@ export function MmDashboardTab() {
   const lockEntry = useSchedulerMmStore((s) => s.lockEntry);
   const unlockEntry = useSchedulerMmStore((s) => s.unlockEntry);
 
-  const now = new Date();
-  const [innerTab, setInnerTab] = useState<InnerTab>("member");
-  const [rangeKind, setRangeKind] = useState<RangeKind>("week");
-  const [weekStart, setWeekStart] = useState(() => getDefaultMmWeek());
-  const [year, setYear] = useState(now.getFullYear());
-  const [monthIndex, setMonthIndex] = useState(now.getMonth());
-  const [scope, setScope] = useState<ScopeFilter>("all");
-  const [didApplyDefaultScope, setDidApplyDefaultScope] = useState(false);
+  const innerTab = useSchedulerMmDashboardViewStore((s) => s.innerTab);
+  const rangeKind = useSchedulerMmDashboardViewStore((s) => s.rangeKind);
+  const weekStart = useSchedulerMmDashboardViewStore((s) => s.weekStart);
+  const year = useSchedulerMmDashboardViewStore((s) => s.year);
+  const monthIndex = useSchedulerMmDashboardViewStore((s) => s.monthIndex);
+  const scope = useSchedulerMmDashboardViewStore((s) => s.scope);
+  const didApplyDefaultScope = useSchedulerMmDashboardViewStore((s) => s.didApplyDefaultScope);
+  const setInnerTab = useSchedulerMmDashboardViewStore((s) => s.setInnerTab);
+  const setRangeKind = useSchedulerMmDashboardViewStore((s) => s.setRangeKind);
+  const setWeekStart = useSchedulerMmDashboardViewStore((s) => s.setWeekStart);
+  const setYear = useSchedulerMmDashboardViewStore((s) => s.setYear);
+  const setMonthIndex = useSchedulerMmDashboardViewStore((s) => s.setMonthIndex);
+  const setScope = useSchedulerMmDashboardViewStore((s) => s.setScope);
+  const setDidApplyDefaultScope = useSchedulerMmDashboardViewStore((s) => s.setDidApplyDefaultScope);
 
   const members = useMemo(
     () => allMembers.filter((member) => member.status === "active"),
@@ -292,7 +299,28 @@ export function MmDashboardTab() {
       setScope(`project:${project.id}`);
       setDidApplyDefaultScope(true);
     }
-  }, [didApplyDefaultScope, me, organizations, projects, scope, teams]);
+  }, [didApplyDefaultScope, me, organizations, projects, scope, setDidApplyDefaultScope, setScope, teams]);
+
+  const hasScopeInOptions = useMemo(() => {
+    if (scope === "all") return true;
+    const [kind, id] = scope.split(":");
+    if (kind === "organization") {
+      return organizations.some((item) => !item.removedAt && item.organizationId === id);
+    }
+    if (kind === "team") {
+      return teams.some((item) => !item.removedAt && item.teamId === id);
+    }
+    if (kind === "project") {
+      return projects.some((item) => !item.isHidden && item.id === id);
+    }
+    return false;
+  }, [organizations, projects, scope, teams]);
+
+  useEffect(() => {
+    if (hasScopeInOptions) return;
+    setScope("all");
+    setDidApplyDefaultScope(false);
+  }, [hasScopeInOptions, setDidApplyDefaultScope, setScope]);
 
   const scopeMembers = useMemo(() => {
     if (scope === "all") return members;
@@ -372,31 +400,26 @@ export function MmDashboardTab() {
     downloadCsv(`lc-scheduler-mm-${rangeKind}-${fromWeekStart}-${toWeekStart}.csv`, csv);
   }
 
-  const scopeGroups = useMemo(
-    () => [
-      {
-        label: "조직",
-        options: [
-          { value: "all", label: "전체" },
-          ...organizations
-            .filter((org) => !org.removedAt)
-            .map((org) => ({ value: `organization:${org.organizationId}`, label: org.name })),
-        ],
-      },
-      {
-        label: "팀",
-        options: teams
-          .filter((team) => !team.removedAt)
-          .map((team) => ({ value: `team:${team.teamId}`, label: team.name })),
-      },
-      {
-        label: "프로젝트",
-        options: projects
-          .filter((project) => !project.isHidden)
-          .map((project) => ({ value: `project:${project.id}`, label: project.name })),
-      },
-    ],
-    [organizations, projects, teams],
+  const scopeOrganizations = useMemo(
+    () =>
+      organizations
+        .filter((org) => !org.removedAt)
+        .map((org) => ({ id: org.organizationId, value: `organization:${org.organizationId}`, label: org.name })),
+    [organizations],
+  );
+  const scopeTeams = useMemo(
+    () =>
+      teams
+        .filter((team) => !team.removedAt)
+        .map((team) => ({ id: team.teamId, value: `team:${team.teamId}`, label: team.name })),
+    [teams],
+  );
+  const scopeProjects = useMemo(
+    () =>
+      projects
+        .filter((project) => !project.isHidden)
+        .map((project) => ({ id: project.id, value: `project:${project.id}`, label: project.name })),
+    [projects],
   );
   const rangeKindOptions = [
     { value: "week", label: "주간" },
@@ -431,6 +454,17 @@ export function MmDashboardTab() {
               </button>
             ))}
           </div>
+          <ScopeSelectDropdown
+            value={scope}
+            onChange={(nextValue) => setScope(nextValue as ScopeFilter)}
+            organizations={scopeOrganizations}
+            teams={scopeTeams}
+            projects={scopeProjects}
+            allOption={{ id: "all", value: "all", label: "전체" }}
+            buttonClassName="rounded border-0 bg-white px-2 py-1.5 text-zinc-700 shadow-sm focus:ring-blue-400 dark:bg-zinc-900 dark:text-zinc-200"
+            menuClassName="w-[820px] max-w-[calc(100vw-72px)]"
+            listMaxHeightClass="max-h-[420px]"
+          />
           <AppSelect
             value={rangeKind}
             onChange={(nextValue) => setRangeKind(nextValue as RangeKind)}
@@ -438,16 +472,6 @@ export function MmDashboardTab() {
             buttonClassName="rounded border-0 bg-white px-2 py-1.5 text-zinc-700 shadow-sm focus:ring-blue-400 dark:bg-zinc-900 dark:text-zinc-200"
             selectedStyle="blue"
             showSelectedCheck
-          />
-          <AppSelect
-            value={scope}
-            onChange={(nextValue) => setScope(nextValue as ScopeFilter)}
-            groups={scopeGroups}
-            buttonClassName="rounded border-0 bg-white px-2 py-1.5 text-zinc-700 shadow-sm focus:ring-blue-400 dark:bg-zinc-900 dark:text-zinc-200"
-            selectedStyle="blue"
-            showSelectedCheck
-            groupLayout="columns"
-            menuClassName="w-[680px] max-w-[calc(100vw-48px)] p-1"
           />
           {rangeKind === "month" ? (
             <div className="flex items-center gap-2">
@@ -487,7 +511,7 @@ export function MmDashboardTab() {
         <div className="flex items-center justify-center gap-2 py-1">
           <button
             type="button"
-            onClick={() => setWeekStart((v) => shiftMmWeek(v, -1))}
+            onClick={() => setWeekStart(shiftMmWeek(weekStart, -1))}
             className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             aria-label="이전 주"
           >
@@ -501,7 +525,7 @@ export function MmDashboardTab() {
           </div>
           <button
             type="button"
-            onClick={() => setWeekStart((v) => shiftMmWeek(v, 1))}
+            onClick={() => setWeekStart(shiftMmWeek(weekStart, 1))}
             className="rounded p-1.5 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             aria-label="다음 주"
           >

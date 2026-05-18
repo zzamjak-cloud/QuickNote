@@ -19,6 +19,10 @@ type WorkspaceSnapshot = {
 
 const workspaceSnapshotById = new Map<string, WorkspaceSnapshot>();
 const WORKSPACE_SNAPSHOT_KEY_PREFIX = "quicknote.workspace.snapshot.v2:";
+const EMPTY_PAGE_DOC = {
+  type: "doc",
+  content: [{ type: "paragraph" }],
+};
 
 function workspaceSnapshotKey(workspaceId: string): string {
   return `${WORKSPACE_SNAPSHOT_KEY_PREFIX}${workspaceId}`;
@@ -26,6 +30,197 @@ function workspaceSnapshotKey(workspaceId: string): string {
 
 function cloneSnapshot<T>(value: T): T {
   return structuredClone(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function sanitizeWorkspacePages(
+  pages: WorkspaceSnapshot["pages"],
+): WorkspaceSnapshot["pages"] {
+  const sanitized: WorkspaceSnapshot["pages"] = {};
+  for (const [pageId, rawPage] of Object.entries(pages)) {
+    if (!isRecord(rawPage)) continue;
+    const nextId = typeof rawPage.id === "string" && rawPage.id ? rawPage.id : pageId;
+    const nextTitle = typeof rawPage.title === "string" ? rawPage.title : "제목 없음";
+    const nextDoc = isRecord(rawPage.doc) ? cloneSnapshot(rawPage.doc) : cloneSnapshot(EMPTY_PAGE_DOC);
+    const nextParentId = typeof rawPage.parentId === "string" ? rawPage.parentId : null;
+    const nextPage = {
+      ...rawPage,
+      id: nextId,
+      title: nextTitle,
+      icon: typeof rawPage.icon === "string" ? rawPage.icon : null,
+      doc: nextDoc,
+      parentId: nextParentId,
+      order: toFiniteNumber(rawPage.order, 0),
+      createdAt: toFiniteNumber(rawPage.createdAt, Date.now()),
+      updatedAt: toFiniteNumber(rawPage.updatedAt, Date.now()),
+      databaseId: typeof rawPage.databaseId === "string" ? rawPage.databaseId : undefined,
+      dbCells: isRecord(rawPage.dbCells)
+        ? cloneSnapshot(rawPage.dbCells)
+        : undefined,
+      coverImage: typeof rawPage.coverImage === "string"
+        ? rawPage.coverImage
+        : rawPage.coverImage === null
+          ? null
+          : undefined,
+      blockComments: isRecord(rawPage.blockComments)
+        ? cloneSnapshot(rawPage.blockComments)
+        : undefined,
+      createdByMemberId: typeof rawPage.createdByMemberId === "string"
+        ? rawPage.createdByMemberId
+        : undefined,
+    };
+    sanitized[nextId] = nextPage;
+  }
+  return sanitized;
+}
+
+function sanitizeWorkspaceDatabases(
+  databases: WorkspaceSnapshot["databases"],
+): WorkspaceSnapshot["databases"] {
+  const sanitized: WorkspaceSnapshot["databases"] = {};
+  for (const [databaseId, rawBundle] of Object.entries(databases)) {
+    if (!isRecord(rawBundle)) continue;
+    const rawMeta: Record<string, unknown> = isRecord(rawBundle.meta) ? rawBundle.meta : {};
+    const metaId =
+      typeof rawMeta.id === "string" && rawMeta.id ? rawMeta.id : databaseId;
+    const rawColumns: unknown[] = Array.isArray(rawBundle.columns)
+      ? (rawBundle.columns as unknown[])
+      : [];
+    const columns: WorkspaceSnapshot["databases"][string]["columns"] = [];
+    for (const rawColumn of rawColumns) {
+      if (!isRecord(rawColumn)) continue;
+      if (
+        typeof rawColumn.id !== "string" ||
+        typeof rawColumn.name !== "string" ||
+        typeof rawColumn.type !== "string"
+      ) {
+        continue;
+      }
+      columns.push({
+        ...rawColumn,
+        id: rawColumn.id,
+        name: rawColumn.name,
+        type: rawColumn.type as WorkspaceSnapshot["databases"][string]["columns"][number]["type"],
+        width:
+          typeof rawColumn.width === "number" && Number.isFinite(rawColumn.width)
+            ? rawColumn.width
+            : undefined,
+        config: isRecord(rawColumn.config) ? cloneSnapshot(rawColumn.config) : undefined,
+      });
+    }
+    if (columns.length === 0) {
+      columns.push({
+        id: "title",
+        name: "제목",
+        type: "title",
+        width: undefined,
+        config: undefined,
+      });
+    }
+    const rowPageOrder = Array.isArray(rawBundle.rowPageOrder)
+      ? rawBundle.rowPageOrder.filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [];
+    const nextBundle: WorkspaceSnapshot["databases"][string] = {
+      ...rawBundle,
+      meta: {
+        ...rawMeta,
+        id: metaId,
+        title: typeof rawMeta.title === "string" ? rawMeta.title : "데이터베이스",
+        createdAt: toFiniteNumber(rawMeta.createdAt, Date.now()),
+        updatedAt: toFiniteNumber(rawMeta.updatedAt, Date.now()),
+      },
+      columns,
+      rowPageOrder,
+    };
+    sanitized[metaId] = nextBundle;
+  }
+  return sanitized;
+}
+
+function sanitizeWorkspaceTabs(
+  tabs: WorkspaceSnapshot["tabs"],
+  pages: WorkspaceSnapshot["pages"],
+): WorkspaceSnapshot["tabs"] {
+  const pageIds = new Set(Object.keys(pages));
+  const rawTabs: unknown[] = Array.isArray(tabs) ? (tabs as unknown[]) : [];
+  const sanitized = rawTabs
+    .filter((tab): tab is Record<string, unknown> => isRecord(tab))
+    .map((tab) => {
+      const nextPageId =
+        typeof tab.pageId === "string" && pageIds.has(tab.pageId) ? tab.pageId : null;
+      const nextBack = Array.isArray(tab.back)
+        ? tab.back.filter((pageId): pageId is string => typeof pageId === "string" && pageIds.has(pageId))
+        : undefined;
+      return {
+        pageId: nextPageId,
+        back: nextBack && nextBack.length > 0 ? nextBack : undefined,
+      };
+    });
+  return sanitized.length > 0 ? sanitized : [{ pageId: null }];
+}
+
+function sanitizeWorkspaceComments(
+  comments: WorkspaceSnapshot["comments"],
+): WorkspaceSnapshot["comments"] {
+  if (!Array.isArray(comments)) return [];
+  const rawComments: unknown[] = comments as unknown[];
+  return rawComments
+    .filter((comment): comment is Record<string, unknown> => isRecord(comment))
+    .filter(
+      (comment) =>
+        typeof comment.id === "string" &&
+        typeof comment.pageId === "string" &&
+        typeof comment.blockId === "string" &&
+        typeof comment.authorMemberId === "string" &&
+        typeof comment.bodyText === "string" &&
+        (typeof comment.parentId === "string" || comment.parentId === null),
+    )
+    .map((comment) => ({
+      id: comment.id as string,
+      workspaceId:
+        typeof comment.workspaceId === "string" ? comment.workspaceId : null,
+      pageId: comment.pageId as string,
+      blockId: comment.blockId as string,
+      authorMemberId: comment.authorMemberId as string,
+      bodyText: comment.bodyText as string,
+      mentionMemberIds: Array.isArray(comment.mentionMemberIds)
+        ? comment.mentionMemberIds.filter((memberId): memberId is string => typeof memberId === "string")
+        : [],
+      parentId: (comment.parentId as string | null) ?? null,
+      createdAt: toFiniteNumber(comment.createdAt, Date.now()),
+    }));
+}
+
+function normalizeWorkspaceSnapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot | null {
+  const pages = sanitizeWorkspacePages(snapshot.pages);
+  const databases = sanitizeWorkspaceDatabases(snapshot.databases);
+  if (Object.keys(pages).length === 0 && Object.keys(databases).length === 0) {
+    return null;
+  }
+  const tabs = sanitizeWorkspaceTabs(snapshot.tabs, pages);
+  const safeActiveTabIndex = Number.isInteger(snapshot.activeTabIndex)
+    ? Math.min(Math.max(snapshot.activeTabIndex, 0), Math.max(tabs.length - 1, 0))
+    : 0;
+  const activePageId =
+    typeof snapshot.activePageId === "string" && pages[snapshot.activePageId]
+      ? snapshot.activePageId
+      : tabs[safeActiveTabIndex]?.pageId ?? null;
+  const comments = sanitizeWorkspaceComments(snapshot.comments);
+  return {
+    pages,
+    databases,
+    tabs,
+    activeTabIndex: safeActiveTabIndex,
+    activePageId,
+    comments,
+  };
 }
 
 function persistWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot | null): void {
@@ -100,16 +295,30 @@ function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot {
 }
 
 async function readPersistedWorkspaceSnapshot(workspaceId: string): Promise<WorkspaceSnapshot | null> {
+  const key = workspaceSnapshotKey(workspaceId);
   try {
-    const raw = await zustandStorage.getItem(workspaceSnapshotKey(workspaceId));
+    const raw = await zustandStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
-    if (!isWorkspaceSnapshot(parsed)) return null;
-    const snapshot = cloneSnapshot(parsed);
+    if (!isWorkspaceSnapshot(parsed)) {
+      workspaceSnapshotById.delete(workspaceId);
+      await zustandStorage.removeItem(key);
+      return null;
+    }
+    const normalized = normalizeWorkspaceSnapshot(cloneSnapshot(parsed));
+    if (!normalized) {
+      workspaceSnapshotById.delete(workspaceId);
+      await zustandStorage.removeItem(key);
+      return null;
+    }
+    const snapshot = cloneSnapshot(normalized);
     workspaceSnapshotById.set(workspaceId, snapshot);
+    persistWorkspaceSnapshot(workspaceId, snapshot);
     return snapshot;
   } catch (error) {
     console.warn("[sync] workspace snapshot read failed", { workspaceId, error });
+    workspaceSnapshotById.delete(workspaceId);
+    await zustandStorage.removeItem(key);
     return null;
   }
 }
@@ -123,7 +332,13 @@ export function preloadWorkspaceSnapshots(workspaceIds: Array<string | null | un
   );
 }
 
-function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot): void {
+function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot): boolean {
+  const normalized = normalizeWorkspaceSnapshot(snapshot);
+  if (!normalized) {
+    workspaceSnapshotById.delete(workspaceId);
+    persistWorkspaceSnapshot(workspaceId, null);
+    return false;
+  }
   const schedulerPages = Object.fromEntries(
     Object.entries(usePageStore.getState().pages).filter(([, page]) =>
       isLCSchedulerDatabaseId(page.databaseId),
@@ -134,16 +349,16 @@ function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot
       isLCSchedulerDatabaseId(databaseId),
     ),
   );
-  const pages = { ...cloneSnapshot(snapshot.pages), ...schedulerPages };
-  const databases = { ...cloneSnapshot(snapshot.databases), ...schedulerDatabases };
-  const tabs = snapshot.tabs.length > 0 ? cloneSnapshot(snapshot.tabs) : [{ pageId: null }];
+  const pages = { ...cloneSnapshot(normalized.pages), ...schedulerPages };
+  const databases = { ...cloneSnapshot(normalized.databases), ...schedulerDatabases };
+  const tabs = normalized.tabs.length > 0 ? cloneSnapshot(normalized.tabs) : [{ pageId: null }];
   const activeTabIndex = Math.min(
-    Math.max(snapshot.activeTabIndex, 0),
+    Math.max(normalized.activeTabIndex, 0),
     Math.max(tabs.length - 1, 0),
   );
   usePageStore.setState({
     pages,
-    activePageId: snapshot.activePageId,
+    activePageId: normalized.activePageId,
     cacheWorkspaceId: workspaceId,
   });
   useDatabaseStore.setState({
@@ -155,23 +370,22 @@ function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot
     activeTabIndex,
   });
   useBlockCommentStore.setState({
-    messages: cloneSnapshot(snapshot.comments),
+    messages: cloneSnapshot(normalized.comments),
   });
+  return true;
 }
 
 function restoreWorkspaceSnapshotFromMemory(workspaceId: string): boolean {
   const snapshot = workspaceSnapshotById.get(workspaceId);
   if (!snapshot) return false;
-  applyWorkspaceSnapshot(workspaceId, snapshot);
-  return true;
+  return applyWorkspaceSnapshot(workspaceId, snapshot);
 }
 
 async function restoreWorkspaceSnapshot(workspaceId: string): Promise<boolean> {
   if (restoreWorkspaceSnapshotFromMemory(workspaceId)) return true;
   const snapshot = await readPersistedWorkspaceSnapshot(workspaceId);
   if (!snapshot) return false;
-  applyWorkspaceSnapshot(workspaceId, snapshot);
-  return true;
+  return applyWorkspaceSnapshot(workspaceId, snapshot);
 }
 
 // 워크스페이스 전환 시 이전 워크스페이스에 속하던 페이지/DB 캐시를 제거한다.
