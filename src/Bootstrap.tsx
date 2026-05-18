@@ -8,7 +8,7 @@ import {
   fetchCommentsByWorkspace,
   startSubscriptions,
 } from "./lib/sync";
-import { getSyncEngine } from "./lib/sync/runtime";
+import { getSyncEngine, shutdownSyncEngine } from "./lib/sync/runtime";
 import {
   applyRemotePageToStore,
   applyRemoteDatabaseToStore,
@@ -80,6 +80,7 @@ function useSyncBootstrap(): boolean {
     // 이후 setWorkspaces 가 null 을 "목록에 없음"으로 보아 첫 WS 로 고정한다(새로고침·세션 중 리셋).
     if (authStatus === "loading") return;
     if (authStatus !== "authenticated" || !authSub) {
+      void shutdownSyncEngine();
       setMe(null);
       clearWorkspaces();
       useWorkspaceOptionsStore.getState().clear();

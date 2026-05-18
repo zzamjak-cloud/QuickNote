@@ -6,6 +6,7 @@ const signinSilent = vi.fn();
 const getUser = vi.fn();
 const removeUser = vi.fn();
 const createSigninRequest = vi.fn();
+const shutdownSyncEngine = vi.fn();
 
 vi.mock("../lib/auth/oidcClient", () => ({
   getOidcManager: () => ({
@@ -20,6 +21,10 @@ vi.mock("../lib/auth/oidcClient", () => ({
 
 vi.mock("../lib/auth/openAuthWindow", () => ({
   openAuthUrl: vi.fn(async () => undefined),
+}));
+
+vi.mock("../lib/sync/runtime", () => ({
+  shutdownSyncEngine,
 }));
 
 // 메모리 KV 로 zustandStorage 를 대체.
@@ -120,6 +125,7 @@ describe("authStore", () => {
     await useAuthStore.getState().signOut();
 
     expect(removeUser).toHaveBeenCalled();
+    expect(shutdownSyncEngine).toHaveBeenCalled();
     expect(await readStoredTokens()).toBeNull();
     const s = useAuthStore.getState().state;
     expect(s.status).toBe("anonymous");

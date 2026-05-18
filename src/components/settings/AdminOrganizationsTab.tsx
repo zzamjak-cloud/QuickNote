@@ -1,14 +1,21 @@
 // 조직(실) 관리 탭 — AdminTeamsTab 과 동일한 UX 구조
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useMemberStore } from "../../store/memberStore";
 import {
   archiveOrganizationApi,
+  assignMemberToOrganizationApi,
+  createOrganizationApi,
   deleteOrganizationApi,
   restoreOrganizationApi,
+  unassignMemberFromOrganizationApi,
+  updateOrganizationApi,
 } from "../../lib/sync/organizationApi";
+import { inferLeaderMemberIds } from "../../lib/scheduler/mm/leaderDefaults";
+import { LeaderMemberPicker } from "../scheduler/mm/LeaderMemberPicker";
+import { useUiStore } from "../../store/uiStore";
 
 type TabType = "active" | "archived";
 
@@ -17,6 +24,7 @@ export function AdminOrganizationsTab() {
   const upsertOrganization = useOrganizationStore((s) => s.upsertOrganization);
   const removeOrganization = useOrganizationStore((s) => s.removeOrganization);
   const members = useMemberStore((s) => s.members);
+  const showToast = useUiStore((s) => s.showToast);
 
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [openCreate, setOpenCreate] = useState(false);
@@ -26,6 +34,8 @@ export function AdminOrganizationsTab() {
   const [search, setSearch] = useState("");
   const [listQuery, setListQuery] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [selectedLeaderIds, setSelectedLeaderIds] = useState<string[]>([]);
+  const selectedLeaderIdsRef = useRef<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [singleDeleting, setSingleDeleting] = useState(false);
@@ -74,19 +84,44 @@ export function AdminOrganizationsTab() {
         (m.jobRole ?? "").toLowerCase().includes(q),
     );
   }, [members, search, selectedMemberIds]);
+  const selectedMembers = useMemo(
+    () => selectedMemberIds
+      .map((memberId) => membersById.get(memberId))
+      .filter((member): member is NonNullable<typeof member> => Boolean(member)),
+    [membersById, selectedMemberIds],
+  );
 
-  /** 조직 생성 (로컬 only) */
-  const onCreateOrg = () => {
+  const setLeaderSelection = (nextIds: string[]) => {
+    selectedLeaderIdsRef.current = nextIds;
+    setSelectedLeaderIds(nextIds);
+  };
+
+  const buildLeaderSavedMessage = (leaderIds: string[]) => {
+    if (leaderIds.length === 0) return "조직 리더 설정이 저장되었습니다.";
+    const names = leaderIds
+      .map((leaderId) => membersById.get(leaderId)?.name)
+      .filter((name): name is string => Boolean(name));
+    if (names.length === 0) return "조직 리더 설정이 저장되었습니다.";
+    if (names.length === 1 && names[0]) return `${names[0]}님이 리더로 등록되었습니다.`;
+    if (names[0]) return `${names[0]}님 외 ${names.length - 1}명이 리더로 등록되었습니다.`;
+    return "조직 리더 설정이 저장되었습니다.";
+  };
+
+  const formatLeaderNames = (leaderMemberIds: string[]) => {
+    if (leaderMemberIds.length === 0) return "-";
+    const names = leaderMemberIds
+      .map((leaderId) => membersById.get(leaderId)?.name)
+      .filter((name): name is string => Boolean(name));
+    if (names.length === 0) return "-";
+    return names.join(", ");
+  };
+
+  /** 조직 생성 */
+  const onCreateOrg = async () => {
     const name = newOrgName.trim();
     if (!name) return;
-    const orgId = "org-" + Date.now().toString(36);
-    upsertOrganization({
-      organizationId: orgId,
-      name,
-      leaderMemberIds: [],
-      members: [],
-      createdAt: new Date().toISOString(),
-    });
+    const created = await createOrganizationApi(name);
+    upsertOrganization(created);
     setNewOrgName("");
     setOpenCreate(false);
   };
@@ -97,29 +132,70 @@ export function AdminOrganizationsTab() {
     setEditingOrgName(org?.name ?? "");
     setSearch("");
     setSelectedMemberIds(org?.members.map((m) => m.memberId) ?? []);
+    const initialLeaderIds = (org?.leaderMemberIds?.length
+      ? org.leaderMemberIds
+      : inferLeaderMemberIds("organization", org?.members ?? [])) ?? [];
+    setLeaderSelection(initialLeaderIds);
   };
 
   const onToggleMember = (memberId: string) => {
-    setSelectedMemberIds((prev) =>
-      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId],
-    );
+    setSelectedMemberIds((prev) => {
+      const next = prev.includes(memberId)
+        ? prev.filter((id) => id !== memberId)
+        : [...prev, memberId];
+      const nextLeaderIds = selectedLeaderIdsRef.current.filter((id) => next.includes(id));
+      setLeaderSelection(nextLeaderIds);
+      return next;
+    });
   };
 
-  /** 조직 구성원 저장 (로컬 only) */
-  const onSaveMembers = () => {
+  /** 조직 구성원/리더 저장 */
+  const onSaveMembers = async () => {
     if (!assignOrg) return;
     setSaving(true);
     try {
       const newName = editingOrgName.trim();
+      const prevIds = new Set(assignOrg.members.map((member) => member.memberId));
+      const nextIds = new Set(selectedMemberIds);
+      const addIds = selectedMemberIds.filter((memberId) => !prevIds.has(memberId));
+      const removeIds = assignOrg.members
+        .map((member) => member.memberId)
+        .filter((memberId) => !nextIds.has(memberId));
+      const currentLeaderIds = selectedLeaderIdsRef.current;
+      const nextLeaderIds = currentLeaderIds.filter((leaderId) => nextIds.has(leaderId));
+      const prevLeaders = assignOrg.leaderMemberIds ?? [];
+      const leaderChanged =
+        prevLeaders.length !== nextLeaderIds.length ||
+        prevLeaders.some((leaderId) => !nextLeaderIds.includes(leaderId));
+
+      const updatedOrg = await (newName !== assignOrg.name || leaderChanged
+        ? updateOrganizationApi(
+            assignOrg.organizationId,
+            newName || assignOrg.name,
+            leaderChanged ? nextLeaderIds : undefined,
+          )
+        : Promise.resolve(null));
+
+      await Promise.all([
+        ...addIds.map((memberId) => assignMemberToOrganizationApi(memberId, assignOrg.organizationId)),
+        ...removeIds.map((memberId) => unassignMemberFromOrganizationApi(memberId, assignOrg.organizationId)),
+      ]);
+
       const nextMembers = selectedMemberIds
         .map((id) => membersById.get(id))
         .filter((m): m is NonNullable<typeof m> => Boolean(m));
       upsertOrganization({
         ...assignOrg,
+        ...(updatedOrg ?? {}),
         name: newName || assignOrg.name,
+        leaderMemberIds: nextLeaderIds,
         members: nextMembers,
       });
+      showToast(buildLeaderSavedMessage(nextLeaderIds), { kind: "success" });
       setOpenAssignOrgId(null);
+    } catch (error) {
+      console.error("[AdminOrgs] 리더 저장 실패", error);
+      showToast("조직 리더 저장에 실패했습니다.", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -276,7 +352,7 @@ export function AdminOrganizationsTab() {
       </div>
 
       {activeTab === "active" ? (
-        <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
           {activeOrgs.length === 0 ? (
             <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
               등록된 조직이 없습니다.
@@ -292,6 +368,12 @@ export function AdminOrganizationsTab() {
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {org.name} ({org.members.length}명)
+                  </span>
+                  <span
+                    className="ml-3 max-w-[45%] shrink-0 truncate text-right text-xs text-zinc-500 dark:text-zinc-400"
+                    title={formatLeaderNames(org.leaderMemberIds ?? [])}
+                  >
+                    {formatLeaderNames(org.leaderMemberIds ?? [])}
                   </span>
                 </button>
               </li>
@@ -332,7 +414,7 @@ export function AdminOrganizationsTab() {
               </button>
             )}
           </div>
-          <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
             {archivedOrgs.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 보관된 조직 없음
@@ -355,6 +437,12 @@ export function AdminOrganizationsTab() {
                     >
                       {org.name}
                     </button>
+                    <span
+                      className="max-w-[45%] shrink-0 truncate text-right text-xs text-zinc-500 dark:text-zinc-400"
+                      title={formatLeaderNames(org.leaderMemberIds ?? [])}
+                    >
+                      {formatLeaderNames(org.leaderMemberIds ?? [])}
+                    </span>
                   </div>
                 </li>
               ))
@@ -432,7 +520,9 @@ export function AdminOrganizationsTab() {
               autoFocus
               value={newOrgName}
               onChange={(e) => setNewOrgName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onCreateOrg()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void onCreateOrg();
+              }}
               placeholder="조직 이름"
               className="mt-3 w-full rounded border border-zinc-300 px-2 py-1.5 text-xs outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950"
             />
@@ -446,7 +536,7 @@ export function AdminOrganizationsTab() {
               </button>
               <button
                 type="button"
-                onClick={onCreateOrg}
+                onClick={() => void onCreateOrg()}
                 className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700"
               >
                 추가
@@ -546,6 +636,16 @@ export function AdminOrganizationsTab() {
               </section>
             </div>
 
+            <div className="border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
+              <LeaderMemberPicker
+                label="조직 리더"
+                members={selectedMembers}
+                value={selectedLeaderIds}
+                recommendedIds={inferLeaderMemberIds("organization", selectedMembers)}
+                onChange={setLeaderSelection}
+              />
+            </div>
+
             <div className="flex justify-between gap-2 border-t border-zinc-100 p-4 dark:border-zinc-800">
               <button
                 type="button"
@@ -566,7 +666,7 @@ export function AdminOrganizationsTab() {
                 </button>
                 <button
                   type="button"
-                  onClick={onSaveMembers}
+                  onClick={() => void onSaveMembers()}
                   disabled={saving}
                   className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700 disabled:opacity-60"
                 >

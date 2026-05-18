@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Plus, Search, X } from "lucide-react";
 import { createTeamApi, deleteTeamApi, restoreTeamApi, updateTeamApi } from "../../lib/sync/teamApi";
 import { useTeamStore } from "../../store/teamStore";
 import { useMemberStore } from "../../store/memberStore";
 import { assignMemberToTeamApi, unassignMemberFromTeamApi } from "../../lib/sync/memberApi";
+import { inferLeaderMemberIds } from "../../lib/scheduler/mm/leaderDefaults";
+import { LeaderMemberPicker } from "../scheduler/mm/LeaderMemberPicker";
+import { useUiStore } from "../../store/uiStore";
 
 type TabType = "active" | "archived";
 
@@ -11,6 +14,7 @@ export function AdminTeamsTab() {
   const teams = useTeamStore((s) => s.teams);
   const members = useMemberStore((s) => s.members);
   const upsertTeam = useTeamStore((s) => s.upsertTeam);
+  const showToast = useUiStore((s) => s.showToast);
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [openCreate, setOpenCreate] = useState(false);
   const [newTeamName, setNewTeamName] = useState("");
@@ -19,6 +23,8 @@ export function AdminTeamsTab() {
   const [search, setSearch] = useState("");
   const [listQuery, setListQuery] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [selectedLeaderIds, setSelectedLeaderIds] = useState<string[]>([]);
+  const selectedLeaderIdsRef = useRef<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [archivedActionId, setArchivedActionId] = useState<string | null>(null);
   const [archivedActionLoading, setArchivedActionLoading] = useState(false);
@@ -68,6 +74,37 @@ export function AdminTeamsTab() {
     () => new Map(members.map((m) => [m.memberId, m])),
     [members],
   );
+  const selectedMembers = useMemo(
+    () => selectedMemberIds
+      .map((memberId) => membersById.get(memberId))
+      .filter((member): member is NonNullable<typeof member> => Boolean(member)),
+    [membersById, selectedMemberIds],
+  );
+
+  const setLeaderSelection = (nextIds: string[]) => {
+    selectedLeaderIdsRef.current = nextIds;
+    setSelectedLeaderIds(nextIds);
+  };
+
+  const buildLeaderSavedMessage = (leaderIds: string[]) => {
+    if (leaderIds.length === 0) return "팀 리더 설정이 저장되었습니다.";
+    const names = leaderIds
+      .map((leaderId) => membersById.get(leaderId)?.name)
+      .filter((name): name is string => Boolean(name));
+    if (names.length === 0) return "팀 리더 설정이 저장되었습니다.";
+    if (names.length === 1 && names[0]) return `${names[0]}님이 리더로 등록되었습니다.`;
+    if (names[0]) return `${names[0]}님 외 ${names.length - 1}명이 리더로 등록되었습니다.`;
+    return "팀 리더 설정이 저장되었습니다.";
+  };
+
+  const formatLeaderNames = (leaderMemberIds: string[]) => {
+    if (leaderMemberIds.length === 0) return "-";
+    const names = leaderMemberIds
+      .map((leaderId) => membersById.get(leaderId)?.name)
+      .filter((name): name is string => Boolean(name));
+    if (names.length === 0) return "-";
+    return names.join(", ");
+  };
 
   const onCreateTeam = async () => {
     const name = newTeamName.trim();
@@ -161,12 +198,21 @@ export function AdminTeamsTab() {
     setEditingTeamName(team?.name ?? "");
     setSearch("");
     setSelectedMemberIds(team?.members.map((m) => m.memberId) ?? []);
+    const initialLeaderIds = (team?.leaderMemberIds?.length
+      ? team.leaderMemberIds
+      : inferLeaderMemberIds("team", team?.members ?? [])) ?? [];
+    setLeaderSelection(initialLeaderIds);
   };
 
   const onToggleMember = (memberId: string) => {
-    setSelectedMemberIds((prev) =>
-      prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId],
-    );
+    setSelectedMemberIds((prev) => {
+      const next = prev.includes(memberId)
+        ? prev.filter((id) => id !== memberId)
+        : [...prev, memberId];
+      const nextLeaderIds = selectedLeaderIdsRef.current.filter((id) => next.includes(id));
+      setLeaderSelection(nextLeaderIds);
+      return next;
+    });
   };
 
   const onSaveMembers = async () => {
@@ -178,9 +224,20 @@ export function AdminTeamsTab() {
       const nextIds = new Set(selectedMemberIds);
       const addIds = selectedMemberIds.filter((id) => !prevIds.has(id));
       const removeIds = assignTeam.members.map((m) => m.memberId).filter((id) => !nextIds.has(id));
+      const currentLeaderIds = selectedLeaderIdsRef.current;
+      const nextLeaderIds = currentLeaderIds.filter((leaderId) => nextIds.has(leaderId));
+      const prevLeaders = assignTeam.leaderMemberIds ?? [];
+      const leaderChanged =
+        prevLeaders.length !== nextLeaderIds.length ||
+        prevLeaders.some((leaderId) => !nextLeaderIds.includes(leaderId));
+      const shouldUpdateTeamMeta = newName !== assignTeam.name || leaderChanged;
       const [updatedTeam] = await Promise.all([
-        newName && newName !== assignTeam.name
-          ? updateTeamApi(assignTeam.teamId, newName)
+        shouldUpdateTeamMeta
+          ? updateTeamApi(
+              assignTeam.teamId,
+              newName || assignTeam.name,
+              leaderChanged ? nextLeaderIds : undefined,
+            )
           : Promise.resolve(null),
         ...addIds.map((memberId) => assignMemberToTeamApi(memberId, assignTeam.teamId)),
         ...removeIds.map((memberId) => unassignMemberFromTeamApi(memberId, assignTeam.teamId)),
@@ -188,8 +245,17 @@ export function AdminTeamsTab() {
       const nextMembers = selectedMemberIds
         .map((memberId) => membersById.get(memberId))
         .filter((m): m is NonNullable<typeof m> => Boolean(m));
-      upsertTeam({ ...assignTeam, ...(updatedTeam ?? {}), members: nextMembers });
+      upsertTeam({
+        ...assignTeam,
+        ...(updatedTeam ?? {}),
+        leaderMemberIds: nextLeaderIds,
+        members: nextMembers,
+      });
+      showToast(buildLeaderSavedMessage(nextLeaderIds), { kind: "success" });
       setOpenAssignTeamId(null);
+    } catch (error) {
+      console.error("[AdminTeams] 리더 저장 실패", error);
+      showToast("팀 리더 저장에 실패했습니다.", { kind: "error" });
     } finally {
       setSaving(false);
     }
@@ -246,7 +312,7 @@ export function AdminTeamsTab() {
 
       {activeTab === "active" ? (
         /* 활성 팀 목록 */
-        <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
           {activeTeams.length === 0 ? (
             <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
               등록된 팀이 없습니다.
@@ -262,6 +328,12 @@ export function AdminTeamsTab() {
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {team.name} ({team.members.length}명)
+                  </span>
+                  <span
+                    className="ml-3 max-w-[45%] shrink-0 truncate text-right text-xs text-zinc-500 dark:text-zinc-400"
+                    title={formatLeaderNames(team.leaderMemberIds ?? [])}
+                  >
+                    {formatLeaderNames(team.leaderMemberIds ?? [])}
                   </span>
                 </button>
               </li>
@@ -303,7 +375,7 @@ export function AdminTeamsTab() {
               </button>
             )}
           </div>
-          <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
             {archivedTeams.length === 0 ? (
               <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
                 보관된 팀 없음
@@ -326,6 +398,12 @@ export function AdminTeamsTab() {
                     >
                       {team.name}
                     </button>
+                    <span
+                      className="max-w-[45%] shrink-0 truncate text-right text-xs text-zinc-500 dark:text-zinc-400"
+                      title={formatLeaderNames(team.leaderMemberIds ?? [])}
+                    >
+                      {formatLeaderNames(team.leaderMemberIds ?? [])}
+                    </span>
                   </div>
                 </li>
               ))
@@ -551,6 +629,15 @@ export function AdminTeamsTab() {
                   ) : null}
                 </ul>
               </section>
+            </div>
+            <div className="border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
+              <LeaderMemberPicker
+                label="팀 리더"
+                members={selectedMembers}
+                value={selectedLeaderIds}
+                recommendedIds={inferLeaderMemberIds("team", selectedMembers)}
+                onChange={setLeaderSelection}
+              />
             </div>
             <div className="flex justify-between gap-2 border-t border-zinc-100 p-4 dark:border-zinc-800">
               <button

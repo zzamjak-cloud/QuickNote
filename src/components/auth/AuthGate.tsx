@@ -7,6 +7,15 @@ import { setupDeepLinkListener } from "../../lib/auth/deepLink";
 /** read + silent + getUser 연속 시 상한을 넘기면 복구 안전망 발동 */
 const STUCK_LOADING_BAIL_MS = 45_000;
 
+function isSigninCallbackUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.endsWith("/auth/callback");
+  } catch {
+    return url.includes("/auth/callback");
+  }
+}
+
 type Props = { children: ReactNode };
 
 // 앱 진입 직전 게이트. 부팅 시 restoreSession + Tauri 딥링크 리스너 설치.
@@ -35,6 +44,7 @@ export function AuthGate({ children }: Props) {
     let unlisten: (() => void) | undefined;
     void (async () => {
       unlisten = await setupDeepLinkListener((url) => {
+        if (!isSigninCallbackUrl(url)) return;
         void handleCallback(url);
       });
     })();

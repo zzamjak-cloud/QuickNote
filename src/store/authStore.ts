@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import type { User } from "oidc-client-ts";
-import { getOidcClient, getOidcManager } from "../lib/auth/oidcClient";
+import { getOidcClient, getOidcManager, resetOidcManager } from "../lib/auth/oidcClient";
 import { buildAuthConfig } from "../lib/auth/config";
 import { openAuthUrl } from "../lib/auth/openAuthWindow";
+import { shutdownSyncEngine } from "../lib/sync/runtime";
 import {
   clearStoredTokens,
   isExpiringSoon,
@@ -96,9 +97,25 @@ function userToTokens(user: User): StoredTokens {
   };
 }
 
+function tryBuildHostedLogoutUrl(idTokenHint?: string): string | null {
+  try {
+    const cfg = buildAuthConfig();
+    const url = new URL(`https://${cfg.hostedUiDomain}/logout`);
+    url.searchParams.set("client_id", cfg.clientId);
+    url.searchParams.set("logout_uri", cfg.postLogoutRedirectUri);
+    if (idTokenHint) {
+      url.searchParams.set("id_token_hint", idTokenHint);
+    }
+    return url.toString();
+  } catch (error) {
+    console.warn("[auth] hosted logout url 생성 실패", error);
+    return null;
+  }
+}
+
 let restoreSessionInFlight: Promise<void> | null = null;
 
-export const useAuthStore = create<AuthStore>((set) => ({
+export const useAuthStore = create<AuthStore>((set, get) => ({
   state: { status: "loading" },
 
   bailIfStuckLoading() {
@@ -129,7 +146,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
         response_type: "code",
         scope: cfg.scope,
         request_type: "si:r",
-        extraQueryParams: { identity_provider: cfg.identityProvider },
+        // 동일 브라우저 세션에서 다른 Google 계정으로 전환할 수 있도록 계정 선택을 강제한다.
+        extraQueryParams: {
+          identity_provider: cfg.identityProvider,
+          prompt: "select_account",
+        },
       });
       await openAuthUrl(request.url);
     } catch (err) {
@@ -173,13 +194,25 @@ export const useAuthStore = create<AuthStore>((set) => ({
 
   async signOut() {
     const manager = getOidcManager();
+    const current = get().state;
+    const cachedTokens = current.status === "authenticated"
+      ? current.tokens
+      : await readStoredTokens();
+    const logoutUrl = tryBuildHostedLogoutUrl(cachedTokens?.idToken);
+    await shutdownSyncEngine({ clearOutbox: true });
     try {
       await manager.removeUser();
     } catch {
       // 이미 비어 있을 수 있다.
     }
+    resetOidcManager();
     await clearStoredTokens();
     set({ state: { status: "anonymous", reason: "signedOut" } });
+    if (logoutUrl) {
+      void openAuthUrl(logoutUrl).catch((error) => {
+        console.warn("[auth] hosted logout 호출 실패", error);
+      });
+    }
   },
 
   async restoreSession() {

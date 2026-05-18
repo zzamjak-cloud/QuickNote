@@ -44,6 +44,35 @@ export async function getSyncEngine(): Promise<SyncEngine> {
   return _enginePromise;
 }
 
+/**
+ * 로그아웃/세션 전환 시 기존 동기화 엔진을 중단한다.
+ * 필요하면 outbox 도 함께 비워 이전 계정 pending mutation 재전송을 막는다.
+ */
+export async function shutdownSyncEngine(
+  options?: { clearOutbox?: boolean },
+): Promise<void> {
+  let engine: SyncEngine | null = _engine;
+  if (!engine && _enginePromise) {
+    try {
+      engine = await _enginePromise;
+    } catch {
+      engine = null;
+    }
+  }
+  if (engine) {
+    engine.stop();
+    if (options?.clearOutbox) {
+      try {
+        await engine.clearAll();
+      } catch (err) {
+        console.error("[sync] outbox clear on shutdown failed", err);
+      }
+    }
+  }
+  _engine = null;
+  _enginePromise = null;
+}
+
 // fire-and-forget enqueue. 실패 시 콘솔에만 기록.
 // payload 는 EnqueuePayload(`{id, updatedAt?}`) 를 만족하면서 추가 필드를 자유롭게 담을 수 있다.
 // (전체 GraphQL input 객체를 그대로 넘기는 용도)

@@ -183,7 +183,7 @@ export function TabBar() {
           void preloadLCSchedulerModal();
         }}
         style={{ backgroundColor: "#edac46" }}
-        className="ml-1 shrink-0 rounded px-2 py-0.5 text-xs font-semibold text-white hover:opacity-90"
+        className="ml-1 inline-flex h-6 shrink-0 items-center rounded px-2 text-xs font-semibold text-white hover:opacity-90"
       >
         LC 스케줄러
       </button>

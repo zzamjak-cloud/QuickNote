@@ -42,6 +42,7 @@ export type EnqueuePayload = {
 export class SyncEngine {
   private flushing = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private stopped = false;
   private readonly outbox: OutboxAdapter;
   private readonly gql: GqlBridge;
   private readonly clock: () => number;
@@ -62,12 +63,14 @@ export class SyncEngine {
   }
 
   async enqueue(op: OutboxOp, payload: EnqueuePayload): Promise<void> {
+    if (this.stopped) return;
     const task = this.enqueueTail.then(() => this.enqueueNow(op, payload));
     this.enqueueTail = task.catch(() => undefined);
     return task;
   }
 
   private async enqueueNow(op: OutboxOp, payload: EnqueuePayload): Promise<void> {
+    if (this.stopped) return;
     if (op === "softDeleteDatabase" && isLCSchedulerDatabaseId(payload.id)) {
       return;
     }
@@ -117,6 +120,7 @@ export class SyncEngine {
   }
 
   scheduleFlush(delayMs: number): void {
+    if (this.stopped) return;
     if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -124,11 +128,21 @@ export class SyncEngine {
     }, delayMs);
   }
 
+  stop(): void {
+    this.stopped = true;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+  }
+
   async flush(): Promise<void> {
+    if (this.stopped) return;
     if (this.flushing) return;
     this.flushing = true;
     try {
       while (true) {
+        if (this.stopped) return;
         const batchRaw = await this.outbox.list(20);
         if (batchRaw.length === 0) return;
         const uiWs = this.getCurrentWorkspaceIdForLog?.() ?? null;
@@ -138,11 +152,13 @@ export class SyncEngine {
         let hasFailure = false;
 
         for (const entry of batch) {
+          if (this.stopped) return;
           try {
             this.logWorkspaceMismatchIfAny(entry);
             await this.execute(entry);
             await this.outbox.remove(entry.id);
           } catch (err) {
+            if (this.stopped) return;
             // mutation 실패는 운영에서도 유용하므로 GraphQL 메시지 본체를 콘솔에 남긴다.
             const gqlErrors = (err as { errors?: unknown[] }).errors;
             const firstGql = Array.isArray(gqlErrors) ? gqlErrors[0] : null;
