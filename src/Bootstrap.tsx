@@ -164,7 +164,6 @@ function useSyncBootstrap(): boolean {
     let unsub: (() => void) | undefined;
     let unsubLcScheduler: (() => void) | undefined;
     let cancelled = false;
-    let schedulerRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     (async () => {
       try {
@@ -235,25 +234,23 @@ function useSyncBootstrap(): boolean {
         applyWorkspaceLanding(currentWorkspaceId);
 
         if (cancelled) return;
-        const scheduleSchedulerRefresh = () => {
-          if (schedulerRefreshTimer) return;
-          schedulerRefreshTimer = setTimeout(() => {
-            schedulerRefreshTimer = null;
-            useSchedulerStore.getState().refreshVisibleRangeFromLocal(LC_SCHEDULER_WORKSPACE_ID);
-          }, 80);
+        const refreshSchedulerPage = (pageId: string) => {
+          useSchedulerStore
+            .getState()
+            .refreshSchedulePageFromLocal(pageId, LC_SCHEDULER_WORKSPACE_ID);
         };
         unsub = startSubscriptions(currentWorkspaceId, {
           onPage: (p) => {
+            const isSchedulerPage = isLCSchedulerDatabaseId(
+              p.databaseId ?? usePageStore.getState().pages[p.id]?.databaseId ?? null,
+            );
             applyRemotePageToStore(p);
-            if (isLCSchedulerDatabaseId(p.databaseId ?? null)) {
-              scheduleSchedulerRefresh();
+            if (isSchedulerPage) {
+              refreshSchedulerPage(p.id);
             }
           },
           onDatabase: (d) => {
             applyRemoteDatabaseToStore(d);
-            if (isLCSchedulerDatabaseId(d.id)) {
-              scheduleSchedulerRefresh();
-            }
           },
           onComment: applyRemoteCommentToStore,
         });
@@ -261,16 +258,16 @@ function useSyncBootstrap(): boolean {
         if (currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
           unsubLcScheduler = startSubscriptions(LC_SCHEDULER_WORKSPACE_ID, {
             onPage: (p) => {
+              const isSchedulerPage = isLCSchedulerDatabaseId(
+                p.databaseId ?? usePageStore.getState().pages[p.id]?.databaseId ?? null,
+              );
               applyRemotePageToStore(p);
-              if (isLCSchedulerDatabaseId(p.databaseId ?? null)) {
-                scheduleSchedulerRefresh();
+              if (isSchedulerPage) {
+                refreshSchedulerPage(p.id);
               }
             },
             onDatabase: (d) => {
               applyRemoteDatabaseToStore(d);
-              if (isLCSchedulerDatabaseId(d.id)) {
-                scheduleSchedulerRefresh();
-              }
             },
             onComment: applyRemoteCommentToStore,
           });
@@ -295,10 +292,6 @@ function useSyncBootstrap(): boolean {
 
     return () => {
       cancelled = true;
-      if (schedulerRefreshTimer) {
-        clearTimeout(schedulerRefreshTimer);
-        schedulerRefreshTimer = null;
-      }
       // 동일 키로 effect 가 다시 돌 때(React Strict Mode 등) startedForRef 가 남으면
       // 조기 return 으로 구독이 영구히 생기지 않을 수 있어 정리 시 초기화한다.
       if (startedForRef.current === startedKey) {

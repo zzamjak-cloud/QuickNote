@@ -193,6 +193,45 @@ export function projectLCSchedulerSchedules(
   return schedules;
 }
 
+export function projectLCSchedulerPageSchedules(
+  workspaceId: string,
+  pageId: string,
+  members: MemberLike[],
+): Schedule[] {
+  const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
+  const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
+  const page = usePageStore.getState().pages[pageId];
+  if (!page || page.databaseId !== databaseId) return [];
+  if (isDeletedSchedulePage(page.id)) return [];
+  if (page.dbCells?.["_qn_isTemplate"] === "1") return [];
+  const range = asDateRange(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.period]);
+  if (!range) return [];
+  const status = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.status]);
+  const attendanceValue = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.attendance])
+    ?? (status === "leave" ? "annual-leave" : null);
+  const meta = metaWithSchedulerKind(
+    parseSchedulerTaskMeta(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.meta]),
+    status,
+    attendanceValue,
+  );
+  const color = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.color]);
+  const projectId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.project]);
+  const teamId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.team]);
+  const organizationId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.organization]);
+  const assigneeIds = normalizeAssignees(
+    page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.assignees],
+    members,
+  );
+  if (!assigneeIds.length) {
+    return [
+      scheduleFromPage({ page, workspaceId, assigneeId: null, meta, range, color, projectId, teamId, organizationId, attendanceValue }),
+    ];
+  }
+  return assigneeIds.map((assigneeId) =>
+    scheduleFromPage({ page, workspaceId, assigneeId, meta, range, color, projectId, teamId, organizationId, attendanceValue }),
+  );
+}
+
 function setCell(databaseId: string, pageId: string, columnId: string, value: CellValue): void {
   useDatabaseStore.getState().updateCell(databaseId, pageId, columnId, value);
 }
@@ -316,7 +355,7 @@ export async function updateLCSchedulerSchedule(input: UpdateScheduleInput): Pro
   );
   setCell(databaseId, page.id, LC_SCHEDULER_COLUMN_IDS.meta, nextMeta as CellValue);
 
-  const projected = projectLCSchedulerSchedules(input.workspaceId, useMemberStore.getState().members);
+  const projected = projectLCSchedulerPageSchedules(input.workspaceId, page.id, useMemberStore.getState().members);
   const schedule = projected.find((item) => item.id === (
     input.assigneeId !== undefined
       ? makeScheduleInstanceId(page.id, input.assigneeId)

@@ -1,5 +1,5 @@
 // LC 스케줄러 풀스크린 모달 — createPortal, 뷰 모드 라우팅.
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
@@ -9,7 +9,6 @@ import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useSchedulerFiltersStore } from "../../store/schedulerFiltersStore";
 import { useDatabaseStore } from "../../store/databaseStore";
-import { usePageStore } from "../../store/pageStore";
 import type { SelectOption } from "../../types/database";
 import {
   startOfYear,
@@ -50,14 +49,14 @@ export function LCSchedulerModal({ onClose }: Props) {
   const schedulerDbUpdatedAt = useDatabaseStore(
     (s) => s.databases[schedulerDatabaseId]?.meta.updatedAt ?? 0,
   );
-  const schedulerRowsUpdatedAt = usePageStore((s) =>
-    Object.values(s.pages)
-      .filter((page) => page.databaseId === schedulerDatabaseId)
-      .map((page) => `${page.id}:${page.updatedAt}`)
-      .join("|"),
-  );
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const schedulerColumns = useDatabaseStore((s) => s.databases[schedulerDatabaseId]?.columns ?? []);
+  const [bodyReady, setBodyReady] = useState(false);
+
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setBodyReady(true));
+    return () => window.cancelAnimationFrame(id);
+  }, []);
 
   // 마운트 시 + 연도 변경 시 해당 연도 일정 페치
   useEffect(() => {
@@ -69,7 +68,6 @@ export function LCSchedulerModal({ onClose }: Props) {
     fetchSchedules,
     schedulerWorkspaceId,
     schedulerDbUpdatedAt,
-    schedulerRowsUpdatedAt,
   ]);
 
   // 프로젝트·공휴일은 첫 페인트 이후 갱신한다.
@@ -139,15 +137,19 @@ export function LCSchedulerModal({ onClose }: Props) {
       <SchedulerToolbar />
 
       {/* 본문: 연간 / 월간 / 주간 뷰 */}
-      {viewMode === "year" ? (
-        <ScheduleGrid workspaceId={schedulerWorkspaceId} />
-      ) : viewMode === "month" ? (
-        <MonthScheduleView />
+      {bodyReady ? (
+        viewMode === "year" ? (
+          <ScheduleGrid workspaceId={schedulerWorkspaceId} />
+        ) : viewMode === "month" ? (
+          <MonthScheduleView />
+        ) : (
+          <WeekScheduleView />
+        )
       ) : (
-        <WeekScheduleView />
+        <div className="flex-1 min-h-0 bg-zinc-50 dark:bg-zinc-950" />
       )}
 
-      <WeeklyMmPanel />
+      {bodyReady && <WeeklyMmPanel />}
     </div>,
     document.body,
   );

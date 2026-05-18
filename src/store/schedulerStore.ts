@@ -5,6 +5,8 @@ import { persist } from "zustand/middleware";
 import {
   createLCSchedulerSchedule,
   deleteLCSchedulerSchedule,
+  parseScheduleInstanceId,
+  projectLCSchedulerPageSchedules,
   projectLCSchedulerSchedules,
   updateLCSchedulerSchedule,
 } from "../lib/scheduler/taskAdapter";
@@ -84,6 +86,8 @@ type SchedulerStore = {
   updateSchedule: (input: UpdateScheduleInput) => Promise<Schedule>;
   deleteSchedule: (id: string, workspaceId: string) => Promise<void>;
   refreshVisibleRangeFromLocal: (workspaceId?: string | null) => void;
+  refreshSchedulePageFromLocal: (pageId: string, workspaceId?: string | null) => void;
+  refreshSchedulePagesFromLocal: (pageIds: Iterable<string>, workspaceId?: string | null) => void;
   applyRemote: (s: Schedule) => void;
   removeLocal: (id: string) => void;
 };
@@ -91,6 +95,70 @@ type SchedulerStore = {
 function projectSchedulesForStore(workspaceId: string, from?: string, to?: string): Schedule[] {
   const projected = projectLCSchedulerSchedules(workspaceId, useMemberStore.getState().members);
   return filterSchedulesByRange(projected, from, to);
+}
+
+function projectSchedulesForPage(workspaceId: string, pageId: string, from?: string, to?: string): Schedule[] {
+  const projected = projectLCSchedulerPageSchedules(workspaceId, pageId, useMemberStore.getState().members);
+  return filterSchedulesByRange(projected, from, to);
+}
+
+function sameSchedule(a: Schedule, b: Schedule): boolean {
+  return (
+    a.id === b.id &&
+    a.workspaceId === b.workspaceId &&
+    a.title === b.title &&
+    a.comment === b.comment &&
+    a.link === b.link &&
+    a.kind === b.kind &&
+    a.projectId === b.projectId &&
+    a.teamId === b.teamId &&
+    a.organizationId === b.organizationId &&
+    a.startAt === b.startAt &&
+    a.endAt === b.endAt &&
+    a.assigneeId === b.assigneeId &&
+    a.color === b.color &&
+    a.textColor === b.textColor &&
+    a.rowIndex === b.rowIndex &&
+    a.createdByMemberId === b.createdByMemberId &&
+    a.createdAt === b.createdAt &&
+    a.updatedAt === b.updatedAt
+  );
+}
+
+function sameScheduleArray(a: Schedule[], b: Schedule[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => {
+    const other = b[index];
+    return other !== undefined && sameSchedule(item, other);
+  });
+}
+
+function replaceSchedulesForPages(
+  current: Schedule[],
+  pageIds: Set<string>,
+  incoming: Schedule[],
+): Schedule[] {
+  if (pageIds.size === 0) return current;
+  const kept: Schedule[] = [];
+  let insertAt = -1;
+  let removed = false;
+  current.forEach((schedule) => {
+    const pageId = parseScheduleInstanceId(schedule.id)?.pageId;
+    if (pageId && pageIds.has(pageId)) {
+      if (insertAt < 0) insertAt = kept.length;
+      removed = true;
+      return;
+    }
+    kept.push(schedule);
+  });
+  if (!removed && incoming.length === 0) return current;
+  const normalizedInsertAt = insertAt < 0 ? kept.length : insertAt;
+  const next = [
+    ...kept.slice(0, normalizedInsertAt),
+    ...incoming,
+    ...kept.slice(normalizedInsertAt),
+  ];
+  return sameScheduleArray(current, next) ? current : next;
 }
 
 function makeOptimisticSchedule(input: CreateScheduleInput): Schedule {
@@ -155,8 +223,22 @@ export const useSchedulerStore = create<SchedulerStore>()(
 
       fetchSchedules: async (workspaceId, from, to) => {
         const startedAt = nowSchedulerPerf();
+        const current = get();
+        const hasSameVisibleCache =
+          current.cachedWorkspaceId === workspaceId &&
+          current.visibleRangeFrom === from &&
+          current.visibleRangeTo === to;
+        if (hasSameVisibleCache) {
+          logSchedulerPerf("fetchSchedules:cache-hit", startedAt, {
+            workspaceId,
+            from,
+            to,
+            count: current.schedules.length,
+          });
+          return;
+        }
         // 워크스페이스가 다르면 캐시를 비우고 시작 (다른 워크스페이스 데이터 노출 방지)
-        if (get().cachedWorkspaceId !== workspaceId) {
+        if (current.cachedWorkspaceId !== workspaceId) {
           set({ schedules: [], cachedWorkspaceId: workspaceId });
         }
         // loading을 true로 올리지 않음 — 기존 캐시로 화면이 이미 그려진 상태 유지
@@ -195,10 +277,27 @@ export const useSchedulerStore = create<SchedulerStore>()(
             ...input,
             selectedScopeKey: input.selectedScopeKey ?? useSchedulerViewStore.getState().selectedProjectId,
           });
-          set({
-            schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
-            cachedWorkspaceId: input.workspaceId,
-          });
+          const pageId = parseScheduleInstanceId(s.id)?.pageId;
+          if (pageId) {
+            const nextForPage = projectSchedulesForPage(input.workspaceId, pageId, rangeFrom, rangeTo);
+            set((state) => {
+              const schedules = replaceSchedulesForPages(
+                state.schedules.filter((schedule) => schedule.id !== optimistic.id),
+                new Set([pageId]),
+                nextForPage,
+              );
+              if (schedules === state.schedules && state.cachedWorkspaceId === input.workspaceId) return state;
+              return {
+                schedules,
+                cachedWorkspaceId: input.workspaceId,
+              };
+            });
+          } else {
+            set({
+              schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
+              cachedWorkspaceId: input.workspaceId,
+            });
+          }
           return s;
         } catch (error) {
           set((st) => ({
@@ -222,10 +321,23 @@ export const useSchedulerStore = create<SchedulerStore>()(
         }
         try {
           const s = await updateLCSchedulerSchedule(input);
-          set({
-            schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
-            cachedWorkspaceId: input.workspaceId,
-          });
+          const pageId = parseScheduleInstanceId(input.id)?.pageId ?? parseScheduleInstanceId(s.id)?.pageId;
+          if (pageId) {
+            const nextForPage = projectSchedulesForPage(input.workspaceId, pageId, rangeFrom, rangeTo);
+            set((state) => {
+              const schedules = replaceSchedulesForPages(state.schedules, new Set([pageId]), nextForPage);
+              if (schedules === state.schedules && state.cachedWorkspaceId === input.workspaceId) return state;
+              return {
+                schedules,
+                cachedWorkspaceId: input.workspaceId,
+              };
+            });
+          } else {
+            set({
+              schedules: projectSchedulesForStore(input.workspaceId, rangeFrom, rangeTo),
+              cachedWorkspaceId: input.workspaceId,
+            });
+          }
           return s;
         } catch (error) {
           set({ schedules: previousSchedules, cachedWorkspaceId: input.workspaceId });
@@ -235,15 +347,31 @@ export const useSchedulerStore = create<SchedulerStore>()(
 
       deleteSchedule: async (id, workspaceId) => {
         const previousSchedules = get().schedules;
-        set((st) => ({ schedules: st.schedules.filter((x) => x.id !== id) }));
+        const pageId = parseScheduleInstanceId(id)?.pageId ?? null;
+        set((st) => ({
+          schedules: pageId
+            ? replaceSchedulesForPages(st.schedules, new Set([pageId]), [])
+            : st.schedules.filter((x) => x.id !== id),
+        }));
         const rangeFrom = get().visibleRangeFrom ?? undefined;
         const rangeTo = get().visibleRangeTo ?? undefined;
         try {
           await deleteLCSchedulerSchedule(id, workspaceId);
-          set({
-            schedules: projectSchedulesForStore(workspaceId, rangeFrom, rangeTo),
-            cachedWorkspaceId: workspaceId,
-          });
+          if (pageId) {
+            set((state) => {
+              const schedules = replaceSchedulesForPages(state.schedules, new Set([pageId]), []);
+              if (schedules === state.schedules && state.cachedWorkspaceId === workspaceId) return state;
+              return {
+                schedules,
+                cachedWorkspaceId: workspaceId,
+              };
+            });
+          } else {
+            set({
+              schedules: projectSchedulesForStore(workspaceId, rangeFrom, rangeTo),
+              cachedWorkspaceId: workspaceId,
+            });
+          }
         } catch (error) {
           set({ schedules: previousSchedules, cachedWorkspaceId: workspaceId });
           throw error;
@@ -265,6 +393,38 @@ export const useSchedulerStore = create<SchedulerStore>()(
           from: rangeFrom,
           to: rangeTo,
           count: get().schedules.length,
+        });
+      },
+
+      refreshSchedulePageFromLocal: (pageId, workspaceId) => {
+        get().refreshSchedulePagesFromLocal([pageId], workspaceId);
+      },
+
+      refreshSchedulePagesFromLocal: (pageIds, workspaceId) => {
+        const startedAt = nowSchedulerPerf();
+        const uniquePageIds = new Set(Array.from(pageIds).filter(Boolean));
+        if (uniquePageIds.size === 0) return;
+        const targetWorkspaceId = workspaceId ?? get().cachedWorkspaceId;
+        if (!targetWorkspaceId) return;
+        const rangeFrom = get().visibleRangeFrom ?? undefined;
+        const rangeTo = get().visibleRangeTo ?? undefined;
+        const nextForPages = Array.from(uniquePageIds).flatMap((pageId) =>
+          projectSchedulesForPage(targetWorkspaceId, pageId, rangeFrom, rangeTo),
+        );
+        set((state) => {
+          const schedules = replaceSchedulesForPages(state.schedules, uniquePageIds, nextForPages);
+          if (schedules === state.schedules && state.cachedWorkspaceId === targetWorkspaceId) return state;
+          return {
+            schedules,
+            cachedWorkspaceId: targetWorkspaceId,
+          };
+        });
+        logSchedulerPerf("refreshSchedulePagesFromLocal", startedAt, {
+          workspaceId: targetWorkspaceId,
+          from: rangeFrom,
+          to: rangeTo,
+          pageCount: uniquePageIds.size,
+          projectedCount: nextForPages.length,
         });
       },
 

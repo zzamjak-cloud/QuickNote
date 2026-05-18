@@ -225,8 +225,8 @@ export function DatabasePropertyPanel({
     const workspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(databaseId);
     if (!workspaceId) return;
     rememberSchedulerPropertyValues(workspaceId, rowCells);
-    useSchedulerStore.getState().refreshVisibleRangeFromLocal(workspaceId);
-  }, [databaseId, isSchedulerDb, rowCells]);
+    useSchedulerStore.getState().refreshSchedulePageFromLocal(pageId, workspaceId);
+  }, [databaseId, isSchedulerDb, pageId, rowCells]);
 
   useEffect(() => {
     if (savePresetScope === "workspace") {

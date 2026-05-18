@@ -9,11 +9,47 @@ import { PageIconDisplay } from "../common/PageIconDisplay";
 
 const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
 
+type LCSchedulerModalModule = typeof import("../scheduler/LCSchedulerModal");
+
+let lcSchedulerModalPromise: Promise<LCSchedulerModalModule> | null = null;
+
+function preloadLCSchedulerModal(): Promise<LCSchedulerModalModule> {
+  lcSchedulerModalPromise ??= import("../scheduler/LCSchedulerModal");
+  return lcSchedulerModalPromise;
+}
+
 const LCSchedulerModal = lazy(() =>
-  import("../scheduler/LCSchedulerModal").then((m) => ({
+  preloadLCSchedulerModal().then((m) => ({
     default: m.LCSchedulerModal,
   })),
 );
+
+function LCSchedulerModalFallback({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      data-lc-scheduler-modal="true"
+      className="fixed inset-0 z-[500] bg-zinc-50 dark:bg-zinc-950 flex flex-col"
+    >
+      <div className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
+            LC 스케줄러
+          </h1>
+          <span className="text-sm text-zinc-500">일정</span>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500"
+          aria-label="닫기"
+        >
+          <X size={18} />
+        </button>
+      </div>
+      <div className="flex-1 bg-zinc-50 dark:bg-zinc-950" />
+    </div>
+  );
+}
 
 export function TabBar() {
   const [schedulerOpen, setSchedulerOpen] = useState(false);
@@ -34,6 +70,7 @@ export function TabBar() {
   const favoritesPanelOpen = rightPanelOpen && rightPanelTab === "favorites";
 
   const openScheduler = useCallback(() => {
+    void preloadLCSchedulerModal();
     setSchedulerOpen(true);
   }, []);
 
@@ -55,6 +92,18 @@ export function TabBar() {
     window.addEventListener(CLOSE_LC_SCHEDULER_EVENT, handleCloseScheduler);
     return () => window.removeEventListener(CLOSE_LC_SCHEDULER_EVENT, handleCloseScheduler);
   }, [closeScheduler]);
+
+  useEffect(() => {
+    const warmup = () => {
+      void preloadLCSchedulerModal();
+    };
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(warmup, { timeout: 2500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(warmup, 1500);
+    return () => clearTimeout(id);
+  }, []);
 
   return (
     <div className="relative z-[350] flex h-9 shrink-0 items-center gap-1 border-b border-zinc-200 bg-zinc-50 px-1 dark:border-zinc-800 dark:bg-zinc-900">
@@ -127,6 +176,12 @@ export function TabBar() {
       <button
         type="button"
         onClick={openScheduler}
+        onMouseEnter={() => {
+          void preloadLCSchedulerModal();
+        }}
+        onFocus={() => {
+          void preloadLCSchedulerModal();
+        }}
         style={{ backgroundColor: "#edac46" }}
         className="ml-1 shrink-0 rounded px-2 py-0.5 text-xs font-semibold text-white hover:opacity-90"
       >
@@ -173,7 +228,7 @@ export function TabBar() {
         </button>
       </div>
       {schedulerOpen && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<LCSchedulerModalFallback onClose={() => closeScheduler()} />}>
           <LCSchedulerModal
             onClose={() => closeScheduler()}
           />
