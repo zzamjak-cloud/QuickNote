@@ -130,13 +130,20 @@ export function useBoxSelectMarquee({
       const sel = editor.state.selection;
       if (sel.from !== sel.to || sel instanceof CellSelection) {
         try {
+          const doc = editor.state.doc;
+          const safePos = Math.min(Math.max(sel.from, 0), doc.content.size);
+          const $safe = doc.resolve(safePos);
+          const nextSelection =
+            TextSelection.findFrom($safe, 1, true) ??
+            TextSelection.findFrom($safe, -1, true);
+          if (!nextSelection) return;
           editor.view.dispatch(
             editor.state.tr.setSelection(
-              TextSelection.create(editor.state.doc, sel.from),
+              nextSelection,
             ),
           );
         } catch {
-          // 테이블 경계 위치에서 TextSelection 생성 실패 시 무시
+          // 테이블 경계/루트 경계 위치에서 커서 보정 실패 시 무시
         }
       }
     };

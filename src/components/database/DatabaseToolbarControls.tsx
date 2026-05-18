@@ -22,6 +22,7 @@ import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
 import { DatabaseViewKindToggle } from "./DatabaseViewKindToggle";
 import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
 import { AppSelect } from "../common/AppSelect";
+import { getUnavailableViewKinds } from "./databaseBlockViewConstants";
 
 type Props = {
   databaseId: string;
@@ -59,7 +60,7 @@ export function DatabaseToolbarControls({
     if (panelState.searchQuery.trim().length > 0) setSearchOpen(true);
   }, [panelState.searchQuery]);
   useEffect(() => {
-    if (view !== "table" && view !== "list" && panelState.hiddenViewKinds.includes(view)) {
+    if (view !== "table" && panelState.hiddenViewKinds.includes(view)) {
       onViewChange("table");
     }
   }, [onViewChange, panelState.hiddenViewKinds, view]);
@@ -89,12 +90,7 @@ export function DatabaseToolbarControls({
   const columns = useMemo(() => bundle?.columns ?? [], [bundle?.columns]);
 
   // 속성 타입 기반으로 사용 불가 뷰를 자동 숨김
-  const hasSelectCol = columns.some((c) => c.type === "select");
-  const hasDateCol = columns.some((c) => c.type === "date");
-  const autoHiddenViews: ViewKind[] = [
-    ...(!hasSelectCol ? (["kanban"] as ViewKind[]) : []),
-    ...(!hasDateCol ? (["timeline"] as ViewKind[]) : []),
-  ];
+  const autoHiddenViews = getUnavailableViewKinds(columns);
   const effectiveHiddenViewKinds = [
     ...(panelState.hiddenViewKinds ?? []),
     ...autoHiddenViews.filter((v) => !(panelState.hiddenViewKinds ?? []).includes(v)),
@@ -182,6 +178,7 @@ export function DatabaseToolbarControls({
             view={view}
             onViewChange={onViewChange}
             hiddenViewKinds={effectiveHiddenViewKinds}
+            unavailableViewKinds={autoHiddenViews}
           />
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
@@ -226,7 +223,7 @@ export function DatabaseToolbarControls({
                   // 비어있으면 접힘
                   if (!searchDraft.trim()) setSearchOpen(false);
                 }}
-                className="w-36 select-text bg-transparent py-1 text-xs outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
+                className="w-36 select-text bg-transparent py-1 text-base outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
               />
             )}
           </div>
@@ -332,7 +329,7 @@ export function DatabaseToolbarControls({
                 <button
                   type="button"
                   onClick={(e) => openPopover(rule.id, e.currentTarget)}
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-white hover:bg-blue-600"
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-base text-white hover:bg-blue-600"
                 >
                   <span className="max-w-[160px] truncate">{summary}</span>
                   <ChevronDown size={10} className="shrink-0 text-blue-200" />
@@ -366,7 +363,7 @@ export function DatabaseToolbarControls({
                 <button
                   type="button"
                   onClick={(e) => openPopover(key, e.currentTarget)}
-                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-xs text-white hover:bg-orange-600"
+                  className="flex items-center gap-0.5 px-1.5 py-0.5 text-base text-white hover:bg-orange-600"
                 >
                   <span className="max-w-[120px] truncate">{summary}</span>
                   <ChevronDown size={10} className="shrink-0 text-orange-200" />
@@ -390,10 +387,10 @@ export function DatabaseToolbarControls({
           <div
             ref={rulePopoverRef}
             style={{ position: "fixed", top: ruleCoords.top, left: ruleCoords.left, width: 220 }}
-            className="z-50 space-y-2 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-50 space-y-2 rounded-md border border-zinc-200 bg-white p-3 text-base shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <div className="space-y-1">
-              <div className="text-[10px] uppercase text-zinc-400">컬럼</div>
+              <div className="text-sm uppercase text-zinc-400">컬럼</div>
               <AppSelect
                 value={openFilterRule.columnId}
                 onChange={(nextValue) => updateRule(openFilterRule.id, { columnId: nextValue })}
@@ -402,7 +399,7 @@ export function DatabaseToolbarControls({
               />
             </div>
             <div className="space-y-1">
-              <div className="text-[10px] uppercase text-zinc-400">조건</div>
+              <div className="text-sm uppercase text-zinc-400">조건</div>
               <AppSelect
                 value={openFilterRule.operator}
                 onChange={(nextValue) => updateRule(openFilterRule.id, { operator: nextValue as FilterOperator })}
@@ -412,12 +409,12 @@ export function DatabaseToolbarControls({
             </div>
             {!["isEmpty", "isNotEmpty"].includes(openFilterRule.operator) && (
               <div className="space-y-1">
-                <div className="text-[10px] uppercase text-zinc-400">값</div>
+                <div className="text-sm uppercase text-zinc-400">값</div>
                 <input
                   value={openFilterRule.value ?? ""}
                   onChange={(e) => updateRule(openFilterRule.id, { value: e.target.value })}
                   placeholder="값 입력…"
-                  className="w-full select-text rounded border border-zinc-300 bg-white px-1.5 py-1 text-xs outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-800"
+                  className="w-full select-text rounded border border-zinc-300 bg-white px-1.5 py-1 text-base outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-800"
                 />
               </div>
             )}
@@ -431,10 +428,10 @@ export function DatabaseToolbarControls({
           <div
             ref={rulePopoverRef}
             style={{ position: "fixed", top: ruleCoords.top, left: ruleCoords.left, width: 200 }}
-            className="z-50 space-y-2 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-50 space-y-2 rounded-md border border-zinc-200 bg-white p-3 text-base shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <div className="space-y-1">
-              <div className="text-[10px] uppercase text-zinc-400">컬럼</div>
+              <div className="text-sm uppercase text-zinc-400">컬럼</div>
               <AppSelect
                 value={openSortRule.columnId}
                 onChange={(nextValue) => updateSortRule(openSortIdx, { columnId: nextValue })}
@@ -443,11 +440,11 @@ export function DatabaseToolbarControls({
               />
             </div>
             <div className="space-y-1">
-              <div className="text-[10px] uppercase text-zinc-400">방향</div>
+              <div className="text-sm uppercase text-zinc-400">방향</div>
               <button
                 type="button"
                 onClick={() => updateSortRule(openSortIdx, { dir: openSortRule.dir === "asc" ? "desc" : "asc" })}
-                className="w-full rounded border border-zinc-300 px-2 py-1 text-left text-xs hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
+                className="w-full rounded border border-zinc-300 px-2 py-1 text-left text-base hover:bg-zinc-50 dark:border-zinc-600 dark:hover:bg-zinc-800"
               >
                 {openSortRule.dir === "asc" ? "↑ 오름차순" : "↓ 내림차순"}
               </button>

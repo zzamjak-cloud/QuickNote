@@ -5,7 +5,7 @@ import {
   Table2,
   List,
 } from "lucide-react";
-import type { ViewKind } from "../../types/database";
+import type { ColumnDef, ViewKind } from "../../types/database";
 
 export const VIEW_ICONS: Record<ViewKind, typeof Table2> = {
   table: Table2,
@@ -23,3 +23,13 @@ export const VIEW_LABELS: Record<ViewKind, string> = {
   timeline: "타임라인",
   gallery: "갤러리",
 };
+
+/** 현재 컬럼 구성에서 선택 가능한 뷰 모드 계산 */
+export function getUnavailableViewKinds(columns: ColumnDef[]): ViewKind[] {
+  const hasSelectCol = columns.some((column) => column.type === "select");
+  const hasDateCol = columns.some((column) => column.type === "date");
+  const unavailable: ViewKind[] = [];
+  if (!hasSelectCol) unavailable.push("kanban");
+  if (!hasDateCol) unavailable.push("timeline");
+  return unavailable;
+}

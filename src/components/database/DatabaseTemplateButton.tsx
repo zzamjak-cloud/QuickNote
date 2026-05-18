@@ -97,13 +97,13 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
           <div
             ref={popoverRef}
             style={{ position: "fixed", top: coords.top, left: coords.left, width: 220 }}
-            className="z-50 overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-50 overflow-hidden rounded-md border border-zinc-200 bg-white text-base shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <div className="border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={handleAdd}
-                className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                className="flex w-full items-center gap-1.5 rounded px-1 py-1 text-base text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
               >
                 <Plus size={12} />
                 새 템플릿
@@ -111,7 +111,7 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
             </div>
 
             {templates.length === 0 ? (
-              <div className="px-3 py-3 text-center text-xs text-zinc-400">
+              <div className="px-3 py-3 text-center text-base text-zinc-400">
                 템플릿이 없습니다
               </div>
             ) : (
@@ -129,7 +129,7 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
                       <button
                         type="button"
                         onClick={() => handleApply(tmpl.id)}
-                        className="min-w-0 flex-1 truncate text-left text-xs text-zinc-700 dark:text-zinc-300"
+                        className="min-w-0 flex-1 truncate text-left text-base text-zinc-700 dark:text-zinc-300"
                         title={`'${pageTitle}' 템플릿으로 새 항목 추가`}
                       >
                         {pageTitle}

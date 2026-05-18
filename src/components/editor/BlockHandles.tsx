@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useCallback,
@@ -314,7 +315,7 @@ export function BlockHandles({
     PinnedCommentBadge[]
   >([]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor || !activePageId) {
       setPinnedCommentBadges([]);
       return;
@@ -395,9 +396,13 @@ export function BlockHandles({
     };
 
     refreshPinned();
-    // 초기 렌더 직후 DOM/레이아웃이 안정된 뒤 한 번 더 새로고침 — 새로고침 시 카드 누락 방지
-    const deferred = window.setTimeout(refreshPinned, 50);
-    const deferred2 = window.setTimeout(refreshPinned, 250);
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(refreshPinned)
+        : null;
+    const root = containerRef.current?.parentElement;
+    if (resizeObserver && root) resizeObserver.observe(root);
+    if (resizeObserver) resizeObserver.observe(editor.view.dom);
     const unsub = useBlockCommentStore.subscribe(refreshPinned);
     const unsubMembers = useMemberStore.subscribe(refreshPinned);
     editor.on("update", refreshPinned);
@@ -405,8 +410,7 @@ export function BlockHandles({
     scroller.addEventListener("scroll", refreshPinned, { passive: true });
     window.addEventListener("resize", refreshPinned, { passive: true });
     return () => {
-      window.clearTimeout(deferred);
-      window.clearTimeout(deferred2);
+      resizeObserver?.disconnect();
       unsub();
       unsubMembers();
       editor.off("update", refreshPinned);

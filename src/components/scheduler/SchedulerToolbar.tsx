@@ -24,6 +24,7 @@ export function SchedulerToolbar() {
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
   const setZoomLevel = useSchedulerViewStore((s) => s.setZoomLevel);
   const setColumnWidthScale = useSchedulerViewStore((s) => s.setColumnWidthScale);
+  const showUnifiedOnlyFilters = selectedMemberId === null;
 
   // 오늘로 이동 — ScheduleGrid 에서 이벤트를 listen
   const scrollToToday = () => {
@@ -43,8 +44,18 @@ export function SchedulerToolbar() {
           <>
             <YearSelector />
             <MonthFilter />
-            {selectedMemberId === null && <JobTitleFilter />}
-            {selectedMemberId === null && <WeekViewMemberFilter />}
+            <div
+              className={showUnifiedOnlyFilters ? "" : "invisible pointer-events-none"}
+              aria-hidden={!showUnifiedOnlyFilters}
+            >
+              <JobTitleFilter />
+            </div>
+            <div
+              className={showUnifiedOnlyFilters ? "" : "invisible pointer-events-none"}
+              aria-hidden={!showUnifiedOnlyFilters}
+            >
+              <WeekViewMemberFilter />
+            </div>
           </>
         ) : (
           <>

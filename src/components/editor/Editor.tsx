@@ -740,7 +740,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   }, [commentThread, editor, effectivePageId]);
 
   /** 이 페이지 댓글·방문 기록·멤버와 관련된 스토어 변경만 decoration 갱신(prev 인자 미지원·persist 경로 대비) */
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const pid = effectivePageId;
     const buildSig = (): string => {

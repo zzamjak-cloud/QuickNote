@@ -1,5 +1,6 @@
 import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper } from "@tiptap/react";
+import { createPortal } from "react-dom";
 import {
   useCallback,
   useEffect,
@@ -35,7 +36,6 @@ import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
 import { DatabaseBlockFullPageHeader } from "./DatabaseBlockFullPageHeader";
 import { DatabaseBlockInlineHeader } from "./DatabaseBlockInlineHeader";
 import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
-import { DatabaseBlockLinkExistingPanel } from "./DatabaseBlockLinkExistingPanel";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
 import {
   repairDbHistoryBaselineIfNeeded,
@@ -234,16 +234,20 @@ export function DatabaseBlockView(props: NodeViewProps) {
       d.meta.title.toLowerCase().includes(q),
     );
   }, [databasesList, linkPickerQuery]);
+  const linkPickerCandidates = useMemo(
+    () => linkPickerFiltered.filter((d) => d.id !== databaseId),
+    [databaseId, linkPickerFiltered],
+  );
 
   useEffect(() => {
     if (inlineBindingStep !== "link") return;
     setLinkPickerHighlight((prev) => {
-      const n = linkPickerFiltered.length;
+      const n = linkPickerCandidates.length;
       if (n === 0) return -1;
       if (prev < 0) return 0;
       return Math.min(prev, n - 1);
     });
-  }, [inlineBindingStep, linkPickerFiltered]);
+  }, [inlineBindingStep, linkPickerCandidates]);
 
   useEffect(() => {
     if (inlineBindingStep !== "link" || linkPickerHighlight < 0) return;
@@ -268,6 +272,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
         renamePage(activePageId, linked.meta.title);
       }
       setLinkOpen(false);
+      setLinkPickerQuery("");
+      setLinkPickerHighlight(0);
     },
     [layout, activePageId, updateAttributes, renamePage],
   );
@@ -282,6 +288,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
       renamePage(activePageId, linked.meta.title);
     }
     setLinkOpen(false);
+    setLinkPickerQuery("");
+    setLinkPickerHighlight(0);
   }, [layout, activePageId, updateAttributes, renamePage]);
 
   const onLinkPickerKeyDown = useCallback(
@@ -291,7 +299,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
         e.preventDefault();
         e.stopPropagation();
         setLinkPickerHighlight((h) => {
-          const n = linkPickerFiltered.length;
+          const n = linkPickerCandidates.length;
           if (n === 0) return -1;
           if (h < 0) return 0;
           return Math.min(h + 1, n - 1);
@@ -302,7 +310,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
         e.preventDefault();
         e.stopPropagation();
         setLinkPickerHighlight((h) => {
-          const n = linkPickerFiltered.length;
+          const n = linkPickerCandidates.length;
           if (n === 0) return -1;
           if (h <= 0) return 0;
           return h - 1;
@@ -312,11 +320,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
       if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        const row = linkPickerFiltered[linkPickerHighlight];
+        const row = linkPickerCandidates[linkPickerHighlight];
         if (row) bindToExistingDatabase(row.id);
       }
     },
-    [linkPickerFiltered, linkPickerHighlight, bindToExistingDatabase],
+    [linkPickerCandidates, linkPickerHighlight, bindToExistingDatabase],
   );
 
   const onInlineTitleDragStart = useCallback(
@@ -444,9 +452,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 dbHomePageId={dbHomePageId}
                 onOpenDbHomePage={openDbHomePage}
                 onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
-                onOpenLink={() => setLinkOpen((v) => !v)}
-                onOpenDeleteModal={openDeleteDatabaseModal}
-                deleteDisabled={isProtectedDatabase}
+                onOpenLink={() => {
+                  setLinkPickerQuery("");
+                  setLinkPickerHighlight(0);
+                  setLinkOpen(true);
+                }}
                 onTitleDragStart={onInlineTitleDragStart}
                 onTitleDragEnd={onInlineTitleDragEnd}
               />
@@ -475,14 +485,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
               setPanelState={setPanelState}
               layout={layout}
             />
-
-            {linkOpen && (
-              <DatabaseBlockLinkExistingPanel
-                databaseId={databaseId}
-                databasesList={databasesList}
-                onSelectExisting={bindToExistingDatabase}
-              />
-            )}
 
             <DatabaseBlockDataArea bundleGone={bundleGone}>
               {activeViewComponent}
@@ -531,22 +533,22 @@ export function DatabaseBlockView(props: NodeViewProps) {
             className="w-full max-w-lg rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="mb-3 flex items-center justify-between gap-2 text-base">
               <h2
                 id="qn-db-history-title"
-                className="text-sm font-semibold text-zinc-900 dark:text-zinc-100"
+                className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
               >
                 DB 버전 히스토리
               </h2>
               <button
                 type="button"
                 onClick={() => setDbHistoryDialogOpen(false)}
-                className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="rounded px-2 py-1 text-base text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >
                 닫기
               </button>
             </div>
-            <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="mb-2 flex items-center justify-between gap-2 text-base">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -554,25 +556,27 @@ export function DatabaseBlockView(props: NodeViewProps) {
                     hasDatabaseId &&
                     useDatabaseStore.getState().restoreDatabaseFromLatestHistory(databaseId)
                   }
-                  className="rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="rounded border border-zinc-200 px-2 py-1 text-base hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
                   DB 최근 버전 복원
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setDbPermanentDeleteOpen(true)}
-                  disabled={isProtectedDatabase}
-                  title={isProtectedDatabase ? "LC스케줄러 DB는 삭제할 수 없습니다." : undefined}
-                  className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-red-900/40 dark:hover:bg-red-950/30"
-                >
-                  영구삭제
-                </button>
+                {layout === "fullPage" && (
+                  <button
+                    type="button"
+                    onClick={() => setDbPermanentDeleteOpen(true)}
+                    disabled={isProtectedDatabase}
+                    title={isProtectedDatabase ? "LC스케줄러 DB는 삭제할 수 없습니다." : undefined}
+                    className="rounded border border-red-200 px-2 py-1 text-base text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-red-900/40 dark:hover:bg-red-950/30"
+                  >
+                    영구삭제
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => toggleDbTimelineAll()}
-                  className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="inline-flex items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-base hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
                   {selectedDbTimelineIds.size > 0 &&
                   selectedDbTimelineIds.size === dbTimelineIds.length ? (
@@ -594,23 +598,24 @@ export function DatabaseBlockView(props: NodeViewProps) {
                       });
                       setDbHistoryDeleteOpen(true);
                     }}
-                    className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/30"
+                    className="rounded border border-red-200 px-2 py-1 text-base text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:hover:bg-red-950/30"
                   >
                     선택 삭제
                   </button>
                 )}
               </div>
             </div>
-            <div className="max-h-[55vh] overflow-y-auto rounded-md border border-zinc-200 dark:border-zinc-700">
+            <div className="max-h-[55vh] overflow-y-auto rounded-md border border-zinc-200 text-base dark:border-zinc-700">
               {dbHistoryTimeline.length === 0 ? (
-                <div className="px-3 py-2 text-xs text-zinc-500">
+                <div className="px-3 py-2 text-base text-zinc-500">
                   버전 기록이 없습니다.
                 </div>
               ) : (
                 dbHistoryTimeline.slice(0, 100).map((entry, idx, arr) => (
-                  <button
+                  <div
                     key={entry.id}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => {
                       const targetEventId = entry.eventIds[entry.eventIds.length - 1];
                       if (targetEventId && hasDatabaseId) {
@@ -620,7 +625,19 @@ export function DatabaseBlockView(props: NodeViewProps) {
                       }
                       setDbHistoryDialogOpen(false);
                     }}
-                    className="flex w-full items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        const targetEventId = entry.eventIds[entry.eventIds.length - 1];
+                        if (targetEventId && hasDatabaseId) {
+                          useDatabaseStore
+                            .getState()
+                            .restoreDatabaseFromHistoryEvent(databaseId, targetEventId);
+                        }
+                        setDbHistoryDialogOpen(false);
+                      }
+                    }}
+                    className="flex w-full items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-left text-base last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                   >
                     <button
                       type="button"
@@ -643,11 +660,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
                     <span className="min-w-0 flex-1 truncate text-zinc-700 dark:text-zinc-200">
                       {`버전 ${arr.length - idx}`}
                     </span>
-                    <span className="shrink-0 text-[11px] text-zinc-400">
+                    <span className="shrink-0 text-sm text-zinc-400">
                       {new Date(entry.endTs).toLocaleString()}
                     </span>
                     {(entry.lastEditedByName || entry.lastEditedByMemberId) && (
-                      <span className="shrink-0 max-w-[80px] truncate text-[11px] text-zinc-400">
+                      <span className="shrink-0 max-w-[96px] truncate text-sm text-zinc-400">
                         {formatPageHistoryEditorLine(entry, { members, me: me ?? null })}
                       </span>
                     )}
@@ -667,7 +684,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                     >
                       <Trash2 size={12} />
                     </button>
-                  </button>
+                  </div>
                 ))
               )}
             </div>
@@ -713,6 +730,74 @@ export function DatabaseBlockView(props: NodeViewProps) {
           setDbHistoryDialogOpen(false);
         }}
       />
+      {linkOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[460] flex items-center justify-center bg-black/45 p-4"
+            role="presentation"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) setLinkOpen(false);
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="qn-db-link-existing-title"
+              className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <h3
+                  id="qn-db-link-existing-title"
+                  className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
+                >
+                  기존 데이터베이스 연결
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setLinkOpen(false)}
+                  className="rounded px-2 py-1 text-base text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  닫기
+                </button>
+              </div>
+              <input
+                autoFocus
+                type="text"
+                value={linkPickerQuery}
+                onChange={(e) => {
+                  setLinkPickerQuery(e.target.value);
+                  setLinkPickerHighlight(0);
+                }}
+                onKeyDown={onLinkPickerKeyDown}
+                placeholder="데이터베이스 검색"
+                className="mb-2 w-full rounded border border-zinc-300 bg-white px-3 py-2 text-base text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+              />
+              <div className="max-h-[52vh] overflow-y-auto rounded border border-zinc-200 dark:border-zinc-700">
+                {linkPickerCandidates.length === 0 ? (
+                  <div className="px-3 py-2 text-base text-zinc-500">검색 결과가 없습니다.</div>
+                ) : (
+                  linkPickerCandidates.map((row, idx) => (
+                      <button
+                        key={row.id}
+                        type="button"
+                        onClick={() => bindToExistingDatabase(row.id)}
+                        className={[
+                          "block w-full px-3 py-2 text-left text-base",
+                          idx === linkPickerHighlight
+                            ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                            : "text-zinc-700 hover:bg-zinc-50 dark:text-zinc-200 dark:hover:bg-zinc-800",
+                        ].join(" ")}
+                      >
+                        {row.meta.title}
+                      </button>
+                    ))
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </NodeViewWrapper>
   );
 }

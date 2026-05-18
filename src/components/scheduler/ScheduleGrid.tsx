@@ -5,8 +5,8 @@
 //   클릭           → 카드 단일 선택 / 빈 영역 클릭 → 선택 해제
 //   더블클릭        → DB 항목 페이지 피커
 // 원본: TeamScheduler/src/components/schedule/ScheduleGrid.tsx 기반
-import { useRef, useMemo, useCallback, useState, useEffect } from "react";
-import { Plus, Minus, Star } from "lucide-react";
+import { useRef, useMemo, useCallback, useState, useEffect, useLayoutEffect } from "react";
+import { Plus, Minus } from "lucide-react";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -27,8 +27,6 @@ import {
   CARD_MARGIN,
 } from "../../lib/scheduler/grid";
 import { computeRowCount } from "../../lib/scheduler/collisionDetection";
-import { dateToX, widthForRange } from "../../lib/scheduler/gridUtils";
-import { parseIsoDate } from "../../lib/scheduler/dateUtils";
 import { parseDateKey } from "../../lib/scheduler/mm/weekUtils";
 import { DateAxis } from "./DateAxis";
 import { GridRow } from "./GridRow";
@@ -52,76 +50,13 @@ import { useUiStore } from "../../store/uiStore";
 import type { Member } from "../../store/memberStore";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
-// ── 특이사항 이벤트 카드 ──────────────────────────────────────────────────────
-type GlobalEventCardProps = {
-  schedule: Schedule;
-  year: number;
-  cellWidth: number;
-  rowHeight: number;
-  rowCount: number;
-  isSelected: boolean;
-  onSelect: (id: string) => void;
-  onEdit: (id: string) => void;
-};
-
-function GlobalEventCard({
-  schedule,
-  year,
-  cellWidth,
-  rowHeight,
-  rowCount,
-  isSelected,
-  onSelect,
-  onEdit,
-}: GlobalEventCardProps) {
-  const startDate = parseIsoDate(schedule.startAt);
-  const endDate = parseIsoDate(schedule.endAt);
-  const x = dateToX(year, startDate, cellWidth);
-  const w = widthForRange(startDate, endDate, cellWidth);
-  const rowIdx = schedule.rowIndex ?? 0;
-  const slotHeight = rowCount > 0 ? rowHeight / rowCount : rowHeight;
-  const y = rowIdx * slotHeight;
-  const color = schedule.color ?? DEFAULT_GLOBAL_EVENT_COLOR;
-  const textColor = schedule.textColor ?? "#ffffff";
-
-  return (
-    <div
-      className={`absolute rounded-md select-none overflow-hidden border-2 cursor-pointer transition-shadow ${
-        isSelected
-          ? "ring-2 ring-amber-400 border-transparent shadow-md"
-          : "border-transparent hover:shadow-sm"
-      }`}
-      style={{
-        left: x + CARD_MARGIN,
-        top: y + CARD_MARGIN,
-        width: Math.max(0, w - CARD_MARGIN * 2),
-        height: Math.max(0, slotHeight - CARD_MARGIN * 2),
-        backgroundColor: color,
-        color: textColor,
-      }}
-      onClick={(e) => { e.stopPropagation(); onSelect(schedule.id); }}
-      onDoubleClick={(e) => { e.stopPropagation(); onEdit(schedule.id); }}
-    >
-      <div className="w-full h-full flex items-center px-1.5 gap-0.5 overflow-hidden">
-        {/* 특이사항 카드 식별 아이콘 */}
-        <Star size={10} className="flex-shrink-0 opacity-80" />
-        <span className="text-xs font-medium leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-          {schedule.title || "제목 없음"}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 // DateAxis 고정 높이: 월 라벨 24px + 일자/공휴일 행 28px = 52px
 const DATE_AXIS_HEIGHT = 52;
+const MEMBER_COLUMN_WIDTH = 120;
 
 // Ctrl/Alt+드래그 마퀴 시작 임계값 (px)
 const MARQUEE_ACTIVATE_PX = 4;
 const PENDING_SCHEDULE_PAGE_ID_PREFIX = "lc-scheduler:creating:";
-
-// 특이사항 이벤트 기본 색상 (앰버)
-const DEFAULT_GLOBAL_EVENT_COLOR = "#f59e0b";
 
 // 마지막 구성원도 화면 중앙 근처까지 올려 볼 수 있도록 하단 스크롤 여백을 둔다.
 const TIMELINE_BOTTOM_SPACER_HEIGHT = "50vh";
@@ -149,7 +84,6 @@ function dayIndexToDateIso(dayIdx: number, year: number, endOfDay = false): stri
 
 export function ScheduleGrid({ workspaceId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const leftColRef = useRef<HTMLDivElement>(null);
   const suppressContainerClickRef = useRef(false);
 
   const schedules = useSchedulerStore((s) => s.schedules);
@@ -175,6 +109,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
   // 마운트 시 1회 + 연도 변경 시에만 오늘 스크롤을 실행하기 위한 가드
   const didInitialScrollRef = useRef(false);
   const prevYearRef = useRef(currentYear);
+  const prevCellWidthRef = useRef(0);
 
   // ── Ctrl/Alt+드래그 신규 일정 생성 상태 ────────────────────────────────────
   // dragMode: "create" = Ctrl/Alt 드래그, "box" = Shift 드래그 (useBoxSelection이 담당)
@@ -280,14 +215,18 @@ export function ScheduleGrid({ workspaceId }: Props) {
   );
   const globalRowHeight = showGlobalRow ? getRowHeight(globalRowCount, zoomLevel) : 0;
   const memberRowsTop = DATE_AXIS_HEIGHT + globalRowHeight;
+  const normalizedViewportScrollTop = Math.min(
+    Math.max(0, viewportState.scrollTop),
+    Math.max(0, memberRowsTop + memberRowsHeight - viewportState.height),
+  );
   const visibleMemberRows = useMemo(
     () => getVisibleVirtualRows(
       memberVirtualRows,
-      Math.max(0, viewportState.scrollTop - memberRowsTop),
+      Math.max(0, normalizedViewportScrollTop - memberRowsTop),
       viewportState.height,
       TIMELINE_ROW_OVERSCAN_PX,
     ),
-    [memberRowsTop, memberVirtualRows, viewportState.height, viewportState.scrollTop],
+    [memberRowsTop, memberVirtualRows, normalizedViewportScrollTop, viewportState.height],
   );
 
   // 행 추가 핸들러
@@ -372,6 +311,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
     globalRowCount,
     showGlobalRow,
     dateAxisHeight: DATE_AXIS_HEIGHT,
+    contentXOffset: MEMBER_COLUMN_WIDTH,
   });
 
   const handleMultiDragComplete = useCallback(
@@ -438,26 +378,14 @@ export function ScheduleGrid({ workspaceId }: Props) {
     containerRef.current.scrollLeft = Math.max(0, x - containerWidth / 2);
   }, [todayIdx, cellWidth]);
 
-  const syncLeftColumnScroll = useCallback(() => {
+  const syncViewportState = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    if (leftColRef.current) {
-      leftColRef.current.scrollTop = container.scrollTop;
-    }
     const next = { scrollTop: container.scrollTop, height: container.clientHeight };
     setViewportState((prev) => (
       prev.scrollTop === next.scrollTop && prev.height === next.height ? prev : next
     ));
   }, []);
-
-  const handleLeftColumnWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    const container = containerRef.current;
-    if (!container) return;
-    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-    e.preventDefault();
-    container.scrollTop += e.deltaY;
-    syncLeftColumnScroll();
-  }, [syncLeftColumnScroll]);
 
   useEffect(() => {
     window.addEventListener("lc-scheduler:scroll-today", scrollToToday);
@@ -466,24 +394,63 @@ export function ScheduleGrid({ workspaceId }: Props) {
     };
   }, [scrollToToday]);
 
+  useLayoutEffect(() => {
+    syncViewportState();
+  }, [
+    cellWidth,
+    currentYear,
+    memberRowsHeight,
+    syncViewportState,
+    visibleMembers.length,
+  ]);
+
   useEffect(() => {
-    syncLeftColumnScroll();
-  }, [cellWidth, currentYear, memberRowsHeight, syncLeftColumnScroll, visibleMembers.length]);
+    const container = containerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      syncViewportState();
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, [syncViewportState]);
 
   // 마운트 시 1회 오늘로 자동 스크롤.
-  // 연도 변경 시에도 재실행하되, 줌 변경(cellWidth만 변경)은 재실행하지 않음.
-  useEffect(() => {
+  // 연도 변경 시에도 재실행하되, 첫 페인트 전에 위치를 맞춰 초기 출렁임을 제거한다.
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const prevCellWidth = prevCellWidthRef.current;
     const yearChanged = prevYearRef.current !== currentYear;
+    const cellWidthChanged = prevCellWidth > 0 && prevCellWidth !== cellWidth;
+
+    if (container && didInitialScrollRef.current && !yearChanged && cellWidthChanged) {
+      const timelineViewportWidth = Math.max(0, container.clientWidth - MEMBER_COLUMN_WIDTH);
+      const anchorDay = (container.scrollLeft + timelineViewportWidth / 2) / prevCellWidth;
+      container.scrollLeft = Math.max(0, anchorDay * cellWidth - timelineViewportWidth / 2);
+      prevCellWidthRef.current = cellWidth;
+      syncViewportState();
+      return;
+    }
+
     if (!didInitialScrollRef.current || yearChanged) {
-      const id = setTimeout(() => {
+      const apply = () => {
         scrollToToday();
         didInitialScrollRef.current = true;
         prevYearRef.current = currentYear;
-      }, 0);
-      return () => clearTimeout(id);
+        prevCellWidthRef.current = cellWidth;
+        syncViewportState();
+      };
+      if (container && container.clientWidth > 0) {
+        apply();
+        return;
+      }
+      const id = requestAnimationFrame(apply);
+      return () => cancelAnimationFrame(id);
     }
+    prevCellWidthRef.current = cellWidth;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentYear, cellWidth]);
+  }, [currentYear, cellWidth, syncViewportState]);
 
   // 빈 공간 클릭 시 선택 해제
   const handleContainerClick = useCallback(() => {
@@ -558,7 +525,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
       if (isCtrl || isAlt) {
         // Ctrl/Alt+드래그: 신규 일정 생성 마퀴
         const rect = container.getBoundingClientRect();
-        const x = e.clientX - rect.left + container.scrollLeft;
+        const x = e.clientX - rect.left + container.scrollLeft - MEMBER_COLUMN_WIDTH;
         const y = e.clientY - rect.top + container.scrollTop;
         const row = pointToScheduleRow(x, y);
         if (!row) return;
@@ -629,7 +596,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
       const container = containerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      const rawX = e.clientX - rect.left + container.scrollLeft;
+      const rawX = e.clientX - rect.left + container.scrollLeft - MEMBER_COLUMN_WIDTH;
       const dayIdx = xToDayIndex(Math.max(0, Math.min(totalWidth - 1, rawX)));
       const dx = Math.abs(dayIdx - dragRef.current.startDayIdx) * cellWidth;
       const next = {
@@ -837,19 +804,32 @@ export function ScheduleGrid({ workspaceId }: Props) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* 본문: 좌측 고정 멤버 컬럼 + 우측 스크롤 타임라인 */}
-      <div className="flex-1 overflow-hidden relative flex">
-        {/* 좌측 고정 멤버 이름 컬럼 */}
+      {/* 본문: 단일 스크롤 컨테이너 + 좌측 sticky 컬럼 */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto relative"
+        onClick={handleContainerClick}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onContextMenu={handleContextMenu}
+        style={{
+          userSelect: (dragState || isBoxSelecting) ? "none" : undefined,
+          overscrollBehaviorY: "none",
+        }}
+      >
         <div
-          ref={leftColRef}
-          className="w-[120px] flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 z-30 relative overflow-hidden"
-          onWheel={handleLeftColumnWheel}
+          style={{
+            width: totalWidth + MEMBER_COLUMN_WIDTH,
+            minWidth: totalWidth + MEMBER_COLUMN_WIDTH,
+            position: "relative",
+          }}
         >
-          {/* DateAxis 와 같은 높이의 빈 헤더 공간 */}
-          <div
-            className="border-b border-zinc-200 dark:border-zinc-800"
-            style={{ height: DATE_AXIS_HEIGHT }}
-          />
+          <div className="sticky left-0 z-30 w-[120px] border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+            <div className="sticky top-0 z-40 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900" style={{ height: DATE_AXIS_HEIGHT }} />
+
+            <div>
           {/* 특이사항 행 — 프로젝트 선택 시에만 표시 */}
           {showGlobalRow && (() => {
             const globalH = getRowHeight(globalRowCount, zoomLevel);
@@ -942,22 +922,17 @@ export function ScheduleGrid({ workspaceId }: Props) {
               }}
             />
           )}
-        </div>
-
-        {/* 우측 스크롤 타임라인 */}
-        <div
-          ref={containerRef}
-          className="flex-1 overflow-auto relative"
-          onClick={handleContainerClick}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          onContextMenu={handleContextMenu}
-          onScroll={syncLeftColumnScroll}
-          style={{ userSelect: (dragState || isBoxSelecting) ? "none" : undefined }}
-        >
-          <div style={{ width: totalWidth, minWidth: totalWidth, position: "relative" }}>
+            </div>
+          </div>
+          <div
+            style={{
+              width: totalWidth,
+              minWidth: totalWidth,
+              position: "absolute",
+              top: 0,
+              left: MEMBER_COLUMN_WIDTH,
+            }}
+          >
             {/* 날짜 헤더 */}
             <DateAxis year={currentYear} cellWidth={cellWidth} />
 
@@ -971,7 +946,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                 >
                   <GridRow year={currentYear} cellWidth={cellWidth} weekendColor={weekendColor} />
                   {globalSchedules.map((s) => (
-                    <GlobalEventCard
+                    <ScheduleCard
                       key={s.id}
                       schedule={s}
                       year={currentYear}
@@ -979,7 +954,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                       rowHeight={globalH}
                       rowCount={globalRowCount}
                       isSelected={selectedScheduleId === s.id}
-                      onSelect={(id) => { selectSchedule(id); clearSelection(); }}
+                      onSelect={handleScheduleSelect}
                       onEdit={openSchedulePage}
                     />
                   ))}

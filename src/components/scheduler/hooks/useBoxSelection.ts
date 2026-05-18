@@ -54,6 +54,8 @@ export interface UseBoxSelectionOptions {
   showGlobalRow: boolean;
   // DateAxis 높이 (px) — 스크롤 컨테이너 내부 콘텐츠 상단 오프셋
   dateAxisHeight: number;
+  // 스크롤 컨테이너 내부에서 실제 타임라인이 시작되는 X 오프셋
+  contentXOffset?: number;
 }
 
 export interface UseBoxSelectionReturn {
@@ -84,6 +86,7 @@ export function useBoxSelection(options: UseBoxSelectionOptions): UseBoxSelectio
     globalRowCount,
     showGlobalRow,
     dateAxisHeight,
+    contentXOffset = 0,
   } = options;
 
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
@@ -170,7 +173,7 @@ export function useBoxSelection(options: UseBoxSelectionOptions): UseBoxSelectio
     (e: React.MouseEvent, containerEl: HTMLElement) => {
       const rect = containerEl.getBoundingClientRect();
       // 스크롤 보정 좌표
-      const x = e.clientX - rect.left + containerEl.scrollLeft;
+      const x = e.clientX - rect.left + containerEl.scrollLeft - contentXOffset;
       const y = e.clientY - rect.top + containerEl.scrollTop;
 
       const newRect: BoxSelectionRect = { startX: x, startY: y, endX: x, endY: y };
@@ -179,7 +182,7 @@ export function useBoxSelection(options: UseBoxSelectionOptions): UseBoxSelectio
       setSelectionRect(newRect);
       setSelectedCardIds(new Set());
     },
-    [],
+    [contentXOffset],
   );
 
   // 박스 선택 이동 (실시간 카드 하이라이트 갱신)
@@ -188,7 +191,7 @@ export function useBoxSelection(options: UseBoxSelectionOptions): UseBoxSelectio
       if (!isBoxSelecting) return;
 
       const rect = containerEl.getBoundingClientRect();
-      const x = e.clientX - rect.left + containerEl.scrollLeft;
+      const x = e.clientX - rect.left + containerEl.scrollLeft - contentXOffset;
       const y = e.clientY - rect.top + containerEl.scrollTop;
 
       const newRect: BoxSelectionRect = {
@@ -205,7 +208,7 @@ export function useBoxSelection(options: UseBoxSelectionOptions): UseBoxSelectio
       const cardsInRect = getCardsInRect(newRect);
       setSelectedCardIds(cardsInRect);
     },
-    [isBoxSelecting, getCardsInRect],
+    [contentXOffset, isBoxSelecting, getCardsInRect],
   );
 
   // 박스 선택 종료 (선택 ID 유지)

@@ -75,9 +75,9 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
           <div
             ref={popoverRef}
             style={{ position: "fixed", top: coords.top, left: coords.left, width: 192 }}
-            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-base shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
-            <div className="px-2 py-1 text-[10px] uppercase text-zinc-500">속성 타입</div>
+            <div className="px-2 py-1 text-sm uppercase text-zinc-500">속성 타입</div>
             {COLUMN_TYPES.map((t) => (
               <button
                 key={t.id}
@@ -88,7 +88,7 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
                   addColumn(databaseId, defaultColumnForType(t.id, `${t.label} ${idx}`));
                   setOpenColumnMenu(null);
                 }}
-                className="block w-full rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="block w-full rounded px-2 py-1 text-left text-base hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >
                 {t.label}
               </button>

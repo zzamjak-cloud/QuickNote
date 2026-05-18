@@ -1,6 +1,6 @@
 // 주간 보기 — 지난주·이번주·다음주 × 평일 5일(월~금), 주 단위로만 카드 분할·주 내에서는 연결
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Rnd } from 'react-rnd'
 import { ChevronLeft, ChevronRight, ExternalLink, Minus, Plus } from 'lucide-react'
@@ -79,6 +79,7 @@ const WEEK_CARD_MARGIN = 2
 const TIMELINE_BOTTOM_SPACER_HEIGHT = 240
 const MARQUEE_ACTIVATE_PX = 4
 const PENDING_SCHEDULE_PAGE_ID_PREFIX = 'lc-scheduler:creating:'
+const MEMBER_COLUMN_WIDTH = 120
 
 // Schedule 은 ISO 문자열 기반 → ms 변환 헬퍼
 function scheduleStartMs(s: Schedule): number {
@@ -238,7 +239,7 @@ function getScheduleScopeMeta(
   return { displayText: '기타 업무', tooltip: '기타 업무' }
 }
 
-type TooltipPos = { top: number; left: number }
+type TooltipPos = { top: number; left: number; placement?: 'above' | 'below' }
 
 function slotRangeToIso(slots: WeekDaySlot[], startSlot: number, endSlot: number): { startAt: string; endAt: string } {
   return {
@@ -324,7 +325,7 @@ function ScheduleWeekCard({
   const [tooltipPos, setTooltipPos] = useState<TooltipPos | null>(null)
   const [contextMenuPos, setContextMenuPos] = useState<TooltipPos | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setLocalX(x)
     setLocalW(w)
     setLocalY(y)
@@ -356,11 +357,13 @@ function ScheduleWeekCard({
     const el = rndRef.current?.getSelfElement()
     if (!el) return
     const rect = el.getBoundingClientRect()
-    const tooltipHeight = 80
     const gap = 6
-    let top = rect.top - tooltipHeight - gap
-    if (top < 4) top = rect.bottom + gap
-    setTooltipPos({ top, left: rect.left })
+    const placement = rect.top > 96 ? 'above' : 'below'
+    setTooltipPos({
+      top: placement === 'above' ? rect.top - gap : rect.bottom + gap,
+      left: rect.left,
+      placement,
+    })
   }, [])
 
   const handleDragStart = useCallback((e: unknown) => {
@@ -662,7 +665,12 @@ function ScheduleWeekCard({
         createPortal(
           <div
             className="fixed bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md shadow-lg px-3 py-2 z-[600] text-xs pointer-events-none"
-            style={{ top: tooltipPos.top, left: tooltipPos.left, maxWidth: 240 }}
+            style={{
+              top: tooltipPos.top,
+              left: tooltipPos.left,
+              maxWidth: 240,
+              transform: tooltipPos.placement === 'above' ? 'translateY(-100%)' : undefined,
+            }}
           >
             <div className="text-[10px] text-zinc-500 dark:text-zinc-400 mb-1">
               {meta.displayText}
@@ -715,7 +723,6 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const allMembers = useMemberStore((s) => s.members)
 
   const containerRef = useRef<HTMLDivElement>(null)
-  const leftRowsRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{
     kind: 'schedule' | 'leave'
     startSlot: number
@@ -881,10 +888,10 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     setMemberRowCounts(next)
   }, [allMembers])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) return
-    const measure = () => setTimelineWidth(Math.max(900, container.clientWidth))
+    const measure = () => setTimelineWidth(Math.max(900, container.clientWidth - MEMBER_COLUMN_WIDTH))
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(container)
@@ -1028,7 +1035,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const getPointerInTimeline = useCallback((e: MousePointEvent, containerEl: HTMLElement) => {
     const rect = containerEl.getBoundingClientRect()
     return {
-      x: e.clientX - rect.left + containerEl.scrollLeft,
+      x: e.clientX - rect.left + containerEl.scrollLeft - MEMBER_COLUMN_WIDTH,
       y: e.clientY - rect.top + containerEl.scrollTop,
     }
   }, [])
@@ -1232,24 +1239,6 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     [allMembers, memberRowCounts],
   )
 
-  const syncLeftColumnScroll = useCallback(() => {
-    const container = containerRef.current
-    if (!container || !leftRowsRef.current) return
-    leftRowsRef.current.scrollTop = container.scrollTop
-  }, [])
-
-  const handleLeftColumnWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      const container = containerRef.current
-      if (!container) return
-      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return
-      e.preventDefault()
-      container.scrollTop += e.deltaY
-      syncLeftColumnScroll()
-    },
-    [syncLeftColumnScroll],
-  )
-
   const xToSlot = useCallback(
     (x: number) => Math.max(0, Math.min(slotCount - 1, Math.floor(x / cellWidth))),
     [cellWidth, slotCount],
@@ -1380,7 +1369,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
       const container = containerRef.current
       if (!container) return
       const rect = container.getBoundingClientRect()
-      const rawX = e.clientX - rect.left + container.scrollLeft
+      const rawX = e.clientX - rect.left + container.scrollLeft - MEMBER_COLUMN_WIDTH
       const slot = xToSlot(Math.max(0, Math.min(timelineWidth - 1, rawX)))
       const dx = Math.abs(slot - dragRef.current.startSlot) * cellWidth
       const next = {
@@ -1577,102 +1566,111 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800">
-      <div className="w-[120px] flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 z-30 flex flex-col overflow-hidden">
-        <div
-          className="border-b border-zinc-200 dark:border-zinc-800"
-          style={{ height: WEEK_HEADER_HEIGHT }}
-        />
-        <div ref={leftRowsRef} className="flex-1 overflow-hidden" onWheel={handleLeftColumnWheel}>
-          <div
-            style={{
-              height: bodyRowsHeight + (hasVisibleRows ? TIMELINE_BOTTOM_SPACER_HEIGHT : 0),
-              position: 'relative',
-            }}
-          >
-            {showGlobalRow && (
-              <div
-                className="group absolute left-0 right-0 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-center px-2 bg-amber-50/40 dark:bg-amber-950/20"
-                style={{ top: 0, height: globalRowHeight }}
-              >
-                <span className="text-xs font-medium text-amber-700 dark:text-amber-400 truncate max-w-full text-center">
-                  특이사항
-                </span>
-                <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={() => setGlobalRowCount((n) => Math.min(10, Math.max(n, globalCardRows) + 1))}
-                    title="행 추가"
-                    disabled={globalRowCount >= 10}
-                    className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
-                  >
-                    <Plus size={10} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setGlobalRowCount((n) => Math.max(1, globalCardRows, n - 1))}
-                    title="행 제거"
-                    disabled={!canRemoveGlobalRow}
-                    className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
-                  >
-                    <Minus size={10} />
-                  </button>
-                </div>
-              </div>
-            )}
-            {memberRowItems.map((item) => (
-              <div
-                key={item.member.memberId}
-                className="group absolute left-0 right-0 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-center px-2"
-                style={{ top: globalRowHeight + item.top, height: item.rowHeight }}
-              >
-                <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-full text-center" title={item.member.name}>
-                  {item.member.name}
-                </span>
-                <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={() => handleAddRow(item.member.memberId, item.memberSchedules)}
-                    title="행 추가"
-                    disabled={(memberRowCounts[item.member.memberId] ?? 1) >= 10}
-                    className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
-                  >
-                    <Plus size={10} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveRow(item.member.memberId, item.memberSchedules)}
-                    title="행 제거"
-                    disabled={!item.canRemove}
-                    className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
-                  >
-                    <Minus size={10} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto relative"
+        className="flex-1 overflow-auto overscroll-y-none relative"
         onClick={handleContainerClick}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onContextMenu={handleContextMenu}
-        onScroll={syncLeftColumnScroll}
-        style={{ userSelect: (dragState || isBoxSelecting) ? 'none' : undefined }}
+        style={{
+          userSelect: (dragState || isBoxSelecting) ? 'none' : undefined,
+          overscrollBehaviorY: 'none',
+        }}
       >
         <div
           style={{
-            width: timelineWidth,
-            minWidth: timelineWidth,
+            width: timelineWidth + MEMBER_COLUMN_WIDTH,
+            minWidth: timelineWidth + MEMBER_COLUMN_WIDTH,
             minHeight: WEEK_HEADER_HEIGHT + bodyRowsHeight + (hasVisibleRows ? TIMELINE_BOTTOM_SPACER_HEIGHT : 0),
             position: 'relative',
           }}
         >
+          <div className="sticky left-0 z-30 w-[120px] flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+            <div
+              className="sticky top-0 z-40 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"
+              style={{ height: WEEK_HEADER_HEIGHT }}
+            />
+            <div
+              style={{
+                height: bodyRowsHeight + (hasVisibleRows ? TIMELINE_BOTTOM_SPACER_HEIGHT : 0),
+                position: 'relative',
+              }}
+            >
+              {showGlobalRow && (
+                <div
+                  className="group absolute left-0 right-0 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-center px-2 bg-amber-50/40 dark:bg-amber-950/20"
+                  style={{ top: 0, height: globalRowHeight }}
+                >
+                  <span className="text-xs font-medium text-amber-700 dark:text-amber-400 truncate max-w-full text-center">
+                    특이사항
+                  </span>
+                  <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => setGlobalRowCount((n) => Math.min(10, Math.max(n, globalCardRows) + 1))}
+                      title="행 추가"
+                      disabled={globalRowCount >= 10}
+                      className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
+                    >
+                      <Plus size={10} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGlobalRowCount((n) => Math.max(1, globalCardRows, n - 1))}
+                      title="행 제거"
+                      disabled={!canRemoveGlobalRow}
+                      className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
+                    >
+                      <Minus size={10} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {memberRowItems.map((item) => (
+                <div
+                  key={item.member.memberId}
+                  className="group absolute left-0 right-0 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-center px-2"
+                  style={{ top: globalRowHeight + item.top, height: item.rowHeight }}
+                >
+                  <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate max-w-full text-center" title={item.member.name}>
+                    {item.member.name}
+                  </span>
+                  <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => handleAddRow(item.member.memberId, item.memberSchedules)}
+                      title="행 추가"
+                      disabled={(memberRowCounts[item.member.memberId] ?? 1) >= 10}
+                      className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
+                    >
+                      <Plus size={10} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRow(item.member.memberId, item.memberSchedules)}
+                      title="행 제거"
+                      disabled={!item.canRemove}
+                      className="w-4 h-4 rounded text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 flex items-center justify-center shadow-sm disabled:opacity-40"
+                    >
+                      <Minus size={10} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div
+            style={{
+              width: timelineWidth,
+              minWidth: timelineWidth,
+              position: 'absolute',
+              top: 0,
+              left: MEMBER_COLUMN_WIDTH,
+            }}
+          >
           <div
             className="sticky top-0 z-30 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800"
             style={{ height: WEEK_HEADER_HEIGHT, width: timelineWidth }}
@@ -1937,6 +1935,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
           </div>
         )}
       </div>
+    </div>
     </div>
   )
 }

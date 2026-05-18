@@ -5,17 +5,21 @@ type Props = {
   view: ViewKind;
   onViewChange: (v: ViewKind) => void;
   hiddenViewKinds?: ViewKind[];
+  unavailableViewKinds?: ViewKind[];
 };
 
 export function DatabaseViewKindToggle({
   view,
   onViewChange,
   hiddenViewKinds = [],
+  unavailableViewKinds = [],
 }: Props) {
-  const hidden = new Set<ViewKind>(hiddenViewKinds.filter((kind) => kind !== "table" && kind !== "list"));
+  const unavailable = new Set<ViewKind>(unavailableViewKinds);
+  const hidden = new Set<ViewKind>(hiddenViewKinds.filter((kind) => kind !== "table"));
   return (
     <>
       {(Object.keys(VIEW_ICONS) as ViewKind[]).map((vk) => {
+        if (unavailable.has(vk)) return null;
         if (hidden.has(vk)) return null;
         const Icon = VIEW_ICONS[vk];
         const on = view === vk;

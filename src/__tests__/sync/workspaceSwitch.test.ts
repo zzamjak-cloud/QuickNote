@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { applyWorkspaceSwitch, workspaceCacheNeedsPrepaintClear } from "../../lib/sync/workspaceSwitch";
+import {
+  applyWorkspaceSwitch,
+  refreshWorkspaceSnapshot,
+  workspaceCacheNeedsPrepaintClear,
+} from "../../lib/sync/workspaceSwitch";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useBlockCommentStore } from "../../store/blockCommentStore";
 
 // runtime.getSyncEngine 을 mock 하여 outbox 상태(peekPending)를 제어한다.
 vi.mock("../../lib/sync/runtime", () => {
@@ -37,6 +42,7 @@ beforeEach(() => {
   usePageStore.setState({ pages: {}, activePageId: null, cacheWorkspaceId: null });
   useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
   useSettingsStore.setState({ tabs: [{ pageId: null }], activeTabIndex: 0 });
+  useBlockCommentStore.setState({ messages: [] });
   setPending(0);
   setSnapshot(null);
 });
@@ -104,7 +110,54 @@ describe("applyWorkspaceSwitch", () => {
     expect(Object.keys(usePageStore.getState().pages).length).toBe(1);
   });
 
-  it("outbox pending 이 0 이면 다른 워크스페이스로 전환 시 클리어한다", async () => {
+  it("워크스페이스 스냅샷 복원 시 댓글도 함께 복원한다", async () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      activePageId: "page-1",
+      pages: {
+        "page-1": {
+          id: "page-1",
+          title: "페이지",
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 1,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      },
+    });
+    useBlockCommentStore.setState({
+      messages: [
+        {
+          id: "comment-1",
+          workspaceId: "ws-1",
+          pageId: "page-1",
+          blockId: "block-1",
+          authorMemberId: "member-1",
+          bodyText: "댓글",
+          mentionMemberIds: [],
+          parentId: null,
+          createdAt: 1,
+        },
+      ],
+    });
+    refreshWorkspaceSnapshot("ws-1");
+
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-2",
+      activePageId: null,
+      pages: {},
+    });
+    useBlockCommentStore.setState({ messages: [] });
+
+    const result = await applyWorkspaceSwitch("ws-2", "ws-1");
+    expect(result.reason).toBe("restored-snapshot");
+    expect(usePageStore.getState().pages["page-1"]).toBeDefined();
+    expect(useBlockCommentStore.getState().messages).toHaveLength(1);
+    expect(useBlockCommentStore.getState().messages[0]?.bodyText).toBe("댓글");
+  });
+
+  it("outbox pending 이 0 이면 다른 워크스페이스 전환 시 클리어를 fetch 적용 시점으로 미룬다", async () => {
     usePageStore.getState().createPage("a");
     usePageStore.setState({ cacheWorkspaceId: "ws-1" });
     useDatabaseStore.setState({
@@ -119,9 +172,11 @@ describe("applyWorkspaceSwitch", () => {
     });
     setPending(0);
     const result = await applyWorkspaceSwitch("ws-1", "ws-2");
-    expect(result.cleared).toBe(true);
-    expect(usePageStore.getState().pages).toEqual({});
-    expect(useDatabaseStore.getState().databases).toEqual({});
+    expect(result.cleared).toBe(false);
+    expect(result.reason).toBe("deferred-switch");
+    expect(usePageStore.getState().cacheWorkspaceId).toBe("ws-1");
+    expect(Object.keys(usePageStore.getState().pages).length).toBe(1);
+    expect(useDatabaseStore.getState().databases["db-1"]).toBeDefined();
   });
 
   it("outbox 에 pending 이 있으면 클리어를 보류한다 (데이터 손실 방지)", async () => {
@@ -175,7 +230,8 @@ describe("applyWorkspaceSwitch", () => {
     setSnapshot([{ workspaceId: "lc-scheduler-global" }]);
 
     const result = await applyWorkspaceSwitch("ws-1", "ws-2");
-    expect(result.cleared).toBe(true);
+    expect(result.cleared).toBe(false);
+    expect(result.reason).toBe("deferred-switch");
     expect(result.pending).toBe(0);
   });
 });

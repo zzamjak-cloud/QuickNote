@@ -1,6 +1,6 @@
 // 일정 카드 — react-rnd로 드래그(이동)·리사이즈(좌우) 지원.
 // Phase 2: x축 드래그 이동 + 좌/우 핸들 리사이즈. 수직 이동 비활성.
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { Rnd } from "react-rnd";
 import { ExternalLink } from "lucide-react";
@@ -8,11 +8,18 @@ import type { Schedule } from "../../store/schedulerStore";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
+import { useOrganizationStore } from "../../store/organizationStore";
+import { useTeamStore } from "../../store/teamStore";
 import { dateToX, widthForRange, xToDate } from "../../lib/scheduler/gridUtils";
 import { CARD_MARGIN } from "../../lib/scheduler/grid";
 import { daysInYear, parseIsoDate, toIsoStartOfDay, toIsoEndOfDay } from "../../lib/scheduler/dateUtils";
 import { hasCollision } from "../../lib/scheduler/collisionDetection";
-import { ANNUAL_LEAVE_COLOR, pickTextColor } from "../../lib/scheduler/colors";
+import {
+  ANNUAL_LEAVE_COLOR,
+  DEFAULT_SCHEDULE_COLOR,
+  GLOBAL_EVENT_COLOR,
+  pickTextColor,
+} from "../../lib/scheduler/colors";
 import { ContextMenu } from "./ContextMenu";
 
 type Props = {
@@ -32,7 +39,7 @@ type Props = {
   onMultiDragEnd?: (deltaX: number, deltaY: number) => void;
 };
 
-type TooltipPos = { top: number; left: number };
+type TooltipPos = { top: number; left: number; placement?: "above" | "below" };
 
 export function ScheduleCard({
   schedule,
@@ -54,6 +61,8 @@ export function ScheduleCard({
   const createSchedule = useSchedulerStore((s) => s.createSchedule);
   const members = useMemberStore((s) => s.members);
   const projects = useSchedulerProjectsStore((s) => s.projects);
+  const organizations = useOrganizationStore((s) => s.organizations);
+  const teams = useTeamStore((s) => s.teams);
 
   const startDate = parseIsoDate(schedule.startAt);
   const endDate = parseIsoDate(schedule.endAt);
@@ -71,11 +80,24 @@ export function ScheduleCard({
     ? ANNUAL_LEAVE_COLOR
     : isPast
       ? "#9ca3af"
-      : (schedule.color ?? "#3498DB");
+      : (schedule.color ?? (schedule.assigneeId == null ? GLOBAL_EVENT_COLOR : DEFAULT_SCHEDULE_COLOR));
   const textColor = schedule.textColor ?? "#ffffff";
   const project = schedule.projectId
     ? projects.find((item) => item.id === schedule.projectId) ?? null
     : null;
+  const team = schedule.teamId
+    ? teams.find((item) => item.teamId === schedule.teamId) ?? null
+    : null;
+  const organization = schedule.organizationId
+    ? organizations.find((item) => item.organizationId === schedule.organizationId) ?? null
+    : null;
+  const scopeText = project
+    ? `프로젝트 · ${project.name}`
+    : team
+      ? `팀 · ${team.name}`
+      : organization
+        ? `조직 · ${organization.name}`
+        : "기타 업무";
 
   // 드래그/리사이즈 중 로컬 위치 상태 (mouseup 전까지 서버 호출 안 함)
   const [localX, setLocalX] = useState<number>(x);
@@ -89,31 +111,11 @@ export function ScheduleCard({
   const [tooltipPos, setTooltipPos] = useState<TooltipPos | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<TooltipPos | null>(null);
 
-  // schedule prop이 바뀌면 로컬 상태도 동기화
-  const prevScheduleIdRef = useRef(schedule.id);
-  if (prevScheduleIdRef.current !== schedule.id) {
-    prevScheduleIdRef.current = schedule.id;
+  useLayoutEffect(() => {
     setLocalX(x);
     setLocalW(w);
     setLocalY(y);
-  }
-
-  // 서버 날짜가 바뀌면(드래그 완료 후 서버 응답) 로컬 상태 갱신
-  const prevStartAt = useRef(schedule.startAt);
-  const prevEndAt = useRef(schedule.endAt);
-  const prevRowIndex = useRef(schedule.rowIndex ?? 0);
-  if (
-    prevStartAt.current !== schedule.startAt ||
-    prevEndAt.current !== schedule.endAt ||
-    prevRowIndex.current !== (schedule.rowIndex ?? 0)
-  ) {
-    prevStartAt.current = schedule.startAt;
-    prevEndAt.current = schedule.endAt;
-    prevRowIndex.current = schedule.rowIndex ?? 0;
-    setLocalX(x);
-    setLocalW(w);
-    setLocalY(y);
-  }
+  }, [x, w, y]);
 
   // 호버 시 툴팁 위치 계산
   const rndRef = useRef<Rnd>(null);
@@ -123,11 +125,13 @@ export function ScheduleCard({
     const el = rndRef.current?.getSelfElement();
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const TOOLTIP_HEIGHT = 80;
     const GAP = 6;
-    let top = rect.top - TOOLTIP_HEIGHT - GAP;
-    if (top < 4) top = rect.bottom + GAP;
-    setTooltipPos({ top, left: rect.left });
+    const placement = rect.top > 96 ? "above" : "below";
+    setTooltipPos({
+      top: placement === "above" ? rect.top - GAP : rect.bottom + GAP,
+      left: rect.left,
+      placement,
+    });
   }, []);
 
   const handleMouseLeave = useCallback(() => setTooltipPos(null), []);
@@ -507,9 +511,9 @@ export function ScheduleCard({
             <span className="text-xs font-medium leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
               {schedule.title || "제목 없음"}
             </span>
-            {project && localW >= cellWidth * 1.5 && (
+            {localW >= cellWidth * 1.5 && (
               <span className="text-[10px] opacity-80 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-                {project.name}
+                {scopeText}
               </span>
             )}
           </div>
@@ -538,13 +542,16 @@ export function ScheduleCard({
         createPortal(
           <div
             className="fixed bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-md shadow-lg px-3 py-2 z-[600] text-xs pointer-events-none"
-            style={{ top: tooltipPos.top, left: tooltipPos.left, maxWidth: 240 }}
+            style={{
+              top: tooltipPos.top,
+              left: tooltipPos.left,
+              maxWidth: 240,
+              transform: tooltipPos.placement === "above" ? "translateY(-100%)" : undefined,
+            }}
           >
-            {project && (
-              <div className="text-[10px] text-zinc-500 dark:text-zinc-400 mb-1">
-                {project.name}
-              </div>
-            )}
+            <div className="text-[10px] text-zinc-500 dark:text-zinc-400 mb-1">
+              {scopeText}
+            </div>
             <div className="font-semibold text-zinc-900 dark:text-zinc-100 leading-snug">
               {schedule.title || "제목 없음"}
             </div>

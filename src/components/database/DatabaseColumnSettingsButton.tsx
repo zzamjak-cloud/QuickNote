@@ -9,7 +9,11 @@ import type {
 import { getVisibleOrderedColumns } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
-import { VIEW_ICONS, VIEW_LABELS } from "./databaseBlockViewConstants";
+import {
+  VIEW_ICONS,
+  VIEW_LABELS,
+  getUnavailableViewKinds,
+} from "./databaseBlockViewConstants";
 
 type Props = {
   databaseId: string;
@@ -67,6 +71,7 @@ export function DatabaseColumnSettingsButton({
   // 1) visibleColumnIds가 있으면 그 순서대로 visible.
   // 2) 누락된 컬럼은 hidden으로 끝에 붙임.
   const allCols = bundle.columns;
+  const unavailableViews = new Set<ViewKind>(getUnavailableViewKinds(allCols));
   const orderedVisible = getVisibleOrderedColumns(allCols, viewKind, panelState.viewConfigs);
   const visibleSet = new Set(orderedVisible.map((c) => c.id));
   const hiddenCols = allCols.filter((c) => !visibleSet.has(c.id));
@@ -156,16 +161,23 @@ export function DatabaseColumnSettingsButton({
           <div
             ref={popoverRef}
             style={{ position: "fixed", top: coords.top, left: coords.left, width: 240 }}
-            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-base shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
-              <div className="px-1 py-1 text-[10px] uppercase text-zinc-500">
+              <div className="px-1 py-1 text-sm uppercase text-zinc-500">
                 모드 표시
               </div>
               {(Object.keys(VIEW_ICONS) as ViewKind[]).map((kind) => {
+                if (unavailableViews.has(kind)) return null;
                 const Icon = VIEW_ICONS[kind];
                 const hidden = kind !== "table" && panelState.hiddenViewKinds.includes(kind);
-                const disabled = kind === "table";
+                const disabled = kind === "table" || kind === viewKind;
+                const disabledReason =
+                  kind === "table"
+                    ? "표 모드는 항상 표시됩니다"
+                    : kind === viewKind
+                      ? "현재 선택 중인 모드는 비활성화할 수 없습니다"
+                      : null;
                 return (
                   <button
                     key={kind}
@@ -184,7 +196,7 @@ export function DatabaseColumnSettingsButton({
                         : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
                       hidden ? "opacity-55" : "",
                     ].join(" ")}
-                    title={disabled ? "표 모드는 항상 표시됩니다" : hidden ? "모드 표시" : "모드 감추기"}
+                    title={disabled ? (disabledReason ?? "") : hidden ? "모드 표시" : "모드 감추기"}
                   >
                     <Icon size={12} />
                     <span className="min-w-0 flex-1 truncate">{VIEW_LABELS[kind]}</span>
@@ -195,7 +207,7 @@ export function DatabaseColumnSettingsButton({
             </div>
             {/* 항목 표시 섹션 */}
             <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
-              <div className="px-1 py-1 text-[10px] uppercase text-zinc-500">
+              <div className="px-1 py-1 text-sm uppercase text-zinc-500">
                 항목 표시
               </div>
               {layout === "fullPage" ? (
@@ -212,7 +224,7 @@ export function DatabaseColumnSettingsButton({
                         type="button"
                         onClick={() => setPanelState({ itemLimit: val })}
                         className={[
-                          "rounded border px-2 py-0.5 text-[11px]",
+                          "rounded border px-2 py-0.5 text-base",
                           active
                             ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                             : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400 dark:hover:bg-zinc-800",
@@ -226,7 +238,7 @@ export function DatabaseColumnSettingsButton({
               )}
             </div>
             {/* 속성 표시 카테고리 */}
-            <div className="px-1 py-1 text-[10px] uppercase text-zinc-500">
+            <div className="px-1 py-1 text-sm uppercase text-zinc-500">
               속성 표시 · 순서
             </div>
             {items.map((it, idx) => {

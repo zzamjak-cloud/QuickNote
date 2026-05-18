@@ -52,10 +52,10 @@ export function SchedulerTeamTabs() {
         <button
           type="button"
           onClick={handleUnifiedClick}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-t-md text-xs font-medium transition-colors whitespace-nowrap ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-t-md text-xs font-medium transition-colors whitespace-nowrap border-x border-t border-b-2 ${
             isUnified
-              ? "bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-t border-x border-zinc-200 dark:border-zinc-700"
-              : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              ? "bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700 border-b-zinc-300 dark:border-b-zinc-500"
+              : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-x-transparent border-t-transparent border-b-transparent"
           }`}
         >
           <Users size={14} />
@@ -74,14 +74,14 @@ export function SchedulerTeamTabs() {
               type="button"
               onClick={(e) => handleMemberClick(e, member.memberId)}
               title="Shift+클릭으로 다중 선택"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-t-md text-xs font-medium transition-colors whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-t-md text-xs font-medium transition-colors whitespace-nowrap border-x border-t border-b-2 ${
                 isSelected
-                  ? "bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-t border-x border-zinc-200 dark:border-zinc-700"
-                  : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  ? "bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 border-zinc-200 dark:border-zinc-700"
+                  : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-x-transparent border-t-transparent border-b-transparent"
               }`}
               style={
                 isSelected
-                  ? { borderBottomColor: memberColor, borderBottomWidth: "2px" }
+                  ? { borderBottomColor: memberColor }
                   : undefined
               }
             >

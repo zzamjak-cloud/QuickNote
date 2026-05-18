@@ -48,6 +48,8 @@ export function LCSchedulerModal({ onClose }: Props) {
   const disabledTeamIds = useSchedulerFiltersStore((s) => s.disabledTeamIds);
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
+  const selectMember = useSchedulerViewStore((s) => s.selectMember);
+  const setMultiSelected = useSchedulerViewStore((s) => s.setMultiSelected);
   const schedulerWorkspaceId = LC_SCHEDULER_WORKSPACE_ID;
   const schedulerDatabaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const schedulerDbUpdatedAt = useDatabaseStore(
@@ -61,6 +63,12 @@ export function LCSchedulerModal({ onClose }: Props) {
     const id = window.requestAnimationFrame(() => setBodyReady(true));
     return () => window.cancelAnimationFrame(id);
   }, []);
+
+  // 모달 진입 시 구성원 탭 선택 상태는 항상 통합으로 초기화한다.
+  useEffect(() => {
+    selectMember(null);
+    setMultiSelected([]);
+  }, [selectMember, setMultiSelected]);
 
   // 마운트 시 + 연도 변경 시 해당 연도 일정 페치
   useEffect(() => {

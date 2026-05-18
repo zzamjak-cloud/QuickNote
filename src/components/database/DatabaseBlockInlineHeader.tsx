@@ -1,4 +1,4 @@
-import { Database, History, Link2, PanelTop, Trash2 } from "lucide-react";
+import { Database, History, Link2, PanelTop } from "lucide-react";
 import type { DragEvent as ReactDragEvent } from "react";
 
 type Props = {
@@ -11,8 +11,6 @@ type Props = {
   onOpenDbHomePage: (pageId: string) => void;
   onOpenDbHistory: () => void;
   onOpenLink: () => void;
-  onOpenDeleteModal: () => void;
-  deleteDisabled?: boolean;
   /** 제목 영역 드래그 — 인라인 DB 블럭을 통째로 이동 */
   onTitleDragStart?: (e: ReactDragEvent<HTMLDivElement>) => void;
   onTitleDragEnd?: () => void;
@@ -28,8 +26,6 @@ export function DatabaseBlockInlineHeader({
   onOpenDbHomePage,
   onOpenDbHistory,
   onOpenLink,
-  onOpenDeleteModal,
-  deleteDisabled,
   onTitleDragStart,
   onTitleDragEnd,
 }: Props) {
@@ -63,7 +59,7 @@ export function DatabaseBlockInlineHeader({
           <Database size={16} className="shrink-0 text-zinc-500" />
           {inlineTitleLocked ? (
             <span
-              className="min-w-0 truncate text-left text-xl font-semibold text-zinc-800 dark:text-zinc-200"
+              className="min-w-0 truncate text-left text-2xl font-bold text-zinc-800 dark:text-zinc-200"
               title={displayDbTitle}
             >
               {displayDbTitle}
@@ -81,7 +77,7 @@ export function DatabaseBlockInlineHeader({
               }}
               placeholder="데이터베이스 이름"
               title="이름 변경"
-              className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 text-left text-xl font-semibold text-zinc-800 outline-none focus:border-zinc-300 dark:text-zinc-200 dark:focus:border-zinc-600"
+              className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 text-left text-2xl font-bold text-zinc-800 outline-none focus:border-zinc-300 dark:text-zinc-200 dark:focus:border-zinc-600"
             />
           )}
         </div>
@@ -111,15 +107,6 @@ export function DatabaseBlockInlineHeader({
             className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
           >
             <Link2 size={15} />
-          </button>
-          <button
-            type="button"
-            title={deleteDisabled ? "LC스케줄러 DB는 삭제할 수 없습니다." : "데이터베이스 영구 삭제…"}
-            onClick={onOpenDeleteModal}
-            disabled={deleteDisabled}
-            className="rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400 dark:hover:bg-red-950/40 dark:hover:text-red-400"
-          >
-            <Trash2 size={15} />
           </button>
         </div>
       </div>
