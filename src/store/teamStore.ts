@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type { Member } from "./memberStore";
+import { zustandStorage } from "../lib/storage/index";
 
 export type Team = {
   teamId: string;
@@ -62,6 +63,7 @@ export const useTeamStore = create<TeamStore>()(
     }),
     {
       name: "quicknote.teams.cache.v1",
+      storage: createJSONStorage(() => zustandStorage),
       partialize: (state) => ({
         cacheWorkspaceId: state.cacheWorkspaceId,
       }),

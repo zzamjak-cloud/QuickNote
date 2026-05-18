@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { appsyncClient } from "../lib/sync/graphql/client";
 import {
   LIST_MM_ENTRIES,
@@ -12,6 +12,7 @@ import {
   type GqlMmRevision,
 } from "../lib/sync/graphql/operations";
 import type { MmAutoReason, MmBucket, MmEntry, MmEntryInput, MmRevision } from "../lib/scheduler/mm/mmTypes";
+import { zustandStorage } from "../lib/storage/index";
 
 type SchedulerMmStore = {
   entries: MmEntry[];
@@ -208,6 +209,7 @@ export const useSchedulerMmStore = create<SchedulerMmStore>()(
     }),
     {
       name: "quicknote.scheduler.cache.mm.v1",
+      storage: createJSONStorage(() => zustandStorage),
       partialize: (state) => ({
         entries: state.entries,
         revisionsByEntryId: state.revisionsByEntryId,

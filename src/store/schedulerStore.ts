@@ -1,7 +1,7 @@
 // LC 스케줄러 일정 데이터를 보관·동기화하는 Zustand 스토어.
 // persist 미들웨어로 로컬 캐시를 유지하여 초기 로딩 시 빈 화면 방지.
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   createLCSchedulerSchedule,
   deleteLCSchedulerSchedule,
@@ -20,6 +20,7 @@ import { useMemberStore } from "./memberStore";
 import { useSchedulerViewStore } from "./schedulerViewStore";
 import { filterSchedulesByRange, scheduleOverlapsRange } from "../lib/scheduler/selectors/scheduleSelectors";
 import { logSchedulerPerf, nowSchedulerPerf } from "../lib/scheduler/performance";
+import { zustandStorage } from "../lib/storage/index";
 
 export type Schedule = {
   id: string;
@@ -444,6 +445,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
     }),
     {
       name: "quicknote.scheduler.cache.schedules.v1",
+      storage: createJSONStorage(() => zustandStorage),
       // 휘발성 상태(loading)는 제외하고 데이터 배열과 workspaceId만 저장
       partialize: (st) => ({
         schedules: st.schedules.filter((schedule) => !isOptimisticScheduleId(schedule.id)),

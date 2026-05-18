@@ -1,6 +1,6 @@
 // LC 스케줄러 공휴일 스토어 — persist 미들웨어로 로컬 캐시 유지.
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { appsyncClient } from "../lib/sync/graphql/client";
 import {
   LIST_HOLIDAYS,
@@ -9,6 +9,7 @@ import {
   DELETE_HOLIDAY,
   type GqlHoliday,
 } from "../lib/sync/graphql/operations";
+import { zustandStorage } from "../lib/storage/index";
 
 export type HolidayType = "holiday" | "evaluation" | "release" | "meeting" | "custom";
 
@@ -124,6 +125,7 @@ export const useSchedulerHolidaysStore = create<SchedulerHolidaysStore>()(
     }),
     {
       name: "quicknote.scheduler.cache.holidays.v1",
+      storage: createJSONStorage(() => zustandStorage),
       // 휘발성 상태(loading)는 제외하고 데이터 배열과 workspaceId만 저장
       partialize: (st) => ({
         holidays: st.holidays,

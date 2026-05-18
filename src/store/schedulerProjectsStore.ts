@@ -1,7 +1,8 @@
 // LC 스케줄러 프로젝트 스토어 — persist 미들웨어로 로컬 캐시 유지.
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { appsyncClient } from "../lib/sync/graphql/client";
+import { zustandStorage } from "../lib/storage/index";
 import {
   LIST_PROJECTS,
   CREATE_PROJECT,
@@ -136,6 +137,7 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
     }),
     {
       name: "quicknote.scheduler.cache.projects.v1",
+      storage: createJSONStorage(() => zustandStorage),
       // 휘발성 상태(loading)는 제외하고 데이터 배열과 workspaceId만 저장
       partialize: (st) => ({
         projects: st.projects,

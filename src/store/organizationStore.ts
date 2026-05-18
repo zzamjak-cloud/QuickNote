@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import type { Member } from "./memberStore";
+import { zustandStorage } from "../lib/storage/index";
 
 /** 조직(실) 엔티티 */
 export type Organization = {
@@ -65,6 +66,7 @@ export const useOrganizationStore = create<OrganizationStore>()(
     }),
     {
       name: "quicknote.organizations.cache.v1",
+      storage: createJSONStorage(() => zustandStorage),
       partialize: (state) => ({
         cacheWorkspaceId: state.cacheWorkspaceId,
       }),

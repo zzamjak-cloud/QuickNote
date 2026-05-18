@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 
 export type MemberRole = "developer" | "owner" | "leader" | "manager" | "member";
 export type MemberStatus = "active" | "removed";
@@ -121,6 +122,7 @@ export const useMemberStore = create<MemberStore>()(
     }),
     {
       name: "quicknote.members.cache.v1",
+      storage: createJSONStorage(() => zustandStorage),
       partialize: (state) => ({
         me: state.me,
         members: state.members,
