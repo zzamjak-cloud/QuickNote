@@ -42,8 +42,9 @@ describe("AdminTeamsTab", () => {
 
   it("팀 목록 카드에 팀명·인원수·구성원 관리 라벨을 렌더링한다", () => {
     render(<AdminTeamsTab />);
-    expect(screen.getByText("Design (1명)")).toBeTruthy();
-    expect(screen.getByLabelText("Design 구성원 관리")).toBeTruthy();
+    const card = screen.getByLabelText("Design 구성원 관리");
+    expect(card.textContent).toContain("Design");
+    expect(card.textContent).toContain("구성원 1명");
   });
 
   it("팀 추가/보관함 이동 액션이 API를 호출한다", async () => {
