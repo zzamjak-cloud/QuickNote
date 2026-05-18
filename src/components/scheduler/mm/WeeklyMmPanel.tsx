@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronLeft, ChevronRight, Lock, Save } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 import { buildWeeklyMmSuggestion, toMmScheduleSource } from "../../../lib/scheduler/mm/mmSuggestion";
 import {
@@ -54,6 +54,7 @@ export function WeeklyMmPanel() {
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
   const multiSelectedIds = useSchedulerViewStore((s) => s.multiSelectedIds);
   const setMmWeekStart = useSchedulerViewStore((s) => s.setMmWeekStart);
+  const setViewMode = useSchedulerViewStore((s) => s.setViewMode);
   const visibleMembers = useVisibleMembers();
 
   const [open, setOpen] = useState(false);
@@ -228,6 +229,11 @@ export function WeeklyMmPanel() {
     }
   }
 
+  const toggleOpen = useCallback(() => {
+    if (!open) setViewMode("week");
+    setOpen((value) => !value);
+  }, [open, setViewMode]);
+
   if (!me || !shouldRenderButton) return null;
 
   return (
@@ -359,7 +365,7 @@ export function WeeklyMmPanel() {
       )}
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={toggleOpen}
         className="fixed bottom-5 right-5 z-[620] h-8 w-[108px] rounded-md border border-zinc-200 bg-white text-xs font-semibold text-zinc-700 shadow-lg hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
       >
         {open ? "주간 MM 접기" : "주간 MM 열기"}

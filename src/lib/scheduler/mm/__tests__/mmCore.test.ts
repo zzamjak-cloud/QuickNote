@@ -14,6 +14,9 @@ function schedule(partial: Partial<MmScheduleSource>): MmScheduleSource {
     endAt: partial.endAt ?? "2026-05-11T23:59:59.999Z",
     assigneeId: partial.assigneeId ?? "m1",
     kind: partial.kind ?? "schedule",
+    attendanceValue: partial.attendanceValue ?? null,
+    attendanceDayValue: partial.attendanceDayValue ?? null,
+    attendanceLabel: partial.attendanceLabel ?? null,
     projectId: partial.projectId ?? null,
     teamId: partial.teamId ?? null,
     organizationId: partial.organizationId ?? null,
@@ -68,6 +71,36 @@ describe("MM 주간 계산", () => {
 
     expect(suggestion.buckets.find((b) => b.id === "project:p1")?.ratioBp).toBe(8000);
     expect(suggestion.buckets.find((b) => b.id === "other")?.ratioBp).toBe(2000);
+    expect(validateMmBuckets(suggestion.buckets).ok).toBe(true);
+  });
+
+  it("반차 근태는 기타 0.5일만 반영하고 나머지는 프로젝트에 배분한다", () => {
+    const suggestion = buildWeeklyMmSuggestion({
+      memberId: "m1",
+      weekStart: "2026-05-11",
+      schedules: [
+        schedule({
+          id: "p",
+          title: "A",
+          startAt: "2026-05-11T00:00:00.000Z",
+          endAt: "2026-05-15T23:59:59.999Z",
+          projectId: "p1",
+        }),
+        schedule({
+          id: "l",
+          title: "근태",
+          startAt: new Date(2026, 4, 12, 0, 0, 0, 0).toISOString(),
+          endAt: new Date(2026, 4, 12, 23, 59, 59, 999).toISOString(),
+          kind: "leave",
+          attendanceDayValue: 0.5,
+          attendanceLabel: "오전반차",
+        }),
+      ],
+      labels: { projects: { p1: "A프로젝트" } },
+    });
+
+    expect(suggestion.buckets.find((b) => b.id === "project:p1")?.ratioBp).toBe(9000);
+    expect(suggestion.buckets.find((b) => b.id === "other")?.ratioBp).toBe(1000);
     expect(validateMmBuckets(suggestion.buckets).ok).toBe(true);
   });
 

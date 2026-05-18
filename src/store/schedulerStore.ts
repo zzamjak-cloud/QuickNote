@@ -8,7 +8,7 @@ import {
   projectLCSchedulerSchedules,
   updateLCSchedulerSchedule,
 } from "../lib/scheduler/taskAdapter";
-import { ensureLCSchedulerDatabase } from "../lib/scheduler/database";
+import { LC_SCHEDULER_ATTENDANCE_TITLE, ensureLCSchedulerDatabase } from "../lib/scheduler/database";
 import {
   DEFAULT_SCHEDULE_COLOR,
   GLOBAL_EVENT_COLOR,
@@ -25,6 +25,7 @@ export type Schedule = {
   title: string;
   comment?: string | null;
   link?: string | null;
+  kind?: "schedule" | "leave";
   projectId?: string | null;
   teamId?: string | null;
   organizationId?: string | null;
@@ -96,15 +97,17 @@ function makeOptimisticSchedule(input: CreateScheduleInput): Schedule {
   const now = new Date().toISOString();
   const color = input.color ?? ((input.assigneeId ?? null) === null ? GLOBAL_EVENT_COLOR : DEFAULT_SCHEDULE_COLOR);
   const selectedScopeKey = input.selectedScopeKey ?? useSchedulerViewStore.getState().selectedProjectId;
+  const isAttendanceCreate = input.title === LC_SCHEDULER_ATTENDANCE_TITLE || input.title === "연차";
   const idSeed = typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return {
     id: `optimistic:${idSeed}`,
     workspaceId: input.workspaceId,
-    title: input.title,
+    title: isAttendanceCreate ? "연차" : input.title,
     comment: input.comment ?? null,
     link: input.link ?? null,
+    kind: isAttendanceCreate ? "leave" : "schedule",
     projectId: input.projectId ?? null,
     teamId: selectedScopeKey?.startsWith("team:") ? selectedScopeKey.slice(5) : null,
     organizationId: selectedScopeKey?.startsWith("org:") ? selectedScopeKey.slice(4) : null,

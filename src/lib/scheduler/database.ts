@@ -4,6 +4,8 @@ import { LC_SCHEDULER_WORKSPACE_ID, resolveLCSchedulerWorkspaceId } from "./scop
 export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
 export const LC_SCHEDULER_DATABASE_TITLE = "LC스케줄러";
 export const LC_SCHEDULER_DATABASE_ID = `${LC_SCHEDULER_DATABASE_ID_PREFIX}${LC_SCHEDULER_WORKSPACE_ID}`;
+export const LC_SCHEDULER_TASK_PRESET_ID = "lc-scheduler-preset:task";
+export const LC_SCHEDULER_ATTENDANCE_PRESET_ID = "lc-scheduler-preset:annual-leave";
 
 export const LC_SCHEDULER_COLUMN_IDS = {
   title: "lc-scheduler:title",
@@ -11,6 +13,7 @@ export const LC_SCHEDULER_COLUMN_IDS = {
   period: "lc-scheduler:period",
   project: "lc-scheduler:project",
   status: "lc-scheduler:status",
+  attendance: "lc-scheduler:attendance",
   organization: "lc-scheduler:organization",
   team: "lc-scheduler:team",
   milestone: "lc-scheduler:milestone",
@@ -19,6 +22,47 @@ export const LC_SCHEDULER_COLUMN_IDS = {
   color: "lc-scheduler:color",
   meta: "lc-scheduler:meta",
 } as const;
+
+export const LC_SCHEDULER_ATTENDANCE_TITLE = "근태";
+
+export const LC_SCHEDULER_ATTENDANCE_OPTIONS = [
+  { id: "annual-leave", label: "연차", color: "#e74c3c", dayValue: 1 },
+  { id: "morning-half-day", label: "오전반차", color: "#f97316", dayValue: 0.5 },
+  { id: "afternoon-half-day", label: "오후반차", color: "#f59e0b", dayValue: 0.5 },
+  { id: "morning-quarter-day", label: "오전반반차", color: "#a855f7", dayValue: 0.25 },
+  { id: "afternoon-quarter-day", label: "오후반반차", color: "#8b5cf6", dayValue: 0.25 },
+  { id: "hourly-leave-30m", label: "시간차(30분)", color: "#06b6d4", dayValue: 0.0625 },
+  { id: "hourly-leave-1h", label: "시간차(1시간)", color: "#0891b2", dayValue: 0.125 },
+  { id: "hourly-leave-90m", label: "시간차(1시간 30분)", color: "#0e7490", dayValue: 0.1875 },
+] as const;
+
+export type LCSchedulerAttendanceValue = typeof LC_SCHEDULER_ATTENDANCE_OPTIONS[number]["id"];
+
+const LEGACY_ATTENDANCE_VALUE_MAP: Record<string, LCSchedulerAttendanceValue> = {
+  "hourly-leave": "hourly-leave-1h",
+};
+
+export function normalizeLCSchedulerAttendanceValue(value: string | null | undefined): LCSchedulerAttendanceValue | null {
+  if (!value) return null;
+  if (LC_SCHEDULER_ATTENDANCE_OPTIONS.some((option) => option.id === value)) {
+    return value as LCSchedulerAttendanceValue;
+  }
+  return LEGACY_ATTENDANCE_VALUE_MAP[value] ?? null;
+}
+
+export function isLCSchedulerAttendanceValue(value: string | null | undefined): value is LCSchedulerAttendanceValue {
+  return LC_SCHEDULER_ATTENDANCE_OPTIONS.some((option) => option.id === value);
+}
+
+export function getLCSchedulerAttendanceLabel(value: string | null | undefined): string | null {
+  const normalized = normalizeLCSchedulerAttendanceValue(value);
+  return LC_SCHEDULER_ATTENDANCE_OPTIONS.find((option) => option.id === normalized)?.label ?? null;
+}
+
+export function getLCSchedulerAttendanceDayValue(value: string | null | undefined): number | null {
+  const normalized = normalizeLCSchedulerAttendanceValue(value);
+  return LC_SCHEDULER_ATTENDANCE_OPTIONS.find((option) => option.id === normalized)?.dayValue ?? null;
+}
 
 const LEGACY_REMOVED_COLUMN_IDS = new Set<string>([
   "lc-scheduler:estimateMm",
@@ -31,6 +75,7 @@ export const LC_SCHEDULER_REQUIRED_COLUMN_IDS = new Set<string>([
   LC_SCHEDULER_COLUMN_IDS.period,
   LC_SCHEDULER_COLUMN_IDS.project,
   LC_SCHEDULER_COLUMN_IDS.status,
+  LC_SCHEDULER_COLUMN_IDS.attendance,
   LC_SCHEDULER_COLUMN_IDS.color,
   LC_SCHEDULER_COLUMN_IDS.meta,
 ]);
@@ -103,8 +148,16 @@ function lcSchedulerColumns(): ColumnDef[] {
           { id: "progress", label: "진행중", color: "#3b82f6" },
           { id: "done", label: "완료", color: "#10b981" },
           { id: "hold", label: "보류", color: "#f59e0b" },
-          { id: "leave", label: "연차", color: "#e74c3c" },
         ],
+      },
+    },
+    {
+      id: LC_SCHEDULER_COLUMN_IDS.attendance,
+      name: "근태",
+      type: "select",
+      width: 150,
+      config: {
+        options: LC_SCHEDULER_ATTENDANCE_OPTIONS.map(({ id, label, color }) => ({ id, label, color })),
       },
     },
     { id: LC_SCHEDULER_COLUMN_IDS.organization, name: "조직", type: "select", width: 140, config: { options: [] } },
@@ -139,8 +192,15 @@ function defaultPresets(databaseId: string, t: number): DatabaseRowPreset[] {
     LC_SCHEDULER_COLUMN_IDS.period,
     LC_SCHEDULER_COLUMN_IDS.status,
   ];
+  const attendanceVisibleColumnIds = [
+    LC_SCHEDULER_COLUMN_IDS.title,
+    LC_SCHEDULER_COLUMN_IDS.assignees,
+    LC_SCHEDULER_COLUMN_IDS.period,
+    LC_SCHEDULER_COLUMN_IDS.attendance,
+  ];
   const hiddenColumnIds = [
     LC_SCHEDULER_COLUMN_IDS.project,
+    LC_SCHEDULER_COLUMN_IDS.attendance,
     LC_SCHEDULER_COLUMN_IDS.organization,
     LC_SCHEDULER_COLUMN_IDS.team,
     LC_SCHEDULER_COLUMN_IDS.milestone,
@@ -152,12 +212,14 @@ function defaultPresets(databaseId: string, t: number): DatabaseRowPreset[] {
 
   return [
     {
-      id: "lc-scheduler-preset:task",
+      id: LC_SCHEDULER_TASK_PRESET_ID,
       databaseId,
       name: "일정",
       scope: "workspace",
       columnDefaults: {
+        [LC_SCHEDULER_COLUMN_IDS.title]: "일정",
         [LC_SCHEDULER_COLUMN_IDS.status]: "todo",
+        [LC_SCHEDULER_COLUMN_IDS.attendance]: null,
         [LC_SCHEDULER_COLUMN_IDS.color]: "#3498DB",
         [LC_SCHEDULER_COLUMN_IDS.meta]: { kind: "schedule" },
       },
@@ -169,24 +231,67 @@ function defaultPresets(databaseId: string, t: number): DatabaseRowPreset[] {
       updatedAt: t,
     },
     {
-      id: "lc-scheduler-preset:annual-leave",
+      id: LC_SCHEDULER_ATTENDANCE_PRESET_ID,
       databaseId,
-      name: "연차",
+      name: "근태",
       scope: "workspace",
       columnDefaults: {
         [LC_SCHEDULER_COLUMN_IDS.title]: "연차",
-        [LC_SCHEDULER_COLUMN_IDS.status]: "leave",
+        [LC_SCHEDULER_COLUMN_IDS.status]: "todo",
+        [LC_SCHEDULER_COLUMN_IDS.attendance]: "annual-leave",
         [LC_SCHEDULER_COLUMN_IDS.color]: "#E74C3C",
-        [LC_SCHEDULER_COLUMN_IDS.meta]: { kind: "leave", annualLeave: true },
+        [LC_SCHEDULER_COLUMN_IDS.meta]: { kind: "leave", annualLeave: true, attendanceValue: "annual-leave" },
       },
-      requiredColumnIds: visibleColumnIds,
-      visibleColumnIds,
-      hiddenColumnIds,
-      schedulerDefaults: { durationDays: 1, color: "#E74C3C", titlePrefix: "연차" },
+      requiredColumnIds: attendanceVisibleColumnIds,
+      visibleColumnIds: attendanceVisibleColumnIds,
+      hiddenColumnIds: [
+        ...hiddenColumnIds.filter((id) => id !== LC_SCHEDULER_COLUMN_IDS.attendance),
+        LC_SCHEDULER_COLUMN_IDS.status,
+      ],
+      schedulerDefaults: { durationDays: 1, color: "#E74C3C", titlePrefix: LC_SCHEDULER_ATTENDANCE_TITLE },
       createdAt: t,
       updatedAt: t,
     },
   ];
+}
+
+function mergeSelectOptions(
+  existing: ColumnDef["config"] | undefined,
+  defaults: ColumnDef["config"] | undefined,
+  removedIds: Set<string> = new Set(),
+): ColumnDef["config"] | undefined {
+  const defaultOptions = defaults?.options ?? [];
+  const existingOptions = existing?.options;
+  if (!existingOptions) return defaults;
+  const defaultById = new Map(defaultOptions.map((option) => [option.id, option]));
+  const nextOptions = existingOptions
+    .filter((option) => !removedIds.has(option.id))
+    .map((option) => ({ ...(defaultById.get(option.id) ?? {}), ...option }));
+  const existingIds = new Set(nextOptions.map((option) => option.id));
+  for (const option of defaultOptions) {
+    if (!existingIds.has(option.id) && !removedIds.has(option.id)) {
+      nextOptions.push(option);
+    }
+  }
+  return {
+    ...(defaults ?? {}),
+    ...(existing ?? {}),
+    options: nextOptions,
+  };
+}
+
+function mergeSchedulerColumnConfig(
+  columnId: string,
+  existing: ColumnDef["config"] | undefined,
+  defaults: ColumnDef["config"] | undefined,
+): ColumnDef["config"] | undefined {
+  if (columnId === LC_SCHEDULER_COLUMN_IDS.status) {
+    return mergeSelectOptions(existing, defaults, new Set(["leave"]));
+  }
+  if (columnId === LC_SCHEDULER_COLUMN_IDS.attendance) {
+    return mergeSelectOptions(existing, defaults, new Set(["hourly-leave"]));
+  }
+  return existing ?? defaults;
 }
 
 function mergeColumns(existing: ColumnDef[] | undefined): ColumnDef[] {
@@ -199,7 +304,7 @@ function mergeColumns(existing: ColumnDef[] | undefined): ColumnDef[] {
       ...column,
       ...prev,
       type: column.type,
-      config: prev.config ?? column.config,
+      config: mergeSchedulerColumnConfig(column.id, prev.config, column.config),
     };
   });
   const requiredIds = new Set(required.map((column) => column.id));
@@ -215,9 +320,55 @@ function sanitizePreset(preset: DatabaseRowPreset): DatabaseRowPreset {
   for (const id of LEGACY_REMOVED_COLUMN_IDS) {
     delete columnDefaults[id];
   }
+  if (columnDefaults[LC_SCHEDULER_COLUMN_IDS.status] === "leave") {
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.status] = "todo";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.attendance] ??= "annual-leave";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.title] ??= "연차";
+  }
+  if (columnDefaults[LC_SCHEDULER_COLUMN_IDS.attendance] === "hourly-leave") {
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.attendance] = "hourly-leave-1h";
+  }
+  if (preset.id === LC_SCHEDULER_TASK_PRESET_ID) {
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.title] = "일정";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.attendance] = null;
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.status] ??= "todo";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.color] ??= "#3498DB";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta] = {
+      ...(
+        columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta] &&
+        typeof columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta] === "object" &&
+        !Array.isArray(columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta])
+          ? columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta] as Record<string, unknown>
+          : {}
+      ),
+      kind: "schedule",
+    };
+  }
+  if (preset.id === LC_SCHEDULER_ATTENDANCE_PRESET_ID) {
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.title] = "연차";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.attendance] = "annual-leave";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.status] ??= "todo";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.color] ??= "#E74C3C";
+    columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta] = {
+      ...(
+        columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta] &&
+        typeof columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta] === "object" &&
+        !Array.isArray(columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta])
+          ? columnDefaults[LC_SCHEDULER_COLUMN_IDS.meta] as Record<string, unknown>
+          : {}
+      ),
+      kind: "leave",
+      annualLeave: true,
+      attendanceValue: "annual-leave",
+    };
+  }
   const filterIds = (ids: string[]) => ids.filter((id) => !LEGACY_REMOVED_COLUMN_IDS.has(id));
+  const nextName = preset.id === LC_SCHEDULER_ATTENDANCE_PRESET_ID && (!preset.name.trim() || preset.name === "연차")
+    ? "근태"
+    : preset.name;
   return {
     ...preset,
+    name: nextName,
     columnDefaults,
     requiredColumnIds: filterIds(preset.requiredColumnIds ?? []),
     visibleColumnIds: filterIds(preset.visibleColumnIds ?? []),
@@ -251,9 +402,71 @@ function mergePresets(
   return nextPresets.map((preset) => ({ ...preset, databaseId }));
 }
 
+function migrateAttendanceRows(
+  databaseId: string,
+  rowPageOrder: string[],
+  usePageStore: typeof import("../../store/pageStore").usePageStore,
+  enqueueUpsertPageRaw: typeof import("../../store/databaseStore/helpers").enqueueUpsertPageRaw,
+): void {
+  const mutatedPageIds: string[] = [];
+  const t = Date.now();
+  usePageStore.setState((state) => {
+    let changed = false;
+    const nextPages = { ...state.pages };
+    for (const pageId of rowPageOrder) {
+      const page = nextPages[pageId];
+      if (!page || page.databaseId !== databaseId) continue;
+      const cells = page.dbCells ?? {};
+      const legacyStatusLeave = cells[LC_SCHEDULER_COLUMN_IDS.status] === "leave";
+      const rawAttendance = cells[LC_SCHEDULER_COLUMN_IDS.attendance];
+      const currentAttendance = typeof rawAttendance === "string"
+        ? rawAttendance
+        : null;
+      const attendanceValue = normalizeLCSchedulerAttendanceValue(currentAttendance)
+        ?? (legacyStatusLeave ? "annual-leave" : null);
+      if (!legacyStatusLeave && !attendanceValue) continue;
+
+      const nextCells = { ...cells };
+      if (legacyStatusLeave) {
+        nextCells[LC_SCHEDULER_COLUMN_IDS.status] = "todo";
+      }
+      if (attendanceValue) {
+        nextCells[LC_SCHEDULER_COLUMN_IDS.attendance] = attendanceValue;
+        const metaCell = nextCells[LC_SCHEDULER_COLUMN_IDS.meta];
+        const meta = metaCell && typeof metaCell === "object" && !Array.isArray(metaCell)
+          ? { ...(metaCell as Record<string, unknown>) }
+          : {};
+        nextCells[LC_SCHEDULER_COLUMN_IDS.meta] = {
+          ...meta,
+          kind: "leave",
+          annualLeave: attendanceValue === "annual-leave",
+          attendanceValue,
+        };
+      }
+
+      nextPages[pageId] = {
+        ...page,
+        title: attendanceValue ? LC_SCHEDULER_ATTENDANCE_TITLE : page.title,
+        dbCells: nextCells,
+        updatedAt: t,
+      };
+      mutatedPageIds.push(pageId);
+      changed = true;
+    }
+    return changed ? { pages: nextPages } : state;
+  });
+
+  const pages = usePageStore.getState().pages;
+  for (const pageId of mutatedPageIds) {
+    const page = pages[pageId];
+    if (page) enqueueUpsertPageRaw(page);
+  }
+}
+
 export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<void> {
-  const [{ useDatabaseStore }, { enqueueUpsertDatabase }] = await Promise.all([
+  const [{ useDatabaseStore }, { usePageStore }, { enqueueUpsertDatabase, enqueueUpsertPageRaw }] = await Promise.all([
     import("../../store/databaseStore"),
+    import("../../store/pageStore"),
     import("../../store/databaseStore/helpers"),
   ]);
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
@@ -280,6 +493,7 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
     JSON.stringify(existing.presets ?? []) === JSON.stringify(next.presets ?? []);
 
   if (same) {
+    migrateAttendanceRows(databaseId, next.rowPageOrder, usePageStore, enqueueUpsertPageRaw);
     useDatabaseStore.setState((s) =>
       schedulerWorkspaceId === LC_SCHEDULER_WORKSPACE_ID
         ? s
@@ -297,5 +511,6 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
       ? s.cacheWorkspaceId
       : schedulerWorkspaceId,
   }));
+  migrateAttendanceRows(databaseId, next.rowPageOrder, usePageStore, enqueueUpsertPageRaw);
   enqueueUpsertDatabase(next);
 }

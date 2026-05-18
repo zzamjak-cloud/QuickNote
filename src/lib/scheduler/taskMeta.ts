@@ -7,6 +7,12 @@ export type SchedulerTaskMeta = {
   [key: string]: unknown;
 };
 
+const GLOBAL_ROW_INDEX_KEY = "__global__";
+
+function rowIndexKey(assigneeId: string | null | undefined): string {
+  return assigneeId || GLOBAL_ROW_INDEX_KEY;
+}
+
 export function parseSchedulerTaskMeta(value: unknown): SchedulerTaskMeta {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const record = value as Record<string, unknown>;
@@ -30,17 +36,24 @@ export function parseSchedulerTaskMeta(value: unknown): SchedulerTaskMeta {
   };
 }
 
+export function getSchedulerTaskRowIndex(
+  meta: SchedulerTaskMeta,
+  assigneeId: string | null | undefined,
+): number {
+  return meta.rowIndexByAssigneeId?.[rowIndexKey(assigneeId)] ?? 0;
+}
+
 export function setSchedulerTaskRowIndex(
   meta: SchedulerTaskMeta,
   assigneeId: string | null | undefined,
   rowIndex: number | null | undefined,
 ): SchedulerTaskMeta {
-  if (!assigneeId || rowIndex == null) return meta;
+  if (rowIndex == null) return meta;
   return {
     ...meta,
     rowIndexByAssigneeId: {
       ...(meta.rowIndexByAssigneeId ?? {}),
-      [assigneeId]: rowIndex,
+      [rowIndexKey(assigneeId)]: rowIndex,
     },
   };
 }

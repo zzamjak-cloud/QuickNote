@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus, X } from "lucide-react";
+import { GripVertical, Plus, X } from "lucide-react";
 import type { ColumnDef, SelectOption } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { newId } from "../../lib/id";
@@ -14,6 +14,8 @@ type Props = {
 export function ColumnOptionsEditor({ databaseId, column }: Props) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const opts = column.config?.options ?? [];
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   const patchOptions = (next: SelectOption[]) => {
     updateColumn(databaseId, column.id, {
@@ -21,11 +23,62 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
     });
   };
 
+  const moveOption = () => {
+    if (dragFrom == null || dragOver == null || dragFrom === dragOver) {
+      setDragFrom(null);
+      setDragOver(null);
+      return;
+    }
+    const next = [...opts];
+    const [moved] = next.splice(dragFrom, 1);
+    if (moved) next.splice(dragOver, 0, moved);
+    patchOptions(next);
+    setDragFrom(null);
+    setDragOver(null);
+  };
+
   return (
     <div className="ml-4 mt-2 space-y-1 border-l border-zinc-100 pl-2 dark:border-zinc-800">
       <div className="text-sm font-medium text-zinc-500">선택 옵션</div>
-      {opts.map((o) => (
-        <div key={o.id} className="flex items-center gap-1">
+      {opts.map((o, idx) => (
+        <div
+          key={o.id}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setDragOver(idx);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            moveOption();
+          }}
+          className={[
+            "flex items-center gap-1 rounded",
+            dragFrom != null && dragOver === idx && dragFrom !== idx
+              ? "ring-1 ring-blue-400"
+              : "",
+          ].join(" ")}
+        >
+          <button
+            type="button"
+            draggable
+            title="옵션 순서 변경"
+            onDragStart={(event) => {
+              event.stopPropagation();
+              event.dataTransfer.effectAllowed = "move";
+              setDragFrom(idx);
+              setDragOver(idx);
+            }}
+            onDragEnd={(event) => {
+              event.stopPropagation();
+              setDragFrom(null);
+              setDragOver(null);
+            }}
+            className="cursor-grab rounded p-0.5 text-zinc-400 hover:bg-zinc-100 active:cursor-grabbing dark:hover:bg-zinc-800"
+          >
+            <GripVertical size={12} />
+          </button>
           <OptionColorSwatch
             color={o.color ?? SELECT_COLOR_PRESETS[0]!}
             onPick={(color) =>
@@ -127,7 +180,7 @@ function OptionColorSwatch({
             ref={popRef}
             data-qn-color-picker
             style={{ position: "fixed", top: coords.top, left: coords.left }}
-            className="z-[500] flex gap-1 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-[760] flex gap-1 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             {SELECT_COLOR_PRESETS.map((c) => (
               <button

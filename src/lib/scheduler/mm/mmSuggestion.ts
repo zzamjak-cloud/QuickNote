@@ -1,5 +1,11 @@
 import { parseSchedulerTaskMeta } from "../taskMeta";
-import { LC_SCHEDULER_COLUMN_IDS } from "../database";
+import {
+  LC_SCHEDULER_ATTENDANCE_OPTIONS,
+  LC_SCHEDULER_COLUMN_IDS,
+  getLCSchedulerAttendanceLabel,
+  getLCSchedulerAttendanceDayValue,
+  normalizeLCSchedulerAttendanceValue,
+} from "../database";
 import { parseScheduleInstanceId } from "../taskAdapter";
 import { usePageStore } from "../../../store/pageStore";
 import type { Schedule } from "../../../store/schedulerStore";
@@ -15,6 +21,9 @@ export type MmScheduleSource = {
   endAt: string;
   assigneeId?: string | null;
   kind?: "schedule" | "leave";
+  attendanceValue?: string | null;
+  attendanceDayValue?: number | null;
+  attendanceLabel?: string | null;
   projectId?: string | null;
   teamId?: string | null;
   organizationId?: string | null;
@@ -125,6 +134,10 @@ function addOther(
   });
 }
 
+function clampDayValue(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
 function rebalanceToTotal(buckets: MmBucket[]): MmBucket[] {
   const total = buckets.reduce((sum, bucket) => sum + bucket.ratioBp, 0);
   if (total === MM_RATIO_TOTAL_BP || buckets.length === 0) return buckets;
@@ -162,26 +175,41 @@ export function buildWeeklyMmSuggestion(args: {
       addOther(buckets, dateKey, "empty", "일정 없음");
       continue;
     }
-    const leave = daySchedules.find((schedule) => schedule.kind === "leave");
-    if (leave) {
-      addOther(buckets, dateKey, "leave", leave.title || "연차");
+
+    let remainingRatioBp = MM_WORKDAY_RATIO_BP;
+    const leaveSchedules = daySchedules.filter((schedule) => schedule.kind === "leave");
+    for (const leave of leaveSchedules) {
+      if (remainingRatioBp <= 0) break;
+      const dayValue = clampDayValue(leave.attendanceDayValue ?? 1);
+      const leaveRatioBp = Math.min(remainingRatioBp, Math.round(MM_WORKDAY_RATIO_BP * dayValue));
+      if (leaveRatioBp <= 0) continue;
+      addOther(buckets, dateKey, "leave", leave.attendanceLabel || leave.title || "연차", leaveRatioBp);
+      remainingRatioBp -= leaveRatioBp;
+    }
+    if (remainingRatioBp <= 0) {
+      continue;
+    }
+
+    const workSchedules = daySchedules.filter((schedule) => schedule.kind !== "leave");
+    if (!workSchedules.length) {
+      addOther(buckets, dateKey, "empty", "일정 없음", remainingRatioBp);
       continue;
     }
 
     const unique = new Map<string, ReturnType<typeof bucketInfo>>();
-    for (const schedule of daySchedules) {
+    for (const schedule of workSchedules) {
       const info = bucketInfo(schedule, labels);
       if (info) unique.set(info.id, info);
     }
 
     if (!unique.size) {
-      addOther(buckets, dateKey, "unclassified", daySchedules[0]?.title ?? "미분류 일정");
+      addOther(buckets, dateKey, "unclassified", workSchedules[0]?.title ?? "미분류 일정", remainingRatioBp);
       continue;
     }
 
     const infos = Array.from(unique.values()).filter(Boolean);
-    const base = Math.floor(MM_WORKDAY_RATIO_BP / infos.length);
-    let remainder = MM_WORKDAY_RATIO_BP - base * infos.length;
+    const base = Math.floor(remainingRatioBp / infos.length);
+    let remainder = remainingRatioBp - base * infos.length;
     for (const info of infos) {
       if (!info) continue;
       const ratioBp = base + (remainder > 0 ? 1 : 0);
@@ -227,13 +255,26 @@ export function toMmScheduleSource(schedule: Schedule): MmScheduleSource {
   const page = parsed ? usePageStore.getState().pages[parsed.pageId] : null;
   const cells = page?.dbCells ?? {};
   const meta = parseSchedulerTaskMeta(cells[LC_SCHEDULER_COLUMN_IDS.meta]);
+  const attendanceValue = cellString(cells[LC_SCHEDULER_COLUMN_IDS.attendance]);
+  const normalizedAttendanceValue = normalizeLCSchedulerAttendanceValue(attendanceValue);
+  const attendanceOption = normalizedAttendanceValue
+    ? LC_SCHEDULER_ATTENDANCE_OPTIONS.find((option) => option.id === normalizedAttendanceValue)
+    : null;
+  const kind = schedule.kind ?? meta.kind ?? (attendanceOption ? "leave" : "schedule");
   return {
     id: schedule.id,
     title: schedule.title,
     startAt: schedule.startAt,
     endAt: schedule.endAt,
     assigneeId: schedule.assigneeId,
-    kind: meta.kind,
+    kind,
+    attendanceValue: normalizedAttendanceValue,
+    attendanceDayValue: attendanceOption
+      ? getLCSchedulerAttendanceDayValue(normalizedAttendanceValue)
+      : kind === "leave"
+        ? 1
+        : null,
+    attendanceLabel: getLCSchedulerAttendanceLabel(normalizedAttendanceValue),
     projectId: schedule.projectId ?? cellString(cells[LC_SCHEDULER_COLUMN_IDS.project]),
     teamId: cellString(cells[LC_SCHEDULER_COLUMN_IDS.team]),
     organizationId: cellString(cells[LC_SCHEDULER_COLUMN_IDS.organization]),

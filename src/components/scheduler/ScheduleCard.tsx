@@ -65,7 +65,7 @@ export function ScheduleCard({
   const slotHeight = rowCount > 0 ? rowHeight / rowCount : rowHeight;
   const y = rowIdx * slotHeight;
 
-  const isAnnualLeave = schedule.title === "연차" || schedule.color === ANNUAL_LEAVE_COLOR;
+  const isAnnualLeave = schedule.kind === "leave";
   const isPast = !isAnnualLeave && endDate.getTime() < Date.now();
   const color = isAnnualLeave
     ? ANNUAL_LEAVE_COLOR

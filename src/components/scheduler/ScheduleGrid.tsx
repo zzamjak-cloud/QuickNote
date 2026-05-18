@@ -41,6 +41,7 @@ import {
 } from "../../lib/scheduler/colors";
 import { updateMemberApi } from "../../lib/sync/memberApi";
 import { parseScheduleInstanceId } from "../../lib/scheduler/taskAdapter";
+import { LC_SCHEDULER_ATTENDANCE_TITLE } from "../../lib/scheduler/database";
 import { groupSchedulesByMember } from "../../lib/scheduler/selectors/scheduleSelectors";
 import {
   buildVirtualRows,
@@ -660,7 +661,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
           });
           void createSchedule({
             workspaceId,
-            title: "연차",
+            title: LC_SCHEDULER_ATTENDANCE_TITLE,
             projectId: selectedProjectFilterId ?? null,
             assigneeId: cur.assigneeId,
             selectedScopeKey: selectedProjectId,
@@ -671,7 +672,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
             rowIndex: cur.rowIndex,
           }).catch((error) => {
             console.error(error);
-            window.alert("연차 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+            window.alert("근태 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
           });
           queueMicrotask(() => setPendingCreateMarquee(null));
         } else {

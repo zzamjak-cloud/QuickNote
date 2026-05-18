@@ -3,15 +3,19 @@ import { Check, ChevronDown, Eye, EyeOff, Pencil, Plus, Save } from "lucide-reac
 import type { CellValue, ColumnType, DatabaseRowPreset } from "../../types/database";
 import { useDatabaseStore, defaultColumnForType } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
+import { useSchedulerStore } from "../../store/schedulerStore";
 import { DatabaseCell } from "./DatabaseCell";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 import {
   isLCSchedulerDatabaseId,
   isLCSchedulerHiddenPropertyColumnId,
+  LC_SCHEDULER_ATTENDANCE_PRESET_ID,
   LC_SCHEDULER_COLUMN_IDS,
+  LC_SCHEDULER_TASK_PRESET_ID,
   getLCSchedulerWorkspaceIdFromDatabaseId,
 } from "../../lib/scheduler/database";
 import { rememberSchedulerPropertyValues } from "../../lib/scheduler/lastPropertyMemory";
+import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR } from "../../lib/scheduler/colors";
 
 const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -69,11 +73,36 @@ function readHiddenColumnIdsFromMeta(metaCell: CellValue): string[] | null {
     .map((item) => item.trim());
 }
 
+function readObjectCell(value: CellValue): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
 function scopeColumnId(scope: PresetScope): string | null {
   if (scope === "organization") return LC_SCHEDULER_COLUMN_IDS.organization;
   if (scope === "team") return LC_SCHEDULER_COLUMN_IDS.team;
   if (scope === "project") return LC_SCHEDULER_COLUMN_IDS.project;
   return null;
+}
+
+function resolveSchedulerPresetKind(
+  presetId: string,
+  preset: DatabaseRowPreset | undefined,
+): "task" | "attendance" | null {
+  const name = preset?.name.trim();
+  if (name === "일정") return "task";
+  if (name === "근태") return "attendance";
+  if (presetId === LC_SCHEDULER_TASK_PRESET_ID) return "task";
+  if (presetId === LC_SCHEDULER_ATTENDANCE_PRESET_ID) return "attendance";
+  return null;
+}
+
+function removeAttendanceMeta(meta: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...meta };
+  delete next.annualLeave;
+  delete next.attendanceValue;
+  return next;
 }
 
 export function DatabasePropertyPanel({
@@ -196,6 +225,7 @@ export function DatabasePropertyPanel({
     const workspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(databaseId);
     if (!workspaceId) return;
     rememberSchedulerPropertyValues(workspaceId, rowCells);
+    useSchedulerStore.getState().refreshVisibleRangeFromLocal(workspaceId);
   }, [databaseId, isSchedulerDb, rowCells]);
 
   useEffect(() => {
@@ -232,10 +262,7 @@ export function DatabasePropertyPanel({
 
   function persistHiddenColumnIds(nextHiddenColumnIds: string[]) {
     const latestCells = usePageStore.getState().pages[pageId]?.dbCells ?? rowCells;
-    const metaCell = latestCells[propertyPanelMetaCellId];
-    const baseMeta = (metaCell && typeof metaCell === "object" && !Array.isArray(metaCell))
-      ? { ...(metaCell as Record<string, unknown>) }
-      : {};
+    const baseMeta = readObjectCell(latestCells[propertyPanelMetaCellId]);
     updateCell(databaseId, pageId, propertyPanelMetaCellId, {
       ...baseMeta,
       [PROPERTY_HIDDEN_COLUMN_IDS_META_KEY]: nextHiddenColumnIds,
@@ -243,15 +270,47 @@ export function DatabasePropertyPanel({
   }
 
   function applyPresetToCurrentRow(presetId: string) {
+    const previousMeta = readObjectCell(rowCells[propertyPanelMetaCellId]);
+    const previousAssignees = rowCells[LC_SCHEDULER_COLUMN_IDS.assignees];
     const ok = applyPresetToRow(databaseId, pageId, presetId);
     if (!ok) return;
+    if (isSchedulerDb && typeof previousAssignees !== "undefined") {
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.assignees, previousAssignees);
+    }
     const preset = presets.find((item) => item.id === presetId);
+    const schedulerPresetKind = isSchedulerDb
+      ? resolveSchedulerPresetKind(presetId, preset)
+      : null;
+    if (schedulerPresetKind === "task") {
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.title, "일정");
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.status, "todo");
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.attendance, null);
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.color, DEFAULT_SCHEDULE_COLOR);
+    } else if (schedulerPresetKind === "attendance") {
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.title, "연차");
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.status, "todo");
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.attendance, "annual-leave");
+      updateCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.color, ANNUAL_LEAVE_COLOR);
+    }
     const presetHiddenColumnIds = [...(preset?.hiddenColumnIds ?? [])];
     const latestCells = usePageStore.getState().pages[pageId]?.dbCells ?? rowCells;
-    const metaCell = latestCells[propertyPanelMetaCellId];
-    const baseMeta = (metaCell && typeof metaCell === "object" && !Array.isArray(metaCell))
-      ? { ...(metaCell as Record<string, unknown>) }
-      : {};
+    let baseMeta = {
+      ...previousMeta,
+      ...readObjectCell(latestCells[propertyPanelMetaCellId]),
+    };
+    if (schedulerPresetKind === "task") {
+      baseMeta = {
+        ...removeAttendanceMeta(baseMeta),
+        kind: "schedule",
+      };
+    } else if (schedulerPresetKind === "attendance") {
+      baseMeta = {
+        ...baseMeta,
+        kind: "leave",
+        annualLeave: true,
+        attendanceValue: "annual-leave",
+      };
+    }
     updateCell(databaseId, pageId, propertyPanelMetaCellId, {
       ...baseMeta,
       presetId,
@@ -269,6 +328,7 @@ export function DatabasePropertyPanel({
   function buildPresetColumnDefaults(): Record<string, CellValue> {
     const next: Record<string, CellValue> = {};
     for (const col of allPropertyColumns) {
+      if (isSchedulerDb && col.id === LC_SCHEDULER_COLUMN_IDS.assignees) continue;
       const v = rowCells[col.id];
       if (typeof v === "undefined") continue;
       next[col.id] = v;

@@ -4,15 +4,21 @@ import { usePageStore } from "../../store/pageStore";
 import type { CreateScheduleInput, Schedule, UpdateScheduleInput } from "../../store/schedulerStore";
 import type { CellValue, DateRangeValue } from "../../types/database";
 import type { Page } from "../../types/page";
-import { pickTextColor } from "./colors";
+import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR, pickTextColor } from "./colors";
 import {
+  LC_SCHEDULER_ATTENDANCE_TITLE,
+  LC_SCHEDULER_ATTENDANCE_PRESET_ID,
   LC_SCHEDULER_COLUMN_IDS,
+  LC_SCHEDULER_TASK_PRESET_ID,
   makeLCSchedulerDatabaseId,
   ensureLCSchedulerDatabase,
+  getLCSchedulerAttendanceLabel,
+  normalizeLCSchedulerAttendanceValue,
 } from "./database";
 import { resolveLCSchedulerWorkspaceId } from "./scope";
 import { readRememberedSchedulerPropertyValues } from "./lastPropertyMemory";
 import {
+  getSchedulerTaskRowIndex,
   parseSchedulerTaskMeta,
   setSchedulerTaskRowIndex,
   type SchedulerTaskMeta,
@@ -53,6 +59,28 @@ function asString(value: CellValue): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function metaWithSchedulerKind(
+  meta: SchedulerTaskMeta,
+  status: string | null,
+  attendanceValue: string | null,
+): SchedulerTaskMeta {
+  const normalizedAttendanceValue = normalizeLCSchedulerAttendanceValue(attendanceValue);
+  if (normalizedAttendanceValue) {
+    return {
+      ...meta,
+      kind: "leave",
+      annualLeave: normalizedAttendanceValue === "annual-leave",
+      attendanceValue: normalizedAttendanceValue,
+    };
+  }
+  if (status === "leave") return { ...meta, kind: "leave", attendanceValue: "annual-leave" };
+  if (meta.kind === "leave" || meta.attendanceValue) {
+    const { annualLeave: _annualLeave, attendanceValue: _attendanceValue, ...rest } = meta;
+    return { ...rest, kind: "schedule" };
+  }
+  return meta;
+}
+
 function normalizeAssignees(value: CellValue, members: MemberLike[]): string[] {
   const raw: string[] = [];
   if (Array.isArray(value)) {
@@ -84,14 +112,29 @@ function scheduleFromPage(args: {
   projectId: string | null;
   teamId: string | null;
   organizationId: string | null;
+  attendanceValue: string | null;
 }): Schedule {
-  const color = args.color ?? (args.meta.kind === "leave" ? "#E74C3C" : "#3498DB");
+  const attendanceValue = normalizeLCSchedulerAttendanceValue(args.attendanceValue);
+  const isAttendance = attendanceValue !== null;
+  const attendanceLabel = getLCSchedulerAttendanceLabel(attendanceValue);
+  const rawMeta = parseSchedulerTaskMeta(args.page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.meta]);
+  const isAutoAttendanceColor =
+    !isAttendance &&
+    (args.page.title === LC_SCHEDULER_ATTENDANCE_TITLE || rawMeta.kind === "leave" || rawMeta.attendanceValue) &&
+    typeof args.color === "string" &&
+    ["#e74c3c", "#e64c4c"].includes(args.color.toLowerCase());
+  const color = isAttendance
+    ? ANNUAL_LEAVE_COLOR
+    : isAutoAttendanceColor
+      ? DEFAULT_SCHEDULE_COLOR
+      : args.color ?? DEFAULT_SCHEDULE_COLOR;
   return {
     id: makeScheduleInstanceId(args.page.id, args.assigneeId),
     workspaceId: args.workspaceId,
-    title: args.page.title,
+    title: attendanceLabel ?? args.page.title,
     comment: null,
     link: null,
+    kind: isAttendance ? "leave" : "schedule",
     projectId: args.projectId,
     teamId: args.teamId,
     organizationId: args.organizationId,
@@ -100,9 +143,7 @@ function scheduleFromPage(args: {
     assigneeId: args.assigneeId,
     color,
     textColor: args.meta.textColor ?? pickTextColor(color),
-    rowIndex: args.assigneeId
-      ? args.meta.rowIndexByAssigneeId?.[args.assigneeId] ?? 0
-      : 0,
+    rowIndex: getSchedulerTaskRowIndex(args.meta, args.assigneeId),
     createdByMemberId: args.page.createdByMemberId ?? "",
     createdAt: new Date(args.page.createdAt).toISOString(),
     updatedAt: new Date(args.page.updatedAt).toISOString(),
@@ -125,7 +166,14 @@ export function projectLCSchedulerSchedules(
     if (page.dbCells?.["_qn_isTemplate"] === "1") continue;
     const range = asDateRange(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.period]);
     if (!range) continue;
-    const meta = parseSchedulerTaskMeta(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.meta]);
+    const status = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.status]);
+    const attendanceValue = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.attendance])
+      ?? (status === "leave" ? "annual-leave" : null);
+    const meta = metaWithSchedulerKind(
+      parseSchedulerTaskMeta(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.meta]),
+      status,
+      attendanceValue,
+    );
     const color = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.color]);
     const projectId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.project]);
     const teamId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.team]);
@@ -135,11 +183,11 @@ export function projectLCSchedulerSchedules(
       members,
     );
     if (!assigneeIds.length) {
-      schedules.push(scheduleFromPage({ page, workspaceId, assigneeId: null, meta, range, color, projectId, teamId, organizationId }));
+      schedules.push(scheduleFromPage({ page, workspaceId, assigneeId: null, meta, range, color, projectId, teamId, organizationId, attendanceValue }));
       continue;
     }
     for (const assigneeId of assigneeIds) {
-      schedules.push(scheduleFromPage({ page, workspaceId, assigneeId, meta, range, color, projectId, teamId, organizationId }));
+      schedules.push(scheduleFromPage({ page, workspaceId, assigneeId, meta, range, color, projectId, teamId, organizationId, attendanceValue }));
     }
   }
   return schedules;
@@ -189,9 +237,10 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
   const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const pageId = useDatabaseStore.getState().addRow(databaseId);
   const bundle = useDatabaseStore.getState().databases[databaseId];
-  const presetId = input.title === "연차"
-    ? "lc-scheduler-preset:annual-leave"
-    : "lc-scheduler-preset:task";
+  const isAttendanceCreate = input.title === LC_SCHEDULER_ATTENDANCE_TITLE || input.title === "연차";
+  const presetId = isAttendanceCreate
+    ? LC_SCHEDULER_ATTENDANCE_PRESET_ID
+    : LC_SCHEDULER_TASK_PRESET_ID;
   if (bundle?.presets?.some((preset) => preset.id === presetId)) {
     useDatabaseStore.getState().applyPresetToRow(databaseId, pageId, presetId);
   }
@@ -205,7 +254,7 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
   return updateLCSchedulerSchedule({
     id: makeScheduleInstanceId(pageId, input.assigneeId ?? null),
     workspaceId: input.workspaceId,
-    title: input.title,
+    title: isAttendanceCreate ? "연차" : input.title,
     projectId: input.projectId ?? null,
     startAt: input.startAt,
     endAt: input.endAt,
