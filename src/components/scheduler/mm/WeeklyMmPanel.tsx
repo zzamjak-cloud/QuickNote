@@ -1,7 +1,11 @@
-import { AlertTriangle, ChevronLeft, ChevronRight, Lock, Save } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Lock, RefreshCw, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
-import { buildWeeklyMmSuggestion, toMmScheduleSource } from "../../../lib/scheduler/mm/mmSuggestion";
+import {
+  buildWeeklyMmSuggestion,
+  toMmScheduleSource,
+  type WeeklyMmSuggestion,
+} from "../../../lib/scheduler/mm/mmSuggestion";
 import {
   getDefaultMmWeek,
   getMmWeekLabel,
@@ -42,7 +46,6 @@ function formatShortRange(weekStart: string): string {
 
 export function WeeklyMmPanel() {
   const me = useMemberStore((s) => s.me);
-  const schedules = useSchedulerStore((s) => s.schedules);
   const holidays = useSchedulerHolidaysStore((s) => s.holidays);
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const organizations = useOrganizationStore((s) => s.organizations);
@@ -60,7 +63,8 @@ export function WeeklyMmPanel() {
   const [open, setOpen] = useState(false);
   const [weekStart, setWeekStart] = useState(() => getDefaultMmWeek());
   const [draftBuckets, setDraftBuckets] = useState<MmBucket[]>([]);
-  const [draftSourceKey, setDraftSourceKey] = useState<string | null>(null);
+  const [draftSuggestion, setDraftSuggestion] = useState<WeeklyMmSuggestion | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,37 +149,34 @@ export function WeeklyMmPanel() {
     [effectiveTargetMemberId, entries, weekStart],
   );
 
-  const mmScheduleSources = useMemo(() => schedules.map(toMmScheduleSource), [schedules]);
-  const suggestion = useMemo(
-    () => effectiveTargetMemberId
-      ? buildWeeklyMmSuggestion({
+  const refreshDraftFromSchedules = useCallback(() => {
+    if (!effectiveTargetMemberId) {
+      setDraftSuggestion(null);
+      setDraftBuckets([]);
+      return;
+    }
+    setRefreshing(true);
+    setError(null);
+    try {
+      const mmScheduleSources = useSchedulerStore.getState().schedules.map(toMmScheduleSource);
+      const nextSuggestion = buildWeeklyMmSuggestion({
         memberId: effectiveTargetMemberId,
         weekStart,
         schedules: mmScheduleSources,
         holidays,
         labels: { projects: projectNames, teams: teamNames, organizations: orgNames },
-      })
-      : null,
-    [effectiveTargetMemberId, holidays, mmScheduleSources, orgNames, projectNames, teamNames, weekStart],
-  );
+      });
+      setDraftSuggestion(nextSuggestion);
+      setDraftBuckets(nextSuggestion.buckets);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [effectiveTargetMemberId, holidays, orgNames, projectNames, teamNames, weekStart]);
 
   useEffect(() => {
-    const nextKey = existingEntry
-      ? `entry:${existingEntry.id}:${existingEntry.updatedAt}`
-      : suggestion
-        ? `suggestion:${effectiveTargetMemberId}:${weekStart}:${suggestion.sourceSnapshot.scheduleIds.join("|")}:${suggestion.sourceSnapshot.holidayDates.join("|")}`
-        : null;
-    if (!nextKey || nextKey === draftSourceKey) return;
-    if (existingEntry) {
-      setDraftBuckets(existingEntry.buckets);
-      setDraftSourceKey(nextKey);
-      return;
-    }
-    if (suggestion) {
-      setDraftBuckets(suggestion.buckets);
-      setDraftSourceKey(nextKey);
-    }
-  }, [draftSourceKey, effectiveTargetMemberId, existingEntry, suggestion, weekStart]);
+    if (!open || !effectiveTargetMemberId) return;
+    refreshDraftFromSchedules();
+  }, [effectiveTargetMemberId, open, refreshDraftFromSchedules]);
 
   const validation = validateMmBuckets(draftBuckets);
   const editable = Boolean(effectiveTargetMemberId && canEditWeeklyMmInput({
@@ -208,7 +209,7 @@ export function WeeklyMmPanel() {
   }
 
   async function handleSave() {
-    if (!effectiveTargetMemberId || !suggestion || !validation.ok || !editable) return;
+    if (!effectiveTargetMemberId || !draftSuggestion || !validation.ok || !editable) return;
     setSaving(true);
     setError(null);
     try {
@@ -216,9 +217,9 @@ export function WeeklyMmPanel() {
         workspaceId: LC_SCHEDULER_WORKSPACE_ID,
         memberId: effectiveTargetMemberId,
         weekStart,
-        weekEnd: suggestion.weekEnd,
+        weekEnd: draftSuggestion.weekEnd,
         buckets: draftBuckets,
-        sourceSnapshot: suggestion.sourceSnapshot,
+        sourceSnapshot: draftSuggestion.sourceSnapshot,
         organizationId: memberOrg?.organizationId ?? null,
         teamId: memberTeam?.teamId ?? null,
       });
@@ -271,8 +272,19 @@ export function WeeklyMmPanel() {
           </div>
 
           <div className="max-h-[70vh] space-y-3 overflow-y-auto p-4">
-            <div className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-              {targetMember?.name ?? "구성원"}
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 truncate text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                {targetMember?.name ?? "구성원"}
+              </div>
+              <button
+                type="button"
+                onClick={refreshDraftFromSchedules}
+                disabled={!effectiveTargetMemberId || refreshing}
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded border border-zinc-200 bg-white px-2 text-xs font-semibold text-zinc-600 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                <RefreshCw size={13} className={refreshing ? "animate-spin" : undefined} />
+                데이터 갱신
+              </button>
             </div>
 
             {!editable && (
@@ -354,7 +366,7 @@ export function WeeklyMmPanel() {
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={!validation.ok || !editable || saving}
+              disabled={!draftSuggestion || !validation.ok || !editable || saving}
               className="flex w-full items-center justify-center gap-2 rounded bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-45"
             >
               <Save size={15} />

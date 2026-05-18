@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { buildWeeklyMmSuggestion, type MmScheduleSource } from "../mmSuggestion";
+import { beforeEach, describe, expect, it } from "vitest";
+import { buildWeeklyMmSuggestion, toMmScheduleSource, type MmScheduleSource } from "../mmSuggestion";
 import { getDefaultMmWeek, shiftMmWeek, toDateKey } from "../weekUtils";
 import { canEditWeeklyMmInput } from "../mmPermissions";
 import { getMemberSubmissionStates, toCsvMmValue, validateMmBuckets } from "../mmValidation";
 import { aggregateMmEntriesByMemberAverage, buildMmCsvRows, filterMmEntriesByRange, filterMmEntriesByScope } from "../mmAggregation";
 import type { MmEntry } from "../mmTypes";
+import { LC_SCHEDULER_COLUMN_IDS, LC_SCHEDULER_DATABASE_ID } from "../../database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../scope";
+import { makeScheduleInstanceId } from "../../taskAdapter";
+import { usePageStore } from "../../../../store/pageStore";
 
 function schedule(partial: Partial<MmScheduleSource>): MmScheduleSource {
   return {
@@ -41,6 +45,10 @@ function mmEntry(partial: Partial<MmEntry>): MmEntry {
 }
 
 describe("MM 주간 계산", () => {
+  beforeEach(() => {
+    usePageStore.setState({ pages: {}, activePageId: null });
+  });
+
   it("기본 주차는 현재 주의 이전 주 월요일이다", () => {
     expect(getDefaultMmWeek(new Date(2026, 4, 17))).toBe("2026-05-04");
     expect(shiftMmWeek("2026-05-04", 1)).toBe("2026-05-11");
@@ -102,6 +110,70 @@ describe("MM 주간 계산", () => {
     expect(suggestion.buckets.find((b) => b.id === "project:p1")?.ratioBp).toBe(9000);
     expect(suggestion.buckets.find((b) => b.id === "other")?.ratioBp).toBe(1000);
     expect(validateMmBuckets(suggestion.buckets).ok).toBe(true);
+  });
+
+  it("근태 선택 셀은 기존 일정 kind보다 우선해서 반차·시간차를 MM 근태로 변환한다", () => {
+    const pageId = "attendance-row";
+    usePageStore.setState({
+      pages: {
+        [pageId]: {
+          id: pageId,
+          title: "근태",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 0,
+          createdAt: new Date(2026, 4, 12).getTime(),
+          updatedAt: new Date(2026, 4, 12).getTime(),
+          databaseId: LC_SCHEDULER_DATABASE_ID,
+          dbCells: {
+            [LC_SCHEDULER_COLUMN_IDS.status]: "todo",
+            [LC_SCHEDULER_COLUMN_IDS.attendance]: "morning-half-day",
+          },
+        },
+      },
+      activePageId: null,
+    });
+
+    const scheduleInput = {
+      id: makeScheduleInstanceId(pageId, "m1"),
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      title: "근태",
+      kind: "schedule",
+      startAt: new Date(2026, 4, 12, 0, 0, 0, 0).toISOString(),
+      endAt: new Date(2026, 4, 12, 23, 59, 59, 999).toISOString(),
+      assigneeId: "m1",
+      createdByMemberId: "m1",
+      createdAt: new Date(2026, 4, 12).toISOString(),
+      updatedAt: new Date(2026, 4, 12).toISOString(),
+    } as const;
+    const source = toMmScheduleSource(scheduleInput);
+
+    expect(source.kind).toBe("leave");
+    expect(source.attendanceDayValue).toBe(0.5);
+    expect(source.attendanceLabel).toBe("오전반차");
+
+    usePageStore.setState((state) => {
+      const page = state.pages[pageId];
+      if (!page) return state;
+      return {
+        pages: {
+          ...state.pages,
+          [pageId]: {
+            ...page,
+            dbCells: {
+              ...page.dbCells,
+              [LC_SCHEDULER_COLUMN_IDS.attendance]: "hourly-leave-1h",
+            },
+          },
+        },
+      };
+    });
+
+    const hourlySource = toMmScheduleSource(scheduleInput);
+    expect(hourlySource.kind).toBe("leave");
+    expect(hourlySource.attendanceDayValue).toBe(0.125);
+    expect(hourlySource.attendanceLabel).toBe("시간차(1시간)");
   });
 
   it("프로젝트 2일 + 공휴일 3일을 40/60으로 계산한다", () => {

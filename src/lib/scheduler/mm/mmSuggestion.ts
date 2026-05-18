@@ -255,12 +255,17 @@ export function toMmScheduleSource(schedule: Schedule): MmScheduleSource {
   const page = parsed ? usePageStore.getState().pages[parsed.pageId] : null;
   const cells = page?.dbCells ?? {};
   const meta = parseSchedulerTaskMeta(cells[LC_SCHEDULER_COLUMN_IDS.meta]);
+  const status = cellString(cells[LC_SCHEDULER_COLUMN_IDS.status]);
   const attendanceValue = cellString(cells[LC_SCHEDULER_COLUMN_IDS.attendance]);
   const normalizedAttendanceValue = normalizeLCSchedulerAttendanceValue(attendanceValue);
   const attendanceOption = normalizedAttendanceValue
     ? LC_SCHEDULER_ATTENDANCE_OPTIONS.find((option) => option.id === normalizedAttendanceValue)
     : null;
-  const kind = schedule.kind ?? meta.kind ?? (attendanceOption ? "leave" : "schedule");
+  const kind = page
+    ? attendanceOption || status === "leave" || meta.kind === "leave"
+      ? "leave"
+      : "schedule"
+    : schedule.kind ?? "schedule";
   return {
     id: schedule.id,
     title: schedule.title,
