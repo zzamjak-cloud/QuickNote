@@ -122,7 +122,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
 
   // 특이사항 행 수 (별도 관리)
   const [globalRowCount, setGlobalRowCount] = useState(1);
-  const [viewportState, setViewportState] = useState({ scrollTop: 0, height: 0 });
+  const [viewportState, setViewportState] = useState({ scrollTop: 0, scrollLeft: 0, height: 0 });
 
   useEffect(() => {
     const next: Record<string, number> = {};
@@ -426,9 +426,17 @@ export function ScheduleGrid({ workspaceId }: Props) {
   const syncViewportState = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    const next = { scrollTop: container.scrollTop, height: container.clientHeight };
+    const next = {
+      scrollTop: container.scrollTop,
+      scrollLeft: container.scrollLeft,
+      height: container.clientHeight,
+    };
     setViewportState((prev) => (
-      prev.scrollTop === next.scrollTop && prev.height === next.height ? prev : next
+      prev.scrollTop === next.scrollTop &&
+      prev.scrollLeft === next.scrollLeft &&
+      prev.height === next.height
+        ? prev
+        : next
     ));
   }, []);
 
@@ -799,6 +807,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                       rowHeight={globalH}
                       rowCount={globalRowCount}
                       isSelected={selectedScheduleId === s.id}
+                      scrollLeft={viewportState.scrollLeft}
                       onSelect={handleScheduleSelect}
                       onEdit={openSchedulePage}
                     />
@@ -836,6 +845,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                       isMultiSelected={isCardSelected(s.id)}
                       multiDragDeltaX={isMultiDragging && isCardSelected(s.id) ? multiDragDeltaX : null}
                       multiDragDeltaY={isMultiDragging && isCardSelected(s.id) ? multiDragDeltaY : null}
+                      scrollLeft={viewportState.scrollLeft}
                       onMultiDragStart={() => handleMultiDragStart(s.id)}
                       onMultiDragMove={handleMultiDragMove}
                       onMultiDragEnd={handleMultiDragComplete}

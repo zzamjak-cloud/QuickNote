@@ -32,6 +32,7 @@ import { updateMemberApi } from '../../lib/sync/memberApi'
 import { getRowHeight } from '../../lib/scheduler/grid'
 import { groupSchedulesByMember } from '../../lib/scheduler/selectors/scheduleSelectors'
 import { parseDateKey } from '../../lib/scheduler/mm/weekUtils'
+import { getScheduleCardContentOffset, shouldUseCompactScheduleCard } from './scheduleCardDisplay'
 import {
   PENDING_SCHEDULE_PAGE_ID_PREFIX,
   ScheduleDeleteConfirmDialog,
@@ -209,21 +210,21 @@ function getScheduleScopeMeta(
     ? scopes.find((x) => x.type === 'project' && x.id === schedule.projectId)
     : null
   if (project) {
-    return { displayText: `프로젝트 · ${project.name}`, tooltip: project.name }
+    return { displayText: project.name, tooltip: project.name }
   }
 
   const team = schedule.teamId
     ? scopes.find((x) => x.type === 'team' && x.id === schedule.teamId)
     : null
   if (team) {
-    return { displayText: `팀 · ${team.name}`, tooltip: team.name }
+    return { displayText: team.name, tooltip: team.name }
   }
 
   const organization = schedule.organizationId
     ? scopes.find((x) => x.type === 'organization' && x.id === schedule.organizationId)
     : null
   if (organization) {
-    return { displayText: `조직 · ${organization.name}`, tooltip: organization.name }
+    return { displayText: organization.name, tooltip: organization.name }
   }
 
   return { displayText: '기타 업무', tooltip: '기타 업무' }
@@ -258,6 +259,7 @@ function ScheduleWeekCard({
   isMultiSelected,
   multiDragDeltaX,
   multiDragDeltaY,
+  scrollLeft,
   onSelect,
   onOpenPage,
   onUpdate,
@@ -281,6 +283,7 @@ function ScheduleWeekCard({
   isMultiSelected?: boolean
   multiDragDeltaX?: number | null
   multiDragDeltaY?: number | null
+  scrollLeft: number
   onSelect: (id: string) => void
   onOpenPage: (id: string) => void
   onUpdate: ReturnType<typeof useSchedulerStore.getState>['updateSchedule']
@@ -299,6 +302,8 @@ function ScheduleWeekCard({
       : scheduleColor
   const textColor = s.textColor ?? '#ffffff'
   const meta = getScheduleScopeMeta(s, projects)
+  const zoomLevel = useSchedulerViewStore((state) => state.zoomLevel)
+  const compactLayout = shouldUseCompactScheduleCard(zoomLevel)
   const span = Math.max(1, endSlot - startSlot + 1)
   const x = startSlot * cellWidth
   const w = span * cellWidth
@@ -314,6 +319,14 @@ function ScheduleWeekCard({
   const [localY, setLocalY] = useState(y)
   const [tooltipPos, setTooltipPos] = useState<TooltipPos | null>(null)
   const [contextMenuPos, setContextMenuPos] = useState<TooltipPos | null>(null)
+  const effectiveX = isMultiSelected && multiDragDeltaX != null ? x + multiDragDeltaX : localX
+  const effectiveY = isMultiSelected && multiDragDeltaY != null ? y + multiDragDeltaY : localY
+  const visualWidth = Math.max(0, localW - WEEK_CARD_MARGIN * 2)
+  const contentOffset = getScheduleCardContentOffset({
+    scrollLeft,
+    cardLeft: effectiveX + WEEK_CARD_MARGIN,
+    cardWidth: visualWidth,
+  })
 
   useLayoutEffect(() => {
     setLocalX(x)
@@ -571,11 +584,11 @@ function ScheduleWeekCard({
         resizeGrid={[cellWidth, 1]}
         minWidth={Math.max(1, cellWidth - WEEK_CARD_MARGIN * 2)}
         position={{
-          x: (isMultiSelected && multiDragDeltaX != null ? x + multiDragDeltaX : localX) + WEEK_CARD_MARGIN,
-          y: (isMultiSelected && multiDragDeltaY != null ? y + multiDragDeltaY : localY) + WEEK_CARD_MARGIN,
+          x: effectiveX + WEEK_CARD_MARGIN,
+          y: effectiveY + WEEK_CARD_MARGIN,
         }}
         size={{
-          width: Math.max(0, localW - WEEK_CARD_MARGIN * 2),
+          width: visualWidth,
           height: Math.max(0, slotHeight - WEEK_CARD_MARGIN * 2),
         }}
         enableResizing={{ left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
@@ -600,7 +613,7 @@ function ScheduleWeekCard({
         <div
           tabIndex={0}
           role="button"
-          className="w-full h-full flex items-center px-1.5 overflow-hidden focus:outline-none focus:ring-2 focus:ring-blue-500/60"
+          className="relative w-full h-full overflow-hidden focus:outline-none focus:ring-2 focus:ring-blue-500/60"
           style={{ backgroundColor: bg, color: textColor }}
           onMouseDown={() => {
             if (!isMultiSelected) onSelect(s.id)
@@ -626,29 +639,34 @@ function ScheduleWeekCard({
             }
           }}
         >
-          <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden">
-            <span className="text-[11px] font-semibold leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-              {annual ? s.title || '연차' : s.title || '제목 없음'}
-            </span>
-            {localW >= cellWidth * 1.5 && (
-              <span className="text-[10px] opacity-80 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-                {meta.displayText}
+          <div
+            className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden"
+            style={{ left: contentOffset + 6, right: 6 }}
+          >
+            <div className="min-w-0 flex-1 flex flex-col justify-center overflow-hidden">
+              <span className="text-[11px] font-semibold leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                {annual ? s.title || '연차' : s.title || '제목 없음'}
               </span>
+              {!compactLayout && (
+                <span className="text-[10px] opacity-80 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                  {meta.displayText}
+                </span>
+              )}
+            </div>
+            {s.link && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  window.open(s.link ?? '', '_blank', 'noopener,noreferrer')
+                }}
+                className="shrink-0 p-0.5 rounded bg-black/25 hover:bg-black/35 transition-colors"
+                title="링크 열기"
+              >
+                <ExternalLink size={10} />
+              </button>
             )}
           </div>
-          {s.link && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                window.open(s.link ?? '', '_blank', 'noopener,noreferrer')
-              }}
-              className="ml-1 p-0.5 rounded bg-black/25 hover:bg-black/35 transition-colors"
-              title="링크 열기"
-            >
-              <ExternalLink size={10} />
-            </button>
-          )}
         </div>
       </Rnd>
 
@@ -721,6 +739,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const [globalRowCount, setGlobalRowCount] = useState(1)
   const [weekOffset, setWeekOffset] = useState(0)
   const [monthIndex, setMonthIndex] = useState(() => new Date().getMonth())
+  const [scrollLeft, setScrollLeft] = useState(0)
   const suppressContainerClickRef = useRef(false)
   const visibleMembers = useVisibleMembers()
 
@@ -1298,6 +1317,11 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     }
   }, [finishBoxSelect])
 
+  const handleContainerScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const nextScrollLeft = e.currentTarget.scrollLeft
+    setScrollLeft((value) => (value === nextScrollLeft ? value : nextScrollLeft))
+  }, [])
+
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       const container = containerRef.current
@@ -1398,6 +1422,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onScroll={handleContainerScroll}
         onContextMenu={handleCreateContextMenu}
         style={{
           userSelect: (dragState || isBoxSelecting) ? 'none' : undefined,
@@ -1639,6 +1664,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
                     rowCount={effectiveGlobalRowCount}
                     allSchedules={schedules}
                     isSelected={selectedScheduleId === layout.schedule.id}
+                    scrollLeft={scrollLeft}
                     onSelect={handleScheduleSelect}
                     onOpenPage={openSchedulePage}
                     onUpdate={updateSchedule}
@@ -1688,6 +1714,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
                     isMultiSelected={isCardSelected(layout.schedule.id)}
                     multiDragDeltaX={isMultiDragging && isCardSelected(layout.schedule.id) ? multiDragDeltaX : null}
                     multiDragDeltaY={isMultiDragging && isCardSelected(layout.schedule.id) ? multiDragDeltaY : null}
+                    scrollLeft={scrollLeft}
                     onMultiDragStart={() => handleMultiDragStart(layout.schedule.id)}
                     onMultiDragMove={handleMultiDragMove}
                     onMultiDragEnd={handleMultiDragComplete}

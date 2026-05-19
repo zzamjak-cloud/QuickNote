@@ -10,6 +10,7 @@ import { useMemberStore } from "../../store/memberStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
+import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { dateToX, widthForRange, xToDate } from "../../lib/scheduler/gridUtils";
 import { CARD_MARGIN } from "../../lib/scheduler/grid";
 import { daysInYear, parseIsoDate, toIsoStartOfDay, toIsoEndOfDay } from "../../lib/scheduler/dateUtils";
@@ -21,6 +22,11 @@ import {
   pickTextColor,
 } from "../../lib/scheduler/colors";
 import { ContextMenu } from "./ContextMenu";
+import {
+  getScheduleCardContentOffset,
+  getScheduleScopeName,
+  shouldUseCompactScheduleCard,
+} from "./scheduleCardDisplay";
 
 type Props = {
   schedule: Schedule;
@@ -34,6 +40,7 @@ type Props = {
   isMultiSelected?: boolean;
   multiDragDeltaX?: number | null;
   multiDragDeltaY?: number | null;
+  scrollLeft?: number;
   onMultiDragStart?: () => void;
   onMultiDragMove?: (deltaX: number, deltaY: number) => void;
   onMultiDragEnd?: (deltaX: number, deltaY: number) => void;
@@ -53,6 +60,7 @@ export function ScheduleCard({
   isMultiSelected = false,
   multiDragDeltaX = null,
   multiDragDeltaY = null,
+  scrollLeft = 0,
   onMultiDragStart,
   onMultiDragMove,
   onMultiDragEnd,
@@ -63,6 +71,7 @@ export function ScheduleCard({
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
+  const zoomLevel = useSchedulerViewStore((s) => s.zoomLevel);
 
   const startDate = parseIsoDate(schedule.startAt);
   const endDate = parseIsoDate(schedule.endAt);
@@ -82,22 +91,8 @@ export function ScheduleCard({
       ? "#9ca3af"
       : (schedule.color ?? (schedule.assigneeId == null ? GLOBAL_EVENT_COLOR : DEFAULT_SCHEDULE_COLOR));
   const textColor = schedule.textColor ?? "#ffffff";
-  const project = schedule.projectId
-    ? projects.find((item) => item.id === schedule.projectId) ?? null
-    : null;
-  const team = schedule.teamId
-    ? teams.find((item) => item.teamId === schedule.teamId) ?? null
-    : null;
-  const organization = schedule.organizationId
-    ? organizations.find((item) => item.organizationId === schedule.organizationId) ?? null
-    : null;
-  const scopeText = project
-    ? `프로젝트 · ${project.name}`
-    : team
-      ? `팀 · ${team.name}`
-      : organization
-        ? `조직 · ${organization.name}`
-        : "기타 업무";
+  const scopeText = getScheduleScopeName(schedule, { projects, teams, organizations });
+  const compactLayout = shouldUseCompactScheduleCard(zoomLevel);
 
   // 드래그/리사이즈 중 로컬 위치 상태 (mouseup 전까지 서버 호출 안 함)
   const [localX, setLocalX] = useState<number>(x);
@@ -359,6 +354,12 @@ export function ScheduleCard({
   const baseY = isMultiSelected ? y : localY;
   const effectiveX = multiDragDeltaX != null ? x + multiDragDeltaX : baseX;
   const effectiveY = multiDragDeltaY != null ? y + multiDragDeltaY : baseY;
+  const visualWidth = Math.max(0, localW - CARD_MARGIN * 2);
+  const contentOffset = getScheduleCardContentOffset({
+    scrollLeft,
+    cardLeft: effectiveX + CARD_MARGIN,
+    cardWidth: visualWidth,
+  });
 
   const handleColorChange = useCallback(
     (color: string) => {
@@ -461,7 +462,7 @@ export function ScheduleCard({
         minWidth={cellWidth - CARD_MARGIN * 2}
         // 위치·크기 (CARD_MARGIN 반영)
         position={{ x: effectiveX + CARD_MARGIN, y: effectiveY + CARD_MARGIN }}
-        size={{ width: Math.max(0, localW - CARD_MARGIN * 2), height: Math.max(0, slotHeight - CARD_MARGIN * 2) }}
+        size={{ width: visualWidth, height: Math.max(0, slotHeight - CARD_MARGIN * 2) }}
         // 좌우 리사이즈만 활성
         enableResizing={{ left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
         // 이동·리사이즈 핸들러
@@ -489,7 +490,7 @@ export function ScheduleCard({
         onMouseLeave={handleMouseLeave}
       >
         <div
-          className="w-full h-full flex items-center px-1.5 overflow-hidden"
+          className="relative w-full h-full overflow-hidden"
           style={{ backgroundColor: color, color: textColor }}
           onMouseDown={() => {
             if (!isMultiSelected) {
@@ -508,29 +509,34 @@ export function ScheduleCard({
           }}
           onDoubleClick={() => onEdit(schedule.id)}
         >
-          <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden">
-            <span className="text-xs font-medium leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-              {schedule.title || "제목 없음"}
-            </span>
-            {localW >= cellWidth * 1.5 && (
-              <span className="text-[10px] opacity-80 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-                {scopeText}
+          <div
+            className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden"
+            style={{ left: contentOffset + 6, right: 6 }}
+          >
+            <div className="min-w-0 flex-1 flex flex-col justify-center overflow-hidden">
+              <span className="text-xs font-medium leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                {schedule.title || "제목 없음"}
               </span>
+              {!compactLayout && (
+                <span className="text-[10px] opacity-80 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                  {scopeText}
+                </span>
+              )}
+            </div>
+            {schedule.link && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.open(schedule.link ?? "", "_blank", "noopener,noreferrer");
+                }}
+                className="shrink-0 p-0.5 rounded bg-black/25 hover:bg-black/35 transition-colors"
+                title="링크 열기"
+              >
+                <ExternalLink size={10} />
+              </button>
             )}
           </div>
-          {schedule.link && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                window.open(schedule.link ?? "", "_blank", "noopener,noreferrer");
-              }}
-              className="ml-1 p-0.5 rounded bg-black/25 hover:bg-black/35 transition-colors"
-              title="링크 열기"
-            >
-              <ExternalLink size={10} />
-            </button>
-          )}
         </div>
       </Rnd>
 
