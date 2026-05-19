@@ -32,6 +32,20 @@ import { updateMemberApi } from '../../lib/sync/memberApi'
 import { getRowHeight } from '../../lib/scheduler/grid'
 import { groupSchedulesByMember } from '../../lib/scheduler/selectors/scheduleSelectors'
 import { parseDateKey } from '../../lib/scheduler/mm/weekUtils'
+import {
+  PENDING_SCHEDULE_PAGE_ID_PREFIX,
+  ScheduleDeleteConfirmDialog,
+  SchedulerBoxMarquee,
+  SchedulerCreateMarquee,
+  getSchedulerBoxMarqueeStyle,
+  isSchedulerInteractionTarget,
+  rectsIntersect,
+  useScheduleCreateDrag,
+  useScheduleDeleteFlow,
+  useSchedulerBoxSelection,
+  type SchedulerBoxRect,
+  type SchedulerCreateRange,
+} from './hooks/scheduleInteractions'
 
 // date-fns 미설치 → 인라인 날짜 유틸
 function addWeeks(d: Date, n: number): Date {
@@ -77,11 +91,7 @@ const WEEK_SLOT_COUNT = 15
 const WEEK_HEADER_HEIGHT = 76
 const WEEK_CARD_MARGIN = 2
 const TIMELINE_BOTTOM_SPACER_HEIGHT = 240
-const MARQUEE_ACTIVATE_PX = 4
-const PENDING_SCHEDULE_PAGE_ID_PREFIX = 'lc-scheduler:creating:'
 const MEMBER_COLUMN_WIDTH = 120
-const SCHEDULE_INTERACTION_SELECTOR =
-  ".schedule-card, .react-draggable, .react-resizable-handle, [data-schedule-card-interactive='true']"
 
 // Schedule 은 ISO 문자열 기반 → ms 변환 헬퍼
 function scheduleStartMs(s: Schedule): number {
@@ -110,15 +120,6 @@ type ScheduleWeekLayout = {
   startSlot: number
   endSlot: number
 }
-
-type BoxSelectionRect = {
-  startX: number
-  startY: number
-  endX: number
-  endY: number
-}
-
-type MousePointEvent = Pick<MouseEvent, 'clientX' | 'clientY'> | React.MouseEvent
 
 type MemberRowItem = {
   member: Member
@@ -197,19 +198,6 @@ function getScheduleSlotRange(s: Schedule, slots: WeekDaySlot[]): ScheduleWeekLa
   })
   if (startSlot < 0 || endSlot < 0) return null
   return { schedule: s, startSlot, endSlot }
-}
-
-function rectsIntersect(
-  selLeft: number,
-  selRight: number,
-  selTop: number,
-  selBottom: number,
-  cardLeft: number,
-  cardRight: number,
-  cardTop: number,
-  cardBottom: number,
-): boolean {
-  return cardLeft < selRight && cardRight > selLeft && cardTop < selBottom && cardBottom > selTop
 }
 
 // 프로젝트 메타 인라인 헬퍼
@@ -712,6 +700,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const schedules = useSchedulerStore((s) => s.schedules)
   const createSchedule = useSchedulerStore((s) => s.createSchedule)
   const updateSchedule = useSchedulerStore((s) => s.updateSchedule)
+  const deleteSchedule = useSchedulerStore((s) => s.deleteSchedule)
   const zoomLevel = useSchedulerViewStore((s) => s.zoomLevel)
   const currentYear = useSchedulerViewStore((s) => s.currentYear)
   const setCurrentYear = useSchedulerViewStore((s) => s.setCurrentYear)
@@ -723,41 +712,15 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const selectSchedule = useSchedulerViewStore((s) => s.selectSchedule)
   const mmWeekStart = useSchedulerViewStore((s) => s.mmWeekStart)
   const openPeek = useUiStore((s) => s.openPeek)
+  const peekPageId = useUiStore((s) => s.peekPageId)
   const allMembers = useMemberStore((s) => s.members)
 
   const containerRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{
-    kind: 'schedule' | 'leave'
-    startSlot: number
-    currentSlot: number
-    rowTop: number
-    rowHeight: number
-    rowIndex: number
-    assigneeId: string | null
-    active: boolean
-  } | null>(null)
   const [timelineWidth, setTimelineWidth] = useState(900)
   const [memberRowCounts, setMemberRowCounts] = useState<Record<string, number>>({})
   const [globalRowCount, setGlobalRowCount] = useState(1)
-  const [dragState, setDragState] = useState<typeof dragRef.current>(null)
   const [weekOffset, setWeekOffset] = useState(0)
   const [monthIndex, setMonthIndex] = useState(() => new Date().getMonth())
-  const [pendingCreateMarquee, setPendingCreateMarquee] = useState<{
-    kind: 'schedule' | 'leave'
-    rowTop: number
-    rowHeight: number
-    startSlot: number
-    endSlot: number
-  } | null>(null)
-  const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set())
-  const [isBoxSelecting, setIsBoxSelecting] = useState(false)
-  const [selectionRect, setSelectionRect] = useState<BoxSelectionRect | null>(null)
-  const [isMultiDragging, setIsMultiDragging] = useState(false)
-  const [multiDragDeltaX, setMultiDragDeltaX] = useState(0)
-  const [multiDragDeltaY, setMultiDragDeltaY] = useState(0)
-  const selectionRectRef = useRef<BoxSelectionRect | null>(null)
-  const isBoxSelectingRef = useRef(false)
-  const multiDragDeltaRef = useRef({ x: 0, y: 0 })
   const suppressContainerClickRef = useRef(false)
   const visibleMembers = useVisibleMembers()
 
@@ -996,21 +959,8 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const bodyRowsHeight = globalRowHeight + memberRowsHeight
   const hasVisibleRows = showGlobalRow || filteredMembers.length > 0
 
-  const clearSelection = useCallback(() => {
-    setSelectedCardIds(new Set())
-    setIsMultiDragging(false)
-    setMultiDragDeltaX(0)
-    setMultiDragDeltaY(0)
-    multiDragDeltaRef.current = { x: 0, y: 0 }
-  }, [])
-
-  const isCardSelected = useCallback(
-    (scheduleId: string) => selectedCardIds.has(scheduleId),
-    [selectedCardIds],
-  )
-
   const getCardsInRect = useCallback(
-    (rect: BoxSelectionRect): Set<string> => {
+    (rect: SchedulerBoxRect): Set<string> => {
       const result = new Set<string>()
       const selLeft = Math.min(rect.startX, rect.endX)
       const selRight = Math.max(rect.startX, rect.endX)
@@ -1035,96 +985,15 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     [cellWidth, globalRowHeight, memberRowItems],
   )
 
-  const getPointerInTimeline = useCallback((e: MousePointEvent, containerEl: HTMLElement) => {
-    const rect = containerEl.getBoundingClientRect()
-    return {
-      x: e.clientX - rect.left + containerEl.scrollLeft - MEMBER_COLUMN_WIDTH,
-      y: e.clientY - rect.top + containerEl.scrollTop,
-    }
-  }, [])
+  const getMultiDragUpdates = useCallback((deltaX: number, deltaY: number, selectedIds: Set<string>): Schedule[] | null => {
+    const slotMove = Math.round(deltaX / cellWidth)
+    if (slotMove === 0 && deltaY === 0) return null
 
-  const handleBoxSelectStart = useCallback((e: React.MouseEvent, containerEl: HTMLElement) => {
-    const { x, y } = getPointerInTimeline(e, containerEl)
-    const next: BoxSelectionRect = { startX: x, startY: y, endX: x, endY: y }
-    selectionRectRef.current = next
-    isBoxSelectingRef.current = true
-    setSelectionRect(next)
-    setSelectedCardIds(new Set())
-    setIsBoxSelecting(true)
-  }, [getPointerInTimeline])
-
-  const handleBoxSelectMove = useCallback((e: MousePointEvent, containerEl: HTMLElement) => {
-    if (!isBoxSelectingRef.current) return
-    const { x, y } = getPointerInTimeline(e, containerEl)
-    const next: BoxSelectionRect = {
-      startX: selectionRectRef.current?.startX ?? x,
-      startY: selectionRectRef.current?.startY ?? y,
-      endX: x,
-      endY: y,
-    }
-    selectionRectRef.current = next
-    setSelectionRect(next)
-    setSelectedCardIds(getCardsInRect(next))
-  }, [getCardsInRect, getPointerInTimeline])
-
-  const handleBoxSelectEnd = useCallback(() => {
-    isBoxSelectingRef.current = false
-    setIsBoxSelecting(false)
-    setSelectionRect(null)
-    selectionRectRef.current = null
-  }, [])
-
-  const finishBoxSelect = useCallback((e?: MousePointEvent) => {
-    const container = containerRef.current
-    if (!isBoxSelectingRef.current || !container) return
-    if (e) {
-      handleBoxSelectMove(e, container)
-    }
-    const finalRect = selectionRectRef.current
-    const finalSelected = finalRect ? getCardsInRect(finalRect) : new Set<string>()
-    setSelectedCardIds(finalSelected)
-    const didDrag =
-      finalRect != null &&
-      (Math.abs(finalRect.endX - finalRect.startX) > 2 ||
-        Math.abs(finalRect.endY - finalRect.startY) > 2 ||
-        finalSelected.size > 0)
-    handleBoxSelectEnd()
-    if (didDrag) {
-      suppressContainerClickRef.current = true
-    }
-  }, [getCardsInRect, handleBoxSelectEnd, handleBoxSelectMove])
-
-  const handleMultiDragStart = useCallback((scheduleId: string) => {
-    if (!selectedCardIds.has(scheduleId)) return
-    multiDragDeltaRef.current = { x: 0, y: 0 }
-    setIsMultiDragging(true)
-    setMultiDragDeltaX(0)
-    setMultiDragDeltaY(0)
-  }, [selectedCardIds])
-
-  const handleMultiDragMove = useCallback((deltaX: number, deltaY: number) => {
-    multiDragDeltaRef.current = { x: deltaX, y: deltaY }
-    setMultiDragDeltaX(deltaX)
-    setMultiDragDeltaY(deltaY)
-  }, [])
-
-  const completeMultiDrag = useCallback((deltaX: number, deltaY: number): Schedule[] | null => {
-    const finalDeltaX = multiDragDeltaRef.current.x || deltaX
-    const finalDeltaY = multiDragDeltaRef.current.y || deltaY
-    setIsMultiDragging(false)
-    setMultiDragDeltaX(0)
-    setMultiDragDeltaY(0)
-    multiDragDeltaRef.current = { x: 0, y: 0 }
-
-    const slotMove = Math.round(finalDeltaX / cellWidth)
-    if (slotMove === 0 && finalDeltaY === 0) return null
-
-    const selectedIds = selectedCardIds
     const updatedSchedules: Schedule[] = []
     const stationarySchedules = schedules.filter((schedule) => !selectedIds.has(schedule.id))
 
     for (const item of memberRowItems) {
-      const rowDelta = item.slotHeight > 0 ? Math.round(finalDeltaY / item.slotHeight) : 0
+      const rowDelta = item.slotHeight > 0 ? Math.round(deltaY / item.slotHeight) : 0
       for (const layout of item.layouts) {
         if (!selectedIds.has(layout.schedule.id)) continue
         const span = Math.max(1, layout.endSlot - layout.startSlot + 1)
@@ -1146,10 +1015,31 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     }
 
     return updatedSchedules
-  }, [cellWidth, memberRowItems, schedules, selectedCardIds, slotCount, slots])
+  }, [cellWidth, memberRowItems, schedules, slotCount, slots])
+
+  const {
+    selectedCardIds,
+    isBoxSelecting,
+    selectionRect,
+    isMultiDragging,
+    multiDragDeltaX,
+    multiDragDeltaY,
+    handleBoxSelectStart,
+    handleBoxSelectMove,
+    finishBoxSelect,
+    handleMultiDragStart,
+    handleMultiDragMove,
+    handleMultiDragEnd,
+    clearSelection,
+    isCardSelected,
+  } = useSchedulerBoxSelection({
+    contentXOffset: MEMBER_COLUMN_WIDTH,
+    getCardsInRect,
+    getMultiDragUpdates,
+  })
 
   const handleMultiDragComplete = useCallback((deltaX: number, deltaY: number) => {
-    const updatedSchedules = completeMultiDrag(deltaX, deltaY)
+    const updatedSchedules = handleMultiDragEnd(deltaX, deltaY)
     if (!updatedSchedules) return
 
     const previous = new Map(
@@ -1181,7 +1071,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
         }))
       })
     })
-  }, [completeMultiDrag, schedules, selectedCardIds, updateSchedule])
+  }, [handleMultiDragEnd, schedules, selectedCardIds, updateSchedule])
 
   const handleScheduleSelect = useCallback((id: string) => {
     selectSchedule(id)
@@ -1276,6 +1166,100 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     [effectiveGlobalRowCount, globalRowHeight, globalSlotHeight, memberRowItems, showGlobalRow, timelineWidth],
   )
 
+  const handleCreateRange = useCallback(
+    (range: SchedulerCreateRange) => {
+      const { startAt, endAt } = slotRangeToIso(slots, range.startIndex, range.endIndex)
+
+      if (range.kind === 'leave') {
+        void createSchedule({
+          workspaceId,
+          title: LC_SCHEDULER_ATTENDANCE_TITLE,
+          projectId: effectiveSelectedProjectId ?? null,
+          assigneeId: range.assigneeId,
+          selectedScopeKey: selectedProjectId,
+          color: ANNUAL_LEAVE_COLOR,
+          textColor: pickTextColor(ANNUAL_LEAVE_COLOR),
+          startAt,
+          endAt,
+          rowIndex: range.rowIndex,
+        }).catch((error) => {
+          console.error(error)
+          window.alert('근태 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+        })
+        return
+      }
+
+      const pendingPeekPageId = `${PENDING_SCHEDULE_PAGE_ID_PREFIX}${Date.now()}`
+      openPeek(pendingPeekPageId)
+      void createSchedule({
+        workspaceId,
+        title: '새 일정',
+        projectId: effectiveSelectedProjectId ?? null,
+        assigneeId: range.assigneeId,
+        selectedScopeKey: selectedProjectId,
+        color: DEFAULT_SCHEDULE_COLOR,
+        textColor: pickTextColor(DEFAULT_SCHEDULE_COLOR),
+        startAt,
+        endAt,
+        rowIndex: range.rowIndex,
+      }).then((schedule) => {
+        selectSchedule(schedule.id)
+        const currentPeekPageId = useUiStore.getState().peekPageId
+        if (!currentPeekPageId || currentPeekPageId === pendingPeekPageId) {
+          openSchedulePage(schedule.id)
+        }
+      }).catch((error) => {
+        console.error(error)
+        if (useUiStore.getState().peekPageId === pendingPeekPageId) {
+          useUiStore.getState().closePeek()
+        }
+        window.alert('일정 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+      })
+    },
+    [
+      createSchedule,
+      effectiveSelectedProjectId,
+      openPeek,
+      openSchedulePage,
+      selectSchedule,
+      selectedProjectId,
+      slots,
+      workspaceId,
+    ],
+  )
+
+  const {
+    dragState,
+    beginCreateDrag,
+    handleCreateContextMenu,
+    createMarqueeStyle,
+  } = useScheduleCreateDrag({
+    containerRef,
+    contentXOffset: MEMBER_COLUMN_WIDTH,
+    timelineWidth,
+    cellWidth,
+    pointToRow: pointToScheduleRow,
+    xToIndex: xToSlot,
+    clearSelection,
+    onCreateRange: handleCreateRange,
+  })
+
+  const {
+    deleteConfirmTarget,
+    cancelDelete,
+    confirmDelete,
+  } = useScheduleDeleteFlow({
+    schedules,
+    selectedScheduleId,
+    selectedCardCount: selectedCardIds.size,
+    peekPageId,
+    workspaceId,
+    clearSelection,
+    selectSchedule,
+    openSchedulePage,
+    deleteSchedule,
+  })
+
   const handleContainerClick = useCallback(() => {
     if (suppressContainerClickRef.current) {
       suppressContainerClickRef.current = false
@@ -1287,52 +1271,21 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      const target = e.target
-      if (!(target instanceof Element)) return
-      if (target.closest(SCHEDULE_INTERACTION_SELECTOR)) return
-      if (target.closest('button, input, textarea, select, [contenteditable="true"], [role="textbox"]')) return
-      const isCtrl = e.ctrlKey || e.metaKey
-      const isAlt = e.altKey
+      if (isSchedulerInteractionTarget(e.target)) return
 
       const container = containerRef.current
       if (!container) return
 
-      if (isCtrl || isAlt) {
-        const rect = container.getBoundingClientRect()
-        const x = e.clientX - rect.left + container.scrollLeft
-        const y = e.clientY - rect.top + container.scrollTop
-        const row = pointToScheduleRow(x, y)
-        if (!row) return
-        if (isAlt && row.assigneeId == null) return
-
-        e.preventDefault()
-        const slot = xToSlot(Math.max(0, Math.min(timelineWidth - 1, x)))
-        const next = {
-          kind: isAlt ? 'leave' as const : 'schedule' as const,
-          startSlot: slot,
-          currentSlot: slot,
-          rowTop: row.top,
-          rowHeight: row.height,
-          rowIndex: row.rowIndex,
-          assigneeId: row.assigneeId,
-          active: false,
-        }
-        dragRef.current = next
-        setDragState(next)
-        selectSchedule(null)
-        clearSelection()
-        return
-      }
+      if (beginCreateDrag(e)) return
 
       e.preventDefault()
       handleBoxSelectStart(e, container)
     },
-    [clearSelection, handleBoxSelectStart, pointToScheduleRow, selectSchedule, timelineWidth, xToSlot],
+    [beginCreateDrag, handleBoxSelectStart],
   )
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!isBoxSelectingRef.current) return
       const container = containerRef.current
       if (container) handleBoxSelectMove(e, container)
     },
@@ -1340,24 +1293,21 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   )
 
   const handleMouseUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    finishBoxSelect(e)
-  }, [finishBoxSelect])
-
-  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.ctrlKey || e.altKey || e.metaKey || dragRef.current) {
-      e.preventDefault()
+    if (finishBoxSelect(e, containerRef.current)) {
+      suppressContainerClickRef.current = true
     }
-  }, [])
+  }, [finishBoxSelect])
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
-      if (!isBoxSelectingRef.current) return
       const container = containerRef.current
       if (container) handleBoxSelectMove(e, container)
     }
 
     const onMouseUp = (e: MouseEvent) => {
-      finishBoxSelect(e)
+      if (finishBoxSelect(e, containerRef.current)) {
+        suppressContainerClickRef.current = true
+      }
     }
 
     window.addEventListener('mousemove', onMouseMove)
@@ -1368,139 +1318,8 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     }
   }, [finishBoxSelect, handleBoxSelectMove])
 
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!dragRef.current) return
-      const container = containerRef.current
-      if (!container) return
-      const rect = container.getBoundingClientRect()
-      const rawX = e.clientX - rect.left + container.scrollLeft - MEMBER_COLUMN_WIDTH
-      const slot = xToSlot(Math.max(0, Math.min(timelineWidth - 1, rawX)))
-      const dx = Math.abs(slot - dragRef.current.startSlot) * cellWidth
-      const next = {
-        ...dragRef.current,
-        currentSlot: slot,
-        active: dragRef.current.active || dx > MARQUEE_ACTIVATE_PX,
-      }
-      dragRef.current = next
-      setDragState(next)
-    }
-
-    const onMouseUp = () => {
-      const cur = dragRef.current
-      if (!cur) return
-      if (cur.active) {
-        const startSlot = Math.min(cur.startSlot, cur.currentSlot)
-        const endSlot = Math.max(cur.startSlot, cur.currentSlot)
-        const { startAt, endAt } = slotRangeToIso(slots, startSlot, endSlot)
-        setPendingCreateMarquee({
-          kind: cur.kind,
-          rowTop: cur.rowTop,
-          rowHeight: cur.rowHeight,
-          startSlot,
-          endSlot,
-        })
-
-        if (cur.kind === 'leave') {
-          void createSchedule({
-            workspaceId,
-            title: LC_SCHEDULER_ATTENDANCE_TITLE,
-            projectId: effectiveSelectedProjectId ?? null,
-            assigneeId: cur.assigneeId,
-            selectedScopeKey: selectedProjectId,
-            color: ANNUAL_LEAVE_COLOR,
-            textColor: pickTextColor(ANNUAL_LEAVE_COLOR),
-            startAt,
-            endAt,
-            rowIndex: cur.rowIndex,
-          }).catch((error) => {
-            console.error(error)
-            window.alert('근태 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
-          })
-          queueMicrotask(() => setPendingCreateMarquee(null))
-        } else {
-          const pendingPeekPageId = `${PENDING_SCHEDULE_PAGE_ID_PREFIX}${Date.now()}`
-          openPeek(pendingPeekPageId)
-          void createSchedule({
-            workspaceId,
-            title: '새 일정',
-            projectId: effectiveSelectedProjectId ?? null,
-            assigneeId: cur.assigneeId,
-            selectedScopeKey: selectedProjectId,
-            color: DEFAULT_SCHEDULE_COLOR,
-            textColor: pickTextColor(DEFAULT_SCHEDULE_COLOR),
-            startAt,
-            endAt,
-            rowIndex: cur.rowIndex,
-          }).then((schedule) => {
-            selectSchedule(schedule.id)
-            const currentPeekPageId = useUiStore.getState().peekPageId
-            if (!currentPeekPageId || currentPeekPageId === pendingPeekPageId) {
-              openSchedulePage(schedule.id)
-            }
-          }).catch((error) => {
-            console.error(error)
-            if (useUiStore.getState().peekPageId === pendingPeekPageId) {
-              useUiStore.getState().closePeek()
-            }
-            window.alert('일정 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.')
-          })
-          queueMicrotask(() => setPendingCreateMarquee(null))
-        }
-      }
-      dragRef.current = null
-      setDragState(null)
-    }
-
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
-  }, [
-    cellWidth,
-    createSchedule,
-    effectiveSelectedProjectId,
-    openPeek,
-    openSchedulePage,
-    selectSchedule,
-    selectedProjectId,
-    slots,
-    timelineWidth,
-    workspaceId,
-    xToSlot,
-  ])
-
-  const createMarqueeStyle = useMemo(() => {
-    if (!dragState && !pendingCreateMarquee) return null
-    const source = dragState
-      ? {
-          kind: dragState.kind,
-          rowTop: dragState.rowTop,
-          rowHeight: dragState.rowHeight,
-          startSlot: Math.min(dragState.startSlot, dragState.currentSlot),
-          endSlot: Math.max(dragState.startSlot, dragState.currentSlot),
-        }
-      : pendingCreateMarquee
-    if (!source) return null
-    return {
-      kind: source.kind,
-      left: source.startSlot * cellWidth,
-      top: source.rowTop,
-      width: Math.max(cellWidth, (source.endSlot - source.startSlot + 1) * cellWidth),
-      height: source.rowHeight,
-    }
-  }, [cellWidth, dragState, pendingCreateMarquee])
-
   const boxMarqueeStyle = useMemo(() => {
-    if (!isBoxSelecting || !selectionRect) return null
-    return {
-      left: Math.min(selectionRect.startX, selectionRect.endX),
-      top: Math.min(selectionRect.startY, selectionRect.endY),
-      width: Math.abs(selectionRect.endX - selectionRect.startX),
-      height: Math.abs(selectionRect.endY - selectionRect.startY),
-    }
+    return getSchedulerBoxMarqueeStyle(isBoxSelecting, selectionRect)
   }, [isBoxSelecting, selectionRect])
 
   const mmWeekIndicatorStyle = useMemo(() => {
@@ -1570,7 +1389,8 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   }, [mode, setCurrentYear])
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800">
+    <>
+      <div className="flex flex-1 min-h-0 overflow-hidden bg-zinc-50 dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800">
       <div
         ref={containerRef}
         className="flex-1 overflow-auto overscroll-y-none relative"
@@ -1578,7 +1398,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onContextMenu={handleContextMenu}
+        onContextMenu={handleCreateContextMenu}
         style={{
           userSelect: (dragState || isBoxSelecting) ? 'none' : undefined,
           overscrollBehaviorY: 'none',
@@ -1904,34 +1724,8 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
             </div>
           )}
 
-          {createMarqueeStyle && (
-            <div
-              className={`absolute z-50 pointer-events-none rounded-md border-2 ${
-                createMarqueeStyle.kind === 'leave'
-                  ? 'border-red-500 bg-red-500/20'
-                  : 'border-emerald-500 bg-emerald-500/20'
-              }`}
-              style={{
-                left: createMarqueeStyle.left + WEEK_CARD_MARGIN,
-                top: createMarqueeStyle.top + WEEK_CARD_MARGIN,
-                width: Math.max(0, createMarqueeStyle.width - WEEK_CARD_MARGIN * 2),
-                height: Math.max(0, createMarqueeStyle.height - WEEK_CARD_MARGIN * 2),
-              }}
-            />
-          )}
-
-          {boxMarqueeStyle && (
-            <div
-              className="absolute border-2 border-blue-400 bg-blue-400/15 rounded-sm pointer-events-none"
-              style={{
-                left: boxMarqueeStyle.left,
-                top: boxMarqueeStyle.top,
-                width: boxMarqueeStyle.width,
-                height: boxMarqueeStyle.height,
-                zIndex: 90,
-              }}
-            />
-          )}
+          <SchedulerCreateMarquee style={createMarqueeStyle} />
+          <SchedulerBoxMarquee style={boxMarqueeStyle} />
         </div>
 
         {filteredMembers.length === 0 && !showGlobalRow && (
@@ -1940,8 +1734,14 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
           </div>
         )}
       </div>
-    </div>
-    </div>
+      </div>
+      </div>
+      <ScheduleDeleteConfirmDialog
+        target={deleteConfirmTarget}
+        onCancel={cancelDelete}
+        onConfirm={confirmDelete}
+      />
+    </>
   )
 }
 

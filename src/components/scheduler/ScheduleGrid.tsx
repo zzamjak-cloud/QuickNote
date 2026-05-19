@@ -48,17 +48,21 @@ import {
 } from "../../lib/scheduler/selectors/rowVirtualization";
 import { useUiStore } from "../../store/uiStore";
 import type { Member } from "../../store/memberStore";
-import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+import {
+  PENDING_SCHEDULE_PAGE_ID_PREFIX,
+  ScheduleDeleteConfirmDialog,
+  SchedulerBoxMarquee,
+  SchedulerCreateMarquee,
+  getSchedulerBoxMarqueeStyle,
+  isSchedulerInteractionTarget,
+  useScheduleCreateDrag,
+  useScheduleDeleteFlow,
+  type SchedulerCreateRange,
+} from "./hooks/scheduleInteractions";
 
 // DateAxis 고정 높이: 월 라벨 24px + 일자/공휴일 행 28px = 52px
 const DATE_AXIS_HEIGHT = 52;
 const MEMBER_COLUMN_WIDTH = 120;
-
-// Ctrl/Alt+드래그 마퀴 시작 임계값 (px)
-const MARQUEE_ACTIVATE_PX = 4;
-const PENDING_SCHEDULE_PAGE_ID_PREFIX = "lc-scheduler:creating:";
-const SCHEDULE_INTERACTION_SELECTOR =
-  ".schedule-card, .react-draggable, .react-resizable-handle, [data-schedule-card-interactive='true']";
 
 // 마지막 구성원도 화면 중앙 근처까지 올려 볼 수 있도록 하단 스크롤 여백을 둔다.
 const TIMELINE_BOTTOM_SPACER_HEIGHT = "50vh";
@@ -113,35 +117,11 @@ export function ScheduleGrid({ workspaceId }: Props) {
   const prevYearRef = useRef(currentYear);
   const prevCellWidthRef = useRef(0);
 
-  // ── Ctrl/Alt+드래그 신규 일정 생성 상태 ────────────────────────────────────
-  // dragMode: "create" = Ctrl/Alt 드래그, "box" = Shift 드래그 (useBoxSelection이 담당)
-  const [dragState, setDragState] = useState<{
-    kind: "schedule" | "leave";
-    startDayIdx: number;
-    rowTop: number;   // 컨테이너 내 행 상단 y
-    rowHeight: number;
-    rowIndex: number;
-    assigneeId: string | null;
-    currentDayIdx: number;
-    active: boolean;  // 임계값 초과 여부
-  } | null>(null);
-  const [pendingCreateMarquee, setPendingCreateMarquee] = useState<{
-    kind: "schedule" | "leave";
-    rowTop: number;
-    rowHeight: number;
-    startDayIdx: number;
-    endDayIdx: number;
-    assigneeId: string | null;
-  } | null>(null);
-  // useEffect 클로저 문제 방지용 ref — mouseup 핸들러에서 최신 상태 직접 참조
-  const dragRef = useRef<typeof dragState>(null);
-
   // 멤버별 사용자 지정 행 수 (최소 1, 최대 10)
   const [memberRowCounts, setMemberRowCounts] = useState<Record<string, number>>({});
 
   // 특이사항 행 수 (별도 관리)
   const [globalRowCount, setGlobalRowCount] = useState(1);
-  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<Schedule | null>(null);
   const [viewportState, setViewportState] = useState({ scrollTop: 0, height: 0 });
 
   useEffect(() => {
@@ -372,6 +352,69 @@ export function ScheduleGrid({ workspaceId }: Props) {
     openPeek(parsed.pageId);
   }, [openPeek]);
 
+  const handleCreateRange = useCallback(
+    (range: SchedulerCreateRange) => {
+      const startAt = dayIndexToDateIso(range.startIndex, currentYear, false);
+      const endAt = dayIndexToDateIso(range.endIndex, currentYear, true);
+
+      if (range.kind === "leave" && range.assigneeId) {
+        void createSchedule({
+          workspaceId,
+          title: LC_SCHEDULER_ATTENDANCE_TITLE,
+          projectId: selectedProjectFilterId ?? null,
+          assigneeId: range.assigneeId,
+          selectedScopeKey: selectedProjectId,
+          color: ANNUAL_LEAVE_COLOR,
+          textColor: pickTextColor(ANNUAL_LEAVE_COLOR),
+          startAt,
+          endAt,
+          rowIndex: range.rowIndex,
+        }).catch((error) => {
+          console.error(error);
+          window.alert("근태 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+        });
+        return;
+      }
+
+      const pendingPeekPageId = `${PENDING_SCHEDULE_PAGE_ID_PREFIX}${Date.now()}`;
+      openPeek(pendingPeekPageId);
+      void createSchedule({
+        workspaceId,
+        title: "새 일정",
+        projectId: selectedProjectFilterId ?? null,
+        assigneeId: range.assigneeId,
+        selectedScopeKey: selectedProjectId,
+        color: DEFAULT_SCHEDULE_COLOR,
+        textColor: pickTextColor(DEFAULT_SCHEDULE_COLOR),
+        startAt,
+        endAt,
+        rowIndex: range.rowIndex,
+      }).then((schedule) => {
+        selectSchedule(schedule.id);
+        const currentPeekPageId = useUiStore.getState().peekPageId;
+        if (!currentPeekPageId || currentPeekPageId === pendingPeekPageId) {
+          openSchedulePage(schedule.id);
+        }
+      }).catch((error) => {
+        console.error(error);
+        if (useUiStore.getState().peekPageId === pendingPeekPageId) {
+          useUiStore.getState().closePeek();
+        }
+        window.alert("일정 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      });
+    },
+    [
+      createSchedule,
+      currentYear,
+      openPeek,
+      openSchedulePage,
+      selectSchedule,
+      selectedProjectFilterId,
+      selectedProjectId,
+      workspaceId,
+    ],
+  );
+
   // 오늘로 스크롤
   const scrollToToday = useCallback(() => {
     if (!containerRef.current || todayIdx === null) return;
@@ -510,63 +553,54 @@ export function ScheduleGrid({ workspaceId }: Props) {
     ],
   );
 
-  // 마우스 다운: 수정키에 따라 모드 분기
-  //   Ctrl/Alt/Meta → 일정 생성 드래그
-  //   없음          → 빈 영역 박스 선택 드래그
+  const {
+    dragState,
+    beginCreateDrag,
+    handleCreateContextMenu,
+    createMarqueeStyle,
+  } = useScheduleCreateDrag({
+    containerRef,
+    contentXOffset: MEMBER_COLUMN_WIDTH,
+    timelineWidth: totalWidth,
+    cellWidth,
+    pointToRow: pointToScheduleRow,
+    xToIndex: xToDayIndex,
+    clearSelection,
+    onCreateRange: handleCreateRange,
+  });
+
+  const {
+    deleteConfirmTarget,
+    cancelDelete,
+    confirmDelete,
+  } = useScheduleDeleteFlow({
+    schedules,
+    selectedScheduleId,
+    selectedCardCount: selectedCardIds.size,
+    peekPageId,
+    workspaceId,
+    clearSelection,
+    selectSchedule,
+    openSchedulePage,
+    deleteSchedule,
+  });
+
+  // 마우스 다운: 수정키에 따라 생성 드래그 또는 박스 선택 드래그로 분기
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target;
-      if (!(target instanceof Element)) return;
-      // 이미 존재하는 카드 위에서 시작하면 무시 (react-rnd 카드가 처리)
-      if (target.closest(SCHEDULE_INTERACTION_SELECTOR)) return;
-      if (target.closest("button, input, textarea, select, [contenteditable='true'], [role='textbox']")) return;
-
-      const isCtrl = e.ctrlKey || e.metaKey;
-      const isAlt = e.altKey;
+      if (isSchedulerInteractionTarget(target)) return;
 
       const container = containerRef.current;
       if (!container) return;
 
-      if (isCtrl || isAlt) {
-        // Ctrl/Alt+드래그: 신규 일정 생성 마퀴
-        const rect = container.getBoundingClientRect();
-        const x = e.clientX - rect.left + container.scrollLeft - MEMBER_COLUMN_WIDTH;
-        const y = e.clientY - rect.top + container.scrollTop;
-        const row = pointToScheduleRow(x, y);
-        if (!row) return;
-        if (isAlt && row.assigneeId == null) return;
+      if (beginCreateDrag(e)) return;
 
-        e.preventDefault();
-        const dayIdx = xToDayIndex(Math.max(0, Math.min(totalWidth - 1, x)));
-        const newState: NonNullable<typeof dragState> = {
-          kind: isAlt ? "leave" : "schedule",
-          startDayIdx: dayIdx,
-          rowTop: row.top,
-          rowHeight: row.height,
-          rowIndex: row.rowIndex,
-          assigneeId: row.assigneeId,
-          currentDayIdx: dayIdx,
-          active: false,
-        };
-        dragRef.current = newState;
-        setDragState(newState);
-        // 박스 선택 초기화
-        clearSelection();
-      } else {
-        // 빈 영역 드래그: 박스 선택 마퀴
-        e.preventDefault();
-        handleBoxSelectStart(e, container);
-      }
-    },
-    [clearSelection, handleBoxSelectStart, pointToScheduleRow, totalWidth, xToDayIndex],
-  );
-
-  // macOS 의 Ctrl+클릭은 contextmenu 를 발생시키므로 차단해 드래그 마퀴 유지
-  const handleContextMenu = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.ctrlKey || e.altKey || e.metaKey || dragRef.current) {
       e.preventDefault();
-    }
-  }, []);
+      handleBoxSelectStart(e, container);
+    },
+    [beginCreateDrag, handleBoxSelectStart],
+  );
 
   // 마우스 이동: 박스 선택 이동 (Ctrl/Alt 이동은 window 이벤트에서 처리)
   const handleMouseMove = useCallback(
@@ -594,202 +628,8 @@ export function ScheduleGrid({ workspaceId }: Props) {
     }
   }, [isBoxSelecting, handleBoxSelectEnd, selectedCardIds.size, selectionRect]);
 
-  // window 레벨 mousemove/mouseup — Ctrl/Alt+드래그 일정 생성 처리
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!dragRef.current) return;
-      const container = containerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const rawX = e.clientX - rect.left + container.scrollLeft - MEMBER_COLUMN_WIDTH;
-      const dayIdx = xToDayIndex(Math.max(0, Math.min(totalWidth - 1, rawX)));
-      const dx = Math.abs(dayIdx - dragRef.current.startDayIdx) * cellWidth;
-      const next = {
-        ...dragRef.current,
-        currentDayIdx: dayIdx,
-        active: dragRef.current.active || dx > MARQUEE_ACTIVATE_PX,
-      };
-      dragRef.current = next;
-      setDragState(next);
-    };
-
-    const onMouseUp = () => {
-      const cur = dragRef.current;
-      if (!cur) return;
-      if (cur.active) {
-        const startDayIdx = Math.min(cur.startDayIdx, cur.currentDayIdx);
-        const endDayIdx = Math.max(cur.startDayIdx, cur.currentDayIdx);
-        const startAt = dayIndexToDateIso(startDayIdx, currentYear, false);
-        const endAt = dayIndexToDateIso(endDayIdx, currentYear, true);
-        if (cur.kind === "leave" && cur.assigneeId) {
-          setPendingCreateMarquee({
-            kind: cur.kind,
-            rowTop: cur.rowTop,
-            rowHeight: cur.rowHeight,
-            startDayIdx,
-            endDayIdx,
-            assigneeId: cur.assigneeId,
-          });
-          void createSchedule({
-            workspaceId,
-            title: LC_SCHEDULER_ATTENDANCE_TITLE,
-            projectId: selectedProjectFilterId ?? null,
-            assigneeId: cur.assigneeId,
-            selectedScopeKey: selectedProjectId,
-            color: ANNUAL_LEAVE_COLOR,
-            textColor: pickTextColor(ANNUAL_LEAVE_COLOR),
-            startAt,
-            endAt,
-            rowIndex: cur.rowIndex,
-          }).catch((error) => {
-            console.error(error);
-            window.alert("근태 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-          });
-          queueMicrotask(() => setPendingCreateMarquee(null));
-        } else {
-          const pendingPeekPageId = `${PENDING_SCHEDULE_PAGE_ID_PREFIX}${Date.now()}`;
-          setPendingCreateMarquee({
-            kind: cur.kind,
-            rowTop: cur.rowTop,
-            rowHeight: cur.rowHeight,
-            startDayIdx,
-            endDayIdx,
-            assigneeId: cur.assigneeId,
-          });
-          openPeek(pendingPeekPageId);
-          void createSchedule({
-            workspaceId,
-            title: "새 일정",
-            projectId: selectedProjectFilterId ?? null,
-            assigneeId: cur.assigneeId,
-            selectedScopeKey: selectedProjectId,
-            color: DEFAULT_SCHEDULE_COLOR,
-            textColor: pickTextColor(DEFAULT_SCHEDULE_COLOR),
-            startAt,
-            endAt,
-            rowIndex: cur.rowIndex,
-          }).then((schedule) => {
-            selectSchedule(schedule.id);
-            const currentPeekPageId = useUiStore.getState().peekPageId;
-            if (!currentPeekPageId || currentPeekPageId === pendingPeekPageId) {
-              openSchedulePage(schedule.id);
-            }
-          }).catch((error) => {
-            console.error(error);
-            if (useUiStore.getState().peekPageId === pendingPeekPageId) {
-              useUiStore.getState().closePeek();
-            }
-            window.alert("일정 카드 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-          });
-          queueMicrotask(() => setPendingCreateMarquee(null));
-        }
-      }
-      dragRef.current = null;
-      setDragState(null);
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-   
-  }, [
-    cellWidth,
-    createSchedule,
-    currentYear,
-    openPeek,
-    openSchedulePage,
-    selectSchedule,
-    selectedProjectFilterId,
-    selectedProjectId,
-    totalWidth,
-    workspaceId,
-    xToDayIndex,
-  ]);
-
-  useEffect(() => {
-    const isEditableTarget = (target: EventTarget | null): boolean => {
-      if (!(target instanceof HTMLElement)) return false;
-      return Boolean(target.closest("input, textarea, select, [contenteditable='true'], [role='textbox']"));
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (peekPageId || isEditableTarget(e.target)) return;
-
-      if (e.key === "Escape" && selectedCardIds.size > 0) {
-        clearSelection();
-        return;
-      }
-
-      if (!selectedScheduleId) return;
-      const selected = schedules.find((schedule) => schedule.id === selectedScheduleId);
-      if (!selected) return;
-
-      if (e.key === "Enter") {
-        e.preventDefault();
-        openSchedulePage(selected.id);
-        return;
-      }
-
-      if (e.key === "Backspace" || e.key === "Delete") {
-        e.preventDefault();
-        setDeleteConfirmTarget(selected);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    clearSelection,
-    deleteSchedule,
-    openSchedulePage,
-    peekPageId,
-    schedules,
-    selectedCardIds.size,
-    selectSchedule,
-    selectedScheduleId,
-    workspaceId,
-  ]);
-
-  // Ctrl/Alt+드래그 마퀴 overlay 위치 — 컨텐츠 좌표 그대로(내부 div 의 position:relative 기준)
-  // 활성화 임계값 통과 전에도 즉시 작은 사각형이 보이도록 active 검사 제거
-  const createMarqueeStyle = useMemo(() => {
-    if (!dragState && !pendingCreateMarquee) return null;
-    const styleSource = dragState
-      ? {
-          kind: dragState.kind,
-          rowTop: dragState.rowTop,
-          rowHeight: dragState.rowHeight,
-          startDayIdx: Math.min(dragState.startDayIdx, dragState.currentDayIdx),
-          endDayIdx: Math.max(dragState.startDayIdx, dragState.currentDayIdx),
-          assigneeId: dragState.assigneeId,
-        }
-      : pendingCreateMarquee;
-    if (!styleSource) return null;
-    const startDayIdx = styleSource.startDayIdx;
-    const endDayIdx = styleSource.endDayIdx;
-    return {
-      kind: styleSource.kind,
-      left: startDayIdx * cellWidth,
-      top: styleSource.rowTop,
-      width: Math.max(cellWidth, (endDayIdx - startDayIdx + 1) * cellWidth),
-      height: styleSource.rowHeight,
-      assigneeId: styleSource.assigneeId,
-    };
-  }, [dragState, pendingCreateMarquee, cellWidth]);
-
-  // Shift+드래그 박스 선택 마퀴 overlay 위치 계산 (스크롤 보정)
-  // Shift+드래그 박스 선택 마퀴 — 컨텐츠 좌표 그대로 사용
   const boxMarqueeStyle = useMemo(() => {
-    if (!isBoxSelecting || !selectionRect) return null;
-    return {
-      left: Math.min(selectionRect.startX, selectionRect.endX),
-      top: Math.min(selectionRect.startY, selectionRect.endY),
-      width: Math.abs(selectionRect.endX - selectionRect.startX),
-      height: Math.abs(selectionRect.endY - selectionRect.startY),
-    };
+    return getSchedulerBoxMarqueeStyle(isBoxSelecting, selectionRect);
   }, [isBoxSelecting, selectionRect]);
 
   const mmWeekIndicatorStyle = useMemo(() => {
@@ -818,7 +658,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onContextMenu={handleContextMenu}
+        onContextMenu={handleCreateContextMenu}
         style={{
           userSelect: (dragState || isBoxSelecting) ? "none" : undefined,
           overscrollBehaviorY: "none",
@@ -1039,65 +879,15 @@ export function ScheduleGrid({ workspaceId }: Props) {
               </div>
             )}
 
-            {/* Ctrl/Alt+드래그 생성 마퀴 — 내부 컨텐츠 좌표 기준 */}
-            {createMarqueeStyle && (
-              <div
-                className="absolute border-2 border-dashed pointer-events-none rounded-sm"
-                style={{
-                  left: createMarqueeStyle.left,
-                  top: createMarqueeStyle.top,
-                  width: createMarqueeStyle.width,
-                  height: createMarqueeStyle.height,
-                  borderColor:
-                    createMarqueeStyle.kind === "leave"
-                      ? "#ef4444"
-                      : createMarqueeStyle.assigneeId == null
-                        ? "#f59e0b"
-                        : "#3b82f6",
-                  backgroundColor:
-                    createMarqueeStyle.kind === "leave"
-                      ? "rgb(252 165 165 / 0.25)"
-                      : createMarqueeStyle.assigneeId == null
-                        ? "rgb(251 191 36 / 0.25)"
-                        : "rgb(147 197 253 / 0.25)",
-                  zIndex: 100,
-                }}
-              />
-            )}
-
-            {/* Shift+드래그 박스 선택 마퀴 — 컨텐츠 좌표 기준 */}
-            {boxMarqueeStyle && (
-              <div
-                className="absolute border-2 border-blue-400 bg-blue-400/15 rounded-sm pointer-events-none"
-                style={{
-                  left: boxMarqueeStyle.left,
-                  top: boxMarqueeStyle.top,
-                  width: boxMarqueeStyle.width,
-                  height: boxMarqueeStyle.height,
-                  zIndex: 90,
-                }}
-              />
-            )}
+            <SchedulerCreateMarquee style={createMarqueeStyle} />
+            <SchedulerBoxMarquee style={boxMarqueeStyle} />
           </div>
         </div>
       </div>
-      <SimpleConfirmDialog
-        open={deleteConfirmTarget !== null}
-        title="일정 삭제"
-        message={`"${deleteConfirmTarget?.title || "제목 없음"}" 일정을 삭제하시겠습니까?`}
-        confirmLabel="삭제"
-        danger
-        onCancel={() => setDeleteConfirmTarget(null)}
-        onConfirm={() => {
-          const target = deleteConfirmTarget;
-          if (!target) return;
-          setDeleteConfirmTarget(null);
-          selectSchedule(null);
-          void deleteSchedule(target.id, workspaceId).catch((error) => {
-            console.error(error);
-            window.alert("일정 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
-          });
-        }}
+      <ScheduleDeleteConfirmDialog
+        target={deleteConfirmTarget}
+        onCancel={cancelDelete}
+        onConfirm={confirmDelete}
       />
     </div>
   );
