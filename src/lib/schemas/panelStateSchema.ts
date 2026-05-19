@@ -29,7 +29,7 @@ const viewSpecificSchema = z.object({
   hiddenColumnIds: z.array(z.string()).optional(),
 });
 
-const viewKindEnum = z.enum(["table", "kanban", "timeline", "gallery"]);
+const viewKindEnum = z.enum(["table", "kanban", "timeline", "gallery", "list"]);
 
 /** attrs 에 부분 저장 가능 — 알려진 키만 통과·알 수 없는 키는 제거(CWE-1321 완화) */
 const databasePanelStatePartialSchema = z
@@ -44,6 +44,7 @@ const databasePanelStatePartialSchema = z
     timelineDateColumnId: z.string().nullable().optional(),
     viewConfigs: z.record(viewKindEnum, viewSpecificSchema).optional(),
     hiddenViewKinds: z.array(viewKindEnum).optional(),
+    itemLimit: z.number().int().positive().optional(),
   });
 
 export function parseDatabasePanelStateJson(raw: string): DatabasePanelState {

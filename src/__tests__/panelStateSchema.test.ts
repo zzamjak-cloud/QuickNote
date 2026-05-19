@@ -41,4 +41,20 @@ describe("parseDatabasePanelStateJson", () => {
     });
     expect(parseDatabasePanelStateJson(bad)).toEqual(emptyPanelState());
   });
+
+  it("리스트 모드 숨김과 뷰별 속성 표시 설정을 유지한다", () => {
+    const raw = JSON.stringify({
+      hiddenViewKinds: ["list"],
+      viewConfigs: {
+        list: { visibleColumnIds: ["title"] },
+        table: { visibleColumnIds: ["title", "status"] },
+      },
+      itemLimit: 50,
+    });
+    const out = parseDatabasePanelStateJson(raw);
+    expect(out.hiddenViewKinds).toEqual(["list"]);
+    expect(out.viewConfigs.list?.visibleColumnIds).toEqual(["title"]);
+    expect(out.viewConfigs.table?.visibleColumnIds).toEqual(["title", "status"]);
+    expect(out.itemLimit).toBe(50);
+  });
 });

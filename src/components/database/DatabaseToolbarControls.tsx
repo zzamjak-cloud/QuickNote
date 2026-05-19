@@ -19,10 +19,9 @@ import type {
 } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
-import { DatabaseViewKindToggle } from "./DatabaseViewKindToggle";
 import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
 import { AppSelect } from "../common/AppSelect";
-import { getUnavailableViewKinds } from "./databaseBlockViewConstants";
+import { VIEW_ICONS, VIEW_LABELS, getUnavailableViewKinds } from "./databaseBlockViewConstants";
 
 type Props = {
   databaseId: string;
@@ -49,6 +48,9 @@ export function DatabaseToolbarControls({
   const [searchOpen, setSearchOpen] = useState(
     panelState.searchQuery.trim().length > 0,
   );
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [viewMenuHover, setViewMenuHover] = useState(false);
+  const viewMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 검색창 — 한글 IME 입력 깨짐 방지: composition 동안 panelState commit 보류.
   const [searchDraft, setSearchDraft] = useState(panelState.searchQuery);
@@ -60,10 +62,17 @@ export function DatabaseToolbarControls({
     if (panelState.searchQuery.trim().length > 0) setSearchOpen(true);
   }, [panelState.searchQuery]);
   useEffect(() => {
-    if (view !== "table" && panelState.hiddenViewKinds.includes(view)) {
-      onViewChange("table");
+    if (!bundle) return;
+    const unavailable = new Set<ViewKind>(getUnavailableViewKinds(bundle.columns));
+    const visibleViews = (Object.keys(VIEW_LABELS) as ViewKind[]).filter(
+      (kind) => !unavailable.has(kind),
+    );
+    const nextView = visibleViews[0];
+    if (!nextView) return;
+    if (!visibleViews.includes(view)) {
+      onViewChange(nextView);
     }
-  }, [onViewChange, panelState.hiddenViewKinds, view]);
+  }, [bundle, onViewChange, panelState.hiddenViewKinds, view]);
 
   // 규칙 팝오버 — 한 번에 하나만 열림.
   const [openRuleKey, setOpenRuleKey] = useState<string | null>(null);
@@ -87,14 +96,35 @@ export function DatabaseToolbarControls({
     setOpenRuleKey((prev) => (prev === key ? null : key));
   };
 
+  useEffect(() => {
+    if (!viewMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (viewMenuRef.current?.contains(event.target as Node)) return;
+      setViewMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setViewMenuOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [viewMenuOpen]);
+
   const columns = useMemo(() => bundle?.columns ?? [], [bundle?.columns]);
 
-  // 속성 타입 기반으로 사용 불가 뷰를 자동 숨김
+  // 속성 타입 기반으로 사용 불가 뷰를 드롭다운 목록에서 제외
   const autoHiddenViews = getUnavailableViewKinds(columns);
-  const effectiveHiddenViewKinds = [
-    ...(panelState.hiddenViewKinds ?? []),
-    ...autoHiddenViews.filter((v) => !(panelState.hiddenViewKinds ?? []).includes(v)),
-  ];
+  const availableViewOptions = (Object.keys(VIEW_LABELS) as ViewKind[])
+    .filter((kind) => !autoHiddenViews.includes(kind))
+    .map((kind) => ({ value: kind, label: VIEW_LABELS[kind] }));
+  const currentViewOption = availableViewOptions.find((option) => option.value === view) ?? availableViewOptions[0];
+  const CurrentViewIcon = currentViewOption ? VIEW_ICONS[currentViewOption.value] : null;
 
   const sortOptions = useMemo(
     () => columns.map((column) => ({ value: column.id, label: column.name })),
@@ -201,13 +231,58 @@ export function DatabaseToolbarControls({
     <div className="select-none border-b border-zinc-200 px-2 py-2 dark:border-zinc-700">
       {/* 툴바 메인 행 */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap items-center gap-0.5">
-          <DatabaseViewKindToggle
-            view={view}
-            onViewChange={onViewChange}
-            hiddenViewKinds={effectiveHiddenViewKinds}
-            unavailableViewKinds={autoHiddenViews}
-          />
+        <div
+          ref={viewMenuRef}
+          className="relative w-32"
+          onMouseEnter={() => setViewMenuHover(true)}
+          onMouseLeave={() => {
+            setViewMenuHover(false);
+            setViewMenuOpen(false);
+          }}
+        >
+          {viewMenuHover ? (
+            <button
+              type="button"
+              aria-label="데이터베이스 보기 모드"
+              onClick={() => setViewMenuOpen((prev) => !prev)}
+              className="flex h-8 w-full items-center justify-between gap-2 rounded border border-zinc-300 bg-white px-2 text-sm text-zinc-900 shadow-sm dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100"
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                {CurrentViewIcon ? <CurrentViewIcon size={14} className="shrink-0" /> : null}
+                <span className="truncate">{currentViewOption?.label ?? "모드"}</span>
+              </span>
+              <ChevronDown size={14} className={viewMenuOpen ? "rotate-180 transition-transform" : "transition-transform"} />
+            </button>
+          ) : (
+            <div className="flex h-8 items-center gap-1.5 px-2 text-sm text-zinc-700 dark:text-zinc-200">
+              {CurrentViewIcon ? <CurrentViewIcon size={14} className="shrink-0" /> : null}
+              <span className="truncate">{currentViewOption?.label ?? "모드"}</span>
+            </div>
+          )}
+          {viewMenuOpen && (
+            <div className="absolute left-0 top-full z-[720] mt-1 w-32 rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              {availableViewOptions.map((option) => {
+                const OptionIcon = VIEW_ICONS[option.value];
+                const selected = option.value === view;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => onViewChange(option.value)}
+                    className={[
+                      "flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left",
+                      selected
+                        ? "bg-blue-600 font-semibold text-white"
+                        : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800",
+                    ].join(" ")}
+                  >
+                    <OptionIcon size={14} className="shrink-0" />
+                    <span className="truncate">{option.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {/* 검색 — 활성 시 슬라이드 펼침 */}

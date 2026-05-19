@@ -15,7 +15,7 @@ export function DatabaseViewKindToggle({
   unavailableViewKinds = [],
 }: Props) {
   const unavailable = new Set<ViewKind>(unavailableViewKinds);
-  const hidden = new Set<ViewKind>(hiddenViewKinds.filter((kind) => kind !== "table"));
+  const hidden = new Set<ViewKind>(hiddenViewKinds);
   return (
     <>
       {(Object.keys(VIEW_ICONS) as ViewKind[]).map((vk) => {
