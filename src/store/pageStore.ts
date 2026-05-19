@@ -15,7 +15,8 @@ import { enqueueAsync } from "../lib/sync/runtime";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
-import { getLCSchedulerWorkspaceIdFromDatabaseId } from "../lib/scheduler/database";
+import { isLCSchedulerDatabaseId } from "../lib/scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../lib/scheduler/scope";
 import {
   EMPTY_DOC,
   blockPreviewById,
@@ -49,10 +50,7 @@ export { migratePageStore } from "./pageStore/migrations";
 function resolveDeletedPageWorkspaceId(page: Page, removedPageById: Map<string, Page>): string {
   let cursor: Page | undefined = page;
   while (cursor) {
-    if (cursor.databaseId) {
-      const schedulerWorkspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(cursor.databaseId);
-      if (schedulerWorkspaceId) return schedulerWorkspaceId;
-    }
+    if (isLCSchedulerDatabaseId(cursor.databaseId)) return LC_SCHEDULER_WORKSPACE_ID;
     cursor = cursor.parentId ? removedPageById.get(cursor.parentId) : undefined;
   }
   return getCurrentWorkspaceId();

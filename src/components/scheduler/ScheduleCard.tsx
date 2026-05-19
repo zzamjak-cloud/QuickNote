@@ -452,6 +452,7 @@ export function ScheduleCard({
     <>
       <Rnd
         ref={rndRef}
+        data-schedule-card-interactive="true"
         // x축만 드래그 허용 (수직 이동 비활성)
         dragAxis={rowCount > 1 ? "both" : "x"}
         // 이동 중에는 자유 이동, 드롭 결과만 셀/행 기준으로 스냅한다.

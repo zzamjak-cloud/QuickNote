@@ -80,6 +80,8 @@ const TIMELINE_BOTTOM_SPACER_HEIGHT = 240
 const MARQUEE_ACTIVATE_PX = 4
 const PENDING_SCHEDULE_PAGE_ID_PREFIX = 'lc-scheduler:creating:'
 const MEMBER_COLUMN_WIDTH = 120
+const SCHEDULE_INTERACTION_SELECTOR =
+  ".schedule-card, .react-draggable, .react-resizable-handle, [data-schedule-card-interactive='true']"
 
 // Schedule 은 ISO 문자열 기반 → ms 변환 헬퍼
 function scheduleStartMs(s: Schedule): number {
@@ -574,6 +576,7 @@ function ScheduleWeekCard({
     <>
       <Rnd
         ref={rndRef}
+        data-schedule-card-interactive="true"
         bounds="parent"
         dragAxis={rowCount > 1 ? 'both' : 'x'}
         dragGrid={[1, 1]}
@@ -1284,8 +1287,10 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if ((e.target as HTMLElement).closest('.schedule-card')) return
-      if ((e.target as HTMLElement).closest('button, input, textarea, select, [contenteditable="true"], [role="textbox"]')) return
+      const target = e.target
+      if (!(target instanceof Element)) return
+      if (target.closest(SCHEDULE_INTERACTION_SELECTOR)) return
+      if (target.closest('button, input, textarea, select, [contenteditable="true"], [role="textbox"]')) return
       const isCtrl = e.ctrlKey || e.metaKey
       const isAlt = e.altKey
 

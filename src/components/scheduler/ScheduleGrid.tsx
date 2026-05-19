@@ -57,6 +57,8 @@ const MEMBER_COLUMN_WIDTH = 120;
 // Ctrl/Alt+드래그 마퀴 시작 임계값 (px)
 const MARQUEE_ACTIVATE_PX = 4;
 const PENDING_SCHEDULE_PAGE_ID_PREFIX = "lc-scheduler:creating:";
+const SCHEDULE_INTERACTION_SELECTOR =
+  ".schedule-card, .react-draggable, .react-resizable-handle, [data-schedule-card-interactive='true']";
 
 // 마지막 구성원도 화면 중앙 근처까지 올려 볼 수 있도록 하단 스크롤 여백을 둔다.
 const TIMELINE_BOTTOM_SPACER_HEIGHT = "50vh";
@@ -513,8 +515,11 @@ export function ScheduleGrid({ workspaceId }: Props) {
   //   없음          → 빈 영역 박스 선택 드래그
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
       // 이미 존재하는 카드 위에서 시작하면 무시 (react-rnd 카드가 처리)
-      if ((e.target as HTMLElement).closest(".schedule-card")) return;
+      if (target.closest(SCHEDULE_INTERACTION_SELECTOR)) return;
+      if (target.closest("button, input, textarea, select, [contenteditable='true'], [role='textbox']")) return;
 
       const isCtrl = e.ctrlKey || e.metaKey;
       const isAlt = e.altKey;

@@ -5,7 +5,11 @@ import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../../types/page";
 import type { PageSnapshot } from "../../types/history";
 import { enqueueAsync } from "../../lib/sync/runtime";
-import { getLCSchedulerWorkspaceIdFromDatabaseId } from "../../lib/scheduler/database";
+import {
+  isLCSchedulerDatabaseId,
+  LC_SCHEDULER_DATABASE_ID,
+} from "../../lib/scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { useAuthStore } from "../authStore";
 import { useMemberStore } from "../memberStore";
 import { useWorkspaceStore } from "../workspaceStore";
@@ -26,10 +30,14 @@ export function getCurrentWorkspaceId(): string {
 }
 
 function resolvePageWorkspaceId(p: Page): string {
-  const schedulerWorkspaceId = p.databaseId
-    ? getLCSchedulerWorkspaceIdFromDatabaseId(p.databaseId)
-    : null;
-  return schedulerWorkspaceId ?? getCurrentWorkspaceId();
+  if (isLCSchedulerDatabaseId(p.databaseId)) return LC_SCHEDULER_WORKSPACE_ID;
+  return getCurrentWorkspaceId();
+}
+
+function normalizePageDatabaseId(databaseId: string | null | undefined): string | null {
+  if (!databaseId) return null;
+  if (isLCSchedulerDatabaseId(databaseId)) return LC_SCHEDULER_DATABASE_ID;
+  return databaseId;
 }
 
 // 클라이언트 number(epoch ms) → GraphQL 경계 string/ISO 변환.
@@ -46,7 +54,7 @@ export function toGqlPage(p: Page, createdByMemberId: string): Record<string, un
     coverImage: p.coverImage ?? null,
     parentId: p.parentId ?? null,
     order: String(p.order),
-    databaseId: p.databaseId ?? null,
+    databaseId: normalizePageDatabaseId(p.databaseId),
     doc: JSON.stringify(p.doc),
     dbCells: p.dbCells ? JSON.stringify(p.dbCells) : null,
     createdAt: new Date(p.createdAt).toISOString(),

@@ -13,8 +13,8 @@ import {
   LC_SCHEDULER_ATTENDANCE_PRESET_ID,
   LC_SCHEDULER_COLUMN_IDS,
   LC_SCHEDULER_TASK_PRESET_ID,
-  getLCSchedulerWorkspaceIdFromDatabaseId,
 } from "../../lib/scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { rememberSchedulerPropertyValues } from "../../lib/scheduler/lastPropertyMemory";
 import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR } from "../../lib/scheduler/colors";
 
@@ -223,8 +223,7 @@ export function DatabasePropertyPanel({
 
   useEffect(() => {
     if (!isSchedulerDb) return;
-    const workspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(databaseId);
-    if (!workspaceId) return;
+    const workspaceId = LC_SCHEDULER_WORKSPACE_ID;
     rememberSchedulerPropertyValues(workspaceId, rowCells);
     useSchedulerStore.getState().refreshSchedulePageFromLocal(pageId, workspaceId);
   }, [databaseId, isSchedulerDb, pageId, rowCells]);
