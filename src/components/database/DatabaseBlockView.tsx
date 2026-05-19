@@ -43,7 +43,6 @@ import {
 } from "../../store/historyStore";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
-import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
@@ -61,15 +60,10 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const { members, me } = useMemberStore(
     useShallow((s) => ({ members: s.members, me: s.me })),
   );
-  const panelState = useDatabaseViewPrefsStore((s) =>
-    databaseId
-      ? s.getPanelState(databaseId, panelStateRaw)
-      : parseDatabasePanelStateJson(panelStateRaw),
-  );
+  const panelState = parseDatabasePanelStateJson(panelStateRaw);
   void currentWorkspaceId;
   const panelStateRef = useRef(panelState);
   panelStateRef.current = panelState;
-  const patchLocalPanelState = useDatabaseViewPrefsStore((s) => s.patchPanelState);
 
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const hasDatabaseId = databaseId.length > 0;
@@ -94,8 +88,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   // 내비게이션 히스토리 (인라인→전체 DB 전환 시 뒤로가기 지원).
   const pushBack = useNavigationHistoryStore((s) => s.pushBack);
-  const popBack = useNavigationHistoryStore((s) => s.popBack);
-  const previousPageId = useNavigationHistoryStore((s) => s.peekBack());
 
   const openDbHomePage = useCallback(
     (pageId: string) => {
@@ -211,9 +203,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
       if (!databaseId) return;
       const next = { ...panelStateRef.current, ...patch };
       panelStateRef.current = next;
-      patchLocalPanelState(databaseId, patch, panelStateRaw);
+      scheduleEditorMutation(() => {
+        updateAttributes({ panelState: JSON.stringify(next) });
+      });
     },
-    [databaseId, panelStateRaw, patchLocalPanelState],
+    [databaseId, updateAttributes],
   );
 
   const setView = useCallback(
@@ -465,14 +459,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
                 deleteDisabled={isProtectedDatabase}
-                hasPreviousPage={!!previousPageId}
-                onGoBack={() => {
-                  const prev = popBack();
-                  if (prev) {
-                    setActivePageNav(prev);
-                    setCurrentTabPage(prev);
-                  }
-                }}
               />
             )}
 

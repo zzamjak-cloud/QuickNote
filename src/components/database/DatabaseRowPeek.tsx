@@ -1,5 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, MoreHorizontal, Trash2, Check, Minus, Maximize2, ChevronLeft, FileText, ArrowLeftRight, Loader2 } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Check,
+  ChevronLeft,
+  Code,
+  Copy,
+  CopyPlus,
+  FileText,
+  FolderInput,
+  History,
+  Link2,
+  Loader2,
+  Maximize2,
+  Minus,
+  MoreHorizontal,
+  Printer,
+  Trash2,
+  X,
+} from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
@@ -15,12 +33,18 @@ import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { PageCommentBar } from "../comments/PageCommentBar";
 import { useShallow } from "zustand/react/shallow";
+import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
+import { pageDocToHtml } from "../../lib/export/pageToHtml";
+import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
+import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
 const MIN_PEEK_WIDTH = 380;
 const MAX_PEEK_WIDTH_RATIO = 0.9; // 화면 폭의 90%까지 허용
 const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
+const MENU_ITEM_ICON = "size-4 shrink-0 text-zinc-500 dark:text-zinc-400";
 
 function loadPeekWidth(): number {
   if (typeof window === "undefined") return DEFAULT_PEEK_WIDTH;
@@ -39,6 +63,8 @@ export function DatabaseRowPeek() {
   const setRowBackTarget = useUiStore((s) => s.setRowBackTarget);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
+  const duplicatePage = usePageStore((s) => s.duplicatePage);
+  const deletePage = usePageStore((s) => s.deletePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   // 피크 페이지 전체너비 상태 — 토글 버튼이 항상 peekPageId 만 타깃팅 (배경의 메인 페이지 변경 방지)
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
@@ -65,10 +91,12 @@ export function DatabaseRowPeek() {
   // 피크에서 "전체 열기" 클릭 시: 현재 활성 페이지를 뒤로가기 대상으로 저장하고
   // 항목 페이지를 활성화하여 전체 페이지 뷰(DatabaseRowPage)가 보이게 한다.
   const openFullPage = () => {
-    if (!peekPageId) return;
-    window.dispatchEvent(new CustomEvent(CLOSE_LC_SCHEDULER_EVENT, {
-      detail: { keepSchedulerWorkspace: true },
-    }));
+    if (!peekPageId || !page) return;
+    if (isLCSchedulerDatabaseId(page.databaseId)) {
+      window.dispatchEvent(new CustomEvent(CLOSE_LC_SCHEDULER_EVENT, {
+        detail: { keepSchedulerWorkspace: true },
+      }));
+    }
     if (activePageId) setRowBackTarget(peekPageId, activePageId);
     setActivePage(peekPageId);
     setCurrentTabPage(peekPageId);
@@ -82,11 +110,13 @@ export function DatabaseRowPeek() {
   const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
   const members = useMemberStore((s) => s.members);
   const me = useMemberStore((s) => s.me);
+  const showToast = useUiStore((s) => s.showToast);
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [width, setWidth] = useState<number>(() => loadPeekWidth());
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -171,6 +201,71 @@ export function DatabaseRowPeek() {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
+
+  const copyPageLink = () => {
+    if (!peekPageId) return;
+    void navigator.clipboard
+      .writeText(buildQuickNotePageUrl({ pageId: peekPageId }))
+      .then(() => showToast("페이지 링크 복사 완료!", { kind: "success" }))
+      .catch(() => showToast("페이지 링크 복사에 실패했습니다.", { kind: "error" }));
+    setMenuOpen(false);
+  };
+
+  const copyPageContent = () => {
+    if (!page) return;
+    void navigator.clipboard
+      .writeText(pageDocToMarkdown(page.doc))
+      .then(() => showToast("페이지 내용 복사 완료!", { kind: "success" }))
+      .catch(() => showToast("페이지 내용 복사에 실패했습니다.", { kind: "error" }));
+    setMenuOpen(false);
+  };
+
+  const handleDuplicate = () => {
+    if (!peekPageId) return;
+    const newId = duplicatePage(peekPageId);
+    if (newId) peekNavigate(newId);
+    setMenuOpen(false);
+  };
+
+  const handleDelete = () => {
+    if (!peekPageId) return;
+    deletePage(peekPageId);
+    setMenuOpen(false);
+    handleClose();
+  };
+
+  const handleExportMarkdown = () => {
+    if (!page) return;
+    const title = page.title || "untitled";
+    const md = pageDocToMarkdown(page.doc);
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title}.md`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    setMenuOpen(false);
+  };
+
+  const handleExportPdf = () => {
+    window.print();
+    setMenuOpen(false);
+  };
+
+  const handleExportHtml = () => {
+    if (!page) return;
+    const title = page.title || "untitled";
+    const html = pageDocToHtml(title, page.doc);
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title}.html`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+    setMenuOpen(false);
+  };
 
   // 너비 드래그 — 좌측 모서리를 잡고 좌우로 이동.
   const dragRef = useRef<{ originX: number; originWidth: number } | null>(null);
@@ -267,6 +362,56 @@ export function DatabaseRowPeek() {
           </button>
           <button
             type="button"
+            onClick={copyPageLink}
+            disabled={isPendingPageCreation}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
+            title="링크 복사"
+            aria-label="링크 복사"
+          >
+            <Link2 size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={copyPageContent}
+            disabled={isPendingPageCreation}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
+            title="페이지 내용 복사"
+            aria-label="페이지 내용 복사"
+          >
+            <Copy size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={handleDuplicate}
+            disabled={isPendingPageCreation}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
+            title="페이지 복제"
+            aria-label="페이지 복제"
+          >
+            <CopyPlus size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setMoveDialogOpen(true)}
+            disabled={isPendingPageCreation}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
+            title="다른 페이지로 이동"
+            aria-label="다른 페이지로 이동"
+          >
+            <FolderInput size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryDialogOpen(true)}
+            disabled={isPendingPageCreation}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
+            title="버전 히스토리"
+            aria-label="버전 히스토리"
+          >
+            <History size={14} />
+          </button>
+          <button
+            type="button"
             onClick={openFullPage}
             disabled={isPendingPageCreation}
             className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
@@ -287,17 +432,77 @@ export function DatabaseRowPeek() {
               <MoreHorizontal size={16} />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={peekFullWidth}
+                  title={peekFullWidth ? "전체 너비 보기 끄기 (좁은 본문)" : "전체 너비 보기 켜기"}
+                  onClick={() => {
+                    if (peekPageId) toggleFullWidthForPage(peekPageId);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <ArrowLeftRight
+                    size={16}
+                    className={
+                      peekFullWidth
+                        ? "size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                        : MENU_ITEM_ICON
+                    }
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1">전체 너비 보기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={copyPageLink}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Link2 className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">링크 복사</span>
+                  <span className="shrink-0 text-xs text-zinc-400">⌘L</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={copyPageContent}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Copy className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">페이지 내용 복사</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDuplicate}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <CopyPlus className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">페이지 복제</span>
+                  <span className="shrink-0 text-xs text-zinc-400">⌘D</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setCopyToWorkspaceOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <CopyPlus className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">다른 워크스페이스로 복제</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
                     setMenuOpen(false);
                     setMoveDialogOpen(true);
                   }}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  <span>다른 페이지로 이동</span>
-                  <span className="text-xs text-zinc-400">열기</span>
+                  <FolderInput className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">다른 페이지로 이동</span>
+                  <span className="shrink-0 text-xs text-zinc-400">열기</span>
                 </button>
                 <button
                   type="button"
@@ -305,10 +510,48 @@ export function DatabaseRowPeek() {
                     setMenuOpen(false);
                     setHistoryDialogOpen(true);
                   }}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  <span>버전 히스토리</span>
-                  <span className="text-xs text-zinc-400">열기</span>
+                  <History className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">버전 히스토리</span>
+                  <span className="shrink-0 text-xs text-zinc-400">열기</span>
+                </button>
+                <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+                <button
+                  type="button"
+                  onClick={handleExportMarkdown}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <FileText className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">마크다운 내보내기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPdf}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Printer className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">PDF 내보내기</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportHtml}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Code className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">HTML 내보내기</span>
+                </button>
+                <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800"
+                >
+                  <Trash2
+                    className="size-4 shrink-0 text-red-600 dark:text-red-400"
+                    aria-hidden
+                  />
+                  <span className="min-w-0 flex-1">페이지 삭제</span>
                 </button>
               </div>
             )}
@@ -388,6 +631,10 @@ export function DatabaseRowPeek() {
           pageId={moveDialogOpen ? peekPageId : null}
           onClose={() => setMoveDialogOpen(false)}
         />
+        <PageCopyToWorkspaceDialog
+          pageId={copyToWorkspaceOpen ? peekPageId : null}
+          onClose={() => setCopyToWorkspaceOpen(false)}
+        />
         {historyDialogOpen && (
           <div
             className="fixed inset-0 z-[670] flex items-center justify-center bg-black/45 p-4"
@@ -457,9 +704,8 @@ export function DatabaseRowPeek() {
                   </div>
                 ) : (
                   pageHistoryTimeline.slice(0, 100).map((entry, idx, arr) => (
-                    <button
+                    <div
                       key={entry.id}
-                      type="button"
                       onClick={() => {
                         const targetEventId = entry.eventIds[entry.eventIds.length - 1];
                         if (targetEventId && peekPageId) {
@@ -467,6 +713,18 @@ export function DatabaseRowPeek() {
                         }
                         setHistoryDialogOpen(false);
                       }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          const targetEventId = entry.eventIds[entry.eventIds.length - 1];
+                          if (targetEventId && peekPageId) {
+                            restorePageFromHistoryEvent(peekPageId, targetEventId);
+                          }
+                          setHistoryDialogOpen(false);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
                       className="flex w-full items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                     >
                       <button
@@ -512,9 +770,9 @@ export function DatabaseRowPeek() {
                         title="히스토리 항목 삭제"
                         aria-label="히스토리 항목 삭제"
                       >
-                        <Trash2 size={12} />
-                      </button>
-                    </button>
+                          <Trash2 size={12} />
+                        </button>
+                    </div>
                   ))
                 )}
               </div>

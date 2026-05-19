@@ -15,10 +15,12 @@ import {
   FolderInput,
   History,
 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { pageDocToHtml } from "../../lib/export/pageToHtml";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import { emptyPanelState } from "../../types/database";
+import type { Page } from "../../types/page";
 
 /** 페이지 메뉴 드롭다운 왼쪽 아이콘 공통 스타일 */
 const MENU_ITEM_ICON =
@@ -27,8 +29,19 @@ const MENU_ITEM_ICON =
 function isLCSchedulerModalOpen(): boolean {
   return Boolean(document.querySelector("[data-lc-scheduler-modal='true']"));
 }
-import { useState, useEffect, useRef } from "react";
-import type { Page } from "../../types/page";
+
+function isFullPageDatabasePage(page: Page | undefined): boolean {
+  const content = page?.doc?.content;
+  if (!Array.isArray(content) || content.length === 0) return false;
+  const first = content[0];
+  return (
+    first?.type === "databaseBlock" &&
+    first.attrs != null &&
+    first.attrs.layout === "fullPage" &&
+    typeof first.attrs.databaseId === "string" &&
+    first.attrs.databaseId.length > 0
+  );
+}
 import { useSettingsStore } from "../../store/settingsStore";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -42,6 +55,7 @@ import { PageMoveDialog } from "./PageMoveDialog";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
+import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 
 export function TopBar() {
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
@@ -59,6 +73,9 @@ export function TopBar() {
   const updateDoc = usePageStore((s) => s.updateDoc);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const showToast = useUiStore((s) => s.showToast);
+  const previousNavigationPageId = useNavigationHistoryStore((s) => s.peekBack());
+  const popNavigationBack = useNavigationHistoryStore((s) => s.popBack);
+  const clearNavigationBack = useNavigationHistoryStore((s) => s.clearBack);
   const restorePageFromHistoryEvent = usePageStore(
     (s) => s.restorePageFromHistoryEvent,
   );
@@ -148,6 +165,9 @@ export function TopBar() {
   const parentId = activePage?.parentId ?? null;
   const canGoBack =
     Boolean(activeId && parentId !== null && pages[parentId ?? ""]);
+  const showDatabasePreviousButton = Boolean(
+    previousNavigationPageId && isFullPageDatabasePage(activePage),
+  );
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -176,6 +196,11 @@ export function TopBar() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [activeId, showToast]);
+  useEffect(() => {
+    if (!activeId || !activePage || !previousNavigationPageId) return;
+    if (isFullPageDatabasePage(activePage)) return;
+    clearNavigationBack();
+  }, [activeId, activePage, clearNavigationBack, previousNavigationPageId]);
 
   const handleDuplicate = () => {
     if (!activeId) return;
@@ -208,6 +233,13 @@ export function TopBar() {
     if (!activeId) return;
     deletePage(activeId);
     setMenuOpen(false);
+  };
+
+  const handleNavigationBack = () => {
+    const prev = popNavigationBack();
+    if (!prev) return;
+    setActive(prev);
+    setCurrentTabPage(prev);
   };
 
   // 마크다운 파일로 현재 페이지 내보내기
@@ -281,16 +313,28 @@ export function TopBar() {
 
   return (
     <header className="relative z-[350] flex h-10 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
-      <button
-        type="button"
-        onClick={() => navigateToParentPage()}
-        disabled={!canGoBack}
-        className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-30 disabled:cursor-default dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-        aria-label="상위 페이지로 이동"
-        title="상위 페이지로 이동 (루트에서는 비활성)"
-      >
-        <ChevronLeft size={16} />
-      </button>
+      {showDatabasePreviousButton ? (
+        <button
+          type="button"
+          onClick={handleNavigationBack}
+          title="이전 페이지로 이동"
+          className="inline-flex h-7 min-w-0 items-center gap-0.5 rounded-md px-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        >
+          <ChevronLeft size={16} className="shrink-0" />
+          <span className="truncate">이전 페이지</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => navigateToParentPage()}
+          disabled={!canGoBack}
+          className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 disabled:opacity-30 disabled:cursor-default dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          aria-label="상위 페이지로 이동"
+          title="상위 페이지로 이동 (루트에서는 비활성)"
+        >
+          <ChevronLeft size={16} />
+        </button>
+      )}
       <div className="flex flex-1 items-center gap-1 overflow-hidden text-xs text-zinc-500 dark:text-zinc-400">
         {breadcrumb.length === 0 ? (
           <span>페이지를 선택하거나 새로 만드세요</span>

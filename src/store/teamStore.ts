@@ -65,16 +65,9 @@ export const useTeamStore = create<TeamStore>()(
       name: "quicknote.teams.cache.v1",
       storage: createJSONStorage(() => zustandStorage),
       partialize: (state) => ({
+        teams: state.teams,
         cacheWorkspaceId: state.cacheWorkspaceId,
       }),
-      merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<TeamStoreState> | undefined;
-        return {
-          ...currentState,
-          teams: [],
-          cacheWorkspaceId: persisted?.cacheWorkspaceId ?? currentState.cacheWorkspaceId,
-        };
-      },
     },
   ),
 );

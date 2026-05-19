@@ -8,7 +8,7 @@ export type DatabaseBlockAttrs = {
   databaseId: string;
   layout: DatabaseLayout;
   view: ViewKind;
-  /** legacy fallback only. New filter/sort/property visibility prefs live in local databaseViewPrefsStore. */
+  /** 표시 설정·필터·정렬 상태. 페이지 content로 동기화한다. */
   panelState: string;
   /** 인라인에서 "다른 DB 연결"으로 바꾼 경우 등 — 블록 안에서 제목 편집 금지 */
   readOnlyTitle?: boolean;
@@ -32,7 +32,6 @@ export const DatabaseBlock = Node.create({
         default: "table" satisfies ViewKind,
       },
       panelState: {
-        // 로컬 prefs가 없을 때 구버전 문서의 초기값으로만 읽는다. 이후 변경은 동기화하지 않는다.
         default: JSON.stringify(emptyPanelState()),
       },
       readOnlyTitle: {

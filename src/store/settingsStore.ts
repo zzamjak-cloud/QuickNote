@@ -47,6 +47,11 @@ type SettingsActions = {
   toggleSidebarCollapsed: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleFavoritePage: (pageId: string) => void;
+  updateFavoritePageMeta: (
+    pageId: string,
+    meta: FavoritePageMeta,
+    opts?: { sync?: boolean },
+  ) => void;
   reorderFavorites: (orderedIds: string[]) => void;
   removeFavoritePage: (pageId: string) => void;
   /** 페이지 삭제 시 즐겨찾기 배열에서 제거 */
@@ -219,6 +224,25 @@ export const useSettingsStore = create<SettingsStore>()(
           const favoritePageIdsUpdatedAt = Date.now();
           queueMicrotask(() => scheduleEnqueueClientPrefs());
           return { favoritePageIds, favoritePageMetaById, favoritePageIdsUpdatedAt };
+        }),
+      updateFavoritePageMeta: (pageId, meta, opts) =>
+        set((s) => {
+          if (!s.favoritePageIds.includes(pageId)) return s;
+          const prev = s.favoritePageMetaById[pageId];
+          const same =
+            prev?.workspaceId === meta.workspaceId &&
+            prev?.workspaceName === meta.workspaceName &&
+            prev?.pageTitle === meta.pageTitle &&
+            prev?.pageIcon === meta.pageIcon;
+          if (same) return s;
+          const favoritePageMetaById = {
+            ...s.favoritePageMetaById,
+            [pageId]: meta,
+          };
+          if (opts?.sync === false) return { favoritePageMetaById };
+          const favoritePageIdsUpdatedAt = Date.now();
+          queueMicrotask(() => scheduleEnqueueClientPrefs());
+          return { favoritePageMetaById, favoritePageIdsUpdatedAt };
         }),
       reorderFavorites: (orderedIds) =>
         set(() => {

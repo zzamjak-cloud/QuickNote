@@ -1,4 +1,4 @@
-// 주간 보기 — 지난주·이번주·다음주 × 평일 5일(월~금), 주 단위로만 카드 분할·주 내에서는 연결
+// 주간/월간 보기 — 주간은 평일 5일, 월간은 주말 포함 월 전체 날짜를 표시
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -154,7 +154,7 @@ function buildWeekDaySlots(
   return slots
 }
 
-function buildMonthWorkdaySlots(year: number, monthIndex: number): WeekDaySlot[] {
+function buildMonthDaySlots(year: number, monthIndex: number): WeekDaySlot[] {
   const monthStart = startOfDay(new Date(year, monthIndex, 1))
   const days = new Date(year, monthIndex + 1, 0).getDate()
   const slots: WeekDaySlot[] = []
@@ -163,7 +163,6 @@ function buildMonthWorkdaySlots(year: number, monthIndex: number): WeekDaySlot[]
   for (let day = 0; day < days; day += 1) {
     const date = addDays(monthStart, day)
     const dayOfWeek = date.getDay()
-    if (dayOfWeek === 0 || dayOfWeek === 6) continue
 
     const weekStartKey = startOfWeek(date).toISOString()
     slots.push({
@@ -799,7 +798,7 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const { slots, weekBlocks, mondays, slotCount } = useMemo(() => {
     if (mode === 'month') {
       const monthStart = startOfDay(new Date(currentYear, monthIndex, 1))
-      const slots = buildMonthWorkdaySlots(currentYear, monthIndex)
+      const slots = buildMonthDaySlots(currentYear, monthIndex)
       return {
         slots,
         weekBlocks: [],
@@ -858,8 +857,8 @@ function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
 
   const getSlotBackground = (slot: WeekDaySlot, _alphaHex: string): string => {
     const key = startOfDay(slot.date).getTime()
-    if (holidayTimeSet.has(key)) {
-      // 공휴일은 weekendColor 원색 사용
+    if (holidayTimeSet.has(key) || (mode === 'month' && (slot.date.getDay() === 0 || slot.date.getDay() === 6))) {
+      // 월간 주말과 공휴일은 연간 보기와 동일한 배경색 사용
       return weekendColor
     }
     return 'transparent'

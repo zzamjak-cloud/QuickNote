@@ -1,4 +1,4 @@
-import { Database, History, Link2, PanelTop } from "lucide-react";
+import { Database, History, Link2, Maximize2 } from "lucide-react";
 import type { DragEvent as ReactDragEvent } from "react";
 
 type Props = {
@@ -97,7 +97,7 @@ export function DatabaseBlockInlineHeader({
               onClick={() => onOpenDbHomePage(dbHomePageId)}
               className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              <PanelTop size={15} />
+              <Maximize2 size={15} />
             </button>
           ) : null}
           <button

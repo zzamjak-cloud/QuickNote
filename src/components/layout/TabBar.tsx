@@ -75,14 +75,15 @@ export function TabBar() {
   }, []);
 
   const closeScheduler = useCallback((options?: { keepSchedulerWorkspace?: boolean }) => {
+    const wasSchedulerOpen = schedulerOpen;
     setSchedulerOpen(false);
-    if (options?.keepSchedulerWorkspace) {
+    if (options?.keepSchedulerWorkspace && wasSchedulerOpen) {
       if (currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
         setCurrentWorkspaceId(LC_SCHEDULER_WORKSPACE_ID);
       }
       return;
     }
-  }, [currentWorkspaceId, setCurrentWorkspaceId]);
+  }, [currentWorkspaceId, schedulerOpen, setCurrentWorkspaceId]);
 
   useEffect(() => {
     const handleCloseScheduler = (event: Event) => {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowUpRight, PanelRight, Plus, X } from "lucide-react";
+import { Maximize2, PanelRight, Plus, X } from "lucide-react";
 import type {
   ColumnDef,
   DatabasePanelState,
@@ -297,7 +297,7 @@ function KanbanCard({
             title="페이지로 열기"
             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
           >
-            <ArrowUpRight size={11} />
+            <Maximize2 size={11} />
           </button>
           <button
             type="button"

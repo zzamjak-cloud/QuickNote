@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   GripVertical,
-  ArrowUpRight,
+  Maximize2,
   PanelRight,
   Check,
   Minus,
@@ -449,7 +449,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                             title="페이지로 열기"
                             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
                           >
-                            <ArrowUpRight size={12} />
+                            <Maximize2 size={12} />
                           </button>
                           <button
                             type="button"

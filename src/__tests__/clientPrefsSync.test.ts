@@ -20,6 +20,7 @@ describe("decodeClientPrefsField", () => {
       v: 1,
       favoritePageIds: ["p1"],
       favoritePageIdsUpdatedAt: 99,
+      favoritePageMetaById: {},
     });
   });
 
@@ -31,6 +32,7 @@ describe("decodeClientPrefsField", () => {
       v: 1,
       favoritePageIds: ["p1"],
       favoritePageIdsUpdatedAt: 99,
+      favoritePageMetaById: {},
     });
   });
 
@@ -40,7 +42,27 @@ describe("decodeClientPrefsField", () => {
       v: 1,
       favoritePageIds: ["p1"],
       favoritePageIdsUpdatedAt: 99,
+      favoritePageMetaById: {},
     });
+  });
+
+  it("v2 즐겨찾기 메타를 디코드한다", () => {
+    const r = decodeClientPrefsField({
+      v: 2,
+      favoritePageIds: ["p1"],
+      favoritePageIdsUpdatedAt: 99,
+      favoritePageMetaById: {
+        p1: {
+          pageId: "p1",
+          workspaceId: "ws-1",
+          workspaceName: "Workspace",
+          pageTitle: "Page",
+          pageIcon: null,
+        },
+      },
+    });
+    expect(r?.favoritePageMetaById?.p1?.workspaceId).toBe("ws-1");
+    expect(r?.favoritePageMetaById?.p1?.pageTitle).toBe("Page");
   });
 });
 
@@ -48,6 +70,7 @@ describe("applyRemoteClientPrefs", () => {
   beforeEach(() => {
     useSettingsStore.setState({
       favoritePageIds: ["a"],
+      favoritePageMetaById: {},
       favoritePageIdsUpdatedAt: 100,
     });
   });

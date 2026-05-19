@@ -106,7 +106,10 @@ function useSyncBootstrap(): void {
         setMe(me);
         // WorkspaceSummary[]로 캐스트 (options는 스토어 밖에서만 사용)
         setWorkspaces(workspaces as Parameters<typeof setWorkspaces>[0]);
-        preloadWorkspaceSnapshots(workspaces.map((workspace) => workspace.workspaceId));
+        preloadWorkspaceSnapshots([
+          ...workspaces.map((workspace) => workspace.workspaceId),
+          LC_SCHEDULER_WORKSPACE_ID,
+        ]);
 
         // 현재 워크스페이스의 options를 WorkspaceOptionsStore에 동기화
         const currentWs =
@@ -163,6 +166,20 @@ function useSyncBootstrap(): void {
     let unsub: (() => void) | undefined;
     let unsubLcScheduler: (() => void) | undefined;
     let cancelled = false;
+    let workspaceLoadingTimer: number | null = null;
+    const setWorkspaceLoading = useUiStore.getState().setWorkspaceLoading;
+    const startWorkspaceLoadingTimer = () => {
+      if (!prevWorkspaceId || prevWorkspaceId === currentWorkspaceId) return;
+      if (workspaceLoadingTimer !== null) return;
+      workspaceLoadingTimer = window.setTimeout(() => {
+        const workspaceName =
+          useWorkspaceStore
+            .getState()
+            .workspaces.find((w) => w.workspaceId === currentWorkspaceId)?.name ??
+          "";
+        setWorkspaceLoading({ workspaceId: currentWorkspaceId, workspaceName });
+      }, 160);
+    };
 
     (async () => {
       try {
@@ -170,6 +187,13 @@ function useSyncBootstrap(): void {
           prevWorkspaceId,
           currentWorkspaceId,
         );
+        if (
+          switchResult.reason === "deferred-switch" ||
+          switchResult.reason === "pending-outbox" ||
+          switchResult.cleared
+        ) {
+          startWorkspaceLoadingTimer();
+        }
         const fetchApply = async (): Promise<void> => {
           await migrateLegacyBlockCommentsToPagesOnce();
           const [pages, dbs, comments] = await Promise.all([
@@ -276,11 +300,27 @@ function useSyncBootstrap(): void {
         }
       } catch (err) {
         console.error("[sync] bootstrap failed", err);
+      } finally {
+        if (workspaceLoadingTimer !== null) {
+          window.clearTimeout(workspaceLoadingTimer);
+          workspaceLoadingTimer = null;
+        }
+        const loading = useUiStore.getState().workspaceLoading;
+        if (loading?.workspaceId === currentWorkspaceId) {
+          setWorkspaceLoading(null);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
+      if (workspaceLoadingTimer !== null) {
+        window.clearTimeout(workspaceLoadingTimer);
+      }
+      const loading = useUiStore.getState().workspaceLoading;
+      if (loading?.workspaceId === currentWorkspaceId) {
+        setWorkspaceLoading(null);
+      }
       try {
         unsub?.();
         unsubLcScheduler?.();

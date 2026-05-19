@@ -1,7 +1,16 @@
 /* eslint-disable react-hooks/purity -- 축/오늘 기준선은 렌더 시각의 Date.now() 사용 */
  
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, PanelRight, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { ChevronLeft, ChevronRight, Maximize2, PanelRight, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
+import { Rnd } from "react-rnd";
 import type {
   CellValue,
   ColumnDef,
@@ -22,7 +31,6 @@ import {
   TIMELINE_WEEK_RANGE_DAYS as WEEK_RANGE_DAYS,
   timelineClampToWeekday as clampToWeekday,
   timelineGetRange as getRange,
-  timelinePickStatusColor as pickStatusColor,
   timelineStartOfDay as startOfDay,
   timelineStartOfWeekMon as startOfWeekMon,
   timelineWeekLabel as weekLabel,
@@ -38,7 +46,7 @@ type Props = {
   visibleRowLimit?: number;
 };
 
-type Granularity = "day" | "week";
+type Granularity = "month" | "day" | "week" | "range";
 
 const ROW_HEIGHT = 32;
 const ROW_GAP = 4;
@@ -50,10 +58,122 @@ const CELL_WIDTH_STEP = 8;
 const CELL_WIDTH_DEFAULT = 100;
 const LS_ZOOM_KEY = "quicknote.timeline.zoom";
 const LS_GRANULARITY_KEY = "quicknote.timeline.granularity";
+const LS_RANGE_START_KEY = "quicknote.timeline.rangeStart";
+const LS_RANGE_END_KEY = "quicknote.timeline.rangeEnd";
+const LS_MONTH_KEY = "quicknote.timeline.month";
+const DRAG_ACTIVATE_PX = 3;
 
 const fmtDate = (ts: number) => {
   const d = new Date(ts);
   return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+
+const toDateIso = (ms: number) => {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const parseDateInput = (value: string): number | null => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, y, m, d] = match;
+  return startOfDay(new Date(Number(y), Number(m) - 1, Number(d)).getTime());
+};
+
+const startOfMonth = (t: number) => {
+  const d = new Date(t);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+const addMonths = (t: number, delta: number) => {
+  const d = new Date(t);
+  d.setMonth(d.getMonth() + delta, 1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+const endOfMonth = (t: number) => addMonths(startOfMonth(t), 1) - DAY_MS;
+
+const monthInputToStart = (value: string): number | null => {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const [, y, m] = match;
+  return startOfMonth(new Date(Number(y), Number(m) - 1, 1).getTime());
+};
+
+const monthLabel = (monthStart: number) => {
+  const d = new Date(monthStart);
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
+};
+
+const rangeBucketDays = (totalDays: number): number => {
+  if (totalDays <= 35) return 7;
+  if (totalDays <= 120) return 10;
+  if (totalDays <= 240) return 15;
+  if (totalDays <= 370) return 30;
+  if (totalDays <= 730) return 60;
+  return 90;
+};
+
+const buildRangeBuckets = (totalDays: number, bucketDays: number): { offset: number; days: number }[] => {
+  const buckets: { offset: number; days: number }[] = [];
+  let offset = 0;
+  while (offset < totalDays) {
+    let days = Math.min(bucketDays, totalDays - offset);
+    const remaining = totalDays - offset - days;
+    if (remaining > 0 && remaining < Math.ceil(bucketDays / 2)) {
+      days += remaining;
+    }
+    buckets.push({ offset, days });
+    offset += days;
+  }
+  return buckets;
+};
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      "button, input, textarea, select, [contenteditable='true'], [role='textbox'], [data-db-timeline-card='true']",
+    ),
+  );
+}
+
+function rectsIntersect(
+  selLeft: number,
+  selRight: number,
+  selTop: number,
+  selBottom: number,
+  cardLeft: number,
+  cardRight: number,
+  cardTop: number,
+  cardBottom: number,
+): boolean {
+  return cardLeft < selRight && cardRight > selLeft && cardTop < selBottom && cardBottom > selTop;
+}
+
+type TimelineBoxRect = {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+};
+
+type TimelineCardLayout = {
+  row: DatabaseRowView;
+  pageId: string;
+  start: number;
+  end: number;
+  left: number;
+  width: number;
+  top: number;
+  dateLabel: string;
+  tooltipText: string;
 };
 
 export function DatabaseTimelineView({
@@ -85,12 +205,39 @@ export function DatabaseTimelineView({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [granularity, setGranularity] = useState<Granularity>(() => {
     const saved = localStorage.getItem(LS_GRANULARITY_KEY);
-    return saved === "week" ? "week" : "day";
+    return saved === "month" || saved === "week" || saved === "range" ? saved : "day";
+  });
+  const [rangeStartInput, setRangeStartInput] = useState(() =>
+    localStorage.getItem(LS_RANGE_START_KEY) ?? "",
+  );
+  const [rangeEndInput, setRangeEndInput] = useState(() =>
+    localStorage.getItem(LS_RANGE_END_KEY) ?? "",
+  );
+  const [visibleMonthStart, setVisibleMonthStart] = useState(() => {
+    const saved = localStorage.getItem(LS_MONTH_KEY);
+    return monthInputToStart(saved ?? "") ?? startOfMonth(Date.now());
   });
 
   useEffect(() => {
     localStorage.setItem(LS_GRANULARITY_KEY, granularity);
   }, [granularity]);
+  useEffect(() => {
+    if (rangeStartInput) {
+      localStorage.setItem(LS_RANGE_START_KEY, rangeStartInput);
+    } else {
+      localStorage.removeItem(LS_RANGE_START_KEY);
+    }
+  }, [rangeStartInput]);
+  useEffect(() => {
+    if (rangeEndInput) {
+      localStorage.setItem(LS_RANGE_END_KEY, rangeEndInput);
+    } else {
+      localStorage.removeItem(LS_RANGE_END_KEY);
+    }
+  }, [rangeEndInput]);
+  useEffect(() => {
+    localStorage.setItem(LS_MONTH_KEY, toDateIso(visibleMonthStart).slice(0, 7));
+  }, [visibleMonthStart]);
 
   const [cellWidthOverride, setCellWidthOverride] = useState(() => {
     const saved = localStorage.getItem(LS_ZOOM_KEY);
@@ -112,9 +259,18 @@ export function DatabaseTimelineView({
     ro.observe(el);
     setTrackPxWidth(el.clientWidth);
     return () => ro.disconnect();
-  }, [granularity]);
+  }, [granularity, rangeEndInput, rangeStartInput]);
 
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
+  const [selectionRect, setSelectionRect] = useState<TimelineBoxRect | null>(null);
+  const selectionRectRef = useRef<TimelineBoxRect | null>(null);
+  const boxSelectingRef = useRef(false);
+  const [isBoxSelecting, setIsBoxSelecting] = useState(false);
+  const [isMultiDragging, setIsMultiDragging] = useState(false);
+  const [multiDragDeltaX, setMultiDragDeltaX] = useState(0);
+  const scrollLockLeftRef = useRef<number | null>(null);
 
   const dateCols = columns.filter((c) => c.type === "date");
   const dateColId =
@@ -141,7 +297,37 @@ export function DatabaseTimelineView({
     return out;
   }, [rows, dateColId]);
 
+  const customRange = useMemo(() => {
+    const start = parseDateInput(rangeStartInput);
+    const end = parseDateInput(rangeEndInput);
+    if (start == null || end == null) return null;
+    return {
+      start: Math.min(start, end),
+      end: Math.max(start, end),
+    };
+  }, [rangeEndInput, rangeStartInput]);
+  const fallbackRange = useMemo(() => ({
+    start: startOfMonth(Date.now()),
+    end: endOfMonth(Date.now()),
+  }), []);
+  const isRangeAxis = granularity === "range";
+  const effectiveRange = isRangeAxis ? (customRange ?? fallbackRange) : null;
+  const isWeekAxis = granularity === "week" && !isRangeAxis;
+  const isMonthAxis = granularity === "month" && !isRangeAxis;
+  const usesScrollableAxis = granularity === "day" && !isRangeAxis;
+  const usesFitAxis = !usesScrollableAxis;
+
   const axis = useMemo(() => {
+    if (effectiveRange) {
+      const totalDays = Math.max(1, Math.round((effectiveRange.end - effectiveRange.start) / DAY_MS) + 1);
+      return {
+        minT: effectiveRange.start,
+        maxT: effectiveRange.end,
+        totalDays,
+        cellWidth: 0,
+        totalW: 0,
+      };
+    }
     if (granularity === "week") {
       const thisWeekStart = startOfWeekMon(Date.now());
       const minT = thisWeekStart - WEEK_CAL_DAYS * DAY_MS;
@@ -151,7 +337,10 @@ export function DatabaseTimelineView({
     }
     let minT: number;
     let maxT: number;
-    if (dateRanges.length === 0) {
+    if (granularity === "month") {
+      minT = visibleMonthStart;
+      maxT = endOfMonth(visibleMonthStart);
+    } else if (dateRanges.length === 0) {
       const today = startOfDay(Date.now());
       minT = today - 14 * DAY_MS;
       maxT = today + 14 * DAY_MS;
@@ -160,27 +349,29 @@ export function DatabaseTimelineView({
       maxT = Math.max(...dateRanges.map((r) => r.end)) + 7 * DAY_MS;
     }
     const totalDays = Math.max(1, Math.round((maxT - minT) / DAY_MS) + 1);
-    const cellWidth = cellWidthOverride;
+    const cellWidth = granularity === "month" ? 0 : cellWidthOverride;
     const totalW = totalDays * cellWidth;
     return { minT, maxT, totalDays, cellWidth, totalW };
-  }, [dateRanges, granularity, cellWidthOverride]);
+  }, [cellWidthOverride, dateRanges, effectiveRange, granularity, visibleMonthStart]);
 
   const pxPerDay =
-    granularity === "week"
+    isWeekAxis
       ? trackPxWidth / WEEK_RANGE_DAYS
-      : axis.cellWidth;
+      : usesFitAxis
+        ? trackPxWidth / axis.totalDays
+        : axis.cellWidth;
 
-  const dayToX = (t: number): number => {
-    if (granularity === "week") {
+  const dayToX = useCallback((t: number): number => {
+    if (isWeekAxis) {
       const idx = weekdayIndex(t, axis.minT);
       if (idx < 0) return 0;
       return Math.round(idx * pxPerDay);
     }
     return Math.round(((t - axis.minT) / DAY_MS) * pxPerDay);
-  };
+  }, [axis.minT, isWeekAxis, pxPerDay]);
 
-  const dayWidth = (start: number, end: number): number => {
-    if (granularity === "week") {
+  const dayWidth = useCallback((start: number, end: number): number => {
+    if (isWeekAxis) {
       const sIdx = weekdayIndex(start, axis.minT);
       const eIdx = weekdayIndex(end, axis.minT);
       if (sIdx < 0 || eIdx < 0) return pxPerDay;
@@ -189,17 +380,69 @@ export function DatabaseTimelineView({
     }
     const days = Math.round((end - start) / DAY_MS) + 1;
     return Math.max(pxPerDay, days * pxPerDay);
-  };
+  }, [axis.minT, isWeekAxis, pxPerDay]);
 
   const openFull = (pageId: string) => {
     setActivePage(pageId);
     setCurrentTabPage(pageId);
   };
 
-  type HeaderTick = { x: number; label: string; major?: boolean; widthPct?: number };
+  type HeaderTick = {
+    x: number;
+    label: string;
+    major?: boolean;
+    width?: number;
+    widthPct?: number;
+    align?: "left" | "center";
+  };
   const headerTicks: HeaderTick[] = [];
   const weekendStrips: { x: number }[] = [];
-  if (granularity === "day") {
+  if (isWeekAxis) {
+    const labels = ["지난 주", "이번 주", "다음 주"];
+    for (let i = 0; i < 3; i++) {
+      const wkStart = axis.minT + i * WEEK_CAL_DAYS * DAY_MS;
+      headerTicks.push({
+        x: 0,
+        label: `${labels[i]} (${weekLabel(wkStart)})`,
+        major: i === 1,
+        widthPct: 100 / 3,
+      });
+    }
+  } else if (isRangeAxis && effectiveRange) {
+    const bucketDays = rangeBucketDays(axis.totalDays);
+    for (const bucket of buildRangeBuckets(axis.totalDays, bucketDays)) {
+      const offset = bucket.offset;
+      const bucketStart = axis.minT + offset * DAY_MS;
+      const bucketEnd = Math.min(axis.maxT, bucketStart + (bucket.days - 1) * DAY_MS);
+      const x = trackPxWidth > 0 ? (offset / axis.totalDays) * trackPxWidth : dayToX(bucketStart);
+      const rawWidth = trackPxWidth > 0
+        ? (bucket.days / axis.totalDays) * trackPxWidth
+        : dayWidth(bucketStart, bucketEnd);
+      const width = Math.max(1, Math.min(rawWidth, Math.max(0, trackPxWidth - x)));
+      headerTicks.push({
+        x,
+        label: fmtDate(bucketStart),
+        major: offset === 0,
+        align: "left",
+        width,
+      });
+    }
+  } else if (isMonthAxis) {
+    for (let i = 0; i < axis.totalDays; i++) {
+      const t = axis.minT + i * DAY_MS;
+      const d = new Date(t);
+      const dow = d.getDay();
+      headerTicks.push({
+        x: dayToX(t),
+        label: String(d.getDate()),
+        major: d.getDate() === 1 || dow === 1,
+        width: Math.max(1, pxPerDay),
+      });
+      if (dow === 0 || dow === 6) {
+        weekendStrips.push({ x: dayToX(t) });
+      }
+    }
+  } else {
     for (let i = 0; i < axis.totalDays; i++) {
       const t = axis.minT + i * DAY_MS;
       const d = new Date(t);
@@ -213,21 +456,10 @@ export function DatabaseTimelineView({
         weekendStrips.push({ x: i * axis.cellWidth });
       }
     }
-  } else {
-    const labels = ["지난 주", "이번 주", "다음 주"];
-    for (let i = 0; i < 3; i++) {
-      const wkStart = axis.minT + i * WEEK_CAL_DAYS * DAY_MS;
-      headerTicks.push({
-        x: 0,
-        label: `${labels[i]} (${weekLabel(wkStart)})`,
-        major: i === 1,
-        widthPct: 100 / 3,
-      });
-    }
   }
 
   const todayX =
-    granularity === "week"
+    isWeekAxis
       ? (() => {
           const idx = weekdayIndex(Date.now(), axis.minT);
           if (idx < 0 || !Number.isFinite(pxPerDay) || pxPerDay <= 0) return -1;
@@ -235,11 +467,256 @@ export function DatabaseTimelineView({
         })()
       : dayToX(startOfDay(Date.now()));
 
+  const cardLayouts = useMemo<TimelineCardLayout[]>(() => {
+    if (!dateColId) return [];
+    if (usesFitAxis && (!Number.isFinite(pxPerDay) || pxPerDay <= 0)) return [];
+    const layouts: TimelineCardLayout[] = [];
+    for (const [localIdx, row] of renderedRows.entries()) {
+      const rIdx = virtualRows.start + localIdx;
+      const range = getRange(row.cells[dateColId]);
+      if (!range) continue;
+      let visStart = Math.max(range.start, axis.minT);
+      let visEnd = Math.min(range.end, axis.maxT);
+      if (visEnd < axis.minT || visStart > axis.maxT) continue;
+      if (isWeekAxis) {
+        const clamped = clampToWeekday(visStart, visEnd);
+        if (!clamped) continue;
+        visStart = clamped.start;
+        visEnd = clamped.end;
+      }
+      const left = dayToX(visStart);
+      const width = Math.max(dayWidth(visStart, visEnd), 24);
+      const dateLabel = `${fmtDate(range.start)} ~ ${fmtDate(range.end)}`;
+      layouts.push({
+        row,
+        pageId: row.pageId,
+        start: visStart,
+        end: visEnd,
+        left,
+        width,
+        top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
+        dateLabel,
+        tooltipText: `${row.title || "제목 없음"} (${dateLabel})`,
+      });
+    }
+    return layouts;
+  }, [
+    axis.maxT,
+    axis.minT,
+    dateColId,
+    dayToX,
+    dayWidth,
+    isWeekAxis,
+    pxPerDay,
+    renderedRows,
+    usesFitAxis,
+    virtualRows.start,
+  ]);
+
+  const getCardsInRect = useCallback(
+    (rect: TimelineBoxRect) => {
+      const left = Math.min(rect.startX, rect.endX);
+      const right = Math.max(rect.startX, rect.endX);
+      const top = Math.min(rect.startY, rect.endY);
+      const bottom = Math.max(rect.startY, rect.endY);
+      const next = new Set<string>();
+      for (const card of cardLayouts) {
+        if (
+          rectsIntersect(
+            left,
+            right,
+            top,
+            bottom,
+            card.left,
+            card.left + card.width,
+            card.top,
+            card.top + ROW_HEIGHT - 4,
+          )
+        ) {
+          next.add(card.pageId);
+        }
+      }
+      return next;
+    },
+    [cardLayouts],
+  );
+
+  useEffect(() => {
+    const pageIds = new Set(rows.map((row) => row.pageId));
+    if (selectedPageId && !pageIds.has(selectedPageId)) {
+      setSelectedPageId(null);
+    }
+    setSelectedCardIds((prev) => {
+      const next = new Set(Array.from(prev).filter((id) => pageIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rows, selectedPageId]);
+
   const scrollToToday = useCallback(() => {
+    if (isMonthAxis) {
+      setVisibleMonthStart(startOfMonth(Date.now()));
+      return;
+    }
     const el = scrollContainerRef.current;
     if (!el) return;
     el.scrollLeft = Math.max(0, todayX - el.clientWidth / 2);
-  }, [todayX]);
+  }, [isMonthAxis, todayX]);
+
+  const focusTimelineCard = useCallback((pageId: string) => {
+    setSelectedPageId(pageId);
+    setSelectedCardIds(new Set());
+    if (!usesScrollableAxis) return;
+    const card = cardLayouts.find((item) => item.pageId === pageId);
+    const el = scrollContainerRef.current;
+    if (!card || !el) return;
+    const visibleTrackWidth = Math.max(1, el.clientWidth - SIDE_LABEL_W);
+    const nextLeft = Math.max(
+      0,
+      card.left - (visibleTrackWidth - card.width) / 2,
+    );
+    el.scrollTo({ left: nextLeft, behavior: "smooth" });
+  }, [cardLayouts, usesScrollableAxis]);
+
+  const commitRange = useCallback(
+    (pageId: string, start: number, end: number) => {
+      if (!dateColId) return;
+      updateCell(databaseId, pageId, dateColId, {
+        start: toDateIso(start),
+        end: toDateIso(end),
+      });
+    },
+    [databaseId, dateColId, updateCell],
+  );
+
+  const moveCardsByDays = useCallback(
+    (pageIds: Iterable<string>, deltaDays: number) => {
+      if (!dateColId || deltaDays === 0) return;
+      const deltaMs = deltaDays * DAY_MS;
+      for (const pageId of pageIds) {
+        const row = rows.find((item) => item.pageId === pageId);
+        if (!row) continue;
+        const range = getRange(row.cells[dateColId]);
+        if (!range) continue;
+        commitRange(pageId, range.start + deltaMs, range.end + deltaMs);
+      }
+    },
+    [commitRange, dateColId, rows],
+  );
+
+  const selectCard = useCallback((pageId: string) => {
+    setSelectedPageId(pageId);
+    setSelectedCardIds((prev) => (prev.has(pageId) ? prev : new Set()));
+  }, []);
+
+  const openPageFromKeyboard = useCallback(() => {
+    if (!selectedPageId) return;
+    openPeek(selectedPageId);
+  }, [openPeek, selectedPageId]);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (isInteractiveTarget(event.target)) return;
+      if (event.key === "Escape" && selectedCardIds.size > 0) {
+        setSelectedCardIds(new Set());
+        return;
+      }
+      if (!selectedPageId) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        openPageFromKeyboard();
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        event.preventDefault();
+        setRowDeletePageId(selectedPageId);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [openPageFromKeyboard, selectedCardIds.size, selectedPageId]);
+
+  const pointFromEvent = useCallback((event: { clientX: number; clientY: number }) => {
+    const track = trackRef.current;
+    if (!track) return null;
+    const rect = track.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  }, []);
+
+  const beginBoxSelection = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (isInteractiveTarget(event.target)) return;
+      const track = trackRef.current;
+      if (!track || !(event.target instanceof Node) || !track.contains(event.target)) return;
+      const point = pointFromEvent(event);
+      if (!point) return;
+      event.preventDefault();
+      const next: TimelineBoxRect = {
+        startX: point.x,
+        startY: point.y,
+        endX: point.x,
+        endY: point.y,
+      };
+      selectionRectRef.current = next;
+      boxSelectingRef.current = true;
+      setSelectionRect(next);
+      setSelectedCardIds(new Set());
+      setSelectedPageId(null);
+      setIsBoxSelecting(true);
+    },
+    [pointFromEvent],
+  );
+
+  useEffect(() => {
+    const onMove = (event: MouseEvent) => {
+      if (!boxSelectingRef.current) return;
+      const point = pointFromEvent(event);
+      if (!point) return;
+      const next: TimelineBoxRect = {
+        startX: selectionRectRef.current?.startX ?? point.x,
+        startY: selectionRectRef.current?.startY ?? point.y,
+        endX: point.x,
+        endY: point.y,
+      };
+      selectionRectRef.current = next;
+      setSelectionRect(next);
+      setSelectedCardIds(getCardsInRect(next));
+    };
+    const onUp = () => {
+      if (!boxSelectingRef.current) return;
+      const finalRect = selectionRectRef.current;
+      setSelectedCardIds(finalRect ? getCardsInRect(finalRect) : new Set());
+      boxSelectingRef.current = false;
+      selectionRectRef.current = null;
+      setSelectionRect(null);
+      setIsBoxSelecting(false);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [getCardsInRect, pointFromEvent]);
+
+  const lockTimelineScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    scrollLockLeftRef.current = el?.scrollLeft ?? null;
+  }, []);
+
+  const unlockTimelineScroll = useCallback(() => {
+    scrollLockLeftRef.current = null;
+  }, []);
+
+  const handleTimelineScroll = useCallback(() => {
+    const locked = scrollLockLeftRef.current;
+    const el = scrollContainerRef.current;
+    if (locked == null || !el) return;
+    if (el.scrollLeft !== locked) el.scrollLeft = locked;
+  }, []);
 
   if (!bundle) return null;
 
@@ -248,7 +725,7 @@ export function DatabaseTimelineView({
       {/* 컨트롤 바 */}
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <div className="inline-flex overflow-hidden rounded border border-zinc-300 dark:border-zinc-600">
-          {(["day", "week"] as Granularity[]).map((g) => (
+          {(["month", "day", "week", "range"] as Granularity[]).map((g) => (
             <button
               key={g}
               type="button"
@@ -260,12 +737,70 @@ export function DatabaseTimelineView({
                   : "bg-white text-zinc-600 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800",
               ].join(" ")}
             >
-              {g === "day" ? "일" : "주"}
+              {g === "month" ? "월" : g === "day" ? "일" : g === "week" ? "주" : "범위"}
             </button>
           ))}
         </div>
+        {isMonthAxis && (
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setVisibleMonthStart((prev) => addMonths(prev, -1))}
+              className="flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              title="이전 월"
+              aria-label="이전 월"
+            >
+              <ChevronLeft size={15} />
+            </button>
+            <span className="min-w-[7.5rem] text-center text-sm font-medium text-zinc-700 dark:text-zinc-200">
+              {monthLabel(visibleMonthStart)}
+            </span>
+            <button
+              type="button"
+              onClick={() => setVisibleMonthStart((prev) => addMonths(prev, 1))}
+              className="flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              title="다음 월"
+              aria-label="다음 월"
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
+        )}
+        {isRangeAxis && (
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              value={rangeStartInput}
+              onChange={(event) => setRangeStartInput(event.target.value)}
+              className="h-7 w-[8.6rem] border-b border-zinc-200 bg-transparent px-1 text-sm text-zinc-700 outline-none focus:border-blue-400 dark:border-zinc-700 dark:text-zinc-200"
+              aria-label="타임라인 범위 시작일"
+            />
+            <span className="text-zinc-400">~</span>
+            <input
+              type="date"
+              value={rangeEndInput}
+              onChange={(event) => setRangeEndInput(event.target.value)}
+              className="h-7 w-[8.6rem] border-b border-zinc-200 bg-transparent px-1 text-sm text-zinc-700 outline-none focus:border-blue-400 dark:border-zinc-700 dark:text-zinc-200"
+              aria-label="타임라인 범위 종료일"
+            />
+            {(rangeStartInput || rangeEndInput) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRangeStartInput("");
+                  setRangeEndInput("");
+                }}
+                className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                title="범위 초기화"
+                aria-label="범위 초기화"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        )}
         {/* 일 모드 전용 오늘 이동 + 셀 너비 줌 컨트롤 */}
-        {granularity === "day" && (
+        {!isWeekAxis && !isRangeAxis && (
           <>
             <button
               type="button"
@@ -274,6 +809,7 @@ export function DatabaseTimelineView({
             >
               오늘
             </button>
+            {granularity === "day" && (
             <div className="inline-flex items-center gap-1 rounded border border-zinc-300 px-1 dark:border-zinc-600">
             <button
               type="button"
@@ -295,6 +831,7 @@ export function DatabaseTimelineView({
               <ZoomIn size={13} />
             </button>
             </div>
+            )}
           </>
         )}
       </div>
@@ -306,16 +843,18 @@ export function DatabaseTimelineView({
       ) : (
         <div
           ref={scrollContainerRef}
+          onMouseDown={beginBoxSelection}
+          onScroll={handleTimelineScroll}
           className={[
             "rounded border border-zinc-200 dark:border-zinc-700",
-            granularity === "day" ? "overflow-x-auto" : "overflow-hidden",
+            usesScrollableAxis ? "overflow-x-auto" : "overflow-hidden",
           ].join(" ")}
         >
           <div
             className="relative"
             style={{
               width:
-                granularity === "day"
+                usesScrollableAxis
                   ? SIDE_LABEL_W + axis.totalW
                   : "100%",
               minHeight:
@@ -333,7 +872,41 @@ export function DatabaseTimelineView({
               >
                 항목
               </div>
-              {granularity === "day" ? (
+              {isWeekAxis ? (
+                <div className="relative flex flex-1">
+                  {headerTicks.map((t, i) => (
+                    <div
+                      key={i}
+                      className={[
+                        "flex flex-1 items-center justify-center border-l text-xs truncate px-2",
+                        t.major
+                          ? "border-zinc-300 font-semibold text-zinc-800 dark:border-zinc-600 dark:text-zinc-100"
+                          : "border-zinc-100 text-zinc-500 dark:border-zinc-800",
+                      ].join(" ")}
+                    >
+                      {t.label}
+                    </div>
+                  ))}
+                </div>
+              ) : isMonthAxis || isRangeAxis ? (
+                <div className="relative flex-1">
+                  {headerTicks.map((t, i) => (
+                    <div
+                      key={i}
+                      className={[
+                        "absolute top-0 flex h-full items-center border-l px-1 text-xs",
+                        t.align === "left" ? "justify-start" : "justify-center",
+                        t.major
+                          ? "border-zinc-300 font-semibold text-zinc-800 dark:border-zinc-600 dark:text-zinc-100"
+                          : "border-zinc-100 text-zinc-500 dark:border-zinc-800",
+                      ].join(" ")}
+                      style={{ left: t.x, width: t.width }}
+                    >
+                      <span className="truncate">{t.label}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
                 <div className="relative" style={{ width: axis.totalW }}>
                   {headerTicks.map((t, i) => (
                     <div
@@ -345,22 +918,6 @@ export function DatabaseTimelineView({
                           : "border-l border-zinc-100 text-zinc-400 dark:border-zinc-800",
                       ].join(" ")}
                       style={{ left: t.x, paddingLeft: 4 }}
-                    >
-                      {t.label}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="relative flex flex-1">
-                  {headerTicks.map((t, i) => (
-                    <div
-                      key={i}
-                      className={[
-                        "flex flex-1 items-center justify-center border-l text-xs truncate px-2",
-                        t.major
-                          ? "border-zinc-300 font-semibold text-zinc-800 dark:border-zinc-600 dark:text-zinc-100"
-                          : "border-zinc-100 text-zinc-500 dark:border-zinc-800",
-                      ].join(" ")}
                     >
                       {t.label}
                     </div>
@@ -382,8 +939,22 @@ export function DatabaseTimelineView({
                 {renderedRows.map((row) => (
                   <div
                     key={row.pageId}
-                    className="group relative flex items-center gap-1 truncate border-b border-zinc-100 px-2 dark:border-zinc-800"
+                    onClick={() => focusTimelineCard(row.pageId)}
+                    className={[
+                      "group relative flex cursor-pointer items-center gap-1 truncate border-b border-zinc-100 px-2 dark:border-zinc-800",
+                      selectedPageId === row.pageId || selectedCardIds.has(row.pageId)
+                        ? "bg-blue-50 dark:bg-blue-950/30"
+                        : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
+                    ].join(" ")}
                     style={{ height: ROW_HEIGHT + ROW_GAP }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        focusTimelineCard(row.pageId);
+                      }
+                    }}
                   >
                     <span className="truncate pr-14 text-sm text-zinc-700 dark:text-zinc-200">
                       {row.title || "제목 없음"}
@@ -398,7 +969,7 @@ export function DatabaseTimelineView({
                         title="페이지로 열기"
                         className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
                       >
-                        <ArrowUpRight size={12} />
+                        <Maximize2 size={12} />
                       </button>
                       <button
                         type="button"
@@ -424,22 +995,22 @@ export function DatabaseTimelineView({
                 ref={trackRef}
                 className="relative flex-1"
                 style={
-                  granularity === "day"
+                  usesScrollableAxis
                     ? { width: axis.totalW, height: totalRowsHeight }
                     : { height: totalRowsHeight }
                 }
               >
                 {/* 주말 배경 */}
-                {granularity === "day" && weekendStrips.map((s, i) => (
+                {!isWeekAxis && weekendStrips.map((s, i) => (
                   <div
                     key={i}
                     className="absolute top-0 h-full bg-zinc-100 dark:bg-zinc-800/50"
-                    style={{ left: s.x, width: axis.cellWidth }}
+                    style={{ left: s.x, width: usesScrollableAxis ? axis.cellWidth : pxPerDay }}
                   />
                 ))}
 
                 {/* 세로 그리드 라인 */}
-                {granularity === "day"
+                {!isWeekAxis
                   ? headerTicks.map((t, i) => (
                       <div
                         key={i}
@@ -466,7 +1037,7 @@ export function DatabaseTimelineView({
                     ))}
 
                 {/* 오늘 마커 */}
-                {todayX >= 0 && todayX <= (granularity === "day" ? axis.totalW : trackPxWidth) && (
+                {todayX >= 0 && todayX <= (usesScrollableAxis ? axis.totalW : trackPxWidth) && (
                   <div
                     className="absolute top-0 z-[1] w-px bg-red-400/80"
                     style={{ left: todayX, height: totalRowsHeight }}
@@ -488,123 +1059,52 @@ export function DatabaseTimelineView({
                   );
                 })}
 
-                {/* 주 모드: pxPerDay 측정 전엔 미렌더 */}
-                {(granularity === "day" || (Number.isFinite(pxPerDay) && pxPerDay > 0)) && renderedRows.map((row, localIdx) => {
-                  const rIdx = virtualRows.start + localIdx;
-                  const range = getRange(row.cells[dateColId]);
-                  if (!range) return null;
-                  let visStart = Math.max(range.start, axis.minT);
-                  let visEnd = Math.min(range.end, axis.maxT);
-                  if (visEnd < axis.minT || visStart > axis.maxT) return null;
-                  if (granularity === "week") {
-                    const c = clampToWeekday(visStart, visEnd);
-                    if (!c) return null;
-                    visStart = c.start;
-                    visEnd = c.end;
-                  }
-                  const left = dayToX(visStart);
-                  const w = dayWidth(visStart, visEnd);
-                  void pickStatusColor; // 향후 커스텀 색상 지원 시 활용
-                  const top = rIdx * (ROW_HEIGHT + ROW_GAP) + 2;
-                  const dateLabel = `${fmtDate(range.start)} ~ ${fmtDate(range.end)}`;
-                  const tooltipText = `${row.title || "제목 없음"} (${dateLabel})`;
-                  return (
-                    <div
-                      key={row.pageId}
-                      className="group absolute cursor-pointer rounded-md shadow-sm transition-shadow hover:shadow-md"
-                      style={{
-                        left,
-                        top,
-                        width: Math.max(w, 24),
-                        height: ROW_HEIGHT - 4,
-                        background: "#16a34a",
-                      }}
-                      title={tooltipText}
-                      onClick={() => openPeek(row.pageId)}
-                    >
-                      {/* 텍스트 — 항상 표시, 호버 버튼에 가려지지 않도록 오른쪽 여백 확보 */}
-                      <div className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm">
-                        <span className="font-medium text-white">
-                          {row.title || "제목 없음"}
-                        </span>
-                        <span className="shrink-0 text-xs text-green-200">
-                          {dateLabel}
-                        </span>
-                        {labelCols.length > 0 && (
-                          <span className="ml-0.5 truncate text-xs text-green-100">
-                            {labelCols
-                              .map((c) => formatLabelValue(row.cells[c.id], c))
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        )}
-                      </div>
-                      {/* 호버 버튼 — 절대 위치로 텍스트 레이아웃에 영향 없음 */}
-                      <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-900/90">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openFull(row.pageId);
-                          }}
-                          title="페이지로 열기"
-                          className="rounded p-0.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
-                        >
-                          <ArrowUpRight size={11} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openPeek(row.pageId);
-                          }}
-                          title="사이드 피크 열기"
-                          className="rounded p-0.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
-                        >
-                          <PanelRight size={11} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRowDeletePageId(row.pageId);
-                          }}
-                          title="항목 삭제"
-                          className="rounded p-0.5 text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                        >
-                          <X size={11} />
-                        </button>
-                      </div>
-                      {/* 일 모드 전용 드래그 리사이즈 핸들 */}
-                      {granularity === "day" && dateColId && (
-                        <>
-                          <TimelineResizeHandle
-                            edge="start"
-                            origStart={range.start}
-                            origEnd={range.end}
-                            pxPerDay={pxPerDay}
-                            axisMinT={axis.minT}
-                            onCommit={(s, e) => {
-                              const toIso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-                              updateCell(databaseId, row.pageId, dateColId, { start: toIso(s), end: toIso(e) });
-                            }}
-                          />
-                          <TimelineResizeHandle
-                            edge="end"
-                            origStart={range.start}
-                            origEnd={range.end}
-                            pxPerDay={pxPerDay}
-                            axisMinT={axis.minT}
-                            onCommit={(s, e) => {
-                              const toIso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-                              updateCell(databaseId, row.pageId, dateColId, { start: toIso(s), end: toIso(e) });
-                            }}
-                          />
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
+                {cardLayouts.map((card) => (
+                  <DatabaseTimelineCard
+                    key={card.pageId}
+                    card={card}
+                    labelCols={labelCols}
+                    axisMinT={axis.minT}
+                    pxPerDay={pxPerDay}
+                    selected={selectedPageId === card.pageId}
+                    multiSelected={selectedCardIds.has(card.pageId)}
+                    multiDragDeltaX={
+                      isMultiDragging && selectedCardIds.has(card.pageId)
+                        ? multiDragDeltaX
+                        : null
+                    }
+                    onSelect={selectCard}
+                    onOpenFull={openFull}
+                    onOpenPeek={openPeek}
+                    onDelete={setRowDeletePageId}
+                    onMove={(pageId, deltaDays) => moveCardsByDays([pageId], deltaDays)}
+                    onResize={(pageId, start, end) => commitRange(pageId, start, end)}
+                    onMultiDragStart={() => {
+                      setIsMultiDragging(true);
+                      setMultiDragDeltaX(0);
+                    }}
+                    onMultiDragMove={setMultiDragDeltaX}
+                    onMultiDragEnd={(deltaDays) => {
+                      setIsMultiDragging(false);
+                      setMultiDragDeltaX(0);
+                      moveCardsByDays(selectedCardIds, deltaDays);
+                    }}
+                    lockScroll={lockTimelineScroll}
+                    unlockScroll={unlockTimelineScroll}
+                  />
+                ))}
+
+                {isBoxSelecting && selectionRect && (
+                  <div
+                    className="pointer-events-none absolute z-[90] rounded-sm border-2 border-blue-400 bg-blue-400/15"
+                    style={{
+                      left: Math.min(selectionRect.startX, selectionRect.endX),
+                      top: Math.min(selectionRect.startY, selectionRect.endY),
+                      width: Math.abs(selectionRect.endX - selectionRect.startX),
+                      height: Math.abs(selectionRect.endY - selectionRect.startY),
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -625,7 +1125,15 @@ export function DatabaseTimelineView({
         danger
         onCancel={() => setRowDeletePageId(null)}
         onConfirm={() => {
-          if (rowDeletePageId) deleteRow(databaseId, rowDeletePageId);
+          if (rowDeletePageId) {
+            deleteRow(databaseId, rowDeletePageId);
+            setSelectedPageId(null);
+            setSelectedCardIds((prev) => {
+              const next = new Set(prev);
+              next.delete(rowDeletePageId);
+              return next;
+            });
+          }
           setRowDeletePageId(null);
         }}
       />
@@ -660,80 +1168,204 @@ function formatLabelValue(v: CellValue, col: ColumnDef): string {
   return "";
 }
 
-function TimelineResizeHandle({
-  edge,
-  origStart,
-  origEnd,
-  pxPerDay,
+function DatabaseTimelineCard({
+  card,
+  labelCols,
   axisMinT,
-  onCommit,
+  pxPerDay,
+  selected,
+  multiSelected,
+  multiDragDeltaX,
+  onSelect,
+  onOpenFull,
+  onOpenPeek,
+  onDelete,
+  onMove,
+  onResize,
+  onMultiDragStart,
+  onMultiDragMove,
+  onMultiDragEnd,
+  lockScroll,
+  unlockScroll,
 }: {
-  edge: "start" | "end";
-  origStart: number;
-  origEnd: number;
-  pxPerDay: number;
+  card: TimelineCardLayout;
+  labelCols: ColumnDef[];
   axisMinT: number;
-  onCommit: (start: number, end: number) => void;
+  pxPerDay: number;
+  selected: boolean;
+  multiSelected: boolean;
+  multiDragDeltaX: number | null;
+  onSelect: (pageId: string) => void;
+  onOpenFull: (pageId: string) => void;
+  onOpenPeek: (pageId: string) => void;
+  onDelete: (pageId: string) => void;
+  onMove: (pageId: string, deltaDays: number) => void;
+  onResize: (pageId: string, start: number, end: number) => void;
+  onMultiDragStart: () => void;
+  onMultiDragMove: (deltaX: number) => void;
+  onMultiDragEnd: (deltaDays: number) => void;
+  lockScroll: () => void;
+  unlockScroll: () => void;
 }) {
-  const dragRef = useRef<{
-    mouseStartX: number;
-    origStart: number;
-    origEnd: number;
-    pxPerDay: number;
-    axisMinT: number;
-  } | null>(null);
+  const [localX, setLocalX] = useState(card.left);
+  const [localW, setLocalW] = useState(card.width);
+  const dragMovedRef = useRef(false);
+  const resizeStartRef = useRef<{ startIdx: number; endIdx: number } | null>(null);
 
-  const calcRange = (clientX: number) => {
-    const d = dragRef.current;
-    if (!d || d.pxPerDay <= 0) return null;
-    const deltaDays = Math.round((clientX - d.mouseStartX) / d.pxPerDay);
-    const deltaMs = deltaDays * DAY_MS;
-    let s = d.origStart;
-    let e = d.origEnd;
-    if (edge === "start") {
-      s = Math.min(s + deltaMs, e - DAY_MS);
-    } else {
-      e = Math.max(e + deltaMs, s + DAY_MS);
-    }
-    return { start: s, end: e };
-  };
+  useLayoutEffect(() => {
+    setLocalX(card.left);
+    setLocalW(card.width);
+  }, [card.left, card.width]);
+
+  const safePxPerDay = Math.max(pxPerDay, 1);
+  const visualX = multiDragDeltaX != null ? card.left + multiDragDeltaX : localX;
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: 0,
-        [edge === "start" ? "left" : "right"]: 0,
-        width: 8,
-        height: "100%",
-        cursor: "ew-resize",
-        zIndex: 2,
+    <Rnd
+      data-db-timeline-card="true"
+      title={card.tooltipText}
+      position={{ x: visualX, y: card.top }}
+      size={{ width: Math.max(localW, 24), height: ROW_HEIGHT - 4 }}
+      dragAxis="x"
+      dragGrid={[1, 1]}
+      resizeGrid={[safePxPerDay, 1]}
+      minWidth={safePxPerDay}
+      enableResizing={{
+        left: true,
+        right: true,
+        top: false,
+        bottom: false,
+        topLeft: false,
+        topRight: false,
+        bottomLeft: false,
+        bottomRight: false,
       }}
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        dragRef.current = { mouseStartX: e.clientX, origStart, origEnd, pxPerDay, axisMinT };
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      resizeHandleStyles={{
+        left: { cursor: "ew-resize", width: 8, left: 0 },
+        right: { cursor: "ew-resize", width: 8, right: 0 },
       }}
-      onPointerMove={(e) => {
-        const d = dragRef.current;
-        if (!d) return;
-        const card = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
-        const newRange = calcRange(e.clientX);
-        if (!newRange) return;
-        const newLeft = Math.round(((newRange.start - d.axisMinT) / DAY_MS) * d.pxPerDay);
-        const newW = Math.max(Math.round(((newRange.end - newRange.start) / DAY_MS) * d.pxPerDay), 24);
-        card.style.left = `${newLeft}px`;
-        card.style.width = `${newW}px`;
+      onDragStart={() => {
+        dragMovedRef.current = false;
+        if (multiSelected) onMultiDragStart();
       }}
-      onPointerUp={(e) => {
-        if (!dragRef.current) return;
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-        const newRange = calcRange(e.clientX);
-        dragRef.current = null;
-        if (newRange) onCommit(newRange.start, newRange.end);
+      onDrag={(_event, data) => {
+        const deltaX = data.x - card.left;
+        if (Math.abs(deltaX) > DRAG_ACTIVATE_PX) dragMovedRef.current = true;
+        if (multiSelected) {
+          onMultiDragMove(deltaX);
+          return;
+        }
+        setLocalX(data.x);
       }}
-    />
+      onDragStop={(_event, data) => {
+        if (!dragMovedRef.current) {
+          onSelect(card.pageId);
+          return;
+        }
+        const deltaDays = Math.round((data.x - card.left) / safePxPerDay);
+        if (multiSelected) {
+          onMultiDragEnd(deltaDays);
+        } else {
+          if (deltaDays === 0) {
+            setLocalX(card.left);
+            return;
+          }
+          onMove(card.pageId, deltaDays);
+        }
+      }}
+      onResizeStart={() => {
+        lockScroll();
+        const startIdx = Math.round((card.start - axisMinT) / DAY_MS);
+        const endIdx = Math.max(startIdx, Math.round((card.end - axisMinT) / DAY_MS));
+        resizeStartRef.current = { startIdx, endIdx };
+      }}
+      onResizeStop={(_event, direction, _ref, delta) => {
+        const start = resizeStartRef.current;
+        resizeStartRef.current = null;
+        unlockScroll();
+        if (!start) return;
+        const deltaDays = Math.round(delta.width / safePxPerDay);
+        const nextStartIdx = direction.includes("left")
+          ? Math.min(start.endIdx, start.startIdx - deltaDays)
+          : start.startIdx;
+        const nextEndIdx = direction.includes("left")
+          ? start.endIdx
+          : Math.max(start.startIdx, start.endIdx + deltaDays);
+        const nextStart = axisMinT + nextStartIdx * DAY_MS;
+        const nextEnd = axisMinT + nextEndIdx * DAY_MS;
+        setLocalX(Math.round(nextStartIdx * safePxPerDay));
+        setLocalW(Math.max(safePxPerDay, (nextEndIdx - nextStartIdx + 1) * safePxPerDay));
+        onResize(card.pageId, nextStart, nextEnd);
+      }}
+      style={{ position: "absolute" }}
+      className={[
+        "group select-none overflow-hidden rounded-md border-2 shadow-sm transition-shadow hover:shadow-md",
+        selected || multiSelected
+          ? "border-white ring-2 ring-blue-500"
+          : "border-transparent hover:border-white/40",
+      ].join(" ")}
+    >
+      <div
+        className="relative h-full w-full cursor-move overflow-hidden"
+        style={{ background: "#16a34a" }}
+        onMouseDown={() => onSelect(card.pageId)}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect(card.pageId);
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onOpenPeek(card.pageId);
+        }}
+      >
+        <div className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm">
+          <span className="font-medium text-white">{card.row.title || "제목 없음"}</span>
+          <span className="shrink-0 text-xs text-green-200">{card.dateLabel}</span>
+          {labelCols.length > 0 && (
+            <span className="ml-0.5 truncate text-xs text-green-100">
+              {labelCols
+                .map((c) => formatLabelValue(card.row.cells[c.id], c))
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          )}
+        </div>
+        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-900/90">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFull(card.pageId);
+            }}
+            title="페이지로 열기"
+            className="rounded p-0.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
+          >
+            <Maximize2 size={11} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenPeek(card.pageId);
+            }}
+            title="사이드 피크 열기"
+            className="rounded p-0.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
+          >
+            <PanelRight size={11} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(card.pageId);
+            }}
+            title="항목 삭제"
+            className="rounded p-0.5 text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+          >
+            <X size={11} />
+          </button>
+        </div>
+      </div>
+    </Rnd>
   );
 }

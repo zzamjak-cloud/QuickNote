@@ -87,16 +87,10 @@ export function SettingsModal({ open, onClose }: Props) {
     };
 
     void refreshAdminMetadata();
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void refreshAdminMetadata();
-    }, 2500);
-
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };

@@ -23,6 +23,11 @@ export type FavoriteNavigationRequest = {
   requestedAt: number;
 };
 
+export type WorkspaceLoadingState = {
+  workspaceId: string;
+  workspaceName: string;
+};
+
 /** 미전송 outbox 때문에 워크스페이스 전환 시 로컬 캐시 비우기가 한 번 막힌 상태(세션용, persist 제외) */
 export type OutboxWorkspaceSwitchHold = {
   pending: number;
@@ -61,6 +66,7 @@ type UiStoreState = {
   toasts: ToastMessage[];
   pendingFavoriteNavigation: FavoriteNavigationRequest | null;
   outboxWorkspaceSwitchHold: OutboxWorkspaceSwitchHold | null;
+  workspaceLoading: WorkspaceLoadingState | null;
 };
 
 type UiStoreActions = {
@@ -97,6 +103,7 @@ type UiStoreActions = {
   }) => void;
   clearFavoriteNavigation: () => void;
   setOutboxWorkspaceSwitchHold: (payload: OutboxWorkspaceSwitchHold | null) => void;
+  setWorkspaceLoading: (payload: WorkspaceLoadingState | null) => void;
 };
 
 function newToastId(): string {
@@ -118,6 +125,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   toasts: [],
   pendingFavoriteNavigation: null,
   outboxWorkspaceSwitchHold: null,
+  workspaceLoading: null,
 
   toggleRightPanel: (tab) =>
     set((s) => {
@@ -219,6 +227,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   clearFavoriteNavigation: () => set({ pendingFavoriteNavigation: null }),
   setOutboxWorkspaceSwitchHold: (payload) =>
     set({ outboxWorkspaceSwitchHold: payload }),
+  setWorkspaceLoading: (payload) => set({ workspaceLoading: payload }),
 }),
     {
       name: "quicknote.ui.v1",

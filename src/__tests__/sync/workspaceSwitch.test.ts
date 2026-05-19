@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   applyWorkspaceSwitch,
+  clearWorkspaceScopedStores,
   refreshWorkspaceSnapshot,
   workspaceCacheNeedsPrepaintClear,
 } from "../../lib/sync/workspaceSwitch";
@@ -8,6 +9,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 
 // runtime.getSyncEngine 을 mock 하여 outbox 상태(peekPending)를 제어한다.
 vi.mock("../../lib/sync/runtime", () => {
@@ -155,6 +157,136 @@ describe("applyWorkspaceSwitch", () => {
     expect(usePageStore.getState().pages["page-1"]).toBeDefined();
     expect(useBlockCommentStore.getState().messages).toHaveLength(1);
     expect(useBlockCommentStore.getState().messages[0]?.bodyText).toBe("댓글");
+  });
+
+  it("LC 스케줄러 워크스페이스도 일반 페이지와 스케줄러 페이지/DB 스냅샷을 복원한다", async () => {
+    usePageStore.setState({
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      activePageId: "lc-page-1",
+      pages: {
+        "lc-page-1": {
+          id: "lc-page-1",
+          title: "LC 스케줄러",
+          doc: {
+            type: "doc",
+            content: [
+              {
+                type: "databaseBlock",
+                attrs: {
+                  databaseId: "lc-scheduler-db:lc-scheduler-global",
+                  layout: "inline",
+                },
+              },
+            ],
+          },
+          parentId: null,
+          order: 0,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+        "scheduler-row-1": {
+          id: "scheduler-row-1",
+          title: "일정",
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 1,
+          databaseId: "lc-scheduler-db:lc-scheduler-global",
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      },
+    });
+    useDatabaseStore.setState({
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      databases: {
+        "lc-scheduler-db:lc-scheduler-global": {
+          meta: {
+            id: "lc-scheduler-db:lc-scheduler-global",
+            title: "LC스케줄러",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+          columns: [],
+          rowPageOrder: ["scheduler-row-1"],
+        },
+      },
+    });
+    refreshWorkspaceSnapshot(LC_SCHEDULER_WORKSPACE_ID);
+
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      activePageId: null,
+      pages: {},
+    });
+    useDatabaseStore.setState({ cacheWorkspaceId: "ws-1", databases: {} });
+
+    const result = await applyWorkspaceSwitch("ws-1", LC_SCHEDULER_WORKSPACE_ID);
+    expect(result.reason).toBe("restored-snapshot");
+    expect(usePageStore.getState().pages["lc-page-1"]).toBeDefined();
+    expect(usePageStore.getState().activePageId).toBe("lc-page-1");
+    expect(usePageStore.getState().pages["scheduler-row-1"]).toBeDefined();
+    expect(useDatabaseStore.getState().databases["lc-scheduler-db:lc-scheduler-global"]).toBeDefined();
+  });
+
+  it("LC 스케줄러 전환 클리어 시 현재 열린 스케줄러 행 페이지는 유지한다", () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      activePageId: "scheduler-row-1",
+      pages: {
+        "normal-page": {
+          id: "normal-page",
+          title: "일반 페이지",
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+        "scheduler-row-1": {
+          id: "scheduler-row-1",
+          title: "일정",
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 1,
+          databaseId: "lc-scheduler-db:lc-scheduler-global",
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      },
+    });
+    useSettingsStore.setState({
+      tabs: [{ pageId: "scheduler-row-1" }],
+      activeTabIndex: 0,
+    });
+    useDatabaseStore.setState({
+      cacheWorkspaceId: "ws-1",
+      databases: {
+        "normal-db": {
+          meta: { id: "normal-db", title: "일반 DB", createdAt: 0, updatedAt: 0 },
+          columns: [],
+          rowPageOrder: [],
+        },
+        "lc-scheduler-db:lc-scheduler-global": {
+          meta: {
+            id: "lc-scheduler-db:lc-scheduler-global",
+            title: "LC스케줄러",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+          columns: [],
+          rowPageOrder: ["scheduler-row-1"],
+        },
+      },
+    });
+
+    clearWorkspaceScopedStores(LC_SCHEDULER_WORKSPACE_ID);
+
+    expect(usePageStore.getState().pages["normal-page"]).toBeUndefined();
+    expect(usePageStore.getState().pages["scheduler-row-1"]).toBeDefined();
+    expect(usePageStore.getState().activePageId).toBe("scheduler-row-1");
+    expect(useSettingsStore.getState().tabs).toEqual([{ pageId: "scheduler-row-1" }]);
+    expect(useDatabaseStore.getState().databases["normal-db"]).toBeUndefined();
+    expect(useDatabaseStore.getState().databases["lc-scheduler-db:lc-scheduler-global"]).toBeDefined();
   });
 
   it("outbox pending 이 0 이면 다른 워크스페이스 전환 시 클리어를 fetch 적용 시점으로 미룬다", async () => {

@@ -270,6 +270,22 @@ function resolveCreateColor(input: CreateScheduleInput): string | null {
   return input.color ?? null;
 }
 
+function applyAttendanceCreateDefaults(databaseId: string, pageId: string): void {
+  const applied = useDatabaseStore
+    .getState()
+    .applyPresetToRow(databaseId, pageId, LC_SCHEDULER_ATTENDANCE_PRESET_ID);
+  if (applied) return;
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.title, "연차");
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.status, "todo");
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.attendance, "annual-leave");
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.color, ANNUAL_LEAVE_COLOR);
+  setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.meta, {
+    kind: "leave",
+    annualLeave: true,
+    attendanceValue: "annual-leave",
+  } as CellValue);
+}
+
 export async function createLCSchedulerSchedule(input: CreateScheduleInput): Promise<Schedule> {
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(input.workspaceId);
   await ensureLCSchedulerDatabase(schedulerWorkspaceId);
@@ -287,6 +303,9 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
   const remembered = readRememberedSchedulerPropertyValues(schedulerWorkspaceId);
   for (const [columnId, value] of Object.entries(remembered)) {
     setCell(databaseId, pageId, columnId, value);
+  }
+  if (isAttendanceCreate) {
+    applyAttendanceCreateDefaults(databaseId, pageId);
   }
   applySpecialScopeDefaults(databaseId, pageId, input.selectedScopeKey);
   const color = resolveCreateColor(input);

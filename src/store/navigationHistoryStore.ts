@@ -5,6 +5,7 @@ type State = {
   pushBack: (pageId: string) => void;
   popBack: () => string | undefined;
   peekBack: () => string | undefined;
+  clearBack: () => void;
 };
 
 /** 인라인 DB → 전체 DB 전환 시 이전 페이지로 돌아오기 위한 내비게이션 히스토리 스토어. */
@@ -26,4 +27,6 @@ export const useNavigationHistoryStore = create<State>((set, get) => ({
     const stack = get().backStack;
     return stack[stack.length - 1];
   },
+
+  clearBack: () => set({ backStack: [] }),
 }));

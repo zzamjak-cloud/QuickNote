@@ -283,7 +283,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
           current.cachedWorkspaceId === workspaceId &&
           current.visibleRangeFrom === from &&
           current.visibleRangeTo === to;
-        if (hasSameVisibleCache && workspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
+        if (hasSameVisibleCache) {
           logSchedulerPerf("fetchSchedules:cache-hit", startedAt, {
             workspaceId,
             from,

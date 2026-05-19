@@ -7,6 +7,7 @@ import {
   useEditorState,
 } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   useCallback,
   useEffect,
@@ -147,6 +148,17 @@ function areTabBlockNodeViewsEqual(
   return !tabPanelChromeChanged(prev, next);
 }
 
+function getTabBlockNodeAt(editor: Editor, pos: number): ProseMirrorNode | null {
+  const doc = editor.state.doc;
+  if (!Number.isInteger(pos) || pos < 0 || pos > doc.content.size) {
+    return null;
+  }
+  const direct = doc.nodeAt(pos);
+  if (direct?.type.name === "tabBlock") return direct;
+  const after = doc.resolve(pos).nodeAfter;
+  return after?.type.name === "tabBlock" ? after : null;
+}
+
 const TabBlockView = memo(function TabBlockView({
   editor,
   getPos,
@@ -177,10 +189,7 @@ const TabBlockView = memo(function TabBlockView({
           Math.max(0, node.childCount - 1),
         );
       }
-      let block = ed.state.doc.nodeAt(pos);
-      if (!block || block.type.name !== "tabBlock") {
-        block = ed.state.doc.resolve(pos).nodeAfter ?? null;
-      }
+      const block = getTabBlockNodeAt(ed, pos);
       if (!block || block.type.name !== "tabBlock") {
         return Math.min(
           Math.max(Number(node.attrs.activeIndex ?? 0), 0),
@@ -220,10 +229,7 @@ const TabBlockView = memo(function TabBlockView({
       if (typeof blockPos !== "number") {
         return;
       }
-      let tabBlockNode = editor.state.doc.nodeAt(blockPos);
-      if (!tabBlockNode || tabBlockNode.type.name !== "tabBlock") {
-        tabBlockNode = editor.state.doc.resolve(blockPos).nodeAfter ?? null;
-      }
+      const tabBlockNode = getTabBlockNodeAt(editor, blockPos);
       if (!tabBlockNode || tabBlockNode.type.name !== "tabBlock") {
         return;
       }

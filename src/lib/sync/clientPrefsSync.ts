@@ -3,16 +3,44 @@ import { enqueueAsync, getSyncEngine } from "./runtime";
 import { realGqlBridge } from "./graphql/bridge";
 import { useMemberStore } from "../../store/memberStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import type { FavoritePageMeta } from "../../store/settingsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 
 /** clientPrefs 페이로드 버전(AppSync 저장 JSON). */
 export const CLIENT_PREFS_SCHEMA_V = 1 as const;
 
 export type ClientPrefsV1 = {
-  v: typeof CLIENT_PREFS_SCHEMA_V;
+  v: typeof CLIENT_PREFS_SCHEMA_V | 2;
   favoritePageIds: string[];
   favoritePageIdsUpdatedAt: number;
+  favoritePageMetaById?: Record<string, FavoritePageMeta>;
 };
+
+function sanitizeFavoritePageMetaById(
+  raw: unknown,
+  favoritePageIds: readonly string[],
+): Record<string, FavoritePageMeta> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const ids = new Set(favoritePageIds);
+  const result: Record<string, FavoritePageMeta> = {};
+  for (const [pageId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!ids.has(pageId) || !value || typeof value !== "object" || Array.isArray(value)) continue;
+    const meta = value as Record<string, unknown>;
+    result[pageId] = {
+      pageId,
+      workspaceId:
+        typeof meta.workspaceId === "string"
+          ? meta.workspaceId
+          : meta.workspaceId === null
+            ? null
+            : null,
+      workspaceName: typeof meta.workspaceName === "string" ? meta.workspaceName : "",
+      pageTitle: typeof meta.pageTitle === "string" ? meta.pageTitle : "제목 없음",
+      pageIcon: typeof meta.pageIcon === "string" ? meta.pageIcon : null,
+    };
+  }
+  return result;
+}
 
 /** GraphQL/AWSJSON 또는 로컬에서 온 문자열→객체 디코드. */
 export function decodeClientPrefsField(raw: unknown): ClientPrefsV1 | null {
@@ -32,14 +60,20 @@ export function decodeClientPrefsField(raw: unknown): ClientPrefsV1 | null {
     }
     const o = cur as Record<string, unknown>;
     if (typeof o !== "object" || o === null || Array.isArray(o)) return null;
-    if (Number(o.v) !== CLIENT_PREFS_SCHEMA_V) return null;
+    const version = Number(o.v);
+    if (version !== 1 && version !== 2) return null;
     if (!Array.isArray(o.favoritePageIds)) return null;
     const ts = Number(o.favoritePageIdsUpdatedAt);
     if (!Number.isFinite(ts)) return null;
+    const favoritePageIds = o.favoritePageIds.map(String);
     return {
-      v: CLIENT_PREFS_SCHEMA_V,
-      favoritePageIds: o.favoritePageIds.map(String),
+      v: version === 2 ? 2 : CLIENT_PREFS_SCHEMA_V,
+      favoritePageIds,
       favoritePageIdsUpdatedAt: ts,
+      favoritePageMetaById: sanitizeFavoritePageMetaById(
+        o.favoritePageMetaById,
+        favoritePageIds,
+      ),
     };
   } catch {
     return null;
@@ -78,12 +112,27 @@ export function applyRemoteClientPrefs(raw: unknown): void {
       s.favoritePageIds,
     );
 
+    const remoteMeta = parsed.favoritePageMetaById ?? {};
+
     if (!remoteNewer) {
-      if (sameTs && listsMatch) return s;
+      if (sameTs && listsMatch) {
+        const favoritePageMetaById = { ...s.favoritePageMetaById };
+        let changed = false;
+        for (const pageId of parsed.favoritePageIds) {
+          const meta = remoteMeta[pageId];
+          if (!meta || favoritePageMetaById[pageId]) continue;
+          favoritePageMetaById[pageId] = meta;
+          changed = true;
+        }
+        return changed ? { favoritePageMetaById } : s;
+      }
       if (sameTs && !listsMatch) {
         const favoritePageMetaById = { ...s.favoritePageMetaById };
         for (const id of Object.keys(favoritePageMetaById)) {
           if (!parsed.favoritePageIds.includes(id)) delete favoritePageMetaById[id];
+        }
+        for (const pageId of parsed.favoritePageIds) {
+          if (remoteMeta[pageId]) favoritePageMetaById[pageId] = remoteMeta[pageId];
         }
         return {
           favoritePageIds: [...parsed.favoritePageIds],
@@ -97,6 +146,9 @@ export function applyRemoteClientPrefs(raw: unknown): void {
     const favoritePageMetaById = { ...s.favoritePageMetaById };
     for (const id of Object.keys(favoritePageMetaById)) {
       if (!parsed.favoritePageIds.includes(id)) delete favoritePageMetaById[id];
+    }
+    for (const pageId of parsed.favoritePageIds) {
+      if (remoteMeta[pageId]) favoritePageMetaById[pageId] = remoteMeta[pageId];
     }
     return {
       favoritePageIds: [...parsed.favoritePageIds],
@@ -113,11 +165,19 @@ async function pushClientPrefsToServer(): Promise<void> {
   const memberId = useMemberStore.getState().me?.memberId;
   if (!memberId) return;
 
-  const { favoritePageIds, favoritePageIdsUpdatedAt } =
+  const { favoritePageIds, favoritePageMetaById, favoritePageIdsUpdatedAt } =
     useSettingsStore.getState();
   const payload: ClientPrefsV1 = {
     v: CLIENT_PREFS_SCHEMA_V,
     favoritePageIds: [...favoritePageIds],
+    favoritePageMetaById: favoritePageIds.reduce<Record<string, FavoritePageMeta>>(
+      (acc, pageId) => {
+        const meta = favoritePageMetaById[pageId];
+        if (meta) acc[pageId] = meta;
+        return acc;
+      },
+      {},
+    ),
     favoritePageIdsUpdatedAt,
   };
   const json = JSON.stringify(payload);

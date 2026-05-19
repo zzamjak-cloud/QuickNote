@@ -8,7 +8,7 @@ import { parseDatabasePanelStateJson } from "../lib/schemas/panelStateSchema";
 import { useWorkspaceStore } from "./workspaceStore";
 
 type DatabaseViewPrefsState = {
-  /** workspaceId::databaseId -> 개인 로컬 DB 뷰 설정. 절대 clientPrefs/outbox로 동기화하지 않는다. */
+  /** workspaceId::databaseId -> 구버전 로컬 DB 뷰 설정. 신규 DB 블록은 node attrs로 동기화한다. */
   panelStateByKey: Record<string, DatabasePanelState>;
 };
 

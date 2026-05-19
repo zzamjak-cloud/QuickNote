@@ -19,24 +19,61 @@ import { CSS } from "@dnd-kit/utilities";
 import { StarOff } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import type { FavoritePageMeta } from "../../store/settingsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import type { WorkspaceSummary } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
+import { fetchPagesByWorkspace } from "../../lib/sync";
+import {
+  getFavoritePageMetaFromLoadedWorkspaceSnapshots,
+  resolveFavoritePageMetaFromWorkspaceSnapshots,
+} from "../../lib/sync/workspaceSwitch";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { getRevokedFavoritePageIds } from "./favoritesAccess";
 
 const FAVORITE_NAV_TIMEOUT_MS = 6000;
+
+async function resolveFavoritePageMeta(
+  pageId: string,
+  workspaces: readonly WorkspaceSummary[],
+): Promise<FavoritePageMeta | null> {
+  const cached = await resolveFavoritePageMetaFromWorkspaceSnapshots(pageId, workspaces);
+  if (cached) return cached;
+
+  for (const workspace of workspaces) {
+    try {
+      const pages = await fetchPagesByWorkspace(workspace.workspaceId);
+      const page = pages.find((candidate) => candidate.id === pageId && !candidate.deletedAt);
+      if (!page) continue;
+      return {
+        pageId,
+        workspaceId: workspace.workspaceId,
+        workspaceName: workspace.name,
+        pageTitle: page.title || "제목 없음",
+        pageIcon: page.icon ?? null,
+      };
+    } catch {
+      // 접근 권한이 없는 워크스페이스는 다음 후보를 확인한다.
+    }
+  }
+  return null;
+}
 
 function FavoriteRow({ pageId }: { pageId: string }) {
   const page = usePageStore((s) => s.pages[pageId]);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const removeFavoritePage = useSettingsStore((s) => s.removeFavoritePage);
+  const updateFavoritePageMeta = useSettingsStore((s) => s.updateFavoritePageMeta);
   const favoriteMeta = useSettingsStore((s) => s.favoritePageMetaById[pageId]);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
   const showToast = useUiStore((s) => s.showToast);
   const requestFavoriteNavigation = useUiStore((s) => s.requestFavoriteNavigation);
+  const snapshotMeta =
+    favoriteMeta ??
+    getFavoritePageMetaFromLoadedWorkspaceSnapshots(pageId, workspaces);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: pageId });
@@ -57,49 +94,58 @@ function FavoriteRow({ pageId }: { pageId: string }) {
       <button
         type="button"
         onClick={() => {
-          const targetWorkspaceId = favoriteMeta?.workspaceId ?? null;
-          if (targetWorkspaceId) {
-            const workspace = workspaces.find(
-              (w) => w.workspaceId === targetWorkspaceId,
-            );
-            if (!workspace) {
-              if (workspaces.length === 0) {
+          void (async () => {
+            let targetMeta = snapshotMeta;
+            if (!targetMeta && !page) {
+              targetMeta = await resolveFavoritePageMeta(pageId, workspaces);
+              if (targetMeta) {
+                updateFavoritePageMeta(pageId, targetMeta);
+              }
+            }
+            const targetWorkspaceId = targetMeta?.workspaceId ?? null;
+            if (targetWorkspaceId) {
+              const workspace = workspaces.find(
+                (w) => w.workspaceId === targetWorkspaceId,
+              );
+              if (!workspace) {
+                if (workspaces.length === 0) {
+                  requestFavoriteNavigation({
+                    pageId,
+                    workspaceId: targetWorkspaceId,
+                  });
+                  return;
+                }
+                removeFavoritePage(pageId);
+                showToast(
+                  `${targetMeta?.workspaceName || "해당 워크스페이스"}에 대한 접근 권한이 없습니다.`,
+                  { kind: "error" },
+                );
+                return;
+              }
+              if (currentWorkspaceId !== targetWorkspaceId) {
+                setCurrentWorkspaceId(targetWorkspaceId);
                 requestFavoriteNavigation({
                   pageId,
                   workspaceId: targetWorkspaceId,
                 });
                 return;
               }
-              removeFavoritePage(pageId);
-              showToast(
-                `${favoriteMeta?.workspaceName || "해당 워크스페이스"}에 대한 접근 권한이 없습니다.`,
-                { kind: "error" },
-              );
-              return;
             }
-            if (currentWorkspaceId !== targetWorkspaceId) {
-              setCurrentWorkspaceId(targetWorkspaceId);
+            if (!page) {
               requestFavoriteNavigation({
                 pageId,
                 workspaceId: targetWorkspaceId,
               });
               return;
             }
-          }
-          if (!page) {
-            requestFavoriteNavigation({
-              pageId,
-              workspaceId: targetWorkspaceId,
-            });
-            return;
-          }
-          setCurrentTabPage(pageId);
-          setActivePage(pageId);
+            setCurrentTabPage(pageId);
+            setActivePage(pageId);
+          })();
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm text-zinc-800 dark:text-zinc-100"
       >
-        <PageIconDisplay icon={page?.icon ?? favoriteMeta?.pageIcon ?? null} size="sm" />
-        <span className="truncate">{page?.title || favoriteMeta?.pageTitle || "제목 없음"}</span>
+        <PageIconDisplay icon={page?.icon ?? snapshotMeta?.pageIcon ?? null} size="sm" />
+        <span className="truncate">{page?.title || snapshotMeta?.pageTitle || "제목 확인 중"}</span>
       </button>
       <button
         type="button"
@@ -118,6 +164,7 @@ export function FavoritesList() {
   const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
   const favoritePageMetaById = useSettingsStore((s) => s.favoritePageMetaById);
   const reorderFavorites = useSettingsStore((s) => s.reorderFavorites);
+  const updateFavoritePageMeta = useSettingsStore((s) => s.updateFavoritePageMeta);
   const removeFavoritesForPages = useSettingsStore(
     (s) => s.removeFavoritesForPages,
   );
@@ -129,6 +176,43 @@ export function FavoritesList() {
   const pendingFavoriteNavigation = useUiStore((s) => s.pendingFavoriteNavigation);
   const clearFavoriteNavigation = useUiStore((s) => s.clearFavoriteNavigation);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+
+  useEffect(() => {
+    if (favoritePageIds.length === 0 || workspaces.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const pageId of favoritePageIds) {
+        if (cancelled) return;
+        const page = pages[pageId];
+        if (page) {
+          const workspace =
+            workspaces.find((w) => w.workspaceId === currentWorkspaceId) ??
+            null;
+          updateFavoritePageMeta(pageId, {
+            pageId,
+            workspaceId: currentWorkspaceId,
+            workspaceName: workspace?.name ?? "",
+            pageTitle: page.title || "제목 없음",
+            pageIcon: page.icon ?? null,
+          });
+          continue;
+        }
+        if (favoritePageMetaById[pageId]?.workspaceId) continue;
+        const meta = await resolveFavoritePageMeta(pageId, workspaces);
+        if (!cancelled && meta) updateFavoritePageMeta(pageId, meta);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentWorkspaceId,
+    favoritePageIds,
+    favoritePageMetaById,
+    pages,
+    updateFavoritePageMeta,
+    workspaces,
+  ]);
 
   const validIds = favoritePageIds;
 
@@ -154,9 +238,13 @@ export function FavoritesList() {
       return;
     }
     if (Date.now() - requestedAt < FAVORITE_NAV_TIMEOUT_MS) return;
-    removeFavoritesForPages([pageId]);
     clearFavoriteNavigation();
-    showToast("페이지를 찾을 수 없어 즐겨찾기에서 제거했습니다.", { kind: "error" });
+    if (workspaceId) {
+      removeFavoritesForPages([pageId]);
+      showToast("페이지를 찾을 수 없어 즐겨찾기에서 제거했습니다.", { kind: "error" });
+    } else {
+      showToast("페이지 위치를 아직 확인하지 못했습니다.", { kind: "error" });
+    }
   }, [
     pendingFavoriteNavigation,
     currentWorkspaceId,

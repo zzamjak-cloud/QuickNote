@@ -1,8 +1,10 @@
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import type { FavoritePageMeta } from "../../store/settingsStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { BlockCommentMsg } from "../../store/blockCommentStore";
+import type { WorkspaceSummary } from "../../store/workspaceStore";
 import { zustandStorage } from "../storage/index";
 import { getSyncEngine } from "./runtime";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
@@ -30,6 +32,23 @@ function workspaceSnapshotKey(workspaceId: string): string {
 
 function cloneSnapshot<T>(value: T): T {
   return structuredClone(value);
+}
+
+function favoriteMetaFromSnapshotPage(
+  workspaceId: string,
+  workspaceName: string,
+  pageId: string,
+  snapshot: WorkspaceSnapshot,
+): FavoritePageMeta | null {
+  const page = snapshot.pages[pageId];
+  if (!page) return null;
+  return {
+    pageId,
+    workspaceId,
+    workspaceName,
+    pageTitle: page.title || "제목 없음",
+    pageIcon: page.icon ?? null,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -238,18 +257,34 @@ function persistWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapsh
   })();
 }
 
+function filterPagesForWorkspaceSnapshot(
+  workspaceId: string,
+  pages: WorkspaceSnapshot["pages"],
+): WorkspaceSnapshot["pages"] {
+  if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) return { ...pages };
+  return Object.fromEntries(
+    Object.entries(pages).filter(([, page]) => !isLCSchedulerDatabaseId(page.databaseId)),
+  );
+}
+
+function filterDatabasesForWorkspaceSnapshot(
+  workspaceId: string,
+  databases: WorkspaceSnapshot["databases"],
+): WorkspaceSnapshot["databases"] {
+  if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) return { ...databases };
+  return Object.fromEntries(
+    Object.entries(databases).filter(([databaseId]) => !isLCSchedulerDatabaseId(databaseId)),
+  );
+}
+
 function captureWorkspaceSnapshot(workspaceId: string): void {
-  if (!workspaceId || workspaceId === LC_SCHEDULER_WORKSPACE_ID) return;
+  if (!workspaceId) return;
   const pageState = usePageStore.getState();
   const dbState = useDatabaseStore.getState();
   const settings = useSettingsStore.getState();
   const commentState = useBlockCommentStore.getState();
-  const pages = Object.fromEntries(
-    Object.entries(pageState.pages).filter(([, page]) => !isLCSchedulerDatabaseId(page.databaseId)),
-  );
-  const databases = Object.fromEntries(
-    Object.entries(dbState.databases).filter(([databaseId]) => !isLCSchedulerDatabaseId(databaseId)),
-  );
+  const pages = filterPagesForWorkspaceSnapshot(workspaceId, pageState.pages);
+  const databases = filterDatabasesForWorkspaceSnapshot(workspaceId, dbState.databases);
   const comments = commentState.messages.filter(
     (message) => message.workspaceId == null || message.workspaceId === workspaceId,
   );
@@ -326,10 +361,46 @@ async function readPersistedWorkspaceSnapshot(workspaceId: string): Promise<Work
 export function preloadWorkspaceSnapshots(workspaceIds: Array<string | null | undefined>): void {
   const uniqueIds = [...new Set(workspaceIds.filter((id): id is string => Boolean(id)))];
   void Promise.all(
-    uniqueIds
-      .filter((workspaceId) => workspaceId !== LC_SCHEDULER_WORKSPACE_ID)
-      .map((workspaceId) => readPersistedWorkspaceSnapshot(workspaceId)),
+    uniqueIds.map((workspaceId) => readPersistedWorkspaceSnapshot(workspaceId)),
   );
+}
+
+export function getFavoritePageMetaFromLoadedWorkspaceSnapshots(
+  pageId: string,
+  workspaces: readonly WorkspaceSummary[],
+): FavoritePageMeta | null {
+  for (const workspace of workspaces) {
+    const snapshot = workspaceSnapshotById.get(workspace.workspaceId);
+    if (!snapshot) continue;
+    const meta = favoriteMetaFromSnapshotPage(
+      workspace.workspaceId,
+      workspace.name,
+      pageId,
+      snapshot,
+    );
+    if (meta) return meta;
+  }
+  return null;
+}
+
+export async function resolveFavoritePageMetaFromWorkspaceSnapshots(
+  pageId: string,
+  workspaces: readonly WorkspaceSummary[],
+): Promise<FavoritePageMeta | null> {
+  const loaded = getFavoritePageMetaFromLoadedWorkspaceSnapshots(pageId, workspaces);
+  if (loaded) return loaded;
+  for (const workspace of workspaces) {
+    const snapshot = await readPersistedWorkspaceSnapshot(workspace.workspaceId);
+    if (!snapshot) continue;
+    const meta = favoriteMetaFromSnapshotPage(
+      workspace.workspaceId,
+      workspace.name,
+      pageId,
+      snapshot,
+    );
+    if (meta) return meta;
+  }
+  return null;
 }
 
 function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot): boolean {
@@ -349,8 +420,12 @@ function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot
       isLCSchedulerDatabaseId(databaseId),
     ),
   );
-  const pages = { ...cloneSnapshot(normalized.pages), ...schedulerPages };
-  const databases = { ...cloneSnapshot(normalized.databases), ...schedulerDatabases };
+  const pages = workspaceId === LC_SCHEDULER_WORKSPACE_ID
+    ? cloneSnapshot(normalized.pages)
+    : { ...cloneSnapshot(normalized.pages), ...schedulerPages };
+  const databases = workspaceId === LC_SCHEDULER_WORKSPACE_ID
+    ? cloneSnapshot(normalized.databases)
+    : { ...cloneSnapshot(normalized.databases), ...schedulerDatabases };
   const tabs = normalized.tabs.length > 0 ? cloneSnapshot(normalized.tabs) : [{ pageId: null }];
   const activeTabIndex = Math.min(
     Math.max(normalized.activeTabIndex, 0),
@@ -430,8 +505,16 @@ export function workspaceCacheNeedsPrepaintClear(workspaceId: string | null): bo
 }
 
 export function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
+  const currentPages = usePageStore.getState().pages;
+  const activePageId = usePageStore.getState().activePageId;
+  const activeSchedulerPageId =
+    nextWorkspaceId === LC_SCHEDULER_WORKSPACE_ID &&
+    activePageId &&
+    isLCSchedulerDatabaseId(currentPages[activePageId]?.databaseId)
+      ? activePageId
+      : null;
   const schedulerPages = Object.fromEntries(
-    Object.entries(usePageStore.getState().pages).filter(([, page]) =>
+    Object.entries(currentPages).filter(([, page]) =>
       isLCSchedulerDatabaseId(page.databaseId),
     ),
   );
@@ -442,7 +525,7 @@ export function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
   );
   usePageStore.setState({
     pages: schedulerPages,
-    activePageId: null,
+    activePageId: activeSchedulerPageId,
     cacheWorkspaceId: nextWorkspaceId,
   });
   useDatabaseStore.setState({
@@ -450,7 +533,7 @@ export function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
     cacheWorkspaceId: nextWorkspaceId,
   });
   useSettingsStore.setState({
-    tabs: [{ pageId: null }],
+    tabs: [{ pageId: activeSchedulerPageId }],
     activeTabIndex: 0,
   });
   useBlockCommentStore.getState().clearMessages();
