@@ -2,12 +2,15 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   applyRemotePageToStore,
   applyRemoteDatabaseToStore,
+  reconcileLCSchedulerRemoteSnapshot,
 } from "../../lib/sync/storeApply";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useHistoryStore } from "../../store/historyStore";
 import type { GqlDatabase, GqlPage } from "../../lib/sync/graphql/operations";
+import { makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 
 function gqlPage(ws: string, id = "pg-1"): GqlPage {
   const now = new Date().toISOString();
@@ -173,5 +176,84 @@ describe("storeApply 워크스페이스 가드", () => {
     remote.title = "OtherTitle";
     applyRemotePageToStore(remote);
     expect(usePageStore.getState().pages["pg-1"]?.title).toBe("KeepMe");
+  });
+
+  it("LC 스케줄러 서버 스냅샷에 없는 오래된 로컬 행 페이지는 제거한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "personal-ws" });
+    const dbId = makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    const old = Date.now() - 300_000;
+    usePageStore.setState({
+      pages: {
+        "stale-row": {
+          id: "stale-row",
+          title: "삭제된 일정",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          databaseId: dbId,
+          dbCells: {},
+          createdAt: old,
+          updatedAt: old,
+        },
+      },
+      activePageId: "stale-row",
+      cacheWorkspaceId: "personal-ws",
+    });
+    useDatabaseStore.setState({
+      databases: {
+        [dbId]: {
+          meta: { id: dbId, title: "LC스케줄러", createdAt: old, updatedAt: old },
+          columns: [],
+          rowPageOrder: ["stale-row"],
+        },
+      },
+      cacheWorkspaceId: "personal-ws",
+    });
+
+    const result = reconcileLCSchedulerRemoteSnapshot({
+      pages: [],
+      databases: [],
+      protectedPageIds: new Set(),
+      recentLocalGuardMs: 0,
+    });
+
+    expect(result.prunedPageIds).toEqual(["stale-row"]);
+    expect(usePageStore.getState().pages["stale-row"]).toBeUndefined();
+    expect(usePageStore.getState().activePageId).toBeNull();
+    expect(useDatabaseStore.getState().databases[dbId]?.rowPageOrder).toEqual([]);
+  });
+
+  it("LC 스케줄러 서버 스냅샷에 없어도 outbox 보호 대상 행 페이지는 유지한다", () => {
+    const dbId = makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    const old = Date.now() - 300_000;
+    usePageStore.setState({
+      pages: {
+        "pending-row": {
+          id: "pending-row",
+          title: "전송 대기 일정",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          databaseId: dbId,
+          dbCells: {},
+          createdAt: old,
+          updatedAt: old,
+        },
+      },
+      activePageId: null,
+      cacheWorkspaceId: "personal-ws",
+    });
+
+    const result = reconcileLCSchedulerRemoteSnapshot({
+      pages: [],
+      databases: [],
+      protectedPageIds: new Set(["pending-row"]),
+      recentLocalGuardMs: 0,
+    });
+
+    expect(result.prunedPageIds).toEqual([]);
+    expect(usePageStore.getState().pages["pending-row"]).toBeDefined();
   });
 });

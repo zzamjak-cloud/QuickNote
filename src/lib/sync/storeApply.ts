@@ -25,7 +25,10 @@ import {
   isLegacyLCSchedulerDatabaseId,
 } from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
-import { isDeletedSchedulePage } from "../scheduler/deletedSchedulePages";
+import {
+  isDeletedSchedulePage,
+  markDeletedSchedulePage,
+} from "../scheduler/deletedSchedulePages";
 
 /**
  * 구독 레이스·백엔드 오류로 다른 워크스페이스 스냅샷이 내려올 때 로컬 캐시가 오염되지 않게 한다.
@@ -299,6 +302,28 @@ function removePageIdFromDatabaseRowOrder(databaseId: string, pageId: string): v
   });
 }
 
+function removePageIdsFromDatabaseRowOrders(
+  databaseIds: Set<string>,
+  pageIds: Set<string>,
+): void {
+  if (databaseIds.size === 0 || pageIds.size === 0) return;
+  useDatabaseStore.setState((s) => {
+    let databases = s.databases;
+    let changed = false;
+    for (const databaseId of databaseIds) {
+      const db = databases[databaseId];
+      if (!db || !db.rowPageOrder.some((pageId) => pageIds.has(pageId))) continue;
+      if (databases === s.databases) databases = { ...s.databases };
+      databases[databaseId] = {
+        ...db,
+        rowPageOrder: db.rowPageOrder.filter((pageId) => !pageIds.has(pageId)),
+      };
+      changed = true;
+    }
+    return changed ? { ...s, databases } : s;
+  });
+}
+
 /** 구독 순서상 DB 스냅샷보다 행 페이지가 먼저 올 때 rowPageOrder 에 id 가 빠지지 않게 한다.
  *  템플릿 페이지(_qn_isTemplate)는 rowPageOrder 에 추가하지 않는다. */
 function ensurePageInDatabaseRowOrder(databaseId: string, pageId: string): void {
@@ -450,6 +475,71 @@ export function applyRemotePagesToStore(
   });
 
   reconcileDatabaseRowOrders(affectedDatabaseIds);
+}
+
+export function reconcileLCSchedulerRemoteSnapshot(args: {
+  pages: Array<GqlPage | null | undefined>;
+  databases: Array<GqlDatabase | null | undefined>;
+  protectedPageIds?: Set<string>;
+  recentLocalGuardMs?: number;
+}): { prunedPageIds: string[] } {
+  const protectedPageIds = args.protectedPageIds ?? new Set<string>();
+  const recentLocalGuardMs = args.recentLocalGuardMs ?? 120_000;
+  applyRemoteDatabasesToStore(args.databases);
+  applyRemotePagesToStore(args.pages);
+
+  const liveRemotePageIds = new Set<string>();
+  for (const remotePage of args.pages) {
+    if (!remotePage) continue;
+    const page = normalizeLCSchedulerPageWorkspace(remotePage);
+    if (
+      page.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
+      !page.deletedAt &&
+      page.databaseId &&
+      isLCSchedulerDatabaseId(page.databaseId)
+    ) {
+      liveRemotePageIds.add(page.id);
+    }
+  }
+
+  const now = Date.now();
+  const affectedDatabaseIds = new Set<string>();
+  const prunedPageIds: string[] = [];
+  usePageStore.setState((s) => {
+    let pages = s.pages;
+    let activePageId = s.activePageId;
+    let changed = false;
+    for (const [pageId, page] of Object.entries(s.pages)) {
+      if (!isLCSchedulerDatabaseId(page.databaseId)) continue;
+      if (liveRemotePageIds.has(pageId) || protectedPageIds.has(pageId)) continue;
+      if (now - page.updatedAt < recentLocalGuardMs) continue;
+      if (pages === s.pages) pages = { ...s.pages };
+      delete pages[pageId];
+      prunedPageIds.push(pageId);
+      if (page.databaseId) affectedDatabaseIds.add(page.databaseId);
+      if (activePageId === pageId) activePageId = null;
+      changed = true;
+    }
+    return changed
+      ? {
+          ...s,
+          pages,
+          activePageId,
+          cacheWorkspaceId: resolveNextCacheWorkspaceId(
+            s.cacheWorkspaceId,
+            LC_SCHEDULER_WORKSPACE_ID,
+          ),
+        }
+      : s;
+  });
+
+  if (prunedPageIds.length > 0) {
+    const prunedSet = new Set(prunedPageIds);
+    for (const pageId of prunedPageIds) markDeletedSchedulePage(pageId);
+    removePageIdsFromDatabaseRowOrders(affectedDatabaseIds, prunedSet);
+  }
+
+  return { prunedPageIds };
 }
 
 // 페이지 댓글 sentinel (PageCommentBar 와 동일 값 유지)

@@ -11,6 +11,7 @@ import {
   updateLCSchedulerSchedule,
 } from "../lib/scheduler/taskAdapter";
 import { LC_SCHEDULER_ATTENDANCE_TITLE, ensureLCSchedulerDatabase } from "../lib/scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../lib/scheduler/scope";
 import {
   DEFAULT_SCHEDULE_COLOR,
   GLOBAL_EVENT_COLOR,
@@ -21,6 +22,9 @@ import { useSchedulerViewStore } from "./schedulerViewStore";
 import { filterSchedulesByRange, scheduleOverlapsRange } from "../lib/scheduler/selectors/scheduleSelectors";
 import { logSchedulerPerf, nowSchedulerPerf } from "../lib/scheduler/performance";
 import { zustandStorage } from "../lib/storage/index";
+import { fetchDatabasesByWorkspace, fetchPagesByWorkspace } from "../lib/sync/bootstrap";
+import { getSyncEngine } from "../lib/sync/runtime";
+import { reconcileLCSchedulerRemoteSnapshot } from "../lib/sync/storeApply";
 
 export type Schedule = {
   id: string;
@@ -213,6 +217,56 @@ function isOptimisticScheduleId(id: string): boolean {
   return id.startsWith("optimistic:");
 }
 
+let schedulerRemoteReconcileInFlight: Promise<void> | null = null;
+
+async function getPendingLCSchedulerPageIds(): Promise<Set<string>> {
+  const engine = await getSyncEngine();
+  const snapshot = (await engine.debugSnapshot()) as Array<{
+    workspaceId?: string | null;
+    entityType?: string | null;
+    entityId?: string | null;
+  }>;
+  return new Set(
+    snapshot
+      .filter(
+        (entry) =>
+          entry.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
+          entry.entityType === "page" &&
+          typeof entry.entityId === "string" &&
+          entry.entityId.length > 0,
+      )
+      .map((entry) => entry.entityId as string),
+  );
+}
+
+async function reconcileSchedulerWorkspaceFromServer(workspaceId: string): Promise<void> {
+  if (workspaceId !== LC_SCHEDULER_WORKSPACE_ID) return;
+  if (!schedulerRemoteReconcileInFlight) {
+    schedulerRemoteReconcileInFlight = (async () => {
+      const engine = await getSyncEngine();
+      await engine.flush();
+      const protectedPageIds = await getPendingLCSchedulerPageIds();
+      const [pages, databases] = await Promise.all([
+        fetchPagesByWorkspace(LC_SCHEDULER_WORKSPACE_ID),
+        fetchDatabasesByWorkspace(LC_SCHEDULER_WORKSPACE_ID),
+      ]);
+      const { prunedPageIds } = reconcileLCSchedulerRemoteSnapshot({
+        pages,
+        databases,
+        protectedPageIds,
+      });
+      if (prunedPageIds.length > 0) {
+        console.warn("[scheduler] stale local cards pruned from server snapshot", {
+          count: prunedPageIds.length,
+        });
+      }
+    })().finally(() => {
+      schedulerRemoteReconcileInFlight = null;
+    });
+  }
+  await schedulerRemoteReconcileInFlight;
+}
+
 export const useSchedulerStore = create<SchedulerStore>()(
   persist(
     (set, get) => ({
@@ -229,7 +283,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
           current.cachedWorkspaceId === workspaceId &&
           current.visibleRangeFrom === from &&
           current.visibleRangeTo === to;
-        if (hasSameVisibleCache) {
+        if (hasSameVisibleCache && workspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
           logSchedulerPerf("fetchSchedules:cache-hit", startedAt, {
             workspaceId,
             from,
@@ -243,6 +297,11 @@ export const useSchedulerStore = create<SchedulerStore>()(
           set({ schedules: [], cachedWorkspaceId: workspaceId });
         }
         // loading을 true로 올리지 않음 — 기존 캐시로 화면이 이미 그려진 상태 유지
+        try {
+          await reconcileSchedulerWorkspaceFromServer(workspaceId);
+        } catch (error) {
+          console.warn("[scheduler] 서버 스냅샷 대조 실패", error);
+        }
         await ensureLCSchedulerDatabase(workspaceId);
         set({
           schedules: projectSchedulesForStore(workspaceId, from, to),
