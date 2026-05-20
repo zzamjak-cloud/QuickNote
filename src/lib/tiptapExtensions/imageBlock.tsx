@@ -72,6 +72,18 @@ export const ImageBlock = Image.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      src: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("src") || el.getAttribute("data-qn-src"),
+        renderHTML: (attrs) => {
+          const raw = typeof attrs.src === "string" ? attrs.src : "";
+          // 브라우저가 quicknote-* 스킴을 직접 로드하지 않도록 차단.
+          if (raw.startsWith("quicknote-image://") || raw.startsWith("quicknote-file://")) {
+            return { src: "", "data-qn-src": raw };
+          }
+          return raw ? { src: raw } : {};
+        },
+      },
       width: {
         default: null,
         parseHTML: (el) => {

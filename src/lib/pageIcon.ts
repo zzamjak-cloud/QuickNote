@@ -1,6 +1,7 @@
 // 페이지 icon 필드: 이모지 텍스트 vs 이미지 ref/URL 판별
 
 import { decodeImageRef } from "./sync/imageScheme";
+import { decodeFileRef } from "./files/scheme";
 
 export const LUCIDE_PAGE_ICON_PREFIX = "quicknote-lucide:";
 
@@ -19,6 +20,7 @@ export function isQuickNoteImageIcon(icon: string | null | undefined): boolean {
 export function isImageLikePageIcon(icon: string | null | undefined): boolean {
   if (!icon) return false;
   if (isQuickNoteImageIcon(icon)) return true;
+  if (decodeFileRef(icon) !== null) return true;
   if (icon.startsWith("http://") || icon.startsWith("https://")) return true;
   if (icon.startsWith("data:image/")) return true;
   return false;

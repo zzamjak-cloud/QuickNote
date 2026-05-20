@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { imageUrlCache } from "./registry";
 import { decodeImageRef } from "../sync/imageScheme";
+import { decodeFileRef } from "../files/scheme";
 
 export type UseImageUrlResult = {
   url: string | null;
@@ -11,7 +12,7 @@ export type UseImageUrlResult = {
 
 function initialImageUrl(srcOrRef: string | null | undefined): string | null {
   if (!srcOrRef) return null;
-  const id = decodeImageRef(srcOrRef);
+  const id = decodeImageRef(srcOrRef) ?? decodeFileRef(srcOrRef);
   if (!id) return srcOrRef;
   return imageUrlCache.peek(id) ?? null;
 }
@@ -31,7 +32,7 @@ export function useImageUrl(
       setError(null);
       return;
     }
-    const id = decodeImageRef(srcOrRef);
+    const id = decodeImageRef(srcOrRef) ?? decodeFileRef(srcOrRef);
     if (!id) {
       // 일반 URL(또는 data:)은 그대로 사용.
       setUrl(srcOrRef);
@@ -52,7 +53,7 @@ export function useImageUrl(
         if (!canceled) setUrl(u);
       },
       (e) => {
-        if (!canceled) setError(String(e));
+        if (!canceled) setError(e instanceof Error ? e.message : String(e));
       },
     );
     return () => {

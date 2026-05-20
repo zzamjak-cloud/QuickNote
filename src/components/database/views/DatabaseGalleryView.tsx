@@ -15,6 +15,7 @@ import { getVisibleOrderedColumns } from "../../../types/database";
 import { getDatabaseFile } from "../../../lib/databaseFileStorage";
 import { decodeFileRef, isFileRef } from "../../../lib/files/scheme";
 import { imageUrlCache } from "../../../lib/images/registry";
+import { useImageUrl } from "../../../lib/images/hooks";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
 import { useUiStore } from "../../../store/uiStore";
@@ -310,6 +311,7 @@ function CoverImage({
   overrideSrc?: string;
 }) {
   const [src, setSrc] = useState<string | null>(null);
+  const { url: resolvedSrc } = useImageUrl(src);
 
   useEffect(() => {
     // 오버라이드 src가 있으면 즉시 사용
@@ -337,7 +339,7 @@ function CoverImage({
       const first = cell[0] as FileCellItem;
       const ref = fileCellRef(first);
       if (ref) {
-        if (!first.mime.startsWith("image/")) {
+        if (typeof first.mime !== "string" || !first.mime.startsWith("image/")) {
           setIfActive(findFirstImageSrc(pageDoc));
           return () => {
             cancelled = true;
@@ -383,7 +385,7 @@ function CoverImage({
     };
   }, [column, cell, pageDoc, overrideSrc]);
 
-  if (!src) {
+  if (!resolvedSrc) {
     return (
       <div className="flex aspect-video items-center justify-center bg-zinc-100 text-[10px] text-zinc-400 dark:bg-zinc-800">
         미리보기
@@ -392,7 +394,7 @@ function CoverImage({
   }
   return (
     <img
-      src={src}
+      src={resolvedSrc}
       alt=""
       className="aspect-video w-full object-cover"
     />
