@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.18] - 2026-05-20
+
+### Added
+
+- **Notion CSV 폴더 가져오기**: CSV + 동명 서브폴더 재귀 탐색으로 DB 항목을 순차 처리하는 가져오기 흐름.
+- **번호 목록 마크다운 단축키**: `1. ` 입력 시 번호 목록 자동 생성.
+
+### Changed
+
+- **데이터베이스 관리 팝업**: LC 스케줄러 DB는 「열기」 버튼 숨김, 목록·삭제 DB 텍스트 크기 확대, 연결 전체 페이지 제목 표시.
+- **DB 리스트 뷰**: 항목 제목·보조 열·왼쪽 아이콘 크기 확대.
+- **Notion HTML/ZIP 가져오기**: HTML→doc 변환·에셋 업로드·ZIP 파싱 보강.
+- **동영상 압축·파일 블록**: 업로드/표시 관련 처리 개선.
+
 ## [5.4.17] - 2026-05-18
 
 ### Changed
