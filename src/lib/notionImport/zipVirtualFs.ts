@@ -22,7 +22,13 @@ type VirtualDirNode = {
 // 캐스팅으로 기존 API 와 호환되게 한다.
 class ZipFileHandle {
   readonly kind = "file" as const;
-  constructor(public readonly name: string, private readonly entry: JSZip.JSZipObject) {}
+  readonly name: string;
+  private readonly entry: JSZip.JSZipObject;
+
+  constructor(name: string, entry: JSZip.JSZipObject) {
+    this.name = name;
+    this.entry = entry;
+  }
 
   async getFile(): Promise<File> {
     const blob = await this.entry.async("blob");
@@ -34,10 +40,13 @@ class ZipFileHandle {
 
 class ZipDirHandle {
   readonly kind = "directory" as const;
-  constructor(
-    public readonly name: string,
-    private readonly node: VirtualDirNode,
-  ) {}
+  readonly name: string;
+  private readonly node: VirtualDirNode;
+
+  constructor(name: string, node: VirtualDirNode) {
+    this.name = name;
+    this.node = node;
+  }
 
   async *entries(): AsyncGenerator<[string, ZipFileHandle | ZipDirHandle]> {
     for (const [name, child] of this.node.children) {

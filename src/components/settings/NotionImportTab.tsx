@@ -329,9 +329,11 @@ export function NotionImportTab() {
                 const values = table.rows.map((row) => row.cells[idx] ?? "").filter((v) => v.trim().length > 0);
                 const columnMeta = table.rows
                   .map((row) => row.cellMeta[idx])
-                  .filter((meta): meta is { hasTimeTag: boolean; statusColorToken: string | null; statusLike: boolean } => !!meta);
+                  .filter((meta) => meta != null);
                 const hasTimeLike = columnMeta.some((meta) => meta.hasTimeTag);
-                const hasStatusLike = columnMeta.some((meta) => meta.statusLike || !!meta.statusColorToken);
+                const hasStatusLike = columnMeta.some(
+                  (meta) => meta.statusLike || meta.statusColorToken != null,
+                );
                 const inferredType = inferColumnType(header, values);
                 const colType: ColumnType = hasTimeLike
                   ? "date"
