@@ -35,6 +35,26 @@ type Subscribable = {
 
 const MAX_RETRY_DELAY_MS = 30_000;
 const MAX_RETRY_ATTEMPTS = 12;
+const SUB_ERROR_LOG_THROTTLE_MS = 10_000;
+
+function getErrorMessage(error: unknown): string {
+  const errors = (error as { errors?: unknown[] } | null)?.errors;
+  const first = Array.isArray(errors) ? errors[0] : null;
+  return String(
+    (first as { message?: string } | null)?.message
+      ?? (error instanceof Error ? error.message : error),
+  );
+}
+
+function isUnauthorizedError(error: unknown): boolean {
+  const m = getErrorMessage(error).toLowerCase();
+  return (
+    m.includes("unauthorized")
+    || m.includes("not authorized")
+    || m.includes("no valid auth token")
+    || m.includes("401")
+  );
+}
 
 export function startSubscriptions(
   workspaceId: string,
@@ -46,6 +66,7 @@ export function startSubscriptions(
   let commentSub: { unsubscribe: () => void } | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryAttempts = 0;
+  const lastErrorByChannel = new Map<string, { message: string; at: number }>();
 
   const clearSubs = () => {
     try { pageSub?.unsubscribe(); } catch { /* noop */ }
@@ -67,6 +88,16 @@ export function startSubscriptions(
     }, delay);
   };
 
+  const logSubError = (channel: "page" | "database" | "comment", error: unknown) => {
+    const msg = getErrorMessage(error);
+    const key = `sub:${channel}`;
+    const prev = lastErrorByChannel.get(key);
+    const now = Date.now();
+    if (prev && prev.message === msg && now - prev.at < SUB_ERROR_LOG_THROTTLE_MS) return;
+    lastErrorByChannel.set(key, { message: msg, at: now });
+    console.error(`[sub:${channel}]`, error);
+  };
+
   const connect = async () => {
     if (stopped) return;
     clearSubs();
@@ -86,7 +117,10 @@ export function startSubscriptions(
         authToken,
       } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
     } catch (e) {
-      console.error("[sub:page]", e);
+      logSubError("page", e);
+      if (isUnauthorizedError(e)) {
+        await ensureFreshTokensForAppSync();
+      }
       scheduleRetry();
       return;
     }
@@ -101,7 +135,10 @@ export function startSubscriptions(
         if (parsed) handlers.onPage(parsed as unknown as GqlPage);
       },
       error: (e) => {
-        console.error("[sub:page]", e);
+        logSubError("page", e);
+        if (isUnauthorizedError(e)) {
+          void ensureFreshTokensForAppSync();
+        }
         scheduleRetry();
       },
     });
@@ -114,7 +151,10 @@ export function startSubscriptions(
         authToken,
       } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
     } catch (e) {
-      console.error("[sub:database]", e);
+      logSubError("database", e);
+      if (isUnauthorizedError(e)) {
+        await ensureFreshTokensForAppSync();
+      }
       scheduleRetry();
       return;
     }
@@ -129,7 +169,10 @@ export function startSubscriptions(
         if (parsed) handlers.onDatabase(parsed as unknown as GqlDatabase);
       },
       error: (e) => {
-        console.error("[sub:database]", e);
+        logSubError("database", e);
+        if (isUnauthorizedError(e)) {
+          void ensureFreshTokensForAppSync();
+        }
         scheduleRetry();
       },
     });
@@ -142,7 +185,10 @@ export function startSubscriptions(
         authToken,
       } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
     } catch (e) {
-      console.error("[sub:comment]", e);
+      logSubError("comment", e);
+      if (isUnauthorizedError(e)) {
+        await ensureFreshTokensForAppSync();
+      }
       scheduleRetry();
       return;
     }
@@ -157,7 +203,10 @@ export function startSubscriptions(
         if (parsed) handlers.onComment(parsed as unknown as GqlComment);
       },
       error: (e) => {
-        console.error("[sub:comment]", e);
+        logSubError("comment", e);
+        if (isUnauthorizedError(e)) {
+          void ensureFreshTokensForAppSync();
+        }
         scheduleRetry();
       },
     });

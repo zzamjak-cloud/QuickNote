@@ -42,7 +42,11 @@ export async function ensureFreshTokensForAppSync(): Promise<StoredTokens | null
       } catch (e) {
         console.warn("[auth] AppSync용 토큰 갱신 실패 (signinSilent)", e);
       }
-      return readStoredTokens();
+      const fallback = await readStoredTokens();
+      if (!fallback) return null;
+      // 만료 임박/만료 토큰은 재사용하지 않는다(401 루프 완화).
+      if (isExpiringSoon(fallback)) return null;
+      return fallback;
     })().finally(() => {
       refreshInFlight = null;
     });

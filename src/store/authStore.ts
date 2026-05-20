@@ -31,6 +31,8 @@ export type AnonymousReason =
 const STORAGE_READ_MS = 15_000;
 const SIGNIN_SILENT_MS = 12_000;
 const GET_USER_MS = 12_000;
+const TOKEN_KEEPALIVE_INTERVAL_MS = 30_000;
+const TOKEN_KEEPALIVE_THRESHOLD_SEC = 180;
 
 async function promiseWithTimeout<T>(
   p: Promise<T>,
@@ -114,6 +116,48 @@ function tryBuildHostedLogoutUrl(idTokenHint?: string): string | null {
 }
 
 let restoreSessionInFlight: Promise<void> | null = null;
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+let keepAliveRefreshInFlight: Promise<void> | null = null;
+
+function stopTokenKeepAlive(): void {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+}
+
+function startTokenKeepAlive(getState: () => AuthState, setState: (next: AuthState) => void): void {
+  stopTokenKeepAlive();
+  keepAliveTimer = setInterval(() => {
+    const current = getState();
+    if (current.status !== "authenticated") return;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (!isExpiringSoon(current.tokens, nowSec + TOKEN_KEEPALIVE_THRESHOLD_SEC)) return;
+    if (keepAliveRefreshInFlight) return;
+    keepAliveRefreshInFlight = (async () => {
+      try {
+        const manager = getOidcManager();
+        const refreshed = await promiseWithTimeout(
+          manager.signinSilent(),
+          SIGNIN_SILENT_MS,
+          "signinSilent(keepalive)",
+        );
+        if (!refreshed?.id_token) return;
+        const tokens = userToTokens(refreshed);
+        await writeStoredTokens(tokens);
+        setState({
+          status: "authenticated",
+          user: userToAuthUser(refreshed),
+          tokens,
+        });
+      } catch (err) {
+        console.warn("[auth] keepalive silent renew 실패", err);
+      }
+    })().finally(() => {
+      keepAliveRefreshInFlight = null;
+    });
+  }, TOKEN_KEEPALIVE_INTERVAL_MS);
+}
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
   state: { status: "loading" },
@@ -180,6 +224,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           tokens,
         },
       });
+      startTokenKeepAlive(
+        () => get().state,
+        (state) => set({ state }),
+      );
     } catch (err) {
       // 실패 원인을 콘솔에 남겨 디버깅을 돕는다 (state 머신은 errorMessage 만 노출).
       console.error("[auth] handleCallback failed:", err);
@@ -188,6 +236,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         ? "denied"
         : "callbackError";
       await clearStoredTokens();
+      stopTokenKeepAlive();
       set({ state: { status: "anonymous", reason, errorMessage: message } });
     }
   },
@@ -207,6 +256,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
     resetOidcManager();
     await clearStoredTokens();
+    stopTokenKeepAlive();
     set({ state: { status: "anonymous", reason: "signedOut" } });
     if (logoutUrl) {
       void openAuthUrl(logoutUrl).catch((error) => {
@@ -283,6 +333,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
                   tokens,
                 },
               });
+              startTokenKeepAlive(
+                () => get().state,
+                (state) => set({ state }),
+              );
               return;
             }
           } catch {
@@ -314,6 +368,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
               tokens: cached,
             },
           });
+          startTokenKeepAlive(
+            () => get().state,
+            (state) => set({ state }),
+          );
           return;
         }
 

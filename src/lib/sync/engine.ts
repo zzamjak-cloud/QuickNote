@@ -9,6 +9,7 @@ import { sortOutboxBatchForFlush } from "./outboxFlushOrder";
 import { useUiStore } from "../../store/uiStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { isLCSchedulerDatabaseId } from "../scheduler/database";
+import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 
 // 동기화 엔진. enqueue 시 outbox 에 적재 → 백그라운드 워커가 mutation 으로 flush.
 // 같은 (op, id) 의 새 enqueue 는 dedupe 로 마지막 본만 남김.
@@ -30,6 +31,39 @@ const MAX_BACKOFF_MS = 60_000;
 // 이 값을 넘긴 entry 는 head 에 영원히 남아 후속 entries 처리를 막는 stuck-head 위험이 있어 outbox 에서 제거한다.
 // 빠른 사용자 인지를 위해 15 회로 축소(이전: 50).
 const MAX_ATTEMPTS = 15;
+const AUTH_RETRY_DELAY_MS = 5_000;
+const TRANSIENT_RETRY_DELAY_MS = 4_000;
+const TRANSIENT_LOG_THROTTLE_MS = 15_000;
+
+function getErrorMessage(error: unknown): string {
+  const gqlErrors = (error as { errors?: unknown[] } | null)?.errors;
+  const firstGql = Array.isArray(gqlErrors) ? gqlErrors[0] : null;
+  return String(
+    (firstGql as { message?: string } | null)?.message
+      ?? (error instanceof Error ? error.message : error),
+  );
+}
+
+function isUnauthorizedError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("unauthorized")
+    || m.includes("not authorized")
+    || m.includes("no valid auth token")
+    || m.includes("401")
+  );
+}
+
+function isTransientNetworkError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("timed_out")
+    || m.includes("timeout")
+    || m.includes("failed to fetch")
+    || m.includes("networkerror")
+    || m.includes("network request failed")
+  );
+}
 
 export type EnqueuePayload = {
   id: string;
@@ -47,6 +81,7 @@ export class SyncEngine {
   private readonly gql: GqlBridge;
   private readonly clock: () => number;
   private enqueueTail: Promise<void> = Promise.resolve();
+  private lastTransientLogAt = 0;
   /** 플러시 시 UI 워크스페이스와 엔트리 메타 불일치 진단용(옵션). */
   private readonly getCurrentWorkspaceIdForLog?: () => string | null;
 
@@ -159,15 +194,42 @@ export class SyncEngine {
             await this.outbox.remove(entry.id);
           } catch (err) {
             if (this.stopped) return;
-            // mutation 실패는 운영에서도 유용하므로 GraphQL 메시지 본체를 콘솔에 남긴다.
-            const gqlErrors = (err as { errors?: unknown[] }).errors;
-            const firstGql = Array.isArray(gqlErrors) ? gqlErrors[0] : null;
-            console.error("[sync] mutation failed", entry.op, {
-              pageId: (entry.payload as Record<string, unknown>).id,
-              attempts: entry.attempts + 1,
-              message: (firstGql as { message?: string } | null)?.message
-                ?? (err instanceof Error ? err.message : String(err)),
-            });
+            const message = getErrorMessage(err);
+            const now = this.clock();
+            const shouldLogTransient = now - this.lastTransientLogAt >= TRANSIENT_LOG_THROTTLE_MS;
+            const isAuthError = isUnauthorizedError(message);
+            const isTransientError = isTransientNetworkError(message);
+            if (!isTransientError || shouldLogTransient) {
+              if (isTransientError) this.lastTransientLogAt = now;
+              console.error("[sync] mutation failed", entry.op, {
+                pageId: (entry.payload as Record<string, unknown>).id,
+                attempts: entry.attempts + 1,
+                message,
+              });
+            }
+            if (isAuthError) {
+              try {
+                await ensureFreshTokensForAppSync();
+              } catch {
+                // no-op: 토큰 갱신 실패 시 기존 세션으로 백오프 재시도
+              }
+              await this.outbox.put({
+                ...entry,
+                lastErrorAt: now,
+              });
+              hasFailure = true;
+              minFailBackoff = Math.min(minFailBackoff, AUTH_RETRY_DELAY_MS);
+              continue;
+            }
+            if (isTransientError) {
+              await this.outbox.put({
+                ...entry,
+                lastErrorAt: now,
+              });
+              hasFailure = true;
+              minFailBackoff = Math.min(minFailBackoff, TRANSIENT_RETRY_DELAY_MS);
+              continue;
+            }
             const attempts = entry.attempts + 1;
             if (attempts >= MAX_ATTEMPTS) {
               // 영구 실패로 간주하고 dead-letter 처리.
@@ -181,7 +243,7 @@ export class SyncEngine {
                 {
                   ...entry,
                   attempts,
-                  lastErrorAt: this.clock(),
+                  lastErrorAt: now,
                 },
                 "max-attempts-exceeded",
               );
@@ -197,7 +259,7 @@ export class SyncEngine {
             await this.outbox.put({
               ...entry,
               attempts,
-              lastErrorAt: this.clock(),
+              lastErrorAt: now,
             });
             // 실패한 항목은 기록만 하고 나머지 배치는 계속 처리
             hasFailure = true;
