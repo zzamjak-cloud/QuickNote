@@ -188,13 +188,20 @@ type EditorProps = {
   bodyOnly?: boolean;
   /** 사이드 피크(좁은 패널) 컨텍스트 — 사이드바 레이아웃 시프트 비활성 + 댓글은 컴팩트 배지로 표시 */
   peek?: boolean;
+  /** 본문 컬럼 내부 하단 spacer 렌더 여부. 기본 true */
+  showTailSpacer?: boolean;
 };
 
 /** editor 인스턴스 참조만 바뀔 때 재마운트 — 본문 state 변경 시 무분별 리렌더 방지 */
 const MemoBubbleToolbar = memo(BubbleToolbar);
 const MemoImageResizeOverlay = memo(ImageResizeOverlay);
 
-export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps = {}) {
+export function Editor({
+  pageId,
+  bodyOnly = false,
+  peek = false,
+  showTailSpacer = true,
+}: EditorProps = {}) {
   const activeId = usePageStore((s) => s.activePageId);
   const effectivePageId = pageId ?? activeId;
   // 블록 댓글이 하나라도 존재하면 사이드바 공간을 예약해 본문을 좌측으로 밀어냄.
@@ -1182,14 +1189,16 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
             onClearBoxSelection={clearBoxSelection}
           />
         )}
-        <div
-          aria-hidden
-          className="qn-editor-scroll-tail-spacer shrink-0 select-none"
-          style={{
-            height: editorTailSpacerPx,
-            minHeight: editorTailSpacerPx,
-          }}
-        />
+        {showTailSpacer ? (
+          <div
+            aria-hidden
+            className="qn-editor-scroll-tail-spacer shrink-0 select-none"
+            style={{
+              height: editorTailSpacerPx,
+              minHeight: editorTailSpacerPx,
+            }}
+          />
+        ) : null}
       </div>
       <MemoBubbleToolbar editor={editor} />
       <MemoImageResizeOverlay editor={editor} />

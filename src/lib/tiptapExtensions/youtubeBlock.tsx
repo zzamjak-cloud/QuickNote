@@ -77,17 +77,24 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
 
   const w = typeof width === "number" && width > 0 ? width : opts.width;
   const h = typeof height === "number" && height > 0 ? height : opts.height;
+  const mergedAttrs = mergeAttributes(
+    {
+      "data-youtube-video": "",
+      class: "qn-youtube-shell my-1 max-w-full leading-none",
+    },
+    opts.HTMLAttributes ?? {},
+  ) as Record<string, unknown>;
+  const { class: classAttr, ...restAttrs } = mergedAttrs;
+  const className =
+    typeof classAttr === "string" && classAttr.length > 0
+      ? classAttr
+      : "qn-youtube-shell my-1 max-w-full leading-none";
 
   return (
     <NodeViewWrapper
       as="div"
-      {...mergeAttributes(
-        {
-          "data-youtube-video": "",
-          class: "qn-youtube-shell my-1 max-w-full leading-none",
-        },
-        opts.HTMLAttributes ?? {},
-      )}
+      className={className}
+      {...restAttrs}
     >
       {embedUrl ? (
         <iframe

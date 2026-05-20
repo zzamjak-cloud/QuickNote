@@ -10,6 +10,20 @@ export type UseImageUrlResult = {
   error: string | null;
 };
 
+function mapImageErrorMessage(error: unknown): string {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("unauthorized") ||
+    lower.includes("not authorized") ||
+    lower.includes("no valid auth token") ||
+    lower.includes("401")
+  ) {
+    return "이미지 접근 권한이 만료되었습니다. 다시 로그인해 주세요.";
+  }
+  return msg;
+}
+
 function initialImageUrl(srcOrRef: string | null | undefined): string | null {
   if (!srcOrRef) return null;
   const id = decodeImageRef(srcOrRef) ?? decodeFileRef(srcOrRef);
@@ -53,7 +67,7 @@ export function useImageUrl(
         if (!canceled) setUrl(u);
       },
       (e) => {
-        if (!canceled) setError(e instanceof Error ? e.message : String(e));
+        if (!canceled) setError(mapImageErrorMessage(e));
       },
     );
     return () => {

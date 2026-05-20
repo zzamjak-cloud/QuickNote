@@ -24,6 +24,7 @@ import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import { useTableRowSelection } from "./useTableRowSelection";
 import { useHistoryStore } from "../../../store/historyStore";
 import { useWindowedRows } from "./useWindowedRows";
+import type { CellValue } from "../../../types/database";
 
 type Props = {
   databaseId: string;
@@ -36,6 +37,14 @@ type Props = {
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
 
+function cloneCellValue<T>(value: T): T {
+  try {
+    return structuredClone(value);
+  } catch {
+    return value;
+  }
+}
+
 export function DatabaseTableView({ databaseId, panelState, setPanelState, visibleRowLimit, layout }: Props) {
   void setPanelState;
   const { bundle, rows: allRows } = useProcessedRows(databaseId, panelState);
@@ -45,6 +54,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const moveColumn = useDatabaseStore((s) => s.moveColumn);
   const setRowOrder = useDatabaseStore((s) => s.setRowOrder);
+  const updateCell = useDatabaseStore((s) => s.updateCell);
   const setIcon = usePageStore((s) => s.setIcon);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -61,6 +71,16 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   const [rowDragFrom, setRowDragFrom] = useState<number | null>(null);
   const [rowDragOver, setRowDragOver] = useState<number | null>(null);
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
+  const [fillDrag, setFillDrag] = useState<{
+    columnId: string;
+    sourceRowIndex: number;
+    sourceValue: CellValue;
+  } | null>(null);
+  const [fillApplying, setFillApplying] = useState<{
+    columnId: string;
+    sourceRowIndex: number;
+  } | null>(null);
+  const [fillHoverRowIndex, setFillHoverRowIndex] = useState<number | null>(null);
 
   const orderedRowIds = useMemo(
     () => (rows ? rows.map((r) => r.pageId) : []),
@@ -103,6 +123,55 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     window.addEventListener("dragend", cleanup);
     return () => window.removeEventListener("dragend", cleanup);
   }, []);
+
+  useEffect(() => {
+    if (!fillDrag) return;
+    const onMouseMove = (event: MouseEvent) => {
+      const target = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+      const rowEl = target?.closest<HTMLTableRowElement>("tr[data-qn-row-idx]");
+      const rowIdxRaw = rowEl?.dataset.qnRowIdx;
+      const hoverRowIndex = rowIdxRaw != null ? Number(rowIdxRaw) : NaN;
+      if (Number.isFinite(hoverRowIndex)) setFillHoverRowIndex(hoverRowIndex);
+      else setFillHoverRowIndex(fillDrag.sourceRowIndex);
+    };
+    const onMouseUp = (event: MouseEvent) => {
+      const target = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+      const rowEl = target?.closest<HTMLTableRowElement>("tr[data-qn-row-idx]");
+      const rowIdxRaw = rowEl?.dataset.qnRowIdx;
+      const endRowIndex = rowIdxRaw != null ? Number(rowIdxRaw) : NaN;
+      if (Number.isFinite(endRowIndex) && endRowIndex !== fillDrag.sourceRowIndex) {
+        setFillApplying({
+          columnId: fillDrag.columnId,
+          sourceRowIndex: fillDrag.sourceRowIndex,
+        });
+        window.setTimeout(() => {
+          const start = Math.min(fillDrag.sourceRowIndex, endRowIndex);
+          const end = Math.max(fillDrag.sourceRowIndex, endRowIndex);
+          for (let i = start; i <= end; i += 1) {
+            if (i === fillDrag.sourceRowIndex) continue;
+            const targetRow = rows[i];
+            if (!targetRow) continue;
+            updateCell(
+              databaseId,
+              targetRow.pageId,
+              fillDrag.columnId,
+              cloneCellValue(fillDrag.sourceValue),
+            );
+          }
+          setFillApplying(null);
+        }, 0);
+      }
+      setFillDrag(null);
+      setFillHoverRowIndex(null);
+    };
+    setFillHoverRowIndex(fillDrag.sourceRowIndex);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [databaseId, fillDrag, rows, updateCell]);
 
   // 뷰별 가시·정렬 컬럼 (#9)
   const visibleCols = getVisibleOrderedColumns(
@@ -328,6 +397,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
             return (
               <tr
                 key={row.pageId}
+                data-qn-row-idx={rIdx}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -376,14 +446,24 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                 </td>
                 {visibleCols.map((col, cIdx) => {
                   const isFirst = cIdx === 0;
+                  const isFillRangeCell = Boolean(
+                    fillDrag &&
+                    fillDrag.columnId === col.id &&
+                    fillHoverRowIndex != null &&
+                    rIdx >= Math.min(fillDrag.sourceRowIndex, fillHoverRowIndex) &&
+                    rIdx <= Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex),
+                  );
                   return (
                     <td
                       key={col.id}
                       className={[
-                        "align-top overflow-hidden px-2 py-1",
-                        isFirst ? "relative pr-16" : "",
+                        "group/cell relative align-top overflow-hidden px-2 py-1",
+                        isFirst ? "pr-16" : "",
                       ].join(" ")}
                     >
+                      {isFillRangeCell && (
+                        <span className="pointer-events-none absolute inset-[2px] z-[6] rounded-sm border border-dashed border-blue-500" />
+                      )}
                       {isFirst && (
                         <span
                           draggable
@@ -409,7 +489,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                         wrapper에 적용해 텍스트가 다음 컬럼으로 침범하지 않도록.
                         input 등 자식 요소는 wrapper width(=cell width)에 맞춰 자연 클립.
                       */}
-                      <div className="min-w-0 max-w-full truncate">
+                      <div className="relative min-w-0 max-w-full truncate">
                         {col.type === "title" ? (
                           <div className="flex min-w-0 items-center gap-1">
                             <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
@@ -437,6 +517,37 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                           />
                         )}
                       </div>
+                      {col.type !== "title" && (
+                        <button
+                          type="button"
+                          aria-label="아래로 값 복제"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setFillDrag({
+                              columnId: col.id,
+                              sourceRowIndex: rIdx,
+                              sourceValue: row.cells[col.id],
+                            });
+                          }}
+                          className={[
+                            "absolute bottom-0 right-0 h-2.5 w-2.5 cursor-crosshair border border-blue-500 bg-white dark:bg-zinc-800",
+                            "opacity-0 transition-opacity group-hover/cell:opacity-100",
+                            fillDrag && fillDrag.columnId === col.id && fillDrag.sourceRowIndex === rIdx
+                              ? "opacity-100"
+                              : "",
+                          ].join(" ")}
+                        />
+                      )}
+                      {fillApplying &&
+                        fillApplying.columnId === col.id &&
+                        fillApplying.sourceRowIndex === rIdx && (
+                          <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                            <span className="rounded bg-zinc-900/85 px-2 py-0.5 text-[10px] font-medium text-white shadow-sm">
+                              복제중
+                            </span>
+                          </span>
+                        )}
                       {isFirst && (
                         <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
                           <button

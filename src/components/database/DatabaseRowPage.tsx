@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { Star, FileText } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -10,6 +10,7 @@ import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBar";
 import { useShallow } from "zustand/react/shallow";
+import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const page = usePageStore((s) => s.pages[pageId]);
@@ -38,10 +39,27 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [iconAlert, setIconAlert] = useState<string | null>(null);
+  const [tailSpacerPx, setTailSpacerPx] = useState(240);
 
   useEffect(() => {
     setTitleDraft(page?.title ?? "");
   }, [page?.title, pageId]);
+
+  useLayoutEffect(() => {
+    const run = (): void => {
+      setTailSpacerPx(computeEditorTailSpacerPx());
+    };
+    run();
+    window.addEventListener("resize", run, { passive: true });
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", run, { passive: true });
+    vv?.addEventListener("scroll", run, { passive: true });
+    return () => {
+      window.removeEventListener("resize", run);
+      vv?.removeEventListener("resize", run);
+      vv?.removeEventListener("scroll", run);
+    };
+  }, []);
 
   if (!page || !databaseId || !bundle) {
     return (
@@ -109,7 +127,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
         </div>
       </div>
 
-      <Editor pageId={pageId} bodyOnly />
+      <Editor pageId={pageId} bodyOnly showTailSpacer={false} />
       {/* 항목 내 하위 페이지 목록 — 본문과 동일 컬럼 정렬 */}
       {childPages.length > 0 && (
         <div className={`mx-auto w-full ${columnClass}`}>
@@ -136,6 +154,11 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
           </div>
         </div>
       )}
+      <div
+        aria-hidden
+        className="qn-editor-scroll-tail-spacer mx-auto w-full shrink-0 select-none"
+        style={{ height: tailSpacerPx, minHeight: tailSpacerPx }}
+      />
       <SimpleAlertDialog
         open={iconAlert !== null}
         message={iconAlert ?? ""}
