@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.19] - 2026-05-20
+
+### Fixed
+
+- **Vercel 빌드**: File System Access API 타입 보강, ZIP 가상 FS 클래스 `erasableSyntaxOnly` 호환, Notion 가져오기 `cellMeta` 타입 오류 수정.
+
 ## [5.4.18] - 2026-05-20
 
 ### Added
