@@ -32,8 +32,10 @@ type ZipFileEntry = {
   name: string;
   size: number;
   readAsString: () => Promise<string>;
-  readAsArrayBuffer: () => Promise<ArrayBuffer>;
+  readAsBlob: (mimeType?: string) => Promise<Blob>;
 };
+
+type ZipInput = ArrayBuffer | Blob;
 
 function isMarkdownFile(path: string): boolean {
   return path.toLowerCase().endsWith(".md");
@@ -121,8 +123,16 @@ function buildPageMeta(path: string): {
 }
 
 export async function parseNotionZipBuffer(input: ArrayBuffer): Promise<NotionZipPreview> {
+  return parseNotionZipInput(input);
+}
+
+export async function parseNotionZipFile(file: Blob): Promise<NotionZipPreview> {
+  return parseNotionZipInput(file);
+}
+
+async function parseNotionZipInput(input: ZipInput): Promise<NotionZipPreview> {
   const fileEntries: ZipFileEntry[] = [];
-  const queue: Array<{ basePath: string; data: ArrayBuffer }> = [{ basePath: "", data: input }];
+  const queue: Array<{ basePath: string; data: ZipInput }> = [{ basePath: "", data: input }];
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -133,7 +143,7 @@ export async function parseNotionZipBuffer(input: ArrayBuffer): Promise<NotionZi
     for (const entry of currentFiles) {
       const entryName = current.basePath ? `${current.basePath}/${entry.name}` : entry.name;
       if (isZipFile(entry.name) && shouldExpandNestedZip(current.basePath, entry.name, currentFiles.length)) {
-        const nested = await entry.async("arraybuffer");
+        const nested = await readZipEntryAsBlob(entry, "application/zip");
         const nestedBase = trimExtension(entryName);
         queue.push({ basePath: nestedBase, data: nested });
         continue;
@@ -143,7 +153,7 @@ export async function parseNotionZipBuffer(input: ArrayBuffer): Promise<NotionZi
         name: entryName,
         size,
         readAsString: () => entry.async("string"),
-        readAsArrayBuffer: () => entry.async("arraybuffer"),
+        readAsBlob: (mimeType) => readZipEntryAsBlob(entry, mimeType),
       });
     }
   }
@@ -199,7 +209,7 @@ export async function parseNotionZipBuffer(input: ArrayBuffer): Promise<NotionZi
       name,
       mimeType: mime,
       size: entry.size,
-      readAsFile: async () => new File([await entry.readAsArrayBuffer()], name, { type: mime }),
+      readAsFile: async () => new File([await entry.readAsBlob(mime)], name, { type: mime }),
     });
   }
 
@@ -213,4 +223,9 @@ export async function parseNotionZipBuffer(input: ArrayBuffer): Promise<NotionZi
     assetByPath: {},
     pages,
   };
+}
+
+async function readZipEntryAsBlob(entry: JSZip.JSZipObject, mimeType = ""): Promise<Blob> {
+  const blob = await entry.async("blob");
+  return mimeType && blob.type !== mimeType ? blob.slice(0, blob.size, mimeType) : blob;
 }

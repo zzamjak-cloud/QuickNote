@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { parseNotionZipBuffer, type NotionImportedAsset, type NotionZipPreview } from "../../lib/notionImport/zipParser";
+import { parseNotionZipFile, type NotionImportedAsset, type NotionZipPreview } from "../../lib/notionImport/zipParser";
 import { notionMarkdownToDoc } from "../../lib/notionImport/markdownToDoc";
 import { notionHtmlToDoc, type NotionCollectionTable } from "../../lib/notionImport/htmlToDoc";
 import {
@@ -71,8 +71,7 @@ export function NotionImportTab() {
     setImportMessage("");
     setStatus({ kind: "loading" });
     try {
-      const buf = await file.arrayBuffer();
-      const preview = await parseNotionZipBuffer(buf);
+      const preview = await parseNotionZipFile(file);
       setStatus({ kind: "ready", preview, sourceName: file.name });
       const preferred = preview.pages.find((p) => p.format === "html") ?? preview.pages[0];
       setSelectedPath(preferred?.path ?? "");
