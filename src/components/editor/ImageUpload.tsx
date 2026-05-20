@@ -3,6 +3,8 @@ import type { Editor } from "@tiptap/react";
 import { Upload, X } from "lucide-react";
 import { uploadImage } from "../../lib/images/upload";
 import { prepareImageFileForUpload } from "../../lib/images/compressImage";
+import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
+import { isGifFile } from "../../lib/files/videoCompress";
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const ALLOWED_MIME = new Set([
@@ -27,21 +29,36 @@ export function ImageUpload({ open, onClose, editor }: Props) {
 
   const insert = (file: File) => {
     setError(null);
-    if (!ALLOWED_MIME.has(file.type)) {
+    if (!ALLOWED_MIME.has(file.type) && !isGifFile(file)) {
       setError("png, jpeg, webp, gif 만 업로드할 수 있습니다.");
-      return;
-    }
-    if (file.size > MAX_BYTES) {
-      setError(
-        `20MB 이하 이미지만 가능합니다 (현재 ${(file.size / 1024 / 1024).toFixed(1)}MB).`,
-      );
       return;
     }
     void (async () => {
       setUploading(true);
-      const fileToUpload = await prepareImageFileForUpload(file);
-      const dim = await loadImageDimensions(fileToUpload).catch(() => null);
       try {
+        if (isGifFile(file)) {
+          const ok = await insertFileFromFile(file, (attrs) => {
+            editor
+              ?.chain()
+              .focus()
+              .insertContent({ type: "fileBlock", attrs })
+              .run();
+          });
+          if (!ok) {
+            setError("GIF를 MP4로 변환해 업로드하지 못했습니다.");
+            return;
+          }
+          onClose();
+          return;
+        }
+        const fileToUpload = await prepareImageFileForUpload(file);
+        if (fileToUpload.size > MAX_BYTES) {
+          setError(
+            `20MB 이하 이미지만 가능합니다 (현재 ${(fileToUpload.size / 1024 / 1024).toFixed(1)}MB).`,
+          );
+          return;
+        }
+        const dim = await loadImageDimensions(fileToUpload).catch(() => null);
         const ref = await uploadImage(fileToUpload);
         editor
           ?.chain()

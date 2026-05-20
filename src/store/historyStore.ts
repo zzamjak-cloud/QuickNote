@@ -89,6 +89,7 @@ type HistoryActions = {
     eventId: string;
     ts: number;
     title: string;
+    workspaceId?: string | null;
   }>;
 };
 
@@ -580,6 +581,7 @@ export const useHistoryStore = create<HistoryStore>()(
           eventId: string;
           ts: number;
           title: string;
+          workspaceId?: string | null;
         }> = [];
         for (const [databaseId, eventsRaw] of Object.entries(get().dbEventsByDatabaseId)) {
           const events = filterCurrentWorkspaceEvents(eventsRaw);
@@ -593,6 +595,7 @@ export const useHistoryStore = create<HistoryStore>()(
             eventId: lastDelete.id,
             ts: lastDelete.ts,
             title,
+            workspaceId: lastDelete.workspaceId ?? null,
           });
         }
         return out.sort((a, b) => b.ts - a.ts);

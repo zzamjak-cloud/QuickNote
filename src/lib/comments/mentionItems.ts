@@ -48,6 +48,7 @@ export async function loadMergedMentionItems(
   }
 
   const pages = Object.values(usePageStore.getState().pages).filter((p) => {
+    if ((p as { deletedAt?: string | null }).deletedAt) return false;
     if (!q) return true;
     const title = (p.title || "제목 없음").toLowerCase();
     return title.includes(q);

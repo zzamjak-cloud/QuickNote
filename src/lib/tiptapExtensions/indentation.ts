@@ -39,6 +39,22 @@ export const Indentation = Extension.create({
       Tab: ({ editor }) => {
         const { state } = editor;
         const { schema } = state;
+        const { $from } = state.selection;
+        const insideList = (() => {
+          for (let depth = $from.depth; depth >= 0; depth -= 1) {
+            const typeName = $from.node(depth).type.name;
+            if (
+              typeName === "listItem" ||
+              typeName === "taskItem" ||
+              typeName === "bulletList" ||
+              typeName === "orderedList" ||
+              typeName === "taskList"
+            ) {
+              return true;
+            }
+          }
+          return false;
+        })();
 
         // 리스트 아이템 안에 있으면 sink (중첩)
         if (schema.nodes.listItem) {
@@ -49,9 +65,9 @@ export const Indentation = Extension.create({
           if (sinkListItem(schema.nodes.taskItem)(state, editor.view.dispatch))
             return true;
         }
+        if (insideList) return false;
 
         // 그 외 블록: indent 속성 증가
-        const { $from } = state.selection;
         const node = $from.depth > 0 ? $from.node(1) : null;
         if (!node) return false;
         const currentIndent = (node.attrs.indent as number) || 0;
@@ -64,6 +80,22 @@ export const Indentation = Extension.create({
       "Shift-Tab": ({ editor }) => {
         const { state } = editor;
         const { schema } = state;
+        const { $from } = state.selection;
+        const insideList = (() => {
+          for (let depth = $from.depth; depth >= 0; depth -= 1) {
+            const typeName = $from.node(depth).type.name;
+            if (
+              typeName === "listItem" ||
+              typeName === "taskItem" ||
+              typeName === "bulletList" ||
+              typeName === "orderedList" ||
+              typeName === "taskList"
+            ) {
+              return true;
+            }
+          }
+          return false;
+        })();
 
         // 리스트 아이템 안에 있으면 lift (중첩 해제)
         if (schema.nodes.listItem) {
@@ -74,9 +106,9 @@ export const Indentation = Extension.create({
           if (liftListItem(schema.nodes.taskItem)(state, editor.view.dispatch))
             return true;
         }
+        if (insideList) return false;
 
         // 그 외 블록: indent 속성 감소
-        const { $from } = state.selection;
         const node = $from.depth > 0 ? $from.node(1) : null;
         if (!node) return false;
         const currentIndent = (node.attrs.indent as number) || 0;

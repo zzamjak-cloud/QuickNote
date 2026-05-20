@@ -23,6 +23,8 @@ type Args = {
   updateSelectionDom: (rect: Rect) => void;
 };
 
+const ENABLE_BOX_SELECT_MARQUEE = true;
+
 /** 노션 스타일 — target 이 PM 의 어떤 doc 직속 블럭(또는 그 후손) 안에 있는지 검사.
  *  블럭 안이면 마퀴 시작 금지(테이블 셀 선택·텍스트 cursor 이동 등 PM 자체 처리에 위임). */
 function isInsideAnyBlock(view: EditorView, target: Element): boolean {
@@ -48,6 +50,9 @@ export function useBoxSelectMarquee({
   updateSelectionDom,
 }: Args): void {
   useEffect(() => {
+    // 박스 드래그는 유지하되, 본문 텍스트 블럭 내부 드래그 선택은 onMouseDown 분기에서
+    // PM 기본 텍스트 선택으로 위임해 세로 스크롤 간섭을 줄인다.
+    if (!ENABLE_BOX_SELECT_MARQUEE) return;
     if (!editor || editor.isDestroyed) return;
     const columnHost =
       editor.view.dom.closest<HTMLElement>("[data-qn-editor-column]") ??

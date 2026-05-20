@@ -853,16 +853,26 @@ export const usePageStore = create<PageStore>()(
       findFullPagePageIdForDatabase: (databaseId) => {
         const idWant = databaseId.trim();
         if (!idWant) return null;
-        for (const p of Object.values(get().pages)) {
-          const content = p.doc?.content;
-          if (!content?.length) continue;
-          const first = content[0];
+        const hasFullPageDatabaseBlock = (node: unknown): boolean => {
+          if (!node || typeof node !== "object") return false;
+          const record = node as {
+            type?: unknown;
+            attrs?: { databaseId?: unknown; layout?: unknown };
+            content?: unknown[];
+          };
           if (
-            first?.type === "databaseBlock" &&
-            first.attrs &&
-            String(first.attrs.databaseId ?? "") === idWant &&
-            first.attrs.layout === "fullPage"
+            record.type === "databaseBlock" &&
+            record.attrs &&
+            String(record.attrs.databaseId ?? "") === idWant &&
+            String(record.attrs.layout ?? "") === "fullPage"
           ) {
+            return true;
+          }
+          if (!Array.isArray(record.content)) return false;
+          return record.content.some((child) => hasFullPageDatabaseBlock(child));
+        };
+        for (const p of Object.values(get().pages)) {
+          if (hasFullPageDatabaseBlock(p.doc)) {
             return p.id;
           }
         }

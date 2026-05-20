@@ -23,6 +23,12 @@ export const SOFT_DELETE_DATABASE = `
   }
 `;
 
+export const PERMANENTLY_DELETE_DATABASE = `
+  mutation PermanentlyDeleteDatabase($id: ID!, $workspaceId: ID!) {
+    permanentlyDeleteDatabase(id: $id, workspaceId: $workspaceId)
+  }
+`;
+
 export const ON_DATABASE_CHANGED = `
   subscription OnDatabaseChanged($workspaceId: ID!) {
     onDatabaseChanged(workspaceId: $workspaceId) { ${DATABASE_FIELDS} }

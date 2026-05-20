@@ -9,7 +9,7 @@ export function filterWorkspaceMembersForMention(
   const q = query.trim().toLowerCase();
   const members = useMemberStore
     .getState()
-    .members.filter((m) => m.status !== "removed");
+    .members.filter((m) => m.status === "active");
 
   const toMini = (m: (typeof members)[0]): MemberMini => ({
     memberId: m.memberId,

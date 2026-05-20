@@ -89,6 +89,7 @@ export function BubbleToolbar({ editor }: Props) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [colorOpen, setColorOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
+  const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
   /** 동일 표시 상태면 setState 생략 — 클릭마다 selectionUpdate 로 깜빡임 방지 */
   const lastToolbarSigRef = useRef<string>("");
 
@@ -203,6 +204,34 @@ export function BubbleToolbar({ editor }: Props) {
 
   if (!editor || !pos || mode === "hidden") return null;
 
+  const saveSelection = () => {
+    const { from, to } = editor.state.selection;
+    if (from === to) return;
+    savedSelectionRef.current = { from, to };
+  };
+
+  const applyTextColor = (color: string | null) => {
+    const chain = editor.chain().focus();
+    const saved = savedSelectionRef.current;
+    if (saved && saved.from < saved.to) {
+      chain.setTextSelection(saved);
+    }
+    if (color === null) chain.unsetColor().run();
+    else chain.setColor(color).run();
+    savedSelectionRef.current = null;
+  };
+
+  const applyHighlightColor = (color: string | null) => {
+    const chain = editor.chain().focus();
+    const saved = savedSelectionRef.current;
+    if (saved && saved.from < saved.to) {
+      chain.setTextSelection(saved);
+    }
+    if (color === null) chain.unsetHighlight().run();
+    else chain.setHighlight({ color }).run();
+    savedSelectionRef.current = null;
+  };
+
   const showCellAlign = mode === "text" && isInTableCell(editor);
   const cellAlign = showCellAlign ? getTableCellAlign(editor) : null;
 
@@ -279,6 +308,7 @@ export function BubbleToolbar({ editor }: Props) {
               <ToolbarBtn
                 active={colorOpen}
                 onClick={() => {
+                  saveSelection();
                   setColorOpen((v) => !v);
                   setHlOpen(false);
                 }}
@@ -290,8 +320,7 @@ export function BubbleToolbar({ editor }: Props) {
                 <ColorPalette
                   items={COLORS}
                   onPick={(c) => {
-                    if (c === null) editor.chain().focus().unsetColor().run();
-                    else editor.chain().focus().setColor(c).run();
+                    applyTextColor(c);
                     setColorOpen(false);
                   }}
                 />
@@ -301,6 +330,7 @@ export function BubbleToolbar({ editor }: Props) {
               <ToolbarBtn
                 active={hlOpen}
                 onClick={() => {
+                  saveSelection();
                   setHlOpen((v) => !v);
                   setColorOpen(false);
                 }}
@@ -312,10 +342,7 @@ export function BubbleToolbar({ editor }: Props) {
                 <ColorPalette
                   items={HIGHLIGHTS}
                   onPick={(c) => {
-                    if (c === null)
-                      editor.chain().focus().unsetHighlight().run();
-                    else
-                      editor.chain().focus().setHighlight({ color: c }).run();
+                    applyHighlightColor(c);
                     setHlOpen(false);
                   }}
                 />

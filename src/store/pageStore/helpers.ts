@@ -14,6 +14,8 @@ import { useAuthStore } from "../authStore";
 import { useMemberStore } from "../memberStore";
 import { useWorkspaceStore } from "../workspaceStore";
 
+const MAX_UPSERT_PAGE_PAYLOAD_BYTES = 350 * 1024;
+
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
 // 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
 export function getCreatedByMemberId(): string {
@@ -63,6 +65,14 @@ export function toGqlPage(p: Page, createdByMemberId: string): Record<string, un
   return base;
 }
 
+function payloadByteLength(payload: Record<string, unknown>): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(payload)).length;
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
+  }
+}
+
 export function enqueueUpsertPage(p: Page): void {
   // 인증/부트스트랩 미완료 시점에 enqueue 되면 서버 검증에서 거부되어 outbox 에 stale 로 남는다.
   const workspaceId = resolvePageWorkspaceId(p);
@@ -70,13 +80,20 @@ export function enqueueUpsertPage(p: Page): void {
     console.warn("[sync] upsertPage skipped: workspaceId 미설정", { pageId: p.id });
     return;
   }
-  enqueueAsync(
-    "upsertPage",
-    toGqlPage(p, getCreatedByMemberId()) as unknown as Record<string, unknown> & {
-      id: string;
-      updatedAt?: string;
-    },
-  );
+  const payload = toGqlPage(p, getCreatedByMemberId()) as Record<string, unknown> & {
+    id: string;
+    updatedAt?: string;
+  };
+  const bytes = payloadByteLength(payload);
+  if (bytes > MAX_UPSERT_PAGE_PAYLOAD_BYTES) {
+    console.warn("[sync] upsertPage skipped: payload too large", {
+      pageId: p.id,
+      bytes,
+      limit: MAX_UPSERT_PAGE_PAYLOAD_BYTES,
+    });
+    return;
+  }
+  enqueueAsync("upsertPage", payload);
 }
 
 /** href 에서 pageId 를 추출 — HTTP URL (?page=xxx) 과 quicknote://page/xxx 스킴 모두 처리 */

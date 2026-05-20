@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/purity -- 축/오늘 기준선은 렌더 시각의 Date.now() 사용 */
  
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -12,11 +13,9 @@ import {
 import { ChevronLeft, ChevronRight, Maximize2, PanelRight, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Rnd } from "react-rnd";
 import type {
-  CellValue,
   ColumnDef,
   DatabasePanelState,
   DatabaseRowView,
-  DateRangeValue,
 } from "../../../types/database";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
@@ -37,6 +36,10 @@ import {
   timelineWeekdayIndex as weekdayIndex,
 } from "../../../lib/database/timelineGeometry";
 import { useWindowedRows } from "./useWindowedRows";
+import {
+  DatabaseCellDisplay,
+} from "../DatabaseCellDisplay";
+import { databaseCellHasDisplayValue } from "../databaseCellDisplayUtils";
 
 type Props = {
   databaseId: string;
@@ -1141,33 +1144,6 @@ export function DatabaseTimelineView({
   );
 }
 
-function formatLabelValue(v: CellValue, col: ColumnDef): string {
-  if (v === null || v === undefined) return "";
-  if (typeof v === "string") {
-    if (col.type === "status" || col.type === "select") {
-      return col.config?.options?.find((o) => o.id === v)?.label ?? v;
-    }
-    return v;
-  }
-  if (typeof v === "number") return String(v);
-  if (typeof v === "boolean") return v ? "예" : "아니오";
-  if (Array.isArray(v)) {
-    if (v.length > 0 && typeof v[0] === "object" && v[0] && "fileId" in v[0]) {
-      return `${v.length}개 파일`;
-    }
-    const ids = v as string[];
-    const opts = col.config?.options ?? [];
-    return ids
-      .map((id) => opts.find((o) => o.id === id)?.label ?? id)
-      .join(", ");
-  }
-  if (typeof v === "object" && "start" in (v as object)) {
-    const d = v as DateRangeValue;
-    return [d.start, d.end].filter(Boolean).join(" ~ ");
-  }
-  return "";
-}
-
 function DatabaseTimelineCard({
   card,
   labelCols,
@@ -1321,12 +1297,24 @@ function DatabaseTimelineCard({
         <div className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm">
           <span className="font-medium text-white">{card.row.title || "제목 없음"}</span>
           <span className="shrink-0 text-xs text-green-200">{card.dateLabel}</span>
-          {labelCols.length > 0 && (
-            <span className="ml-0.5 truncate text-xs text-green-100">
+          {labelCols.some((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c)) && (
+            <span className="ml-0.5 flex min-w-0 items-center gap-1 overflow-hidden text-xs">
               {labelCols
-                .map((c) => formatLabelValue(card.row.cells[c.id], c))
-                .filter(Boolean)
-                .join(" · ")}
+                .filter((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c))
+                .map((c, idx) => (
+                  <Fragment key={c.id}>
+                    {idx > 0 && (
+                      <span className="shrink-0 text-green-200">·</span>
+                    )}
+                    <span className="min-w-0 truncate">
+                      <DatabaseCellDisplay
+                        column={c}
+                        value={card.row.cells[c.id]}
+                        textClassName="text-green-100"
+                      />
+                    </span>
+                  </Fragment>
+                ))}
             </span>
           )}
         </div>

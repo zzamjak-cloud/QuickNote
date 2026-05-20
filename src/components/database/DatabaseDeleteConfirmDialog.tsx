@@ -48,9 +48,20 @@ export function DatabaseDeleteConfirmDialog({
           계속하려면 아래 입력란에 다음 문구를{" "}
           <span className="font-semibold">정확히</span> 입력하세요.
         </p>
-        <p className="mt-1 rounded-md bg-zinc-100 px-2 py-1.5 font-mono text-base text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
-          {deleteConfirmPhrase}
-        </p>
+        <div className="mt-1 flex items-center gap-2">
+          <p className="min-w-0 flex-1 rounded-md bg-zinc-100 px-2 py-1.5 font-mono text-base text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
+            {deleteConfirmPhrase}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard.writeText(deleteConfirmPhrase);
+            }}
+            className="shrink-0 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            복사
+          </button>
+        </div>
         <input
           type="text"
           value={deletePhraseDraft}

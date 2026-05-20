@@ -106,6 +106,7 @@ import {
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
 import { extractClipboardFiles } from "../../lib/editor/clipboardFiles";
+import { isGifFile } from "../../lib/files/videoCompress";
 import { FileBlock } from "../../lib/tiptapExtensions/fileBlock";
 import { BlockBackground } from "../../lib/tiptapExtensions/blockBackground";
 import UniqueID from "@tiptap/extension-unique-id";
@@ -230,6 +231,8 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   const myMemberId = useMemberStore((s) => s.me?.memberId);
 
   const pageDoc = page?.doc;
+  const currentPageId = page?.id ?? null;
+  const currentPageTitle = page?.title ?? "";
   const isFullPageDatabase = useMemo(() => {
     return isFullPageDatabaseDoc(pageDoc);
   }, [pageDoc]);
@@ -238,6 +241,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
   /** 풀 페이지 DB 제목 중복 시 입력 되돌리기용 — 마지막으로 저장에 성공한 제목 */
   const dbTitleBaselineRef = useRef("");
   const debounceRef = useRef<number | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
   const [imageOpen, setImageOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [emojiAnchor, setEmojiAnchor] = useState<EmojiAnchor | null>(null);
@@ -475,7 +479,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
           event.preventDefault();
           for (const item of fileItems) {
             const { file } = item;
-            if (item.isImage) {
+            if (item.isImage && !isGifFile(file)) {
               void handleEditorInsertImage(file, (attrs) => {
                 view.dispatch(
                   view.state.tr.replaceSelectionWith(
@@ -964,6 +968,14 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
     if (page) dbTitleBaselineRef.current = page.title;
   }, [page?.id, effectivePageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 페이지 전환/외부 동기화 시 제목 draft 갱신 — 입력 중 포커스 상태에서는 덮어쓰지 않음.
+  useEffect(() => {
+    if (!currentPageId) return;
+    const input = titleRef.current;
+    if (input && document.activeElement === input) return;
+    setTitleDraft(currentPageTitle);
+  }, [currentPageId, currentPageTitle]);
+
   // editor.editable 토글 — read-only 상태로 두면 슬래시 메뉴, 텍스트 입력, 블록 추가 모두 차단.
   // DB 블록의 React NodeView 내부 input/button 은 contenteditable 영향 밖이라 정상 동작.
   useEffect(() => {
@@ -1082,18 +1094,24 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
                 />
                 <input
                   ref={titleRef}
-                  value={page.title}
+                  value={titleDraft}
                   onChange={(e) => {
-                    renamePage(effectivePageId, e.target.value);
+                    setTitleDraft(e.target.value);
                   }}
                   onBlur={() => {
+                    const nextTitle = titleDraft.trim() || "제목 없음";
+                    if (nextTitle !== page.title) {
+                      renamePage(effectivePageId, nextTitle);
+                    }
                     if (!isFullPageDatabase) return;
-                    const ok = trySyncFullPageDatabaseTitle(page.doc, page.title);
+                    const ok = trySyncFullPageDatabaseTitle(page.doc, nextTitle);
                     if (!ok) {
                       setSimpleAlert("이미 사용 중인 데이터베이스 이름입니다.");
                       renamePage(effectivePageId, dbTitleBaselineRef.current);
+                      setTitleDraft(dbTitleBaselineRef.current);
                     } else {
-                      dbTitleBaselineRef.current = page.title;
+                      dbTitleBaselineRef.current = nextTitle;
+                      setTitleDraft(nextTitle);
                     }
                   }}
                   placeholder="제목 없음"

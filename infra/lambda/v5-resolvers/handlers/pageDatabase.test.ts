@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  emptyTrash,
   listDatabases,
   listPages,
   listTrashedPages,
@@ -250,6 +251,19 @@ describe("page/database handlers", () => {
     });
     expect(result["id"]).toBe("p1");
     expect(result["deletedAt"]).toBeUndefined();
+  });
+
+  it("emptyTrash: 삭제된 페이지를 DynamoDB에서 영구 삭제", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      { Items: [{ id: "p1" }, { id: "p2" }] },
+      {},
+      {},
+    );
+    const result = await emptyTrash({ doc, tables, caller, workspaceId: "ws-1" });
+    expect(result).toBe(2);
+    expect((doc.send as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(5);
   });
 
   it("softDeleteDatabase: 대상 없으면 실패", async () => {

@@ -1,11 +1,14 @@
 import { getVisibleOrderedColumns } from "../../../types/database";
-import type { CellValue, DatabasePanelState, DateRangeValue } from "../../../types/database";
-import { summarizeJsonValue } from "../../../lib/database/jsonCell";
+import type { DatabasePanelState } from "../../../types/database";
 import { useProcessedRows } from "../useProcessedRows";
 import { usePageStore } from "../../../store/pageStore";
 import { useUiStore } from "../../../store/uiStore";
 import { IconPicker } from "../../common/IconPicker";
 import { useWindowedRows } from "./useWindowedRows";
+import {
+  DatabaseCellDisplay,
+} from "../DatabaseCellDisplay";
+import { databaseCellHasDisplayValue } from "../databaseCellDisplayUtils";
 
 type Props = {
   databaseId: string;
@@ -31,36 +34,6 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
     : rows;
 
   if (!bundle) return null;
-
-  const normalizeDateLikeString = (value: string): string => {
-    const normalized = value.trim();
-    if (!normalized) return "";
-    if (normalized.endsWith("T00:00:00")) {
-      return normalized.slice(0, -9);
-    }
-    return normalized;
-  };
-
-  const formatCellDisplay = (cell: CellValue, colType: string): string => {
-    if (cell == null) return "";
-    if (colType === "json") return summarizeJsonValue(cell);
-    if (Array.isArray(cell)) return (cell as string[]).join(", ");
-    if (colType === "date" && typeof cell === "object") {
-      const range = cell as DateRangeValue;
-      const start =
-        typeof range.start === "string"
-          ? normalizeDateLikeString(range.start)
-          : "";
-      const end =
-        typeof range.end === "string"
-          ? normalizeDateLikeString(range.end)
-          : "";
-      if (!start && !end) return "";
-      if (start && end) return `${start} ~ ${end}`;
-      return start || end;
-    }
-    return String(cell);
-  };
 
   const titleCol = columns.find((c) => c.type === "title");
   const listCfg = panelState.viewConfigs?.list;
@@ -107,14 +80,13 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
             </span>
             {extraCols.map((col) => {
               const cell = row.cells[col.id];
-              const display = formatCellDisplay(cell, col.type);
-              if (!display) return null;
+              if (!databaseCellHasDisplayValue(cell, col)) return null;
               return (
                 <span
                   key={col.id}
-                  className="shrink-0 truncate text-xs text-zinc-400 dark:text-zinc-500"
+                  className="shrink-0 truncate text-xs"
                 >
-                  {display}
+                  <DatabaseCellDisplay column={col} value={cell} />
                 </span>
               );
             })}

@@ -431,6 +431,7 @@ export function response(ctx) {
 
     this.pageTable.table.grantReadData(gcFn);
     this.imageAssetTable.table.grantReadWriteData(gcFn);
+    imagesBucket.grantRead(gcFn);
     imagesBucket.grantDelete(gcFn);
 
     new events.Rule(this, "ImageGcSchedule", {
@@ -635,6 +636,11 @@ export function response(ctx) {
       fieldName: "restorePage",
     });
 
+    v5Ds.createResolver("MutationemptyTrash", {
+      typeName: "Mutation",
+      fieldName: "emptyTrash",
+    });
+
     const upsertDatabaseResolver = v5Ds.createResolver("MutationupsertDatabase", {
       typeName: "Mutation",
       fieldName: "upsertDatabase",
@@ -646,6 +652,10 @@ export function response(ctx) {
       fieldName: "softDeleteDatabase",
     });
     (softDeleteDatabaseResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationsoftDeleteDatabase0827D9EA");
+    v5Ds.createResolver("MutationpermanentlyDeleteDatabase", {
+      typeName: "Mutation",
+      fieldName: "permanentlyDeleteDatabase",
+    });
 
     const onPageChangedResolver = v5Ds.createResolver("SubscriptiononPageChanged", {
       typeName: "Subscription",

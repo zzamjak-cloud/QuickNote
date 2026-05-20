@@ -100,6 +100,15 @@ function isLCSchedulerPage(p: GqlPage): boolean {
 }
 
 function toPageInputPayload(p: GqlPage): Record<string, unknown> & { id: string; updatedAt?: string } {
+  const stringifyAwsJson = (value: unknown): string | null => {
+    if (value == null) return null;
+    if (typeof value === "string") return value;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return null;
+    }
+  };
   return {
     id: p.id,
     workspaceId: p.workspaceId,
@@ -110,9 +119,9 @@ function toPageInputPayload(p: GqlPage): Record<string, unknown> & { id: string;
     parentId: p.parentId ?? null,
     order: p.order,
     databaseId: p.databaseId ?? null,
-    doc: p.doc,
-    dbCells: p.dbCells ?? null,
-    blockComments: p.blockComments ?? null,
+    doc: stringifyAwsJson(p.doc) ?? "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}",
+    dbCells: stringifyAwsJson(p.dbCells),
+    blockComments: stringifyAwsJson(p.blockComments),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };

@@ -1,5 +1,7 @@
 // 이미지 업로드 전 리사이즈·WebP 재인코딩으로 용량을 줄인다.
 
+import { isGifFile } from "../files/videoCompress";
+
 /**
  * 페이지 커버 배너(에디터 상단 `h-40` 스트립, `object-cover`)에 맞춘 가로형 비율.
  * 일반 본문 이미지(1920×3840 박스)와 다르게 좁은 띠만 쓰이므로 세로 해상도를 줄여 용량을 아낀다.
@@ -58,12 +60,13 @@ export async function compressImage(
 }
 
 /**
- * S3 업로드 직전 파일 준비: GIF 는 원본 유지, 나머지는 압축 WebP File 로 변환.
- * 압축 실패 시 원본 파일을 그대로 반환한다.
+ * S3 업로드 직전 파일 준비: GIF 는 이미지 경로가 아니라 MP4 파일 첨부 경로로만 처리한다.
  */
 export async function prepareImageFileForUpload(file: File): Promise<File> {
+  if (isGifFile(file)) {
+    throw new Error("GIF는 MP4 파일 첨부로 변환해야 합니다.");
+  }
   if (!file.type.startsWith("image/")) return file;
-  if (file.type === "image/gif") return file;
   try {
     const blob = await compressImage(file);
     const base =
@@ -138,13 +141,13 @@ export async function compressCoverImage(file: File): Promise<Blob> {
 }
 
 /**
- * 커버 S3 업로드 직전: 크롭·저해상도 WebP. GIF 는 애니메이션 유지를 위해 일반 이미지 파이프라인으로 폴백.
+ * 커버 S3 업로드 직전: 크롭·저해상도 WebP.
  */
 export async function prepareCoverImageForUpload(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-  if (file.type === "image/gif") {
-    return prepareImageFileForUpload(file);
+  if (isGifFile(file)) {
+    throw new Error("GIF는 커버 이미지로 업로드할 수 없습니다.");
   }
+  if (!file.type.startsWith("image/")) return file;
   try {
     const blob = await compressCoverImage(file);
     const base = file.name.replace(/\.[^.]+$/, "").trim() || "cover";

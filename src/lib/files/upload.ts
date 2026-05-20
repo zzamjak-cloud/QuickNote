@@ -7,6 +7,7 @@ import {
   CONFIRM_IMAGE,
 } from "../sync/graphql/operations";
 import { encodeFileRef } from "./scheme";
+import { isGifFile, prepareGifFileBlockForUpload, prepareVideoFileForUpload } from "./videoCompress";
 
 const MAX_BYTES = 100 * 1024 * 1024;
 
@@ -16,6 +17,7 @@ type GetImageUploadUrlResponse = {
       imageId: string;
       uploadUrl: string;
       expiresAt: string;
+      alreadyUploaded: boolean;
     };
   };
 };
@@ -27,50 +29,57 @@ export type UploadedFile = {
   name: string;
 };
 
-export async function uploadFile(file: File): Promise<UploadedFile> {
-  if (file.size <= 0) throw new Error("empty file");
-  if (file.size > MAX_BYTES) {
-    throw new Error(`too large: ${(file.size / 1024 / 1024).toFixed(1)} MB > 100 MB`);
+export async function uploadFile(file: File, opts?: { alreadyPrepared?: boolean }): Promise<UploadedFile> {
+  const fileToUpload = opts?.alreadyPrepared
+    ? file
+    : isGifFile(file)
+      ? await prepareGifFileBlockForUpload(file)
+      : await prepareVideoFileForUpload(file);
+  if (fileToUpload.size <= 0) throw new Error("empty file");
+  if (fileToUpload.size > MAX_BYTES) {
+    throw new Error(`too large: ${(fileToUpload.size / 1024 / 1024).toFixed(1)} MB > 100 MB`);
   }
   // 탐색기 → Ctrl+V 등 일부 케이스에서 file.type 이 비어 있다.
   // .md 파일은 MIME 이 비어 있는 경우가 많아 text/markdown 으로 강제 지정.
-  let mimeType = file.type;
+  let mimeType = fileToUpload.type;
   if (!mimeType) {
-    const ext = file.name.split(".").pop()?.toLowerCase();
+    const ext = fileToUpload.name.split(".").pop()?.toLowerCase();
     if (ext === "md" || ext === "markdown") mimeType = "text/markdown; charset=utf-8";
     else mimeType = "application/octet-stream";
   }
 
-  const buf = await file.arrayBuffer();
+  const buf = await fileToUpload.arrayBuffer();
   const sha256 = await sha256Hex(buf);
 
   const presignRes = (await appsyncClient().graphql({
     query: GET_IMAGE_UPLOAD_URL,
     variables: {
-      input: { mimeType, size: file.size, sha256 },
+      input: { mimeType, size: fileToUpload.size, sha256 },
     },
   })) as GetImageUploadUrlResponse;
-  const { imageId, uploadUrl } = presignRes.data.getImageUploadUrl;
+  const { imageId, uploadUrl, alreadyUploaded } = presignRes.data.getImageUploadUrl;
 
-  const putRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": mimeType },
-    body: file,
-  });
-  if (!putRes.ok) {
-    throw new Error(`upload failed: ${putRes.status}`);
+  if (!alreadyUploaded) {
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": mimeType },
+      body: fileToUpload,
+    });
+    if (!putRes.ok) {
+      throw new Error(`upload failed: ${putRes.status}`);
+    }
+
+    await appsyncClient().graphql({
+      query: CONFIRM_IMAGE,
+      variables: { imageId },
+    });
   }
-
-  await appsyncClient().graphql({
-    query: CONFIRM_IMAGE,
-    variables: { imageId },
-  });
 
   return {
     ref: encodeFileRef(imageId),
     mimeType,
-    size: file.size,
-    name: file.name,
+    size: fileToUpload.size,
+    name: fileToUpload.name,
   };
 }
 

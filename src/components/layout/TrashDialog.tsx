@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCcw, Search, Trash2, X } from "lucide-react";
 import { applyRemotePageToStore } from "../../lib/sync/storeApply";
 import {
+  emptyTrashRemote,
   fetchTrashedPagesBatch,
   restorePageRemote,
 } from "../../lib/sync/trashApi";
@@ -9,6 +10,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
+import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 type Props = {
   open: boolean;
@@ -21,6 +23,7 @@ export function TrashDialog({ open, onClose }: Props) {
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const removeFavoritesForPages = useSettingsStore((s) => s.removeFavoritesForPages);
   const showToast = useUiStore((s) => s.showToast);
 
   const [loading, setLoading] = useState(false);
@@ -31,6 +34,8 @@ export function TrashDialog({ open, onClose }: Props) {
   /** 다음 배치 조회용 서버 커서 */
   const [cursor, setCursor] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [confirmEmptyOpen, setConfirmEmptyOpen] = useState(false);
+  const [emptying, setEmptying] = useState(false);
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -95,6 +100,28 @@ export function TrashDialog({ open, onClose }: Props) {
     }
   };
 
+  const emptyTrash = async () => {
+    if (!currentWorkspaceId || emptying) return;
+    setEmptying(true);
+    try {
+      const loadedIds = items.map((item) => item.id).filter(Boolean);
+      const deletedCount = await emptyTrashRemote(currentWorkspaceId);
+      if (loadedIds.length > 0) removeFavoritesForPages(loadedIds);
+      setItems([]);
+      setCursor(null);
+      setQuery("");
+      setConfirmEmptyOpen(false);
+      showToast(`휴지통 ${deletedCount}개 항목을 영구삭제했습니다.`, {
+        kind: "success",
+      });
+    } catch (e) {
+      console.error(e);
+      showToast("휴지통 비우기에 실패했습니다.", { kind: "error" });
+    } finally {
+      setEmptying(false);
+    }
+  };
+
   if (!open) return null;
 
   return (
@@ -126,13 +153,24 @@ export function TrashDialog({ open, onClose }: Props) {
               삭제됩니다.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setConfirmEmptyOpen(true)}
+              disabled={loading || emptying || items.length === 0}
+              className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-900/70 dark:text-red-300 dark:hover:bg-red-950/40"
+            >
+              <Trash2 size={12} />
+              {emptying ? "비우는 중..." : "비우기"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col">
@@ -203,6 +241,18 @@ export function TrashDialog({ open, onClose }: Props) {
           ) : null}
         </div>
       </div>
+      <SimpleConfirmDialog
+        open={confirmEmptyOpen}
+        title="휴지통 비우기"
+        message="휴지통의 모든 페이지를 영구삭제합니다. 이 작업은 복구할 수 없고, 서버 데이터도 함께 삭제됩니다."
+        confirmLabel={emptying ? "삭제 중" : "영구삭제"}
+        danger
+        zIndex={540}
+        onCancel={() => {
+          if (!emptying) setConfirmEmptyOpen(false);
+        }}
+        onConfirm={() => void emptyTrash()}
+      />
     </div>
   );
 }

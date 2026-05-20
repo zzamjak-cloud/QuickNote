@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Building, Building2, Folder, User, Users, UsersRound, X } from "lucide-react";
+import { Building, Building2, Download, Folder, User, Users, UsersRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import pkg from "../../../package.json";
 import { useAuthStore } from "../../store/authStore";
@@ -10,6 +10,7 @@ import { AdminMembersTab } from "./AdminMembersTab";
 import { AdminTeamsTab } from "./AdminTeamsTab";
 import { AdminWorkspacesTab } from "./AdminWorkspacesTab";
 import { AdminOrganizationsTab } from "./AdminOrganizationsTab";
+import { NotionImportTab } from "./NotionImportTab";
 import { ProjectsPanel } from "../scheduler/admin/ProjectsPanel";
 import { listTeamsApi } from "../../lib/sync/teamApi";
 import { listOrganizationsApi } from "../../lib/sync/organizationApi";
@@ -23,7 +24,7 @@ type Props = {
   onClose: () => void;
 };
 
-type TabId = "profile" | "members" | "projects" | "teams" | "organizations" | "workspaces";
+type TabId = "profile" | "notionImport" | "members" | "projects" | "teams" | "organizations" | "workspaces";
 
 type TabDef = { id: TabId; label: string; title: string; icon: LucideIcon };
 
@@ -41,6 +42,7 @@ export function SettingsModal({ open, onClose }: Props) {
   const tabs = useMemo(() => {
     const base: TabDef[] = [
       { id: "profile", label: "내 프로필", title: "내 프로필", icon: User },
+      { id: "notionImport", label: "Notion 가져오기", title: "Notion 가져오기", icon: Download },
     ];
     if (isAdmin) {
       base.push(
@@ -192,6 +194,7 @@ export function SettingsModal({ open, onClose }: Props) {
           })()}
           <div className="flex-1 overflow-y-auto p-6">
             {tab === "profile" && <MyProfileSection />}
+            {tab === "notionImport" && <NotionImportTab />}
             {tab === "members" && isAdmin && <AdminMembersTab />}
             {tab === "projects" && isAdmin && <ProjectsPanel />}
             {tab === "teams" && isAdmin && <AdminTeamsTab />}

@@ -13,6 +13,8 @@ import { useProcessedRows } from "../useProcessedRows";
 import { DatabaseCell } from "../DatabaseCell";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { getDatabaseFile } from "../../../lib/databaseFileStorage";
+import { decodeFileRef, isFileRef } from "../../../lib/files/scheme";
+import { imageUrlCache } from "../../../lib/images/registry";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
 import { useUiStore } from "../../../store/uiStore";
@@ -63,6 +65,11 @@ function findFirstImageSrc(doc: JSONContent | undefined): string | null {
     return null;
   };
   return visit(doc);
+}
+
+function fileCellRef(item: FileCellItem): string | null {
+  if (item.src) return item.src;
+  return isFileRef(item.fileId) ? item.fileId : null;
 }
 
 export function DatabaseGalleryView({
@@ -325,17 +332,40 @@ function CoverImage({
     }
     if (column?.type === "file" && Array.isArray(cell) && cell.length > 0) {
       const first = cell[0] as FileCellItem;
-      void getDatabaseFile(first.fileId).then((blob) => {
-        if (cancelled) return;
-        if (blob && blob.type.startsWith("image/")) {
-          const u = URL.createObjectURL(blob);
-          revoked = u;
-          setIfActive(u);
-        } else {
-          // file 컬럼이지만 이미지가 아니면 페이지 본문 fallback.
+      const ref = fileCellRef(first);
+      if (ref) {
+        if (!first.mime.startsWith("image/")) {
           setIfActive(findFirstImageSrc(pageDoc));
+          return () => {
+            cancelled = true;
+            if (revoked) URL.revokeObjectURL(revoked);
+          };
         }
-      });
+        const fileId = decodeFileRef(ref);
+        if (!fileId) {
+          setIfActive(ref);
+          return () => {
+            cancelled = true;
+            if (revoked) URL.revokeObjectURL(revoked);
+          };
+        }
+        void imageUrlCache.get(fileId).then(
+          (u) => setIfActive(u),
+          () => setIfActive(findFirstImageSrc(pageDoc)),
+        );
+      } else {
+        void getDatabaseFile(first.fileId).then((blob) => {
+          if (cancelled) return;
+          if (blob && blob.type.startsWith("image/")) {
+            const u = URL.createObjectURL(blob);
+            revoked = u;
+            setIfActive(u);
+          } else {
+            // file 컬럼이지만 이미지가 아니면 페이지 본문 fallback.
+            setIfActive(findFirstImageSrc(pageDoc));
+          }
+        });
+      }
       return () => {
         cancelled = true;
         if (revoked) URL.revokeObjectURL(revoked);

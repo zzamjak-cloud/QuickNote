@@ -1,6 +1,7 @@
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes } from "@tiptap/core";
 import { Plugin } from "prosemirror-state";
+import { FileText } from "lucide-react";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -18,7 +19,11 @@ function MentionNodeView({ node }: NodeViewProps) {
   const kindAttr = (node.attrs.mentionKind as string | undefined) ?? "member";
   const isPage = kindAttr === "page" || id.startsWith("p:");
   const isDatabase = kindAttr === "database" || id.startsWith("d:");
+  const isMember = !isPage && !isDatabase;
   const pageId = id.startsWith("p:") ? id.slice(2) : id;
+  const reactivePageIcon = usePageStore((s) =>
+    isPage ? s.pages[pageId]?.icon ?? null : null,
+  );
   // 페이지 멘션일 때만 스토어 구독 — title 변경 시 자동 재렌더
   const reactivePageTitle = usePageStore((s) =>
     isPage ? s.pages[pageId]?.title : undefined,
@@ -32,16 +37,22 @@ function MentionNodeView({ node }: NodeViewProps) {
         data-type="mention"
         data-id={id}
         {...(dataKind ? { "data-mention-kind": dataKind } : {})}
-        className="member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-sm text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70"
+        className="member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70"
       >
-        <span
-          className="select-none text-[11px] font-semibold text-blue-500 dark:text-blue-300"
-          aria-hidden="true"
-        >
-          @
-        </span>
+        {isMember ? (
+          <span
+            className="select-none text-[11px] font-semibold text-blue-500 dark:text-blue-300"
+            aria-hidden="true"
+          >
+            @
+          </span>
+        ) : null}
         {isPage ? (
-          <span className="select-none text-xs">↗</span>
+          reactivePageIcon ? (
+            <span className="select-none text-sm leading-none">{reactivePageIcon}</span>
+          ) : (
+            <FileText size={14} className="shrink-0 text-blue-500 dark:text-blue-300" />
+          )
         ) : null}
         {isDatabase ? (
           <span className="select-none text-xs">DB</span>
@@ -269,32 +280,47 @@ const MemberMentionNode = Mention.extend({
         ? (usePageStore.getState().pages[rawId.slice(2)]?.title ??
           ((node.attrs.label as string) || "페이지"))
         : (node.attrs.label as string) || "";
+    const pageIcon =
+      isPage && rawId.startsWith("p:")
+        ? (usePageStore.getState().pages[rawId.slice(2)]?.icon ?? "")
+        : "";
     return [
       "span",
       mergeAttributes(
         {
           "data-type": "mention",
           class:
-            "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-sm text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70",
+            "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70",
         },
         HTMLAttributes,
       ),
-      [
-        "span",
-        {
-          class:
-            "select-none text-[11px] font-semibold text-blue-500 dark:text-blue-300",
-          "aria-hidden": "true",
-        },
-        "@",
-      ],
-      isPage ? ["span", { class: "select-none text-xs" }, "↗"] : "",
+      kind === "member" && !rawId.startsWith("p:") && !rawId.startsWith("d:")
+        ? [
+            "span",
+            {
+              class:
+                "select-none text-[11px] font-semibold text-blue-500 dark:text-blue-300",
+              "aria-hidden": "true",
+            },
+            "@",
+          ]
+        : "",
+      isPage && pageIcon ? ["span", { class: "select-none text-sm leading-none" }, pageIcon] : "",
       isDatabase ? ["span", { class: "select-none text-xs" }, "DB"] : "",
       ["span", { class: "truncate font-medium" }, label],
     ];
   },
   renderText({ node }) {
-    return `@${(node.attrs.label as string) ?? ""}`;
+    const kind = (node.attrs.mentionKind as string | undefined) ?? "member";
+    const rawId = (node.attrs.id as string | undefined) ?? "";
+    const label = (node.attrs.label as string) ?? "";
+    if (kind === "page" || rawId.startsWith("p:")) {
+      const pageId = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
+      const page = usePageStore.getState().pages[pageId];
+      const title = page?.title ?? label ?? "페이지";
+      return page?.icon ? `${page.icon} ${title}` : title;
+    }
+    return `@${label}`;
   },
 });
 

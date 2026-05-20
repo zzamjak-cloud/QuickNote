@@ -91,9 +91,30 @@ export const Toggle = Node.create({
   addInputRules() {
     return [
       new InputRule({
+        // `> ` 입력 시 토글 생성 — IME/nbsp 변형까지 허용
         find: /^>\s$/,
-        handler: ({ chain, range }) => {
-          chain().deleteRange(range).setToggle().run();
+        handler: ({ state, chain }) => {
+          const { $from } = state.selection;
+          const paragraphStart = $from.start();
+          const paragraphEnd = $from.end();
+          const lineText = $from.parent.textContent.replace(/\u00a0/g, " ").trim();
+          if (lineText !== ">") return;
+          chain()
+            .deleteRange({ from: paragraphStart, to: paragraphEnd })
+            .insertContentAt(paragraphStart, {
+              type: this.name,
+              content: [
+                {
+                  type: "toggleHeader",
+                  content: [{ type: "text", text: "토글 제목" }],
+                },
+                {
+                  type: "toggleContent",
+                  content: [{ type: "paragraph" }],
+                },
+              ],
+            })
+            .run();
         },
       }),
     ];
@@ -155,8 +176,27 @@ export const Toggle = Node.create({
         if (!toggleNode) return false;
         const { node, pos } = toggleNode;
 
-        // 열린 토글은 기본 Enter 동작에 위임
-        if (node.attrs.open) return false;
+        // 열린 토글에서 Enter: 토글 콘텐츠 내부 최상단에 빈 문단을 만들고 커서를 이동
+        if (node.attrs.open) {
+          const paragraphType = state.schema.nodes.paragraph;
+          const toggleContentType = state.schema.nodes.toggleContent;
+          if (!paragraphType) return false;
+          if (!toggleContentType) return false;
+          let contentPos: number | null = null;
+          node.forEach((child, offset) => {
+            if (child.type.name === "toggleContent") {
+              contentPos = pos + 1 + offset;
+            }
+          });
+          if (contentPos == null) return false;
+          const contentNode = state.doc.nodeAt(contentPos);
+          if (!contentNode) return false;
+          const insertPos = contentPos + 1;
+          const tr = state.tr.insert(insertPos, paragraphType.create());
+          tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+          editor.view.dispatch(tr);
+          return true;
+        }
 
         const titleLevel = ($from.parent.attrs.titleLevel as string | null);
         const after = pos + node.nodeSize;

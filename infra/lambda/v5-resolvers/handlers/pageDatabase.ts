@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import {
   DynamoDBDocumentClient,
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -321,6 +322,128 @@ export async function softDeleteDatabase(args: {
     forbidden("LC스케줄러 데이터베이스는 삭제할 수 없습니다");
   }
   return softDeleteRecord({ ...args, tableName: args.tables.Databases });
+}
+
+export async function permanentlyDeleteDatabase(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  id: string;
+  workspaceId: string;
+}): Promise<boolean> {
+  if (!args.tables.Databases) badRequest("Databases table 미설정");
+  if (isLCSchedulerDatabaseId(args.id)) {
+    forbidden("LC스케줄러 데이터베이스는 영구삭제할 수 없습니다");
+  }
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "edit",
+  });
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Databases, Key: { id: args.id } }),
+  );
+  if (!existing.Item) return true;
+  if (existing.Item["workspaceId"] !== args.workspaceId) {
+    forbidden("다른 워크스페이스의 데이터베이스는 영구삭제할 수 없습니다");
+  }
+  await args.doc.send(
+    new DeleteCommand({
+      TableName: args.tables.Databases,
+      Key: { id: args.id },
+    }),
+  );
+  return true;
+}
+
+export async function emptyTrash(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  workspaceId: string;
+}): Promise<number> {
+  if (!args.tables.Pages) badRequest("Pages table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "edit",
+  });
+
+  const deletedPageIds = new Set<string>();
+  let pageStartKey: Record<string, unknown> | undefined;
+  do {
+    const r = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tables.Pages,
+        IndexName: "byWorkspaceAndUpdatedAt",
+        KeyConditionExpression: "workspaceId = :w",
+        ExpressionAttributeValues: { ":w": args.workspaceId },
+        FilterExpression: "attribute_exists(deletedAt)",
+        ProjectionExpression: "id",
+        Limit: 100,
+        ExclusiveStartKey: pageStartKey,
+      }),
+    );
+    const items = (r.Items ?? []) as Array<{ id?: unknown }>;
+    await Promise.all(
+      items
+        .map((item) => (typeof item.id === "string" ? item.id : null))
+        .filter((id): id is string => !!id)
+        .map(async (id) => {
+          deletedPageIds.add(id);
+          await args.doc.send(
+            new DeleteCommand({
+              TableName: args.tables.Pages,
+              Key: { id },
+              ConditionExpression: "workspaceId = :w",
+              ExpressionAttributeValues: { ":w": args.workspaceId },
+            }),
+          );
+        }),
+    );
+    pageStartKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (pageStartKey);
+
+  if (args.tables.Comments && deletedPageIds.size > 0) {
+    let commentStartKey: Record<string, unknown> | undefined;
+    do {
+      const r = await args.doc.send(
+        new QueryCommand({
+          TableName: args.tables.Comments,
+          IndexName: "byWorkspaceAndUpdatedAt",
+          KeyConditionExpression: "workspaceId = :w",
+          ExpressionAttributeValues: { ":w": args.workspaceId },
+          ProjectionExpression: "id, pageId",
+          Limit: 100,
+          ExclusiveStartKey: commentStartKey,
+        }),
+      );
+      const comments = (r.Items ?? []) as Array<{ id?: unknown; pageId?: unknown }>;
+      await Promise.all(
+        comments
+          .filter((item) => typeof item.id === "string" && typeof item.pageId === "string" && deletedPageIds.has(item.pageId))
+          .map(async (item) => {
+            await args.doc.send(
+              new DeleteCommand({
+                TableName: args.tables.Comments!,
+                Key: { id: item.id },
+                ConditionExpression: "workspaceId = :w",
+                ExpressionAttributeValues: { ":w": args.workspaceId },
+              }),
+            );
+          }),
+      );
+      commentStartKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (commentStartKey);
+  }
+
+  return deletedPageIds.size;
 }
 
 /** 삭제됐지만 보관 기간 내인 페이지만, 삭제 시각 최신순 정렬·페이지당 최대 TRASH_PAGE_MAX 건 */

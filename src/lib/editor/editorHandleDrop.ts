@@ -18,6 +18,9 @@ import {
   topLevelInsertionPosFromDrop,
   type BlockDropIndicatorRect,
 } from "./blockDropTarget";
+import { parseQuickNoteLink } from "../navigation/quicknoteLinks";
+import { usePageStore } from "../../store/pageStore";
+import { isGifFile } from "../files/videoCompress";
 
 export type ColumnDropState = {
   side: "left" | "right";
@@ -59,6 +62,36 @@ function countProtectedMediaInDoc(doc: import("@tiptap/pm/model").Node): number 
     return true;
   });
   return count;
+}
+
+function tryInsertDroppedPageMention(view: EditorView, event: DragEvent): boolean {
+  const dt = event.dataTransfer;
+  if (!dt) return false;
+  const rawLink =
+    dt.getData("text/plain") ||
+    dt.getData("text/uri-list") ||
+    "";
+  const internalTarget = parseQuickNoteLink(rawLink);
+  if (!internalTarget) return false;
+  const mentionType = view.state.schema.nodes.mention;
+  if (!mentionType) return false;
+  const title =
+    usePageStore.getState().pages[internalTarget.pageId]?.title?.trim() || "제목 없음";
+  const mentionNode = mentionType.create({
+    id: `p:${internalTarget.pageId}`,
+    label: title,
+    mentionKind: "page",
+    subtitle: "페이지",
+  });
+  const textNode = view.state.schema.text(" ");
+  const coord = view.posAtCoords({
+    left: event.clientX,
+    top: event.clientY,
+  });
+  const insertPos = coord?.pos ?? view.state.selection.from;
+  const tr = view.state.tr.insert(insertPos, Fragment.fromArray([mentionNode, textNode]));
+  view.dispatch(tr.scrollIntoView());
+  return true;
 }
 
 function draggedBlockShape(
@@ -467,6 +500,11 @@ export function createEditorHandleDrop(options: {
       return moveQuickNoteBlocksFromDrop(view, event, draggedStarts);
     }
 
+    if (tryInsertDroppedPageMention(view, event)) {
+      event.preventDefault?.();
+      return true;
+    }
+
     if (moved) return false;
     event.preventDefault?.();
     const dt = event.dataTransfer;
@@ -504,7 +542,7 @@ export function createEditorHandleDrop(options: {
         });
         continue;
       }
-      const isImage = f.type.startsWith("image/");
+      const isImage = f.type.startsWith("image/") && !isGifFile(f);
       const fileBlockType = view.state.schema.nodes.fileBlock;
       if (!fileBlockType) continue;
       const uploadId = makeUploadId();

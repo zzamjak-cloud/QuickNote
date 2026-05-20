@@ -21,6 +21,7 @@ import { useHistorySelection } from "../history/useHistorySelection";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
+import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 
 type Props = {
   node: PageNode;
@@ -218,10 +219,17 @@ const PageListItemInner = function PageListItem({
         ) : (
           <button
             type="button"
+            draggable
             className="flex-1 truncate text-left"
             style={{ cursor: "inherit" }}
             onClick={() => setActivePage(node.id)}
             onDoubleClick={() => setEditing(true)}
+            onDragStart={(e) => {
+              const url = buildQuickNotePageUrl({ pageId: node.id });
+              e.dataTransfer.setData("text/plain", url);
+              e.dataTransfer.setData("application/x-quicknote-page-link", node.id);
+              e.dataTransfer.effectAllowed = "copy";
+            }}
             title="더블클릭하여 이름 변경, 우클릭으로 메뉴"
           >
             {node.title || "제목 없음"}

@@ -3,6 +3,7 @@
 import { uploadImage } from "../images/upload";
 import { prepareImageFileForUpload } from "../images/compressImage";
 import { reportNonFatal } from "../reportNonFatal";
+import { isGifFile } from "../files/videoCompress";
 
 export const MAX_EDITOR_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -33,12 +34,13 @@ export async function insertImageFromFile(
   },
 ): Promise<boolean> {
   const maxBytes = opts?.maxBytes ?? MAX_EDITOR_IMAGE_BYTES;
-  if (file.size > maxBytes) {
-    opts?.onSizeExceeded?.(file.size / 1024 / 1024);
-    return false;
-  }
+  if (isGifFile(file)) return false;
   try {
     const prepared = await prepareImageFileForUpload(file);
+    if (prepared.size > maxBytes) {
+      opts?.onSizeExceeded?.(prepared.size / 1024 / 1024);
+      return false;
+    }
     const url = URL.createObjectURL(prepared);
     let dim: { w: number; h: number } | null = null;
     try {

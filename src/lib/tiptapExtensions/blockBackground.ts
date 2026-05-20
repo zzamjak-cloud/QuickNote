@@ -13,11 +13,30 @@ export type BlockBgColor =
   | "teal"
   | null;
 
+export type BlockTextColor =
+  | "default"
+  | "gray"
+  | "brown"
+  | "orange"
+  | "yellow"
+  | "green"
+  | "blue"
+  | "purple"
+  | "pink"
+  | "red"
+  | null;
+
 export type BlockBgPreset = {
   id: BlockBgColor;
   label: string;
   lightStyle: string;
   darkStyle: string;
+  dot: string;
+};
+
+export type BlockTextPreset = {
+  id: Exclude<BlockTextColor, null>;
+  label: string;
   dot: string;
 };
 
@@ -94,6 +113,19 @@ export const BLOCK_BG_PRESETS: BlockBgPreset[] = [
   },
 ];
 
+export const BLOCK_TEXT_PRESETS: BlockTextPreset[] = [
+  { id: "default", label: "기본", dot: "#3f3f46" },
+  { id: "gray", label: "회색", dot: "#6b7280" },
+  { id: "brown", label: "갈색", dot: "#92400e" },
+  { id: "orange", label: "주황", dot: "#ea580c" },
+  { id: "yellow", label: "노랑", dot: "#ca8a04" },
+  { id: "green", label: "초록", dot: "#16a34a" },
+  { id: "blue", label: "파랑", dot: "#2563eb" },
+  { id: "purple", label: "보라", dot: "#9333ea" },
+  { id: "pink", label: "분홍", dot: "#db2777" },
+  { id: "red", label: "빨강", dot: "#e11d48" },
+];
+
 /** 텍스트 기반 블록에 backgroundColor 속성을 추가하는 GlobalAttributes 확장 */
 export const BlockBackground = Extension.create({
   name: "blockBackground",
@@ -121,6 +153,14 @@ export const BlockBackground = Extension.create({
             renderHTML: (attrs) => {
               if (!attrs.backgroundColor) return {};
               return { "data-bg-color": attrs.backgroundColor };
+            },
+          },
+          blockTextColor: {
+            default: null as string | null,
+            parseHTML: (el) => (el as HTMLElement).getAttribute("data-text-color") || null,
+            renderHTML: (attrs) => {
+              if (!attrs.blockTextColor) return {};
+              return { "data-text-color": attrs.blockTextColor };
             },
           },
         },

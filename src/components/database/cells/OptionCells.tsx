@@ -4,7 +4,7 @@
 import { createPortal } from "react-dom";
 import type { CellValue, ColumnDef } from "../../../types/database";
 import { useAnchoredPopover } from "../../../hooks/useAnchoredPopover";
-import { optionStyle } from "./utils";
+import { OptionChip } from "./OptionChip";
 
 export function SelectCell({
   column,
@@ -29,12 +29,7 @@ export function SelectCell({
         className="flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
         {current ? (
-          <span
-            className="rounded px-1.5 py-0.5 text-xs font-medium text-white"
-            style={optionStyle(current.color)}
-          >
-            {current.label}
-          </span>
+          <OptionChip option={current} columnType="select" />
         ) : null}
       </button>
       {pop.open && pop.coords &&
@@ -74,12 +69,7 @@ export function SelectCell({
                   }}
                   className="block w-full rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  <span
-                    className="inline-block rounded px-1.5 py-0.5 text-xs font-medium text-white"
-                    style={optionStyle(o.color)}
-                  >
-                    {o.label}
-                  </span>
+                  <OptionChip option={o} columnType="select" />
                 </button>
               ))
             )}
@@ -121,13 +111,7 @@ export function MultiSelectCell({
         className="flex min-h-[20px] w-full flex-wrap items-center gap-1 rounded px-1 py-0.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
         {selected.map((o) => (
-          <span
-            key={o.id}
-            className="rounded px-1.5 py-0.5 text-xs text-white"
-            style={optionStyle(o.color)}
-          >
-            {o.label}
-          </span>
+          <OptionChip key={o.id} option={o} columnType="multiSelect" />
         ))}
       </button>
       {pop.open && pop.coords &&
@@ -158,15 +142,7 @@ export function MultiSelectCell({
                         : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
                     ].join(" ")}
                   >
-                    <span
-                      className={[
-                        "inline-block rounded px-1.5 py-0.5 text-xs font-medium text-white",
-                        on ? "" : "opacity-70",
-                      ].join(" ")}
-                      style={optionStyle(o.color)}
-                    >
-                      {o.label}
-                    </span>
+                    <OptionChip option={o} columnType="multiSelect" dimmed={!on} />
                   </button>
                 );
               })
@@ -202,12 +178,7 @@ export function StatusCell({
         className="flex min-h-[20px] w-full items-center rounded px-1 py-0.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
         {current ? (
-          <span
-            className="rounded px-1.5 py-0.5 text-xs font-medium text-white"
-            style={{ backgroundColor: current.color ?? "#6b7280" }}
-          >
-            {current.label}
-          </span>
+          <OptionChip option={current} columnType="status" />
         ) : (
           <span className="text-xs text-zinc-400">옵션 없음</span>
         )}
@@ -239,12 +210,7 @@ export function StatusCell({
                   }}
                   className="block w-full rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  <span
-                    className="inline-block rounded px-1.5 py-0.5 text-xs font-medium text-white"
-                    style={{ backgroundColor: o.color ?? "#6b7280" }}
-                  >
-                    {o.label}
-                  </span>
+                  <OptionChip option={o} columnType="status" />
                 </button>
               ))
             )}

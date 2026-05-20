@@ -29,7 +29,7 @@ export const GET_IMAGE_DOWNLOAD_URL = `
 // Mutations
 export const GET_IMAGE_UPLOAD_URL = `
   mutation GetImageUploadUrl($input: ImageUploadInput!) {
-    getImageUploadUrl(input: $input) { imageId uploadUrl expiresAt }
+    getImageUploadUrl(input: $input) { imageId uploadUrl expiresAt alreadyUploaded }
   }
 `;
 export const CONFIRM_IMAGE = `

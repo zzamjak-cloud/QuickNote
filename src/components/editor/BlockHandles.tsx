@@ -29,6 +29,8 @@ import {
 import {
   BLOCK_BG_PRESETS,
   type BlockBgColor,
+  BLOCK_TEXT_PRESETS,
+  type BlockTextColor,
 } from "../../lib/tiptapExtensions/blockBackground";
 import { decodeFileRef } from "../../lib/files/scheme";
 import { imageUrlCache } from "../../lib/images/registry";
@@ -110,6 +112,7 @@ export function BlockHandles({
   const [menuOpen, setMenuOpen] = useState(false);
   const [presetOpen, setPresetOpen] = useState(false);
   const [bgOpen, setBgOpen] = useState(false);
+  const [textColorOpen, setTextColorOpen] = useState(false);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
   const globalActivePageId = usePageStore((s) => s.activePageId);
@@ -572,6 +575,18 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
+  const applyBlockTextColor = (color: BlockTextColor) => {
+    if (!editor || !hover) return;
+    editor
+      .chain()
+      .focus()
+      .setNodeSelection(hover.blockStart)
+      .updateAttributes(hover.node.type.name, { blockTextColor: color })
+      .run();
+    setTextColorOpen(false);
+    setMenuOpen(false);
+  };
+
   const isDatabaseBlock = hover?.node.type.name === "database";
   const isDatabaseFullPage = isDatabaseBlock && hover?.node.attrs.layout === "fullPage";
 
@@ -978,6 +993,55 @@ export function BlockHandles({
                         </button>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* 텍스트 블록 배경색 */}
+                {isTextBlock && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onMouseEnter={() => setTextColorOpen(true)}
+                      onMouseLeave={() => setTextColorOpen(false)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="inline-block h-3.5 w-3.5 rounded-sm border border-zinc-300 bg-gradient-to-br from-blue-400 via-emerald-400 to-rose-400 dark:border-zinc-600" />
+                        텍스트 색상
+                      </span>
+                      <span className="text-zinc-400">›</span>
+                    </button>
+                    {textColorOpen && (
+                      <div
+                        className="absolute left-full top-0 z-50 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        onMouseEnter={() => setTextColorOpen(true)}
+                        onMouseLeave={() => setTextColorOpen(false)}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => applyBlockTextColor(null)}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        >
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-300 text-[10px] text-zinc-400 dark:border-zinc-600">✕</span>
+                          <span className="text-zinc-700 dark:text-zinc-300">텍스트 색상 제거</span>
+                        </button>
+                        <div className="mx-3 my-1 border-t border-zinc-100 dark:border-zinc-800" />
+                        {BLOCK_TEXT_PRESETS.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => applyBlockTextColor(p.id)}
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          >
+                            <span
+                              className="inline-block h-4 w-4 shrink-0 rounded-sm border border-zinc-200 dark:border-zinc-700"
+                              style={{ backgroundColor: p.dot }}
+                            />
+                            <span className="text-zinc-700 dark:text-zinc-300">{p.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 

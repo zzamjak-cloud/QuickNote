@@ -168,6 +168,121 @@ function columnInsertionPosFromPoint(
   return bestPos ?? fallback;
 }
 
+function toggleContentInsertionPosFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  const toggleContentEl = hit?.closest?.("[data-toggle-content]");
+  if (!(toggleContentEl instanceof HTMLElement) || !view.dom.contains(toggleContentEl)) {
+    return null;
+  }
+
+  let contentStart: number | null = null;
+  let contentNode: PMNode | null = null;
+  try {
+    const rawPos = view.posAtDOM(toggleContentEl, 0);
+    const $raw = view.state.doc.resolve(
+      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
+    );
+    for (let d = $raw.depth; d >= 1; d--) {
+      if ($raw.node(d).type.name !== "toggleContent") continue;
+      contentStart = $raw.before(d);
+      contentNode = $raw.node(d);
+      break;
+    }
+    if (contentStart == null) {
+      const maybeNode = view.state.doc.nodeAt(rawPos);
+      if (maybeNode?.type.name === "toggleContent") {
+        contentStart = rawPos;
+        contentNode = maybeNode;
+      }
+    }
+  } catch {
+    contentStart = null;
+    contentNode = null;
+  }
+  if (contentStart == null || !contentNode || contentNode.type.name !== "toggleContent") {
+    return null;
+  }
+
+  let fallback = contentStart + contentNode.nodeSize - 1;
+  let bestPos: number | null = null;
+  let bestDistance = Infinity;
+  contentNode.forEach((child, offset) => {
+    const childStart = contentStart! + 1 + offset;
+    const rect = rectForBlockDom(view, childStart);
+    if (!rect) return;
+    const after = clientY > rect.top + rect.height / 2;
+    const distance =
+      clientY < rect.top
+        ? rect.top - clientY
+        : clientY > rect.bottom
+          ? clientY - rect.bottom
+          : 0;
+    const pos = after ? childStart + child.nodeSize : childStart;
+    if (distance < bestDistance) {
+      bestPos = pos;
+      bestDistance = distance;
+    }
+    fallback = childStart + child.nodeSize;
+  });
+
+  return bestPos ?? fallback;
+}
+
+function toggleBlockInsertionPosFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  const toggleEl = hit?.closest?.("details.toggle-block");
+  if (!(toggleEl instanceof HTMLElement) || !view.dom.contains(toggleEl)) {
+    return null;
+  }
+
+  let toggleStart: number | null = null;
+  let toggleNode: PMNode | null = null;
+  try {
+    const rawPos = view.posAtDOM(toggleEl, 0);
+    const $raw = view.state.doc.resolve(
+      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
+    );
+    for (let d = $raw.depth; d >= 1; d--) {
+      if ($raw.node(d).type.name !== "toggle") continue;
+      toggleStart = $raw.before(d);
+      toggleNode = $raw.node(d);
+      break;
+    }
+    if (toggleStart == null) {
+      const maybeNode = view.state.doc.nodeAt(rawPos);
+      if (maybeNode?.type.name === "toggle") {
+        toggleStart = rawPos;
+        toggleNode = maybeNode;
+      }
+    }
+  } catch {
+    toggleStart = null;
+    toggleNode = null;
+  }
+  if (toggleStart == null || !toggleNode || toggleNode.type.name !== "toggle") {
+    return null;
+  }
+
+  let offset = 0;
+  for (let i = 0; i < toggleNode.childCount; i += 1) {
+    const child = toggleNode.child(i);
+    if (child.type.name === "toggleContent") {
+      const contentStart = toggleStart + 1 + offset;
+      return contentStart + child.nodeSize - 1;
+    }
+    offset += child.nodeSize;
+  }
+  return null;
+}
+
 /** doc 직속 자식의 화면 rect 를 모아 Y 좌표 기준 가장 가까운 블록을 찾아 삽입 위치 반환. */
 function nearestTopLevelInsertionByY(view: EditorView, clientY: number): number {
   let bestStart: number | null = null;
@@ -217,6 +332,9 @@ export function insertionContainersAt(
       if (name === "tabPanel" && !containers.includes("tabPanel")) {
         containers.push("tabPanel");
       }
+      if (name === "toggleContent" && !containers.includes("toggleContent")) {
+        containers.push("toggleContent");
+      }
     }
     return containers.length > 0 ? containers : ["doc"];
   } catch {
@@ -235,6 +353,12 @@ export function topLevelInsertionPosFromDrop(
   const columnPos = columnInsertionPosFromPoint(view, clientX, clientY);
   if (columnPos != null) return columnPos;
 
+  const toggleContentPos = toggleContentInsertionPosFromPoint(view, clientX, clientY);
+  if (toggleContentPos != null) return toggleContentPos;
+
+  const toggleBlockPos = toggleBlockInsertionPosFromPoint(view, clientX, clientY);
+  if (toggleBlockPos != null) return toggleBlockPos;
+
   const coords = view.posAtCoords({ left: clientX, top: clientY });
   if (!coords) return nearestTopLevelInsertionByY(view, clientY);
 
@@ -252,7 +376,8 @@ export function topLevelInsertionPosFromDrop(
     const isValidParent =
       parent.type.name === "doc" ||
       parent.type.name === "column" ||
-      parent.type.name === "tabPanel";
+      parent.type.name === "tabPanel" ||
+      parent.type.name === "toggleContent";
     if (!isValidParent) continue;
     const targetStart = $pos.before(d);
     const rect = rectForBlockDom(view, targetStart);
@@ -309,6 +434,10 @@ function indicatorContainerElement(
   if (target.containers.includes("tabPanel")) {
     const panel = hit?.closest?.("[data-tab-panel]");
     if (panel instanceof HTMLElement && view.dom.contains(panel)) return panel;
+  }
+  if (target.containers.includes("toggleContent")) {
+    const content = hit?.closest?.("[data-toggle-content]");
+    if (content instanceof HTMLElement && view.dom.contains(content)) return content;
   }
   return view.dom;
 }

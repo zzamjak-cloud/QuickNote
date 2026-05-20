@@ -6,7 +6,6 @@ import type {
   ViewKind,
   ViewSpecificConfig,
 } from "../../types/database";
-import { getVisibleOrderedColumns } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 
@@ -34,6 +33,7 @@ export function DatabaseColumnSettingsButton({
   layout,
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
+  const moveColumn = useDatabaseStore((s) => s.moveColumn);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
   const setOpenColumnMenu = useUiStore((s) => s.setOpenColumnMenu);
   const menuKey = `settings:${databaseId}:${viewKind}`;
@@ -62,18 +62,15 @@ export function DatabaseColumnSettingsButton({
   const cfg: ViewSpecificConfig =
     panelState.viewConfigs?.[viewKind] ?? {};
 
-  // 현재 가시성·순서를 풀어서 보여주기 위한 작업 리스트.
-  // 1) visibleColumnIds가 있으면 그 순서대로 visible.
-  // 2) 누락된 컬럼은 hidden으로 끝에 붙임.
   const allCols = bundle.columns;
-  const orderedVisible = getVisibleOrderedColumns(allCols, viewKind, panelState.viewConfigs);
-  const visibleSet = new Set(orderedVisible.map((c) => c.id));
-  const hiddenCols = allCols.filter((c) => !visibleSet.has(c.id));
-  // 표시 항목들의 통합 리스트(보임 → 숨김 순). 드래그 핸들로 재정렬.
-  const items: { col: typeof allCols[number]; visible: boolean }[] = [
-    ...orderedVisible.map((c) => ({ col: c, visible: true })),
-    ...hiddenCols.map((c) => ({ col: c, visible: false })),
-  ];
+  const titleCol = allCols.find((c) => c.type === "title");
+  const visibleSet = resolveVisibleColumnIds(allCols, viewKind, cfg);
+  if (titleCol) visibleSet.add(titleCol.id);
+  // 표시 설정 리스트는 활성/비활성 여부와 무관하게 실제 컬럼 순서를 따른다.
+  const items: { col: typeof allCols[number]; visible: boolean }[] = allCols.map((col) => ({
+    col,
+    visible: visibleSet.has(col.id),
+  }));
 
   const writeViewCfg = (patch: Partial<ViewSpecificConfig>) => {
     const nextCfg: ViewSpecificConfig = { ...cfg, ...patch };
@@ -83,16 +80,15 @@ export function DatabaseColumnSettingsButton({
   };
 
   const toggleVisible = (id: string) => {
-    const visIds = items.filter((it) => it.visible).map((it) => it.col.id);
-    const newVis = visIds.includes(id)
-      ? visIds.filter((v) => v !== id)
-      : [...visIds, id];
+    const nextVisible = new Set(visibleSet);
+    if (nextVisible.has(id)) nextVisible.delete(id);
+    else nextVisible.add(id);
     // title 컬럼은 항상 보이도록 보장.
-    const titleCol = allCols.find((c) => c.type === "title");
-    if (titleCol && !newVis.includes(titleCol.id)) {
-      newVis.unshift(titleCol.id);
-    }
-    writeViewCfg({ visibleColumnIds: newVis, hiddenColumnIds: undefined });
+    if (titleCol) nextVisible.add(titleCol.id);
+    const visibleColumnIds = allCols
+      .filter((col) => nextVisible.has(col.id))
+      .map((col) => col.id);
+    writeViewCfg({ visibleColumnIds, hiddenColumnIds: undefined });
   };
 
   const onDrop = () => {
@@ -104,8 +100,11 @@ export function DatabaseColumnSettingsButton({
     const next = [...items];
     const [m] = next.splice(dragFrom, 1);
     if (m) next.splice(dragOver, 0, m);
-    // 드래그 결과 순서를 visibleColumnIds로 직렬화 (보이는 것만 순서 유지, 숨김은 끝).
-    const visibleIds = next.filter((it) => it.visible).map((it) => it.col.id);
+    // 표시 설정에서 순서를 바꾸면 실제 컬럼 순서도 함께 바꾼다.
+    moveColumn(databaseId, dragFrom, dragOver);
+    const visibleIds = next
+      .filter((it) => visibleSet.has(it.col.id))
+      .map((it) => it.col.id);
     writeViewCfg({ visibleColumnIds: visibleIds, hiddenColumnIds: undefined });
     setDragFrom(null);
     setDragOver(null);
@@ -155,12 +154,19 @@ export function DatabaseColumnSettingsButton({
           <div
             ref={popoverRef}
             style={{ position: "fixed", top: coords.top, left: coords.left, width: 240 }}
-            className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-base shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className="z-[320] max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            onMouseDown={(e) => {
+              // 팝업 클릭이 에디터/뒤쪽 레이어로 전파되어 선택되는 현상 방지
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
           >
             {/* 항목 표시 섹션 */}
             <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
-              <div className="px-1 py-1 text-sm uppercase text-zinc-500">
-                항목 표시
+              <div className="px-1 py-1 text-xs uppercase tracking-wide text-zinc-500">
+                항목
               </div>
               {layout === "fullPage" ? (
                 <div className="flex items-center gap-1 px-1 py-1">
@@ -174,11 +180,16 @@ export function DatabaseColumnSettingsButton({
                       <button
                         key={val}
                         type="button"
+                        onMouseDown={(e) => {
+                          // 일부 브라우저에서 클릭 시작 이벤트가 뒤쪽에 전달되는 케이스 차단
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
                         onClick={() => setPanelState({ itemLimit: val })}
                         className={[
-                          "rounded border px-2 py-0.5 text-base",
+                          "rounded border px-2 py-0.5 text-sm font-medium",
                           active
-                            ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                            ? "border-blue-600 bg-blue-600 text-white dark:border-blue-500 dark:bg-blue-500 dark:text-white"
                             : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400 dark:hover:bg-zinc-800",
                         ].join(" ")}
                       >
@@ -190,8 +201,8 @@ export function DatabaseColumnSettingsButton({
               )}
             </div>
             {/* 속성 표시 카테고리 */}
-            <div className="px-1 py-1 text-sm uppercase text-zinc-500">
-              속성 표시 · 순서
+            <div className="px-1 py-1 text-xs uppercase tracking-wide text-zinc-500">
+              속성 표시/순서
             </div>
             {items.map((it, idx) => {
               const isTitle = it.col.type === "title";
@@ -262,4 +273,21 @@ export function DatabaseColumnSettingsButton({
         )}
     </>
   );
+}
+
+function resolveVisibleColumnIds(
+  columns: { id: string; type: string }[],
+  viewKind: ViewKind,
+  cfg: ViewSpecificConfig,
+): Set<string> {
+  if (cfg.visibleColumnIds) return new Set(cfg.visibleColumnIds);
+  if (cfg.hiddenColumnIds) {
+    const hidden = new Set(cfg.hiddenColumnIds);
+    return new Set(columns.filter((col) => !hidden.has(col.id)).map((col) => col.id));
+  }
+  if (viewKind === "list") {
+    const title = columns.find((col) => col.type === "title");
+    return new Set(title ? [title.id] : []);
+  }
+  return new Set(columns.map((col) => col.id));
 }

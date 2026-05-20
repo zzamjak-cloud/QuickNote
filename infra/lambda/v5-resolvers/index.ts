@@ -49,9 +49,11 @@ import {
 } from "./handlers/workspace";
 import { searchMembersForMention } from "./handlers/mention";
 import {
+  emptyTrash,
   listDatabases,
   listPages,
   listTrashedPages,
+  permanentlyDeleteDatabase,
   restorePage,
   softDeleteDatabase,
   softDeletePage,
@@ -414,6 +416,11 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           id: event.arguments.id as string,
           workspaceId: event.arguments.workspaceId as string,
         });
+      case "emptyTrash":
+        return await emptyTrash({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
       case "upsertDatabase":
         return await upsertDatabase({ ...base, input: event.arguments.input as Record<string, unknown> });
       case "softDeleteDatabase":
@@ -422,6 +429,12 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           id: event.arguments.id as string,
           workspaceId: event.arguments.workspaceId as string,
           updatedAt: event.arguments.updatedAt as string,
+        });
+      case "permanentlyDeleteDatabase":
+        return await permanentlyDeleteDatabase({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
         });
       case "listComments":
         return await listComments({

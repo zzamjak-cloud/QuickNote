@@ -54,6 +54,15 @@ function isUnauthorizedError(message: string): boolean {
   );
 }
 
+function isPayloadTooLargeError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("item size has exceeded the maximum allowed size") ||
+    m.includes("maximum allowed size") ||
+    m.includes("payload too large")
+  );
+}
+
 function isTransientNetworkError(message: string): boolean {
   const m = message.toLowerCase();
   return (
@@ -228,6 +237,27 @@ export class SyncEngine {
               });
               hasFailure = true;
               minFailBackoff = Math.min(minFailBackoff, TRANSIENT_RETRY_DELAY_MS);
+              continue;
+            }
+            if (isPayloadTooLargeError(message)) {
+              console.warn(
+                "[sync] dropping oversize payload entry",
+                entry.op,
+                entry.payload,
+              );
+              await this.outbox.putDeadLetter?.(
+                {
+                  ...entry,
+                  attempts: entry.attempts + 1,
+                  lastErrorAt: now,
+                },
+                "payload-too-large",
+              );
+              await this.outbox.remove(entry.id);
+              useUiStore.getState().showToast(
+                "페이지 크기가 너무 커서 서버에 저장하지 못했습니다. 본문을 분리해 주세요.",
+                { kind: "error" },
+              );
               continue;
             }
             const attempts = entry.attempts + 1;

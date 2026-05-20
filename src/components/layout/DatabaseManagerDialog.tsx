@@ -6,6 +6,10 @@ import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { emptyPanelState } from "../../types/database";
 import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useUiStore } from "../../store/uiStore";
+import { permanentlyDeleteDatabaseRemote } from "../../lib/sync/trashApi";
+import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 type Props = {
   open: boolean;
@@ -22,11 +26,20 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   const updateDoc = usePageStore((s) => s.updateDoc);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const showToast = useUiStore((s) => s.showToast);
   const deletedDbRestorePoints = useHistoryStore((s) =>
     s.getDeletedDbRestorePoints(),
   );
   const [query, setQuery] = useState("");
   const [showDeleted, setShowDeleted] = useState(false);
+  const [purgingIds, setPurgingIds] = useState<Record<string, boolean>>({});
+  const [hiddenDeletedDbIds, setHiddenDeletedDbIds] = useState<Set<string>>(new Set());
+  const [pendingPurge, setPendingPurge] = useState<{
+    databaseId: string;
+    title: string;
+    workspaceId: string;
+  } | null>(null);
 
   const activeDbIds = useMemo(
     () => new Set(dbList.map((d) => d.id)),
@@ -43,7 +56,44 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     });
   const visibleDeleted = deletedDbRestorePoints
     .filter((d) => !activeDbIds.has(d.databaseId))
+    .filter((d) => !hiddenDeletedDbIds.has(d.databaseId))
     .filter((d) => d.title.toLowerCase().includes(q));
+
+  const purgeDeletedDatabase = (databaseId: string, title: string) => {
+    const targetWorkspaceId =
+      visibleDeleted.find((d) => d.databaseId === databaseId)?.workspaceId
+      ?? currentWorkspaceId;
+    if (!targetWorkspaceId) {
+      showToast("워크스페이스를 찾을 수 없습니다.", { kind: "error" });
+      return;
+    }
+    setPendingPurge({
+      databaseId,
+      title: title || "제목 없음",
+      workspaceId: targetWorkspaceId,
+    });
+  };
+
+  const confirmPurgeDeletedDatabase = async () => {
+    if (!pendingPurge) return;
+    const { databaseId, workspaceId } = pendingPurge;
+    setPendingPurge(null);
+    setPurgingIds((prev) => ({ ...prev, [databaseId]: true }));
+    try {
+      await permanentlyDeleteDatabaseRemote(databaseId, workspaceId);
+      setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
+      showToast("삭제된 데이터베이스를 영구삭제했습니다.", { kind: "success" });
+    } catch (error) {
+      console.error(error);
+      showToast("영구삭제에 실패했습니다.", { kind: "error" });
+    } finally {
+      setPurgingIds((prev) => {
+        const next = { ...prev };
+        delete next[databaseId];
+        return next;
+      });
+    }
+  };
 
   const openDatabase = (databaseId: string, title: string) => {
     const existing = Object.values(pages).find((p) => {
@@ -221,6 +271,14 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                       <RefreshCcw size={10} />
                       복구
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => void purgeDeletedDatabase(d.databaseId, d.title)}
+                      disabled={Boolean(purgingIds[d.databaseId])}
+                      className="inline-flex shrink-0 items-center gap-1 rounded border border-red-300 px-2 py-1 text-[11px] text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+                    >
+                      {purgingIds[d.databaseId] ? "삭제중…" : "영구삭제"}
+                    </button>
                   </div>
                 ))
               )}
@@ -228,6 +286,21 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
           </div>
         </div>
       )}
+      <SimpleConfirmDialog
+        open={pendingPurge != null}
+        title="데이터베이스 영구삭제"
+        message={
+          pendingPurge
+            ? `「${pendingPurge.title}」 DB를 영구삭제합니다.\n복구할 수 없으며 DynamoDB에서도 제거됩니다.`
+            : ""
+        }
+        confirmLabel="영구삭제"
+        cancelLabel="취소"
+        danger
+        zIndex={560}
+        onCancel={() => setPendingPurge(null)}
+        onConfirm={() => void confirmPurgeDeletedDatabase()}
+      />
     </div>
   );
 }

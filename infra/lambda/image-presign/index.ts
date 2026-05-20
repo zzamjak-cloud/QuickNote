@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import {
   S3Client,
   PutObjectCommand,
@@ -12,6 +12,7 @@ import {
   PutCommand,
   GetCommand,
   UpdateCommand,
+  QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 
 // AppSync JS 리졸버에서 invoke 되는 단일 핸들러.
@@ -91,42 +92,111 @@ async function getUploadUrl(ownerId: string, input: UploadInput) {
     throw new Error("invalid sha256");
   }
 
-  const imageId = randomUUID();
+  let imageId = createStableAssetId(ownerId, input);
   // mimeType 의 subtype 을 기본 확장자로 사용. octet-stream 등 특수 케이스는 dat 로 폴백.
   // image 명명을 유지하지만 실제로는 모든 파일 종류를 같은 bucket prefix(users/{owner}/images/) 에 저장.
   const subtype = input.mimeType.split("/")[1] ?? "dat";
   const ext = subtype.replace("jpeg", "jpg").replace("svg+xml", "svg");
   const key = `users/${ownerId}/images/${imageId}.${ext}`;
   const expireAt = Math.floor(Date.now() / 1000) + 24 * 60 * 60; // pending 1일 TTL
+  const found = await ddb.send(new GetCommand({ TableName: TABLE, Key: { id: imageId } }));
+  let existingKey = typeof found.Item?.key === "string" ? found.Item.key : key;
+  let alreadyUploaded = found.Item?.ownerId === ownerId && found.Item?.status === "READY";
 
-  await ddb.send(
-    new PutCommand({
-      TableName: TABLE,
-      Item: {
-        id: imageId,
-        ownerId,
-        mimeType: input.mimeType,
-        size: input.size,
-        sha256: input.sha256,
-        status: "PENDING",
-        createdAt: new Date().toISOString(),
-        key,
-        expireAt,
-      },
-      ConditionExpression: "attribute_not_exists(id)",
-    }),
-  );
+  if (found.Item && found.Item.ownerId !== ownerId) {
+    throw new Error("not found");
+  }
+
+  if (!found.Item) {
+    const reusable = await findReusableReadyAsset(ownerId, input);
+    if (reusable) {
+      imageId = reusable.id;
+      existingKey = reusable.key;
+      alreadyUploaded = true;
+    } else {
+      await createPendingAsset(imageId, ownerId, input, key, expireAt);
+    }
+  }
 
   const cmd = new PutObjectCommand({
     Bucket: BUCKET,
-    Key: key,
+    Key: existingKey,
     ContentType: input.mimeType,
     ContentLength: input.size,
   });
   const uploadUrl = await getSignedUrl(s3, cmd, { expiresIn: 600 });
   const expiresAt = new Date(Date.now() + 600 * 1000).toISOString();
 
-  return { imageId, uploadUrl, expiresAt };
+  return { imageId, uploadUrl, expiresAt, alreadyUploaded };
+}
+
+async function findReusableReadyAsset(
+  ownerId: string,
+  input: UploadInput,
+): Promise<{ id: string; key: string } | null> {
+  let nextToken: Record<string, unknown> | undefined;
+  do {
+    const found = await ddb.send(
+      new QueryCommand({
+        TableName: TABLE,
+        IndexName: "byOwner",
+        KeyConditionExpression: "ownerId = :owner",
+        FilterExpression: "#s = :ready AND mimeType = :mime AND #size = :size AND sha256 = :sha",
+        ProjectionExpression: "id, #k",
+        ExpressionAttributeNames: {
+          "#s": "status",
+          "#size": "size",
+          "#k": "key",
+        },
+        ExpressionAttributeValues: {
+          ":owner": ownerId,
+          ":ready": "READY",
+          ":mime": input.mimeType,
+          ":size": input.size,
+          ":sha": input.sha256,
+        },
+        ExclusiveStartKey: nextToken,
+      }),
+    );
+    const reusable = (found.Items ?? []).find(
+      (item) => typeof item.id === "string" && typeof item.key === "string",
+    );
+    if (reusable) {
+      return { id: reusable.id as string, key: reusable.key as string };
+    }
+    nextToken = found.LastEvaluatedKey;
+  } while (nextToken);
+  return null;
+}
+
+async function createPendingAsset(
+  imageId: string,
+  ownerId: string,
+  input: UploadInput,
+  key: string,
+  expireAt: number,
+) {
+  try {
+    await ddb.send(
+      new PutCommand({
+        TableName: TABLE,
+        Item: {
+          id: imageId,
+          ownerId,
+          mimeType: input.mimeType,
+          size: input.size,
+          sha256: input.sha256,
+          status: "PENDING",
+          createdAt: new Date().toISOString(),
+          key,
+          expireAt,
+        },
+        ConditionExpression: "attribute_not_exists(id)",
+      }),
+    );
+  } catch (error) {
+    if (!isConditionalCheckFailed(error)) throw error;
+  }
 }
 
 async function confirmImage(ownerId: string, imageId: string) {
@@ -177,4 +247,26 @@ function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`env ${name} not set`);
   return v;
+}
+
+export function createStableAssetId(ownerId: string, input: UploadInput): string {
+  const digest = createHash("sha256")
+    .update(ownerId)
+    .update("\0")
+    .update(input.mimeType)
+    .update("\0")
+    .update(String(input.size))
+    .update("\0")
+    .update(input.sha256)
+    .digest("hex");
+  return `asset-${digest}`;
+}
+
+function isConditionalCheckFailed(error: unknown): boolean {
+  return (
+    typeof error === "object"
+    && error !== null
+    && "name" in error
+    && (error as { name?: string }).name === "ConditionalCheckFailedException"
+  );
 }

@@ -1,9 +1,11 @@
 import { appsyncClient } from "./graphql/client";
 import {
+  EMPTY_TRASH,
   LIST_TRASHED_PAGES,
   RESTORE_PAGE,
   type GqlPage,
 } from "./queries/page";
+import { PERMANENTLY_DELETE_DATABASE } from "./queries/database";
 
 const TRASH_BATCH_SIZE = 50;
 
@@ -41,4 +43,43 @@ export async function restorePageRemote(
     variables: { id, workspaceId },
   })) as { data: { restorePage: GqlPage } };
   return r.data.restorePage;
+}
+
+export async function emptyTrashRemote(workspaceId: string): Promise<number> {
+  const r = (await appsyncClient().graphql({
+    query: EMPTY_TRASH,
+    variables: { workspaceId },
+  })) as {
+    data: { emptyTrash: number } | null;
+    errors?: Array<{ message?: string }>;
+  };
+  if (Array.isArray(r.errors) && r.errors.length > 0) {
+    const message = r.errors
+      .map((e) => e.message ?? "")
+      .filter(Boolean)
+      .join("; ");
+    throw new Error(message || "emptyTrash GraphQL error");
+  }
+  return Number(r.data?.emptyTrash ?? 0);
+}
+
+export async function permanentlyDeleteDatabaseRemote(
+  id: string,
+  workspaceId: string,
+): Promise<boolean> {
+  const r = (await appsyncClient().graphql({
+    query: PERMANENTLY_DELETE_DATABASE,
+    variables: { id, workspaceId },
+  })) as {
+    data: { permanentlyDeleteDatabase: boolean } | null;
+    errors?: Array<{ message?: string }>;
+  };
+  if (Array.isArray(r.errors) && r.errors.length > 0) {
+    const message = r.errors
+      .map((e) => e.message ?? "")
+      .filter(Boolean)
+      .join("; ");
+    throw new Error(message || "permanentlyDeleteDatabase GraphQL error");
+  }
+  return Boolean(r.data?.permanentlyDeleteDatabase);
 }

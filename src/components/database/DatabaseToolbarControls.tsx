@@ -236,11 +236,11 @@ export function DatabaseToolbarControls({
           className="relative w-32"
           onMouseEnter={() => setViewMenuHover(true)}
           onMouseLeave={() => {
+            if (viewMenuOpen) return;
             setViewMenuHover(false);
-            setViewMenuOpen(false);
           }}
         >
-          {viewMenuHover ? (
+          {viewMenuHover || viewMenuOpen ? (
             <button
               type="button"
               aria-label="데이터베이스 보기 모드"

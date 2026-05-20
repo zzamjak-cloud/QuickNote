@@ -12,7 +12,6 @@ const ALLOWED_MIME = new Set([
   "image/png",
   "image/jpeg",
   "image/webp",
-  "image/gif",
 ]);
 const MAX_BYTES = 20 * 1024 * 1024;
 
@@ -22,6 +21,7 @@ type GetImageUploadUrlResponse = {
       imageId: string;
       uploadUrl: string;
       expiresAt: string;
+      alreadyUploaded: boolean;
     };
   };
 };
@@ -42,21 +42,23 @@ export async function uploadImage(file: File): Promise<string> {
       input: { mimeType: file.type, size: file.size, sha256 },
     },
   })) as GetImageUploadUrlResponse;
-  const { imageId, uploadUrl } = presignRes.data.getImageUploadUrl;
+  const { imageId, uploadUrl, alreadyUploaded } = presignRes.data.getImageUploadUrl;
 
-  const putRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": file.type },
-    body: file,
-  });
-  if (!putRes.ok) {
-    throw new Error(`upload failed: ${putRes.status}`);
+  if (!alreadyUploaded) {
+    const putRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!putRes.ok) {
+      throw new Error(`upload failed: ${putRes.status}`);
+    }
+
+    await appsyncClient().graphql({
+      query: CONFIRM_IMAGE,
+      variables: { imageId },
+    });
   }
-
-  await appsyncClient().graphql({
-    query: CONFIRM_IMAGE,
-    variables: { imageId },
-  });
 
   return encodeImageRef(imageId);
 }

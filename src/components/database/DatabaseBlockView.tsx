@@ -108,29 +108,24 @@ export function DatabaseBlockView(props: NodeViewProps) {
     return `${name} 삭제`;
   }, [displayDbTitle]);
 
-  const [titleDraft, setTitleDraft] = useState(displayDbTitle);
-  useEffect(() => {
-    setTitleDraft(displayDbTitle);
-  }, [displayDbTitle, databaseId]);
-
   // db.create 없이 패치만 있으면 버전 기록 UI가 비어 보인다 — 고아 체인 복구 후 베이스라인 심기.
   useEffect(() => {
     if (!hasDatabaseId || !bundle) return;
     repairDbHistoryBaselineIfNeeded(databaseId, structuredClone(bundle));
   }, [hasDatabaseId, databaseId, bundle]);
 
-  const commitDbTitle = () => {
-    if (!hasDatabaseId) return;
-    const t = titleDraft.trim() || "제목 없음";
+  const commitDbTitle = (draft: string) => {
+    if (!hasDatabaseId) return false;
+    const t = draft.trim() || "제목 없음";
     const ok = setDatabaseTitle(databaseId, t);
     if (!ok) {
       alert("이미 사용 중인 데이터베이스 이름입니다.");
-      setTitleDraft(displayDbTitle);
-      return;
+      return false;
     }
     if (layout === "fullPage" && activePageId) {
       renamePage(activePageId, t);
     }
+    return true;
   };
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -439,8 +434,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
             {layout === "inline" ? (
               <DatabaseBlockInlineHeader
                 displayDbTitle={displayDbTitle}
-                titleDraft={titleDraft}
-                onTitleDraftChange={setTitleDraft}
                 onTitleCommit={commitDbTitle}
                 inlineTitleLocked={inlineTitleLocked}
                 dbHomePageId={dbHomePageId}

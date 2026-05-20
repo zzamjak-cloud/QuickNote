@@ -1,6 +1,6 @@
 import { getBlockDefinitionForNodeType } from "./registry";
 
-export type DropContainerType = "doc" | "column" | "tabPanel";
+export type DropContainerType = "doc" | "column" | "tabPanel" | "toggleContent";
 
 export function canDropNodeTypeInContainers(
   nodeType: string,
@@ -15,5 +15,6 @@ export function canDropNodeTypeInContainers(
   if (containers.includes("tabPanel") && !definition.dnd.allowInsideTabs) {
     return false;
   }
+  // toggleContent는 별도 제약 없이 block schema 허용 범위에 위임한다.
   return true;
 }

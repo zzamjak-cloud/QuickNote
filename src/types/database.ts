@@ -55,6 +55,8 @@ export type DateRangeValue = {
 
 export type FileCellItem = {
   fileId: string;
+  /** S3 첨부 ref. 없으면 legacy IndexedDB 파일로 해석한다. */
+  src?: string;
   name: string;
   mime: string;
   size: number;
@@ -116,7 +118,7 @@ export type SortRule = {
 
 /** 뷰별 표시/순서 설정 (#9). */
 export type ViewSpecificConfig = {
-  /** 이 뷰에서 보일 컬럼 id 순서. 비어 있으면 기본 순서 사용. */
+  /** 이 뷰에서 보일 컬럼 id 목록. 표시 순서는 항상 bundle.columns 순서를 따른다. */
   visibleColumnIds?: string[];
   /** visibleColumnIds 미지정 시 적용되는 숨김 목록. */
   hiddenColumnIds?: string[];
@@ -212,7 +214,7 @@ export function defaultMinWidthForType(type: ColumnType): number {
 
 /**
  * 현재 뷰에서 보일 컬럼을 순서대로 반환.
- * - viewConfigs[viewKind].visibleColumnIds가 있으면 그 순서(존재하는 id만).
+ * - viewConfigs[viewKind].visibleColumnIds가 있으면 그 집합을 bundle 컬럼 순서대로 반환.
  * - 없으면 bundle 컬럼 - hiddenColumnIds.
  */
 export function getVisibleOrderedColumns(
@@ -221,17 +223,14 @@ export function getVisibleOrderedColumns(
   viewConfigs: ViewConfigsMap | undefined,
 ): ColumnDef[] {
   const cfg = viewConfigs?.[viewKind];
-  if (cfg?.visibleColumnIds && cfg.visibleColumnIds.length > 0) {
-    const map = new Map(columns.map((c) => [c.id, c]));
-    const out: ColumnDef[] = [];
-    for (const id of cfg.visibleColumnIds) {
-      const c = map.get(id);
-      if (c) out.push(c);
-    }
-    return out;
+  const titleCol = columns.find((c) => c.type === "title");
+  if (cfg?.visibleColumnIds) {
+    const visible = new Set(cfg.visibleColumnIds);
+    if (titleCol) visible.add(titleCol.id);
+    return columns.filter((c) => visible.has(c.id));
   }
   const hidden = new Set(cfg?.hiddenColumnIds ?? []);
-  return columns.filter((c) => !hidden.has(c.id));
+  return columns.filter((c) => c.id === titleCol?.id || !hidden.has(c.id));
 }
 
 export type DatabaseBundle = {

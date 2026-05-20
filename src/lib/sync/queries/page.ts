@@ -41,6 +41,12 @@ export const RESTORE_PAGE = `
   }
 `;
 
+export const EMPTY_TRASH = `
+  mutation EmptyTrash($workspaceId: ID!) {
+    emptyTrash(workspaceId: $workspaceId)
+  }
+`;
+
 export const ON_PAGE_CHANGED = `
   subscription OnPageChanged($workspaceId: ID!) {
     onPageChanged(workspaceId: $workspaceId) { ${PAGE_FIELDS} }

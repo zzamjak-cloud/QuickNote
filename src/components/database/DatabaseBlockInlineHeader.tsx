@@ -1,11 +1,10 @@
 import { Database, History, Link2, Maximize2 } from "lucide-react";
+import { memo, useEffect, useRef } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
 
 type Props = {
   displayDbTitle: string;
-  titleDraft: string;
-  onTitleDraftChange: (v: string) => void;
-  onTitleCommit: () => void;
+  onTitleCommit: (draft: string) => boolean;
   inlineTitleLocked: boolean;
   dbHomePageId: string | null;
   onOpenDbHomePage: (pageId: string) => void;
@@ -16,10 +15,8 @@ type Props = {
   onTitleDragEnd?: () => void;
 };
 
-export function DatabaseBlockInlineHeader({
+export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader({
   displayDbTitle,
-  titleDraft,
-  onTitleDraftChange,
   onTitleCommit,
   inlineTitleLocked,
   dbHomePageId,
@@ -29,6 +26,14 @@ export function DatabaseBlockInlineHeader({
   onTitleDragStart,
   onTitleDragEnd,
 }: Props) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    if (document.activeElement === input) return;
+    input.value = displayDbTitle;
+  }, [displayDbTitle]);
+
   return (
     <>
       {/* 제목 바 전체가 드래그 핸들 — 노션처럼 빈 영역 드래그시 블럭 이동.
@@ -66,10 +71,29 @@ export function DatabaseBlockInlineHeader({
             </span>
           ) : (
             <input
+              ref={inputRef}
               type="text"
-              value={titleDraft}
-              onChange={(e) => onTitleDraftChange(e.target.value)}
-              onBlur={onTitleCommit}
+              defaultValue={displayDbTitle}
+              onKeyDownCapture={(e) => {
+                // 에디터 단축키/트랜잭션으로 전파되지 않게 차단
+                e.stopPropagation();
+              }}
+              onKeyUpCapture={(e) => {
+                e.stopPropagation();
+              }}
+              onBeforeInput={(e) => {
+                e.stopPropagation();
+              }}
+              onInput={(e) => {
+                e.stopPropagation();
+              }}
+              onBlur={() => {
+                const nextTitle = inputRef.current?.value ?? displayDbTitle;
+                const ok = onTitleCommit(nextTitle);
+                if (!ok) {
+                  if (inputRef.current) inputRef.current.value = displayDbTitle;
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   (e.target as HTMLInputElement).blur();
@@ -112,4 +136,4 @@ export function DatabaseBlockInlineHeader({
       </div>
     </>
   );
-}
+});
