@@ -280,7 +280,7 @@ function KanbanCard({
       }}
     >
       <div className="mb-1 flex items-start justify-between gap-1">
-        <span className="flex min-w-0 flex-1 items-center gap-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+        <span className="flex min-w-0 flex-1 items-center gap-1 text-base font-medium text-zinc-900 dark:text-zinc-100">
           <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
             <IconPicker current={pageIcon} size="sm" onChange={onIconChange} />
           </span>

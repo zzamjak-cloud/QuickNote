@@ -145,6 +145,8 @@ export type DatabasePanelState = {
   hiddenViewKinds: ViewKind[];
   /** 인라인 뷰에서 한 번에 표시할 최대 항목 수 (기본 30). fullPage는 무시. */
   itemLimit?: number;
+  /** 갤러리 뷰 열 수 (기본 4). node attrs → 서버 동기화. */
+  galleryColumns?: number;
 };
 
 /** DB 템플릿 — 새 행 생성 시 기본 셀 값을 미리 지정. */
@@ -189,6 +191,7 @@ export const emptyPanelState = (): DatabasePanelState => ({
   timelineDateColumnId: null,
   viewConfigs: {},
   hiddenViewKinds: [],
+  galleryColumns: 4,
 });
 
 /** 컬럼 타입별 기본 최소 폭(px) — colgroup의 width/minWidth에 적용. */

@@ -96,6 +96,8 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
           height={h}
           title="YouTube video"
           allowFullScreen={opts.allowFullscreen !== false}
+          // COEP credentialless 환경에서 cross-origin iframe이 차단되지 않도록
+          {...({ credentialless: "" } as object)}
           allow={
             opts.autoplay
               ? "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

@@ -244,7 +244,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
           natural-width(table-layout:fixed, no w-full) 로 두어 각 col 의 width 가 그대로 유지되게.
           parent 가 더 넓으면 좌측 정렬, 좁으면 가로 스크롤(이미 overflow-x-auto). */}
       <table
-        className="border-collapse text-left text-sm"
+        className="border-collapse text-left text-base"
         style={{ tableLayout: "fixed", width: `${tableWidthPx}px` }}
       >
         <colgroup>

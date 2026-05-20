@@ -109,7 +109,10 @@ export function DatabaseGalleryView({
 
   return (
     <div className="pt-3">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(${panelState.galleryColumns ?? 4}, minmax(0, 1fr))` }}
+      >
         {rows.map((row) => (
           <GalleryCard
             key={row.pageId}
@@ -214,7 +217,7 @@ const GalleryCard = memo(function GalleryCard({
         )}
       </div>
       <div className="p-2">
-        <div className="flex min-w-0 items-center gap-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
+        <div className="flex min-w-0 items-center gap-1 text-base font-medium text-zinc-900 dark:text-zinc-100">
           <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
             <IconPicker current={row.icon ?? null} size="sm" onChange={(icon) => setIcon(row.pageId, icon)} />
           </span>

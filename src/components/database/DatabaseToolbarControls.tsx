@@ -268,7 +268,7 @@ export function DatabaseToolbarControls({
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => onViewChange(option.value)}
+                    onClick={() => { onViewChange(option.value); setViewMenuOpen(false); }}
                     className={[
                       "flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left",
                       selected
@@ -285,6 +285,21 @@ export function DatabaseToolbarControls({
           )}
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
+          {/* 갤러리 열 수 선택 */}
+          {view === "gallery" && (
+            <AppSelect
+              value={String(panelState.galleryColumns ?? 4)}
+              options={[
+                { value: "2", label: "2열" },
+                { value: "3", label: "3열" },
+                { value: "4", label: "4열" },
+                { value: "5", label: "5열" },
+                { value: "6", label: "6열" },
+              ]}
+              onChange={(v) => setPanelState({ galleryColumns: Number(v) })}
+              className="h-7 text-xs"
+            />
+          )}
           {/* 검색 — 활성 시 슬라이드 펼침 */}
           <div className={[
             "inline-flex items-center gap-1 transition-all",

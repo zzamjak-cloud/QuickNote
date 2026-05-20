@@ -9,9 +9,15 @@ type GetImageDownloadUrlResponse = {
 };
 
 export const imageUrlCache = new ImageUrlCache(async (imageId) => {
-  const r = (await appsyncClient().graphql({
+  const r = await appsyncClient().graphql({
     query: GET_IMAGE_DOWNLOAD_URL,
     variables: { imageId },
-  })) as GetImageDownloadUrlResponse;
-  return r.data.getImageDownloadUrl;
+  });
+  const errors = (r as unknown as { errors?: { message?: string }[] }).errors;
+  if (errors?.length) {
+    throw new Error(errors[0]?.message ?? `이미지 URL 조회 실패: ${imageId}`);
+  }
+  const url = (r as GetImageDownloadUrlResponse).data?.getImageDownloadUrl;
+  if (!url) throw new Error(`이미지 URL 없음: ${imageId}`);
+  return url;
 }, 50 * 60 * 1000);

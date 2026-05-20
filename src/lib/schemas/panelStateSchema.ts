@@ -45,6 +45,7 @@ const databasePanelStatePartialSchema = z
     viewConfigs: z.record(viewKindEnum, viewSpecificSchema).optional(),
     hiddenViewKinds: z.array(viewKindEnum).optional(),
     itemLimit: z.number().int().positive().optional(),
+    galleryColumns: z.number().int().min(1).max(10).optional(),
   });
 
 export function parseDatabasePanelStateJson(raw: string): DatabasePanelState {

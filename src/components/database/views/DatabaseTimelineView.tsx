@@ -959,7 +959,7 @@ export function DatabaseTimelineView({
                       }
                     }}
                   >
-                    <span className="truncate pr-14 text-sm text-zinc-700 dark:text-zinc-200">
+                    <span className="truncate pr-14 text-base text-zinc-700 dark:text-zinc-200">
                       {row.title || "제목 없음"}
                     </span>
                     <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">

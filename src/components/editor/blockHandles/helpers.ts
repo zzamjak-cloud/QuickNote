@@ -12,6 +12,7 @@ import {
   Heading3,
   Lightbulb,
   List,
+  ListOrdered,
   Pilcrow,
   Quote,
 } from "lucide-react";
@@ -266,6 +267,7 @@ export const TYPE_MENU_ITEMS = [
   { label: "제목 2", icon: Heading2, cmd: (e: Editor) => e.chain().focus().setHeading({ level: 2 }).run() },
   { label: "제목 3", icon: Heading3, cmd: (e: Editor) => e.chain().focus().setHeading({ level: 3 }).run() },
   { label: "글머리 목록", icon: List, cmd: (e: Editor) => e.chain().focus().toggleBulletList().run() },
+  { label: "번호 목록", icon: ListOrdered, cmd: (e: Editor) => e.chain().focus().toggleOrderedList().run() },
   { label: "할 일", icon: CheckSquare, cmd: (e: Editor) => e.chain().focus().toggleTaskList().run() },
   { label: "인용", icon: Quote, cmd: (e: Editor) => e.chain().focus().toggleBlockquote().run() },
   { label: "코드 블록", icon: Code2, cmd: (e: Editor) => e.chain().focus().toggleCodeBlock().run() },

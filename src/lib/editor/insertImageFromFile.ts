@@ -34,7 +34,17 @@ export async function insertImageFromFile(
   },
 ): Promise<boolean> {
   const maxBytes = opts?.maxBytes ?? MAX_EDITOR_IMAGE_BYTES;
-  if (isGifFile(file)) return false;
+  if (isGifFile(file)) {
+    // GIF는 압축 없이 직접 업로드
+    try {
+      const ref = await uploadImage(file);
+      insert({ src: ref });
+      return true;
+    } catch (err) {
+      reportNonFatal(err, "insertImageFromFile:gif");
+      return false;
+    }
+  }
   try {
     const prepared = await prepareImageFileForUpload(file);
     if (prepared.size > maxBytes) {
