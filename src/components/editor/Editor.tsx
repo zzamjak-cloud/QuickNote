@@ -32,6 +32,7 @@ import {
   syncInsertBeforeBlockSelection,
 } from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { Indentation } from "../../lib/tiptapExtensions/indentation";
+import { OrderedListMarkdownShortcut } from "../../lib/tiptapExtensions/orderedListShortcut";
 import { BracketAutoClose } from "../../lib/tiptapExtensions/bracketAutoClose";
 import TextAlign from "@tiptap/extension-text-align";
 import type { createLowlight } from "lowlight";
@@ -333,6 +334,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
               },
             },
         blockquote: false,
+        orderedList: false,
         // 아래는 동일 이름으로 별도 등록하므로 StarterKit 쪽은 끈다.
         link: false,
         horizontalRule: false,
@@ -343,6 +345,7 @@ export function Editor({ pageId, bodyOnly = false, peek = false }: EditorProps =
         },
       }),
       BlockquoteNoInput,
+      OrderedListMarkdownShortcut,
       Placeholder.configure({
         placeholder: "/ 를 입력해 명령 보기...",
       }),

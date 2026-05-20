@@ -80,6 +80,7 @@ type HistoryActions = {
   getDbTimeline: (databaseId: string) => HistoryTimelineEntry[];
   deletePageHistoryEvents: (pageId: string, eventIds: string[]) => void;
   deleteDbHistoryEvents: (databaseId: string, eventIds: string[]) => void;
+  purgeDatabaseHistory: (databaseId: string) => void;
   getPageSnapshotAtEvent: (pageId: string, eventId: string) => PageSnapshot | null;
   getDbSnapshotAtEvent: (databaseId: string, eventId: string) => DatabaseSnapshot | null;
   getDeletedRowTombstones: (databaseId: string) => DeletedRowTombstone[];
@@ -512,6 +513,20 @@ export const useHistoryStore = create<HistoryStore>()(
               ...state.dbEventsByDatabaseId,
               [databaseId]: next,
             },
+          };
+        });
+      },
+
+      // DB의 모든 히스토리 이벤트와 행 톰스톤을 영구 제거 (영구삭제 시 호출)
+      purgeDatabaseHistory: (databaseId) => {
+        set((state) => {
+          const nextEvents = { ...state.dbEventsByDatabaseId };
+          delete nextEvents[databaseId];
+          const nextTombstones = { ...state.deletedRowTombstonesByDbId };
+          delete nextTombstones[databaseId];
+          return {
+            dbEventsByDatabaseId: nextEvents,
+            deletedRowTombstonesByDbId: nextTombstones,
           };
         });
       },

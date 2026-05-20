@@ -22,6 +22,9 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     (s) => s.restoreDatabaseFromHistoryEvent,
   );
   const pages = usePageStore((s) => s.pages);
+  const findFullPagePageIdForDatabase = usePageStore(
+    (s) => s.findFullPagePageIdForDatabase,
+  );
   const createPage = usePageStore((s) => s.createPage);
   const updateDoc = usePageStore((s) => s.updateDoc);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -31,15 +34,18 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   const deletedDbRestorePoints = useHistoryStore((s) =>
     s.getDeletedDbRestorePoints(),
   );
+  const purgeDatabaseHistory = useHistoryStore((s) => s.purgeDatabaseHistory);
   const [query, setQuery] = useState("");
   const [showDeleted, setShowDeleted] = useState(false);
   const [purgingIds, setPurgingIds] = useState<Record<string, boolean>>({});
   const [hiddenDeletedDbIds, setHiddenDeletedDbIds] = useState<Set<string>>(new Set());
+  const [selectedDeletedIds, setSelectedDeletedIds] = useState<Set<string>>(new Set());
   const [pendingPurge, setPendingPurge] = useState<{
     databaseId: string;
     title: string;
     workspaceId: string;
   } | null>(null);
+  const [pendingBulkPurge, setPendingBulkPurge] = useState(false);
 
   const activeDbIds = useMemo(
     () => new Set(dbList.map((d) => d.id)),
@@ -81,6 +87,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     setPurgingIds((prev) => ({ ...prev, [databaseId]: true }));
     try {
       await permanentlyDeleteDatabaseRemote(databaseId, workspaceId);
+      purgeDatabaseHistory(databaseId);
       setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
       showToast("삭제된 데이터베이스를 영구삭제했습니다.", { kind: "success" });
     } catch (error) {
@@ -95,19 +102,36 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     }
   };
 
+  const confirmBulkPurge = async () => {
+    setPendingBulkPurge(false);
+    const ids = Array.from(selectedDeletedIds);
+    for (const databaseId of ids) {
+      const targetWorkspaceId =
+        visibleDeleted.find((d) => d.databaseId === databaseId)?.workspaceId
+        ?? currentWorkspaceId;
+      if (!targetWorkspaceId) continue;
+      setPurgingIds((prev) => ({ ...prev, [databaseId]: true }));
+      try {
+        await permanentlyDeleteDatabaseRemote(databaseId, targetWorkspaceId);
+        purgeDatabaseHistory(databaseId);
+        setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setPurgingIds((prev) => {
+          const next = { ...prev };
+          delete next[databaseId];
+          return next;
+        });
+      }
+    }
+    setSelectedDeletedIds(new Set());
+    showToast(`${ids.length}개 데이터베이스를 영구삭제했습니다.`, { kind: "success" });
+  };
+
   const openDatabase = (databaseId: string, title: string) => {
-    const existing = Object.values(pages).find((p) => {
-      const first = p.doc?.content?.[0] as
-        | { type?: string; attrs?: Record<string, unknown> }
-        | undefined;
-      return (
-        first?.type === "databaseBlock" &&
-        first.attrs?.layout === "fullPage" &&
-        first.attrs?.databaseId === databaseId
-      );
-    });
     const pageId =
-      existing?.id ??
+      findFullPagePageIdForDatabase(databaseId) ??
       (() => {
         const id = createPage(title, null, { activate: false });
         updateDoc(id, {
@@ -184,34 +208,52 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
 
         <div className="max-h-72 overflow-y-auto">
           {visibleActive.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-zinc-500">
+            <div className="px-3 py-2.5 text-lg text-zinc-500">
               표시할 데이터베이스가 없습니다.
             </div>
           ) : (
-            visibleActive.map((d) => (
+            visibleActive.map((d) => {
+              const fullPageId = findFullPagePageIdForDatabase(d.id);
+              const fullPageTitle = fullPageId
+                ? pages[fullPageId]?.title?.trim() || null
+                : null;
+              return (
               <div
                 key={d.id}
-                className="flex items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800"
+                className="flex items-center justify-between gap-3 border-b border-zinc-100 px-3 py-2.5 text-lg last:border-b-0 dark:border-zinc-800"
               >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm text-zinc-700 dark:text-zinc-200">
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="truncate font-medium text-zinc-800 dark:text-zinc-100">
                     {d.meta.title}
                   </span>
+                  {fullPageTitle ? (
+                    <>
+                      <span className="shrink-0 text-zinc-400" aria-hidden>
+                        ·
+                      </span>
+                      <span className="min-w-0 truncate text-base text-zinc-500 dark:text-zinc-400">
+                        {fullPageTitle}
+                      </span>
+                    </>
+                  ) : null}
                   {isLCSchedulerDatabaseId(d.id) ? (
-                    <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">
+                    <span className="shrink-0 rounded bg-zinc-100 px-2 py-0.5 text-sm font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">
                       고정
                     </span>
                   ) : null}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => openDatabase(d.id, d.meta.title)}
-                  className="shrink-0 rounded bg-blue-600 px-2 py-1 text-sm text-white hover:bg-blue-700"
-                >
-                  열기
-                </button>
+                {!isLCSchedulerDatabaseId(d.id) ? (
+                  <button
+                    type="button"
+                    onClick={() => openDatabase(d.id, d.meta.title)}
+                    className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-base text-white hover:bg-blue-700"
+                  >
+                    열기
+                  </button>
+                ) : null}
               </div>
-            ))
+            );
+            })
           )}
         </div>
       </div>
@@ -232,7 +274,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
-              <span className="text-sm font-semibold">삭제된 데이터베이스</span>
+              <span className="text-lg font-semibold">삭제된 데이터베이스</span>
               <button
                 type="button"
                 onClick={() => setShowDeleted(false)}
@@ -241,22 +283,67 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                 ✕
               </button>
             </div>
-            <div className="max-h-64 overflow-y-auto">
+
+            {/* 전체 선택 + 일괄 삭제 툴바 */}
+            {visibleDeleted.length > 0 && (
+              <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-2 dark:border-zinc-800">
+                <label className="flex cursor-pointer items-center gap-2 text-base text-zinc-500 select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded"
+                    checked={selectedDeletedIds.size === visibleDeleted.length}
+                    onChange={(e) => {
+                      setSelectedDeletedIds(
+                        e.target.checked
+                          ? new Set(visibleDeleted.map((d) => d.databaseId))
+                          : new Set(),
+                      );
+                    }}
+                  />
+                  전체 선택
+                  {selectedDeletedIds.size > 0 && ` (${selectedDeletedIds.size})`}
+                </label>
+                {selectedDeletedIds.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setPendingBulkPurge(true)}
+                    className="rounded border border-red-300 px-2.5 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+                  >
+                    선택 영구삭제 ({selectedDeletedIds.size})
+                  </button>
+                )}
+              </div>
+            )}
+
+            <div className="max-h-56 overflow-y-auto">
               {visibleDeleted.length === 0 ? (
-                <p className="p-4 text-center text-xs text-zinc-400">
+                <p className="p-4 text-center text-lg text-zinc-400">
                   삭제된 데이터베이스가 없습니다.
                 </p>
               ) : (
                 visibleDeleted.map((d) => (
                   <div
                     key={d.eventId}
-                    className="flex items-center justify-between border-b border-zinc-100 px-4 py-2.5 last:border-b-0 dark:border-zinc-800"
+                    className="flex items-center gap-2 border-b border-zinc-100 px-4 py-2.5 last:border-b-0 dark:border-zinc-800"
                   >
-                    <div>
-                      <div className="text-xs font-medium text-zinc-400 line-through">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 shrink-0 rounded"
+                      checked={selectedDeletedIds.has(d.databaseId)}
+                      onChange={(e) => {
+                        setSelectedDeletedIds((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(d.databaseId);
+                          else next.delete(d.databaseId);
+                          return next;
+                        });
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-lg font-medium text-zinc-400 line-through">
                         {d.title}
                       </div>
-                      <div className="text-[10px] text-zinc-400">
+                      <div className="text-base text-zinc-400">
                         {new Date(d.ts).toLocaleString("ko-KR")}
                       </div>
                     </div>
@@ -266,16 +353,16 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                         restoreDatabaseFromHistoryEvent(d.databaseId, d.eventId);
                         setShowDeleted(false);
                       }}
-                      className="inline-flex shrink-0 items-center gap-1 rounded border border-zinc-200 px-2 py-1 text-[11px] hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                      className="inline-flex shrink-0 items-center gap-1 rounded border border-zinc-200 px-2.5 py-1.5 text-base hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                     >
-                      <RefreshCcw size={10} />
+                      <RefreshCcw size={14} />
                       복구
                     </button>
                     <button
                       type="button"
                       onClick={() => void purgeDeletedDatabase(d.databaseId, d.title)}
                       disabled={Boolean(purgingIds[d.databaseId])}
-                      className="inline-flex shrink-0 items-center gap-1 rounded border border-red-300 px-2 py-1 text-[11px] text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+                      className="inline-flex shrink-0 items-center gap-1 rounded border border-red-300 px-2.5 py-1.5 text-base text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
                     >
                       {purgingIds[d.databaseId] ? "삭제중…" : "영구삭제"}
                     </button>
@@ -300,6 +387,17 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
         zIndex={560}
         onCancel={() => setPendingPurge(null)}
         onConfirm={() => void confirmPurgeDeletedDatabase()}
+      />
+      <SimpleConfirmDialog
+        open={pendingBulkPurge}
+        title="선택 항목 영구삭제"
+        message={`선택한 ${selectedDeletedIds.size}개 DB를 모두 영구삭제합니다.\n복구할 수 없으며 DynamoDB에서도 제거됩니다.`}
+        confirmLabel={`${selectedDeletedIds.size}개 영구삭제`}
+        cancelLabel="취소"
+        danger
+        zIndex={560}
+        onCancel={() => setPendingBulkPurge(false)}
+        onConfirm={() => void confirmBulkPurge()}
       />
     </div>
   );

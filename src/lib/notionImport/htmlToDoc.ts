@@ -328,6 +328,22 @@ function blocksFromContainerChildren(
         }
       }
       if (tag === "figure") {
+        const yt = youtubeNodeFromElement(node);
+        if (yt) {
+          out.push(yt);
+          return;
+        }
+        // bookmark / 일반 임베드 — 클래스에 상관없이 anchor 있으면 북마크로
+        if (node.classList.contains("bookmark") || node.querySelector("a[href]")) {
+          const a = node.querySelector("a[href]");
+          if (a instanceof HTMLElement) {
+            const bookmark = bookmarkBlockFromAnchor(a, node);
+            if (bookmark) {
+              out.push(bookmark);
+              return;
+            }
+          }
+        }
         const figureImage = node.querySelector("img");
         if (figureImage instanceof HTMLElement) {
           const imageNode = imageNodeFromElement(figureImage, options);
@@ -347,6 +363,15 @@ function blocksFromContainerChildren(
       }
       if (tag === "ul" && node.classList.contains("toggle")) {
         out.push(...togglesFromToggleList(node, options, blockColor, blockToken));
+        return;
+      }
+      if (tag === "blockquote") {
+        out.push(blockquoteFromElement(node, blockColor, blockToken, options));
+        return;
+      }
+      if (tag === "iframe") {
+        const yt = youtubeNodeFromUrl(node.getAttribute("src") ?? "");
+        if (yt) out.push(yt);
         return;
       }
       if (tag === "ul" || tag === "ol") {
@@ -599,6 +624,13 @@ export type NotionCollectionTable = {
       hasTimeTag: boolean;
       statusColorToken: string | null;
       statusLike: boolean;
+      // 다중 선택 옵션 개수 (1 = single-select, 2+ = multi-select)
+      selectedCount: number;
+      // 선택된 옵션들 + 각각의 색 토큰
+      selectedOptions: Array<{ label: string; colorToken: string | null }>;
+      // 사람 속성 (Notion .user / .notion-user / role 아이콘)
+      hasPerson: boolean;
+      personNames: string[];
     }>;
   }>;
 };
@@ -816,20 +848,105 @@ function inlineFromNode(node: Node, inheritedColor: string | null, inheritedMark
   return out;
 }
 
-function bookmarkBlockFromAnchor(anchor: HTMLElement): JSONContent | null {
+// YouTube URL → videoId 추출 (watch?v=, youtu.be/, embed/, shorts/, live/ 모두 지원)
+function extractYoutubeVideoId(url: string): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  const patterns = [
+    /(?:youtube\.com\/watch\?(?:.*&)?v=)([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /youtube\.com\/embed\/([A-Za-z0-9_-]{11})/,
+    /youtube-nocookie\.com\/embed\/([A-Za-z0-9_-]{11})/,
+    /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/,
+    /youtube\.com\/live\/([A-Za-z0-9_-]{11})/,
+    /youtube\.com\/v\/([A-Za-z0-9_-]{11})/,
+  ];
+  for (const re of patterns) {
+    const m = trimmed.match(re);
+    if (m?.[1]) return m[1];
+  }
+  return null;
+}
+
+function youtubeNodeFromUrl(url: string): JSONContent | null {
+  const videoId = extractYoutubeVideoId(url);
+  if (!videoId) return null;
+  return {
+    type: "youtube",
+    attrs: {
+      src: `https://www.youtube.com/watch?v=${videoId}`,
+    },
+  };
+}
+
+// figure 내부의 youtube 링크/iframe 탐지
+function youtubeNodeFromElement(el: HTMLElement): JSONContent | null {
+  const iframe = el.querySelector("iframe[src]");
+  if (iframe instanceof HTMLElement) {
+    const src = iframe.getAttribute("src") ?? "";
+    const node = youtubeNodeFromUrl(src);
+    if (node) return node;
+  }
+  const anchors = Array.from(el.querySelectorAll("a[href]"));
+  for (const a of anchors) {
+    if (!(a instanceof HTMLElement)) continue;
+    const node = youtubeNodeFromUrl(a.getAttribute("href") ?? "");
+    if (node) return node;
+  }
+  return null;
+}
+
+// blockquote → tiptap blockquote 노드 (내부에 paragraph(s) 포함)
+function blockquoteFromElement(
+  el: HTMLElement,
+  blockColor: string | null,
+  blockToken: string | null,
+  options?: HtmlToDocOptions,
+): JSONContent {
+  const inner: JSONContent[] = [];
+  // p 자식이 있으면 각각 paragraph로 변환, 없으면 blockquote 자체 텍스트를 단일 paragraph로 처리
+  const childPs = Array.from(el.children).filter((c) => c.tagName.toLowerCase() === "p");
+  if (childPs.length > 0) {
+    for (const p of childPs) {
+      if (p instanceof HTMLElement) {
+        inner.push(paragraphFromElement(p, blockColor, blockToken, options));
+      }
+    }
+  } else {
+    inner.push(paragraphFromElement(el, blockColor, blockToken, options));
+  }
+  return {
+    type: "blockquote",
+    content: inner.length > 0 ? inner : [{ type: "paragraph", content: [] }],
+  };
+}
+
+function bookmarkBlockFromAnchor(anchor: HTMLElement, container?: HTMLElement | null): JSONContent | null {
   const href = anchor.getAttribute("href") ?? "";
   const normalizedHref = normalizeImportedLinkHref(href);
   if (!normalizedHref) return null;
-  const label = (anchor.textContent ?? "").trim();
+  const scope: HTMLElement = container ?? anchor;
+  // Notion bookmark 구조 — .bookmark-title / .bookmark-description / .bookmark-image / .bookmark-icon
+  const titleEl = scope.querySelector(".bookmark-title");
+  const descEl = scope.querySelector(".bookmark-description");
+  const hrefEl = scope.querySelector(".bookmark-href");
+  const imgEl = scope.querySelector("img.bookmark-image") || scope.querySelector("img.bookmark-icon");
+  const title = (titleEl?.textContent ?? "").trim()
+    || (anchor.textContent ?? "").trim().split(/\s{2,}|\n/)[0]
+    || normalizedHref;
+  const description = (descEl?.textContent ?? "").trim();
+  const siteName = (hrefEl?.textContent ?? "").trim();
+  const imageUrl = imgEl instanceof HTMLElement ? (imgEl.getAttribute("src") ?? "") : "";
   return {
     type: "bookmarkBlock",
     attrs: {
       href: normalizedHref,
-      title: label,
-      description: "",
-      siteName: "",
-      imageUrl: "",
-      status: "loading",
+      title,
+      description,
+      siteName,
+      imageUrl,
+      // 임포트 시 Notion HTML 에서 추출한 메타데이터만 사용 — CORS 차단되는 외부 fetch 재시도 방지
+      status: "ready",
     },
   };
 }
@@ -846,6 +963,9 @@ function maybeBookmarkBlockFromParagraph(el: HTMLElement, options?: HtmlToDocOpt
   const paragraphText = (el.textContent ?? "").trim().replace(/\s+/g, " ");
   const anchorText = (anchor.textContent ?? "").trim().replace(/\s+/g, " ");
   if (!paragraphText || paragraphText !== anchorText) return null;
+  // YouTube URL이면 youtube 노드를, 아니면 일반 북마크로
+  const yt = youtubeNodeFromUrl(href);
+  if (yt) return yt;
   return bookmarkBlockFromAnchor(anchor);
 }
 
@@ -870,7 +990,7 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
   const page = doc.querySelector("article.page") ?? doc.body;
   const blocks: JSONContent[] = [];
 
-  const elements = Array.from(page.querySelectorAll("details, table, h1, h2, h3, p, ul, ol, aside, figure.callout, figure.bookmark, figure, hr, img, video"));
+  const elements = Array.from(page.querySelectorAll("details, table, h1, h2, h3, p, ul, ol, aside, figure.callout, figure.bookmark, figure, hr, img, video, blockquote, iframe"));
   for (const el of elements) {
     if (!(el instanceof HTMLElement)) continue;
     if (el.closest("header") && el.tagName.toLowerCase() !== "h1") continue;
@@ -916,18 +1036,54 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
               : href ? decodeURIComponent(href) : null;
             const cellMeta = cells.map((cell) => {
               const timeNode = cell.querySelector("time");
-              const statusNode = cell.querySelector("[class*='select-value-color-'], [class*='status-value-color-']");
+
+              // Notion 선택/멀티선택 옵션 — span.selected-value (또는 selected-value-color-*)
+              const selectedSpans = Array.from(
+                cell.querySelectorAll("span.selected-value, [class*='selected-value']"),
+              ).filter((n): n is HTMLElement => n instanceof HTMLElement);
+              const selectedOptions = selectedSpans.map((s) => {
+                const cls = s.className;
+                const token = cls
+                  .split(/\s+/)
+                  .find((c) => c.startsWith("select-value-color-") || c.startsWith("selected-value-color-") || c.startsWith("status-value-color-"));
+                return {
+                  label: (s.textContent ?? "").trim(),
+                  colorToken: token
+                    ? token
+                        .replace("select-value-color-", "")
+                        .replace("selected-value-color-", "")
+                        .replace("status-value-color-", "")
+                    : null,
+                };
+              }).filter((o) => o.label.length > 0);
+
+              // status 색 토큰 (셀 클래스 또는 자식 노드)
+              const statusNode = cell.querySelector("[class*='select-value-color-'], [class*='status-value-color-'], [class*='selected-value-color-']");
               const statusClassSource = `${cell.className} ${statusNode?.className ?? ""}`;
               const statusClass = statusClassSource
                 .split(/\s+/)
-                .find((cls) => cls.startsWith("select-value-color-") || cls.startsWith("status-value-color-"));
+                .find((cls) => cls.startsWith("select-value-color-") || cls.startsWith("status-value-color-") || cls.startsWith("selected-value-color-"));
               const statusColorToken = statusClass
-                ? statusClass.replace("select-value-color-", "").replace("status-value-color-", "")
-                : null;
+                ? statusClass
+                    .replace("select-value-color-", "")
+                    .replace("selected-value-color-", "")
+                    .replace("status-value-color-", "")
+                : (selectedOptions[0]?.colorToken ?? null);
+
+              // 사람 속성 — .user, .notion-user, .person, [class*='-user']
+              const personNodes = Array.from(
+                cell.querySelectorAll("span.user, .notion-user, .person, [class*='-user']"),
+              ).filter((n): n is HTMLElement => n instanceof HTMLElement);
+              const personNames = personNodes.map((p) => (p.textContent ?? "").trim()).filter(Boolean);
+
               return {
                 hasTimeTag: !!timeNode,
                 statusColorToken,
-                statusLike: !!statusClass || !!cell.querySelector(".property-select, .property-status"),
+                statusLike: !!statusClass || selectedOptions.length > 0 || !!cell.querySelector(".property-select, .property-status"),
+                selectedCount: selectedOptions.length,
+                selectedOptions,
+                hasPerson: personNames.length > 0,
+                personNames,
               };
             });
             rows.push({ cells: texts, titleLinkPath, cellMeta });
@@ -1007,16 +1163,40 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
       }
     }
     if (tag === "figure" && el.classList.contains("bookmark")) {
+      // 북마크로 분류되어도 URL이 YouTube면 youtube 노드로 변환
+      const yt = youtubeNodeFromElement(el);
+      if (yt) {
+        blocks.push(yt);
+        continue;
+      }
       const anchor = el.querySelector("a[href]");
       if (anchor instanceof HTMLElement) {
-        const bookmark = bookmarkBlockFromAnchor(anchor);
+        const bookmark = bookmarkBlockFromAnchor(anchor, el);
         if (bookmark) {
           blocks.push(bookmark);
           continue;
         }
       }
     }
+    if (tag === "iframe") {
+      const src = el.getAttribute("src") ?? "";
+      const yt = youtubeNodeFromUrl(src);
+      if (yt) {
+        blocks.push(yt);
+        continue;
+      }
+    }
+    if (tag === "blockquote") {
+      blocks.push(blockquoteFromElement(el, blockColor, blockToken, options));
+      continue;
+    }
     if (tag === "figure") {
+      // figure 내부에 youtube 임베드/링크가 있으면 youtube 노드로 변환
+      const yt = youtubeNodeFromElement(el);
+      if (yt) {
+        blocks.push(yt);
+        continue;
+      }
       const figureImage = el.querySelector("img");
       if (figureImage instanceof HTMLElement) {
         const imageNode = imageNodeFromElement(figureImage, options);
@@ -1030,6 +1210,15 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
         const mediaNode = mediaNodeFromElement(figureMedia, options);
         if (mediaNode) {
           blocks.push(mediaNode);
+          continue;
+        }
+      }
+      // Notion 임베드(외부 링크)는 bookmark 클래스 없이 단순 <figure><a class="source">URL</a></figure> 로 출력됨 → 북마크로 변환
+      const embedAnchor = el.querySelector("a[href]");
+      if (embedAnchor instanceof HTMLElement) {
+        const bookmark = bookmarkBlockFromAnchor(embedAnchor, el);
+        if (bookmark) {
+          blocks.push(bookmark);
           continue;
         }
       }
@@ -1065,4 +1254,37 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
 
 export function notionHtmlToDoc(html: string, options?: HtmlToDocOptions): JSONContent {
   return notionHtmlToDocInternal(html, options);
+}
+
+// Notion HTML 에서 페이지 아이콘 추출
+// - emoji: 텍스트 노드 (e.g. "📝")
+// - imagePath: 상대 경로 (e.g. "page-name/icon.png") — 호출부에서 자산 리졸버로 처리
+export function extractNotionPageIcon(html: string): { emoji?: string; imagePath?: string } | null {
+  if (typeof DOMParser === "undefined") return null;
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const header = doc.querySelector("header") ?? doc.body;
+  if (!header) return null;
+
+  // 1) <img class="page-header-icon" src="..."> — 커스텀 업로드 아이콘
+  const iconImg = header.querySelector(
+    "img.page-header-icon, img.notion-page-icon, img.page-icon",
+  );
+  if (iconImg instanceof HTMLImageElement) {
+    const src = iconImg.getAttribute("src") ?? "";
+    if (src && !src.startsWith("data:")) {
+      return { imagePath: src };
+    }
+  }
+
+  // 2) <span class="icon">😀</span> 또는 <div class="page-header-icon">😀</div>
+  const iconEl = header.querySelector(
+    ".page-header-icon, .notion-page-icon, .page-icon, span.icon",
+  );
+  if (iconEl instanceof HTMLElement) {
+    const text = (iconEl.textContent ?? "").trim();
+    if (text && text.length <= 8) {
+      return { emoji: text };
+    }
+  }
+  return null;
 }

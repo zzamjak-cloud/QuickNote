@@ -16,7 +16,7 @@ type Props = {
 const sizeClass: Record<NonNullable<Props["size"]>, string> = {
   sm: "h-4 w-4",
   md: "h-5 w-5",
-  lg: "h-10 w-10",
+  lg: "h-14 w-14",
 };
 
 export function PageIconDisplay({
@@ -29,7 +29,7 @@ export function PageIconDisplay({
   const { url, error } = useImageUrl(isImg ? icon : null);
   const box = sizeClass[size];
   const lucideIcon = decodeLucidePageIcon(icon);
-  const iconSize = size === "lg" ? 32 : size === "md" ? 18 : 15;
+  const iconSize = size === "lg" ? 48 : size === "md" ? 18 : 15;
 
   if (lucideIcon) {
     const Icon =

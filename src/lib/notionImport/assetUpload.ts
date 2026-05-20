@@ -1,12 +1,10 @@
 import type { JSONContent } from "@tiptap/react";
 import { uploadFile } from "../files/upload";
-import { prepareGifFileBlockForUpload } from "../files/videoCompress";
 import { prepareImageFileForUpload } from "../images/compressImage";
 import { uploadImage } from "../images/upload";
 import type { NotionImportedAsset, NotionZipPreview } from "./zipParser";
 
 const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
-const GIF_WASM_TRANSCODE_MAX_BYTES = 40 * 1024 * 1024;
 
 const IMAGE_NODE_MIME = new Set([
   "image/png",
@@ -98,23 +96,17 @@ export function collectNotionAssetRefsFromHtml(
 }
 
 export async function uploadNotionAsset(asset: NotionImportedAsset): Promise<UploadedNotionAsset> {
-  if (asset.mimeType === "image/gif" && asset.size > GIF_WASM_TRANSCODE_MAX_BYTES) {
-    return failedNotionAsset(
-      asset,
-      `GIF가 ${(asset.size / 1024 / 1024).toFixed(1)}MB라서 브라우저 MP4 변환 한도를 초과했습니다.`,
-    );
-  }
-
   const file = await asset.readAsFile();
+
+  // GIF — FFmpeg 변환 없이 원본 그대로 fileBlock 으로 업로드 (애니메이션 보존, image/* 인라인 미리보기)
   if (asset.mimeType === "image/gif") {
-    const compressedVideo = await prepareGifFileBlockForUpload(file);
-    const uploaded = await uploadFile(compressedVideo, { alreadyPrepared: true });
+    const uploaded = await uploadFile(file, { alreadyPrepared: true });
     return {
       kind: "file",
       path: asset.path,
       src: uploaded.ref,
       name: uploaded.name,
-      mimeType: uploaded.mimeType,
+      mimeType: "image/gif",
       size: uploaded.size,
     };
   }
@@ -134,7 +126,9 @@ export async function uploadNotionAsset(asset: NotionImportedAsset): Promise<Upl
     }
   }
 
-  const uploaded = await uploadFile(file);
+  // Notion 이 내보낸 비디오/파일은 이미 인코딩된 상태이므로 FFmpeg 재트랜스코드를 건너뛴다.
+  // alreadyPrepared: true → uploadFile 에서 prepareVideoFileForUpload 미호출
+  const uploaded = await uploadFile(file, { alreadyPrepared: true });
   return {
     kind: "file",
     path: asset.path,

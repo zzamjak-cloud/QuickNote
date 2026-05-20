@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { parseNotionZipFile, type NotionImportedAsset, type NotionZipPreview } from "../../lib/notionImport/zipParser";
+import { useEffect, useMemo, useState } from "react";
+import { parseNotionZipFile, type NotionZipPreview } from "../../lib/notionImport/zipParser";
+import { scanNotionFolder, isFolderPickerSupported } from "../../lib/notionImport/folderScanner";
 import { notionMarkdownToDoc } from "../../lib/notionImport/markdownToDoc";
 import { notionHtmlToDoc, type NotionCollectionTable } from "../../lib/notionImport/htmlToDoc";
 import {
@@ -10,6 +11,7 @@ import {
   uploadNotionAsset,
   type UploadedNotionAsset,
 } from "../../lib/notionImport/assetUpload";
+import { NotionCsvFolderSection } from "./NotionCsvFolderSection";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import type { ColumnType } from "../../types/database";
@@ -51,6 +53,7 @@ export function NotionImportTab() {
   const [importMessage, setImportMessage] = useState<string>("");
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
+  const [previewContent, setPreviewContent] = useState<string>("");
 
   const pages = useMemo(
     () => (status.kind === "ready" ? status.preview.pages : []),
@@ -62,6 +65,19 @@ export function NotionImportTab() {
     if (selectedPath) return pages.find((p) => p.path === selectedPath) ?? null;
     return pages[0] ?? null;
   }, [pages, selectedPath]);
+
+  // 선택된 페이지 미리보기 컨텐츠를 지연 로드 (스캔 단계에서 전체 내용을 메모리에 올리지 않음)
+  useEffect(() => {
+    setPreviewContent("");
+    if (!selectedPage) return;
+    let cancelled = false;
+    selectedPage.readContent().then((c) => {
+      if (!cancelled) setPreviewContent(c);
+    }).catch(() => {
+      if (!cancelled) setPreviewContent("");
+    });
+    return () => { cancelled = true; };
+  }, [selectedPage]);
   const importingLabel = importProgress
     ? `${importProgress.label}${importProgress.total > 0 ? ` ${Math.min(importProgress.done + 1, importProgress.total)}/${importProgress.total}` : ""}`
     : "페이지 구성중";
@@ -83,6 +99,27 @@ export function NotionImportTab() {
     }
   };
 
+  const onPickFolder = async () => {
+    setImportMessage("");
+    setStatus({ kind: "loading" });
+    try {
+      const dir = await window.showDirectoryPicker({ mode: "read" });
+      const preview = await scanNotionFolder(dir);
+      setStatus({ kind: "ready", preview, sourceName: dir.name });
+      const preferred = preview.pages.find((p) => p.format === "html") ?? preview.pages[0];
+      setSelectedPath(preferred?.path ?? "");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setStatus({ kind: "idle" });
+        return;
+      }
+      setStatus({
+        kind: "error",
+        message: error instanceof Error ? error.message : "폴더 분석 중 오류가 발생했습니다.",
+      });
+    }
+  };
+
   const onImportSelectedPage = async () => {
     const currentStatus = status;
     if (!selectedPage || currentStatus.kind !== "ready" || isImporting) return;
@@ -98,6 +135,7 @@ export function NotionImportTab() {
       const importingPath = new Set<string>();
       const assetResolver = createNotionAssetResolver(currentStatus.preview);
       const uploadedAssetByPath = new Map<string, UploadedNotionAsset>();
+      const contentByPath = new Map<string, string>();
 
       const normalizeNotionSegment = (value: string): string =>
         value
@@ -264,7 +302,7 @@ export function NotionImportTab() {
         importingPath.add(source.path);
 
         const doc: JSONContent = source.format === "html"
-          ? notionHtmlToDoc(source.content, {
+          ? notionHtmlToDoc(contentByPath.get(source.path) ?? "", {
             currentPagePath: source.path,
             resolveImageSrc: resolveExternalImageSrc,
             resolveImageNode: resolveImageNodeForPage(source.path),
@@ -344,8 +382,9 @@ export function NotionImportTab() {
                 if (row.titleLinkPath) {
                   const rowSource = pageByPath.get(row.titleLinkPath)
                     ?? Array.from(pageByPath.values()).find((p) => p.path.endsWith(row.titleLinkPath ?? ""));
-                  if (rowSource?.format === "html") {
-                    const rowDoc = notionHtmlToDoc(rowSource.content, {
+                  const rowContent = rowSource?.format === "html" ? contentByPath.get(rowSource.path) : undefined;
+                  if (rowSource && rowContent) {
+                    const rowDoc = notionHtmlToDoc(rowContent, {
                       currentPagePath: rowSource.path,
                       resolveImageSrc: resolveExternalImageSrc,
                       resolveImageNode: resolveImageNodeForPage(rowSource.path),
@@ -362,7 +401,7 @@ export function NotionImportTab() {
               return dbId;
             },
           })
-          : notionMarkdownToDoc(source.content, { pageTitle: source.title });
+          : notionMarkdownToDoc(contentByPath.get(source.path) ?? "", { pageTitle: source.title });
 
         updateDoc(pageId, doc);
         setIcon(pageId, "📝");
@@ -388,52 +427,49 @@ export function NotionImportTab() {
         .sort((a, b) => a.depth - b.depth)
         .map((p) => p.path);
 
-      const assetsToUpload = Array.from(
-        subtreePaths.reduce((acc, path) => {
-          const source = pageByPath.get(path);
-          if (!source || source.format !== "html") return acc;
-          for (const asset of collectNotionAssetRefsFromHtml(source.content, source.path, assetResolver)) {
-            acc.set(asset.path, asset);
-          }
-          return acc;
-        }, new Map<string, NotionImportedAsset>()),
-      ).map(([, asset]) => asset);
-
+      // 페이지 구조 먼저 생성 (컨텐츠 없이 빈 페이지 트리 구성)
       setImportProgress({ label: "페이지 구조 생성중", done: 0, total: subtreePaths.length });
       await yieldToPaint();
-      subtreePaths.forEach((path) => {
-        void ensurePageIdForSource(path);
-      });
+      subtreePaths.forEach((path) => { void ensurePageIdForSource(path); });
 
-      for (let idx = 0; idx < assetsToUpload.length; idx += 1) {
-        const asset = assetsToUpload[idx];
-        if (!asset) continue;
-        setImportProgress({
-          label: "첨부 업로드중",
-          done: idx,
-          total: assetsToUpload.length,
-          current: asset.name,
-        });
-        await yieldToPaint();
-        try {
-          uploadedAssetByPath.set(asset.path, await uploadNotionAsset(asset));
-        } catch (error) {
-          uploadedAssetByPath.set(asset.path, failedNotionAsset(asset, error));
-        }
-      }
-
+      // 1페이지씩 순차 처리: 컨텐츠 로드 → 에셋 업로드 → 문서 변환 → 메모리 해제
+      const diagImportMem = (label: string) => {
+        const m = (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+        if (m) console.log(`[임포트진단] ${label} | 힙 ${(m.usedJSHeapSize / 1048576).toFixed(0)}MB / 한도 ${(m.jsHeapSizeLimit / 1048576).toFixed(0)}MB`);
+        else console.log(`[임포트진단] ${label}`);
+      };
+      diagImportMem(`시작 — 서브트리 ${subtreePaths.length}페이지`);
       for (let idx = 0; idx < subtreePaths.length; idx += 1) {
         const path = subtreePaths[idx];
         if (!path) continue;
         const source = pageByPath.get(path);
-        setImportProgress({
-          label: "페이지 구성중",
-          done: idx,
-          total: subtreePaths.length,
-          current: source?.title ?? path,
-        });
+        if (!source) continue;
+
+        setImportProgress({ label: "임포트중", done: idx, total: subtreePaths.length, current: source.title ?? path });
         await yieldToPaint();
+
+        diagImportMem(`[${idx + 1}/${subtreePaths.length}] 컨텐츠 로드 전: ${source.title}`);
+        contentByPath.set(path, await source.readContent());
+        const contentKb = ((contentByPath.get(path)?.length ?? 0) / 1024).toFixed(0);
+        diagImportMem(`[${idx + 1}/${subtreePaths.length}] 컨텐츠 로드 후: ${contentKb}KB`);
+
+        if (source.format === "html") {
+          for (const asset of collectNotionAssetRefsFromHtml(contentByPath.get(path) ?? "", path, assetResolver)) {
+            if (!uploadedAssetByPath.has(asset.path)) {
+              try {
+                uploadedAssetByPath.set(asset.path, await uploadNotionAsset(asset));
+              } catch (error) {
+                uploadedAssetByPath.set(asset.path, failedNotionAsset(asset, error));
+              }
+            }
+          }
+        }
+
         void importPageFromSource(path);
+
+        // 처리 완료 후 컨텐츠 해제 → 다음 페이지 전 GC 대상
+        contentByPath.delete(path);
+        diagImportMem(`[${idx + 1}/${subtreePaths.length}] 페이지 완료`);
       }
 
       const newPageId = importedPageIdByPath.get(selectedPage.path) ?? null;
@@ -459,10 +495,20 @@ export function NotionImportTab() {
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
-        <h3 className="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">Notion ZIP 가져오기 (1차: 페이지 1개)</h3>
+        <h3 className="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">Notion 가져오기</h3>
         <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-          먼저 ZIP을 분석하고, 감지된 페이지 중 1개를 선택해 QuickNote 페이지로 생성합니다.
+          ZIP을 미리 압축 해제한 뒤 폴더를 선택하면 메모리 문제 없이 대용량도 처리됩니다.
         </p>
+        {isFolderPickerSupported() && (
+          <button
+            type="button"
+            onClick={() => void onPickFolder()}
+            className="mb-3 inline-flex items-center rounded bg-zinc-900 px-3 py-1.5 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            압축 해제 폴더 선택
+          </button>
+        )}
+        <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">또는 ZIP 파일 직접 선택 (대용량은 크래시 위험)</div>
         <input
           type="file"
           accept=".zip,application/zip"
@@ -510,11 +556,9 @@ export function NotionImportTab() {
                   <div>depth: {selectedPage.depth}</div>
                   <div>parent: {selectedPage.parentTitle ?? "(root)"}</div>
                   <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-[11px] dark:bg-zinc-950">
-                    {selectedPage.content
-                      .replace(/<[^>]+>/g, " ")
-                      .replace(/\s+/g, " ")
-                      .trim()
-                      .slice(0, 600) || "(빈 페이지)"}
+                    {previewContent
+                      ? previewContent.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 600)
+                      : "(로드 중...)"}
                   </pre>
                 </div>
               ) : null}
@@ -551,6 +595,8 @@ export function NotionImportTab() {
       ) : null}
 
       {importMessage ? <p className="text-sm text-emerald-600 dark:text-emerald-400">{importMessage}</p> : null}
+
+      <NotionCsvFolderSection />
     </div>
   );
 }

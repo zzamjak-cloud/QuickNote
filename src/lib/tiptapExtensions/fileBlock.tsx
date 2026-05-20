@@ -76,7 +76,15 @@ const FileView = memo(function FileView(props: NodeViewProps) {
   const attrs = props.node.attrs as FileAttrs;
   const { url, error } = useFileUrl(attrs.src ?? null);
   const [zoom, setZoom] = useState(false);
-  const mime = attrs.mime ?? attrs.mimeType ?? attrs.contentType ?? "";
+  let mime = attrs.mime ?? attrs.mimeType ?? attrs.contentType ?? "";
+  // mime 이 비어 있거나 일반(application/octet-stream)이면 파일명 확장자로 보강
+  if (!mime || mime === "application/octet-stream") {
+    const nameLower = (attrs.name ?? "").toLowerCase();
+    if (/\.gif$/.test(nameLower)) mime = "image/gif";
+    else if (/\.(png|jpe?g|webp|avif)$/.test(nameLower)) mime = "image/png";
+    else if (/\.(mp4|m4v|mov|webm)$/.test(nameLower)) mime = "video/mp4";
+    else if (/\.(mp3|wav|m4a|ogg)$/.test(nameLower)) mime = "audio/mpeg";
+  }
   const isUploading = !!attrs.uploading;
   const hasUploadError = !!attrs.uploadError;
 
@@ -154,6 +162,51 @@ const FileView = memo(function FileView(props: NodeViewProps) {
               src={url}
               controls
               autoPlay
+              className="max-h-full max-w-full"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        )}
+      </NodeViewWrapper>
+    );
+  }
+
+  // 이미지(특히 GIF) 인라인 미리보기 — 애니메이션 GIF 폴백 등에 사용
+  if (mime.startsWith("image/")) {
+    const styleW = attrs.width ? `${attrs.width}px` : undefined;
+    return (
+      <NodeViewWrapper
+        as="div"
+        className="qn-file-shell my-1 leading-none"
+        data-drag-handle
+      >
+        {url ? (
+          <img
+            src={url}
+            alt={attrs.name ?? ""}
+            className="block h-auto rounded-lg border border-zinc-200 dark:border-zinc-700"
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setZoom(true);
+            }}
+            style={{ width: styleW ?? "auto", maxWidth: "100%" }}
+          />
+        ) : (
+          <div className="flex h-32 w-64 items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
+            로딩…
+          </div>
+        )}
+        {zoom && url && (
+          <div
+            className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 p-6"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setZoom(false)}
+          >
+            <img
+              src={url}
+              alt={attrs.name ?? ""}
               className="max-h-full max-w-full"
               onClick={(e) => e.stopPropagation()}
             />

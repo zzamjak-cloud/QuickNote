@@ -6,7 +6,7 @@ export type NotionImportedPage = {
   depth: number;
   parentTitle: string | null;
   format: "markdown" | "html";
-  content: string;
+  readContent: () => Promise<string>;
 };
 
 export type NotionImportedAsset = {
@@ -130,15 +130,32 @@ export async function parseNotionZipFile(file: Blob): Promise<NotionZipPreview> 
   return parseNotionZipInput(file);
 }
 
+function diagMem(label: string) {
+  const m = (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+  if (m) {
+    console.log(`[ZIP진단] ${label} | 힙 ${(m.usedJSHeapSize / 1048576).toFixed(0)}MB / 한도 ${(m.jsHeapSizeLimit / 1048576).toFixed(0)}MB`);
+  } else {
+    console.log(`[ZIP진단] ${label}`);
+  }
+}
+
 async function parseNotionZipInput(input: ZipInput): Promise<NotionZipPreview> {
+  const inputSize = input instanceof Blob ? input.size : input.byteLength;
+  console.log(`[ZIP진단] 파싱 시작 — 입력 ${(inputSize / 1048576).toFixed(1)}MB`);
+  diagMem("파싱 시작");
   const fileEntries: ZipFileEntry[] = [];
   const queue: Array<{ basePath: string; data: ZipInput }> = [{ basePath: "", data: input }];
 
   while (queue.length > 0) {
     const current = queue.shift();
     if (!current) break;
+    const currentSize = current.data instanceof Blob ? current.data.size : current.data.byteLength;
+    console.log(`[ZIP진단] JSZip.loadAsync 호출 — basePath="${current.basePath}" ${(currentSize / 1048576).toFixed(1)}MB`);
+    diagMem(`loadAsync 전 (${current.basePath || "루트"})`);
     const zip = await JSZip.loadAsync(current.data);
+    diagMem(`loadAsync 후 (${current.basePath || "루트"})`);
     const currentFiles = Object.values(zip.files).filter((entry) => !entry.dir);
+    console.log(`[ZIP진단] 항목 수: ${currentFiles.length}개`);
 
     for (const entry of currentFiles) {
       const entryName = current.basePath ? `${current.basePath}/${entry.name}` : entry.name;
@@ -167,7 +184,6 @@ async function parseNotionZipInput(input: ZipInput): Promise<NotionZipPreview> {
 
   const pages: NotionImportedPage[] = [];
   for (const entry of markdownEntries) {
-    const content = await entry.readAsString();
     const meta = buildPageMeta(entry.name);
     pages.push({
       path: entry.name,
@@ -175,12 +191,11 @@ async function parseNotionZipInput(input: ZipInput): Promise<NotionZipPreview> {
       depth: meta.depth,
       parentTitle: meta.parentTitle,
       format: "markdown",
-      content,
+      readContent: () => entry.readAsString(),
     });
   }
 
   for (const entry of htmlEntries) {
-    const content = await entry.readAsString();
     const meta = buildPageMeta(entry.name);
     pages.push({
       path: entry.name,
@@ -188,7 +203,7 @@ async function parseNotionZipInput(input: ZipInput): Promise<NotionZipPreview> {
       depth: meta.depth,
       parentTitle: meta.parentTitle,
       format: "html",
-      content,
+      readContent: () => entry.readAsString(),
     });
   }
 
@@ -213,6 +228,8 @@ async function parseNotionZipInput(input: ZipInput): Promise<NotionZipPreview> {
     });
   }
 
+  diagMem("파싱 완료");
+  console.log(`[ZIP진단] 파싱 완료 — 페이지 ${pages.length}개(MD:${markdownEntries.length} HTML:${htmlEntries.length}) 에셋 ${assetEntries.length}개`);
   return {
     totalFiles: fileEntries.length,
     markdownFileCount: markdownEntries.length,

@@ -10,6 +10,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // FFmpeg WASM(@ffmpeg/core)이 SharedArrayBuffer 를 요구하므로 COOP/COEP 헤더 필수.
+    // credentialless 는 cross-origin 리소스(S3 이미지 등)도 자동 허용하여 require-corp 보다 안전.
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "credentialless",
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {

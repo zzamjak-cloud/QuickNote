@@ -245,7 +245,7 @@ type Props = {
   current: string | null;
   onChange: (icon: string | null) => void;
   // 인라인 컴팩트 모드: 사이드바·트리에서 작은 아이콘 버튼만 노출
-  size?: "lg" | "sm";
+  size?: "lg" | "md" | "sm";
   /** 이미지 업로드 실패·용량 초과 시 알림 */
   onUploadMessage?: (message: string) => void;
   /** current가 null일 때 표시할 기본 아이콘. 미지정 시 + 아이콘 */
@@ -541,13 +541,26 @@ export function IconPicker({
       <button
         type="button"
         onClick={openPicker}
-        className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md text-3xl hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md text-5xl hover:bg-zinc-100 dark:hover:bg-zinc-800"
         aria-label="페이지 아이콘"
       >
         {current ? (
           <PageIconDisplay icon={current} size="lg" />
         ) : (
           defaultIcon ?? <LucideIcons.Plus size={18} className="text-zinc-400" />
+        )}
+      </button>
+    ) : size === "md" ? (
+      <button
+        type="button"
+        onClick={openPicker}
+        className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded text-lg hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        aria-label="페이지 아이콘"
+      >
+        {current ? (
+          <PageIconDisplay icon={current} size="md" />
+        ) : (
+          <PageIconDisplay icon={null} size="md" />
         )}
       </button>
     ) : (

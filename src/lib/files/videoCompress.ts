@@ -25,6 +25,18 @@ let ffmpegInstance: FFmpeg | null = null;
 let ffmpegLoadPromise: Promise<FFmpeg> | null = null;
 let compressionQueue: Promise<void> = Promise.resolve();
 
+// 진행 중인 작업을 강제 종료할 때 호출 — 타임아웃·취소 시 사용
+export function terminateFfmpeg(): void {
+  try {
+    ffmpegInstance?.terminate();
+    console.warn("[ffmpeg] terminate() 호출 — 인스턴스 폐기");
+  } catch (err) {
+    console.warn("[ffmpeg] terminate 실패", err);
+  }
+  ffmpegInstance = null;
+  ffmpegLoadPromise = null;
+}
+
 export function isVideoFile(file: File): boolean {
   return file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|ogv|avi|mkv|mpg|mpeg|3gp)$/i.test(file.name);
 }
@@ -60,16 +72,27 @@ async function loadFfmpeg(): Promise<FFmpeg> {
   if (ffmpegInstance?.loaded) return ffmpegInstance;
   if (!ffmpegLoadPromise) {
     const ffmpeg = new FFmpeg();
+    // 글로벌 진단 로그 — 한 번만 부착
+    ffmpeg.on("log", ({ type, message }) => {
+      // FFmpeg 로그가 너무 많을 수 있어서 에러/경고만 출력
+      if (type === "stderr" && /error|invalid|fail/i.test(message)) {
+        console.warn(`[ffmpeg log] ${message}`);
+      }
+    });
+    const t0 = performance.now();
+    console.log("[ffmpeg] load 시작");
     ffmpegLoadPromise = ffmpeg
       .load({
         coreURL: ffmpegCoreURL,
         wasmURL: ffmpegWasmURL,
       })
       .then(() => {
+        console.log(`[ffmpeg] load 완료 — ${((performance.now() - t0) / 1000).toFixed(2)}초`);
         ffmpegInstance = ffmpeg;
         return ffmpeg;
       })
       .catch((error) => {
+        console.error("[ffmpeg] load 실패", error);
         ffmpegLoadPromise = null;
         throw error;
       });
@@ -78,13 +101,28 @@ async function loadFfmpeg(): Promise<FFmpeg> {
 }
 
 async function transcodeGifToMp4(file: File): Promise<File> {
+  const tagLog = `[ffmpeg-gif "${file.name}" ${(file.size / 1024).toFixed(0)}KB]`;
+  console.log(`${tagLog} 작업 시작`);
+  const t0 = performance.now();
   const ffmpeg = await loadFfmpeg();
+  console.log(`${tagLog} loadFfmpeg 완료 +${(performance.now() - t0).toFixed(0)}ms`);
+
   const safeBase = safeBaseName(file.name);
   const inputName = `${crypto.randomUUID()}-${safeBase || "input"}.gif`;
   const outputName = `${safeBase || "animation"}-compressed.mp4`;
 
+  // 작업별 진행 콜백 — 끝나면 detach
+  const onProgress = (ev: { progress: number; time: number }) => {
+    console.log(`${tagLog} progress ${(ev.progress * 100).toFixed(0)}% (time ${ev.time}s)`);
+  };
+  ffmpeg.on("progress", onProgress);
+
   try {
+    const tWrite = performance.now();
     await ffmpeg.writeFile(inputName, await fetchFile(file));
+    console.log(`${tagLog} writeFile 완료 +${(performance.now() - tWrite).toFixed(0)}ms`);
+
+    const tExec = performance.now();
     const exitCode = await ffmpeg.exec([
       "-i",
       inputName,
@@ -103,11 +141,15 @@ async function transcodeGifToMp4(file: File): Promise<File> {
       "-an",
       outputName,
     ]);
+    console.log(`${tagLog} exec 완료 (code ${exitCode}) +${((performance.now() - tExec) / 1000).toFixed(2)}초`);
     if (exitCode !== 0) {
       throw new Error(`ffmpeg exited with code ${exitCode}`);
     }
-    return new File([await readFfmpegFileAsArrayBuffer(ffmpeg, outputName)], outputName, { type: "video/mp4" });
+    const buf = await readFfmpegFileAsArrayBuffer(ffmpeg, outputName);
+    console.log(`${tagLog} 출력 ${(buf.byteLength / 1024).toFixed(0)}KB — 전체 ${((performance.now() - t0) / 1000).toFixed(2)}초`);
+    return new File([buf], outputName, { type: "video/mp4" });
   } finally {
+    ffmpeg.off("progress", onProgress);
     await cleanupFfmpegFile(ffmpeg, inputName);
     await cleanupFfmpegFile(ffmpeg, outputName);
   }

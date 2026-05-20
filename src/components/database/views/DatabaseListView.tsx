@@ -71,11 +71,11 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
             >
               <IconPicker
                 current={row.icon ?? null}
-                size="sm"
+                size="md"
                 onChange={(icon) => setIcon(row.pageId, icon)}
               />
             </span>
-            <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">
+            <span className="min-w-0 flex-1 truncate text-base text-zinc-800 dark:text-zinc-100">
               {title}
             </span>
             {extraCols.map((col) => {
@@ -84,7 +84,7 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
               return (
                 <span
                   key={col.id}
-                  className="shrink-0 truncate text-xs"
+                  className="shrink-0 truncate text-sm"
                 >
                   <DatabaseCellDisplay column={col} value={cell} />
                 </span>
