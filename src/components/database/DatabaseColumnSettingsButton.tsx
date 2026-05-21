@@ -30,7 +30,6 @@ export function DatabaseColumnSettingsButton({
   panelState,
   setPanelState,
   asTh,
-  layout,
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const moveColumn = useDatabaseStore((s) => s.moveColumn);
@@ -168,14 +167,13 @@ export function DatabaseColumnSettingsButton({
               <div className="px-1 py-1 text-xs uppercase tracking-wide text-zinc-500">
                 항목
               </div>
-              {layout === "fullPage" ? (
-                <div className="flex items-center gap-1 px-1 py-1">
-                  <span className="text-zinc-400">전체 표시 (고정)</span>
-                </div>
-              ) : (
+              {(() => {
+                // inline/fullPage 통일 — 기본 limit = 100. (DatabaseBlockView 와 동일 규칙)
+                const defaultLimit = 100;
+                return (
                 <div className="flex flex-wrap gap-1 px-1 py-1">
                   {ITEM_LIMITS.map((val) => {
-                    const active = (panelState.itemLimit ?? 30) === val;
+                    const active = (panelState.itemLimit ?? defaultLimit) === val;
                     return (
                       <button
                         key={val}
@@ -198,7 +196,8 @@ export function DatabaseColumnSettingsButton({
                     );
                   })}
                 </div>
-              )}
+                );
+              })()}
             </div>
             {/* 속성 표시 카테고리 */}
             <div className="px-1 py-1 text-xs uppercase tracking-wide text-zinc-500">

@@ -28,49 +28,6 @@ export function fallbackBookmarkMetadata(rawUrl: string): BookmarkMetadata {
   };
 }
 
-function metaContent(doc: Document, selector: string): string {
-  const el = doc.querySelector<HTMLMetaElement>(selector);
-  return el?.content?.trim() ?? "";
-}
-
-function absolutizeUrl(value: string, baseUrl: string): string {
-  if (!value) return "";
-  try {
-    return new URL(value, baseUrl).href;
-  } catch {
-    return "";
-  }
-}
-
-function parseHtmlMetadata(html: string, url: string): BookmarkMetadata {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const fallback = fallbackBookmarkMetadata(url);
-  const title =
-    metaContent(doc, 'meta[property="og:title"]') ||
-    metaContent(doc, 'meta[name="twitter:title"]') ||
-    doc.querySelector("title")?.textContent?.trim() ||
-    fallback.title;
-  const description =
-    metaContent(doc, 'meta[property="og:description"]') ||
-    metaContent(doc, 'meta[name="twitter:description"]') ||
-    metaContent(doc, 'meta[name="description"]') ||
-    fallback.description;
-  const siteName =
-    metaContent(doc, 'meta[property="og:site_name"]') || fallback.siteName;
-  const imageUrl = absolutizeUrl(
-    metaContent(doc, 'meta[property="og:image"]') ||
-      metaContent(doc, 'meta[name="twitter:image"]'),
-    url,
-  );
-  return {
-    url: fallback.url,
-    title,
-    description,
-    siteName,
-    imageUrl,
-  };
-}
-
 async function fetchViaBookmarkApi(url: string, signal: AbortSignal) {
   const response = await fetch(`/api/bookmark?url=${encodeURIComponent(url)}`, {
     signal,
@@ -88,13 +45,6 @@ async function fetchViaBookmarkApi(url: string, signal: AbortSignal) {
   };
 }
 
-async function fetchDirect(url: string, signal: AbortSignal) {
-  const response = await fetch(url, { signal, credentials: "omit" });
-  if (!response.ok) throw new Error(`bookmark fetch failed: ${response.status}`);
-  const html = await response.text();
-  return parseHtmlMetadata(html, url);
-}
-
 export async function fetchBookmarkMetadata(
   rawUrl: string,
   signal: AbortSignal,
@@ -104,10 +54,6 @@ export async function fetchBookmarkMetadata(
   try {
     return await fetchViaBookmarkApi(parsed.href, signal);
   } catch {
-    try {
-      return await fetchDirect(parsed.href, signal);
-    } catch {
-      return fallbackBookmarkMetadata(parsed.href);
-    }
+    return fallbackBookmarkMetadata(parsed.href);
   }
 }

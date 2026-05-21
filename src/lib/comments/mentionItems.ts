@@ -12,21 +12,9 @@ export type MentionListItem = {
   mentionKind: "member" | "page" | "database";
 };
 
-/** @query 에 대한 통합 멘션 후보(멤버·페이지·DB), 부분 문자열 필터 */
-export async function loadMergedMentionItems(
-  query: string,
-  limit = 10,
-): Promise<MentionListItem[]> {
+function buildLocalMentionItems(query: string): MentionListItem[] {
   const q = query.trim().toLowerCase();
   const membersLocal = filterWorkspaceMembersForMention(query, 14);
-  const accessibleMemberIds = new Set(membersLocal.map((m) => m.memberId));
-  let remoteMembers: Awaited<ReturnType<typeof searchMembersForMentionApi>> = [];
-  try {
-    remoteMembers = await searchMembersForMentionApi(query, 14);
-  } catch {
-    remoteMembers = [];
-  }
-
   const mergedMembers = new Map<string, MentionListItem>();
   const pushMember = (memberId: string, name: string, jobRole: string) => {
     const id = `m:${memberId}`;
@@ -42,10 +30,6 @@ export async function loadMergedMentionItems(
   for (const m of membersLocal) {
     pushMember(m.memberId, m.name, m.jobRole);
   }
-  for (const m of remoteMembers) {
-    if (!accessibleMemberIds.has(m.memberId)) continue;
-    pushMember(m.memberId, m.name, m.jobRole);
-  }
 
   const pages = Object.values(usePageStore.getState().pages).filter((p) => {
     if ((p as { deletedAt?: string | null }).deletedAt) return false;
@@ -53,14 +37,12 @@ export async function loadMergedMentionItems(
     const title = (p.title || "제목 없음").toLowerCase();
     return title.includes(q);
   });
-  const pageItems: MentionListItem[] = pages
-    .slice(0, 8)
-    .map((p) => ({
-      id: `p:${p.id}`,
-      label: p.title || "제목 없음",
-      subtitle: "페이지",
-      mentionKind: "page" as const,
-    }));
+  const pageItems: MentionListItem[] = pages.slice(0, 8).map((p) => ({
+    id: `p:${p.id}`,
+    label: p.title || "제목 없음",
+    subtitle: "페이지",
+    mentionKind: "page" as const,
+  }));
 
   const databases = Object.values(useDatabaseStore.getState().databases).filter(
     (bundle) => {
@@ -75,6 +57,51 @@ export async function loadMergedMentionItems(
     subtitle: "DB",
     mentionKind: "database" as const,
   }));
+
+  return [...mergedMembers.values(), ...pageItems, ...dbItems];
+}
+
+/** @query 에 대한 통합 멘션 후보(멤버·페이지·DB), 부분 문자열 필터 */
+export async function loadMergedMentionItems(
+  query: string,
+  limit = 10,
+  options?: { includeRemoteMembers?: boolean },
+): Promise<MentionListItem[]> {
+  const q = query.trim().toLowerCase();
+  const includeRemoteMembers = options?.includeRemoteMembers ?? true;
+  const localCombined = buildLocalMentionItems(query);
+
+  const mergedMembers = new Map<string, MentionListItem>();
+  const accessibleMemberIds = new Set(
+    filterWorkspaceMembersForMention(query, 14).map((m) => m.memberId),
+  );
+  const localMemberItems = localCombined.filter((item) => item.mentionKind === "member");
+  for (const m of localMemberItems) {
+    mergedMembers.set(m.id, m);
+  }
+  if (includeRemoteMembers) {
+    let remoteMembers: Awaited<ReturnType<typeof searchMembersForMentionApi>> = [];
+    try {
+      remoteMembers = await searchMembersForMentionApi(query, 14);
+    } catch {
+      remoteMembers = [];
+    }
+    for (const m of remoteMembers) {
+      if (!accessibleMemberIds.has(m.memberId)) continue;
+      const id = `m:${m.memberId}`;
+      if (!mergedMembers.has(id)) {
+        mergedMembers.set(id, {
+          id,
+          label: m.name,
+          subtitle: m.jobRole || "멤버",
+          mentionKind: "member",
+        });
+      }
+    }
+  }
+
+  const pageItems = localCombined.filter((item) => item.mentionKind === "page");
+  const dbItems = localCombined.filter((item) => item.mentionKind === "database");
 
   const combined: MentionListItem[] = [
     ...mergedMembers.values(),

@@ -7,7 +7,8 @@ type Props = {
   onTitleCommit: (draft: string) => boolean;
   inlineTitleLocked: boolean;
   dbHomePageId: string | null;
-  onOpenDbHomePage: (pageId: string) => void;
+  /** 호스트 페이지가 없으면 부모에서 lazy 생성한다. */
+  onOpenDbHomePage: (pageId: string | null) => void;
   onOpenDbHistory: () => void;
   onOpenLink: () => void;
   /** 제목 영역 드래그 — 인라인 DB 블럭을 통째로 이동 */
@@ -114,16 +115,15 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
           >
             <History size={15} />
           </button>
-          {dbHomePageId != null ? (
-            <button
-              type="button"
-              title="데이터베이스 전체 페이지로 이동"
-              onClick={() => onOpenDbHomePage(dbHomePageId)}
-              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            >
-              <Maximize2 size={15} />
-            </button>
-          ) : null}
+          {/* "전체 페이지로 이동" 버튼은 항상 노출 — 호스트 페이지가 없으면 클릭 시 부모가 lazy 생성. */}
+          <button
+            type="button"
+            title="데이터베이스 전체 페이지로 이동"
+            onClick={() => onOpenDbHomePage(dbHomePageId)}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            <Maximize2 size={15} />
+          </button>
           <button
             type="button"
             title="다른 DB 연결"

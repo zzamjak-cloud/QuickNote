@@ -169,12 +169,17 @@ function listNodeFromElement(el: HTMLElement, blockColor: string | null, blockTo
     });
   }
 
+  // Notion 은 번호 목록의 각 항목을 별도의 <ol start="N"> 으로 내보내는 경우가 많다.
+  // start 속성을 그대로 사용해야 1, 2, 3 ... 으로 정확히 표시된다.
+  // (start 를 항상 1 로 고정하면 모든 항목이 "1." 로만 표시되는 회귀가 발생한다)
+  const startRaw = isOrdered ? el.getAttribute("start") : null;
+  const startNum = startRaw && /^\d+$/.test(startRaw) ? Math.max(1, parseInt(startRaw, 10)) : 1;
   return {
     type: isOrdered ? "orderedList" : "bulletList",
     attrs: isOrdered
       ? blockToken
-        ? { start: 1, blockTextColor: blockToken }
-        : { start: 1 }
+        ? { start: startNum, blockTextColor: blockToken }
+        : { start: startNum }
       : blockToken
         ? { blockTextColor: blockToken }
         : undefined,
@@ -314,6 +319,16 @@ function blocksFromContainerChildren(
         out.push(toggleFromDetails(node, options, blockColor, blockToken));
         return;
       }
+      // 콜아웃·토글 등 컨테이너 내부에 인라인 DB(collection-content) 가 있는 경우,
+      // 메인 흐름의 collection-content 변환 로직을 재사용해 databaseBlock 으로 변환.
+      // (이전에는 이 브랜치가 없어 콜아웃 내부에 인라인 DB 를 임포트하지 못했음)
+      if (tag === "table" && node.classList.contains("collection-content") && options?.onCollectionTable) {
+        const wrapped = `<article class="page">${node.outerHTML}</article>`;
+        const innerDoc = notionHtmlToDocInternal(wrapped, options);
+        const innerBlocks = Array.isArray(innerDoc.content) ? (innerDoc.content as JSONContent[]) : [];
+        for (const b of innerBlocks) out.push(b);
+        return;
+      }
       if (tag === "aside") {
         out.push(calloutFromAside(node));
         return;
@@ -337,6 +352,17 @@ function blocksFromContainerChildren(
         if (yt) {
           out.push(yt);
           return;
+        }
+        // 북마크 구조 가 있으면 이미지/임베드 추출보다 우선해서 북마크 블록으로 변환.
+        if (hasBookmarkStructure(node)) {
+          const bAnchor = node.querySelector("a[href]");
+          if (bAnchor instanceof HTMLElement) {
+            const bookmark = bookmarkBlockFromAnchor(bAnchor, node);
+            if (bookmark) {
+              out.push(bookmark);
+              return;
+            }
+          }
         }
         if (node.classList.contains("image")) {
           const figureImage = node.querySelector("img");
@@ -964,6 +990,16 @@ function blockquoteFromElement(
   };
 }
 
+/**
+ * Notion 의 figure 가 북마크 구조(.bookmark-title / .bookmark-description / .bookmark-href / .bookmark-image)
+ * 를 포함하는지 검사. class="bookmark" 가 없는 경우에도 이 구조면 북마크로 우선 변환해야
+ * 내부 이미지가 단독 image 블록으로 추출되어 버리는 회귀를 막을 수 있다.
+ */
+function hasBookmarkStructure(figure: HTMLElement): boolean {
+  if (figure.classList.contains("bookmark")) return true;
+  return !!figure.querySelector(".bookmark-title, .bookmark-description, .bookmark-href, .bookmark-info");
+}
+
 function bookmarkBlockFromAnchor(anchor: HTMLElement, container?: HTMLElement | null): JSONContent | null {
   const href = anchor.getAttribute("href") ?? "";
   const normalizedHref = normalizeImportedLinkHref(href);
@@ -980,6 +1016,12 @@ function bookmarkBlockFromAnchor(anchor: HTMLElement, container?: HTMLElement | 
   const description = (descEl?.textContent ?? "").trim();
   const siteName = (hrefEl?.textContent ?? "").trim();
   const imageUrl = imgEl instanceof HTMLElement ? (imgEl.getAttribute("src") ?? "") : "";
+  // Notion HTML 에서 추출한 메타가 빈약하면 (제목 없음 또는 이미지/설명 모두 빈 경우)
+  // status 를 "loading" 으로 두어 NodeView 가 /api/bookmark 로 라이브 메타 보강을 트리거하도록 함.
+  // 충분한 메타가 있으면 "ready" 로 유지해 불필요한 백엔드 호출을 막는다.
+  const hasMeaningfulMeta =
+    (title && title !== normalizedHref) &&
+    (description.length > 0 || imageUrl.length > 0 || siteName.length > 0);
   return {
     type: "bookmarkBlock",
     attrs: {
@@ -988,8 +1030,7 @@ function bookmarkBlockFromAnchor(anchor: HTMLElement, container?: HTMLElement | 
       description,
       siteName,
       imageUrl,
-      // 임포트 시 Notion HTML 에서 추출한 메타데이터만 사용 — CORS 차단되는 외부 fetch 재시도 방지
-      status: "ready",
+      status: hasMeaningfulMeta ? "ready" : "loading",
     },
   };
 }
@@ -1084,10 +1125,44 @@ function maybeMediaBlockFromParagraph(el: HTMLElement, options?: HtmlToDocOption
   if (!anchor) return null;
   const href = anchor.getAttribute("href") ?? "";
   if (options?.resolvePageMentionByHref?.(href)) return null;
+  // 로컬 자산(zip/이미지/비디오/파일 등) 으로 resolve 되면 paragraph 내 텍스트가 anchor 와 정확히 일치하지 않아도
+  // fileBlock/image 노드로 변환. (Notion 이 zip 같은 첨부를 paragraph 내부의 단일 anchor 로 내보낼 때 텍스트로만 남아버리는 회귀 방지)
+  const localAssetNode =
+    options?.resolveMediaNode?.(href, anchor) ?? options?.resolveImageNode?.(href, anchor) ?? null;
+  if (localAssetNode) return localAssetNode;
+  // 로컬 자산이 아니라면 — 외부 URL — paragraph 텍스트가 anchor 텍스트와 정확히 같을 때만 미디어/북마크 변환.
   const paragraphText = (el.textContent ?? "").trim().replace(/\s+/g, " ");
   const anchorText = (anchor.textContent ?? "").trim().replace(/\s+/g, " ");
   if (!paragraphText || paragraphText !== anchorText) return null;
-  return options?.resolveMediaNode?.(href, anchor) ?? options?.resolveImageNode?.(href, anchor) ?? null;
+  return null;
+}
+
+function blockFingerprint(node: JSONContent): string | null {
+  if (node.type === "image") {
+    return `image:${String(node.attrs?.src ?? "")}`;
+  }
+  if (node.type === "bookmarkBlock") {
+    return `bookmark:${String(node.attrs?.href ?? "")}:${String(node.attrs?.imageUrl ?? "")}`;
+  }
+  if (node.type === "paragraph" && Array.isArray(node.content) && node.content.length === 1) {
+    const child = node.content[0];
+    if (child?.type === "mention") {
+      return `mention:${String(child.attrs?.id ?? "")}:${String(child.attrs?.label ?? "")}`;
+    }
+  }
+  return null;
+}
+
+function dedupeConsecutiveImportBlocks(input: JSONContent[]): JSONContent[] {
+  const out: JSONContent[] = [];
+  let prevKey: string | null = null;
+  for (const block of input) {
+    const key = blockFingerprint(block);
+    if (key && key === prevKey) continue;
+    out.push(block);
+    prevKey = key;
+  }
+  return out;
 }
 
 function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSONContent {
@@ -1096,12 +1171,18 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
   const page = doc.querySelector("article.page") ?? doc.body;
   const blocks: JSONContent[] = [];
 
-  const elements = Array.from(page.querySelectorAll("details, table, h1, h2, h3, p, ul, ol, aside, figure.callout, figure.bookmark, figure, hr, img, video, blockquote, iframe, pre"));
+  const elements = Array.from(page.querySelectorAll("details, table, h1, h2, h3, p, ul, ol, aside, figure.callout, figure.bookmark, figure, hr, img, video, blockquote, iframe, pre, div.column-list"));
   for (const el of elements) {
     if (!(el instanceof HTMLElement)) continue;
     if (el.closest("header") && el.tagName.toLowerCase() !== "h1") continue;
     if (el.tagName.toLowerCase() !== "figure" && el.closest("figure.callout")) continue;
     if (el.tagName.toLowerCase() !== "figure" && el.closest("figure")) continue;
+    // column-list 내부의 자손 블록들은 column-list 처리 단계에서 재귀 변환되므로
+    // top-level 순회에서는 건너뛴다. (column-list 자체는 통과)
+    {
+      const closestColumnList = el.closest("div.column-list");
+      if (closestColumnList && closestColumnList !== el) continue;
+    }
 
     const tag = el.tagName.toLowerCase();
     if (tag === "details" && el.closest("ul.toggle")) continue;
@@ -1120,6 +1201,37 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
 
     if (tag === "details") {
       blocks.push(toggleFromDetails(el, options, blockColor, blockToken));
+      continue;
+    }
+    if (tag === "div" && el.classList.contains("column-list")) {
+      // Notion 의 컬럼 레이아웃: <div class="column-list"><div class="column">...</div>...</div>
+      // 퀵노트 columnLayout 스키마는 column{2,4} 이라 컬럼 2~4 개 일 때만 변환,
+      // 그 외(1개 또는 5개 이상)는 자식 블록을 평탄화해서 그대로 삽입.
+      const columnEls = Array.from(el.children).filter(
+        (c): c is HTMLElement => c instanceof HTMLElement && c.classList.contains("column"),
+      );
+      const inColumnRange = columnEls.length >= 2 && columnEls.length <= 4;
+      const childNodesPerColumn = columnEls.map((columnEl) => {
+        // 각 컬럼의 innerHTML 을 한 article.page 로 감싸 재귀 변환 → 내부 블록 JSON 추출.
+        const wrapped = `<article class="page">${columnEl.innerHTML}</article>`;
+        const innerDoc = notionHtmlToDocInternal(wrapped, options);
+        const innerContent = Array.isArray(innerDoc.content) ? (innerDoc.content as JSONContent[]) : [];
+        return innerContent.length > 0 ? innerContent : [{ type: "paragraph" }];
+      });
+      if (inColumnRange) {
+        blocks.push({
+          type: "columnLayout",
+          content: childNodesPerColumn.map((blocksInCol) => ({
+            type: "column",
+            content: blocksInCol,
+          })),
+        });
+      } else {
+        // 컬럼 개수가 스키마를 벗어나면 그대로 펼쳐 본문에 추가.
+        for (const colBlocks of childNodesPerColumn) {
+          for (const b of colBlocks) blocks.push(b);
+        }
+      }
       continue;
     }
     if (tag === "table") {
@@ -1323,6 +1435,15 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
           continue;
         }
       }
+      // 북마크 구조(.bookmark-title 등) 가 있으면 이미지 추출보다 우선해서 북마크로 변환.
+      // (그렇지 않으면 figureImage 분기가 북마크 썸네일을 단독 이미지로 뽑아내고 링크는 텍스트로 떨어진다.)
+      if (hasBookmarkStructure(el) && figureAnchor instanceof HTMLElement) {
+        const bookmark = bookmarkBlockFromAnchor(figureAnchor, el);
+        if (bookmark) {
+          blocks.push(bookmark);
+          continue;
+        }
+      }
       const figureImage = el.querySelector("img");
       if (figureImage instanceof HTMLElement) {
         const imageNode = imageNodeFromElement(figureImage, options);
@@ -1379,7 +1500,10 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
 
   return {
     type: "doc",
-    content: blocks.length > 0 ? blocks : [{ type: "paragraph", content: [] }],
+    content:
+      blocks.length > 0
+        ? dedupeConsecutiveImportBlocks(blocks)
+        : [{ type: "paragraph", content: [] }],
   };
 }
 

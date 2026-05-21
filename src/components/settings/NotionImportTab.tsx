@@ -25,6 +25,7 @@ import { Loader2 } from "lucide-react";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useMemberStore } from "../../store/memberStore";
+import { useUiStore } from "../../store/uiStore";
 import {
   extractNotionInlineComments,
   ensureCommentAnchorBlockIds,
@@ -72,6 +73,7 @@ export function NotionImportTab() {
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [previewContent, setPreviewContent] = useState<string>("");
+  const showToast = useUiStore((s) => s.showToast);
   const addComment = useBlockCommentStore((s) => s.addMessage);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const me = useMemberStore((s) => s.me);
@@ -146,6 +148,9 @@ export function NotionImportTab() {
       const importedPageIdByPath = new Map<string, string>();
       const importedDocByPath = new Set<string>();
       const importingPath = new Set<string>();
+      // standalone 행 페이지가 DB 행 pageId 로 병합될 때, 그 이전에 만들어진 멘션 노드들이
+      // 옛 pageId 를 가리키지 않도록 remap 을 추적한다. 임포트 끝에서 docs 를 일괄 재작성.
+      const pageIdRemap = new Map<string, string>();
       const assetResolver = createNotionAssetResolver(currentStatus.preview);
       const uploadedAssetByPath = new Map<string, UploadedNotionAsset>();
       const contentByPath = new Map<string, string>();
@@ -177,6 +182,20 @@ export function NotionImportTab() {
         return idx >= 0 ? path.slice(idx + 1) : path;
       };
 
+      // 부모 탐색을 O(1) 로 만들기 위해 dirname → 페이지 인덱스를 사전 구축한다.
+      // (기존: 호출마다 Array.from(values).find 로 O(N) 스캔 → 페이지가 많으면 트리 구성 자체가 O(N²) 로 블로킹)
+      const pagesByDirname = new Map<string, Array<{ path: string; segment: string }>>();
+      for (const p of pageByPath.values()) {
+        const dir = pathDirname(p.path);
+        const segment = normalizeNotionSegment(pathBasename(p.path));
+        let bucket = pagesByDirname.get(dir);
+        if (!bucket) {
+          bucket = [];
+          pagesByDirname.set(dir, bucket);
+        }
+        bucket.push({ path: p.path, segment });
+      }
+
       const parentSourcePathByPath = new Map<string, string | null>();
       const findParentSourcePath = (sourcePath: string): string | null => {
         const cached = parentSourcePathByPath.get(sourcePath);
@@ -188,12 +207,9 @@ export function NotionImportTab() {
         }
         const parentDir = pathDirname(currentDir);
         const containerName = normalizeNotionSegment(pathBasename(currentDir));
+        const bucket = pagesByDirname.get(parentDir) ?? [];
         const found =
-          Array.from(pageByPath.values()).find((p) => {
-            if (p.path === sourcePath) return false;
-            if (pathDirname(p.path) !== parentDir) return false;
-            return normalizeNotionSegment(pathBasename(p.path)) === containerName;
-          })?.path ?? null;
+          bucket.find((entry) => entry.path !== sourcePath && entry.segment === containerName)?.path ?? null;
         parentSourcePathByPath.set(sourcePath, found);
         return found;
       };
@@ -220,7 +236,11 @@ export function NotionImportTab() {
         const structuralParentPageId = parentSourcePath
           ? ensurePageIdForSource(parentSourcePath)
           : null;
-        const parentPageId = forcedParentPageId ?? structuralParentPageId ?? null;
+        // 구조적 부모(Notion 폴더 계층)가 진실의 원천이므로 우선 적용.
+        // 멘션을 통해 다른 페이지에서 먼저 참조되더라도, 폴더 계층상의 실제 부모를 사용해야
+        // "자식의 자식" 깊은 계층이 평탄화되지 않고 트리로 유지된다.
+        // 구조적 부모가 없을 때에만 멘션 소유자(forcedParentPageId) 를 부모로 사용.
+        const parentPageId = structuralParentPageId ?? forcedParentPageId ?? null;
         const pageId = createPage(source.title, parentPageId);
         importedPageIdByPath.set(source.path, pageId);
         return pageId;
@@ -278,6 +298,9 @@ export function NotionImportTab() {
             onCollectionTable: (table: NotionCollectionTable) => {
               const dbTitle = table.headers[0] || "Notion 데이터베이스";
               const dbId = createDatabase(dbTitle);
+              // 전체 페이지 호스트는 임포트 중 미리 만들지 않는다.
+              // (사전 생성이 활성 페이지 전환/렌더 사이클과 얽혀 fullPage 진입 시 화면 먹통 회귀가 있었음)
+              // 대신 인라인 헤더의 "전체 페이지로 이동" 버튼이 항상 노출되며 클릭 시점에 lazy-create 한다.
               const bundle = useDatabaseStore.getState().databases[dbId];
               const cols = bundle?.columns ?? [];
               const titleCol = cols.find((c) => c.type === "title");
@@ -289,6 +312,9 @@ export function NotionImportTab() {
                 if (c.type !== "title") removeColumn(dbId, c.id);
               }
 
+              // 컬럼별 옵션 라벨 → 옵션 ID 매핑. 셀 값을 옵션 ID 로 정확히 저장하기 위해 필요.
+              // (DatabaseCellDisplay 는 옵션 ID 로만 칩을 찾기 때문에, 라벨 그대로 저장하면 표시되지 않음)
+              const labelToOptionIdByColId = new Map<string, Map<string, string>>();
               const extraColumnMeta: Array<{ id: string; type: ColumnType }> = [];
               for (let idx = 1; idx < table.headers.length; idx += 1) {
                 const header = table.headers[idx] || `컬럼 ${idx + 1}`;
@@ -332,14 +358,15 @@ export function NotionImportTab() {
                     });
                   });
                   const uniq = Array.from(optionByLabel.values());
+                  const labelMap = new Map<string, string>();
+                  const builtOptions = uniq.map((opt, optIdx) => {
+                    const id = `${colId}-opt-${optIdx}`;
+                    labelMap.set(opt.label, id);
+                    return { id, label: opt.label, color: opt.color };
+                  });
+                  labelToOptionIdByColId.set(colId, labelMap);
                   updateColumn(dbId, colId, {
-                    config: {
-                      options: uniq.map((opt, optIdx) => ({
-                        id: `${colId}-opt-${optIdx}`,
-                        label: opt.label,
-                        color: opt.color,
-                      })),
-                    },
+                    config: { options: builtOptions },
                   });
                 }
               }
@@ -350,10 +377,68 @@ export function NotionImportTab() {
                     ? (useDatabaseStore.getState().databases[dbId]?.rowPageOrder[0] ?? addRow(dbId))
                     : addRow(dbId);
                 renamePage(rowPageId, row.cells[0] || `항목 ${rowIdx + 1}`);
+                // 행 HTML 파일이 폴더 스캔으로 별도 페이지로 잡혀 있을 수 있다.
+                // 그 path 를 이 DB 행 pageId 로 미리 등록해 두면, 이후 for-loop 가
+                // 같은 path 를 다시 만나도 새 페이지를 만들지 않고 본문만 채워준다.
+                // (이 등록을 빠뜨리면 행 페이지가 standalone + DB 행 으로 2개 생성됨)
+                if (row.titleLinkPath) {
+                  const rowSourceForMap = pageByPath.get(row.titleLinkPath)
+                    ?? Array.from(pageByPath.values()).find((p) => p.path.endsWith(row.titleLinkPath ?? ""));
+                  if (rowSourceForMap) {
+                    const previousId = importedPageIdByPath.get(rowSourceForMap.path);
+                    importedPageIdByPath.set(rowSourceForMap.path, rowPageId);
+                    // 이미 mention 등으로 standalone 페이지가 먼저 만들어진 경우, 그 자식들만 DB 행 페이지로 이관한다.
+                    // standalone 자체는 삭제하지 않는다 — 이미 변환된 다른 페이지들의 멘션 노드들이 그 pageId 를
+                    // 가리키고 있어 삭제하면 dangling 으로 클릭 이동이 막힘. (페이지가 비어 보이는 잔재는
+                    // 사용자가 수동 정리 가능하며, 데이터 손실보다 안전한 트레이드오프)
+                    if (previousId && previousId !== rowPageId) {
+                      const pagesNow = usePageStore.getState().pages;
+                      const childrenOfPrev = Object.values(pagesNow).filter(
+                        (p) => p.parentId === previousId,
+                      );
+                      const movePage = usePageStore.getState().movePage;
+                      for (const child of childrenOfPrev) {
+                        movePage(child.id, rowPageId, 0);
+                      }
+                      // 이전에 mention 으로 만들어진 standalone 의 pageId 를 가리키던 멘션 노드들이
+                      // 클릭 시 빈 페이지로 떨어지지 않도록, 임포트 끝에서 docs 를 일괄 재작성하기 위해 remap 기록.
+                      pageIdRemap.set(previousId, rowPageId);
+                    }
+                  }
+                }
                 for (let colIdx = 1; colIdx < row.cells.length; colIdx += 1) {
                   const colMeta = extraColumnMeta[colIdx - 1];
                   if (!colMeta) continue;
                   const rawCell = row.cells[colIdx] ?? "";
+
+                  // select/status/multiSelect 는 옵션 ID 로 저장해야 셀 표시가 동작한다.
+                  // 1) 셀 메타의 selectedOptions 라벨을 우선 사용 (Notion HTML 의 정확한 옵션 정보)
+                  // 2) 메타가 없으면 rawCell 텍스트를 라벨로 간주
+                  if (
+                    colMeta.type === "select" ||
+                    colMeta.type === "status" ||
+                    colMeta.type === "multiSelect"
+                  ) {
+                    const labelMap = labelToOptionIdByColId.get(colMeta.id);
+                    const meta = row.cellMeta[colIdx];
+                    const labels: string[] = meta?.selectedOptions?.length
+                      ? meta.selectedOptions.map((o) => o.label).filter(Boolean)
+                      : colMeta.type === "multiSelect"
+                        ? rawCell.split(/[;,/|]/).map((s) => s.trim()).filter(Boolean)
+                        : rawCell.trim()
+                          ? [rawCell.trim()]
+                          : [];
+                    const ids = labels
+                      .map((label) => labelMap?.get(label))
+                      .filter((id): id is string => !!id);
+                    if (colMeta.type === "multiSelect") {
+                      updateCell(dbId, rowPageId, colMeta.id, ids);
+                    } else {
+                      updateCell(dbId, rowPageId, colMeta.id, ids[0] ?? "");
+                    }
+                    continue;
+                  }
+
                   updateCell(
                     dbId,
                     rowPageId,
@@ -442,10 +527,12 @@ export function NotionImportTab() {
         .sort((a, b) => a.depth - b.depth)
         .map((p) => p.path);
 
-      // 페이지 구조 먼저 생성 (컨텐츠 없이 빈 페이지 트리 구성)
-      setImportProgress({ label: "페이지 구조 생성중", done: 0, total: subtreePaths.length });
-      await yieldToPaint();
-      subtreePaths.forEach((path) => { void ensurePageIdForSource(path); });
+      // 페이지 구조의 사전 일괄 생성은 제거.
+      // - ensurePageIdForSource 가 재귀적으로 부모를 만들기 때문에 사전 패스 없이도 트리는 정확히 구축된다.
+      // - 사전 패스는 DB 행 HTML 파일을 standalone 페이지로 먼저 만들어 버려, 이후 onCollectionTable 의
+      //   addRow 와 충돌해 같은 행이 2개 페이지로 중복 생성되는 원인이었다.
+      // - 또한 수천 페이지를 동기 루프로 한 번에 createPage 하면 메인 스레드를 길게 차단하고
+      //   Zustand persist 가 매번 직렬화되면서 localStorage quota 초과로 크래시 가능.
 
       // 1페이지씩 순차 처리: 컨텐츠 로드 → 에셋 업로드 → 문서 변환 → 메모리 해제
       const diagImportMem = (label: string) => {
@@ -487,12 +574,65 @@ export function NotionImportTab() {
         diagImportMem(`[${idx + 1}/${subtreePaths.length}] 페이지 완료`);
       }
 
+      // 임포트 끝에서 멘션 id remap — standalone → DB 행 병합 시 옛 pageId 를 가리키던 멘션 노드들을
+      // 새 pageId 로 일괄 재작성. 그렇지 않으면 클릭 시 빈 standalone 으로 이동해 "이동 안됨" 처럼 보임.
+      if (pageIdRemap.size > 0) {
+        const remapMentionIds = (node: unknown): boolean => {
+          if (!node || typeof node !== "object") return false;
+          const rec = node as { type?: unknown; attrs?: Record<string, unknown>; content?: unknown[] };
+          let changed = false;
+          if (rec.type === "mention" && rec.attrs && typeof rec.attrs.id === "string") {
+            const raw = rec.attrs.id;
+            const bare = raw.startsWith("p:") ? raw.slice(2) : raw;
+            const remapped = pageIdRemap.get(bare);
+            if (remapped) {
+              rec.attrs.id = `p:${remapped}`;
+              changed = true;
+            }
+          }
+          if (Array.isArray(rec.content)) {
+            for (const child of rec.content) if (remapMentionIds(child)) changed = true;
+          }
+          return changed;
+        };
+        const allPages = usePageStore.getState().pages;
+        const updateDocAction = usePageStore.getState().updateDoc;
+        for (const pageId of importedPageIdByPath.values()) {
+          const page = allPages[pageId];
+          if (!page || !page.doc) continue;
+          const cloned = structuredClone(page.doc);
+          if (remapMentionIds(cloned)) updateDocAction(pageId, cloned);
+        }
+      }
+
+      // 임포트 후 재배치 패스 — 멘션 우선 처리/등록 순서로 인해 일시적으로 잘못 잡혔을 수 있는
+      // parentId 를 구조적 부모(Notion 폴더 계층) 기준으로 일관성 있게 재정렬한다.
+      // (이걸 빠뜨리면 깊은 자식 페이지들이 root 직속으로 평탄화되어 보이는 회귀가 발생)
+      const movePage = usePageStore.getState().movePage;
+      for (const [sourcePath, pageId] of importedPageIdByPath.entries()) {
+        const parentSourcePath = findParentSourcePath(sourcePath);
+        if (!parentSourcePath) continue;
+        const desiredParentPageId = importedPageIdByPath.get(parentSourcePath);
+        if (!desiredParentPageId || desiredParentPageId === pageId) continue;
+        const currentParent = usePageStore.getState().pages[pageId]?.parentId ?? null;
+        if (currentParent === desiredParentPageId) continue;
+        movePage(pageId, desiredParentPageId, 0);
+      }
+
       const newPageId = importedPageIdByPath.get(selectedPage.path) ?? null;
-      if (!newPageId) return;
+      if (!newPageId) {
+        showToast("가져오기를 완료했지만 시작 페이지를 찾지 못했습니다.", { kind: "info" });
+      } else {
+        showToast("모든 페이지 생성이 완료되었습니다.", { kind: "success" });
+      }
       setStatus({ kind: "idle" });
       setSelectedPath("");
     } catch (error) {
       console.error("[NotionImport] 가져오기 실패", error);
+      showToast(
+        error instanceof Error ? `가져오기 실패: ${error.message}` : "가져오기 중 오류가 발생했습니다.",
+        { kind: "error" },
+      );
     } finally {
       setImportProgress(null);
       setIsImporting(false);

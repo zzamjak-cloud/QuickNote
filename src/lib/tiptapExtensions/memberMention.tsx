@@ -30,6 +30,9 @@ function MentionNodeView({ node }: NodeViewProps) {
   );
   const label = isPage ? (reactivePageTitle ?? rawLabel ?? "페이지") : rawLabel;
   const dataKind = kindAttr === "member" ? undefined : kindAttr;
+  const mentionClass = isPage
+    ? "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 align-middle text-sm text-white hover:bg-blue-700 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600"
+    : "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70";
 
   return (
     <NodeViewWrapper as="span" contentEditable={false}>
@@ -37,7 +40,7 @@ function MentionNodeView({ node }: NodeViewProps) {
         data-type="mention"
         data-id={id}
         {...(dataKind ? { "data-mention-kind": dataKind } : {})}
-        className="member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70"
+        className={mentionClass}
       >
         {isMember ? (
           <span
@@ -63,8 +66,16 @@ function MentionNodeView({ node }: NodeViewProps) {
   );
 }
 
-function navigateToPage(pageId: string): void {
+function navigateToPage(pageId: string, anchor: HTMLElement | null): void {
   if (!pageId) return;
+  // 사이드 피크 내부에서 클릭됐는지 검사 — DatabaseRowPeek 의 wrapper 에 data-qn-peek-editor="true".
+  // peek 안에서 mention 을 클릭했는데 메인 탭만 갱신하면 사용자는 "이동 안됨" 으로 인지한다.
+  const inPeek = !!anchor?.closest("[data-qn-peek-editor='true']");
+  const peekId = useUiStore.getState().peekPageId;
+  if (inPeek && peekId) {
+    useUiStore.getState().peekNavigate(pageId);
+    return;
+  }
   useSettingsStore.getState().setCurrentTabPage(pageId);
   usePageStore.getState().setActivePage(pageId);
 }
@@ -212,7 +223,7 @@ const MemberMentionNode = Mention.extend({
               }
               if (kindAttr === "page" || rawId.startsWith("p:")) {
                 event.preventDefault();
-                navigateToPage(rawId.startsWith("p:") ? rawId.slice(2) : rawId);
+                navigateToPage(rawId.startsWith("p:") ? rawId.slice(2) : rawId, el);
                 return true;
               }
               return false;
@@ -244,7 +255,7 @@ const MemberMentionNode = Mention.extend({
 
               if (kindAttr === "page" || rawId.startsWith("p:")) {
                 const pageId = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
-                navigateToPage(pageId);
+                navigateToPage(pageId, el);
                 return true;
               }
 
@@ -258,7 +269,7 @@ const MemberMentionNode = Mention.extend({
 
               const page = usePageStore.getState().pages[rawId];
               if (page) {
-                navigateToPage(rawId);
+                navigateToPage(rawId, el);
                 return true;
               }
 
@@ -290,7 +301,9 @@ const MemberMentionNode = Mention.extend({
         {
           "data-type": "mention",
           class:
-            "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70",
+            isPage
+              ? "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 align-middle text-sm text-white hover:bg-blue-700 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600"
+              : "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70",
         },
         HTMLAttributes,
       ),

@@ -67,6 +67,29 @@ export function selectPageTree(state: PageStore): PageNode[] {
 }
 
 /**
+ * "다른 페이지로 이동" 등 모든 페이지를 후보로 보여줘야 하는 컨텍스트용 트리 셀렉터.
+ * DB 행 페이지와 그 자식까지 포함하고, fullPage DB 홈 페이지만 제외한다.
+ */
+export function selectFullPageTree(state: PageStore): PageNode[] {
+  const byParent = new Map<string | null, Page[]>();
+  for (const p of Object.values(state.pages)) {
+    if (isHiddenFromSearch(p, state.pages)) continue;
+    const list = byParent.get(p.parentId) ?? [];
+    list.push(p);
+    byParent.set(p.parentId, list);
+  }
+  for (const list of byParent.values()) {
+    list.sort((a, b) => a.order - b.order);
+  }
+  const build = (parentId: string | null): PageNode[] =>
+    (byParent.get(parentId) ?? []).map((p) => ({
+      ...p,
+      children: build(p.id),
+    }));
+  return build(null);
+}
+
+/**
  * 검색 결과에서 숨기는 페이지 판정.
  * 트리와 달리 검색에선 DB 항목 페이지도 포함하고, fullPage DB 홈 페이지만 숨긴다.
  */

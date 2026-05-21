@@ -3,9 +3,9 @@ import { ArrowUpToLine, Search } from "lucide-react";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import {
   usePageStore,
-  selectPageTree,
   type PageNode,
 } from "../../store/pageStore";
+import { selectFullPageTree } from "../../store/pageStore/selectors";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 
 type Props = {
@@ -15,7 +15,9 @@ type Props = {
 
 // 페이지를 다른 페이지의 자식으로 이동시키는 picker 모달.
 export function PageMoveDialog({ pageId, onClose }: Props) {
-  const tree = usePageStore(selectPageTree);
+  // 이동 다이얼로그에서는 DB 행 페이지와 그 자식까지 후보로 노출해야 한다.
+  // (사이드바 트리 셀렉터는 DB 행 계열을 숨기므로, fullPage DB 홈만 제외하는 selectFullPageTree 를 사용.)
+  const tree = usePageStore(selectFullPageTree);
   const movePage = usePageStore((s) => s.movePage);
   const pages = usePageStore((s) => s.pages);
   const findFullPagePageIdForDatabase = usePageStore(

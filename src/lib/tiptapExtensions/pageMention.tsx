@@ -2,6 +2,7 @@ import { ReactRenderer, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/r
 import type { NodeViewProps } from "@tiptap/react";
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
 import {
   forwardRef,
@@ -84,7 +85,9 @@ MentionList.displayName = "MentionList";
 
 /** 페이지 멘션 노드뷰 — 스토어를 구독하므로 페이지 제목 변경 시 즉시 반영 */
 function PageMentionView({ node, editor }: NodeViewProps) {
-  const id = node.attrs.id as string;
+  const rawId = node.attrs.id as string;
+  // 페이지 멘션 id 는 "p:<pageId>" 규약 — pageStore lookup 및 navigation 에는 prefix 제거 필요.
+  const id = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
   const label = (node.attrs.label as string) ?? "";
   const page = usePageStore((s) => s.pages[id]);
   const peekPageId = useUiStore((s) => s.peekPageId);
@@ -96,23 +99,34 @@ function PageMentionView({ node, editor }: NodeViewProps) {
     <NodeViewWrapper as="span" contentEditable={false}>
       <button
         type="button"
+        // PM 의 atom 노드 선택(mousedown 으로 NodeSelection)이 click 이벤트와 경쟁해
+        // 멘션 클릭이 무시되는 경우가 있어 mousedown 단계에서 propagation 차단.
+        onMouseDown={(e) => {
+          e.stopPropagation();
+        }}
         onClick={(e) => {
-          const isInPeek = !!(e.currentTarget.closest(".qn-peek-editor"));
+          e.preventDefault();
+          e.stopPropagation();
+          // 페이지 존재성 가드는 두지 않는다 — 가드가 클릭을 통째로 막아 회귀가 반복되던 문제를 제거.
+          // 사이드 피크 내부에서 클릭됐는지 판별:
+          // DatabaseRowPeek 의 콘텐츠 영역에 data-qn-peek-editor="true" 속성을 부여하므로 그것으로 검사.
+          const isInPeek = !!(e.currentTarget.closest("[data-qn-peek-editor='true']"));
           if (isInPeek && peekPageId) {
             peekNavigate(id);
-          } else {
-            // 에디터가 포커스 상태로 남아있으면 Editor.tsx 의 본문 sync useEffect 가
-            // blur 이벤트를 기다리며 setContent 를 지연 → 페이지 본문이 갱신되지 않는 문제 방지.
-            try {
-              editor?.commands.blur();
-            } catch {
-              /* noop */
-            }
-            usePageStore.getState().setActivePage(id);
-            useSettingsStore.getState().setCurrentTabPage(id);
+            return;
           }
+          // 메인 에디터에서 클릭 — 활성 페이지/탭 갱신.
+          // 에디터가 포커스 상태로 남아있으면 Editor.tsx 의 본문 sync useEffect 가
+          // blur 이벤트를 기다리며 setContent 를 지연 → 페이지 본문이 갱신되지 않는 문제 방지.
+          try {
+            editor?.commands.blur();
+          } catch {
+            /* noop */
+          }
+          usePageStore.getState().setActivePage(id);
+          useSettingsStore.getState().setCurrentTabPage(id);
         }}
-        className="page-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-zinc-100 px-1 py-0.5 align-middle text-sm text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+        className="page-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 align-middle text-sm text-white hover:bg-blue-700 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600"
         data-type="mention"
         data-id={id}
       >
@@ -135,8 +149,47 @@ const PageMentionNode = Mention.extend({
     return ReactNodeViewRenderer(PageMentionView);
   },
 
+  // PM 레벨 클릭 인터셉터 — ProseMirror 의 NodeSelection 처리와 React onClick 간 경쟁으로
+  // 클릭이 삼켜지는 케이스가 있어 mousedown/click 시점에서 직접 페이지 멘션 클릭을 가로채 navigate.
+  // 중요: this.parent?.() 를 호출해 Mention 본체의 suggestion 플러그인(@ 메뉴) 을 보존해야 한다.
+  addProseMirrorPlugins() {
+    const parentPlugins = this.parent?.() ?? [];
+    const editorRef = this.editor;
+    const clickInterceptor = new Plugin({
+      props: {
+        handleDOMEvents: {
+          mousedown: (_view, event) => {
+            const target = event.target as HTMLElement | null;
+            if (!target) return false;
+            const btn = target.closest<HTMLElement>(".page-mention[data-id]");
+            if (!btn) return false;
+            const rawId = btn.getAttribute("data-id") ?? "";
+            const id = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
+            if (!id) return false;
+            event.preventDefault();
+            event.stopPropagation();
+            // 현재 에디터 본문 sync 가 blur 이벤트 대기 중이면 navigation 직후 본문이 갱신되지 않을 수 있다.
+            // 명시적으로 blur 를 호출해 setContent 지연을 풀어준다.
+            try { editorRef?.commands.blur(); } catch { /* noop */ }
+            const isInPeek = !!btn.closest("[data-qn-peek-editor='true']");
+            const peekId = useUiStore.getState().peekPageId;
+            if (isInPeek && peekId) {
+              useUiStore.getState().peekNavigate(id);
+            } else {
+              usePageStore.getState().setActivePage(id);
+              useSettingsStore.getState().setCurrentTabPage(id);
+            }
+            return true;
+          },
+        },
+      },
+    });
+    return [...parentPlugins, clickInterceptor];
+  },
+
   renderHTML({ node, HTMLAttributes }) {
-    const id = node.attrs.id as string;
+    const rawId = node.attrs.id as string;
+    const id = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
     const label = (node.attrs.label as string) ?? "";
     const page = usePageStore.getState().pages[id];
     const icon = page?.icon ?? "📄";
@@ -147,7 +200,7 @@ const PageMentionNode = Mention.extend({
         {
           "data-type": "mention",
           class:
-            "page-mention inline-flex max-w-full items-center gap-0.5 rounded bg-zinc-100 px-1 py-0.5 align-middle text-sm text-zinc-900 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700",
+            "page-mention inline-flex max-w-full items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 align-middle text-sm text-white hover:bg-blue-700 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600",
         },
         HTMLAttributes,
         { "data-id": id },
@@ -156,7 +209,7 @@ const PageMentionNode = Mention.extend({
         "span",
         {
           class:
-            "select-none text-[11px] font-semibold text-zinc-500 dark:text-zinc-400",
+            "select-none text-[11px] font-semibold text-blue-100 dark:text-blue-100",
           "aria-hidden": "true",
         },
         "@",
@@ -167,7 +220,8 @@ const PageMentionNode = Mention.extend({
     ];
   },
   renderText({ node }) {
-    const id = node.attrs.id as string;
+    const rawId = node.attrs.id as string;
+    const id = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
     const page = usePageStore.getState().pages[id];
     const icon = page?.icon ?? "📄";
     const displayTitle =

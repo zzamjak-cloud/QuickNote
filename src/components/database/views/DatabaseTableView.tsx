@@ -446,13 +446,22 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                 </td>
                 {visibleCols.map((col, cIdx) => {
                   const isFirst = cIdx === 0;
+                  const fillRangeStart = fillDrag && fillHoverRowIndex != null
+                    ? Math.min(fillDrag.sourceRowIndex, fillHoverRowIndex)
+                    : null;
+                  const fillRangeEnd = fillDrag && fillHoverRowIndex != null
+                    ? Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex)
+                    : null;
                   const isFillRangeCell = Boolean(
                     fillDrag &&
                     fillDrag.columnId === col.id &&
-                    fillHoverRowIndex != null &&
-                    rIdx >= Math.min(fillDrag.sourceRowIndex, fillHoverRowIndex) &&
-                    rIdx <= Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex),
+                    fillRangeStart != null &&
+                    fillRangeEnd != null &&
+                    rIdx >= fillRangeStart &&
+                    rIdx <= fillRangeEnd,
                   );
+                  const isFillTop = isFillRangeCell && rIdx === fillRangeStart;
+                  const isFillBottom = isFillRangeCell && rIdx === fillRangeEnd;
                   return (
                     <td
                       key={col.id}
@@ -461,8 +470,21 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                         isFirst ? "pr-16" : "",
                       ].join(" ")}
                     >
+                      {/* 마퀴 시각화: 좌·우 테두리는 범위의 모든 행에 그리고,
+                          위 테두리는 시작 행, 아래 테두리는 마지막 행에만 그린다.
+                          이렇게 해야 행 사이가 끊기지 않고 하나의 사각형으로 보인다. */}
                       {isFillRangeCell && (
-                        <span className="pointer-events-none absolute inset-[2px] z-[6] rounded-sm border border-dashed border-blue-500" />
+                        <span
+                          className={[
+                            "pointer-events-none absolute inset-x-[2px] z-[6]",
+                            isFillTop ? "top-[2px]" : "-top-px",
+                            isFillBottom ? "bottom-[2px]" : "-bottom-px",
+                            "border-l border-r border-dashed border-blue-500",
+                            isFillTop ? "border-t" : "",
+                            isFillBottom ? "border-b" : "",
+                            (isFillTop && isFillBottom) ? "rounded-sm" : "",
+                          ].join(" ")}
+                        />
                       )}
                       {isFirst && (
                         <span

@@ -69,15 +69,21 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
     }
     let cancelled = false;
     setLoading(true);
-    void loadMergedMentionItems(query, 24).then((rows) => {
-      if (!cancelled) {
-        setItems(rows);
-        setLoading(false);
-        setSelected(0);
-      }
+    void loadMergedMentionItems(query, 24, { includeRemoteMembers: false }).then((rows) => {
+      if (cancelled) return;
+      setItems(rows);
+      setLoading(false);
+      setSelected(0);
     });
+    const remoteTimer = window.setTimeout(() => {
+      void loadMergedMentionItems(query, 24, { includeRemoteMembers: true }).then((rows) => {
+        if (cancelled) return;
+        setItems(rows);
+      });
+    }, 120);
     return () => {
       cancelled = true;
+      window.clearTimeout(remoteTimer);
     };
   }, [open, query]);
 
@@ -187,7 +193,7 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
           placeholder="이름 또는 페이지 제목…"
           className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/30 placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-emerald-400"
         />
-        <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-100 dark:border-zinc-700">
+        <div className="h-80 overflow-y-auto rounded-lg border border-zinc-100 dark:border-zinc-700">
           {loading ? (
             <div className="px-3 py-6 text-center text-xs text-zinc-500">불러오는 중…</div>
           ) : !query.trim() ? (

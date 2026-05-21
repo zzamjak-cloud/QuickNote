@@ -11,6 +11,7 @@ import { WorkspaceSyncBanner } from "./components/sync/WorkspaceSyncBanner";
 import { AuthGate } from "./components/auth/AuthGate";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore } from "./store/pageStore";
+import { useUiStore } from "./store/uiStore";
 import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
 import { zustandStorage } from "./lib/storage/index";
@@ -82,6 +83,37 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  // 멘션 클릭 안전망 — PM 플러그인 체인이 어떤 이유로든 클릭을 처리하지 못하더라도
+  // document 레벨에서 mention 클릭을 받아 navigate. (DB 행 페이지 등 특정 컨텍스트에서
+  // 클릭이 막혀 보이던 회귀를 영구 차단.) capture 단계로 어떤 자식 핸들러보다 먼저 받는다.
+  useEffect(() => {
+    const onMentionClick = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const el = target.closest<HTMLElement>("[data-type='mention'][data-id]");
+      if (!el) return;
+      const rawId = el.getAttribute("data-id");
+      if (!rawId) return;
+      // 멤버 멘션은 페이지 이동이 아니므로 그대로 PM 핸들러에 위임
+      if (rawId.startsWith("m:") || el.getAttribute("data-mention-kind") === "member") return;
+      const id = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const inPeek = !!el.closest("[data-qn-peek-editor='true']");
+      const peekActive = useUiStore.getState().peekPageId;
+      if (inPeek && peekActive) {
+        useUiStore.getState().peekNavigate(id);
+      } else {
+        useSettingsStore.getState().setCurrentTabPage(id);
+        usePageStore.getState().setActivePage(id);
+      }
+    };
+    document.addEventListener("click", onMentionClick, true);
+    return () => document.removeEventListener("click", onMentionClick, true);
+  }, []);
 
   useEffect(() => {
     const applyLocationLink = () => {

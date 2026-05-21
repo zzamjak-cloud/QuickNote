@@ -367,6 +367,9 @@ export function DatabaseRowPeek() {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ width }}
+        // pageMention 클릭 핸들러가 "피크 내부 클릭" 여부를 식별하는 마커.
+        // 이 속성으로 피크 내부 클릭이면 peekNavigate, 외부면 메인 탭 setActivePage 로 분기한다.
+        data-qn-peek-editor="true"
         className={[
           "absolute right-0 top-0 flex h-full flex-col overflow-hidden border-l border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950",
           "transition-transform duration-300 ease-out",

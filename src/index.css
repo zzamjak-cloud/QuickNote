@@ -648,20 +648,25 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
   background: rgb(63 63 70);
 }
 
-/* inline code(<p><code>) — 별도 톤 */
+/* inline code(<p><code>) — 한 단계 작은 폰트 + 얇은 어두운 회색 아웃라인 + 라운딩 박스
+   강조감을 주기 위해 배경은 약간 어둡게, 글자색은 진한 톤 유지. */
 .ProseMirror :not(pre) > code {
-  background: rgba(244, 244, 245, 0.9);
+  background: rgba(241, 245, 249, 0.95);
+  border: 1px solid rgba(82, 82, 91, 0.45);
   border-radius: 4px;
-  padding: 1px 5px;
-  font-size: 0.92em;
+  padding: 0 5px;
+  font-size: 0.82em;
+  line-height: 1.3;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "JetBrains Mono",
     Consolas, monospace;
-  color: rgb(82, 82, 91);
+  color: rgb(63, 63, 70);
+  vertical-align: baseline;
 }
 
 .dark .ProseMirror :not(pre) > code {
   background: rgba(39, 39, 42, 0.9);
-  color: rgb(212, 212, 216);
+  border-color: rgba(212, 212, 216, 0.4);
+  color: rgb(228, 228, 231);
 }
 
 /* 박스 선택 — 훅에서 body에 붙임; fixed 뷰포트 좌표 */

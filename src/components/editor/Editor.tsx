@@ -94,7 +94,11 @@ import { BlockHandles } from "./BlockHandles";
 import { ColumnReorderHandles } from "./ColumnReorderHandles";
 import { TableBlockControls } from "./TableBlockControls";
 import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
-import { isAllowedTipTapLinkUri, isTrustedYoutubeInput } from "../../lib/safeUrl";
+import {
+  isAllowedTipTapLinkUri,
+  isTrustedYoutubeInput,
+  sanitizeWebLinkHref,
+} from "../../lib/safeUrl";
 import { useBoxSelect } from "../../hooks/useBoxSelect";
 import { tipTapJsonDocEquals } from "../../lib/pm/jsonDocEquals";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
@@ -536,15 +540,8 @@ export function Editor({
           return true;
         }
 
-        let parsedUrl: URL | null = null;
-        try {
-          parsedUrl = new URL(text);
-        } catch {
-          return false;
-        }
-        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-          return false;
-        }
+        const normalizedUrl = sanitizeWebLinkHref(text);
+        if (!normalizedUrl) return false;
         event.preventDefault();
         const coords = view.coordsAtPos(view.state.selection.from);
         const pos = clampFloatingPanelPosition(coords, {
@@ -552,7 +549,7 @@ export function Editor({
           height: PASTE_URL_MENU_HEIGHT,
         });
         setPasteUrlChoice({
-          url: text,
+          url: normalizedUrl,
           range: { from: view.state.selection.from, to: view.state.selection.to },
           top: pos.top,
           left: pos.left,
@@ -645,21 +642,22 @@ export function Editor({
     (mode: "mention" | "url" | "bookmark" | "embed") => {
       if (!editor || !pasteUrlChoice) return;
       const { url, range } = pasteUrlChoice;
+      const normalizedUrl = sanitizeWebLinkHref(url) ?? url;
       const chain = editor.chain().focus().deleteRange(range);
-      if (mode === "embed" && isTrustedYoutubeInput(url)) {
-        chain.setYoutubeVideo({ src: url }).run();
+      if (mode === "embed" && isTrustedYoutubeInput(normalizedUrl)) {
+        chain.setYoutubeVideo({ src: normalizedUrl }).run();
       } else if (mode === "url") {
         chain
           .insertContent({
             type: "text",
-            text: url,
-            marks: [{ type: "link", attrs: { href: url } }],
+            text: normalizedUrl,
+            marks: [{ type: "link", attrs: { href: normalizedUrl } }],
           })
           .run();
       } else if (mode === "bookmark") {
         const fallbackHost = (() => {
           try {
-            return new URL(url).hostname.replace(/^www\./, "");
+            return new URL(normalizedUrl).hostname.replace(/^www\./, "");
           } catch {
             return "웹 페이지";
           }
@@ -668,9 +666,9 @@ export function Editor({
           .insertContent({
             type: "bookmarkBlock",
             attrs: {
-              href: url,
+              href: normalizedUrl,
               title: fallbackHost,
-              description: url,
+              description: normalizedUrl,
               siteName: fallbackHost,
               status: "loading",
             },
@@ -679,7 +677,7 @@ export function Editor({
       } else {
         const host = (() => {
           try {
-            return new URL(url).hostname.replace(/^www\./, "");
+            return new URL(normalizedUrl).hostname.replace(/^www\./, "");
           } catch {
             return "링크";
           }
@@ -689,7 +687,7 @@ export function Editor({
             type: "buttonBlock",
             attrs: {
               label: mode === "mention" ? host : `북마크 · ${host}`,
-              href: url,
+              href: normalizedUrl,
             },
           })
           .run();

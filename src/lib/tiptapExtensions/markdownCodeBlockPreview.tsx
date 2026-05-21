@@ -48,7 +48,9 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
   if (!isMd) {
     return (
       <NodeViewWrapper className="qn-codeblock-nodeview my-4" data-language={String(node.attrs.language ?? "")}>
-        <pre className="m-0 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+        {/* 기본 코드블럭은 어두운 회색 배경(#2d2d32) 으로 통일.
+            밝은 회색(bg-zinc-50)은 마크다운 미리보기 탭 전용으로만 유지. */}
+        <pre className="hljs m-0 overflow-x-auto rounded-lg border border-zinc-700 bg-[#2d2d32] text-zinc-200">
           <code
             className={
               node.attrs.language

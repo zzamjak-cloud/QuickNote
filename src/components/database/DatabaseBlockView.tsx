@@ -23,6 +23,7 @@ import type {
   DatabasePanelState,
   ViewKind,
 } from "../../types/database";
+import { emptyPanelState } from "../../types/database";
 import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema";
 import { DatabaseTableView } from "./views/DatabaseTableView";
 import { DatabaseKanbanView } from "./views/DatabaseKanbanView";
@@ -89,14 +90,45 @@ export function DatabaseBlockView(props: NodeViewProps) {
   // 내비게이션 히스토리 (인라인→전체 DB 전환 시 뒤로가기 지원).
   const pushBack = useNavigationHistoryStore((s) => s.pushBack);
 
+  const createPageStore = usePageStore((s) => s.createPage);
+  const updateDocStore = usePageStore((s) => s.updateDoc);
   const openDbHomePage = useCallback(
-    (pageId: string) => {
-      // 현재 활성 페이지를 히스토리에 쌓은 후 이동.
+    (pageId: string | null) => {
+      // 호스트 페이지가 없으면 lazy 생성 — Notion 임포트 DB 같이 사전 생성을 건너뛴 케이스 지원.
+      // TopBar.openDatabase 와 동일한 패턴(activate:false 로 만든 뒤 doc 갱신, 그다음에 활성화).
+      let targetPageId = pageId;
+      if (!targetPageId) {
+        const existingId = usePageStore
+          .getState()
+          .findFullPagePageIdForDatabase(databaseId);
+        if (existingId) {
+          targetPageId = existingId;
+        } else {
+          const dbTitleNow = useDatabaseStore.getState().databases[databaseId]?.meta.title
+            ?? "데이터베이스";
+          const newId = createPageStore(dbTitleNow, null, { activate: false });
+          updateDocStore(newId, {
+            type: "doc",
+            content: [
+              {
+                type: "databaseBlock",
+                attrs: {
+                  databaseId,
+                  layout: "fullPage",
+                  view: "table",
+                  panelState: JSON.stringify(emptyPanelState()),
+                },
+              },
+            ],
+          });
+          targetPageId = newId;
+        }
+      }
       if (activePageId) pushBack(activePageId);
-      setActivePageNav(pageId);
-      setCurrentTabPage(pageId);
+      setActivePageNav(targetPageId);
+      setCurrentTabPage(targetPageId);
     },
-    [activePageId, pushBack, setActivePageNav, setCurrentTabPage],
+    [activePageId, databaseId, pushBack, setActivePageNav, setCurrentTabPage, createPageStore, updateDocStore],
   );
 
   // 더보기 — 추가로 표시할 행 수.
@@ -346,11 +378,19 @@ export function DatabaseBlockView(props: NodeViewProps) {
       ? "my-4 w-[calc(100%+6rem)] max-w-none -mx-12"
       : "my-4";
 
-  // fullPage는 제한 없이 전체 표시, inline은 itemLimit + extraRows 적용.
-  const visibleRowLimit =
-    layout === "fullPage"
-      ? undefined
-      : (panelState.itemLimit ?? 30) + extraRows;
+  // 강제 클리핑은 100개 이상에서만 동작.
+  // - inline / fullPage 모두 기본 limit = 100.
+  // - DB 의 행 수가 100 미만이면 limit 을 적용하지 않고 전체 노출 (시각적 마스킹 어색함 제거).
+  // - 사용자가 표시 설정 팝업에서 10/30/50/100 으로 명시 지정한 경우에만 그 값을 그대로 적용.
+  // - extraRows 는 컴포넌트 state 이므로 페이지 재진입 시 자동으로 초기화됨.
+  const defaultLimit = 100;
+  const explicitLimit = panelState.itemLimit ?? null;
+  const totalRowsForLimit = bundle?.rowPageOrder.length ?? 0;
+  const visibleRowLimit = (() => {
+    if (explicitLimit != null) return explicitLimit + extraRows;
+    if (totalRowsForLimit < defaultLimit) return undefined; // 100 미만 → 클리핑 없음
+    return defaultLimit + extraRows;
+  })();
 
   const activeViewComponent = useMemo(() => {
     if (!bundle) return null;
@@ -475,18 +515,43 @@ export function DatabaseBlockView(props: NodeViewProps) {
               {activeViewComponent}
             </DatabaseBlockDataArea>
 
-            {/* 더보기 버튼 — 인라인 레이아웃에서 항목 수가 limit을 초과할 때 표시. */}
-            {layout !== "fullPage" && bundle && (() => {
-              const limit = (panelState.itemLimit ?? 30) + extraRows;
+            {/* 더보기 버튼 — visibleRowLimit 이 적용되어 일부가 잘릴 때만 노출.
+                클릭 시 10개씩 추가 (잔여 < 10 이면 그만큼만), 추가된 분량만큼 자동 스크롤로 보여줌. */}
+            {bundle && visibleRowLimit != null && (() => {
+              const limit = visibleRowLimit;
               const totalRows = bundle.rowPageOrder.length;
               if (totalRows <= limit) return null;
+              const remaining = totalRows - limit;
+              const step = Math.min(10, remaining);
               return (
                 <button
                   type="button"
-                  onClick={() => setExtraRows((e) => e + 10)}
-                  className="mt-1 w-full rounded-md py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  onClick={(e) => {
+                    setExtraRows((prev) => prev + step);
+                    // 추가된 항목 영역 만큼 자동 스크롤 — 사용자가 새로 노출된 항목을 인지하도록.
+                    // 버튼 위쪽 (= 새 항목들이 들어가는 위치) 으로 step * 행 추정 높이만큼 스크롤.
+                    const btn = e.currentTarget;
+                    const ROUGH_ROW_PX = 34;
+                    const targetScroll = btn.getBoundingClientRect().bottom;
+                    const scrollAmount = step * ROUGH_ROW_PX;
+                    // 가장 가까운 스크롤 컨테이너 찾기
+                    let host: HTMLElement | null = btn.parentElement;
+                    while (host) {
+                      const style = window.getComputedStyle(host);
+                      const oy = style.overflowY;
+                      if ((oy === "auto" || oy === "scroll") && host.scrollHeight > host.clientHeight) break;
+                      host = host.parentElement;
+                    }
+                    requestAnimationFrame(() => {
+                      if (host) host.scrollBy({ top: scrollAmount, behavior: "smooth" });
+                      else window.scrollBy({ top: scrollAmount, behavior: "smooth" });
+                      // 디버그: 컨테이너가 잡혔다는 사실만 확인용 (silent)
+                      void targetScroll;
+                    });
+                  }}
+                  className="mt-1 w-full rounded-md border border-zinc-200 bg-white py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
-                  + 더보기 ({totalRows - limit}개 남음)
+                  + {step}개 더보기 (총 {totalRows.toLocaleString()}개 중 {limit.toLocaleString()}개 표시)
                 </button>
               );
             })()}
