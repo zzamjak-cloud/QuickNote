@@ -357,13 +357,18 @@ export function DatabaseToolbarControls({
               aria-label="필터"
               aria-pressed={panelState.filterRules.length > 0}
               className={[
-                "inline-flex h-7 w-7 items-center justify-center rounded-md",
+                "relative inline-flex h-7 w-7 items-center justify-center rounded-md",
                 panelState.filterRules.length > 0
-                  ? "bg-blue-500 text-white hover:bg-blue-600"
+                  ? "text-blue-600 hover:bg-zinc-100 dark:text-blue-400 dark:hover:bg-zinc-800"
                   : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
               ].join(" ")}
             >
               <Funnel size={13} />
+              {panelState.filterRules.length > 0 ? (
+                <span className="pointer-events-none absolute bottom-[1px] right-[1px] min-w-[10px] rounded-full bg-blue-600 px-[2px] text-center text-[9px] font-semibold leading-[10px] text-white dark:bg-blue-500">
+                  {panelState.filterRules.length > 99 ? "99+" : panelState.filterRules.length}
+                </span>
+              ) : null}
             </button>
 
             {/* 정렬 버튼 */}
@@ -375,13 +380,18 @@ export function DatabaseToolbarControls({
               aria-label="정렬"
               aria-pressed={effectiveSortRules.length > 0}
               className={[
-                "inline-flex h-7 w-7 items-center justify-center rounded-md",
+                "relative inline-flex h-7 w-7 items-center justify-center rounded-md",
                 effectiveSortRules.length > 0
-                  ? "bg-orange-500 text-white hover:bg-orange-600"
+                  ? "text-orange-600 hover:bg-zinc-100 dark:text-orange-400 dark:hover:bg-zinc-800"
                   : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
               ].join(" ")}
             >
               <ArrowUpDown size={13} />
+              {effectiveSortRules.length > 0 ? (
+                <span className="pointer-events-none absolute bottom-[1px] right-[1px] min-w-[10px] rounded-full bg-orange-600 px-[2px] text-center text-[9px] font-semibold leading-[10px] text-white dark:bg-orange-500">
+                  {effectiveSortRules.length > 99 ? "99+" : effectiveSortRules.length}
+                </span>
+              ) : null}
             </button>
           </div>
 

@@ -25,6 +25,7 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
   const addTemplate = useDatabaseStore((s) => s.addTemplate);
   const deleteTemplate = useDatabaseStore((s) => s.deleteTemplate);
   const applyTemplate = useDatabaseStore((s) => s.applyTemplate);
+  const addRow = useDatabaseStore((s) => s.addRow);
 
   const pages = usePageStore((s) => s.pages);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -75,6 +76,11 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
     setOpen(false);
   };
 
+  const handleAddEmptyRow = () => {
+    addRow(databaseId);
+    setOpen(false);
+  };
+
   return (
     <>
       <button
@@ -100,6 +106,15 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
             className="z-50 overflow-hidden rounded-md border border-zinc-200 bg-white text-base shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <div className="border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={handleAddEmptyRow}
+                className="mb-1 flex w-full items-center gap-1.5 rounded px-1 py-1 text-base text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                title="빈 페이지"
+              >
+                <Plus size={12} />
+                빈 페이지
+              </button>
               <button
                 type="button"
                 onClick={handleAdd}
