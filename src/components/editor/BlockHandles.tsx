@@ -6,6 +6,7 @@ import {
   useCallback,
 } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
+import { HandleLayer } from "./handles/HandleLayer";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import {
@@ -750,13 +751,10 @@ export function BlockHandles({
 
   // 박스 드래그(마퀴) 중에는 그립·호버 UI만 숨긴다 — 고정 댓글 배지는 계속 보이게 함
   return (
-    <div
+    <HandleLayer
       ref={containerRef}
-      data-qn-editor-chrome="block-handles"
-      className={[
-        "pointer-events-none absolute inset-0",
-        menuOpen ? "z-[320]" : "z-10",
-      ].join(" ")}
+      zClassName={menuOpen ? "z-[320]" : "z-10"}
+      dataAttrs={{ "data-qn-editor-chrome": "block-handles" }}
     >
       {!boxSelecting && hover && bar && wrapperRect ? (
         <>
@@ -1340,6 +1338,6 @@ export function BlockHandles({
           </div>
         </div>
       ) : null}
-    </div>
+    </HandleLayer>
   );
 }
