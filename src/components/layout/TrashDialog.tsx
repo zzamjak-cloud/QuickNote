@@ -6,6 +6,10 @@ import {
   fetchTrashedPagesBatch,
   restorePageRemote,
 } from "../../lib/sync/trashApi";
+import {
+  clearLocalDeleteGuard,
+  markPermanentlyDeletedEntity,
+} from "../../lib/sync/localDeleteGuards";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -84,6 +88,8 @@ export function TrashDialog({ open, onClose }: Props) {
   const restore = async (id: string, title: string) => {
     if (!currentWorkspaceId) return;
     try {
+      // 사용자가 명시적으로 복원 요청 → 기존 로컬 삭제 가드 제거.
+      clearLocalDeleteGuard("page", id, currentWorkspaceId);
       const p = await restorePageRemote(id, currentWorkspaceId);
       applyRemotePageToStore(p);
       setItems((prev) => prev.filter((x) => x.id !== id));
@@ -106,7 +112,26 @@ export function TrashDialog({ open, onClose }: Props) {
     try {
       const loadedIds = items.map((item) => item.id).filter(Boolean);
       const deletedCount = await emptyTrashRemote(currentWorkspaceId);
-      if (loadedIds.length > 0) removeFavoritesForPages(loadedIds);
+      // 휴지통 비우기는 서버에서 row 자체를 purge → 알고 있는 id 들을 영구 tombstone 으로.
+      for (const pid of loadedIds) {
+        markPermanentlyDeletedEntity("page", pid, currentWorkspaceId);
+      }
+      // 좀비 로컬 캐시 정리 (페이지 본문이 남아있을 가능성 차단).
+      if (loadedIds.length > 0) {
+        usePageStore.setState((s) => {
+          let nextPages = s.pages;
+          let changed = false;
+          for (const pid of loadedIds) {
+            if (!nextPages[pid]) continue;
+            if (nextPages === s.pages) nextPages = { ...s.pages };
+            delete nextPages[pid];
+            changed = true;
+          }
+          if (!changed) return s;
+          return { ...s, pages: nextPages };
+        });
+        removeFavoritesForPages(loadedIds);
+      }
       setItems([]);
       setCursor(null);
       setQuery("");

@@ -40,6 +40,7 @@ function coercePage(value: unknown): Page | null {
   const order = Number(value.order);
   return {
     id: value.id,
+    workspaceId: typeof value.workspaceId === "string" ? value.workspaceId : undefined,
     title: value.title,
     icon: typeof value.icon === "string" ? value.icon : null,
     doc: value.doc,

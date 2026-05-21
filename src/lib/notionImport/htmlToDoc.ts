@@ -285,16 +285,21 @@ function blocksFromContainerChildren(
       const blockToken = classColor?.token ?? parentBlockToken;
 
       if (tag === "p") {
+        const mediaBlock = maybeMediaBlockFromParagraph(node, options);
+        if (mediaBlock) {
+          out.push(mediaBlock);
+          return;
+        }
+        const bookmark = maybeBookmarkBlockFromParagraph(node, options);
+        if (bookmark) {
+          out.push(bookmark);
+          return;
+        }
         const paragraphImages = Array.from(node.querySelectorAll("img"))
           .map((img) => imageNodeFromElement(img, options))
           .filter((img): img is JSONContent => !!img);
         if (paragraphImages.length > 0 && (node.textContent ?? "").trim().length === 0) {
           out.push(...paragraphImages);
-          return;
-        }
-        const mediaBlock = maybeMediaBlockFromParagraph(node, options);
-        if (mediaBlock) {
-          out.push(mediaBlock);
           return;
         }
         const dashList = dashListBlocksFromParagraph(node, blockColor, blockToken, options);
@@ -333,22 +338,21 @@ function blocksFromContainerChildren(
           out.push(yt);
           return;
         }
-        // bookmark / 일반 임베드 — 클래스에 상관없이 anchor 있으면 북마크로
-        if (node.classList.contains("bookmark") || node.querySelector("a[href]")) {
-          const a = node.querySelector("a[href]");
-          if (a instanceof HTMLElement) {
-            const bookmark = bookmarkBlockFromAnchor(a, node);
-            if (bookmark) {
-              out.push(bookmark);
+        if (node.classList.contains("image")) {
+          const figureImage = node.querySelector("img");
+          if (figureImage instanceof HTMLElement) {
+            const imageNode = imageNodeFromElement(figureImage, options);
+            if (imageNode) {
+              out.push(imageNode);
               return;
             }
           }
         }
-        const figureImage = node.querySelector("img");
-        if (figureImage instanceof HTMLElement) {
-          const imageNode = imageNodeFromElement(figureImage, options);
-          if (imageNode) {
-            out.push(imageNode);
+        const sourceAnchor = node.querySelector(".source a[href], a[href]");
+        if (sourceAnchor instanceof HTMLElement) {
+          const assetNode = assetBlockFromAnchor(sourceAnchor, options);
+          if (assetNode) {
+            out.push(assetNode);
             return;
           }
         }
@@ -360,6 +364,17 @@ function blocksFromContainerChildren(
             return;
           }
         }
+        // bookmark / 일반 임베드
+        if (node.classList.contains("bookmark") || node.querySelector("a[href]")) {
+          const a = node.querySelector("a[href]");
+          if (a instanceof HTMLElement) {
+            const bookmark = bookmarkBlockFromAnchor(a, node);
+            if (bookmark) {
+              out.push(bookmark);
+              return;
+            }
+          }
+        }
       }
       if (tag === "ul" && node.classList.contains("toggle")) {
         out.push(...togglesFromToggleList(node, options, blockColor, blockToken));
@@ -367,6 +382,10 @@ function blocksFromContainerChildren(
       }
       if (tag === "blockquote") {
         out.push(blockquoteFromElement(node, blockColor, blockToken, options));
+        return;
+      }
+      if (tag === "pre") {
+        out.push(codeBlockFromElement(node));
         return;
       }
       if (tag === "iframe") {
@@ -615,6 +634,20 @@ function tableFromElement(table: HTMLElement): JSONContent {
   };
 }
 
+function codeBlockFromElement(pre: HTMLElement): JSONContent {
+  const codeEl = pre.querySelector("code");
+  const rawText = (codeEl?.textContent ?? pre.textContent ?? "").replace(/\r\n/g, "\n");
+  const languageClass = (codeEl?.className ?? pre.className)
+    .split(/\s+/)
+    .find((cls) => cls.startsWith("language-"));
+  const language = languageClass?.replace(/^language-/, "") || null;
+  return {
+    type: "codeBlock",
+    attrs: language ? { language } : undefined,
+    content: rawText.length > 0 ? [{ type: "text", text: rawText }] : [],
+  };
+}
+
 export type NotionCollectionTable = {
   headers: string[];
   rows: Array<{
@@ -636,7 +669,7 @@ export type NotionCollectionTable = {
 };
 
 type HtmlToDocOptions = {
-  onCollectionTable?: (table: NotionCollectionTable) => string;
+  onCollectionTable?: (table: NotionCollectionTable) => string | null;
   resolveImageSrc?: (src: string) => string | null;
   resolveImageNode?: (src: string, element: HTMLElement) => JSONContent | null;
   resolveMediaNode?: (src: string, element: HTMLElement) => JSONContent | null;
@@ -690,6 +723,13 @@ function pageMentionParagraphFromAnchor(anchor: HTMLElement, options?: HtmlToDoc
     };
   }
   return createPageMentionParagraph(pageMention.pageId, label);
+}
+
+function assetBlockFromAnchor(anchor: HTMLElement, options?: HtmlToDocOptions): JSONContent | null {
+  const href = anchor.getAttribute("href") ?? "";
+  if (!href) return null;
+  if (options?.resolvePageMentionByHref?.(href)) return null;
+  return options?.resolveMediaNode?.(href, anchor) ?? options?.resolveImageNode?.(href, anchor) ?? null;
 }
 
 function relocateDeferredMentionsInToggleBlocks(blocks: JSONContent[]): JSONContent[] {
@@ -830,6 +870,9 @@ function inlineFromNode(node: Node, inheritedColor: string | null, inheritedMark
         },
       }];
     }
+    // 같은 항목(li) 안에 동일 지도 링크의 figure 북마크가 함께 있을 때만
+    // 인라인 지도 링크를 제거해 중복 표시를 막는다.
+    if (isMapLinkHref(href) && hasDuplicateMapBookmarkAnchor(node)) return [];
     const normalizedHref = normalizeImportedLinkHref(href);
     if (normalizedHref) {
       nextMarks = mergeMarks(nextMarks, [{ type: "link", attrs: { href: normalizedHref, target: "_blank", rel: "noopener noreferrer nofollow" } }]);
@@ -951,6 +994,67 @@ function bookmarkBlockFromAnchor(anchor: HTMLElement, container?: HTMLElement | 
   };
 }
 
+function isMapLinkHref(href: string): boolean {
+  const normalized = normalizeImportedLinkHref(href);
+  if (!normalized) return false;
+  try {
+    const url = new URL(normalized);
+    const host = url.hostname.toLowerCase();
+    if (host === "map.naver.com" || host.endsWith(".map.naver.com")) return true;
+    if (host === "maps.app.goo.gl") return true;
+    return host.includes("google.") && url.pathname.startsWith("/maps");
+  } catch {
+    return false;
+  }
+}
+
+function hasDuplicateMapBookmarkAnchor(anchor: HTMLElement): boolean {
+  const href = anchor.getAttribute("href") ?? "";
+  const normalizedHref = normalizeImportedLinkHref(href);
+  if (!normalizedHref || !isMapLinkHref(normalizedHref)) return false;
+  const listItem = anchor.closest("li");
+  if (!listItem) return false;
+  const figureAnchors = Array.from(listItem.querySelectorAll("figure a[href]")).filter(
+    (el): el is HTMLElement => el instanceof HTMLElement,
+  );
+  return figureAnchors.some((fa) => {
+    if (fa === anchor) return false;
+    const figureHref = normalizeImportedLinkHref(fa.getAttribute("href") ?? "");
+    return !!figureHref && figureHref === normalizedHref;
+  });
+}
+
+function mapBookmarkBlockFromAnchor(anchor: HTMLElement, container?: HTMLElement | null): JSONContent | null {
+  const href = anchor.getAttribute("href") ?? "";
+  if (!isMapLinkHref(href)) return null;
+  const normalizedHref = normalizeImportedLinkHref(href);
+  if (!normalizedHref) return null;
+  const scope = container ?? anchor;
+  const rawText = (scope.textContent ?? "").replace(/\s+/g, " ").trim();
+  const cleaned = rawText
+    .replace(/네이버\s*지도/gi, "")
+    .replace(/google\s*maps?/gi, "")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/[•·\-–—>\u2192]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const title = cleaned || (anchor.textContent ?? "").trim() || "지도";
+  const siteName = normalizedHref.includes("naver.com") ? "네이버 지도" : "Google 지도";
+  const imageEl = scope.querySelector("img.bookmark-image, img.bookmark-icon, img");
+  const imageUrl = imageEl instanceof HTMLElement ? (imageEl.getAttribute("src") ?? "") : "";
+  return {
+    type: "bookmarkBlock",
+    attrs: {
+      href: normalizedHref,
+      title,
+      description: normalizedHref,
+      siteName,
+      imageUrl,
+      status: "ready",
+    },
+  };
+}
+
 function maybeBookmarkBlockFromParagraph(el: HTMLElement, options?: HtmlToDocOptions): JSONContent | null {
   const anchors = Array.from(el.querySelectorAll("a[href]")).filter(
     (a): a is HTMLElement => a instanceof HTMLElement,
@@ -960,6 +1064,8 @@ function maybeBookmarkBlockFromParagraph(el: HTMLElement, options?: HtmlToDocOpt
   if (!anchor) return null;
   const href = anchor.getAttribute("href") ?? "";
   if (options?.resolvePageMentionByHref?.(href)) return null;
+  const mapBookmark = mapBookmarkBlockFromAnchor(anchor, el);
+  if (mapBookmark) return mapBookmark;
   const paragraphText = (el.textContent ?? "").trim().replace(/\s+/g, " ");
   const anchorText = (anchor.textContent ?? "").trim().replace(/\s+/g, " ");
   if (!paragraphText || paragraphText !== anchorText) return null;
@@ -990,11 +1096,12 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
   const page = doc.querySelector("article.page") ?? doc.body;
   const blocks: JSONContent[] = [];
 
-  const elements = Array.from(page.querySelectorAll("details, table, h1, h2, h3, p, ul, ol, aside, figure.callout, figure.bookmark, figure, hr, img, video, blockquote, iframe"));
+  const elements = Array.from(page.querySelectorAll("details, table, h1, h2, h3, p, ul, ol, aside, figure.callout, figure.bookmark, figure, hr, img, video, blockquote, iframe, pre"));
   for (const el of elements) {
     if (!(el instanceof HTMLElement)) continue;
     if (el.closest("header") && el.tagName.toLowerCase() !== "h1") continue;
     if (el.tagName.toLowerCase() !== "figure" && el.closest("figure.callout")) continue;
+    if (el.tagName.toLowerCase() !== "figure" && el.closest("figure")) continue;
 
     const tag = el.tagName.toLowerCase();
     if (tag === "details" && el.closest("ul.toggle")) continue;
@@ -1090,16 +1197,18 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
           }
         });
         const databaseId = options.onCollectionTable({ headers, rows });
-        blocks.push({
-          type: "databaseBlock",
-          attrs: {
-            databaseId,
-            layout: "inline",
-            view: "table",
-            panelState: JSON.stringify(emptyPanelState()),
-            readOnlyTitle: false,
-          },
-        });
+        if (databaseId) {
+          blocks.push({
+            type: "databaseBlock",
+            attrs: {
+              databaseId,
+              layout: "inline",
+              view: "table",
+              panelState: JSON.stringify(emptyPanelState()),
+              readOnlyTitle: false,
+            },
+          });
+        }
         continue;
       }
       blocks.push(tableFromElement(el));
@@ -1119,13 +1228,6 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
       continue;
     }
     if (tag === "p") {
-      const paragraphImages = Array.from(el.querySelectorAll("img"))
-        .map((img) => imageNodeFromElement(img, options))
-        .filter((img): img is JSONContent => !!img);
-      if (paragraphImages.length > 0 && (el.textContent ?? "").trim().length === 0) {
-        blocks.push(...paragraphImages);
-        continue;
-      }
       const mediaBlock = maybeMediaBlockFromParagraph(el, options);
       if (mediaBlock) {
         blocks.push(mediaBlock);
@@ -1135,6 +1237,13 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
       if (bookmark) {
         blocks.push(bookmark);
       } else {
+        const paragraphImages = Array.from(el.querySelectorAll("img"))
+          .map((img) => imageNodeFromElement(img, options))
+          .filter((img): img is JSONContent => !!img);
+        if (paragraphImages.length > 0 && (el.textContent ?? "").trim().length === 0) {
+          blocks.push(...paragraphImages);
+          continue;
+        }
         const dashList = dashListBlocksFromParagraph(el, blockColor, blockToken, options);
         if (dashList) {
           blocks.push(...dashList);
@@ -1171,6 +1280,11 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
       }
       const anchor = el.querySelector("a[href]");
       if (anchor instanceof HTMLElement) {
+        const assetNode = assetBlockFromAnchor(anchor, options);
+        if (assetNode) {
+          blocks.push(assetNode);
+          continue;
+        }
         const bookmark = bookmarkBlockFromAnchor(anchor, el);
         if (bookmark) {
           blocks.push(bookmark);
@@ -1190,12 +1304,24 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
       blocks.push(blockquoteFromElement(el, blockColor, blockToken, options));
       continue;
     }
+    if (tag === "pre") {
+      blocks.push(codeBlockFromElement(el));
+      continue;
+    }
     if (tag === "figure") {
       // figure 내부에 youtube 임베드/링크가 있으면 youtube 노드로 변환
       const yt = youtubeNodeFromElement(el);
       if (yt) {
         blocks.push(yt);
         continue;
+      }
+      const figureAnchor = el.querySelector("a[href]");
+      if (figureAnchor instanceof HTMLElement) {
+        const mapBookmark = mapBookmarkBlockFromAnchor(figureAnchor, el);
+        if (mapBookmark) {
+          blocks.push(mapBookmark);
+          continue;
+        }
       }
       const figureImage = el.querySelector("img");
       if (figureImage instanceof HTMLElement) {
@@ -1216,6 +1342,11 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
       // Notion 임베드(외부 링크)는 bookmark 클래스 없이 단순 <figure><a class="source">URL</a></figure> 로 출력됨 → 북마크로 변환
       const embedAnchor = el.querySelector("a[href]");
       if (embedAnchor instanceof HTMLElement) {
+        const mediaFromHref = assetBlockFromAnchor(embedAnchor, options);
+        if (mediaFromHref) {
+          blocks.push(mediaFromHref);
+          continue;
+        }
         const bookmark = bookmarkBlockFromAnchor(embedAnchor, el);
         if (bookmark) {
           blocks.push(bookmark);

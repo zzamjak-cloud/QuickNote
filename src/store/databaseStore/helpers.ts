@@ -43,9 +43,10 @@ export function toGqlDatabase(
   createdByMemberId: string,
   presets?: DatabaseRowPreset[],
 ): Record<string, unknown> {
+  const workspaceId = meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(meta.id);
   return {
     id: meta.id,
-    workspaceId: resolveWorkspaceIdByDatabaseId(meta.id),
+    workspaceId,
     createdByMemberId,
     title: meta.title,
     columns: JSON.stringify(columns),
@@ -56,7 +57,7 @@ export function toGqlDatabase(
 }
 
 export function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
-  const workspaceId = resolveWorkspaceIdByDatabaseId(bundle.meta.id);
+  const workspaceId = bundle.meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(bundle.meta.id);
   if (!workspaceId) {
     console.warn("[sync] upsertDatabase skipped: workspaceId 미설정", { dbId: bundle.meta.id });
     return;
@@ -77,7 +78,7 @@ export function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
 // doc/dbCells 는 AppSync AWSJSON 요구사항에 맞춰 JSON.stringify 로 직렬화.
 export function enqueueUpsertPageRaw(p: Page): void {
   const createdByMemberId = getCreatedByMemberId();
-  const workspaceId = resolveWorkspaceIdByDatabaseId(p.databaseId ?? null);
+  const workspaceId = p.workspaceId ?? resolveWorkspaceIdByDatabaseId(p.databaseId ?? null);
   enqueueAsync(
     "upsertPage",
     {

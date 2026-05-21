@@ -63,9 +63,16 @@ function normalizeForMatch(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function pathDepth(path: string): number {
+  if (!path) return 0;
+  return path.split("/").length - 1;
+}
+
 export function findHtmlForRow(rowTitle: string, allPaths: string[]): string | null {
   const needle = normalizeForMatch(rowTitle);
-  const htmlPaths = allPaths.filter((p) => p.toLowerCase().endsWith(".html"));
+  const htmlPaths = allPaths
+    .filter((p) => p.toLowerCase().endsWith(".html"))
+    .sort((a, b) => pathDepth(a) - pathDepth(b) || a.localeCompare(b));
 
   // 1차: 베이스 이름(hex 제거) 정확 일치
   const exact = htmlPaths.find((p) => {
@@ -117,6 +124,7 @@ export function findChildHtmlPaths(rowHtmlPath: string, allPaths: string[]): str
 
 export type CsvDbPair = {
   folderBase: string;
+  folderPath: string;
   csvHandle: FileSystemFileHandle;
   folderHandle: FileSystemDirectoryHandle;
   // CSV 옆에 같은 base 이름으로 존재하는 DB 메인 렌더 HTML (collection-content 테이블 포함)
@@ -139,23 +147,29 @@ export async function detectCsvDbPairs(dir: FileSystemDirectoryHandle): Promise<
   const pairs: CsvDbPair[] = [];
   for (const [base, csvHandle] of csvMap) {
     const folderHandle = dirMap.get(base);
-    if (folderHandle) pairs.push({ folderBase: base, csvHandle, folderHandle });
+    if (folderHandle) pairs.push({ folderBase: base, folderPath: base, csvHandle, folderHandle });
   }
   return pairs;
 }
 
-// 하위 폴더까지 재귀적으로 CSV+동명폴더 쌍 탐지 (이미 매칭된 폴더는 재귀 제외)
+// 하위 폴더까지 재귀적으로 CSV+동명폴더 쌍 탐지.
+// Notion 내보내기는 DB 항목 페이지 안에 또 다른 CSV+동명폴더 DB를 둘 수 있으므로,
+// 이미 DB로 매칭된 폴더도 계속 스캔해야 한다.
 export async function detectCsvDbPairsRecursive(
   dir: FileSystemDirectoryHandle,
 ): Promise<CsvDbPair[]> {
   const results: CsvDbPair[] = [];
-  await _scanForPairs(dir, results);
-  return results;
+  await _scanForPairs(dir, results, "");
+  return results.sort((a, b) => {
+    const depth = pathDepth(a.folderPath) - pathDepth(b.folderPath);
+    return depth !== 0 ? depth : a.folderPath.localeCompare(b.folderPath);
+  });
 }
 
 async function _scanForPairs(
   dir: FileSystemDirectoryHandle,
   out: CsvDbPair[],
+  currentPath: string,
 ): Promise<void> {
   const csvMap = new Map<string, FileSystemFileHandle>();
   const htmlMap = new Map<string, FileSystemFileHandle>();
@@ -177,24 +191,21 @@ async function _scanForPairs(
     }
   }
 
-  const matchedDirNames = new Set<string>();
   for (const [base, csvHandle] of csvMap) {
     const folderHandle = dirMap.get(base);
     if (folderHandle) {
       out.push({
         folderBase: base,
+        folderPath: currentPath ? `${currentPath}/${base}` : base,
         csvHandle,
         folderHandle,
         mainHtmlHandle: htmlMap.get(base),
       });
-      matchedDirNames.add(base);
     }
   }
 
   for (const [name, handle] of dirMap) {
-    if (!matchedDirNames.has(name)) {
-      await _scanForPairs(handle, out);
-    }
+    await _scanForPairs(handle, out, currentPath ? `${currentPath}/${name}` : name);
   }
 }
 

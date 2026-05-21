@@ -89,6 +89,7 @@ export type DatabaseRowView = {
 
 export type DatabaseMeta = {
   id: string;
+  workspaceId?: string;
   title: string;
   createdAt: number;
   updatedAt: number;

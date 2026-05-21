@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowLeftRight,
   Check,
@@ -32,12 +32,13 @@ import { PageMoveDialog } from "../layout/PageMoveDialog";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { PageCommentBar } from "../comments/PageCommentBar";
-import { useShallow } from "zustand/react/shallow";
 import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { pageDocToHtml } from "../../lib/export/pageToHtml";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
+import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
+import { PageSubpageTree } from "../page/PageSubpageTree";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
@@ -75,13 +76,6 @@ export function DatabaseRowPeek() {
     : globalFullWidth;
   const page = usePageStore((s) => (peekPageId ? s.pages[peekPageId] : undefined));
   const isPendingPageCreation = Boolean(peekPageId?.startsWith("lc-scheduler:creating:") && !page);
-  const childPages = usePageStore(
-    useShallow((s) =>
-      peekPageId
-        ? Object.values(s.pages).filter((p) => p.parentId === peekPageId)
-        : [],
-    ),
-  );
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
   const restorePageFromHistoryEvent = usePageStore(
@@ -92,6 +86,14 @@ export function DatabaseRowPeek() {
   // 항목 페이지를 활성화하여 전체 페이지 뷰(DatabaseRowPage)가 보이게 한다.
   const openFullPage = () => {
     if (!peekPageId || !page) return;
+    const latestPages = usePageStore.getState().pages;
+    const latestTarget = latestPages[peekPageId];
+    if (!latestTarget) {
+      useUiStore.getState().showToast("항목 페이지를 찾지 못했습니다.", { kind: "error" });
+      closePeek();
+      return;
+    }
+    const previousActivePageId = activePageId;
     if (isLCSchedulerDatabaseId(page.databaseId)) {
       window.dispatchEvent(new CustomEvent(CLOSE_LC_SCHEDULER_EVENT, {
         detail: { keepSchedulerWorkspace: true },
@@ -101,6 +103,22 @@ export function DatabaseRowPeek() {
     setActivePage(peekPageId);
     setCurrentTabPage(peekPageId);
     closePeek();
+
+    // 전환 직후 대상 페이지가 사라졌거나 유효하지 않으면 이전 페이지로 복구해 흰 화면 상태를 방지한다.
+    requestAnimationFrame(() => {
+      const postPages = usePageStore.getState().pages;
+      if (postPages[peekPageId]) return;
+      const fallback = previousActivePageId && postPages[previousActivePageId]
+        ? previousActivePageId
+        : null;
+      if (fallback) {
+        setActivePage(fallback);
+        setCurrentTabPage(fallback);
+      }
+      useUiStore.getState().showToast("페이지 전환 중 문제가 발생해 이전 화면으로 복구했습니다.", {
+        kind: "error",
+      });
+    });
   };
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
@@ -124,7 +142,11 @@ export function DatabaseRowPeek() {
     eventIds: string[];
   } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const scrollBodyRef = useRef<HTMLDivElement | null>(null);
+  const scrollTopByPageRef = useRef<Record<string, number>>({});
+  const restoredPageIdRef = useRef<string | null>(null);
   const openedAtRef = useRef(0);
+  const [tailSpacerPx, setTailSpacerPx] = useState(240);
 
   // 슬라이드·딤머 애니메이션 상태
   const [visible, setVisible] = useState(false);
@@ -184,6 +206,39 @@ export function DatabaseRowPeek() {
   useEffect(() => {
     setTitleDraft(page?.title ?? "");
   }, [page?.title, peekPageId]);
+
+  useLayoutEffect(() => {
+    const run = (): void => {
+      setTailSpacerPx(computeEditorTailSpacerPx());
+    };
+    run();
+    window.addEventListener("resize", run, { passive: true });
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", run, { passive: true });
+    vv?.addEventListener("scroll", run, { passive: true });
+    return () => {
+      window.removeEventListener("resize", run);
+      vv?.removeEventListener("resize", run);
+      vv?.removeEventListener("scroll", run);
+    };
+  }, []);
+
+  // 피크 스크롤 위치 유지: 페이지 전환(또는 재오픈) 시에만 복원한다.
+  // 스크롤 중/드래그 중에는 개입하지 않아 사용자의 스크롤바 조작을 덮어쓰지 않는다.
+  useLayoutEffect(() => {
+    if (!peekPageId) return;
+    if (restoredPageIdRef.current === peekPageId) return;
+    const scroller = scrollBodyRef.current;
+    if (!scroller) return;
+    const savedTop = scrollTopByPageRef.current[peekPageId] ?? 0;
+    scroller.scrollTop = Math.max(0, savedTop);
+    restoredPageIdRef.current = peekPageId;
+  }, [peekPageId]);
+
+  useEffect(() => {
+    if (peekPageId) return;
+    restoredPageIdRef.current = null;
+  }, [peekPageId]);
 
   useEffect(() => {
     if (!peekPageId) return;
@@ -568,7 +623,14 @@ export function DatabaseRowPeek() {
         </div>{/* 상단 툴바 끝 */}
 
         {/* 단일 스크롤 영역 — 제목·속성·본문·하위페이지 모두 포함 */}
-        <div className="flex-1 overflow-y-auto px-8 pb-8">
+        <div
+          ref={scrollBodyRef}
+          onScroll={(e) => {
+            if (!peekPageId) return;
+            scrollTopByPageRef.current[peekPageId] = e.currentTarget.scrollTop;
+          }}
+          className="flex-1 overflow-y-auto px-8 pb-8"
+        >
         {isPendingPageCreation ? (
           <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 text-center">
             <Loader2 size={22} className="animate-spin text-blue-500" />
@@ -603,27 +665,15 @@ export function DatabaseRowPeek() {
         <PageCommentBar pageId={peekPageId} />
         {/* 노션 스타일: 피크에서도 본문 편집 가능 — Editor에 pageId 주입, bodyOnly로 제목/아이콘 영역 숨김 */}
         <div className="qn-peek-editor mt-2 -mx-8">
-          <Editor key={peekPageId} pageId={peekPageId} bodyOnly peek />
+          <Editor key={peekPageId} pageId={peekPageId} bodyOnly peek showTailSpacer={false} />
         </div>
-        {/* 항목 내 하위 페이지 목록 */}
-        {childPages.length > 0 && (
-          <div className="mt-4 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-            <p className="mb-2 text-xs font-semibold text-zinc-400 dark:text-zinc-500">하위 페이지</p>
-            <div className="flex flex-col gap-0.5">
-              {childPages.map((cp) => (
-                <button
-                  key={cp.id}
-                  type="button"
-                  onClick={() => peekNavigate(cp.id)}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  <span className="shrink-0 text-base leading-none">{cp.icon ?? <FileText size={14} />}</span>
-                  <span className="truncate">{cp.title || "제목 없음"}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* 항목 내 하위 페이지 구조 */}
+        <PageSubpageTree currentPageId={peekPageId} compact onNavigate={peekNavigate} className="mt-4" />
+        <div
+          aria-hidden
+          className="qn-editor-scroll-tail-spacer shrink-0 select-none"
+          style={{ height: tailSpacerPx, minHeight: tailSpacerPx }}
+        />
           </>
         ) : null}
         </div>{/* 단일 스크롤 영역 끝 */}

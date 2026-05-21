@@ -706,6 +706,7 @@ body.qn-box-select-dragging [data-qn-table-grip-row] {
 
 /* 컬럼 레이아웃: 컬럼 사이 얇은 구분선 */
 .ProseMirror [data-column-layout] {
+  border: 1px solid rgb(244 244 245);
   border-radius: 10px;
   padding: 10px 12px;
   /* 인접 블록(특히 위쪽 표/탭)과 호버 간섭 분리 */
@@ -727,6 +728,7 @@ body.qn-box-select-dragging [data-qn-table-grip-row] {
 }
 
 .dark .ProseMirror [data-column-layout] {
+  border-color: rgb(39 39 42);
   background: rgba(39, 39, 42, 0.15);
 }
 
@@ -738,16 +740,16 @@ body.qn-box-select-dragging [data-qn-table-grip-row] {
 .ProseMirror [data-column-layout] > [data-column]:not(:last-child)::after {
   content: "";
   position: absolute;
-  top: 4px;
+  top: 25%;
   right: -12px;
   width: 1px;
-  height: calc(100% - 8px);
-  background: rgba(161, 161, 170, 0.25);
+  height: 50%;
+  background: rgb(244 244 245);
   pointer-events: none;
 }
 
 .dark .ProseMirror [data-column-layout] > [data-column]:not(:last-child)::after {
-  background: rgba(113, 113, 122, 0.42);
+  background: rgb(39 39 42);
 }
 
 /* 컬럼 레이아웃 컬러 프리셋 적용 시(empty 가 아님): 내부 데이터테이블 헤더가 배경과 묻히지 않도록

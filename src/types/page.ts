@@ -4,6 +4,7 @@ import type { PageBlockCommentsSnapshot } from "./blockComment";
 
 export type Page = {
   id: string;
+  workspaceId?: string;
   title: string;
   icon: string | null;
   doc: JSONContent;

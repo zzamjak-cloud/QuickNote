@@ -157,6 +157,80 @@ export async function scanNotionFolder(dir: FileSystemDirectoryHandle): Promise<
   };
 }
 
+export async function scanNotionFolderFiles(files: File[]): Promise<NotionZipPreview> {
+  const allFiles = files
+    .map((file) => {
+      const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? file.name;
+      const path = rel.replace(/^\/+/, "");
+      return { path, name: file.name, file };
+    })
+    .filter((entry) => entry.path.length > 0);
+
+  const markdownFiles = allFiles.filter((f) => isMarkdownFile(f.name));
+  const htmlFiles = allFiles.filter((f) => isHtmlFile(f.name));
+  const csvFiles = allFiles.filter((f) => isCsvFile(f.name));
+  const assetFiles = allFiles.filter(
+    (f) => !isMarkdownFile(f.name) && !isHtmlFile(f.name) && !isCsvFile(f.name),
+  );
+
+  const pages: NotionImportedPage[] = [];
+
+  for (const f of markdownFiles) {
+    const meta = buildPageMeta(f.path);
+    pages.push({
+      path: f.path,
+      title: meta.title,
+      depth: meta.depth,
+      parentTitle: meta.parentTitle,
+      format: "markdown",
+      readContent: async () => f.file.text(),
+    });
+  }
+
+  for (const f of htmlFiles) {
+    const meta = buildPageMeta(f.path);
+    pages.push({
+      path: f.path,
+      title: meta.title,
+      depth: meta.depth,
+      parentTitle: meta.parentTitle,
+      format: "html",
+      readContent: async () => f.file.text(),
+    });
+  }
+
+  pages.sort((a, b) => {
+    const pathOrder = a.path.localeCompare(b.path);
+    if (pathOrder !== 0) return pathOrder;
+    if (a.format === b.format) return 0;
+    return a.format === "html" ? -1 : 1;
+  });
+
+  const assets: NotionImportedAsset[] = [];
+  for (const f of assetFiles) {
+    const mime = assetMimeFromName(f.name);
+    if (!mime) continue;
+    assets.push({
+      path: f.path,
+      name: f.name,
+      mimeType: mime,
+      size: f.file.size,
+      readAsFile: async () => new File([f.file], f.name, { type: mime }),
+    });
+  }
+
+  return {
+    totalFiles: allFiles.length,
+    markdownFileCount: markdownFiles.length,
+    htmlFileCount: htmlFiles.length,
+    csvFileCount: csvFiles.length,
+    assetFileCount: assetFiles.length,
+    assets,
+    assetByPath: {},
+    pages,
+  };
+}
+
 export function isFolderPickerSupported(): boolean {
   return "showDirectoryPicker" in window;
 }

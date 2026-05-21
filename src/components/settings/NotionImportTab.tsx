@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { parseNotionZipFile, type NotionZipPreview } from "../../lib/notionImport/zipParser";
-import { scanNotionFolder, isFolderPickerSupported } from "../../lib/notionImport/folderScanner";
+import type { NotionZipPreview } from "../../lib/notionImport/zipParser";
+import { detectCsvDbPairsRecursive } from "../../lib/notionImport/csvFolderImporter";
+import {
+  scanNotionFolder,
+  isFolderPickerSupported,
+} from "../../lib/notionImport/folderScanner";
+import type { NotionImportSource } from "../../lib/notionImport/importSource";
 import { notionMarkdownToDoc } from "../../lib/notionImport/markdownToDoc";
 import { notionHtmlToDoc, type NotionCollectionTable } from "../../lib/notionImport/htmlToDoc";
 import {
@@ -17,6 +22,20 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import type { ColumnType } from "../../types/database";
 import type { JSONContent } from "@tiptap/react";
 import { Loader2 } from "lucide-react";
+import { useBlockCommentStore } from "../../store/blockCommentStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useMemberStore } from "../../store/memberStore";
+import {
+  extractNotionInlineComments,
+  ensureCommentAnchorBlockIds,
+  resolveImportedCommentAuthorMemberId,
+  resolveNotionCommentBlockId,
+} from "../../lib/notionImport/commentImport";
+import {
+  inferNotionColumnType,
+  mapNotionColorToQuickNote,
+  normalizeImportedCellValue,
+} from "../../lib/notionImport/columnInference";
 
 type ImportStatus =
   | { kind: "idle" }
@@ -50,10 +69,16 @@ export function NotionImportTab() {
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const [status, setStatus] = useState<ImportStatus>({ kind: "idle" });
   const [selectedPath, setSelectedPath] = useState<string>("");
-  const [importMessage, setImportMessage] = useState<string>("");
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [previewContent, setPreviewContent] = useState<string>("");
+  const addComment = useBlockCommentStore((s) => s.addMessage);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const me = useMemberStore((s) => s.me);
+  const [sharedSource, setSharedSource] = useState<NotionImportSource | null>(null);
+  const [hasDetectedDbSource, setHasDetectedDbSource] = useState(false);
+  const canUseNativeFolderPicker = isFolderPickerSupported();
+  const isSourceLoading = status.kind === "loading";
 
   const pages = useMemo(
     () => (status.kind === "ready" ? status.preview.pages : []),
@@ -81,29 +106,18 @@ export function NotionImportTab() {
   const importingLabel = importProgress
     ? `${importProgress.label}${importProgress.total > 0 ? ` ${Math.min(importProgress.done + 1, importProgress.total)}/${importProgress.total}` : ""}`
     : "페이지 구성중";
-
-  const onPickZip = async (file: File | null) => {
-    if (!file) return;
-    setImportMessage("");
-    setStatus({ kind: "loading" });
-    try {
-      const preview = await parseNotionZipFile(file);
-      setStatus({ kind: "ready", preview, sourceName: file.name });
-      const preferred = preview.pages.find((p) => p.format === "html") ?? preview.pages[0];
-      setSelectedPath(preferred?.path ?? "");
-    } catch (error) {
-      setStatus({
-        kind: "error",
-        message: error instanceof Error ? error.message : "ZIP 분석 중 오류가 발생했습니다.",
-      });
-    }
-  };
+  const shouldShowDbSection =
+    !!sharedSource &&
+    (hasDetectedDbSource || (status.kind === "ready" && status.preview.csvFileCount > 0));
 
   const onPickFolder = async () => {
-    setImportMessage("");
     setStatus({ kind: "loading" });
+    setHasDetectedDbSource(false);
     try {
       const dir = await window.showDirectoryPicker({ mode: "read" });
+      setSharedSource({ kind: "folder-handle", label: dir.name, dir });
+      const pairs = await detectCsvDbPairsRecursive(dir);
+      setHasDetectedDbSource(pairs.length > 0);
       const preview = await scanNotionFolder(dir);
       setStatus({ kind: "ready", preview, sourceName: dir.name });
       const preferred = preview.pages.find((p) => p.format === "html") ?? preview.pages[0];
@@ -123,7 +137,6 @@ export function NotionImportTab() {
   const onImportSelectedPage = async () => {
     const currentStatus = status;
     if (!selectedPage || currentStatus.kind !== "ready" || isImporting) return;
-    setImportMessage("");
     setImportProgress({ label: "페이지 구성 준비중", done: 0, total: 1 });
     setIsImporting(true);
     await yieldToPaint();
@@ -196,53 +209,6 @@ export function NotionImportTab() {
           if (!uploaded) return null;
           return uploadedAssetToDocNode(uploaded, element.getAttribute("alt") ?? "");
         };
-
-      const inferColumnType = (header: string, values: string[]): ColumnType => {
-        const normalized = header.toLowerCase();
-        if (normalized.includes("직군")) return "status";
-        if (normalized.includes("날짜") || normalized.includes("date")) return "date";
-        if (normalized.includes("상태") || normalized.includes("status")) return "status";
-        if (normalized.includes("멘토") || normalized.includes("담당") || normalized.includes("person")) return "person";
-        if (values.length > 0 && values.every((v) => /^-?\d+([.,]\d+)?$/.test(v.trim()))) return "number";
-        return "text";
-      };
-
-      const notionStatusColorToQuickNote = (token: string | null): string | undefined => {
-        if (!token) return undefined;
-        const normalized = token.trim().toLowerCase();
-        const map: Record<string, string> = {
-          gray: "#6b7280",
-          brown: "#a16207",
-          orange: "#ea580c",
-          yellow: "#ca8a04",
-          green: "#16a34a",
-          blue: "#2563eb",
-          purple: "#9333ea",
-          pink: "#db2777",
-          red: "#dc2626",
-        };
-        return map[normalized];
-      };
-
-      const parseDateCell = (raw: string): string | null => {
-        const text = raw.trim();
-        if (!text) return null;
-        const ymd = text.match(/(\d{4})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})/);
-        if (ymd) {
-          const y = ymd[1];
-          const m = ymd[2]?.padStart(2, "0");
-          const d = ymd[3]?.padStart(2, "0");
-          return `${y}-${m}-${d}`;
-        }
-        const short = text.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
-        if (short) {
-          const year = String(new Date().getFullYear());
-          const m = short[1]?.padStart(2, "0");
-          const d = short[2]?.padStart(2, "0");
-          return `${year}-${m}-${d}`;
-        }
-        return null;
-      };
 
       const ensurePageIdForSource = (sourcePath: string, forcedParentPageId?: string | null): string | null => {
         const source = pageByPath.get(sourcePath);
@@ -330,25 +296,40 @@ export function NotionImportTab() {
                 const columnMeta = table.rows
                   .map((row) => row.cellMeta[idx])
                   .filter((meta) => meta != null);
-                const hasTimeLike = columnMeta.some((meta) => meta.hasTimeTag);
-                const hasStatusLike = columnMeta.some(
-                  (meta) => meta.statusLike || meta.statusColorToken != null,
-                );
-                const inferredType = inferColumnType(header, values);
-                const colType: ColumnType = hasTimeLike
-                  ? "date"
-                  : hasStatusLike
-                    ? "status"
-                    : inferredType;
+                const colType: ColumnType = inferNotionColumnType({
+                  header,
+                  values,
+                  meta: columnMeta,
+                });
                 const colId = addColumn(dbId, { name: header, type: colType });
                 extraColumnMeta.push({ id: colId, type: colType });
-                if (colType === "status") {
+                if (colType === "status" || colType === "select" || colType === "multiSelect") {
                   const optionByLabel = new Map<string, { label: string; color?: string }>();
                   table.rows.forEach((row) => {
-                    const label = (row.cells[idx] ?? "").trim();
-                    if (!label || optionByLabel.has(label)) return;
-                    const color = notionStatusColorToQuickNote(row.cellMeta[idx]?.statusColorToken ?? null);
-                    optionByLabel.set(label, { label, color });
+                    const meta = row.cellMeta[idx];
+                    if (meta?.selectedOptions?.length) {
+                      for (const opt of meta.selectedOptions) {
+                        if (!opt.label || optionByLabel.has(opt.label)) continue;
+                        optionByLabel.set(opt.label, {
+                          label: opt.label,
+                          color: mapNotionColorToQuickNote(opt.colorToken),
+                        });
+                      }
+                      return;
+                    }
+                    const raw = (row.cells[idx] ?? "").trim();
+                    if (!raw) return;
+                    const parts =
+                      colType === "multiSelect"
+                        ? raw.split(/[;,/|]/).map((s) => s.trim()).filter(Boolean)
+                        : [raw];
+                    parts.forEach((label) => {
+                      if (!label || optionByLabel.has(label)) return;
+                      optionByLabel.set(label, {
+                        label,
+                        color: mapNotionColorToQuickNote(meta?.statusColorToken ?? null),
+                      });
+                    });
                   });
                   const uniq = Array.from(optionByLabel.values());
                   updateColumn(dbId, colId, {
@@ -373,12 +354,12 @@ export function NotionImportTab() {
                   const colMeta = extraColumnMeta[colIdx - 1];
                   if (!colMeta) continue;
                   const rawCell = row.cells[colIdx] ?? "";
-                  if (colMeta.type === "date") {
-                    const parsed = parseDateCell(rawCell);
-                    updateCell(dbId, rowPageId, colMeta.id, parsed ? { start: parsed } : rawCell);
-                    continue;
-                  }
-                  updateCell(dbId, rowPageId, colMeta.id, rawCell);
+                  updateCell(
+                    dbId,
+                    rowPageId,
+                    colMeta.id,
+                    normalizeImportedCellValue(colMeta.type, rawCell),
+                  );
                 }
 
                 if (row.titleLinkPath) {
@@ -386,6 +367,12 @@ export function NotionImportTab() {
                     ?? Array.from(pageByPath.values()).find((p) => p.path.endsWith(row.titleLinkPath ?? ""));
                   const rowContent = rowSource?.format === "html" ? contentByPath.get(rowSource.path) : undefined;
                   if (rowSource && rowContent) {
+                    // DB 행 링크 페이지에 또 다른 collection-content(DB)가 있으면
+                    // 여기서 즉시 변환하지 않고, 아래 일반 페이지 임포트 단계에서 1회만 처리한다.
+                    // (중복 변환/중첩 변환으로 인한 메모리 급증 방지)
+                    if (/class=["'][^"']*collection-content[^"']*["']/i.test(rowContent)) {
+                      return;
+                    }
                     const rowDoc = notionHtmlToDoc(rowContent, {
                       currentPagePath: rowSource.path,
                       resolveImageSrc: resolveExternalImageSrc,
@@ -405,8 +392,34 @@ export function NotionImportTab() {
           })
           : notionMarkdownToDoc(contentByPath.get(source.path) ?? "", { pageTitle: source.title });
 
-        updateDoc(pageId, doc);
+        const docWithAnchorIds = ensureCommentAnchorBlockIds(doc);
+        updateDoc(pageId, docWithAnchorIds);
         setIcon(pageId, "📝");
+        if (source.format === "html") {
+          const comments = extractNotionInlineComments(contentByPath.get(source.path) ?? "");
+          comments.forEach((comment) => {
+            const mappedBlockId =
+              resolveNotionCommentBlockId(docWithAnchorIds as { content?: Array<unknown> }, comment.blockText)
+              ?? "__page__";
+            const authorMemberId = resolveImportedCommentAuthorMemberId(
+              comment.authorName,
+              useMemberStore.getState().members,
+              me?.memberId ?? "notion-import",
+            );
+            const authorPrefix = authorMemberId === (me?.memberId ?? "notion-import")
+              ? `${comment.authorName ? `${comment.authorName}: ` : ""}`
+              : "";
+            addComment({
+              workspaceId: currentWorkspaceId,
+              pageId,
+              blockId: mappedBlockId,
+              authorMemberId,
+              bodyText: `${authorPrefix}${comment.bodyText}`.trim(),
+              mentionMemberIds: [],
+              parentId: null,
+            });
+          });
+        }
         importedDocByPath.add(source.path);
         importingPath.delete(source.path);
         return pageId;
@@ -476,18 +489,10 @@ export function NotionImportTab() {
 
       const newPageId = importedPageIdByPath.get(selectedPage.path) ?? null;
       if (!newPageId) return;
-      const failedAssets = Array.from(uploadedAssetByPath.values()).filter((asset) => asset.kind === "failed");
-      setImportMessage(
-        failedAssets.length > 0
-          ? `페이지 가져오기 완료: ${selectedPage.title} (첨부 ${failedAssets.length}개 실패)`
-          : `페이지 가져오기 완료: ${selectedPage.title}`,
-      );
       setStatus({ kind: "idle" });
       setSelectedPath("");
     } catch (error) {
-      setImportMessage(
-        `가져오기 실패: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      console.error("[NotionImport] 가져오기 실패", error);
     } finally {
       setImportProgress(null);
       setIsImporting(false);
@@ -496,49 +501,42 @@ export function NotionImportTab() {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
-        <h3 className="mb-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">Notion 가져오기</h3>
-        <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-          ZIP을 미리 압축 해제한 뒤 폴더를 선택하면 메모리 문제 없이 대용량도 처리됩니다.
-        </p>
-        {isFolderPickerSupported() && (
-          <button
-            type="button"
-            onClick={() => void onPickFolder()}
-            className="mb-3 inline-flex items-center rounded bg-zinc-900 px-3 py-1.5 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-          >
-            압축 해제 폴더 선택
-          </button>
-        )}
-        <div className="text-xs text-zinc-400 dark:text-zinc-500 mb-1">또는 ZIP 파일 직접 선택 (대용량은 크래시 위험)</div>
-        <input
-          type="file"
-          accept=".zip,application/zip"
-          onChange={(e) => void onPickZip(e.target.files?.[0] ?? null)}
-          className="block w-full text-sm text-zinc-700 file:mr-3 file:rounded file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-xs file:text-white hover:file:bg-zinc-700 dark:text-zinc-200 dark:file:bg-zinc-100 dark:file:text-zinc-900"
-        />
-      </div>
-
-      {status.kind === "loading" ? (
-        <p className="text-sm text-zinc-500">ZIP 분석 중...</p>
-      ) : null}
-
-      {status.kind === "error" ? (
-        <p className="text-sm text-red-500">{status.message}</p>
-      ) : null}
+      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900/40">
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-zinc-700 dark:text-zinc-300">
+          <li>Notion에서 HTML 포맷으로 모든 옵션을 활성화한 상태에서 zip 파일을 내려받습니다.</li>
+          <li>내려받은 zip 압축 파일을 해제합니다.</li>
+          <li>"파일 선택"을 누른 후 압축 해제한 폴더를 선택합니다.</li>
+          <li>"가져오기" 버튼을 클릭합니다.</li>
+        </ol>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (isSourceLoading) return;
+                if (canUseNativeFolderPicker) {
+                  void onPickFolder();
+                  return;
+                }
+                setStatus({ kind: "error", message: "이 브라우저에서는 폴더 선택을 지원하지 않습니다." });
+              }}
+              disabled={isSourceLoading}
+              className="inline-flex items-center rounded bg-zinc-900 px-3 py-1.5 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              {isSourceLoading ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : null}
+              파일 선택
+            </button>
+          </div>
+        </div>
+      </section>
 
       {status.kind === "ready" ? (
         <div className="relative space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
-          <div className="text-xs text-zinc-500 dark:text-zinc-400">
-            파일: {status.sourceName} | 총 파일 {status.preview.totalFiles}개 | MD {status.preview.markdownFileCount}개 | HTML {status.preview.htmlFileCount}개 | CSV {status.preview.csvFileCount}개 | 첨부 {status.preview.assetFileCount}개
-          </div>
-
           {status.preview.pages.length === 0 ? (
-            <p className="text-sm text-amber-600 dark:text-amber-400">페이지(.md)를 찾지 못했습니다. 내보내기 형식을 확인해 주세요.</p>
+            null
           ) : (
             <>
-              <label className="block space-y-1 text-sm">
-                <span className="text-zinc-700 dark:text-zinc-200">가져올 페이지 선택</span>
+              <label className="block text-sm">
                 <select
                   value={selectedPage?.path ?? ""}
                   onChange={(e) => setSelectedPath(e.target.value)}
@@ -554,9 +552,6 @@ export function NotionImportTab() {
 
               {selectedPage ? (
                 <div className="rounded border border-zinc-100 bg-zinc-50 p-3 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-200">
-                  <div>path: {selectedPage.path}</div>
-                  <div>depth: {selectedPage.depth}</div>
-                  <div>parent: {selectedPage.parentTitle ?? "(root)"}</div>
                   <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-[11px] dark:bg-zinc-950">
                     {previewContent
                       ? previewContent.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 600)
@@ -565,40 +560,47 @@ export function NotionImportTab() {
                 </div>
               ) : null}
 
-              <div className="relative inline-flex">
-                <button
-                  type="button"
-                  onClick={() => void onImportSelectedPage()}
-                  disabled={isImporting}
-                  className={`inline-flex items-center rounded px-3 py-1.5 text-sm text-white ${
-                    isImporting
-                      ? "cursor-not-allowed bg-zinc-400"
-                      : "bg-blue-600 hover:bg-blue-700"
-                  }`}
-                >
-                  {isImporting ? importingLabel : "선택 페이지 가져오기"}
-                </button>
-                {isImporting ? (
-                  <div
-                    className="absolute left-0 top-[calc(100%+6px)] z-[420] inline-flex max-w-[16rem] items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-700 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-                    aria-live="polite"
+              {!shouldShowDbSection ? (
+                <div className="relative inline-flex">
+                  <button
+                    type="button"
+                    onClick={() => void onImportSelectedPage()}
+                    disabled={isImporting}
+                    className={`inline-flex items-center rounded px-3 py-1.5 text-sm text-white ${
+                      isImporting
+                        ? "cursor-not-allowed bg-zinc-400"
+                        : "bg-blue-600 hover:bg-blue-700"
+                    }`}
                   >
-                    <Loader2 size={13} className="shrink-0 animate-spin text-blue-500" />
-                    <span className="truncate">
-                      {importingLabel}
-                      {importProgress?.current ? ` · ${importProgress.current}` : ""}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
+                    {isImporting ? importingLabel : "가져오기"}
+                  </button>
+                  {isImporting ? (
+                    <div
+                      className="absolute left-0 top-[calc(100%+6px)] z-[420] inline-flex max-w-[16rem] items-center gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs text-zinc-700 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                      aria-live="polite"
+                    >
+                      <Loader2 size={13} className="shrink-0 animate-spin text-blue-500" />
+                      <span className="truncate">
+                        {importingLabel}
+                        {importProgress?.current ? ` · ${importProgress.current}` : ""}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
             </>
           )}
         </div>
       ) : null}
-
-      {importMessage ? <p className="text-sm text-emerald-600 dark:text-emerald-400">{importMessage}</p> : null}
-
-      <NotionCsvFolderSection />
+      {shouldShowDbSection && sharedSource ? (
+        <div className="relative space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+          <NotionCsvFolderSection compact sharedSource={sharedSource} />
+        </div>
+      ) : null}
+      {status.kind === "error" ? (
+        <p className="text-xs text-red-500">{status.message}</p>
+      ) : null}
     </div>
   );
 }

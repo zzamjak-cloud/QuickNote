@@ -18,6 +18,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
 import { enqueueAsync } from "./runtime";
+import { shouldIgnoreRemoteAfterLocalDelete } from "./localDeleteGuards";
 import {
   LC_SCHEDULER_DATABASE_ID,
   LC_SCHEDULER_DATABASE_TITLE,
@@ -192,6 +193,7 @@ function shouldApplyRemotePageOverwrite(local: Page | undefined, p: GqlPage): bo
 function gqlPageToLocalPage(p: GqlPage): Page {
   return {
     id: p.id,
+    workspaceId: p.workspaceId,
     title: p.title,
     icon: p.icon ?? null,
     coverImage: typeof p.coverImage === "string" ? p.coverImage : null,
@@ -361,6 +363,13 @@ export function applyRemotePageToStore(
   const p = normalizeLCSchedulerPageWorkspace(remotePage);
   if (!shouldApplyRemoteSnapshot(p.workspaceId)) return;
   if (
+    !p.deletedAt &&
+    shouldIgnoreRemoteAfterLocalDelete("page", p.id, p.workspaceId, p.updatedAt)
+  ) {
+    if (p.databaseId) removePageIdFromDatabaseRowOrder(p.databaseId, p.id);
+    return;
+  }
+  if (
     p.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
     !p.deletedAt &&
     p.databaseId &&
@@ -437,6 +446,14 @@ export function applyRemotePagesToStore(
 
     for (const p of pages) {
       nextCacheWorkspaceId = resolveNextCacheWorkspaceId(nextCacheWorkspaceId, p.workspaceId);
+
+      if (
+        !p.deletedAt &&
+        shouldIgnoreRemoteAfterLocalDelete("page", p.id, p.workspaceId, p.updatedAt)
+      ) {
+        if (p.databaseId) affectedDatabaseIds.add(p.databaseId);
+        continue;
+      }
 
       if (
         p.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
@@ -693,6 +710,12 @@ export function applyRemoteDatabaseToStore(
   }
   const db = normalizedDatabase;
   if (!shouldApplyRemoteSnapshot(db.workspaceId)) return;
+  if (
+    !db.deletedAt &&
+    shouldIgnoreRemoteAfterLocalDelete("database", db.id, db.workspaceId, db.updatedAt)
+  ) {
+    return;
+  }
 
   const local = useDatabaseStore.getState().databases[db.id];
 
@@ -732,6 +755,7 @@ export function applyRemoteDatabaseToStore(
   const bundle: DatabaseBundle = {
     meta: {
       id: db.id,
+      workspaceId: db.workspaceId,
       title: db.title,
       createdAt: isoToMs(db.createdAt) || Date.now(),
       updatedAt: isoToMs(db.updatedAt) || Date.now(),
@@ -787,6 +811,17 @@ export function applyRemoteDatabasesToStore(
       });
     }
     if (!shouldApplyRemoteSnapshot(normalizedDatabase.workspaceId)) continue;
+    if (
+      !normalizedDatabase.deletedAt &&
+      shouldIgnoreRemoteAfterLocalDelete(
+        "database",
+        normalizedDatabase.id,
+        normalizedDatabase.workspaceId,
+        normalizedDatabase.updatedAt,
+      )
+    ) {
+      continue;
+    }
     normalizedDatabases.push(normalizedDatabase);
     if (!normalizedDatabase.deletedAt) candidateDatabaseIds.add(normalizedDatabase.id);
   }
@@ -834,6 +869,7 @@ export function applyRemoteDatabasesToStore(
       const bundle: DatabaseBundle = {
         meta: {
           id: db.id,
+          workspaceId: db.workspaceId,
           title: db.title,
           createdAt: isoToMs(db.createdAt) || Date.now(),
           updatedAt: isoToMs(db.updatedAt) || Date.now(),
@@ -860,4 +896,102 @@ export function applyRemoteDatabasesToStore(
   for (const bundle of repairedBundles) {
     repairDbHistoryBaselineIfNeeded(bundle.meta.id, structuredClone(bundle));
   }
+}
+
+/**
+ * Bootstrap 전체 워크스페이스 페치 직후 호출하는 set-reconciliation.
+ *
+ * 목적: 서버에서 영구히 사라진(`permanentlyDelete` 또는 row 자체 purge) 데이터베이스 / 페이지가
+ * 로컬 캐시에 좀비로 남아있는 현상을 청소한다.
+ *
+ * 규칙:
+ * 1) `remoteIds` 에 있는 id 는 이미 `applyRemote*` 가 처리했으므로 건드리지 않는다.
+ * 2) `pendingUpsertIds` 에 있는 id (아직 outbox 에 업로드 대기 중)는 보호.
+ * 3) 위 둘 모두에 해당하지 않으면서 같은 워크스페이스에 속하면 → 로컬에서 제거.
+ * 4) LC 스케줄러 / 다른 워크스페이스 / 로컬 전용 id 는 건드리지 않는다.
+ */
+export function reconcileWorkspaceFullSnapshot(args: {
+  workspaceId: string;
+  remotePageIds: Set<string>;
+  remoteDatabaseIds: Set<string>;
+  pendingUpsertPageIds: Set<string>;
+  pendingUpsertDatabaseIds: Set<string>;
+}): { removedPageIds: string[]; removedDatabaseIds: string[] } {
+  const {
+    workspaceId,
+    remotePageIds,
+    remoteDatabaseIds,
+    pendingUpsertPageIds,
+    pendingUpsertDatabaseIds,
+  } = args;
+  const removedPageIds: string[] = [];
+  const removedDatabaseIds: string[] = [];
+
+  if (!workspaceId) return { removedPageIds, removedDatabaseIds };
+
+  // -------- 페이지 reconciliation --------
+  usePageStore.setState((s) => {
+    if (s.cacheWorkspaceId && s.cacheWorkspaceId !== workspaceId) return s;
+    let nextPages = s.pages;
+    let nextActive = s.activePageId;
+    let changed = false;
+    const ensureCopy = () => {
+      if (nextPages === s.pages) nextPages = { ...s.pages };
+    };
+
+    for (const [pageId, page] of Object.entries(s.pages)) {
+      if (!page) continue;
+      // LC 스케줄러 영역은 별도 흐름이므로 보호.
+      if (page.databaseId && isLCSchedulerDatabaseId(page.databaseId)) continue;
+      const pageWs = page.workspaceId;
+      // 페이지가 다른 워크스페이스 또는 미지정이면 건드리지 않음.
+      if (pageWs && pageWs !== workspaceId) continue;
+      if (remotePageIds.has(pageId)) continue;
+      if (pendingUpsertPageIds.has(pageId)) continue;
+      // 서버에도 없고 outbox 에도 없음 → 좀비. 제거.
+      ensureCopy();
+      delete nextPages[pageId];
+      if (nextActive === pageId) nextActive = null;
+      removedPageIds.push(pageId);
+      changed = true;
+    }
+    if (!changed) return s;
+    return { ...s, pages: nextPages, activePageId: nextActive };
+  });
+
+  // -------- 데이터베이스 reconciliation --------
+  useDatabaseStore.setState((s) => {
+    if (s.cacheWorkspaceId && s.cacheWorkspaceId !== workspaceId) return s;
+    let next = s.databases;
+    let changed = false;
+    const ensureCopy = () => {
+      if (next === s.databases) next = { ...s.databases };
+    };
+
+    for (const [dbId, bundle] of Object.entries(s.databases)) {
+      if (!bundle) continue;
+      // LC 스케줄러 DB 는 별도 흐름.
+      if (isLCSchedulerDatabaseId(dbId)) continue;
+      const bundleWs = bundle.meta.workspaceId;
+      if (bundleWs && bundleWs !== workspaceId) continue;
+      if (remoteDatabaseIds.has(dbId)) continue;
+      if (pendingUpsertDatabaseIds.has(dbId)) continue;
+      ensureCopy();
+      delete next[dbId];
+      removedDatabaseIds.push(dbId);
+      changed = true;
+    }
+    if (!changed) return s;
+    return { ...s, databases: next };
+  });
+
+  if (removedPageIds.length > 0 || removedDatabaseIds.length > 0) {
+    console.info("[sync] reconcile pruned orphans", {
+      workspaceId,
+      pages: removedPageIds.length,
+      databases: removedDatabaseIds.length,
+    });
+  }
+
+  return { removedPageIds, removedDatabaseIds };
 }

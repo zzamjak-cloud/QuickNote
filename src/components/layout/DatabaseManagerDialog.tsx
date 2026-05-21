@@ -9,6 +9,7 @@ import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
 import { permanentlyDeleteDatabaseRemote } from "../../lib/sync/trashApi";
+import { markPermanentlyDeletedEntity } from "../../lib/sync/localDeleteGuards";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 type Props = {
@@ -87,7 +88,16 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     setPurgingIds((prev) => ({ ...prev, [databaseId]: true }));
     try {
       await permanentlyDeleteDatabaseRemote(databaseId, workspaceId);
+      // 서버에서 row 가 사라졌음을 확정 → 영구 tombstone 으로 어떤 재유입도 차단.
+      markPermanentlyDeletedEntity("database", databaseId, workspaceId);
       purgeDatabaseHistory(databaseId);
+      // 좀비 캐시가 active 영역에 남아있을 가능성 차단.
+      useDatabaseStore.setState((s) => {
+        if (!s.databases[databaseId]) return s;
+        const next = { ...s.databases };
+        delete next[databaseId];
+        return { ...s, databases: next };
+      });
       setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
       showToast("삭제된 데이터베이스를 영구삭제했습니다.", { kind: "success" });
     } catch (error) {
@@ -113,7 +123,14 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
       setPurgingIds((prev) => ({ ...prev, [databaseId]: true }));
       try {
         await permanentlyDeleteDatabaseRemote(databaseId, targetWorkspaceId);
+        markPermanentlyDeletedEntity("database", databaseId, targetWorkspaceId);
         purgeDatabaseHistory(databaseId);
+        useDatabaseStore.setState((s) => {
+          if (!s.databases[databaseId]) return s;
+          const next = { ...s.databases };
+          delete next[databaseId];
+          return { ...s, databases: next };
+        });
         setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
       } catch (error) {
         console.error(error);

@@ -499,14 +499,17 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                                 onChange={(icon) => setIcon(row.pageId, icon)}
                               />
                             </span>
-                            <div className="min-w-0 flex-1 truncate">
-                              <DatabaseCell
-                                databaseId={databaseId}
-                                rowId={row.pageId}
-                                column={col}
-                                value={row.title}
-                              />
-                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openPeek(row.pageId);
+                              }}
+                              className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                              title="사이드 피크 열기"
+                            >
+                              {row.title || "제목 없음"}
+                            </button>
                           </div>
                         ) : (
                           <DatabaseCell

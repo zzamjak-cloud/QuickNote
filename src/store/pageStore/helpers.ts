@@ -33,7 +33,7 @@ export function getCurrentWorkspaceId(): string {
 
 function resolvePageWorkspaceId(p: Page): string {
   if (isLCSchedulerDatabaseId(p.databaseId)) return LC_SCHEDULER_WORKSPACE_ID;
-  return getCurrentWorkspaceId();
+  return p.workspaceId ?? getCurrentWorkspaceId();
 }
 
 function normalizePageDatabaseId(databaseId: string | null | undefined): string | null {

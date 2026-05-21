@@ -76,6 +76,65 @@ function metadataFromHtml(html, url) {
   };
 }
 
+function isGoogleMapsUrl(url) {
+  const host = url.hostname.toLowerCase();
+  return host.includes("google.") && (url.pathname.startsWith("/maps") || host === "maps.app.goo.gl");
+}
+
+function isNaverMapUrl(url) {
+  const host = url.hostname.toLowerCase();
+  return host === "map.naver.com" || host.endsWith(".map.naver.com");
+}
+
+function stripHtmlTags(value) {
+  return String(value || "").replace(/<[^>]+>/g, "").trim();
+}
+
+function parseMapLabel(url) {
+  const raw =
+    url.searchParams.get("query")
+    || url.searchParams.get("q")
+    || url.searchParams.get("title")
+    || "";
+  if (!raw) return "";
+  try {
+    return decodeURIComponent(raw).replace(/\+/g, " ").trim();
+  } catch {
+    return raw.trim();
+  }
+}
+
+async function fetchGoogleMapMetadata(url) {
+  const label = parseMapLabel(url);
+  const title = label || "Google 지도";
+  return {
+    url: url.href,
+    title,
+    description: label || url.href,
+    siteName: "Google 지도",
+    imageUrl: "",
+  };
+}
+
+async function fetchNaverMapMetadata(url) {
+  const label = stripHtmlTags(parseMapLabel(url));
+  const title = label || "네이버 지도";
+
+  return {
+    url: url.href,
+    title,
+    description: label || url.href,
+    siteName: "네이버 지도",
+    imageUrl: "",
+  };
+}
+
+async function fetchMapMetadata(url) {
+  if (isGoogleMapsUrl(url)) return fetchGoogleMapMetadata(url);
+  if (isNaverMapUrl(url)) return fetchNaverMapMetadata(url);
+  return null;
+}
+
 export default async function handler(request, response) {
   try {
     const rawUrl = request.query?.url;
@@ -86,6 +145,15 @@ export default async function handler(request, response) {
     const url = new URL(rawUrl);
     if ((url.protocol !== "http:" && url.protocol !== "https:") || isPrivateHost(url.hostname)) {
       response.status(400).json({ error: "unsupported url" });
+      return;
+    }
+
+    const mapMeta = await fetchMapMetadata(url);
+    if (mapMeta) {
+      response
+        .setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate=604800")
+        .status(200)
+        .json(mapMeta);
       return;
     }
 

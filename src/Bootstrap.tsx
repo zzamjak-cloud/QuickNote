@@ -17,6 +17,7 @@ import {
   applyRemotePagesToStore,
   applyRemoteDatabasesToStore,
   applyRemoteCommentsToStore,
+  reconcileWorkspaceFullSnapshot,
 } from "./lib/sync/storeApply";
 import {
   applyWorkspaceSwitch,
@@ -196,12 +197,19 @@ function useSyncBootstrap(): void {
         }
         const fetchApply = async (): Promise<void> => {
           await migrateLegacyBlockCommentsToPagesOnce();
-          const [pages, dbs, comments] = await Promise.all([
+          const engine = await getSyncEngine();
+          const [pages, dbs, comments, pendingIds] = await Promise.all([
             fetchPagesByWorkspace(currentWorkspaceId),
             fetchDatabasesByWorkspace(currentWorkspaceId),
             fetchCommentsByWorkspace(currentWorkspaceId),
+            engine.getPendingUpsertEntityIds(),
           ]);
           if (cancelled) return;
+          // 서버 응답에 포함된 id 집합 — 좀비 정리 시 보호 대상.
+          const remotePageIds = new Set<string>();
+          for (const p of pages) if (p?.id) remotePageIds.add(p.id);
+          const remoteDatabaseIds = new Set<string>();
+          for (const d of dbs) if (d?.id) remoteDatabaseIds.add(d.id);
           unstable_batchedUpdates(() => {
             if (switchResult.reason === "deferred-switch") {
               clearWorkspaceScopedStores(currentWorkspaceId);
@@ -210,6 +218,14 @@ function useSyncBootstrap(): void {
             applyRemotePagesToStore(pages);
             applyRemoteDatabasesToStore(dbs);
             applyRemoteCommentsToStore(comments);
+            // 서버에서 영구히 사라졌는데 로컬 캐시에 좀비로 남은 항목 청소.
+            reconcileWorkspaceFullSnapshot({
+              workspaceId: currentWorkspaceId,
+              remotePageIds,
+              remoteDatabaseIds,
+              pendingUpsertPageIds: pendingIds.pages,
+              pendingUpsertDatabaseIds: pendingIds.databases,
+            });
             applyWorkspaceLanding(currentWorkspaceId);
             refreshWorkspaceSnapshot(currentWorkspaceId);
           });
@@ -366,14 +382,27 @@ function useSyncBootstrap(): void {
         }
         try {
           const fetchApply = async (): Promise<void> => {
-            const [pages, dbs, comments] = await Promise.all([
+            const engine2 = await getSyncEngine();
+            const [pages, dbs, comments, pendingIds] = await Promise.all([
               fetchPagesByWorkspace(wsId),
               fetchDatabasesByWorkspace(wsId),
               fetchCommentsByWorkspace(wsId),
+              engine2.getPendingUpsertEntityIds(),
             ]);
+            const remotePageIds = new Set<string>();
+            for (const p of pages) if (p?.id) remotePageIds.add(p.id);
+            const remoteDatabaseIds = new Set<string>();
+            for (const d of dbs) if (d?.id) remoteDatabaseIds.add(d.id);
             applyRemotePagesToStore(pages);
             applyRemoteDatabasesToStore(dbs);
             applyRemoteCommentsToStore(comments);
+            reconcileWorkspaceFullSnapshot({
+              workspaceId: wsId,
+              remotePageIds,
+              remoteDatabaseIds,
+              pendingUpsertPageIds: pendingIds.pages,
+              pendingUpsertDatabaseIds: pendingIds.databases,
+            });
           };
           await fetchApply();
           const engine = await getSyncEngine();

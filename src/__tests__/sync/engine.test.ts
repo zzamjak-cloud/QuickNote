@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { SyncEngine, type GqlBridge } from "../../lib/sync/engine";
 import { MemoryOutboxAdapter } from "../../lib/sync/outbox/adapter.memory";
+import type { OutboxEntry } from "../../lib/sync/outbox/types";
 
 type Call = [string, ...unknown[]];
 
@@ -58,6 +59,97 @@ describe("SyncEngine", () => {
     expect(gql.calls.length).toBe(1);
     const first = gql.calls[0]!;
     expect((first[1] as { updatedAt: string }).updatedAt).toBe("t2");
+  });
+
+  it("삭제 enqueue 시 같은 id 의 대기 중인 upsertPage 를 제거한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    await engine.enqueue("upsertPage", {
+      id: "p-1",
+      workspaceId: "ws-1",
+      updatedAt: "2026-05-21T00:00:00.000Z",
+    });
+    await engine.enqueue("softDeletePage", {
+      id: "p-1",
+      workspaceId: "ws-1",
+      updatedAt: "2026-05-21T00:00:01.000Z",
+    });
+    const list = await outbox.list(10);
+    expect(list).toHaveLength(1);
+    expect(list[0]?.op).toBe("softDeletePage");
+    await engine.flush();
+    expect(gql.calls).toEqual([
+      ["softDeletePage", "p-1", "ws-1", "2026-05-21T00:00:01.000Z"],
+    ]);
+  });
+
+  it("DB 삭제 enqueue 시 같은 id 의 대기 중인 upsertDatabase 를 제거한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    await engine.enqueue("upsertDatabase", {
+      id: "db-1",
+      workspaceId: "ws-1",
+      title: "DB",
+      columns: "[]",
+      createdAt: "2026-05-21T00:00:00.000Z",
+      updatedAt: "2026-05-21T00:00:00.000Z",
+    });
+    await engine.enqueue("softDeleteDatabase", {
+      id: "db-1",
+      workspaceId: "ws-1",
+      updatedAt: "2026-05-21T00:00:01.000Z",
+    });
+    const list = await outbox.list(10);
+    expect(list).toHaveLength(1);
+    expect(list[0]?.op).toBe("softDeleteDatabase");
+  });
+
+  it("기존 outbox 에 남아 있던 DB delete 처리 시 뒤쪽 upsertDatabase 도 제거한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    const deleteEntry: OutboxEntry = {
+      id: "delete-entry",
+      op: "softDeleteDatabase",
+      payload: {
+        id: "db-stale",
+        workspaceId: "ws-1",
+        updatedAt: "2026-05-21T00:00:01.000Z",
+      },
+      enqueuedAt: 1,
+      attempts: 0,
+      dedupeKey: "softDeleteDatabase:db-stale",
+      workspaceId: "ws-1",
+      entityType: "database",
+      entityId: "db-stale",
+    };
+    const upsertEntry: OutboxEntry = {
+      id: "upsert-entry",
+      op: "upsertDatabase",
+      payload: {
+        id: "db-stale",
+        workspaceId: "ws-1",
+        title: "DB",
+        columns: "[]",
+        createdAt: "2026-05-21T00:00:00.000Z",
+        updatedAt: "2026-05-21T00:00:00.000Z",
+      },
+      enqueuedAt: 2,
+      attempts: 0,
+      dedupeKey: "upsertDatabase:db-stale",
+      workspaceId: "ws-1",
+      entityType: "database",
+      entityId: "db-stale",
+    };
+    await outbox.put(deleteEntry);
+    await outbox.put(upsertEntry);
+    await engine.flush();
+    expect(await outbox.list(10)).toEqual([]);
+    expect(gql.calls).toEqual([
+      ["softDeleteDatabase", "db-stale", "ws-1", "2026-05-21T00:00:01.000Z"],
+    ]);
   });
 
   it("LC스케줄러 DB 삭제 mutation 은 enqueue 하지 않는다", async () => {
@@ -175,6 +267,28 @@ describe("SyncEngine", () => {
     expect(okIds).toContain("ok-2");
   });
 
+  it("삭제 대상이 서버에 이미 없으면 성공 처리로 outbox 에서 제거한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const base = makeGql();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const gql: GqlBridge = {
+      ...base,
+      softDeletePage: async () => {
+        throw new Error("리소스 없음");
+      },
+    };
+    const engine = new SyncEngine(outbox, gql);
+    await engine.enqueue("softDeletePage", {
+      id: "p-gone",
+      workspaceId: "ws-1",
+      updatedAt: "2026-05-21T00:00:00.000Z",
+    });
+    await engine.flush();
+    expect(await outbox.list(10)).toEqual([]);
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("updateMyClientPrefs 를 outbox 에서 전송한다", async () => {
     const outbox = new MemoryOutboxAdapter();
     const gql = makeGql();
@@ -229,7 +343,7 @@ describe("SyncEngine", () => {
     expect(list[0]!.entityId).toBe("p-1");
   });
 
-  it("플러시 시 UI 워크스페이스와 엔트리 메타가 다르면 경고 로그만 남긴다", async () => {
+  it("플러시 시 UI 워크스페이스와 엔트리 메타가 달라도 기본값에서는 경고하지 않는다", async () => {
     const outbox = new MemoryOutboxAdapter();
     const gql = makeGql();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -240,9 +354,7 @@ describe("SyncEngine", () => {
       updatedAt: "t",
     });
     await engine.flush();
-    expect(warn.mock.calls.some((c) => String(c[0]).includes("불일치"))).toBe(
-      true,
-    );
+    expect(warn).not.toHaveBeenCalled();
     expect((await outbox.list(10)).length).toBe(0);
     warn.mockRestore();
   });

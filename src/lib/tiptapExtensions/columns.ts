@@ -96,8 +96,11 @@ export const ColumnLayout = Node.create({
     const presetId = (node.attrs.preset as CalloutPresetId) ?? "empty";
     const preset = CALLOUT_PRESET_MAP[presetId] ?? CALLOUT_PRESET_MAP.empty;
     const presetStyle = COLUMN_PRESET_STYLES[presetId] ?? COLUMN_PRESET_STYLES.empty;
-    // empty 프리셋은 컬럼 블럭에서 테두리 없이 렌더링
-    const frameClass = presetId === "empty" ? "bg-transparent shadow-none ring-0" : preset.frameClass;
+    // 컬럼 블럭 기본 외곽은 매우 연한 라운드 아웃라인을 유지한다.
+    const frameClass =
+      presetId === "empty"
+        ? "bg-transparent shadow-none ring-0"
+        : preset.frameClass;
     return [
       "div",
       mergeAttributes(HTMLAttributes, {

@@ -34,6 +34,7 @@ import {
 import { Indentation } from "../../lib/tiptapExtensions/indentation";
 import { OrderedListMarkdownShortcut } from "../../lib/tiptapExtensions/orderedListShortcut";
 import { BracketAutoClose } from "../../lib/tiptapExtensions/bracketAutoClose";
+import { InlineCodeShortcut } from "../../lib/tiptapExtensions/inlineCodeShortcut";
 import TextAlign from "@tiptap/extension-text-align";
 import type { createLowlight } from "lowlight";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
@@ -114,6 +115,7 @@ import UniqueID from "@tiptap/extension-unique-id";
 import type { Transaction } from "@tiptap/pm/state";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
+import { PageSubpageTree } from "../page/PageSubpageTree";
 import {
   registerEditorNavigation,
   unregisterEditorNavigation,
@@ -268,11 +270,14 @@ export function Editor({
 
   const editorScrollHostRef = useRef<HTMLDivElement | null>(null);
 
-  // 페이지 전환 시 스크롤 최상단으로 초기화
+  // 페이지 전환 시 스크롤 최상단으로 초기화.
+  // 단, 피크/본문전용(bodyOnly) 모드에서는 상위 스크롤 컨테이너(DatabaseRowPeek 등)가
+  // 스크롤 위치를 관리하므로 여기서 강제로 0으로 되돌리지 않는다.
   useEffect(() => {
+    if (bodyOnly || peek) return;
     const host = editorScrollHostRef.current;
     if (host) host.scrollTop = 0;
-  }, [effectivePageId]);
+  }, [bodyOnly, effectivePageId, peek]);
 
   const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(240);
 
@@ -461,6 +466,7 @@ export function Editor({
         },
       }),
       Indentation,
+      InlineCodeShortcut,
       BracketAutoClose,
       UniqueID.configure({
         types: EDITOR_UNIQUE_ID_TYPES,
@@ -1189,6 +1195,11 @@ export function Editor({
             onClearBoxSelection={clearBoxSelection}
           />
         )}
+        {!isFullPageDatabase && !bodyOnly ? (
+          <div className="px-12">
+            <PageSubpageTree currentPageId={effectivePageId} className="mt-6" />
+          </div>
+        ) : null}
         {showTailSpacer ? (
           <div
             aria-hidden

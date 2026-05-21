@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import {
   parseCsv,
@@ -25,6 +25,21 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import type { ColumnType } from "../../types/database";
 import type { JSONContent } from "@tiptap/react";
+import {
+  inferNotionColumnType,
+  mapNotionColorToQuickNote,
+  normalizeImportedCellValue,
+} from "../../lib/notionImport/columnInference";
+import type { NotionImportSource } from "../../lib/notionImport/importSource";
+import { useBlockCommentStore } from "../../store/blockCommentStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useMemberStore } from "../../store/memberStore";
+import {
+  extractNotionInlineComments,
+  ensureCommentAnchorBlockIds,
+  resolveImportedCommentAuthorMemberId,
+  resolveNotionCommentBlockId,
+} from "../../lib/notionImport/commentImport";
 
 type SectionStatus =
   | { kind: "idle" }
@@ -41,7 +56,7 @@ type ImportProgress = {
   rowIdx: number;
   rowTotal: number;
   rowTitle: string;
-  phase: "파일맵 구성" | "DB 생성" | "항목 처리" | "에셋 업로드" | "완료";
+  phase: "파일맵 구성" | "DB 생성" | "항목 처리" | "에셋 업로드" | "중첩 DB 처리" | "완료";
   assetIdx?: number;
   assetTotal?: number;
 };
@@ -52,60 +67,50 @@ function yieldToPaint(): Promise<void> {
   });
 }
 
-function inferColumnType(header: string, values: string[]): ColumnType {
-  const h = header.toLowerCase();
-  // 1) 헤더 키워드 매칭
-  if (h.includes("직군")) return "status";
-  if (h.includes("날짜") || h.includes("일자") || h.includes("date") || h.endsWith("일")) return "date";
-  if (h.includes("상태") || h.includes("status")) return "status";
-  if (h.includes("멘토") || h.includes("담당") || h.includes("person") || h.includes("작성자")) return "person";
+function stripNotionId(value: string): string {
+  return value.replace(/\s+[0-9a-f]{32}$/i, "").trim();
+}
 
-  const nonEmpty = values.filter((v) => v.trim().length > 0);
-  if (nonEmpty.length === 0) return "text";
+function titleFromImportedHtmlPath(path: string): string {
+  const fileName = path.split("/").pop() ?? "";
+  return stripNotionId(fileName.replace(/\.html$/i, "")) || "자식 페이지";
+}
 
-  // 2) 값 패턴: 모두 숫자 → number
-  if (nonEmpty.every((v) => /^-?\d+([.,]\d+)?$/.test(v.trim()))) return "number";
+function importedPathDepth(path: string): number {
+  return path.split("/").filter(Boolean).length;
+}
 
-  // 3) 값 패턴: 모두 날짜처럼 보이면 → date
-  const dateRe = /^\d{4}[.\-/년]\s*\d{1,2}[.\-/월]\s*\d{1,2}|\d{1,2}\s*\/\s*\d{1,2}/;
-  if (nonEmpty.every((v) => dateRe.test(v.trim()))) return "date";
-
-  // 4) 고유 값 ≤ 8 이고, 전체 행의 절반 이상이 그 값들이면 → status (선택 옵션 후보)
-  const uniqueValues = new Set(nonEmpty.map((v) => v.trim()));
-  if (uniqueValues.size > 0 && uniqueValues.size <= 8 && nonEmpty.length >= uniqueValues.size * 2) {
-    return "status";
+function safeDecodeImportHref(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
-
-  return "text";
 }
 
-function notionStatusColorToQuickNote(token: string | null | undefined): string | undefined {
-  if (!token) return undefined;
-  const map: Record<string, string> = {
-    gray: "#6b7280",
-    brown: "#a16207",
-    orange: "#ea580c",
-    yellow: "#ca8a04",
-    green: "#16a34a",
-    blue: "#2563eb",
-    purple: "#9333ea",
-    pink: "#db2777",
-    red: "#dc2626",
-  };
-  return map[token.trim().toLowerCase()];
+function dirname(path: string): string {
+  const idx = path.lastIndexOf("/");
+  return idx >= 0 ? path.slice(0, idx) : "";
 }
 
-function parseDateCell(raw: string): string | null {
-  const text = raw.trim();
-  if (!text) return null;
-  const ymd = text.match(/(\d{4})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})/);
-  if (ymd) return `${ymd[1]}-${ymd[2]?.padStart(2, "0")}-${ymd[3]?.padStart(2, "0")}`;
-  const short = text.match(/(\d{1,2})\s*\/\s*(\d{1,2})/);
-  if (short) return `${new Date().getFullYear()}-${short[1]?.padStart(2, "0")}-${short[2]?.padStart(2, "0")}`;
+function findParentHtmlPath(childPath: string, candidates: Set<string>): string | null {
+  let dir = dirname(childPath);
+  while (dir) {
+    const exact = `${dir}.html`;
+    if (candidates.has(exact)) return exact;
+    const stripped = `${stripNotionId(dir)}.html`;
+    if (candidates.has(stripped)) return stripped;
+    dir = dirname(dir);
+  }
   return null;
 }
 
-export function NotionCsvFolderSection() {
+type NotionCsvFolderSectionProps = {
+  compact?: boolean;
+  sharedSource?: NotionImportSource | null;
+};
+
+export function NotionCsvFolderSection({ compact = false, sharedSource = null }: NotionCsvFolderSectionProps) {
   const createPage = usePageStore((s) => s.createPage);
   const updateDoc = usePageStore((s) => s.updateDoc);
   const setIcon = usePageStore((s) => s.setIcon);
@@ -119,10 +124,15 @@ export function NotionCsvFolderSection() {
 
   const [status, setStatus] = useState<SectionStatus>({ kind: "idle" });
   const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const isImporting = status.kind === "importing";
+  const addComment = useBlockCommentStore((s) => s.addMessage);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const me = useMemberStore((s) => s.me);
 
   const updateProgress = (update: Partial<ImportProgress>) => {
     setProgress((prev) => prev ? { ...prev, ...update } : null);
   };
+  const usingSharedSource = sharedSource != null;
 
   const onPickFolder = async () => {
     setStatus({ kind: "scanning" });
@@ -172,6 +182,52 @@ export function NotionCsvFolderSection() {
     }
   };
 
+  useEffect(() => {
+    if (!sharedSource || isImporting) return;
+    if (sharedSource.kind === "folder-handle") {
+      setStatus({ kind: "scanning" });
+      void detectCsvDbPairsRecursive(sharedSource.dir)
+        .then((pairs) => {
+          if (pairs.length === 0) {
+            setStatus({ kind: "idle" });
+            return;
+          }
+          setStatus({ kind: "ready", pairs, dirName: sharedSource.label });
+        })
+        .catch((error) => {
+          setStatus({
+            kind: "error",
+            message: error instanceof Error ? error.message : "폴더 스캔 중 오류가 발생했습니다.",
+          });
+        });
+      return;
+    }
+    if (sharedSource.kind === "zip-file") {
+      setStatus({ kind: "scanning" });
+      void createZipVirtualDir(sharedSource.file)
+        .then((dir) => detectCsvDbPairsRecursive(dir))
+        .then((pairs) => {
+          if (pairs.length === 0) {
+            setStatus({ kind: "idle" });
+            return;
+          }
+          setStatus({ kind: "ready", pairs, dirName: sharedSource.label });
+        })
+        .catch((error) => {
+          setStatus({
+            kind: "error",
+            message: error instanceof Error ? error.message : "ZIP 분석 중 오류가 발생했습니다.",
+          });
+        });
+      return;
+    }
+    // folder-files 는 DB 가져오기 파이프라인에서 가상 디렉터리 재구성이 필요해 현재는 미지원.
+    setStatus({
+      kind: "error",
+      message: "선택한 폴더 형식은 DB 가져오기에서 아직 지원되지 않습니다. 폴더 선택(권장) 또는 ZIP 파일 선택을 사용해 주세요.",
+    });
+  }, [isImporting, sharedSource]);
+
   const onImport = async () => {
     if (status.kind !== "ready") return;
     const { pairs } = status;
@@ -179,8 +235,74 @@ export function NotionCsvFolderSection() {
 
     let totalRowsImported = 0;
     let totalFailed = 0;
+    const dbIdByFolderPath = new Map<string, string>();
+    const dbPageIdByFolderPath = new Map<string, string>();
+    const pageIdByImportedPath = new Map<string, string>();
+    const pageIdByComparablePath = new Map<string, string>();
+    const ambiguousComparablePaths = new Set<string>();
+    const knownDbFolderPaths = new Set(pairs.map((p) => p.folderPath));
+    const knownDbFolderPathList = Array.from(knownDbFolderPaths).sort((a, b) => b.length - a.length);
+    const normalizeImportPath = (path: string): string => {
+      const parts: string[] = [];
+      for (const part of path.replace(/\\/g, "/").replace(/^\.\/+/, "").split("/")) {
+        if (!part || part === ".") continue;
+        if (part === "..") parts.pop();
+        else parts.push(part);
+      }
+      return parts.join("/");
+    };
+    const comparableImportedPath = (path: string): string => {
+      const normalized = normalizeImportPath(path.replace(/\.html$/i, ""));
+      return normalized
+        .split("/")
+        .map((part) => stripNotionId(part).toLowerCase())
+        .join("/");
+    };
+    const registerImportedPagePath = (path: string, pageId: string): void => {
+      const exact = normalizeImportPath(path);
+      if (!exact) return;
+      pageIdByImportedPath.set(exact, pageId);
+      const comparable = comparableImportedPath(exact);
+      const existing = pageIdByComparablePath.get(comparable);
+      if (existing && existing !== pageId) {
+        ambiguousComparablePaths.add(comparable);
+        return;
+      }
+      if (!ambiguousComparablePaths.has(comparable)) pageIdByComparablePath.set(comparable, pageId);
+    };
+    const registerImportedPageId = (folderPath: string, localPath: string, pageId: string): void => {
+      registerImportedPagePath(localPath, pageId);
+      registerImportedPagePath(`${folderPath}/${localPath}`, pageId);
+    };
+    const resolveImportedPageId = (path: string): string | null => {
+      const exact = pageIdByImportedPath.get(normalizeImportPath(path));
+      if (exact) return exact;
+      const comparable = comparableImportedPath(path);
+      if (ambiguousComparablePaths.has(comparable)) return null;
+      return pageIdByComparablePath.get(comparable) ?? null;
+    };
+    const resolveRelativeImportPath = (basePath: string, href: string): string => {
+      const baseParts = basePath.split("/").slice(0, -1);
+      for (const part of href.split("/")) {
+        if (!part || part === ".") continue;
+        if (part === "..") baseParts.pop();
+        else baseParts.push(part);
+      }
+      return normalizeImportPath(baseParts.join("/"));
+    };
 
     try {
+      for (const pair of pairs) {
+        if (!dbIdByFolderPath.has(pair.folderPath)) {
+          dbIdByFolderPath.set(pair.folderPath, createDatabase(pair.folderBase));
+        }
+        if (!dbPageIdByFolderPath.has(pair.folderPath)) {
+          const dbPageId = createPage(pair.folderBase, null, { activate: false });
+          dbPageIdByFolderPath.set(pair.folderPath, dbPageId);
+          registerImportedPagePath(`${pair.folderPath}.html`, dbPageId);
+        }
+      }
+
       for (let pairIdx = 0; pairIdx < pairs.length; pairIdx++) {
         const pair = pairs[pairIdx];
         if (!pair) continue;
@@ -200,8 +322,32 @@ export function NotionCsvFolderSection() {
         const fileMap = new Map<string, FileSystemFileHandle>();
         await buildFileMap(pair.folderHandle, "", fileMap);
         const allPaths = Array.from(fileMap.keys());
+        const localDbFolderRoots = new Set<string>();
+        for (const p of allPaths) {
+          if (!p.toLowerCase().endsWith(".csv")) continue;
+          const withoutExt = p.replace(/\.[^.]+$/, "");
+          const baseName = withoutExt.split("/").pop() ?? "";
+          const base = baseName.replace(/\s+[0-9a-f]{32}$/i, "").trim();
+          const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+          const root = dir ? `${dir}/${base}` : base;
+          if (allPaths.some((candidate) => candidate.startsWith(`${root}/`))) {
+            localDbFolderRoots.add(root);
+          }
+        }
         const preview = buildPreviewFromFileMap(fileMap);
         const assetResolver = createNotionAssetResolver(preview);
+
+        const resolveDbFolderPathFromSampleLink = (sampleLink: string | null): string | null => {
+          if (!sampleLink) return null;
+          const localPath = normalizeImportPath(sampleLink);
+          const globalPath = normalizeImportPath(`${pair.folderPath}/${localPath}`);
+          return knownDbFolderPathList.find((root) =>
+            globalPath === root ||
+            globalPath.startsWith(`${root}/`) ||
+            localPath === root ||
+            localPath.startsWith(`${root}/`),
+          ) ?? null;
+        };
 
         // CSV 읽기
         updateProgress({ phase: "DB 생성" });
@@ -209,6 +355,14 @@ export function NotionCsvFolderSection() {
         const csvFile = await pair.csvHandle.getFile();
         const csvData = parseCsv(await csvFile.text());
         if (csvData.headers.length === 0 || csvData.rows.length === 0) continue;
+        const rowPlans = csvData.rows.map((row, rowIdx) => {
+          const rowTitle = (row[0] ?? "").trim() || `항목 ${rowIdx + 1}`;
+          const htmlRelPath = findHtmlForRow(rowTitle, allPaths);
+          const childHtmlPaths = htmlRelPath
+            ? findChildHtmlPaths(htmlRelPath, allPaths).sort((a, b) => a.localeCompare(b))
+            : [];
+          return { row, rowIdx, rowTitle, htmlRelPath, childHtmlPaths };
+        });
 
         // 메인 DB HTML이 있으면 cellMeta(시간/상태 색)를 추출해 컬럼 타입 정확도 향상
         let collectionMeta: NotionCollectionTable | null = null;
@@ -235,7 +389,8 @@ export function NotionCsvFolderSection() {
         }
 
         // QuickNote 데이터베이스 생성
-        const dbId = createDatabase(pair.folderBase);
+        const dbId = dbIdByFolderPath.get(pair.folderPath);
+        if (!dbId) continue;
         const bundle = useDatabaseStore.getState().databases[dbId];
         const cols = bundle?.columns ?? [];
         const titleCol = cols.find((c) => c.type === "title");
@@ -259,28 +414,21 @@ export function NotionCsvFolderSection() {
             metaColIdx = meta.headers.findIndex((h) => h.trim() === header.trim());
             if (metaColIdx >= 0) {
               const cellMetas = meta.rows.map((r) => r.cellMeta[metaColIdx]).filter((m): m is NonNullable<typeof m> => !!m);
-              const hasTimeLike = cellMetas.some((m) => m.hasTimeTag);
-              const hasPerson = cellMetas.some((m) => m.hasPerson);
-              const maxSelected = cellMetas.reduce((max, m) => Math.max(max, m.selectedCount), 0);
-              const hasStatusLike = cellMetas.some((m) => m.statusLike || !!m.statusColorToken);
-              if (hasTimeLike) { colType = "date"; inferSource = "cellMeta(time)"; }
-              else if (hasPerson) { colType = "person"; inferSource = "cellMeta(person)"; }
-              else if (maxSelected >= 2) { colType = "multiSelect"; inferSource = "cellMeta(multi)"; }
-              else if (hasStatusLike || maxSelected === 1) { colType = "status"; inferSource = "cellMeta(status)"; }
-              else { colType = inferColumnType(header, values); inferSource = "휴리스틱(메타없음)"; }
+              colType = inferNotionColumnType({ header, values, meta: cellMetas });
+              inferSource = "cellMeta+휴리스틱";
             } else {
-              colType = inferColumnType(header, values);
+              colType = inferNotionColumnType({ header, values });
               inferSource = "휴리스틱(헤더불일치)";
             }
           } else {
-            colType = inferColumnType(header, values);
+            colType = inferNotionColumnType({ header, values });
           }
           console.log(`[CSV가져오기] 컬럼 "${header}" → ${colType} (${inferSource})`);
 
           const colId = addColumn(dbId, { name: header, type: colType });
           extraColIds.push({ id: colId, type: colType });
 
-          if (colType === "status" || colType === "multiSelect") {
+          if (colType === "status" || colType === "multiSelect" || colType === "select") {
             // 선택/상태/다중선택 옵션 — cellMeta 의 selectedOptions(라벨+색) 우선 사용
             const labelToColor = new Map<string, string | undefined>();
             if (collectionMeta && metaColIdx >= 0) {
@@ -291,13 +439,13 @@ export function NotionCsvFolderSection() {
                 if (cm.selectedOptions.length > 0) {
                   for (const opt of cm.selectedOptions) {
                     if (!labelToColor.has(opt.label)) {
-                      labelToColor.set(opt.label, notionStatusColorToQuickNote(opt.colorToken));
+                      labelToColor.set(opt.label, mapNotionColorToQuickNote(opt.colorToken));
                     }
                   }
                 } else {
                   const label = (r.cells[metaColIdx] ?? "").trim();
                   if (label && !labelToColor.has(label)) {
-                    labelToColor.set(label, notionStatusColorToQuickNote(cm.statusColorToken));
+                    labelToColor.set(label, mapNotionColorToQuickNote(cm.statusColorToken));
                   }
                 }
               });
@@ -306,7 +454,10 @@ export function NotionCsvFolderSection() {
             for (const row of csvData.rows) {
               const raw = (row[colIdx] ?? "").trim();
               if (!raw) continue;
-              const parts = colType === "multiSelect" ? raw.split(",").map((p) => p.trim()).filter(Boolean) : [raw];
+              const parts =
+                colType === "multiSelect"
+                  ? raw.split(/[;,/|]/).map((p) => p.trim()).filter(Boolean)
+                  : [raw];
               for (const label of parts) {
                 if (!labelToColor.has(label)) labelToColor.set(label, undefined);
               }
@@ -324,17 +475,149 @@ export function NotionCsvFolderSection() {
         }
 
         // DB를 담을 부모 페이지 생성
-        const dbPageId = createPage(pair.folderBase, null);
+        const dbPageId = dbPageIdByFolderPath.get(pair.folderPath) ?? createPage(pair.folderBase, null, { activate: false });
+        dbPageIdByFolderPath.set(pair.folderPath, dbPageId);
         updateDoc(dbPageId, {
           type: "doc",
           content: [{ type: "databaseBlock", attrs: { databaseId: dbId } }],
         });
 
-        // 각 CSV 행 순차 처리
-        for (let rowIdx = 0; rowIdx < csvData.rows.length; rowIdx++) {
-          const row = csvData.rows[rowIdx];
+        // 아이콘 자산을 업로드해 image ref 로 변환 (실패시 null)
+        const uploadIconImage = async (file: File): Promise<string | null> => {
+          try {
+            const prepared = await prepareImageFileForUpload(file);
+            if (!prepared) return null;
+            if (!["image/png", "image/jpeg", "image/webp"].includes(prepared.type)) return null;
+            return await uploadImage(prepared);
+          } catch (err) {
+            console.warn("[CSV가져오기] 아이콘 업로드 실패", err);
+            return null;
+          }
+        };
+
+        // HTML 본문을 페이지에 채워넣는 공용 처리 — row/child/nested-row 페이지에서 재사용
+        const fillPageFromHtml = async (
+          targetPageId: string,
+          html: string,
+          htmlRelPathParam: string,
+          label: string,
+        ): Promise<void> => {
+          updateProgress({ phase: "에셋 업로드" });
+          const uploadedAssetByPath = new Map<string, UploadedNotionAsset>();
+          const assetsToUpload = collectNotionAssetRefsFromHtml(html, htmlRelPathParam, assetResolver);
+          console.log(`[CSV가져오기] "${label}" 에셋 ${assetsToUpload.length}개`);
+          for (let assetIdx = 0; assetIdx < assetsToUpload.length; assetIdx++) {
+            const asset = assetsToUpload[assetIdx];
+            if (!asset || uploadedAssetByPath.has(asset.path)) continue;
+            updateProgress({ phase: "에셋 업로드", assetIdx, assetTotal: assetsToUpload.length });
+            await yieldToPaint();
+            try {
+              uploadedAssetByPath.set(asset.path, await uploadNotionAsset(asset));
+            } catch (err) {
+              console.warn(`[CSV가져오기] 에셋 업로드 실패: ${asset.name}`, err);
+              uploadedAssetByPath.set(asset.path, failedNotionAsset(asset, err));
+              totalFailed++;
+            }
+          }
+          const resolveImageNode = (src: string, element: HTMLElement): JSONContent | null => {
+            const ast = assetResolver.resolve(src, htmlRelPathParam);
+            if (!ast) return null;
+            const up = uploadedAssetByPath.get(ast.path);
+            if (!up) return null;
+            return uploadedAssetToDocNode(up, element.getAttribute("alt") ?? "");
+          };
+          const doc = notionHtmlToDoc(html, {
+            currentPagePath: htmlRelPathParam,
+            resolveImageSrc: (src) => /^https?:\/\//i.test(src) || src.startsWith("data:") ? src : null,
+            resolveImageNode,
+            resolveMediaNode: resolveImageNode,
+            iconReplacementText: "▪︎",
+            resolvePageMentionByHref: (href) => {
+              if (/^(https?:|mailto:|tel:|data:|blob:|quicknote-)/i.test(href)) return null;
+              const normalizedHref = safeDecodeImportHref(href.split("#")[0]?.split("?")[0] ?? href).replace(/^\.\/+/, "");
+              if (!normalizedHref || normalizedHref.startsWith("#")) return null;
+              const resolvedLocalPath = resolveRelativeImportPath(htmlRelPathParam, normalizedHref);
+              const resolvedGlobalPath = resolveRelativeImportPath(`${pair.folderPath}/${htmlRelPathParam}`, normalizedHref);
+              const linkedPageId =
+                resolveImportedPageId(resolvedGlobalPath) ??
+                resolveImportedPageId(resolvedLocalPath);
+              if (!linkedPageId) return null;
+              return { pageId: linkedPageId };
+            },
+            onCollectionTable: (table: NotionCollectionTable) => {
+              const sampleLink = table.rows.find((r) => !!r.titleLinkPath)?.titleLinkPath ?? null;
+              const matchedFolderPath = resolveDbFolderPathFromSampleLink(sampleLink);
+              if (matchedFolderPath) {
+                const existingDbId = dbIdByFolderPath.get(matchedFolderPath);
+                if (existingDbId) {
+                  // 이미 생성된 DB는 즉시 연결
+                  return existingDbId;
+                }
+              }
+              console.warn(`[CSV가져오기] CSV 쌍을 찾지 못한 인라인 DB는 건너뜀: ${htmlRelPathParam}`);
+              return null;
+            },
+          });
+          const docWithAnchorIds = ensureCommentAnchorBlockIds(doc);
+          updateDoc(targetPageId, docWithAnchorIds);
+          const comments = extractNotionInlineComments(html);
+          comments.forEach((comment) => {
+            const mappedBlockId =
+              resolveNotionCommentBlockId(docWithAnchorIds as { content?: Array<unknown> }, comment.blockText)
+              ?? "__page__";
+            const authorMemberId = resolveImportedCommentAuthorMemberId(
+              comment.authorName,
+              useMemberStore.getState().members,
+              me?.memberId ?? "notion-import",
+            );
+            const authorPrefix = authorMemberId === (me?.memberId ?? "notion-import")
+              ? `${comment.authorName ? `${comment.authorName}: ` : ""}`
+              : "";
+            addComment({
+              workspaceId: currentWorkspaceId,
+              pageId: targetPageId,
+              blockId: mappedBlockId,
+              authorMemberId,
+              bodyText: `${authorPrefix}${comment.bodyText}`.trim(),
+              mentionMemberIds: [],
+              parentId: null,
+            });
+          });
+
+          const iconInfo = extractNotionPageIcon(html);
+          if (iconInfo?.imagePath) {
+            const iconAsset = assetResolver.resolve(iconInfo.imagePath, htmlRelPathParam);
+            if (iconAsset) {
+              try {
+                const iconFile = await iconAsset.readAsFile();
+                const ref = await uploadIconImage(iconFile);
+                if (ref) {
+                  setIcon(targetPageId, ref);
+                  return;
+                }
+              } catch (err) {
+                console.warn(`[CSV가져오기] 아이콘 처리 실패: ${label}`, err);
+              }
+            }
+          }
+          if (iconInfo?.emoji) {
+            setIcon(targetPageId, iconInfo.emoji);
+            return;
+          }
+          setIcon(targetPageId, "📝");
+        };
+
+        const localDbRootList = Array.from(localDbFolderRoots);
+        const isNestedDbPath = (path: string): boolean =>
+          localDbRootList.some((root) => path === `${root}.html` || path.startsWith(`${root}/`));
+        const rowPageIdByIndex = new Map<number, string>();
+        const childPageIdsByPath = new Map<string, string>();
+        const childPagePathsByRowIndex = new Map<number, string[]>();
+
+        // 먼저 모든 행 페이지와 하위 페이지 ID를 만든다. 그래야 본문 변환 중 페이지 링크를 멘션으로 해석할 수 있다.
+        for (const rowPlan of rowPlans) {
+          const { row, rowIdx, rowTitle, htmlRelPath, childHtmlPaths } = rowPlan;
           if (!row) continue;
-          const rowTitle = (row[0] ?? "").trim() || `항목 ${rowIdx + 1}`;
 
           setProgress({
             pairIdx,
@@ -352,105 +635,64 @@ export function NotionCsvFolderSection() {
             rowIdx === 0
               ? (useDatabaseStore.getState().databases[dbId]?.rowPageOrder[0] ?? addRow(dbId))
               : addRow(dbId);
+          rowPageIdByIndex.set(rowIdx, rowPageId);
           renamePage(rowPageId, rowTitle);
+          if (htmlRelPath) registerImportedPageId(pair.folderPath, htmlRelPath, rowPageId);
 
           // 셀 값 입력
           for (let colIdx = 1; colIdx < row.length; colIdx++) {
             const colMeta = extraColIds[colIdx - 1];
             if (!colMeta) continue;
             const rawCell = row[colIdx] ?? "";
-            if (colMeta.type === "date") {
-              const parsed = parseDateCell(rawCell);
-              updateCell(dbId, rowPageId, colMeta.id, parsed ? { start: parsed } : rawCell);
-            } else if (colMeta.type === "multiSelect") {
-              const parts = rawCell.split(",").map((p) => p.trim()).filter(Boolean);
-              updateCell(dbId, rowPageId, colMeta.id, parts);
-            } else {
-              updateCell(dbId, rowPageId, colMeta.id, rawCell);
+            updateCell(
+              dbId,
+              rowPageId,
+              colMeta.id,
+              normalizeImportedCellValue(colMeta.type, rawCell),
+            );
+          }
+
+          if (htmlRelPath) {
+            const childPagePaths = childHtmlPaths
+              .filter((childPath) => !isNestedDbPath(childPath))
+              .sort((a, b) => importedPathDepth(a) - importedPathDepth(b) || a.localeCompare(b));
+            childPagePathsByRowIndex.set(rowIdx, childPagePaths);
+            const candidates = new Set([htmlRelPath, ...childPagePaths]);
+            const childIdByPathInRow = new Map<string, string>();
+            for (const childPath of childPagePaths) {
+              const parentHtmlPath = findParentHtmlPath(childPath, candidates);
+              const parentPageId =
+                parentHtmlPath && parentHtmlPath !== htmlRelPath
+                  ? (childIdByPathInRow.get(parentHtmlPath) ?? rowPageId)
+                  : rowPageId;
+              const childPageId = createPage(titleFromImportedHtmlPath(childPath), parentPageId, { activate: false });
+              childIdByPathInRow.set(childPath, childPageId);
+              childPageIdsByPath.set(childPath, childPageId);
+              registerImportedPageId(pair.folderPath, childPath, childPageId);
             }
           }
 
-          // 아이콘 자산을 업로드해 image ref 로 변환 (실패시 null)
-          const uploadIconImage = async (file: File): Promise<string | null> => {
-            try {
-              const prepared = await prepareImageFileForUpload(file);
-              if (!prepared) return null;
-              if (!["image/png", "image/jpeg", "image/webp"].includes(prepared.type)) return null;
-              return await uploadImage(prepared);
-            } catch (err) {
-              console.warn("[CSV가져오기] 아이콘 업로드 실패", err);
-              return null;
-            }
-          };
+          totalRowsImported++;
+        }
 
-          // HTML 본문을 페이지에 채워넣는 공용 처리 — row + child 페이지에서 재사용
-          const fillPageFromHtml = async (
-            targetPageId: string,
-            html: string,
-            htmlRelPathParam: string,
-            label: string,
-          ): Promise<void> => {
-            updateProgress({ phase: "에셋 업로드" });
-            const uploadedAssetByPath = new Map<string, UploadedNotionAsset>();
-            const assetsToUpload = collectNotionAssetRefsFromHtml(html, htmlRelPathParam, assetResolver);
-            console.log(`[CSV가져오기] "${label}" 에셋 ${assetsToUpload.length}개`);
-            for (let assetIdx = 0; assetIdx < assetsToUpload.length; assetIdx++) {
-              const asset = assetsToUpload[assetIdx];
-              if (!asset || uploadedAssetByPath.has(asset.path)) continue;
-              updateProgress({ phase: "에셋 업로드", assetIdx, assetTotal: assetsToUpload.length });
-              await yieldToPaint();
-              try {
-                uploadedAssetByPath.set(asset.path, await uploadNotionAsset(asset));
-              } catch (err) {
-                console.warn(`[CSV가져오기] 에셋 업로드 실패: ${asset.name}`, err);
-                uploadedAssetByPath.set(asset.path, failedNotionAsset(asset, err));
-                totalFailed++;
-              }
-            }
-            const resolveImageNode = (src: string, element: HTMLElement): JSONContent | null => {
-              const ast = assetResolver.resolve(src, htmlRelPathParam);
-              if (!ast) return null;
-              const up = uploadedAssetByPath.get(ast.path);
-              if (!up) return null;
-              return uploadedAssetToDocNode(up, element.getAttribute("alt") ?? "");
-            };
-            const doc = notionHtmlToDoc(html, {
-              currentPagePath: htmlRelPathParam,
-              resolveImageSrc: (src) => /^https?:\/\//i.test(src) || src.startsWith("data:") ? src : null,
-              resolveImageNode,
-              resolveMediaNode: resolveImageNode,
-              iconReplacementText: "▪︎",
-              resolvePageMentionByHref: () => null,
-              // onCollectionTable 미지정 → 중첩 collection-content 는 일반 HTML 테이블로 렌더
-            });
-            updateDoc(targetPageId, doc);
+        // 페이지 ID 등록 이후 실제 HTML 본문과 에셋을 채운다.
+        for (const rowPlan of rowPlans) {
+          const { rowIdx, rowTitle, htmlRelPath } = rowPlan;
+          const rowPageId = rowPageIdByIndex.get(rowIdx);
+          if (!rowPageId) continue;
 
-            // 아이콘 추출 및 적용
-            const iconInfo = extractNotionPageIcon(html);
-            if (iconInfo?.imagePath) {
-              const iconAsset = assetResolver.resolve(iconInfo.imagePath, htmlRelPathParam);
-              if (iconAsset) {
-                try {
-                  const iconFile = await iconAsset.readAsFile();
-                  const ref = await uploadIconImage(iconFile);
-                  if (ref) {
-                    setIcon(targetPageId, ref);
-                    return;
-                  }
-                } catch (err) {
-                  console.warn(`[CSV가져오기] 아이콘 처리 실패: ${label}`, err);
-                }
-              }
-            }
-            if (iconInfo?.emoji) {
-              setIcon(targetPageId, iconInfo.emoji);
-              return;
-            }
-            setIcon(targetPageId, "📝");
-          };
+          setProgress({
+            pairIdx,
+            pairTotal: pairs.length,
+            pairLabel: pair.folderBase,
+            rowIdx,
+            rowTotal: csvData.rows.length,
+            rowTitle,
+            phase: "항목 처리",
+          });
+          await yieldToPaint();
 
           // 매칭 HTML 파일 처리
-          const htmlRelPath = findHtmlForRow(rowTitle, allPaths);
           if (!htmlRelPath) {
             console.warn(`[CSV가져오기] 행 HTML 매칭 실패: "${rowTitle}"`);
             totalFailed++;
@@ -463,23 +705,19 @@ export function NotionCsvFolderSection() {
                 await fillPageFromHtml(rowPageId, html, htmlRelPath, rowTitle);
 
                 // 자식 페이지(서브 폴더 내 HTML) 처리
-                const childHtmlPaths = findChildHtmlPaths(htmlRelPath, allPaths);
-                if (childHtmlPaths.length > 0) {
-                  console.log(`[CSV가져오기] "${rowTitle}" 자식 페이지 ${childHtmlPaths.length}개`);
+                const childPagePaths = childPagePathsByRowIndex.get(rowIdx) ?? [];
+                if (childPagePaths.length > 0) {
+                  console.log(`[CSV가져오기] "${rowTitle}" 자식 페이지 ${childPagePaths.length}개`);
                 }
-                for (const childPath of childHtmlPaths) {
+                for (const childPath of childPagePaths) {
                   const childHandle = fileMap.get(childPath);
                   if (!childHandle) continue;
+                  const childPageId = childPageIdsByPath.get(childPath);
+                  if (!childPageId) continue;
                   try {
                     const childFile = await childHandle.getFile();
                     const childHtml = await childFile.text();
-                    // 자식 페이지 제목 = 파일명에서 hex 제거
-                    const childTitle = childPath
-                      .split("/").pop()
-                      ?.replace(/\.html$/i, "")
-                      .replace(/\s+[0-9a-f]{32}$/i, "")
-                      .trim() || "자식 페이지";
-                    const childPageId = createPage(childTitle, rowPageId);
+                    const childTitle = titleFromImportedHtmlPath(childPath);
                     updateProgress({ rowTitle: `${rowTitle} › ${childTitle}` });
                     await yieldToPaint();
                     await fillPageFromHtml(childPageId, childHtml, childPath, `${rowTitle} > ${childTitle}`);
@@ -494,8 +732,6 @@ export function NotionCsvFolderSection() {
               }
             }
           }
-
-          totalRowsImported++;
         }
       }
 
@@ -509,43 +745,49 @@ export function NotionCsvFolderSection() {
     }
   };
 
-  const isImporting = status.kind === "importing";
-
   return (
-    <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
-      <h3 className="mb-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-        CSV 기반 DB 가져오기 (ZIP 또는 폴더)
-      </h3>
-      <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-        Notion HTML 내보내기 ZIP을 그대로 선택하거나, 압축 해제한 폴더를 선택합니다. CSV + 동명 서브폴더를 재귀 탐색해 데이터베이스 항목을 1개씩 순차 처리합니다.
-      </p>
+    <div className={compact ? "space-y-3" : "rounded-lg border border-zinc-200 p-4 dark:border-zinc-700"}>
+      {!compact && (
+        <>
+          <h3 className="mb-1 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            CSV 기반 DB 가져오기 (ZIP 또는 폴더)
+          </h3>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            Notion HTML 내보내기 ZIP을 그대로 선택하거나, 압축 해제한 폴더를 선택합니다. CSV + 동명 서브폴더를 재귀 탐색해 데이터베이스 항목을 1개씩 순차 처리합니다.
+          </p>
+        </>
+      )}
+
+      {!usingSharedSource && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void onPickFolder()}
+            disabled={isImporting || status.kind === "scanning"}
+            className="inline-flex items-center rounded bg-zinc-900 px-3 py-1.5 text-xs text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            {status.kind === "scanning" && <Loader2 size={12} className="mr-1.5 animate-spin" />}
+            {status.kind === "scanning" ? "스캔 중..." : "폴더 선택"}
+          </button>
+
+          <label className={`inline-flex cursor-pointer items-center rounded border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800 ${(isImporting || status.kind === "scanning") ? "pointer-events-none opacity-50" : ""}`}>
+            ZIP 파일 선택
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null;
+                e.target.value = "";
+                void onPickZip(file);
+              }}
+              disabled={isImporting || status.kind === "scanning"}
+            />
+          </label>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void onPickFolder()}
-          disabled={isImporting || status.kind === "scanning"}
-          className="inline-flex items-center rounded bg-zinc-900 px-3 py-1.5 text-xs text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
-          {status.kind === "scanning" && <Loader2 size={12} className="mr-1.5 animate-spin" />}
-          {status.kind === "scanning" ? "스캔 중..." : "폴더 선택"}
-        </button>
-
-        <label className={`inline-flex cursor-pointer items-center rounded border border-zinc-300 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800 ${(isImporting || status.kind === "scanning") ? "pointer-events-none opacity-50" : ""}`}>
-          ZIP 파일 선택
-          <input
-            type="file"
-            accept=".zip,application/zip"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0] ?? null;
-              e.target.value = "";
-              void onPickZip(file);
-            }}
-            disabled={isImporting || status.kind === "scanning"}
-          />
-        </label>
-
         {status.kind === "ready" && (
           <button
             type="button"
@@ -565,7 +807,7 @@ export function NotionCsvFolderSection() {
           </p>
           <ul className="max-h-36 overflow-y-auto rounded border border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-300">
             {status.pairs.map((pair) => (
-              <li key={pair.folderBase} className="truncate py-0.5">
+              <li key={pair.folderPath} className="truncate py-0.5">
                 📊 {pair.folderBase}
               </li>
             ))}

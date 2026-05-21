@@ -11,6 +11,7 @@ import { useHistoryStore } from "../../store/historyStore";
 import type { GqlDatabase, GqlPage } from "../../lib/sync/graphql/operations";
 import { makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import { markLocallyDeletedEntity } from "../../lib/sync/localDeleteGuards";
 
 function gqlPage(ws: string, id = "pg-1"): GqlPage {
   const now = new Date().toISOString();
@@ -109,6 +110,24 @@ describe("storeApply 워크스페이스 가드", () => {
     const events = useHistoryStore.getState().dbEventsByDatabaseId["db-seed"] ?? [];
     expect(events.length).toBeGreaterThanOrEqual(1);
     expect(events[0]?.kind).toBe("db.create");
+  });
+
+  it("로컬에서 삭제한 DB는 더 오래된 원격 active 스냅샷으로 되살리지 않는다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    markLocallyDeletedEntity("database", "db-deleted", "ws-a", Date.parse("2026-05-21T01:00:00.000Z"));
+    const remote = gqlDb("ws-a", "db-deleted");
+    remote.updatedAt = "2026-05-21T00:59:59.000Z";
+    applyRemoteDatabaseToStore(remote);
+    expect(useDatabaseStore.getState().databases["db-deleted"]).toBeUndefined();
+  });
+
+  it("로컬에서 삭제한 페이지는 더 오래된 원격 active 스냅샷으로 되살리지 않는다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    markLocallyDeletedEntity("page", "pg-deleted", "ws-a", Date.parse("2026-05-21T01:00:00.000Z"));
+    const remote = gqlPage("ws-a", "pg-deleted");
+    remote.updatedAt = "2026-05-21T00:59:59.000Z";
+    applyRemotePageToStore(remote);
+    expect(usePageStore.getState().pages["pg-deleted"]).toBeUndefined();
   });
 
   it("원격 workspaceId 가 비면 적용하지 않는다", () => {

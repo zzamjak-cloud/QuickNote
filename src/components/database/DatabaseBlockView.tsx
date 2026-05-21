@@ -46,6 +46,7 @@ import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
+import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
@@ -61,7 +62,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
     useShallow((s) => ({ members: s.members, me: s.me })),
   );
   const panelState = parseDatabasePanelStateJson(panelStateRaw);
-  void currentWorkspaceId;
   const panelStateRef = useRef(panelState);
   panelStateRef.current = panelState;
 
@@ -164,6 +164,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
     setDeletePhraseDraft("");
   };
 
+  const refreshSnapshotAfterDatabaseDelete = () => {
+    if (!currentWorkspaceId) return;
+    window.setTimeout(() => refreshWorkspaceSnapshot(currentWorkspaceId), 0);
+  };
+
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
     if (isProtectedDatabase) return;
@@ -181,6 +186,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
         deleteNode();
       });
     }
+    refreshSnapshotAfterDatabaseDelete();
     closeDeleteDatabaseModal();
   };
 
@@ -478,7 +484,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 <button
                   type="button"
                   onClick={() => setExtraRows((e) => e + 10)}
-                  className="mt-1 w-full rounded-md border border-zinc-200 py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  className="mt-1 w-full rounded-md py-1.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800"
                 >
                   + 더보기 ({totalRows - limit}개 남음)
                 </button>
@@ -704,6 +710,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
             } else {
               scheduleEditorMutation(() => deleteNode());
             }
+            refreshSnapshotAfterDatabaseDelete();
           }
           setDbPermanentDeleteOpen(false);
           setDbHistoryDialogOpen(false);

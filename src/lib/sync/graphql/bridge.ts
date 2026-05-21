@@ -53,10 +53,55 @@ function normalizePageInput(input: unknown): unknown {
 }
 
 function getGraphQLErrorMessage(error: unknown): string {
-  const errors = (error as { errors?: unknown[] } | null)?.errors;
-  const first = Array.isArray(errors) ? errors[0] : null;
-  return (first as { message?: string } | null)?.message
-    ?? (error instanceof Error ? error.message : String(error));
+  // Amplify v6 는 에러를 { errors: [{ message }] } / GraphQLError { extensions } / cause 체인 등
+  // 다양한 형태로 래핑한다. 모든 경로를 재귀로 훑어 가능한 모든 message/errorType 을 모은다.
+  const parts: string[] = [];
+  const visit = (val: unknown, depth: number): void => {
+    if (depth > 4 || val == null) return;
+    if (typeof val === "string") {
+      if (val) parts.push(val);
+      return;
+    }
+    if (val instanceof Error) {
+      if (val.message) parts.push(val.message);
+      const cause = (val as { cause?: unknown }).cause;
+      if (cause) visit(cause, depth + 1);
+      return;
+    }
+    if (Array.isArray(val)) {
+      for (const item of val) visit(item, depth + 1);
+      return;
+    }
+    if (typeof val === "object") {
+      const obj = val as Record<string, unknown>;
+      if (typeof obj.message === "string" && obj.message) parts.push(obj.message);
+      if (typeof obj.errorType === "string" && obj.errorType) parts.push(obj.errorType);
+      if (typeof obj.errorInfo === "string" && obj.errorInfo) parts.push(obj.errorInfo);
+      if (obj.errors) visit(obj.errors, depth + 1);
+      if (obj.graphQLErrors) visit(obj.graphQLErrors, depth + 1);
+      if (obj.networkError) visit(obj.networkError, depth + 1);
+      if (obj.cause) visit(obj.cause, depth + 1);
+      if (obj.extensions) visit(obj.extensions, depth + 1);
+    }
+  };
+  visit(error, 0);
+  if (parts.length > 0) return parts.join(" | ");
+  try {
+    return JSON.stringify(error) || String(error);
+  } catch {
+    return String(error);
+  }
+}
+
+function isResourceGoneError(message: string): boolean {
+  const m = message.normalize("NFKC").toLowerCase();
+  return (
+    m.includes("리소스 없음")
+    || (m.includes("리소스") && m.includes("없"))
+    || m.includes("resource not found")
+    || m.includes("no resource")
+    || m.includes("not found")
+  );
 }
 
 async function softDeletePageRequest(id: string, workspaceId: string, updatedAt: string): Promise<void> {
@@ -70,13 +115,48 @@ async function softDeletePageWithForceRetry(id: string, workspaceId: string, upd
   try {
     await softDeletePageRequest(id, workspaceId, updatedAt);
   } catch (error) {
-    if (!getGraphQLErrorMessage(error).includes("The conditional request failed")) {
+    const message = getGraphQLErrorMessage(error);
+    if (isResourceGoneError(message)) return;
+    if (!message.includes("The conditional request failed")) {
       throw error;
     }
     try {
       await softDeletePageRequest(id, workspaceId, FORCE_DELETE_UPDATED_AT);
     } catch (retryError) {
-      if (getGraphQLErrorMessage(retryError).includes("The conditional request failed")) {
+      const retryMessage = getGraphQLErrorMessage(retryError);
+      if (isResourceGoneError(retryMessage) || retryMessage.includes("The conditional request failed")) {
+        return;
+      }
+      throw retryError;
+    }
+  }
+}
+
+async function softDeleteDatabaseRequest(id: string, workspaceId: string, updatedAt: string): Promise<void> {
+  await appsyncClient().graphql({
+    query: SOFT_DELETE_DATABASE,
+    variables: { id, workspaceId, updatedAt },
+  });
+}
+
+async function softDeleteDatabaseWithForceRetry(
+  id: string,
+  workspaceId: string,
+  updatedAt: string,
+): Promise<void> {
+  try {
+    await softDeleteDatabaseRequest(id, workspaceId, updatedAt);
+  } catch (error) {
+    const message = getGraphQLErrorMessage(error);
+    if (isResourceGoneError(message)) return;
+    if (!message.includes("The conditional request failed")) {
+      throw error;
+    }
+    try {
+      await softDeleteDatabaseRequest(id, workspaceId, FORCE_DELETE_UPDATED_AT);
+    } catch (retryError) {
+      const retryMessage = getGraphQLErrorMessage(retryError);
+      if (isResourceGoneError(retryMessage) || retryMessage.includes("The conditional request failed")) {
         return;
       }
       throw retryError;
@@ -103,6 +183,7 @@ export const realGqlBridge: GqlBridge = {
       await softDeletePageWithForceRetry(id, workspaceId, updatedAt);
     } catch (error) {
       const message = getGraphQLErrorMessage(error);
+      if (isResourceGoneError(message)) return;
       if (
         workspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
         message.includes("The conditional request failed")
@@ -114,10 +195,7 @@ export const realGqlBridge: GqlBridge = {
     }
   },
   softDeleteDatabase: async (id, workspaceId, updatedAt) => {
-    await appsyncClient().graphql({
-      query: SOFT_DELETE_DATABASE,
-      variables: { id, workspaceId, updatedAt },
-    });
+    await softDeleteDatabaseWithForceRetry(id, workspaceId, updatedAt);
   },
   updateMyClientPrefs: async (clientPrefsJson) => {
     const clientPrefs =

@@ -129,6 +129,7 @@ function coerceDatabaseBundle(value: unknown): DatabaseBundle | null {
   return {
     meta: {
       id: value.meta.id,
+      workspaceId: typeof value.meta.workspaceId === "string" ? value.meta.workspaceId : undefined,
       title: value.meta.title,
       createdAt,
       updatedAt,

@@ -10,6 +10,7 @@ import { useUiStore } from "../../store/uiStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { isLCSchedulerDatabaseId } from "../scheduler/database";
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
+import { markPermanentlyDeletedEntity } from "./localDeleteGuards";
 
 // 동기화 엔진. enqueue 시 outbox 에 적재 → 백그라운드 워커가 mutation 으로 flush.
 // 같은 (op, id) 의 새 enqueue 는 dedupe 로 마지막 본만 남김.
@@ -36,12 +37,50 @@ const TRANSIENT_RETRY_DELAY_MS = 4_000;
 const TRANSIENT_LOG_THROTTLE_MS = 15_000;
 
 function getErrorMessage(error: unknown): string {
-  const gqlErrors = (error as { errors?: unknown[] } | null)?.errors;
-  const firstGql = Array.isArray(gqlErrors) ? gqlErrors[0] : null;
-  return String(
-    (firstGql as { message?: string } | null)?.message
-      ?? (error instanceof Error ? error.message : error),
-  );
+  // Amplify v6 GraphQL error 객체는 다음 중 하나의 형태를 띌 수 있다:
+  // 1) { errors: [{ message, errorType, errorInfo }], data: null }
+  // 2) GraphQLError { message, extensions: { ... } }
+  // 3) plain Error
+  // 4) { networkError: { ... } } / { graphQLErrors: [...] }
+  // 가능한 모든 경로에서 message 를 추출하고, 끝까지 못 찾으면 전체 JSON 을 직렬화한다.
+  const parts: string[] = [];
+  const visit = (val: unknown, depth: number): void => {
+    if (depth > 4 || val == null) return;
+    if (typeof val === "string") {
+      if (val) parts.push(val);
+      return;
+    }
+    if (val instanceof Error) {
+      if (val.message) parts.push(val.message);
+      // AggregateError / cause 체인
+      const cause = (val as { cause?: unknown }).cause;
+      if (cause) visit(cause, depth + 1);
+      return;
+    }
+    if (Array.isArray(val)) {
+      for (const item of val) visit(item, depth + 1);
+      return;
+    }
+    if (typeof val === "object") {
+      const obj = val as Record<string, unknown>;
+      if (typeof obj.message === "string" && obj.message) parts.push(obj.message);
+      if (typeof obj.errorType === "string" && obj.errorType) parts.push(obj.errorType);
+      if (typeof obj.errorInfo === "string" && obj.errorInfo) parts.push(obj.errorInfo);
+      if (obj.errors) visit(obj.errors, depth + 1);
+      if (obj.graphQLErrors) visit(obj.graphQLErrors, depth + 1);
+      if (obj.networkError) visit(obj.networkError, depth + 1);
+      if (obj.cause) visit(obj.cause, depth + 1);
+      if (obj.extensions) visit(obj.extensions, depth + 1);
+    }
+  };
+  visit(error, 0);
+  if (parts.length > 0) return parts.join(" | ");
+  // 최후 fallback: JSON 직렬화. 한국어 메시지가 raw 객체 어딘가에 있을 수 있어 검사 가능.
+  try {
+    return JSON.stringify(error) || String(error);
+  } catch {
+    return String(error);
+  }
 }
 
 function isUnauthorizedError(message: string): boolean {
@@ -72,6 +111,71 @@ function isTransientNetworkError(message: string): boolean {
     || m.includes("networkerror")
     || m.includes("network request failed")
   );
+}
+
+function isResourceGoneError(message: string): boolean {
+  const m = message.normalize("NFKC").toLowerCase();
+  return (
+    m.includes("리소스 없음")
+    || (m.includes("리소스") && m.includes("없"))
+    || m.includes("resource not found")
+    || m.includes("no resource")
+    || m.includes("not found")
+  );
+}
+
+function isDeleteOp(op: OutboxOp): boolean {
+  return op === "softDeletePage" || op === "softDeleteDatabase" || op === "softDeleteComment";
+}
+
+/** delete op entry 가 서버에서 영구히 사라진 것으로 확정될 때 호출. localDeleteGuards 를 영구 tombstone 으로 승격. */
+function promoteDeleteEntryToPermanentTombstone(entry: OutboxEntry): void {
+  const payload = entry.payload as { id?: string; workspaceId?: string };
+  const id = payload?.id;
+  const workspaceId = payload?.workspaceId ?? entry.workspaceId;
+  if (!id || !workspaceId) return;
+  if (entry.op === "softDeletePage") {
+    markPermanentlyDeletedEntity("page", id, workspaceId);
+  } else if (entry.op === "softDeleteDatabase") {
+    markPermanentlyDeletedEntity("database", id, workspaceId);
+  }
+  // comment 는 별도 가드 시스템이 없으므로 처리하지 않음.
+}
+
+function supersededUpsertOpForDelete(op: OutboxOp): OutboxOp | null {
+  switch (op) {
+    case "softDeletePage":
+      return "upsertPage";
+    case "softDeleteDatabase":
+      return "upsertDatabase";
+    case "softDeleteComment":
+      return "upsertComment";
+    default:
+      return null;
+  }
+}
+
+function supersededUpsertDedupeKeyForDelete(entry: OutboxEntry): string | null {
+  const upsertOp = supersededUpsertOpForDelete(entry.op);
+  if (!upsertOp || !entry.entityId) return null;
+  return `${upsertOp}:${entry.entityId}`;
+}
+
+function supersededUpsertDedupeKeysForDeleteBatch(batch: OutboxEntry[]): Set<string> {
+  const keys = new Set<string>();
+  for (const entry of batch) {
+    const key = supersededUpsertDedupeKeyForDelete(entry);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+function isWorkspaceMismatchDebugEnabled(): boolean {
+  try {
+    return globalThis.localStorage?.getItem("quicknote.debug.syncWorkspaceMismatch") === "1";
+  } catch {
+    return false;
+  }
 }
 
 export type EnqueuePayload = {
@@ -134,6 +238,7 @@ export class SyncEngine {
       entityId: meta.entityId,
       baseVersion: meta.baseVersion,
     };
+    await this.removeSupersededUpsertForDelete(entry);
     await this.outbox.upsertByDedupe(entry);
     this.scheduleFlush(0);
   }
@@ -157,6 +262,26 @@ export class SyncEngine {
       docType: typeof (e.payload as Record<string, unknown>).doc,
       enqueuedAt: new Date(e.enqueuedAt).toISOString(),
     }));
+  }
+
+  /**
+   * set-reconciliation 시 보호해야 할 pending upsert entity id 집합을 반환.
+   * (서버 응답에 없어도 outbox 가 아직 업로드 중이면 로컬에서 지우면 안 됨)
+   */
+  async getPendingUpsertEntityIds(): Promise<{
+    pages: Set<string>;
+    databases: Set<string>;
+  }> {
+    const pages = new Set<string>();
+    const databases = new Set<string>();
+    const all = await this.outbox.list(5000);
+    for (const e of all) {
+      const payloadId = (e.payload as { id?: string })?.id;
+      if (!payloadId) continue;
+      if (e.op === "upsertPage") pages.add(payloadId);
+      else if (e.op === "upsertDatabase") databases.add(payloadId);
+    }
+    return { pages, databases };
   }
 
   async clearAll(): Promise<void> {
@@ -191,20 +316,41 @@ export class SyncEngine {
         if (batchRaw.length === 0) return;
         const uiWs = this.getCurrentWorkspaceIdForLog?.() ?? null;
         const batch = sortOutboxBatchForFlush(batchRaw, uiWs);
+        const supersededUpsertKeys = supersededUpsertDedupeKeysForDeleteBatch(batch);
 
         let minFailBackoff = MAX_BACKOFF_MS;
         let hasFailure = false;
 
         for (const entry of batch) {
           if (this.stopped) return;
+          if (supersededUpsertKeys.has(entry.dedupeKey)) {
+            await this.outbox.remove(entry.id);
+            continue;
+          }
           try {
             this.logWorkspaceMismatchIfAny(entry);
+            await this.removeSupersededUpsertForDelete(entry);
             await this.execute(entry);
             await this.outbox.remove(entry.id);
           } catch (err) {
             if (this.stopped) return;
             const message = getErrorMessage(err);
             const now = this.clock();
+            if (isDeleteOp(entry.op) && isResourceGoneError(message)) {
+              await this.outbox.putDeadLetter?.(
+                {
+                  ...entry,
+                  attempts: entry.attempts + 1,
+                  lastErrorAt: now,
+                },
+                "resource-already-gone",
+              );
+              await this.outbox.remove(entry.id);
+              // 서버에서도 row 가 사라진 것이 확정 → 영구 tombstone 으로 승격.
+              // Bootstrap re-fetch / 구독 이벤트가 다시 들여올 가능성을 원천 차단.
+              promoteDeleteEntryToPermanentTombstone(entry);
+              continue;
+            }
             const shouldLogTransient = now - this.lastTransientLogAt >= TRANSIENT_LOG_THROTTLE_MS;
             const isAuthError = isUnauthorizedError(message);
             const isTransientError = isTransientNetworkError(message);
@@ -264,6 +410,7 @@ export class SyncEngine {
             if (attempts >= MAX_ATTEMPTS) {
               // 영구 실패로 간주하고 dead-letter 처리.
               // 이 entry 가 head 에 남아있으면 후속 enqueue 가 영원히 처리되지 못한다.
+              const isDeadResource = isDeleteOp(entry.op) && isResourceGoneError(message);
               console.warn(
                 "[sync] dropping entry after max attempts",
                 entry.op,
@@ -275,14 +422,19 @@ export class SyncEngine {
                   attempts,
                   lastErrorAt: now,
                 },
-                "max-attempts-exceeded",
+                isDeadResource ? "resource-already-gone" : "max-attempts-exceeded",
               );
               await this.outbox.remove(entry.id);
-              // 사용자에게 저장 실패 알림
-              useUiStore.getState().showToast(
-                "데이터 일부가 저장되지 못했습니다. 네트워크 상태를 확인해 주세요.",
-                { kind: "error" },
-              );
+              if (isDeadResource) {
+                // 마지막 시도에서 resource-gone 확인 → 영구 tombstone 으로 승격.
+                promoteDeleteEntryToPermanentTombstone(entry);
+              } else {
+                // 사용자에게 저장 실패 알림 (resource-gone 은 정상 완료이므로 토스트 생략).
+                useUiStore.getState().showToast(
+                  "데이터 일부가 저장되지 못했습니다. 네트워크 상태를 확인해 주세요.",
+                  { kind: "error" },
+                );
+              }
               continue;
             }
             const backoff = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** entry.attempts);
@@ -308,8 +460,9 @@ export class SyncEngine {
     }
   }
 
-  /** UI가 다른 워크스페이스에 있어도 payload 기준 전송은 해야 하므로, 경고만 남긴다. */
+  /** UI가 다른 워크스페이스에 있어도 payload 기준 전송은 정상 동작이다. 필요할 때만 디버그 로그를 켠다. */
   private logWorkspaceMismatchIfAny(entry: OutboxEntry): void {
+    if (!isWorkspaceMismatchDebugEnabled()) return;
     if (entry.op === "updateMyClientPrefs") return;
     const fn = this.getCurrentWorkspaceIdForLog;
     if (!fn) return;
@@ -318,7 +471,7 @@ export class SyncEngine {
     if (!uiWs || entryWs == null || entryWs === "") return;
     if (entryWs === LC_SCHEDULER_WORKSPACE_ID) return;
     if (entryWs !== uiWs) {
-      console.warn(
+      console.debug(
         "[sync] outbox flush: UI 워크스페이스와 엔트리 메타 workspaceId 불일치 (payload 기준으로 전송 진행)",
         {
           op: entry.op,
@@ -353,6 +506,17 @@ export class SyncEngine {
         }
         return this.gql.updateMyClientPrefs(json);
       }
+    }
+  }
+
+  private async removeSupersededUpsertForDelete(entry: OutboxEntry): Promise<void> {
+    if (!isDeleteOp(entry.op)) return;
+    const targetDedupeKey = supersededUpsertDedupeKeyForDelete(entry);
+    if (!targetDedupeKey) return;
+    const batch = await this.outbox.list(5000);
+    for (const pending of batch) {
+      if (pending.dedupeKey !== targetDedupeKey) continue;
+      await this.outbox.remove(pending.id);
     }
   }
 }

@@ -85,6 +85,12 @@ function guessMime(name: string): string {
   return "application/octet-stream";
 }
 
+function shouldExpandNestedRootZip(entryName: string, totalFileCount: number): boolean {
+  if (!entryName.toLowerCase().endsWith(".zip")) return false;
+  if (/^ExportBlock-/i.test(entryName) || /Part-\d+\.zip$/i.test(entryName)) return true;
+  return totalFileCount === 1;
+}
+
 // ZIP entry 경로들을 트리로 정리
 function buildTreeFromZip(zip: JSZip): VirtualDirNode {
   const root: VirtualDirNode = { kind: "directory", name: "", children: new Map() };
@@ -121,7 +127,16 @@ function buildTreeFromZip(zip: JSZip): VirtualDirNode {
 
 // 외부 진입점 — ZIP 파일을 FileSystemDirectoryHandle 호환 핸들로 변환
 export async function createZipVirtualDir(input: Blob | ArrayBuffer): Promise<FileSystemDirectoryHandle> {
-  const zip = await JSZip.loadAsync(input);
+  let zip = await JSZip.loadAsync(input);
+  // Notion 외부 ZIP(루트에 ExportBlock-*.zip 1개) 자동 언랩
+  for (let depth = 0; depth < 3; depth += 1) {
+    const files = Object.values(zip.files).filter((entry) => !entry.dir);
+    if (files.length !== 1) break;
+    const only = files[0];
+    if (!only || !shouldExpandNestedRootZip(only.name, files.length)) break;
+    const nestedBlob = await only.async("blob");
+    zip = await JSZip.loadAsync(nestedBlob);
+  }
   const tree = buildTreeFromZip(zip);
   const handle = new ZipDirHandle(tree.name || "zip-root", tree);
   return handle as unknown as FileSystemDirectoryHandle;

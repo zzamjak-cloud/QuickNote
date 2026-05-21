@@ -15,6 +15,7 @@ import { newId } from "../lib/id";
 import { usePageStore } from "./pageStore";
 import { shouldWriteAnchor, useHistoryStore } from "./historyStore";
 import { enqueueAsync } from "../lib/sync/runtime";
+import { clearLocalDeleteGuard, markLocallyDeletedEntity } from "../lib/sync/localDeleteGuards";
 import { useWorkspaceStore } from "./workspaceStore";
 import {
   attachPersistedMeta,
@@ -134,19 +135,20 @@ export const useDatabaseStore = create<DatabaseStore>()(
       createDatabase: (title = "새 데이터베이스") => {
         const id = newId();
         const t = now();
+        const workspaceId = getCurrentWorkspaceId();
         const cols = seedColumns();
         const seedPageId = createRowPage(id, "항목 1");
         const uniqueTitle = allocateUniqueDatabaseTitle(get().databases, title);
 
         const bundle: DatabaseBundle = {
-          meta: { id, title: uniqueTitle, createdAt: t, updatedAt: t },
+          meta: { id, workspaceId: workspaceId || undefined, title: uniqueTitle, createdAt: t, updatedAt: t },
           columns: cols,
           rowPageOrder: [seedPageId],
         };
 
         set((state) => ({
           databases: { ...state.databases, [id]: bundle },
-          cacheWorkspaceId: getCurrentWorkspaceId() || state.cacheWorkspaceId,
+          cacheWorkspaceId: workspaceId || state.cacheWorkspaceId,
         }));
         const hs = useHistoryStore.getState();
         const events = hs.dbEventsByDatabaseId[id] ?? [];
@@ -177,6 +179,8 @@ export const useDatabaseStore = create<DatabaseStore>()(
         if (bundle) {
           const hs = useHistoryStore.getState();
           const events = hs.dbEventsByDatabaseId[id] ?? [];
+          const workspaceId = bundle.meta.workspaceId ?? useWorkspaceStore.getState().currentWorkspaceId ?? "";
+          const updatedAt = new Date().toISOString();
           hs.recordDbEvent(
             id,
             "db.delete",
@@ -185,10 +189,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
               ? toDatabaseSnapshot(bundle)
               : undefined,
           );
+          markLocallyDeletedEntity("database", id, workspaceId, Date.parse(updatedAt) || Date.now());
           enqueueAsync("softDeleteDatabase", {
             id,
-            workspaceId: useWorkspaceStore.getState().currentWorkspaceId ?? "",
-            updatedAt: new Date().toISOString(),
+            workspaceId,
+            updatedAt,
           });
         }
       },
@@ -870,6 +875,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
       restoreDatabaseFromLatestHistory: (databaseId) => {
         const snapshot = useHistoryStore.getState().getLatestDbSnapshot(databaseId);
         if (!isValidDatabaseSnapshot(snapshot)) return false;
+        // 사용자가 명시적으로 복원 → 이전 삭제 가드(영구 tombstone 포함) 제거.
+        const restoreWs = snapshot.meta?.workspaceId ?? getCurrentWorkspaceId();
+        if (restoreWs) clearLocalDeleteGuard("database", databaseId, restoreWs);
         set((state) => ({
           databases: {
             ...state.databases,
@@ -918,6 +926,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
           .getState()
           .getDbSnapshotAtEvent(databaseId, eventId);
         if (!isValidDatabaseSnapshot(snapshot)) return false;
+        // 사용자가 명시적으로 복원 → 이전 삭제 가드(영구 tombstone 포함) 제거.
+        const restoreWs = snapshot.meta?.workspaceId ?? getCurrentWorkspaceId();
+        if (restoreWs) clearLocalDeleteGuard("database", databaseId, restoreWs);
         set((state) => ({
           databases: {
             ...state.databases,
@@ -1322,7 +1333,13 @@ export const useDatabaseStore = create<DatabaseStore>()(
 );
 
 export function listDatabases(state: DatabaseStore): { id: string; meta: DatabaseMeta }[] {
+  const currentWorkspaceId = useWorkspaceStore.getState().currentWorkspaceId;
   return Object.entries(state.databases)
+    .filter(([id, bundle]) => {
+      if (isLCSchedulerDatabaseId(id)) return true;
+      const workspaceId = bundle.meta.workspaceId;
+      return !currentWorkspaceId || !workspaceId || workspaceId === currentWorkspaceId;
+    })
     .map(([id, b]) => ({ id, meta: b.meta }))
     .sort((a, b) => {
       const aScheduler = isLCSchedulerDatabaseId(a.id);

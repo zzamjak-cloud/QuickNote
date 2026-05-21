@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Star, FileText } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -9,18 +9,14 @@ import { DatabasePropertyPanel } from "./DatabasePropertyPanel";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBar";
-import { useShallow } from "zustand/react/shallow";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
+import { PageSubpageTree, countPageDescendants } from "../page/PageSubpageTree";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const page = usePageStore((s) => s.pages[pageId]);
-  const childPages = usePageStore(
-    useShallow((s) => Object.values(s.pages).filter((p) => p.parentId === pageId)),
-  );
+  const descendantCount = usePageStore((s) => countPageDescendants(pageId, s.pages));
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
-  const setActivePage = usePageStore((s) => s.setActivePage);
-  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
   const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
@@ -40,6 +36,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [iconAlert, setIconAlert] = useState<string | null>(null);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
+  const childSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setTitleDraft(page?.title ?? "");
@@ -100,6 +97,15 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
               placeholder="제목 없음"
               className="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
             />
+            {descendantCount > 0 && (
+              <button
+                type="button"
+                onClick={() => childSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              >
+                하위페이지 {descendantCount}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => toggleFavoritePage(pageId)}
@@ -129,28 +135,10 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
 
       <Editor pageId={pageId} bodyOnly showTailSpacer={false} />
       {/* 항목 내 하위 페이지 목록 — 본문과 동일 컬럼 정렬 */}
-      {childPages.length > 0 && (
+      {descendantCount > 0 && (
         <div className={`mx-auto w-full ${columnClass}`}>
-          <div className="px-12">
-            <div className="mt-6 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-              <p className="mb-2 text-xs font-semibold text-zinc-400 dark:text-zinc-500">하위 페이지</p>
-              <div className="flex flex-col gap-0.5">
-                {childPages.map((cp) => (
-                  <button
-                    key={cp.id}
-                    type="button"
-                    onClick={() => {
-                      setActivePage(cp.id);
-                      setCurrentTabPage(cp.id);
-                    }}
-                    className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  >
-                    <span className="shrink-0 text-base leading-none">{cp.icon ?? <FileText size={14} />}</span>
-                    <span className="truncate">{cp.title || "제목 없음"}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+          <div ref={childSectionRef} className="px-12">
+            <PageSubpageTree rootPageId={pageId} currentPageId={pageId} className="mt-6" />
           </div>
         </div>
       )}

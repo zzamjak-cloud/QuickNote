@@ -12,6 +12,7 @@ import {
 import { useSettingsStore } from "./settingsStore";
 import { useNotificationStore } from "./notificationStore";
 import { enqueueAsync } from "../lib/sync/runtime";
+import { markLocallyDeletedEntity } from "../lib/sync/localDeleteGuards";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
@@ -48,6 +49,7 @@ export { migratePageStore } from "./pageStore/migrations";
 // 단, notifyNewPageMentions 는 usePageStore 를 참조하므로 순환 회피용으로 본 파일 유지.
 
 function resolveDeletedPageWorkspaceId(page: Page, removedPageById: Map<string, Page>): string {
+  if (page.workspaceId) return page.workspaceId;
   let cursor: Page | undefined = page;
   while (cursor) {
     if (isLCSchedulerDatabaseId(cursor.databaseId)) return LC_SCHEDULER_WORKSPACE_ID;
@@ -230,8 +232,10 @@ export const usePageStore = create<PageStore>()(
         const activate = opts?.activate !== false;
         const id = newId();
         const now = Date.now();
+        const workspaceId = getCurrentWorkspaceId();
         const page: Page = {
           id,
+          workspaceId: workspaceId || undefined,
           title,
           icon: null,
           doc: structuredClone(EMPTY_DOC),
@@ -323,6 +327,7 @@ export const usePageStore = create<PageStore>()(
           const workspaceId = removedPage
             ? resolveDeletedPageWorkspaceId(removedPage, removedPageById)
             : getCurrentWorkspaceId();
+          markLocallyDeletedEntity("page", removedId, workspaceId, Date.parse(nowIso) || Date.now());
           enqueueAsync("softDeletePage", { id: removedId, workspaceId, updatedAt: nowIso });
         }
         if (removedIds.length > 0) {
@@ -742,6 +747,7 @@ export const usePageStore = create<PageStore>()(
             dbCells: orig.dbCells ? structuredClone(orig.dbCells) : orig.dbCells,
             blockComments: undefined,
             title: isRoot ? `${orig.title} (복사본)` : orig.title,
+            workspaceId: targetWorkspaceId || undefined,
             parentId: isRoot ? null : (cloneMap.get(orig.parentId ?? "") ?? null),
             order: orig.order,
             createdAt: now,

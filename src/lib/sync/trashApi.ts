@@ -46,40 +46,74 @@ export async function restorePageRemote(
 }
 
 export async function emptyTrashRemote(workspaceId: string): Promise<number> {
-  const r = (await appsyncClient().graphql({
-    query: EMPTY_TRASH,
-    variables: { workspaceId },
-  })) as {
-    data: { emptyTrash: number } | null;
-    errors?: Array<{ message?: string }>;
-  };
-  if (Array.isArray(r.errors) && r.errors.length > 0) {
-    const message = r.errors
-      .map((e) => e.message ?? "")
-      .filter(Boolean)
-      .join("; ");
-    throw new Error(message || "emptyTrash GraphQL error");
+  try {
+    const r = (await appsyncClient().graphql({
+      query: EMPTY_TRASH,
+      variables: { workspaceId },
+    })) as {
+      data: { emptyTrash: number } | null;
+      errors?: Array<{ message?: string }>;
+    };
+    if (Array.isArray(r.errors) && r.errors.length > 0) {
+      const message = r.errors
+        .map((e) => e.message ?? "")
+        .filter(Boolean)
+        .join("; ");
+      if (isResourceGoneMessage(message)) return 0;
+      throw new Error(message || "emptyTrash GraphQL error");
+    }
+    return Number(r.data?.emptyTrash ?? 0);
+  } catch (err) {
+    const errorObj = err as { errors?: Array<{ message?: string }>; message?: string };
+    const message =
+      errorObj?.errors?.map((e) => e.message ?? "").filter(Boolean).join("; ") ??
+      errorObj?.message ??
+      String(err);
+    if (isResourceGoneMessage(message)) return 0;
+    throw err;
   }
-  return Number(r.data?.emptyTrash ?? 0);
+}
+
+function isResourceGoneMessage(message: string): boolean {
+  const m = message.normalize("NFKC").toLowerCase();
+  return (
+    m.includes("리소스 없음")
+    || (m.includes("리소스") && m.includes("없"))
+    || m.includes("resource not found")
+    || m.includes("no resource")
+    || m.includes("not found")
+  );
 }
 
 export async function permanentlyDeleteDatabaseRemote(
   id: string,
   workspaceId: string,
 ): Promise<boolean> {
-  const r = (await appsyncClient().graphql({
-    query: PERMANENTLY_DELETE_DATABASE,
-    variables: { id, workspaceId },
-  })) as {
-    data: { permanentlyDeleteDatabase: boolean } | null;
-    errors?: Array<{ message?: string }>;
-  };
-  if (Array.isArray(r.errors) && r.errors.length > 0) {
-    const message = r.errors
-      .map((e) => e.message ?? "")
-      .filter(Boolean)
-      .join("; ");
-    throw new Error(message || "permanentlyDeleteDatabase GraphQL error");
+  try {
+    const r = (await appsyncClient().graphql({
+      query: PERMANENTLY_DELETE_DATABASE,
+      variables: { id, workspaceId },
+    })) as {
+      data: { permanentlyDeleteDatabase: boolean } | null;
+      errors?: Array<{ message?: string }>;
+    };
+    if (Array.isArray(r.errors) && r.errors.length > 0) {
+      const message = r.errors
+        .map((e) => e.message ?? "")
+        .filter(Boolean)
+        .join("; ");
+      // 서버에서 이미 사라진 상태는 호출자 관점에서는 성공으로 간주.
+      if (isResourceGoneMessage(message)) return true;
+      throw new Error(message || "permanentlyDeleteDatabase GraphQL error");
+    }
+    return Boolean(r.data?.permanentlyDeleteDatabase);
+  } catch (err) {
+    const errorObj = err as { errors?: Array<{ message?: string }>; message?: string };
+    const message =
+      errorObj?.errors?.map((e) => e.message ?? "").filter(Boolean).join("; ") ??
+      errorObj?.message ??
+      String(err);
+    if (isResourceGoneMessage(message)) return true;
+    throw err;
   }
-  return Boolean(r.data?.permanentlyDeleteDatabase);
 }

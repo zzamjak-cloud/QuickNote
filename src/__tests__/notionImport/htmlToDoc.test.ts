@@ -205,6 +205,26 @@ describe("notionHtmlToDoc", () => {
     expect(doc.content?.[0]?.attrs).toMatchObject({ name: "manual.pdf" });
   });
 
+  it("figure source 로 노출된 zip 첨부를 첨부 노드로 변환한다", () => {
+    const html = [
+      "<html><body><article class=\"page\">",
+      "<figure><div class=\"source\"><a href=\"files/plugin.zip\">attachment:id:plugin.zip</a></div></figure>",
+      "</article></body></html>",
+    ].join("");
+    const doc = notionHtmlToDoc(html, {
+      resolveMediaNode: () => ({
+        type: "fileBlock",
+        attrs: {
+          src: "quicknote-file://zip-1",
+          name: "plugin.zip",
+          mime: "application/zip",
+        },
+      }),
+    });
+    expect(doc.content?.[0]?.type).toBe("fileBlock");
+    expect(doc.content?.[0]?.attrs).toMatchObject({ name: "plugin.zip" });
+  });
+
   it("collection table 셀의 날짜/상태 메타를 추출한다", () => {
     const html = [
       "<html><body><article class=\"page\">",

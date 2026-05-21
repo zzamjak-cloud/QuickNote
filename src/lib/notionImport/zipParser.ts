@@ -37,6 +37,19 @@ type ZipFileEntry = {
 
 type ZipInput = ArrayBuffer | Blob;
 
+async function inspectZipInputHeader(input: ZipInput): Promise<{
+  isZipSignature: boolean;
+  looksLikeHtml: boolean;
+}> {
+  const bytes = input instanceof Blob
+    ? new Uint8Array(await input.slice(0, 512).arrayBuffer())
+    : new Uint8Array(input.slice(0, 512));
+  const head = new TextDecoder().decode(bytes).trimStart().toLowerCase();
+  const isZipSignature = bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4b; // PK
+  const looksLikeHtml = head.startsWith("<!doctype html") || head.startsWith("<html");
+  return { isZipSignature, looksLikeHtml };
+}
+
 function isMarkdownFile(path: string): boolean {
   return path.toLowerCase().endsWith(".md");
 }
@@ -143,6 +156,13 @@ async function parseNotionZipInput(input: ZipInput): Promise<NotionZipPreview> {
   const inputSize = input instanceof Blob ? input.size : input.byteLength;
   console.log(`[ZIP진단] 파싱 시작 — 입력 ${(inputSize / 1048576).toFixed(1)}MB`);
   diagMem("파싱 시작");
+  const header = await inspectZipInputHeader(input);
+  if (!header.isZipSignature) {
+    if (header.looksLikeHtml) {
+      throw new Error("ZIP 파일 대신 HTML 응답이 저장되었습니다. 노션 Export 링크를 새로 열어 ZIP을 다시 다운로드해 주세요.");
+    }
+    throw new Error("손상된 ZIP 파일입니다. 다운로드가 중간에 끊겼을 수 있으니 노션에서 다시 내보내기/다운로드해 주세요.");
+  }
   const fileEntries: ZipFileEntry[] = [];
   const queue: Array<{ basePath: string; data: ZipInput }> = [{ basePath: "", data: input }];
 
@@ -152,7 +172,16 @@ async function parseNotionZipInput(input: ZipInput): Promise<NotionZipPreview> {
     const currentSize = current.data instanceof Blob ? current.data.size : current.data.byteLength;
     console.log(`[ZIP진단] JSZip.loadAsync 호출 — basePath="${current.basePath}" ${(currentSize / 1048576).toFixed(1)}MB`);
     diagMem(`loadAsync 전 (${current.basePath || "루트"})`);
-    const zip = await JSZip.loadAsync(current.data);
+    let zip: JSZip;
+    try {
+      zip = await JSZip.loadAsync(current.data);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (/end of central directory|corrupt|corrupted|invalid zip/i.test(msg)) {
+        throw new Error("ZIP 파일이 손상되어 읽을 수 없습니다. 노션에서 ZIP을 다시 내려받아 주세요.");
+      }
+      throw error;
+    }
     diagMem(`loadAsync 후 (${current.basePath || "루트"})`);
     const currentFiles = Object.values(zip.files).filter((entry) => !entry.dir);
     console.log(`[ZIP진단] 항목 수: ${currentFiles.length}개`);

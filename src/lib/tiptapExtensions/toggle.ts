@@ -155,6 +155,30 @@ export const Toggle = Node.create({
         }
         return false;
       },
+      // Shift+Enter: toggleHeader에서 현재 토글 "앞"에 빈 문단 생성 후 커서 이동
+      "Shift-Enter": ({ editor }) => {
+        const { state } = editor;
+        const { $from } = state.selection;
+        if ($from.parent.type.name !== "toggleHeader") return false;
+
+        let toggleNode = null as { node: ReturnType<typeof $from.node>, pos: number } | null;
+        for (let depth = $from.depth; depth >= 0; depth--) {
+          const node = $from.node(depth);
+          if (node.type.name === "toggle") {
+            toggleNode = { node, pos: $from.before(depth) };
+            break;
+          }
+        }
+        if (!toggleNode) return false;
+
+        const paragraphType = state.schema.nodes.paragraph;
+        if (!paragraphType) return false;
+        const insertPos = toggleNode.pos;
+        const tr = state.tr.insert(insertPos, paragraphType.create());
+        tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+        editor.view.dispatch(tr);
+        return true;
+      },
 
       // Enter: 닫힌 toggleHeader에서만 — 동일한 빈 토글 블럭을 뒤에 추가
       "Enter": ({ editor }) => {
