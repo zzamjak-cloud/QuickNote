@@ -100,23 +100,36 @@ export function DatabaseRowPeek() {
       }));
     }
     if (activePageId) setRowBackTarget(peekPageId, activePageId);
-    setActivePage(peekPageId);
+    // 즉시 피크를 닫지 않고, 메인 화면에 대상 페이지가 실제로 활성화된 것을 확인한 뒤 닫는다.
+    // 전환 실패 시에는 원상복구하여 흰 화면/먹통처럼 보이는 상태를 차단한다.
     setCurrentTabPage(peekPageId);
-    closePeek();
-
-    // 전환 직후 대상 페이지가 사라졌거나 유효하지 않으면 이전 페이지로 복구해 흰 화면 상태를 방지한다.
+    setActivePage(peekPageId);
     requestAnimationFrame(() => {
-      const postPages = usePageStore.getState().pages;
-      if (postPages[peekPageId]) return;
-      const fallback = previousActivePageId && postPages[previousActivePageId]
-        ? previousActivePageId
-        : null;
-      if (fallback) {
-        setActivePage(fallback);
-        setCurrentTabPage(fallback);
-      }
-      useUiStore.getState().showToast("페이지 전환 중 문제가 발생해 이전 화면으로 복구했습니다.", {
-        kind: "error",
+      requestAnimationFrame(() => {
+        const postPages = usePageStore.getState().pages;
+        const postActive = usePageStore.getState().activePageId;
+        const postTabPage =
+          useSettingsStore.getState().tabs[
+            useSettingsStore.getState().activeTabIndex
+          ]?.pageId ?? null;
+        const targetReady =
+          !!postPages[peekPageId] &&
+          postActive === peekPageId &&
+          postTabPage === peekPageId;
+        if (targetReady) {
+          closePeek();
+          return;
+        }
+        const fallback = previousActivePageId && postPages[previousActivePageId]
+          ? previousActivePageId
+          : null;
+        if (fallback) {
+          setCurrentTabPage(fallback);
+          setActivePage(fallback);
+        }
+        useUiStore.getState().showToast("전체 화면 전환에 실패해 이전 화면으로 복구했습니다.", {
+          kind: "error",
+        });
       });
     });
   };

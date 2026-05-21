@@ -87,7 +87,7 @@ import { DateInline } from "../../lib/tiptapExtensions/dateInline";
 import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker, IconPickerPanel } from "../common/IconPicker";
-import { Star, FileText, Database } from "lucide-react";
+import { Star, FileText, Database, ChevronRight, ChevronDown } from "lucide-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
@@ -119,7 +119,11 @@ import UniqueID from "@tiptap/extension-unique-id";
 import type { Transaction } from "@tiptap/pm/state";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
-import { PageSubpageTree } from "../page/PageSubpageTree";
+import {
+  PageSubpageTree,
+  countPageDescendants,
+  findPageTreeRootId,
+} from "../page/PageSubpageTree";
 import {
   registerEditorNavigation,
   unregisterEditorNavigation,
@@ -250,6 +254,7 @@ export function Editor({
   const isFullPageDatabase = useMemo(() => {
     return isFullPageDatabaseDoc(pageDoc);
   }, [pageDoc]);
+  const isDatabaseRowPage = Boolean(page?.databaseId) && !isFullPageDatabase;
 
   const titleRef = useRef<HTMLInputElement | null>(null);
   /** 풀 페이지 DB 제목 중복 시 입력 되돌리기용 — 마지막으로 저장에 성공한 제목 */
@@ -266,6 +271,7 @@ export function Editor({
     useState<BlockDropIndicatorRect | null>(null);
 
   const [simpleAlert, setSimpleAlert] = useState<string | null>(null);
+  const [subpageTreeCollapsed, setSubpageTreeCollapsed] = useState(true);
   /** @ 키로 멘션 검색 모달 — 인라인 제안과 분리 */
   const [mentionRange, setMentionRange] = useState<{
     from: number;
@@ -698,6 +704,12 @@ export function Editor({
   );
 
   const commentThread = useUiStore((s) => s.commentThread);
+  const allPages = usePageStore((s) => s.pages);
+  const subpageCount = useMemo(() => {
+    const rootId = findPageTreeRootId(effectivePageId, allPages);
+    if (!rootId || !allPages[rootId]) return 0;
+    return countPageDescendants(rootId, allPages);
+  }, [effectivePageId, allPages]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -1193,9 +1205,29 @@ export function Editor({
             onClearBoxSelection={clearBoxSelection}
           />
         )}
-        {!isFullPageDatabase && !bodyOnly ? (
+        {isDatabaseRowPage && !bodyOnly ? (
           <div className="px-12">
-            <PageSubpageTree currentPageId={effectivePageId} className="mt-6" />
+            <div className="mt-6 w-1/2 rounded-lg border border-zinc-200 bg-zinc-50/60 dark:border-zinc-700 dark:bg-zinc-900/40">
+              <button
+                type="button"
+                onClick={() => setSubpageTreeCollapsed((prev) => !prev)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100/70 dark:text-zinc-200 dark:hover:bg-zinc-800/60"
+                aria-expanded={!subpageTreeCollapsed}
+              >
+                {subpageTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                <span className="min-w-0 flex-1">하위페이지 구조</span>
+                <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
+                  {subpageCount}개
+                </span>
+              </button>
+              {!subpageTreeCollapsed ? (
+                <PageSubpageTree
+                  currentPageId={effectivePageId}
+                  className="px-2 pb-3"
+                  hideHeader
+                />
+              ) : null}
+            </div>
           </div>
         ) : null}
         {showTailSpacer ? (

@@ -16,6 +16,7 @@ type PageSubpageTreeProps = {
   className?: string;
   compact?: boolean;
   onNavigate?: (pageId: string) => void;
+  hideHeader?: boolean;
 };
 
 export function findPageTreeRootId(currentPageId: string | null, pages: PageMap): string | null {
@@ -62,6 +63,7 @@ export function PageSubpageTree({
   className = "",
   compact = false,
   onNavigate,
+  hideHeader = false,
 }: PageSubpageTreeProps) {
   const pages = usePageStore(useShallow((s) => s.pages));
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -114,12 +116,14 @@ export function PageSubpageTree({
 
   return (
     <div className={`border-t border-zinc-100 pt-4 dark:border-zinc-800 ${className}`}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500">하위 페이지 구조</p>
-        {descendantCount > 0 && (
-          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{descendantCount}개</span>
-        )}
-      </div>
+      {!hideHeader ? (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-zinc-400 dark:text-zinc-500">하위 페이지 구조</p>
+          {descendantCount > 0 && (
+            <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{descendantCount}개</span>
+          )}
+        </div>
+      ) : null}
       <div className={compact ? "space-y-0.5 text-sm" : "space-y-1 text-sm"}>
         {rows.map(({ page, depth }) => {
           const isCurrent = page.id === currentPageId;
