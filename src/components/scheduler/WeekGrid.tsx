@@ -1,5 +1,6 @@
 // LC 스케줄러 주간 그리드 — 7일 컬럼 × 구성원 행.
 import { useState, useEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useSchedulerStore, type Schedule } from "../../store/schedulerStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -37,7 +38,16 @@ function fmtDow(d: Date): string {
 export function WeekGrid({ workspaceId }: WeekGridProps) {
   const [monday, setMonday] = useState(() => getMondayOfWeek(new Date()));
   const { schedules, loading, fetchSchedules, createSchedule, updateSchedule, deleteSchedule } =
-    useSchedulerStore();
+    useSchedulerStore(
+      useShallow((s) => ({
+        schedules: s.schedules,
+        loading: s.loading,
+        fetchSchedules: s.fetchSchedules,
+        createSchedule: s.createSchedule,
+        updateSchedule: s.updateSchedule,
+        deleteSchedule: s.deleteSchedule,
+      })),
+    );
   const members = useMemberStore((s) => s.members);
 
   // 이번 주 7일

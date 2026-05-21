@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { useMemberStore } from "../../store/memberStore";
+import { useShallow } from "zustand/react/shallow";
 import { useSchedulerStore, type Schedule, type CreateScheduleInput, type UpdateScheduleInput } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { pickTextColor } from "../../lib/scheduler/colors";
@@ -58,7 +59,13 @@ export function ScheduleEditPopup({
   const defaultColor = useSchedulerViewStore((s) => s.defaultScheduleColor);
   const selectedScopeKey = useSchedulerViewStore((s) => s.selectedProjectId);
 
-  const { createSchedule, updateSchedule, deleteSchedule } = useSchedulerStore();
+  const { createSchedule, updateSchedule, deleteSchedule } = useSchedulerStore(
+    useShallow((s) => ({
+      createSchedule: s.createSchedule,
+      updateSchedule: s.updateSchedule,
+      deleteSchedule: s.deleteSchedule,
+    })),
+  );
 
   const isEdit = schedule !== null;
   const isSpecialCard = (schedule?.assigneeId ?? defaultAssigneeId ?? null) === null;

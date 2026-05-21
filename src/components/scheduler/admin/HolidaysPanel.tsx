@@ -1,5 +1,6 @@
 // 설정 모달 — 공휴일/이벤트 관리 패널 (연도 선택, 추가/편집/삭제).
 import { useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Plus, Pencil, Trash2, Check, X } from "lucide-react";
 import { getHolidaysForYear } from "../../../lib/scheduler/koreanHolidays";
 import {
@@ -44,7 +45,15 @@ const EMPTY_FORM: FormState = {
 
 export function HolidaysPanel() {
   const { holidays, workspaceId, createHoliday, updateHoliday, deleteHoliday } =
-    useSchedulerHolidaysStore();
+    useSchedulerHolidaysStore(
+      useShallow((s) => ({
+        holidays: s.holidays,
+        workspaceId: s.workspaceId,
+        createHoliday: s.createHoliday,
+        updateHoliday: s.updateHoliday,
+        deleteHoliday: s.deleteHoliday,
+      })),
+    );
 
   // 연도 필터
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);

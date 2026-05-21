@@ -6,6 +6,7 @@
 //   더블클릭        → DB 항목 페이지 피커
 // 원본: TeamScheduler/src/components/schedule/ScheduleGrid.tsx 기반
 import { useRef, useMemo, useCallback, useState, useEffect, useLayoutEffect } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Plus, Minus } from "lucide-react";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
@@ -110,7 +111,20 @@ export function ScheduleGrid({ workspaceId }: Props) {
     mmWeekStart,
     weekendColor,
     selectSchedule,
-  } = useSchedulerViewStore();
+  } = useSchedulerViewStore(
+    useShallow((s) => ({
+      zoomLevel: s.zoomLevel,
+      columnWidthScale: s.columnWidthScale,
+      currentYear: s.currentYear,
+      selectedMemberId: s.selectedMemberId,
+      selectedProjectId: s.selectedProjectId,
+      selectedScheduleId: s.selectedScheduleId,
+      multiSelectedIds: s.multiSelectedIds,
+      mmWeekStart: s.mmWeekStart,
+      weekendColor: s.weekendColor,
+      selectSchedule: s.selectSchedule,
+    })),
+  );
 
   // 마운트 시 1회 + 연도 변경 시에만 오늘 스크롤을 실행하기 위한 가드
   const didInitialScrollRef = useRef(false);

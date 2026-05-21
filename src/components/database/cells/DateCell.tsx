@@ -2,10 +2,9 @@
 // DatabaseCell.tsx 에서 분리 — 동작 변경 없음.
 
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { CellValue, ColumnDef } from "../../../types/database";
-import { useAnchoredPopover } from "../../../hooks/useAnchoredPopover";
+import { CellEditorBase } from "../../../lib/ui-primitives";
 import {
   formatDate,
   sameDay,
@@ -23,12 +22,9 @@ export function DateCell({
   value: { start?: string; end?: string };
   onChange: (v: CellValue) => void;
 }) {
-  const pop = useAnchoredPopover(248);
   const startDate = value.start ? toDate(value.start) : null;
   const endDate = value.end ? toDate(value.end) : null;
-  const [viewMonth, setViewMonth] = useState<Date>(
-    () => startDate ?? new Date(),
-  );
+  const [viewMonth, setViewMonth] = useState<Date>(() => startDate ?? new Date());
 
   const onPickDay = (day: Date) => {
     const s = startDate;
@@ -38,7 +34,6 @@ export function DateCell({
       onChange({ start: toIsoStart(day), end: undefined });
       return;
     }
-    // s 있고 e 없음: 두 번째 클릭 → 범위 확정 (작은 쪽이 시작)
     if (sameDay(day, s)) {
       onChange({ start: toIsoStart(day), end: undefined });
       return;
@@ -48,11 +43,6 @@ export function DateCell({
     } else {
       onChange({ start: toIsoStart(s), end: toIsoEnd(day) });
     }
-  };
-
-  const clearRange = () => {
-    onChange({ start: undefined, end: undefined });
-    pop.close();
   };
 
   const label = (() => {
@@ -65,62 +55,48 @@ export function DateCell({
   const isEmpty = !startDate;
 
   return (
-    <>
-      <button
-        ref={pop.buttonRef}
-        type="button"
-        onClick={() => pop.toggle(248)}
-        title={label || "날짜 선택"}
-        className={[
-          "flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-sm",
-          isEmpty
-            ? "text-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800",
-        ].join(" ")}
-      >
-        {isEmpty ? " " : <span>{label}</span>}
-      </button>
-      {pop.open && pop.coords &&
-        createPortal(
-          <div
-            ref={pop.popoverRef}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "fixed",
-              top: pop.coords.top,
-              left: pop.coords.left,
-              width: 248,
-            }}
-            className="z-[700] rounded-md border border-zinc-200 bg-white p-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <CalendarMonth
-              viewMonth={viewMonth}
-              setViewMonth={setViewMonth}
-              start={startDate}
-              end={endDate}
-              onPickDay={onPickDay}
-            />
-            <div className="mt-1 flex items-center justify-between border-t border-zinc-100 pt-1 dark:border-zinc-800">
-              <button
-                type="button"
-                onClick={clearRange}
-                className="rounded px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              >
-                지우기
-              </button>
-              <span className="text-[10px] text-zinc-400">
-                {!startDate
-                  ? "시작일을 클릭"
-                  : !endDate
-                    ? "종료일을 클릭 (또는 같은 날짜 다시 클릭하여 단일)"
-                    : "선택 완료"}
-              </span>
-            </div>
-          </div>,
-          document.body,
-        )}
-    </>
+    <CellEditorBase
+      width={248}
+      title={label || "날짜 선택"}
+      triggerClassName={[
+        "flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-sm",
+        isEmpty
+          ? "text-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800",
+      ].join(" ")}
+      contentClassName="rounded-md border border-zinc-200 bg-white p-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      display={isEmpty ? <>&nbsp;</> : <span>{label}</span>}
+      editor={({ close }) => (
+        <>
+          <CalendarMonth
+            viewMonth={viewMonth}
+            setViewMonth={setViewMonth}
+            start={startDate}
+            end={endDate}
+            onPickDay={onPickDay}
+          />
+          <div className="mt-1 flex items-center justify-between border-t border-zinc-100 pt-1 dark:border-zinc-800">
+            <button
+              type="button"
+              onClick={() => {
+                onChange({ start: undefined, end: undefined });
+                close();
+              }}
+              className="rounded px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              지우기
+            </button>
+            <span className="text-[10px] text-zinc-400">
+              {!startDate
+                ? "시작일을 클릭"
+                : !endDate
+                  ? "종료일을 클릭 (또는 같은 날짜 다시 클릭하여 단일)"
+                  : "선택 완료"}
+            </span>
+          </div>
+        </>
+      )}
+    />
   );
 }
 

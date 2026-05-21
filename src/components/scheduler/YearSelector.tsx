@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { ChevronDown, CalendarDays, Plus } from "lucide-react";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
+import { DIRECT_KEYS } from "../../lib/sync/localStorageKeys";
 
 // 기본 연도 범위
 const DEFAULT_YEARS = [2024, 2025, 2026, 2027, 2028];
@@ -11,7 +12,7 @@ const DEFAULT_YEARS = [2024, 2025, 2026, 2027, 2028];
 const getAvailableYears = (): number[] => {
   if (typeof window !== "undefined") {
     try {
-      const raw = localStorage.getItem("quicknote.scheduler.available-years");
+      const raw = localStorage.getItem(DIRECT_KEYS.SCHEDULER_AVAILABLE_YEARS);
       const saved = raw ? (JSON.parse(raw) as number[]) : null;
       if (Array.isArray(saved) && saved.length > 0) {
         return saved.sort((a, b) => a - b);
@@ -27,7 +28,7 @@ const getAvailableYears = (): number[] => {
 const saveAvailableYears = (years: number[]) => {
   if (typeof window !== "undefined") {
     localStorage.setItem(
-      "quicknote.scheduler.available-years",
+      DIRECT_KEYS.SCHEDULER_AVAILABLE_YEARS,
       JSON.stringify(years.sort((a, b) => a - b)),
     );
   }

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Trash2, Type } from "lucide-react";
 import type { ColumnDef, ColumnType } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { ColumnOptionsEditor } from "./ColumnOptionsEditor";
 import { isLCSchedulerDatabaseId, isLCSchedulerRequiredColumnId } from "../../lib/scheduler/database";
 import { AppSelect } from "../common/AppSelect";
+import { AnchoredPanelBase } from "../../lib/ui-primitives";
 
 const TYPE_LABELS: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -34,7 +34,6 @@ type Props = {
 export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Props) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const removeColumn = useDatabaseStore((s) => s.removeColumn);
-  const ref = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState(false);
   const [nameDraft, setNameDraft] = useState(column.name);
@@ -56,41 +55,20 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
     }
   };
 
-  // 매 렌더마다 anchorEl 위치를 직접 계산 (useLayoutEffect 한 번만 실행하면 스크롤/리사이즈 후 좌표가 틀림)
-  const rect = anchorEl?.getBoundingClientRect();
-  const width = 260;
-  const coords = rect
-    ? { top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) }
-    : null;
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current?.contains(e.target as Node)) return;
-      if (anchorEl?.contains(e.target as Node)) return;
-      if ((e.target as Element)?.closest("[data-qn-color-picker]")) return;
-      onClose();
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [onClose, anchorEl]);
-
   const isTitle = column.type === "title";
   const isProtectedSchedulerColumn =
     isLCSchedulerDatabaseId(databaseId) && isLCSchedulerRequiredColumnId(column.id);
   const isSelectKind =
     column.type === "select" || column.type === "multiSelect" || column.type === "status";
 
-  if (!coords) return null;
-
-  return createPortal(
-    <div
-      ref={ref}
-      style={{ position: "fixed", top: coords.top, left: coords.left, width: 260 }}
-      onMouseDown={(e) => e.stopPropagation()}
-      onClick={(e) => e.stopPropagation()}
-      className="z-[700] rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+  return (
+    <AnchoredPanelBase
+      anchorEl={anchorEl ?? null}
+      open={!!anchorEl}
+      onClose={onClose}
+      width={260}
+      additionalIgnoreSelector="[data-qn-color-picker]"
     >
-      {/* 속성 이름 편집 — title 컬럼 포함 항상 표시 */}
       <div className="border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
         <input
           ref={nameInputRef}
@@ -148,8 +126,6 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
           <Trash2 size={12} /> {confirming ? "한 번 더 누르면 삭제" : "삭제"}
         </button>
       )}
-
-    </div>,
-    document.body,
+    </AnchoredPanelBase>
   );
 }

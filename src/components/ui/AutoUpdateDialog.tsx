@@ -1,3 +1,5 @@
+import { DialogBase } from "../../lib/ui-primitives";
+
 type Props = {
   open: boolean;
   version: string;
@@ -21,32 +23,24 @@ export function AutoUpdateDialog({
   onUpdate,
   onRestart,
 }: Props) {
-  if (!open) return null;
+  // 다운로드 진행 중에는 사용자가 실수로 오버레이/ESC 로 닫지 못하게 보호한다.
+  const isWorking = state === "downloading";
 
   return (
-    <div
-      className="fixed inset-0 z-[510] flex items-center justify-center bg-black/45 p-4"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && state !== "downloading") onClose();
-      }}
+    <DialogBase
+      open={open}
+      onClose={onClose}
+      widthClassName="max-w-md"
+      labelId="qn-auto-update-title"
+      zClassName="z-[510]"
+      closeOnOverlay={!isWorking}
+      closeOnEsc={!isWorking}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="qn-auto-update-title"
-        className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <h2
-          id="qn-auto-update-title"
-          className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
-        >
-          업데이트가 준비되었습니다
-        </h2>
-        <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          {version ? `새 버전 ${version}` : "새 버전"}을 설치할 수 있습니다.
-        </p>
+      <DialogBase.Header id="qn-auto-update-title">
+        업데이트가 준비되었습니다
+      </DialogBase.Header>
+      <DialogBase.Body>
+        <p>{version ? `새 버전 ${version}` : "새 버전"}을 설치할 수 있습니다.</p>
 
         {notes ? (
           <div className="mt-3 max-h-40 overflow-y-auto rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs leading-5 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/40 dark:text-zinc-300">
@@ -73,37 +67,36 @@ export function AutoUpdateDialog({
             업데이트 실패: {errorMessage || "알 수 없는 오류"}
           </p>
         )}
-
-        <div className="mt-5 flex justify-end gap-2">
-          {state !== "downloading" && state !== "ready" && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
-            >
-              나중에
-            </button>
-          )}
-          {state === "available" || state === "error" ? (
-            <button
-              type="button"
-              onClick={onUpdate}
-              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-            >
-              지금 업데이트
-            </button>
-          ) : null}
-          {state === "ready" && (
-            <button
-              type="button"
-              onClick={onRestart}
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500"
-            >
-              재시작하고 적용
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+      </DialogBase.Body>
+      <DialogBase.Footer>
+        {state !== "downloading" && state !== "ready" && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+          >
+            나중에
+          </button>
+        )}
+        {state === "available" || state === "error" ? (
+          <button
+            type="button"
+            onClick={onUpdate}
+            className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+          >
+            지금 업데이트
+          </button>
+        ) : null}
+        {state === "ready" && (
+          <button
+            type="button"
+            onClick={onRestart}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500"
+          >
+            재시작하고 적용
+          </button>
+        )}
+      </DialogBase.Footer>
+    </DialogBase>
   );
 }

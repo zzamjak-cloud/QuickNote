@@ -1,5 +1,6 @@
 // 설정 모달 — 프로젝트 관리 패널 (리스트/보관함/편집 팝업).
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Crown, Plus, Search, Trash2 } from "lucide-react";
 import { useMemberStore, type Member } from "../../../store/memberStore";
 import {
@@ -24,7 +25,15 @@ type TabType = "active" | "archived";
 
 export function ProjectsPanel() {
   const { projects, workspaceId, createProject, updateProject, deleteProject } =
-    useSchedulerProjectsStore();
+    useSchedulerProjectsStore(
+      useShallow((s) => ({
+        projects: s.projects,
+        workspaceId: s.workspaceId,
+        createProject: s.createProject,
+        updateProject: s.updateProject,
+        deleteProject: s.deleteProject,
+      })),
+    );
   const allMembers = useMemberStore((s) => s.members);
   const activeMembers = useMemo(
     () => allMembers.filter((member) => member.status === "active"),

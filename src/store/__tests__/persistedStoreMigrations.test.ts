@@ -206,4 +206,53 @@ describe("persisted store migrations", () => {
     ]);
     expect(migrated.activePageId).toBeNull();
   });
+
+  // Phase 6 보강: 각 fromVersion 분기가 유효한 v 현재 상태를 반환하는지 검증
+  it.each([0, 1, 2, 3, 4])(
+    "pageStore migration fromVersion=%s 도 유효한 최신 상태로 정상 변환",
+    (fromVersion) => {
+      const migrated = migratePageStore(
+        {
+          pages: {
+            sample: {
+              id: "sample",
+              title: "Sample",
+              icon: null,
+              doc: { type: "doc", content: [{ type: "paragraph" }] },
+              parentId: null,
+              order: 0,
+              createdAt: 1,
+              updatedAt: 2,
+            },
+          },
+          activePageId: "sample",
+        },
+        fromVersion,
+      );
+      expect(migrated.pages).toBeDefined();
+      expect((migrated.pages as Record<string, unknown>)["sample"]).toBeDefined();
+      expect(migrated.activePageId).toBe("sample");
+      expect(migrated.cacheWorkspaceId).toBeNull();
+    },
+  );
+
+  it.each([0, 1, 2, 3])(
+    "databaseStore migration fromVersion=%s 도 유효한 최신 상태로 정상 변환",
+    (fromVersion) => {
+      const migrated = migrateDatabaseStore(
+        {
+          databases: {
+            db1: {
+              meta: { id: "db1", title: "DB", createdAt: 1, updatedAt: 2 },
+              columns: [{ id: "title", name: "Name", type: "title" }],
+              rowPageOrder: [],
+            },
+          },
+        },
+        fromVersion,
+      );
+      expect(migrated.databases).toBeDefined();
+      expect((migrated.databases as Record<string, unknown>)["db1"]).toBeDefined();
+    },
+  );
 });

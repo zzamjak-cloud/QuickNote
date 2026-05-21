@@ -5,16 +5,11 @@
 // legacy 리스트에서 제외. 이전에는 부팅 시마다 삭제되어 새로고침 후 새 페이지가
 // 일시 사라지는 증상의 원인이었다.
 
-const LEGACY_LOCAL_STORAGE_KEYS = [
-  "quicknote.activePageId.v1",
-  "quicknote.schemaVersion",
-  "quicknote.databases",
-  "quicknote.contacts",
-];
+import { LEGACY_KEYS } from "./localStorageKeys";
 
 export function purgeLegacyLocalStorage(): void {
   if (typeof localStorage === "undefined") return;
-  for (const k of LEGACY_LOCAL_STORAGE_KEYS) {
+  for (const k of LEGACY_KEYS) {
     if (localStorage.getItem(k) !== null) {
       if (import.meta.env.DEV) console.info(`[v4] purged legacy localStorage key: ${k}`);
       localStorage.removeItem(k);

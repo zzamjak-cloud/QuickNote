@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { DialogBase } from "../../lib/ui-primitives";
 
 type Props = {
   open: boolean;
@@ -23,71 +24,53 @@ export function SimpleConfirmDialog({
   onCancel,
   onConfirm,
 }: Props) {
+  // Enter 커밋은 DialogBase 의 ESC 닫기와 별개로 본 컴포넌트에서 처리한다.
+  // capture 단계 + stopImmediatePropagation 으로 이전 동작 유지.
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Enter" && e.key !== "Escape") return;
+      if (e.key !== "Enter") return;
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      if (e.key === "Enter") {
-        onConfirm();
-      } else {
-        onCancel();
-      }
+      onConfirm();
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [onCancel, onConfirm, open]);
-
-  if (!open) return null;
+  }, [onConfirm, open]);
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center bg-black/45 p-4"
-      style={{ zIndex }}
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
+    <DialogBase
+      open={open}
+      onClose={onCancel}
+      widthClassName="max-w-md"
+      labelId="qn-simple-confirm-title"
+      overlayStyle={{ zIndex }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="qn-simple-confirm-title"
-        className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <h2
-          id="qn-simple-confirm-title"
-          className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
+      <DialogBase.Header id="qn-simple-confirm-title">{title}</DialogBase.Header>
+      <DialogBase.Body>
+        <p className="whitespace-pre-wrap break-words">{message}</p>
+      </DialogBase.Body>
+      <DialogBase.Footer>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
-          {title}
-        </h2>
-        <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">
-          {message}
-        </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
-          >
-            {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className={
-              danger
-                ? "rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-                : "rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
-            }
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+          {cancelLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className={
+            danger
+              ? "rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              : "rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+          }
+        >
+          {confirmLabel}
+        </button>
+      </DialogBase.Footer>
+    </DialogBase>
   );
 }
