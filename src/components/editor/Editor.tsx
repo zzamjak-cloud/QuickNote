@@ -509,13 +509,14 @@ export function Editor({
     if (!editor) return;
     const handler = () => {
       if (!effectivePageId) return;
+      if (!storeDocHydratedRef.current) return;
+      // selection 변경 등 doc 내용이 바뀌지 않은 경우 타이머 스케줄 자체를 생략
+      if (editor.state.doc === lastSavedDocRef.current) return;
       if (debounceRef.current !== null) {
         window.clearTimeout(debounceRef.current);
       }
       debounceRef.current = window.setTimeout(() => {
         if (!effectivePageId) return;
-        if (!storeDocHydratedRef.current) return;
-        // PM doc 참조가 바뀌지 않았으면 내용 변경 없음 — normalize/저장 skip
         const currentDoc = editor.state.doc;
         if (currentDoc === lastSavedDocRef.current) return;
         lastSavedDocRef.current = currentDoc;

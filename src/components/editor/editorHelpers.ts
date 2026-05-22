@@ -23,7 +23,7 @@ export const EMOJI_PICKER_MARGIN = 12;
 export const PASTE_URL_MENU_WIDTH = 288;
 export const PASTE_URL_MENU_HEIGHT = 156;
 
-export const AUTOSAVE_DEBOUNCE_MS = 300;
+export const AUTOSAVE_DEBOUNCE_MS = 700;
 
 /** useEditor content 폴백 — 매 렌더 새 객체를 넘기면 옵션 비교 실패 → setOptions 반복 → 무한 업데이트 */
 export const EMPTY_EDITOR_DOC: JSONContent = {
