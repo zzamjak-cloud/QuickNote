@@ -3,6 +3,7 @@ import { Plus, Search } from "lucide-react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useWorkspaceAccessCacheStore } from "../../store/workspaceAccessCacheStore";
 import { EntityCard } from "../common/EntityCard";
 import {
   archiveWorkspaceApi,
@@ -28,6 +29,8 @@ export function AdminWorkspacesTab() {
   const entityIcons = useSettingsStore((s) => s.entityIcons);
   const entityDescriptions = useSettingsStore((s) => s.entityDescriptions);
   const setEntityDescription = useSettingsStore((s) => s.setEntityDescription);
+  const entriesCache = useWorkspaceAccessCacheStore((s) => s.cache);
+  const setCacheEntry = useWorkspaceAccessCacheStore((s) => s.setCache);
 
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [listQuery, setListQuery] = useState("");
@@ -41,8 +44,7 @@ export function AdminWorkspacesTab() {
   const [deleteWorkspaceId, setDeleteWorkspaceId] = useState<string | null>(null);
   const [deletePhraseDraft, setDeletePhraseDraft] = useState("");
 
-  // access entries 캐시 — 한 번 불러오면 재요청 없이 즉시 열림
-  const [entriesCache, setEntriesCache] = useState<Record<string, WorkspaceAccessInput[]>>({});
+  // 중복 페치 방지용 — 모듈 레벨이어도 되지만 ref로 컴포넌트에 귀속
   const fetchingRef = useRef(new Set<string>());
 
   const sharedAll = useMemo(
@@ -97,7 +99,7 @@ export function AdminWorkspacesTab() {
       fetchingRef.current.add(workspaceId);
       void getWorkspaceApi(workspaceId)
         .then((detail) => {
-          setEntriesCache((prev) => ({ ...prev, [workspaceId]: detail.access }));
+          setCacheEntry(workspaceId, detail.access);
           // 현재 열린 모달이 이 워크스페이스이면 entries 업데이트
           setEditingWorkspaceId((cur) => {
             if (cur === workspaceId) setEditEntries(detail.access);
@@ -337,10 +339,7 @@ export function AdminWorkspacesTab() {
               entries,
             });
             setEntityDescription(editingWorkspace.workspaceId, description);
-            setEntriesCache((prev) => ({
-              ...prev,
-              [editingWorkspace.workspaceId]: entries,
-            }));
+            setCacheEntry(editingWorkspace.workspaceId, entries);
             upsertWorkspace({
               ...updated,
               myEffectiveLevel: accessUpdated.myEffectiveLevel,
