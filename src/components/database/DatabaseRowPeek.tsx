@@ -39,6 +39,7 @@ import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageSubpageTree } from "../page/PageSubpageTree";
+import { CLEAR_BOX_SELECTION_EVENT } from "../../hooks/boxSelect/constants";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
@@ -100,38 +101,48 @@ export function DatabaseRowPeek() {
       }));
     }
     if (activePageId) setRowBackTarget(peekPageId, activePageId);
-    // 즉시 피크를 닫지 않고, 메인 화면에 대상 페이지가 실제로 활성화된 것을 확인한 뒤 닫는다.
-    // 전환 실패 시에는 원상복구하여 흰 화면/먹통처럼 보이는 상태를 차단한다.
-    setCurrentTabPage(peekPageId);
-    setActivePage(peekPageId);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const postPages = usePageStore.getState().pages;
-        const postActive = usePageStore.getState().activePageId;
-        const postTabPage =
-          useSettingsStore.getState().tabs[
-            useSettingsStore.getState().activeTabIndex
-          ]?.pageId ?? null;
-        const targetReady =
-          !!postPages[peekPageId] &&
-          postActive === peekPageId &&
-          postTabPage === peekPageId;
-        if (targetReady) {
-          closePeek();
-          return;
-        }
-        const fallback = previousActivePageId && postPages[previousActivePageId]
-          ? previousActivePageId
-          : null;
-        if (fallback) {
-          setCurrentTabPage(fallback);
-          setActivePage(fallback);
-        }
-        useUiStore.getState().showToast("전체 화면 전환에 실패해 이전 화면으로 복구했습니다.", {
-          kind: "error",
-        });
+    let attempts = 0;
+    const MAX_ATTEMPTS = 24;
+    const verifyAndFinalize = () => {
+      const postPages = usePageStore.getState().pages;
+      const postActive = usePageStore.getState().activePageId;
+      const postTabPage =
+        useSettingsStore.getState().tabs[
+          useSettingsStore.getState().activeTabIndex
+        ]?.pageId ?? null;
+      const targetReady =
+        !!postPages[peekPageId] &&
+        postActive === peekPageId &&
+        postTabPage === peekPageId;
+      if (targetReady) {
+        closePeek();
+        return;
+      }
+      attempts += 1;
+      if (attempts < MAX_ATTEMPTS) {
+        requestAnimationFrame(verifyAndFinalize);
+        return;
+      }
+      const fallbackActive = previousActivePageId && postPages[previousActivePageId]
+        ? previousActivePageId
+        : null;
+      if (fallbackActive) {
+        setCurrentTabPage(fallbackActive);
+        setActivePage(fallbackActive);
+      }
+      useUiStore.getState().showToast("전체 화면 전환에 실패해 이전 화면으로 복구했습니다.", {
+        kind: "error",
       });
-    });
+    };
+    const activateFullPage = () => {
+      // 즉시 피크를 닫지 않고, 메인 화면에 대상 페이지가 실제로 활성화된 것을 확인한 뒤 닫는다.
+      // 전환 실패 시에는 원상복구하여 흰 화면/먹통처럼 보이는 상태를 차단한다.
+      setCurrentTabPage(peekPageId);
+      setActivePage(peekPageId);
+      requestAnimationFrame(verifyAndFinalize);
+    };
+    window.dispatchEvent(new Event(CLEAR_BOX_SELECTION_EVENT));
+    requestAnimationFrame(activateFullPage);
   };
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));

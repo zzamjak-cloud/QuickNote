@@ -6,6 +6,7 @@ import { useDatabaseStore, listDatabases } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { koreanIncludes } from "../../lib/koreanSearch";
 import { PageIconDisplay } from "../common/PageIconDisplay";
+import { emptyPanelState } from "../../types/database";
 
 type Props = {
   anchorEl: HTMLElement | null;
@@ -19,6 +20,10 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
   const popupRef = useRef<HTMLDivElement>(null);
 
   const pages = usePageStore((s) => s.pages);
+  const createPage = usePageStore((s) => s.createPage);
+  const updateDoc = usePageStore((s) => s.updateDoc);
+  const setActivePage = usePageStore((s) => s.setActivePage);
+  const findFullPagePageIdForDatabase = usePageStore((s) => s.findFullPagePageIdForDatabase);
   const databases = useDatabaseStore(listDatabases);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
 
@@ -80,6 +85,33 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
 
   const handlePageClick = (id: string) => {
     setCurrentTabPage(id);
+    setActivePage(id);
+    onClose();
+  };
+
+  const handleDatabaseClick = (databaseId: string, title: string) => {
+    const pageId =
+      findFullPagePageIdForDatabase(databaseId) ??
+      (() => {
+        const id = createPage(title, null, { activate: false });
+        updateDoc(id, {
+          type: "doc",
+          content: [
+            {
+              type: "databaseBlock",
+              attrs: {
+                databaseId,
+                layout: "fullPage",
+                view: "table",
+                panelState: JSON.stringify(emptyPanelState()),
+              },
+            },
+          ],
+        });
+        return id;
+      })();
+    setCurrentTabPage(pageId);
+    setActivePage(pageId);
     onClose();
   };
 
@@ -132,7 +164,7 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
               <button
                 key={db.id}
                 type="button"
-                onClick={() => handlePageClick(db.id)}
+                onClick={() => handleDatabaseClick(db.id, db.meta.title || "데이터베이스")}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >
                 <Database size={15} className="shrink-0 text-zinc-400" />

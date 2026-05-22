@@ -11,6 +11,7 @@ import {
   paintOverlayForPositions,
 } from "./overlayDom";
 import { isGroupOverlayTarget } from "./hitTest";
+import { applyBoxMarqueeElementStyle } from "../../lib/boxSelectionVisual";
 
 type Args = {
   editor: Editor | null;
@@ -59,10 +60,14 @@ export function useBoxSelectMarquee({
       editor.view.dom.parentElement;
     const editorHost =
       editor.view.dom.closest<HTMLElement>(".overflow-y-auto") ?? columnHost;
+    const peekHost = editor.view.dom.closest<HTMLElement>("[data-qn-peek-editor='true']");
+    const peekEditorHost = editor.view.dom.closest<HTMLElement>(".qn-peek-editor");
+    const marqueeScopeHost = peekEditorHost ?? peekHost ?? columnHost ?? editorHost;
     if (!editorHost) return;
 
     const dragRectOverlay = document.createElement("div");
     dragRectOverlay.className = "qn-box-select-rect";
+    applyBoxMarqueeElementStyle(dragRectOverlay);
     dragRectOverlay.style.display = "none";
     dragRectOverlay.setAttribute("aria-hidden", "true");
     document.body.appendChild(dragRectOverlay);
@@ -175,32 +180,21 @@ export function useBoxSelectMarquee({
       const target = e.target;
       if (!(target instanceof Element)) return;
 
-      // 에디터 호스트 외부 — 선택 해제 후 종료
-      if (!editorHost.contains(target)) {
+      // 에디터/컬럼 범위 외부 — 선택 해제 후 종료
+      // (피커뷰/전체너비 좌우 여백은 컬럼 범위 안으로 보고 박스 드래그를 허용해야 한다)
+      if (!marqueeScopeHost?.contains(target)) {
         collapsePmSelectionIfNeeded();
         clearSelection();
-        return;
-      }
-
-      // 본문(ProseMirror) 컨텐츠 *내부* 에서는 마퀴 시작 금지 — PM 기본 텍스트 선택 우선.
-      // 단, view.dom 자체(= 좌우 px-12 / 상하 py-8 padding 영역) 는 빈 공간이므로
-      // 마퀴를 시작할 수 있어야 한다. 따라서 target === view.dom 인 경우는 통과시킨다.
-      // (이전 구현은 closest 가 host 자체도 매치해 padding 에서 마퀴가 시작 안되는 회귀가 있었음.)
-      if (
-        target !== editor.view.dom &&
-        target.closest(".qn-prose-marquee-host")
-      ) {
-        if (selectedStartsRef.current.length > 0) {
-          clearSelection();
-        }
         return;
       }
 
       // 그룹 오버레이는 pointer-events:none 이라 도달하지 않지만 방어
       if (isGroupOverlayTarget(target)) return;
 
-      // 인터랙션 요소 — 마퀴 시작 금지(선택 유지)
-      if (target.closest(INTERACTIVE_SELECTOR)) return;
+      // 인터랙션 요소 — 마퀴 시작 금지(선택 유지).
+      // ProseMirror 루트도 contenteditable 이므로 그 자체는 빈 패딩 시작점으로 허용한다.
+      const interactiveTarget = target.closest(INTERACTIVE_SELECTOR);
+      if (interactiveTarget && interactiveTarget !== editor.view.dom) return;
 
       // 블럭 컨텐츠 안 — 노션처럼 마퀴 시작 차단.
       // 박스 선택이 있다면 클리어(클릭 → cursor 이동 시 자연스러운 해제).

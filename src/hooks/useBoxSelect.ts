@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import type { Rect } from "./boxSelect/types";
 import {
@@ -11,6 +11,7 @@ import { useBoxSelectDeleteBlocks } from "./boxSelect/useBoxSelectDeleteBlocks";
 import { useBoxSelectEscape } from "./boxSelect/useBoxSelectEscape";
 import { useBoxSelectMarquee } from "./boxSelect/useBoxSelectMarquee";
 import { useBoxSelectPmOverlay } from "./boxSelect/useBoxSelectPmOverlay";
+import { CLEAR_BOX_SELECTION_EVENT } from "./boxSelect/constants";
 
 export function useBoxSelect(editor: Editor | null) {
   const startRef = useRef<{ x: number; y: number } | null>(null);
@@ -21,9 +22,22 @@ export function useBoxSelect(editor: Editor | null) {
 
   const clearSelection = useCallback(() => {
     selectedStartsRef.current = [];
+    activeRef.current = false;
+    dragRectRef.current = null;
     setSelectedStarts([]);
+    document.body.classList.remove("qn-box-select-tracking");
+    document.body.classList.remove("qn-box-select-dragging");
     hideGroupOverlay(editor);
   }, [editor]);
+
+  useEffect(() => {
+    const onClear = () => {
+      clearSelection();
+      getSelection()?.removeAllRanges();
+    };
+    window.addEventListener(CLEAR_BOX_SELECTION_EVENT, onClear);
+    return () => window.removeEventListener(CLEAR_BOX_SELECTION_EVENT, onClear);
+  }, [clearSelection]);
 
   const updateSelectionDom = useCallback(
     (rect: Rect) => {

@@ -541,17 +541,6 @@ export function DatabasePropertyPanel({
               <div className="flex items-center gap-0.5">
                 <button
                   type="button"
-                  onClick={(e) => {
-                    setOpenColumnMenu(colMenuOpen ? null : col.id);
-                    if (!colMenuOpen) setColMenuAnchor(e.currentTarget);
-                  }}
-                  className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  <span className="min-w-0 flex-1 truncate">{col.name}</span>
-                  <ChevronDown size={10} className="shrink-0 opacity-60" />
-                </button>
-                <button
-                  type="button"
                   onClick={() => {
                     const next = hiddenColumnIds.includes(col.id)
                       ? hiddenColumnIds
@@ -563,6 +552,16 @@ export function DatabasePropertyPanel({
                   title={hidden ? "속성 표시" : "속성 숨기기"}
                 >
                   {hidden ? <Eye size={10} /> : <EyeOff size={10} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    setOpenColumnMenu(colMenuOpen ? null : col.id);
+                    if (!colMenuOpen) setColMenuAnchor(e.currentTarget);
+                  }}
+                  className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <span className="min-w-0 flex-1 truncate">{col.name}</span>
                 </button>
               </div>
               {colMenuOpen && colMenuAnchor && (

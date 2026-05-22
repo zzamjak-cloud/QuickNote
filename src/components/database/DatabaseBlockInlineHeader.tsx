@@ -1,4 +1,4 @@
-import { Database, History, Link2, Maximize2 } from "lucide-react";
+import { ChevronDown, Database, History, Link2, Maximize2 } from "lucide-react";
 import { memo, useEffect, useRef } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
 
@@ -11,6 +11,8 @@ type Props = {
   onOpenDbHomePage: (pageId: string | null) => void;
   onOpenDbHistory: () => void;
   onOpenLink: () => void;
+  inlineControlsCollapsed: boolean;
+  onToggleInlineControls: () => void;
   /** 제목 영역 드래그 — 인라인 DB 블럭을 통째로 이동 */
   onTitleDragStart?: (e: ReactDragEvent<HTMLDivElement>) => void;
   onTitleDragEnd?: () => void;
@@ -24,6 +26,8 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
   onOpenDbHomePage,
   onOpenDbHistory,
   onOpenLink,
+  inlineControlsCollapsed,
+  onToggleInlineControls,
   onTitleDragStart,
   onTitleDragEnd,
 }: Props) {
@@ -131,6 +135,18 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
             className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
           >
             <Link2 size={15} />
+          </button>
+          <button
+            type="button"
+            title={inlineControlsCollapsed ? "모드/필터 펼치기" : "모드/필터 접기"}
+            onClick={onToggleInlineControls}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            aria-expanded={!inlineControlsCollapsed}
+          >
+            <ChevronDown
+              size={15}
+              className={inlineControlsCollapsed ? "-rotate-90 transition-transform" : "transition-transform"}
+            />
           </button>
         </div>
       </div>

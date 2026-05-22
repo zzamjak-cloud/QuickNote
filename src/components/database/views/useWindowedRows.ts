@@ -1,9 +1,4 @@
-// 데이터베이스 뷰의 행 가상화 hook.
-// 내부 구현은 @tanstack/react-virtual 의 useWindowVirtualizer 위에서 동작하되,
-// 외부 인터페이스(containerRef/start/end/topPadding/bottomPadding/totalSize) 는
-// 종전과 동일하게 유지해 호출처(DataaseListView/TimelineView/TableView) 수정 불필요.
-import { useCallback, useMemo, useState } from "react";
-import { useWindowVirtualizer } from "@tanstack/react-virtual";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 type WindowedRowsOptions = {
   count: number;
@@ -22,8 +17,6 @@ export type WindowedRows = {
   totalSize: number;
 };
 
-// containerRef 이 아직 마운트 안 됐을 때(초기 1프레임) 보여줄 fallback 행 수.
-// 기존 구현과 동일한 기본값.
 const INITIAL_FALLBACK_ROWS = 60;
 
 export function useWindowedRows({
@@ -32,62 +25,91 @@ export function useWindowedRows({
   enabled,
   overscan = 8,
 }: WindowedRowsOptions): WindowedRows {
-  const [scrollMargin, setScrollMargin] = useState(0);
+  const containerRef = useRef<HTMLElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const [range, setRange] = useState(() => ({
+    start: 0,
+    end: enabled ? Math.min(count, INITIAL_FALLBACK_ROWS) : count,
+  }));
 
-  const containerRef = useCallback((node: HTMLElement | null) => {
-    if (!node) {
-      setScrollMargin(0);
+  const calculate = useCallback(() => {
+    if (!enabled || count === 0) {
+      setRange((prev) =>
+        prev.start === 0 && prev.end === count ? prev : { start: 0, end: count },
+      );
       return;
     }
-    // container 의 document 최상단 기준 offset. window scroll 위치 + element 의 viewport top.
-    const next = node.getBoundingClientRect().top + window.scrollY;
-    setScrollMargin((prev) => (Math.abs(prev - next) < 0.5 ? prev : next));
-  }, []);
-
-  const virtualizer = useWindowVirtualizer({
-    count: enabled ? count : 0,
-    estimateSize: () => estimateSize,
-    overscan,
-    scrollMargin,
-  });
-
-  return useMemo(() => {
-    if (!enabled) {
-      return {
-        containerRef,
-        enabled: false,
-        start: 0,
-        end: count,
-        topPadding: 0,
-        bottomPadding: 0,
-        totalSize: count * estimateSize,
-      };
-    }
-    const items = virtualizer.getVirtualItems();
-    const totalSize = virtualizer.getTotalSize();
-    if (items.length === 0) {
-      // 마운트 직후 또는 jsdom 환경에서 virtualizer 가 아직 viewport 를 파악 못한 경우
+    const node = containerRef.current;
+    if (!node) {
       const end = Math.min(count, INITIAL_FALLBACK_ROWS);
-      return {
-        containerRef,
-        enabled: true,
-        start: 0,
-        end,
-        topPadding: 0,
-        bottomPadding: Math.max(0, (count - end) * estimateSize),
-        totalSize,
-      };
+      setRange((prev) => (prev.start === 0 && prev.end === end ? prev : { start: 0, end }));
+      return;
     }
-    const first = items[0]!;
-    const last = items[items.length - 1]!;
-    return {
-      containerRef,
-      enabled: true,
-      start: first.index,
-      end: last.index + 1,
-      topPadding: first.start,
-      bottomPadding: Math.max(0, totalSize - last.end),
-      totalSize,
+
+    const rect = node.getBoundingClientRect();
+    const viewportTop = Math.max(0, -rect.top);
+    const viewportBottom = Math.min(
+      count * estimateSize,
+      viewportTop + window.innerHeight,
+    );
+    const nextStart = Math.max(0, Math.floor(viewportTop / estimateSize) - overscan);
+    const nextEnd = Math.min(
+      count,
+      Math.ceil(viewportBottom / estimateSize) + overscan,
+    );
+    setRange((prev) =>
+      prev.start === nextStart && prev.end === nextEnd
+        ? prev
+        : { start: nextStart, end: nextEnd },
+    );
+  }, [count, enabled, estimateSize, overscan]);
+
+  const schedule = useCallback(() => {
+    if (rafRef.current != null) return;
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      calculate();
+    });
+  }, [calculate]);
+
+  const setContainerRef = useCallback(
+    (node: HTMLElement | null) => {
+      containerRef.current = node;
+      schedule();
+    },
+    [schedule],
+  );
+
+  useLayoutEffect(() => {
+    calculate();
+  }, [calculate]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    window.addEventListener("scroll", schedule, true);
+    window.addEventListener("resize", schedule);
+    return () => {
+      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
+      if (rafRef.current != null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [containerRef, count, enabled, estimateSize, virtualizer]);
+  }, [enabled, schedule]);
+
+  const start = enabled ? range.start : 0;
+  const end = enabled ? range.end : count;
+  return useMemo(
+    () => ({
+      containerRef: setContainerRef,
+      enabled,
+      start,
+      end,
+      topPadding: start * estimateSize,
+      bottomPadding: Math.max(0, (count - end) * estimateSize),
+      totalSize: count * estimateSize,
+    }),
+    [count, enabled, end, estimateSize, setContainerRef, start],
+  );
 }

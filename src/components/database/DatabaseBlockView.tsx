@@ -161,6 +161,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   };
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [inlineControlsCollapsed, setInlineControlsCollapsed] = useState(true);
   const [deletePhraseDraft, setDeletePhraseDraft] = useState("");
   const [dbHistoryDialogOpen, setDbHistoryDialogOpen] = useState(false);
   const [dbHistoryDeleteOpen, setDbHistoryDeleteOpen] = useState(false);
@@ -490,6 +491,10 @@ export function DatabaseBlockView(props: NodeViewProps) {
                   setLinkPickerHighlight(0);
                   setLinkOpen(true);
                 }}
+                inlineControlsCollapsed={inlineControlsCollapsed}
+                onToggleInlineControls={() =>
+                  setInlineControlsCollapsed((prev) => !prev)
+                }
                 onTitleDragStart={onInlineTitleDragStart}
                 onTitleDragEnd={onInlineTitleDragEnd}
               />
@@ -501,15 +506,17 @@ export function DatabaseBlockView(props: NodeViewProps) {
               />
             )}
 
-            <DatabaseToolbarControls
-              databaseId={databaseId}
-              viewKind={view}
-              view={view}
-              onViewChange={setView}
-              panelState={panelState}
-              setPanelState={setPanelState}
-              layout={layout}
-            />
+            {layout !== "inline" || !inlineControlsCollapsed ? (
+              <DatabaseToolbarControls
+                databaseId={databaseId}
+                viewKind={view}
+                view={view}
+                onViewChange={setView}
+                panelState={panelState}
+                setPanelState={setPanelState}
+                layout={layout}
+              />
+            ) : null}
 
             <DatabaseBlockDataArea bundleGone={bundleGone}>
               {activeViewComponent}
@@ -549,9 +556,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
                       void targetScroll;
                     });
                   }}
-                  className="mt-1 w-full rounded-md border border-zinc-200 bg-white py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="mt-1 w-full rounded-md border-transparent bg-transparent py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
-                  + {step}개 더보기 (총 {totalRows.toLocaleString()}개 중 {limit.toLocaleString()}개 표시)
+                  + {step}개 더보기
                 </button>
               );
             })()}

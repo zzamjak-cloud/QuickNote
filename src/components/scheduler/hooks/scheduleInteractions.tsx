@@ -10,6 +10,7 @@ import {
 } from 'react'
 import type { Schedule } from '../../../store/schedulerStore'
 import { SimpleConfirmDialog } from '../../ui/SimpleConfirmDialog'
+import { BOX_SELECTION_COLORS } from '../../../lib/boxSelectionVisual'
 
 export const PENDING_SCHEDULE_PAGE_ID_PREFIX = 'lc-scheduler:creating:'
 
@@ -520,12 +521,14 @@ export function SchedulerBoxMarquee({ style }: { style: SchedulerBoxMarqueeStyle
   if (!style) return null
   return (
     <div
-      className="absolute border-2 border-blue-400 bg-blue-400/15 rounded-sm pointer-events-none"
+      className="absolute border-2 rounded-sm pointer-events-none"
       style={{
         left: style.left,
         top: style.top,
         width: style.width,
         height: style.height,
+        borderColor: BOX_SELECTION_COLORS.marqueeBorder,
+        backgroundColor: BOX_SELECTION_COLORS.marqueeFill,
         zIndex: 90,
       }}
     />

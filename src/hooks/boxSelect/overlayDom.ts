@@ -3,6 +3,10 @@ import type { EditorView } from "@tiptap/pm/view";
 import { forEachDocDirectBlock } from "../../lib/pm/topLevelBlocks";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import { GROUP_OVERLAY_ID } from "./constants";
+import {
+  BOX_SELECTION_COLORS,
+  BOX_SELECTION_Z_INDEX,
+} from "../../lib/boxSelectionVisual";
 
 /** React NodeView(databaseBlock) — 공통 blockOuterEl 상향이 테이블 셀 등에서 끊기면 마퀴·드래그 미리보기가 실패한다 */
 function pmRootChildForDatabaseBlock(
@@ -45,19 +49,10 @@ export function editorViewAvailable(editor: Editor | null): editor is Editor {
   return Boolean(editor && !editor.isDestroyed);
 }
 
-/** 박스 선택 오버레이를 붙일 호스트 — 스크롤 영역 안에 두어 contains()·히트 테스트가 깨지지 않게 함 */
+/** 박스 선택 오버레이를 붙일 호스트 — transform 컨텍스트(피크 패널) 오프셋 회피를 위해 항상 body 사용 */
 export function getEditorMarqueeHost(editor: Editor): HTMLElement {
-  if (!editorViewAvailable(editor)) {
-    return document.body;
-  }
-  const columnHost =
-    editor.view.dom.closest<HTMLElement>("[data-qn-editor-column]") ??
-    editor.view.dom.parentElement;
-  return (
-    editor.view.dom.closest<HTMLElement>(".overflow-y-auto") ??
-    columnHost ??
-    document.body
-  );
+  void editor;
+  return document.body;
 }
 
 /** nodeDOM이 텍스트/인라인을 줄 때까지 올라가 ProseMirror 직계 자식(최상위 블록 행)만 반환 */
@@ -126,10 +121,10 @@ export function ensureGroupOverlay(editor: Editor): HTMLDivElement {
     [
       "position: fixed",
       "pointer-events: none",
-      "z-index: 30",
+      `z-index: ${BOX_SELECTION_Z_INDEX.selectedOverlay}`,
       "border-radius: 8px",
-      "background-color: rgba(35, 131, 226, 0.18)",
-      "box-shadow: 0 0 0 2px rgba(35, 131, 226, 0.7)",
+      `background-color: ${BOX_SELECTION_COLORS.selectedFill}`,
+      `box-shadow: 0 0 0 2px ${BOX_SELECTION_COLORS.selectedRing}`,
       "display: none",
       "transition: none",
     ].join("; ") + ";";

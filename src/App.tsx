@@ -182,10 +182,38 @@ function App() {
           return;
         }
         if (!pages[current]) {
-          setCurrentTabPage(null);
+          const fallback = Object.values(pages)
+            .sort((a, b) => {
+              if (a.parentId == null && b.parentId != null) return -1;
+              if (a.parentId != null && b.parentId == null) return 1;
+              return a.order - b.order || a.title.localeCompare(b.title);
+            })[0]?.id ?? null;
+          if (fallback) {
+            setCurrentTabPage(fallback);
+            setActivePage(fallback);
+          } else {
+            setCurrentTabPage(null);
+          }
         }
       }
       return;
+    }
+
+    {
+      const pages = usePageStore.getState().pages;
+      if (!pages[activePageId] && Object.keys(pages).length > 0) {
+        const fallback = Object.values(pages)
+          .sort((a, b) => {
+            if (a.parentId == null && b.parentId != null) return -1;
+            if (a.parentId != null && b.parentId == null) return 1;
+            return a.order - b.order || a.title.localeCompare(b.title);
+          })[0]?.id ?? null;
+        if (fallback) {
+          setCurrentTabPage(fallback);
+          setActivePage(fallback);
+        }
+        return;
+      }
     }
 
     const prevActive = prevActivePageIdRef.current;
