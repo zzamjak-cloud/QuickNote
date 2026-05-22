@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeftRight,
   Check,
@@ -12,14 +13,13 @@ import {
   Link2,
   Loader2,
   Maximize2,
-  ChevronDown,
-  ChevronRight,
   Minus,
   MoreHorizontal,
   Printer,
   Trash2,
   X,
 } from "lucide-react";
+import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
@@ -176,7 +176,7 @@ export function DatabaseRowPeek() {
   const restoredPageIdRef = useRef<string | null>(null);
   const openedAtRef = useRef(0);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
-  const [subpageTreeCollapsed, setSubpageTreeCollapsed] = useState(true);
+  const subpagePopover = useAnchoredPopover(280);
 
   // 슬라이드·딤머 애니메이션 상태
   const [visible, setVisible] = useState(false);
@@ -691,6 +691,16 @@ export function DatabaseRowPeek() {
             placeholder="제목 없음"
             className="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
           />
+          {peekDescendantCount > 0 && (
+            <button
+              ref={subpagePopover.buttonRef}
+              type="button"
+              onClick={() => subpagePopover.toggle(280)}
+              className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            >
+              하위페이지 {peekDescendantCount}
+            </button>
+          )}
         </div>
         {isDbRow && databaseId ? (
           <DatabasePropertyPanel databaseId={databaseId} pageId={peekPageId} />
@@ -700,25 +710,15 @@ export function DatabaseRowPeek() {
         <div className="qn-peek-editor mt-2 -mx-8">
           <Editor key={peekPageId} pageId={peekPageId} bodyOnly peek showTailSpacer={false} />
         </div>
-        {/* 항목 내 하위 페이지 구조 */}
-        {peekDescendantCount > 0 && (
-          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50/60 dark:border-zinc-700 dark:bg-zinc-900/40">
-            <button
-              type="button"
-              onClick={() => setSubpageTreeCollapsed((prev) => !prev)}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100/70 dark:text-zinc-200 dark:hover:bg-zinc-800/60"
-              aria-expanded={!subpageTreeCollapsed}
-            >
-              {subpageTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-              <span className="min-w-0 flex-1">하위페이지 구조</span>
-              <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
-                {peekDescendantCount}개
-              </span>
-            </button>
-            {!subpageTreeCollapsed && (
-              <PageSubpageTree currentPageId={peekPageId} compact onNavigate={peekNavigate} className="px-2 pb-3" hideHeader />
-            )}
-          </div>
+        {subpagePopover.open && subpagePopover.coords && createPortal(
+          <div
+            ref={subpagePopover.popoverRef}
+            style={{ position: "fixed", top: subpagePopover.coords.top, left: subpagePopover.coords.left, width: 280, zIndex: 9999 }}
+            className="rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <PageSubpageTree currentPageId={peekPageId} compact onNavigate={(id) => { subpagePopover.close(); peekNavigate(id); }} className="px-2 pb-3 pt-1" hideHeader />
+          </div>,
+          document.body,
         )}
         <div
           aria-hidden

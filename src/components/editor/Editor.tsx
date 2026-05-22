@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useEditor, EditorContent } from "@tiptap/react";
 import type { createLowlight } from "lowlight";
 import "tippy.js/dist/tippy.css";
@@ -32,7 +33,7 @@ import { setPageContext } from "../../lib/tiptapExtensions/pageContext";
 import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker, IconPickerPanel } from "../common/IconPicker";
-import { Star, FileText, Database, ChevronRight, ChevronDown } from "lucide-react";
+import { Star, FileText, Database } from "lucide-react";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
@@ -54,11 +55,8 @@ import {
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
-import {
-  PageSubpageTree,
-  countPageDescendants,
-  findPageTreeRootId,
-} from "../page/PageSubpageTree";
+import { PageSubpageTree, countPageDescendants } from "../page/PageSubpageTree";
+import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
 import {
   registerEditorNavigation,
   unregisterEditorNavigation,
@@ -170,7 +168,7 @@ export function Editor({
     useState<BlockDropIndicatorRect | null>(null);
 
   const [simpleAlert, setSimpleAlert] = useState<string | null>(null);
-  const [subpageTreeCollapsed, setSubpageTreeCollapsed] = useState(true);
+  const subpagePopover = useAnchoredPopover(280);
   /** @ 키로 멘션 검색 모달 — 인라인 제안과 분리 */
   const [mentionRange, setMentionRange] = useState<{
     from: number;
@@ -352,12 +350,9 @@ export function Editor({
   );
 
   const commentThread = useUiStore((s) => s.commentThread);
-  const allPages = usePageStore((s) => s.pages);
-  const subpageCount = useMemo(() => {
-    const rootId = findPageTreeRootId(effectivePageId, allPages);
-    if (!rootId || !allPages[rootId]) return 0;
-    return countPageDescendants(rootId, allPages);
-  }, [effectivePageId, allPages]);
+  const descendantCount = usePageStore((s) =>
+    effectivePageId ? countPageDescendants(effectivePageId, s.pages) : 0,
+  );
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -797,6 +792,16 @@ export function Editor({
                     }
                   }}
                 />
+                {!isDatabaseRowPage && descendantCount > 0 && (
+                  <button
+                    ref={subpagePopover.buttonRef}
+                    type="button"
+                    onClick={() => subpagePopover.toggle(280)}
+                    className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                  >
+                    하위페이지 {descendantCount}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => toggleFavoritePage(effectivePageId)}
@@ -853,31 +858,16 @@ export function Editor({
             onClearBoxSelection={clearBoxSelection}
           />
         )}
-        {isDatabaseRowPage && !bodyOnly ? (
-          <div className="px-12">
-            <div className="mt-6 w-1/2 rounded-lg border border-zinc-200 bg-zinc-50/60 dark:border-zinc-700 dark:bg-zinc-900/40">
-              <button
-                type="button"
-                onClick={() => setSubpageTreeCollapsed((prev) => !prev)}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100/70 dark:text-zinc-200 dark:hover:bg-zinc-800/60"
-                aria-expanded={!subpageTreeCollapsed}
-              >
-                {subpageTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                <span className="min-w-0 flex-1">하위페이지 구조</span>
-                <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
-                  {subpageCount}개
-                </span>
-              </button>
-              {!subpageTreeCollapsed ? (
-                <PageSubpageTree
-                  currentPageId={effectivePageId}
-                  className="px-2 pb-3"
-                  hideHeader
-                />
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+        {subpagePopover.open && subpagePopover.coords && createPortal(
+          <div
+            ref={subpagePopover.popoverRef}
+            style={{ position: "fixed", top: subpagePopover.coords.top, left: subpagePopover.coords.left, width: 280, zIndex: 9999 }}
+            className="rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <PageSubpageTree currentPageId={effectivePageId} className="px-2 pb-3 pt-1" hideHeader />
+          </div>,
+          document.body,
+        )}
         {showTailSpacer ? (
           <div
             aria-hidden
