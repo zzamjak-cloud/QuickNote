@@ -8,6 +8,8 @@ import { koreanIncludes } from "../../lib/koreanSearch";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { emptyPanelState } from "../../types/database";
 
+type FilterMode = "page" | "db" | null;
+
 type Props = {
   anchorEl: HTMLElement | null;
   onClose: () => void;
@@ -15,6 +17,7 @@ type Props = {
 
 export function PageSearchPopup({ anchorEl, onClose }: Props) {
   const [query, setQuery] = useState("");
+  const [filterMode, setFilterMode] = useState<FilterMode>(null);
   const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
   const inputRef = useRef<HTMLInputElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -33,10 +36,7 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
     const rect = anchorEl.getBoundingClientRect();
     const popupWidth = 280;
     const gap = 6;
-
-    // 팝업이 뷰포트 오른쪽을 벗어나지 않도록 left 조정
     const left = Math.min(rect.left, window.innerWidth - popupWidth - 8);
-
     setStyle({
       position: "fixed",
       top: rect.bottom + gap,
@@ -46,12 +46,10 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
     });
   }, [anchorEl]);
 
-  // 팝업 열릴 때 입력창 포커스
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Escape 키 / 외부 클릭 닫기
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -71,7 +69,15 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
 
   const q = query.trim().toLowerCase();
 
-  const allPages = Object.values(pages);
+  // DB와 연결된 페이지 ID 집합 — 페이지 목록에서 제외
+  const dbPageIds = new Set(
+    databases.map((db) => findFullPagePageIdForDatabase(db.id)).filter(Boolean) as string[],
+  );
+
+  const allPages = Object.values(pages).filter(
+    (p) => !dbPageIds.has(p.id) && !p.databaseId,
+  );
+
   const filteredPages = q
     ? allPages.filter((p) => koreanIncludes(p.title.toLowerCase(), q))
     : allPages
@@ -82,6 +88,9 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
   const filteredDbs = q
     ? databases.filter((d) => koreanIncludes(d.meta.title.toLowerCase(), q))
     : databases.slice(0, 10);
+
+  const showPages = filterMode === null || filterMode === "page";
+  const showDbs = filterMode === null || filterMode === "db";
 
   const handlePageClick = (id: string) => {
     setCurrentTabPage(id);
@@ -115,6 +124,18 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
     onClose();
   };
 
+  const toggleFilter = (mode: "page" | "db") => {
+    setFilterMode((prev) => (prev === mode ? null : mode));
+  };
+
+  const tabBase = "rounded-md px-3 py-1 text-xs font-medium transition-colors";
+  const tabActive = "bg-green-500 text-white";
+  const tabInactive = "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800";
+
+  const visiblePages = showPages ? filteredPages : [];
+  const visibleDbs = showDbs ? filteredDbs : [];
+  const isEmpty = visiblePages.length === 0 && visibleDbs.length === 0;
+
   return createPortal(
     <div
       ref={popupRef}
@@ -134,53 +155,57 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
         />
       </div>
 
+      {/* 필터 탭 */}
+      <div className="flex gap-1 border-b border-zinc-200 px-3 py-1.5 dark:border-zinc-700">
+        <button
+          type="button"
+          onClick={() => toggleFilter("page")}
+          className={`${tabBase} ${filterMode === "page" ? tabActive : tabInactive}`}
+        >
+          페이지
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleFilter("db")}
+          className={`${tabBase} ${filterMode === "db" ? tabActive : tabInactive}`}
+        >
+          DB
+        </button>
+      </div>
+
       {/* 결과 목록 */}
       <div className="max-h-72 overflow-y-auto py-1">
-        {filteredPages.length > 0 && (
-          <div>
-            <p className="px-3 py-1 text-xs font-semibold text-zinc-400 dark:text-zinc-500">
-              페이지
-            </p>
-            {filteredPages.map((page) => (
-              <button
-                key={page.id}
-                type="button"
-                onClick={() => handlePageClick(page.id)}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                <PageIconDisplay icon={page.icon ?? null} size="sm" />
-                <span className="truncate">{page.title || "제목 없음"}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        {visiblePages.map((page) => (
+          <button
+            key={page.id}
+            type="button"
+            onClick={() => handlePageClick(page.id)}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <PageIconDisplay icon={page.icon ?? null} size="sm" />
+            <span className="truncate">{page.title || "제목 없음"}</span>
+          </button>
+        ))}
 
-        {filteredDbs.length > 0 && (
-          <div>
-            <p className="px-3 py-1 text-xs font-semibold text-zinc-400 dark:text-zinc-500">
-              데이터베이스
-            </p>
-            {filteredDbs.map((db) => (
-              <button
-                key={db.id}
-                type="button"
-                onClick={() => handleDatabaseClick(db.id, db.meta.title || "데이터베이스")}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                <Database size={15} className="shrink-0 text-zinc-400" />
-                <span className="truncate">{db.meta.title || "제목 없음"}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        {visibleDbs.map((db) => (
+          <button
+            key={db.id}
+            type="button"
+            onClick={() => handleDatabaseClick(db.id, db.meta.title || "데이터베이스")}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <Database size={15} className="shrink-0 text-zinc-400" />
+            <span className="truncate">{db.meta.title || "제목 없음"}</span>
+          </button>
+        ))}
 
-        {filteredPages.length === 0 && filteredDbs.length === 0 && (
+        {isEmpty && (
           <p className="px-3 py-4 text-center text-sm text-zinc-400">
             검색 결과가 없습니다
           </p>
         )}
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }
