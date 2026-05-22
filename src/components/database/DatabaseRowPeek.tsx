@@ -3,7 +3,9 @@ import { createPortal } from "react-dom";
 import {
   ArrowLeftRight,
   Check,
+  ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Code,
   Copy,
   CopyPlus,
@@ -16,6 +18,7 @@ import {
   Minus,
   MoreHorizontal,
   Printer,
+  Star,
   Trash2,
   X,
 } from "lucide-react";
@@ -74,6 +77,10 @@ export function DatabaseRowPeek() {
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
   const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
   const toggleFullWidthForPage = useSettingsStore((s) => s.toggleFullWidthForPage);
+  const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
+  const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
+  const dbPropertyPanelOpen = useSettingsStore((s) => s.dbPropertyPanelOpen);
+  const setDbPropertyPanelOpen = useSettingsStore((s) => s.setDbPropertyPanelOpen);
   const peekFullWidth = peekPageId
     ? (pageFullWidthById[peekPageId] ?? globalFullWidth)
     : globalFullWidth;
@@ -498,6 +505,21 @@ export function DatabaseRowPeek() {
           >
             <History size={14} />
           </button>
+          {peekPageId && (
+            <button
+              type="button"
+              onClick={() => toggleFavoritePage(peekPageId)}
+              className="rounded p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              title={favoritePageIds.includes(peekPageId) ? "즐겨찾기 해제" : "즐겨찾기"}
+              aria-label={favoritePageIds.includes(peekPageId) ? "즐겨찾기 해제" : "즐겨찾기"}
+              aria-pressed={favoritePageIds.includes(peekPageId)}
+            >
+              <Star
+                size={14}
+                className={favoritePageIds.includes(peekPageId) ? "fill-amber-400 text-amber-500" : "text-zinc-500"}
+              />
+            </button>
+          )}
           <button
             type="button"
             onClick={openFullPage}
@@ -691,19 +713,29 @@ export function DatabaseRowPeek() {
             placeholder="제목 없음"
             className="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
           />
-          {peekDescendantCount > 0 && (
+          {(peekDescendantCount > 0 || !!page?.parentId) && (
             <button
               ref={subpagePopover.buttonRef}
               type="button"
               onClick={() => subpagePopover.toggle(280)}
               className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
-              하위페이지 {peekDescendantCount}
+              페이지 트리
             </button>
           )}
         </div>
         {isDbRow && databaseId ? (
-          <DatabasePropertyPanel databaseId={databaseId} pageId={peekPageId} />
+          <div className="mt-2">
+            <button
+              type="button"
+              onClick={() => setDbPropertyPanelOpen(!dbPropertyPanelOpen)}
+              className="mb-1 flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              {dbPropertyPanelOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              속성
+            </button>
+            {dbPropertyPanelOpen && <DatabasePropertyPanel databaseId={databaseId} pageId={peekPageId} />}
+          </div>
         ) : null}
         <PageCommentBar pageId={peekPageId} />
         {/* 노션 스타일: 피크에서도 본문 편집 가능 — Editor에 pageId 주입, bodyOnly로 제목/아이콘 영역 숨김 */}

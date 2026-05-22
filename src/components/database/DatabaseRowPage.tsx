@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Star, FileText } from "lucide-react";
+import { Star, FileText, ChevronDown, ChevronRight } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -21,6 +21,8 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const setIcon = usePageStore((s) => s.setIcon);
   const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
   const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
+  const dbPropertyPanelOpen = useSettingsStore((s) => s.dbPropertyPanelOpen);
+  const setDbPropertyPanelOpen = useSettingsStore((s) => s.setDbPropertyPanelOpen);
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
   const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
   const fullWidth = pageFullWidthById[pageId] ?? globalFullWidth;
@@ -99,14 +101,14 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
               placeholder="제목 없음"
               className="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
             />
-            {descendantCount > 0 && (
+            {(descendantCount > 0 || !!page.parentId) && (
               <button
                 ref={subpagePopover.buttonRef}
                 type="button"
                 onClick={() => subpagePopover.toggle(280)}
                 className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
               >
-                하위페이지 {descendantCount}
+                페이지 트리
               </button>
             )}
             <button
@@ -131,7 +133,17 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
             </button>
           </div>
 
-          <DatabasePropertyPanel databaseId={databaseId} pageId={pageId} />
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setDbPropertyPanelOpen(!dbPropertyPanelOpen)}
+              className="mb-1 flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              {dbPropertyPanelOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              속성
+            </button>
+            {dbPropertyPanelOpen && <DatabasePropertyPanel databaseId={databaseId} pageId={pageId} />}
+          </div>
           <PageCommentBar pageId={pageId} />
         </div>
       </div>
@@ -143,7 +155,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
           style={{ position: "fixed", top: subpagePopover.coords.top, left: subpagePopover.coords.left, width: 280, zIndex: 9999 }}
           className="rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
         >
-          <PageSubpageTree rootPageId={pageId} currentPageId={pageId} className="px-2 pb-3 pt-1" hideHeader />
+          <PageSubpageTree currentPageId={pageId} className="px-2 pb-3 pt-1" hideHeader />
         </div>,
         document.body,
       )}

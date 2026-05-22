@@ -792,14 +792,14 @@ export function Editor({
                     }
                   }}
                 />
-                {!isDatabaseRowPage && descendantCount > 0 && (
+                {!isDatabaseRowPage && (descendantCount > 0 || !!page?.parentId) && (
                   <button
                     ref={subpagePopover.buttonRef}
                     type="button"
                     onClick={() => subpagePopover.toggle(280)}
                     className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
                   >
-                    하위페이지 {descendantCount}
+                    페이지 트리
                   </button>
                 )}
                 <button

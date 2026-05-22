@@ -71,6 +71,7 @@ function FavoriteRow({ pageId }: { pageId: string }) {
   const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
   const showToast = useUiStore((s) => s.showToast);
   const requestFavoriteNavigation = useUiStore((s) => s.requestFavoriteNavigation);
+  const closePeek = useUiStore((s) => s.closePeek);
   const snapshotMeta =
     favoriteMeta ??
     getFavoritePageMetaFromLoadedWorkspaceSnapshots(pageId, workspaces);
@@ -138,6 +139,7 @@ function FavoriteRow({ pageId }: { pageId: string }) {
               });
               return;
             }
+            closePeek();
             setCurrentTabPage(pageId);
             setActivePage(pageId);
           })();

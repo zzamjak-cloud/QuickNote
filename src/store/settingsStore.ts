@@ -22,6 +22,8 @@ type SettingsState = {
   fullWidth: boolean;
   /** pageId -> fullWidth. 없으면 전역 fullWidth를 fallback으로 사용. */
   pageFullWidthById: Record<string, boolean>;
+  /** DB 항목 속성 패널 열림 여부(글로벌) — 기본값: true */
+  dbPropertyPanelOpen: boolean;
   sidebarWidth: number;
   rightPanelWidth: number;
   /** 사이드바 접힘 — 접힘 시 좌측 얇은 레일만 표시 */
@@ -72,6 +74,7 @@ type SettingsActions = {
   nextTab: () => void;
   toggleFullWidth: () => void;
   toggleFullWidthForPage: (pageId: string | null) => void;
+  setDbPropertyPanelOpen: (open: boolean) => void;
   /** 워크스페이스 방문 페이지 기억(pageId null 이면 해당 워크스페이스 키만 제거 가능) */
   setLastVisitedPageForWorkspace: (
     workspaceId: string | null,
@@ -81,7 +84,7 @@ type SettingsActions = {
 
 export type SettingsStore = SettingsState & SettingsActions;
 
-export const SETTINGS_STORE_VERSION = 7;
+export const SETTINGS_STORE_VERSION = 8;
 
 export function migrateSettingsStore(
   persisted: unknown,
@@ -155,11 +158,19 @@ export function migrateSettingsStore(
           pageFullWidthById: {},
         }),
       },
+      {
+        version: 8,
+        migrate: (state) => ({
+          ...state,
+          dbPropertyPanelOpen: true,
+        }),
+      },
     ],
     {
       darkMode: false,
       fullWidth: false,
       pageFullWidthById: {},
+      dbPropertyPanelOpen: true,
       sidebarWidth: 260,
       rightPanelWidth: 320,
       sidebarCollapsed: false,
@@ -180,6 +191,7 @@ export const useSettingsStore = create<SettingsStore>()(
       darkMode: false,
       fullWidth: false,
       pageFullWidthById: {},
+      dbPropertyPanelOpen: true,
       sidebarWidth: 260,
       rightPanelWidth: 320,
       sidebarCollapsed: false,
@@ -344,6 +356,7 @@ export const useSettingsStore = create<SettingsStore>()(
             },
           };
         }),
+      setDbPropertyPanelOpen: (open) => set({ dbPropertyPanelOpen: open }),
       setLastVisitedPageForWorkspace: (workspaceId, pageId) => {
         if (!workspaceId) return;
         set((s) => {
