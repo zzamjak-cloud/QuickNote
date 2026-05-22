@@ -1,7 +1,8 @@
 // 미전송 동기화 / 부분 페치 실패 / dead letter 안내 배너.
 
 import { type ReactElement, useEffect, useState } from "react";
-import { X, CloudOff, AlertTriangle, Trash2 } from "lucide-react";
+import { X, CloudOff, AlertTriangle, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import type { OutboxEntry } from "../../lib/sync/outbox/types";
 import { useUiStore } from "../../store/uiStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { getSyncEngine } from "../../lib/sync/runtime";
@@ -18,14 +19,16 @@ export function WorkspaceSyncBanner(): ReactElement | null {
   const partialFailed = useUiStore((s) => s.syncPartialFetchFailed);
   const clearPartialFailed = useUiStore((s) => s.setSyncPartialFetchFailed);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const [deadLetterCount, setDeadLetterCount] = useState(0);
+  type DeadLetterItem = OutboxEntry & { deadLetterReason: string };
+  const [deadLetters, setDeadLetters] = useState<DeadLetterItem[]>([]);
+  const [showDeadLetterDetail, setShowDeadLetterDetail] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
       void getSyncEngine().then((engine) =>
-        engine.getDeadLetterCount().then((n) => {
-          if (!cancelled) setDeadLetterCount(n);
+        engine.listDeadLetters().then((items) => {
+          if (!cancelled) setDeadLetters(items);
         }),
       );
     };
@@ -37,6 +40,8 @@ export function WorkspaceSyncBanner(): ReactElement | null {
       window.clearInterval(id);
     };
   }, []);
+
+  const deadLetterCount = deadLetters.length;
 
   if (!hold && !partialFailed && deadLetterCount === 0) return null;
 
@@ -115,16 +120,43 @@ export function WorkspaceSyncBanner(): ReactElement | null {
             aria-hidden
           />
           <div className="min-w-0 flex-1 leading-snug">
-            <span className="font-semibold">
-              전송 실패 항목{" "}
-              <span className="rounded bg-orange-200/80 px-1 py-0.5 font-mono dark:bg-orange-800/60">
-                {deadLetterCount}
+            <div className="flex items-center gap-1">
+              <span className="font-semibold">
+                전송 실패 항목{" "}
+                <span className="rounded bg-orange-200/80 px-1 py-0.5 font-mono dark:bg-orange-800/60">
+                  {deadLetterCount}
+                </span>
+                건
               </span>
-              건
-            </span>
+              <button
+                type="button"
+                className="ml-1 rounded p-0.5 text-orange-700 hover:bg-orange-200/80 dark:text-orange-300 dark:hover:bg-orange-900/50"
+                onClick={() => setShowDeadLetterDetail((v) => !v)}
+                aria-label={showDeadLetterDetail ? "상세 숨기기" : "상세 보기"}
+              >
+                {showDeadLetterDetail ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+            </div>
             <p className="mt-0.5 text-orange-900/90 dark:text-orange-50/90">
               영구 실패로 처리된 항목이 있습니다. 제거해도 서버 데이터는 유지됩니다.
             </p>
+            {showDeadLetterDetail && (
+              <ul className="mt-1.5 space-y-0.5 rounded border border-orange-200 bg-orange-100/60 p-1.5 dark:border-orange-800/50 dark:bg-orange-950/40">
+                {deadLetters.map((item) => (
+                  <li key={item.id} className="font-mono text-[10px] text-orange-950 dark:text-orange-100">
+                    <span className="font-semibold">{item.op}</span>
+                    {item.entityId && (
+                      <span className="ml-1 text-orange-700 dark:text-orange-300">
+                        {item.entityType ?? ""} {item.entityId.slice(0, 8)}
+                      </span>
+                    )}
+                    <span className="ml-1 text-orange-600 dark:text-orange-400">
+                      — {item.deadLetterReason}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <button
             type="button"
@@ -133,7 +165,7 @@ export function WorkspaceSyncBanner(): ReactElement | null {
             title="오류 항목 제거"
             onClick={() => {
               void getSyncEngine().then((engine) =>
-                engine.clearDeadLetters().then(() => setDeadLetterCount(0)),
+                engine.clearDeadLetters().then(() => setDeadLetters([])),
               );
             }}
           >

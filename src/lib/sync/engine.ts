@@ -315,6 +315,10 @@ export class SyncEngine {
     return items?.length ?? 0;
   }
 
+  async listDeadLetters(): Promise<Array<import("./outbox/types").OutboxEntry & { deadLetterReason: string }>> {
+    return (await this.outbox.listDeadLetters?.(200)) ?? [];
+  }
+
   async flush(): Promise<void> {
     if (this.stopped) return;
     if (this.flushing) return;
