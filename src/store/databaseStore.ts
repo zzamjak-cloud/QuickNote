@@ -49,6 +49,8 @@ import {
   toDatabaseSnapshot,
   toPageSnapshot,
 } from "./databaseStore/helpers";
+import type { Page } from "../types/page";
+import { EMPTY_DOC, nextOrderForParent } from "./pageStore/helpers";
 
 export { migrateDatabaseStore } from "./databaseStore/migrations";
 export { normalizeDbTitle } from "./databaseStore/helpers";
@@ -84,6 +86,12 @@ type DatabaseStoreActions = {
   moveColumn: (databaseId: string, fromIdx: number, toIdx: number) => void;
   /** 시드/추가 행을 위한 행 페이지 생성 — 새 페이지 id 반환 */
   addRow: (databaseId: string) => string;
+  /** 가져오기 전용 일괄 행 생성 — 단일 setState로 메모리 절약 */
+  importRowsBatch: (
+    databaseId: string,
+    existingSeedPageId: string | null,
+    rows: Array<{ title: string; cells: Record<string, CellValue> }>,
+  ) => string[];
   deleteRow: (databaseId: string, pageId: string) => void;
   updateCell: (
     databaseId: string,
@@ -516,6 +524,85 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const newPage = usePageStore.getState().pages[pageId];
         if (newPage) enqueueUpsertPageRaw(newPage);
         return pageId;
+      },
+
+      importRowsBatch: (databaseId, existingSeedPageId, rows) => {
+        if (rows.length === 0) return [];
+        const bundle = get().databases[databaseId];
+        if (!bundle) return [];
+
+        const workspaceId = getCurrentWorkspaceId();
+        const ts = now();
+        const columnDefaults: Record<string, CellValue> = {};
+        for (const col of bundle.columns) {
+          const def = defaultCellValueForColumn(col);
+          if (def != null) columnDefaults[col.id] = def;
+        }
+
+        const currentPages = usePageStore.getState().pages;
+        const baseOrder = nextOrderForParent(currentPages, null);
+        const pageIds: string[] = [];
+        const pageUpdates: Record<string, Page> = {};
+
+        for (let i = 0; i < rows.length; i++) {
+          const { title, cells } = rows[i];
+          const dbCells: Record<string, CellValue> = { ...columnDefaults, ...cells };
+
+          if (i === 0 && existingSeedPageId) {
+            pageIds.push(existingSeedPageId);
+            const existing = currentPages[existingSeedPageId];
+            if (existing) {
+              pageUpdates[existingSeedPageId] = { ...existing, title, dbCells, updatedAt: ts };
+            }
+          } else {
+            const pageId = newId();
+            pageIds.push(pageId);
+            pageUpdates[pageId] = {
+              id: pageId,
+              workspaceId: workspaceId || undefined,
+              title,
+              icon: null,
+              doc: structuredClone(EMPTY_DOC),
+              parentId: null,
+              order: baseOrder + i,
+              databaseId,
+              dbCells,
+              createdAt: ts,
+              updatedAt: ts,
+            };
+          }
+        }
+
+        // 단일 pageStore setState로 모든 페이지 일괄 반영
+        usePageStore.setState((s) => ({ pages: { ...s.pages, ...pageUpdates } }));
+
+        // 신규 행만 rowPageOrder에 추가 (시드 행은 이미 포함됨)
+        const newPageIds = existingSeedPageId ? pageIds.slice(1) : pageIds;
+        set((state) => {
+          const b = state.databases[databaseId];
+          if (!b) return state;
+          return {
+            databases: {
+              ...state.databases,
+              [databaseId]: {
+                ...b,
+                rowPageOrder: [...b.rowPageOrder, ...newPageIds],
+                meta: { ...b.meta, updatedAt: ts },
+              },
+            },
+          };
+        });
+
+        // sync enqueue 일괄 처리
+        const pages = usePageStore.getState().pages;
+        for (const pageId of pageIds) {
+          const page = pages[pageId];
+          if (page) enqueueUpsertPageRaw(page);
+        }
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
+
+        return pageIds;
       },
 
       deleteRow: (databaseId, pageId) => {

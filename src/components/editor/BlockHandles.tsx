@@ -94,6 +94,14 @@ type DownloadNotice = {
   message: string;
 } | null;
 
+function getEditorViewDom(editor: Editor | null | undefined): Element | null {
+  if (!editor || editor.isDestroyed) return null;
+  try {
+    return editor.view.dom;
+  } catch {
+    return null;
+  }
+}
 
 export function BlockHandles({
   editor,
@@ -106,7 +114,7 @@ export function BlockHandles({
     (boxSelectedStarts?.length ?? 0) > 0 ||
     (!!editor &&
       !editor.isDestroyed &&
-      !!editor.view.dom.querySelector(".ProseMirror-selectednoderange"));
+      !!getEditorViewDom(editor)?.querySelector(".ProseMirror-selectednoderange"));
   const containerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
@@ -406,7 +414,8 @@ export function BlockHandles({
         : null;
     const root = containerRef.current?.parentElement;
     if (resizeObserver && root) resizeObserver.observe(root);
-    if (resizeObserver) resizeObserver.observe(editor.view.dom);
+    const viewDom = getEditorViewDom(editor);
+    if (resizeObserver && viewDom) resizeObserver.observe(viewDom);
     const unsub = useBlockCommentStore.subscribe(refreshPinned);
     const unsubMembers = useMemberStore.subscribe(refreshPinned);
     editor.on("update", refreshPinned);

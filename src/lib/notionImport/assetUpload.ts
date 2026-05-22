@@ -65,12 +65,14 @@ export function createNotionAssetResolver(preview: NotionZipPreview): NotionAsse
 }
 
 export function collectNotionAssetRefsFromHtml(
-  html: string,
+  html: string | Document,
   currentPagePath: string,
   resolver: NotionAssetResolver,
 ): NotionImportedAsset[] {
-  if (typeof DOMParser === "undefined") return [];
-  const doc = new DOMParser().parseFromString(html, "text/html");
+  if (typeof html === "string" && typeof DOMParser === "undefined") return [];
+  const doc = typeof html === "string"
+    ? new DOMParser().parseFromString(html, "text/html")
+    : html;
   const attrs: Array<[string, string]> = [
     ["img[src]", "src"],
     ["video[src]", "src"],

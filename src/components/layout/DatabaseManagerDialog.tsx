@@ -185,7 +185,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="qn-db-manager-title"
-        className="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="flex h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between gap-2">
@@ -223,7 +223,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
           />
         </div>
 
-        <div className="max-h-72 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
           {visibleActive.length === 0 ? (
             <div className="px-3 py-2.5 text-lg text-zinc-500">
               표시할 데이터베이스가 없습니다.
@@ -287,7 +287,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
           <div
             role="dialog"
             aria-modal="true"
-            className="w-80 rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            className="flex h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
@@ -332,7 +332,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
               </div>
             )}
 
-            <div className="max-h-56 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto">
               {visibleDeleted.length === 0 ? (
                 <p className="p-4 text-center text-lg text-zinc-400">
                   삭제된 데이터베이스가 없습니다.

@@ -40,6 +40,7 @@ import {
   resolveImportedCommentAuthorMemberId,
   resolveNotionCommentBlockId,
 } from "../../lib/notionImport/commentImport";
+import { pauseStorageWrites, resumeStorageWrites } from "../../lib/storage/index";
 
 type SectionStatus =
   | { kind: "idle" }
@@ -62,9 +63,23 @@ type ImportProgress = {
 };
 
 function yieldToPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  // setTimeout(0)으로 마이크로태스크 큐를 비우고 GC 기회를 제공
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function runConcurrent<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let index = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (index < items.length) {
+      const current = index++;
+      await fn(items[current]);
+    }
   });
+  await Promise.all(workers);
 }
 
 function stripNotionId(value: string): string {
@@ -114,13 +129,12 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
   const createPage = usePageStore((s) => s.createPage);
   const updateDoc = usePageStore((s) => s.updateDoc);
   const setIcon = usePageStore((s) => s.setIcon);
-  const renamePage = usePageStore((s) => s.renamePage);
+
   const createDatabase = useDatabaseStore((s) => s.createDatabase);
   const addColumn = useDatabaseStore((s) => s.addColumn);
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const removeColumn = useDatabaseStore((s) => s.removeColumn);
-  const addRow = useDatabaseStore((s) => s.addRow);
-  const updateCell = useDatabaseStore((s) => s.updateCell);
+  const importRowsBatch = useDatabaseStore((s) => s.importRowsBatch);
 
   const [status, setStatus] = useState<SectionStatus>({ kind: "idle" });
   const [progress, setProgress] = useState<ImportProgress | null>(null);
@@ -184,6 +198,8 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
 
   useEffect(() => {
     if (!sharedSource || isImporting) return;
+    // 가져오기 완료/오류 상태에서는 재탐지 금지
+    if (status.kind === "done" || status.kind === "error") return;
     if (sharedSource.kind === "folder-handle") {
       setStatus({ kind: "scanning" });
       void detectCsvDbPairsRecursive(sharedSource.dir)
@@ -226,12 +242,14 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
       kind: "error",
       message: "선택한 폴더 형식은 DB 가져오기에서 아직 지원되지 않습니다. 폴더 선택(권장) 또는 ZIP 파일 선택을 사용해 주세요.",
     });
-  }, [isImporting, sharedSource]);
+  }, [isImporting, sharedSource, status.kind]);
 
   const onImport = async () => {
     if (status.kind !== "ready") return;
     const { pairs } = status;
     setStatus({ kind: "importing" });
+    // import 중 Zustand persist 직렬화를 차단 — 완료 시 한 번에 flush
+    pauseStorageWrites();
 
     let totalRowsImported = 0;
     let totalFailed = 0;
@@ -496,21 +514,34 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
         };
 
         // HTML 본문을 페이지에 채워넣는 공용 처리 — row/child/nested-row 페이지에서 재사용
+        const memMB = (): string => {
+          const m = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+          return m ? ` [heap ${(m.usedJSHeapSize / 1_048_576).toFixed(1)}MB]` : "";
+        };
+
         const fillPageFromHtml = async (
           targetPageId: string,
           html: string,
           htmlRelPathParam: string,
           label: string,
         ): Promise<void> => {
+          console.log(`[IMPORT-DBG] ▶ fillPageFromHtml 시작: "${label}" html=${(html.length/1024).toFixed(1)}KB${memMB()}`);
           updateProgress({ phase: "에셋 업로드" });
+          // HTML을 1번만 파싱해 재사용 — 함수마다 별도 파싱하면 33행×4회=132회로 OOM 발생
+          console.log(`[IMPORT-DBG]   [1/5] DOMParser.parseFromString${memMB()}`);
+          const parsedDoc = typeof DOMParser !== "undefined"
+            ? new DOMParser().parseFromString(html, "text/html")
+            : null;
+          console.log(`[IMPORT-DBG]   [2/5] collectNotionAssetRefsFromHtml${memMB()}`);
           const uploadedAssetByPath = new Map<string, UploadedNotionAsset>();
-          const assetsToUpload = collectNotionAssetRefsFromHtml(html, htmlRelPathParam, assetResolver);
-          console.log(`[CSV가져오기] "${label}" 에셋 ${assetsToUpload.length}개`);
-          for (let assetIdx = 0; assetIdx < assetsToUpload.length; assetIdx++) {
-            const asset = assetsToUpload[assetIdx];
-            if (!asset || uploadedAssetByPath.has(asset.path)) continue;
-            updateProgress({ phase: "에셋 업로드", assetIdx, assetTotal: assetsToUpload.length });
-            await yieldToPaint();
+          const assetsToUpload = collectNotionAssetRefsFromHtml(parsedDoc ?? html, htmlRelPathParam, assetResolver);
+          const uniqueAssets = assetsToUpload.filter(
+            (a, i, arr) => a && arr.findIndex((b) => b?.path === a.path) === i,
+          );
+          console.log(`[CSV가져오기] "${label}" 에셋 ${uniqueAssets.length}개 (병렬 업로드)`);
+          updateProgress({ phase: "에셋 업로드", assetIdx: 0, assetTotal: uniqueAssets.length });
+          await Promise.all(uniqueAssets.map(async (asset) => {
+            if (!asset) return;
             try {
               uploadedAssetByPath.set(asset.path, await uploadNotionAsset(asset));
             } catch (err) {
@@ -518,7 +549,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
               uploadedAssetByPath.set(asset.path, failedNotionAsset(asset, err));
               totalFailed++;
             }
-          }
+          }));
           const resolveImageNode = (src: string, element: HTMLElement): JSONContent | null => {
             const ast = assetResolver.resolve(src, htmlRelPathParam);
             if (!ast) return null;
@@ -526,7 +557,8 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
             if (!up) return null;
             return uploadedAssetToDocNode(up, element.getAttribute("alt") ?? "");
           };
-          const doc = notionHtmlToDoc(html, {
+          console.log(`[IMPORT-DBG]   [3/5] notionHtmlToDoc${memMB()}`);
+          const doc = notionHtmlToDoc(parsedDoc ?? html, {
             currentPagePath: htmlRelPathParam,
             resolveImageSrc: (src) => /^https?:\/\//i.test(src) || src.startsWith("data:") ? src : null,
             resolveImageNode,
@@ -560,7 +592,8 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           });
           const docWithAnchorIds = ensureCommentAnchorBlockIds(doc);
           updateDoc(targetPageId, docWithAnchorIds);
-          const comments = extractNotionInlineComments(html);
+          console.log(`[IMPORT-DBG]   [4/5] extractNotionInlineComments${memMB()}`);
+          const comments = extractNotionInlineComments(parsedDoc ?? html);
           comments.forEach((comment) => {
             const mappedBlockId =
               resolveNotionCommentBlockId(docWithAnchorIds as { content?: Array<unknown> }, comment.blockText)
@@ -584,7 +617,8 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
             });
           });
 
-          const iconInfo = extractNotionPageIcon(html);
+          console.log(`[IMPORT-DBG]   [5/5] extractNotionPageIcon${memMB()}`);
+          const iconInfo = extractNotionPageIcon(parsedDoc ?? html);
           if (iconInfo?.imagePath) {
             const iconAsset = assetResolver.resolve(iconInfo.imagePath, htmlRelPathParam);
             if (iconAsset) {
@@ -614,43 +648,42 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
         const childPageIdsByPath = new Map<string, string>();
         const childPagePathsByRowIndex = new Map<number, string[]>();
 
-        // 먼저 모든 행 페이지와 하위 페이지 ID를 만든다. 그래야 본문 변환 중 페이지 링크를 멘션으로 해석할 수 있다.
-        for (const rowPlan of rowPlans) {
-          const { row, rowIdx, rowTitle, htmlRelPath, childHtmlPaths } = rowPlan;
-          if (!row) continue;
+        // 1단계: 모든 행을 단일 importRowsBatch 호출로 생성 (setState 횟수 최소화)
+        console.log(`[IMPORT-DBG] ▶ 1단계: importRowsBatch (${rowPlans.length}개)${memMB()}`);
+        setProgress({
+          pairIdx,
+          pairTotal: pairs.length,
+          pairLabel: pair.folderBase,
+          rowIdx: 0,
+          rowTotal: csvData.rows.length,
+          rowTitle: rowPlans[0]?.rowTitle ?? "",
+          phase: "항목 처리",
+        });
+        await yieldToPaint();
 
-          setProgress({
-            pairIdx,
-            pairTotal: pairs.length,
-            pairLabel: pair.folderBase,
-            rowIdx,
-            rowTotal: csvData.rows.length,
-            rowTitle,
-            phase: "항목 처리",
-          });
-          await yieldToPaint();
-
-          // 행 페이지 생성 (DB가 자동 생성한 첫 행 재사용)
-          const rowPageId =
-            rowIdx === 0
-              ? (useDatabaseStore.getState().databases[dbId]?.rowPageOrder[0] ?? addRow(dbId))
-              : addRow(dbId);
-          rowPageIdByIndex.set(rowIdx, rowPageId);
-          renamePage(rowPageId, rowTitle);
-          if (htmlRelPath) registerImportedPageId(pair.folderPath, htmlRelPath, rowPageId);
-
-          // 셀 값 입력
+        const batchRowData = rowPlans.map(({ row, rowTitle }) => {
+          const cells: Record<string, import("../../types/database").CellValue> = {};
           for (let colIdx = 1; colIdx < row.length; colIdx++) {
             const colMeta = extraColIds[colIdx - 1];
             if (!colMeta) continue;
-            const rawCell = row[colIdx] ?? "";
-            updateCell(
-              dbId,
-              rowPageId,
-              colMeta.id,
-              normalizeImportedCellValue(colMeta.type, rawCell),
-            );
+            cells[colMeta.id] = normalizeImportedCellValue(colMeta.type, row[colIdx] ?? "");
           }
+          return { title: rowTitle, cells };
+        });
+
+        const seedPageId = useDatabaseStore.getState().databases[dbId]?.rowPageOrder[0] ?? null;
+        const allRowPageIds = importRowsBatch(dbId, seedPageId, batchRowData);
+        console.log(`[IMPORT-DBG] ◀ importRowsBatch 완료 (${allRowPageIds.length}개)${memMB()}`);
+
+        // 페이지 ID 등록 및 자식 페이지 생성 (별도 루프)
+        for (const rowPlan of rowPlans) {
+          const { row, rowIdx, htmlRelPath, childHtmlPaths } = rowPlan;
+          if (!row) continue;
+          const rowPageId = allRowPageIds[rowIdx];
+          if (!rowPageId) continue;
+
+          rowPageIdByIndex.set(rowIdx, rowPageId);
+          if (htmlRelPath) registerImportedPageId(pair.folderPath, htmlRelPath, rowPageId);
 
           if (htmlRelPath) {
             const childPagePaths = childHtmlPaths
@@ -674,12 +707,14 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
 
           totalRowsImported++;
         }
+        console.log(`[IMPORT-DBG] ◀ 1단계 완료${memMB()}`);
 
         // 페이지 ID 등록 이후 실제 HTML 본문과 에셋을 채운다.
-        for (const rowPlan of rowPlans) {
+        console.log(`[IMPORT-DBG] ▶ 2단계: HTML 본문 채우기 루프 시작${memMB()}`);
+        await runConcurrent(rowPlans, 3, async (rowPlan) => {
           const { rowIdx, rowTitle, htmlRelPath } = rowPlan;
           const rowPageId = rowPageIdByIndex.get(rowIdx);
-          if (!rowPageId) continue;
+          if (!rowPageId) return;
 
           setProgress({
             pairIdx,
@@ -701,8 +736,10 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
             if (htmlHandle) {
               try {
                 const htmlFile = await htmlHandle.getFile();
+                console.log(`[IMPORT-DBG] 행 [${rowIdx+1}/${csvData.rows.length}] "${rowTitle}" HTML 로드: ${(htmlFile.size/1024).toFixed(1)}KB${memMB()}`);
                 const html = await htmlFile.text();
                 await fillPageFromHtml(rowPageId, html, htmlRelPath, rowTitle);
+                console.log(`[IMPORT-DBG] 행 [${rowIdx+1}/${csvData.rows.length}] "${rowTitle}" 완료${memMB()}`);
 
                 // 자식 페이지(서브 폴더 내 HTML) 처리
                 const childPagePaths = childPagePathsByRowIndex.get(rowIdx) ?? [];
@@ -732,7 +769,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
               }
             }
           }
-        }
+        });
       }
 
       setStatus({ kind: "done", rowsImported: totalRowsImported, failed: totalFailed });
@@ -742,6 +779,8 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
       setStatus({ kind: "error", message: `가져오기 실패: ${msg}` });
     } finally {
       setProgress(null);
+      // import 완료 — 차단된 쓰기를 한 번에 flush
+      await resumeStorageWrites();
     }
   };
 

@@ -13,9 +13,11 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-export function extractNotionInlineComments(html: string): NotionInlineComment[] {
-  if (typeof DOMParser === "undefined") return [];
-  const doc = new DOMParser().parseFromString(html, "text/html");
+export function extractNotionInlineComments(html: string | Document): NotionInlineComment[] {
+  if (typeof html === "string" && typeof DOMParser === "undefined") return [];
+  const doc = typeof html === "string"
+    ? new DOMParser().parseFromString(html, "text/html")
+    : html;
   const detailsNodes = Array.from(doc.querySelectorAll("details"));
   const detail = detailsNodes.find((node) => {
     const summary = node.querySelector("summary");

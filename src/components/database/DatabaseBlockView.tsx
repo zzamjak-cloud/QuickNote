@@ -570,7 +570,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                       void targetScroll;
                     });
                   }}
-                  className="mt-1 w-full rounded-md border-transparent bg-transparent py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="mt-1 ml-auto block rounded-md border-transparent bg-transparent px-2 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
                   + {step}개 더보기
                 </button>

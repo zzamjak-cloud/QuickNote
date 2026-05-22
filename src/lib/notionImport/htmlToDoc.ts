@@ -1082,9 +1082,10 @@ function dedupeConsecutiveImportBlocks(input: JSONContent[]): JSONContent[] {
   return out;
 }
 
-function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSONContent {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
+function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOptions): JSONContent {
+  const doc = typeof html === "string"
+    ? new DOMParser().parseFromString(html, "text/html")
+    : html;
   const page = doc.querySelector("article.page") ?? doc.body;
   const blocks: JSONContent[] = [];
 
@@ -1424,16 +1425,18 @@ function notionHtmlToDocInternal(html: string, options?: HtmlToDocOptions): JSON
   };
 }
 
-export function notionHtmlToDoc(html: string, options?: HtmlToDocOptions): JSONContent {
+export function notionHtmlToDoc(html: string | Document, options?: HtmlToDocOptions): JSONContent {
   return notionHtmlToDocInternal(html, options);
 }
 
 // Notion HTML 에서 페이지 아이콘 추출
 // - emoji: 텍스트 노드 (e.g. "📝")
 // - imagePath: 상대 경로 (e.g. "page-name/icon.png") — 호출부에서 자산 리졸버로 처리
-export function extractNotionPageIcon(html: string): { emoji?: string; imagePath?: string } | null {
-  if (typeof DOMParser === "undefined") return null;
-  const doc = new DOMParser().parseFromString(html, "text/html");
+export function extractNotionPageIcon(html: string | Document): { emoji?: string; imagePath?: string } | null {
+  if (typeof html === "string" && typeof DOMParser === "undefined") return null;
+  const doc = typeof html === "string"
+    ? new DOMParser().parseFromString(html, "text/html")
+    : html;
   const header = doc.querySelector("header") ?? doc.body;
   if (!header) return null;
 
