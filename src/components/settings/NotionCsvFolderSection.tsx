@@ -76,7 +76,7 @@ async function runConcurrent<T>(
   const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
     while (index < items.length) {
       const current = index++;
-      await fn(items[current]);
+      await fn(items[current] as T);
     }
   });
   await Promise.all(workers);

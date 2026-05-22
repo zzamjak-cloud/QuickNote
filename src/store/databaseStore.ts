@@ -545,7 +545,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const pageUpdates: Record<string, Page> = {};
 
         for (let i = 0; i < rows.length; i++) {
-          const { title, cells } = rows[i];
+          const row = rows[i];
+          if (!row) continue;
+          const { title, cells } = row;
           const dbCells: Record<string, CellValue> = { ...columnDefaults, ...cells };
 
           if (i === 0 && existingSeedPageId) {
