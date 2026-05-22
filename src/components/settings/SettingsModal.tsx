@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Building, Building2, Download, Folder, User, Users, UsersRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import pkg from "../../../package.json";
@@ -7,10 +7,7 @@ import { useMemberStore } from "../../store/memberStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { MyProfileSection } from "./MyProfileSection";
 import { AdminMembersTab } from "./AdminMembersTab";
-import { AdminTeamsTab } from "./AdminTeamsTab";
 import { AdminWorkspacesTab } from "./AdminWorkspacesTab";
-import { AdminOrganizationsTab } from "./AdminOrganizationsTab";
-import { NotionImportTab } from "./NotionImportTab";
 import { ProjectsPanel } from "../scheduler/admin/ProjectsPanel";
 import { listTeamsApi } from "../../lib/sync/teamApi";
 import { listOrganizationsApi } from "../../lib/sync/organizationApi";
@@ -18,6 +15,16 @@ import { useTeamStore } from "../../store/teamStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+
+const AdminTeamsTab = lazy(() =>
+  import("./AdminTeamsTab").then((m) => ({ default: m.AdminTeamsTab })),
+);
+const AdminOrganizationsTab = lazy(() =>
+  import("./AdminOrganizationsTab").then((m) => ({ default: m.AdminOrganizationsTab })),
+);
+const NotionImportTab = lazy(() =>
+  import("./NotionImportTab").then((m) => ({ default: m.NotionImportTab })),
+);
 
 type Props = {
   open: boolean;
@@ -193,13 +200,15 @@ export function SettingsModal({ open, onClose }: Props) {
             );
           })()}
           <div className="flex-1 overflow-y-auto p-6">
-            {tab === "profile" && <MyProfileSection />}
-            {tab === "notionImport" && <NotionImportTab />}
-            {tab === "members" && isAdmin && <AdminMembersTab />}
-            {tab === "projects" && isAdmin && <ProjectsPanel />}
-            {tab === "teams" && isAdmin && <AdminTeamsTab />}
-            {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
-            {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
+            <Suspense fallback={null}>
+              {tab === "profile" && <MyProfileSection />}
+              {tab === "notionImport" && <NotionImportTab />}
+              {tab === "members" && isAdmin && <AdminMembersTab />}
+              {tab === "projects" && isAdmin && <ProjectsPanel />}
+              {tab === "teams" && isAdmin && <AdminTeamsTab />}
+              {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
+              {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
+            </Suspense>
           </div>
         </section>
 

@@ -1,5 +1,5 @@
 // LC 스케줄러 풀스크린 모달 — createPortal, 뷰 모드 라우팅.
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
@@ -20,11 +20,19 @@ import { LC_SCHEDULER_COLUMN_IDS, makeLCSchedulerDatabaseId } from "../../lib/sc
 import { SchedulerHeader } from "./SchedulerHeader";
 import { SchedulerTeamTabs } from "./SchedulerTeamTabs";
 import { SchedulerToolbar } from "./SchedulerToolbar";
-import { ScheduleGrid } from "./ScheduleGrid";
-import { MonthScheduleView, WeekScheduleView } from "./WeekScheduleView";
 import { WeeklyMmPanel } from "./mm/WeeklyMmPanel";
 import { listTeamsApi } from "../../lib/sync/teamApi";
 import { listOrganizationsApi } from "../../lib/sync/organizationApi";
+
+const ScheduleGrid = lazy(() =>
+  import("./ScheduleGrid").then((m) => ({ default: m.ScheduleGrid })),
+);
+const WeekScheduleView = lazy(() =>
+  import("./WeekScheduleView").then((m) => ({ default: m.WeekScheduleView })),
+);
+const MonthScheduleView = lazy(() =>
+  import("./WeekScheduleView").then((m) => ({ default: m.MonthScheduleView })),
+);
 
 // 연도의 마지막 날짜
 function endOfYear(year: number): Date {
@@ -197,17 +205,19 @@ export function LCSchedulerModal({ onClose }: Props) {
       <SchedulerToolbar />
 
       {/* 본문: 연간 / 월간 / 주간 뷰 */}
-      {bodyReady ? (
-        viewMode === "year" ? (
-          <ScheduleGrid workspaceId={schedulerWorkspaceId} />
-        ) : viewMode === "month" ? (
-          <MonthScheduleView />
+      <Suspense fallback={<div className="flex-1 min-h-0 bg-zinc-50 dark:bg-zinc-950" />}>
+        {bodyReady ? (
+          viewMode === "year" ? (
+            <ScheduleGrid workspaceId={schedulerWorkspaceId} />
+          ) : viewMode === "month" ? (
+            <MonthScheduleView />
+          ) : (
+            <WeekScheduleView />
+          )
         ) : (
-          <WeekScheduleView />
-        )
-      ) : (
-        <div className="flex-1 min-h-0 bg-zinc-50 dark:bg-zinc-950" />
-      )}
+          <div className="flex-1 min-h-0 bg-zinc-50 dark:bg-zinc-950" />
+        )}
+      </Suspense>
 
       {bodyReady && <WeeklyMmPanel />}
     </div>,
