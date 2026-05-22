@@ -4,6 +4,7 @@ import "./index.css";
 import "highlight.js/styles/github-dark.css";
 import { reportNonFatal } from "./lib/reportNonFatal";
 import { Bootstrap } from "./Bootstrap";
+import { RootErrorBoundary } from "./components/RootErrorBoundary";
 import {
   purgeLegacyLocalStorage,
   purgeLegacyTauriData,
@@ -26,4 +27,8 @@ createRoot(document.getElementById("root")!, {
     if ((error as Error).message?.includes("[tiptap error]")) return;
     reportNonFatal(error, "react.uncaughtError");
   },
-}).render(<Bootstrap />);
+}).render(
+  <RootErrorBoundary>
+    <Bootstrap />
+  </RootErrorBoundary>,
+);
