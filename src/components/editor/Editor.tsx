@@ -8,36 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { useEditor, EditorContent, ReactRenderer } from "@tiptap/react";
-import { Extension } from "@tiptap/core";
-import type { Editor as TiptapEditorClass } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import { NodeRange } from "@tiptap/extension-node-range";
-import Placeholder from "@tiptap/extension-placeholder";
-import Link from "@tiptap/extension-link";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import { ImageBlock } from "../../lib/tiptapExtensions/imageBlock";
-import HorizontalRule from "@tiptap/extension-horizontal-rule";
-import { Table } from "@tiptap/extension-table";
-import { TableRow } from "@tiptap/extension-table-row";
-import { TableCell } from "@tiptap/extension-table-cell";
-import { TableHeader } from "@tiptap/extension-table-header";
-import { TextStyle } from "@tiptap/extension-text-style";
-import { Color } from "@tiptap/extension-color";
-import { Highlight } from "@tiptap/extension-highlight";
-import { YoutubeBlock } from "../../lib/tiptapExtensions/youtubeBlock";
-import {
-  InsertBeforeBlock,
-  syncInsertBeforeBlockSelection,
-} from "../../lib/tiptapExtensions/insertBeforeBlock";
-import { Indentation } from "../../lib/tiptapExtensions/indentation";
-import { OrderedListMarkdownShortcut } from "../../lib/tiptapExtensions/orderedListShortcut";
-import { BracketAutoClose } from "../../lib/tiptapExtensions/bracketAutoClose";
-import { InlineCodeShortcut } from "../../lib/tiptapExtensions/inlineCodeShortcut";
-import TextAlign from "@tiptap/extension-text-align";
+import { useEditor, EditorContent } from "@tiptap/react";
 import type { createLowlight } from "lowlight";
-import tippy, { type Instance as TippyInstance } from "tippy.js";
 import "tippy.js/dist/tippy.css";
 type LowlightApi = ReturnType<typeof createLowlight>;
 
@@ -56,35 +28,8 @@ type PasteUrlChoice = {
 
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
-import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
-import { PageContext, setPageContext } from "../../lib/tiptapExtensions/pageContext";
-import { MoveBlock } from "../../lib/tiptapExtensions/moveBlock";
-import { DeleteCurrentBlock } from "../../lib/tiptapExtensions/deleteCurrentBlock";
-import { Callout } from "../../lib/tiptapExtensions/callout";
-import {
-  Toggle,
-  ToggleHeader,
-  ToggleContent,
-} from "../../lib/tiptapExtensions/toggle";
-import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
-import { TabBlock, TabPanel } from "../../lib/tiptapExtensions/tabBlock";
-import { CodeBlockLowlightWithMarkdownPreview } from "../../lib/tiptapExtensions/markdownCodeBlockPreview";
-import { CodeBlockCopy } from "../../lib/tiptapExtensions/codeBlockCopy";
-import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
-import { MemberMention } from "../../lib/tiptapExtensions/memberMention";
-import { EmojiShortcode } from "../../lib/tiptapExtensions/emojiShortcode";
-import {
-  filterSlashMenuEntries,
-  type SlashMenuEntry,
-  type SlashLeafItem,
-} from "../../lib/tiptapExtensions/slashItems";
-import { DatabaseBlock } from "../../lib/tiptapExtensions/databaseBlock";
-import { PageLink } from "../../lib/tiptapExtensions/pageLink";
-import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
-import { BookmarkBlock } from "../../lib/tiptapExtensions/bookmarkBlock";
-import { LucideInlineIcon } from "../../lib/tiptapExtensions/lucideInlineIcon";
-import { DateInline } from "../../lib/tiptapExtensions/dateInline";
-import { SlashMenu, type SlashMenuHandle } from "./SlashMenu";
+import { setPageContext } from "../../lib/tiptapExtensions/pageContext";
+import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { ImageUpload } from "./ImageUpload";
 import { IconPicker, IconPickerPanel } from "../common/IconPicker";
 import { Star, FileText, Database, ChevronRight, ChevronDown } from "lucide-react";
@@ -95,7 +40,6 @@ import { ColumnReorderHandles } from "./ColumnReorderHandles";
 import { TableBlockControls } from "./TableBlockControls";
 import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
 import {
-  isAllowedTipTapLinkUri,
   isTrustedYoutubeInput,
   sanitizeWebLinkHref,
 } from "../../lib/safeUrl";
@@ -104,19 +48,10 @@ import { tipTapJsonDocEquals } from "../../lib/pm/jsonDocEquals";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import {
-  createEditorHandleDragOver,
-  createEditorHandleDrop,
   type BlockDropIndicatorRect,
   type ColumnDropState,
 } from "../../lib/editor/editorHandleDrop";
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
-import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
-import { extractClipboardFiles } from "../../lib/editor/clipboardFiles";
-import { isGifFile } from "../../lib/files/videoCompress";
-import { FileBlock } from "../../lib/tiptapExtensions/fileBlock";
-import { BlockBackground } from "../../lib/tiptapExtensions/blockBackground";
-import UniqueID from "@tiptap/extension-unique-id";
-import type { Transaction } from "@tiptap/pm/state";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
 import {
@@ -129,15 +64,10 @@ import {
   unregisterEditorNavigation,
   scrollToBlockId,
 } from "../../lib/editor/editorNavigationBridge";
-import {
-  parseQuickNoteLink,
-  quickNoteLinkLabel,
-} from "../../lib/navigation/quicknoteLinks";
 import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import {
-  createBlockCommentDecorations,
   dispatchDecoRefresh,
 } from "../../lib/tiptapExtensions/blockCommentDecorations";
 import { registerEditorForPage } from "../../lib/editor/editorByPageRegistry";
@@ -145,51 +75,20 @@ import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBa
 import { MentionSearchModal } from "./MentionSearchModal";
 import type { EditorView as PmEditorView } from "@tiptap/pm/view";
 import {
-  EDITOR_UNIQUE_ID_TYPES,
   isFullPageDatabaseDoc,
   normalizeFullPageDatabaseDoc,
 } from "../../lib/blocks/editorPolicy";
 import {
   AUTOSAVE_DEBOUNCE_MS,
   EMPTY_EDITOR_DOC,
-  PASTE_URL_MENU_HEIGHT,
-  PASTE_URL_MENU_WIDTH,
   clampFloatingPanelPosition,
   computeEditorTailSpacerPx,
-  suppressScrollToSelectionForTableInteraction,
   trySyncFullPageDatabaseTitle,
-  uniqueIdStepsHaveBoundary,
-  uniqueIdTypingInsertedSize,
-  uniqueIdTypingOnlySteps,
 } from "./editorHelpers";
+import { useEditorExtensions } from "./useEditorExtensions";
+import { useEditorProps } from "./useEditorProps";
+import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 
-/**
- * UniqueID.configure.filterTransaction 에서 `view.composing` 을 읽기 위한 핸들.
- * onCreate 에서만 설정 — 조합 중 appendTransaction(setNodeMarkup) 이 IME 를 끊는 것을 막는다.
- */
-let uniqueIdFilterHostEditor: TiptapEditorClass | null = null;
-
-/**
- * UniqueID appendTransaction 스킵 여부. false 를 반환하면 스킵(@tiptap/extension-unique-id 규약).
- * useMemo 밖에 둬서 performance.now 정합성·React purity 린트 이슈를 피한다.
- */
-function editorUniqueIdFilterTransaction(tr: Transaction): boolean {
-  if (tr.getMeta("composition")) {
-    return false;
-  }
-  if (uniqueIdFilterHostEditor?.view.composing) {
-    return false;
-  }
-  if (!tr.docChanged) return true;
-  if (tr.getMeta("__uniqueIDTransaction")) return true;
-  if (tr.getMeta("paste")) return true;
-  // 블록 분할(Enter) 등 노드 경계가 변하는 트랜잭션은 새 ID 가 필요하므로 처리
-  if (uniqueIdStepsHaveBoundary(tr.steps)) return true;
-  if (!uniqueIdTypingOnlySteps(tr.steps)) return true;
-  const inserted = uniqueIdTypingInsertedSize(tr.steps);
-  if (inserted > 160) return true;
-  return false;
-}
 
 type EditorProps = {
   /** 지정 시 해당 페이지를 편집(예: 사이드 피크). 미지정이면 activePageId 사용. */
@@ -342,275 +241,24 @@ export function Editor({
     };
   }, []);
 
-  const extensions = useMemo(
-    () => [
-      PageContext,
-      NodeRange.configure({}),
-      StarterKit.configure({
-        // lowlight 청크 로딩 전: 기본 codeBlock(구문강조 없음). 로드 후 CodeBlockLowlight로 교체됨.
-        codeBlock: lowlightApi
-          ? false
-          : {
-              HTMLAttributes: {
-                class: "hljs qn-code-block not-prose",
-              },
-            },
-        blockquote: false,
-        orderedList: false,
-        // 아래는 동일 이름으로 별도 등록하므로 StarterKit 쪽은 끈다.
-        link: false,
-        horizontalRule: false,
-        dropcursor: {
-          color: false,
-          width: 2,
-          class: "qn-dropcursor",
-        },
-      }),
-      BlockquoteNoInput,
-      OrderedListMarkdownShortcut,
-      Placeholder.configure({
-        placeholder: "/ 를 입력해 명령 보기...",
-      }),
-      Link.configure({
-        openOnClick: false,
-        // protocols 를 넣으면 linkifyjs에 registerCustomProtocol이 돌아가는데,
-        // 자동 링크·붙여넣기가 먼저 쓰인 뒤면 "already initialized" 경고가 난다.
-        // http/https/mailto/tel 은 Link 기본 isAllowedUri에 이미 포함되므로 생략한다.
-        isAllowedUri: isAllowedTipTapLinkUri,
-        HTMLAttributes: {
-          rel: "noopener noreferrer nofollow",
-          target: "_blank",
-        },
-      }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      ...(lowlightApi
-        ? [
-            CodeBlockLowlightWithMarkdownPreview.configure({
-              lowlight: lowlightApi,
-              /* null + fallbackLanguage: highlightAuto 없이 고정 언어로만 강조(입력 중 색 요동 방지) */
-              defaultLanguage: null,
-              fallbackLanguage: "javascript",
-              HTMLAttributes: {
-                class: "hljs qn-code-block not-prose",
-              },
-            }),
-          ]
-        : []),
-      CodeBlockCopy,
-      // 대용량 data: URL 을 문서 JSON 에 넣지 않음 — 이미지는 v4 S3 ref(quicknote-image://) 사용.
-      ImageBlock.configure({ allowBase64: false }),
-      // 동영상·PDF·zip 등 모든 파일은 fileBlock 으로 통합. mimeType 에 따라 NodeView 가 분기.
-      FileBlock,
-      HorizontalRule,
-      MoveBlock,
-      DeleteCurrentBlock,
-      Table.configure({ resizable: true }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      TextStyle,
-      Color,
-      Highlight.configure({ multicolor: true }),
-      YoutubeBlock.configure({ width: 560, height: 315, nocookie: true }),
-      Callout,
-      ColumnLayout,
-      Column,
-      TabBlock,
-      TabPanel,
-      Toggle,
-      ToggleHeader,
-      ToggleContent,
-      MemberMention,
-      createBlockCommentDecorations(effectivePageId ?? undefined, myMemberId),
-      EmojiShortcode,
-      DatabaseBlock,
-      PageLink,
-      ButtonBlock,
-      BookmarkBlock,
-      InsertBeforeBlock,
-      TextAlign.configure({ types: ["heading", "paragraph"] }),
-      LucideInlineIcon,
-      DateInline,
-      BlockBackground,
-      SlashCommand.configure({
-        suggestion: {
-          char: "/",
-          startOfLine: false,
-          command: ({ editor, range, props }) => {
-            const e = props as SlashMenuEntry;
-            if (e.kind === "leaf") {
-              e.command({ editor, range });
-            }
-          },
-          items: ({ editor, query }) => filterSlashMenuEntries(query, editor).slice(0, 40),
-          render: createSlashRenderer,
-          shouldShow: ({ editor }) => {
-            const { $from } = editor.state.selection;
-            for (let d = $from.depth; d > 0; d--) {
-              if ($from.node(d).type.name === "codeBlock") return false;
-            }
-            return true;
-          },
-        },
-      }),
-      Extension.create({
-        name: "blockDuplicate",
-        addKeyboardShortcuts() {
-          return {
-            "Mod-d": () => {
-              const { state, view } = this.editor;
-              const { $from } = state.selection;
-              if ($from.depth < 1) return false;
+  const extensions = useEditorExtensions({
+    lowlightApi,
+    isFullPageDatabase,
+    effectivePageId,
+    myMemberId,
+  });
 
-              const nodeStart = $from.before(1);
-              const node = $from.node(1);
-              if (!node) return false;
-
-              const insertAt = nodeStart + node.nodeSize;
-              const tr = state.tr.insert(insertAt, node.copy(node.content));
-              view.dispatch(tr.scrollIntoView());
-              return true;
-            },
-          };
-        },
-      }),
-      Indentation,
-      InlineCodeShortcut,
-      BracketAutoClose,
-      UniqueID.configure({
-        types: EDITOR_UNIQUE_ID_TYPES,
-        updateDocument: !isFullPageDatabase,
-        /** 짧은 텍스트 입력마다 appendTransaction 생략 → youtube·임베드 불필요 갱신 방지 */
-        filterTransaction: editorUniqueIdFilterTransaction,
-      }),
-    ],
-    [lowlightApi, isFullPageDatabase, effectivePageId, myMemberId],
-  );
-
-  const editorProps = useMemo(
-    () => ({
-      attributes: {
-        class: `prose prose-zinc dark:prose-invert max-w-none focus:outline-none ${
-          bodyOnly
-            ? "px-12 py-4"
-            : "px-12 py-8 min-h-[min(85vh,900px)]"
-        } qn-prose-marquee-host`,
-      },
-      handlePaste: (view: import("@tiptap/pm/view").EditorView, event: ClipboardEvent) => {
-        // image 는 image 노드, 그 외 file 항목은 fileBlock 노드로 삽입.
-        // string item(text/html 등) 은 PM 기본 paste 흐름에 위임.
-        const fileItems = extractClipboardFiles(event.clipboardData);
-        if (fileItems.length > 0) {
-          event.preventDefault();
-          for (const item of fileItems) {
-            const { file } = item;
-            if (item.isImage && !isGifFile(file)) {
-              void handleEditorInsertImage(file, (attrs) => {
-                view.dispatch(
-                  view.state.tr.replaceSelectionWith(
-                    view.state.schema.nodes.image!.create(attrs),
-                  ),
-                );
-              });
-            } else {
-              void insertFileFromFile(file, (attrs) => {
-                const fileNode = view.state.schema.nodes.fileBlock?.create(attrs);
-                if (!fileNode) return;
-                view.dispatch(
-                  view.state.tr.replaceSelectionWith(fileNode).scrollIntoView(),
-                );
-              });
-            }
-          }
-          return true;
-        }
-
-        const text = event.clipboardData?.getData("text/plain")?.trim() ?? "";
-        if (!text || /\s/.test(text)) return false;
-
-        const internalTarget = parseQuickNoteLink(text);
-        if (internalTarget) {
-          event.preventDefault();
-          const title = usePageStore.getState().pages[internalTarget.pageId]?.title;
-          const buttonType = view.state.schema.nodes.buttonBlock;
-          if (!buttonType) return true;
-          view.dispatch(
-            view.state.tr.replaceSelectionWith(
-              buttonType.create({
-                label: quickNoteLinkLabel(title, internalTarget),
-                href: text,
-              }),
-            ),
-          );
-          return true;
-        }
-
-        const normalizedUrl = sanitizeWebLinkHref(text);
-        if (!normalizedUrl) return false;
-        event.preventDefault();
-        const coords = view.coordsAtPos(view.state.selection.from);
-        const pos = clampFloatingPanelPosition(coords, {
-          width: PASTE_URL_MENU_WIDTH,
-          height: PASTE_URL_MENU_HEIGHT,
-        });
-        setPasteUrlChoice({
-          url: normalizedUrl,
-          range: { from: view.state.selection.from, to: view.state.selection.to },
-          top: pos.top,
-          left: pos.left,
-        });
-        return true;
-      },
-      handleDrop: createEditorHandleDrop({
-        columnDropRef,
-        clearColumnDropUi,
-        clearBlockDropIndicator,
-        insertImageFromFile: handleEditorInsertImage,
-      }),
-      handleDOMEvents: {
-        dragover: createEditorHandleDragOver({
-          showBlockDropIndicator: setBlockDropIndicator,
-          clearBlockDropIndicator,
-        }),
-        dragleave: (view: PmEditorView, event: DragEvent) => {
-          const next = event.relatedTarget;
-          if (!(next instanceof Node) || !view.dom.contains(next)) {
-            clearBlockDropIndicator();
-          }
-          return false;
-        },
-      },
-      handleKeyDown(view: PmEditorView, event: KeyboardEvent) {
-        if (handleAtOpenMention(view, event)) return true;
-        return false;
-      },
-      handleScrollToSelection: (view: PmEditorView) => {
-        if (suppressScrollToSelectionForTableInteraction(view)) return true;
-        const host = editorScrollHostRef.current;
-        if (!host) return false;
-        const { from } = view.state.selection;
-        try {
-          const coords = view.coordsAtPos(from);
-          const rect = host.getBoundingClientRect();
-          // 커서가 이미 뷰포트 안에 있으면 PM의 자동 스크롤 억제
-          if (coords.top >= rect.top && coords.bottom <= rect.bottom) return true;
-        } catch {
-          // coordsAtPos가 실패하면 기본 동작에 위임
-        }
-        return false;
-      },
-    }),
-    [
-      clearColumnDropUi,
-      setBlockDropIndicator,
-      clearBlockDropIndicator,
-      handleEditorInsertImage,
-      handleAtOpenMention,
-      setPasteUrlChoice,
-      bodyOnly,
-    ],
-  );
+  const editorProps = useEditorProps({
+    bodyOnly,
+    columnDropRef,
+    clearColumnDropUi,
+    clearBlockDropIndicator,
+    setBlockDropIndicator,
+    handleEditorInsertImage,
+    handleAtOpenMention,
+    setPasteUrlChoice,
+    editorScrollHostRef,
+  });
 
   // 슬래시 명령 등 editor 인스턴스만 받는 콜백에서 현재 페이지 ID 를 알 수 있도록
   // PageContext storage 에 effectivePageId 를 주입한다.
@@ -624,10 +272,10 @@ export function Editor({
       shouldRerenderOnTransaction: false,
       editable: !isFullPageDatabase,
       onCreate: ({ editor: created }) => {
-        uniqueIdFilterHostEditor = created;
+        setUniqueIdFilterHostEditor(created);
       },
       onDestroy: () => {
-        uniqueIdFilterHostEditor = null;
+        setUniqueIdFilterHostEditor(null);
       },
     },
     [lowlightApi, isFullPageDatabase],
@@ -1348,95 +996,3 @@ export function Editor({
   );
 }
 
-// tippy.js 기반 SuggestionRenderer.
-type RendererProps = {
-  editor: import("@tiptap/react").Editor;
-  clientRect?: (() => DOMRect | null) | null;
-  command: (item: SlashMenuEntry) => void;
-  items: SlashMenuEntry[];
-  query: string;
-  event?: KeyboardEvent;
-};
-
-function createSlashRenderer() {
-  let component: ReactRenderer<SlashMenuHandle> | null = null;
-  let popup: TippyInstance[] = [];
-
-  const pickProps = (p: RendererProps) => ({
-    entries: filterSlashMenuEntries(p.query, p.editor),
-    query: p.query,
-    command: (item: SlashLeafItem) => p.command(item),
-  });
-
-  return {
-    onStart: (props: RendererProps) => {
-      component = new ReactRenderer(SlashMenu, {
-        props: pickProps(props),
-        editor: props.editor,
-      });
-      if (!props.clientRect) return;
-      popup = tippy("body", {
-        getReferenceClientRect: () => {
-          const r = props.clientRect?.();
-          return r ?? new DOMRect(0, 0, 0, 0);
-        },
-        appendTo: () => document.body,
-        content: component.element,
-        showOnCreate: true,
-        interactive: true,
-        trigger: "manual",
-        placement: "bottom-start",
-        offset: [0, 8],
-        popperOptions: {
-          modifiers: [
-            {
-              name: "flip",
-              options: {
-                fallbackPlacements: [
-                  "top-start",
-                  "bottom-end",
-                  "top-end",
-                  "right-start",
-                  "left-start",
-                ],
-              },
-            },
-            {
-              name: "preventOverflow",
-              options: {
-                boundary: "viewport",
-                padding: 8,
-                altAxis: true,
-              },
-            },
-          ],
-        },
-        theme: "quicknote-suggestion",
-        arrow: false,
-      });
-    },
-    onUpdate: (props: RendererProps) => {
-      component?.updateProps(pickProps(props));
-      if (!props.clientRect) return;
-      popup[0]?.setProps({
-        getReferenceClientRect: () => {
-          const r = props.clientRect?.();
-          return r ?? new DOMRect(0, 0, 0, 0);
-        },
-      });
-    },
-    onKeyDown: (props: { event: KeyboardEvent }) => {
-      if (props.event.key === "Escape") {
-        popup[0]?.hide();
-        return true;
-      }
-      return component?.ref?.onKeyDown(props.event) ?? false;
-    },
-    onExit: () => {
-      popup[0]?.destroy();
-      component?.destroy();
-      popup = [];
-      component = null;
-    },
-  };
-}
