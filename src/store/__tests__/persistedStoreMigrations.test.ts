@@ -5,6 +5,14 @@ import { migrateNotificationStore } from "../notificationStore";
 import { migratePageStore } from "../pageStore";
 import { migrateSettingsStore } from "../settingsStore";
 import { LC_SCHEDULER_DATABASE_ID } from "../../lib/scheduler/database";
+import {
+  PAGE_STORE_DATA_KEYS,
+  PAGE_STORE_PERSIST_VERSION,
+} from "../pageStore/migrations";
+import {
+  DATABASE_STORE_DATA_KEYS,
+  DATABASE_STORE_PERSIST_VERSION,
+} from "../databaseStore/migrations";
 
 describe("persisted store migrations", () => {
   it("settingsStore migration keeps existing prefs and adds missing fields", () => {
@@ -255,4 +263,26 @@ describe("persisted store migrations", () => {
       expect((migrated.databases as Record<string, unknown>)["db1"]).toBeDefined();
     },
   );
+
+  // D5 CI 게이트: DATA_KEYS 또는 PERSIST_VERSION 변경 시 이 테스트가 fail 한다.
+  // 변경 방법: 1) PERSIST_VERSION 을 올리고 2) 아래 스냅샷 기댓값도 함께 업데이트할 것.
+  it("pageStore DATA_KEYS + PERSIST_VERSION 스냅샷 (버전 게이트)", () => {
+    expect({
+      version: PAGE_STORE_PERSIST_VERSION,
+      keys: [...PAGE_STORE_DATA_KEYS],
+    }).toEqual({
+      version: 5,
+      keys: ["pages", "activePageId", "cacheWorkspaceId", "migrationQuarantine"],
+    });
+  });
+
+  it("databaseStore DATA_KEYS + PERSIST_VERSION 스냅샷 (버전 게이트)", () => {
+    expect({
+      version: DATABASE_STORE_PERSIST_VERSION,
+      keys: [...DATABASE_STORE_DATA_KEYS],
+    }).toEqual({
+      version: 4,
+      keys: ["databases", "cacheWorkspaceId", "migrationQuarantine", "dbTemplates"],
+    });
+  });
 });

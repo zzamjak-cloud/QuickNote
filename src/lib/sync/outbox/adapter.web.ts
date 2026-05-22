@@ -65,4 +65,13 @@ export class DexieOutboxAdapter implements OutboxAdapter {
       .limit(limit)
       .toArray();
   }
+
+  async clearDeadLetters(): Promise<void> {
+    await this.db.deadLetters.clear();
+  }
+
+  async pruneExpiredDeadLetters(ttlMs: number): Promise<void> {
+    const cutoff = Date.now() - ttlMs;
+    await this.db.deadLetters.where("deadLetterAt").below(cutoff).delete();
+  }
 }

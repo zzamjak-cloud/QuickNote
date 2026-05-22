@@ -3,6 +3,7 @@
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import type { PersistedQuarantine } from "../migrations/persistedStore";
 
 export interface StoreSnapshot {
   pages: number;
@@ -77,11 +78,41 @@ export function diffSnapshots(
 export function logSnapshot(label: string): StoreSnapshot {
   const snap = captureStoreSnapshot();
   if (!isDev()) return snap;
-   
+
   console.groupCollapsed(`[qn-snapshot] ${label}`);
-   
+
   console.table(snap);
-   
+
   console.groupEnd();
   return snap;
+}
+
+export type QuarantineReport = {
+  pages: PersistedQuarantine[];
+  databases: PersistedQuarantine[];
+  total: number;
+};
+
+export function quarantineReport(): QuarantineReport {
+  const pages = usePageStore.getState().migrationQuarantine ?? [];
+  const databases = useDatabaseStore.getState().migrationQuarantine ?? [];
+  return { pages, databases, total: pages.length + databases.length };
+}
+
+/** 개발 환경에서 window.__qn 에 devtools 헬퍼를 등록한다. */
+export function registerDevTools(): void {
+  if (!isDev()) return;
+  const qn = {
+    snapshot: captureStoreSnapshot,
+    quarantine: () => {
+      const report = quarantineReport();
+      if (report.total === 0) {
+        console.info("[qn] migrationQuarantine: 항목 없음 ✅");
+      } else {
+        console.warn(`[qn] migrationQuarantine: 총 ${report.total}건`, report);
+      }
+      return report;
+    },
+  };
+  (globalThis as Record<string, unknown>).__qn = qn;
 }

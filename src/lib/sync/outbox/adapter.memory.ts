@@ -44,4 +44,12 @@ export class MemoryOutboxAdapter implements OutboxAdapter {
   ): Promise<Array<OutboxEntry & { deadLetterReason: string }>> {
     return this.deadLetters.slice(-limit);
   }
+
+  async clearDeadLetters(): Promise<void> {
+    this.deadLetters = [];
+  }
+
+  async pruneExpiredDeadLetters(_ttlMs: number): Promise<void> {
+    // 메모리 어댑터는 타임스탬프를 저장하지 않으므로 no-op.
+  }
 }

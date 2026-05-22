@@ -28,6 +28,7 @@ export interface GqlBridge {
 }
 
 const MAX_BACKOFF_MS = 60_000;
+const DEAD_LETTER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // 영구 실패 entry 를 자동 정리하는 attempts 상한.
 // 이 값을 넘긴 entry 는 head 에 영원히 남아 후속 entries 처리를 막는 stuck-head 위험이 있어 outbox 에서 제거한다.
 // 빠른 사용자 인지를 위해 15 회로 축소(이전: 50).
@@ -305,11 +306,21 @@ export class SyncEngine {
     }
   }
 
+  async clearDeadLetters(): Promise<void> {
+    await this.outbox.clearDeadLetters?.();
+  }
+
+  async getDeadLetterCount(): Promise<number> {
+    const items = await this.outbox.listDeadLetters?.(1000);
+    return items?.length ?? 0;
+  }
+
   async flush(): Promise<void> {
     if (this.stopped) return;
     if (this.flushing) return;
     this.flushing = true;
     try {
+      await this.outbox.pruneExpiredDeadLetters?.(DEAD_LETTER_TTL_MS);
       while (true) {
         if (this.stopped) return;
         const batchRaw = await this.outbox.list(20);

@@ -211,4 +211,15 @@ export class TauriOutboxAdapter implements OutboxAdapter {
       deadLetterReason: row.deadLetterReason,
     }));
   }
+
+  async clearDeadLetters(): Promise<void> {
+    const d = await db();
+    await d.execute(`DELETE FROM outbox_dead_letters`);
+  }
+
+  async pruneExpiredDeadLetters(ttlMs: number): Promise<void> {
+    const d = await db();
+    const cutoff = Date.now() - ttlMs;
+    await d.execute(`DELETE FROM outbox_dead_letters WHERE deadLetterAt < ?`, [cutoff]);
+  }
 }

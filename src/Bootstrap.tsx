@@ -54,6 +54,7 @@ import {
   isLCSchedulerDatabaseId,
 } from "./lib/scheduler/database";
 import { useSchedulerStore } from "./store/schedulerStore";
+import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
@@ -103,6 +104,8 @@ function useSyncBootstrap(): void {
         // 워크스페이스 ID도 동일 — 비동기 storage 복원 전 setWorkspaces 시 currentWorkspaceId 가 null 로 간주되어 첫 WS로 바뀜
         await ensureWorkspacePersistHydrated();
         if (cancelled) return;
+        // persist 복원 직후 quarantine 항목 자동 복구 시도 (1회).
+        tryRecoverQuarantine();
         applyRemoteClientPrefs(clientPrefs);
         setMe(me);
         // WorkspaceSummary[]로 캐스트 (options는 스토어 밖에서만 사용)
@@ -198,34 +201,60 @@ function useSyncBootstrap(): void {
         const fetchApply = async (): Promise<void> => {
           await migrateLegacyBlockCommentsToPagesOnce();
           const engine = await getSyncEngine();
-          const [pages, dbs, comments, pendingIds] = await Promise.all([
-            fetchPagesByWorkspace(currentWorkspaceId),
-            fetchDatabasesByWorkspace(currentWorkspaceId),
-            fetchCommentsByWorkspace(currentWorkspaceId),
+          const [[pagesResult, dbsResult, commentsResult], pendingIds] = await Promise.all([
+            Promise.allSettled([
+              fetchPagesByWorkspace(currentWorkspaceId),
+              fetchDatabasesByWorkspace(currentWorkspaceId),
+              fetchCommentsByWorkspace(currentWorkspaceId),
+            ]),
             engine.getPendingUpsertEntityIds(),
           ]);
           if (cancelled) return;
+
+          const pages = pagesResult.status === "fulfilled" ? pagesResult.value : null;
+          const dbs = dbsResult.status === "fulfilled" ? dbsResult.value : null;
+          const comments = commentsResult.status === "fulfilled" ? commentsResult.value : null;
+
+          const failedDomains: string[] = [];
+          if (pagesResult.status === "rejected") {
+            failedDomains.push("pages");
+            console.error("[sync] 페이지 페치 실패, 기존 캐시 유지", pagesResult.reason);
+          }
+          if (dbsResult.status === "rejected") {
+            failedDomains.push("databases");
+            console.error("[sync] DB 페치 실패, 기존 캐시 유지", dbsResult.reason);
+          }
+          if (commentsResult.status === "rejected") {
+            failedDomains.push("comments");
+            console.error("[sync] 댓글 페치 실패, 기존 캐시 유지", commentsResult.reason);
+          }
+          useUiStore.getState().setSyncPartialFetchFailed(failedDomains.length > 0 ? failedDomains : null);
+
           // 서버 응답에 포함된 id 집합 — 좀비 정리 시 보호 대상.
           const remotePageIds = new Set<string>();
-          for (const p of pages) if (p?.id) remotePageIds.add(p.id);
+          if (pages) for (const p of pages) if (p?.id) remotePageIds.add(p.id);
           const remoteDatabaseIds = new Set<string>();
-          for (const d of dbs) if (d?.id) remoteDatabaseIds.add(d.id);
+          if (dbs) for (const d of dbs) if (d?.id) remoteDatabaseIds.add(d.id);
+
           unstable_batchedUpdates(() => {
             if (switchResult.reason === "deferred-switch") {
               clearWorkspaceScopedStores(currentWorkspaceId);
             }
             useBlockCommentStore.getState().clearMessages();
-            applyRemotePagesToStore(pages);
-            applyRemoteDatabasesToStore(dbs);
-            applyRemoteCommentsToStore(comments);
-            // 서버에서 영구히 사라졌는데 로컬 캐시에 좀비로 남은 항목 청소.
-            reconcileWorkspaceFullSnapshot({
-              workspaceId: currentWorkspaceId,
-              remotePageIds,
-              remoteDatabaseIds,
-              pendingUpsertPageIds: pendingIds.pages,
-              pendingUpsertDatabaseIds: pendingIds.databases,
-            });
+            if (pages) applyRemotePagesToStore(pages);
+            if (dbs) applyRemoteDatabasesToStore(dbs);
+            if (comments) applyRemoteCommentsToStore(comments);
+            // pages + dbs 모두 성공한 경우에만 좀비 정리 실행.
+            // 부분 실패 시 빈 집합을 전달하면 유효 캐시까지 삭제되므로 건너뜀.
+            if (pages && dbs) {
+              reconcileWorkspaceFullSnapshot({
+                workspaceId: currentWorkspaceId,
+                remotePageIds,
+                remoteDatabaseIds,
+                pendingUpsertPageIds: pendingIds.pages,
+                pendingUpsertDatabaseIds: pendingIds.databases,
+              });
+            }
             applyWorkspaceLanding(currentWorkspaceId);
             refreshWorkspaceSnapshot(currentWorkspaceId);
           });
@@ -383,26 +412,51 @@ function useSyncBootstrap(): void {
         try {
           const fetchApply = async (): Promise<void> => {
             const engine2 = await getSyncEngine();
-            const [pages, dbs, comments, pendingIds] = await Promise.all([
-              fetchPagesByWorkspace(wsId),
-              fetchDatabasesByWorkspace(wsId),
-              fetchCommentsByWorkspace(wsId),
+            const [[pagesResult, dbsResult, commentsResult], pendingIds] = await Promise.all([
+              Promise.allSettled([
+                fetchPagesByWorkspace(wsId),
+                fetchDatabasesByWorkspace(wsId),
+                fetchCommentsByWorkspace(wsId),
+              ]),
               engine2.getPendingUpsertEntityIds(),
             ]);
+
+            const pages = pagesResult.status === "fulfilled" ? pagesResult.value : null;
+            const dbs = dbsResult.status === "fulfilled" ? dbsResult.value : null;
+            const comments = commentsResult.status === "fulfilled" ? commentsResult.value : null;
+
+            const failedDomains: string[] = [];
+            if (pagesResult.status === "rejected") {
+              failedDomains.push("pages");
+              console.error("[sync] 온라인 복귀 — 페이지 페치 실패, 기존 캐시 유지", pagesResult.reason);
+            }
+            if (dbsResult.status === "rejected") {
+              failedDomains.push("databases");
+              console.error("[sync] 온라인 복귀 — DB 페치 실패, 기존 캐시 유지", dbsResult.reason);
+            }
+            if (commentsResult.status === "rejected") {
+              failedDomains.push("comments");
+              console.error("[sync] 온라인 복귀 — 댓글 페치 실패, 기존 캐시 유지", commentsResult.reason);
+            }
+            useUiStore.getState().setSyncPartialFetchFailed(failedDomains.length > 0 ? failedDomains : null);
+
             const remotePageIds = new Set<string>();
-            for (const p of pages) if (p?.id) remotePageIds.add(p.id);
+            if (pages) for (const p of pages) if (p?.id) remotePageIds.add(p.id);
             const remoteDatabaseIds = new Set<string>();
-            for (const d of dbs) if (d?.id) remoteDatabaseIds.add(d.id);
-            applyRemotePagesToStore(pages);
-            applyRemoteDatabasesToStore(dbs);
-            applyRemoteCommentsToStore(comments);
-            reconcileWorkspaceFullSnapshot({
-              workspaceId: wsId,
-              remotePageIds,
-              remoteDatabaseIds,
-              pendingUpsertPageIds: pendingIds.pages,
-              pendingUpsertDatabaseIds: pendingIds.databases,
-            });
+            if (dbs) for (const d of dbs) if (d?.id) remoteDatabaseIds.add(d.id);
+
+            if (pages) applyRemotePagesToStore(pages);
+            if (dbs) applyRemoteDatabasesToStore(dbs);
+            if (comments) applyRemoteCommentsToStore(comments);
+            if (pages && dbs) {
+              reconcileWorkspaceFullSnapshot({
+                workspaceId: wsId,
+                remotePageIds,
+                remoteDatabaseIds,
+                pendingUpsertPageIds: pendingIds.pages,
+                pendingUpsertDatabaseIds: pendingIds.databases,
+              });
+            }
           };
           await fetchApply();
           const engine = await getSyncEngine();

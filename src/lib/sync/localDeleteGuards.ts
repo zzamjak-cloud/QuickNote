@@ -8,6 +8,8 @@ type GuardEntry = {
 
 const LOCAL_DELETE_GUARDS_KEY = "quicknote.sync.localDeleteGuards.v1";
 const LOCAL_DELETE_GUARD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// permanent tombstone 도 무한 누적을 막기 위해 30일 후 자동 만료.
+const PERMANENT_TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function guardKey(kind: EntityKind, workspaceId: string, id: string): string {
   return `${kind}:${workspaceId}:${id}`;
@@ -36,11 +38,27 @@ function pruneGuards(guards: Record<string, GuardEntry>, nowMs: number): Record<
   const next: Record<string, GuardEntry> = {};
   for (const [key, entry] of Object.entries(guards)) {
     if (!entry || !Number.isFinite(entry.deletedAtMs)) continue;
-    // 영구 tombstone 은 TTL 과 무관하게 항상 유지한다.
-    if (!entry.permanent && nowMs - entry.deletedAtMs > LOCAL_DELETE_GUARD_TTL_MS) continue;
+    const age = nowMs - entry.deletedAtMs;
+    // permanent tombstone 도 30일 경과 시 만료(무한 누적 방지).
+    if (entry.permanent && age > PERMANENT_TOMBSTONE_TTL_MS) continue;
+    if (!entry.permanent && age > LOCAL_DELETE_GUARD_TTL_MS) continue;
     next[key] = entry;
   }
   return next;
+}
+
+/** 앱 시작 시 localStorage 의 만료 guard 를 일괄 정리한다. */
+export function pruneLocalDeleteGuardsOnStartup(): void {
+  try {
+    const raw = globalThis.localStorage?.getItem(LOCAL_DELETE_GUARDS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return;
+    const pruned = pruneGuards(parsed as Record<string, GuardEntry>, Date.now());
+    globalThis.localStorage?.setItem(LOCAL_DELETE_GUARDS_KEY, JSON.stringify(pruned));
+  } catch {
+    // localStorage 비가용 환경에서는 조용히 무시.
+  }
 }
 
 export function markLocallyDeletedEntity(

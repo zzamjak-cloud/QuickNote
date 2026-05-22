@@ -67,6 +67,8 @@ type UiStoreState = {
   pendingFavoriteNavigation: FavoriteNavigationRequest | null;
   outboxWorkspaceSwitchHold: OutboxWorkspaceSwitchHold | null;
   workspaceLoading: WorkspaceLoadingState | null;
+  /** 부분 페치 실패 시 실패한 도메인 목록. null이면 정상. 세션 전용 — persist 제외. */
+  syncPartialFetchFailed: string[] | null;
 };
 
 type UiStoreActions = {
@@ -104,6 +106,7 @@ type UiStoreActions = {
   clearFavoriteNavigation: () => void;
   setOutboxWorkspaceSwitchHold: (payload: OutboxWorkspaceSwitchHold | null) => void;
   setWorkspaceLoading: (payload: WorkspaceLoadingState | null) => void;
+  setSyncPartialFetchFailed: (domains: string[] | null) => void;
 };
 
 function newToastId(): string {
@@ -126,6 +129,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   pendingFavoriteNavigation: null,
   outboxWorkspaceSwitchHold: null,
   workspaceLoading: null,
+  syncPartialFetchFailed: null,
 
   toggleRightPanel: (tab) =>
     set((s) => {
@@ -228,6 +232,8 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   setOutboxWorkspaceSwitchHold: (payload) =>
     set({ outboxWorkspaceSwitchHold: payload }),
   setWorkspaceLoading: (payload) => set({ workspaceLoading: payload }),
+  setSyncPartialFetchFailed: (domains) => set({ syncPartialFetchFailed: domains }),
+
 }),
     {
       name: "quicknote.ui.v1",

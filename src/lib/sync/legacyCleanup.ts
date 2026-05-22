@@ -6,6 +6,7 @@
 // 일시 사라지는 증상의 원인이었다.
 
 import { LEGACY_KEYS } from "./localStorageKeys";
+import { pruneLocalDeleteGuardsOnStartup } from "./localDeleteGuards";
 
 export function purgeLegacyLocalStorage(): void {
   if (typeof localStorage === "undefined") return;
@@ -15,6 +16,7 @@ export function purgeLegacyLocalStorage(): void {
       localStorage.removeItem(k);
     }
   }
+  pruneLocalDeleteGuardsOnStartup();
 }
 
 const LEGACY_SQL_TABLES = [

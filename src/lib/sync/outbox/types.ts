@@ -37,5 +37,9 @@ export interface OutboxAdapter {
   /** 영구 실패 항목을 제거하기 전에 보존한다. */
   putDeadLetter?(entry: OutboxEntry, reason: string): Promise<void>;
   listDeadLetters?(limit: number): Promise<Array<OutboxEntry & { deadLetterReason: string }>>;
+  /** dead letter 전체 삭제(사용자 수동 초기화). */
+  clearDeadLetters?(): Promise<void>;
+  /** ttlMs 이상 경과한 dead letter 를 자동 만료 처리. */
+  pruneExpiredDeadLetters?(ttlMs: number): Promise<void>;
   clear(): Promise<void>;
 }
