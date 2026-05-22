@@ -12,6 +12,8 @@ import {
   Link2,
   Loader2,
   Maximize2,
+  ChevronDown,
+  ChevronRight,
   Minus,
   MoreHorizontal,
   Printer,
@@ -38,7 +40,7 @@ import { pageDocToHtml } from "../../lib/export/pageToHtml";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
-import { PageSubpageTree } from "../page/PageSubpageTree";
+import { PageSubpageTree, countPageDescendants } from "../page/PageSubpageTree";
 import { CLEAR_BOX_SELECTION_EVENT } from "../../hooks/boxSelect/constants";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
@@ -76,6 +78,9 @@ export function DatabaseRowPeek() {
     ? (pageFullWidthById[peekPageId] ?? globalFullWidth)
     : globalFullWidth;
   const page = usePageStore((s) => (peekPageId ? s.pages[peekPageId] : undefined));
+  const peekDescendantCount = usePageStore((s) =>
+    peekPageId ? countPageDescendants(peekPageId, s.pages) : 0,
+  );
   const isPendingPageCreation = Boolean(peekPageId?.startsWith("lc-scheduler:creating:") && !page);
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
@@ -171,6 +176,7 @@ export function DatabaseRowPeek() {
   const restoredPageIdRef = useRef<string | null>(null);
   const openedAtRef = useRef(0);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
+  const [subpageTreeCollapsed, setSubpageTreeCollapsed] = useState(true);
 
   // 슬라이드·딤머 애니메이션 상태
   const [visible, setVisible] = useState(false);
@@ -695,7 +701,25 @@ export function DatabaseRowPeek() {
           <Editor key={peekPageId} pageId={peekPageId} bodyOnly peek showTailSpacer={false} />
         </div>
         {/* 항목 내 하위 페이지 구조 */}
-        <PageSubpageTree currentPageId={peekPageId} compact onNavigate={peekNavigate} className="mt-4" />
+        {peekDescendantCount > 0 && (
+          <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50/60 dark:border-zinc-700 dark:bg-zinc-900/40">
+            <button
+              type="button"
+              onClick={() => setSubpageTreeCollapsed((prev) => !prev)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100/70 dark:text-zinc-200 dark:hover:bg-zinc-800/60"
+              aria-expanded={!subpageTreeCollapsed}
+            >
+              {subpageTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+              <span className="min-w-0 flex-1">하위페이지 구조</span>
+              <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
+                {peekDescendantCount}개
+              </span>
+            </button>
+            {!subpageTreeCollapsed && (
+              <PageSubpageTree currentPageId={peekPageId} compact onNavigate={peekNavigate} className="px-2 pb-3" hideHeader />
+            )}
+          </div>
+        )}
         <div
           aria-hidden
           className="qn-editor-scroll-tail-spacer shrink-0 select-none"

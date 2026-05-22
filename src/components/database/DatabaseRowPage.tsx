@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Star, FileText } from "lucide-react";
+import { Star, FileText, ChevronRight, ChevronDown } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -36,6 +36,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [iconAlert, setIconAlert] = useState<string | null>(null);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
+  const [subpageTreeCollapsed, setSubpageTreeCollapsed] = useState(true);
   const childSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -138,7 +139,23 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
       {descendantCount > 0 && (
         <div className={`mx-auto w-full ${columnClass}`}>
           <div ref={childSectionRef} className="px-12">
-            <PageSubpageTree rootPageId={pageId} currentPageId={pageId} className="mt-6" />
+            <div className="mt-6 w-1/2 rounded-lg border border-zinc-200 bg-zinc-50/60 dark:border-zinc-700 dark:bg-zinc-900/40">
+              <button
+                type="button"
+                onClick={() => setSubpageTreeCollapsed((prev) => !prev)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-100/70 dark:text-zinc-200 dark:hover:bg-zinc-800/60"
+                aria-expanded={!subpageTreeCollapsed}
+              >
+                {subpageTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                <span className="min-w-0 flex-1">하위페이지 구조</span>
+                <span className="shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
+                  {descendantCount}개
+                </span>
+              </button>
+              {!subpageTreeCollapsed && (
+                <PageSubpageTree rootPageId={pageId} currentPageId={pageId} className="px-2 pb-3" hideHeader />
+              )}
+            </div>
           </div>
         </div>
       )}

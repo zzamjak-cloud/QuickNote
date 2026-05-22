@@ -231,9 +231,13 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
           ) : (
             visibleActive.map((d) => {
               const fullPageId = findFullPagePageIdForDatabase(d.id);
-              const fullPageTitle = fullPageId
+              const rawFullPageTitle = fullPageId
                 ? pages[fullPageId]?.title?.trim() || null
                 : null;
+              const fullPageTitle =
+                rawFullPageTitle && rawFullPageTitle !== d.meta.title
+                  ? rawFullPageTitle
+                  : null;
               return (
               <div
                 key={d.id}
