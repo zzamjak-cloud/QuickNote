@@ -2,6 +2,8 @@ import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper } from "@tiptap/react";
 import { createPortal } from "react-dom";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useId,
@@ -25,11 +27,21 @@ import type {
 } from "../../types/database";
 import { emptyPanelState } from "../../types/database";
 import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema";
-import { DatabaseTableView } from "./views/DatabaseTableView";
-import { DatabaseKanbanView } from "./views/DatabaseKanbanView";
-import { DatabaseGalleryView } from "./views/DatabaseGalleryView";
-import { DatabaseTimelineView } from "./views/DatabaseTimelineView";
-import { DatabaseListView } from "./views/DatabaseListView";
+const DatabaseTableView = lazy(() =>
+  import("./views/DatabaseTableView").then((m) => ({ default: m.DatabaseTableView })),
+);
+const DatabaseKanbanView = lazy(() =>
+  import("./views/DatabaseKanbanView").then((m) => ({ default: m.DatabaseKanbanView })),
+);
+const DatabaseGalleryView = lazy(() =>
+  import("./views/DatabaseGalleryView").then((m) => ({ default: m.DatabaseGalleryView })),
+);
+const DatabaseTimelineView = lazy(() =>
+  import("./views/DatabaseTimelineView").then((m) => ({ default: m.DatabaseTimelineView })),
+);
+const DatabaseListView = lazy(() =>
+  import("./views/DatabaseListView").then((m) => ({ default: m.DatabaseListView })),
+);
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
 import { DatabaseBlockBinding } from "./DatabaseBlockBinding";
@@ -519,7 +531,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
             ) : null}
 
             <DatabaseBlockDataArea bundleGone={bundleGone}>
-              {activeViewComponent}
+              <Suspense fallback={null}>
+                {activeViewComponent}
+              </Suspense>
             </DatabaseBlockDataArea>
 
             {/* 더보기 버튼 — visibleRowLimit 이 적용되어 일부가 잘릴 때만 노출.

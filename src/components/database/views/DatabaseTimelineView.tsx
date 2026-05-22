@@ -2,6 +2,7 @@
  
 import {
   Fragment,
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -178,6 +179,64 @@ type TimelineCardLayout = {
   dateLabel: string;
   tooltipText: string;
 };
+
+// props 얕은 비교: row/isSelected 변경 시만 리렌더. 다른 행 선택·카드 드래그는 이 행에 영향 없음.
+const TimelineLabelRow = memo(function TimelineLabelRow({
+  row,
+  isSelected,
+  onFocus,
+  onOpenFull,
+  openPeek,
+}: {
+  row: DatabaseRowView;
+  isSelected: boolean;
+  onFocus: (pageId: string) => void;
+  onOpenFull: (pageId: string) => void;
+  openPeek: (pageId: string) => void;
+}) {
+  return (
+    <div
+      onClick={() => onFocus(row.pageId)}
+      className={[
+        "group relative flex cursor-pointer items-center gap-1 truncate border-b border-zinc-100 px-2 dark:border-zinc-800",
+        isSelected
+          ? "bg-blue-50 dark:bg-blue-950/30"
+          : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
+      ].join(" ")}
+      style={{ height: ROW_HEIGHT + ROW_GAP }}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onFocus(row.pageId);
+        }
+      }}
+    >
+      <span className="truncate pr-14 text-base text-zinc-700 dark:text-zinc-200">
+        {row.title || "제목 없음"}
+      </span>
+      <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onOpenFull(row.pageId); }}
+          title="페이지로 열기"
+          className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+        >
+          <Maximize2 size={12} />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); openPeek(row.pageId); }}
+          title="사이드 피크 열기"
+          className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+        >
+          <PanelRight size={12} />
+        </button>
+      </div>
+    </div>
+  );
+});
 
 export function DatabaseTimelineView({
   databaseId,
@@ -385,10 +444,10 @@ export function DatabaseTimelineView({
     return Math.max(pxPerDay, days * pxPerDay);
   }, [axis.minT, isWeekAxis, pxPerDay]);
 
-  const openFull = (pageId: string) => {
+  const openFull = useCallback((pageId: string) => {
     setActivePage(pageId);
     setCurrentTabPage(pageId);
-  };
+  }, [setActivePage, setCurrentTabPage]);
 
   type HeaderTick = {
     x: number;
@@ -940,53 +999,14 @@ export function DatabaseTimelineView({
                   <div aria-hidden="true" style={{ height: virtualRows.topPadding }} />
                 )}
                 {renderedRows.map((row) => (
-                  <div
+                  <TimelineLabelRow
                     key={row.pageId}
-                    onClick={() => focusTimelineCard(row.pageId)}
-                    className={[
-                      "group relative flex cursor-pointer items-center gap-1 truncate border-b border-zinc-100 px-2 dark:border-zinc-800",
-                      selectedPageId === row.pageId || selectedCardIds.has(row.pageId)
-                        ? "bg-blue-50 dark:bg-blue-950/30"
-                        : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
-                    ].join(" ")}
-                    style={{ height: ROW_HEIGHT + ROW_GAP }}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        focusTimelineCard(row.pageId);
-                      }
-                    }}
-                  >
-                    <span className="truncate pr-14 text-base text-zinc-700 dark:text-zinc-200">
-                      {row.title || "제목 없음"}
-                    </span>
-                    <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openFull(row.pageId);
-                        }}
-                        title="페이지로 열기"
-                        className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-                      >
-                        <Maximize2 size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openPeek(row.pageId);
-                        }}
-                        title="사이드 피크 열기"
-                        className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-                      >
-                        <PanelRight size={12} />
-                      </button>
-                    </div>
-                  </div>
+                    row={row}
+                    isSelected={selectedPageId === row.pageId || selectedCardIds.has(row.pageId)}
+                    onFocus={focusTimelineCard}
+                    onOpenFull={openFull}
+                    openPeek={openPeek}
+                  />
                 ))}
                 {virtualRows.bottomPadding > 0 && (
                   <div aria-hidden="true" style={{ height: virtualRows.bottomPadding }} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
   GripVertical,
@@ -9,7 +9,7 @@ import {
   MoreHorizontal,
   Trash2,
 } from "lucide-react";
-import type { DatabasePanelState } from "../../../types/database";
+import type { DatabasePanelState, ColumnDef, DatabaseRowView, CellValue } from "../../../types/database";
 import { defaultMinWidthForType, getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
@@ -44,6 +44,231 @@ function cloneCellValue<T>(value: T): T {
     return value;
   }
 }
+
+type FillDragState = { columnId: string; sourceRowIndex: number; sourceValue: CellValue };
+
+// props 얕은 비교: row/isDropTarget/isBoxSelected 변경 시만 리렌더. 셀 편집 시 다른 행은 리렌더하지 않음.
+const DatabaseTableRow = memo(function DatabaseTableRow({
+  row,
+  rIdx,
+  databaseId,
+  visibleCols,
+  isDropTarget,
+  isBoxSelected,
+  fillDrag,
+  fillHoverRowIndex,
+  fillApplying,
+  setRowDragOver,
+  onRowDrop,
+  setRowDragFrom,
+  handleCheckboxClick,
+  openPeek,
+  onOpenFull,
+  setIcon,
+  setFillDrag,
+}: {
+  row: DatabaseRowView;
+  rIdx: number;
+  databaseId: string;
+  visibleCols: ColumnDef[];
+  isDropTarget: boolean;
+  isBoxSelected: boolean;
+  fillDrag: FillDragState | null;
+  fillHoverRowIndex: number | null;
+  fillApplying: { columnId: string; sourceRowIndex: number } | null;
+  setRowDragOver: (idx: number | null) => void;
+  onRowDrop: () => void;
+  setRowDragFrom: (idx: number | null) => void;
+  handleCheckboxClick: (pageId: string, opts: { shiftKey: boolean }) => void;
+  openPeek: (pageId: string) => void;
+  onOpenFull: (pageId: string, opts?: { newTab?: boolean }) => void;
+  setIcon: (pageId: string, icon: string | null) => void;
+  setFillDrag: (v: FillDragState | null) => void;
+}) {
+  const fillRangeStart = fillDrag && fillHoverRowIndex != null
+    ? Math.min(fillDrag.sourceRowIndex, fillHoverRowIndex)
+    : null;
+  const fillRangeEnd = fillDrag && fillHoverRowIndex != null
+    ? Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex)
+    : null;
+
+  return (
+    <tr
+      data-qn-row-idx={rIdx}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setRowDragOver(rIdx);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onRowDrop();
+      }}
+      className={[
+        "group border-b border-zinc-100 dark:border-zinc-800",
+        isDropTarget ? "border-t-2 border-dashed border-t-blue-400" : "",
+        isBoxSelected ? "bg-blue-50 dark:bg-blue-950/30" : "",
+      ].join(" ")}
+    >
+      <td className="px-1 py-0 align-middle">
+        <div className="flex h-full min-h-[28px] items-center justify-center">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={isBoxSelected}
+            aria-label="행 선택"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCheckboxClick(row.pageId, { shiftKey: e.shiftKey });
+            }}
+            className={[
+              "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border transition-opacity",
+              isBoxSelected
+                ? "border-blue-500 bg-blue-500 text-white opacity-100"
+                : "border-zinc-400 bg-transparent opacity-30 group-hover:opacity-100 dark:border-zinc-500",
+            ].join(" ")}
+          >
+            {isBoxSelected ? <Check size={10} strokeWidth={3} /> : null}
+          </button>
+        </div>
+      </td>
+      {visibleCols.map((col, cIdx) => {
+        const isFirst = cIdx === 0;
+        const isFillRangeCell = Boolean(
+          fillDrag &&
+          fillDrag.columnId === col.id &&
+          fillRangeStart != null && fillRangeEnd != null &&
+          rIdx >= fillRangeStart && rIdx <= fillRangeEnd,
+        );
+        const isFillTop = isFillRangeCell && rIdx === fillRangeStart;
+        const isFillBottom = isFillRangeCell && rIdx === fillRangeEnd;
+        return (
+          <td
+            key={col.id}
+            className={[
+              "group/cell relative align-top overflow-hidden px-2 py-1",
+              isFirst ? "pr-16" : "",
+            ].join(" ")}
+          >
+            {isFillRangeCell && (
+              <span
+                className={[
+                  "pointer-events-none absolute inset-x-[2px] z-[6]",
+                  isFillTop ? "top-[2px]" : "-top-px",
+                  isFillBottom ? "bottom-[2px]" : "-bottom-px",
+                  "border-l border-r border-dashed border-blue-500",
+                  isFillTop ? "border-t" : "",
+                  isFillBottom ? "border-b" : "",
+                  isFillTop && isFillBottom ? "rounded-sm" : "",
+                ].join(" ")}
+              />
+            )}
+            {isFirst && (
+              <span
+                draggable
+                onDragStart={(e) => {
+                  e.stopPropagation();
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData(DRAG_MIME, `row:${rIdx}`);
+                  setRowDragFrom(rIdx);
+                }}
+                onDragEnd={(e) => {
+                  e.stopPropagation();
+                  setRowDragFrom(null);
+                  setRowDragOver(null);
+                }}
+                className="absolute left-[-18px] top-1/2 -translate-y-1/2 cursor-grab opacity-0 group-hover:opacity-100 active:cursor-grabbing"
+                title="행 이동"
+              >
+                <GripVertical size={12} className="text-zinc-400" />
+              </span>
+            )}
+            <div className="relative min-w-0 max-w-full truncate">
+              {col.type === "title" ? (
+                <div className="flex min-w-0 items-center gap-1">
+                  <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+                    <IconPicker
+                      current={row.icon ?? null}
+                      size="sm"
+                      onChange={(icon) => setIcon(row.pageId, icon)}
+                    />
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openPeek(row.pageId);
+                    }}
+                    className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                    title="사이드 피크 열기"
+                  >
+                    {row.title || "제목 없음"}
+                  </button>
+                </div>
+              ) : (
+                <DatabaseCell
+                  databaseId={databaseId}
+                  rowId={row.pageId}
+                  column={col}
+                  value={row.cells[col.id]}
+                />
+              )}
+            </div>
+            {col.type !== "title" && (
+              <button
+                type="button"
+                aria-label="아래로 값 복제"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setFillDrag({ columnId: col.id, sourceRowIndex: rIdx, sourceValue: row.cells[col.id] });
+                }}
+                className={[
+                  "absolute bottom-0 right-0 h-2.5 w-2.5 cursor-crosshair border border-blue-500 bg-white dark:bg-zinc-800",
+                  "opacity-0 transition-opacity group-hover/cell:opacity-100",
+                  fillDrag && fillDrag.columnId === col.id && fillDrag.sourceRowIndex === rIdx
+                    ? "opacity-100"
+                    : "",
+                ].join(" ")}
+              />
+            )}
+            {fillApplying &&
+              fillApplying.columnId === col.id &&
+              fillApplying.sourceRowIndex === rIdx && (
+                <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                  <span className="rounded bg-zinc-900/85 px-2 py-0.5 text-[10px] font-medium text-white shadow-sm">
+                    복제중
+                  </span>
+                </span>
+              )}
+            {isFirst && (
+              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
+                <button
+                  type="button"
+                  onClick={(e) => onOpenFull(row.pageId, { newTab: e.metaKey || e.ctrlKey })}
+                  title="페이지로 열기"
+                  className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  <Maximize2 size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPeek(row.pageId)}
+                  title="사이드 피크 열기"
+                  className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  <PanelRight size={12} />
+                </button>
+              </div>
+            )}
+          </td>
+        );
+      })}
+      <td />
+    </tr>
+  );
+});
 
 export function DatabaseTableView({ databaseId, panelState, setPanelState, visibleRowLimit, layout }: Props) {
   void setPanelState;
@@ -173,11 +398,12 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     };
   }, [databaseId, fillDrag, rows, updateCell]);
 
-  // 뷰별 가시·정렬 컬럼 (#9)
-  const visibleCols = getVisibleOrderedColumns(
-    bundle?.columns ?? [],
-    "table",
-    panelState.viewConfigs,
+  // 뷰별 가시·정렬 컬럼 (#9) — memo 행 비교를 위해 참조 안정화
+  const bundleColumns = bundle?.columns;
+  const viewConfigs = panelState.viewConfigs;
+  const visibleCols = useMemo(
+    () => getVisibleOrderedColumns(bundleColumns ?? [], "table", viewConfigs),
+    [bundleColumns, viewConfigs],
   );
   const resolvedColWidths = useMemo(
     () => visibleCols.map((col) => col.width ?? defaultMinWidthForType(col.type)),
@@ -219,7 +445,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     setColDragOver(null);
   };
 
-  const onRowDrop = () => {
+  const onRowDrop = useCallback(() => {
     if (!bundle) return;
     if (rowDragFrom != null && rowDragOver != null && rowDragFrom !== rowDragOver) {
       const order = [...bundle.rowPageOrder];
@@ -229,19 +455,14 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     }
     setRowDragFrom(null);
     setRowDragOver(null);
-  };
+  }, [bundle, rowDragFrom, rowDragOver, databaseId, setRowOrder]);
 
-  const openFull = (pageId: string, opts?: { newTab?: boolean }) => {
-    if (activePageId) {
-      setRowBackTarget(pageId, activePageId);
-    }
-    if (opts?.newTab) {
-      openTab(pageId);
-      return;
-    }
+  const openFull = useCallback((pageId: string, opts?: { newTab?: boolean }) => {
+    if (activePageId) setRowBackTarget(pageId, activePageId);
+    if (opts?.newTab) { openTab(pageId); return; }
     setActivePage(pageId);
     setCurrentTabPage(pageId);
-  };
+  }, [activePageId, setRowBackTarget, openTab, setActivePage, setCurrentTabPage]);
 
   /** 헤더 우측 리사이즈 핸들 더블클릭 → 해당 컬럼 폭을 헤더+모든 셀의 가장 긴 텍스트에 맞춰 자동 조정.
    *  inputs 의 value 와 텍스트 컨텐츠 모두 측정해 최대값 사용. */
@@ -392,217 +613,27 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
           )}
           {renderedRows.map((row, localIdx) => {
             const rIdx = virtualRows.start + localIdx;
-            const isDropTarget = rowDragFrom != null && rowDragOver === rIdx && rowDragFrom !== rIdx;
-            const isBoxSelected = selectedRowIds.has(row.pageId);
             return (
-              <tr
+              <DatabaseTableRow
                 key={row.pageId}
-                data-qn-row-idx={rIdx}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setRowDragOver(rIdx);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onRowDrop();
-                }}
-                className={[
-                  "group border-b border-zinc-100 dark:border-zinc-800",
-                  isDropTarget ? "border-t-2 border-dashed border-t-blue-400" : "",
-                  isBoxSelected
-                    ? "bg-blue-50 dark:bg-blue-950/30"
-                    : "",
-                ].join(" ")}
-              >
-                {/* 행 선택 체크박스 — 평소엔 희미, hover/체크 시 진하게. Shift+클릭 으로 범위 선택.
-                    native input 의 controlled state 갱신 타이밍 이슈를 피하려 button + aria-checked 로 구현. */}
-                <td className="px-1 py-0 align-middle">
-                  <div className="flex h-full min-h-[28px] items-center justify-center">
-                  <button
-                    type="button"
-                    role="checkbox"
-                    aria-checked={isBoxSelected}
-                    aria-label="행 선택"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCheckboxClick(row.pageId, {
-                        shiftKey: e.shiftKey,
-                      });
-                    }}
-                    className={[
-                      "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border transition-opacity",
-                      isBoxSelected
-                        ? "border-blue-500 bg-blue-500 text-white opacity-100"
-                        : "border-zinc-400 bg-transparent opacity-30 group-hover:opacity-100 dark:border-zinc-500",
-                    ].join(" ")}
-                  >
-                    {isBoxSelected ? (
-                      <Check size={10} strokeWidth={3} />
-                    ) : null}
-                  </button>
-                  </div>
-                </td>
-                {visibleCols.map((col, cIdx) => {
-                  const isFirst = cIdx === 0;
-                  const fillRangeStart = fillDrag && fillHoverRowIndex != null
-                    ? Math.min(fillDrag.sourceRowIndex, fillHoverRowIndex)
-                    : null;
-                  const fillRangeEnd = fillDrag && fillHoverRowIndex != null
-                    ? Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex)
-                    : null;
-                  const isFillRangeCell = Boolean(
-                    fillDrag &&
-                    fillDrag.columnId === col.id &&
-                    fillRangeStart != null &&
-                    fillRangeEnd != null &&
-                    rIdx >= fillRangeStart &&
-                    rIdx <= fillRangeEnd,
-                  );
-                  const isFillTop = isFillRangeCell && rIdx === fillRangeStart;
-                  const isFillBottom = isFillRangeCell && rIdx === fillRangeEnd;
-                  return (
-                    <td
-                      key={col.id}
-                      className={[
-                        "group/cell relative align-top overflow-hidden px-2 py-1",
-                        isFirst ? "pr-16" : "",
-                      ].join(" ")}
-                    >
-                      {/* 마퀴 시각화: 좌·우 테두리는 범위의 모든 행에 그리고,
-                          위 테두리는 시작 행, 아래 테두리는 마지막 행에만 그린다.
-                          이렇게 해야 행 사이가 끊기지 않고 하나의 사각형으로 보인다. */}
-                      {isFillRangeCell && (
-                        <span
-                          className={[
-                            "pointer-events-none absolute inset-x-[2px] z-[6]",
-                            isFillTop ? "top-[2px]" : "-top-px",
-                            isFillBottom ? "bottom-[2px]" : "-bottom-px",
-                            "border-l border-r border-dashed border-blue-500",
-                            isFillTop ? "border-t" : "",
-                            isFillBottom ? "border-b" : "",
-                            (isFillTop && isFillBottom) ? "rounded-sm" : "",
-                          ].join(" ")}
-                        />
-                      )}
-                      {isFirst && (
-                        <span
-                          draggable
-                          onDragStart={(e) => {
-                            e.stopPropagation();
-                            e.dataTransfer.effectAllowed = "move";
-                            e.dataTransfer.setData(DRAG_MIME, `row:${rIdx}`);
-                            setRowDragFrom(rIdx);
-                          }}
-                          onDragEnd={(e) => {
-                            e.stopPropagation();
-                            setRowDragFrom(null);
-                            setRowDragOver(null);
-                          }}
-                          className="absolute left-[-18px] top-1/2 -translate-y-1/2 cursor-grab opacity-0 group-hover:opacity-100 active:cursor-grabbing"
-                          title="행 이동"
-                        >
-                          <GripVertical size={12} className="text-zinc-400" />
-                        </span>
-                      )}
-                      {/*
-                        셀 컨텐츠 클리핑(#2): truncate(=overflow:hidden+ellipsis+nowrap)을
-                        wrapper에 적용해 텍스트가 다음 컬럼으로 침범하지 않도록.
-                        input 등 자식 요소는 wrapper width(=cell width)에 맞춰 자연 클립.
-                      */}
-                      <div className="relative min-w-0 max-w-full truncate">
-                        {col.type === "title" ? (
-                          <div className="flex min-w-0 items-center gap-1">
-                            <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
-                              <IconPicker
-                                current={row.icon ?? null}
-                                size="sm"
-                                onChange={(icon) => setIcon(row.pageId, icon)}
-                              />
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openPeek(row.pageId);
-                              }}
-                              className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
-                              title="사이드 피크 열기"
-                            >
-                              {row.title || "제목 없음"}
-                            </button>
-                          </div>
-                        ) : (
-                          <DatabaseCell
-                            databaseId={databaseId}
-                            rowId={row.pageId}
-                            column={col}
-                            value={row.cells[col.id]}
-                          />
-                        )}
-                      </div>
-                      {col.type !== "title" && (
-                        <button
-                          type="button"
-                          aria-label="아래로 값 복제"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setFillDrag({
-                              columnId: col.id,
-                              sourceRowIndex: rIdx,
-                              sourceValue: row.cells[col.id],
-                            });
-                          }}
-                          className={[
-                            "absolute bottom-0 right-0 h-2.5 w-2.5 cursor-crosshair border border-blue-500 bg-white dark:bg-zinc-800",
-                            "opacity-0 transition-opacity group-hover/cell:opacity-100",
-                            fillDrag && fillDrag.columnId === col.id && fillDrag.sourceRowIndex === rIdx
-                              ? "opacity-100"
-                              : "",
-                          ].join(" ")}
-                        />
-                      )}
-                      {fillApplying &&
-                        fillApplying.columnId === col.id &&
-                        fillApplying.sourceRowIndex === rIdx && (
-                          <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                            <span className="rounded bg-zinc-900/85 px-2 py-0.5 text-[10px] font-medium text-white shadow-sm">
-                              복제중
-                            </span>
-                          </span>
-                        )}
-                      {isFirst && (
-                        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
-                          <button
-                            type="button"
-                            onClick={(e) =>
-                              openFull(row.pageId, {
-                                newTab: e.metaKey || e.ctrlKey,
-                              })
-                            }
-                            title="페이지로 열기"
-                            className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-                          >
-                            <Maximize2 size={12} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openPeek(row.pageId)}
-                            title="사이드 피크 열기"
-                            className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-                          >
-                            <PanelRight size={12} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-                {/* "+" 헤더와 cell 수 일치 */}
-                <td />
-              </tr>
+                row={row}
+                rIdx={rIdx}
+                databaseId={databaseId}
+                visibleCols={visibleCols}
+                isDropTarget={rowDragFrom != null && rowDragOver === rIdx && rowDragFrom !== rIdx}
+                isBoxSelected={selectedRowIds.has(row.pageId)}
+                fillDrag={fillDrag}
+                fillHoverRowIndex={fillHoverRowIndex}
+                fillApplying={fillApplying}
+                setRowDragOver={setRowDragOver}
+                onRowDrop={onRowDrop}
+                setRowDragFrom={setRowDragFrom}
+                handleCheckboxClick={handleCheckboxClick}
+                openPeek={openPeek}
+                onOpenFull={openFull}
+                setIcon={setIcon}
+                setFillDrag={setFillDrag}
+              />
             );
           })}
           {virtualRows.bottomPadding > 0 && (
