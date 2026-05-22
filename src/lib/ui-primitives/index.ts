@@ -11,3 +11,4 @@ export {
   AnchoredPanelBase,
   type AnchoredPanelBaseProps,
 } from "./AnchoredPanelBase";
+export { ListVirtualizer, type ListVirtualizerProps } from "./ListVirtualizer";
