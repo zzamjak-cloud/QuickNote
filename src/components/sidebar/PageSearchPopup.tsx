@@ -17,7 +17,7 @@ type Props = {
 
 export function PageSearchPopup({ anchorEl, onClose }: Props) {
   const [query, setQuery] = useState("");
-  const [filterMode, setFilterMode] = useState<FilterMode>(null);
+  const [filterMode, setFilterMode] = useState<FilterMode>("page");
   const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
   const inputRef = useRef<HTMLInputElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -47,7 +47,8 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
   }, [anchorEl]);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    const id = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
   }, []);
 
   useEffect(() => {
