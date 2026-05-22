@@ -26,6 +26,8 @@ type SettingsState = {
   dbPropertyPanelOpen: boolean;
   /** 조직/팀/프로젝트/워크스페이스 아이콘 (엔티티 ID → icon 문자열) */
   entityIcons: Record<string, string | null>;
+  /** 조직/팀/프로젝트 설명 (엔티티 ID → 설명 문자열) */
+  entityDescriptions: Record<string, string>;
   sidebarWidth: number;
   rightPanelWidth: number;
   /** 사이드바 접힘 — 접힘 시 좌측 얇은 레일만 표시 */
@@ -78,6 +80,7 @@ type SettingsActions = {
   toggleFullWidthForPage: (pageId: string | null) => void;
   setDbPropertyPanelOpen: (open: boolean) => void;
   setEntityIcon: (id: string, icon: string | null) => void;
+  setEntityDescription: (id: string, description: string) => void;
   /** 워크스페이스 방문 페이지 기억(pageId null 이면 해당 워크스페이스 키만 제거 가능) */
   setLastVisitedPageForWorkspace: (
     workspaceId: string | null,
@@ -87,7 +90,7 @@ type SettingsActions = {
 
 export type SettingsStore = SettingsState & SettingsActions;
 
-export const SETTINGS_STORE_VERSION = 9;
+export const SETTINGS_STORE_VERSION = 10;
 
 export function migrateSettingsStore(
   persisted: unknown,
@@ -175,6 +178,13 @@ export function migrateSettingsStore(
           entityIcons: {},
         }),
       },
+      {
+        version: 10,
+        migrate: (state) => ({
+          ...state,
+          entityDescriptions: {},
+        }),
+      },
     ],
     {
       darkMode: false,
@@ -182,6 +192,7 @@ export function migrateSettingsStore(
       pageFullWidthById: {},
       dbPropertyPanelOpen: true,
       entityIcons: {},
+      entityDescriptions: {},
       sidebarWidth: 260,
       rightPanelWidth: 320,
       sidebarCollapsed: false,
@@ -204,6 +215,7 @@ export const useSettingsStore = create<SettingsStore>()(
       pageFullWidthById: {},
       dbPropertyPanelOpen: true,
       entityIcons: {},
+      entityDescriptions: {},
       sidebarWidth: 260,
       rightPanelWidth: 320,
       sidebarCollapsed: false,
@@ -371,6 +383,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setDbPropertyPanelOpen: (open) => set({ dbPropertyPanelOpen: open }),
       setEntityIcon: (id, icon) =>
         set((s) => ({ entityIcons: { ...s.entityIcons, [id]: icon } })),
+      setEntityDescription: (id, description) =>
+        set((s) => ({ entityDescriptions: { ...s.entityDescriptions, [id]: description } })),
       setLastVisitedPageForWorkspace: (workspaceId, pageId) => {
         if (!workspaceId) return;
         set((s) => {
