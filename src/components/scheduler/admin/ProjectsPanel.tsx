@@ -11,6 +11,9 @@ import { DEFAULT_SCHEDULE_COLOR } from "../../../lib/scheduler/colors";
 import { useMemberSuggestionDropdown } from "../../../hooks/useMemberSuggestionDropdown";
 import { sortByKoreanName } from "../../../lib/memberSearch";
 import { AdminListHeader } from "../../settings/AdminListHeader";
+import { IconPicker } from "../../common/IconPicker";
+import { PageIconDisplay } from "../../common/PageIconDisplay";
+import { useSettingsStore } from "../../../store/settingsStore";
 
 const EMPTY_FORM = {
   name: "",
@@ -35,6 +38,8 @@ export function ProjectsPanel() {
       })),
     );
   const allMembers = useMemberStore((s) => s.members);
+  const entityIcons = useSettingsStore((s) => s.entityIcons);
+  const setEntityIcon = useSettingsStore((s) => s.setEntityIcon);
   const activeMembers = useMemo(
     () => allMembers.filter((member) => member.status === "active"),
     [allMembers],
@@ -179,12 +184,15 @@ export function ProjectsPanel() {
                 onClick={() => setEditingProjectId(project.id)}
                 className="flex w-full items-center justify-between rounded-md border border-zinc-200 bg-white px-4 py-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
               >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                    {project.name}
-                  </span>
-                  <span className="block text-sm text-zinc-500 dark:text-zinc-400">
-                    구성원 {project.memberIds.length}명
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <PageIconDisplay icon={entityIcons[project.id] ?? null} size="sm" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                      {project.name}
+                    </span>
+                    <span className="block text-sm text-zinc-500 dark:text-zinc-400">
+                      구성원 {project.memberIds.length}명
+                    </span>
                   </span>
                 </span>
                 <span
@@ -242,6 +250,8 @@ export function ProjectsPanel() {
           workspaceId={workspaceId}
           onClose={closeModal}
           onSaveCreate={handleCreate}
+          entityIcon={null}
+          onIconChange={() => undefined}
         />
       )}
       {editingProject && (
@@ -253,6 +263,8 @@ export function ProjectsPanel() {
           onClose={closeModal}
           onSaveEdit={handleUpdate}
           onArchive={handleArchive}
+          entityIcon={entityIcons[editingProject.id] ?? null}
+          onIconChange={(icon) => setEntityIcon(editingProject.id, icon)}
         />
       )}
     </div>
@@ -268,6 +280,8 @@ type ProjectManageModalProps = {
   onSaveCreate?: (form: FormState) => Promise<void>;
   onSaveEdit?: (projectId: string, form: FormState) => Promise<void>;
   onArchive?: (projectId: string) => Promise<void>;
+  entityIcon: string | null;
+  onIconChange: (icon: string | null) => void;
 };
 
 function ProjectManageModal({
@@ -279,6 +293,8 @@ function ProjectManageModal({
   onSaveCreate,
   onSaveEdit,
   onArchive,
+  entityIcon,
+  onIconChange,
 }: ProjectManageModalProps) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [isNameEditing, setIsNameEditing] = useState(mode === "create");
@@ -458,50 +474,59 @@ function ProjectManageModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="flex max-h-[88vh] w-full max-w-md flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <input
-          ref={nameInputRef}
-          value={form.name}
-          readOnly={!isNameEditing}
-          onDoubleClick={() => setIsNameEditing(true)}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              name: event.target.value,
-            }))
-          }
-          onBlur={() => {
-            if (mode === "create") return;
-            setIsNameEditing(false);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              if (mode === "edit") {
+        <div className="flex items-center gap-2">
+          {mode === "edit" && (
+            <IconPicker
+              current={entityIcon}
+              onChange={onIconChange}
+              size="md"
+            />
+          )}
+          <input
+            ref={nameInputRef}
+            value={form.name}
+            readOnly={!isNameEditing}
+            onDoubleClick={() => setIsNameEditing(true)}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                name: event.target.value,
+              }))
+            }
+            onBlur={() => {
+              if (mode === "create") return;
+              setIsNameEditing(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                if (mode === "edit") {
+                  setIsNameEditing(false);
+                  event.currentTarget.blur();
+                }
+              }
+              if (event.key === "Escape") {
+                if (mode !== "edit") return;
+                event.preventDefault();
+                setForm((current) => ({
+                  ...current,
+                  name: project?.name ?? current.name,
+                }));
                 setIsNameEditing(false);
                 event.currentTarget.blur();
               }
-            }
-            if (event.key === "Escape") {
-              if (mode !== "edit") return;
-              event.preventDefault();
-              setForm((current) => ({
-                ...current,
-                name: project?.name ?? current.name,
-              }));
-              setIsNameEditing(false);
-              event.currentTarget.blur();
-            }
-          }}
-          placeholder="프로젝트 이름"
-          className={`w-full rounded border border-transparent bg-transparent px-2 py-1 text-2xl font-bold text-zinc-900 outline-none dark:text-zinc-100 ${
-            isNameEditing
-              ? "hover:border-zinc-200 focus:border-zinc-400 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
-              : "cursor-default"
-          }`}
-        />
+            }}
+            placeholder="프로젝트 이름"
+            className={`flex-1 rounded border border-transparent bg-transparent px-2 py-1 text-2xl font-bold text-zinc-900 outline-none dark:text-zinc-100 ${
+              isNameEditing
+                ? "hover:border-zinc-200 focus:border-zinc-400 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
+                : "cursor-default"
+            }`}
+          />
+        </div>
 
         <div className="mt-3 flex-1 space-y-3 pr-1">
           <div>
@@ -557,7 +582,7 @@ function ProjectManageModal({
             <div className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
               등록된 구성원 ({selectedMembers.length})
             </div>
-            <div className="max-h-[42vh] overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
+            <div className="max-h-[52vh] overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
               {selectedMembers.length === 0 ? (
                 <div className="px-2 py-3 text-center text-sm text-zinc-400">
                   아직 등록된 구성원이 없습니다.
@@ -570,13 +595,18 @@ function ProjectManageModal({
                       key={member.memberId}
                       className="group flex items-center justify-between gap-2 rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-700"
                     >
-                      <div className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-200">
-                        {member.name}
-                        {isLeader && (
-                          <span className="ml-1.5 rounded bg-green-100 px-1 py-0.5 text-[10px] text-green-700 dark:bg-green-900/40 dark:text-green-300">
-                            리더
-                          </span>
-                        )}
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm text-zinc-900 dark:text-zinc-100">
+                          {member.name}
+                          {isLeader && (
+                            <span className="ml-1.5 rounded bg-green-100 px-1.5 py-0.5 text-xs text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                              리더
+                            </span>
+                          )}
+                        </div>
+                        <div className="truncate text-sm text-zinc-500 dark:text-zinc-400">
+                          {member.email} · {member.jobRole}
+                        </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                         <button

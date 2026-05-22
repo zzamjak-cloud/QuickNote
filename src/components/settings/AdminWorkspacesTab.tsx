@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
+import { useSettingsStore } from "../../store/settingsStore";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 import {
   archiveWorkspaceApi,
   createWorkspaceApi,
@@ -23,6 +25,7 @@ export function AdminWorkspacesTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const upsertWorkspace = useWorkspaceStore((s) => s.upsertWorkspace);
   const showToast = useUiStore((s) => s.showToast);
+  const entityIcons = useSettingsStore((s) => s.entityIcons);
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [listQuery, setListQuery] = useState("");
   const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
@@ -159,12 +162,15 @@ export function AdminWorkspacesTab() {
                   disabled={loadingWorkspaceId !== null}
                   className="flex w-full items-center justify-between rounded border border-zinc-200 px-3 py-2 text-left hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-900"
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                      {ws.name}
-                    </span>
-                    <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-                      {loadingWorkspaceId === ws.workspaceId ? "불러오는 중..." : ""}
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <PageIconDisplay icon={entityIcons[ws.workspaceId] ?? null} size="sm" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                        {ws.name}
+                      </span>
+                      <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+                        {loadingWorkspaceId === ws.workspaceId ? "불러오는 중..." : ""}
+                      </span>
                     </span>
                   </span>
                 </button>
@@ -284,6 +290,7 @@ export function AdminWorkspacesTab() {
       {editingWorkspace ? (
         <EditWorkspaceModal
           open={openEdit}
+          workspaceId={editingWorkspace.workspaceId}
           workspaceName={editingWorkspace.name}
           initialEntries={editEntries}
           onClose={() => {

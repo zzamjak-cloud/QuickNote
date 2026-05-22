@@ -24,6 +24,8 @@ type SettingsState = {
   pageFullWidthById: Record<string, boolean>;
   /** DB 항목 속성 패널 열림 여부(글로벌) — 기본값: true */
   dbPropertyPanelOpen: boolean;
+  /** 조직/팀/프로젝트/워크스페이스 아이콘 (엔티티 ID → icon 문자열) */
+  entityIcons: Record<string, string | null>;
   sidebarWidth: number;
   rightPanelWidth: number;
   /** 사이드바 접힘 — 접힘 시 좌측 얇은 레일만 표시 */
@@ -75,6 +77,7 @@ type SettingsActions = {
   toggleFullWidth: () => void;
   toggleFullWidthForPage: (pageId: string | null) => void;
   setDbPropertyPanelOpen: (open: boolean) => void;
+  setEntityIcon: (id: string, icon: string | null) => void;
   /** 워크스페이스 방문 페이지 기억(pageId null 이면 해당 워크스페이스 키만 제거 가능) */
   setLastVisitedPageForWorkspace: (
     workspaceId: string | null,
@@ -84,7 +87,7 @@ type SettingsActions = {
 
 export type SettingsStore = SettingsState & SettingsActions;
 
-export const SETTINGS_STORE_VERSION = 8;
+export const SETTINGS_STORE_VERSION = 9;
 
 export function migrateSettingsStore(
   persisted: unknown,
@@ -165,12 +168,20 @@ export function migrateSettingsStore(
           dbPropertyPanelOpen: true,
         }),
       },
+      {
+        version: 9,
+        migrate: (state) => ({
+          ...state,
+          entityIcons: {},
+        }),
+      },
     ],
     {
       darkMode: false,
       fullWidth: false,
       pageFullWidthById: {},
       dbPropertyPanelOpen: true,
+      entityIcons: {},
       sidebarWidth: 260,
       rightPanelWidth: 320,
       sidebarCollapsed: false,
@@ -192,6 +203,7 @@ export const useSettingsStore = create<SettingsStore>()(
       fullWidth: false,
       pageFullWidthById: {},
       dbPropertyPanelOpen: true,
+      entityIcons: {},
       sidebarWidth: 260,
       rightPanelWidth: 320,
       sidebarCollapsed: false,
@@ -357,6 +369,8 @@ export const useSettingsStore = create<SettingsStore>()(
           };
         }),
       setDbPropertyPanelOpen: (open) => set({ dbPropertyPanelOpen: open }),
+      setEntityIcon: (id, icon) =>
+        set((s) => ({ entityIcons: { ...s.entityIcons, [id]: icon } })),
       setLastVisitedPageForWorkspace: (workspaceId, pageId) => {
         if (!workspaceId) return;
         set((s) => {

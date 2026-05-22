@@ -15,7 +15,10 @@ import {
 } from "../../lib/sync/organizationApi";
 import { inferLeaderMemberIds } from "../../lib/scheduler/mm/leaderDefaults";
 import { useUiStore } from "../../store/uiStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import { useMemberSuggestionDropdown } from "../../hooks/useMemberSuggestionDropdown";
+import { IconPicker } from "../common/IconPicker";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 import { sortByKoreanName } from "../../lib/memberSearch";
 import { AdminListHeader } from "./AdminListHeader";
 
@@ -27,6 +30,8 @@ export function AdminOrganizationsTab() {
   const removeOrganization = useOrganizationStore((s) => s.removeOrganization);
   const members = useMemberStore((s) => s.members);
   const showToast = useUiStore((s) => s.showToast);
+  const entityIcons = useSettingsStore((s) => s.entityIcons);
+  const setEntityIcon = useSettingsStore((s) => s.setEntityIcon);
 
   const [activeTab, setActiveTab] = useState<TabType>("active");
   const [openCreate, setOpenCreate] = useState(false);
@@ -380,12 +385,15 @@ export function AdminOrganizationsTab() {
                   onClick={() => onOpenAssignModal(org.organizationId)}
                   className="flex w-full items-center justify-between rounded border border-zinc-200 bg-white px-4 py-3 text-left text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                      {org.name}
-                    </span>
-                    <span className="block text-sm text-zinc-500 dark:text-zinc-400">
-                      구성원 {org.members.length}명
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <PageIconDisplay icon={entityIcons[org.organizationId] ?? null} size="sm" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                        {org.name}
+                      </span>
+                      <span className="block text-sm text-zinc-500 dark:text-zinc-400">
+                        구성원 {org.members.length}명
+                      </span>
                     </span>
                   </span>
                   <span
@@ -581,15 +589,22 @@ export function AdminOrganizationsTab() {
           <div
             role="dialog"
             aria-modal="true"
-            className="flex max-h-[88vh] w-full max-w-md flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex-1 space-y-3 pr-1">
-              <input
-                value={editingOrgName}
-                onChange={(e) => setEditingOrgName(e.target.value)}
-                className="w-full rounded border border-transparent bg-transparent px-2 py-1 text-2xl font-bold text-zinc-900 outline-none hover:border-zinc-200 focus:border-zinc-400 dark:text-zinc-100 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
-              />
+              <div className="flex items-center gap-2">
+                <IconPicker
+                  current={entityIcons[openAssignOrgId] ?? null}
+                  onChange={(icon) => setEntityIcon(openAssignOrgId, icon)}
+                  size="md"
+                />
+                <input
+                  value={editingOrgName}
+                  onChange={(e) => setEditingOrgName(e.target.value)}
+                  className="flex-1 rounded border border-transparent bg-transparent px-2 py-1 text-2xl font-bold text-zinc-900 outline-none hover:border-zinc-200 focus:border-zinc-400 dark:text-zinc-100 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
+                />
+              </div>
 
               <section ref={dropdownWrapRef} className="relative">
                 <label className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">구성원 검색</label>
@@ -630,7 +645,7 @@ export function AdminOrganizationsTab() {
                 <div className="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
                   등록된 구성원 ({selectedMembers.length})
                 </div>
-                <div className="max-h-[42vh] overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
+                <div className="max-h-[52vh] overflow-y-auto rounded border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-800/40">
                   {selectedMembers.length === 0 ? (
                     <div className="px-2 py-3 text-center text-sm text-zinc-400">
                       아직 등록된 구성원이 없습니다.

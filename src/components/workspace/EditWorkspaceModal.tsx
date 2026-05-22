@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { AccessEntriesEditor } from "./AccessEntriesEditor";
 import type { WorkspaceAccessInput } from "../../lib/sync/workspaceApi";
+import { IconPicker } from "../common/IconPicker";
+import { useSettingsStore } from "../../store/settingsStore";
 
 type Props = {
   open: boolean;
+  workspaceId: string;
   workspaceName: string;
   initialEntries: WorkspaceAccessInput[];
   onClose: () => void;
@@ -14,6 +17,7 @@ type Props = {
 
 export function EditWorkspaceModal({
   open,
+  workspaceId,
   workspaceName,
   initialEntries,
   onClose,
@@ -21,6 +25,8 @@ export function EditWorkspaceModal({
   onRequestDelete,
   lockedReason,
 }: Props) {
+  const entityIcons = useSettingsStore((s) => s.entityIcons);
+  const setEntityIcon = useSettingsStore((s) => s.setEntityIcon);
   const [name, setName] = useState(workspaceName);
   const [entries, setEntries] = useState<WorkspaceAccessInput[]>(initialEntries);
   const [error, setError] = useState<string | null>(null);
@@ -62,14 +68,21 @@ export function EditWorkspaceModal({
     <div className="fixed inset-0 z-[520] flex items-center justify-center bg-black/45 p-4" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-modal="true" aria-labelledby="edit-workspace-title" className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex-1 overflow-y-auto p-4">
-          <input
-            id="edit-workspace-title"
-            placeholder="워크스페이스 이름"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={Boolean(lockedReason)}
-            className="w-full rounded border border-transparent bg-transparent px-2 py-1 text-xl font-bold outline-none hover:border-zinc-200 focus:border-zinc-400 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
-          />
+          <div className="flex items-center gap-2">
+            <IconPicker
+              current={entityIcons[workspaceId] ?? null}
+              onChange={(icon) => setEntityIcon(workspaceId, icon)}
+              size="md"
+            />
+            <input
+              id="edit-workspace-title"
+              placeholder="워크스페이스 이름"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={Boolean(lockedReason)}
+              className="flex-1 rounded border border-transparent bg-transparent px-2 py-1 text-xl font-bold outline-none hover:border-zinc-200 focus:border-zinc-400 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
+            />
+          </div>
           <div className="mt-4">
             <AccessEntriesEditor
               value={entries}
