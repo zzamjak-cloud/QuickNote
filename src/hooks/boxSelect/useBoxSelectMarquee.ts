@@ -26,12 +26,19 @@ type Args = {
 
 const ENABLE_BOX_SELECT_MARQUEE = true;
 
-/** 노션 스타일 — target 이 PM 의 어떤 doc 직속 블럭(또는 그 후손) 안에 있는지 검사.
- *  블럭 안이면 마퀴 시작 금지(테이블 셀 선택·텍스트 cursor 이동 등 PM 자체 처리에 위임). */
-function isInsideAnyBlock(view: EditorView, target: Element): boolean {
-  if (target === view.dom) return false;
-  if (!view.dom.contains(target)) return false;
-  let el: Element | null = target;
+/** 노션 스타일 — 포인터가 PM doc 직속 블럭(또는 그 후손) 위인지 검사.
+ *  ProseMirror 루트 padding(px-12 등)은 elementFromPoint 가 view.dom 을 반환 → 마퀴 허용. */
+function isInsideAnyBlock(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): boolean {
+  const hit = document.elementFromPoint(clientX, clientY);
+  if (!hit || !(hit instanceof Element)) return false;
+  if (!view.dom.contains(hit)) return false;
+  if (hit === view.dom) return false;
+
+  let el: Element | null = hit;
   while (el && el !== view.dom) {
     if (el.parentElement === view.dom) return true;
     el = el.parentElement;
@@ -58,11 +65,17 @@ export function useBoxSelectMarquee({
     const columnHost =
       editor.view.dom.closest<HTMLElement>("[data-qn-editor-column]") ??
       editor.view.dom.parentElement;
+    const bodyScrollHost =
+      editor.view.dom.closest<HTMLElement>(".qn-editor-body-scroll");
     const editorHost =
-      editor.view.dom.closest<HTMLElement>(".overflow-y-auto") ?? columnHost;
+      bodyScrollHost ??
+      editor.view.dom.closest<HTMLElement>(".overflow-y-auto") ??
+      columnHost;
     const peekHost = editor.view.dom.closest<HTMLElement>("[data-qn-peek-editor='true']");
     const peekEditorHost = editor.view.dom.closest<HTMLElement>(".qn-peek-editor");
-    const marqueeScopeHost = peekEditorHost ?? peekHost ?? columnHost ?? editorHost;
+    // mx-auto 컬럼 바깥 좌·우 여백(스크롤 패널)에서도 마퀴가 시작되도록 스크롤 호스트까지 포함
+    const marqueeScopeHost =
+      peekEditorHost ?? peekHost ?? bodyScrollHost ?? editorHost ?? columnHost;
     if (!editorHost) return;
 
     const dragRectOverlay = document.createElement("div");
@@ -198,7 +211,7 @@ export function useBoxSelectMarquee({
 
       // 블럭 컨텐츠 안 — 노션처럼 마퀴 시작 차단.
       // 박스 선택이 있다면 클리어(클릭 → cursor 이동 시 자연스러운 해제).
-      if (isInsideAnyBlock(editor.view, target)) {
+      if (isInsideAnyBlock(editor.view, e.clientX, e.clientY)) {
         if (selectedStartsRef.current.length > 0) {
           clearSelection();
         }

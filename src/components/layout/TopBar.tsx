@@ -516,7 +516,6 @@ export function TopBar() {
                 >
                   <CopyPlus className={MENU_ITEM_ICON} aria-hidden />
                   <span className="min-w-0 flex-1">페이지 복제</span>
-                  <span className="shrink-0 text-xs text-zinc-400">⌘D</span>
                 </button>
                 <button
                   type="button"

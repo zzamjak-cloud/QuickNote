@@ -126,19 +126,19 @@ function PageMentionView({ node, editor }: NodeViewProps) {
           usePageStore.getState().setActivePage(id);
           useSettingsStore.getState().setCurrentTabPage(id);
         }}
-        className="page-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 align-middle text-sm text-white hover:bg-blue-700 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600"
+        className="page-mention"
         data-type="mention"
         data-id={id}
       >
-        <span
-          className="select-none text-[11px] font-semibold text-zinc-500 dark:text-zinc-400"
-          aria-hidden="true"
-        >
+        <span className="page-mention-at select-none" aria-hidden="true">
           @
         </span>
-        <span className="text-base leading-none">{icon}</span>
+        <span className="page-mention-icon">{icon}</span>
         {" "}
-        <span className="truncate font-medium">{displayTitle}</span>
+        <span className="truncate">{displayTitle}</span>
+        <span className="page-mention-chevron" aria-hidden="true">
+          {">"}
+        </span>
       </button>
     </NodeViewWrapper>
   );
@@ -199,8 +199,7 @@ const PageMentionNode = Mention.extend({
       mergeAttributes(
         {
           "data-type": "mention",
-          class:
-            "page-mention inline-flex max-w-full items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 align-middle text-sm text-white hover:bg-blue-700 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600",
+          class: "page-mention",
         },
         HTMLAttributes,
         { "data-id": id },
@@ -208,15 +207,15 @@ const PageMentionNode = Mention.extend({
       [
         "span",
         {
-          class:
-            "select-none text-[11px] font-semibold text-blue-100 dark:text-blue-100",
+          class: "page-mention-at select-none",
           "aria-hidden": "true",
         },
         "@",
       ],
-      ["span", { class: "text-base leading-none" }, icon],
+      ["span", { class: "page-mention-icon" }, icon],
       " ",
-      ["span", { class: "truncate font-medium" }, displayTitle],
+      ["span", { class: "truncate" }, displayTitle],
+      ["span", { class: "page-mention-chevron", "aria-hidden": "true" }, ">"],
     ];
   },
   renderText({ node }) {

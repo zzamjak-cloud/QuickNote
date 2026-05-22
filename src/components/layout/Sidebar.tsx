@@ -92,8 +92,6 @@ export function Sidebar() {
   const movePageRelative = usePageStore((s) => s.movePageRelative);
   const dndEnabled = true;
 
-  const duplicatePage = usePageStore((s) => s.duplicatePage);
-  const setActivePage = usePageStore((s) => s.setActivePage);
   const activePageId = usePageStore((s) => s.activePageId);
 
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
@@ -117,13 +115,7 @@ export function Sidebar() {
         activeEl?.closest(".ProseMirror") !== null;
       if (isInput || isEditorFocused) return;
 
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && (e.key === "d" || e.key === "D") && activePageId) {
-        e.preventDefault();
-        const newId = duplicatePage(activePageId);
-        if (newId) setActivePage(newId);
-        return;
-      }
+      // 페이지 복제는 메뉴(UI)로만 — Ctrl/Cmd+D 는 블럭 그립 메뉴(열림 시) 전용.
 
       // 페이지 삭제는 사이드바 우측 휴지통 아이콘·우클릭 메뉴로만 트리거.
       // 백스페이스/Delete 글로벌 단축키는 페이지 본문의 컨텍스트 메뉴 위에서
@@ -147,7 +139,7 @@ export function Sidebar() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activePageId, duplicatePage, setActivePage, movePageRelative]);
+  }, [activePageId, movePageRelative]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -353,7 +345,7 @@ export function Sidebar() {
     >
       <aside className="flex h-full min-w-0 flex-1 flex-col border-r border-zinc-200 bg-zinc-50 px-2 py-3 dark:border-zinc-800 dark:bg-zinc-900">
       <SidebarHeader
-        onCreatePage={() => createPage()}
+        onCreatePage={() => createPage("새 페이지")}
         onOpenSettings={() => setSettingsOpen(true)}
         onCollapseSidebar={() => setSidebarCollapsed(true)}
       />

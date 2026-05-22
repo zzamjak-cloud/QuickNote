@@ -55,39 +55,63 @@ function tabPanelInsertionPosFromPoint(
 ): number | null {
   const panelEl = resolveTabPanelElementFromPoint(view, clientX, clientY);
   if (!panelEl) return null;
+  return containerChildInsertionPosFromPoint(view, clientY, panelEl, "tabPanel");
+}
 
-  let panelStart: number | null = null;
-  let panelNode: PMNode | null = null;
+/** 컬럼·탭 패널·콜아웃·토글 본문 등 block+ 컨테이너 내부 삽입 위치 (공통) */
+function containerChildInsertionPosFromPoint(
+  view: EditorView,
+  clientY: number,
+  containerEl: HTMLElement,
+  containerTypeName: string,
+): number | null {
+  let containerStart: number | null = null;
+  let containerNode: PMNode | null = null;
   try {
-    const rawPos = view.posAtDOM(panelEl, 0);
+    let rawPos: number | null = null;
+    try {
+      rawPos = view.posAtDOM(containerEl, 0);
+    } catch {
+      try {
+        rawPos = view.posAtDOM(containerEl, 1);
+      } catch {
+        rawPos = null;
+      }
+    }
+    if (rawPos == null) return null;
     const $raw = view.state.doc.resolve(
       Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
     );
     for (let d = $raw.depth; d >= 1; d--) {
-      if ($raw.node(d).type.name !== "tabPanel") continue;
-      panelStart = $raw.before(d);
-      panelNode = $raw.node(d);
+      if ($raw.node(d).type.name !== containerTypeName) continue;
+      containerStart = $raw.before(d);
+      containerNode = $raw.node(d);
       break;
     }
-    if (panelStart == null) {
+    if (containerStart == null) {
       const maybeNode = view.state.doc.nodeAt(rawPos);
-      if (maybeNode?.type.name === "tabPanel") {
-        panelStart = rawPos;
-        panelNode = maybeNode;
+      if (maybeNode?.type.name === containerTypeName) {
+        containerStart = rawPos;
+        containerNode = maybeNode;
       }
     }
   } catch {
-    return null;
+    containerStart = null;
+    containerNode = null;
   }
-  if (panelStart == null || !panelNode || panelNode.type.name !== "tabPanel") {
+  if (
+    containerStart == null ||
+    !containerNode ||
+    containerNode.type.name !== containerTypeName
+  ) {
     return null;
   }
 
-  let fallback = panelStart + panelNode.nodeSize - 1;
+  let fallback = containerStart + containerNode.nodeSize - 1;
   let bestPos: number | null = null;
   let bestDistance = Infinity;
-  panelNode.forEach((child, offset) => {
-    const childStart = panelStart! + 1 + offset;
+  containerNode.forEach((child, offset) => {
+    const childStart = containerStart! + 1 + offset;
     const rect = rectForBlockDom(view, childStart);
     if (!rect) return;
     const after = clientY > rect.top + rect.height / 2;
@@ -108,6 +132,21 @@ function tabPanelInsertionPosFromPoint(
   return bestPos ?? fallback;
 }
 
+function resolveCalloutBodyElementFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): HTMLElement | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  if (!hit || !view.dom.contains(hit)) return null;
+  const direct = hit.closest("[data-callout-body], .callout-body");
+  if (direct instanceof HTMLElement && view.dom.contains(direct)) return direct;
+  const root = hit.closest("[data-callout]");
+  if (!(root instanceof HTMLElement) || !view.dom.contains(root)) return null;
+  const body = root.querySelector("[data-callout-body], .callout-body");
+  return body instanceof HTMLElement ? body : root;
+}
+
 function columnInsertionPosFromPoint(
   view: EditorView,
   clientX: number,
@@ -116,56 +155,17 @@ function columnInsertionPosFromPoint(
   const hit = document.elementFromPoint(clientX, clientY);
   const colEl = hit?.closest?.("[data-column]");
   if (!(colEl instanceof HTMLElement) || !view.dom.contains(colEl)) return null;
+  return containerChildInsertionPosFromPoint(view, clientY, colEl, "column");
+}
 
-  let colStart: number | null = null;
-  let colNode: PMNode | null = null;
-  try {
-    const rawPos = view.posAtDOM(colEl, 0);
-    const $raw = view.state.doc.resolve(
-      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
-    );
-    for (let d = $raw.depth; d >= 1; d--) {
-      if ($raw.node(d).type.name !== "column") continue;
-      colStart = $raw.before(d);
-      colNode = $raw.node(d);
-      break;
-    }
-    if (colStart == null) {
-      const maybeNode = view.state.doc.nodeAt(rawPos);
-      if (maybeNode?.type.name === "column") {
-        colStart = rawPos;
-        colNode = maybeNode;
-      }
-    }
-  } catch {
-    colStart = null;
-    colNode = null;
-  }
-  if (colStart == null || !colNode || colNode.type.name !== "column") return null;
-
-  let fallback = colStart + colNode.nodeSize - 1;
-  let bestPos: number | null = null;
-  let bestDistance = Infinity;
-  colNode.forEach((child, offset) => {
-    const childStart = colStart + 1 + offset;
-    const rect = rectForBlockDom(view, childStart);
-    if (!rect) return;
-    const after = clientY > rect.top + rect.height / 2;
-    const distance =
-      clientY < rect.top
-        ? rect.top - clientY
-        : clientY > rect.bottom
-          ? clientY - rect.bottom
-          : 0;
-    const pos = after ? childStart + child.nodeSize : childStart;
-    if (distance < bestDistance) {
-      bestPos = pos;
-      bestDistance = distance;
-    }
-    fallback = childStart + child.nodeSize;
-  });
-
-  return bestPos ?? fallback;
+function calloutInsertionPosFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const bodyEl = resolveCalloutBodyElementFromPoint(view, clientX, clientY);
+  if (!bodyEl) return null;
+  return containerChildInsertionPosFromPoint(view, clientY, bodyEl, "callout");
 }
 
 function toggleContentInsertionPosFromPoint(
@@ -178,58 +178,12 @@ function toggleContentInsertionPosFromPoint(
   if (!(toggleContentEl instanceof HTMLElement) || !view.dom.contains(toggleContentEl)) {
     return null;
   }
-
-  let contentStart: number | null = null;
-  let contentNode: PMNode | null = null;
-  try {
-    const rawPos = view.posAtDOM(toggleContentEl, 0);
-    const $raw = view.state.doc.resolve(
-      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
-    );
-    for (let d = $raw.depth; d >= 1; d--) {
-      if ($raw.node(d).type.name !== "toggleContent") continue;
-      contentStart = $raw.before(d);
-      contentNode = $raw.node(d);
-      break;
-    }
-    if (contentStart == null) {
-      const maybeNode = view.state.doc.nodeAt(rawPos);
-      if (maybeNode?.type.name === "toggleContent") {
-        contentStart = rawPos;
-        contentNode = maybeNode;
-      }
-    }
-  } catch {
-    contentStart = null;
-    contentNode = null;
-  }
-  if (contentStart == null || !contentNode || contentNode.type.name !== "toggleContent") {
-    return null;
-  }
-
-  let fallback = contentStart + contentNode.nodeSize - 1;
-  let bestPos: number | null = null;
-  let bestDistance = Infinity;
-  contentNode.forEach((child, offset) => {
-    const childStart = contentStart! + 1 + offset;
-    const rect = rectForBlockDom(view, childStart);
-    if (!rect) return;
-    const after = clientY > rect.top + rect.height / 2;
-    const distance =
-      clientY < rect.top
-        ? rect.top - clientY
-        : clientY > rect.bottom
-          ? clientY - rect.bottom
-          : 0;
-    const pos = after ? childStart + child.nodeSize : childStart;
-    if (distance < bestDistance) {
-      bestPos = pos;
-      bestDistance = distance;
-    }
-    fallback = childStart + child.nodeSize;
-  });
-
-  return bestPos ?? fallback;
+  return containerChildInsertionPosFromPoint(
+    view,
+    clientY,
+    toggleContentEl,
+    "toggleContent",
+  );
 }
 
 function toggleBlockInsertionPosFromPoint(
@@ -335,6 +289,9 @@ export function insertionContainersAt(
       if (name === "toggleContent" && !containers.includes("toggleContent")) {
         containers.push("toggleContent");
       }
+      if (name === "callout" && !containers.includes("callout")) {
+        containers.push("callout");
+      }
     }
     return containers.length > 0 ? containers : ["doc"];
   } catch {
@@ -347,17 +304,21 @@ export function topLevelInsertionPosFromDrop(
   clientX: number,
   clientY: number,
 ): number {
-  const tabPanelPos = tabPanelInsertionPosFromPoint(view, clientX, clientY);
-  if (tabPanelPos != null) return tabPanelPos;
-
-  const columnPos = columnInsertionPosFromPoint(view, clientX, clientY);
-  if (columnPos != null) return columnPos;
+  // 중첩 컨테이너는 바깥(컬럼·탭)보다 안쪽(콜아웃·토글)을 먼저 해석한다.
+  const calloutPos = calloutInsertionPosFromPoint(view, clientX, clientY);
+  if (calloutPos != null) return calloutPos;
 
   const toggleContentPos = toggleContentInsertionPosFromPoint(view, clientX, clientY);
   if (toggleContentPos != null) return toggleContentPos;
 
   const toggleBlockPos = toggleBlockInsertionPosFromPoint(view, clientX, clientY);
   if (toggleBlockPos != null) return toggleBlockPos;
+
+  const tabPanelPos = tabPanelInsertionPosFromPoint(view, clientX, clientY);
+  if (tabPanelPos != null) return tabPanelPos;
+
+  const columnPos = columnInsertionPosFromPoint(view, clientX, clientY);
+  if (columnPos != null) return columnPos;
 
   const coords = view.posAtCoords({ left: clientX, top: clientY });
   if (!coords) return nearestTopLevelInsertionByY(view, clientY);
@@ -369,15 +330,27 @@ export function topLevelInsertionPosFromDrop(
     return nearestTopLevelInsertionByY(view, clientY);
   }
 
+  const CONTAINER_BLOCK_TYPES = new Set([
+    "callout",
+    "column",
+    "tabPanel",
+    "toggleContent",
+    "columnLayout",
+    "tabBlock",
+    "toggle",
+  ]);
+
   for (let d = $pos.depth; d >= 1; d--) {
     const node = $pos.node(d);
     if (!node.isBlock || node.type.name === "doc") continue;
+    if (CONTAINER_BLOCK_TYPES.has(node.type.name)) continue;
     const parent = $pos.node(d - 1);
     const isValidParent =
       parent.type.name === "doc" ||
       parent.type.name === "column" ||
       parent.type.name === "tabPanel" ||
-      parent.type.name === "toggleContent";
+      parent.type.name === "toggleContent" ||
+      parent.type.name === "callout";
     if (!isValidParent) continue;
     const targetStart = $pos.before(d);
     const rect = rectForBlockDom(view, targetStart);
@@ -439,6 +412,10 @@ function indicatorContainerElement(
     const content = hit?.closest?.("[data-toggle-content]");
     if (content instanceof HTMLElement && view.dom.contains(content)) return content;
   }
+  if (target.containers.includes("callout")) {
+    const body = resolveCalloutBodyElementFromPoint(view, clientX, clientY);
+    if (body) return body;
+  }
   return view.dom;
 }
 
@@ -464,7 +441,9 @@ export function resolveBlockDropIndicatorRect(
   }
 
   const horizontalInset =
-    target.containers.includes("column") || target.containers.includes("tabPanel")
+    target.containers.includes("column") ||
+    target.containers.includes("tabPanel") ||
+    target.containers.includes("callout")
       ? 6
       : 48;
   const left = containerRect.left + horizontalInset;

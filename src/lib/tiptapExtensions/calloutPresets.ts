@@ -32,32 +32,29 @@ export const CALLOUT_PRESETS: CalloutPresetDef[] = [
     label: "정보",
     hint: "안내·참고",
     emoji: "ℹ️",
-    frameClass:
-      "border border-sky-200/95 bg-sky-50/95 shadow-sm ring-1 ring-sky-100/90 dark:border-sky-800/70 dark:bg-sky-950/40 dark:ring-sky-900/45",
+    frameClass: "border border-[#e0eefd] bg-[#e0eefd] shadow-none ring-0",
   },
   {
     id: "warning",
     label: "경고",
     hint: "주의 필요",
     emoji: "⚠️",
-    frameClass:
-      "border border-amber-200/95 bg-amber-50/95 shadow-sm ring-1 ring-amber-100/85 dark:border-amber-800/65 dark:bg-amber-950/40 dark:ring-amber-900/45",
+    frameClass: "border border-[#fff6d1] bg-[#fff6d1] shadow-none ring-0",
   },
   {
     id: "danger",
     label: "위험",
     hint: "중요 경고·금지",
     emoji: "⛔",
-    frameClass:
-      "border border-red-200/95 bg-red-50/95 shadow-sm ring-1 ring-red-100/85 dark:border-red-900/65 dark:bg-red-950/45 dark:ring-red-900/50",
+    frameClass: "border border-[#fbe2e2] bg-[#fbe2e2] shadow-none ring-0",
   },
   {
     id: "idea",
     label: "아이디어",
-    hint: "제안·영감 (노랑)",
+    hint: "제안·영감",
     emoji: "💡",
     frameClass:
-      "border border-yellow-300/90 bg-yellow-50/95 shadow-sm ring-1 ring-yellow-100/85 dark:border-yellow-700/55 dark:bg-yellow-950/35 dark:ring-yellow-900/40",
+      "border border-[#ffb8d8] bg-[#dde1fe] shadow-none ring-0",
   },
   {
     id: "success",
@@ -65,15 +62,14 @@ export const CALLOUT_PRESETS: CalloutPresetDef[] = [
     hint: "확인·긍정",
     emoji: "✅",
     frameClass:
-      "border border-emerald-200/95 bg-emerald-50/95 shadow-sm ring-1 ring-emerald-100/85 dark:border-emerald-800/65 dark:bg-emerald-950/40 dark:ring-emerald-900/45",
+      "border border-[#9dddad] bg-[#e1f8e4] shadow-none ring-0",
   },
   {
     id: "note",
     label: "노트",
     hint: "메모·기록",
     emoji: "📝",
-    frameClass:
-      "border border-violet-200/95 bg-violet-50/95 shadow-sm ring-1 ring-violet-100/85 dark:border-violet-800/65 dark:bg-violet-950/40 dark:ring-violet-900/45",
+    frameClass: "border border-[#eeeaf9] bg-[#eeeaf9] shadow-none ring-0",
   },
   {
     id: "tip",

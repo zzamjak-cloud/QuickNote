@@ -8,6 +8,7 @@ import {
 } from "./boxSelect/overlayDom";
 import { useBoxSelectCommittedOverlay } from "./boxSelect/useBoxSelectCommittedOverlay";
 import { useBoxSelectDeleteBlocks } from "./boxSelect/useBoxSelectDeleteBlocks";
+import { useBoxSelectDuplicateBlocks } from "./boxSelect/useBoxSelectDuplicateBlocks";
 import { useBoxSelectEscape } from "./boxSelect/useBoxSelectEscape";
 import { useBoxSelectMarquee } from "./boxSelect/useBoxSelectMarquee";
 import { useBoxSelectPmOverlay } from "./boxSelect/useBoxSelectPmOverlay";
@@ -78,6 +79,7 @@ export function useBoxSelect(editor: Editor | null) {
   useBoxSelectCommittedOverlay(editor, selectedStarts);
   useBoxSelectEscape(editor, selectedStartsRef, clearSelection);
   useBoxSelectDeleteBlocks(editor, selectedStartsRef, clearSelection);
+  useBoxSelectDuplicateBlocks(editor, selectedStartsRef);
 
   return { selectedStarts, clearSelection };
 }

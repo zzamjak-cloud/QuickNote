@@ -1,6 +1,11 @@
 import { getBlockDefinitionForNodeType } from "./registry";
 
-export type DropContainerType = "doc" | "column" | "tabPanel" | "toggleContent";
+export type DropContainerType =
+  | "doc"
+  | "column"
+  | "tabPanel"
+  | "toggleContent"
+  | "callout";
 
 export function canDropNodeTypeInContainers(
   nodeType: string,

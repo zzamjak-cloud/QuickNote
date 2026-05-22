@@ -9,6 +9,7 @@ export const Callout = Node.create({
   name: "callout",
   group: "block",
   content: "block+",
+  isolating: true,
   defining: true,
 
   addAttributes() {
@@ -68,7 +69,11 @@ export const Callout = Node.create({
       return [
         "div",
         rootAttrs,
-        ["div", { class: "callout-body w-full min-w-0" }, 0],
+        [
+          "div",
+          { class: "callout-body w-full min-w-0", "data-callout-body": "" },
+          0,
+        ],
       ];
     }
 
@@ -85,7 +90,11 @@ export const Callout = Node.create({
       "div",
       rootAttrs,
       emojiCol,
-      ["div", { class: "callout-body flex-1 min-w-0" }, 0],
+      [
+        "div",
+        { class: "callout-body flex-1 min-w-0", "data-callout-body": "" },
+        0,
+      ],
     ];
   },
 

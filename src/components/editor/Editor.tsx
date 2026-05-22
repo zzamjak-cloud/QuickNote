@@ -154,6 +154,8 @@ export function Editor({
   const isDatabaseRowPage = Boolean(page?.databaseId) && !isFullPageDatabase;
 
   const titleRef = useRef<HTMLInputElement | null>(null);
+  /** 제목 입력 포커스가 잡힌 페이지 — 전환 후 지연 blur 가 새 페이지를 덮어쓰지 않도록 */
+  const titleFocusPageIdRef = useRef<string | null>(null);
   /** 풀 페이지 DB 제목 중복 시 입력 되돌리기용 — 마지막으로 저장에 성공한 제목 */
   const dbTitleBaselineRef = useRef("");
   const debounceRef = useRef<number | null>(null);
@@ -638,11 +640,24 @@ export function Editor({
     if (page) dbTitleBaselineRef.current = page.title;
   }, [page?.id, effectivePageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 페이지 전환/외부 동기화 시 제목 draft 갱신 — 입력 중 포커스 상태에서는 덮어쓰지 않음.
+  // 페이지 전환 시 draft·포커스 정리 — 사이드바 + 등으로 새 페이지를 만들 때 이전 제목이 붙는 것 방지.
+  useLayoutEffect(() => {
+    if (!currentPageId) {
+      setTitleDraft("");
+      titleFocusPageIdRef.current = null;
+      return;
+    }
+    setTitleDraft(currentPageTitle);
+    titleFocusPageIdRef.current = null;
+    if (titleRef.current && document.activeElement === titleRef.current) {
+      titleRef.current.blur();
+    }
+  }, [currentPageId]); // eslint-disable-line react-hooks/exhaustive-deps -- 전환 시에만 draft 리셋
+
+  // 같은 페이지에서 원격·다른 UI 로 제목만 바뀐 경우 draft 동기화(입력 중 제외).
   useEffect(() => {
     if (!currentPageId) return;
-    const input = titleRef.current;
-    if (input && document.activeElement === input) return;
+    if (titleFocusPageIdRef.current === currentPageId) return;
     setTitleDraft(currentPageTitle);
   }, [currentPageId, currentPageTitle]);
 
@@ -765,13 +780,20 @@ export function Editor({
                 <input
                   ref={titleRef}
                   value={titleDraft}
+                  onFocus={() => {
+                    titleFocusPageIdRef.current = effectivePageId;
+                  }}
                   onChange={(e) => {
                     setTitleDraft(e.target.value);
                   }}
                   onBlur={() => {
+                    const focusPageId = titleFocusPageIdRef.current;
+                    titleFocusPageIdRef.current = null;
+                    if (!focusPageId || focusPageId !== effectivePageId) return;
+
                     const nextTitle = titleDraft.trim() || "제목 없음";
                     if (nextTitle !== page.title) {
-                      renamePage(effectivePageId, nextTitle);
+                      renamePage(focusPageId, nextTitle);
                     }
                     if (!isFullPageDatabase) return;
                     const ok = trySyncFullPageDatabaseTitle(page.doc, nextTitle);

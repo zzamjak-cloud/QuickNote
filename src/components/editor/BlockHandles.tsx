@@ -268,21 +268,28 @@ export function BlockHandles({
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
 
-  // 팝업 열림 상태에서 Backspace/Delete 키로 블록 삭제
+  // 팝업 열림 상태에서 단축키(삭제·복제)
   const deleteBlockRef = useRef<() => void>(() => {});
-  useEffect(() => { deleteBlockRef.current = deleteBlock; });
+  const duplicateBlockRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!menuOpen || boxSelectionActive) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.key === "Process") return;
       if (e.key === "Backspace" || e.key === "Delete") {
         e.preventDefault();
         deleteBlockRef.current();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        e.stopPropagation();
+        duplicateBlockRef.current();
       }
     };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [menuOpen]);
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [menuOpen, boxSelectionActive]);
 
   const hoverBlockStart = hover?.blockStart;
 
@@ -502,6 +509,11 @@ export function BlockHandles({
     editor.view.focus();
     setMenuOpen(false);
   };
+
+  useEffect(() => {
+    deleteBlockRef.current = deleteBlock;
+    duplicateBlockRef.current = duplicateBlock;
+  });
 
   const openBlockCommentAtStart = (
     e: ReactMouseEvent<HTMLElement>,
@@ -762,7 +774,7 @@ export function BlockHandles({
   return (
     <HandleLayerBase
       ref={containerRef}
-      zClassName={menuOpen ? "z-[320]" : "z-10"}
+      zClassName={menuOpen ? "z-[740]" : "z-10"}
       dataAttrs={{ "data-qn-editor-chrome": "block-handles" }}
     >
       {!boxSelecting && hover && bar && wrapperRect ? (
@@ -788,7 +800,7 @@ export function BlockHandles({
 
             {menuOpen && (
               <div
-                className="absolute z-50 w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                className="absolute z-[740] w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                 style={{
                   left: menuFlipLeft ? undefined : 32,
                   right: menuFlipLeft ? 32 : undefined,

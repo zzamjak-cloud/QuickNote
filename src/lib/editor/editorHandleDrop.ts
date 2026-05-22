@@ -490,14 +490,14 @@ export function createEditorHandleDrop(options: {
       return true;
     }
 
-    if (moved && moveSelectedBlockIntoColumn(view, event)) {
-      return true;
-    }
-
     // 오버레이(div)에서 시작한 drag 는 브라우저에 따라 moved=false 로 들어올 수 있다.
     // QUICKNOTE_BLOCK_DRAG_MIME 이 있으면 moved 값과 무관하게 블록 이동 경로로 처리.
     if (draggedStarts) {
       return moveQuickNoteBlocksFromDrop(view, event, draggedStarts);
+    }
+
+    if (moved && moveSelectedBlockIntoColumn(view, event)) {
+      return true;
     }
 
     if (tryInsertDroppedPageMention(view, event)) {

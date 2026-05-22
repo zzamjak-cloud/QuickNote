@@ -8,6 +8,8 @@ export const BOX_SELECTION_COLORS = {
 export const BOX_SELECTION_Z_INDEX = {
   selectedOverlay: "720",
   marquee: "730",
+  /** 그립 메뉴·서브메뉴 — 마퀴(730)보다 위 */
+  blockHandleMenu: "740",
 } as const;
 
 export function applyBoxMarqueeElementStyle(el: HTMLElement): void {

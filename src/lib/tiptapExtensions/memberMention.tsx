@@ -31,7 +31,7 @@ function MentionNodeView({ node }: NodeViewProps) {
   const label = isPage ? (reactivePageTitle ?? rawLabel ?? "페이지") : rawLabel;
   const dataKind = kindAttr === "member" ? undefined : kindAttr;
   const mentionClass = isPage
-    ? "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 align-middle text-sm text-white hover:bg-blue-700 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600"
+    ? "page-mention"
     : "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70";
 
   return (
@@ -52,15 +52,20 @@ function MentionNodeView({ node }: NodeViewProps) {
         ) : null}
         {isPage ? (
           reactivePageIcon ? (
-            <span className="select-none text-sm leading-none">{reactivePageIcon}</span>
+            <span className="page-mention-icon select-none">{reactivePageIcon}</span>
           ) : (
-            <FileText size={14} className="shrink-0 text-blue-500 dark:text-blue-300" />
+            <FileText size={16} className="page-mention-icon shrink-0" strokeWidth={2} />
           )
         ) : null}
         {isDatabase ? (
           <span className="select-none text-xs">DB</span>
         ) : null}
-        <span className="truncate font-medium">{label}</span>
+        <span className="truncate">{label}</span>
+        {isPage ? (
+          <span className="page-mention-chevron" aria-hidden="true">
+            {">"}
+          </span>
+        ) : null}
       </span>
     </NodeViewWrapper>
   );
@@ -300,10 +305,9 @@ const MemberMentionNode = Mention.extend({
       mergeAttributes(
         {
           "data-type": "mention",
-          class:
-            isPage
-              ? "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-600 px-1.5 py-0.5 align-middle text-sm text-white hover:bg-blue-700 dark:bg-blue-700 dark:text-white dark:hover:bg-blue-600"
-              : "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70",
+          class: isPage
+            ? "page-mention"
+            : "member-mention inline-flex max-w-full cursor-pointer items-center gap-0.5 rounded bg-blue-50 px-1 py-0.5 align-middle text-base text-blue-800 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-100 dark:hover:bg-blue-900/70",
         },
         HTMLAttributes,
       ),
@@ -318,9 +322,14 @@ const MemberMentionNode = Mention.extend({
             "@",
           ]
         : "",
-      isPage && pageIcon ? ["span", { class: "select-none text-sm leading-none" }, pageIcon] : "",
+      isPage && pageIcon
+        ? ["span", { class: "page-mention-icon select-none" }, pageIcon]
+        : "",
       isDatabase ? ["span", { class: "select-none text-xs" }, "DB"] : "",
-      ["span", { class: "truncate font-medium" }, label],
+      ["span", { class: "truncate" }, label],
+      isPage
+        ? ["span", { class: "page-mention-chevron", "aria-hidden": "true" }, ">"]
+        : "",
     ];
   },
   renderText({ node }) {

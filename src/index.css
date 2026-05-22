@@ -155,7 +155,64 @@ body,
 /* 페이지 멘션 칩 (실제 @ 문자는 renderHTML에서 한 번만 렌더) */
 .page-mention {
   cursor: pointer;
-  font-weight: 500;
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 0.25rem;
+  vertical-align: middle;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  padding: 0.3rem 0.55rem;
+  background-color: #bfd5f3;
+  color: #0f345c;
+}
+.page-mention:hover {
+  background-color: #a8c5ef;
+}
+.page-mention .page-mention-at,
+.page-mention .page-mention-chevron,
+.page-mention .truncate {
+  color: #0f345c;
+  font-weight: 600;
+}
+.page-mention .page-mention-at {
+  font-size: 0.75rem;
+}
+.page-mention .page-mention-icon {
+  font-size: 1.0625rem;
+  line-height: 1;
+  color: #0f345c;
+}
+.page-mention .page-mention-icon svg {
+  color: #0f345c;
+  stroke: #0f345c;
+}
+.page-mention .page-mention-chevron {
+  flex-shrink: 0;
+  margin-left: 0.1rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+/* 저장된 HTML 등 구형 member-mention + page kind 폴백 */
+.member-mention[data-mention-kind="page"],
+span.member-mention[data-id^="p:"] {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 0.25rem;
+  vertical-align: middle;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  padding: 0.3rem 0.55rem;
+  background-color: #bfd5f3 !important;
+  color: #0f345c !important;
 }
 
 /* 블록 드래그(그립) 중 */
