@@ -24,7 +24,6 @@ import {
 } from "./editorHelpers";
 import type { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 
-type InsertImageFn = Parameters<typeof insertImageFromFile>[1];
 
 type UseEditorPropsParams = {
   bodyOnly: boolean;
@@ -32,7 +31,7 @@ type UseEditorPropsParams = {
   clearColumnDropUi: () => void;
   clearBlockDropIndicator: () => void;
   setBlockDropIndicator: (rect: BlockDropIndicatorRect | null) => void;
-  handleEditorInsertImage: (file: File, insert: InsertImageFn) => void;
+  handleEditorInsertImage: typeof insertImageFromFile;
   handleAtOpenMention: (view: PmEditorView, event: KeyboardEvent) => boolean;
   setPasteUrlChoice: (choice: {
     url: string;

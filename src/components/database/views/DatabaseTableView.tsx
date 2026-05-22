@@ -24,7 +24,6 @@ import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import { useTableRowSelection } from "./useTableRowSelection";
 import { useHistoryStore } from "../../../store/historyStore";
 import { useWindowedRows } from "./useWindowedRows";
-import type { CellValue } from "../../../types/database";
 
 type Props = {
   databaseId: string;
