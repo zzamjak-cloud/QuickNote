@@ -20,6 +20,7 @@ import {
   usePageStore,
   createFilterPageTreeSelector,
 } from "../../store/pageStore";
+import { useShallow } from "zustand/react/shallow";
 import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageMoveDialog } from "./PageMoveDialog";
@@ -45,13 +46,20 @@ function isLCSchedulerModalOpen(): boolean {
 }
 
 function SidebarDragPreview({ pageId }: { pageId: string }) {
-  const page = usePageStore((s) => s.pages[pageId]);
-  if (!page) return null;
+  const { title, icon } = usePageStore(
+    useShallow((s) => ({
+      title: s.pages[pageId]?.title ?? "",
+      icon: s.pages[pageId]?.icon ?? null,
+    })),
+  );
+  // 페이지가 없으면 title이 빈 문자열로 반환되므로 존재 여부를 별도 확인
+  const exists = usePageStore((s) => pageId in s.pages);
+  if (!exists) return null;
   return (
     <div className="flex max-w-[15rem] cursor-grabbing select-none items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-sm shadow-lg ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10">
-      <PageIconDisplay icon={page.icon} size="sm" className="shrink-0" />
+      <PageIconDisplay icon={icon} size="sm" className="shrink-0" />
       <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">
-        {page.title || "제목 없음"}
+        {title || "제목 없음"}
       </span>
     </div>
   );

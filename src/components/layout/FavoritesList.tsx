@@ -18,6 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { StarOff } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
+import { useShallow } from "zustand/react/shallow";
 import { useSettingsStore } from "../../store/settingsStore";
 import type { FavoritePageMeta } from "../../store/settingsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
@@ -60,7 +61,14 @@ async function resolveFavoritePageMeta(
 }
 
 function FavoriteRow({ pageId }: { pageId: string }) {
-  const page = usePageStore((s) => s.pages[pageId]);
+  // doc 필드 불필요 — title·icon·존재 여부만 구독해 텍스트 입력 시 리렌더 방지
+  const pageMeta = usePageStore(
+    useShallow((s) => {
+      const p = s.pages[pageId];
+      if (!p) return null;
+      return { title: p.title, icon: p.icon };
+    }),
+  );
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const removeFavoritePage = useSettingsStore((s) => s.removeFavoritePage);
@@ -97,7 +105,7 @@ function FavoriteRow({ pageId }: { pageId: string }) {
         onClick={() => {
           void (async () => {
             let targetMeta = snapshotMeta;
-            if (!targetMeta && !page) {
+            if (!targetMeta && !pageMeta) {
               targetMeta = await resolveFavoritePageMeta(pageId, workspaces);
               if (targetMeta) {
                 updateFavoritePageMeta(pageId, targetMeta);
@@ -132,7 +140,7 @@ function FavoriteRow({ pageId }: { pageId: string }) {
                 return;
               }
             }
-            if (!page) {
+            if (!pageMeta) {
               requestFavoriteNavigation({
                 pageId,
                 workspaceId: targetWorkspaceId,
@@ -146,8 +154,8 @@ function FavoriteRow({ pageId }: { pageId: string }) {
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm text-zinc-800 dark:text-zinc-100"
       >
-        <PageIconDisplay icon={page?.icon ?? snapshotMeta?.pageIcon ?? null} size="sm" />
-        <span className="truncate">{page?.title || snapshotMeta?.pageTitle || "제목 확인 중"}</span>
+        <PageIconDisplay icon={pageMeta?.icon ?? snapshotMeta?.pageIcon ?? null} size="sm" />
+        <span className="truncate">{pageMeta?.title || snapshotMeta?.pageTitle || "제목 확인 중"}</span>
       </button>
       <button
         type="button"

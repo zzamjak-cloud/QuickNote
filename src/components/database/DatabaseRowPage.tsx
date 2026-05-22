@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Star, FileText, ChevronDown, ChevronRight } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
+import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { Editor } from "../editor/Editor";
@@ -15,7 +16,14 @@ import { PageSubpageTree, countPageDescendants } from "../page/PageSubpageTree";
 import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
-  const page = usePageStore((s) => s.pages[pageId]);
+  // doc 필드는 Editor 컴포넌트가 내부에서 직접 구독 — 여기서는 메타 필드만 구독해 불필요한 리렌더 방지
+  const page = usePageStore(
+    useShallow((s) => {
+      const p = s.pages[pageId];
+      if (!p) return undefined;
+      return { title: p.title, icon: p.icon, databaseId: p.databaseId, parentId: p.parentId };
+    }),
+  );
   const descendantCount = usePageStore((s) => countPageDescendants(pageId, s.pages));
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
