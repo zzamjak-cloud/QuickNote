@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HandleLayerBase } from "./handles/HandleLayerBase";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -719,9 +720,10 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
   return (
     <>
       {gripMenuPortal}
-      <div
-        data-qn-editor-chrome="table-block-controls"
-        className="pointer-events-none fixed inset-0 z-[36]"
+      <HandleLayerBase
+        positioning="fixed"
+        zClassName="z-[36]"
+        dataAttrs={{ "data-qn-editor-chrome": "table-block-controls" }}
       >
       {dragColRect ? (
         <div
@@ -915,7 +917,7 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
           <GripVertical size={14} />
         </button>
       ))}
-    </div>
+    </HandleLayerBase>
     </>
   );
 }

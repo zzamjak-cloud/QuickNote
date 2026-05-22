@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { Fragment, type Node as PMNode } from "@tiptap/pm/model";
 import { Plus } from "lucide-react";
-import { HandleLayer } from "./handles/HandleLayer";
+import { HandleLayerBase } from "./handles/HandleLayerBase";
 
 type Props = {
   editor: Editor | null;
@@ -605,7 +605,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
         ]
       : null;
   return (
-    <HandleLayer
+    <HandleLayerBase
       ref={containerRef}
       zClassName="z-20"
       dataAttrs={{ "data-qn-editor-chrome": "column-reorder-handles" }}
@@ -846,6 +846,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
             document.body,
           )
         : null}
-    </HandleLayer>
+    </HandleLayerBase>
   );
 }
