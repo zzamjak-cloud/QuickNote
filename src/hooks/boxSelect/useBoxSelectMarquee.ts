@@ -182,9 +182,14 @@ export function useBoxSelectMarquee({
         return;
       }
 
-      // 본문(ProseMirror) 중앙 컨텐츠 영역에서는 마퀴 시작 금지.
-      // 텍스트 선택/드래그의 기본 동작을 우선한다.
-      if (target.closest(".qn-prose-marquee-host")) {
+      // 본문(ProseMirror) 컨텐츠 *내부* 에서는 마퀴 시작 금지 — PM 기본 텍스트 선택 우선.
+      // 단, view.dom 자체(= 좌우 px-12 / 상하 py-8 padding 영역) 는 빈 공간이므로
+      // 마퀴를 시작할 수 있어야 한다. 따라서 target === view.dom 인 경우는 통과시킨다.
+      // (이전 구현은 closest 가 host 자체도 매치해 padding 에서 마퀴가 시작 안되는 회귀가 있었음.)
+      if (
+        target !== editor.view.dom &&
+        target.closest(".qn-prose-marquee-host")
+      ) {
         if (selectedStartsRef.current.length > 0) {
           clearSelection();
         }
