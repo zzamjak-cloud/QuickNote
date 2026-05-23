@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { GripHorizontal, GripVertical, Plus } from "lucide-react";
+import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 import {
   setTableReorderDragData,
   TABLE_REORDER_DRAG_BODY_CLASS,
@@ -74,10 +75,11 @@ function reorderTableColumn(editor: Editor, pos: number, table: PMNode, from: nu
  *  - 우/하: + 버튼(offset:+6, w/h:24) + 최소 여유
  */
 function isPointerNearTableChrome(rect: DOMRect, clientX: number, clientY: number): boolean {
-  const left = rect.left - 40;
-  const top = rect.top - 40;
-  const right = rect.right + 40;
-  const bottom = rect.bottom + 40;
+  // 표 외부에서 과하게 반응하지 않도록 크롬 유지 범위를 타이트하게 조정
+  const left = rect.left - 20;
+  const top = rect.top - 20;
+  const right = rect.right + 24;
+  const bottom = rect.bottom + 24;
   return clientX >= left && clientX <= right && clientY >= top && clientY <= bottom;
 }
 
@@ -469,14 +471,21 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
       // uiRef.current는 이전 렌더 기준이지만 표 위치는 거의 동일하므로 hover 인덱스 계산에 충분히 정확
       const prevUi = uiRef.current;
       if (prevUi) {
-        const rIdx = prevUi.rowRects.findIndex(
-          (r) => e.clientY >= r.top && e.clientY <= r.bottom,
-        );
-        setHoveredRowIdx(rIdx === -1 ? null : rIdx);
-        const cIdx = prevUi.colRects.findIndex(
-          (r) => e.clientX >= r.left && e.clientX <= r.right,
-        );
-        setHoveredColIdx(cIdx === -1 ? null : cIdx);
+        const nearInnerTopLeftCorner =
+          e.clientX >= prevUi.rect.left &&
+          e.clientX <= prevUi.rect.left + 16 &&
+          e.clientY >= prevUi.rect.top &&
+          e.clientY <= prevUi.rect.top + 16;
+        if (nearInnerTopLeftCorner) {
+          setHoveredRowIdx(0);
+          setHoveredColIdx(0);
+        } else if (isPointerNearTableChrome(prevUi.rect, e.clientX, e.clientY)) {
+          setHoveredRowIdx(resolveHoverRowIndex(prevUi, e.clientY));
+          setHoveredColIdx(resolveHoverColumnIndex(prevUi, e.clientX));
+        } else {
+          setHoveredRowIdx(null);
+          setHoveredColIdx(null);
+        }
       } else {
         setHoveredRowIdx(null);
         setHoveredColIdx(null);
@@ -846,11 +855,11 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
             window.addEventListener("pointercancel", onUp);
           }}
           className={[
-            "pointer-events-auto fixed flex h-5 items-center justify-center rounded border border-zinc-200 bg-white px-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900",
+            `pointer-events-auto fixed flex h-5 items-center justify-center rounded border border-zinc-200 bg-white px-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 ${POINTER_PRESS_FEEDBACK_CLASS}`,
             "transition-opacity duration-100",
             hoveredColIdx === index ? "opacity-100" : "opacity-0",
           ].join(" ")}
-          style={{ left: rect.left + rect.width / 2 - 12, top: rect.top - 24 }}
+          style={{ left: rect.left + rect.width / 2 - 12, top: rect.top - 16 }}
         >
           <GripHorizontal size={14} />
         </button>
@@ -908,11 +917,11 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
             setDragOverIdx(index);
           }}
           className={[
-            "pointer-events-auto fixed flex w-5 items-center justify-center rounded border border-zinc-200 bg-white py-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900",
+            `pointer-events-auto fixed flex w-5 items-center justify-center rounded border border-zinc-200 bg-white py-1 text-zinc-400 shadow-sm hover:text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 ${POINTER_PRESS_FEEDBACK_CLASS}`,
             "transition-opacity duration-100",
             hoveredRowIdx === index ? "opacity-100" : "opacity-0",
           ].join(" ")}
-          style={{ left: rect.left - 26, top: rect.top + rect.height / 2 - 10 }}
+          style={{ left: rect.left - 18, top: rect.top + rect.height / 2 - 10 }}
         >
           <GripVertical size={14} />
         </button>

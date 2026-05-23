@@ -185,7 +185,7 @@ type PageStoreActions = {
   updateDoc: (
     id: string,
     doc: JSONContent,
-    options?: { skipHistory?: boolean },
+    options?: { skipHistory?: boolean; deferSync?: boolean },
   ) => void;
   setActivePage: (id: string | null) => void;
   /** 계층 상 부모 페이지로 이동(헤더 뒤로가기). 루트(parentId 없음)면 무시 */
@@ -253,15 +253,18 @@ export const usePageStore = create<PageStore>()(
           activePageId: activate ? id : state.activePageId,
           cacheWorkspaceId: getCurrentWorkspaceId() || state.cacheWorkspaceId,
         }));
-        const hs = useHistoryStore.getState();
-        const pageEvents = hs.pageEventsByPageId[id] ?? [];
-        hs.recordPageEvent(
-          id,
-          "page.create",
-          toPageSnapshot(page),
-          shouldWriteAnchor(pageEvents.length + 1) ? toPageSnapshot(page) : undefined,
-        );
-        enqueueUpsertPage(page);
+        // 생성 직후 렌더를 먼저 확정하고, 기록/동기화는 다음 틱으로 미뤄 체감 지연을 줄인다.
+        queueMicrotask(() => {
+          const hs = useHistoryStore.getState();
+          const pageEvents = hs.pageEventsByPageId[id] ?? [];
+          hs.recordPageEvent(
+            id,
+            "page.create",
+            toPageSnapshot(page),
+            shouldWriteAnchor(pageEvents.length + 1) ? toPageSnapshot(page) : undefined,
+          );
+          enqueueUpsertPage(page);
+        });
         return id;
       },
 
@@ -425,12 +428,14 @@ export const usePageStore = create<PageStore>()(
               );
             });
           }
-          // 페이지 doc 은 한 글자마다 호출되므로 2초 idle 디바운스로 enqueue 횟수를 줄인다.
-          // 발사 시점에 최신 스냅샷을 다시 읽어 최종 본만 보낸다.
-          debouncePerKey(`page:${id}`, 2000, () => {
-            const latest = get().pages[id];
-            if (latest) enqueueUpsertPage(latest);
-          });
+          if (options?.deferSync !== true) {
+            // 페이지 doc 은 한 글자마다 호출되므로 2초 idle 디바운스로 enqueue 횟수를 줄인다.
+            // 발사 시점에 최신 스냅샷을 다시 읽어 최종 본만 보낸다.
+            debouncePerKey(`page:${id}`, 2000, () => {
+              const latest = get().pages[id];
+              if (latest) enqueueUpsertPage(latest);
+            });
+          }
         }
       },
 

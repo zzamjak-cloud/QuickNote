@@ -95,7 +95,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
               onChange={(icon) => setIcon(pageId, icon)}
               onUploadMessage={(msg) => setIconAlert(msg)}
               defaultIcon={
-                <FileText size={28} className="text-zinc-400" />
+                <FileText size={56} className="text-zinc-400" />
               }
             />
             <input

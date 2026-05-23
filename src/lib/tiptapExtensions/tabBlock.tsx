@@ -577,7 +577,10 @@ const TabBlockView = memo(function TabBlockView({
   const tabList = (
     <div
       contentEditable={false}
-      className="qn-tab-list flex min-w-0 items-center gap-1 bg-zinc-100 px-2 py-1 dark:bg-zinc-800/70"
+      className={[
+        "qn-tab-list flex min-w-0 items-center gap-1 bg-zinc-100 py-1 pr-2 dark:bg-zinc-800/70",
+        placement === "top" || placement === "bottom" ? "pl-8" : "pl-2",
+      ].join(" ")}
       data-tab-placement={placement}
     >
       <div className="qn-tab-items flex min-w-0 flex-1 items-center gap-1">
@@ -694,17 +697,17 @@ const TabBlockView = memo(function TabBlockView({
               portalRoot,
             )
           : null}
-      </div>
-      <div ref={menuRef} className="qn-tab-actions relative ml-auto flex shrink-0 items-center gap-1">
         <button
           type="button"
           onClick={addTab}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          className="qn-tab-add-button inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
           title="탭 추가"
           aria-label="탭 추가"
         >
           <Plus size={14} />
         </button>
+      </div>
+      <div ref={menuRef} className="qn-tab-actions relative ml-auto flex shrink-0 items-center gap-1">
         <button
           ref={menuButtonRef}
           type="button"
@@ -776,7 +779,7 @@ const TabBlockView = memo(function TabBlockView({
       <div ref={panelsShellRef} className="contents">
         <NodeViewContent
           as="div"
-          className="qn-tab-panels relative min-w-0 flex-1 overflow-hidden bg-white/70 p-2 dark:bg-zinc-950/30"
+          className="qn-tab-panels relative min-w-0 flex-1 overflow-hidden bg-white/70 px-4 py-2 dark:bg-zinc-950/30"
         />
       </div>
       {placement === "bottom" && tabList}

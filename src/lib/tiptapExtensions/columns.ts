@@ -4,44 +4,6 @@ import {
   type CalloutPresetId,
 } from "./calloutPresets";
 
-const COLUMN_PRESET_STYLES: Record<
-  CalloutPresetId,
-  { background: string; borderColor: string }
-> = {
-  empty: {
-    background: "transparent",
-    borderColor: "rgba(161, 161, 170, 0.32)",
-  },
-  info: {
-    background: "rgba(240, 249, 255, 0.95)",
-    borderColor: "rgba(125, 211, 252, 0.85)",
-  },
-  warning: {
-    background: "rgba(255, 251, 235, 0.95)",
-    borderColor: "rgba(252, 211, 77, 0.85)",
-  },
-  danger: {
-    background: "rgba(254, 242, 242, 0.95)",
-    borderColor: "rgba(252, 165, 165, 0.85)",
-  },
-  idea: {
-    background: "rgba(254, 252, 232, 0.95)",
-    borderColor: "rgba(253, 224, 71, 0.85)",
-  },
-  success: {
-    background: "rgba(236, 253, 245, 0.95)",
-    borderColor: "rgba(110, 231, 183, 0.85)",
-  },
-  note: {
-    background: "rgba(245, 243, 255, 0.95)",
-    borderColor: "rgba(196, 181, 253, 0.85)",
-  },
-  tip: {
-    background: "rgba(238, 242, 255, 0.95)",
-    borderColor: "rgba(165, 180, 252, 0.85)",
-  },
-};
-
 /** 단일 열: 블록 컨테이너 */
 export const Column = Node.create({
   name: "column",
@@ -95,7 +57,6 @@ export const ColumnLayout = Node.create({
     const count = Math.min(4, Math.max(2, n));
     const presetId = (node.attrs.preset as CalloutPresetId) ?? "empty";
     const preset = CALLOUT_PRESET_MAP[presetId] ?? CALLOUT_PRESET_MAP.empty;
-    const presetStyle = COLUMN_PRESET_STYLES[presetId] ?? COLUMN_PRESET_STYLES.empty;
     // 컬럼 블럭 기본 외곽은 매우 연한 라운드 아웃라인을 유지한다.
     const frameClass =
       presetId === "empty"
@@ -106,7 +67,10 @@ export const ColumnLayout = Node.create({
       mergeAttributes(HTMLAttributes, {
         "data-column-layout": "",
         "data-columns": String(count),
-        style: presetId !== "empty" ? `background: ${presetStyle.background}; border-color: ${presetStyle.borderColor};` : "",
+        style:
+          presetId !== "empty" && preset.color
+            ? `background: ${preset.color}; border-color: ${preset.color};`
+            : "",
         class: [
           "column-layout my-2 flex min-w-0 flex-row gap-6 rounded-md p-2",
           frameClass,

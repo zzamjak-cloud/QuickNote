@@ -120,29 +120,71 @@ body,
 .toggle-block summary {
   list-style: none;
   outline: none;
-  position: relative;
-  padding-left: 18px;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-left: 0;
+  min-width: 0;
 }
 .toggle-block summary::-webkit-details-marker {
   display: none;
 }
 .toggle-block summary::before {
   content: "▶";
-  font-size: 10px;
-  position: absolute;
-  left: 0;
-  top: 4px;
-  width: 18px;
-  text-align: center;
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  line-height: 1;
   cursor: pointer;
   transform: rotate(0deg);
   transition: transform 120ms;
+}
+/* 제목 토글 — 화살표가 제목 글자 크기(em)에 맞춰 함께 커짐 */
+.toggle-block summary[data-title-level="1"]::before {
+  width: 1.1em;
+  height: 1.1em;
+  font-size: 0.42em;
+}
+.toggle-block summary[data-title-level="2"]::before {
+  width: 1.1em;
+  height: 1.1em;
+  font-size: 0.48em;
+}
+.toggle-block summary[data-title-level="3"]::before {
+  width: 1.1em;
+  height: 1.1em;
+  font-size: 0.52em;
 }
 .toggle-block[data-open="true"] summary::before {
   transform: rotate(90deg);
 }
 .toggle-block[data-open="false"] [data-toggle-content] {
   display: none;
+}
+/* 토글 본문이 비었을 때 제목도 함께 회색 */
+.ProseMirror .toggle-block[data-title-empty="true"] summary.toggle-header:not([data-text-color]),
+.ProseMirror .toggle-block[data-title-empty="true"] summary.toggle-header[data-text-color="default"] {
+  color: rgb(161 161 170);
+}
+html.dark .ProseMirror .toggle-block[data-title-empty="true"] summary.toggle-header:not([data-text-color]),
+html.dark .ProseMirror .toggle-block[data-title-empty="true"] summary.toggle-header[data-text-color="default"] {
+  color: rgb(113 113 122);
+}
+/* 토글 본문이 비었을 때(빈 문단만 있어도) 회색 표시 */
+.ProseMirror .toggle-block[data-content-empty="true"] [data-toggle-content] > :is(p, h1, h2, h3, h4, ul, ol, blockquote, pre, div):not([data-text-color]),
+.ProseMirror .toggle-block[data-content-empty="true"] [data-toggle-content] > :is(p, h1, h2, h3, h4, ul, ol, blockquote, pre, div)[data-text-color="default"] {
+  color: rgb(161 161 170);
+}
+html.dark .ProseMirror .toggle-block[data-content-empty="true"] [data-toggle-content] > :is(p, h1, h2, h3, h4, ul, ol, blockquote, pre, div):not([data-text-color]),
+html.dark .ProseMirror .toggle-block[data-content-empty="true"] [data-toggle-content] > :is(p, h1, h2, h3, h4, ul, ol, blockquote, pre, div)[data-text-color="default"] {
+  color: rgb(113 113 122);
+}
+.toggle-block[data-content-empty="true"] .toggle-content .ProseMirror-trailingBreak {
+  color: inherit;
 }
 
 /* tippy 기본 검정 박스 제거 — 슬래시/멘션 메뉴는 자체 outline + shadow 사용 */
@@ -332,6 +374,13 @@ body.quicknote-block-dragging .ProseMirror {
 .ProseMirror blockquote {
   margin-top: 0.4rem;
   margin-bottom: 0.4rem;
+  font-style: normal;
+}
+
+/* Tailwind prose의 blockquote 장식 따옴표를 비활성화 */
+.ProseMirror blockquote p:first-of-type::before,
+.ProseMirror blockquote p:last-of-type::after {
+  content: none !important;
 }
 
 .ProseMirror pre {

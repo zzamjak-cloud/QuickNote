@@ -699,7 +699,7 @@ export function DatabaseRowPeek() {
           <IconPicker
             current={page.icon}
             onChange={(icon) => setIcon(peekPageId, icon)}
-            defaultIcon={<FileText size={28} className="text-zinc-400" />}
+            defaultIcon={<FileText size={56} className="text-zinc-400" />}
           />
           <input
             type="text"

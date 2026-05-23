@@ -1,8 +1,27 @@
 import { memo } from "react";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { InputRule, Node, mergeAttributes } from "@tiptap/core";
+import { InputRule, Node, mergeAttributes, type Editor } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { isToggleContentEmpty } from "./toggleContentEmpty";
+
+/** 커서가 속한 토글(제목 토글 포함)의 open 상태를 반전 */
+function toggleFoldAtSelection(editor: Editor): boolean {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth >= 0; depth--) {
+    const node = $from.node(depth);
+    if (node.type.name !== "toggle") continue;
+    const pos = $from.before(depth);
+    editor.view.dispatch(
+      editor.state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        open: !node.attrs.open,
+      }),
+    );
+    return true;
+  }
+  return false;
+}
 
 // 토글 = summary(인라인) + content(블록 다수). 저장/클립보드는 <details>/<summary> 유지,
 // 에디터 렌더는 React NodeView(div)로 전환 — details DOM reflow 및 불필요한 리렌더 제거.
@@ -67,16 +86,22 @@ export const ToggleContent = Node.create({
 
 // open 속성이 바뀔 때만 React 컴포넌트 리렌더 — 내용 입력 시 리렌더 없음
 function areToggleNodeViewsEqual(prev: NodeViewProps, next: NodeViewProps): boolean {
-  return prev.node.attrs.open === next.node.attrs.open;
+  return (
+    prev.node.attrs.open === next.node.attrs.open &&
+    isToggleContentEmpty(prev.node) === isToggleContentEmpty(next.node)
+  );
 }
 
 const ToggleView = memo(function ToggleView({ node }: NodeViewProps) {
   const isOpen = node.attrs.open as boolean;
+  const contentEmpty = isToggleContentEmpty(node);
   return (
     <NodeViewWrapper
       as="div"
       className="toggle-block my-2 rounded-md px-2 py-1"
       data-open={String(isOpen)}
+      data-content-empty={contentEmpty ? "true" : "false"}
+      data-title-empty={contentEmpty ? "true" : "false"}
     >
       <NodeViewContent />
     </NodeViewWrapper>
@@ -149,65 +174,13 @@ export const Toggle = Node.create({
 
   addKeyboardShortcuts() {
     return {
-      // Ctrl+Enter / Cmd+Enter: 토글 접기/열기 스위칭
-      "Mod-Enter": ({ editor }) => {
-        const { $from } = editor.state.selection;
-        for (let depth = $from.depth; depth >= 0; depth--) {
-          const node = $from.node(depth);
-          if (node.type.name !== "toggle") continue;
-          const pos = $from.before(depth);
-          editor.view.dispatch(
-            editor.state.tr.setNodeMarkup(pos, undefined, {
-              ...node.attrs,
-              open: !node.attrs.open,
-            })
-          );
-          return true;
-        }
-        return false;
-      },
-      "Ctrl-Enter": ({ editor }) => {
-        const { $from } = editor.state.selection;
-        for (let depth = $from.depth; depth >= 0; depth--) {
-          const node = $from.node(depth);
-          if (node.type.name !== "toggle") continue;
-          const pos = $from.before(depth);
-          editor.view.dispatch(
-            editor.state.tr.setNodeMarkup(pos, undefined, {
-              ...node.attrs,
-              open: !node.attrs.open,
-            })
-          );
-          return true;
-        }
-        return false;
-      },
-      // Shift+Enter: toggleHeader에서 현재 토글 "앞"에 빈 문단 생성 후 커서 이동
-      "Shift-Enter": ({ editor }) => {
-        const { state } = editor;
-        const { $from } = state.selection;
-        if ($from.parent.type.name !== "toggleHeader") return false;
-
-        let toggleNode = null as { node: ReturnType<typeof $from.node>, pos: number } | null;
-        for (let depth = $from.depth; depth >= 0; depth--) {
-          const node = $from.node(depth);
-          if (node.type.name === "toggle") {
-            toggleNode = { node, pos: $from.before(depth) };
-            break;
-          }
-        }
-        if (!toggleNode) return false;
-
-        const paragraphType = state.schema.nodes.paragraph;
-        if (!paragraphType) return false;
-        const insertPos = toggleNode.pos;
-        const tr = state.tr.insert(insertPos, paragraphType.create());
-        tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
-        editor.view.dispatch(tr);
-        return true;
-      },
-
+      // Shift+Enter: 토글 접기/열기 (헤더·본문 모두)
+      "Shift-Enter": ({ editor }) => toggleFoldAtSelection(editor),
+      // Ctrl+Enter / Cmd+Enter: 동일
+      "Mod-Enter": ({ editor }) => toggleFoldAtSelection(editor),
+      "Ctrl-Enter": ({ editor }) => toggleFoldAtSelection(editor),
       // Enter: 닫힌 toggleHeader에서만 — 동일한 빈 토글 블럭을 뒤에 추가
+      // (토글·제목 토글 헤더에서 위에 빈 블록: Alt+Enter — insertBeforeBlock.ts)
       "Enter": ({ editor }) => {
         const { state } = editor;
         const { $from } = state.selection;
@@ -275,28 +248,6 @@ export const Toggle = Node.create({
 
   addProseMirrorPlugins() {
     return [
-      // 토글 내부에서 Alt+Enter 시 macOS IME 한자 변환보다 먼저 이벤트 선점
-      new Plugin({
-        key: new PluginKey("toggleAltEnterCapture"),
-        view(editorView) {
-          const onKeydown = (e: KeyboardEvent) => {
-            if (!e.altKey || e.key !== "Enter") return;
-            const { $from } = editorView.state.selection;
-            for (let d = $from.depth; d >= 0; d--) {
-              if ($from.node(d).type.name === "toggle") {
-                e.preventDefault();
-                break;
-              }
-            }
-          };
-          editorView.dom.addEventListener("keydown", onKeydown, { capture: true });
-          return {
-            destroy() {
-              editorView.dom.removeEventListener("keydown", onKeydown, { capture: true });
-            },
-          };
-        },
-      }),
       new Plugin({
         key: new PluginKey("toggleFold"),
         props: {

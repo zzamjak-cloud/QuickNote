@@ -2,8 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { Fragment, type Node as PMNode } from "@tiptap/pm/model";
-import { Plus } from "lucide-react";
+import { Palette, Plus, Trash2, Columns3 } from "lucide-react";
 import { HandleLayerBase } from "./handles/HandleLayerBase";
+import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
+import {
+  CALLOUT_PRESETS,
+  type CalloutPresetId,
+} from "../../lib/tiptapExtensions/calloutPresets";
 
 type Props = {
   editor: Editor | null;
@@ -94,6 +99,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
     clientY: number;
     deleteArmed: boolean;
   } | null>(null);
+  const [menuPresetOpen, setMenuPresetOpen] = useState(false);
   /** 핸들 클릭(메뉴) vs 드래그 구분 — pointerdown~click 동안 이동 여부 추적 */
   const handleSessionRef = useRef<{ moved: boolean } | null>(null);
   const [boxSelecting, setBoxSelecting] = useState(false);
@@ -373,6 +379,23 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
     [editor, refresh],
   );
 
+  const applyColumnLayoutPreset = useCallback(
+    (layoutStart: number, preset: CalloutPresetId) => {
+      if (!editor || editor.isDestroyed) return false;
+      editor
+        .chain()
+        .focus()
+        .setNodeSelection(layoutStart)
+        .updateColumnLayoutPreset(preset)
+        .run();
+      setMenuPresetOpen(false);
+      setMenu(null);
+      requestAnimationFrame(refresh);
+      return true;
+    },
+    [editor, refresh],
+  );
+
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const onAny = () => requestAnimationFrame(refresh);
@@ -580,6 +603,10 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
     };
   }, [menu]);
 
+  useEffect(() => {
+    if (!menu) setMenuPresetOpen(false);
+  }, [menu]);
+
   const hasRealHandles = !!handles && handles.items.length > 0;
   // 박스 선택 상태에서는 일반 컬럼 hover 핸들을 모두 끄고 단일(좌상단) 핸들만 노출.
   // 셀렉션이 컬럼 안에 있어도 마우스 호버하지 않으면 표시하지 않는다 — 메뉴 열림·드래그 중에는 유지.
@@ -675,7 +702,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
             draggable
             data-qn-column-grip=""
             className={[
-              "flex h-6 w-7 cursor-grab items-center justify-center rounded-md border bg-white/95 text-zinc-500 shadow-sm active:cursor-grabbing dark:bg-zinc-900/95 dark:text-zinc-300",
+              `flex h-6 w-7 items-center justify-center rounded-md border bg-white/95 text-zinc-500 shadow-sm dark:bg-zinc-900/95 dark:text-zinc-300 ${POINTER_PRESS_FEEDBACK_CLASS}`,
               dropIndex === item.index
                 ? "border-blue-500 ring-2 ring-blue-300/70 text-blue-600 dark:border-blue-400 dark:ring-blue-500/40 dark:text-blue-300"
                 : "border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 dark:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
@@ -794,7 +821,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
             <div
               data-qn-column-grip-menu="1"
               role="menu"
-              className="pointer-events-auto fixed z-[120] min-w-[11rem] overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+              className="pointer-events-auto fixed z-[120] min-w-[11rem] overflow-visible rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
               style={{
                 left: Math.min(
                   Math.max(8, menu.clientX - 8),
@@ -807,13 +834,55 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
               }}
             >
               <div className="px-1 py-1">
+                {!menu.deleteArmed && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onMouseEnter={() => setMenuPresetOpen(true)}
+                      onMouseLeave={() => setMenuPresetOpen(false)}
+                      className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Palette size={14} />
+                        컬러 프리셋
+                      </span>
+                      <span className="text-zinc-400">›</span>
+                    </button>
+                    {menuPresetOpen && (
+                      <div
+                        className="absolute left-full top-0 z-50 max-h-64 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        onMouseEnter={() => setMenuPresetOpen(true)}
+                        onMouseLeave={() => setMenuPresetOpen(false)}
+                      >
+                        {CALLOUT_PRESETS.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => applyColumnLayoutPreset(menu.layoutStart, p.id)}
+                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          >
+                            <span className="w-6 shrink-0 text-center text-base leading-6">
+                              {p.emoji || "·"}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                                {p.label}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <button
                   type="button"
                   role="menuitem"
                   className={
                     menu.deleteArmed
-                      ? "flex w-full items-center rounded px-2 py-1.5 text-left font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                      : "flex w-full items-center rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      ? "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                      : "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                   }
                   onClick={() => {
                     if (!menu.deleteArmed) {
@@ -824,13 +893,14 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
                     setMenu(null);
                   }}
                 >
+                  <Trash2 size={14} />
                   {menu.deleteArmed ? "삭제확인" : "열 삭제"}
                 </button>
                 {!menu.deleteArmed && (
                   <button
                     type="button"
                     role="menuitem"
-                    className="flex w-full items-center rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                     onClick={() => {
                       const ok = window.confirm("컬럼 전체를 삭제하시겠습니까?");
                       if (!ok) return;
@@ -838,6 +908,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
                       setMenu(null);
                     }}
                   >
+                    <Columns3 size={14} />
                     컬럼 전체 삭제
                   </button>
                 )}

@@ -19,6 +19,7 @@ import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useHistoryStore } from "../../store/historyStore";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageIconDisplay } from "../common/PageIconDisplay";
+import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
@@ -160,8 +161,8 @@ const PageListItemInner = function PageListItem({
         {...(rowDragEnabled ? attributes : {})}
         {...(rowDragEnabled ? listeners : {})}
         className={[
-          "group relative flex items-center gap-1 rounded-md py-1 pr-1 text-sm",
-          rowDragEnabled ? "touch-none active:cursor-grabbing" : "",
+          "group relative flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition-transform duration-100",
+          rowDragEnabled ? `${POINTER_PRESS_FEEDBACK_CLASS} touch-none` : "",
           active
             ? "bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
             : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60",

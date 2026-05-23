@@ -68,6 +68,24 @@ export function isResolvedPosInTable($pos: ResolvedPos): boolean {
   return false;
 }
 
+/** 입력 중 레이아웃 확장 비용이 큰 컨테이너 내부인지 (표/컬럼/탭 패널) */
+export function isResolvedPosInDynamicLayoutContainer($pos: ResolvedPos): boolean {
+  for (let d = $pos.depth; d > 0; d--) {
+    const name = $pos.node(d).type.name;
+    if (
+      name === "table" ||
+      name === "column" ||
+      name === "columnLayout" ||
+      name === "tabPanel" ||
+      name === "tabBlock" ||
+      name === "callout"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * 셀 드래그·표 안 텍스트 범위 선택 시 selection-follow 스크롤이
  * 에디터 밖(페이지)까지 전파되는 것을 막는다. (PM scrollToSelection 생략)

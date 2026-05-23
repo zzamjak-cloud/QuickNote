@@ -15,6 +15,7 @@ export function syncInsertBeforeBlockSelection(
 
 /**
  * Alt+Enter: 현재 커서가 있는 doc 최상위 블럭의 위에 빈 paragraph를 삽입하고 커서를 이동.
+ * 토글·제목 토글 헤더(toggleHeader) 포함. (예전 Shift+Enter 동작)
  * 박스 드래그 선택 후에도 선택된 블럭 중 가장 앞 블럭 기준으로 동작.
  * ProseMirror 플러그인으로 구현해 macOS IME(한자 변환) 이벤트보다 먼저 preventDefault 처리.
  */

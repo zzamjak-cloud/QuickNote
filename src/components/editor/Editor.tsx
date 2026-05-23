@@ -27,7 +27,7 @@ type PasteUrlChoice = {
   left: number;
 };
 
-import { usePageStore } from "../../store/pageStore";
+import { enqueuePageUpsertForSync, usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { setPageContext } from "../../lib/tiptapExtensions/pageContext";
 import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/insertBeforeBlock";
@@ -81,6 +81,7 @@ import {
   EMPTY_EDITOR_DOC,
   clampFloatingPanelPosition,
   computeEditorTailSpacerPx,
+  isResolvedPosInDynamicLayoutContainer,
   trySyncFullPageDatabaseTitle,
 } from "./editorHelpers";
 import { useEditorExtensions } from "./useEditorExtensions";
@@ -102,6 +103,8 @@ type EditorProps = {
 /** editor 인스턴스 참조만 바뀔 때 재마운트 — 본문 state 변경 시 무분별 리렌더 방지 */
 const MemoBubbleToolbar = memo(BubbleToolbar);
 const MemoImageResizeOverlay = memo(ImageResizeOverlay);
+const DOC_SYNC_IDLE_MS = 3000;
+const DYNAMIC_LAYOUT_INPUT_AUTOSAVE_DEBOUNCE_MS = 1200;
 
 export function Editor({
   pageId,
@@ -507,6 +510,31 @@ export function Editor({
   // 디바운스 자동 저장
   // doc 가 실제로 변경됐을 때만 normalize/저장 — 이전 저장 시점 doc 참조로 빠른 skip
   const lastSavedDocRef = useRef<unknown>(null);
+  const pendingDocSyncRef = useRef(false);
+  const docSyncTimerRef = useRef<number | null>(null);
+  const flushDocSync = useCallback(() => {
+    if (!effectivePageId) return;
+    if (!pendingDocSyncRef.current) return;
+    const latest = usePageStore.getState().pages[effectivePageId];
+    if (!latest) return;
+    enqueuePageUpsertForSync(latest);
+    pendingDocSyncRef.current = false;
+    if (docSyncTimerRef.current !== null) {
+      window.clearTimeout(docSyncTimerRef.current);
+      docSyncTimerRef.current = null;
+    }
+  }, [effectivePageId]);
+
+  const scheduleDocSync = useCallback(() => {
+    if (docSyncTimerRef.current !== null) {
+      window.clearTimeout(docSyncTimerRef.current);
+    }
+    docSyncTimerRef.current = window.setTimeout(() => {
+      docSyncTimerRef.current = null;
+      flushDocSync();
+    }, DOC_SYNC_IDLE_MS);
+  }, [flushDocSync]);
+
   useEffect(() => {
     if (!editor) return;
     const handler = () => {
@@ -514,6 +542,9 @@ export function Editor({
       if (!storeDocHydratedRef.current) return;
       // selection 변경 등 doc 내용이 바뀌지 않은 경우 타이머 스케줄 자체를 생략
       if (editor.state.doc === lastSavedDocRef.current) return;
+      const inDynamicLayout = isResolvedPosInDynamicLayoutContainer(
+        editor.state.selection.$from,
+      );
       if (debounceRef.current !== null) {
         window.clearTimeout(debounceRef.current);
       }
@@ -522,9 +553,23 @@ export function Editor({
         const currentDoc = editor.state.doc;
         if (currentDoc === lastSavedDocRef.current) return;
         lastSavedDocRef.current = currentDoc;
-        const json = normalizeFullPageDatabaseDoc(editor.getJSON());
-        updateDoc(effectivePageId, json);
-      }, AUTOSAVE_DEBOUNCE_MS);
+        const flushLocalDoc = () => {
+          const json = normalizeFullPageDatabaseDoc(editor.getJSON());
+          updateDoc(effectivePageId, json, { deferSync: true });
+          pendingDocSyncRef.current = true;
+          scheduleDocSync();
+        };
+        if (inDynamicLayout && "requestIdleCallback" in window) {
+          (window as Window & {
+            requestIdleCallback: (
+              cb: () => void,
+              opts?: { timeout: number },
+            ) => number;
+          }).requestIdleCallback(flushLocalDoc, { timeout: 1200 });
+          return;
+        }
+        flushLocalDoc();
+      }, inDynamicLayout ? DYNAMIC_LAYOUT_INPUT_AUTOSAVE_DEBOUNCE_MS : AUTOSAVE_DEBOUNCE_MS);
     };
     editor.on("update", handler);
     return () => {
@@ -532,8 +577,33 @@ export function Editor({
       if (debounceRef.current !== null) {
         window.clearTimeout(debounceRef.current);
       }
+      if (docSyncTimerRef.current !== null) {
+        window.clearTimeout(docSyncTimerRef.current);
+        docSyncTimerRef.current = null;
+      }
     };
-  }, [editor, effectivePageId, updateDoc]);
+  }, [editor, effectivePageId, flushDocSync, scheduleDocSync, updateDoc]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.on("blur", flushDocSync);
+    return () => {
+      editor.off("blur", flushDocSync);
+    };
+  }, [editor, flushDocSync]);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") flushDocSync();
+    };
+    const onBeforeUnload = () => flushDocSync();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, [flushDocSync]);
 
   // 이미지 업로드 모달 트리거
   useEffect(() => {
@@ -706,18 +776,19 @@ export function Editor({
     if (!host) return;
     const run = (): void => {
       const px = computeEditorTailSpacerPx();
-      host.style.scrollPaddingBottom = `${px}px`;
-      setEditorTailSpacerPx(px);
+      const nextPadding = `${px}px`;
+      if (host.style.scrollPaddingBottom !== nextPadding) {
+        host.style.scrollPaddingBottom = nextPadding;
+      }
+      setEditorTailSpacerPx((prev) => (prev === px ? prev : px));
     };
     run();
     window.addEventListener("resize", run, { passive: true });
     const vv = window.visualViewport;
     vv?.addEventListener("resize", run, { passive: true });
-    vv?.addEventListener("scroll", run, { passive: true });
     return () => {
       window.removeEventListener("resize", run);
       vv?.removeEventListener("resize", run);
-      vv?.removeEventListener("scroll", run);
     };
   }, [effectivePageId, page?.id]);
 
@@ -773,8 +844,8 @@ export function Editor({
                   onUploadMessage={(msg) => setSimpleAlert(msg)}
                   defaultIcon={
                     isFullPageDatabase
-                      ? <Database size={28} className="text-zinc-400" />
-                      : <FileText size={28} className="text-zinc-400" />
+                      ? <Database size={56} className="text-zinc-400" />
+                      : <FileText size={56} className="text-zinc-400" />
                   }
                 />
                 <input
@@ -1008,4 +1079,3 @@ export function Editor({
     </div>
   );
 }
-

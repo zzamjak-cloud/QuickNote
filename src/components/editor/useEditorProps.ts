@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
 import type { EditorView as PmEditorView } from "@tiptap/pm/view";
 import { extractClipboardFiles } from "../../lib/editor/clipboardFiles";
@@ -23,6 +23,7 @@ import {
   suppressScrollToSelectionForTableInteraction,
 } from "./editorHelpers";
 import type { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
+import { TextSelection } from "@tiptap/pm/state";
 
 
 type UseEditorPropsParams = {
@@ -57,6 +58,51 @@ export function useEditorProps({
   setPasteUrlChoice,
   editorScrollHostRef,
 }: UseEditorPropsParams) {
+  const handleBackspaceOnEmptyTaskItem = useCallback((view: PmEditorView, event: KeyboardEvent): boolean => {
+    if (event.key !== "Backspace" || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) {
+      return false;
+    }
+    const { state } = view;
+    const { selection, schema } = state;
+    if (!selection.empty) return false;
+
+    const paragraphType = schema.nodes.paragraph;
+    if (!paragraphType) return false;
+
+    const { $from } = selection;
+    let taskItemDepth = -1;
+    for (let depth = $from.depth; depth >= 1; depth--) {
+      if ($from.node(depth).type.name === "taskItem") {
+        taskItemDepth = depth;
+        break;
+      }
+    }
+    if (taskItemDepth < 0) return false;
+
+    const taskItemNode = $from.node(taskItemDepth);
+    if (taskItemNode.textContent.trim().length > 0) return false;
+
+    const taskListDepth = taskItemDepth - 1;
+    if (taskListDepth < 1 || $from.node(taskListDepth).type.name !== "taskList") return false;
+    const taskListNode = $from.node(taskListDepth);
+    const taskListPos = $from.before(taskListDepth);
+    const taskListEnd = taskListPos + taskListNode.nodeSize;
+    const itemPos = $from.before(taskItemDepth);
+    const itemEnd = itemPos + taskItemNode.nodeSize;
+
+    event.preventDefault();
+    let tr = state.tr;
+    if (taskListNode.childCount <= 1) {
+      tr = tr.replaceWith(taskListPos, taskListEnd, paragraphType.create());
+      tr = tr.setSelection(TextSelection.near(tr.doc.resolve(taskListPos + 1), 1));
+    } else {
+      tr = tr.replaceWith(itemPos, itemEnd, paragraphType.create());
+      tr = tr.setSelection(TextSelection.near(tr.doc.resolve(itemPos + 1), 1));
+    }
+    view.dispatch(tr.scrollIntoView());
+    return true;
+  }, []);
+
   const editorProps = useMemo(
     () => ({
       attributes: {
@@ -151,23 +197,16 @@ export function useEditorProps({
         },
       },
       handleKeyDown(view: PmEditorView, event: KeyboardEvent) {
+        if (handleBackspaceOnEmptyTaskItem(view, event)) return true;
         if (handleAtOpenMention(view, event)) return true;
         return false;
       },
       handleScrollToSelection: (view: PmEditorView) => {
-        if (suppressScrollToSelectionForTableInteraction(view)) return true;
-        const host = editorScrollHostRef.current;
-        if (!host) return false;
-        const { from } = view.state.selection;
-        try {
-          const coords = view.coordsAtPos(from);
-          const rect = host.getBoundingClientRect();
-          // 커서가 이미 뷰포트 안에 있으면 PM의 자동 스크롤 억제
-          if (coords.top >= rect.top && coords.bottom <= rect.bottom) return true;
-        } catch {
-          // coordsAtPos가 실패하면 기본 동작에 위임
-        }
-        return false;
+        void view;
+        void suppressScrollToSelectionForTableInteraction;
+        void editorScrollHostRef;
+        // PM/Tiptap 기본 selection follow-scroll을 전면 차단.
+        return true;
       },
     }),
     [
@@ -176,6 +215,7 @@ export function useEditorProps({
       clearBlockDropIndicator,
       handleEditorInsertImage,
       handleAtOpenMention,
+      handleBackspaceOnEmptyTaskItem,
       setPasteUrlChoice,
       bodyOnly,
       columnDropRef,

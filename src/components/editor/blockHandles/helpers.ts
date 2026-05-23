@@ -40,9 +40,52 @@ export const RECT_PAD_X = 20;
 export const COMMENT_BTN_GAP_PX = 8;
 export const RECT_PAD_Y = 18;
 export const HANDLE_TOP_OFFSET_PX = -2;
+const LIST_ITEM_HANDLE_EXTRA_LEFT_PX = 18;
+
+export function resolveHandleLeft(
+  hover: HoverInfo,
+  wrapperRect: DOMRect,
+): number {
+  // 표 블럭은 좌상단 모서리에 핸들을 붙여야 인지성이 좋아서 공통 거터 오프셋을 우회한다.
+  if (hover.node.type.name === "table") {
+    const tableEdgeLeft = hover.rect.left - wrapperRect.left - 10;
+    return Math.max(MIN_HANDLE_LEFT, tableEdgeLeft);
+  }
+  const extraLeft = hover.node.type.name === "listItem" ? LIST_ITEM_HANDLE_EXTRA_LEFT_PX : 0;
+  const rawLeft = hover.rect.left - wrapperRect.left - HANDLE_STRIP_PX - extraLeft;
+  return Math.max(MIN_HANDLE_LEFT, rawLeft);
+}
 
 /** wrapper(콜아웃·토글·인용) 블록을 그 안의 텍스트만 담은 단일 paragraph로 치환.
  *  치환 성공 시 true 반환 — 호출자는 이후 setHeading 등 단일 타입 명령을 적용한다. */
+/** 토글 헤더 titleLevel 변경 — 본문·open 상태는 유지 */
+export function applyToggleTitleLevel(
+  editor: Editor,
+  blockStart: number,
+  level: 1 | 2 | 3 | null,
+): void {
+  const node = editor.state.doc.nodeAt(blockStart);
+  if (!node || node.type.name !== "toggle") return;
+
+  let headerOffset: number | null = null;
+  let headerNode: PMNode | null = null;
+  node.forEach((child, offset) => {
+    if (child.type.name === "toggleHeader") {
+      headerOffset = offset;
+      headerNode = child;
+    }
+  });
+  if (headerOffset === null || !headerNode) return;
+  const resolvedHeaderNode: PMNode = headerNode;
+
+  const headerPos = blockStart + 1 + headerOffset;
+  const tr = editor.state.tr.setNodeMarkup(headerPos, undefined, {
+    ...resolvedHeaderNode.attrs,
+    titleLevel: level === null ? null : String(level),
+  });
+  editor.view.dispatch(tr);
+}
+
 export function flattenWrapperToParagraph(editor: Editor, blockStart: number): boolean {
   const node = editor.state.doc.nodeAt(blockStart);
   if (!node || !shouldFlattenWrapperBeforeTypeChange(node.type.name)) return false;
@@ -71,8 +114,7 @@ export function pointInGripZone(
   wrapperRect: DOMRect,
 ): boolean {
   const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX;
-  const rawLeft = hover.rect.left - wrapperRect.left - HANDLE_STRIP_PX;
-  const left = Math.max(MIN_HANDLE_LEFT, rawLeft);
+  const left = resolveHandleLeft(hover, wrapperRect);
   const z = GRIP_ZONE_PAD_PX;
   const x0 = wrapperRect.left + left - z;
   const y0 = wrapperRect.top + top - z;
@@ -184,6 +226,103 @@ function considerDatabaseBlockFromStack(
   }
 }
 
+function considerContainerHandleFromStack(
+  editor: Editor,
+  stack: Element[],
+  byStart: Map<number, HoverInfo>,
+  clientX: number,
+  clientY: number,
+) {
+  const view = editor.view;
+  for (const raw of stack) {
+    if (!(raw instanceof HTMLElement)) continue;
+    if (!view.dom.contains(raw)) continue;
+    const container =
+      raw.closest("[data-column-layout]") ??
+      raw.closest("[data-tab-block]");
+    if (!(container instanceof HTMLElement) || !view.dom.contains(container)) continue;
+    let pos: number | null = null;
+    try {
+      pos = view.posAtDOM(container, 0);
+    } catch {
+      try {
+        pos = view.posAtDOM(container, 1);
+      } catch {
+        pos = null;
+      }
+    }
+    if (pos == null) continue;
+    const $pos = editor.state.doc.resolve(
+      Math.min(Math.max(0, pos), editor.state.doc.content.size),
+    );
+    for (let d = $pos.depth; d > 0; d--) {
+      const node = $pos.node(d);
+      if (node.type.name !== "columnLayout" && node.type.name !== "tabBlock") continue;
+      const start = $pos.before(d);
+      const prev = byStart.get(start);
+      const rect = container.getBoundingClientRect();
+      const nearTopLeft =
+        clientX >= rect.left - 6 &&
+        clientX <= rect.left + 48 &&
+        clientY >= rect.top - 6 &&
+        clientY <= rect.top + 32;
+      const candidate: HoverInfo = {
+        rect,
+        blockStart: start,
+        // 컨테이너 핸들은 좌상단 진입 구역에서만 우선, 그 외에는 내부 블럭 핸들을 유지.
+        depth: nearTopLeft ? d + 10 : d - 1,
+        node,
+      };
+      if (!prev || candidate.depth > prev.depth) byStart.set(start, candidate);
+      break;
+    }
+  }
+}
+
+function considerTableHandleFromStack(
+  editor: Editor,
+  stack: Element[],
+  byStart: Map<number, HoverInfo>,
+) {
+  const view = editor.view;
+  for (const raw of stack) {
+    if (!(raw instanceof HTMLElement)) continue;
+    if (!view.dom.contains(raw)) continue;
+    const tableEl = raw.closest("table");
+    if (!(tableEl instanceof HTMLTableElement) || !view.dom.contains(tableEl)) continue;
+    let pos: number | null = null;
+    try {
+      pos = view.posAtDOM(tableEl, 0);
+    } catch {
+      try {
+        pos = view.posAtDOM(tableEl, 1);
+      } catch {
+        pos = null;
+      }
+    }
+    if (pos == null) continue;
+    const bounded = Math.min(Math.max(0, pos), editor.state.doc.content.size);
+    const $pos = editor.state.doc.resolve(bounded);
+    let found: HoverInfo | null = null;
+    for (let d = $pos.depth; d >= 0; d--) {
+      const node = $pos.node(d);
+      if (node.type.name !== "table") continue;
+      const start = d === 0 ? 0 : $pos.before(d);
+      found = {
+        rect: tableEl.getBoundingClientRect(),
+        blockStart: start,
+        depth: 1000,
+        node,
+      };
+      break;
+    }
+    if (!found) continue;
+    const prev = byStart.get(found.blockStart);
+    if (!prev || found.depth > prev.depth) byStart.set(found.blockStart, found);
+    return;
+  }
+}
+
 export function blockAtPoint(
   editor: Editor,
   clientX: number,
@@ -215,6 +354,8 @@ export function blockAtPoint(
   }
 
   considerDatabaseBlockFromStack(editor, stack, considerPosition);
+  considerTableHandleFromStack(editor, stack, byStart);
+  considerContainerHandleFromStack(editor, stack, byStart, clientX, clientY);
 
   const coords = view.posAtCoords({ left: clientX, top: clientY });
   if (coords) considerPosition(coords.pos);
@@ -260,6 +401,13 @@ export function blockAtPoint(
   }
   return best;
 }
+
+export const TOGGLE_VARIANT_MENU_ITEMS = [
+  { label: "일반 토글", icon: ChevronRight, level: null },
+  { label: "제목 1 토글", icon: Heading1, level: 1 as const },
+  { label: "제목 2 토글", icon: Heading2, level: 2 as const },
+  { label: "제목 3 토글", icon: Heading3, level: 3 as const },
+];
 
 export const TYPE_MENU_ITEMS = [
   { label: "본문", icon: Pilcrow, cmd: (e: Editor) => e.chain().focus().setParagraph().run() },

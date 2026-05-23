@@ -3,6 +3,7 @@ import Suggestion, {
   type SuggestionOptions,
 } from "@tiptap/suggestion";
 import { Plugin } from "prosemirror-state";
+import { ReplaceStep } from "@tiptap/pm/transform";
 import type { SlashMenuEntry, SlashCommandContext } from "./slashItems";
 
 export type SlashCommandOptions = {
@@ -43,23 +44,17 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
             return false;
           },
           apply(tr) {
-            if (!tr.docChanged) return false;
+            if (!tr.docChanged) {
+              _slashJustTyped = false;
+              return false;
+            }
             for (const step of tr.steps) {
-              try {
-                const json = step.toJSON() as {
-                  stepType?: string;
-                  slice?: { content?: Array<{ text?: string }> };
-                };
-                if (json.stepType === "replace") {
-                  const text = json.slice?.content?.[0]?.text ?? "";
-                  // 단일 "/" 문자를 삽입한 경우에만 허용
-                  if (text === "/") {
-                    _slashJustTyped = true;
-                    return true;
-                  }
-                }
-              } catch {
-                // ignore
+              if (!(step instanceof ReplaceStep)) continue;
+              const first = step.slice.content.firstChild;
+              // 단일 "/" 문자를 삽입한 경우에만 허용
+              if (first?.isText && first.text === "/" && step.slice.size === 1) {
+                _slashJustTyped = true;
+                return true;
               }
             }
             _slashJustTyped = false;

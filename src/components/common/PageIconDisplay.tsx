@@ -15,8 +15,14 @@ type Props = {
 
 const sizeClass: Record<NonNullable<Props["size"]>, string> = {
   sm: "h-4 w-4",
-  md: "h-5 w-5",
-  lg: "h-14 w-14",
+  md: "h-6 w-6",
+  lg: "h-16 w-16",
+};
+
+const lucideIconSize: Record<NonNullable<Props["size"]>, number> = {
+  sm: 16,
+  md: 22,
+  lg: 56,
 };
 
 export function PageIconDisplay({
@@ -29,7 +35,7 @@ export function PageIconDisplay({
   const { url, error } = useImageUrl(isImg ? icon : null);
   const box = sizeClass[size];
   const lucideIcon = decodeLucidePageIcon(icon);
-  const iconSize = size === "lg" ? 48 : size === "md" ? 18 : 15;
+  const iconSize = lucideIconSize[size];
 
   if (lucideIcon) {
     const Icon =
@@ -38,7 +44,11 @@ export function PageIconDisplay({
       ] ?? LucideIcons.FileText;
     return (
       <span className={`inline-flex ${box} shrink-0 items-center justify-center ${className}`}>
-        <Icon size={iconSize} strokeWidth={1.9} color={lucideIcon.color} />
+        <Icon
+          size={iconSize}
+          strokeWidth={size === "lg" ? 2 : 1.9}
+          color={lucideIcon.color}
+        />
       </span>
     );
   }
@@ -48,7 +58,7 @@ export function PageIconDisplay({
       <span className={`inline-flex ${box} shrink-0 items-center justify-center ${className}`}>
         <LucideIcons.FileText
           size={iconSize}
-          strokeWidth={1.9}
+          strokeWidth={size === "lg" ? 2 : 1.9}
           className="text-zinc-500 dark:text-zinc-400"
         />
       </span>

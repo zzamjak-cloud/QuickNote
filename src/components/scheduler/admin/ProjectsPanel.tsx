@@ -186,6 +186,7 @@ export function ProjectsPanel() {
         await createProject({
           workspaceId,
           name: finalForm.name.trim(),
+          color: editingProject?.color ?? "#3b82f6",
           description: finalForm.description.trim() || undefined,
           memberIds: finalForm.memberIds,
           leaderMemberIds: finalForm.leaderMemberIds,

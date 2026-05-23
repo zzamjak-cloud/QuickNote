@@ -40,16 +40,25 @@ export function createBlockCommentDecorations(
 
               // 메시지 목록 해시 + 페이지/멤버 식별자로 캐시 키 계산.
               // doc 변경은 state.doc reference 비교로 감지.
-              const msgHash = messages.map((m) => `${m.id}:${m.bodyText}`).join("|");
+              const msgHash = messages.map((m) => m.id).join("|");
               const cacheKey = `${currentPageId}|${msgHash}|${currentMemberId ?? ""}`;
               if (cacheKey === cachedKey && cachedDoc === state.doc && cachedSet) {
                 return cachedSet;
+              }
+
+              if (messages.length === 0) {
+                const empty = DecorationSet.empty;
+                cachedKey = cacheKey;
+                cachedDoc = state.doc;
+                cachedSet = empty;
+                return empty;
               }
 
               const countBy = new Map<string, number>();
               for (const m of messages) {
                 countBy.set(m.blockId, (countBy.get(m.blockId) ?? 0) + 1);
               }
+              const targetBlockIds = new Set(countBy.keys());
 
               const decos: Decoration[] = [];
               // ID 중복(엔터로 블록 분할 시 일시적으로 동일 id) 가 있을 때
@@ -60,6 +69,7 @@ export function createBlockCommentDecorations(
                 if (!id) return;
                 if (seen.has(id)) return;
                 seen.add(id);
+                if (!targetBlockIds.has(id)) return;
                 const n = countBy.get(id) ?? 0;
                 const unread =
                   !!currentMemberId &&

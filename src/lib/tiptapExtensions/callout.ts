@@ -53,6 +53,7 @@ export const Callout = Node.create({
     const rootAttrs = mergeAttributes(HTMLAttributes, {
       "data-callout": "",
       "data-preset": presetId,
+      style: def.color ? `background: ${def.color}; border-color: ${def.color};` : undefined,
       class:
         presetId === "empty"
           ? [

@@ -46,6 +46,19 @@ function isInsideAnyBlock(
   return false;
 }
 
+function isPointerNearCaret(view: EditorView, clientX: number, clientY: number): boolean {
+  const sel = view.state.selection;
+  if (!sel.empty) return false;
+  try {
+    const caret = view.coordsAtPos(sel.from);
+    const dx = clientX - caret.left;
+    const dy = clientY - caret.bottom;
+    return Math.hypot(dx, dy) <= 18;
+  } catch {
+    return false;
+  }
+}
+
 /** 마퀴 드래그 — 블럭 외부 빈 공간 전용. 그룹 오버레이는 시각 표시만(이동은 그립 핸들러 전용). */
 export function useBoxSelectMarquee({
   editor,
@@ -217,6 +230,8 @@ export function useBoxSelectMarquee({
         }
         return;
       }
+      // 캐럿 근처의 미세 드래그는 텍스트 선택 의도로 간주하고 마퀴를 시작하지 않는다.
+      if (isPointerNearCaret(editor.view, e.clientX, e.clientY)) return;
 
       // 외부 빈 공간(에디터 chrome / 블럭 사이 padding 등) — 마퀴 시작
       collapsePmSelectionIfNeeded();

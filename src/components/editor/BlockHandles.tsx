@@ -43,6 +43,7 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useMemberStore } from "../../store/memberStore";
+import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
 import {
   isAttachmentBlockNodeType,
@@ -53,16 +54,17 @@ import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import {
   COMMENT_BTN_GAP_PX,
   GUTTER_LEFT_PX,
-  HANDLE_STRIP_PX,
   HANDLE_TOP_OFFSET_PX,
   type HoverInfo,
-  MIN_HANDLE_LEFT,
   RECT_PAD_X,
   RECT_PAD_Y,
   TYPE_MENU_ITEMS,
+  TOGGLE_VARIANT_MENU_ITEMS,
+  applyToggleTitleLevel,
   blockAtPoint,
   flattenWrapperToParagraph,
   pointInGripZone,
+  resolveHandleLeft,
 } from "./blockHandles/helpers";
 
 
@@ -323,9 +325,9 @@ export function BlockHandles({
   const bar =
     hover && wrapperRect
       ? (() => {
-          const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX;
-          const rawLeft = hover.rect.left - wrapperRect.left - HANDLE_STRIP_PX;
-          const left = Math.max(MIN_HANDLE_LEFT, rawLeft);
+          const tableTopNudge = hover.node.type.name === "table" ? -14 : 0;
+          const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX + tableTopNudge;
+          const left = resolveHandleLeft(hover, wrapperRect);
           return { top, left };
         })()
       : null;
@@ -656,6 +658,7 @@ export function BlockHandles({
   const isDatabaseInlineBlock = hover?.node.type.name === "databaseBlock" && hover?.node.attrs.layout !== "fullPage";
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isColumnLayout = hover?.node.type.name === "columnLayout";
+  const isToggleBlock = hover?.node.type.name === "toggle";
   const isTextBlock = hover
     ? [
         "paragraph",
@@ -793,7 +796,7 @@ export function BlockHandles({
               onDragEnd={onGripDragEnd}
               onClick={onGripClick}
               title="클릭: 메뉴 | 드래그: 블록 이동"
-              className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md border border-transparent bg-white/90 text-zinc-500 shadow-sm ring-1 ring-zinc-200/80 hover:bg-zinc-50 hover:text-zinc-800 active:cursor-grabbing dark:bg-zinc-900/90 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-white/90 text-zinc-500 shadow-sm ring-1 ring-zinc-200/80 hover:bg-zinc-50 hover:text-zinc-800 dark:bg-zinc-900/90 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${POINTER_PRESS_FEEDBACK_CLASS}`}
             >
               <GripVertical size={15} />
             </button>
@@ -849,11 +852,38 @@ export function BlockHandles({
                     </button>
                     {typeMenuOpen && (
                       <div
-                        className="absolute left-full top-0 z-50 w-40 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        className="absolute left-full top-0 z-50 max-h-80 w-44 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                         onMouseEnter={() => setTypeMenuOpen(true)}
                         onMouseLeave={() => setTypeMenuOpen(false)}
                       >
-                        {TYPE_MENU_ITEMS.map((item) => (
+                        {isToggleBlock ? (
+                          <>
+                            {TOGGLE_VARIANT_MENU_ITEMS.map((item) => (
+                              <button
+                                key={item.label}
+                                type="button"
+                                onClick={() => {
+                                  if (!editor || !hover) return;
+                                  applyToggleTitleLevel(
+                                    editor,
+                                    hover.blockStart,
+                                    item.level,
+                                  );
+                                  setMenuOpen(false);
+                                  setTypeMenuOpen(false);
+                                }}
+                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                              >
+                                <item.icon size={14} />
+                                {item.label}
+                              </button>
+                            ))}
+                            <div className="my-1 border-t border-zinc-200 dark:border-zinc-700" />
+                          </>
+                        ) : null}
+                        {TYPE_MENU_ITEMS.filter(
+                          (item) => !(isToggleBlock && item.label === "토글"),
+                        ).map((item) => (
                           <button
                             key={item.label}
                             type="button"
