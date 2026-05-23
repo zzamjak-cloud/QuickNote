@@ -1,9 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Plus,
-  GripVertical,
-  Maximize2,
-  PanelRight,
   Check,
   Minus,
   MoreHorizontal,
@@ -18,12 +15,12 @@ import { DatabaseColumnHeader } from "../DatabaseColumnHeader";
 import { DatabaseAddColumnButton } from "../DatabaseAddColumnButton";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
-import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import { useTableRowSelection } from "./useTableRowSelection";
 import { useHistoryStore } from "../../../store/historyStore";
 import { useWindowedRows } from "./useWindowedRows";
+import { cellToSearchString } from "../../../lib/databaseQuery";
 
 type Props = {
   databaseId: string;
@@ -33,8 +30,6 @@ type Props = {
   visibleRowLimit?: number;
   layout?: "inline" | "fullPage";
 };
-
-const DRAG_MIME = "application/x-quicknote-db-drag";
 
 function cloneCellValue<T>(value: T): T {
   try {
@@ -46,23 +41,18 @@ function cloneCellValue<T>(value: T): T {
 
 type FillDragState = { columnId: string; sourceRowIndex: number; sourceValue: CellValue };
 
-// props 얕은 비교: row/isDropTarget/isBoxSelected 변경 시만 리렌더. 셀 편집 시 다른 행은 리렌더하지 않음.
+// props 얕은 비교: row/isBoxSelected 변경 시만 리렌더. 셀 편집 시 다른 행은 리렌더하지 않음.
 const DatabaseTableRow = memo(function DatabaseTableRow({
   row,
   rIdx,
   databaseId,
   visibleCols,
-  isDropTarget,
   isBoxSelected,
   fillDrag,
   fillHoverRowIndex,
   fillApplying,
-  setRowDragOver,
-  onRowDrop,
-  setRowDragFrom,
   handleCheckboxClick,
   openPeek,
-  onOpenFull,
   setIcon,
   setFillDrag,
 }: {
@@ -70,17 +60,12 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   rIdx: number;
   databaseId: string;
   visibleCols: ColumnDef[];
-  isDropTarget: boolean;
   isBoxSelected: boolean;
   fillDrag: FillDragState | null;
   fillHoverRowIndex: number | null;
   fillApplying: { columnId: string; sourceRowIndex: number } | null;
-  setRowDragOver: (idx: number | null) => void;
-  onRowDrop: () => void;
-  setRowDragFrom: (idx: number | null) => void;
   handleCheckboxClick: (pageId: string, opts: { shiftKey: boolean }) => void;
   openPeek: (pageId: string) => void;
-  onOpenFull: (pageId: string, opts?: { newTab?: boolean }) => void;
   setIcon: (pageId: string, icon: string | null) => void;
   setFillDrag: (v: FillDragState | null) => void;
 }) {
@@ -94,19 +79,8 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   return (
     <tr
       data-qn-row-idx={rIdx}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setRowDragOver(rIdx);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onRowDrop();
-      }}
       className={[
-        "group border-b border-zinc-100 dark:border-zinc-800",
-        isDropTarget ? "border-t-2 border-dashed border-t-blue-400" : "",
+        "group/row border-b border-zinc-100 dark:border-zinc-800",
         isBoxSelected ? "bg-blue-50 dark:bg-blue-950/30" : "",
       ].join(" ")}
     >
@@ -125,7 +99,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
               "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border transition-opacity",
               isBoxSelected
                 ? "border-blue-500 bg-blue-500 text-white opacity-100"
-                : "border-zinc-400 bg-transparent opacity-30 group-hover:opacity-100 dark:border-zinc-500",
+                : "border-zinc-400 bg-transparent opacity-30 group-hover/row:opacity-100 dark:border-zinc-500",
             ].join(" ")}
           >
             {isBoxSelected ? <Check size={10} strokeWidth={3} /> : null}
@@ -145,8 +119,10 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
         return (
           <td
             key={col.id}
+            data-qn-col-id={col.id}
             className={[
-              "group/cell relative align-top overflow-hidden px-2 py-1",
+              "group/cell relative align-top px-2 py-1",
+              isFirst ? "overflow-visible" : "overflow-hidden",
               isFirst ? "pr-16" : "",
             ].join(" ")}
           >
@@ -162,26 +138,6 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                   isFillTop && isFillBottom ? "rounded-sm" : "",
                 ].join(" ")}
               />
-            )}
-            {isFirst && (
-              <span
-                draggable
-                onDragStart={(e) => {
-                  e.stopPropagation();
-                  e.dataTransfer.effectAllowed = "move";
-                  e.dataTransfer.setData(DRAG_MIME, `row:${rIdx}`);
-                  setRowDragFrom(rIdx);
-                }}
-                onDragEnd={(e) => {
-                  e.stopPropagation();
-                  setRowDragFrom(null);
-                  setRowDragOver(null);
-                }}
-                className="absolute left-[-18px] top-1/2 -translate-y-1/2 cursor-grab opacity-0 group-hover:opacity-100 active:cursor-grabbing"
-                title="행 이동"
-              >
-                <GripVertical size={12} className="text-zinc-400" />
-              </span>
             )}
             <div className="relative min-w-0 max-w-full truncate">
               {col.type === "title" ? (
@@ -224,13 +180,16 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                   setFillDrag({ columnId: col.id, sourceRowIndex: rIdx, sourceValue: row.cells[col.id] });
                 }}
                 className={[
-                  "absolute bottom-0 right-0 h-2.5 w-2.5 cursor-crosshair border border-blue-500 bg-white dark:bg-zinc-800",
+                  "absolute bottom-0 right-0 z-20 flex h-4 w-4 items-center justify-center rounded-full text-blue-600",
+                  "cursor-crosshair bg-white/90 dark:bg-zinc-800/90",
                   "opacity-0 transition-opacity group-hover/cell:opacity-100",
                   fillDrag && fillDrag.columnId === col.id && fillDrag.sourceRowIndex === rIdx
                     ? "opacity-100"
                     : "",
                 ].join(" ")}
-              />
+              >
+                <Plus size={10} strokeWidth={2.5} />
+              </button>
             )}
             {fillApplying &&
               fillApplying.columnId === col.id &&
@@ -241,30 +200,9 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                   </span>
                 </span>
               )}
-            {isFirst && (
-              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
-                <button
-                  type="button"
-                  onClick={(e) => onOpenFull(row.pageId, { newTab: e.metaKey || e.ctrlKey })}
-                  title="페이지로 열기"
-                  className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-                >
-                  <Maximize2 size={12} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openPeek(row.pageId)}
-                  title="사이드 피크 열기"
-                  className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-                >
-                  <PanelRight size={12} />
-                </button>
-              </div>
-            )}
           </td>
         );
       })}
-      <td />
     </tr>
   );
 });
@@ -274,26 +212,19 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   const { bundle, rows: allRows } = useProcessedRows(databaseId, panelState);
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? (allRows ?? []).slice(0, visibleRowLimit) : allRows;
+  const autoFitRows = allRows ?? rows;
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const moveColumn = useDatabaseStore((s) => s.moveColumn);
-  const setRowOrder = useDatabaseStore((s) => s.setRowOrder);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const setIcon = usePageStore((s) => s.setIcon);
-  const activePageId = usePageStore((s) => s.activePageId);
-  const setActivePage = usePageStore((s) => s.setActivePage);
-  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
-  const openTab = useSettingsStore((s) => s.openTab);
   const openPeek = useUiStore((s) => s.openPeek);
-  const setRowBackTarget = useUiStore((s) => s.setRowBackTarget);
   const restoreDeletedRowFromHistory = useDatabaseStore(
     (s) => s.restoreDeletedRowFromHistory,
   );
 
   const [colDragFrom, setColDragFrom] = useState<number | null>(null);
   const [colDragOver, setColDragOver] = useState<number | null>(null);
-  const [rowDragFrom, setRowDragFrom] = useState<number | null>(null);
-  const [rowDragOver, setRowDragOver] = useState<number | null>(null);
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
   const [fillDrag, setFillDrag] = useState<{
     columnId: string;
@@ -335,13 +266,11 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     if (selectedRowIds.size === 0) setSelectionMenuOpen(false);
   }, [selectedRowIds.size]);
 
-  // drag cancel(drop 없이 dragend) 시 col/row drag state 완전 리셋 안전망
+  // drag cancel(drop 없이 dragend) 시 컬럼 drag state 완전 리셋 안전망
   useEffect(() => {
     const cleanup = () => {
       setColDragFrom(null);
       setColDragOver(null);
-      setRowDragFrom(null);
-      setRowDragOver(null);
       document.body.classList.remove("quicknote-db-col-dragging");
     };
     window.addEventListener("dragend", cleanup);
@@ -409,9 +338,8 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     [visibleCols],
   );
   const CHECKBOX_COL = 28;
-  const ADD_COL = 32;
   const tableWidthPx =
-    CHECKBOX_COL + ADD_COL + resolvedColWidths.reduce((acc, w) => acc + w, 0);
+    CHECKBOX_COL + resolvedColWidths.reduce((acc, w) => acc + w, 0);
   const virtualRows = useWindowedRows({
     count: rows.length,
     estimateSize: 32,
@@ -444,40 +372,16 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     setColDragOver(null);
   };
 
-  const onRowDrop = useCallback(() => {
-    if (!bundle) return;
-    if (rowDragFrom != null && rowDragOver != null && rowDragFrom !== rowDragOver) {
-      const order = [...bundle.rowPageOrder];
-      const [m] = order.splice(rowDragFrom, 1);
-      if (m) order.splice(rowDragOver, 0, m);
-      setRowOrder(databaseId, order);
-    }
-    setRowDragFrom(null);
-    setRowDragOver(null);
-  }, [bundle, rowDragFrom, rowDragOver, databaseId, setRowOrder]);
-
-  const openFull = useCallback((pageId: string, opts?: { newTab?: boolean }) => {
-    if (activePageId) setRowBackTarget(pageId, activePageId);
-    if (opts?.newTab) { openTab(pageId); return; }
-    setActivePage(pageId);
-    setCurrentTabPage(pageId);
-  }, [activePageId, setRowBackTarget, openTab, setActivePage, setCurrentTabPage]);
-
   /** 헤더 우측 리사이즈 핸들 더블클릭 → 해당 컬럼 폭을 헤더+모든 셀의 가장 긴 텍스트에 맞춰 자동 조정.
    *  inputs 의 value 와 텍스트 컨텐츠 모두 측정해 최대값 사용. */
   const autoFitColumn = useCallback(
     (columnId: string) => {
-      // 같은 컬럼 인덱스의 본문 td 들을 찾기 위해 헤더 th 의 위치 기반 인덱스 사용
       const th = document.querySelector<HTMLTableCellElement>(
         `[data-qn-col-id="${columnId}"]`,
       );
       if (!th) return;
       const table = th.closest("table");
-      if (!table) return;
-      const headerCells = Array.from(th.parentElement?.children ?? []);
-      const colIdx = headerCells.indexOf(th);
-      if (colIdx < 0) return;
-      const tbody = table.querySelector("tbody");
+      const tbody = table?.querySelector("tbody");
 
       const canvas = document.createElement("canvas");
       const ctx = canvas.getContext("2d");
@@ -489,25 +393,23 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
       const HEADER_CHROME = 56;
       let maxWidth = ctx.measureText(th.textContent ?? "").width + HEADER_CHROME;
 
-      const sampleCell = tbody?.querySelector<HTMLTableCellElement>("td");
+      const sampleCell = tbody?.querySelector<HTMLTableCellElement>(`td[data-qn-col-id="${columnId}"]`);
       const cellFont = sampleCell
         ? window.getComputedStyle(sampleCell).font
         : "12px sans-serif";
       ctx.font = cellFont || "12px sans-serif";
 
       const CELL_PADDING = 24; // px-2 좌우 여유 + 약간의 buffer
-      tbody?.querySelectorAll<HTMLTableRowElement>("tr").forEach((tr) => {
-        const cell = tr.children[colIdx] as HTMLElement | undefined;
-        if (!cell) return;
-        // textContent 와 모든 input/textarea value 중 가장 긴 텍스트 사용
-        const textContent = (cell.textContent ?? "").trim();
-        let longest = textContent;
-        cell.querySelectorAll<HTMLInputElement>("input, textarea").forEach((el) => {
-          if (el.type === "checkbox") return;
-          if (el.value && el.value.length > longest.length) longest = el.value;
-        });
-        if (!longest) return;
-        const w = ctx.measureText(longest).width + CELL_PADDING;
+      const TITLE_CELL_CHROME = 52;
+      const col = visibleCols.find((c) => c.id === columnId);
+      autoFitRows.forEach((row) => {
+        const content =
+          col?.type === "title"
+            ? row.title
+            : cellToSearchString(row.cells[columnId], visibleCols, columnId);
+        const text = (content ?? "").trim();
+        if (!text) return;
+        const w = ctx.measureText(text).width + (col?.type === "title" ? TITLE_CELL_CHROME : CELL_PADDING);
         if (w > maxWidth) maxWidth = w;
       });
 
@@ -516,7 +418,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
         .getState()
         .updateColumn(databaseId, columnId, { width: finalWidth });
     },
-    [databaseId],
+    [autoFitRows, databaseId, visibleCols],
   );
 
   if (!bundle) return null;
@@ -526,125 +428,117 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     // inline: 60vh 내에서만 스크롤.
     <div
       ref={virtualRows.containerRef}
-      className={`relative overflow-x-auto ${layout === "fullPage" ? "" : "max-h-[60vh] overflow-y-auto"}`}
+      className={`group relative overflow-x-auto ${layout === "fullPage" ? "" : "max-h-[60vh] overflow-y-auto"}`}
     >
       {/* table-layout:fixed + w-full 조합은 한 컬럼 리사이즈 시 다른 컬럼 폭을 100%
           맞추려고 자동 재배분한다 → 사용자가 의도한 폭으로 조절 불가.
           natural-width(table-layout:fixed, no w-full) 로 두어 각 col 의 width 가 그대로 유지되게.
           parent 가 더 넓으면 좌측 정렬, 좁으면 가로 스크롤(이미 overflow-x-auto). */}
-      <table
-        className="border-collapse text-left text-base"
-        style={{ tableLayout: "fixed", width: `${tableWidthPx}px` }}
-      >
-        <colgroup>
-          {/* 선택 체크박스 컬럼 */}
-          <col style={{ width: 28, minWidth: 28 }} />
-          {visibleCols.map((col, idx) => (
-            <col key={col.id} style={{ width: resolvedColWidths[idx] }} />
-          ))}
-          {/* + 버튼 컬럼 */}
-          <col style={{ width: 32, minWidth: 32 }} />
-        </colgroup>
-        <thead className="sticky top-0 z-[5] bg-white dark:bg-zinc-950">
-          <tr>
-            <th className="px-1 py-1 text-center align-middle">
-              {(() => {
-                const total = orderedRowIds.length;
-                const sel = selectedRowIds.size;
-                const allChecked = total > 0 && sel === total;
-                const someChecked = sel > 0 && sel < total;
-                return (
-                  <button
-                    type="button"
-                    role="checkbox"
-                    aria-checked={
-                      allChecked ? "true" : someChecked ? "mixed" : "false"
-                    }
-                    aria-label="모든 행 선택"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleAll();
-                    }}
-                    className={[
-                      "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border transition-opacity",
-                      sel > 0
-                        ? "border-blue-500 bg-blue-500 text-white opacity-100"
-                        : "border-zinc-400 bg-transparent opacity-30 hover:opacity-100 dark:border-zinc-500",
-                    ].join(" ")}
-                  >
-                    {allChecked ? (
-                      <Check size={10} strokeWidth={3} />
-                    ) : someChecked ? (
-                      <Minus size={10} strokeWidth={3} />
-                    ) : null}
-                  </button>
-                );
-              })()}
-            </th>
+      <div className="relative" style={{ width: tableWidthPx + 40 }}>
+        <table
+          className="border-collapse text-left text-base"
+          style={{ tableLayout: "fixed", width: `${tableWidthPx}px` }}
+        >
+          <colgroup>
+            <col style={{ width: CHECKBOX_COL, minWidth: CHECKBOX_COL }} />
             {visibleCols.map((col, idx) => (
-              <DatabaseColumnHeader
-                key={col.id}
-                databaseId={databaseId}
-                column={col}
-                index={idx}
-                onDragStart={(i) => setColDragFrom(i)}
-                onDragOver={(i) => setColDragOver(i)}
-                onDrop={onColDrop}
-                onAutoFit={() => autoFitColumn(col.id)}
-                highlightDrop={
-                  colDragFrom != null && colDragOver === idx && colDragFrom !== idx
-                    ? colDragFrom < idx ? "right" : "left"
-                    : null
-                }
-              />
+              <col key={col.id} style={{ width: resolvedColWidths[idx] }} />
             ))}
-            <DatabaseAddColumnButton databaseId={databaseId} />
-          </tr>
-        </thead>
-        <tbody>
-          {virtualRows.topPadding > 0 && (
-            <tr aria-hidden="true">
-              <td
-                colSpan={visibleCols.length + 2}
-                style={{ height: virtualRows.topPadding, padding: 0, border: 0 }}
-              />
+          </colgroup>
+          <thead className="sticky top-0 z-[5] bg-white dark:bg-zinc-950">
+            <tr className="group/thead">
+              <th className="px-0 py-0 align-middle">
+                {(() => {
+                  const total = orderedRowIds.length;
+                  const sel = selectedRowIds.size;
+                  const allChecked = total > 0 && sel === total;
+                  const someChecked = sel > 0 && sel < total;
+                  return (
+                    <div className="flex min-h-[28px] items-center justify-center">
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={allChecked ? "true" : someChecked ? "mixed" : "false"}
+                        aria-label="모든 행 선택"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleAll();
+                        }}
+                        className={[
+                          "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border transition-opacity",
+                          sel > 0
+                            ? "border-blue-500 bg-blue-500 text-white opacity-100"
+                            : "border-zinc-400 bg-transparent opacity-30 group-hover/thead:opacity-100 dark:border-zinc-500",
+                        ].join(" ")}
+                      >
+                        {allChecked ? <Check size={10} strokeWidth={3} /> : someChecked ? <Minus size={10} strokeWidth={3} /> : null}
+                      </button>
+                    </div>
+                  );
+                })()}
+              </th>
+              {visibleCols.map((col, idx) => (
+                <DatabaseColumnHeader
+                  key={col.id}
+                  databaseId={databaseId}
+                  column={col}
+                  index={idx}
+                  onDragStart={(i) => setColDragFrom(i)}
+                  onDragOver={(i) => setColDragOver(i)}
+                  onDrop={onColDrop}
+                  onAutoFit={() => autoFitColumn(col.id)}
+                  highlightDrop={
+                    colDragFrom != null && colDragOver === idx && colDragFrom !== idx
+                      ? colDragFrom < idx ? "right" : "left"
+                      : null
+                  }
+                />
+              ))}
             </tr>
-          )}
-          {renderedRows.map((row, localIdx) => {
-            const rIdx = virtualRows.start + localIdx;
-            return (
-              <DatabaseTableRow
-                key={row.pageId}
-                row={row}
-                rIdx={rIdx}
-                databaseId={databaseId}
-                visibleCols={visibleCols}
-                isDropTarget={rowDragFrom != null && rowDragOver === rIdx && rowDragFrom !== rIdx}
-                isBoxSelected={selectedRowIds.has(row.pageId)}
-                fillDrag={fillDrag}
-                fillHoverRowIndex={fillHoverRowIndex}
-                fillApplying={fillApplying}
-                setRowDragOver={setRowDragOver}
-                onRowDrop={onRowDrop}
-                setRowDragFrom={setRowDragFrom}
-                handleCheckboxClick={handleCheckboxClick}
-                openPeek={openPeek}
-                onOpenFull={openFull}
-                setIcon={setIcon}
-                setFillDrag={setFillDrag}
-              />
-            );
-          })}
-          {virtualRows.bottomPadding > 0 && (
-            <tr aria-hidden="true">
-              <td
-                colSpan={visibleCols.length + 2}
-                style={{ height: virtualRows.bottomPadding, padding: 0, border: 0 }}
-              />
-            </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {virtualRows.topPadding > 0 && (
+              <tr aria-hidden="true">
+                <td
+                  colSpan={visibleCols.length + 1}
+                  style={{ height: virtualRows.topPadding, padding: 0, border: 0 }}
+                />
+              </tr>
+            )}
+            {renderedRows.map((row, localIdx) => {
+              const rIdx = virtualRows.start + localIdx;
+              return (
+                <DatabaseTableRow
+                  key={row.pageId}
+                  row={row}
+                  rIdx={rIdx}
+                  databaseId={databaseId}
+                  visibleCols={visibleCols}
+                  isBoxSelected={selectedRowIds.has(row.pageId)}
+                  fillDrag={fillDrag}
+                  fillHoverRowIndex={fillHoverRowIndex}
+                  fillApplying={fillApplying}
+                  handleCheckboxClick={handleCheckboxClick}
+                  openPeek={openPeek}
+                  setIcon={setIcon}
+                  setFillDrag={setFillDrag}
+                />
+              );
+            })}
+            {virtualRows.bottomPadding > 0 && (
+              <tr aria-hidden="true">
+                <td
+                  colSpan={visibleCols.length + 1}
+                  style={{ height: virtualRows.bottomPadding, padding: 0, border: 0 }}
+                />
+              </tr>
+            )}
+          </tbody>
+        </table>
+        <div className="pointer-events-auto absolute top-0 z-[12]" style={{ left: tableWidthPx + 4 }}>
+          <DatabaseAddColumnButton databaseId={databaseId} />
+        </div>
+      </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <button
           type="button"

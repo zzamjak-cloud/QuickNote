@@ -63,7 +63,10 @@ import {
   applyToggleTitleLevel,
   blockAtPoint,
   flattenWrapperToParagraph,
+  isAncestorListHover,
+  isListHandleNodeType,
   pointInGripZone,
+  pointInsideListOwnRow,
   resolveHandleLeft,
 } from "./blockHandles/helpers";
 
@@ -188,6 +191,21 @@ export function BlockHandles({
           next &&
           prev &&
           next.blockStart !== prev.blockStart &&
+          isListHandleNodeType(next.node.type.name) &&
+          isListHandleNodeType(prev.node.type.name)
+        ) {
+          if (
+            isAncestorListHover(editor, next, prev) &&
+            !pointInsideListOwnRow(editor, next, e.clientX, e.clientY)
+          ) {
+            return prev;
+          }
+          return next;
+        }
+        if (
+          next &&
+          prev &&
+          next.blockStart !== prev.blockStart &&
           wrapperRect &&
           pointInGripZone(e.clientX, e.clientY, prev, wrapperRect)
         ) {
@@ -207,7 +225,18 @@ export function BlockHandles({
 
         if (prev && wrapperRect) {
           const { rect } = prev;
+          const isPrevListItem = isListHandleNodeType(prev.node.type.name);
           if (
+            isPrevListItem &&
+            pointInsideListOwnRow(editor, prev, e.clientX, e.clientY)
+          ) {
+            return prev;
+          }
+          if (isPrevListItem && pointInGripZone(e.clientX, e.clientY, prev, wrapperRect)) {
+            return prev;
+          }
+          if (
+            !isPrevListItem &&
             e.clientX >= rect.left - GUTTER_LEFT_PX &&
             e.clientX <= rect.right + RECT_PAD_X &&
             e.clientY >= rect.top - RECT_PAD_Y &&
@@ -1199,7 +1228,7 @@ export function BlockHandles({
                         hover.blockStart,
                         hover.blockStart + hover.node.nodeSize,
                         dbNode,
-                      );
+                      ).setMeta("addToHistory", false);
                       editor.view.dispatch(tr);
                       setMenuOpen(false);
                     }}

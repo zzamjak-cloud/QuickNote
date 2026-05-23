@@ -43,30 +43,49 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
     return () => window.removeEventListener("mousedown", handler);
   }, [open, setOpenColumnMenu]);
 
+  const placeMenu = () => {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 192;
+    const estimatedHeight = Math.min(420, 32 + COLUMN_TYPES.length * 34);
+    const left = Math.min(rect.left, window.innerWidth - width - 8);
+    const downTop = rect.bottom + 6;
+    const upTop = Math.max(8, rect.top - estimatedHeight - 6);
+    const top =
+      downTop + estimatedHeight <= window.innerHeight - 8 ? downTop : upTop;
+    setCoords({ top, left: Math.max(8, left) });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    placeMenu();
+    const onResize = () => placeMenu();
+    const onScroll = () => placeMenu();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+
   const toggle = () => {
     if (open) {
       setOpenColumnMenu(null);
       return;
     }
-    const rect = buttonRef.current?.getBoundingClientRect();
-    if (rect) {
-      // 포털로 렌더하되 버튼 우측 정렬, 화면 밖으로 나가지 않도록 클램프
-      const width = 192; // w-48
-      const left = Math.min(rect.right - width, window.innerWidth - width - 8);
-      const top = rect.bottom + 4;
-      setCoords({ top, left: Math.max(8, left) });
-    }
+    placeMenu();
     setOpenColumnMenu(menuKey);
   };
 
   return (
-    <th className="w-8 border-b border-zinc-200 bg-white p-0 text-center align-middle dark:border-zinc-700 dark:bg-zinc-950">
+    <div className="relative h-8 w-8 border-0 bg-transparent p-0">
       <button
         ref={buttonRef}
         type="button"
         onClick={toggle}
         title="속성 추가"
-        className="inline-flex h-full w-full items-center justify-center rounded py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        className="absolute left-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-md border border-zinc-300 bg-white text-zinc-500 shadow-sm hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
       >
         <Plus size={14} />
       </button>
@@ -96,6 +115,6 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
           </div>,
           document.body,
         )}
-    </th>
+    </div>
   );
 }

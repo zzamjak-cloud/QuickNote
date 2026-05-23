@@ -11,7 +11,7 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { ChevronLeft, ChevronRight, Maximize2, PanelRight, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelRight, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Rnd } from "react-rnd";
 import type {
   ColumnDef,
@@ -21,8 +21,6 @@ import type {
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
-import { usePageStore } from "../../../store/pageStore";
-import { useSettingsStore } from "../../../store/settingsStore";
 import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import {
@@ -56,6 +54,8 @@ const ROW_HEIGHT = 32;
 const ROW_GAP = 4;
 const HEADER_HEIGHT = 36;
 const SIDE_LABEL_W = 160;
+const SIDE_LABEL_W_MIN = 120;
+const SIDE_LABEL_W_MAX = 360;
 const CELL_WIDTH_MIN = 12;
 const CELL_WIDTH_MAX = 200;
 const CELL_WIDTH_STEP = 8;
@@ -66,6 +66,8 @@ const LS_RANGE_START_KEY = "quicknote.timeline.rangeStart";
 const LS_RANGE_END_KEY = "quicknote.timeline.rangeEnd";
 const LS_MONTH_KEY = "quicknote.timeline.month";
 const DRAG_ACTIVATE_PX = 3;
+const UNSCHEDULED_CARD_LEFT = 8;
+const UNSCHEDULED_CARD_WIDTH = 168;
 
 const fmtDate = (ts: number) => {
   const d = new Date(ts);
@@ -178,6 +180,7 @@ type TimelineCardLayout = {
   top: number;
   dateLabel: string;
   tooltipText: string;
+  isUnscheduled?: boolean;
 };
 
 // props 얕은 비교: row/isSelected 변경 시만 리렌더. 다른 행 선택·카드 드래그는 이 행에 영향 없음.
@@ -185,20 +188,18 @@ const TimelineLabelRow = memo(function TimelineLabelRow({
   row,
   isSelected,
   onFocus,
-  onOpenFull,
   openPeek,
 }: {
   row: DatabaseRowView;
   isSelected: boolean;
   onFocus: (pageId: string) => void;
-  onOpenFull: (pageId: string) => void;
   openPeek: (pageId: string) => void;
 }) {
   return (
     <div
       onClick={() => onFocus(row.pageId)}
       className={[
-        "group relative flex cursor-pointer items-center gap-1 truncate border-b border-zinc-100 px-2 dark:border-zinc-800",
+        "group relative flex cursor-pointer items-center gap-1 border-b border-zinc-100 px-2 pr-8 dark:border-zinc-800",
         isSelected
           ? "bg-blue-50 dark:bg-blue-950/30"
           : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
@@ -213,22 +214,14 @@ const TimelineLabelRow = memo(function TimelineLabelRow({
         }
       }}
     >
-      <span className="truncate pr-14 text-base text-zinc-700 dark:text-zinc-200">
+      <span className="min-w-0 flex-1 truncate text-base text-zinc-700 dark:text-zinc-200">
         {row.title || "제목 없음"}
       </span>
-      <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onOpenFull(row.pageId); }}
-          title="페이지로 열기"
-          className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
-        >
-          <Maximize2 size={12} />
-        </button>
+      <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); openPeek(row.pageId); }}
-          title="사이드 피크 열기"
+          title="피커뷰 보기"
           className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
         >
           <PanelRight size={12} />
@@ -260,8 +253,6 @@ export function DatabaseTimelineView({
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
-  const setActivePage = usePageStore((s) => s.setActivePage);
-  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openPeek = useUiStore((s) => s.openPeek);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -312,6 +303,7 @@ export function DatabaseTimelineView({
   }, [cellWidthOverride]);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [trackPxWidth, setTrackPxWidth] = useState(0);
+  const [sideLabelWidth, setSideLabelWidth] = useState(SIDE_LABEL_W);
   useEffect(() => {
     const el = trackRef.current;
     if (!el) return;
@@ -322,6 +314,27 @@ export function DatabaseTimelineView({
     setTrackPxWidth(el.clientWidth);
     return () => ro.disconnect();
   }, [granularity, rangeEndInput, rangeStartInput]);
+  const onSideLabelResizeStart = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = sideLabelWidth;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.max(
+        SIDE_LABEL_W_MIN,
+        Math.min(SIDE_LABEL_W_MAX, startW + (ev.clientX - startX)),
+      );
+      setSideLabelWidth(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+  }, [sideLabelWidth]);
 
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
@@ -444,11 +457,6 @@ export function DatabaseTimelineView({
     return Math.max(pxPerDay, days * pxPerDay);
   }, [axis.minT, isWeekAxis, pxPerDay]);
 
-  const openFull = useCallback((pageId: string) => {
-    setActivePage(pageId);
-    setCurrentTabPage(pageId);
-  }, [setActivePage, setCurrentTabPage]);
-
   type HeaderTick = {
     x: number;
     label: string;
@@ -533,10 +541,35 @@ export function DatabaseTimelineView({
     if (!dateColId) return [];
     if (usesFitAxis && (!Number.isFinite(pxPerDay) || pxPerDay <= 0)) return [];
     const layouts: TimelineCardLayout[] = [];
+    const trackWidth = usesScrollableAxis ? axis.totalW : trackPxWidth;
+    const unscheduledWidth = Math.max(
+      96,
+      Math.min(
+        UNSCHEDULED_CARD_WIDTH,
+        trackWidth > 0
+          ? Math.max(96, trackWidth - UNSCHEDULED_CARD_LEFT - 8)
+          : UNSCHEDULED_CARD_WIDTH,
+      ),
+    );
     for (const [localIdx, row] of renderedRows.entries()) {
       const rIdx = virtualRows.start + localIdx;
       const range = getRange(row.cells[dateColId]);
-      if (!range) continue;
+      if (!range) {
+        const dateLabel = "날짜 없음";
+        layouts.push({
+          row,
+          pageId: row.pageId,
+          start: axis.minT,
+          end: axis.minT,
+          left: UNSCHEDULED_CARD_LEFT,
+          width: unscheduledWidth,
+          top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
+          dateLabel,
+          tooltipText: `${row.title || "제목 없음"} (${dateLabel})`,
+          isUnscheduled: true,
+        });
+        continue;
+      }
       let visStart = Math.max(range.start, axis.minT);
       let visEnd = Math.min(range.end, axis.maxT);
       if (visEnd < axis.minT || visStart > axis.maxT) continue;
@@ -571,7 +604,9 @@ export function DatabaseTimelineView({
     isWeekAxis,
     pxPerDay,
     renderedRows,
+    trackPxWidth,
     usesFitAxis,
+    usesScrollableAxis,
     virtualRows.start,
   ]);
 
@@ -631,13 +666,13 @@ export function DatabaseTimelineView({
     const card = cardLayouts.find((item) => item.pageId === pageId);
     const el = scrollContainerRef.current;
     if (!card || !el) return;
-    const visibleTrackWidth = Math.max(1, el.clientWidth - SIDE_LABEL_W);
+    const visibleTrackWidth = Math.max(1, el.clientWidth - sideLabelWidth);
     const nextLeft = Math.max(
       0,
       card.left - (visibleTrackWidth - card.width) / 2,
     );
     el.scrollTo({ left: nextLeft, behavior: "smooth" });
-  }, [cardLayouts, usesScrollableAxis]);
+  }, [cardLayouts, sideLabelWidth, usesScrollableAxis]);
 
   const commitRange = useCallback(
     (pageId: string, start: number, end: number) => {
@@ -917,7 +952,7 @@ export function DatabaseTimelineView({
             style={{
               width:
                 usesScrollableAxis
-                  ? SIDE_LABEL_W + axis.totalW
+                  ? sideLabelWidth + axis.totalW
                   : "100%",
               minHeight:
                 HEADER_HEIGHT + (rows.length || 1) * (ROW_HEIGHT + ROW_GAP) + 16,
@@ -930,7 +965,7 @@ export function DatabaseTimelineView({
             >
               <div
                 className="sticky left-0 z-[11] shrink-0 border-r border-zinc-200 bg-white px-2 py-2 text-xs uppercase text-zinc-400 dark:border-zinc-700 dark:bg-zinc-950"
-                style={{ width: SIDE_LABEL_W }}
+                style={{ width: sideLabelWidth }}
               >
                 항목
               </div>
@@ -993,7 +1028,7 @@ export function DatabaseTimelineView({
               {/* 좌측 라벨 컬럼 — 수평 스크롤 시 고정 */}
               <div
                 className="sticky left-0 z-[5] shrink-0 border-r border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950"
-                style={{ width: SIDE_LABEL_W }}
+                style={{ width: sideLabelWidth }}
               >
                 {virtualRows.topPadding > 0 && (
                   <div aria-hidden="true" style={{ height: virtualRows.topPadding }} />
@@ -1004,13 +1039,17 @@ export function DatabaseTimelineView({
                     row={row}
                     isSelected={selectedPageId === row.pageId || selectedCardIds.has(row.pageId)}
                     onFocus={focusTimelineCard}
-                    onOpenFull={openFull}
                     openPeek={openPeek}
                   />
                 ))}
                 {virtualRows.bottomPadding > 0 && (
                   <div aria-hidden="true" style={{ height: virtualRows.bottomPadding }} />
                 )}
+                <div
+                  onMouseDown={onSideLabelResizeStart}
+                  className="absolute right-0 top-0 z-20 h-full w-1.5 cursor-col-resize hover:bg-blue-400/60"
+                  title="첫번째 컬럼 너비 조절"
+                />
               </div>
 
               {/* 우측 트랙 + 카드 */}
@@ -1097,9 +1136,7 @@ export function DatabaseTimelineView({
                         : null
                     }
                     onSelect={selectCard}
-                    onOpenFull={openFull}
                     onOpenPeek={openPeek}
-                    onDelete={setRowDeletePageId}
                     onMove={(pageId, deltaDays) => moveCardsByDays([pageId], deltaDays)}
                     onResize={(pageId, start, end) => commitRange(pageId, start, end)}
                     onMultiDragStart={() => {
@@ -1173,9 +1210,7 @@ function DatabaseTimelineCard({
   multiSelected,
   multiDragDeltaX,
   onSelect,
-  onOpenFull,
   onOpenPeek,
-  onDelete,
   onMove,
   onResize,
   onMultiDragStart,
@@ -1192,9 +1227,7 @@ function DatabaseTimelineCard({
   multiSelected: boolean;
   multiDragDeltaX: number | null;
   onSelect: (pageId: string) => void;
-  onOpenFull: (pageId: string) => void;
   onOpenPeek: (pageId: string) => void;
-  onDelete: (pageId: string) => void;
   onMove: (pageId: string, deltaDays: number) => void;
   onResize: (pageId: string, start: number, end: number) => void;
   onMultiDragStart: () => void;
@@ -1214,7 +1247,22 @@ function DatabaseTimelineCard({
   }, [card.left, card.width]);
 
   const safePxPerDay = Math.max(pxPerDay, 1);
-  const visualX = multiDragDeltaX != null ? card.left + multiDragDeltaX : localX;
+  const visualX =
+    !card.isUnscheduled && multiDragDeltaX != null
+      ? card.left + multiDragDeltaX
+      : localX;
+  const titleClassName = card.isUnscheduled
+    ? "font-medium text-zinc-700 dark:text-zinc-200"
+    : "font-medium text-white";
+  const dateClassName = card.isUnscheduled
+    ? "shrink-0 text-xs text-zinc-400 dark:text-zinc-500"
+    : "shrink-0 text-xs text-green-200";
+  const labelTextClassName = card.isUnscheduled
+    ? "text-zinc-500 dark:text-zinc-400"
+    : "text-green-100";
+  const separatorClassName = card.isUnscheduled
+    ? "shrink-0 text-zinc-300 dark:text-zinc-600"
+    : "shrink-0 text-green-200";
 
   return (
     <Rnd
@@ -1225,17 +1273,21 @@ function DatabaseTimelineCard({
       dragAxis="x"
       dragGrid={[1, 1]}
       resizeGrid={[safePxPerDay, 1]}
-      minWidth={safePxPerDay}
-      enableResizing={{
-        left: true,
-        right: true,
-        top: false,
-        bottom: false,
-        topLeft: false,
-        topRight: false,
-        bottomLeft: false,
-        bottomRight: false,
-      }}
+      minWidth={card.isUnscheduled ? 96 : safePxPerDay}
+      enableResizing={
+        card.isUnscheduled
+          ? false
+          : {
+              left: true,
+              right: true,
+              top: false,
+              bottom: false,
+              topLeft: false,
+              topRight: false,
+              bottomLeft: false,
+              bottomRight: false,
+            }
+      }
       resizeHandleStyles={{
         left: { cursor: "ew-resize", width: 8, left: 0 },
         right: { cursor: "ew-resize", width: 8, right: 0 },
@@ -1258,6 +1310,13 @@ function DatabaseTimelineCard({
           onSelect(card.pageId);
           return;
         }
+        if (card.isUnscheduled) {
+          const startIdx = Math.max(0, Math.round(data.x / safePxPerDay));
+          const start = axisMinT + startIdx * DAY_MS;
+          setLocalX(card.left);
+          onResize(card.pageId, start, start);
+          return;
+        }
         const deltaDays = Math.round((data.x - card.left) / safePxPerDay);
         if (multiSelected) {
           onMultiDragEnd(deltaDays);
@@ -1270,12 +1329,14 @@ function DatabaseTimelineCard({
         }
       }}
       onResizeStart={() => {
+        if (card.isUnscheduled) return;
         lockScroll();
         const startIdx = Math.round((card.start - axisMinT) / DAY_MS);
         const endIdx = Math.max(startIdx, Math.round((card.end - axisMinT) / DAY_MS));
         resizeStartRef.current = { startIdx, endIdx };
       }}
       onResizeStop={(_event, direction, _ref, delta) => {
+        if (card.isUnscheduled) return;
         const start = resizeStartRef.current;
         resizeStartRef.current = null;
         unlockScroll();
@@ -1295,15 +1356,24 @@ function DatabaseTimelineCard({
       }}
       style={{ position: "absolute" }}
       className={[
-        "group select-none overflow-hidden rounded-md border-2 shadow-sm transition-shadow hover:shadow-md",
+        "group select-none overflow-visible rounded-md border-2 shadow-sm transition-[border-color,box-shadow,opacity] hover:shadow-md",
+        card.isUnscheduled ? "opacity-55 hover:opacity-100" : "",
         selected || multiSelected
-          ? "border-white ring-2 ring-blue-500"
-          : "border-transparent hover:border-white/40",
+          ? card.isUnscheduled
+            ? "border-blue-500 ring-2 ring-blue-200 dark:ring-blue-500/40"
+            : "border-white ring-2 ring-blue-500"
+          : card.isUnscheduled
+            ? "border-zinc-200 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600"
+            : "border-transparent hover:border-white/40",
       ].join(" ")}
     >
-      <div
-        className="relative h-full w-full cursor-move overflow-hidden"
-        style={{ background: "#16a34a" }}
+          <div
+            className={[
+              "relative h-full w-full overflow-hidden",
+              "cursor-move",
+              card.isUnscheduled ? "bg-white dark:bg-zinc-950" : "",
+            ].join(" ")}
+        style={card.isUnscheduled ? undefined : { background: "#16a34a" }}
         onMouseDown={() => onSelect(card.pageId)}
         onClick={(e) => {
           e.stopPropagation();
@@ -1315,8 +1385,8 @@ function DatabaseTimelineCard({
         }}
       >
         <div className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm">
-          <span className="font-medium text-white">{card.row.title || "제목 없음"}</span>
-          <span className="shrink-0 text-xs text-green-200">{card.dateLabel}</span>
+          <span className={titleClassName}>{card.row.title || "제목 없음"}</span>
+          <span className={dateClassName}>{card.dateLabel}</span>
           {labelCols.some((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c)) && (
             <span className="ml-0.5 flex min-w-0 items-center gap-1 overflow-hidden text-xs">
               {labelCols
@@ -1324,13 +1394,13 @@ function DatabaseTimelineCard({
                 .map((c, idx) => (
                   <Fragment key={c.id}>
                     {idx > 0 && (
-                      <span className="shrink-0 text-green-200">·</span>
+                      <span className={separatorClassName}>·</span>
                     )}
                     <span className="min-w-0 truncate">
                       <DatabaseCellDisplay
                         column={c}
                         value={card.row.cells[c.id]}
-                        textClassName="text-green-100"
+                        textClassName={labelTextClassName}
                       />
                     </span>
                   </Fragment>
@@ -1338,18 +1408,7 @@ function DatabaseTimelineCard({
             </span>
           )}
         </div>
-        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-900/90">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenFull(card.pageId);
-            }}
-            title="페이지로 열기"
-            className="rounded p-0.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
-          >
-            <Maximize2 size={11} />
-          </button>
+        <div className="absolute -right-7 top-1/2 z-20 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-900/90">
           <button
             type="button"
             onClick={(e) => {
@@ -1360,17 +1419,6 @@ function DatabaseTimelineCard({
             className="rounded p-0.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800"
           >
             <PanelRight size={11} />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(card.pageId);
-            }}
-            title="항목 삭제"
-            className="rounded p-0.5 text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-          >
-            <X size={11} />
           </button>
         </div>
       </div>

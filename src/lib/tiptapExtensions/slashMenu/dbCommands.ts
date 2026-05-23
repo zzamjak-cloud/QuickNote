@@ -19,7 +19,7 @@ export function insertDatabaseBlock(
   opts: { layout: DatabaseLayout; view: ViewKind },
 ): void {
   scheduleSlashMutation(range, (stableRange) => {
-    editor
+    const chain = editor
       .chain()
       .focus()
       .deleteRange(stableRange)
@@ -31,8 +31,14 @@ export function insertDatabaseBlock(
           view: opts.view,
           panelState: JSON.stringify(emptyPanelState()),
         },
-      })
-      .run();
+      });
+    if (opts.layout === "inline") {
+      chain.command(({ tr }) => {
+        tr.setMeta("addToHistory", false);
+        return true;
+      });
+    }
+    chain.run();
   });
 }
 

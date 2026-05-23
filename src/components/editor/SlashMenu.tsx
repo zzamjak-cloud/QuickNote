@@ -54,6 +54,7 @@ export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
   ({ entries, query, command }, ref) => {
     const [stack, setStack] = useState<SlashCategoryItem[]>([]);
     const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+    const mouseSelectLockUntilRef = useRef(0);
 
     useEffect(() => {
       setStack([]);
@@ -70,6 +71,7 @@ export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
 
     useEffect(() => {
       setSelected(0);
+      mouseSelectLockUntilRef.current = performance.now() + 120;
     }, [visible, stack, query]);
 
     useEffect(() => {
@@ -152,7 +154,10 @@ export const SlashMenu = forwardRef<SlashMenuHandle, Props>(
                 itemRefs.current[idx] = el;
               }}
               type="button"
-              onMouseEnter={() => setSelected(idx)}
+              onMouseEnter={() => {
+                if (performance.now() < mouseSelectLockUntilRef.current) return;
+                setSelected(idx);
+              }}
               onClick={() => {
                 if (isCat) {
                   setStack((s) => [...s, item as SlashCategoryItem]);

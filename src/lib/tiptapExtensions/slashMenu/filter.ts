@@ -28,7 +28,24 @@ function getBlockedIds(editor: Editor): Set<string> {
   return blocked;
 }
 
-import { koreanIncludes } from "../../koreanSearch";
+import { koreanIncludes, koreanMatchScore } from "../../koreanSearch";
+
+function normalized(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function scoreTextMatch(text: string, q: string): number {
+  const t = normalized(text);
+  if (!t || !q) return 0;
+  return koreanMatchScore(t, q);
+}
+
+function scoreLeaf(item: SlashLeafItem, q: string): number {
+  const titleScore = scoreTextMatch(item.title, q);
+  const keywordScore = item.keywords.reduce((best, kw) => Math.max(best, scoreTextMatch(kw, q)), 0);
+  // 동일 점수에서는 제목 매칭을 우선시
+  return titleScore * 10 + keywordScore;
+}
 
 /** 루트 목록만 필터 (서브메뉴는 SlashMenu 내부에서 처리) */
 export function filterSlashMenuEntries(query: string, editor?: Editor): SlashMenuEntry[] {
@@ -62,10 +79,28 @@ export function filterSlashMenuEntries(query: string, editor?: Editor): SlashMen
     return cat.children.some((c) => leafMatch(c));
   }
 
-  return contextFiltered.filter((e) => {
-    if (e.kind === "leaf") return leafMatch(e);
-    return categoryMatch(e);
-  });
+  const scored = contextFiltered
+    .map((e, idx) => {
+      if (e.kind === "leaf") {
+        if (!leafMatch(e)) return null;
+        return { entry: e as SlashMenuEntry, score: scoreLeaf(e, q), idx };
+      }
+      if (!categoryMatch(e)) return null;
+      const childBest = e.children.reduce((best, child) => {
+        if (!leafMatch(child)) return best;
+        return Math.max(best, scoreLeaf(child, q));
+      }, 0);
+      const own = Math.max(
+        scoreTextMatch(e.title, q),
+        scoreTextMatch(e.description, q),
+        e.keywords.reduce((best, kw) => Math.max(best, scoreTextMatch(kw, q)), 0),
+      );
+      return { entry: e as SlashMenuEntry, score: Math.max(own, childBest), idx };
+    })
+    .filter((v): v is { entry: SlashMenuEntry; score: number; idx: number } => v != null)
+    .sort((a, b) => (b.score - a.score) || (a.idx - b.idx));
+
+  return scored.map((v) => v.entry);
 }
 
 export function filterSlashLeaves(
@@ -74,10 +109,14 @@ export function filterSlashLeaves(
 ): SlashLeafItem[] {
   const q = query.trim().toLowerCase();
   if (!q) return leaves;
-  return leaves.filter((item) => {
-    if (koreanIncludes(item.title.toLowerCase(), q)) return true;
-    return item.keywords.some((k) => koreanIncludes(k.toLowerCase(), q));
-  });
+  return leaves
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => {
+      if (koreanIncludes(item.title.toLowerCase(), q)) return true;
+      return item.keywords.some((k) => koreanIncludes(k.toLowerCase(), q));
+    })
+    .sort((a, b) => (scoreLeaf(b.item, q) - scoreLeaf(a.item, q)) || (a.idx - b.idx))
+    .map(({ item }) => item);
 }
 
 /** @deprecated filterSlashMenuEntries 사용 */

@@ -426,19 +426,31 @@ export function DatabaseRowPeek() {
         {/* 상단 툴바 — 스크롤 밖에 고정 */}
         <div className="shrink-0 px-8 pt-8">
         <div className="mb-8 flex items-center justify-between gap-1">
-          {peekHistory.length > 0 ? (
+          <div className="flex items-center gap-1">
+            {peekHistory.length > 0 ? (
+              <button
+                type="button"
+                onClick={peekBack}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                title="이전 페이지로 돌아가기"
+              >
+                <ChevronLeft size={14} />
+                이전 페이지
+              </button>
+            ) : (
+              <div />
+            )}
             <button
               type="button"
-              onClick={peekBack}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              title="이전 페이지로 돌아가기"
+              onClick={openFullPage}
+              disabled={isPendingPageCreation}
+              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
+              title="전체 페이지로 열기"
+              aria-label="전체 페이지로 열기"
             >
-              <ChevronLeft size={14} />
-              이전 페이지
+              <Maximize2 size={14} />
             </button>
-          ) : (
-            <div />
-          )}
+          </div>
           <div className="flex items-center gap-1">
           {/* 전체너비 토글 — 피크 페이지만 타깃팅(배경의 활성 페이지를 건드리지 않음) */}
           <button
@@ -504,31 +516,6 @@ export function DatabaseRowPeek() {
             aria-label="버전 히스토리"
           >
             <History size={14} />
-          </button>
-          {peekPageId && (
-            <button
-              type="button"
-              onClick={() => toggleFavoritePage(peekPageId)}
-              className="rounded p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              title={favoritePageIds.includes(peekPageId) ? "즐겨찾기 해제" : "즐겨찾기"}
-              aria-label={favoritePageIds.includes(peekPageId) ? "즐겨찾기 해제" : "즐겨찾기"}
-              aria-pressed={favoritePageIds.includes(peekPageId)}
-            >
-              <Star
-                size={14}
-                className={favoritePageIds.includes(peekPageId) ? "fill-amber-400 text-amber-500" : "text-zinc-500"}
-              />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={openFullPage}
-            disabled={isPendingPageCreation}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
-            title="전체 페이지로 열기"
-            aria-label="전체 페이지로 열기"
-          >
-            <Maximize2 size={14} />
           </button>
           <div className="relative" ref={menuRef}>
             <button
@@ -712,6 +699,21 @@ export function DatabaseRowPeek() {
             placeholder="제목 없음"
             className="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
           />
+          {peekPageId && (
+            <button
+              type="button"
+              onClick={() => toggleFavoritePage(peekPageId)}
+              className="shrink-0 rounded-md p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              title={favoritePageIds.includes(peekPageId) ? "즐겨찾기 해제" : "즐겨찾기"}
+              aria-label={favoritePageIds.includes(peekPageId) ? "즐겨찾기 해제" : "즐겨찾기"}
+              aria-pressed={favoritePageIds.includes(peekPageId)}
+            >
+              <Star
+                size={16}
+                className={favoritePageIds.includes(peekPageId) ? "fill-amber-400 text-amber-500" : "text-zinc-500"}
+              />
+            </button>
+          )}
           {(peekDescendantCount > 0 || !!page?.parentId) && (
             <button
               ref={subpagePopover.buttonRef}

@@ -41,6 +41,74 @@ export const COMMENT_BTN_GAP_PX = 8;
 export const RECT_PAD_Y = 18;
 export const HANDLE_TOP_OFFSET_PX = -2;
 const LIST_ITEM_HANDLE_EXTRA_LEFT_PX = 18;
+const LIST_HANDLE_NODE_TYPES = new Set(["listItem", "taskItem"]);
+
+export function isListHandleNodeType(typeName: string): boolean {
+  return LIST_HANDLE_NODE_TYPES.has(typeName);
+}
+
+function listElementForHover(editor: Editor, hover: HoverInfo): HTMLElement | null {
+  if (!isListHandleNodeType(hover.node.type.name)) return null;
+  const dom = editor.view.nodeDOM(hover.blockStart);
+  return dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
+}
+
+function rectContainsPoint(rect: DOMRect, clientX: number, clientY: number): boolean {
+  return (
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  );
+}
+
+export function isAncestorListHover(
+  editor: Editor,
+  maybeAncestor: HoverInfo,
+  maybeDescendant: HoverInfo,
+): boolean {
+  const ancestorEl = listElementForHover(editor, maybeAncestor);
+  const descendantEl = listElementForHover(editor, maybeDescendant);
+  return Boolean(
+    ancestorEl &&
+      descendantEl &&
+      ancestorEl !== descendantEl &&
+      ancestorEl.contains(descendantEl),
+  );
+}
+
+export function pointInsideListSiblingGroup(
+  editor: Editor,
+  hover: HoverInfo,
+  clientX: number,
+  clientY: number,
+): boolean {
+  const itemEl = listElementForHover(editor, hover);
+  const listEl = itemEl?.parentElement;
+  if (!(listEl instanceof HTMLElement)) return false;
+  const itemRects = Array.from(listEl.children)
+    .filter((child) => child.tagName.toLowerCase() === "li")
+    .map((child) => child.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0);
+  const rects = itemRects.length > 0 ? itemRects : [listEl.getBoundingClientRect()];
+  const left = Math.min(...rects.map((rect) => rect.left)) - GUTTER_LEFT_PX;
+  const right = Math.max(...rects.map((rect) => rect.right)) + RECT_PAD_X;
+  const top = Math.min(...rects.map((rect) => rect.top)) - 2;
+  const bottom = Math.max(...rects.map((rect) => rect.bottom)) + 2;
+  return clientX >= left && clientX <= right && clientY >= top && clientY <= bottom;
+}
+
+export function pointInsideListOwnRow(
+  editor: Editor,
+  hover: HoverInfo,
+  clientX: number,
+  clientY: number,
+): boolean {
+  const itemEl = listElementForHover(editor, hover);
+  return itemEl instanceof HTMLElement
+    ? listItemOwnRowContainsPoint(itemEl, clientX, clientY)
+    : false;
+}
 
 export function resolveHandleLeft(
   hover: HoverInfo,
@@ -51,7 +119,7 @@ export function resolveHandleLeft(
     const tableEdgeLeft = hover.rect.left - wrapperRect.left - 10;
     return Math.max(MIN_HANDLE_LEFT, tableEdgeLeft);
   }
-  const extraLeft = hover.node.type.name === "listItem" ? LIST_ITEM_HANDLE_EXTRA_LEFT_PX : 0;
+  const extraLeft = isListHandleNodeType(hover.node.type.name) ? LIST_ITEM_HANDLE_EXTRA_LEFT_PX : 0;
   const rawLeft = hover.rect.left - wrapperRect.left - HANDLE_STRIP_PX - extraLeft;
   return Math.max(MIN_HANDLE_LEFT, rawLeft);
 }
@@ -202,6 +270,145 @@ export function hoverFromResolvedPos(
   return taskItem ?? listItem ?? inner ?? wrapper;
 }
 
+function hoverFromListItemElement(
+  editor: Editor,
+  listItemEl: HTMLElement,
+): HoverInfo | null {
+  const view = editor.view;
+  const positions: number[] = [];
+  try {
+    positions.push(view.posAtDOM(listItemEl, 0));
+  } catch {
+    /* noop */
+  }
+  try {
+    positions.push(view.posAtDOM(listItemEl, 1));
+  } catch {
+    /* noop */
+  }
+
+  for (const pos of positions) {
+    let $pos: ResolvedPos;
+    try {
+      const max = editor.state.doc.content.size;
+      $pos = editor.state.doc.resolve(Math.min(Math.max(0, pos), max));
+    } catch {
+      continue;
+    }
+    for (let d = $pos.depth; d > 0; d--) {
+      const node = $pos.node(d);
+      if (!isListHandleNodeType(node.type.name)) continue;
+      const start = $pos.before(d);
+      const dom = view.nodeDOM(start);
+      const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
+      if (el && el !== listItemEl && !el.contains(listItemEl) && !listItemEl.contains(el)) {
+        continue;
+      }
+      return {
+        rect: (el ?? listItemEl).getBoundingClientRect(),
+        blockStart: start,
+        // elementsFromPoint 의 가장 가까운 li 를 리스트 그룹 안에서 우선한다.
+        depth: d + 100,
+        node,
+      };
+    }
+  }
+  return null;
+}
+
+function listItemOwnRowContainsPoint(
+  listItemEl: HTMLElement,
+  clientX: number,
+  clientY: number,
+): boolean {
+  const itemRect = listItemEl.getBoundingClientRect();
+  if (!rectContainsPoint(itemRect, clientX, clientY)) return false;
+
+  const ownContentChildren = Array.from(listItemEl.children).filter((child) => {
+    const tag = child.tagName.toLowerCase();
+    return tag !== "ul" && tag !== "ol";
+  });
+
+  for (const child of ownContentChildren) {
+    const rect = child.getBoundingClientRect();
+    if (
+      clientX >= itemRect.left - GUTTER_LEFT_PX &&
+      clientX <= itemRect.right + RECT_PAD_X &&
+      clientY >= rect.top - 2 &&
+      clientY <= rect.bottom + 2
+    ) {
+      return true;
+    }
+  }
+
+  if (ownContentChildren.length === 0) {
+    const fallbackBottom = itemRect.top + Math.min(itemRect.height, ROW_HEIGHT_FALLBACK_PX);
+    return clientY >= itemRect.top && clientY <= fallbackBottom;
+  }
+  return false;
+}
+
+function considerListItemHandleFromStack(
+  editor: Editor,
+  stack: Element[],
+  byStart: Map<number, HoverInfo>,
+  suppressedStarts: Set<number>,
+  clientX: number,
+  clientY: number,
+) {
+  const view = editor.view;
+  const seen = new Set<HTMLElement>();
+  for (const raw of stack) {
+    if (!(raw instanceof HTMLElement)) continue;
+    if (!view.dom.contains(raw)) continue;
+    const listItemEl = raw.closest("li");
+    if (!(listItemEl instanceof HTMLElement) || !view.dom.contains(listItemEl)) continue;
+    if (seen.has(listItemEl)) continue;
+    seen.add(listItemEl);
+    if (!listItemOwnRowContainsPoint(listItemEl, clientX, clientY)) continue;
+    const h = hoverFromListItemElement(editor, listItemEl);
+    if (!h) continue;
+    if (suppressedStarts.has(h.blockStart)) continue;
+    const prev = byStart.get(h.blockStart);
+    if (!prev || h.depth > prev.depth) byStart.set(h.blockStart, h);
+    return;
+  }
+}
+
+const ROW_HEIGHT_FALLBACK_PX = 28;
+
+function collectListSuppressedOwnerStarts(
+  editor: Editor,
+  stack: Element[],
+  clientX: number,
+  clientY: number,
+): Set<number> {
+  const view = editor.view;
+  const suppressed = new Set<number>();
+  const seenLists = new Set<HTMLElement>();
+  for (const raw of stack) {
+    if (!(raw instanceof HTMLElement)) continue;
+    if (!view.dom.contains(raw)) continue;
+    let el: HTMLElement | null = raw;
+    while (el && el !== view.dom) {
+      if (el.matches("ul, ol")) {
+        const listEl = el;
+        if (!seenLists.has(listEl) && rectContainsPoint(listEl.getBoundingClientRect(), clientX, clientY)) {
+          seenLists.add(listEl);
+          let ownerLi = listEl.parentElement?.closest("li");
+          while (ownerLi instanceof HTMLElement && view.dom.contains(ownerLi)) {
+            const owner = hoverFromListItemElement(editor, ownerLi);
+            if (owner) suppressed.add(owner.blockStart);
+            ownerLi = ownerLi.parentElement?.closest("li") ?? null;
+          }
+        }
+      }
+      el = el.parentElement;
+    }
+  }
+  return suppressed;
+}
+
 /** TD 등 React NodeView 내부에서 posAtDOM 이 막힐 때 — 래퍼 .qn-database-block 으로 직접 해석 */
 function considerDatabaseBlockFromStack(
   editor: Editor,
@@ -330,6 +537,7 @@ export function blockAtPoint(
 ): HoverInfo | null {
   const view = editor.view;
   const byStart = new Map<number, HoverInfo>();
+  let suppressedListStarts = new Set<number>();
 
   const considerPosition = (pos: number) => {
     let $pos: ResolvedPos;
@@ -342,6 +550,7 @@ export function blockAtPoint(
     }
     const h = hoverFromResolvedPos(editor, $pos);
     if (!h) return;
+    if (suppressedListStarts.has(h.blockStart)) return;
     const prev = byStart.get(h.blockStart);
     if (!prev || h.depth > prev.depth) byStart.set(h.blockStart, h);
   };
@@ -352,10 +561,19 @@ export function blockAtPoint(
   } catch (err) {
     reportNonFatal(err, "blockHandles.elementsFromPoint");
   }
+  suppressedListStarts = collectListSuppressedOwnerStarts(editor, stack, clientX, clientY);
 
   considerDatabaseBlockFromStack(editor, stack, considerPosition);
   considerTableHandleFromStack(editor, stack, byStart);
   considerContainerHandleFromStack(editor, stack, byStart, clientX, clientY);
+  considerListItemHandleFromStack(
+    editor,
+    stack,
+    byStart,
+    suppressedListStarts,
+    clientX,
+    clientY,
+  );
 
   const coords = view.posAtCoords({ left: clientX, top: clientY });
   if (coords) considerPosition(coords.pos);
@@ -381,6 +599,13 @@ export function blockAtPoint(
   let best: HoverInfo | null = null;
   for (const h of byStart.values()) {
     if (!best || h.depth > best.depth) best = h;
+  }
+  // list item은 마우스가 실제 콘텐츠 행 위에 있을 때만 핸들 표시
+  // gap(자식 목록과의 여백) 통과 시 조상 핸들이 깜빡이는 현상 방지
+  if (best && isListHandleNodeType(best.node.type.name)) {
+    if (!pointInsideListOwnRow(editor, best, clientX, clientY)) {
+      return null;
+    }
   }
   // 타이틀/input 등 NodeView 크롬 위에서는 깊은 블록보다 databaseBlock 을 우선
   for (const h of byStart.values()) {

@@ -265,6 +265,38 @@ export function DatabaseBlockView(props: NodeViewProps) {
     [updateAttributes],
   );
 
+  const updateInlineBindingAttributes = useCallback(
+    (attrs: Record<string, unknown>) => {
+      scheduleEditorMutation(() => {
+        if (layout === "inline") {
+          try {
+            const pos = typeof getPos === "function" ? getPos() : getPos;
+            if (typeof pos === "number" && Number.isFinite(pos)) {
+              const nodeAtPos = editor.state.doc.nodeAt(pos);
+              if (nodeAtPos?.type.name === "databaseBlock") {
+                editor.view.dispatch(
+                  editor.state.tr
+                    .setNodeMarkup(
+                      pos,
+                      undefined,
+                      { ...nodeAtPos.attrs, ...attrs },
+                      nodeAtPos.marks,
+                    )
+                    .setMeta("addToHistory", false),
+                );
+                return;
+              }
+            }
+          } catch {
+            // 위치 조회 실패 시 기존 경로로 폴백한다.
+          }
+        }
+        updateAttributes(attrs);
+      });
+    },
+    [editor, getPos, layout, updateAttributes],
+  );
+
   const databasesList = useDatabaseStore(listDatabases);
 
   const linkPickerFiltered = useMemo(() => {
@@ -301,13 +333,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
     (id: string) => {
       if (!id) return;
       const linked = useDatabaseStore.getState().databases[id];
-      scheduleEditorMutation(() => {
-        updateAttributes(
-          layout === "fullPage"
-            ? { databaseId: id }
-            : { databaseId: id, readOnlyTitle: true },
-        );
-      });
+      updateInlineBindingAttributes(
+        layout === "fullPage"
+          ? { databaseId: id }
+          : { databaseId: id, readOnlyTitle: true },
+      );
       if (layout === "fullPage" && activePageId && linked) {
         renamePage(activePageId, linked.meta.title);
       }
@@ -315,22 +345,20 @@ export function DatabaseBlockView(props: NodeViewProps) {
       setLinkPickerQuery("");
       setLinkPickerHighlight(0);
     },
-    [layout, activePageId, updateAttributes, renamePage],
+    [layout, activePageId, updateInlineBindingAttributes, renamePage],
   );
 
   const createNewDatabaseAndBind = useCallback(() => {
     const id = useDatabaseStore.getState().createDatabase();
     const linked = useDatabaseStore.getState().databases[id];
-    scheduleEditorMutation(() => {
-      updateAttributes({ databaseId: id, readOnlyTitle: false });
-    });
+    updateInlineBindingAttributes({ databaseId: id, readOnlyTitle: false });
     if (layout === "fullPage" && activePageId && linked) {
       renamePage(activePageId, linked.meta.title);
     }
     setLinkOpen(false);
     setLinkPickerQuery("");
     setLinkPickerHighlight(0);
-  }, [layout, activePageId, updateAttributes, renamePage]);
+  }, [layout, activePageId, updateInlineBindingAttributes, renamePage]);
 
   const onLinkPickerKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
