@@ -1,7 +1,12 @@
+import { memo } from "react";
+import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
+import type { NodeViewProps } from "@tiptap/react";
 import { InputRule, Node, mergeAttributes } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 
-// 토글 = summary(인라인) + content(블록 다수). HTML <details>/<summary>로 표현.
+// 토글 = summary(인라인) + content(블록 다수). 저장/클립보드는 <details>/<summary> 유지,
+// 에디터 렌더는 React NodeView(div)로 전환 — details DOM reflow 및 불필요한 리렌더 제거.
+
 export const ToggleHeader = Node.create({
   name: "toggleHeader",
   content: "inline*",
@@ -60,6 +65,24 @@ export const ToggleContent = Node.create({
   },
 });
 
+// open 속성이 바뀔 때만 React 컴포넌트 리렌더 — 내용 입력 시 리렌더 없음
+function areToggleNodeViewsEqual(prev: NodeViewProps, next: NodeViewProps): boolean {
+  return prev.node.attrs.open === next.node.attrs.open;
+}
+
+const ToggleView = memo(function ToggleView({ node }: NodeViewProps) {
+  const isOpen = node.attrs.open as boolean;
+  return (
+    <NodeViewWrapper
+      as="div"
+      className="toggle-block my-2 rounded-md px-2 py-1"
+      data-open={String(isOpen)}
+    >
+      <NodeViewContent />
+    </NodeViewWrapper>
+  );
+}, areToggleNodeViewsEqual);
+
 export const Toggle = Node.create({
   name: "toggle",
   group: "block",
@@ -79,6 +102,7 @@ export const Toggle = Node.create({
   parseHTML() {
     return [{ tag: "details" }];
   },
+  // HTML 내보내기·클립보드용 — 에디터 실렌더는 addNodeView가 담당
   renderHTML({ HTMLAttributes }) {
     return [
       "details",
@@ -87,6 +111,9 @@ export const Toggle = Node.create({
       }),
       0,
     ];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ToggleView);
   },
   addInputRules() {
     return [
@@ -185,10 +212,8 @@ export const Toggle = Node.create({
         const { state } = editor;
         const { $from } = state.selection;
 
-        // toggleHeader 안에 있어야 함
         if ($from.parent.type.name !== "toggleHeader") return false;
 
-        // 부모 toggle 노드 찾기
         let toggleNode = null as { node: ReturnType<typeof $from.node>, pos: number } | null;
         for (let depth = $from.depth; depth >= 0; depth--) {
           const node = $from.node(depth);
@@ -259,7 +284,6 @@ export const Toggle = Node.create({
             const { $from } = editorView.state.selection;
             for (let d = $from.depth; d >= 0; d--) {
               if ($from.node(d).type.name === "toggle") {
-                // IME 팝업만 막고 ProseMirror handleKeyDown은 계속 실행
                 e.preventDefault();
                 break;
               }
@@ -282,7 +306,6 @@ export const Toggle = Node.create({
             if (!summaryEl) return false;
 
             // ▶ 버튼은 summary의 padding-left(18px) 영역 안에 위치
-            // 그 영역 밖 클릭(텍스트 선택 등)은 토글 동작에서 제외
             const rect = summaryEl.getBoundingClientRect();
             if (event.clientX - rect.left > 18) return false;
 

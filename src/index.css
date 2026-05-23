@@ -116,7 +116,7 @@ body,
   min-width: 0;
 }
 
-/* 토글 */
+/* 토글 — React NodeView(div) 기반, data-open 속성으로 열림/닫힘 제어 */
 .toggle-block summary {
   list-style: none;
   outline: none;
@@ -138,8 +138,11 @@ body,
   transform: rotate(0deg);
   transition: transform 120ms;
 }
-.toggle-block[open] summary::before {
+.toggle-block[data-open="true"] summary::before {
   transform: rotate(90deg);
+}
+.toggle-block[data-open="false"] [data-toggle-content] {
+  display: none;
 }
 
 /* tippy 기본 검정 박스 제거 — 슬래시/멘션 메뉴는 자체 outline + shadow 사용 */
