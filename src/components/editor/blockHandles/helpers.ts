@@ -530,6 +530,7 @@ function considerTableHandleFromStack(
   }
 }
 
+
 export function blockAtPoint(
   editor: Editor,
   clientX: number,
@@ -600,12 +601,19 @@ export function blockAtPoint(
   for (const h of byStart.values()) {
     if (!best || h.depth > best.depth) best = h;
   }
-  // list item은 마우스가 실제 콘텐츠 행 위에 있을 때만 핸들 표시
-  // gap(자식 목록과의 여백) 통과 시 조상 핸들이 깜빡이는 현상 방지
+  // listItem/taskItem: own row 에 있을 때만 핸들 표시 (gap 억제)
   if (best && isListHandleNodeType(best.node.type.name)) {
-    if (!pointInsideListOwnRow(editor, best, clientX, clientY)) {
-      return null;
-    }
+    if (!pointInsideListOwnRow(editor, best, clientX, clientY)) return null;
+  }
+  // 컨테이너 블록은 좌상단 영역 호버시에만 핸들 표시
+  // — 내부 gap 을 지날 때 핸들이 깜빡이는 현상 방지
+  const CONTAINER_TOP_HANDLE_TYPES = new Set([
+    "table", "columnLayout", "tabBlock", "callout", "toggle", "blockquote",
+  ]);
+  if (best && CONTAINER_TOP_HANDLE_TYPES.has(best.node.type.name)) {
+    const r = best.rect;
+    const triggerH = best.node.type.name === "table" ? 28 : 40;
+    if (clientY < r.top - 8 || clientY > r.top + triggerH) return null;
   }
   // 타이틀/input 등 NodeView 크롬 위에서는 깊은 블록보다 databaseBlock 을 우선
   for (const h of byStart.values()) {
