@@ -253,6 +253,13 @@ export const usePageStore = create<PageStore>()(
           activePageId: activate ? id : state.activePageId,
           cacheWorkspaceId: getCurrentWorkspaceId() || state.cacheWorkspaceId,
         }));
+        if (activate) {
+          // React 18 자동 배칭: set()과 동일 동기 컨텍스트에서 탭도 갱신 → 단일 렌더로 Editor 마운트
+          const st = useSettingsStore.getState();
+          if (st.tabs[st.activeTabIndex]?.pageId !== id) {
+            st.setCurrentTabPage(id);
+          }
+        }
         // 생성 직후 렌더를 먼저 확정하고, 기록/동기화는 다음 틱으로 미뤄 체감 지연을 줄인다.
         queueMicrotask(() => {
           const hs = useHistoryStore.getState();
@@ -441,6 +448,13 @@ export const usePageStore = create<PageStore>()(
 
       setActivePage: (id) => {
         set({ activePageId: id });
+        // 탭도 동일 동기 컨텍스트에서 갱신 → App.tsx useEffect 대기 없이 단일 렌더
+        if (id) {
+          const st = useSettingsStore.getState();
+          if (st.tabs[st.activeTabIndex]?.pageId !== id) {
+            st.setCurrentTabPage(id);
+          }
+        }
         const ws = getCurrentWorkspaceId();
         if (ws && id) {
           // 렌더 커밋 중 다른 스토어 setState 호출 시 React 무한 루프 발생 방지
