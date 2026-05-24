@@ -111,8 +111,30 @@ export async function uploadNotionAsset(asset: NotionImportedAsset): Promise<Upl
       error: `용량이 너무 큼 (${asset.size} > ${NOTION_ASSET_MAX_BYTES} bytes)`,
     };
   }
+  // 0바이트 파일은 업로드 자체가 실패하므로 사전 차단 (notion zip 내부에 빈 파일이 섞여 있는 경우)
+  if (asset.size === 0) {
+    return {
+      kind: "failed",
+      path: asset.path,
+      name: asset.name,
+      mimeType: asset.mimeType,
+      size: 0,
+      error: "빈 파일",
+    };
+  }
 
   const file = await asset.readAsFile();
+  // readAsFile 이 zip 손상 등으로 0바이트를 반환하는 경우도 동일하게 처리
+  if (file.size === 0) {
+    return {
+      kind: "failed",
+      path: asset.path,
+      name: asset.name,
+      mimeType: asset.mimeType,
+      size: 0,
+      error: "빈 파일(읽기 결과 0바이트)",
+    };
+  }
 
   // GIF — FFmpeg 변환 없이 원본 그대로 fileBlock 으로 업로드 (애니메이션 보존, image/* 인라인 미리보기)
   if (asset.mimeType === "image/gif") {
