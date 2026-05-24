@@ -74,8 +74,14 @@ interface DeferredInstance {
 
 const _deferredInstances: DeferredInstance[] = [];
 
+/**
+ * persist() 의 storage 옵션에 직접 전달할 수 있는 deferred storage 를 생성한다.
+ * 각 store 가 독립된 pending 큐를 가져야 하므로 호출마다 새 인스턴스 반환.
+ * createJSONStorage 와 달리 JSON.stringify 가 setTimeout(300ms) 으로 미뤄져
+ * set() 호출 시 메인 스레드 블로킹 없음.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeDeferredStorage<S = any>(): PersistStorage<S> {
+export function makeDeferredStorage<S = any>(): PersistStorage<S> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pending = new Map<string, StorageValue<any>>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();

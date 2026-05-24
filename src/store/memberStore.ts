@@ -47,6 +47,8 @@ type MemberStoreState = {
   me: Member | null;
   members: Member[];
   cacheWorkspaceId: string | null;
+  /** 마지막으로 서버에서 페치한 시점(ms). null=미페치 */
+  lastFetchedAt: number | null;
   mentionCandidates: MemberMini[];
   mentionQuery: string;
 };
@@ -69,6 +71,7 @@ export const useMemberStore = create<MemberStore>()(
       me: null,
       members: [],
       cacheWorkspaceId: null,
+      lastFetchedAt: null,
       mentionCandidates: [],
       mentionQuery: "",
 
@@ -76,6 +79,7 @@ export const useMemberStore = create<MemberStore>()(
       setMembers: (members, workspaceId) => set((state) => ({
         members,
         cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
+        lastFetchedAt: Date.now(),
       })),
 
       upsertMember: (member) =>
@@ -116,6 +120,7 @@ export const useMemberStore = create<MemberStore>()(
           me: null,
           members: [],
           cacheWorkspaceId: null,
+          lastFetchedAt: null,
           mentionCandidates: [],
           mentionQuery: "",
         }),
@@ -127,6 +132,7 @@ export const useMemberStore = create<MemberStore>()(
         me: state.me,
         members: state.members,
         cacheWorkspaceId: state.cacheWorkspaceId,
+        lastFetchedAt: state.lastFetchedAt,
       }),
     },
   ),

@@ -1,7 +1,9 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import { persist } from "zustand/middleware";
 import { newId } from "../lib/id";
-import { zustandStorage } from "../lib/storage/index";
+import { makeDeferredStorage } from "../lib/storage/index";
+
+const deferredHistoryStorage = makeDeferredStorage();
 import type {
   DatabaseSnapshot,
   DbHistoryEvent,
@@ -618,7 +620,7 @@ export const useHistoryStore = create<HistoryStore>()(
     }),
     {
       name: "quicknote.historyStore.v1",
-      storage: createJSONStorage(() => zustandStorage),
+      storage: deferredHistoryStorage,
       version: HISTORY_STORE_VERSION,
       migrate: (persisted) => ({
         ...(persisted && typeof persisted === "object" ? persisted : {}),

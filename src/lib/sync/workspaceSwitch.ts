@@ -361,7 +361,11 @@ async function readPersistedWorkspaceSnapshot(workspaceId: string): Promise<Work
 export function preloadWorkspaceSnapshots(workspaceIds: Array<string | null | undefined>): void {
   const uniqueIds = [...new Set(workspaceIds.filter((id): id is string => Boolean(id)))];
   void Promise.all(
-    uniqueIds.map((workspaceId) => readPersistedWorkspaceSnapshot(workspaceId)),
+    uniqueIds.map((workspaceId) =>
+      readPersistedWorkspaceSnapshot(workspaceId).catch((err) => {
+        console.warn("[cache] preloadWorkspaceSnapshots failed", { workspaceId, err });
+      }),
+    ),
   );
 }
 

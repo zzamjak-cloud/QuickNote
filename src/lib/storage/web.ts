@@ -3,8 +3,14 @@ import type { KVStorage } from "./adapter";
 const DB_NAME = "quicknote-web-kv";
 const DB_VERSION = 1;
 const STORE_NAME = "kv_store";
-const IDB_HARD_LIMIT_BYTES = 20 * 1024 * 1024;
-const IDB_TARGET_BYTES = 16 * 1024 * 1024;
+
+// IDB 캐시 quota:
+// - HARD_LIMIT: 이를 초과하면 prune 트리거
+// - TARGET: prune 후 도달하고자 하는 목표 크기 (LRU 기반 삭제)
+const IDB_HARD_LIMIT_BYTES = 20 * 1024 * 1024; // 20MB
+const IDB_TARGET_BYTES = 16 * 1024 * 1024; // 16MB
+
+// setItem 호출 N회마다 prune 검사 (매번 검사하면 비용 큼)
 const PRUNE_CHECK_INTERVAL = 24;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -66,6 +72,16 @@ function byteLength(value: string): number {
   return new TextEncoder().encode(value).length;
 }
 
+/**
+ * IDB quota 초과 시 LRU 기반으로 삭제 가능한 캐시 키인지 판정.
+ *
+ * 키 네이밍 규약:
+ * - "quicknote.{domain}.cache.{tag}.v{N}"  → prunable (서버에서 재페치 가능한 캐시)
+ * - "quicknote.{domain}.v{N}"              → preserved (사용자 컨텐츠·설정 — 손실 금지)
+ *
+ * 새 캐시 키를 만들 때 서버에서 재페치 가능하면 반드시 ".cache." segment 를 포함시켜
+ * 자동 prune 대상에 들어가도록 한다.
+ */
 function isPrunableCacheKey(key: string): boolean {
   return key.startsWith("quicknote.") && key.includes(".cache.");
 }

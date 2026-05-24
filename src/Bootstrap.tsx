@@ -46,6 +46,7 @@ import { listOrganizationsApi } from "./lib/sync/organizationApi";
 import { useOrganizationStore } from "./store/organizationStore";
 import { useUiStore } from "./store/uiStore";
 import { migrateLegacyBlockCommentsToPagesOnce } from "./lib/comments/migrateLegacyBlockCommentsToPages";
+import { CACHE_TTL, isCacheFresh } from "./lib/cache/ttl";
 import { useBlockCommentStore } from "./store/blockCommentStore";
 import { migratePageBlockCommentsToServerOnce } from "./lib/comments/migratePageBlockCommentsToServer";
 import { useNotificationStore } from "./store/notificationStore";
@@ -127,15 +128,29 @@ function useSyncBootstrap(): void {
         // memberId 확정 직후 즐겨찾기를 서버로 올리고 flush(워크스페이스 부트와 무관)
         await flushClientPrefsToServerNow();
 
-        const [members, teams, organizations] = await Promise.all([
-          listMembersApi(),
-          listTeamsApi(),
-          listOrganizationsApi(),
+        // 캐시가 신선(< WORKSPACE_META TTL)하고 비어있지 않으면 API 호출 생략
+        const memberState = useMemberStore.getState();
+        const teamState = useTeamStore.getState();
+        const orgState = useOrganizationStore.getState();
+        const membersFresh =
+          memberState.members.length > 0 &&
+          isCacheFresh(memberState.lastFetchedAt, CACHE_TTL.WORKSPACE_META);
+        const teamsFresh =
+          teamState.teams.length > 0 &&
+          isCacheFresh(teamState.lastFetchedAt, CACHE_TTL.WORKSPACE_META);
+        const orgsFresh =
+          orgState.organizations.length > 0 &&
+          isCacheFresh(orgState.lastFetchedAt, CACHE_TTL.WORKSPACE_META);
+
+        const [membersResult, teamsResult, organizationsResult] = await Promise.all([
+          membersFresh ? Promise.resolve(null) : listMembersApi(),
+          teamsFresh ? Promise.resolve(null) : listTeamsApi(),
+          orgsFresh ? Promise.resolve(null) : listOrganizationsApi(),
         ]);
         if (cancelled) return;
-        setMembers(members, LC_SCHEDULER_WORKSPACE_ID);
-        setTeams(teams, LC_SCHEDULER_WORKSPACE_ID);
-        setOrganizations(organizations, LC_SCHEDULER_WORKSPACE_ID);
+        if (membersResult) setMembers(membersResult, LC_SCHEDULER_WORKSPACE_ID);
+        if (teamsResult) setTeams(teamsResult, LC_SCHEDULER_WORKSPACE_ID);
+        if (organizationsResult) setOrganizations(organizationsResult, LC_SCHEDULER_WORKSPACE_ID);
 
         // 알림 초기 로드는 스케줄러 첫 화면과 무관하므로 뒤에서 갱신한다.
         void import("./lib/sync/notificationApi")

@@ -17,6 +17,7 @@ import { useTeamStore } from "../../store/teamStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import { CACHE_TTL, isCacheFresh } from "../../lib/cache/ttl";
 
 // NotionImportTab 은 ~174KB 청크라 자주·전체 사용자가 쓰지 않으므로 lazy 유지.
 // 클릭한 시점에만 다운로드된다.
@@ -67,23 +68,19 @@ export function SettingsModal({ open, onClose }: Props) {
     let cancelled = false;
     let inFlight = false;
 
-    // 캐시 TTL — 이보다 최근에 페치했다면 모달 열기/포커스 시 재페치 생략
-    const CACHE_TTL_MS = 5 * 60 * 1000;
-
-    const isCacheFresh = (): boolean => {
+    const isWorkspaceMetaFresh = (): boolean => {
       const teamsState = useTeamStore.getState();
       const orgsState = useOrganizationStore.getState();
       if (teamsState.teams.length === 0 || orgsState.organizations.length === 0) return false;
-      const tAt = teamsState.lastFetchedAt;
-      const oAt = orgsState.lastFetchedAt;
-      if (!tAt || !oAt) return false;
-      const now = Date.now();
-      return now - tAt < CACHE_TTL_MS && now - oAt < CACHE_TTL_MS;
+      return (
+        isCacheFresh(teamsState.lastFetchedAt, CACHE_TTL.WORKSPACE_META) &&
+        isCacheFresh(orgsState.lastFetchedAt, CACHE_TTL.WORKSPACE_META)
+      );
     };
 
     const refreshAdminMetadata = async (opts: { force?: boolean } = {}) => {
       if (cancelled || inFlight) return;
-      if (!opts.force && isCacheFresh()) return;
+      if (!opts.force && isWorkspaceMetaFresh()) return;
       inFlight = true;
       try {
         const [teams, organizations] = await Promise.all([
