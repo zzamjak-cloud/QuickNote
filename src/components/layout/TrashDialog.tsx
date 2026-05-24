@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCcw, Search, Trash2, X } from "lucide-react";
 import { applyRemotePageToStore } from "../../lib/sync/storeApply";
 import {
-  emptyTrashRemote,
   fetchTrashedPagesBatch,
+  permanentlyDeletePageRemote,
   restorePageRemote,
 } from "../../lib/sync/trashApi";
 import {
@@ -40,6 +40,8 @@ export function TrashDialog({ open, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [confirmEmptyOpen, setConfirmEmptyOpen] = useState(false);
   const [emptying, setEmptying] = useState(false);
+  /** 비우기 진행률 — null=비실행, { done, total } */
+  const [emptyProgress, setEmptyProgress] = useState<{ done: number; total: number } | null>(null);
 
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -108,43 +110,75 @@ export function TrashDialog({ open, onClose }: Props) {
 
   const emptyTrash = async () => {
     if (!currentWorkspaceId || emptying) return;
-    setEmptying(true);
-    try {
-      const loadedIds = items.map((item) => item.id).filter(Boolean);
-      const deletedCount = await emptyTrashRemote(currentWorkspaceId);
-      // 휴지통 비우기는 서버에서 row 자체를 purge → 알고 있는 id 들을 영구 tombstone 으로.
-      for (const pid of loadedIds) {
-        markPermanentlyDeletedEntity("page", pid, currentWorkspaceId);
-      }
-      // 좀비 로컬 캐시 정리 (페이지 본문이 남아있을 가능성 차단).
-      if (loadedIds.length > 0) {
-        usePageStore.setState((s) => {
-          let nextPages = s.pages;
-          let changed = false;
-          for (const pid of loadedIds) {
-            if (!nextPages[pid]) continue;
-            if (nextPages === s.pages) nextPages = { ...s.pages };
-            delete nextPages[pid];
-            changed = true;
-          }
-          if (!changed) return s;
-          return { ...s, pages: nextPages };
-        });
-        removeFavoritesForPages(loadedIds);
-      }
-      setItems([]);
-      setCursor(null);
-      setQuery("");
+    const wsId = currentWorkspaceId;
+    const loadedIds = items.map((item) => item.id).filter(Boolean);
+    if (loadedIds.length === 0) {
       setConfirmEmptyOpen(false);
-      showToast(`휴지통 ${deletedCount}개 항목을 영구삭제했습니다.`, {
-        kind: "success",
-      });
-    } catch (e) {
-      console.error(e);
-      showToast("휴지통 비우기에 실패했습니다.", { kind: "error" });
-    } finally {
-      setEmptying(false);
+      return;
     }
+    setEmptying(true);
+    setConfirmEmptyOpen(false);
+    setEmptyProgress({ done: 0, total: loadedIds.length });
+
+    // 청크 단위 병렬 삭제 — 서버 부하 분산 + 빠른 진행률 업데이트
+    const CONCURRENCY = 4;
+    const successIds: string[] = [];
+    let deletedCount = 0;
+    let failedCount = 0;
+    let cursorIdx = 0;
+    const next = () => (cursorIdx < loadedIds.length ? loadedIds[cursorIdx++] : null);
+    const worker = async () => {
+      while (true) {
+        const id = next();
+        if (!id) return;
+        try {
+          await permanentlyDeletePageRemote(id, wsId);
+          markPermanentlyDeletedEntity("page", id, wsId);
+          successIds.push(id);
+          deletedCount += 1;
+        } catch (e) {
+          console.error("[휴지통] 영구삭제 실패", id, e);
+          failedCount += 1;
+        } finally {
+          setEmptyProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
+          // 성공한 id 는 즉시 리스트에서 제거 — 사용자가 실시간으로 줄어드는 걸 확인
+          setItems((prev) => prev.filter((x) => x.id !== id));
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
+    // 좀비 로컬 캐시 정리 (성공한 id 만)
+    if (successIds.length > 0) {
+      usePageStore.setState((s) => {
+        let nextPages = s.pages;
+        let changed = false;
+        for (const pid of successIds) {
+          if (!nextPages[pid]) continue;
+          if (nextPages === s.pages) nextPages = { ...s.pages };
+          delete nextPages[pid];
+          changed = true;
+        }
+        if (!changed) return s;
+        return { ...s, pages: nextPages };
+      });
+      removeFavoritesForPages(successIds);
+    }
+
+    setEmptying(false);
+    setEmptyProgress(null);
+
+    if (failedCount > 0) {
+      showToast(
+        `${deletedCount}개 영구삭제 / ${failedCount}개 실패`,
+        { kind: failedCount === loadedIds.length ? "error" : "info" },
+      );
+    } else {
+      showToast(`${deletedCount}개 영구삭제됨`, { kind: "success" });
+    }
+
+    // 삭제 후 남은 휴지통 항목을 재조회 (다음 배치 표시)
+    void loadFirst();
   };
 
   if (!open) return null;
@@ -186,7 +220,9 @@ export function TrashDialog({ open, onClose }: Props) {
               className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45 dark:border-red-900/70 dark:text-red-300 dark:hover:bg-red-950/40"
             >
               <Trash2 size={12} />
-              {emptying ? "비우는 중..." : "비우기"}
+              {emptying && emptyProgress
+                ? `${emptyProgress.done}/${emptyProgress.total}개 삭제중`
+                : "비우기"}
             </button>
             <button
               type="button"

@@ -641,6 +641,11 @@ export function response(ctx) {
       fieldName: "emptyTrash",
     });
 
+    v5Ds.createResolver("MutationpermanentlyDeletePage", {
+      typeName: "Mutation",
+      fieldName: "permanentlyDeletePage",
+    });
+
     const upsertDatabaseResolver = v5Ds.createResolver("MutationupsertDatabase", {
       typeName: "Mutation",
       fieldName: "upsertDatabase",

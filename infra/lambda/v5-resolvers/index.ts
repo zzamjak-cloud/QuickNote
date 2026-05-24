@@ -54,6 +54,7 @@ import {
   listPages,
   listTrashedPages,
   permanentlyDeleteDatabase,
+  permanentlyDeletePage,
   restorePage,
   softDeleteDatabase,
   softDeletePage,
@@ -419,6 +420,12 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
       case "emptyTrash":
         return await emptyTrash({
           ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "permanentlyDeletePage":
+        return await permanentlyDeletePage({
+          ...base,
+          id: event.arguments.id as string,
           workspaceId: event.arguments.workspaceId as string,
         });
       case "upsertDatabase":

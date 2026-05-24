@@ -66,6 +66,12 @@ export const EMPTY_TRASH = `
   }
 `;
 
+export const PERMANENTLY_DELETE_PAGE = `
+  mutation PermanentlyDeletePage($id: ID!, $workspaceId: ID!) {
+    permanentlyDeletePage(id: $id, workspaceId: $workspaceId)
+  }
+`;
+
 export const ON_PAGE_CHANGED = `
   subscription OnPageChanged($workspaceId: ID!) {
     onPageChanged(workspaceId: $workspaceId) { ${PAGE_FIELDS} }

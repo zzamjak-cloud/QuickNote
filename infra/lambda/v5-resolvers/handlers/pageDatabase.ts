@@ -359,6 +359,86 @@ export async function permanentlyDeleteDatabase(args: {
   return true;
 }
 
+/**
+ * 휴지통의 단일 페이지를 영구 삭제. soft-deleted(deletedAt 존재) 상태일 때만 허용.
+ * 휴지통 비우기를 클라이언트에서 청크 단위로 처리하면서 진행률을 보여주기 위해 사용.
+ */
+export async function permanentlyDeletePage(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  id: string;
+  workspaceId: string;
+}): Promise<boolean> {
+  if (!args.tables.Pages) badRequest("Pages table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "edit",
+  });
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Pages, Key: { id: args.id } }),
+  );
+  if (!existing.Item) return true;
+  if (existing.Item["workspaceId"] !== args.workspaceId) {
+    forbidden("다른 워크스페이스의 페이지는 영구삭제할 수 없습니다");
+  }
+  if (!existing.Item["deletedAt"]) {
+    forbidden("휴지통에 없는 페이지는 영구삭제할 수 없습니다");
+  }
+  await args.doc.send(
+    new DeleteCommand({
+      TableName: args.tables.Pages,
+      Key: { id: args.id },
+      ConditionExpression: "workspaceId = :w",
+      ExpressionAttributeValues: { ":w": args.workspaceId },
+    }),
+  );
+
+  // 연관 코멘트 정리 — 페이지 ID 매칭 row 만 제거
+  if (args.tables.Comments) {
+    let commentStartKey: Record<string, unknown> | undefined;
+    do {
+      const r = await args.doc.send(
+        new QueryCommand({
+          TableName: args.tables.Comments,
+          IndexName: "byWorkspaceAndUpdatedAt",
+          KeyConditionExpression: "workspaceId = :w",
+          ExpressionAttributeValues: { ":w": args.workspaceId },
+          ProjectionExpression: "id, pageId",
+          Limit: 100,
+          ExclusiveStartKey: commentStartKey,
+        }),
+      );
+      const comments = (r.Items ?? []) as Array<{ id?: unknown; pageId?: unknown }>;
+      await Promise.all(
+        comments
+          .filter(
+            (item) =>
+              typeof item.id === "string" &&
+              typeof item.pageId === "string" &&
+              item.pageId === args.id,
+          )
+          .map(async (item) => {
+            await args.doc.send(
+              new DeleteCommand({
+                TableName: args.tables.Comments!,
+                Key: { id: item.id },
+                ConditionExpression: "workspaceId = :w",
+                ExpressionAttributeValues: { ":w": args.workspaceId },
+              }),
+            );
+          }),
+      );
+      commentStartKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (commentStartKey);
+  }
+  return true;
+}
+
 export async function emptyTrash(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;

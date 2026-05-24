@@ -2,6 +2,7 @@ import { appsyncClient } from "./graphql/client";
 import {
   EMPTY_TRASH,
   LIST_TRASHED_PAGES_BRIEF,
+  PERMANENTLY_DELETE_PAGE,
   RESTORE_PAGE,
   type GqlPage,
   type GqlPageBrief,
@@ -88,6 +89,42 @@ function isResourceGoneMessage(message: string): boolean {
     || m.includes("no resource")
     || m.includes("not found")
   );
+}
+
+/**
+ * 휴지통의 단일 페이지를 영구 삭제.
+ * 휴지통 비우기를 청크 단위로 진행하면서 UI 에 진행률을 표시하기 위해 사용.
+ */
+export async function permanentlyDeletePageRemote(
+  id: string,
+  workspaceId: string,
+): Promise<boolean> {
+  try {
+    const r = (await appsyncClient().graphql({
+      query: PERMANENTLY_DELETE_PAGE,
+      variables: { id, workspaceId },
+    })) as {
+      data: { permanentlyDeletePage: boolean } | null;
+      errors?: Array<{ message?: string }>;
+    };
+    if (Array.isArray(r.errors) && r.errors.length > 0) {
+      const message = r.errors
+        .map((e) => e.message ?? "")
+        .filter(Boolean)
+        .join("; ");
+      if (isResourceGoneMessage(message)) return true;
+      throw new Error(message || "permanentlyDeletePage GraphQL error");
+    }
+    return Boolean(r.data?.permanentlyDeletePage);
+  } catch (err) {
+    const errorObj = err as { errors?: Array<{ message?: string }>; message?: string };
+    const message =
+      errorObj?.errors?.map((e) => e.message ?? "").filter(Boolean).join("; ") ??
+      errorObj?.message ??
+      String(err);
+    if (isResourceGoneMessage(message)) return true;
+    throw err;
+  }
 }
 
 export async function permanentlyDeleteDatabaseRemote(

@@ -373,6 +373,8 @@ type Mutation {
   restorePage(id: ID!, workspaceId: ID!): Page!
   """현재 워크스페이스의 휴지통 페이지를 DynamoDB에서 영구 삭제"""
   emptyTrash(workspaceId: ID!): Int!
+  """휴지통의 단일 페이지를 영구 삭제 (휴지통 비우기 청크 진행률용)"""
+  permanentlyDeletePage(id: ID!, workspaceId: ID!): Boolean!
   upsertDatabase(input: DatabaseInput!): Database!
   softDeleteDatabase(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Database!
   permanentlyDeleteDatabase(id: ID!, workspaceId: ID!): Boolean!
