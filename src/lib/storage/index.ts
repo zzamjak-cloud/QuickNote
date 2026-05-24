@@ -1,3 +1,4 @@
+import type { PersistStorage, StorageValue } from "zustand/middleware";
 import type { KVStorage } from "./adapter";
 
 const isTauri =
@@ -33,6 +34,10 @@ const _pendingWrites = new Map<string, string>();
 export function pauseStorageWrites(): void {
   _writesPaused = true;
   _pendingWrites.clear();
+  // 대기 중인 deferred 항목을 즉시 _pendingWrites로 이동 (resume 시 누락 방지)
+  for (const inst of _deferredInstances) {
+    inst.flushToPendingWrites();
+  }
 }
 
 export async function resumeStorageWrites(): Promise<void> {
@@ -48,7 +53,6 @@ export const zustandStorage: KVStorage = {
   getItem: (key) => resolve().then((s) => s.getItem(key)),
   setItem: (key, value) => {
     if (_writesPaused) {
-      // 마지막 값만 보관 (중간 상태 불필요)
       _pendingWrites.set(key, value as string);
       return Promise.resolve();
     }
@@ -56,3 +60,89 @@ export const zustandStorage: KVStorage = {
   },
   removeItem: (key) => resolve().then((s) => s.removeItem(key)),
 };
+
+// ---------------------------------------------------------------------------
+// deferredStorage: JSON.stringify 를 setTimeout 으로 미뤄 메인 스레드 블로킹 제거.
+// createJSONStorage 대신 persist({ storage }) 에 직접 전달한다.
+// ---------------------------------------------------------------------------
+
+const DEFERRED_FLUSH_MS = 300;
+
+interface DeferredInstance {
+  flushToPendingWrites(): void;
+}
+
+const _deferredInstances: DeferredInstance[] = [];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeDeferredStorage<S = any>(): PersistStorage<S> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pending = new Map<string, StorageValue<any>>();
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function doFlush(name: string): void {
+    const value = pending.get(name);
+    if (value === undefined) return;
+    pending.delete(name);
+    timers.delete(name);
+    const str = JSON.stringify(value);
+    if (_writesPaused) {
+      _pendingWrites.set(name, str);
+    } else {
+      resolve().then((s) => s.setItem(name, str));
+    }
+  }
+
+  function scheduleFlush(name: string): void {
+    const t = timers.get(name);
+    if (t) clearTimeout(t);
+    timers.set(name, setTimeout(() => doFlush(name), DEFERRED_FLUSH_MS));
+  }
+
+  const inst: DeferredInstance = {
+    flushToPendingWrites() {
+      for (const name of [...pending.keys()]) {
+        const t = timers.get(name);
+        if (t) { clearTimeout(t); timers.delete(name); }
+        const value = pending.get(name);
+        if (value !== undefined) {
+          pending.delete(name);
+          _pendingWrites.set(name, JSON.stringify(value));
+        }
+      }
+    },
+  };
+  _deferredInstances.push(inst);
+
+  // 탭 닫기 직전 미flush 항목을 localStorage에 동기 기록
+  if (typeof window !== "undefined") {
+    window.addEventListener("beforeunload", () => {
+      for (const [name, value] of pending) {
+        try { localStorage.setItem(name, JSON.stringify(value)); } catch { /* noop */ }
+      }
+    });
+  }
+
+  return {
+    getItem: async (name) => {
+      const s = await resolve();
+      const str = await s.getItem(name);
+      if (!str) return null;
+      return JSON.parse(str) as StorageValue<S>;
+    },
+    setItem: (name, value) => {
+      pending.set(name, value);
+      scheduleFlush(name);
+    },
+    removeItem: async (name) => {
+      pending.delete(name);
+      const t = timers.get(name);
+      if (t) { clearTimeout(t); timers.delete(name); }
+      const s = await resolve();
+      return s.removeItem(name);
+    },
+  };
+}
+
+export const deferredPageStorage = makeDeferredStorage();
+export const deferredDatabaseStorage = makeDeferredStorage();

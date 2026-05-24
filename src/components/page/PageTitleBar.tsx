@@ -9,7 +9,7 @@ interface PageTitleBarProps {
   titleDraft: string;
   titleClassName?: string;
   placeholder?: string;
-  titleRef?: React.RefObject<HTMLInputElement>;
+  titleRef?: React.RefObject<HTMLInputElement | null>;
   onTitleChange: (v: string) => void;
   onTitleBlur: () => void;
   onTitleKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
@@ -51,7 +51,7 @@ export function PageTitleBar({
   return (
     <div className="flex items-center gap-2">
       <IconPicker
-        current={icon}
+        current={icon ?? null}
         onChange={onIconChange}
         onUploadMessage={onIconUploadMessage}
         defaultIcon={defaultIcon}

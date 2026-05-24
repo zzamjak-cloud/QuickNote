@@ -49,7 +49,7 @@ function buildEmojiMap(): Record<string, EmojiItem[]> {
 }
 
 const EMOJI_MAP = buildEmojiMap();
-const ALL_EMOJIS = CATEGORIES.flatMap((cat) => EMOJI_MAP[cat.id]);
+const ALL_EMOJIS = CATEGORIES.flatMap((cat) => EMOJI_MAP[cat.id] ?? []);
 
 /** 사이드바 아이콘 피커 본체 — 커스텀 이모지 그리드 */
 export function IconPickerEmoji({ onPick }: Props) {
