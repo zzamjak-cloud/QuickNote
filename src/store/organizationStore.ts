@@ -16,6 +16,8 @@ export type Organization = {
 type OrganizationStoreState = {
   organizations: Organization[];
   cacheWorkspaceId: string | null;
+  /** 마지막으로 서버에서 페치한 시점(ms). null=미페치 */
+  lastFetchedAt: number | null;
 };
 
 type OrganizationStoreActions = {
@@ -37,10 +39,12 @@ export const useOrganizationStore = create<OrganizationStore>()(
     (set, get) => ({
       organizations: [],
       cacheWorkspaceId: null,
+      lastFetchedAt: null,
 
       setOrganizations: (organizations, workspaceId) => set((state) => ({
         organizations: organizations.map(normalizeOrganization),
         cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
+        lastFetchedAt: Date.now(),
       })),
 
       upsertOrganization: (org) =>
@@ -62,7 +66,7 @@ export const useOrganizationStore = create<OrganizationStore>()(
       getOrganizationMembers: (organizationId) =>
         get().organizations.find((o) => o.organizationId === organizationId)?.members ?? [],
 
-      clear: () => set({ organizations: [], cacheWorkspaceId: null }),
+      clear: () => set({ organizations: [], cacheWorkspaceId: null, lastFetchedAt: null }),
     }),
     {
       name: "quicknote.organizations.cache.v1",
@@ -70,6 +74,7 @@ export const useOrganizationStore = create<OrganizationStore>()(
       partialize: (state) => ({
         organizations: state.organizations,
         cacheWorkspaceId: state.cacheWorkspaceId,
+        lastFetchedAt: state.lastFetchedAt,
       }),
     },
   ),

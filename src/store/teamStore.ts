@@ -15,6 +15,8 @@ export type Team = {
 type TeamStoreState = {
   teams: Team[];
   cacheWorkspaceId: string | null;
+  /** 마지막으로 서버에서 페치한 시점(ms). null=미페치 */
+  lastFetchedAt: number | null;
 };
 
 type TeamStoreActions = {
@@ -36,10 +38,12 @@ export const useTeamStore = create<TeamStore>()(
     (set, get) => ({
       teams: [],
       cacheWorkspaceId: null,
+      lastFetchedAt: null,
 
       setTeams: (teams, workspaceId) => set((state) => ({
         teams: teams.map(normalizeTeam),
         cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
+        lastFetchedAt: Date.now(),
       })),
 
       upsertTeam: (team) =>
@@ -59,7 +63,7 @@ export const useTeamStore = create<TeamStore>()(
       getTeamMembers: (teamId) =>
         get().teams.find((t) => t.teamId === teamId)?.members ?? [],
 
-      clear: () => set({ teams: [], cacheWorkspaceId: null }),
+      clear: () => set({ teams: [], cacheWorkspaceId: null, lastFetchedAt: null }),
     }),
     {
       name: "quicknote.teams.cache.v1",
@@ -67,6 +71,7 @@ export const useTeamStore = create<TeamStore>()(
       partialize: (state) => ({
         teams: state.teams,
         cacheWorkspaceId: state.cacheWorkspaceId,
+        lastFetchedAt: state.lastFetchedAt,
       }),
     },
   ),

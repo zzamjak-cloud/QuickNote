@@ -8,6 +8,8 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { MyProfileSection } from "./MyProfileSection";
 import { AdminMembersTab } from "./AdminMembersTab";
 import { AdminWorkspacesTab } from "./AdminWorkspacesTab";
+import { AdminTeamsTab } from "./AdminTeamsTab";
+import { AdminOrganizationsTab } from "./AdminOrganizationsTab";
 import { ProjectsPanel } from "../scheduler/admin/ProjectsPanel";
 import { listTeamsApi } from "../../lib/sync/teamApi";
 import { listOrganizationsApi } from "../../lib/sync/organizationApi";
@@ -16,12 +18,8 @@ import { useOrganizationStore } from "../../store/organizationStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 
-const AdminTeamsTab = lazy(() =>
-  import("./AdminTeamsTab").then((m) => ({ default: m.AdminTeamsTab })),
-);
-const AdminOrganizationsTab = lazy(() =>
-  import("./AdminOrganizationsTab").then((m) => ({ default: m.AdminOrganizationsTab })),
-);
+// NotionImportTab 은 ~174KB 청크라 자주·전체 사용자가 쓰지 않으므로 lazy 유지.
+// 클릭한 시점에만 다운로드된다.
 const NotionImportTab = lazy(() =>
   import("./NotionImportTab").then((m) => ({ default: m.NotionImportTab })),
 );
@@ -47,12 +45,11 @@ export function SettingsModal({ open, onClose }: Props) {
   const [tab, setTab] = useState<TabId>("profile");
 
   const tabs = useMemo(() => {
-    const base: TabDef[] = [
+    const list: TabDef[] = [
       { id: "profile", label: "내 프로필", title: "내 프로필", icon: User },
-      { id: "notionImport", label: "Notion 가져오기", title: "Notion 가져오기", icon: Download },
     ];
     if (isAdmin) {
-      base.push(
+      list.push(
         { id: "members", label: "구성원", title: "구성원 관리", icon: Users },
         { id: "projects", label: "프로젝트", title: "프로젝트 관리", icon: Folder },
         { id: "teams", label: "팀", title: "팀 관리", icon: UsersRound },
@@ -60,7 +57,9 @@ export function SettingsModal({ open, onClose }: Props) {
         { id: "workspaces", label: "워크스페이스", title: "워크스페이스 관리", icon: Building },
       );
     }
-    return base;
+    // Notion 가져오기는 일회성·일부 사용자 전용 — 가장 하단 배치
+    list.push({ id: "notionImport", label: "Notion 가져오기", title: "Notion 가져오기", icon: Download });
+    return list;
   }, [isAdmin]);
 
   useEffect(() => {
@@ -68,8 +67,23 @@ export function SettingsModal({ open, onClose }: Props) {
     let cancelled = false;
     let inFlight = false;
 
-    const refreshAdminMetadata = async () => {
+    // 캐시 TTL — 이보다 최근에 페치했다면 모달 열기/포커스 시 재페치 생략
+    const CACHE_TTL_MS = 5 * 60 * 1000;
+
+    const isCacheFresh = (): boolean => {
+      const teamsState = useTeamStore.getState();
+      const orgsState = useOrganizationStore.getState();
+      if (teamsState.teams.length === 0 || orgsState.organizations.length === 0) return false;
+      const tAt = teamsState.lastFetchedAt;
+      const oAt = orgsState.lastFetchedAt;
+      if (!tAt || !oAt) return false;
+      const now = Date.now();
+      return now - tAt < CACHE_TTL_MS && now - oAt < CACHE_TTL_MS;
+    };
+
+    const refreshAdminMetadata = async (opts: { force?: boolean } = {}) => {
       if (cancelled || inFlight) return;
+      if (!opts.force && isCacheFresh()) return;
       inFlight = true;
       try {
         const [teams, organizations] = await Promise.all([
