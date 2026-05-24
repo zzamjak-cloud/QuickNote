@@ -45,6 +45,7 @@ import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useMemberStore } from "../../store/memberStore";
 import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
+import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
 import {
   isAttachmentBlockNodeType,
   isCalloutBlockNodeType,
@@ -212,6 +213,20 @@ export function BlockHandles({
           return prev;
         }
 
+        // prev 블록의 우측 댓글 추가 아이콘 영역(rect.right+8 ~ rect.right+32 × rect.top-4 ~ rect.top+24)에
+        // 커서가 있다면 prev 유지. 인접 블록(컬럼·리스트 부모 등)으로 hover 가 전환되거나
+        // next === null 이 되어도 아이콘이 사라지지 않도록 보장. 블록 타입(리스트 여부)과 무관하게 적용.
+        if (
+          prev &&
+          (!next || next.blockStart !== prev.blockStart) &&
+          e.clientX > prev.rect.right &&
+          e.clientX <= prev.rect.right + COMMENT_BTN_GAP_PX + 24 &&
+          e.clientY >= prev.rect.top - 4 &&
+          e.clientY <= prev.rect.top + 24
+        ) {
+          return prev;
+        }
+
         /** 같은 블록 위에서 커서만 움직일 때 매 프레임 새 객체 → 전체 리렌더·동영상 재로드 유발 방지 */
         if (
           next &&
@@ -238,7 +253,8 @@ export function BlockHandles({
           if (
             !isPrevListItem &&
             e.clientX >= rect.left - GUTTER_LEFT_PX &&
-            e.clientX <= rect.right + RECT_PAD_X &&
+            // 우측 댓글 추가 아이콘(rect.right + COMMENT_BTN_GAP_PX 위치, 20px 너비)을 호버 유지 영역에 포함
+            e.clientX <= rect.right + Math.max(RECT_PAD_X, COMMENT_BTN_GAP_PX + 24) &&
             e.clientY >= rect.top - RECT_PAD_Y &&
             e.clientY <= rect.bottom + RECT_PAD_Y
           ) {
@@ -840,21 +856,23 @@ export function BlockHandles({
                   bottom: menuFlipUp ? 0 : undefined,
                 }}
               >
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openBlockComment(e);
-                    setMenuOpen(false);
-                    setPresetOpen(false);
-                    setTypeMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
-                >
-                  <MessageSquare size={14} />
-                  댓글 추가
-                </button>
+                {hover && canBlockHaveComment(hover.node.type.name) ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openBlockComment(e);
+                      setMenuOpen(false);
+                      setPresetOpen(false);
+                      setTypeMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                  >
+                    <MessageSquare size={14} />
+                    댓글 추가
+                  </button>
+                ) : null}
 
                 {isAttachmentBlock ? (
                   <button
@@ -1379,6 +1397,8 @@ export function BlockHandles({
         const hBlockId = hover.node.attrs?.id as string | undefined;
         if (!hBlockId) return null;
         if (pinnedCommentBadges.some((p) => p.blockId === hBlockId)) return null;
+        // 컨테이너 블록(컬럼/탭/콜아웃/인용/코드/표 등) 자체에는 댓글 입력 불허
+        if (!canBlockHaveComment(hover.node.type.name)) return null;
         const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX + 2;
         const left = hover.rect.right - wrapperRect.left + COMMENT_BTN_GAP_PX;
         return (
