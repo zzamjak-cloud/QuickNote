@@ -35,6 +35,25 @@ export const LIST_TRASHED_PAGES = `
   }
 `;
 
+// 휴지통 리스트 전용 — doc/dbCells/blockComments 등 큰 AWSJSON 필드 제외.
+// 휴지통 UI 는 제목·아이콘만 표시하고 복원 시 별도로 전체 페이지를 받으므로 충분.
+export const LIST_TRASHED_PAGES_BRIEF = `
+  query ListTrashedPagesBrief($workspaceId: ID!, $limit: Int, $nextToken: String) {
+    listTrashedPages(workspaceId: $workspaceId, limit: $limit, nextToken: $nextToken) {
+      items { id title icon deletedAt updatedAt }
+      nextToken
+    }
+  }
+`;
+
+export type GqlPageBrief = {
+  id: string;
+  title: string;
+  icon?: string | null;
+  deletedAt?: string | null;
+  updatedAt: string;
+};
+
 export const RESTORE_PAGE = `
   mutation RestorePage($id: ID!, $workspaceId: ID!) {
     restorePage(id: $id, workspaceId: $workspaceId) { ${PAGE_FIELDS} }

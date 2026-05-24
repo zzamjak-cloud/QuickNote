@@ -1,34 +1,39 @@
 import { appsyncClient } from "./graphql/client";
 import {
   EMPTY_TRASH,
-  LIST_TRASHED_PAGES,
+  LIST_TRASHED_PAGES_BRIEF,
   RESTORE_PAGE,
   type GqlPage,
+  type GqlPageBrief,
 } from "./queries/page";
 import { PERMANENTLY_DELETE_DATABASE } from "./queries/database";
 
 const TRASH_BATCH_SIZE = 50;
 
 export type TrashedPageBatch = {
-  items: GqlPage[];
+  items: GqlPageBrief[];
   /** null 이면 더 없음 */
   nextToken: string | null;
 };
 
-/** 휴지통 한 페이지(기본 50건). nextToken 으로 연속 조회 */
+/**
+ * 휴지통 한 페이지(기본 50건). nextToken 으로 연속 조회.
+ * 리스트 표시에 필요한 최소 필드(id/title/icon/deletedAt)만 받음 — doc/blockComments
+ * 같은 큰 페이로드 제외로 응답이 수십 배 빠르다. 복원 시 RESTORE_PAGE 가 전체 필드 반환.
+ */
 export async function fetchTrashedPagesBatch(
   workspaceId: string,
   nextToken?: string | null,
 ): Promise<TrashedPageBatch> {
   const r = (await appsyncClient().graphql({
-    query: LIST_TRASHED_PAGES,
+    query: LIST_TRASHED_PAGES_BRIEF,
     variables: {
       workspaceId,
       limit: TRASH_BATCH_SIZE,
       nextToken: nextToken ?? null,
     },
   })) as {
-    data: { listTrashedPages: { items: GqlPage[]; nextToken: string | null } };
+    data: { listTrashedPages: { items: GqlPageBrief[]; nextToken: string | null } };
   };
   const conn = r.data.listTrashedPages;
   return { items: conn.items, nextToken: conn.nextToken ?? null };
