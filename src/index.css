@@ -1195,3 +1195,46 @@ html.dark .ProseMirror details[data-text-color="red"] > .toggle-header { color: 
 [data-indent="6"] { margin-left: 9rem; }
 /* 리스트 아이템 내부에서는 들여쓰기 CSS 적용 제외 */
 li [data-indent] { margin-left: 0; }
+
+/* ===== 이모지 피커 QuickNote 스타일 오버라이드 ===== */
+
+/* 라이브러리 자체 border/shadow/radius 제거 */
+.EmojiPickerReact.epr-main {
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  font-family: inherit !important;
+}
+
+/* 배경색 — 라이트/다크 */
+.EmojiPickerReact.epr-main {
+  --epr-bg-color: #ffffff;
+  --epr-category-label-bg-color: #ffffff;
+  --epr-text-color: #3f3f46;
+  --epr-hover-bg-color: #f4f4f5;
+  --epr-picker-border-color: transparent;
+  --epr-emoji-size: 26px;
+  --epr-emoji-padding: 4px;
+}
+.EmojiPickerReact.epr-main.epr-dark-theme {
+  --epr-bg-color: #18181b;
+  --epr-category-label-bg-color: #18181b;
+  --epr-text-color: #e4e4e7;
+  --epr-hover-bg-color: #27272a;
+  --epr-picker-border-color: transparent;
+  --epr-dark-bg-color: #18181b;
+  --epr-dark-category-label-bg-color: #18181b;
+  --epr-dark-hover-bg-color: #27272a;
+}
+
+/* 카테고리 레이블 */
+.EmojiPickerReact .epr-emoji-category-label {
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.05em !important;
+  color: #a1a1aa !important;
+  text-transform: uppercase !important;
+}
+.EmojiPickerReact.epr-dark-theme .epr-emoji-category-label {
+  color: #71717a !important;
+}

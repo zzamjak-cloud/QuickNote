@@ -1,18 +1,20 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import * as LucideIcons from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { insertImageFromFile, MAX_EDITOR_IMAGE_BYTES } from "../../lib/editor/insertImageFromFile";
 import { encodeLucidePageIcon } from "../../lib/pageIcon";
 import { PageIconDisplay } from "./PageIconDisplay";
-
-const LazyIconPickerEmoji = lazy(() =>
-  import("./IconPickerEmoji").then((m) => ({ default: m.IconPickerEmoji })),
-);
+import { IconPickerEmoji } from "./IconPickerEmoji";
+import {
+  type CustomIconPreset,
+  loadCustomIcons,
+  addCustomIcon,
+  deleteCustomIcon,
+} from "../../lib/iconStorage";
 
 const MAX_ICON_BYTES = Math.min(5 * 1024 * 1024, MAX_EDITOR_IMAGE_BYTES);
 const DEFAULT_LUCIDE_COLOR = "#3f3f46";
-const CUSTOM_ICON_STORAGE_KEY = "quicknote.customPageIcons.v1";
 type LucidePreset = {
   name: string;
   label: string;
@@ -54,6 +56,18 @@ const LUCIDE_ICON_CATEGORIES: LucideCategory[] = [
       { name: "ChartPie", label: "차트", keywords: "pie chart" },
       { name: "ChartSpline", label: "추세", keywords: "trend graph" },
       { name: "Scale", label: "검토", keywords: "legal review balance" },
+      { name: "Calculator", label: "계산기", keywords: "calculator" },
+      { name: "Coins", label: "자산", keywords: "money asset coins" },
+      { name: "TrendingUp", label: "상승", keywords: "trend up growth" },
+      { name: "TrendingDown", label: "하락", keywords: "trend down decline" },
+      { name: "Percent", label: "퍼센트", keywords: "percent ratio" },
+      { name: "DollarSign", label: "달러", keywords: "dollar money" },
+      { name: "Printer", label: "프린터", keywords: "printer print" },
+      { name: "Scan", label: "스캔", keywords: "scan document" },
+      { name: "Stamp", label: "도장", keywords: "stamp seal" },
+      { name: "PackageSearch", label: "조달", keywords: "procurement supply" },
+      { name: "Search", label: "검색", keywords: "search find" },
+      { name: "PenSquare", label: "계약", keywords: "contract sign" },
     ],
   },
   {
@@ -84,6 +98,18 @@ const LUCIDE_ICON_CATEGORIES: LucideCategory[] = [
       { name: "Repeat2", label: "반복", keywords: "repeat recurring" },
       { name: "RefreshCw", label: "갱신", keywords: "refresh update" },
       { name: "MoveRight", label: "다음", keywords: "next move" },
+      { name: "BellRing", label: "알림중", keywords: "bell ringing" },
+      { name: "SortAsc", label: "정렬", keywords: "sort asc order" },
+      { name: "Filter", label: "필터", keywords: "filter" },
+      { name: "Shuffle", label: "랜덤", keywords: "random shuffle" },
+      { name: "Split", label: "분기", keywords: "split branch" },
+      { name: "Merge", label: "병합", keywords: "merge combine" },
+      { name: "GitFork", label: "포크", keywords: "fork split" },
+      { name: "LayoutDashboard", label: "대시보드", keywords: "dashboard overview" },
+      { name: "PanelLeft", label: "패널", keywords: "panel sidebar" },
+      { name: "Layers3", label: "레이어", keywords: "layers stack" },
+      { name: "SquareStack", label: "스택", keywords: "stack cards" },
+      { name: "ListChecks", label: "점검 목록", keywords: "checklist items" },
     ],
   },
   {
@@ -114,6 +140,18 @@ const LUCIDE_ICON_CATEGORIES: LucideCategory[] = [
       { name: "BookText", label: "텍스트북", keywords: "book text" },
       { name: "ScrollText", label: "스크롤", keywords: "scroll text" },
       { name: "Tags", label: "태그", keywords: "tags labels" },
+      { name: "Paperclip", label: "첨부", keywords: "attach clip" },
+      { name: "Upload", label: "업로드", keywords: "upload send" },
+      { name: "Download", label: "다운로드", keywords: "download" },
+      { name: "Share2", label: "공유", keywords: "share" },
+      { name: "Copy", label: "복사", keywords: "copy duplicate" },
+      { name: "Clipboard", label: "클립보드", keywords: "clipboard" },
+      { name: "FolderArchive", label: "압축 폴더", keywords: "folder zip archive" },
+      { name: "FolderLock", label: "잠금 폴더", keywords: "folder locked private" },
+      { name: "FileCode2", label: "코드 파일", keywords: "code file" },
+      { name: "FileBadge", label: "배지 문서", keywords: "file badge certified" },
+      { name: "FileDigit", label: "숫자 문서", keywords: "file number digit" },
+      { name: "BookCopy", label: "복제본", keywords: "book copy duplicate" },
     ],
   },
   {
@@ -144,6 +182,18 @@ const LUCIDE_ICON_CATEGORIES: LucideCategory[] = [
       { name: "Origami", label: "접기", keywords: "origami creative" },
       { name: "BadgePlus", label: "추가", keywords: "add badge" },
       { name: "Sparkle", label: "반짝임", keywords: "sparkle" },
+      { name: "Aperture", label: "조리개", keywords: "aperture lens" },
+      { name: "Focus", label: "포커스", keywords: "focus sharp" },
+      { name: "Crop", label: "자르기", keywords: "crop trim" },
+      { name: "FlipHorizontal", label: "뒤집기", keywords: "flip mirror" },
+      { name: "ZoomIn", label: "확대", keywords: "zoom in magnify" },
+      { name: "ZoomOut", label: "축소", keywords: "zoom out" },
+      { name: "LayoutGrid", label: "레이아웃", keywords: "layout grid" },
+      { name: "LayoutTemplate", label: "템플릿", keywords: "template layout" },
+      { name: "GalleryThumbnails", label: "갤러리", keywords: "gallery thumbnails" },
+      { name: "Sticker", label: "스티커", keywords: "sticker emoji" },
+      { name: "Feather", label: "깃털", keywords: "feather write light" },
+      { name: "Film", label: "필름", keywords: "film movie strip" },
     ],
   },
   {
@@ -174,6 +224,18 @@ const LUCIDE_ICON_CATEGORIES: LucideCategory[] = [
       { name: "Tablet", label: "태블릿", keywords: "tablet" },
       { name: "Cable", label: "케이블", keywords: "cable connection" },
       { name: "Unplug", label: "분리", keywords: "unplug disconnect" },
+      { name: "Globe", label: "웹", keywords: "web globe internet" },
+      { name: "Webhook", label: "웹훅", keywords: "webhook api" },
+      { name: "GitCommit", label: "커밋", keywords: "commit git" },
+      { name: "GitMerge", label: "병합", keywords: "merge git" },
+      { name: "FileJson", label: "JSON 파일", keywords: "json file" },
+      { name: "FileCode", label: "코드 파일", keywords: "code file source" },
+      { name: "Variable", label: "변수", keywords: "variable programming" },
+      { name: "Blocks", label: "블록", keywords: "blocks modules" },
+      { name: "CircuitBoard", label: "회로", keywords: "circuit board hardware" },
+      { name: "Microchip", label: "칩", keywords: "chip microchip" },
+      { name: "Radio", label: "라디오", keywords: "radio signal" },
+      { name: "Antenna", label: "안테나", keywords: "antenna signal" },
     ],
   },
   {
@@ -204,6 +266,18 @@ const LUCIDE_ICON_CATEGORIES: LucideCategory[] = [
       { name: "BadgeInfo", label: "정보", keywords: "badge info" },
       { name: "ShieldAlert", label: "보안 경고", keywords: "shield alert" },
       { name: "ShieldX", label: "차단", keywords: "shield blocked" },
+      { name: "Pin", label: "고정", keywords: "pin fixed" },
+      { name: "Hash", label: "태그", keywords: "hash tag channel" },
+      { name: "AtSign", label: "멘션", keywords: "mention at" },
+      { name: "Tag", label: "라벨", keywords: "label tag" },
+      { name: "Inbox", label: "수신함", keywords: "inbox receive" },
+      { name: "Send", label: "전송", keywords: "send submit" },
+      { name: "RotateCcw", label: "되돌리기", keywords: "undo revert" },
+      { name: "History", label: "기록", keywords: "history log" },
+      { name: "BookmarkCheck", label: "저장됨", keywords: "saved bookmarked" },
+      { name: "ThumbsDown", label: "나쁨", keywords: "dislike bad" },
+      { name: "Siren", label: "긴급", keywords: "urgent emergency alert" },
+      { name: "Activity", label: "활성", keywords: "activity active live" },
     ],
   },
 ];
@@ -252,32 +326,6 @@ type Props = {
   defaultIcon?: React.ReactNode;
 };
 
-type CustomIconPreset = {
-  id: string;
-  src: string;
-  label: string;
-};
-
-function loadCustomIcons(): CustomIconPreset[] {
-  try {
-    const raw = window.localStorage.getItem(CUSTOM_ICON_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is CustomIconPreset =>
-        item &&
-        typeof item.id === "string" &&
-        typeof item.src === "string" &&
-        typeof item.label === "string",
-    );
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomIcons(items: CustomIconPreset[]) {
-  window.localStorage.setItem(CUSTOM_ICON_STORAGE_KEY, JSON.stringify(items));
-}
 
 type IconPickerPanelProps = {
   title?: string;
@@ -291,16 +339,17 @@ type IconPickerPanelProps = {
 };
 
 export function IconPickerPanel({
-  title = "페이지 아이콘",
+  title: _title = "페이지 아이콘",
   footer,
   onPickEmoji,
   onPickLucide,
   onPickCustom,
-  onRequestCustomUpload,
+  onRequestCustomUpload: _onRequestCustomUpload,
   customIcons = [],
   onDeleteCustomIcon,
 }: IconPickerPanelProps) {
   const [color, setColor] = useState(DEFAULT_LUCIDE_COLOR);
+  const [colorOpen, setColorOpen] = useState(false);
   const [activeMenu, setActiveMenu] = useState<"lucide" | "emoji" | "custom">("lucide");
   const [activeLucideCategory, setActiveLucideCategory] = useState("all");
   const [lucideQuery, setLucideQuery] = useState("");
@@ -321,49 +370,71 @@ export function IconPickerPanel({
   return (
     <div className="w-[320px] rounded-md border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
       <div className="border-b border-zinc-200 p-2 dark:border-zinc-700">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-200">
-            {title}
-          </span>
-          <div className="flex rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800">
-            {(["lucide", "emoji", "custom"] as const).map((menu) => (
-              <button
-                key={menu}
-                type="button"
-                onClick={() => setActiveMenu(menu)}
-                className={[
-                  "rounded px-2 py-1 text-xs",
-                  activeMenu === menu
-                    ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-50"
-                    : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100",
-                ].join(" ")}
-              >
-                {menu === "lucide" ? "루시드" : menu === "emoji" ? "이모지" : "커스텀"}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="h-[360px] overflow-hidden">
-          {activeMenu === "lucide" ? (
-            <div className="flex h-full flex-col">
-            <div className="mb-2 flex flex-wrap gap-1">
-              {LUCIDE_COLOR_PRESETS.map((preset) => (
+        <div className="mb-2 flex items-center">
+          {/* 좌측 스페이서 — 색상 버튼과 너비 균형 */}
+          <div className="w-6 shrink-0" />
+          {/* 탭 버튼 중앙 정렬 */}
+          <div className="flex flex-1 justify-center">
+            <div className="flex rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800">
+              {(["lucide", "emoji", "custom"] as const).map((menu) => (
                 <button
-                  key={preset}
+                  key={menu}
                   type="button"
-                  onClick={() => setColor(preset)}
+                  onClick={() => { setActiveMenu(menu); setColorOpen(false); }}
                   className={[
-                    "h-5 w-5 rounded-full border",
-                    color === preset
-                      ? "border-zinc-900 ring-2 ring-zinc-300 dark:border-white dark:ring-zinc-600"
-                      : "border-zinc-200 dark:border-zinc-700",
+                    "rounded px-2 py-1 text-xs",
+                    activeMenu === menu
+                      ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-50"
+                      : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100",
                   ].join(" ")}
-                  style={{ backgroundColor: preset }}
-                  aria-label={`아이콘 색상 ${preset}`}
-                  title={preset}
-                />
+                >
+                  {menu === "lucide" ? "루시드" : menu === "emoji" ? "이모지" : "커스텀"}
+                </button>
               ))}
             </div>
+          </div>
+          {/* 색상 드롭다운 버튼 — 루시드 탭에서만 표시 */}
+          <div className="relative w-6 shrink-0">
+            {activeMenu === "lucide" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setColorOpen((v) => !v)}
+                  className="h-5 w-5 rounded-full border-2 border-white shadow ring-1 ring-zinc-300 dark:border-zinc-900 dark:ring-zinc-600"
+                  style={{ backgroundColor: color }}
+                  aria-label="색상 선택"
+                  title="색상 선택"
+                />
+                {colorOpen ? (
+                  <div className="absolute right-0 top-7 z-20 rounded-md border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-800">
+                    <div className="flex flex-wrap gap-1.5" style={{ width: 120 }}>
+                      {LUCIDE_COLOR_PRESETS.map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => { setColor(preset); setColorOpen(false); }}
+                          className={[
+                            "h-5 w-5 rounded-full border",
+                            color === preset
+                              ? "border-zinc-900 ring-2 ring-zinc-300 dark:border-white dark:ring-zinc-600"
+                              : "border-zinc-200 dark:border-zinc-700",
+                          ].join(" ")}
+                          style={{ backgroundColor: preset }}
+                          aria-label={`색상 ${preset}`}
+                          title={preset}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+        {/* 세 탭 모두 항상 마운트 — CSS display로 전환해 재렌더 방지 */}
+        <div className="h-[360px] overflow-hidden">
+          {/* 루시드 탭 */}
+          <div className="flex h-full flex-col" style={{ display: activeMenu === "lucide" ? "flex" : "none" }}>
             <div className="mb-2 flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 dark:border-zinc-700 dark:bg-zinc-950">
               <LucideIcons.Search size={14} className="shrink-0 text-zinc-400" />
               <input
@@ -403,7 +474,7 @@ export function IconPickerPanel({
               </div>
             ) : null}
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid grid-cols-8 gap-1">
+              <div className="grid grid-cols-6 gap-1">
                 {visibleLucideIcons.map((item) => {
                   const Icon = getLucideIcon(item.name);
                   return (
@@ -411,82 +482,75 @@ export function IconPickerPanel({
                       key={item.name}
                       type="button"
                       onClick={() => pickLucideIcon(item.name)}
-                      className="flex h-8 w-8 items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      className="flex h-11 w-full items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
                       title={item.label}
                       aria-label={item.label}
                     >
-                      <Icon size={18} color={color} strokeWidth={1.9} />
+                      <Icon size={24} color={color} strokeWidth={1.9} />
                     </button>
                   );
                 })}
                 {visibleLucideIcons.length === 0 ? (
-                  <div className="col-span-8 py-6 text-center text-xs text-zinc-400">
+                  <div className="col-span-6 py-6 text-center text-xs text-zinc-400">
                     검색 결과가 없습니다.
                   </div>
                 ) : null}
               </div>
             </div>
-            </div>
-          ) : activeMenu === "emoji" ? (
+          </div>
+
+          {/* 이모지 탭 — 항상 마운트, Suspense는 최초 1회만 */}
+          <div className="h-full" style={{ display: activeMenu === "emoji" ? "block" : "none" }}>
             <Suspense
               fallback={
-                <div className="h-[360px] w-[304px] animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
+                <div className="h-full animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
               }
             >
-              <LazyIconPickerEmoji onPick={onPickEmoji} />
+              <IconPickerEmoji onPick={onPickEmoji} />
             </Suspense>
-          ) : (
-            <div className="flex h-full flex-col">
-              <button
-                type="button"
-                onClick={onRequestCustomUpload}
-                className="mb-2 flex items-center gap-2 rounded-md border border-dashed border-zinc-300 px-2 py-2 text-left text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                <LucideIcons.ImagePlus size={14} />
-                사용자 지정 아이콘
-              </button>
-              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                {customIcons.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-zinc-400">
-                    등록된 커스텀 아이콘이 없습니다.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-8 gap-1">
-                    {customIcons.map((item) => (
+          </div>
+
+          {/* 커스텀 탭 */}
+          <div className="flex h-full flex-col" style={{ display: activeMenu === "custom" ? "flex" : "none" }}>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {customIcons.length === 0 ? (
+                <div className="py-8 text-center text-xs text-zinc-400">
+                  등록된 커스텀 아이콘이 없습니다.
+                  <br />
+                  <span className="text-zinc-300 dark:text-zinc-600">아래 이미지 업로드 버튼을 사용하세요.</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-6 gap-1">
+                  {customIcons.map((item) => (
+                    <div key={item.id} className="group relative">
                       <button
-                        key={item.id}
                         type="button"
                         onClick={() => onPickCustom?.(item.src)}
-                        onContextMenu={(event) => {
-                          event.preventDefault();
-                          onDeleteCustomIcon?.(item.id);
-                        }}
-                        className="flex h-8 w-8 items-center justify-center overflow-hidden rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                        title={`${item.label} (우클릭 삭제)`}
+                        className="relative flex h-11 w-full items-center justify-center overflow-hidden rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        title={item.label}
                         aria-label={item.label}
                       >
-                        <PageIconDisplay icon={item.src} size="md" />
+                        <PageIconDisplay icon={item.src} size="md" className="!h-9 !w-9" imgClassName="!h-9 !w-9" />
                       </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteCustomIcon?.(item.id)}
+                        className="absolute right-0.5 top-0.5 z-10 hidden h-4 w-4 items-center justify-center rounded-full bg-zinc-600 text-white group-hover:flex dark:bg-zinc-500"
+                        title="삭제"
+                        aria-label="아이콘 삭제"
+                      >
+                        <LucideIcons.X size={9} strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
       {footer ? (
         <div className="flex flex-col gap-0.5 border-t border-zinc-200 p-1.5 dark:border-zinc-700">
-          {activeMenu !== "lucide" ? (
-            <button
-              type="button"
-              onClick={() => setActiveMenu("lucide")}
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              <LucideIcons.FileText size={14} className="shrink-0 text-zinc-500" />
-              루시드 아이콘 보기
-            </button>
-          ) : null}
           {footer}
         </div>
       ) : null}
@@ -507,9 +571,12 @@ export function IconPicker({
   const ref = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const [customIcons, setCustomIcons] = useState<CustomIconPreset[]>(() =>
-    typeof window === "undefined" ? [] : loadCustomIcons(),
-  );
+  const [customIcons, setCustomIcons] = useState<CustomIconPreset[]>([]);
+
+  // IndexedDB에서 커스텀 아이콘 로드 (최초 1회, localStorage 마이그레이션 포함)
+  useEffect(() => {
+    loadCustomIcons().then(setCustomIcons).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -582,20 +649,17 @@ export function IconPicker({
     if (!file || !file.type.startsWith("image/")) return;
     const ok = await insertImageFromFile(
       file,
-      (attrs) => {
+      async (attrs) => {
         if (savePreset) {
-          setCustomIcons((prev) => {
-            const next = [
-              {
-                id: `${Date.now()}:${file.name}`,
-                src: attrs.src,
-                label: file.name || "커스텀 아이콘",
-              },
-              ...prev.filter((item) => item.src !== attrs.src),
-            ].slice(0, 80);
-            saveCustomIcons(next);
-            return next;
-          });
+          const newItem: CustomIconPreset = {
+            id: `${Date.now()}:${file.name}`,
+            src: attrs.src,
+            label: file.name || "커스텀 아이콘",
+          };
+          await addCustomIcon(newItem);
+          setCustomIcons((prev) =>
+            [newItem, ...prev.filter((i) => i.src !== attrs.src)].slice(0, 80),
+          );
         }
         onChange(attrs.src);
         setOpen(false);
@@ -644,32 +708,34 @@ export function IconPicker({
             onRequestCustomUpload={() => fileRef.current?.click()}
             customIcons={customIcons}
             onDeleteCustomIcon={(id) => {
-              setCustomIcons((prev) => {
-                const next = prev.filter((item) => item.id !== id);
-                saveCustomIcons(next);
-                return next;
-              });
+              deleteCustomIcon(id).catch(() => {});
+              setCustomIcons((prev) => prev.filter((item) => item.id !== id));
             }}
             footer={
               <>
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-            >
-              <LucideIcons.ImagePlus size={14} className="shrink-0 text-zinc-500" />
-              이미지 업로드
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                onChange(null);
-                setOpen(false);
-              }}
-              className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-red-500 dark:hover:bg-zinc-800"
-            >
-              아이콘 제거
-            </button>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                >
+                  <LucideIcons.ImagePlus size={14} className="shrink-0 text-zinc-500" />
+                  이미지 업로드
+                </button>
+                {current ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(null);
+                      setOpen(false);
+                    }}
+                    className="group flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                  >
+                    <div className="h-5 w-5 shrink-0 overflow-hidden rounded opacity-70 group-hover:opacity-100">
+                      <PageIconDisplay icon={current} size="sm" />
+                    </div>
+                    <span>아이콘 제거</span>
+                  </button>
+                ) : null}
               </>
             }
           />

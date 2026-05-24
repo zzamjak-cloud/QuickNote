@@ -32,8 +32,10 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { setPageContext } from "../../lib/tiptapExtensions/pageContext";
 import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { ImageUpload } from "./ImageUpload";
-import { IconPicker, IconPickerPanel } from "../common/IconPicker";
-import { Star, FileText, Database } from "lucide-react";
+import { IconPickerPanel } from "../common/IconPicker";
+import { FileText, Database } from "lucide-react";
+import { PageTitleBar } from "../page/PageTitleBar";
+import { getEditorColumnClass } from "../../lib/editorLayout";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
@@ -139,13 +141,6 @@ export function Editor({
   const fullWidth = effectivePageId
     ? (pageFullWidthById[effectivePageId] ?? globalFullWidth)
     : globalFullWidth;
-  /** 다른 페이지 즐겨찾기 변경 시 전체 에디터 리렌더를 줄이기 위해 boolean 만 구독 */
-  const isCurrentPageFavorite = useSettingsStore(
-    (s) =>
-      effectivePageId != null && s.favoritePageIds.includes(effectivePageId),
-  );
-  const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
-
   const myMemberId = useMemberStore((s) => s.me?.memberId);
 
   const pageDoc = page?.doc;
@@ -775,13 +770,7 @@ export function Editor({
         </div>
       ) : null}
       <div
-        className={`relative mx-auto w-full ${
-          fullWidth
-            ? "max-w-none px-4"
-            : hasPageComments && !peek
-              ? "max-w-[1256px] pr-[256px]"
-              : "max-w-[968px]"
-        }`}
+        className={`relative mx-auto w-full ${getEditorColumnClass({ fullWidth, hasPageComments, peek })}`}
         data-qn-editor-column
       >
         {!bodyOnly && (
@@ -795,84 +784,52 @@ export function Editor({
               />
             ) : null}
             <div className={`${page.coverImage ? "mt-12" : "mt-4"} px-12`}>
-              <div className="flex items-center gap-2">
-                <IconPicker
-                  current={page.icon}
-                  onChange={(icon) => setIcon(effectivePageId, icon)}
-                  onUploadMessage={(msg) => setSimpleAlert(msg)}
-                  defaultIcon={
-                    isFullPageDatabase
-                      ? <Database size={56} className="text-zinc-400" />
-                      : <FileText size={56} className="text-zinc-400" />
-                  }
-                />
-                <input
-                  ref={titleRef}
-                  value={titleDraft}
-                  onFocus={() => {
-                    titleFocusPageIdRef.current = effectivePageId;
-                  }}
-                  onChange={(e) => {
-                    setTitleDraft(e.target.value);
-                  }}
-                  onBlur={() => {
-                    const focusPageId = titleFocusPageIdRef.current;
-                    titleFocusPageIdRef.current = null;
-                    if (!focusPageId || focusPageId !== effectivePageId) return;
+              <PageTitleBar
+                pageId={effectivePageId}
+                icon={page.icon}
+                titleDraft={titleDraft}
+                titleClassName="min-w-0 flex-1 bg-transparent text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
+                titleRef={titleRef}
+                onTitleChange={(v) => setTitleDraft(v)}
+                onTitleFocus={() => {
+                  titleFocusPageIdRef.current = effectivePageId;
+                }}
+                onTitleBlur={() => {
+                  const focusPageId = titleFocusPageIdRef.current;
+                  titleFocusPageIdRef.current = null;
+                  if (!focusPageId || focusPageId !== effectivePageId) return;
 
-                    const nextTitle = titleDraft.trim() || "제목 없음";
-                    if (nextTitle !== page.title) {
-                      renamePage(focusPageId, nextTitle);
-                    }
-                    if (!isFullPageDatabase) return;
-                    const ok = trySyncFullPageDatabaseTitle(page.doc, nextTitle);
-                    if (!ok) {
-                      setSimpleAlert("이미 사용 중인 데이터베이스 이름입니다.");
-                      renamePage(effectivePageId, dbTitleBaselineRef.current);
-                      setTitleDraft(dbTitleBaselineRef.current);
-                    } else {
-                      dbTitleBaselineRef.current = nextTitle;
-                      setTitleDraft(nextTitle);
-                    }
-                  }}
-                  placeholder="제목 없음"
-                  className="min-w-0 flex-1 bg-transparent text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === "ArrowDown") {
-                      e.preventDefault();
-                      editor?.chain().focus().run();
-                    }
-                  }}
-                />
-                {!isDatabaseRowPage && (descendantCount > 0 || !!page?.parentId) && (
-                  <button
-                    ref={subpagePopover.buttonRef}
-                    type="button"
-                    onClick={() => subpagePopover.toggle(280)}
-                    className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                  >
-                    페이지 트리
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => toggleFavoritePage(effectivePageId)}
-                  className="shrink-0 rounded-md p-2 text-zinc-400 hover:bg-zinc-100 hover:text-amber-500 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
-                  aria-label={
-                    isCurrentPageFavorite ? "즐겨찾기 해제" : "즐겨찾기"
+                  const nextTitle = titleDraft.trim() || "제목 없음";
+                  if (nextTitle !== page.title) {
+                    renamePage(focusPageId, nextTitle);
                   }
-                  aria-pressed={isCurrentPageFavorite}
-                  title="즐겨찾기"
-                >
-                  <Star
-                    size={22}
-                    strokeWidth={1.75}
-                    className={
-                      isCurrentPageFavorite ? "fill-amber-400 text-amber-500" : ""
-                    }
-                  />
-                </button>
-              </div>
+                  if (!isFullPageDatabase) return;
+                  const ok = trySyncFullPageDatabaseTitle(page.doc, nextTitle);
+                  if (!ok) {
+                    setSimpleAlert("이미 사용 중인 데이터베이스 이름입니다.");
+                    renamePage(effectivePageId, dbTitleBaselineRef.current);
+                    setTitleDraft(dbTitleBaselineRef.current);
+                  } else {
+                    dbTitleBaselineRef.current = nextTitle;
+                    setTitleDraft(nextTitle);
+                  }
+                }}
+                onTitleKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === "ArrowDown") {
+                    e.preventDefault();
+                    editor?.chain().focus().run();
+                  }
+                }}
+                onIconChange={(icon) => setIcon(effectivePageId, icon)}
+                onIconUploadMessage={(msg) => setSimpleAlert(msg)}
+                defaultIcon={
+                  isFullPageDatabase
+                    ? <Database size={56} className="text-zinc-400" />
+                    : <FileText size={56} className="text-zinc-400" />
+                }
+                showSubpageTree={!isDatabaseRowPage && (descendantCount > 0 || !!page?.parentId)}
+                subpagePopover={subpagePopover}
+              />
             </div>
             {/* 페이지 레벨 댓글 — 제목 바로 아래 */}
             <div className="px-12">

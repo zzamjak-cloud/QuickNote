@@ -1,19 +1,20 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Star, FileText, ChevronDown, ChevronRight } from "lucide-react";
+import { FileText } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { Editor } from "../editor/Editor";
-import { IconPicker } from "../common/IconPicker";
-import { DatabasePropertyPanel } from "./DatabasePropertyPanel";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBar";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageSubpageTree, countPageDescendants } from "../page/PageSubpageTree";
 import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
+import { getEditorColumnClass } from "../../lib/editorLayout";
+import { PageTitleBar } from "../page/PageTitleBar";
+import { DbPropertySection } from "../page/DbPropertySection";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   // doc 필드는 Editor 컴포넌트가 내부에서 직접 구독 — 여기서는 메타 필드만 구독해 불필요한 리렌더 방지
@@ -27,10 +28,6 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const descendantCount = usePageStore((s) => countPageDescendants(pageId, s.pages));
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
-  const favoritePageIds = useSettingsStore((s) => s.favoritePageIds);
-  const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
-  const dbPropertyPanelOpen = useSettingsStore((s) => s.dbPropertyPanelOpen);
-  const setDbPropertyPanelOpen = useSettingsStore((s) => s.setDbPropertyPanelOpen);
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
   const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
   const fullWidth = pageFullWidthById[pageId] ?? globalFullWidth;
@@ -79,79 +76,32 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   }
 
   // Editor.tsx data-qn-editor-column 과 동일 — 속성 패널·헤더 폭이 본문과 일치하도록
-  const columnClass = fullWidth
-    ? "max-w-none px-4"
-    : hasPageComments
-      ? "max-w-[1256px] pr-[256px]"
-      : "max-w-[968px]";
+  const columnClass = getEditorColumnClass({ fullWidth, hasPageComments });
 
   return (
     <div className="py-8">
       <div className={`mx-auto w-full ${columnClass}`}>
         <div className="px-12">
-          <div className="mb-4 flex items-center gap-2">
-            <IconPicker
-              current={page.icon}
-              onChange={(icon) => setIcon(pageId, icon)}
-              onUploadMessage={(msg) => setIconAlert(msg)}
-              defaultIcon={
-                <FileText size={56} className="text-zinc-400" />
-              }
-            />
-            <input
-              type="text"
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
-              onKeyDown={(e) => {
+          <div className="mb-4">
+            <PageTitleBar
+              pageId={pageId}
+              icon={page.icon}
+              titleDraft={titleDraft}
+              titleClassName="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
+              onTitleChange={(v) => setTitleDraft(v)}
+              onTitleBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
+              onTitleKeyDown={(e) => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               }}
-              placeholder="제목 없음"
-              className="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
+              onIconChange={(icon) => setIcon(pageId, icon)}
+              onIconUploadMessage={(msg) => setIconAlert(msg)}
+              defaultIcon={<FileText size={56} className="text-zinc-400" />}
+              showSubpageTree={descendantCount > 0 || !!page.parentId}
+              subpagePopover={subpagePopover}
             />
-            {(descendantCount > 0 || !!page.parentId) && (
-              <button
-                ref={subpagePopover.buttonRef}
-                type="button"
-                onClick={() => subpagePopover.toggle(280)}
-                className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-              >
-                페이지 트리
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => toggleFavoritePage(pageId)}
-              className="shrink-0 rounded-md p-2 text-zinc-400 hover:bg-zinc-100 hover:text-amber-500 dark:hover:bg-zinc-800 dark:hover:text-amber-400"
-              aria-label={
-                favoritePageIds.includes(pageId) ? "즐겨찾기 해제" : "즐겨찾기"
-              }
-              aria-pressed={favoritePageIds.includes(pageId)}
-              title="즐겨찾기"
-            >
-              <Star
-                size={22}
-                strokeWidth={1.75}
-                className={
-                  favoritePageIds.includes(pageId)
-                    ? "fill-amber-400 text-amber-500"
-                    : ""
-                }
-              />
-            </button>
           </div>
 
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => setDbPropertyPanelOpen(!dbPropertyPanelOpen)}
-              className="mb-1 flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-            >
-              {dbPropertyPanelOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-              속성
-            </button>
-            {dbPropertyPanelOpen && <DatabasePropertyPanel databaseId={databaseId} pageId={pageId} />}
-          </div>
+          <DbPropertySection databaseId={databaseId} pageId={pageId} className="mt-3" />
           <PageCommentBar pageId={pageId} />
         </div>
       </div>
