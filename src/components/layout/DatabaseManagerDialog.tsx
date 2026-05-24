@@ -47,6 +47,8 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     workspaceId: string;
   } | null>(null);
   const [pendingBulkPurge, setPendingBulkPurge] = useState(false);
+  /** 일괄 영구삭제 진행률 — null=비실행, { done, total } */
+  const [bulkPurgeProgress, setBulkPurgeProgress] = useState<{ done: number; total: number } | null>(null);
 
   const activeDbIds = useMemo(
     () => new Set(dbList.map((d) => d.id)),
@@ -115,35 +117,67 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   const confirmBulkPurge = async () => {
     setPendingBulkPurge(false);
     const ids = Array.from(selectedDeletedIds);
-    for (const databaseId of ids) {
-      const targetWorkspaceId =
-        visibleDeleted.find((d) => d.databaseId === databaseId)?.workspaceId
-        ?? currentWorkspaceId;
-      if (!targetWorkspaceId) continue;
-      setPurgingIds((prev) => ({ ...prev, [databaseId]: true }));
-      try {
-        await permanentlyDeleteDatabaseRemote(databaseId, targetWorkspaceId);
-        markPermanentlyDeletedEntity("database", databaseId, targetWorkspaceId);
-        purgeDatabaseHistory(databaseId);
-        useDatabaseStore.setState((s) => {
-          if (!s.databases[databaseId]) return s;
-          const next = { ...s.databases };
-          delete next[databaseId];
-          return { ...s, databases: next };
-        });
-        setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
-      } catch (error) {
-        console.error(error);
-      } finally {
-        setPurgingIds((prev) => {
-          const next = { ...prev };
-          delete next[databaseId];
-          return next;
-        });
+    if (ids.length === 0) return;
+
+    setBulkPurgeProgress({ done: 0, total: ids.length });
+
+    // 청크 단위 병렬 삭제 — 실시간 진행률 + 서버 부하 분산
+    const CONCURRENCY = 4;
+    let deletedCount = 0;
+    let failedCount = 0;
+    let cursorIdx = 0;
+    const next = () => (cursorIdx < ids.length ? ids[cursorIdx++] : null);
+    const worker = async () => {
+      while (true) {
+        const databaseId = next();
+        if (!databaseId) return;
+        const targetWorkspaceId =
+          visibleDeleted.find((d) => d.databaseId === databaseId)?.workspaceId
+          ?? currentWorkspaceId;
+        if (!targetWorkspaceId) {
+          failedCount += 1;
+          setBulkPurgeProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
+          continue;
+        }
+        setPurgingIds((prev) => ({ ...prev, [databaseId]: true }));
+        try {
+          await permanentlyDeleteDatabaseRemote(databaseId, targetWorkspaceId);
+          markPermanentlyDeletedEntity("database", databaseId, targetWorkspaceId);
+          purgeDatabaseHistory(databaseId);
+          useDatabaseStore.setState((s) => {
+            if (!s.databases[databaseId]) return s;
+            const nextDbs = { ...s.databases };
+            delete nextDbs[databaseId];
+            return { ...s, databases: nextDbs };
+          });
+          setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
+          deletedCount += 1;
+        } catch (error) {
+          console.error("[DB관리] 영구삭제 실패", databaseId, error);
+          failedCount += 1;
+        } finally {
+          setPurgingIds((prev) => {
+            const nextPurging = { ...prev };
+            delete nextPurging[databaseId];
+            return nextPurging;
+          });
+          setBulkPurgeProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
+        }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
     setSelectedDeletedIds(new Set());
-    showToast(`${ids.length}개 데이터베이스를 영구삭제했습니다.`, { kind: "success" });
+    setBulkPurgeProgress(null);
+
+    if (failedCount > 0) {
+      showToast(
+        `${deletedCount}개 영구삭제 / ${failedCount}개 실패`,
+        { kind: failedCount === ids.length ? "error" : "info" },
+      );
+    } else {
+      showToast(`${deletedCount}개 데이터베이스를 영구삭제했습니다.`, { kind: "success" });
+    }
   };
 
   const openDatabase = (databaseId: string, title: string) => {
@@ -328,9 +362,12 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                   <button
                     type="button"
                     onClick={() => setPendingBulkPurge(true)}
-                    className="rounded border border-red-300 px-2.5 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+                    disabled={bulkPurgeProgress != null}
+                    className="rounded border border-red-300 px-2.5 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
                   >
-                    선택 영구삭제 ({selectedDeletedIds.size})
+                    {bulkPurgeProgress
+                      ? `${bulkPurgeProgress.done}/${bulkPurgeProgress.total}개 삭제중`
+                      : `선택 영구삭제 (${selectedDeletedIds.size})`}
                   </button>
                 )}
               </div>
