@@ -710,6 +710,11 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
         console.log(`[IMPORT-DBG] ◀ 1단계 완료${memMB()}`);
 
         // 페이지 ID 등록 이후 실제 HTML 본문과 에셋을 채운다.
+        const totalHtmlFiles = allPaths.filter((p) => p.toLowerCase().endsWith(".html")).length;
+        const matchedRowCount = rowPlans.filter((r) => r.htmlRelPath).length;
+        console.log(
+          `[CSV가져오기] 본문 매칭 결과: 행 ${rowPlans.length}개, HTML 파일 ${totalHtmlFiles}개, 매칭 ${matchedRowCount}개 (나머지는 빈 페이지)`,
+        );
         console.log(`[IMPORT-DBG] ▶ 2단계: HTML 본문 채우기 루프 시작${memMB()}`);
         await runConcurrent(rowPlans, 3, async (rowPlan) => {
           const { rowIdx, rowTitle, htmlRelPath } = rowPlan;
@@ -727,10 +732,12 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           });
           await yieldToPaint();
 
-          // 매칭 HTML 파일 처리
+          // 매칭 HTML 파일 처리 — htmlRelPath 없으면 Notion 에서 빈 페이지로 export 된 경우.
+          // (Notion 은 본문이 비어있는 행에 대해 HTML 파일을 생성하지 않는다.)
+          // 행 자체는 1단계에서 이미 생성됐고 본문만 비어있는 것이므로 실패가 아니다.
           if (!htmlRelPath) {
-            console.warn(`[CSV가져오기] 행 HTML 매칭 실패: "${rowTitle}"`);
-            totalFailed++;
+            // 디버깅 편의를 위해 매칭 후보가 있었는지 한 번만 알려줌 (totalFailed 카운트는 하지 않음)
+            console.debug(`[CSV가져오기] 본문 HTML 없음(빈 페이지): "${rowTitle}"`);
           } else {
             const htmlHandle = fileMap.get(htmlRelPath);
             if (htmlHandle) {

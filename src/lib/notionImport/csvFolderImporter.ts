@@ -93,15 +93,25 @@ export function findHtmlForRow(rowTitle: string, allPaths: string[]): string | n
   });
   if (decoded) return decoded;
 
-  // 3차: 영숫자만 비교 (특수문자 차이 무시)
+  // 3차: 영숫자만 비교 (특수문자 차이 무시 — 슬래시/언더스코어/하이픈 등)
   const alnum = (s: string) => s.replace(/[^a-z0-9가-힣]/gi, "").toLowerCase();
   const needleAlnum = alnum(needle);
   if (needleAlnum.length >= 3) {
-    const fuzzy = htmlPaths.find((p) => {
-      const base = p.replace(/\s+[0-9a-f]{32}\.html$/i, "").split("/").pop()?.replace(/\.html$/i, "") ?? "";
-      return alnum(base) === needleAlnum;
-    });
+    // 파일 경로의 leaf 만 비교(URL 인코딩 포함, hex suffix 제거)
+    const candidate = (p: string) => {
+      const leafRaw = p.split("/").pop() ?? "";
+      let leaf = leafRaw.replace(/\.html$/i, "");
+      try { leaf = decodeURIComponent(leaf); } catch { /* noop */ }
+      return leaf.replace(/\s+[0-9a-f]{32}$/i, "");
+    };
+    const fuzzy = htmlPaths.find((p) => alnum(candidate(p)) === needleAlnum);
     if (fuzzy) return fuzzy;
+    // 4차: 부분 포함 — 양방향 substring (제목이 줄여졌거나 prefix 가 잘린 경우)
+    const partial = htmlPaths.find((p) => {
+      const baseAlnum = alnum(candidate(p));
+      return baseAlnum.length >= 3 && (baseAlnum.includes(needleAlnum) || needleAlnum.includes(baseAlnum));
+    });
+    if (partial) return partial;
   }
 
   return null;
