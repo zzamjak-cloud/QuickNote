@@ -343,6 +343,7 @@ export function AdminOrganizationsTab() {
                   leaderLabel={formatLeaderNames(org.leaderMemberIds ?? [])}
                   hasLeaders={(org.leaderMemberIds?.length ?? 0) > 0}
                   onClick={() => onOpenAssignModal(org.organizationId)}
+                  ariaLabel={`${org.name} 구성원 관리`}
                 />
               </li>
             ))

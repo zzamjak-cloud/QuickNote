@@ -340,6 +340,7 @@ export function AdminTeamsTab() {
                   leaderLabel={formatLeaderNames(team.leaderMemberIds ?? [])}
                   hasLeaders={(team.leaderMemberIds?.length ?? 0) > 0}
                   onClick={() => onOpenAssignModal(team.teamId)}
+                  ariaLabel={`${team.name} 구성원 관리`}
                 />
               </li>
             ))

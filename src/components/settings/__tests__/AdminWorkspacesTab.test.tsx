@@ -4,6 +4,7 @@ import { AdminWorkspacesTab } from "../AdminWorkspacesTab";
 import { useWorkspaceStore } from "../../../store/workspaceStore";
 import { useMemberStore } from "../../../store/memberStore";
 import { useTeamStore } from "../../../store/teamStore";
+import { useWorkspaceAccessCacheStore } from "../../../store/workspaceAccessCacheStore";
 
 const createWorkspaceApiMock = vi.fn();
 const updateWorkspaceApiMock = vi.fn();
@@ -29,6 +30,8 @@ describe("AdminWorkspacesTab", () => {
     deleteWorkspaceApiMock.mockReset();
     getWorkspaceApiMock.mockReset();
     archiveWorkspaceApiMock.mockReset();
+    // 워크스페이스 접근 캐시는 모듈 상태이므로 테스트 간 누수 방지를 위해 초기화
+    useWorkspaceAccessCacheStore.setState({ cache: {} });
     useWorkspaceStore.setState({
       currentWorkspaceId: "ws-1",
       workspaces: [

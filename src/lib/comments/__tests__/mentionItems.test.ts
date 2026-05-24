@@ -5,13 +5,21 @@ import { useMemberStore, type Member } from "../../../store/memberStore";
 import { usePageStore } from "../../../store/pageStore";
 import { loadMergedMentionItems } from "../mentionItems";
 
-vi.mock("../../../lib/storage/index", () => ({
-  zustandStorage: {
+vi.mock("../../../lib/storage/index", () => {
+  const noopStorage = {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
     removeItem: vi.fn(),
-  },
-}));
+  };
+  return {
+    zustandStorage: noopStorage,
+    deferredPageStorage: noopStorage,
+    deferredDatabaseStorage: noopStorage,
+    makeDeferredStorage: () => noopStorage,
+    pauseStorageWrites: vi.fn(),
+    resumeStorageWrites: vi.fn(),
+  };
+});
 
 vi.mock("../../sync/memberApi", () => ({
   searchMembersForMentionApi: vi.fn(async () => []),

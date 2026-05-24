@@ -197,6 +197,7 @@ export function AdminWorkspacesTab() {
                     hasLeaders={false}
                     leaderLabel=""
                     onClick={() => openEditModal(ws.workspaceId)}
+                    ariaLabel={`${ws.name} 설정 편집`}
                   />
                 </li>
               );

@@ -5,6 +5,8 @@ import { uploadImage } from "../images/upload";
 import type { NotionImportedAsset, NotionZipPreview } from "./zipParser";
 
 const IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
+// 대형 GIF/파일은 메모리 폭증·브라우저 FFmpeg 변환 시도를 피하기 위해 사전 차단 (실패 첨부로 처리)
+const NOTION_ASSET_MAX_BYTES = 50 * 1024 * 1024;
 
 const IMAGE_NODE_MIME = new Set([
   "image/png",
@@ -98,6 +100,18 @@ export function collectNotionAssetRefsFromHtml(
 }
 
 export async function uploadNotionAsset(asset: NotionImportedAsset): Promise<UploadedNotionAsset> {
+  // 사이즈 사전 검사 — 임계치 초과 시 파일 읽기 자체를 생략 (메모리 절약 + ffmpeg 변환 회피)
+  if (asset.size > NOTION_ASSET_MAX_BYTES) {
+    return {
+      kind: "failed",
+      path: asset.path,
+      name: asset.name,
+      mimeType: asset.mimeType,
+      size: asset.size,
+      error: `용량이 너무 큼 (${asset.size} > ${NOTION_ASSET_MAX_BYTES} bytes)`,
+    };
+  }
+
   const file = await asset.readAsFile();
 
   // GIF — FFmpeg 변환 없이 원본 그대로 fileBlock 으로 업로드 (애니메이션 보존, image/* 인라인 미리보기)
