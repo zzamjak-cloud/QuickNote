@@ -10,6 +10,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
 import { permanentlyDeleteDatabaseRemote } from "../../lib/sync/trashApi";
 import { markPermanentlyDeletedEntity } from "../../lib/sync/localDeleteGuards";
+import { runChunkedPermanentDelete } from "../../lib/sync/chunkedPermanentDelete";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 
 type Props = {
@@ -119,62 +120,57 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     const ids = Array.from(selectedDeletedIds);
     if (ids.length === 0) return;
 
-    setBulkPurgeProgress({ done: 0, total: ids.length });
-
-    // 청크 단위 병렬 삭제 — 실시간 진행률 + 서버 부하 분산
-    const CONCURRENCY = 4;
-    let deletedCount = 0;
-    let failedCount = 0;
-    let cursorIdx = 0;
-    const next = () => (cursorIdx < ids.length ? ids[cursorIdx++] : null);
-    const worker = async () => {
-      while (true) {
-        const databaseId = next();
-        if (!databaseId) return;
-        const targetWorkspaceId =
+    // 각 DB 의 워크스페이스 매핑 — visibleDeleted 에 명시된 게 우선, fallback 으로 현재 WS.
+    // workspaceId 가 끝까지 없는 항목은 사전 필터링하여 실패 카운트에서 제외.
+    const targets = ids
+      .map((databaseId) => {
+        const workspaceId =
           visibleDeleted.find((d) => d.databaseId === databaseId)?.workspaceId
-          ?? currentWorkspaceId;
-        if (!targetWorkspaceId) {
-          failedCount += 1;
-          setBulkPurgeProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
-          continue;
-        }
-        setPurgingIds((prev) => ({ ...prev, [databaseId]: true }));
-        try {
-          await permanentlyDeleteDatabaseRemote(databaseId, targetWorkspaceId);
-          markPermanentlyDeletedEntity("database", databaseId, targetWorkspaceId);
-          purgeDatabaseHistory(databaseId);
-          useDatabaseStore.setState((s) => {
-            if (!s.databases[databaseId]) return s;
-            const nextDbs = { ...s.databases };
-            delete nextDbs[databaseId];
-            return { ...s, databases: nextDbs };
-          });
-          setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
-          deletedCount += 1;
-        } catch (error) {
-          console.error("[DB관리] 영구삭제 실패", databaseId, error);
-          failedCount += 1;
-        } finally {
-          setPurgingIds((prev) => {
-            const nextPurging = { ...prev };
-            delete nextPurging[databaseId];
-            return nextPurging;
-          });
-          setBulkPurgeProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+          ?? currentWorkspaceId
+          ?? null;
+        return workspaceId ? { id: databaseId, workspaceId } : null;
+      })
+      .filter((t): t is { id: string; workspaceId: string } => t !== null);
+    if (targets.length === 0) return;
+
+    setBulkPurgeProgress({ done: 0, total: targets.length });
+    setPurgingIds(Object.fromEntries(targets.map(({ id }) => [id, true])));
+
+    const { deletedCount, failedCount } = await runChunkedPermanentDelete(targets, {
+      deleteRemote: permanentlyDeleteDatabaseRemote,
+      onItemSuccess: ({ id, workspaceId }) => {
+        markPermanentlyDeletedEntity("database", id, workspaceId);
+        purgeDatabaseHistory(id);
+        useDatabaseStore.setState((s) => {
+          if (!s.databases[id]) return s;
+          const nextDbs = { ...s.databases };
+          delete nextDbs[id];
+          return { ...s, databases: nextDbs };
+        });
+        setHiddenDeletedDbIds((prev) => new Set(prev).add(id));
+        setPurgingIds((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      },
+      onItemFailure: ({ id }) => {
+        setPurgingIds((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      },
+      onProgress: (done, total) => setBulkPurgeProgress({ done, total }),
+    });
 
     setSelectedDeletedIds(new Set());
     setBulkPurgeProgress(null);
 
     if (failedCount > 0) {
-      showToast(
-        `${deletedCount}개 영구삭제 / ${failedCount}개 실패`,
-        { kind: failedCount === ids.length ? "error" : "info" },
-      );
+      showToast(`${deletedCount}개 영구삭제 / ${failedCount}개 실패`, {
+        kind: failedCount === targets.length ? "error" : "info",
+      });
     } else {
       showToast(`${deletedCount}개 데이터베이스를 영구삭제했습니다.`, { kind: "success" });
     }

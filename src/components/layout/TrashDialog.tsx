@@ -6,6 +6,7 @@ import {
   permanentlyDeletePageRemote,
   restorePageRemote,
 } from "../../lib/sync/trashApi";
+import { runChunkedPermanentDelete } from "../../lib/sync/chunkedPermanentDelete";
 import {
   clearLocalDeleteGuard,
   markPermanentlyDeletedEntity,
@@ -111,42 +112,29 @@ export function TrashDialog({ open, onClose }: Props) {
   const emptyTrash = async () => {
     if (!currentWorkspaceId || emptying) return;
     const wsId = currentWorkspaceId;
-    const loadedIds = items.map((item) => item.id).filter(Boolean);
-    if (loadedIds.length === 0) {
+    const targets = items
+      .map((item) => item.id)
+      .filter(Boolean)
+      .map((id) => ({ id, workspaceId: wsId }));
+    if (targets.length === 0) {
       setConfirmEmptyOpen(false);
       return;
     }
     setEmptying(true);
     setConfirmEmptyOpen(false);
-    setEmptyProgress({ done: 0, total: loadedIds.length });
+    setEmptyProgress({ done: 0, total: targets.length });
 
-    // 청크 단위 병렬 삭제 — 서버 부하 분산 + 빠른 진행률 업데이트
-    const CONCURRENCY = 4;
     const successIds: string[] = [];
-    let deletedCount = 0;
-    let failedCount = 0;
-    let cursorIdx = 0;
-    const next = () => (cursorIdx < loadedIds.length ? loadedIds[cursorIdx++] : null);
-    const worker = async () => {
-      while (true) {
-        const id = next();
-        if (!id) return;
-        try {
-          await permanentlyDeletePageRemote(id, wsId);
-          markPermanentlyDeletedEntity("page", id, wsId);
-          successIds.push(id);
-          deletedCount += 1;
-        } catch (e) {
-          console.error("[휴지통] 영구삭제 실패", id, e);
-          failedCount += 1;
-        } finally {
-          setEmptyProgress((p) => (p ? { done: p.done + 1, total: p.total } : p));
-          // 성공한 id 는 즉시 리스트에서 제거 — 사용자가 실시간으로 줄어드는 걸 확인
-          setItems((prev) => prev.filter((x) => x.id !== id));
-        }
-      }
-    };
-    await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+    const { deletedCount, failedCount } = await runChunkedPermanentDelete(targets, {
+      deleteRemote: permanentlyDeletePageRemote,
+      onItemSuccess: ({ id, workspaceId }) => {
+        markPermanentlyDeletedEntity("page", id, workspaceId);
+        successIds.push(id);
+        // 성공 즉시 리스트에서 제거 — 사용자가 실시간으로 줄어드는 걸 확인
+        setItems((prev) => prev.filter((x) => x.id !== id));
+      },
+      onProgress: (done, total) => setEmptyProgress({ done, total }),
+    });
 
     // 좀비 로컬 캐시 정리 (성공한 id 만)
     if (successIds.length > 0) {
@@ -169,10 +157,9 @@ export function TrashDialog({ open, onClose }: Props) {
     setEmptyProgress(null);
 
     if (failedCount > 0) {
-      showToast(
-        `${deletedCount}개 영구삭제 / ${failedCount}개 실패`,
-        { kind: failedCount === loadedIds.length ? "error" : "info" },
-      );
+      showToast(`${deletedCount}개 영구삭제 / ${failedCount}개 실패`, {
+        kind: failedCount === targets.length ? "error" : "info",
+      });
     } else {
       showToast(`${deletedCount}개 영구삭제됨`, { kind: "success" });
     }
