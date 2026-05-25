@@ -3,7 +3,7 @@ import { uploadNotionAsset } from "../../lib/notionImport/assetUpload";
 import type { NotionImportedAsset } from "../../lib/notionImport/zipParser";
 
 describe("uploadNotionAsset", () => {
-  it("대형 GIF는 브라우저 ffmpeg 변환을 시도하지 않고 실패 첨부로 남긴다", async () => {
+  it("대형 자산은 파일 읽기 전에 실패로 남긴다", async () => {
     const readAsFile = vi.fn(async () => new File(["gif"], "large.gif", { type: "image/gif" }));
     const asset: NotionImportedAsset = {
       path: "media/large.gif",

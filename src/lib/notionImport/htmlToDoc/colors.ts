@@ -36,6 +36,45 @@ export const HIGHLIGHT_BG_COLOR_MAP: Record<string, string> = {
   "highlight-red_background": "#fca5a5",
 };
 
+// 노션의 블록 단위 배경색(클래스) → 퀵노트 BlockBg 프리셋 토큰 매핑.
+// 노션의 `block-color-*_background` (블록 전체 색)과 `highlight-*_background` (인라인 형광펜)
+// 가 동일 색계열을 공유하므로 같은 토큰으로 정렬한다. 퀵노트 프리셋에 없는 색은
+// 가장 가까운 색으로 근사한다 (default → gray).
+export const BLOCK_BG_TOKEN_MAP: Record<string, string> = {
+  "block-color-default_background": "gray",
+  "block-color-gray_background": "gray",
+  "block-color-brown_background": "brown",
+  "block-color-orange_background": "orange",
+  "block-color-yellow_background": "yellow",
+  "block-color-green_background": "green",
+  "block-color-blue_background": "blue",
+  "block-color-purple_background": "purple",
+  "block-color-pink_background": "pink",
+  "block-color-red_background": "red",
+  "block-color-teal_background": "teal",
+  "highlight-default_background": "gray",
+  "highlight-gray_background": "gray",
+  "highlight-brown_background": "brown",
+  "highlight-orange_background": "orange",
+  "highlight-yellow_background": "yellow",
+  "highlight-green_background": "green",
+  "highlight-blue_background": "blue",
+  "highlight-purple_background": "purple",
+  "highlight-pink_background": "pink",
+  "highlight-red_background": "red",
+  "highlight-teal_background": "teal",
+};
+
+export function parseBlockBgFromClass(className: string): string | null {
+  if (!className) return null;
+  const names = className.split(/\s+/).filter(Boolean);
+  for (const name of names) {
+    const tok = BLOCK_BG_TOKEN_MAP[name];
+    if (tok) return tok;
+  }
+  return null;
+}
+
 export function parseColorFromStyle(styleValue: string | null): string | null {
   if (!styleValue) return null;
   const m = styleValue.match(/color\s*:\s*([^;]+)/i);

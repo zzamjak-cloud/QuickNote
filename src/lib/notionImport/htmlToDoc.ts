@@ -9,6 +9,7 @@ import {
   HIGHLIGHT_BG_COLOR_MAP,
   parseColorFromStyle,
   parseColorFromClass,
+  parseBlockBgFromClass,
 } from "./htmlToDoc/colors";
 import {
   createDeferredMentionToken,
@@ -119,6 +120,8 @@ function listNodeFromElement(el: HTMLElement, blockColor: string | null, blockTo
       paragraphInlines.push(...inlineFromNode(child, blockToken ? null : blockColor, []));
     }
 
+    // 노션은 항목별 배경색을 <li> 클래스로 내보낸다. 퀵노트 listItem 도 backgroundColor 속성을 지원.
+    const liBgToken = parseBlockBgFromClass(li.className);
     const listItemContent: JSONContent[] = [{
       type: "paragraph",
       content: paragraphInlines.length > 0 ? paragraphInlines : [],
@@ -126,6 +129,7 @@ function listNodeFromElement(el: HTMLElement, blockColor: string | null, blockTo
     listItemContent.push(...nestedBlocks);
     items.push({
       type: "listItem",
+      attrs: liBgToken ? { backgroundColor: liBgToken } : undefined,
       content: listItemContent,
     });
   }
@@ -432,9 +436,13 @@ function paragraphFromElement(
 ): JSONContent {
   const inheritedColor = blockToken ? null : blockColor;
   const content = inlineFromNode(el, inheritedColor, [], options);
+  const bgToken = parseBlockBgFromClass(el.className);
+  const attrs: Record<string, unknown> = {};
+  if (blockToken) attrs.blockTextColor = blockToken;
+  if (bgToken) attrs.backgroundColor = bgToken;
   return {
     type: "paragraph",
-    attrs: blockToken ? { blockTextColor: blockToken } : undefined,
+    attrs: Object.keys(attrs).length > 0 ? attrs : undefined,
     content: content.length > 0 ? content : [],
   };
 }
@@ -448,9 +456,13 @@ function headingFromElement(
 ): JSONContent {
   const inheritedColor = blockToken ? null : blockColor;
   const content = inlineFromNode(el, inheritedColor, [], options);
+  const bgToken = parseBlockBgFromClass(el.className);
+  const attrs: Record<string, unknown> = { level };
+  if (blockToken) attrs.blockTextColor = blockToken;
+  if (bgToken) attrs.backgroundColor = bgToken;
   return {
     type: "heading",
-    attrs: blockToken ? { level, blockTextColor: blockToken } : { level },
+    attrs,
     content: content.length > 0 ? content : [],
   };
 }
@@ -821,10 +833,16 @@ function inlineFromNode(node: Node, inheritedColor: string | null, inheritedMark
       nextMarks = mergeMarks(nextMarks, [{ type: "link", attrs: { href: normalizedHref, target: "_blank", rel: "noopener noreferrer nofollow" } }]);
     }
   }
-  for (const cls of node.className.split(/\s+/).filter(Boolean)) {
-    const bg = HIGHLIGHT_BG_COLOR_MAP[cls];
-    if (!bg) continue;
-    nextMarks = mergeMarks(nextMarks, [{ type: "highlight", attrs: { color: bg } }]);
+  // 블록 단위 요소(p/h*/li/blockquote 등) 의 배경색은 paragraphFromElement / headingFromElement /
+  // listNodeFromElement / blockquoteFromElement 에서 블록 속성(backgroundColor) 으로 변환된다.
+  // 여기서는 인라인 형광펜(span 등) 에만 highlight 마크를 적용해 중복을 막는다.
+  const isBlockLevelTag = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol", "blockquote", "details", "summary", "div", "section", "article"].includes(tag);
+  if (!isBlockLevelTag) {
+    for (const cls of node.className.split(/\s+/).filter(Boolean)) {
+      const bg = HIGHLIGHT_BG_COLOR_MAP[cls];
+      if (!bg) continue;
+      nextMarks = mergeMarks(nextMarks, [{ type: "highlight", attrs: { color: bg } }]);
+    }
   }
 
   const out: JSONContent[] = [];
@@ -901,8 +919,10 @@ function blockquoteFromElement(
   } else {
     inner.push(paragraphFromElement(el, blockColor, blockToken, options));
   }
+  const bgToken = parseBlockBgFromClass(el.className);
   return {
     type: "blockquote",
+    attrs: bgToken ? { backgroundColor: bgToken } : undefined,
     content: inner.length > 0 ? inner : [{ type: "paragraph", content: [] }],
   };
 }

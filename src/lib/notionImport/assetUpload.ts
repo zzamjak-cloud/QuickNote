@@ -100,7 +100,7 @@ export function collectNotionAssetRefsFromHtml(
 }
 
 export async function uploadNotionAsset(asset: NotionImportedAsset): Promise<UploadedNotionAsset> {
-  // 사이즈 사전 검사 — 임계치 초과 시 파일 읽기 자체를 생략 (메모리 절약 + ffmpeg 변환 회피)
+  // 사이즈 사전 검사 — 임계치 초과 시 파일 읽기 자체를 생략 (메모리 절약).
   if (asset.size > NOTION_ASSET_MAX_BYTES) {
     return {
       kind: "failed",
@@ -136,9 +136,9 @@ export async function uploadNotionAsset(asset: NotionImportedAsset): Promise<Upl
     };
   }
 
-  // GIF — FFmpeg 변환 없이 원본 그대로 fileBlock 으로 업로드 (애니메이션 보존, image/* 인라인 미리보기)
+  // GIF — 원본 그대로 fileBlock 으로 업로드 (애니메이션 보존).
   if (asset.mimeType === "image/gif") {
-    const uploaded = await uploadFile(file, { alreadyPrepared: true });
+    const uploaded = await uploadFile(file);
     return {
       kind: "file",
       path: asset.path,
@@ -164,9 +164,8 @@ export async function uploadNotionAsset(asset: NotionImportedAsset): Promise<Upl
     }
   }
 
-  // Notion 이 내보낸 비디오/파일은 이미 인코딩된 상태이므로 FFmpeg 재트랜스코드를 건너뛴다.
-  // alreadyPrepared: true → uploadFile 에서 prepareVideoFileForUpload 미호출
-  const uploaded = await uploadFile(file, { alreadyPrepared: true });
+  // 동영상·기타 파일 — 원본 그대로 업로드.
+  const uploaded = await uploadFile(file);
   return {
     kind: "file",
     path: asset.path,

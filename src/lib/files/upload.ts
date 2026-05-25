@@ -7,7 +7,6 @@ import {
   CONFIRM_IMAGE,
 } from "../sync/graphql/operations";
 import { encodeFileRef } from "./scheme";
-import { isGifFile, prepareGifFileBlockForUpload, prepareVideoFileForUpload } from "./videoCompress";
 
 const MAX_BYTES = 100 * 1024 * 1024;
 
@@ -29,12 +28,10 @@ export type UploadedFile = {
   name: string;
 };
 
-export async function uploadFile(file: File, opts?: { alreadyPrepared?: boolean }): Promise<UploadedFile> {
-  const fileToUpload = opts?.alreadyPrepared
-    ? file
-    : isGifFile(file)
-      ? await prepareGifFileBlockForUpload(file)
-      : await prepareVideoFileForUpload(file);
+// 자동 변환/압축은 사용성 문제로 제거됨 — 파일은 첨부된 그대로 업로드한다.
+// 두 번째 인자(opts) 는 backward-compat 용 noop 으로만 유지.
+export async function uploadFile(file: File, _opts?: { alreadyPrepared?: boolean }): Promise<UploadedFile> {
+  const fileToUpload = file;
   if (fileToUpload.size <= 0) throw new Error("empty file");
   if (fileToUpload.size > MAX_BYTES) {
     throw new Error(`too large: ${(fileToUpload.size / 1024 / 1024).toFixed(1)} MB > 100 MB`);
