@@ -75,13 +75,19 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
     databases.map((db) => findFullPagePageIdForDatabase(db.id)).filter(Boolean) as string[],
   );
 
-  const allPages = Object.values(pages).filter(
+  // 기본 목록은 DB 행 페이지를 제외해 최근 일반 페이지가 묻히지 않게 한다.
+  // 단, 검색어가 있으면 DB 행 페이지(p.databaseId 가 있는 페이지)도 결과에 포함해
+  // 사용자가 DB 안의 페이지를 찾을 수 있게 한다.
+  const browsePages = Object.values(pages).filter(
     (p) => !dbPageIds.has(p.id) && !p.databaseId,
+  );
+  const searchablePages = Object.values(pages).filter(
+    (p) => !dbPageIds.has(p.id),
   );
 
   const filteredPages = q
-    ? allPages.filter((p) => koreanIncludes(p.title.toLowerCase(), q))
-    : allPages
+    ? searchablePages.filter((p) => koreanIncludes(p.title.toLowerCase(), q))
+    : browsePages
         .slice()
         .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
         .slice(0, 10);
