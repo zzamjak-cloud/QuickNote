@@ -44,8 +44,18 @@ async function filterLivePageUsages(
   usages: AssetUsageRow[],
 ): Promise<AssetUsageRow[]> {
   if (!pagesTable || usages.length === 0) return usages;
-  const pageIds = Array.from(new Set(usages.map((u) => u.pageId).filter((id): id is string => Boolean(id))));
-  if (pageIds.length === 0) return [];
+  // 커스텀 아이콘 라이브러리 등 페이지에 종속되지 않은 사용 row 는 그대로 보존한다.
+  const passthroughBlockTypes = new Set(["customIcon"]);
+  const passthrough: AssetUsageRow[] = [];
+  const pageBound: AssetUsageRow[] = [];
+  for (const u of usages) {
+    const bt = typeof u.blockType === "string" ? u.blockType : null;
+    if (bt && passthroughBlockTypes.has(bt)) passthrough.push(u);
+    else pageBound.push(u);
+  }
+  if (pageBound.length === 0) return passthrough;
+  const pageIds = Array.from(new Set(pageBound.map((u) => u.pageId).filter((id): id is string => Boolean(id))));
+  if (pageIds.length === 0) return passthrough;
 
   const livePageIds = new Set<string>();
   for (let i = 0; i < pageIds.length; i += 100) {
@@ -67,7 +77,8 @@ async function filterLivePageUsages(
     }
   }
 
-  return usages.filter((u) => typeof u.pageId === "string" && livePageIds.has(u.pageId));
+  const liveBound = pageBound.filter((u) => typeof u.pageId === "string" && livePageIds.has(u.pageId));
+  return [...liveBound, ...passthrough];
 }
 
 /** 페이지 doc(JSON 문자열 또는 객체) 내부의 모든 자산 참조를 평탄화해 수집. */
@@ -77,6 +88,37 @@ export function extractAssetRefs(docJson: unknown): AssetRef[] {
   if (!root || typeof root !== "object") return [];
   const out: AssetRef[] = [];
   walk(root, out, null);
+  return out;
+}
+
+/**
+ * 페이지 dbCells (Record<columnId, CellValue>) 의 모든 자산 참조를 수집.
+ * FileCellItem 형태 ({fileId, src: "quicknote-(image|file)://...", name, mime, size}) 의 src 를 본다.
+ * dbCells 는 page.doc 트리에 포함되지 않으므로 extractAssetRefs 로는 탐지되지 않는다.
+ * blockId 는 `db:{columnId}:{fileId}` 형태로 인덱싱해 동일 행 내 셀별 ref 가 중복 dedupe 되지 않도록 한다.
+ */
+export function extractDbCellAssetRefs(dbCells: unknown): AssetRef[] {
+  if (!dbCells || typeof dbCells !== "object") return [];
+  const root = typeof dbCells === "string" ? safeJsonParse(dbCells as unknown as string) : dbCells;
+  if (!root || typeof root !== "object" || Array.isArray(root)) return [];
+  const out: AssetRef[] = [];
+  for (const [colId, value] of Object.entries(root as Record<string, unknown>)) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      if (!item || typeof item !== "object") continue;
+      const rec = item as Record<string, unknown>;
+      const src = typeof rec.src === "string" ? rec.src : null;
+      if (!src) continue;
+      const assetId = assetIdFromRef(src);
+      if (!assetId) continue;
+      const fileId = typeof rec.fileId === "string" ? rec.fileId : "";
+      out.push({
+        assetId,
+        blockId: `db:${colId}:${fileId}`,
+        blockType: "dbCellFile",
+      });
+    }
+  }
   return out;
 }
 
@@ -153,15 +195,18 @@ export async function syncPageAssetUsage(args: {
   pageDoc: unknown;
   pageIcon?: string | null;
   pageCoverImage?: string | null;
+  /** DB 행 페이지의 셀 값 — 파일 컬럼(FileCellItem[]) 의 src 까지 인덱싱한다. */
+  pageDbCells?: unknown;
 }): Promise<void> {
   const tableName = args.tables.AssetUsage;
   if (!tableName) return; // 테이블 미설정 환경에서는 silently skip (점진적 배포 대비)
   // 1) 기존 rows 삭제
   await deletePageAssetUsageRows(args.doc, tableName, args.pageId);
   // 2) 새 rows 추가 (자산 ref 가 있을 때만)
-  //    doc 본문 + page.icon + page.coverImage 까지 모두 인덱싱해 커스텀 아이콘이
-  //    "사용 안 됨" 으로 잘못 분류되는 회귀를 방지.
+  //    doc 본문 + page.icon + page.coverImage + dbCells 파일 컬럼까지 모두 인덱싱해
+  //    DB 행의 파일/이미지/영상 첨부와 커스텀 아이콘이 "사용 안 됨" 으로 잘못 분류되는 회귀를 방지.
   const refs = extractAssetRefs(args.pageDoc);
+  for (const r of extractDbCellAssetRefs(args.pageDbCells)) refs.push(r);
   const iconAssetId = extractAssetIdFromString(args.pageIcon);
   if (iconAssetId) refs.push({ assetId: iconAssetId, blockType: "pageIcon" });
   const coverAssetId = extractAssetIdFromString(args.pageCoverImage);
@@ -648,8 +693,10 @@ export async function migrateAssetUsage(args: {
       const docJson = it.doc as string | undefined;
       const iconStr = (it.icon as string | undefined) ?? null;
       const coverStr = (it.coverImage as string | undefined) ?? null;
+      const dbCells = it.dbCells;
       if (!pageId || !workspaceId) continue;
       const refs = docJson ? extractAssetRefs(docJson) : [];
+      for (const r of extractDbCellAssetRefs(dbCells)) refs.push(r);
       const iconAssetId = extractAssetIdFromString(iconStr);
       if (iconAssetId) refs.push({ assetId: iconAssetId, blockType: "pageIcon" });
       const coverAssetId = extractAssetIdFromString(coverStr);
@@ -670,11 +717,24 @@ export async function migrateAssetUsage(args: {
         pageDoc: docJson ?? null,
         pageIcon: iconStr,
         pageCoverImage: coverStr,
+        pageDbCells: dbCells,
       });
       totalRows += ownedRefs.length;
     }
     startKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
     if (!startKey) {
+      // 페이지 스캔이 끝났으면 CustomIcons 도 한 번 재인덱싱한다.
+      // 라이브러리에만 등록되어 어떤 페이지에서도 쓰이지 않는 자산이 "미사용" 으로 잘못 분류돼 삭제되는 회귀 방지.
+      try {
+        const iconRows = await reindexCustomIconAssetUsage({
+          doc: args.doc,
+          tables: args.tables,
+          ownerId,
+        });
+        totalRows += iconRows;
+      } catch (err) {
+        console.error("[migrateAssetUsage] CustomIcons 재인덱싱 실패 (무시)", err);
+      }
       return { processedRows: totalRows, nextCursor: null, hasMore: false };
     }
     if (Date.now() >= deadline) {
@@ -685,6 +745,124 @@ export async function migrateAssetUsage(args: {
       };
     }
   }
+}
+
+// ===== CustomIcons 자산 사용 인덱싱 =====
+function customIconSk(iconId: string): string {
+  return `CUSTOM_ICON#${iconId}`;
+}
+
+/**
+ * 워크스페이스 커스텀 아이콘 라이브러리에 등록된 자산 ref 를 AssetUsage 에 기록.
+ * createCustomIcon 직후 호출.
+ * src 가 quicknote-image:// / quicknote-file:// 가 아니면 skip.
+ * 소유자 검증(ImageAssets.ownerId === caller cognitoSub) 후에만 기록한다.
+ */
+export async function syncCustomIconAssetUsage(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  ownerId: string;
+  workspaceId: string;
+  iconId: string;
+  iconLabel?: string | null;
+  src: string;
+}): Promise<void> {
+  const tableName = args.tables.AssetUsage;
+  if (!tableName) return;
+  const assetId = extractAssetIdFromString(args.src);
+  if (!assetId) return; // 외부 URL / data URL 은 인덱싱 대상 아님
+  const owned = await isAssetOwnedBy(args.doc, args.tables, assetId, args.ownerId);
+  if (!owned) return; // 다른 사용자의 자산은 본인 인덱스에 넣지 않는다
+  await args.doc.send(
+    new PutCommand({
+      TableName: tableName,
+      Item: {
+        assetId,
+        sk: customIconSk(args.iconId),
+        ownerId: args.ownerId,
+        pageId: `__customIcon__:${args.iconId}`,
+        blockId: null,
+        blockType: "customIcon",
+        workspaceId: args.workspaceId,
+        pageTitle: args.iconLabel ?? "워크스페이스 아이콘 라이브러리",
+        iconId: args.iconId,
+        updatedAt: new Date().toISOString(),
+      },
+    }),
+  );
+}
+
+/** deleteCustomIcon 직후 호출 — 해당 iconId 의 사용 row 제거. assetId 는 src 에서 추출. */
+export async function removeCustomIconAssetUsage(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  iconId: string;
+  src: string;
+}): Promise<void> {
+  const tableName = args.tables.AssetUsage;
+  if (!tableName) return;
+  const assetId = extractAssetIdFromString(args.src);
+  if (!assetId) return;
+  await args.doc.send(
+    new DeleteCommand({
+      TableName: tableName,
+      Key: { assetId, sk: customIconSk(args.iconId) },
+    }),
+  );
+}
+
+/**
+ * CustomIcons 테이블 전체를 스캔해 caller 소유 자산을 가리키는 src 를 AssetUsage 에 재기록.
+ * migrateAssetUsage 의 페이지 스캔 종료 직후 호출.
+ */
+async function reindexCustomIconAssetUsage(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  ownerId: string;
+}): Promise<number> {
+  const iconsTable = args.tables.CustomIcons;
+  const usageTable = args.tables.AssetUsage;
+  if (!iconsTable || !usageTable) return 0;
+  let startKey: Record<string, unknown> | undefined = undefined;
+  let total = 0;
+  do {
+    const res = await args.doc.send(
+      new ScanCommand({
+        TableName: iconsTable,
+        ExclusiveStartKey: startKey,
+        Limit: 100,
+      }),
+    );
+    const items = (res.Items ?? []) as Array<{
+      id?: string;
+      workspaceId?: string;
+      src?: string;
+      label?: string;
+    }>;
+    for (const it of items) {
+      if (!it.id || !it.workspaceId || !it.src) continue;
+      const assetId = extractAssetIdFromString(it.src);
+      if (!assetId) continue;
+      const owned = await isAssetOwnedBy(args.doc, args.tables, assetId, args.ownerId);
+      if (!owned) continue;
+      try {
+        await syncCustomIconAssetUsage({
+          doc: args.doc,
+          tables: args.tables,
+          ownerId: args.ownerId,
+          workspaceId: it.workspaceId,
+          iconId: it.id,
+          iconLabel: it.label ?? null,
+          src: it.src,
+        });
+        total += 1;
+      } catch (err) {
+        console.error("[reindexCustomIconAssetUsage] put 실패", { iconId: it.id, err });
+      }
+    }
+    startKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (startKey);
+  return total;
 }
 
 function encodeCursor(key: Record<string, unknown>): string {

@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import type { Tables } from "./member";
 import type { Member } from "./_auth";
 import { badRequest, forbidden, notFound, requireWorkspaceAccess } from "./_auth";
+import { syncCustomIconAssetUsage, removeCustomIconAssetUsage } from "./asset";
 
 function requireTable(name: string | undefined, label: string): string {
   if (!name) throw new Error(`${label} 환경 변수 미설정`);
@@ -90,6 +91,23 @@ export async function createCustomIcon(args: {
     createdByMemberId: args.caller.memberId,
   };
   await args.doc.send(new PutCommand({ TableName: table, Item: item }));
+  // 자산 사용 인덱스에 라이브러리 등록을 기록 — 어떤 페이지에서도 쓰이지 않더라도
+  // "미사용" 으로 잘못 분류돼 일괄 삭제되는 회귀 방지. 실패는 무시(인덱스는 보조 데이터).
+  if (args.caller.cognitoSub) {
+    try {
+      await syncCustomIconAssetUsage({
+        doc: args.doc,
+        tables: args.tables,
+        ownerId: args.caller.cognitoSub,
+        workspaceId: item.workspaceId,
+        iconId: item.id,
+        iconLabel: item.label ?? null,
+        src: item.src,
+      });
+    } catch (err) {
+      console.error("[createCustomIcon] AssetUsage sync 실패 (무시)", err);
+    }
+  }
   return item;
 }
 
@@ -125,5 +143,16 @@ export async function deleteCustomIcon(args: {
       ExpressionAttributeValues: { ":w": args.workspaceId },
     }),
   );
+  // 자산 사용 인덱스에서 라이브러리 row 제거 — 자산이 어디서도 안 쓰이면 이후 정리 대상이 된다.
+  try {
+    await removeCustomIconAssetUsage({
+      doc: args.doc,
+      tables: args.tables,
+      iconId: item.id,
+      src: item.src,
+    });
+  } catch (err) {
+    console.error("[deleteCustomIcon] AssetUsage 제거 실패 (무시)", err);
+  }
   return item;
 }

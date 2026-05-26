@@ -309,7 +309,11 @@ export function NotionImportTab() {
               uploaded = await uploadNotionAsset(iconAsset);
               uploadedAssetByPath.set(iconAsset.path, uploaded);
             }
-            if (uploaded.kind === "image") {
+            // 회귀 방지: 과거에는 kind:"image" 일 때만 아이콘을 적용했다.
+            // GIF·SVG·큰 PNG 등 압축 경로를 안 타고 fileBlock 으로 업로드된 경우(kind:"file")
+            // 자산은 서버에 올라가지만 페이지 아이콘이 끝내 적용되지 않아 항상 기본 📝 로 떨어졌다.
+            // isImageLikePageIcon 은 quicknote-file:// 도 이미지로 표시하므로 둘 다 ref 로 그대로 세팅한다.
+            if ((uploaded.kind === "image" || uploaded.kind === "file") && uploaded.src) {
               setIcon(targetPageId, uploaded.src);
               return;
             }

@@ -470,6 +470,9 @@ export async function upsertPage(args: {
         pageDoc: saved.doc ?? input.doc,
         pageIcon: typeof saved.icon === "string" ? saved.icon : (typeof input.icon === "string" ? input.icon : null),
         pageCoverImage: typeof saved.coverImage === "string" ? saved.coverImage : (typeof input.coverImage === "string" ? input.coverImage : null),
+        // DB 행의 파일 컬럼(FileCellItem[]) 까지 인덱싱 — extractAssetRefs 만으로는 dbCells 가
+        // doc 트리 바깥이라 탐지되지 않아 모든 첨부가 "사용 안 됨" 으로 잘못 분류되던 버그 차단.
+        pageDbCells: saved.dbCells ?? input.dbCells,
       });
     } catch (err) {
       console.error("[upsertPage] AssetUsage sync 실패 (무시)", err);
