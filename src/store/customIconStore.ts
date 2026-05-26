@@ -1,8 +1,8 @@
-// 워크스페이스 공유 커스텀 아이콘 캐시. 페치 후 메모리 보관 + AppSync 구독으로 실시간 갱신.
+// 워크스페이스 공유 커스텀 아이콘 캐시. 메모리 전용 — persist 미사용.
+// 이유: persist 하이드레이션이 비동기라 fresh fetch 결과를 덮어쓰는 race 가능성.
+// 데이터가 작고 (보통 수십 개), 부트스트랩 시점에 fetch + AppSync 구독으로 갱신되므로 캐시 불필요.
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
-import { zustandStorage } from "../lib/storage/index";
 import type { GqlCustomIcon } from "../lib/sync/graphql/operations";
 import {
   listCustomIconsApi,
@@ -27,12 +27,10 @@ type Actions = {
   clear: () => void;
 };
 
-export const useCustomIconStore = create<State & Actions>()(
-  persist(
-    (set, get) => ({
-      byWorkspace: {},
-      lastFetchedAt: {},
-      loading: {},
+export const useCustomIconStore = create<State & Actions>()((set, get) => ({
+  byWorkspace: {},
+  lastFetchedAt: {},
+  loading: {},
 
       fetch: async (workspaceId) => {
         if (!workspaceId) return;
@@ -94,12 +92,5 @@ export const useCustomIconStore = create<State & Actions>()(
         });
       },
 
-      clear: () => set({ byWorkspace: {}, lastFetchedAt: {}, loading: {} }),
-    }),
-    {
-      name: "quicknote.customIcons.v1",
-      storage: createJSONStorage(() => zustandStorage),
-      partialize: (s) => ({ byWorkspace: s.byWorkspace, lastFetchedAt: s.lastFetchedAt }),
-    },
-  ),
-);
+  clear: () => set({ byWorkspace: {}, lastFetchedAt: {}, loading: {} }),
+}));

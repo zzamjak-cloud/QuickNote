@@ -575,6 +575,8 @@ export function IconPicker({
   const fetchCustomIcons = useCustomIconStore((s) => s.fetch);
   const addCustomIconSrv = useCustomIconStore((s) => s.add);
   const removeCustomIconSrv = useCustomIconStore((s) => s.remove);
+  // 업로드/등록 진행 상태 — 사용자에게 진행 중임을 시각적으로 알리는 용도.
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const customIcons: CustomIconPreset[] = useMemo(() => {
     if (!workspaceId) return [];
     return (customIconsByWs[workspaceId] ?? []).map((i) => ({
@@ -592,12 +594,14 @@ export function IconPicker({
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
+      // 업로드 진행 중에는 외부 클릭으로 닫히지 않게 막아 진행 표시를 유지.
+      if (uploadStatus) return;
       const target = e.target as Node;
       if (!ref.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false);
     };
     window.addEventListener("mousedown", onClick);
     return () => window.removeEventListener("mousedown", onClick);
-  }, [open]);
+  }, [open, uploadStatus]);
 
   const openPicker = () => {
     if (open) { setOpen(false); return; }
@@ -658,35 +662,45 @@ export function IconPicker({
 
   const onPickImageFile = async (file: File | undefined, savePreset = true) => {
     if (!file || !file.type.startsWith("image/")) return;
-    const ok = await insertImageFromFile(
-      file,
-      async (attrs) => {
-        if (savePreset && workspaceId) {
-          // 워크스페이스 공유 아이콘으로 등록 — 모든 멤버가 즉시 볼 수 있음.
-          try {
-            await addCustomIconSrv({
-              workspaceId,
-              src: attrs.src,
-              label: file.name || "커스텀 아이콘",
-            });
-          } catch (err) {
-            console.error("[IconPicker] addCustomIcon 실패", err);
+    setUploadStatus("이미지 처리 중…");
+    let ok = false;
+    try {
+      ok = await insertImageFromFile(
+        file,
+        async (attrs) => {
+          // 1) 페이지 아이콘을 즉시 적용해 사용자가 곧바로 결과를 확인 가능.
+          onChange(attrs.src);
+          // 2) 백그라운드로 워크스페이스 공유 등록 — 등록 자체가 실패해도 페이지 아이콘은 유지.
+          if (savePreset && workspaceId) {
+            setUploadStatus("커스텀 아이콘 등록 중…");
+            try {
+              await addCustomIconSrv({
+                workspaceId,
+                src: attrs.src,
+                label: file.name || "커스텀 아이콘",
+              });
+            } catch (err) {
+              console.error("[IconPicker] addCustomIcon 실패", err);
+              onUploadMessage?.("아이콘 등록은 실패했지만 페이지에는 적용되었습니다.");
+            }
           }
-        }
-        onChange(attrs.src);
-        setOpen(false);
-      },
-      {
-        maxBytes: MAX_ICON_BYTES,
-        onSizeExceeded: (mb) => {
-          onUploadMessage?.(`아이콘 이미지는 ${(MAX_ICON_BYTES / 1024 / 1024).toFixed(0)}MB 이하만 가능합니다 (현재 ${mb.toFixed(1)}MB).`);
+          setUploadStatus(null);
+          setOpen(false);
         },
-      },
-    );
+        {
+          maxBytes: MAX_ICON_BYTES,
+          onSizeExceeded: (mb) => {
+            onUploadMessage?.(`아이콘 이미지는 ${(MAX_ICON_BYTES / 1024 / 1024).toFixed(0)}MB 이하만 가능합니다 (현재 ${mb.toFixed(1)}MB).`);
+          },
+        },
+      );
+    } finally {
+      setUploadStatus(null);
+      if (fileRef.current) fileRef.current.value = "";
+    }
     if (!ok && file.size <= MAX_ICON_BYTES) {
       onUploadMessage?.("이미지 업로드에 실패했습니다.");
     }
-    if (fileRef.current) fileRef.current.value = "";
   };
 
   return (
@@ -730,10 +744,15 @@ export function IconPicker({
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  disabled={!!uploadStatus}
+                  className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 disabled:cursor-progress disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
-                  <LucideIcons.ImagePlus size={14} className="shrink-0 text-zinc-500" />
-                  이미지 업로드
+                  {uploadStatus ? (
+                    <LucideIcons.Loader2 size={14} className="shrink-0 animate-spin text-blue-500" />
+                  ) : (
+                    <LucideIcons.ImagePlus size={14} className="shrink-0 text-zinc-500" />
+                  )}
+                  {uploadStatus ?? "이미지 업로드"}
                 </button>
                 {current ? (
                   <button

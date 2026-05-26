@@ -29,6 +29,7 @@ import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
 import { applyWorkspaceLanding } from "./lib/sync/workspaceLanding";
 import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspaceCacheAfterFlush";
 import { useWorkspaceStore } from "./store/workspaceStore";
+import { useCustomIconStore } from "./store/customIconStore";
 import { usePageStore } from "./store/pageStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
@@ -409,6 +410,34 @@ function useSyncBootstrap(): void {
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [authStatus, authSub]);
+
+  // 워크스페이스 공유 커스텀 아이콘 구독 — 다른 사용자의 추가/삭제를 실시간 반영.
+  // 이벤트가 도착할 때마다 list 전체를 재페치해 단순·정확한 동기화.
+  useEffect(() => {
+    if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) return;
+    const wsId = currentWorkspaceId;
+    void useCustomIconStore.getState().fetch(wsId);
+    let sub: { unsubscribe: () => void } | null = null;
+    void (async () => {
+      const { subscribeCustomIcons } = await import("./lib/sync/customIconApi");
+      sub = subscribeCustomIcons(
+        wsId,
+        () => {
+          void useCustomIconStore.getState().fetch(wsId);
+        },
+        () => {
+          /* error 는 console.warn 만 — 재시도는 다음 fetch 트리거에서. */
+        },
+      );
+    })();
+    return () => {
+      try {
+        sub?.unsubscribe();
+      } catch {
+        /* noop */
+      }
+    };
+  }, [authStatus, authSub, currentWorkspaceId]);
 
   // 온라인 복귀 시 원격 데이터 재페치 + outbox flush.
   // 오프라인 동안 다른 클라이언트가 만든 변경을 즉시 반영하고
