@@ -510,7 +510,7 @@ type Mutation {
   """자산 다중 영구 삭제 (S3 객체 + DDB row + AssetUsage cascade). 결과는 삭제된 ID 목록."""
   deleteMyAssets(assetIds: [ID!]!): [ID!]!
   """자산의 표시용 이름을 변경. name 이 빈 문자열·null 이면 이름 제거."""
-  renameAsset(assetId: ID!, name: String): Asset!
+  renameAsset(assetId: ID!, name: String): ImageAsset!
   """페이지 본문의 자산 참조를 oldAssetId → newAssetId 로 교체. 영향받은 페이지 수 반환."""
   replaceAssetRef(input: ReplaceAssetRefInput!): Int!
   """기존 페이지 데이터를 스캔해 AssetUsage 인덱스를 재구성.
