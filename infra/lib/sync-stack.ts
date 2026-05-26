@@ -261,6 +261,23 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
+    // 워크스페이스 공유 커스텀 아이콘 프리셋. 모든 멤버가 같은 아이콘 목록을 볼 수 있도록 동기화.
+    // PK = id (UUID), GSI byWorkspace = (workspaceId, createdAt) — 최신순 정렬.
+    const customIconsTable = new dynamodb.Table(this, "CustomIconsTable", {
+      tableName: "quicknote-custom-icons",
+      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    customIconsTable.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndCreatedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    new cdk.CfnOutput(this, "CustomIconsTableName", { value: customIconsTable.tableName });
+
     // 자산(이미지/파일) 사용 위치 인덱스 테이블.
     // 한 자산이 어떤 페이지의 어떤 블록에서 쓰이는지 추적해 "사용 안 됨" 필터·삭제·교체에 사용.
     // PK = assetId (한 자산이 여러 페이지에서 참조될 수 있음, 핫키 위험은 자산당 사용처가 적어 낮음).
@@ -523,6 +540,7 @@ export function response(ctx) {
         IMAGE_ASSETS_TABLE_NAME: this.imageAssetTable.table.tableName,
         ASSET_USAGE_TABLE_NAME: assetUsageTable.tableName,
         IMAGES_BUCKET_NAME: imagesBucket.bucketName,
+        CUSTOM_ICONS_TABLE_NAME: customIconsTable.tableName,
       },
       bundling: {
         minify: true,
@@ -551,6 +569,7 @@ export function response(ctx) {
     this.imageAssetTable.table.grantReadWriteData(v5ResolversFn);
     assetUsageTable.grantReadWriteData(v5ResolversFn);
     imagesBucket.grantReadWrite(v5ResolversFn);
+    customIconsTable.grantReadWriteData(v5ResolversFn);
 
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
@@ -734,6 +753,12 @@ export function response(ctx) {
     v5Ds.createResolver("MutationlockMmEntry", { typeName: "Mutation", fieldName: "lockMmEntry" });
     v5Ds.createResolver("MutationunlockMmEntry", { typeName: "Mutation", fieldName: "unlockMmEntry" });
     v5Ds.createResolver("SubscriptiononMmEntryChanged", { typeName: "Subscription", fieldName: "onMmEntryChanged" });
+
+    // 워크스페이스 공유 커스텀 아이콘.
+    v5Ds.createResolver("QuerylistCustomIcons", { typeName: "Query", fieldName: "listCustomIcons" });
+    v5Ds.createResolver("MutationcreateCustomIcon", { typeName: "Mutation", fieldName: "createCustomIcon" });
+    v5Ds.createResolver("MutationdeleteCustomIcon", { typeName: "Mutation", fieldName: "deleteCustomIcon" });
+    v5Ds.createResolver("SubscriptiononCustomIconChanged", { typeName: "Subscription", fieldName: "onCustomIconChanged" });
 
     // 자산 관리 — 사용자 단위 자산 목록·사용 위치·삭제·교체.
     v5Ds.createResolver("QuerylistMyAssets", { typeName: "Query", fieldName: "listMyAssets" });

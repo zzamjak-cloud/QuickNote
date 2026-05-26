@@ -6,12 +6,9 @@ import { insertImageFromFile, MAX_EDITOR_IMAGE_BYTES } from "../../lib/editor/in
 import { encodeLucidePageIcon } from "../../lib/pageIcon";
 import { PageIconDisplay } from "./PageIconDisplay";
 import { IconPickerEmoji } from "./IconPickerEmoji";
-import {
-  type CustomIconPreset,
-  loadCustomIcons,
-  addCustomIcon,
-  deleteCustomIcon,
-} from "../../lib/iconStorage";
+import { type CustomIconPreset } from "../../lib/iconStorage";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useCustomIconStore } from "../../store/customIconStore";
 
 const MAX_ICON_BYTES = Math.min(5 * 1024 * 1024, MAX_EDITOR_IMAGE_BYTES);
 const DEFAULT_LUCIDE_COLOR = "#3f3f46";
@@ -571,12 +568,26 @@ export function IconPicker({
   const ref = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const [customIcons, setCustomIcons] = useState<CustomIconPreset[]>([]);
+  // 워크스페이스 공유 커스텀 아이콘 — 모든 멤버가 같은 목록을 본다.
+  // 서버 fetch 후 store 에 캐시, 페이지 첫 진입 시 1회 호출.
+  const workspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const customIconsByWs = useCustomIconStore((s) => s.byWorkspace);
+  const fetchCustomIcons = useCustomIconStore((s) => s.fetch);
+  const addCustomIconSrv = useCustomIconStore((s) => s.add);
+  const removeCustomIconSrv = useCustomIconStore((s) => s.remove);
+  const customIcons: CustomIconPreset[] = useMemo(() => {
+    if (!workspaceId) return [];
+    return (customIconsByWs[workspaceId] ?? []).map((i) => ({
+      id: i.id,
+      src: i.src,
+      label: i.label || "커스텀 아이콘",
+    }));
+  }, [customIconsByWs, workspaceId]);
 
-  // IndexedDB에서 커스텀 아이콘 로드 (최초 1회, localStorage 마이그레이션 포함)
   useEffect(() => {
-    loadCustomIcons().then(setCustomIcons).catch(() => {});
-  }, []);
+    if (!workspaceId) return;
+    void fetchCustomIcons(workspaceId);
+  }, [workspaceId, fetchCustomIcons]);
 
   useEffect(() => {
     if (!open) return;
@@ -650,16 +661,17 @@ export function IconPicker({
     const ok = await insertImageFromFile(
       file,
       async (attrs) => {
-        if (savePreset) {
-          const newItem: CustomIconPreset = {
-            id: `${Date.now()}:${file.name}`,
-            src: attrs.src,
-            label: file.name || "커스텀 아이콘",
-          };
-          await addCustomIcon(newItem);
-          setCustomIcons((prev) =>
-            [newItem, ...prev.filter((i) => i.src !== attrs.src)].slice(0, 80),
-          );
+        if (savePreset && workspaceId) {
+          // 워크스페이스 공유 아이콘으로 등록 — 모든 멤버가 즉시 볼 수 있음.
+          try {
+            await addCustomIconSrv({
+              workspaceId,
+              src: attrs.src,
+              label: file.name || "커스텀 아이콘",
+            });
+          } catch (err) {
+            console.error("[IconPicker] addCustomIcon 실패", err);
+          }
         }
         onChange(attrs.src);
         setOpen(false);
@@ -708,8 +720,10 @@ export function IconPicker({
             onRequestCustomUpload={() => fileRef.current?.click()}
             customIcons={customIcons}
             onDeleteCustomIcon={(id) => {
-              deleteCustomIcon(id).catch(() => {});
-              setCustomIcons((prev) => prev.filter((item) => item.id !== id));
+              if (!workspaceId) return;
+              void removeCustomIconSrv(id, workspaceId).catch((err) => {
+                console.error("[IconPicker] deleteCustomIcon 실패", err);
+              });
             }}
             footer={
               <>

@@ -49,6 +49,8 @@ export type Tables = {
   AssetUsage?: string;
   /** S3 자산 버킷 이름 (자산 영구 삭제 시 객체 제거용) */
   ImagesBucketName?: string;
+  /** 워크스페이스 공유 커스텀 아이콘 프리셋 테이블 */
+  CustomIcons?: string;
 };
 
 export type CreateMemberInput = {

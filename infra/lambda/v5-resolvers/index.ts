@@ -101,6 +101,11 @@ import {
   migrateAssetUsage,
   type ListMyAssetsInput,
 } from "./handlers/asset";
+import {
+  listCustomIcons,
+  createCustomIcon,
+  deleteCustomIcon,
+} from "./handlers/customIcon";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -126,6 +131,7 @@ const tables: Tables = {
   ImageAssets: process.env.IMAGE_ASSETS_TABLE_NAME,
   AssetUsage: process.env.ASSET_USAGE_TABLE_NAME,
   ImagesBucketName: process.env.IMAGES_BUCKET_NAME,
+  CustomIcons: process.env.CUSTOM_ICONS_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -680,6 +686,28 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return await migrateAssetUsage({
           ...base,
           cursor: (event.arguments.cursor as string | null | undefined) ?? null,
+        });
+      // ── 워크스페이스 공유 커스텀 아이콘 ─────────────────────────────────
+      case "listCustomIcons":
+        return await listCustomIcons({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "createCustomIcon":
+        return await createCustomIcon({
+          ...base,
+          input: event.arguments.input as { workspaceId: string; src: string; label: string },
+        });
+      case "deleteCustomIcon":
+        return await deleteCustomIcon({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "onCustomIconChanged":
+        return await validateWorkspaceSubscription({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
         });
       default:
         throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");

@@ -10,6 +10,13 @@ export {
   type MigrateAssetUsageResult,
 } from "../queries/asset";
 export {
+  LIST_CUSTOM_ICONS,
+  CREATE_CUSTOM_ICON,
+  DELETE_CUSTOM_ICON,
+  ON_CUSTOM_ICON_CHANGED,
+  type GqlCustomIcon,
+} from "../queries/customIcon";
+export {
   LIST_PAGES,
   LIST_TRASHED_PAGES,
   ON_PAGE_CHANGED,

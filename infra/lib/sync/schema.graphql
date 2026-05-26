@@ -230,6 +230,21 @@ type MigrateAssetUsageResult {
   hasMore: Boolean!
 }
 
+type CustomIcon {
+  id: ID!
+  workspaceId: ID!
+  src: String!
+  label: String!
+  createdAt: AWSDateTime!
+  createdByMemberId: ID
+}
+
+input CustomIconInput {
+  workspaceId: ID!
+  src: String!
+  label: String!
+}
+
 type PageConnection { items: [Page!]! nextToken: String }
 type DatabaseConnection { items: [Database!]! nextToken: String }
 
@@ -383,6 +398,9 @@ type Query {
   listMmEntries(workspaceId: ID!, fromWeekStart: String!, toWeekStart: String!, memberId: ID): [MmEntry!]!
   listMmRevisions(workspaceId: ID!, entryId: ID!): [MmRevision!]!
 
+  """워크스페이스 공유 커스텀 아이콘 목록 (최신순)."""
+  listCustomIcons(workspaceId: ID!): [CustomIcon!]!
+
   """현재 사용자의 자산 전체 목록 (크기·생성일 정렬, MIME/미사용 필터 지원)"""
   listMyAssets(input: ListMyAssetsInput): AssetConnection!
   """특정 자산의 사용 위치 (페이지·블록) 목록"""
@@ -463,6 +481,11 @@ type Mutation {
   lockMmEntry(workspaceId: ID!, entryId: ID!, note: String): MmEntry!
   unlockMmEntry(workspaceId: ID!, entryId: ID!, note: String): MmEntry!
 
+  """워크스페이스 공유 커스텀 아이콘 추가. 모든 멤버가 즉시 볼 수 있음."""
+  createCustomIcon(input: CustomIconInput!): CustomIcon!
+  """워크스페이스 공유 커스텀 아이콘 제거. 삭제된 아이콘을 반환해 구독 전파 가능."""
+  deleteCustomIcon(id: ID!, workspaceId: ID!): CustomIcon!
+
   """자산 다중 영구 삭제 (S3 객체 + DDB row + AssetUsage cascade). 결과는 삭제된 ID 목록."""
   deleteMyAssets(assetIds: [ID!]!): [ID!]!
   """페이지 본문의 자산 참조를 oldAssetId → newAssetId 로 교체. 영향받은 페이지 수 반환."""
@@ -488,6 +511,8 @@ type Subscription {
     @aws_subscribe(mutations: ["createHoliday", "updateHoliday"])
   onMmEntryChanged(workspaceId: ID!): MmEntry
     @aws_subscribe(mutations: ["upsertMmEntry", "reviewMmEntry", "lockMmEntry", "unlockMmEntry"])
+  onCustomIconChanged(workspaceId: ID!): CustomIcon
+    @aws_subscribe(mutations: ["createCustomIcon", "deleteCustomIcon"])
 }
 
 # ========== Schedule ==========
