@@ -43,6 +43,12 @@ export type Tables = {
   Holidays?: string;
   /** LC 스케줄러 주간 MM 원본/리비전 테이블 */
   MmEntries?: string;
+  /** 이미지/파일 자산 메타 테이블 (image-presign 과 공용) */
+  ImageAssets?: string;
+  /** 자산 → 사용 위치(페이지·블록) 인덱스 테이블 */
+  AssetUsage?: string;
+  /** S3 자산 버킷 이름 (자산 영구 삭제 시 객체 제거용) */
+  ImagesBucketName?: string;
 };
 
 export type CreateMemberInput = {

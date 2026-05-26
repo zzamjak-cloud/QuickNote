@@ -46,6 +46,7 @@ import {
   type Member,
 } from "./_auth";
 import type { Tables } from "./member";
+import { syncPageAssetUsage, cascadeDeletePageAssetUsage } from "./asset";
 
 type Connection<T> = { items: T[]; nextToken?: string | null };
 
@@ -238,7 +239,26 @@ export async function upsertPage(args: {
   }
   validateCoverImageField(input);
   normalizeBlockCommentsField(input);
-  return upsertRecord({ ...args, tableName: args.tables.Pages, input });
+  const saved = await upsertRecord({ ...args, tableName: args.tables.Pages, input });
+  // 자산 사용 위치 인덱스 동기화 — doc 내부 ref 들을 AssetUsage 테이블에 반영.
+  // 실패해도 페이지 저장 자체는 성공으로 응답 (인덱스는 보조 데이터).
+  // cognitoSub 가 없으면 (legacy member) sync 스킵 — 자산 소유자 매핑 불가.
+  if (args.caller.cognitoSub) {
+    try {
+      await syncPageAssetUsage({
+        doc: args.doc,
+        tables: args.tables,
+        ownerId: args.caller.cognitoSub,
+        workspaceId: typeof saved.workspaceId === "string" ? saved.workspaceId : (typeof input.workspaceId === "string" ? input.workspaceId : ""),
+        pageId: typeof saved.id === "string" ? saved.id : (typeof input.id === "string" ? input.id : ""),
+        pageTitle: typeof saved.title === "string" ? saved.title : null,
+        pageDoc: saved.doc ?? input.doc,
+      });
+    } catch (err) {
+      console.error("[upsertPage] AssetUsage sync 실패 (무시)", err);
+    }
+  }
+  return saved;
 }
 
 export async function upsertDatabase(args: {
@@ -398,6 +418,13 @@ export async function permanentlyDeletePage(args: {
     }),
   );
 
+  // 자산 사용 인덱스 cascade — 삭제된 페이지를 가리키는 모든 AssetUsage row 제거.
+  try {
+    await cascadeDeletePageAssetUsage({ doc: args.doc, tables: args.tables, pageId: args.id });
+  } catch (err) {
+    console.error("[permanentlyDeletePage] AssetUsage cascade 실패 (무시)", err);
+  }
+
   // 연관 코멘트 정리 — 페이지 ID 매칭 row 만 제거
   if (args.tables.Comments) {
     let commentStartKey: Record<string, unknown> | undefined;
@@ -489,6 +516,15 @@ export async function emptyTrash(args: {
     );
     pageStartKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
   } while (pageStartKey);
+
+  // 자산 사용 인덱스 cascade — 휴지통에서 삭제된 모든 페이지의 AssetUsage row 제거.
+  for (const pageId of deletedPageIds) {
+    try {
+      await cascadeDeletePageAssetUsage({ doc: args.doc, tables: args.tables, pageId });
+    } catch (err) {
+      console.error("[emptyTrash] AssetUsage cascade 실패 (무시)", { pageId, err });
+    }
+  }
 
   if (args.tables.Comments && deletedPageIds.size > 0) {
     let commentStartKey: Record<string, unknown> | undefined;

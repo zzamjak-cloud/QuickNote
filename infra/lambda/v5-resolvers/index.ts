@@ -93,6 +93,14 @@ import {
   reviewMmEntry,
   setMmEntryLock,
 } from "./handlers/mm";
+import {
+  listMyAssets,
+  getAssetUsages,
+  deleteMyAssets,
+  replaceAssetRef,
+  migrateAssetUsage,
+  type ListMyAssetsInput,
+} from "./handlers/asset";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -115,6 +123,9 @@ const tables: Tables = {
   Projects: process.env.PROJECTS_TABLE_NAME,
   Holidays: process.env.HOLIDAYS_TABLE_NAME,
   MmEntries: process.env.MM_ENTRIES_TABLE_NAME,
+  ImageAssets: process.env.IMAGE_ASSETS_TABLE_NAME,
+  AssetUsage: process.env.ASSET_USAGE_TABLE_NAME,
+  ImagesBucketName: process.env.IMAGES_BUCKET_NAME,
 };
 
 type AppsyncEvent = {
@@ -642,6 +653,31 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           ...base,
           workspaceId: event.arguments.workspaceId as string,
         });
+      // ── 자산 관리 ────────────────────────────────────────────────────
+      case "listMyAssets": {
+        const res = await listMyAssets({
+          ...base,
+          input: (event.arguments.input as ListMyAssetsInput | null | undefined) ?? null,
+        });
+        return res;
+      }
+      case "getAssetUsages":
+        return await getAssetUsages({
+          ...base,
+          assetId: event.arguments.assetId as string,
+        });
+      case "deleteMyAssets":
+        return await deleteMyAssets({
+          ...base,
+          assetIds: event.arguments.assetIds as string[],
+        });
+      case "replaceAssetRef":
+        return await replaceAssetRef({
+          ...base,
+          input: event.arguments.input as { oldAssetId: string; newAssetId: string },
+        });
+      case "migrateAssetUsage":
+        return await migrateAssetUsage({ ...base });
       default:
         throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");
     }

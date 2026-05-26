@@ -176,6 +176,47 @@ type ImageAsset {
   sha256: String!
   status: ImageStatus!
   createdAt: AWSDateTime!
+  """업로드 시점의 사용자 파일명 (UI 표시용, 보강 가능)"""
+  name: String
+  """이 자산을 참조하는 페이지 수 (자산 관리 탭에서 정렬·필터용 캐시값)"""
+  usageCount: Int
+}
+
+# ========== Asset Usage (자산 사용 위치 인덱스) ==========
+type AssetUsage {
+  assetId: ID!
+  ownerId: ID!
+  pageId: ID!
+  blockId: ID
+  blockType: String
+  workspaceId: ID
+  pageTitle: String
+  updatedAt: AWSDateTime!
+}
+
+type AssetConnection {
+  items: [ImageAsset!]!
+  nextToken: String
+}
+
+input ListMyAssetsInput {
+  sortBy: AssetSortBy
+  filterMimePrefix: String
+  filterUnusedOnly: Boolean
+  minSize: Int
+  limit: Int
+  nextToken: String
+}
+
+enum AssetSortBy {
+  SIZE_DESC
+  SIZE_ASC
+  CREATED_AT_DESC
+}
+
+input ReplaceAssetRefInput {
+  oldAssetId: ID!
+  newAssetId: ID!
 }
 
 type PageConnection { items: [Page!]! nextToken: String }
@@ -236,6 +277,8 @@ input ImageUploadInput {
   mimeType: String!
   size: Int!
   sha256: String!
+  """업로드 파일의 사용자 표시 이름 (자산 관리 UI 에서 사용). 선택 사항 — 미전송 시 ID 로 폴백."""
+  name: String
 }
 
 input CreateMemberInput {
@@ -326,6 +369,11 @@ type Query {
   listHolidays(workspaceId: ID!): [Holiday!]!
   listMmEntries(workspaceId: ID!, fromWeekStart: String!, toWeekStart: String!, memberId: ID): [MmEntry!]!
   listMmRevisions(workspaceId: ID!, entryId: ID!): [MmRevision!]!
+
+  """현재 사용자의 자산 전체 목록 (크기·생성일 정렬, MIME/미사용 필터 지원)"""
+  listMyAssets(input: ListMyAssetsInput): AssetConnection!
+  """특정 자산의 사용 위치 (페이지·블록) 목록"""
+  getAssetUsages(assetId: ID!): [AssetUsage!]!
 }
 
 # ========== Mutation ==========
@@ -401,6 +449,13 @@ type Mutation {
   reviewMmEntry(input: MmReviewInput!): MmEntry!
   lockMmEntry(workspaceId: ID!, entryId: ID!, note: String): MmEntry!
   unlockMmEntry(workspaceId: ID!, entryId: ID!, note: String): MmEntry!
+
+  """자산 다중 영구 삭제 (S3 객체 + DDB row + AssetUsage cascade). 결과는 삭제된 ID 목록."""
+  deleteMyAssets(assetIds: [ID!]!): [ID!]!
+  """페이지 본문의 자산 참조를 oldAssetId → newAssetId 로 교체. 영향받은 페이지 수 반환."""
+  replaceAssetRef(input: ReplaceAssetRefInput!): Int!
+  """기존 페이지 데이터를 스캔해 AssetUsage 인덱스를 재구성 (1회용 마이그레이션)."""
+  migrateAssetUsage: Int!
 }
 
 # ========== Subscription ==========

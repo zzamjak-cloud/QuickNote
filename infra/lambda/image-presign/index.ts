@@ -29,7 +29,7 @@ type AppSyncEvent = {
   arguments: Record<string, unknown>;
 };
 
-type UploadInput = { mimeType: string; size: number; sha256: string };
+type UploadInput = { mimeType: string; size: number; sha256: string; name?: string };
 
 const s3 = new S3Client({});
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -190,6 +190,8 @@ async function createPendingAsset(
           createdAt: new Date().toISOString(),
           key,
           expireAt,
+          // 자산 관리 UI 표시용 파일명 — 선택. 미전송 시 ID 로 폴백.
+          ...(input.name ? { name: input.name } : {}),
         },
         ConditionExpression: "attribute_not_exists(id)",
       }),

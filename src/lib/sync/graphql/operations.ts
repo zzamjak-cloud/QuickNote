@@ -1,5 +1,14 @@
 // 수동 작성 GraphQL operations. infra/lib/sync/schema.graphql 와 일관성 유지.
 export {
+  LIST_MY_ASSETS,
+  GET_ASSET_USAGES,
+  DELETE_MY_ASSETS,
+  REPLACE_ASSET_REF,
+  MIGRATE_ASSET_USAGE,
+  type GqlAsset,
+  type GqlAssetUsage,
+} from "../queries/asset";
+export {
   LIST_PAGES,
   LIST_TRASHED_PAGES,
   ON_PAGE_CHANGED,

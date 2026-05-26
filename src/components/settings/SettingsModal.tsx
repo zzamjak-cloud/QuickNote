@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Building, Building2, Download, Folder, User, Users, UsersRound, X } from "lucide-react";
+import { Building, Building2, Download, Folder, HardDrive, User, Users, UsersRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import pkg from "../../../package.json";
 import { useAuthStore } from "../../store/authStore";
@@ -25,12 +25,17 @@ const NotionImportTab = lazy(() =>
   import("./NotionImportTab").then((m) => ({ default: m.NotionImportTab })),
 );
 
+// AdminAssetsTab — 가상 스크롤 / ffmpeg 압축(추가 기능 시) 등 부수 의존이 있어 lazy.
+const AdminAssetsTab = lazy(() =>
+  import("./AdminAssetsTab").then((m) => ({ default: m.AdminAssetsTab })),
+);
+
 type Props = {
   open: boolean;
   onClose: () => void;
 };
 
-type TabId = "profile" | "notionImport" | "members" | "projects" | "teams" | "organizations" | "workspaces";
+type TabId = "profile" | "notionImport" | "members" | "projects" | "teams" | "organizations" | "workspaces" | "assets";
 
 type TabDef = { id: TabId; label: string; title: string; icon: LucideIcon };
 
@@ -57,6 +62,10 @@ export function SettingsModal({ open, onClose }: Props) {
         { id: "organizations", label: "조직", title: "조직 관리", icon: Building2 },
         { id: "workspaces", label: "워크스페이스", title: "워크스페이스 관리", icon: Building },
       );
+    }
+    // 자산 관리 — 본인의 모든 업로드 자산. admin 만 노출 (사용자 단위지만 의도적 가시성 제한).
+    if (isAdmin) {
+      list.push({ id: "assets", label: "자산", title: "자산 관리", icon: HardDrive });
     }
     // Notion 가져오기는 일회성·일부 사용자 전용 — 가장 하단 배치
     list.push({ id: "notionImport", label: "Notion 가져오기", title: "Notion 가져오기", icon: Download });
@@ -219,6 +228,7 @@ export function SettingsModal({ open, onClose }: Props) {
               {tab === "teams" && isAdmin && <AdminTeamsTab />}
               {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
               {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
+              {tab === "assets" && isAdmin && <AdminAssetsTab />}
             </Suspense>
           </div>
         </section>

@@ -39,7 +39,7 @@ export async function uploadImage(file: File): Promise<string> {
   const presignRes = (await appsyncClient().graphql({
     query: GET_IMAGE_UPLOAD_URL,
     variables: {
-      input: { mimeType: file.type, size: file.size, sha256 },
+      input: { mimeType: file.type, size: file.size, sha256, name: file.name },
     },
   })) as GetImageUploadUrlResponse;
   const { imageId, uploadUrl, alreadyUploaded } = presignRes.data.getImageUploadUrl;
