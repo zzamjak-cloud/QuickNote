@@ -69,6 +69,7 @@ describe("page/database handlers", () => {
 
   it("upsertPage: blockComments 가 객체여도 문자열로 정규화되어 성공(AppSync AWSJSON 파싱 경로)", async () => {
     const doc = mockDoc(
+      { Item: undefined },
       { Items: [] },
       { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
       {}, // put

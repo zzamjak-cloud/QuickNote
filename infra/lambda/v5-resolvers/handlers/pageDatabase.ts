@@ -593,6 +593,80 @@ export async function permanentlyDeleteDatabase(args: {
       Key: { id: args.id },
     }),
   );
+
+  if (args.tables.Pages) {
+    const rowPageIds = new Set<string>();
+    let pageStartKey: Record<string, unknown> | undefined;
+    do {
+      const r = await args.doc.send(
+        new QueryCommand({
+          TableName: args.tables.Pages,
+          IndexName: "byWorkspaceAndUpdatedAt",
+          KeyConditionExpression: "workspaceId = :w",
+          FilterExpression: "databaseId = :db",
+          ExpressionAttributeValues: {
+            ":w": args.workspaceId,
+            ":db": args.id,
+          },
+          ProjectionExpression: "id",
+          Limit: 100,
+          ExclusiveStartKey: pageStartKey,
+        }),
+      );
+      const items = (r.Items ?? []) as Array<{ id?: unknown }>;
+      for (const item of items) {
+        if (typeof item.id !== "string") continue;
+        rowPageIds.add(item.id);
+        await args.doc.send(
+          new DeleteCommand({
+            TableName: args.tables.Pages,
+            Key: { id: item.id },
+            ConditionExpression: "workspaceId = :w",
+            ExpressionAttributeValues: { ":w": args.workspaceId },
+          }),
+        );
+        try {
+          await cascadeDeletePageAssetUsage({ doc: args.doc, tables: args.tables, pageId: item.id });
+        } catch (err) {
+          console.error("[permanentlyDeleteDatabase] AssetUsage cascade 실패 (무시)", { pageId: item.id, err });
+        }
+      }
+      pageStartKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (pageStartKey);
+
+    if (args.tables.Comments && rowPageIds.size > 0) {
+      let commentStartKey: Record<string, unknown> | undefined;
+      do {
+        const r = await args.doc.send(
+          new QueryCommand({
+            TableName: args.tables.Comments,
+            IndexName: "byWorkspaceAndUpdatedAt",
+            KeyConditionExpression: "workspaceId = :w",
+            ExpressionAttributeValues: { ":w": args.workspaceId },
+            ProjectionExpression: "id, pageId",
+            Limit: 100,
+            ExclusiveStartKey: commentStartKey,
+          }),
+        );
+        const comments = (r.Items ?? []) as Array<{ id?: unknown; pageId?: unknown }>;
+        await Promise.all(
+          comments
+            .filter((item) => typeof item.id === "string" && typeof item.pageId === "string" && rowPageIds.has(item.pageId))
+            .map(async (item) => {
+              await args.doc.send(
+                new DeleteCommand({
+                  TableName: args.tables.Comments!,
+                  Key: { id: item.id },
+                  ConditionExpression: "workspaceId = :w",
+                  ExpressionAttributeValues: { ":w": args.workspaceId },
+                }),
+              );
+            }),
+        );
+        commentStartKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+      } while (commentStartKey);
+    }
+  }
   return true;
 }
 
@@ -811,14 +885,12 @@ export async function listTrashedPages(args: {
     const r = await args.doc.send(
       new QueryCommand({
         TableName: args.tables.Pages,
-        IndexName: "byWorkspaceAndUpdatedAt",
-        KeyConditionExpression: "workspaceId = :w",
+        IndexName: "byWorkspaceAndDeletedAt",
+        KeyConditionExpression: "workspaceId = :w AND deletedAt > :cutoff",
         ExpressionAttributeValues: {
           ":w": args.workspaceId,
           ":cutoff": cutoffIso,
         },
-        FilterExpression:
-          "attribute_exists(deletedAt) AND deletedAt > :cutoff",
         Limit: 100,
         ScanIndexForward: false,
         ExclusiveStartKey: exclusiveStartKey,

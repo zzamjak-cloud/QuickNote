@@ -598,6 +598,7 @@ export function DatabaseTimelineView({
   }, [
     axis.maxT,
     axis.minT,
+    axis.totalW,
     dateColId,
     dayToX,
     dayWidth,

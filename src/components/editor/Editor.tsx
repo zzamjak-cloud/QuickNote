@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useEditor, EditorContent } from "@tiptap/react";
 import type { createLowlight } from "lowlight";
@@ -57,7 +58,8 @@ import {
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
-import { PageSubpageTree, countPageDescendants } from "../page/PageSubpageTree";
+import { PageSubpageTree } from "../page/PageSubpageTree";
+import { countPageDescendants } from "../page/pageSubpageTreeUtils";
 import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
 import {
   registerEditorNavigation,
@@ -100,6 +102,8 @@ type EditorProps = {
   peek?: boolean;
   /** 본문 컬럼 내부 하단 spacer 렌더 여부. 기본 true */
   showTailSpacer?: boolean;
+  /** bodyOnly 모드에서 본문과 같은 컬럼 안에 먼저 렌더할 영역 */
+  bodyPrefix?: ReactNode;
 };
 
 /** editor 인스턴스 참조만 바뀔 때 재마운트 — 본문 state 변경 시 무분별 리렌더 방지 */
@@ -113,6 +117,7 @@ export function Editor({
   bodyOnly = false,
   peek = false,
   showTailSpacer = true,
+  bodyPrefix,
 }: EditorProps = {}) {
   const activeId = usePageStore((s) => s.activePageId);
   const effectivePageId = pageId ?? activeId;
@@ -837,6 +842,7 @@ export function Editor({
             </div>
           </>
         )}
+        {bodyPrefix}
         <div className="relative">
           <EditorContent editor={editor} />
           {blockDropIndicator ? (

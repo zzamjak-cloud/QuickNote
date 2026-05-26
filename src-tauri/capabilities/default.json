@@ -17,6 +17,8 @@
     "updater:allow-install",
     "process:default",
     "process:allow-restart",
-    "shell:allow-open"
+    "shell:allow-open",
+    "dialog:default",
+    "fs:allow-read"
   ]
 }

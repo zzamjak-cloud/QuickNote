@@ -69,6 +69,29 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     .filter((d) => !hiddenDeletedDbIds.has(d.databaseId))
     .filter((d) => d.title.toLowerCase().includes(q));
 
+  const removeDatabaseAndRowsFromLocalCache = (databaseId: string): void => {
+    useDatabaseStore.setState((s) => {
+      if (!s.databases[databaseId]) return s;
+      const next = { ...s.databases };
+      delete next[databaseId];
+      return { ...s, databases: next };
+    });
+    usePageStore.setState((s) => {
+      const rowPageIds = Object.values(s.pages)
+        .filter((page) => page.databaseId === databaseId)
+        .map((page) => page.id);
+      if (rowPageIds.length === 0) return s;
+      const rowPageIdSet = new Set(rowPageIds);
+      const nextPages = { ...s.pages };
+      for (const pageId of rowPageIds) delete nextPages[pageId];
+      return {
+        ...s,
+        pages: nextPages,
+        activePageId: s.activePageId && rowPageIdSet.has(s.activePageId) ? null : s.activePageId,
+      };
+    });
+  };
+
   const purgeDeletedDatabase = (databaseId: string, title: string) => {
     const targetWorkspaceId =
       visibleDeleted.find((d) => d.databaseId === databaseId)?.workspaceId
@@ -94,13 +117,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
       // 서버에서 row 가 사라졌음을 확정 → 영구 tombstone 으로 어떤 재유입도 차단.
       markPermanentlyDeletedEntity("database", databaseId, workspaceId);
       purgeDatabaseHistory(databaseId);
-      // 좀비 캐시가 active 영역에 남아있을 가능성 차단.
-      useDatabaseStore.setState((s) => {
-        if (!s.databases[databaseId]) return s;
-        const next = { ...s.databases };
-        delete next[databaseId];
-        return { ...s, databases: next };
-      });
+      removeDatabaseAndRowsFromLocalCache(databaseId);
       setHiddenDeletedDbIds((prev) => new Set(prev).add(databaseId));
       showToast("삭제된 데이터베이스를 영구삭제했습니다.", { kind: "success" });
     } catch (error) {
@@ -141,12 +158,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
       onItemSuccess: ({ id, workspaceId }) => {
         markPermanentlyDeletedEntity("database", id, workspaceId);
         purgeDatabaseHistory(id);
-        useDatabaseStore.setState((s) => {
-          if (!s.databases[id]) return s;
-          const nextDbs = { ...s.databases };
-          delete nextDbs[id];
-          return { ...s, databases: nextDbs };
-        });
+        removeDatabaseAndRowsFromLocalCache(id);
         setHiddenDeletedDbIds((prev) => new Set(prev).add(id));
         setPurgingIds((prev) => {
           const next = { ...prev };

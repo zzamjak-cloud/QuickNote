@@ -40,7 +40,8 @@ import { pageDocToHtml } from "../../lib/export/pageToHtml";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
-import { PageSubpageTree, countPageDescendants } from "../page/PageSubpageTree";
+import { PageSubpageTree } from "../page/PageSubpageTree";
+import { countPageDescendants } from "../page/pageSubpageTreeUtils";
 import { CLEAR_BOX_SELECTION_EVENT } from "../../hooks/boxSelect/constants";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";

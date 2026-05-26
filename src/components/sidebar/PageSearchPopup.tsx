@@ -28,6 +28,7 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
   const setActivePage = usePageStore((s) => s.setActivePage);
   const findFullPagePageIdForDatabase = usePageStore((s) => s.findFullPagePageIdForDatabase);
   const databases = useDatabaseStore(listDatabases);
+  const databaseMap = useDatabaseStore((s) => s.databases);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
 
   // 앵커 버튼 기준 위치 계산
@@ -69,6 +70,10 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
   }, [onClose]);
 
   const q = query.trim().toLowerCase();
+  const isLiveSearchPage = (page: (typeof pages)[string]): boolean => {
+    if (!page.databaseId) return true;
+    return Boolean(databaseMap[page.databaseId]);
+  };
 
   // DB와 연결된 페이지 ID 집합 — 페이지 목록에서 제외
   const dbPageIds = new Set(
@@ -79,10 +84,10 @@ export function PageSearchPopup({ anchorEl, onClose }: Props) {
   // 단, 검색어가 있으면 DB 행 페이지(p.databaseId 가 있는 페이지)도 결과에 포함해
   // 사용자가 DB 안의 페이지를 찾을 수 있게 한다.
   const browsePages = Object.values(pages).filter(
-    (p) => !dbPageIds.has(p.id) && !p.databaseId,
+    (p) => !dbPageIds.has(p.id) && !p.databaseId && isLiveSearchPage(p),
   );
   const searchablePages = Object.values(pages).filter(
-    (p) => !dbPageIds.has(p.id),
+    (p) => !dbPageIds.has(p.id) && isLiveSearchPage(p),
   );
 
   const filteredPages = q

@@ -4,15 +4,13 @@ import { FileText } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../../store/databaseStore";
-import { useSettingsStore } from "../../store/settingsStore";
 import { Editor } from "../editor/Editor";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
-import { useBlockCommentStore } from "../../store/blockCommentStore";
-import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBar";
+import { PageCommentBar } from "../comments/PageCommentBar";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
-import { PageSubpageTree, countPageDescendants } from "../page/PageSubpageTree";
+import { PageSubpageTree } from "../page/PageSubpageTree";
+import { countPageDescendants } from "../page/pageSubpageTreeUtils";
 import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
-import { getEditorColumnClass } from "../../lib/editorLayout";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { DbPropertySection } from "../page/DbPropertySection";
 
@@ -28,17 +26,6 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const descendantCount = usePageStore((s) => countPageDescendants(pageId, s.pages));
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
-  const globalFullWidth = useSettingsStore((s) => s.fullWidth);
-  const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
-  const fullWidth = pageFullWidthById[pageId] ?? globalFullWidth;
-  // 블록 댓글(우측 스레드)이 있을 때만 에디터 컬럼과 동일하게 우측 거터 예약.
-  // 페이지 레벨 댓글(PAGE_COMMENT_SENTINEL)은 PageCommentBar 인라인 → Editor 와 동일 기준.
-  const hasPageComments = useBlockCommentStore((s) =>
-    s.messages.some(
-      (m) =>
-        m.pageId === pageId && m.blockId !== PAGE_COMMENT_SENTINEL,
-    ),
-  );
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
 
@@ -75,38 +62,38 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
     );
   }
 
-  // Editor.tsx data-qn-editor-column 과 동일 — 속성 패널·헤더 폭이 본문과 일치하도록
-  const columnClass = getEditorColumnClass({ fullWidth, hasPageComments });
-
   return (
-    <div className="py-8">
-      <div className={`mx-auto w-full ${columnClass}`}>
-        <div className="px-12">
-          <div className="mb-4">
-            <PageTitleBar
-              pageId={pageId}
-              icon={page.icon}
-              titleDraft={titleDraft}
-              titleClassName="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
-              onTitleChange={(v) => setTitleDraft(v)}
-              onTitleBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
-              onTitleKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-              onIconChange={(icon) => setIcon(pageId, icon)}
-              onIconUploadMessage={(msg) => setIconAlert(msg)}
-              defaultIcon={<FileText size={56} className="text-zinc-400" />}
-              showSubpageTree={descendantCount > 0 || !!page.parentId}
-              subpagePopover={subpagePopover}
-            />
+    <div>
+      <Editor
+        pageId={pageId}
+        bodyOnly
+        showTailSpacer={false}
+        bodyPrefix={
+          <div className="px-12 pt-8">
+            <div className="mb-4">
+              <PageTitleBar
+                pageId={pageId}
+                icon={page.icon}
+                titleDraft={titleDraft}
+                titleClassName="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
+                onTitleChange={(v) => setTitleDraft(v)}
+                onTitleBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
+                onTitleKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+                onIconChange={(icon) => setIcon(pageId, icon)}
+                onIconUploadMessage={(msg) => setIconAlert(msg)}
+                defaultIcon={<FileText size={56} className="text-zinc-400" />}
+                showSubpageTree={descendantCount > 0 || !!page.parentId}
+                subpagePopover={subpagePopover}
+              />
+            </div>
+
+            <DbPropertySection databaseId={databaseId} pageId={pageId} className="mt-3" />
+            <PageCommentBar pageId={pageId} />
           </div>
-
-          <DbPropertySection databaseId={databaseId} pageId={pageId} className="mt-3" />
-          <PageCommentBar pageId={pageId} />
-        </div>
-      </div>
-
-      <Editor pageId={pageId} bodyOnly showTailSpacer={false} />
+        }
+      />
       {subpagePopover.open && subpagePopover.coords && createPortal(
         <div
           ref={subpagePopover.popoverRef}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCcw, Search, Trash2, X } from "lucide-react";
 import { applyRemotePageToStore } from "../../lib/sync/storeApply";
 import {
+  fetchAllTrashedPages,
   fetchTrashedPagesBatch,
   permanentlyDeletePageRemote,
   restorePageRemote,
@@ -58,6 +59,20 @@ export function TrashDialog({ open, onClose }: Props) {
       const batch = await fetchTrashedPagesBatch(currentWorkspaceId);
       setItems(batch.items);
       setCursor(batch.nextToken);
+      if (batch.nextToken !== null) {
+        let loaded = batch.items;
+        setLoadingMore(true);
+        fetchAllTrashedPages(currentWorkspaceId, (nextBatch) => {
+          loaded = [...loaded, ...nextBatch.items];
+          setItems(loaded);
+          setCursor(nextBatch.nextToken);
+        }, batch.nextToken).catch((e) => {
+          console.error(e);
+          showToast("일부 휴지통 목록을 불러오지 못했습니다.", { kind: "error" });
+        }).finally(() => {
+          setLoadingMore(false);
+        });
+      }
     } catch (e) {
       console.error(e);
       showToast("휴지통 목록을 불러오지 못했습니다.", { kind: "error" });

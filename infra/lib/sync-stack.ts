@@ -67,6 +67,12 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
+    this.pageTable.table.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndDeletedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "deletedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
     this.databaseTable.table.addGlobalSecondaryIndex({
       indexName: "byWorkspaceAndUpdatedAt",

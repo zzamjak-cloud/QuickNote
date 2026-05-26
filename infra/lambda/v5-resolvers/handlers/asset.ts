@@ -15,6 +15,7 @@ import {
   DeleteCommand,
   GetCommand,
   BatchWriteCommand,
+  BatchGetCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import type { Tables } from "./member";
@@ -27,6 +28,47 @@ const IMAGE_SCHEME = "quicknote-image://";
 const FILE_SCHEME = "quicknote-file://";
 
 export type AssetRef = { assetId: string; blockId?: string; blockType?: string };
+
+type AssetUsageRow = {
+  assetId?: string;
+  sk?: string;
+  ownerId?: string;
+  pageId?: string;
+  workspaceId?: string;
+  [key: string]: unknown;
+};
+
+async function filterLivePageUsages(
+  doc: DynamoDBDocumentClient,
+  pagesTable: string | undefined,
+  usages: AssetUsageRow[],
+): Promise<AssetUsageRow[]> {
+  if (!pagesTable || usages.length === 0) return usages;
+  const pageIds = Array.from(new Set(usages.map((u) => u.pageId).filter((id): id is string => Boolean(id))));
+  if (pageIds.length === 0) return [];
+
+  const livePageIds = new Set<string>();
+  for (let i = 0; i < pageIds.length; i += 100) {
+    const keys = pageIds.slice(i, i + 100).map((id) => ({ id }));
+    const res = await doc.send(
+      new BatchGetCommand({
+        RequestItems: {
+          [pagesTable]: {
+            Keys: keys,
+            ProjectionExpression: "id, deletedAt",
+          },
+        },
+      }),
+    );
+    for (const item of (res.Responses?.[pagesTable] ?? []) as Array<{ id?: unknown; deletedAt?: unknown }>) {
+      if (typeof item.id === "string" && (item.deletedAt == null || item.deletedAt === "")) {
+        livePageIds.add(item.id);
+      }
+    }
+  }
+
+  return usages.filter((u) => typeof u.pageId === "string" && livePageIds.has(u.pageId));
+}
 
 /** 페이지 doc(JSON 문자열 또는 객체) 내부의 모든 자산 참조를 평탄화해 수집. */
 export function extractAssetRefs(docJson: unknown): AssetRef[] {
@@ -275,6 +317,7 @@ export async function listMyAssets(args: {
   // 2) usageCount 집계 (AssetUsage byOwner GSI)
   const usageCount = new Map<string, number>();
   if (usageTable) {
+    const usageRows: AssetUsageRow[] = [];
     let usageStartKey: Record<string, unknown> | undefined = undefined;
     do {
       const res = await args.doc.send(
@@ -283,15 +326,17 @@ export async function listMyAssets(args: {
           IndexName: "byOwner",
           KeyConditionExpression: "ownerId = :o",
           ExpressionAttributeValues: { ":o": ownerId },
-          ProjectionExpression: "assetId",
+          ProjectionExpression: "assetId, pageId",
           ExclusiveStartKey: usageStartKey,
         }),
       );
-      for (const it of (res.Items ?? []) as { assetId?: string }[]) {
-        if (it.assetId) usageCount.set(it.assetId, (usageCount.get(it.assetId) ?? 0) + 1);
-      }
+      usageRows.push(...((res.Items ?? []) as AssetUsageRow[]));
       usageStartKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
     } while (usageStartKey);
+    const liveUsageRows = await filterLivePageUsages(args.doc, args.tables.Pages, usageRows);
+    for (const it of liveUsageRows) {
+      if (it.assetId) usageCount.set(it.assetId, (usageCount.get(it.assetId) ?? 0) + 1);
+    }
   }
 
   // 3) 필터
@@ -347,9 +392,10 @@ export async function getAssetUsages(args: {
       ExpressionAttributeValues: { ":a": args.assetId },
     }),
   );
-  const items = (res.Items ?? []) as Array<Record<string, unknown>>;
+  const items = (res.Items ?? []) as AssetUsageRow[];
   // ownerId 본인 자산의 사용 위치만 반환 (cross-user 보호)
-  return items.filter((it) => (it.ownerId as string | undefined) === ownerId);
+  const ownedItems = items.filter((it) => it.ownerId === ownerId);
+  return filterLivePageUsages(args.doc, args.tables.Pages, ownedItems);
 }
 
 // ===== Mutations =====

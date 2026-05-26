@@ -416,7 +416,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const shellClass =
     layout === "fullPage"
-      ? "my-4 w-[calc(100%+6rem)] max-w-none -mx-12"
+      ? "my-4 max-w-full"
       : "my-4";
 
   // 강제 클리핑은 100개 이상에서만 동작.

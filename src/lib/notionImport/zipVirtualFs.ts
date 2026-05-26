@@ -9,7 +9,8 @@ import JSZip from "jszip";
 type VirtualFileNode = {
   kind: "file";
   name: string;
-  entry: JSZip.JSZipObject;
+  entry?: JSZip.JSZipObject;
+  file?: File;
 };
 
 type VirtualDirNode = {
@@ -20,18 +21,20 @@ type VirtualDirNode = {
 
 // FileSystemDirectoryHandle / FileSystemFileHandle 의 우리가 실제로 쓰는 메서드만 구현.
 // 캐스팅으로 기존 API 와 호환되게 한다.
-class ZipFileHandle {
+class VirtualFileHandle {
   readonly kind = "file" as const;
   readonly name: string;
-  private readonly entry: JSZip.JSZipObject;
+  private readonly node: VirtualFileNode;
 
-  constructor(name: string, entry: JSZip.JSZipObject) {
+  constructor(name: string, node: VirtualFileNode) {
     this.name = name;
-    this.entry = entry;
+    this.node = node;
   }
 
   async getFile(): Promise<File> {
-    const blob = await this.entry.async("blob");
+    if (this.node.file) return this.node.file;
+    if (!this.node.entry) throw new Error(`가상 파일 엔트리가 없습니다: ${this.name}`);
+    const blob = await this.node.entry.async("blob");
     // 확장자로 mime 추정 — 폴더 모드와 동일하게 처리되도록
     const mime = guessMime(this.name);
     return new File([blob], this.name, { type: mime });
@@ -48,10 +51,10 @@ class ZipDirHandle {
     this.node = node;
   }
 
-  async *entries(): AsyncGenerator<[string, ZipFileHandle | ZipDirHandle]> {
+  async *entries(): AsyncGenerator<[string, VirtualFileHandle | ZipDirHandle]> {
     for (const [name, child] of this.node.children) {
       if (child.kind === "file") {
-        yield [name, new ZipFileHandle(name, child.entry)];
+        yield [name, new VirtualFileHandle(name, child)];
       } else {
         yield [name, new ZipDirHandle(name, child)];
       }
@@ -64,6 +67,50 @@ class ZipDirHandle {
   }
   async getDirectoryHandle(): Promise<never> {
     throw new Error("ZipDirHandle.getDirectoryHandle: not implemented");
+  }
+}
+
+class TauriFileHandle {
+  readonly kind = "file" as const;
+  readonly name: string;
+  private readonly path: string;
+
+  constructor(name: string, path: string) {
+    this.name = name;
+    this.path = path;
+  }
+
+  async getFile(): Promise<File> {
+    const { readFile } = await import("@tauri-apps/plugin-fs");
+    const bytes = await readFile(this.path);
+    return new File([bytes], this.name, { type: guessMime(this.name) });
+  }
+}
+
+class TauriDirHandle {
+  readonly kind = "directory" as const;
+  readonly name: string;
+  private readonly path: string;
+
+  constructor(name: string, path: string) {
+    this.name = name;
+    this.path = path;
+  }
+
+  async *entries(): AsyncGenerator<[string, TauriFileHandle | TauriDirHandle]> {
+    const [{ readDir }, { join }] = await Promise.all([
+      import("@tauri-apps/plugin-fs"),
+      import("@tauri-apps/api/path"),
+    ]);
+    const entries = await readDir(this.path);
+    for (const entry of entries) {
+      const childPath = await join(this.path, entry.name);
+      if (entry.isDirectory) {
+        yield [entry.name, new TauriDirHandle(entry.name, childPath)];
+      } else if (entry.isFile) {
+        yield [entry.name, new TauriFileHandle(entry.name, childPath)];
+      }
+    }
   }
 }
 
@@ -125,6 +172,39 @@ function buildTreeFromZip(zip: JSZip): VirtualDirNode {
   return root;
 }
 
+function buildTreeFromFiles(files: File[]): VirtualDirNode {
+  const root: VirtualDirNode = { kind: "directory", name: "", children: new Map() };
+
+  for (const file of files) {
+    const rel = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? file.name;
+    const parts = rel.replace(/^\/+/, "").split("/").filter(Boolean);
+    if (parts.length === 0) continue;
+
+    let cursor = root;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      const segment = parts[i];
+      if (!segment) continue;
+      let next = cursor.children.get(segment);
+      if (!next || next.kind === "file") {
+        const dirNode: VirtualDirNode = { kind: "directory", name: segment, children: new Map() };
+        cursor.children.set(segment, dirNode);
+        next = dirNode;
+      }
+      cursor = next as VirtualDirNode;
+    }
+
+    const fileName = parts[parts.length - 1];
+    if (!fileName) continue;
+    cursor.children.set(fileName, { kind: "file", name: fileName, file });
+  }
+
+  if (root.children.size === 1) {
+    const only = Array.from(root.children.values())[0];
+    if (only && only.kind === "directory") return only;
+  }
+  return root;
+}
+
 // 외부 진입점 — ZIP 파일을 FileSystemDirectoryHandle 호환 핸들로 변환
 export async function createZipVirtualDir(input: Blob | ArrayBuffer): Promise<FileSystemDirectoryHandle> {
   let zip = await JSZip.loadAsync(input);
@@ -140,4 +220,15 @@ export async function createZipVirtualDir(input: Blob | ArrayBuffer): Promise<Fi
   const tree = buildTreeFromZip(zip);
   const handle = new ZipDirHandle(tree.name || "zip-root", tree);
   return handle as unknown as FileSystemDirectoryHandle;
+}
+
+export function createFilesVirtualDir(files: File[]): FileSystemDirectoryHandle {
+  const tree = buildTreeFromFiles(files);
+  const handle = new ZipDirHandle(tree.name || "folder-root", tree);
+  return handle as unknown as FileSystemDirectoryHandle;
+}
+
+export function createTauriVirtualDir(path: string): FileSystemDirectoryHandle {
+  const name = path.split(/[\\/]/).filter(Boolean).pop() ?? "folder-root";
+  return new TauriDirHandle(name, path) as unknown as FileSystemDirectoryHandle;
 }

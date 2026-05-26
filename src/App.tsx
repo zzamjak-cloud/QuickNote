@@ -228,7 +228,7 @@ function App() {
       }
       setCurrentTabPage(activePageId);
     }
-  }, [activePageId, activeTabIndex, setCurrentTabPage]);
+  }, [activePageId, activeTabIndex, setActivePage, setCurrentTabPage]);
 
   // 글로벌 단축키
   useEffect(() => {
