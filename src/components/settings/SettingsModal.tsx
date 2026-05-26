@@ -63,14 +63,15 @@ export function SettingsModal({ open, onClose }: Props) {
         { id: "workspaces", label: "워크스페이스", title: "워크스페이스 관리", icon: Building },
       );
     }
-    // 자산 관리 — 본인의 모든 업로드 자산. admin 만 노출 (사용자 단위지만 의도적 가시성 제한).
-    if (isAdmin) {
+    // 자산 관리 — 본인의 모든 업로드 자산. 영구 삭제·페이지 본문 교체가 가능해
+    // developer/owner 로 제한.
+    if (role === "developer" || role === "owner") {
       list.push({ id: "assets", label: "자산", title: "자산 관리", icon: HardDrive });
     }
     // Notion 가져오기는 일회성·일부 사용자 전용 — 가장 하단 배치
     list.push({ id: "notionImport", label: "Notion 가져오기", title: "Notion 가져오기", icon: Download });
     return list;
-  }, [isAdmin]);
+  }, [isAdmin, role]);
 
   useEffect(() => {
     if (!open || !isAdmin) return;
@@ -228,7 +229,9 @@ export function SettingsModal({ open, onClose }: Props) {
               {tab === "teams" && isAdmin && <AdminTeamsTab />}
               {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
               {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
-              {tab === "assets" && isAdmin && <AdminAssetsTab onClose={onClose} />}
+              {tab === "assets" && (role === "developer" || role === "owner") && (
+                <AdminAssetsTab onClose={onClose} />
+              )}
             </Suspense>
           </div>
         </section>

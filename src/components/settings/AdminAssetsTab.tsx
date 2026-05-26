@@ -16,6 +16,7 @@ import {
 } from "../../lib/sync/assetApi";
 import type { GqlAsset, GqlAssetUsage } from "../../lib/sync/graphql/operations";
 import { usePageStore } from "../../store/pageStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import { canCompress, compressAsset } from "../../lib/files/assetCompressor";
 import { uploadFile } from "../../lib/files/upload";
 import { imageUrlCache } from "../../lib/images/registry";
@@ -61,6 +62,8 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
 
   const pages = usePageStore((s) => s.pages);
   const setActivePage = usePageStore((s) => s.setActivePage);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
 
   const fetchAssets = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -462,7 +465,11 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
           loading={usageLoading}
           pages={pages}
           onClose={() => setUsageOpenFor(null)}
-          onNavigate={(pageId) => {
+          onNavigate={(pageId, workspaceId) => {
+            // 자산이 다른 워크스페이스의 페이지에서 쓰이는 경우, 먼저 워크스페이스 전환.
+            if (workspaceId && workspaceId !== currentWorkspaceId) {
+              setCurrentWorkspaceId(workspaceId);
+            }
             setActivePage(pageId);
             setUsageOpenFor(null);
             // 설정 모달도 함께 닫아 페이지가 즉시 보이도록.
@@ -509,27 +516,40 @@ function CompressCell(props: {
 
 function AssetThumb({ asset }: { asset: GqlAsset }) {
   const [url, setUrl] = useState<string | null>(null);
+  const isImage = asset.mimeType.startsWith("image/");
+  const isVideo = asset.mimeType.startsWith("video/");
   useEffect(() => {
     let cancelled = false;
-    if (!asset.mimeType.startsWith("image/")) return;
-    void import("../../lib/images/registry").then(({ imageUrlCache }) => {
-      const cached = imageUrlCache.peek(asset.id);
-      if (cached) {
-        setUrl(cached);
-        return;
-      }
-      void imageUrlCache.get(asset.id).then((u) => {
+    if (!isImage && !isVideo) return;
+    const cached = imageUrlCache.peek(asset.id);
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
+    void imageUrlCache.get(asset.id).then(
+      (u) => {
         if (!cancelled) setUrl(u);
-      }, () => undefined);
-    });
+      },
+      () => undefined,
+    );
     return () => {
       cancelled = true;
     };
-  }, [asset.id, asset.mimeType]);
+  }, [asset.id, isImage, isVideo]);
   return (
     <div className="grid h-10 w-12 place-items-center overflow-hidden rounded bg-zinc-100 dark:bg-zinc-800">
-      {url ? (
+      {url && isImage ? (
         <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
+      ) : url && isVideo ? (
+        // 첫 프레임 미리보기 — preload="metadata" 로 메타데이터만 로드 (대역폭 절약).
+        // muted + playsInline 으로 자동 첫 프레임 캡처. #t=0.1 으로 일부 브라우저에서 첫 프레임 강제 로드.
+        <video
+          src={`${url}#t=0.1`}
+          className="h-full w-full object-cover"
+          preload="metadata"
+          muted
+          playsInline
+        />
       ) : (
         <span className="text-[10px] uppercase text-zinc-400">{asset.mimeType.split("/")[0]}</span>
       )}
@@ -543,7 +563,7 @@ function UsageDialog(props: {
   loading: boolean;
   pages: Record<string, { id: string; title: string } | undefined>;
   onClose: () => void;
-  onNavigate: (pageId: string) => void;
+  onNavigate: (pageId: string, workspaceId: string | null) => void;
 }) {
   return (
     <div
@@ -587,7 +607,7 @@ function UsageDialog(props: {
                   <li key={`${r.assetId}-${r.pageId}-${r.blockId ?? ""}`}>
                     <button
                       type="button"
-                      onClick={() => props.onNavigate(r.pageId)}
+                      onClick={() => props.onNavigate(r.pageId, r.workspaceId)}
                       className="group flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
                       title="이 페이지로 바로가기"
                     >
