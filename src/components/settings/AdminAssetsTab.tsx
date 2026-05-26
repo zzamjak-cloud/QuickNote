@@ -614,7 +614,15 @@ function AssetPreviewDialog({ asset, onClose }: { asset: GqlAsset; onClose: () =
           ) : isImage ? (
             <img src={url} alt={asset.name ?? ""} className="max-h-[70vh] max-w-full object-contain" />
           ) : isVideo ? (
-            <video src={url} className="max-h-[70vh] max-w-full" controls autoPlay playsInline />
+            // autoPlay 와 default preload(auto) 는 20MB 이상에서 첫 프레임까지 수십 초 소요.
+            // metadata 만 먼저 받아 즉시 컨트롤 노출, 재생은 사용자 클릭으로 시작.
+            <video
+              src={url}
+              className="max-h-[70vh] max-w-full"
+              controls
+              playsInline
+              preload="metadata"
+            />
           ) : isAudio ? (
             <audio src={url} controls className="w-full max-w-md" />
           ) : isPdf ? (
