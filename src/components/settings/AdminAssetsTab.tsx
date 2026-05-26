@@ -3,7 +3,7 @@
 // 사용 위치(페이지) 인라인 표시.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Trash2, RefreshCw, Filter, ExternalLink } from "lucide-react";
+import { Loader2, Search, Trash2, RefreshCw, Filter, ExternalLink, Pencil } from "lucide-react";
 import { ListVirtualizer } from "../../lib/ui-primitives/ListVirtualizer";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import {
@@ -11,6 +11,7 @@ import {
   deleteMyAssetsApi,
   getAssetUsagesApi,
   migrateAssetUsageApi,
+  renameAssetApi,
   type ListMyAssetsInput,
 } from "../../lib/sync/assetApi";
 import type { GqlAsset, GqlAssetUsage } from "../../lib/sync/graphql/operations";
@@ -198,6 +199,23 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
     setDeleting(false);
     setDeleteProgress(null);
   }, [selected]);
+
+  const renameAsset = useCallback(async (asset: GqlAsset) => {
+    const current = asset.name ?? "";
+    const next = window.prompt("새 자산 이름 (비우면 이름 제거)", current);
+    if (next === null) return; // 취소
+    const trimmed = next.trim();
+    if (trimmed === current) return; // 변경 없음
+    try {
+      const updated = await renameAssetApi(asset.id, trimmed.length > 0 ? trimmed : null);
+      if (!updated) return;
+      setAssets((prev) =>
+        prev.map((a) => (a.id === asset.id ? { ...a, name: updated.name } : a)),
+      );
+    } catch (err) {
+      setError(`이름 변경 실패: ${formatError(err)}`);
+    }
+  }, []);
 
   const openUsage = useCallback(async (asset: GqlAsset) => {
     setUsageOpenFor(asset);
@@ -426,10 +444,24 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
                   />
                   <AssetThumb asset={a} />
                   <div
-                    className="min-w-0 flex-1 truncate text-zinc-800 dark:text-zinc-200"
+                    className="group flex min-w-0 flex-1 items-center gap-1 text-zinc-800 dark:text-zinc-200"
                     title={a.name ?? a.id}
                   >
-                    {a.name ?? <span className="text-zinc-500">{a.id.slice(0, 12)}…</span>}
+                    <span className="min-w-0 truncate">
+                      {a.name ?? <span className="text-zinc-500">{a.id.slice(0, 12)}…</span>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void renameAsset(a);
+                      }}
+                      className="shrink-0 rounded p-0.5 text-zinc-400 opacity-0 hover:bg-zinc-100 hover:text-blue-600 group-hover:opacity-100 dark:hover:bg-zinc-700"
+                      title="이름 변경"
+                      aria-label="이름 변경"
+                    >
+                      <Pencil size={11} />
+                    </button>
                   </div>
                   <div className="w-20 truncate text-xs text-zinc-500" title={a.mimeType}>
                     {mimeChip(a.mimeType)}

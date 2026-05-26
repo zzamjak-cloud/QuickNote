@@ -197,6 +197,36 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     },
   }),
   slashLeaf({
+    id: "image-search",
+    title: "이미지 검색",
+    description: "서버에 업로드된 이미지를 파일명으로 검색해 연결",
+    icon: ImageIcon,
+    keywords: ["image", "이미지", "검색", "search", "찾기", "연결", "link"],
+    command: (ctx) => {
+      clearSlashRange(ctx);
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("quicknote:open-server-image-picker"),
+        );
+      }, 0);
+    },
+  }),
+  slashLeaf({
+    id: "video-search",
+    title: "동영상 검색",
+    description: "서버에 업로드된 동영상을 파일명으로 검색해 연결",
+    icon: YoutubeIcon,
+    keywords: ["video", "동영상", "비디오", "검색", "search", "찾기", "연결", "link"],
+    command: (ctx) => {
+      clearSlashRange(ctx);
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("quicknote:open-server-video-picker"),
+        );
+      }, 0);
+    },
+  }),
+  slashLeaf({
     title: "이모지",
     description: "이모지 아이콘 삽입",
     icon: Smile,

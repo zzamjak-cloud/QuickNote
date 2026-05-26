@@ -98,6 +98,7 @@ import {
 } from "./handlers/mm";
 import {
   listMyAssets,
+  renameAsset,
   getAssetUsages,
   deleteMyAssets,
   replaceAssetRef,
@@ -699,6 +700,12 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return await deleteMyAssets({
           ...base,
           assetIds: event.arguments.assetIds as string[],
+        });
+      case "renameAsset":
+        return await renameAsset({
+          ...base,
+          assetId: event.arguments.assetId as string,
+          name: (event.arguments.name as string | null | undefined) ?? null,
         });
       case "replaceAssetRef":
         return await replaceAssetRef({

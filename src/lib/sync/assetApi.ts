@@ -5,6 +5,7 @@ import {
   LIST_MY_ASSETS,
   GET_ASSET_USAGES,
   DELETE_MY_ASSETS,
+  RENAME_ASSET,
   REPLACE_ASSET_REF,
   MIGRATE_ASSET_USAGE,
   type GqlAsset,
@@ -47,6 +48,17 @@ export async function deleteMyAssetsApi(assetIds: string[]): Promise<string[]> {
     variables: { assetIds },
   })) as { data?: { deleteMyAssets?: string[] } };
   return res.data?.deleteMyAssets ?? [];
+}
+
+export async function renameAssetApi(
+  assetId: string,
+  name: string | null,
+): Promise<GqlAsset | null> {
+  const res = (await appsyncClient().graphql({
+    query: RENAME_ASSET,
+    variables: { assetId, name },
+  })) as { data?: { renameAsset?: GqlAsset } };
+  return res.data?.renameAsset ?? null;
 }
 
 export async function replaceAssetRefApi(

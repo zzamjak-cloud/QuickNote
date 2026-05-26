@@ -5,57 +5,7 @@ import { uploadImage } from "../../lib/images/upload";
 import { prepareImageFileForUpload } from "../../lib/images/compressImage";
 import { insertFileFromFile } from "../../lib/editor/insertFileFromFile";
 import { isGifFile } from "../../lib/files/videoCompress";
-
-// 글머리/번호/체크 항목 안에 이미지·파일 블록을 직접 삽입한다.
-// 단순 insertContent 만 호출하면 TipTap 이 listItem 스키마 제약(첫 자식이 paragraph 여야 한다는
-// 기본 동작) 으로 인해 블록을 listItem 밖으로 lift 시키는 경우가 있다.
-// 커서의 가장 가까운 listItem/taskItem 을 찾아 그 안의 paragraph 뒤(=중첩 리스트 앞) 위치에
-// 끼워 넣는다. 항목 안이 아니면 기본 insertContent 로 폴백한다.
-function insertBlockSmart(
-  editor: Editor,
-  nodeJSON: { type: string; attrs?: Record<string, unknown> },
-): void {
-  const { state } = editor;
-  const { selection } = state;
-  const $from = selection.$from;
-  let listItemDepth = -1;
-  for (let d = $from.depth; d > 0; d -= 1) {
-    const name = $from.node(d).type.name;
-    if (name === "listItem" || name === "taskItem") {
-      listItemDepth = d;
-      break;
-    }
-  }
-  if (listItemDepth < 0) {
-    editor.chain().focus().insertContent(nodeJSON).run();
-    return;
-  }
-  // listItem 내부의 첫 paragraph 끝 위치를 계산.
-  const listItem = $from.node(listItemDepth);
-  const listItemStart = $from.start(listItemDepth);
-  let insertPos = listItemStart;
-  let foundParagraph = false;
-  listItem.content.forEach((child, offset) => {
-    if (foundParagraph) return;
-    if (child.type.name === "paragraph") {
-      insertPos = listItemStart + offset + child.nodeSize;
-      foundParagraph = true;
-    }
-  });
-  // paragraph 가 없으면 listItem 의 시작 안쪽에 그대로 삽입.
-  if (!foundParagraph) insertPos = listItemStart + 1;
-  const nodeType = editor.schema.nodes[nodeJSON.type];
-  if (!nodeType) {
-    editor.chain().focus().insertContent(nodeJSON).run();
-    return;
-  }
-  const node = nodeType.create(nodeJSON.attrs ?? null);
-  // TipTap insertContent/insertContentAt 은 schema 적합성 검사 후 listItem 밖으로
-  // 노드를 lift 하는 경우가 있어, listItem 내부 정확한 위치에 꽂기 위해 ProseMirror tr.insert 를 직접 사용한다.
-  const tr = editor.state.tr.insert(insertPos, node);
-  editor.view.dispatch(tr);
-  editor.view.focus();
-}
+import { insertBlockSmart } from "../../lib/editor/insertBlockSmart";
 
 const MAX_BYTES = 20 * 1024 * 1024;
 const ALLOWED_MIME = new Set([

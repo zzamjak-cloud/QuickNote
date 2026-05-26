@@ -33,6 +33,7 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { setPageContext } from "../../lib/tiptapExtensions/pageContext";
 import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { ImageUpload } from "./ImageUpload";
+import { ServerImagePicker } from "./ServerImagePicker";
 import { IconPickerPanel } from "../common/IconPicker";
 import { FileText, Database } from "lucide-react";
 import { PageTitleBar } from "../page/PageTitleBar";
@@ -164,6 +165,8 @@ export function Editor({
   const debounceRef = useRef<number | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const [imageOpen, setImageOpen] = useState(false);
+  const [serverImageOpen, setServerImageOpen] = useState(false);
+  const [serverVideoOpen, setServerVideoOpen] = useState(false);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [emojiAnchor, setEmojiAnchor] = useState<EmojiAnchor | null>(null);
   const [pasteUrlChoice, setPasteUrlChoice] = useState<PasteUrlChoice | null>(null);
@@ -440,7 +443,20 @@ export function Editor({
         lastSyncedPageIdRef.current = effectivePageId;
         return;
       }
-      editor.commands.setContent(safePageDoc, { emitUpdate: false });
+      // 히스토리에 "빈 본문 → 실제 본문" 한 줄을 남기지 않도록, undo 가능 메타를 false 로 두고 직접 dispatch.
+      // 이전에는 setContent 가 트랜잭션을 히스토리에 적재해, Ctrl+Z 한 번이면 본문 전체가 사라지는
+      // 치명적 회귀가 있었다. 같은 페이지의 원격 push 동기화도 마찬가지로 사용자 undo 스택을 오염시키지 않아야 한다.
+      try {
+        const newDoc = editor.schema.nodeFromJSON(safePageDoc);
+        const tr = editor.state.tr
+          .replaceWith(0, editor.state.doc.content.size, newDoc.content)
+          .setMeta("addToHistory", false)
+          .setMeta("preventUpdate", true);
+        editor.view.dispatch(tr);
+      } catch {
+        // 파싱 실패 시 안전망 — 어차피 빈 페이지보다 일관성 회복이 우선.
+        editor.commands.setContent(safePageDoc, { emitUpdate: false });
+      }
       storeDocHydratedRef.current = true;
       lastSyncedPageIdRef.current = effectivePageId;
     };
@@ -563,13 +579,40 @@ export function Editor({
     };
   }, [flushDocSync]);
 
-  // 이미지 업로드 모달 트리거
+  // 이미지 업로드 모달 트리거 — 포커스된 Editor 인스턴스만 열도록 가드 (피크 + 메인 동시 마운트 시 중복 노출 방지).
   useEffect(() => {
-    const open = () => setImageOpen(true);
+    const open = () => {
+      if (!editor?.isFocused) return;
+      setImageOpen(true);
+    };
     window.addEventListener("quicknote:open-image-upload", open);
     return () =>
       window.removeEventListener("quicknote:open-image-upload", open);
-  }, []);
+  }, [editor]);
+
+  // 서버 이미지 검색 모달 트리거 (/이미지검색)
+  // 메인 + 피크(DatabaseRowPage 등) 양쪽 Editor 가 동시에 마운트돼 있을 수 있어
+  // 포커스된 인스턴스에서만 열리도록 가드한다. 두 모달이 동시에 뜨는 회귀 방지.
+  useEffect(() => {
+    const open = () => {
+      if (!editor?.isFocused) return;
+      setServerImageOpen(true);
+    };
+    window.addEventListener("quicknote:open-server-image-picker", open);
+    return () =>
+      window.removeEventListener("quicknote:open-server-image-picker", open);
+  }, [editor]);
+
+  // 서버 동영상 검색 모달 트리거 (/동영상검색)
+  useEffect(() => {
+    const open = () => {
+      if (!editor?.isFocused) return;
+      setServerVideoOpen(true);
+    };
+    window.addEventListener("quicknote:open-server-video-picker", open);
+    return () =>
+      window.removeEventListener("quicknote:open-server-video-picker", open);
+  }, [editor]);
 
   // 이모지 피커 모달 트리거
   const getEmojiAnchor = useCallback(
@@ -900,6 +943,18 @@ export function Editor({
         open={imageOpen}
         onClose={() => setImageOpen(false)}
         editor={editor}
+      />
+      <ServerImagePicker
+        open={serverImageOpen}
+        onClose={() => setServerImageOpen(false)}
+        editor={editor}
+        mode="image"
+      />
+      <ServerImagePicker
+        open={serverVideoOpen}
+        onClose={() => setServerVideoOpen(false)}
+        editor={editor}
+        mode="video"
       />
       {pasteUrlChoice && (
         <div

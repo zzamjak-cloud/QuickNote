@@ -16,6 +16,7 @@ import {
   GetCommand,
   BatchWriteCommand,
   BatchGetCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import type { Tables } from "./member";
@@ -444,6 +445,54 @@ export async function getAssetUsages(args: {
 }
 
 // ===== Mutations =====
+
+/**
+ * 자산의 표시용 이름(name) 을 변경. 소유자 검증 후 ImageAssets row 의 name 만 UpdateCommand 로 patch.
+ * name 이 빈 문자열·null 이면 필드를 제거(REMOVE)해 다시 id 표시 폴백으로 돌아간다.
+ */
+export async function renameAsset(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: { memberId: string; cognitoSub?: string | null };
+  assetId: string;
+  name: string | null;
+}): Promise<Record<string, unknown>> {
+  const imageAssets = requireTable(args.tables.ImageAssets, "IMAGE_ASSETS_TABLE_NAME");
+  const ownerId = requireCognitoSub(args.caller);
+  if (!args.assetId) throw badRequest("assetId 필수");
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: imageAssets, Key: { id: args.assetId } }),
+  );
+  const asset = existing.Item as { id?: string; ownerId?: string } | undefined;
+  if (!asset) throw notFound("자산 없음");
+  if (asset.ownerId !== ownerId) throw unauthorized("다른 사용자의 자산은 수정할 수 없습니다");
+  const trimmed = typeof args.name === "string" ? args.name.trim() : "";
+  if (trimmed.length === 0) {
+    const res = await args.doc.send(
+      new UpdateCommand({
+        TableName: imageAssets,
+        Key: { id: args.assetId },
+        UpdateExpression: "REMOVE #n",
+        ExpressionAttributeNames: { "#n": "name" },
+        ReturnValues: "ALL_NEW",
+      }),
+    );
+    return (res.Attributes ?? {}) as Record<string, unknown>;
+  }
+  // DynamoDB 항목 한도 보호 — 자산 이름이 비정상적으로 길지 않도록 컷.
+  const safeName = trimmed.slice(0, 256);
+  const res = await args.doc.send(
+    new UpdateCommand({
+      TableName: imageAssets,
+      Key: { id: args.assetId },
+      UpdateExpression: "SET #n = :n",
+      ExpressionAttributeNames: { "#n": "name" },
+      ExpressionAttributeValues: { ":n": safeName },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return (res.Attributes ?? {}) as Record<string, unknown>;
+}
 
 export async function deleteMyAssets(args: {
   doc: DynamoDBDocumentClient;

@@ -803,6 +803,7 @@ export function response(ctx) {
     v5Ds.createResolver("QuerylistMyAssets", { typeName: "Query", fieldName: "listMyAssets" });
     v5Ds.createResolver("QuerygetAssetUsages", { typeName: "Query", fieldName: "getAssetUsages" });
     v5Ds.createResolver("MutationdeleteMyAssets", { typeName: "Mutation", fieldName: "deleteMyAssets" });
+    v5Ds.createResolver("MutationrenameAsset", { typeName: "Mutation", fieldName: "renameAsset" });
     v5Ds.createResolver("MutationreplaceAssetRef", { typeName: "Mutation", fieldName: "replaceAssetRef" });
     v5Ds.createResolver("MutationmigrateAssetUsage", { typeName: "Mutation", fieldName: "migrateAssetUsage" });
 

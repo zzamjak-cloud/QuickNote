@@ -28,6 +28,14 @@ export const DELETE_MY_ASSETS = `
   }
 `;
 
+export const RENAME_ASSET = `
+  mutation RenameAsset($assetId: ID!, $name: String) {
+    renameAsset(assetId: $assetId, name: $name) {
+      ${ASSET_FIELDS}
+    }
+  }
+`;
+
 export const REPLACE_ASSET_REF = `
   mutation ReplaceAssetRef($input: ReplaceAssetRefInput!) {
     replaceAssetRef(input: $input)

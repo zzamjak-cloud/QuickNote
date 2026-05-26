@@ -5,6 +5,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
 
@@ -297,7 +298,10 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
 
   const handles: HandleId[] = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
 
-  return (
+  // 피크 패널(DatabaseRowPeek) 처럼 조상에 CSS transform 이 걸려 있으면 position:fixed 의
+  // 컨테이닝 블록이 viewport 가 아닌 transformed ancestor 로 바뀌어, getBoundingClientRect
+  // (viewport 좌표) 와 어긋난다. Portal 로 body 직속에 렌더해 항상 viewport 기준이 되도록 한다.
+  return createPortal(
     <div
       data-qn-editor-chrome="image-resize-overlay"
       className="pointer-events-none fixed z-[35]"
@@ -358,6 +362,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
           />
         );
       })}
-    </div>
+    </div>,
+    document.body,
   );
 }
