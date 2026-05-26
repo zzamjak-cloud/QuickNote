@@ -566,30 +566,34 @@ export async function replaceAssetRef(args: {
 }
 
 /**
- * 기존 페이지를 전부 스캔해 AssetUsage 인덱스를 재구성.
- * caller 의 모든 워크스페이스에 걸친 페이지를 대상으로 — caller 가 소유한 자산 ref 만 인덱싱.
- * 결과는 인덱싱된 (assetId, pageId) row 수.
+ * 기존 페이지를 스캔해 AssetUsage 인덱스를 재구성. 시간-박스 방식.
+ * - cursor: 이전 호출의 nextCursor (base64-encoded LastEvaluatedKey).
+ * - 호출당 약 22초 안에 가능한 만큼 처리하고, 남은 게 있으면 nextCursor 반환.
+ * - 클라이언트는 hasMore=true 인 동안 cursor 를 그대로 전달해 반복 호출.
  */
 export async function migrateAssetUsage(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
   caller: { memberId: string; cognitoSub?: string | null };
-}): Promise<number> {
+  cursor?: string | null;
+}): Promise<{ processedRows: number; nextCursor: string | null; hasMore: boolean }> {
   const pagesTable = requireTable(args.tables.Pages, "PAGES_TABLE_NAME");
   const usageTable = args.tables.AssetUsage;
   if (!usageTable) throw new Error("AssetUsage 테이블 미설정");
   const ownerId = requireCognitoSub(args.caller);
-  // Scan Pages 전체. 페이지 수가 작은 단계에서만 사용.
-  let startKey: Record<string, unknown> | undefined = undefined;
+  const deadline = Date.now() + 22 * 1000; // Lambda 28s, AppSync 30s 에 안전한 여유.
+  let startKey: Record<string, unknown> | undefined = decodeCursor(args.cursor ?? null);
   let totalRows = 0;
-  do {
+  while (true) {
     const res = await args.doc.send(
       new ScanCommand({
         TableName: pagesTable,
         ExclusiveStartKey: startKey,
+        Limit: 50,
       }),
     );
     const items = (res.Items ?? []) as Array<Record<string, unknown>>;
+    // 한 페이지 안에서는 자산 소유 검증을 병렬화해 wall-clock 단축.
     for (const it of items) {
       const pageId = it.id as string | undefined;
       const workspaceId = it.workspaceId as string | undefined;
@@ -598,18 +602,16 @@ export async function migrateAssetUsage(args: {
       const iconStr = (it.icon as string | undefined) ?? null;
       const coverStr = (it.coverImage as string | undefined) ?? null;
       if (!pageId || !workspaceId) continue;
-      // doc 본문 + icon + coverImage 에서 ref 추출 → 본인 소유 자산만 인덱싱.
       const refs = docJson ? extractAssetRefs(docJson) : [];
       const iconAssetId = extractAssetIdFromString(iconStr);
       if (iconAssetId) refs.push({ assetId: iconAssetId, blockType: "pageIcon" });
       const coverAssetId = extractAssetIdFromString(coverStr);
       if (coverAssetId) refs.push({ assetId: coverAssetId, blockType: "pageCover" });
       if (refs.length === 0) continue;
-      const ownedRefs: typeof refs = [];
-      for (const ref of refs) {
-        const owned = await isAssetOwnedBy(args.doc, args.tables, ref.assetId, ownerId);
-        if (owned) ownedRefs.push(ref);
-      }
+      const ownershipFlags = await Promise.all(
+        refs.map((ref) => isAssetOwnedBy(args.doc, args.tables, ref.assetId, ownerId)),
+      );
+      const ownedRefs = refs.filter((_, i) => ownershipFlags[i]);
       if (ownedRefs.length === 0) continue;
       await syncPageAssetUsage({
         doc: args.doc,
@@ -625,8 +627,30 @@ export async function migrateAssetUsage(args: {
       totalRows += ownedRefs.length;
     }
     startKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
-  } while (startKey);
-  return totalRows;
+    if (!startKey) {
+      return { processedRows: totalRows, nextCursor: null, hasMore: false };
+    }
+    if (Date.now() >= deadline) {
+      return {
+        processedRows: totalRows,
+        nextCursor: encodeCursor(startKey),
+        hasMore: true,
+      };
+    }
+  }
+}
+
+function encodeCursor(key: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(key), "utf-8").toString("base64");
+}
+
+function decodeCursor(cursor: string | null): Record<string, unknown> | undefined {
+  if (!cursor) return undefined;
+  try {
+    return JSON.parse(Buffer.from(cursor, "base64").toString("utf-8"));
+  } catch {
+    return undefined;
+  }
 }
 
 const assetOwnerCache = new Map<string, string | null>();

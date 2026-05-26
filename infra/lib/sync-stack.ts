@@ -495,12 +495,14 @@ export function response(ctx) {
     });
 
     // v5-resolvers Lambda — 모든 v5 admin/workspace mutation/query 라우터
+    // 타임아웃은 AppSync resolver 의 기본 한도(~30s) 에 맞춰 28s.
+    // migrateAssetUsage 처럼 Scan 기반 무거운 mutation 도 단일 호출에서 처리 가능.
     const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
-      memorySize: 256,
-      timeout: cdk.Duration.seconds(15),
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(28),
       logRetention: logs.RetentionDays.ONE_MONTH,
       environment: {
         MEMBERS_TABLE_NAME: this.membersTable.tableName,

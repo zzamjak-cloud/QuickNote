@@ -677,7 +677,10 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           input: event.arguments.input as { oldAssetId: string; newAssetId: string },
         });
       case "migrateAssetUsage":
-        return await migrateAssetUsage({ ...base });
+        return await migrateAssetUsage({
+          ...base,
+          cursor: (event.arguments.cursor as string | null | undefined) ?? null,
+        });
       default:
         throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");
     }

@@ -219,6 +219,15 @@ input ReplaceAssetRefInput {
   newAssetId: ID!
 }
 
+type MigrateAssetUsageResult {
+  """이번 호출에서 인덱싱된 (assetId, pageId) row 수."""
+  processedRows: Int!
+  """다음 호출에 그대로 전달할 cursor. null 이면 마이그레이션 완료."""
+  nextCursor: String
+  """추가 처리할 페이지가 남아 있는지."""
+  hasMore: Boolean!
+}
+
 type PageConnection { items: [Page!]! nextToken: String }
 type DatabaseConnection { items: [Database!]! nextToken: String }
 
@@ -454,8 +463,9 @@ type Mutation {
   deleteMyAssets(assetIds: [ID!]!): [ID!]!
   """페이지 본문의 자산 참조를 oldAssetId → newAssetId 로 교체. 영향받은 페이지 수 반환."""
   replaceAssetRef(input: ReplaceAssetRefInput!): Int!
-  """기존 페이지 데이터를 스캔해 AssetUsage 인덱스를 재구성 (1회용 마이그레이션)."""
-  migrateAssetUsage: Int!
+  """기존 페이지 데이터를 스캔해 AssetUsage 인덱스를 재구성.
+  Lambda 타임아웃을 피해 시간-박스 방식으로 동작 — hasMore=true 면 cursor 로 재호출."""
+  migrateAssetUsage(cursor: String): MigrateAssetUsageResult!
 }
 
 # ========== Subscription ==========

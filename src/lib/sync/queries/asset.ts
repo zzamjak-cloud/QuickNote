@@ -35,10 +35,20 @@ export const REPLACE_ASSET_REF = `
 `;
 
 export const MIGRATE_ASSET_USAGE = `
-  mutation MigrateAssetUsage {
-    migrateAssetUsage
+  mutation MigrateAssetUsage($cursor: String) {
+    migrateAssetUsage(cursor: $cursor) {
+      processedRows
+      nextCursor
+      hasMore
+    }
   }
 `;
+
+export type MigrateAssetUsageResult = {
+  processedRows: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+};
 
 export type GqlAssetUsage = {
   assetId: string;

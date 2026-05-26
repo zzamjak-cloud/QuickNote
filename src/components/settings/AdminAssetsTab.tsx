@@ -270,13 +270,30 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
 
   const runMigrate = useCallback(async () => {
     setMigrating(true);
-    setMigrateNotice(null);
+    setMigrateNotice("인덱싱 시작…");
+    let totalRows = 0;
+    let cursor: string | null = null;
+    let pass = 0;
     try {
-      const count = await migrateAssetUsageApi();
-      setMigrateNotice(`인덱싱 완료 — ${count}건의 참조`);
+      // Lambda 단일 호출 시간 한도(28s) 이내에서 시간-박스로 처리하고 cursor 로 이어 호출.
+      // hasMore=false 가 될 때까지 반복.
+      while (true) {
+        pass += 1;
+        const res = await migrateAssetUsageApi(cursor);
+        totalRows += res.processedRows;
+        setMigrateNotice(`인덱싱 진행 중 — ${totalRows}건 (${pass}회차)`);
+        if (!res.hasMore || !res.nextCursor) break;
+        cursor = res.nextCursor;
+        // 안전 가드 — 무한 루프 방지 (정상이라면 hasMore 가 곧 false).
+        if (pass > 200) {
+          setMigrateNotice(`중단 — pass 한도 초과 (현재까지 ${totalRows}건)`);
+          break;
+        }
+      }
+      setMigrateNotice(`인덱싱 완료 — 총 ${totalRows}건의 참조 (${pass}회차)`);
       await fetchAssets({ silent: true });
     } catch (err) {
-      setMigrateNotice(`실패: ${formatError(err)}`);
+      setMigrateNotice(`실패 (${totalRows}건까지 처리됨): ${formatError(err)}`);
     } finally {
       setMigrating(false);
     }

@@ -60,9 +60,21 @@ export async function replaceAssetRefApi(
   return res.data?.replaceAssetRef ?? 0;
 }
 
-export async function migrateAssetUsageApi(): Promise<number> {
+export async function migrateAssetUsageApi(
+  cursor: string | null = null,
+): Promise<{ processedRows: number; nextCursor: string | null; hasMore: boolean }> {
   const res = (await appsyncClient().graphql({
     query: MIGRATE_ASSET_USAGE,
-  })) as { data?: { migrateAssetUsage?: number } };
-  return res.data?.migrateAssetUsage ?? 0;
+    variables: { cursor },
+  })) as {
+    data?: {
+      migrateAssetUsage?: { processedRows?: number; nextCursor?: string | null; hasMore?: boolean };
+    };
+  };
+  const r = res.data?.migrateAssetUsage;
+  return {
+    processedRows: r?.processedRows ?? 0,
+    nextCursor: r?.nextCursor ?? null,
+    hasMore: r?.hasMore ?? false,
+  };
 }

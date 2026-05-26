@@ -7,6 +7,7 @@ export {
   MIGRATE_ASSET_USAGE,
   type GqlAsset,
   type GqlAssetUsage,
+  type MigrateAssetUsageResult,
 } from "../queries/asset";
 export {
   LIST_PAGES,
