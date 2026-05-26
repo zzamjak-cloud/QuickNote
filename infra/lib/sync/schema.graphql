@@ -180,6 +180,8 @@ type ImageAsset {
   name: String
   """이 자산을 참조하는 페이지 수 (자산 관리 탭에서 정렬·필터용 캐시값)"""
   usageCount: Int
+  """사용자 트리거 압축의 결과로 업로드된 자산. true 이면 재압축 불가."""
+  compressed: Boolean
 }
 
 # ========== Asset Usage (자산 사용 위치 인덱스) ==========
@@ -288,6 +290,8 @@ input ImageUploadInput {
   sha256: String!
   """업로드 파일의 사용자 표시 이름 (자산 관리 UI 에서 사용). 선택 사항 — 미전송 시 ID 로 폴백."""
   name: String
+  """사용자 트리거 압축의 결과물이면 true. 자산 관리 탭이 재압축 버튼을 막는다."""
+  compressed: Boolean
 }
 
 input CreateMemberInput {

@@ -29,7 +29,7 @@ type AppSyncEvent = {
   arguments: Record<string, unknown>;
 };
 
-type UploadInput = { mimeType: string; size: number; sha256: string; name?: string };
+type UploadInput = { mimeType: string; size: number; sha256: string; name?: string; compressed?: boolean };
 
 const s3 = new S3Client({});
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -192,6 +192,8 @@ async function createPendingAsset(
           expireAt,
           // 자산 관리 UI 표시용 파일명 — 선택. 미전송 시 ID 로 폴백.
           ...(input.name ? { name: input.name } : {}),
+          // 사용자 트리거 압축의 결과물이면 true → 자산 관리 탭이 재압축 버튼을 막는다.
+          ...(input.compressed ? { compressed: true } : {}),
         },
         ConditionExpression: "attribute_not_exists(id)",
       }),

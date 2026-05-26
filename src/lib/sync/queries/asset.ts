@@ -2,7 +2,7 @@
 // deleteMyAssets / replaceAssetRef / migrateAssetUsage 와 1:1 대응.
 
 const ASSET_FIELDS = `
-  id ownerId mimeType size sha256 status createdAt name usageCount
+  id ownerId mimeType size sha256 status createdAt name usageCount compressed
 `;
 
 export const LIST_MY_ASSETS = `
@@ -71,4 +71,5 @@ export type GqlAsset = {
   createdAt: string;
   name: string | null;
   usageCount: number | null;
+  compressed: boolean | null;
 };

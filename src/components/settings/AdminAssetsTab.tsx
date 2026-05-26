@@ -209,6 +209,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
   const runCompress = useCallback(async (asset: GqlAsset) => {
     const kind = canCompress(asset.mimeType);
     if (!kind) return;
+    if (asset.compressed) return; // 이미 사용자 트리거 압축 결과물 — 재압축 방지.
     const update = (msg: string) => setCompressMsg((m) => ({ ...m, [asset.id]: msg }));
     update("준비 중…");
     try {
@@ -234,9 +235,9 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         return;
       }
 
-      // 3) 새 자산 업로드
+      // 3) 새 자산 업로드 — compressed: true 로 마킹해 재압축 불가 표시.
       update("업로드 중…");
-      const uploaded = await uploadFile(out.file);
+      const uploaded = await uploadFile(out.file, { compressed: true });
       const newAssetId = uploaded.ref.replace(/^quicknote-(image|file):\/\//, "");
 
       // 4) ref 교체 (페이지 본문 일괄 갱신)
@@ -574,6 +575,16 @@ function CompressCell(props: {
   }
   if (!kind) {
     return <div className="w-24 text-right text-xs text-zinc-300">—</div>;
+  }
+  if (props.asset.compressed) {
+    return (
+      <div
+        className="w-24 truncate text-right text-xs text-emerald-600 dark:text-emerald-400"
+        title="이 자산은 이미 사용자 트리거 압축으로 생성되었습니다. 재압축은 비활성."
+      >
+        ✓ 압축완료
+      </div>
+    );
   }
   const label =
     kind === "gif-to-mp4" ? "GIF→MP4" :

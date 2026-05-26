@@ -26,7 +26,10 @@ type GetImageUploadUrlResponse = {
   };
 };
 
-export async function uploadImage(file: File): Promise<string> {
+export async function uploadImage(
+  file: File,
+  opts?: { compressed?: boolean },
+): Promise<string> {
   if (!ALLOWED_MIME.has(file.type)) {
     throw new Error(`unsupported mime: ${file.type}`);
   }
@@ -39,7 +42,13 @@ export async function uploadImage(file: File): Promise<string> {
   const presignRes = (await appsyncClient().graphql({
     query: GET_IMAGE_UPLOAD_URL,
     variables: {
-      input: { mimeType: file.type, size: file.size, sha256, name: file.name },
+      input: {
+        mimeType: file.type,
+        size: file.size,
+        sha256,
+        name: file.name,
+        ...(opts?.compressed ? { compressed: true } : {}),
+      },
     },
   })) as GetImageUploadUrlResponse;
   const { imageId, uploadUrl, alreadyUploaded } = presignRes.data.getImageUploadUrl;

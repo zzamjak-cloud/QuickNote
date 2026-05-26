@@ -29,8 +29,11 @@ export type UploadedFile = {
 };
 
 // 자동 변환/압축은 사용성 문제로 제거됨 — 파일은 첨부된 그대로 업로드한다.
-// 두 번째 인자(opts) 는 backward-compat 용 noop 으로만 유지.
-export async function uploadFile(file: File, _opts?: { alreadyPrepared?: boolean }): Promise<UploadedFile> {
+// compressed: true 를 넘기면 ImageAsset 에 플래그가 저장되어 자산 관리 탭에서 재압축 차단.
+export async function uploadFile(
+  file: File,
+  opts?: { alreadyPrepared?: boolean; compressed?: boolean },
+): Promise<UploadedFile> {
   const fileToUpload = file;
   if (fileToUpload.size <= 0) throw new Error("empty file");
   if (fileToUpload.size > MAX_BYTES) {
@@ -51,7 +54,13 @@ export async function uploadFile(file: File, _opts?: { alreadyPrepared?: boolean
   const presignRes = (await appsyncClient().graphql({
     query: GET_IMAGE_UPLOAD_URL,
     variables: {
-      input: { mimeType, size: fileToUpload.size, sha256, name: fileToUpload.name },
+      input: {
+        mimeType,
+        size: fileToUpload.size,
+        sha256,
+        name: fileToUpload.name,
+        ...(opts?.compressed ? { compressed: true } : {}),
+      },
     },
   })) as GetImageUploadUrlResponse;
   const { imageId, uploadUrl, alreadyUploaded } = presignRes.data.getImageUploadUrl;

@@ -252,6 +252,7 @@ export async function listMyAssets(args: {
     status: string;
     createdAt: string;
     name?: string | null;
+    compressed?: boolean | null;
   };
   const all: Asset[] = [];
   let startKey: Record<string, unknown> | undefined = undefined;
