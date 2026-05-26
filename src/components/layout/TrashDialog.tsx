@@ -10,6 +10,7 @@ import {
 import { runChunkedPermanentDelete } from "../../lib/sync/chunkedPermanentDelete";
 import {
   clearLocalDeleteGuard,
+  isPermanentlyDeletedEntity,
   markPermanentlyDeletedEntity,
 } from "../../lib/sync/localDeleteGuards";
 import { useWorkspaceStore } from "../../store/workspaceStore";
@@ -45,6 +46,19 @@ export function TrashDialog({ open, onClose }: Props) {
   /** 비우기 진행률 — null=비실행, { done, total } */
   const [emptyProgress, setEmptyProgress] = useState<{ done: number; total: number } | null>(null);
 
+  const filterRowsOfPermanentlyDeletedDatabases = useCallback(
+    (
+      source: Awaited<ReturnType<typeof fetchTrashedPagesBatch>>["items"],
+      workspaceId: string,
+    ) =>
+      source.filter((item) => {
+        const dbId = item.databaseId;
+        if (!dbId) return true;
+        return !isPermanentlyDeletedEntity("database", dbId, workspaceId);
+      }),
+    [],
+  );
+
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return items;
@@ -57,14 +71,14 @@ export function TrashDialog({ open, onClose }: Props) {
     setCursor(null);
     try {
       const batch = await fetchTrashedPagesBatch(currentWorkspaceId);
-      setItems(batch.items);
+      setItems(filterRowsOfPermanentlyDeletedDatabases(batch.items, currentWorkspaceId));
       setCursor(batch.nextToken);
       if (batch.nextToken !== null) {
         let loaded = batch.items;
         setLoadingMore(true);
         fetchAllTrashedPages(currentWorkspaceId, (nextBatch) => {
           loaded = [...loaded, ...nextBatch.items];
-          setItems(loaded);
+          setItems(filterRowsOfPermanentlyDeletedDatabases(loaded, currentWorkspaceId));
           setCursor(nextBatch.nextToken);
         }, batch.nextToken).catch((e) => {
           console.error(e);
@@ -88,7 +102,9 @@ export function TrashDialog({ open, onClose }: Props) {
     setLoadingMore(true);
     try {
       const batch = await fetchTrashedPagesBatch(currentWorkspaceId, cursor);
-      setItems((prev) => [...prev, ...batch.items]);
+      setItems((prev) =>
+        filterRowsOfPermanentlyDeletedDatabases([...prev, ...batch.items], currentWorkspaceId),
+      );
       setCursor(batch.nextToken);
     } catch (e) {
       console.error(e);
@@ -96,7 +112,7 @@ export function TrashDialog({ open, onClose }: Props) {
     } finally {
       setLoadingMore(false);
     }
-  }, [currentWorkspaceId, cursor, showToast]);
+  }, [currentWorkspaceId, cursor, filterRowsOfPermanentlyDeletedDatabases, showToast]);
 
   useEffect(() => {
     if (!open) return;

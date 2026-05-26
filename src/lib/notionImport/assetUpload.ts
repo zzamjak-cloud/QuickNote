@@ -44,8 +44,14 @@ export type NotionAssetResolver = {
 
 export function createNotionAssetResolver(preview: NotionZipPreview): NotionAssetResolver {
   const byPath = new Map<string, NotionImportedAsset>();
+  const byLeaf = new Map<string, NotionImportedAsset[]>();
   for (const asset of preview.assets) {
-    byPath.set(normalizeAssetPath(asset.path), asset);
+    const normalizedPath = normalizeAssetPath(asset.path);
+    byPath.set(normalizedPath, asset);
+    const leaf = normalizeMatchLeaf(normalizedPath);
+    const bucket = byLeaf.get(leaf);
+    if (bucket) bucket.push(asset);
+    else byLeaf.set(leaf, [asset]);
   }
 
   return {
@@ -58,10 +64,29 @@ export function createNotionAssetResolver(preview: NotionZipPreview): NotionAsse
       if (direct) return direct;
 
       const suffix = relative ? `/${relative}` : "";
-      return preview.assets.find((asset) => {
+      const suffixMatched = preview.assets.find((asset) => {
         const assetPath = normalizeAssetPath(asset.path);
         return assetPath.endsWith(suffix) || assetPath.endsWith(`/${normalized}`) || assetPath.endsWith(normalized);
-      }) ?? null;
+      });
+      if (suffixMatched) return suffixMatched;
+
+      // 파일명만 남는 Notion 경로 변형(공백/hex suffix/인코딩 차이) 대응.
+      const leaf = normalizeMatchLeaf(normalized);
+      const leafCandidates = byLeaf.get(leaf) ?? [];
+      if (leafCandidates.length === 1) return leafCandidates[0] ?? null;
+      if (leafCandidates.length > 1) {
+        const currentDir = normalizeAssetPath(currentPagePath ?? "").split("/").slice(0, -1).join("/");
+        const scored = leafCandidates
+          .map((asset) => {
+            const path = normalizeAssetPath(asset.path);
+            const score = sharedDirScore(path, currentDir);
+            return { asset, score };
+          })
+          .sort((a, b) => b.score - a.score);
+        return scored[0]?.asset ?? null;
+      }
+
+      return null;
     },
   };
 }
@@ -250,6 +275,32 @@ function safeDecode(value: string): string {
   } catch {
     return value;
   }
+}
+
+function normalizeMatchLeaf(path: string): string {
+  const leaf = path.split("/").pop() ?? path;
+  return safeDecode(leaf)
+    .replace(/\.[^.]+$/, "")
+    .replace(/\s+[0-9a-f]{32}$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function sharedDirScore(assetPath: string, currentDir: string): number {
+  if (!assetPath || !currentDir) return 0;
+  const a = assetPath.split("/").slice(0, -1);
+  const b = currentDir.split("/");
+  let i = a.length - 1;
+  let j = b.length - 1;
+  let score = 0;
+  while (i >= 0 && j >= 0) {
+    if (normalizeMatchLeaf(a[i] ?? "") !== normalizeMatchLeaf(b[j] ?? "")) break;
+    score += 1;
+    i -= 1;
+    j -= 1;
+  }
+  return score;
 }
 
 function isExternalAssetRef(src: string): boolean {

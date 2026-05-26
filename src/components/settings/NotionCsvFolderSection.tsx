@@ -198,8 +198,6 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
 
   useEffect(() => {
     if (!sharedSource || isImporting) return;
-    // 가져오기 완료/오류 상태에서는 재탐지 금지
-    if (status.kind === "done" || status.kind === "error") return;
     if (sharedSource.kind === "folder-handle") {
       setStatus({ kind: "scanning" });
       void detectCsvDbPairsRecursive(sharedSource.dir)
@@ -242,7 +240,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
       kind: "error",
       message: "선택한 폴더 형식은 DB 가져오기에서 아직 지원되지 않습니다. 폴더 선택(권장) 또는 ZIP 파일 선택을 사용해 주세요.",
     });
-  }, [isImporting, sharedSource, status.kind]);
+  }, [isImporting, sharedSource]);
 
   const onImport = async () => {
     if (status.kind !== "ready") return;
@@ -535,12 +533,43 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           console.log(`[IMPORT-DBG]   [2/5] collectNotionAssetRefsFromHtml${memMB()}`);
           const uploadedAssetByPath = new Map<string, UploadedNotionAsset>();
           const assetsToUpload = collectNotionAssetRefsFromHtml(parsedDoc ?? html, htmlRelPathParam, assetResolver);
+          // 인라인 DB(table/collection-content)는 최종 문서에서 databaseBlock으로 치환된다.
+          // 해당 영역의 에셋을 부모 페이지에서 업로드하면 사용처(pageId) 연결이 누락되어
+          // 자산 관리에서 "미사용"으로 잘못 잡히므로 업로드 대상에서 제외한다.
+          const inlineDbAssetPathSet = new Set<string>();
+          if (parsedDoc) {
+            const collectionScopes = Array.from(
+              parsedDoc.querySelectorAll(
+                ".collection-content, table.collection-content, .collection_view_page-block",
+              ),
+            );
+            for (const scope of collectionScopes) {
+              if (!(scope instanceof HTMLElement)) continue;
+              const scopedDoc = document.implementation.createHTMLDocument("");
+              scopedDoc.body.appendChild(scope.cloneNode(true));
+              const scopedAssets = collectNotionAssetRefsFromHtml(
+                scopedDoc,
+                htmlRelPathParam,
+                assetResolver,
+              );
+              for (const asset of scopedAssets) inlineDbAssetPathSet.add(asset.path);
+            }
+          }
           const uniqueAssets = assetsToUpload.filter(
-            (a, i, arr) => a && arr.findIndex((b) => b?.path === a.path) === i,
+            (a, i, arr) =>
+              a &&
+              !inlineDbAssetPathSet.has(a.path) &&
+              arr.findIndex((b) => b?.path === a.path) === i,
           );
+          if (inlineDbAssetPathSet.size > 0) {
+            console.log(
+              `[CSV가져오기] "${label}" 인라인DB 자산 ${inlineDbAssetPathSet.size}개 제외`,
+            );
+          }
           console.log(`[CSV가져오기] "${label}" 에셋 ${uniqueAssets.length}개 (병렬 업로드)`);
           updateProgress({ phase: "에셋 업로드", assetIdx: 0, assetTotal: uniqueAssets.length });
-          await Promise.all(uniqueAssets.map(async (asset) => {
+          let uploadedCount = 0;
+          await runConcurrent(uniqueAssets, 4, async (asset) => {
             if (!asset) return;
             try {
               uploadedAssetByPath.set(asset.path, await uploadNotionAsset(asset));
@@ -548,8 +577,11 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
               console.warn(`[CSV가져오기] 에셋 업로드 실패: ${asset.name}`, err);
               uploadedAssetByPath.set(asset.path, failedNotionAsset(asset, err));
               totalFailed++;
+            } finally {
+              uploadedCount += 1;
+              updateProgress({ phase: "에셋 업로드", assetIdx: uploadedCount, assetTotal: uniqueAssets.length });
             }
-          }));
+          });
           const resolveImageNode = (src: string, element: HTMLElement): JSONContent | null => {
             const ast = assetResolver.resolve(src, htmlRelPathParam);
             if (!ast) return null;
@@ -716,7 +748,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           `[CSV가져오기] 본문 매칭 결과: 행 ${rowPlans.length}개, HTML 파일 ${totalHtmlFiles}개, 매칭 ${matchedRowCount}개 (나머지는 빈 페이지)`,
         );
         console.log(`[IMPORT-DBG] ▶ 2단계: HTML 본문 채우기 루프 시작${memMB()}`);
-        await runConcurrent(rowPlans, 3, async (rowPlan) => {
+        await runConcurrent(rowPlans, 2, async (rowPlan) => {
           const { rowIdx, rowTitle, htmlRelPath } = rowPlan;
           const rowPageId = rowPageIdByIndex.get(rowIdx);
           if (!rowPageId) return;

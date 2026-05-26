@@ -19,6 +19,6 @@
     "process:allow-restart",
     "shell:allow-open",
     "dialog:default",
-    "fs:allow-read"
+    "fs:default"
   ]
 }

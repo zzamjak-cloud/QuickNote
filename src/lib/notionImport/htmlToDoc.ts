@@ -1473,13 +1473,18 @@ export function extractNotionPageIcon(html: string | Document): { emoji?: string
 
   // 2) <span class="icon">😀</span> 또는 <div class="page-header-icon">😀</div>
   const iconEl = header.querySelector(
-    ".page-header-icon, .notion-page-icon, .page-icon, span.icon",
+    ".page-header-icon, .notion-page-icon, .page-icon, span.icon, [data-testid='page-icon'], .notion-record-icon",
   );
   if (iconEl instanceof HTMLElement) {
-    const text = (iconEl.textContent ?? "").trim();
-    if (text && text.length <= 8) {
-      return { emoji: text };
-    }
+    const text = (iconEl.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (text) return { emoji: text };
+  }
+
+  // 3) 헤더 텍스트 전체에서 이모지 1개를 추출 (클래스명이 바뀐 Notion export 대응)
+  const headerText = (header.textContent ?? "").replace(/\s+/g, " ").trim();
+  if (headerText) {
+    const emojiMatch = headerText.match(/\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u);
+    if (emojiMatch?.[0]) return { emoji: emojiMatch[0] };
   }
   return null;
 }

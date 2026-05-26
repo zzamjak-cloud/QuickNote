@@ -53,6 +53,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   fillApplying,
   handleCheckboxClick,
   openPeek,
+  peekNavigate,
   setIcon,
   setFillDrag,
 }: {
@@ -66,6 +67,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   fillApplying: { columnId: string; sourceRowIndex: number } | null;
   handleCheckboxClick: (pageId: string, opts: { shiftKey: boolean }) => void;
   openPeek: (pageId: string) => void;
+  peekNavigate: (pageId: string) => void;
   setIcon: (pageId: string, icon: string | null) => void;
   setFillDrag: (v: FillDragState | null) => void;
 }) {
@@ -153,7 +155,11 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      openPeek(row.pageId);
+                      const inPeek = Boolean(
+                        (e.currentTarget as HTMLElement).closest("[data-qn-peek-editor='true']"),
+                      );
+                      if (inPeek) peekNavigate(row.pageId);
+                      else openPeek(row.pageId);
                     }}
                     className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
                     title="사이드 피크 열기"
@@ -219,6 +225,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const setIcon = usePageStore((s) => s.setIcon);
   const openPeek = useUiStore((s) => s.openPeek);
+  const peekNavigate = useUiStore((s) => s.peekNavigate);
   const restoreDeletedRowFromHistory = useDatabaseStore(
     (s) => s.restoreDeletedRowFromHistory,
   );
@@ -520,6 +527,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                   fillApplying={fillApplying}
                   handleCheckboxClick={handleCheckboxClick}
                   openPeek={openPeek}
+                  peekNavigate={peekNavigate}
                   setIcon={setIcon}
                   setFillDrag={setFillDrag}
                 />

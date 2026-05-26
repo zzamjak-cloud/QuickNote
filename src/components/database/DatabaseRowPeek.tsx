@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowLeftRight,
@@ -25,7 +25,6 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
-import { Editor } from "../editor/Editor";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { DbPropertySection } from "../page/DbPropertySection";
 import { useHistorySelection } from "../history/useHistorySelection";
@@ -50,6 +49,9 @@ const MIN_PEEK_WIDTH = 380;
 const MAX_PEEK_WIDTH_RATIO = 0.9; // 화면 폭의 90%까지 허용
 const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
 const MENU_ITEM_ICON = "size-4 shrink-0 text-zinc-500 dark:text-zinc-400";
+const PeekEditor = lazy(() =>
+  import("../editor/Editor").then((m) => ({ default: m.Editor })),
+);
 
 function loadPeekWidth(): number {
   if (typeof window === "undefined") return DEFAULT_PEEK_WIDTH;
@@ -176,6 +178,7 @@ export function DatabaseRowPeek() {
   const restoredPageIdRef = useRef<string | null>(null);
   const openedAtRef = useRef(0);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
+  const [editorDeferredReady, setEditorDeferredReady] = useState(false);
   const subpagePopover = useAnchoredPopover(280);
 
   // 슬라이드·딤머 애니메이션 상태
@@ -208,6 +211,16 @@ export function DatabaseRowPeek() {
       }
     };
   }, [isPendingPageCreation, peekPageId]);
+
+  useEffect(() => {
+    if (!peekPageId) {
+      setEditorDeferredReady(false);
+      return;
+    }
+    setEditorDeferredReady(false);
+    const id = requestAnimationFrame(() => setEditorDeferredReady(true));
+    return () => cancelAnimationFrame(id);
+  }, [peekPageId]);
 
   // 애니메이션 포함 닫기: slide-out 후 closePeek 호출
   const handleClose = useCallback(() => {
@@ -703,7 +716,20 @@ export function DatabaseRowPeek() {
         <PageCommentBar pageId={peekPageId} />
         {/* 노션 스타일: 피크에서도 본문 편집 가능 — Editor에 pageId 주입, bodyOnly로 제목/아이콘 영역 숨김 */}
         <div className="qn-peek-editor mt-2 -mx-8">
-          <Editor key={peekPageId} pageId={peekPageId} bodyOnly peek showTailSpacer={false} />
+          {editorDeferredReady ? (
+            <Suspense
+              fallback={(
+                <div className="flex min-h-[220px] items-center justify-center text-zinc-500">
+                  <Loader2 size={16} className="mr-2 animate-spin" />
+                  불러오는 중...
+                </div>
+              )}
+            >
+              <PeekEditor key={peekPageId} pageId={peekPageId} bodyOnly peek showTailSpacer={false} />
+            </Suspense>
+          ) : (
+            <div className="min-h-[220px]" />
+          )}
         </div>
         {subpagePopover.open && subpagePopover.coords && createPortal(
           <div

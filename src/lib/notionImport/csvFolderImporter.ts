@@ -269,7 +269,9 @@ export function buildPreviewFromFileMap(
       path,
       name,
       mimeType: mime,
-      size: 0,
+      // 폴더 핸들 모드에서는 사전 size 조회 비용을 줄이기 위해 미확정(-1)으로 둔다.
+      // 실제 업로드 직전 readAsFile() 결과로 최종 크기를 검증한다.
+      size: -1,
       readAsFile: async () => {
         const file = await handle.getFile();
         return new File([file], name, { type: mime });

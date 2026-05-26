@@ -40,7 +40,7 @@ export const LIST_TRASHED_PAGES = `
 export const LIST_TRASHED_PAGES_BRIEF = `
   query ListTrashedPagesBrief($workspaceId: ID!, $limit: Int, $nextToken: String) {
     listTrashedPages(workspaceId: $workspaceId, limit: $limit, nextToken: $nextToken) {
-      items { id title icon deletedAt updatedAt }
+      items { id title icon databaseId deletedAt updatedAt }
       nextToken
     }
   }
@@ -50,6 +50,7 @@ export type GqlPageBrief = {
   id: string;
   title: string;
   icon?: string | null;
+  databaseId?: string | null;
   deletedAt?: string | null;
   updatedAt: string;
 };

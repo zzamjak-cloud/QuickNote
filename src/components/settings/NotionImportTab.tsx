@@ -7,7 +7,11 @@ import {
 } from "../../lib/notionImport/folderScanner";
 import type { NotionImportSource } from "../../lib/notionImport/importSource";
 import { notionMarkdownToDoc } from "../../lib/notionImport/markdownToDoc";
-import { notionHtmlToDoc, type NotionCollectionTable } from "../../lib/notionImport/htmlToDoc";
+import {
+  notionHtmlToDoc,
+  extractNotionPageIcon,
+  type NotionCollectionTable,
+} from "../../lib/notionImport/htmlToDoc";
 import {
   collectNotionAssetRefsFromHtml,
   createNotionAssetResolver,
@@ -43,6 +47,7 @@ type ImportStatus =
   | { kind: "idle" }
   | { kind: "loading" }
   | { kind: "error"; message: string }
+  | { kind: "done"; message: string }
   | { kind: "ready"; preview: NotionZipPreview; sourceName: string };
 
 type ImportProgress = {
@@ -80,6 +85,7 @@ export function NotionImportTab() {
   const me = useMemberStore((s) => s.me);
   const [sharedSource, setSharedSource] = useState<NotionImportSource | null>(null);
   const [hasDetectedDbSource, setHasDetectedDbSource] = useState(false);
+  const [importCompleted, setImportCompleted] = useState(false);
   const canUseNativeFolderPicker = isFolderPickerSupported();
   const isSourceLoading = status.kind === "loading";
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -117,6 +123,7 @@ export function NotionImportTab() {
 
   const onPickFolder = async () => {
     setStatus({ kind: "loading" });
+    setImportCompleted(false);
     setHasDetectedDbSource(false);
     try {
       const dir = await window.showDirectoryPicker({ mode: "read" });
@@ -142,6 +149,7 @@ export function NotionImportTab() {
   const onPickFolderFiles = async (files: File[]) => {
     if (files.length === 0) return;
     setStatus({ kind: "loading" });
+    setImportCompleted(false);
     setHasDetectedDbSource(false);
     try {
       const dir = createFilesVirtualDir(files);
@@ -164,6 +172,7 @@ export function NotionImportTab() {
 
   const onPickTauriFolder = async () => {
     setStatus({ kind: "loading" });
+    setImportCompleted(false);
     setHasDetectedDbSource(false);
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
@@ -200,6 +209,7 @@ export function NotionImportTab() {
     if (!selectedPage || currentStatus.kind !== "ready" || isImporting) return;
     setImportProgress({ label: "페이지 구성 준비중", done: 0, total: 1 });
     setIsImporting(true);
+    setImportCompleted(false);
     await yieldToPaint();
 
     try {
@@ -284,6 +294,33 @@ export function NotionImportTab() {
           if (!uploaded) return null;
           return uploadedAssetToDocNode(uploaded, element.getAttribute("alt") ?? "");
         };
+
+      const applyImportedPageIcon = async (
+        targetPageId: string,
+        sourcePath: string,
+        htmlContent: string | undefined,
+      ): Promise<void> => {
+        const iconInfo = extractNotionPageIcon(htmlContent ?? "");
+        if (iconInfo?.imagePath) {
+          const iconAsset = assetResolver.resolve(iconInfo.imagePath, sourcePath);
+          if (iconAsset) {
+            let uploaded = uploadedAssetByPath.get(iconAsset.path);
+            if (!uploaded) {
+              uploaded = await uploadNotionAsset(iconAsset);
+              uploadedAssetByPath.set(iconAsset.path, uploaded);
+            }
+            if (uploaded.kind === "image") {
+              setIcon(targetPageId, uploaded.src);
+              return;
+            }
+          }
+        }
+        if (iconInfo?.emoji) {
+          setIcon(targetPageId, iconInfo.emoji);
+          return;
+        }
+        setIcon(targetPageId, "📝");
+      };
 
       const ensurePageIdForSource = (sourcePath: string, forcedParentPageId?: string | null): string | null => {
         const source = pageByPath.get(sourcePath);
@@ -430,7 +467,7 @@ export function NotionImportTab() {
                 }
               }
 
-              table.rows.forEach((row, rowIdx) => {
+              for (const [rowIdx, row] of table.rows.entries()) {
                 const rowPageId =
                   rowIdx === 0
                     ? (useDatabaseStore.getState().databases[dbId]?.rowPageOrder[0] ?? addRow(dbId))
@@ -515,7 +552,7 @@ export function NotionImportTab() {
                     // 여기서 즉시 변환하지 않고, 아래 일반 페이지 임포트 단계에서 1회만 처리한다.
                     // (중복 변환/중첩 변환으로 인한 메모리 급증 방지)
                     if (/class=["'][^"']*collection-content[^"']*["']/i.test(rowContent)) {
-                      return;
+                      continue;
                     }
                     const rowDoc = notionHtmlToDoc(rowContent, {
                       currentPagePath: rowSource.path,
@@ -526,10 +563,10 @@ export function NotionImportTab() {
                       resolvePageMentionByHref: (href) => resolveImportedPageMention(href, rowSource.path, rowPageId),
                     });
                     updateDoc(rowPageId, rowDoc);
-                    setIcon(rowPageId, "📝");
+                    void applyImportedPageIcon(rowPageId, rowSource.path, rowContent);
                   }
                 }
-              });
+              }
 
               return dbId;
             },
@@ -538,7 +575,11 @@ export function NotionImportTab() {
 
         const docWithAnchorIds = ensureCommentAnchorBlockIds(doc);
         updateDoc(pageId, docWithAnchorIds);
-        setIcon(pageId, "📝");
+        if (source.format === "html") {
+          void applyImportedPageIcon(pageId, source.path, contentByPath.get(source.path));
+        } else {
+          setIcon(pageId, "📝");
+        }
         if (source.format === "html") {
           const comments = extractNotionInlineComments(contentByPath.get(source.path) ?? "");
           comments.forEach((comment) => {
@@ -680,11 +721,15 @@ export function NotionImportTab() {
 
       const newPageId = importedPageIdByPath.get(selectedPage.path) ?? null;
       if (!newPageId) {
-        showToast("가져오기를 완료했지만 시작 페이지를 찾지 못했습니다.", { kind: "info" });
+        const doneMessage = "가져오기를 완료했지만 시작 페이지를 찾지 못했습니다.";
+        showToast(doneMessage, { kind: "info" });
+        setStatus({ kind: "done", message: doneMessage });
       } else {
-        showToast("모든 페이지 생성이 완료되었습니다.", { kind: "success" });
+        const doneMessage = "모든 페이지 생성이 완료되었습니다.";
+        showToast(doneMessage, { kind: "success" });
+        setStatus({ kind: "done", message: doneMessage });
       }
-      setStatus({ kind: "idle" });
+      setImportCompleted(true);
       setSelectedPath("");
     } catch (error) {
       console.error("[NotionImport] 가져오기 실패", error);
@@ -780,14 +825,14 @@ export function NotionImportTab() {
                   <button
                     type="button"
                     onClick={() => void onImportSelectedPage()}
-                    disabled={isImporting}
+                    disabled={isImporting || importCompleted}
                     className={`inline-flex items-center rounded px-3 py-1.5 text-sm text-white ${
-                      isImporting
+                      isImporting || importCompleted
                         ? "cursor-not-allowed bg-zinc-400"
                         : "bg-blue-600 hover:bg-blue-700"
                     }`}
                   >
-                    {isImporting ? importingLabel : "가져오기"}
+                    {isImporting ? importingLabel : importCompleted ? "가져오기 완료" : "가져오기"}
                   </button>
                   {isImporting ? (
                     <div
@@ -815,6 +860,9 @@ export function NotionImportTab() {
       ) : null}
       {status.kind === "error" ? (
         <p className="text-xs text-red-500">{status.message}</p>
+      ) : null}
+      {status.kind === "done" ? (
+        <p className="text-xs text-emerald-600 dark:text-emerald-400">{status.message}</p>
       ) : null}
     </div>
   );

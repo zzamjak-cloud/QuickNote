@@ -75,6 +75,10 @@ export function DatabaseBlockView(props: NodeViewProps) {
     useShallow((s) => ({ members: s.members, me: s.me })),
   );
   const panelState = parseDatabasePanelStateJson(panelStateRaw);
+  const isInsidePeek = useMemo(
+    () => Boolean(editor?.view?.dom?.closest("[data-qn-peek-editor='true']")),
+    [editor],
+  );
   const panelStateRef = useRef(panelState);
   panelStateRef.current = panelState;
 
@@ -619,7 +623,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       />
       {dbHistoryDialogOpen && hasDatabaseId && (
         <div
-          className="fixed inset-0 z-[420] flex items-center justify-center bg-black/45 p-4"
+          className={`fixed inset-0 ${isInsidePeek ? "z-[700]" : "z-[420]"} flex items-center justify-center bg-black/45 p-4`}
           role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setDbHistoryDialogOpen(false);
@@ -833,7 +837,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       {linkOpen &&
         createPortal(
           <div
-            className="fixed inset-0 z-[460] flex items-center justify-center bg-black/45 p-4"
+            className={`fixed inset-0 ${isInsidePeek ? "z-[710]" : "z-[460]"} flex items-center justify-center bg-black/45 p-4`}
             role="presentation"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) setLinkOpen(false);
