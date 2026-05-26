@@ -24,7 +24,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
-import { useHistoryStore } from "../../store/historyStore";
+import { useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
 import { Editor } from "../editor/Editor";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { DbPropertySection } from "../page/DbPropertySection";
@@ -84,9 +84,6 @@ export function DatabaseRowPeek() {
   const isPendingPageCreation = Boolean(peekPageId?.startsWith("lc-scheduler:creating:") && !page);
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
-  const restorePageFromHistoryEvent = usePageStore(
-    (s) => s.restorePageFromHistoryEvent,
-  );
 
   // 피크에서 "전체 열기" 클릭 시: 현재 활성 페이지를 뒤로가기 대상으로 저장하고
   // 항목 페이지를 활성화하여 전체 페이지 뷰(DatabaseRowPage)가 보이게 한다.
@@ -151,10 +148,12 @@ export function DatabaseRowPeek() {
   };
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
-  const pageHistoryTimeline = useHistoryStore((s) =>
+  const pageHistoryTimeline = useServerPageHistoryStore((s) =>
     peekPageId ? s.getPageTimeline(peekPageId) : [],
   );
-  const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
+  const fetchPageHistory = useServerPageHistoryStore((s) => s.fetchPageHistory);
+  const restorePageHistoryEvent = useServerPageHistoryStore((s) => s.restorePageHistoryEvent);
+  const deletePageHistoryEvents = useServerPageHistoryStore((s) => s.deletePageHistoryEvents);
   const members = useMemberStore((s) => s.members);
   const me = useMemberStore((s) => s.me);
   const showToast = useUiStore((s) => s.showToast);
@@ -232,6 +231,11 @@ export function DatabaseRowPeek() {
     selectedTimelineIds.has(e.id),
   );
   const selectedEventIds = selectedEntries.flatMap((e) => e.eventIds);
+
+  useEffect(() => {
+    if (!historyDialogOpen || !peekPageId || !page?.workspaceId) return;
+    void fetchPageHistory(peekPageId, page.workspaceId);
+  }, [fetchPageHistory, historyDialogOpen, page?.workspaceId, peekPageId]);
 
   useEffect(() => {
     setTitleDraft(page?.title ?? "");
@@ -799,8 +803,8 @@ export function DatabaseRowPeek() {
                       key={entry.id}
                       onClick={() => {
                         const targetEventId = entry.eventIds[entry.eventIds.length - 1];
-                        if (targetEventId && peekPageId) {
-                          restorePageFromHistoryEvent(peekPageId, targetEventId);
+                        if (targetEventId && peekPageId && page?.workspaceId) {
+                          void restorePageHistoryEvent(peekPageId, page.workspaceId, targetEventId);
                         }
                         setHistoryDialogOpen(false);
                       }}
@@ -808,8 +812,8 @@ export function DatabaseRowPeek() {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
                           const targetEventId = entry.eventIds[entry.eventIds.length - 1];
-                          if (targetEventId && peekPageId) {
-                            restorePageFromHistoryEvent(peekPageId, targetEventId);
+                          if (targetEventId && peekPageId && page?.workspaceId) {
+                            void restorePageHistoryEvent(peekPageId, page.workspaceId, targetEventId);
                           }
                           setHistoryDialogOpen(false);
                         }
@@ -881,8 +885,8 @@ export function DatabaseRowPeek() {
             setDeleteTarget(null);
           }}
           onConfirm={() => {
-            if (peekPageId && deleteTarget) {
-              deletePageHistoryEvents(peekPageId, deleteTarget.eventIds);
+            if (peekPageId && page?.workspaceId && deleteTarget) {
+              void deletePageHistoryEvents(peekPageId, page.workspaceId, deleteTarget.eventIds);
             }
             setDeleteConfirmOpen(false);
             setDeleteTarget(null);

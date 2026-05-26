@@ -53,6 +53,20 @@ function listElementForHover(editor: Editor, hover: HoverInfo): HTMLElement | nu
   return dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
 }
 
+export function visualElementForBlockNode(
+  typeName: string,
+  el: HTMLElement,
+): HTMLElement {
+  if (typeName === "image") {
+    return el.matches("img")
+      ? el
+      : (el.querySelector("img") as HTMLElement | null) ?? el;
+  }
+  return shouldUseDatabaseBlockChrome(typeName)
+    ? (el.closest(".qn-database-block") as HTMLElement | null) ?? el
+    : el;
+}
+
 function rectContainsPoint(rect: DOMRect, clientX: number, clientY: number): boolean {
   return (
     clientX >= rect.left &&
@@ -212,10 +226,7 @@ export function hoverFromResolvedPos(
     const dom = editor.view.nodeDOM(start);
     const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
     if (!el) continue;
-    const rectEl =
-      shouldUseDatabaseBlockChrome(n.type.name)
-        ? el.closest(".qn-database-block") ?? el
-        : el;
+    const rectEl = visualElementForBlockNode(n.type.name, el);
     const candidate: HoverInfo = {
       rect: rectEl.getBoundingClientRect(),
       blockStart: start,
@@ -254,10 +265,7 @@ export function hoverFromResolvedPos(
       const dom = editor.view.nodeDOM(p.start);
       const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
       if (!el) continue;
-      const rectEl =
-        shouldUseDatabaseBlockChrome(n.type.name)
-          ? el.closest(".qn-database-block") ?? el
-          : el;
+      const rectEl = visualElementForBlockNode(n.type.name, el);
       inner = {
         rect: rectEl.getBoundingClientRect(),
         blockStart: p.start,

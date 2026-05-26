@@ -50,12 +50,15 @@ import {
 import { searchMembersForMention } from "./handlers/mention";
 import {
   emptyTrash,
+  deletePageHistoryEvents,
   listDatabases,
+  listPageHistory,
   listPages,
   listTrashedPages,
   permanentlyDeleteDatabase,
   permanentlyDeletePage,
   restorePage,
+  restorePageVersion,
   softDeleteDatabase,
   softDeletePage,
   upsertDatabase,
@@ -132,6 +135,7 @@ const tables: Tables = {
   AssetUsage: process.env.ASSET_USAGE_TABLE_NAME,
   ImagesBucketName: process.env.IMAGES_BUCKET_NAME,
   CustomIcons: process.env.CUSTOM_ICONS_TABLE_NAME,
+  PageHistory: process.env.PAGE_HISTORY_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -404,6 +408,13 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           limit: event.arguments.limit as number | undefined,
           nextToken: event.arguments.nextToken as string | undefined,
         });
+      case "listPageHistory":
+        return await listPageHistory({
+          ...base,
+          pageId: event.arguments.pageId as string,
+          workspaceId: event.arguments.workspaceId as string,
+          limit: event.arguments.limit as number | undefined,
+        });
       case "listDatabases":
         return await listDatabases({
           ...base,
@@ -433,6 +444,18 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           ...base,
           id: event.arguments.id as string,
           workspaceId: event.arguments.workspaceId as string,
+        });
+      case "restorePageVersion":
+        return await restorePageVersion({
+          ...base,
+          input: event.arguments.input as { pageId: string; workspaceId: string; historyId: string },
+        });
+      case "deletePageHistoryEvents":
+        return await deletePageHistoryEvents({
+          ...base,
+          pageId: event.arguments.pageId as string,
+          workspaceId: event.arguments.workspaceId as string,
+          historyIds: event.arguments.historyIds as string[],
         });
       case "emptyTrash":
         return await emptyTrash({

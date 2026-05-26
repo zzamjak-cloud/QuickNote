@@ -84,6 +84,11 @@ export function blockOuterEl(editor: Editor, blockStart: number): HTMLElement | 
   if (!n) return null;
   let el: HTMLElement | null =
     n instanceof HTMLElement ? n : (n as Node).parentElement;
+  if (pmNode?.type.name === "image" && el) {
+    return el.matches("img")
+      ? el
+      : (el.querySelector("img") as HTMLElement | null) ?? el;
+  }
   while (el && el !== root) {
     if (el.parentElement === root) return el;
     el = el.parentElement;

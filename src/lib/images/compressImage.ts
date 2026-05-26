@@ -10,6 +10,8 @@ const COVER_BANNER_ASPECT_W_PER_H = 4;
 /** 로컬 2x·전폭 레이아웃까지 커버할 출력 폭 상한(px). */
 const COVER_MAX_OUTPUT_WIDTH_PX = 1280;
 const COVER_WEBP_QUALITY = 0.82;
+const ICON_OUTPUT_SIZE_PX = 128;
+const ICON_WEBP_QUALITY = 0.84;
 
 export type CompressRasterOptions = {
   maxWidth?: number;
@@ -75,6 +77,45 @@ export async function prepareImageFileForUpload(file: File): Promise<File> {
   } catch {
     return file;
   }
+}
+
+/**
+ * 커스텀 아이콘 전용: 128x128 WebP 로 고정한다.
+ * 원본 비율은 유지하고 남는 영역은 투명하게 둔다.
+ */
+export async function prepareIconImageForUpload(file: File): Promise<File> {
+  if (isGifFile(file)) {
+    throw new Error("GIF는 커스텀 아이콘으로 업로드할 수 없습니다.");
+  }
+  if (!file.type.startsWith("image/")) return file;
+  const img = await loadImage(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = ICON_OUTPUT_SIZE_PX;
+  canvas.height = ICON_OUTPUT_SIZE_PX;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2D 캔버스 컨텍스트를 가져오지 못했습니다.");
+  ctx.clearRect(0, 0, ICON_OUTPUT_SIZE_PX, ICON_OUTPUT_SIZE_PX);
+  const scale = Math.min(
+    ICON_OUTPUT_SIZE_PX / img.naturalWidth,
+    ICON_OUTPUT_SIZE_PX / img.naturalHeight,
+  );
+  const width = Math.max(1, Math.round(img.naturalWidth * scale));
+  const height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const x = Math.round((ICON_OUTPUT_SIZE_PX - width) / 2);
+  const y = Math.round((ICON_OUTPUT_SIZE_PX - height) / 2);
+  ctx.drawImage(img, x, y, width, height);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (nextBlob) => (nextBlob ? resolve(nextBlob) : reject(new Error("아이콘 압축 실패"))),
+      "image/webp",
+      ICON_WEBP_QUALITY,
+    );
+  }).finally(() => {
+    canvas.width = 0;
+    canvas.height = 0;
+  });
+  const base = file.name.replace(/\.[^.]+$/, "").trim() || "icon";
+  return new File([blob], `${base}.webp`, { type: "image/webp" });
 }
 
 /**

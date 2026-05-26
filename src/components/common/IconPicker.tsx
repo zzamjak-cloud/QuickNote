@@ -1,8 +1,9 @@
-import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import * as LucideIcons from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { insertImageFromFile, MAX_EDITOR_IMAGE_BYTES } from "../../lib/editor/insertImageFromFile";
+import { prepareIconImageForUpload } from "../../lib/images/compressImage";
+import { uploadImage } from "../../lib/images/upload";
 import { encodeLucidePageIcon } from "../../lib/pageIcon";
 import { PageIconDisplay } from "./PageIconDisplay";
 import { IconPickerEmoji } from "./IconPickerEmoji";
@@ -10,8 +11,12 @@ import { type CustomIconPreset } from "../../lib/iconStorage";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useCustomIconStore } from "../../store/customIconStore";
 
-const MAX_ICON_BYTES = Math.min(5 * 1024 * 1024, MAX_EDITOR_IMAGE_BYTES);
+const MAX_ICON_BYTES = 5 * 1024 * 1024;
 const DEFAULT_LUCIDE_COLOR = "#3f3f46";
+const ICON_PICKER_PANEL_WIDTH = 320;
+const ICON_PICKER_PANEL_ESTIMATED_HEIGHT = 440;
+const ICON_PICKER_VIEWPORT_PADDING = 24;
+const ICON_PICKER_BOTTOM_SAFE_PADDING = 72;
 type LucidePreset = {
   name: string;
   label: string;
@@ -312,6 +317,18 @@ function matchesLucideSearch(item: LucidePreset, query: string): boolean {
     .includes(q);
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("아이콘 미리보기 생성 실패"));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("아이콘 미리보기 생성 실패"));
+    reader.readAsDataURL(file);
+  });
+}
+
 type Props = {
   current: string | null;
   onChange: (icon: string | null) => void;
@@ -428,122 +445,118 @@ export function IconPickerPanel({
             ) : null}
           </div>
         </div>
-        {/* 세 탭 모두 항상 마운트 — CSS display로 전환해 재렌더 방지 */}
         <div className="h-[360px] overflow-hidden">
-          {/* 루시드 탭 */}
-          <div className="flex h-full flex-col" style={{ display: activeMenu === "lucide" ? "flex" : "none" }}>
-            <div className="mb-2 flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 dark:border-zinc-700 dark:bg-zinc-950">
-              <LucideIcons.Search size={14} className="shrink-0 text-zinc-400" />
-              <input
-                value={lucideQuery}
-                onChange={(event) => setLucideQuery(event.target.value)}
-                placeholder="아이콘 검색"
-                className="h-8 min-w-0 flex-1 bg-transparent text-xs text-zinc-800 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
-              />
-              {lucideQuery ? (
-                <button
-                  type="button"
-                  onClick={() => setLucideQuery("")}
-                  className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                  aria-label="검색어 지우기"
-                >
-                  <LucideIcons.X size={13} />
-                </button>
-              ) : null}
-            </div>
-            {!lucideQuery.trim() ? (
-              <div className="mb-2 flex gap-1 overflow-x-auto pb-1">
-                {[{ id: "all", label: "전체" }, ...LUCIDE_ICON_CATEGORIES].map((category) => (
+          {activeMenu === "lucide" ? (
+            <div className="flex h-full flex-col">
+              <div className="mb-2 flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 dark:border-zinc-700 dark:bg-zinc-950">
+                <LucideIcons.Search size={14} className="shrink-0 text-zinc-400" />
+                <input
+                  value={lucideQuery}
+                  onChange={(event) => setLucideQuery(event.target.value)}
+                  placeholder="아이콘 검색"
+                  className="h-8 min-w-0 flex-1 bg-transparent text-xs text-zinc-800 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
+                />
+                {lucideQuery ? (
                   <button
-                    key={category.id}
                     type="button"
-                    onClick={() => setActiveLucideCategory(category.id)}
-                    className={[
-                      "shrink-0 rounded px-2 py-1 text-xs",
-                      activeLucideCategory === category.id
-                        ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                        : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700",
-                    ].join(" ")}
+                    onClick={() => setLucideQuery("")}
+                    className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                    aria-label="검색어 지우기"
                   >
-                    {category.label}
+                    <LucideIcons.X size={13} />
                   </button>
-                ))}
-              </div>
-            ) : null}
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <div className="grid grid-cols-6 gap-1">
-                {visibleLucideIcons.map((item) => {
-                  const Icon = getLucideIcon(item.name);
-                  return (
-                    <button
-                      key={item.name}
-                      type="button"
-                      onClick={() => pickLucideIcon(item.name)}
-                      className="flex h-11 w-full items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                      title={item.label}
-                      aria-label={item.label}
-                    >
-                      <Icon size={24} color={color} strokeWidth={1.9} />
-                    </button>
-                  );
-                })}
-                {visibleLucideIcons.length === 0 ? (
-                  <div className="col-span-6 py-6 text-center text-xs text-zinc-400">
-                    검색 결과가 없습니다.
-                  </div>
                 ) : null}
               </div>
-            </div>
-          </div>
-
-          {/* 이모지 탭 — 항상 마운트, Suspense는 최초 1회만 */}
-          <div className="h-full" style={{ display: activeMenu === "emoji" ? "block" : "none" }}>
-            <Suspense
-              fallback={
-                <div className="h-full animate-pulse rounded bg-zinc-100 dark:bg-zinc-800" />
-              }
-            >
-              <IconPickerEmoji onPick={onPickEmoji} />
-            </Suspense>
-          </div>
-
-          {/* 커스텀 탭 */}
-          <div className="flex h-full flex-col" style={{ display: activeMenu === "custom" ? "flex" : "none" }}>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {customIcons.length === 0 ? (
-                <div className="py-8 text-center text-xs text-zinc-400">
-                  등록된 커스텀 아이콘이 없습니다.
-                  <br />
-                  <span className="text-zinc-300 dark:text-zinc-600">아래 이미지 업로드 버튼을 사용하세요.</span>
+              {!lucideQuery.trim() ? (
+                <div className="mb-2 flex gap-1 overflow-x-auto pb-1">
+                  {[{ id: "all", label: "전체" }, ...LUCIDE_ICON_CATEGORIES].map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => setActiveLucideCategory(category.id)}
+                      className={[
+                        "shrink-0 rounded px-2 py-1 text-xs",
+                        activeLucideCategory === category.id
+                          ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700",
+                      ].join(" ")}
+                    >
+                      {category.label}
+                    </button>
+                  ))}
                 </div>
-              ) : (
+              ) : null}
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                 <div className="grid grid-cols-6 gap-1">
-                  {customIcons.map((item) => (
-                    <div key={item.id} className="group relative">
+                  {visibleLucideIcons.map((item) => {
+                    const Icon = getLucideIcon(item.name);
+                    return (
                       <button
+                        key={item.name}
                         type="button"
-                        onClick={() => onPickCustom?.(item.src)}
-                        className="relative flex h-11 w-full items-center justify-center overflow-hidden rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        onClick={() => pickLucideIcon(item.name)}
+                        className="flex h-11 w-full items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
                         title={item.label}
                         aria-label={item.label}
                       >
-                        <PageIconDisplay icon={item.src} size="md" className="!h-9 !w-9" imgClassName="!h-9 !w-9" />
+                        <Icon size={24} color={color} strokeWidth={1.9} />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteCustomIcon?.(item.id)}
-                        className="absolute right-0.5 top-0.5 z-10 hidden h-4 w-4 items-center justify-center rounded-full bg-zinc-600 text-white group-hover:flex dark:bg-zinc-500"
-                        title="삭제"
-                        aria-label="아이콘 삭제"
-                      >
-                        <LucideIcons.X size={9} strokeWidth={2.5} />
-                      </button>
+                    );
+                  })}
+                  {visibleLucideIcons.length === 0 ? (
+                    <div className="col-span-6 py-6 text-center text-xs text-zinc-400">
+                      검색 결과가 없습니다.
                     </div>
-                  ))}
+                  ) : null}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
+          ) : null}
+
+          {activeMenu === "emoji" ? (
+            <div className="h-full">
+              <IconPickerEmoji onPick={onPickEmoji} />
+            </div>
+          ) : null}
+
+          {activeMenu === "custom" ? (
+            <div className="flex h-full flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {customIcons.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-zinc-400">
+                    등록된 커스텀 아이콘이 없습니다.
+                    <br />
+                    <span className="text-zinc-300 dark:text-zinc-600">아래 이미지 업로드 버튼을 사용하세요.</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-6 gap-1">
+                    {customIcons.map((item) => (
+                      <div key={item.id} className="group relative">
+                        <button
+                          type="button"
+                          onClick={() => onPickCustom?.(item.src)}
+                          className="relative flex h-11 w-full items-center justify-center overflow-hidden rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          title={item.label}
+                          aria-label={item.label}
+                        >
+                          <PageIconDisplay icon={item.src} size="md" className="!h-9 !w-9" imgClassName="!h-9 !w-9" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteCustomIcon?.(item.id)}
+                          className="absolute right-0.5 top-0.5 z-10 hidden h-4 w-4 items-center justify-center rounded-full bg-zinc-600 text-white group-hover:flex dark:bg-zinc-500"
+                          title="삭제"
+                          aria-label="아이콘 삭제"
+                        >
+                          <LucideIcons.X size={9} strokeWidth={2.5} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
       {footer ? (
@@ -568,6 +581,7 @@ export function IconPicker({
   const ref = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const iconUploadSeqRef = useRef(0);
   // 워크스페이스 공유 커스텀 아이콘 — 모든 멤버가 같은 목록을 본다.
   // 서버 fetch 후 store 에 캐시, 페이지 첫 진입 시 1회 호출.
   const workspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
@@ -603,20 +617,65 @@ export function IconPicker({
     return () => window.removeEventListener("mousedown", onClick);
   }, [open, uploadStatus]);
 
+  const computePopoverCoords = useCallback((width: number, height: number) => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportWidth = viewport?.width ?? window.innerWidth;
+    const viewportHeight = viewport?.height ?? window.innerHeight;
+    const minLeft = viewportLeft + ICON_PICKER_VIEWPORT_PADDING;
+    const maxLeft = viewportLeft + viewportWidth - width - ICON_PICKER_VIEWPORT_PADDING;
+    const left = Math.max(minLeft, Math.min(rect.left, maxLeft));
+    const belowTop = rect.bottom + 4;
+    const aboveTop = rect.top - height - 4;
+    const minTop = viewportTop + ICON_PICKER_VIEWPORT_PADDING;
+    const maxTop = viewportTop + viewportHeight - height - ICON_PICKER_BOTTOM_SAFE_PADDING;
+    const preferredTop =
+      belowTop + height <= viewportTop + viewportHeight - ICON_PICKER_BOTTOM_SAFE_PADDING
+        ? belowTop
+        : aboveTop;
+    const top = Math.max(minTop, Math.min(preferredTop, Math.max(minTop, maxTop)));
+    return { top, left };
+  }, []);
+
   const openPicker = () => {
     if (open) { setOpen(false); return; }
-    const rect = ref.current?.getBoundingClientRect();
-    if (rect) {
-      const panelW = 340;
-      const panelH = 380;
-      let left = rect.left;
-      let top = rect.bottom + 4;
-      if (left + panelW > window.innerWidth - 8) left = Math.max(8, window.innerWidth - panelW - 8);
-      if (top + panelH > window.innerHeight - 8) top = Math.max(8, rect.top - panelH - 4);
-      setPopoverCoords({ top, left });
-    }
+    const coords = computePopoverCoords(ICON_PICKER_PANEL_WIDTH, ICON_PICKER_PANEL_ESTIMATED_HEIGHT);
+    if (coords) setPopoverCoords(coords);
     setOpen(true);
   };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const update = () => {
+      const width = panel.offsetWidth || ICON_PICKER_PANEL_WIDTH;
+      const height = panel.offsetHeight || ICON_PICKER_PANEL_ESTIMATED_HEIGHT;
+      const next = computePopoverCoords(width, height);
+      if (next) {
+        setPopoverCoords((prev) =>
+          prev && Math.abs(prev.top - next.top) < 1 && Math.abs(prev.left - next.left) < 1
+            ? prev
+            : next,
+        );
+      }
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(panel);
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("scroll", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+    };
+  }, [computePopoverCoords, open]);
 
   const trigger =
     size === "lg" ? (
@@ -662,21 +721,32 @@ export function IconPicker({
 
   const onPickImageFile = async (file: File | undefined, savePreset = true) => {
     if (!file || !file.type.startsWith("image/")) return;
+    if (file.size > MAX_ICON_BYTES) {
+      onUploadMessage?.(`아이콘 이미지는 ${(MAX_ICON_BYTES / 1024 / 1024).toFixed(0)}MB 이하만 가능합니다 (현재 ${(file.size / 1024 / 1024).toFixed(1)}MB).`);
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
     setUploadStatus("이미지 처리 중…");
     let ok = false;
+    const uploadSeq = iconUploadSeqRef.current + 1;
+    iconUploadSeqRef.current = uploadSeq;
     try {
-      ok = await insertImageFromFile(
-        file,
-        async (attrs) => {
-          // 1) 페이지 아이콘을 즉시 적용해 사용자가 곧바로 결과를 확인 가능.
-          onChange(attrs.src);
-          // 2) 백그라운드로 워크스페이스 공유 등록 — 등록 자체가 실패해도 페이지 아이콘은 유지.
+      const prepared = await prepareIconImageForUpload(file);
+      const previewSrc = await fileToDataUrl(prepared);
+      if (iconUploadSeqRef.current !== uploadSeq) return;
+      onChange(previewSrc);
+      setOpen(false);
+      ok = true;
+      void (async () => {
+        try {
+          const src = await uploadImage(prepared, { compressed: true });
+          if (iconUploadSeqRef.current !== uploadSeq) return;
+          onChange(src);
           if (savePreset && workspaceId) {
-            setUploadStatus("커스텀 아이콘 등록 중…");
             try {
               await addCustomIconSrv({
                 workspaceId,
-                src: attrs.src,
+                src,
                 label: file.name || "커스텀 아이콘",
               });
             } catch (err) {
@@ -684,16 +754,13 @@ export function IconPicker({
               onUploadMessage?.("아이콘 등록은 실패했지만 페이지에는 적용되었습니다.");
             }
           }
-          setUploadStatus(null);
-          setOpen(false);
-        },
-        {
-          maxBytes: MAX_ICON_BYTES,
-          onSizeExceeded: (mb) => {
-            onUploadMessage?.(`아이콘 이미지는 ${(MAX_ICON_BYTES / 1024 / 1024).toFixed(0)}MB 이하만 가능합니다 (현재 ${mb.toFixed(1)}MB).`);
-          },
-        },
-      );
+        } catch (err) {
+          console.error("[IconPicker] uploadCustomIcon background 실패", err);
+          onUploadMessage?.("아이콘 등록에 실패했습니다.");
+        }
+      })();
+    } catch (err) {
+      console.error("[IconPicker] uploadCustomIcon 실패", err);
     } finally {
       setUploadStatus(null);
       if (fileRef.current) fileRef.current.value = "";
@@ -720,14 +787,17 @@ export function IconPicker({
         >
           <IconPickerPanel
             onPickLucide={(name, nextColor) => {
+              iconUploadSeqRef.current += 1;
               onChange(encodeLucidePageIcon(name, nextColor));
               setOpen(false);
             }}
             onPickEmoji={(emoji) => {
+              iconUploadSeqRef.current += 1;
               onChange(emoji);
               setOpen(false);
             }}
             onPickCustom={(icon) => {
+              iconUploadSeqRef.current += 1;
               onChange(icon);
               setOpen(false);
             }}
@@ -758,6 +828,7 @@ export function IconPicker({
                   <button
                     type="button"
                     onClick={() => {
+                      iconUploadSeqRef.current += 1;
                       onChange(null);
                       setOpen(false);
                     }}

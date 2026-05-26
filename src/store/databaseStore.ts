@@ -49,6 +49,10 @@ import {
   toDatabaseSnapshot,
   toPageSnapshot,
 } from "./databaseStore/helpers";
+
+function canRestoreLocalDatabaseHistory(): boolean {
+  return false;
+}
 import type { Page } from "../types/page";
 import { EMPTY_DOC, nextOrderForParent } from "./pageStore/helpers";
 
@@ -962,6 +966,10 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       restoreDatabaseFromLatestHistory: (databaseId) => {
+        if (!canRestoreLocalDatabaseHistory()) {
+          console.warn("[history] 로컬 DB 히스토리 복구는 서버 히스토리 도입 전까지 비활성화됨", { databaseId });
+          return false;
+        }
         const snapshot = useHistoryStore.getState().getLatestDbSnapshot(databaseId);
         if (!isValidDatabaseSnapshot(snapshot)) return false;
         // 사용자가 명시적으로 복원 → 이전 삭제 가드(영구 tombstone 포함) 제거.
@@ -1011,6 +1019,10 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       restoreDatabaseFromHistoryEvent: (databaseId, eventId) => {
+        if (!canRestoreLocalDatabaseHistory()) {
+          console.warn("[history] 로컬 DB 히스토리 복구는 서버 히스토리 도입 전까지 비활성화됨", { databaseId, eventId });
+          return false;
+        }
         const snapshot = useHistoryStore
           .getState()
           .getDbSnapshotAtEvent(databaseId, eventId);

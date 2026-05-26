@@ -1,9 +1,9 @@
 // 자산 관리 탭 — 사용자가 업로드한 모든 자산을 시각적으로 확인·삭제하는 UI.
 // 정렬(크기 desc 기본) + MIME/사용여부 필터 + 가상 스크롤 표 + 다중 선택 영구 삭제 +
-// 사용 위치(페이지) 인라인 표시. 압축/변환 액션은 Phase 2 에서 행 액션 메뉴로 추가.
+// 사용 위치(페이지) 인라인 표시.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Trash2, RefreshCw, Filter, Zap, ExternalLink } from "lucide-react";
+import { Loader2, Search, Trash2, RefreshCw, Filter, ExternalLink } from "lucide-react";
 import { ListVirtualizer } from "../../lib/ui-primitives/ListVirtualizer";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import {
@@ -11,14 +11,11 @@ import {
   deleteMyAssetsApi,
   getAssetUsagesApi,
   migrateAssetUsageApi,
-  replaceAssetRefApi,
   type ListMyAssetsInput,
 } from "../../lib/sync/assetApi";
 import type { GqlAsset, GqlAssetUsage } from "../../lib/sync/graphql/operations";
 import { usePageStore } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
-import { canCompress, compressAsset } from "../../lib/files/assetCompressor";
-import { uploadFile } from "../../lib/files/upload";
 import { imageUrlCache } from "../../lib/images/registry";
 
 type SortKey = "SIZE_DESC" | "SIZE_ASC" | "CREATED_AT_DESC";
@@ -58,6 +55,17 @@ function mimeChip(mime: string): string {
   return mime;
 }
 
+function dedupeAssetsById(items: GqlAsset[]): GqlAsset[] {
+  const seen = new Set<string>();
+  const out: GqlAsset[] = [];
+  for (const item of items) {
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+}
+
 export function AdminAssetsTab(props: { onClose?: () => void }) {
   const [assets, setAssets] = useState<GqlAsset[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -76,8 +84,6 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
   const [usageLoading, setUsageLoading] = useState<boolean>(false);
   const [migrating, setMigrating] = useState<boolean>(false);
   const [migrateNotice, setMigrateNotice] = useState<string | null>(null);
-  // 자산별 압축 진행 메시지 — null 또는 미존재면 idle.
-  const [compressMsg, setCompressMsg] = useState<Record<string, string>>({});
   // 미리보기 대상 자산 — 행 클릭으로 모달 오픈.
   const [previewAsset, setPreviewAsset] = useState<GqlAsset | null>(null);
 
@@ -98,7 +104,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         limit: 500,
       };
       const res = await listMyAssetsApi(input);
-      setAssets(res.items);
+      setAssets(dedupeAssetsById(res.items));
     } catch (err) {
       setError(formatError(err));
     } finally {
@@ -173,6 +179,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         const deleted = await deleteMyAssetsApi(chunk);
         const deletedSet = new Set(deleted);
         totalDeleted += deleted.length;
+        for (const id of deleted) imageUrlCache.invalidate(id);
         setAssets((prev) => prev.filter((a) => !deletedSet.has(a.id)));
         setSelected((prev) => {
           const next = new Set(prev);
@@ -205,69 +212,6 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
       setUsageLoading(false);
     }
   }, []);
-
-  const runCompress = useCallback(async (asset: GqlAsset) => {
-    const kind = canCompress(asset.mimeType);
-    if (!kind) return;
-    if (asset.compressed) return; // 이미 사용자 트리거 압축 결과물 — 재압축 방지.
-    const update = (msg: string) => setCompressMsg((m) => ({ ...m, [asset.id]: msg }));
-    update("준비 중…");
-    try {
-      // 1) 원본 다운로드
-      update("원본 다운로드 중…");
-      const url = await imageUrlCache.get(asset.id);
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-      const bytes = new Uint8Array(await res.arrayBuffer());
-
-      // 2) 압축/변환
-      const out = await compressAsset(
-        { mimeType: asset.mimeType, name: asset.name ?? asset.id, bytes },
-        update,
-      );
-      if (out.file.size >= bytes.byteLength) {
-        update("원본보다 크지 않음 — 교체 취소");
-        setTimeout(() => setCompressMsg((m) => {
-          const n = { ...m };
-          delete n[asset.id];
-          return n;
-        }), 2000);
-        return;
-      }
-
-      // 3) 새 자산 업로드 — compressed: true 로 마킹해 재압축 불가 표시.
-      update("업로드 중…");
-      const uploaded = await uploadFile(out.file, { compressed: true });
-      const newAssetId = uploaded.ref.replace(/^quicknote-(image|file):\/\//, "");
-
-      // 4) ref 교체 (페이지 본문 일괄 갱신)
-      update("페이지 교체 중…");
-      await replaceAssetRefApi(asset.id, newAssetId);
-
-      // 5) 옛 자산 영구 삭제
-      update("정리 중…");
-      await deleteMyAssetsApi([asset.id]);
-
-      update("완료");
-      // 잠시 후 리스트 새로고침
-      setTimeout(() => {
-        setCompressMsg((m) => {
-          const n = { ...m };
-          delete n[asset.id];
-          return n;
-        });
-        void fetchAssets({ silent: true });
-      }, 800);
-    } catch (err) {
-      const msg = formatError(err);
-      update(`실패: ${msg.slice(0, 60)}`);
-      setTimeout(() => setCompressMsg((m) => {
-        const n = { ...m };
-        delete n[asset.id];
-        return n;
-      }), 4000);
-    }
-  }, [fetchAssets]);
 
   const runMigrate = useCallback(async () => {
     setMigrating(true);
@@ -386,17 +330,19 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
             </span>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => setConfirmOpen(true)}
-          disabled={selected.size === 0 || deleting}
-          className="flex items-center gap-1 rounded bg-rose-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-40"
-        >
-          {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-          {deleteProgress
-            ? `삭제 중 ${deleteProgress.done}/${deleteProgress.total}`
-            : "선택 영구 삭제"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setConfirmOpen(true)}
+            disabled={selected.size === 0 || deleting}
+            className="flex items-center gap-1 rounded bg-rose-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-40"
+          >
+            {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            {deleteProgress
+              ? `삭제 중 ${deleteProgress.done}/${deleteProgress.total}`
+              : "선택 영구 삭제"}
+          </button>
+        </div>
       </div>
 
       {migrateNotice ? (
@@ -426,7 +372,6 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         <div className="w-20">MIME</div>
         <div className="w-20 text-right">크기</div>
         <div className="w-24 text-right">사용 페이지</div>
-        <div className="w-24 text-right">압축</div>
         <div className="w-32 text-right">업로드</div>
       </div>
 
@@ -505,11 +450,6 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
                       <ExternalLink size={11} />
                     </button>
                   )}
-                  <CompressCell
-                    asset={a}
-                    progressMsg={compressMsg[a.id]}
-                    onRun={() => void runCompress(a)}
-                  />
                   <div className="w-32 text-right text-xs text-zinc-400 tabular-nums">
                     {a.createdAt.slice(0, 10)}
                   </div>
@@ -560,55 +500,14 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
   );
 }
 
-function CompressCell(props: {
-  asset: GqlAsset;
-  progressMsg: string | undefined;
-  onRun: () => void;
-}) {
-  const kind = canCompress(props.asset.mimeType);
-  if (props.progressMsg) {
-    return (
-      <div className="w-24 truncate text-right text-[11px] text-blue-600 dark:text-blue-400" title={props.progressMsg}>
-        {props.progressMsg}
-      </div>
-    );
-  }
-  if (!kind) {
-    return <div className="w-24 text-right text-xs text-zinc-300">—</div>;
-  }
-  if (props.asset.compressed) {
-    return (
-      <div
-        className="w-24 truncate text-right text-xs text-emerald-600 dark:text-emerald-400"
-        title="이 자산은 이미 사용자 트리거 압축으로 생성되었습니다. 재압축은 비활성."
-      >
-        ✓ 압축완료
-      </div>
-    );
-  }
-  const label =
-    kind === "gif-to-mp4" ? "GIF→MP4" :
-    kind === "video" ? "동영상" :
-    "이미지";
-  return (
-    <button
-      type="button"
-      onClick={props.onRun}
-      className="ml-auto flex w-24 items-center justify-end gap-1 rounded px-1 text-right text-xs text-zinc-600 hover:text-blue-600 dark:text-zinc-300 dark:hover:text-blue-400"
-      title={`${label} 압축 후 페이지의 참조를 새 자산으로 교체합니다.`}
-    >
-      <Zap size={11} />
-      {label}
-    </button>
-  );
-}
-
 function AssetPreviewDialog({ asset, onClose }: { asset: GqlAsset; onClose: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    setUrl(null);
+    setErr(null);
     const cached = imageUrlCache.peek(asset.id);
     if (cached) {
       setUrl(cached);
@@ -719,6 +618,7 @@ function AssetThumb({ asset }: { asset: GqlAsset }) {
   const isVideo = asset.mimeType.startsWith("video/");
   useEffect(() => {
     let cancelled = false;
+    setUrl(null);
     if (!isImage && !isVideo) return;
     const cached = imageUrlCache.peek(asset.id);
     if (cached) {

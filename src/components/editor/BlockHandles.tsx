@@ -49,7 +49,6 @@ import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
 import {
   isAttachmentBlockNodeType,
   isCalloutBlockNodeType,
-  shouldUseDatabaseBlockChrome,
 } from "../../lib/blocks/uiPolicy";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import {
@@ -69,6 +68,7 @@ import {
   pointInGripZone,
   pointInsideListOwnRow,
   resolveHandleLeft,
+  visualElementForBlockNode,
 } from "./blockHandles/helpers";
 
 
@@ -348,10 +348,7 @@ export function BlockHandles({
         const dom = editor.view.nodeDOM(h.blockStart);
         const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
         if (!el) return null;
-        const rectEl =
-          shouldUseDatabaseBlockChrome(h.node.type.name)
-            ? el.closest(".qn-database-block") ?? el
-            : el;
+        const rectEl = visualElementForBlockNode(h.node.type.name, el);
         return { ...h, rect: rectEl.getBoundingClientRect() };
       });
     };
@@ -432,10 +429,7 @@ export function BlockHandles({
         const dom = editor.view.nodeDOM(pos);
         const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
         if (!el) return;
-        const rectEl =
-          shouldUseDatabaseBlockChrome(node.type.name)
-            ? el.closest(".qn-database-block") ?? el
-            : el;
+        const rectEl = visualElementForBlockNode(node.type.name, el);
         const rect = rectEl.getBoundingClientRect();
         const top = rect.top - wrapperRectInner.top + HANDLE_TOP_OFFSET_PX;
         const commentLeft =
@@ -806,10 +800,7 @@ export function BlockHandles({
     const dom = editor.view.nodeDOM(anchorStart);
     const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
     if (!el) return;
-    const rectEl =
-      shouldUseDatabaseBlockChrome(node.type.name)
-        ? el.closest(".qn-database-block") ?? el
-        : el;
+    const rectEl = visualElementForBlockNode(node.type.name, el);
     setHover({
       blockStart: anchorStart,
       node,

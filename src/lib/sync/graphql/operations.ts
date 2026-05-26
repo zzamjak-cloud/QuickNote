@@ -26,6 +26,12 @@ export {
   type GqlPage,
 } from "../queries/page";
 export {
+  LIST_PAGE_HISTORY,
+  RESTORE_PAGE_VERSION,
+  DELETE_PAGE_HISTORY_EVENTS,
+  type GqlPageHistoryEntry,
+} from "../queries/pageHistory";
+export {
   LIST_DATABASES,
   ON_DATABASE_CHANGED,
   SOFT_DELETE_DATABASE,

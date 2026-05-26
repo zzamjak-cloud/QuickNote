@@ -248,6 +248,18 @@ input CustomIconInput {
 type PageConnection { items: [Page!]! nextToken: String }
 type DatabaseConnection { items: [Database!]! nextToken: String }
 
+type PageHistoryEntry {
+  pageId: ID!
+  historyId: ID!
+  workspaceId: ID!
+  kind: String!
+  patch: AWSJSON!
+  anchor: AWSJSON
+  createdAt: AWSDateTime!
+  createdByMemberId: ID
+  createdByName: String
+}
+
 type ImageUploadResult {
   imageId: ID!
   uploadUrl: String!
@@ -362,6 +374,12 @@ input UpdateMyClientPrefsInput {
   clientPrefs: AWSJSON!
 }
 
+input RestorePageVersionInput {
+  pageId: ID!
+  workspaceId: ID!
+  historyId: ID!
+}
+
 input MemberFilter {
   status: MemberStatus
   teamId: ID
@@ -384,6 +402,7 @@ type Query {
   getWorkspace(workspaceId: ID!): Workspace
 
   listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
+  listPageHistory(pageId: ID!, workspaceId: ID!, limit: Int, nextToken: String): [PageHistoryEntry!]!
   listComments(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): CommentConnection!
   """삭제 후 보관 기간(30일) 내 페이지만, 삭제 시각 최신순(페이지당 최대 50개·nextToken 연속 조회)"""
   listTrashedPages(workspaceId: ID!, limit: Int, nextToken: String): PageConnection!
@@ -450,6 +469,8 @@ type Mutation {
   softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Page!
   """휴지통 페이지 복원(deletedAt 제거)"""
   restorePage(id: ID!, workspaceId: ID!): Page!
+  restorePageVersion(input: RestorePageVersionInput!): Page!
+  deletePageHistoryEvents(pageId: ID!, workspaceId: ID!, historyIds: [ID!]!): Boolean!
   """현재 워크스페이스의 휴지통 페이지를 DynamoDB에서 영구 삭제"""
   emptyTrash(workspaceId: ID!): Int!
   """휴지통의 단일 페이지를 영구 삭제 (휴지통 비우기 청크 진행률용)"""

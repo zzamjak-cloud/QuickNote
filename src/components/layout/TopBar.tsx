@@ -45,7 +45,7 @@ function isFullPageDatabasePage(page: Page | undefined): boolean {
 import { useSettingsStore } from "../../store/settingsStore";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
-import { useHistoryStore } from "../../store/historyStore";
+import { useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
 import { useUiStore } from "../../store/uiStore";
 import { NotificationBell } from "../notifications/NotificationBell";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
@@ -76,9 +76,6 @@ export function TopBar() {
   const previousNavigationPageId = useNavigationHistoryStore((s) => s.peekBack());
   const popNavigationBack = useNavigationHistoryStore((s) => s.popBack);
   const clearNavigationBack = useNavigationHistoryStore((s) => s.clearBack);
-  const restorePageFromHistoryEvent = usePageStore(
-    (s) => s.restorePageFromHistoryEvent,
-  );
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -90,10 +87,13 @@ export function TopBar() {
     eventIds: string[];
   } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const pageHistoryTimeline = useHistoryStore((s) =>
+  const activeWorkspaceId = activeId ? pages[activeId]?.workspaceId ?? null : null;
+  const pageHistoryTimeline = useServerPageHistoryStore((s) =>
     activeId ? s.getPageTimeline(activeId) : [],
   );
-  const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
+  const fetchPageHistory = useServerPageHistoryStore((s) => s.fetchPageHistory);
+  const restorePageHistoryEvent = useServerPageHistoryStore((s) => s.restorePageHistoryEvent);
+  const deletePageHistoryEvents = useServerPageHistoryStore((s) => s.deletePageHistoryEvents);
   const members = useMemberStore((s) => s.members);
   const me = useMemberStore((s) => s.me);
   const timelineIds = pageHistoryTimeline.map((e) => e.id);
@@ -107,6 +107,11 @@ export function TopBar() {
     selectedTimelineIds.has(e.id),
   );
   const selectedEventIds = selectedEntries.flatMap((e) => e.eventIds);
+
+  useEffect(() => {
+    if (!historyDialogOpen || !activeId || !activeWorkspaceId) return;
+    void fetchPageHistory(activeId, activeWorkspaceId);
+  }, [activeId, activeWorkspaceId, fetchPageHistory, historyDialogOpen]);
 
   type BreadcrumbNode = { id: string; title: string; icon: string | null; noNav?: boolean; dbId?: string };
   const breadcrumb: BreadcrumbNode[] = [];
@@ -670,8 +675,8 @@ export function TopBar() {
                     key={entry.id}
                     onClick={() => {
                       const targetEventId = entry.eventIds[entry.eventIds.length - 1];
-                      if (targetEventId) {
-                        restorePageFromHistoryEvent(activeId, targetEventId);
+                      if (targetEventId && activeWorkspaceId) {
+                        void restorePageHistoryEvent(activeId, activeWorkspaceId, targetEventId);
                       }
                       setHistoryDialogOpen(false);
                     }}
@@ -679,8 +684,8 @@ export function TopBar() {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         const targetEventId = entry.eventIds[entry.eventIds.length - 1];
-                        if (targetEventId) {
-                          restorePageFromHistoryEvent(activeId, targetEventId);
+                        if (targetEventId && activeWorkspaceId) {
+                          void restorePageHistoryEvent(activeId, activeWorkspaceId, targetEventId);
                         }
                         setHistoryDialogOpen(false);
                       }
@@ -758,8 +763,8 @@ export function TopBar() {
           setDeleteTarget(null);
         }}
         onConfirm={() => {
-          if (activeId && deleteTarget) {
-            deletePageHistoryEvents(activeId, deleteTarget.eventIds);
+          if (activeId && activeWorkspaceId && deleteTarget) {
+            void deletePageHistoryEvents(activeId, activeWorkspaceId, deleteTarget.eventIds);
           }
           setDeleteConfirmOpen(false);
           setDeleteTarget(null);

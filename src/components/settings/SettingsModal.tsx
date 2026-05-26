@@ -25,7 +25,7 @@ const NotionImportTab = lazy(() =>
   import("./NotionImportTab").then((m) => ({ default: m.NotionImportTab })),
 );
 
-// AdminAssetsTab — 가상 스크롤 / ffmpeg 압축(추가 기능 시) 등 부수 의존이 있어 lazy.
+// AdminAssetsTab — 가상 스크롤 등 부수 의존이 있어 lazy.
 const AdminAssetsTab = lazy(() =>
   import("./AdminAssetsTab").then((m) => ({ default: m.AdminAssetsTab })),
 );

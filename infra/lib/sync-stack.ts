@@ -305,6 +305,22 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "AssetUsageTableName", { value: assetUsageTable.tableName });
 
+    const pageHistoryTable = new dynamodb.Table(this, "PageHistoryTable", {
+      tableName: "quicknote-page-history",
+      partitionKey: { name: "pageId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "historyId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    pageHistoryTable.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndCreatedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    new cdk.CfnOutput(this, "PageHistoryTableName", { value: pageHistoryTable.tableName });
+
     // LC 스케줄러 일정 테이블 — 1차 배포 시 이미 생성됐으므로 import로 참조.
     // GSI 권한 부여를 위해 fromTableAttributes 로 인덱스를 함께 등록한다.
     const schedulesTable = dynamodb.Table.fromTableAttributes(this, "SchedulesTable", {
@@ -539,6 +555,7 @@ export function response(ctx) {
         MM_ENTRIES_TABLE_NAME: mmEntriesTable.tableName,
         IMAGE_ASSETS_TABLE_NAME: this.imageAssetTable.table.tableName,
         ASSET_USAGE_TABLE_NAME: assetUsageTable.tableName,
+        PAGE_HISTORY_TABLE_NAME: pageHistoryTable.tableName,
         IMAGES_BUCKET_NAME: imagesBucket.bucketName,
         CUSTOM_ICONS_TABLE_NAME: customIconsTable.tableName,
       },
@@ -568,6 +585,7 @@ export function response(ctx) {
     mmEntriesTable.grantReadWriteData(v5ResolversFn);
     this.imageAssetTable.table.grantReadWriteData(v5ResolversFn);
     assetUsageTable.grantReadWriteData(v5ResolversFn);
+    pageHistoryTable.grantReadWriteData(v5ResolversFn);
     imagesBucket.grantReadWrite(v5ResolversFn);
     customIconsTable.grantReadWriteData(v5ResolversFn);
 
@@ -633,6 +651,11 @@ export function response(ctx) {
     });
     (listPagesResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiQuerylistPagesB67FE9DA");
 
+    v5Ds.createResolver("QuerylistPageHistory", {
+      typeName: "Query",
+      fieldName: "listPageHistory",
+    });
+
     const listDatabasesResolver = v5Ds.createResolver("QuerylistDatabases", {
       typeName: "Query",
       fieldName: "listDatabases",
@@ -688,6 +711,16 @@ export function response(ctx) {
     v5Ds.createResolver("MutationrestorePage", {
       typeName: "Mutation",
       fieldName: "restorePage",
+    });
+
+    v5Ds.createResolver("MutationrestorePageVersion", {
+      typeName: "Mutation",
+      fieldName: "restorePageVersion",
+    });
+
+    v5Ds.createResolver("MutationdeletePageHistoryEvents", {
+      typeName: "Mutation",
+      fieldName: "deletePageHistoryEvents",
     });
 
     v5Ds.createResolver("MutationemptyTrash", {

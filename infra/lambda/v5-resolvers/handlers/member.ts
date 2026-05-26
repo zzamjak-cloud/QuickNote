@@ -51,6 +51,8 @@ export type Tables = {
   ImagesBucketName?: string;
   /** 워크스페이스 공유 커스텀 아이콘 프리셋 테이블 */
   CustomIcons?: string;
+  /** 서버 기반 페이지 버전 히스토리 테이블 */
+  PageHistory?: string;
 };
 
 export type CreateMemberInput = {

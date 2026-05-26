@@ -43,6 +43,10 @@ import {
   migratePageStore,
 } from "./pageStore/migrations";
 
+function canRestoreLocalPageHistory(): boolean {
+  return false;
+}
+
 export { migratePageStore } from "./pageStore/migrations";
 
 // 동기화·헬퍼는 ./pageStore/helpers.ts 로 분리됨.
@@ -820,6 +824,10 @@ export const usePageStore = create<PageStore>()(
       },
 
       restorePageFromLatestHistory: (pageId) => {
+        if (!canRestoreLocalPageHistory()) {
+          console.warn("[history] 로컬 페이지 히스토리 복구는 서버 히스토리 도입 전까지 비활성화됨", { pageId });
+          return false;
+        }
         const snapshot = useHistoryStore.getState().getLatestPageSnapshot(pageId);
         if (!snapshot) return false;
         set((state) => ({
@@ -838,6 +846,10 @@ export const usePageStore = create<PageStore>()(
       },
 
       restorePageFromHistoryEvent: (pageId, eventId) => {
+        if (!canRestoreLocalPageHistory()) {
+          console.warn("[history] 로컬 페이지 히스토리 복구는 서버 히스토리 도입 전까지 비활성화됨", { pageId, eventId });
+          return false;
+        }
         const snapshot = useHistoryStore
           .getState()
           .getPageSnapshotAtEvent(pageId, eventId);

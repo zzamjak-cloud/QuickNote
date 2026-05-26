@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import {
+  BatchWriteCommand,
   DynamoDBDocumentClient,
   DeleteCommand,
   GetCommand,
@@ -7,6 +8,7 @@ import {
   QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { v4 as uuid } from "uuid";
 
 /** 휴지통 보관 기간 — listTrashedPages / restorePage / 만료 영구삭제와 동일하게 유지 */
 export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -48,6 +50,8 @@ import {
 import type { Tables } from "./member";
 import { syncPageAssetUsage, cascadeDeletePageAssetUsage } from "./asset";
 
+const PAGE_HISTORY_ANCHOR_INTERVAL = 20;
+
 type Connection<T> = { items: T[]; nextToken?: string | null };
 
 type BaseRecord = {
@@ -58,6 +62,201 @@ type BaseRecord = {
   updatedAt: string;
   deletedAt?: string | null;
 };
+
+const PAGE_HISTORY_FIELDS = [
+  "id",
+  "workspaceId",
+  "createdByMemberId",
+  "title",
+  "icon",
+  "coverImage",
+  "parentId",
+  "order",
+  "databaseId",
+  "doc",
+  "dbCells",
+  "blockComments",
+  "createdAt",
+  "updatedAt",
+] as const;
+
+type PagePatchOp = {
+  op: "set" | "unset";
+  path: Array<string | number>;
+  value?: unknown;
+};
+
+function cloneJson<T>(value: T): T {
+  if (value == null) return value;
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function normalizePageSnapshot(item: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of PAGE_HISTORY_FIELDS) {
+    if (key in item) out[key] = cloneJson(item[key]);
+  }
+  return out;
+}
+
+function jsonEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function diffValue(before: unknown, after: unknown, path: Array<string | number>, out: PagePatchOp[]): void {
+  if (jsonEqual(before, after)) return;
+  if (isPlainObject(before) && isPlainObject(after)) {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    for (const key of keys) {
+      if (!(key in after)) out.push({ op: "unset", path: [...path, key] });
+      else diffValue(before[key], after[key], [...path, key], out);
+    }
+    return;
+  }
+  if (Array.isArray(before) && Array.isArray(after) && before.length === after.length) {
+    for (let i = 0; i < after.length; i += 1) {
+      diffValue(before[i], after[i], [...path, i], out);
+    }
+    return;
+  }
+  out.push({ op: "set", path, value: cloneJson(after) });
+}
+
+function diffPageSnapshot(
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+): PagePatchOp[] {
+  const patch: PagePatchOp[] = [];
+  if (!before) {
+    patch.push({ op: "set", path: [], value: normalizePageSnapshot(after) });
+    return patch;
+  }
+  const normalizedBefore = normalizePageSnapshot(before);
+  const normalizedAfter = normalizePageSnapshot(after);
+  for (const key of PAGE_HISTORY_FIELDS) {
+    if (!(key in normalizedAfter)) {
+      if (key in normalizedBefore) patch.push({ op: "unset", path: [key] });
+      continue;
+    }
+    diffValue(normalizedBefore[key], normalizedAfter[key], [key], patch);
+  }
+  return patch;
+}
+
+function setPath(target: Record<string, unknown>, path: Array<string | number>, value: unknown): Record<string, unknown> {
+  if (path.length === 0) return cloneJson(value as Record<string, unknown>);
+  let cursor: unknown = target;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const key = path[i]!;
+    if (Array.isArray(cursor)) {
+      const nextKey = path[i + 1];
+      if (cursor[key as number] == null) cursor[key as number] = typeof nextKey === "number" ? [] : {};
+      cursor = cursor[key as number];
+    } else {
+      const obj = cursor as Record<string, unknown>;
+      const nextKey = path[i + 1];
+      if (obj[key] == null) obj[key] = typeof nextKey === "number" ? [] : {};
+      cursor = obj[key];
+    }
+  }
+  const last = path[path.length - 1]!;
+  if (Array.isArray(cursor)) cursor[last as number] = cloneJson(value);
+  else (cursor as Record<string, unknown>)[last] = cloneJson(value);
+  return target;
+}
+
+function unsetPath(target: Record<string, unknown>, path: Array<string | number>): void {
+  if (path.length === 0) return;
+  let cursor: unknown = target;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const key = path[i]!;
+    cursor = Array.isArray(cursor)
+      ? cursor[key as number]
+      : (cursor as Record<string, unknown>)[key];
+    if (cursor == null) return;
+  }
+  const last = path[path.length - 1]!;
+  if (Array.isArray(cursor)) cursor.splice(last as number, 1);
+  else delete (cursor as Record<string, unknown>)[last];
+}
+
+function applyPagePatch(
+  base: Record<string, unknown> | null,
+  patch: PagePatchOp[],
+): Record<string, unknown> | null {
+  let next: Record<string, unknown> = base ? cloneJson(base) : {};
+  for (const op of patch) {
+    if (op.op === "set") next = setPath(next, op.path, op.value);
+    else unsetPath(next, op.path);
+  }
+  return typeof next.id === "string" ? next : null;
+}
+
+async function listPageHistoryAsc(args: {
+  doc: DynamoDBDocumentClient;
+  tableName: string;
+  pageId: string;
+}): Promise<Array<Record<string, unknown>>> {
+  const out: Array<Record<string, unknown>> = [];
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const res = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tableName,
+        KeyConditionExpression: "pageId = :p",
+        ExpressionAttributeValues: { ":p": args.pageId },
+        ScanIndexForward: true,
+        ExclusiveStartKey: startKey,
+      }),
+    );
+    out.push(...((res.Items ?? []) as Array<Record<string, unknown>>));
+    startKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (startKey);
+  return out;
+}
+
+async function recordPageHistory(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown>;
+  kind: string;
+}): Promise<void> {
+  const tableName = args.tables.PageHistory;
+  if (!tableName) return;
+  const pageId = typeof args.after.id === "string" ? args.after.id : null;
+  const workspaceId = typeof args.after.workspaceId === "string" ? args.after.workspaceId : null;
+  if (!pageId || !workspaceId) return;
+  const history = await listPageHistoryAsc({ doc: args.doc, tableName, pageId });
+  const patch = diffPageSnapshot(
+    args.before ? normalizePageSnapshot(args.before) : null,
+    normalizePageSnapshot(args.after),
+  );
+  if (patch.length === 0) return;
+  const createdAt = new Date().toISOString();
+  const shouldWriteAnchor = history.length === 0 || history.length % PAGE_HISTORY_ANCHOR_INTERVAL === 0;
+  await args.doc.send(
+    new PutCommand({
+      TableName: tableName,
+      Item: {
+        pageId,
+        historyId: `${createdAt}#${uuid()}`,
+        workspaceId,
+        kind: args.kind,
+        patch,
+        ...(shouldWriteAnchor ? { anchor: normalizePageSnapshot(args.before ?? args.after) } : {}),
+        createdAt,
+        createdByMemberId: args.caller.memberId,
+        createdByName: args.caller.name,
+      },
+    }),
+  );
+}
 
 export async function listPages(args: {
   doc: DynamoDBDocumentClient;
@@ -226,13 +425,17 @@ export async function upsertPage(args: {
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
   const input: Record<string, unknown> = { ...args.input };
-  // 구 클라이언트가 blockComments 키를 빼고 Put 하면 Dynamo 항목에서 댓글이 사라진다.
-  // 키가 없을 때만 기존 값을 이어붙인다(null 은 의도적 삭제로 본다).
-  if (!("blockComments" in input) && typeof input.id === "string") {
+  let existingPage: Record<string, unknown> | null = null;
+  if (typeof input.id === "string") {
     const existing = await args.doc.send(
       new GetCommand({ TableName: args.tables.Pages, Key: { id: input.id } }),
     );
-    const prev = existing.Item?.blockComments;
+    existingPage = (existing.Item as Record<string, unknown> | undefined) ?? null;
+  }
+  // 구 클라이언트가 blockComments 키를 빼고 Put 하면 Dynamo 항목에서 댓글이 사라진다.
+  // 키가 없을 때만 기존 값을 이어붙인다(null 은 의도적 삭제로 본다).
+  if (!("blockComments" in input)) {
+    const prev = existingPage?.blockComments;
     if (prev != null) {
       input.blockComments = prev;
     }
@@ -240,6 +443,18 @@ export async function upsertPage(args: {
   validateCoverImageField(input);
   normalizeBlockCommentsField(input);
   const saved = await upsertRecord({ ...args, tableName: args.tables.Pages, input });
+  try {
+    await recordPageHistory({
+      doc: args.doc,
+      tables: args.tables,
+      caller: args.caller,
+      before: existingPage,
+      after: saved,
+      kind: existingPage ? "page.update" : "page.create",
+    });
+  } catch (err) {
+    console.error("[upsertPage] PageHistory 기록 실패 (무시)", err);
+  }
   // 자산 사용 위치 인덱스 동기화 — doc 내부 ref 들을 AssetUsage 테이블에 반영.
   // 실패해도 페이지 저장 자체는 성공으로 응답 (인덱스는 보조 데이터).
   // cognitoSub 가 없으면 (legacy member) sync 스킵 — 자산 소유자 매핑 불가.
@@ -689,6 +904,143 @@ export async function restorePage(args: {
     }),
   );
   return next;
+}
+
+export async function listPageHistory(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  pageId: string;
+  workspaceId: string;
+  limit?: number;
+}): Promise<Array<Record<string, unknown>>> {
+  if (!args.tables.PageHistory) badRequest("PageHistory table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "view",
+  });
+  const limit = Math.min(Math.max(args.limit ?? 100, 1), 200);
+  const res = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.PageHistory,
+      KeyConditionExpression: "pageId = :p",
+      ExpressionAttributeValues: { ":p": args.pageId },
+      ScanIndexForward: false,
+      Limit: limit,
+    }),
+  );
+  return ((res.Items ?? []) as Array<Record<string, unknown>>).filter(
+    (item) => item.workspaceId === args.workspaceId,
+  );
+}
+
+export async function restorePageVersion(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  input: { pageId: string; workspaceId: string; historyId: string };
+}): Promise<Record<string, unknown>> {
+  if (!args.tables.Pages) badRequest("Pages table 미설정");
+  if (!args.tables.PageHistory) badRequest("PageHistory table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.input.workspaceId,
+    required: "edit",
+  });
+  const history = await listPageHistoryAsc({
+    doc: args.doc,
+    tableName: args.tables.PageHistory,
+    pageId: args.input.pageId,
+  });
+  let snapshot: Record<string, unknown> | null = null;
+  let found = false;
+  for (const event of history) {
+    if (event.workspaceId !== args.input.workspaceId) continue;
+    if (event.anchor && typeof event.anchor === "object") {
+      snapshot = cloneJson(event.anchor as Record<string, unknown>);
+    }
+    const patch = event.patch;
+    if (!Array.isArray(patch)) continue;
+    snapshot = applyPagePatch(snapshot, patch as PagePatchOp[]);
+    if (event.historyId === args.input.historyId) {
+      found = true;
+      break;
+    }
+  }
+  if (!found || !snapshot) notFound("페이지 히스토리 없음");
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Pages, Key: { id: args.input.pageId } }),
+  );
+  const before = (existing.Item as Record<string, unknown> | undefined) ?? null;
+  const now = new Date().toISOString();
+  const restored: Record<string, unknown> = {
+    ...snapshot,
+    id: args.input.pageId,
+    workspaceId: args.input.workspaceId,
+    updatedAt: now,
+  };
+  delete restored["deletedAt"];
+  await args.doc.send(
+    new PutCommand({
+      TableName: args.tables.Pages,
+      Item: restored,
+      ConditionExpression: "attribute_not_exists(workspaceId) OR workspaceId = :w",
+      ExpressionAttributeValues: { ":w": args.input.workspaceId },
+    }),
+  );
+  try {
+    await recordPageHistory({
+      doc: args.doc,
+      tables: args.tables,
+      caller: args.caller,
+      before,
+      after: restored,
+      kind: "page.restoreVersion",
+    });
+  } catch (err) {
+    console.error("[restorePageVersion] PageHistory 기록 실패 (무시)", err);
+  }
+  return restored;
+}
+
+export async function deletePageHistoryEvents(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  pageId: string;
+  workspaceId: string;
+  historyIds: string[];
+}): Promise<boolean> {
+  if (!args.tables.PageHistory) badRequest("PageHistory table 미설정");
+  if (!Array.isArray(args.historyIds) || args.historyIds.length === 0) return true;
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "edit",
+  });
+  for (let i = 0; i < args.historyIds.length; i += 25) {
+    const chunk = args.historyIds.slice(i, i + 25);
+    await args.doc.send(
+      new BatchWriteCommand({
+        RequestItems: {
+          [args.tables.PageHistory]: chunk.map((historyId) => ({
+            DeleteRequest: { Key: { pageId: args.pageId, historyId } },
+          })),
+        },
+      }),
+    );
+  }
+  return true;
 }
 
 export async function validateWorkspaceSubscription(args: {

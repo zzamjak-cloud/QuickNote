@@ -16,7 +16,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
-import { useHistoryStore } from "../../store/historyStore";
+import { useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
@@ -82,9 +82,6 @@ const PageListItemInner = function PageListItem({
   const deletePage = usePageStore((s) => s.deletePage);
   const createPage = usePageStore((s) => s.createPage);
   const movePage = usePageStore((s) => s.movePage);
-  const restorePageFromLatestHistory = usePageStore(
-    (s) => s.restorePageFromLatestHistory,
-  );
   const activePageId = usePageStore((s) => s.activePageId);
   const expanded = useSettingsStore((s) =>
     s.expandedIds.includes(node.id),
@@ -352,7 +349,15 @@ const PageListItemInner = function PageListItem({
               type="button"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
-                restorePageFromLatestHistory(node.id);
+                void (async () => {
+                  if (!node.workspaceId) return;
+                  const store = useServerPageHistoryStore.getState();
+                  await store.fetchPageHistory(node.id, node.workspaceId);
+                  const latest = store.byPageId[node.id]?.[0];
+                  if (latest) {
+                    await store.restorePageHistoryEvent(node.id, node.workspaceId, latest.historyId);
+                  }
+                })();
                 setMenuOpen(false);
               }}
               className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -370,13 +375,16 @@ const PageListItemInner = function PageListItem({
               버전 히스토리
             </button>
             {historyOpen && (
-              <PageHistoryMenu
-                pageId={node.id}
-                onClose={() => {
-                  setMenuOpen(false);
-                  setHistoryOpen(false);
-                }}
-              />
+              node.workspaceId ? (
+                <PageHistoryMenu
+                  pageId={node.id}
+                  workspaceId={node.workspaceId}
+                  onClose={() => {
+                    setMenuOpen(false);
+                    setHistoryOpen(false);
+                  }}
+                />
+              ) : null
             )}
             <button
               type="button"
@@ -424,16 +432,17 @@ const PageListItemInner = function PageListItem({
 
 function PageHistoryMenu({
   pageId,
+  workspaceId,
   onClose,
 }: {
   pageId: string;
+  workspaceId: string;
   onClose: () => void;
 }) {
-  const restorePageFromHistoryEvent = usePageStore(
-    (s) => s.restorePageFromHistoryEvent,
-  );
-  const pageHistoryTimeline = useHistoryStore((s) => s.getPageTimeline(pageId));
-  const deletePageHistoryEvents = useHistoryStore((s) => s.deletePageHistoryEvents);
+  const pageHistoryTimeline = useServerPageHistoryStore((s) => s.getPageTimeline(pageId));
+  const fetchPageHistory = useServerPageHistoryStore((s) => s.fetchPageHistory);
+  const restorePageHistoryEvent = useServerPageHistoryStore((s) => s.restorePageHistoryEvent);
+  const deletePageHistoryEvents = useServerPageHistoryStore((s) => s.deletePageHistoryEvents);
   const members = useMemberStore((s) => s.members);
   const me = useMemberStore((s) => s.me);
   const timelineIds = pageHistoryTimeline.map((e) => e.id);
@@ -452,6 +461,10 @@ function PageHistoryMenu({
     label: string;
     eventIds: string[];
   } | null>(null);
+
+  useEffect(() => {
+    void fetchPageHistory(pageId, workspaceId);
+  }, [fetchPageHistory, pageId, workspaceId]);
 
   return (
     <>
@@ -495,7 +508,7 @@ function PageHistoryMenu({
               onClick={() => {
                 const targetEventId = entry.eventIds[entry.eventIds.length - 1];
                 if (targetEventId) {
-                  restorePageFromHistoryEvent(pageId, targetEventId);
+                  void restorePageHistoryEvent(pageId, workspaceId, targetEventId);
                 }
                 onClose();
               }}
@@ -564,7 +577,7 @@ function PageHistoryMenu({
         }}
         onConfirm={() => {
           if (historyDeleteTarget) {
-            deletePageHistoryEvents(pageId, historyDeleteTarget.eventIds);
+            void deletePageHistoryEvents(pageId, workspaceId, historyDeleteTarget.eventIds);
           }
           setHistoryDeleteOpen(false);
           setHistoryDeleteTarget(null);

@@ -183,11 +183,6 @@ function isValidDatabaseSnapshot(snapshot: DatabaseSnapshot | null): snapshot is
   return true;
 }
 
-function shouldCoalescePageEvent(kind: PageHistoryKind): boolean {
-  // 타이핑 중 연속 발생하는 이벤트는 마지막 상태만 남긴다.
-  return kind === "page.rename";
-}
-
 function shouldCoalesceDbEvent(kind: DbHistoryKind): boolean {
   // DB 이름 입력도 타이핑 중에는 마지막 상태만 남긴다.
   return kind === "db.title";
@@ -323,53 +318,11 @@ export const useHistoryStore = create<HistoryStore>()(
       deletedRowTombstonesByDbId: {},
       cacheWorkspaceId: null,
 
-      recordPageEvent: (pageId, kind, patch, anchor) => {
-        set((state) => {
-          const editor = getPageEventEditorFields();
-          const workspaceId = getCurrentWorkspaceId();
-          const prev = state.pageEventsByPageId[pageId] ?? [];
-          const last = prev[prev.length - 1];
-          if (
-            last &&
-            last.kind === kind &&
-            shouldCoalescePageEvent(kind)
-          ) {
-            const merged: PageHistoryEvent = {
-              ...last,
-              workspaceId,
-              ts: Date.now(),
-              patch: { ...last.patch, ...patch },
-              // coalesce 중에는 anchor를 새로 늘리지 않고 기존 anchor를 유지한다.
-              anchor: last.anchor,
-              ...editor,
-            };
-            const next = trimEventsByRetention([
-              ...prev.slice(0, -1),
-              merged,
-            ]);
-            return {
-              pageEventsByPageId: { ...state.pageEventsByPageId, [pageId]: next },
-              cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
-            };
-          }
-          const nextEvent: PageHistoryEvent = {
-            id: newId(),
-            ts: Date.now(),
-            kind,
-            pageId,
-            workspaceId,
-            patch,
-            anchor,
-            ...editor,
-          };
-          const next = trimEventsByRetention([...prev, nextEvent]);
-          return {
-            pageEventsByPageId: { ...state.pageEventsByPageId, [pageId]: next },
-            cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
-          };
-        });
+      recordPageEvent: (_pageId, _kind, _patch, _anchor) => {
+        // 페이지 버전 히스토리는 서버 기반으로만 기록한다.
+        // 로컬 히스토리는 브라우저별로 갈라져 복구 시 데이터 손실을 만들 수 있으므로 비활성화.
+        return;
       },
-
       recordDbEvent: (databaseId, kind, patch, anchor) => {
         set((state) => {
           const workspaceId = getCurrentWorkspaceId();
