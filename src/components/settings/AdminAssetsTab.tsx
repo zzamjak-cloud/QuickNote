@@ -3,7 +3,7 @@
 // 사용 위치(페이지) 인라인 표시. 압축/변환 액션은 Phase 2 에서 행 액션 메뉴로 추가.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Search, Trash2, RefreshCw, Filter, Zap } from "lucide-react";
+import { Loader2, Search, Trash2, RefreshCw, Filter, Zap, ExternalLink } from "lucide-react";
 import { ListVirtualizer } from "../../lib/ui-primitives/ListVirtualizer";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import {
@@ -39,7 +39,7 @@ function mimeChip(mime: string): string {
   return mime;
 }
 
-export function AdminAssetsTab() {
+export function AdminAssetsTab(props: { onClose?: () => void }) {
   const [assets, setAssets] = useState<GqlAsset[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -363,7 +363,7 @@ export function AdminAssetsTab() {
         <div className="min-w-0 flex-1">이름</div>
         <div className="w-20">MIME</div>
         <div className="w-20 text-right">크기</div>
-        <div className="w-16 text-right">사용</div>
+        <div className="w-24 text-right">사용 페이지</div>
         <div className="w-24 text-right">압축</div>
         <div className="w-32 text-right">업로드</div>
       </div>
@@ -415,17 +415,19 @@ export function AdminAssetsTab() {
                   <div className="w-20 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
                     {formatBytes(a.size)}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void openUsage(a)}
-                    className={`w-16 rounded px-1 text-right text-xs tabular-nums ${
-                      usedCount === 0
-                        ? "text-zinc-400"
-                        : "text-blue-600 hover:underline dark:text-blue-400"
-                    }`}
-                  >
-                    {usedCount}
-                  </button>
+                  {usedCount === 0 ? (
+                    <div className="w-24 text-right text-xs text-zinc-300">사용 안 됨</div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void openUsage(a)}
+                      className="flex w-24 items-center justify-end gap-1 rounded px-1 text-right text-xs text-blue-600 hover:underline dark:text-blue-400"
+                      title="사용 중인 페이지 보기 (클릭 시 페이지로 바로가기)"
+                    >
+                      <span className="tabular-nums">{usedCount}개</span>
+                      <ExternalLink size={11} />
+                    </button>
+                  )}
                   <CompressCell
                     asset={a}
                     progressMsg={compressMsg[a.id]}
@@ -463,6 +465,8 @@ export function AdminAssetsTab() {
           onNavigate={(pageId) => {
             setActivePage(pageId);
             setUsageOpenFor(null);
+            // 설정 모달도 함께 닫아 페이지가 즉시 보이도록.
+            props.onClose?.();
           }}
         />
       ) : null}
@@ -584,14 +588,16 @@ function UsageDialog(props: {
                     <button
                       type="button"
                       onClick={() => props.onNavigate(r.pageId)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                      className="group flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                      title="이 페이지로 바로가기"
                     >
-                      <span className="min-w-0 truncate text-zinc-800 dark:text-zinc-200">
+                      <span className="min-w-0 flex-1 truncate text-zinc-800 group-hover:text-blue-700 dark:text-zinc-200 dark:group-hover:text-blue-300">
                         {title}
                       </span>
-                      <span className="ml-2 shrink-0 text-xs text-zinc-400">
+                      <span className="shrink-0 text-xs text-zinc-400">
                         {r.blockType ?? ""}
                       </span>
+                      <ExternalLink size={12} className="shrink-0 text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
                     </button>
                   </li>
                 );

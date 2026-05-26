@@ -10,7 +10,7 @@
 //
 // 스크롤 컨테이너를 외부에서 제어해야 하면 parentRef prop 으로 전달한다.
 // 미전달 시 내부 ref 의 div 가 자체 스크롤 컨테이너가 된다.
-import { useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { Fragment, useRef, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 export interface ListVirtualizerProps {
@@ -54,19 +54,21 @@ export function ListVirtualizer({
 
   const inner = (
     <div style={{ height: totalSize, width: "100%", position: "relative" }}>
-      {items.map((item) =>
-        children({
-          index: item.index,
-          style: {
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: item.size,
-            transform: `translateY(${item.start}px)`,
-          },
-        }),
-      )}
+      {items.map((item) => (
+        <Fragment key={item.key as string | number}>
+          {children({
+            index: item.index,
+            style: {
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: item.size,
+              transform: `translateY(${item.start}px)`,
+            },
+          })}
+        </Fragment>
+      ))}
     </div>
   );
 

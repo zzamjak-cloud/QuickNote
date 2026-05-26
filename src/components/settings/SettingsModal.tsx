@@ -228,7 +228,7 @@ export function SettingsModal({ open, onClose }: Props) {
               {tab === "teams" && isAdmin && <AdminTeamsTab />}
               {tab === "organizations" && isAdmin && <AdminOrganizationsTab />}
               {tab === "workspaces" && isAdmin && <AdminWorkspacesTab />}
-              {tab === "assets" && isAdmin && <AdminAssetsTab />}
+              {tab === "assets" && isAdmin && <AdminAssetsTab onClose={onClose} />}
             </Suspense>
           </div>
         </section>
