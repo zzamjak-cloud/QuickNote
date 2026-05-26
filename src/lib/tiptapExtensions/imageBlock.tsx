@@ -39,6 +39,9 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
     <NodeViewWrapper
       as="span"
       className="qn-image-shell inline-block max-w-full my-1 align-middle"
+      // 기본 PM 드래그(노드뷰 위에서 mousedown→drag) 를 차단해 native HTML5 복제(복사) 현상을 막는다.
+      // 이동은 BlockHandles 의 드래그 핸들(startBlockNativeDrag) 경로로만 한다.
+      draggable={false}
     >
       {error ? (
         <span className="text-xs text-red-500">[image error]</span>

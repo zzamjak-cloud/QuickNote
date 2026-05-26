@@ -247,9 +247,11 @@ export function hoverFromResolvedPos(
       if (!inner || candidate.depth > inner.depth) inner = candidate;
     }
   }
-  // doc 직속 atom 블록(databaseBlock 등)은 $pos.depth == 0 이라 위 루프가 잡지 못함.
-  // posAtCoords/posAtDOM 결과가 atom 경계에 떨어지므로 nodeAfter/nodeBefore 모두 검사.
-  if (!inner && $pos.parent.type.name === "doc") {
+  // atom 블록(image / fileBlock / databaseBlock / horizontalRule 등)은 자기 자신이
+  // ancestor 로 들어오지 않아 위 루프가 잡지 못한다. doc 직속이든 콜아웃/blockquote/컬럼 내부든
+  // 부모 컨테이너에서 이 atom 을 가리키는 인덱스에 닿을 수 있으므로, $pos.parent 의 nodeAfter/nodeBefore 를
+  // 모두 검사한다. (이전에는 parent.type === "doc" 일 때만 동작해 콜아웃 안 이미지가 드래그 핸들로 잡히지 않았다.)
+  if (!inner) {
     const idx = $pos.index();
     const probes: { node: PMNode; start: number }[] = [];
     const after = $pos.parent.maybeChild(idx);
@@ -269,12 +271,17 @@ export function hoverFromResolvedPos(
       inner = {
         rect: rectEl.getBoundingClientRect(),
         blockStart: p.start,
-        depth: 1, // doc 직속 → top-level paragraph 와 동일 우선순위
+        // 깊이는 부모 컨테이너 + 1 — wrapper(콜아웃/컬럼) 보다 우선되도록 보장.
+        depth: $pos.depth + 1,
         node: n,
       };
       break;
     }
   }
+  // inner 가 atom 블록(image / fileBlock / horizontalRule 등) 이면 list/task 항목보다 먼저 반환.
+  // 글머리·체크 항목 안에 들어간 이미지·파일 위에서 드래그 핸들이 listItem 으로 가려져
+  // 이미지 자체를 잡지 못하던 회귀를 방지한다.
+  if (inner?.node.isAtom) return inner;
   return taskItem ?? listItem ?? inner ?? wrapper;
 }
 

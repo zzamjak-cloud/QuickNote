@@ -92,7 +92,18 @@ function mediaNodeFromElement(
   return options?.resolveMediaNode?.(rawSrc, el) ?? options?.resolveImageNode?.(rawSrc, el) ?? null;
 }
 
-function listNodeFromElement(el: HTMLElement, blockColor: string | null, blockToken: string | null): JSONContent {
+// li 내부에서 별도 블록(이미지/동영상/표/콜아웃/컬럼 등) 으로 끌어올릴 자손 셀렉터.
+// 노션은 글머리 항목 안에 이미지·동영상 블록을 자유롭게 배치할 수 있지만, 기존 변환기는
+// li 의 자식 노드를 inlineFromNode 만 거치게 해 이런 블록 콘텐츠가 모두 사라졌다.
+const LI_BLOCK_CHILD_SELECTOR =
+  "figure, img, video, table, hr, pre, blockquote, details, aside, h1, h2, h3, h4, h5, h6, iframe, div.column-list";
+
+function listNodeFromElement(
+  el: HTMLElement,
+  blockColor: string | null,
+  blockToken: string | null,
+  options?: HtmlToDocOptions,
+): JSONContent {
   const tag = el.tagName.toLowerCase();
   const isOrdered = tag === "ol";
   const items: JSONContent[] = [];
@@ -109,12 +120,45 @@ function listNodeFromElement(el: HTMLElement, blockColor: string | null, blockTo
     ) as HTMLElement[];
 
     for (const nestedList of nestedLists) {
-      nestedBlocks.push(listNodeFromElement(nestedList, blockColor, blockToken));
+      nestedBlocks.push(listNodeFromElement(nestedList, blockColor, blockToken, options));
+    }
+
+    // li 의 직속(또는 wrapper p 등으로 한 단계 감싸진) 블록 콘텐츠 — 이미지/동영상/표/콜아웃/컬럼 등 —
+    // 을 별도 블록으로 추출해 listItem 본문 뒤에 첨부한다.
+    // 동일 자손이 inline 추출 단계에서 텍스트로 평탄화되지 않도록 clone 에서도 제거한다.
+    const extractedBlockEls: HTMLElement[] = [];
+    for (const child of Array.from(li.children)) {
+      if (!(child instanceof HTMLElement)) continue;
+      if (child.tagName.toLowerCase() === "ul" || child.tagName.toLowerCase() === "ol") continue;
+      if (child.matches(LI_BLOCK_CHILD_SELECTOR)) {
+        extractedBlockEls.push(child);
+        continue;
+      }
+      // <p><figure>…</figure></p> 처럼 한 단계 감싸진 케이스도 끌어올린다.
+      const wrappedBlock = child.querySelector(":scope > " + LI_BLOCK_CHILD_SELECTOR);
+      if (wrappedBlock instanceof HTMLElement && !child.querySelector("ul, ol")) {
+        extractedBlockEls.push(child);
+      }
+    }
+    const blockChildJsonNodes: JSONContent[] = [];
+    if (extractedBlockEls.length > 0 && options) {
+      const wrappedHtml = `<article class="page">${extractedBlockEls
+        .map((b) => b.outerHTML)
+        .join("")}</article>`;
+      const innerDoc = notionHtmlToDocInternal(wrappedHtml, options);
+      const innerContent = Array.isArray(innerDoc.content) ? (innerDoc.content as JSONContent[]) : [];
+      for (const n of innerContent) blockChildJsonNodes.push(n);
     }
 
     const liClone = li.cloneNode(true) as HTMLElement;
     for (const nested of Array.from(liClone.querySelectorAll("ul, ol"))) {
       nested.remove();
+    }
+    // 블록으로 끌어올린 자식들은 inline 추출 대상에서 제거.
+    for (const c of Array.from(liClone.children)) {
+      if (!(c instanceof HTMLElement)) continue;
+      if (c.matches(LI_BLOCK_CHILD_SELECTOR)) c.remove();
+      else if (c.querySelector(":scope > " + LI_BLOCK_CHILD_SELECTOR) && !c.querySelector("ul, ol")) c.remove();
     }
     for (const child of Array.from(liClone.childNodes)) {
       paragraphInlines.push(...inlineFromNode(child, blockToken ? null : blockColor, []));
@@ -126,6 +170,7 @@ function listNodeFromElement(el: HTMLElement, blockColor: string | null, blockTo
       type: "paragraph",
       content: paragraphInlines.length > 0 ? paragraphInlines : [],
     }];
+    listItemContent.push(...blockChildJsonNodes);
     listItemContent.push(...nestedBlocks);
     items.push({
       type: "listItem",
@@ -385,7 +430,7 @@ function blocksFromContainerChildren(
         return;
       }
       if (tag === "ul" || tag === "ol") {
-        out.push(listNodeFromElement(node, blockColor, blockToken));
+        out.push(listNodeFromElement(node, blockColor, blockToken, options));
         return;
       }
       if (tag === "div" || tag === "section" || tag === "article") {
@@ -1109,7 +1154,11 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
   const page = doc.querySelector("article.page") ?? doc.body;
   const blocks: JSONContent[] = [];
 
-  const elements = Array.from(page.querySelectorAll("details, table, h1, h2, h3, p, ul, ol, aside, figure.callout, figure.bookmark, figure, hr, img, video, blockquote, iframe, pre, div.column-list"));
+  // Notion 의 컬럼 블록은 보통 div.column-list 지만, 일부 export 변형에서 class 가 살짝 다를 수 있어
+  // 속성 부분일치 셀렉터로도 잡아낸다. ("column_list", "notion-column-list" 등).
+  const elements = Array.from(page.querySelectorAll(
+    "details, table, h1, h2, h3, p, ul, ol, aside, figure.callout, figure.bookmark, figure, hr, img, video, blockquote, iframe, pre, div.column-list, div[class*='column-list'], div[class*='column_list']",
+  ));
   for (const el of elements) {
     if (!(el instanceof HTMLElement)) continue;
     if (el.closest("header") && el.tagName.toLowerCase() !== "h1") continue;
@@ -1118,7 +1167,7 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
     // column-list 내부의 자손 블록들은 column-list 처리 단계에서 재귀 변환되므로
     // top-level 순회에서는 건너뛴다. (column-list 자체는 통과)
     {
-      const closestColumnList = el.closest("div.column-list");
+      const closestColumnList = el.closest("div.column-list, div[class*='column-list'], div[class*='column_list']");
       if (closestColumnList && closestColumnList !== el) continue;
     }
 
@@ -1141,13 +1190,29 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
       blocks.push(toggleFromDetails(el, options, blockColor, blockToken));
       continue;
     }
-    if (tag === "div" && el.classList.contains("column-list")) {
+    if (
+      tag === "div" &&
+      (el.classList.contains("column-list") ||
+        /column[-_]list/i.test(el.className))
+    ) {
       // Notion 의 컬럼 레이아웃: <div class="column-list"><div class="column">...</div>...</div>
       // 퀵노트 columnLayout 스키마는 column{2,4} 이라 컬럼 2~4 개 일 때만 변환,
       // 그 외(1개 또는 5개 이상)는 자식 블록을 평탄화해서 그대로 삽입.
-      const columnEls = Array.from(el.children).filter(
+      // 일부 export 는 "column" 대신 다른 클래스를 쓸 수 있어, "column" 매칭 + 클래스 부분일치 + 직속 div 폴백 순으로 탐색.
+      let columnEls = Array.from(el.children).filter(
         (c): c is HTMLElement => c instanceof HTMLElement && c.classList.contains("column"),
       );
+      if (columnEls.length === 0) {
+        columnEls = Array.from(el.children).filter(
+          (c): c is HTMLElement => c instanceof HTMLElement && /(^|\s)column(\s|$|-)/i.test(c.className),
+        );
+      }
+      if (columnEls.length === 0) {
+        // class 가 다르거나 없는 경우 — 직속 div 자식을 컬럼으로 간주.
+        columnEls = Array.from(el.children).filter(
+          (c): c is HTMLElement => c instanceof HTMLElement && c.tagName.toLowerCase() === "div",
+        );
+      }
       const inColumnRange = columnEls.length >= 2 && columnEls.length <= 4;
       const childNodesPerColumn = columnEls.map((columnEl) => {
         // 각 컬럼의 innerHTML 을 한 article.page 로 감싸 재귀 변환 → 내부 블록 JSON 추출.
@@ -1432,7 +1497,7 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
       continue;
     }
     if (tag === "ul" || tag === "ol") {
-      blocks.push(listNodeFromElement(el, blockColor, blockToken));
+      blocks.push(listNodeFromElement(el, blockColor, blockToken, options));
     }
   }
 

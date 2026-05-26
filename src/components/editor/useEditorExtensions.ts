@@ -20,6 +20,7 @@ import {
 } from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { Indentation } from "../../lib/tiptapExtensions/indentation";
 import { OrderedListMarkdownShortcut } from "../../lib/tiptapExtensions/orderedListShortcut";
+import { ListItemPermissive } from "../../lib/tiptapExtensions/listItemPermissive";
 import { BracketAutoClose } from "../../lib/tiptapExtensions/bracketAutoClose";
 import { InlineCodeShortcut } from "../../lib/tiptapExtensions/inlineCodeShortcut";
 import TextAlign from "@tiptap/extension-text-align";
@@ -100,6 +101,9 @@ export function useEditorExtensions({
             },
         blockquote: false,
         orderedList: false,
+        // listItem 은 ListItemPermissive 로 교체 — content 를 "block+" 으로 완화해
+        // 글머리 항목 안에 이미지/동영상/파일/콜아웃 등 어떤 블록이든 직접 들어갈 수 있게 한다.
+        listItem: false,
         // 아래는 동일 이름으로 별도 등록하므로 StarterKit 쪽은 끈다.
         link: false,
         horizontalRule: false,
@@ -111,6 +115,7 @@ export function useEditorExtensions({
       }),
       BlockquoteNoInput,
       OrderedListMarkdownShortcut,
+      ListItemPermissive,
       Placeholder.configure({
         placeholder: "/ 를 입력해 명령 보기...",
       }),

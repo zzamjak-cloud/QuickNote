@@ -140,6 +140,47 @@ function draggedBlockShape(
   return null;
 }
 
+/**
+ * 드롭 좌표가 listItem/taskItem 안에 떨어졌고 드래그 중인 블록이 listItem 자체가 아닌 경우
+ * (예: 이미지·동영상·파일·콜아웃 블록 핸들을 글머리 항목 안으로 드래그),
+ * 해당 listItem 의 내부 — 첫 paragraph 뒤(=중첩 리스트 앞) — 위치를 반환한다.
+ * 그렇지 않으면 null. 기본 top-level 드롭 경로로 폴백시키기 위함.
+ */
+function listItemInteriorDropPos(
+  view: EditorView,
+  event: DragEvent,
+): number | null {
+  const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+  if (!coords) return null;
+  let $pos;
+  try {
+    $pos = view.state.doc.resolve(coords.pos);
+  } catch {
+    return null;
+  }
+  for (let d = $pos.depth; d >= 1; d--) {
+    const node = $pos.node(d);
+    if (node.type.name !== "listItem" && node.type.name !== "taskItem") continue;
+    const itemStart = $pos.start(d); // listItem 내부 시작 (paragraph 등 첫 자식의 직전)
+    let offsetInItem = 0;
+    let firstParagraphEnd: number | null = null;
+    node.content.forEach((child) => {
+      if (firstParagraphEnd != null) {
+        offsetInItem += child.nodeSize;
+        return;
+      }
+      if (child.type.name === "paragraph") {
+        firstParagraphEnd = itemStart + offsetInItem + child.nodeSize;
+      }
+      offsetInItem += child.nodeSize;
+    });
+    if (firstParagraphEnd != null) return firstParagraphEnd;
+    // paragraph 가 없으면 listItem 의 끝(내부 마지막) 으로 폴백.
+    return itemStart + node.content.size;
+  }
+  return null;
+}
+
 function listItemInsertionPosFromDrop(
   view: EditorView,
   event: DragEvent,
@@ -300,8 +341,16 @@ function moveSingleQuickNoteBlockFromDrop(
   const shape = draggedBlockShape(view, start, node);
   if (!shape) return false;
   const listInsertAt = listItemInsertionPosFromDrop(view, event, shape);
+  // 드래그 중인 블록이 listItem 자체가 아니면 (이미지·콜아웃·표 등),
+  // 좌표가 listItem 내부면 그 항목의 첫 paragraph 뒤(=중첩 리스트 앞) 에 끼워 넣는다.
+  // 이렇게 하지 않으면 항상 top-level 위치로 lift 돼 글머리 항목 밖으로 빠져나간다.
+  const interiorInsertAt =
+    listInsertAt == null && !shape.listItemNode
+      ? listItemInteriorDropPos(view, event)
+      : null;
   const insertAt =
     listInsertAt ??
+    interiorInsertAt ??
     topLevelInsertionPosFromDrop(
       view,
       event.clientX,
