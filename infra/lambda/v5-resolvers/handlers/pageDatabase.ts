@@ -253,6 +253,8 @@ export async function upsertPage(args: {
         pageId: typeof saved.id === "string" ? saved.id : (typeof input.id === "string" ? input.id : ""),
         pageTitle: typeof saved.title === "string" ? saved.title : null,
         pageDoc: saved.doc ?? input.doc,
+        pageIcon: typeof saved.icon === "string" ? saved.icon : (typeof input.icon === "string" ? input.icon : null),
+        pageCoverImage: typeof saved.coverImage === "string" ? saved.coverImage : (typeof input.coverImage === "string" ? input.coverImage : null),
       });
     } catch (err) {
       console.error("[upsertPage] AssetUsage sync 실패 (무시)", err);

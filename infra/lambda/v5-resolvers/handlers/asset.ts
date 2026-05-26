@@ -64,6 +64,12 @@ function assetIdFromRef(src: string): string | null {
   return null;
 }
 
+/** 단일 문자열 (page.icon, page.coverImage 등) 에서 assetId 추출. */
+export function extractAssetIdFromString(value: string | null | undefined): string | null {
+  if (!value || typeof value !== "string") return null;
+  return assetIdFromRef(value);
+}
+
 function safeJsonParse(s: string): unknown {
   try {
     return JSON.parse(s);
@@ -103,13 +109,21 @@ export async function syncPageAssetUsage(args: {
   pageId: string;
   pageTitle?: string | null;
   pageDoc: unknown;
+  pageIcon?: string | null;
+  pageCoverImage?: string | null;
 }): Promise<void> {
   const tableName = args.tables.AssetUsage;
   if (!tableName) return; // 테이블 미설정 환경에서는 silently skip (점진적 배포 대비)
   // 1) 기존 rows 삭제
   await deletePageAssetUsageRows(args.doc, tableName, args.pageId);
   // 2) 새 rows 추가 (자산 ref 가 있을 때만)
+  //    doc 본문 + page.icon + page.coverImage 까지 모두 인덱싱해 커스텀 아이콘이
+  //    "사용 안 됨" 으로 잘못 분류되는 회귀를 방지.
   const refs = extractAssetRefs(args.pageDoc);
+  const iconAssetId = extractAssetIdFromString(args.pageIcon);
+  if (iconAssetId) refs.push({ assetId: iconAssetId, blockType: "pageIcon" });
+  const coverAssetId = extractAssetIdFromString(args.pageCoverImage);
+  if (coverAssetId) refs.push({ assetId: coverAssetId, blockType: "pageCover" });
   if (refs.length === 0) return;
   // dedupe by (assetId, blockId)
   const seen = new Set<string>();
@@ -505,18 +519,34 @@ export async function replaceAssetRef(args: {
       new GetCommand({ TableName: pagesTable, Key: { id: pageId, workspaceId } }),
     );
     const page = pageRes.Item as
-      | { id: string; workspaceId: string; doc?: string; title?: string; updatedAt: string }
+      | { id: string; workspaceId: string; doc?: string; title?: string; icon?: string | null; coverImage?: string | null; updatedAt: string }
       | undefined;
-    if (!page || !page.doc) continue;
-    const replaced = page.doc
-      .split(`${IMAGE_SCHEME}${oldAssetId}`).join(`${IMAGE_SCHEME}${newAssetId}`)
-      .split(`${FILE_SCHEME}${oldAssetId}`).join(`${FILE_SCHEME}${newAssetId}`);
-    if (replaced === page.doc) continue;
+    if (!page) continue;
+    const swap = (s: string | null | undefined): string | null | undefined => {
+      if (!s || typeof s !== "string") return s;
+      return s
+        .split(`${IMAGE_SCHEME}${oldAssetId}`).join(`${IMAGE_SCHEME}${newAssetId}`)
+        .split(`${FILE_SCHEME}${oldAssetId}`).join(`${FILE_SCHEME}${newAssetId}`);
+    };
+    const replacedDoc = swap(page.doc) as string | undefined;
+    const replacedIcon = swap(page.icon ?? null);
+    const replacedCover = swap(page.coverImage ?? null);
+    const changed =
+      replacedDoc !== page.doc ||
+      replacedIcon !== (page.icon ?? null) ||
+      replacedCover !== (page.coverImage ?? null);
+    if (!changed) continue;
     const now = new Date().toISOString();
     await args.doc.send(
       new PutCommand({
         TableName: pagesTable,
-        Item: { ...page, doc: replaced, updatedAt: now },
+        Item: {
+          ...page,
+          ...(replacedDoc !== undefined ? { doc: replacedDoc } : {}),
+          icon: replacedIcon ?? null,
+          coverImage: replacedCover ?? null,
+          updatedAt: now,
+        },
       }),
     );
     await syncPageAssetUsage({
@@ -526,7 +556,9 @@ export async function replaceAssetRef(args: {
       workspaceId,
       pageId,
       pageTitle: page.title ?? null,
-      pageDoc: replaced,
+      pageDoc: replacedDoc ?? page.doc,
+      pageIcon: replacedIcon ?? null,
+      pageCoverImage: replacedCover ?? null,
     });
     updated += 1;
   }
@@ -563,9 +595,15 @@ export async function migrateAssetUsage(args: {
       const workspaceId = it.workspaceId as string | undefined;
       const title = (it.title as string | undefined) ?? null;
       const docJson = it.doc as string | undefined;
-      if (!pageId || !workspaceId || !docJson) continue;
-      // doc 에서 ref 추출 → 본인 소유 자산만 필터링하기 위해 ImageAssets 룩업 캐시
-      const refs = extractAssetRefs(docJson);
+      const iconStr = (it.icon as string | undefined) ?? null;
+      const coverStr = (it.coverImage as string | undefined) ?? null;
+      if (!pageId || !workspaceId) continue;
+      // doc 본문 + icon + coverImage 에서 ref 추출 → 본인 소유 자산만 인덱싱.
+      const refs = docJson ? extractAssetRefs(docJson) : [];
+      const iconAssetId = extractAssetIdFromString(iconStr);
+      if (iconAssetId) refs.push({ assetId: iconAssetId, blockType: "pageIcon" });
+      const coverAssetId = extractAssetIdFromString(coverStr);
+      if (coverAssetId) refs.push({ assetId: coverAssetId, blockType: "pageCover" });
       if (refs.length === 0) continue;
       const ownedRefs: typeof refs = [];
       for (const ref of refs) {
@@ -580,7 +618,9 @@ export async function migrateAssetUsage(args: {
         workspaceId,
         pageId,
         pageTitle: title,
-        pageDoc: docJson,
+        pageDoc: docJson ?? null,
+        pageIcon: iconStr,
+        pageCoverImage: coverStr,
       });
       totalRows += ownedRefs.length;
     }
