@@ -59,6 +59,8 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
   const [migrateNotice, setMigrateNotice] = useState<string | null>(null);
   // 자산별 압축 진행 메시지 — null 또는 미존재면 idle.
   const [compressMsg, setCompressMsg] = useState<Record<string, string>>({});
+  // 미리보기 대상 자산 — 행 클릭으로 모달 오픈.
+  const [previewAsset, setPreviewAsset] = useState<GqlAsset | null>(null);
 
   const pages = usePageStore((s) => s.pages);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -395,14 +397,29 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
               return (
                 <div
                   style={style}
-                  className={`flex items-center gap-2 border-b border-zinc-100 px-2 text-sm hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40 ${
+                  className={`flex cursor-pointer items-center gap-2 border-b border-zinc-100 px-2 text-sm hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40 ${
                     isSel ? "bg-zinc-50 dark:bg-zinc-800/60" : ""
                   }`}
+                  onClick={(e) => {
+                    // 행 내부의 버튼/인풋 클릭은 자기 동작만 수행하고 미리보기를 열지 않는다.
+                    const target = e.target as HTMLElement;
+                    if (target.closest("button, input, a")) return;
+                    setPreviewAsset(a);
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+                      e.preventDefault();
+                      setPreviewAsset(a);
+                    }
+                  }}
                 >
                   <input
                     type="checkbox"
                     checked={isSel}
                     onChange={() => toggleOne(a.id)}
+                    onClick={(e) => e.stopPropagation()}
                     className="size-4"
                   />
                   <AssetThumb asset={a} />
@@ -456,6 +473,11 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         onCancel={() => setConfirmOpen(false)}
         onConfirm={() => void runDelete()}
       />
+
+      {/* 미리보기 모달 */}
+      {previewAsset ? (
+        <AssetPreviewDialog asset={previewAsset} onClose={() => setPreviewAsset(null)} />
+      ) : null}
 
       {/* 사용 위치 모달 */}
       {usageOpenFor ? (
@@ -511,6 +533,108 @@ function CompressCell(props: {
       <Zap size={11} />
       {label}
     </button>
+  );
+}
+
+function AssetPreviewDialog({ asset, onClose }: { asset: GqlAsset; onClose: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const cached = imageUrlCache.peek(asset.id);
+    if (cached) {
+      setUrl(cached);
+    } else {
+      void imageUrlCache.get(asset.id).then(
+        (u) => { if (!cancelled) setUrl(u); },
+        (e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); },
+      );
+    }
+    return () => { cancelled = true; };
+  }, [asset.id]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const isImage = asset.mimeType.startsWith("image/");
+  const isVideo = asset.mimeType.startsWith("video/");
+  const isAudio = asset.mimeType.startsWith("audio/");
+  const isPdf = asset.mimeType === "application/pdf";
+
+  return (
+    <div
+      className="fixed inset-0 z-[560] flex items-center justify-center bg-black/70 p-6"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-lg bg-white shadow-xl dark:bg-zinc-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+              {asset.name ?? asset.id}
+            </div>
+            <div className="text-xs text-zinc-500">
+              {asset.mimeType} · {formatBytes(asset.size)} · {asset.createdAt.slice(0, 10)}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {url ? (
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                download={asset.name ?? undefined}
+                className="rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                다운로드
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+        <div className="grid min-h-0 flex-1 place-items-center overflow-auto bg-zinc-50 p-4 dark:bg-zinc-950">
+          {err ? (
+            <div className="text-sm text-rose-600 dark:text-rose-400">불러오기 실패: {err}</div>
+          ) : !url ? (
+            <Loader2 className="animate-spin text-zinc-400" />
+          ) : isImage ? (
+            <img src={url} alt={asset.name ?? ""} className="max-h-[70vh] max-w-full object-contain" />
+          ) : isVideo ? (
+            <video src={url} className="max-h-[70vh] max-w-full" controls autoPlay playsInline />
+          ) : isAudio ? (
+            <audio src={url} controls className="w-full max-w-md" />
+          ) : isPdf ? (
+            <iframe src={url} className="h-[70vh] w-full" title={asset.name ?? "PDF"} />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-sm text-zinc-500">
+              <div>이 형식은 인라인 미리보기를 지원하지 않습니다.</div>
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded bg-blue-600 px-3 py-1 text-white hover:bg-blue-700"
+              >
+                새 탭에서 열기
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
