@@ -33,6 +33,24 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+function formatError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const e = err as { message?: string; errors?: Array<{ message?: string }> };
+    if (typeof e.message === "string" && e.message) return e.message;
+    if (Array.isArray(e.errors) && e.errors.length > 0) {
+      return e.errors.map((x) => x?.message ?? "").filter(Boolean).join(" / ") || JSON.stringify(err);
+    }
+    try {
+      return JSON.stringify(err).slice(0, 300);
+    } catch {
+      return "알 수 없는 오류";
+    }
+  }
+  return String(err);
+}
+
 function mimeChip(mime: string): string {
   if (mime.startsWith("image/")) return mime.replace("image/", "img/");
   if (mime.startsWith("video/")) return mime.replace("video/", "vid/");
@@ -51,6 +69,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
   const [minSizeMb, setMinSizeMb] = useState<number>(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState<boolean>(false);
+  const [deleteProgress, setDeleteProgress] = useState<{ done: number; total: number } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [usageOpenFor, setUsageOpenFor] = useState<GqlAsset | null>(null);
   const [usageRows, setUsageRows] = useState<GqlAssetUsage[]>([]);
@@ -81,7 +100,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
       const res = await listMyAssetsApi(input);
       setAssets(res.items);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(formatError(err));
     } finally {
       setLoading(false);
     }
@@ -142,17 +161,35 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
     if (ids.length === 0) return;
     setDeleting(true);
     setError(null);
-    try {
-      const deleted = await deleteMyAssetsApi(ids);
-      const deletedSet = new Set(deleted);
-      setAssets((prev) => prev.filter((a) => !deletedSet.has(a.id)));
-      setSelected(new Set());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDeleting(false);
-      setConfirmOpen(false);
+    setConfirmOpen(false);
+    setDeleteProgress({ done: 0, total: ids.length });
+    // Lambda 호출당 처리량 제한(타임아웃·동시성) 회피 — 청크로 분할 호출하고 실패는 부분 성공으로 누적.
+    const CHUNK = 30;
+    const failures: string[] = [];
+    let totalDeleted = 0;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      try {
+        const deleted = await deleteMyAssetsApi(chunk);
+        const deletedSet = new Set(deleted);
+        totalDeleted += deleted.length;
+        setAssets((prev) => prev.filter((a) => !deletedSet.has(a.id)));
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const id of deleted) next.delete(id);
+          return next;
+        });
+      } catch (err) {
+        failures.push(formatError(err));
+        console.error("[deleteMyAssets chunk 실패]", err);
+      }
+      setDeleteProgress({ done: Math.min(i + chunk.length, ids.length), total: ids.length });
     }
+    if (failures.length > 0) {
+      setError(`${totalDeleted}/${ids.length}개 삭제됨. 실패: ${failures[0]}`);
+    }
+    setDeleting(false);
+    setDeleteProgress(null);
   }, [selected]);
 
   const openUsage = useCallback(async (asset: GqlAsset) => {
@@ -221,7 +258,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         void fetchAssets({ silent: true });
       }, 800);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = formatError(err);
       update(`실패: ${msg.slice(0, 60)}`);
       setTimeout(() => setCompressMsg((m) => {
         const n = { ...m };
@@ -239,7 +276,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
       setMigrateNotice(`인덱싱 완료 — ${count}건의 참조`);
       await fetchAssets({ silent: true });
     } catch (err) {
-      setMigrateNotice(`실패: ${err instanceof Error ? err.message : String(err)}`);
+      setMigrateNotice(`실패: ${formatError(err)}`);
     } finally {
       setMigrating(false);
     }
@@ -338,7 +375,9 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
           className="flex items-center gap-1 rounded bg-rose-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-rose-700 disabled:opacity-40"
         >
           {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-          선택 영구 삭제
+          {deleteProgress
+            ? `삭제 중 ${deleteProgress.done}/${deleteProgress.total}`
+            : "선택 영구 삭제"}
         </button>
       </div>
 
@@ -548,7 +587,7 @@ function AssetPreviewDialog({ asset, onClose }: { asset: GqlAsset; onClose: () =
     } else {
       void imageUrlCache.get(asset.id).then(
         (u) => { if (!cancelled) setUrl(u); },
-        (e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); },
+        (e) => { if (!cancelled) setErr(formatError(e)); },
       );
     }
     return () => { cancelled = true; };
