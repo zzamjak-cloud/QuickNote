@@ -12,6 +12,7 @@ import {
 import { createZipVirtualDir } from "../../lib/notionImport/zipVirtualFs";
 import { prepareImageFileForUpload } from "../../lib/images/compressImage";
 import { uploadImage } from "../../lib/images/upload";
+import { uploadFile } from "../../lib/files/upload";
 import {
   createNotionAssetResolver,
   collectNotionAssetRefsFromHtml,
@@ -198,6 +199,10 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
 
   useEffect(() => {
     if (!sharedSource || isImporting) return;
+    // 이미 완료(done) 또는 오류(error) 상태라면 재스캔하지 않는다.
+    // isImporting 이 true→false 로 바뀌는 순간 useEffect 가 다시 돌면서
+    // setStatus({kind:"ready"}) 로 덮어쓰면 "가져오기 완료" 메시지가 사라지고 버튼이 다시 노출된다.
+    if (status.kind === "done" || status.kind === "error") return;
     if (sharedSource.kind === "folder-handle") {
       setStatus({ kind: "scanning" });
       void detectCsvDbPairsRecursive(sharedSource.dir)
@@ -240,7 +245,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
       kind: "error",
       message: "선택한 폴더 형식은 DB 가져오기에서 아직 지원되지 않습니다. 폴더 선택(권장) 또는 ZIP 파일 선택을 사용해 주세요.",
     });
-  }, [isImporting, sharedSource]);
+  }, [isImporting, sharedSource, status.kind]);
 
   const onImport = async () => {
     if (status.kind !== "ready") return;
@@ -417,6 +422,9 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
 
         // 추가 컬럼 생성 — cellMeta가 있으면 우선 사용, 없으면 휴리스틱
         const extraColIds: Array<{ id: string; type: ColumnType }> = [];
+        // select/status/multiSelect 컬럼의 라벨→옵션 ID 매핑. 셀 값은 라벨이 아닌 옵션 ID 로 저장해야
+        // DatabaseCellDisplay 가 칩을 인식해 표시한다. 라벨 그대로 저장하면 셀이 비어 보인다.
+        const labelToOptionIdByColId = new Map<string, Map<string, string>>();
         for (let colIdx = 1; colIdx < csvData.headers.length; colIdx++) {
           const header = csvData.headers[colIdx] || `컬럼 ${colIdx + 1}`;
           const values = csvData.rows.map((r) => r[colIdx] ?? "").filter((v) => v.trim());
@@ -478,14 +486,15 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
                 if (!labelToColor.has(label)) labelToColor.set(label, undefined);
               }
             }
+            const labelMap = new Map<string, string>();
+            const options = Array.from(labelToColor.entries()).map(([label, color], i) => {
+              const id = `${colId}-opt-${i}`;
+              labelMap.set(label, id);
+              return { id, label, color };
+            });
+            labelToOptionIdByColId.set(colId, labelMap);
             updateColumn(dbId, colId, {
-              config: {
-                options: Array.from(labelToColor.entries()).map(([label, color], i) => ({
-                  id: `${colId}-opt-${i}`,
-                  label,
-                  color,
-                })),
-              },
+              config: { options },
             });
           }
         }
@@ -498,13 +507,22 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           content: [{ type: "databaseBlock", attrs: { databaseId: dbId } }],
         });
 
-        // 아이콘 자산을 업로드해 image ref 로 변환 (실패시 null)
+        // 아이콘 자산을 업로드해 image/file ref 로 변환 (실패시 null).
+        // PNG/JPEG/WEBP 는 압축 경로(uploadImage)로 → quicknote-image:// ref.
+        // 그 외(GIF/SVG/AVIF 등)는 원본 그대로 uploadFile → quicknote-file:// ref.
+        // 두 ref 모두 isImageLikePageIcon 이 이미지로 인식해 PageIconDisplay 가 정상 렌더한다.
+        // 이전에는 PNG/JPEG/WEBP 외 모두 null 반환으로 setIcon 이 호출되지 않아
+        // 자산은 업로드되지만 페이지 아이콘이 끝내 적용되지 않는 회귀가 있었다.
         const uploadIconImage = async (file: File): Promise<string | null> => {
           try {
             const prepared = await prepareImageFileForUpload(file);
-            if (!prepared) return null;
-            if (!["image/png", "image/jpeg", "image/webp"].includes(prepared.type)) return null;
-            return await uploadImage(prepared);
+            const candidate = prepared ?? file;
+            if (candidate && ["image/png", "image/jpeg", "image/webp"].includes(candidate.type)) {
+              return await uploadImage(candidate);
+            }
+            // 다른 이미지 포맷(또는 압축 실패) — 원본을 fileBlock 자산으로 업로드.
+            const uploaded = await uploadFile(file);
+            return uploaded.ref ?? null;
           } catch (err) {
             console.warn("[CSV가져오기] 아이콘 업로드 실패", err);
             return null;
@@ -698,7 +716,27 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           for (let colIdx = 1; colIdx < row.length; colIdx++) {
             const colMeta = extraColIds[colIdx - 1];
             if (!colMeta) continue;
-            cells[colMeta.id] = normalizeImportedCellValue(colMeta.type, row[colIdx] ?? "");
+            const raw = row[colIdx] ?? "";
+            // select/status/multiSelect 는 라벨 → 옵션 ID 변환 (normalizeImportedCellValue 는 라벨을 그대로 반환하므로 셀에 표시되지 않음).
+            if (
+              colMeta.type === "select" ||
+              colMeta.type === "status" ||
+              colMeta.type === "multiSelect"
+            ) {
+              const labelMap = labelToOptionIdByColId.get(colMeta.id);
+              const labels =
+                colMeta.type === "multiSelect"
+                  ? raw.split(/[;,/|]/).map((s) => s.trim()).filter(Boolean)
+                  : raw.trim()
+                    ? [raw.trim()]
+                    : [];
+              const ids = labels
+                .map((label) => labelMap?.get(label))
+                .filter((id): id is string => !!id);
+              cells[colMeta.id] = colMeta.type === "multiSelect" ? ids : (ids[0] ?? "");
+              continue;
+            }
+            cells[colMeta.id] = normalizeImportedCellValue(colMeta.type, raw);
           }
           return { title: rowTitle, cells };
         });
