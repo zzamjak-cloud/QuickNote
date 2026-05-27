@@ -8,6 +8,7 @@ import { decodeFileRef } from "./scheme";
 import {
   readMediaBlob,
   writeMediaBlob,
+  fetchMediaBlob,
   VIDEO_CACHE_MAX_BYTES,
 } from "../media/mediaBlobCache";
 
@@ -78,14 +79,9 @@ export function useFileUrl(
         // 대형 동영상은 캐싱하지 않고 PreSignedURL 스트리밍을 그대로 둔다.
         if (hintSize != null && hintSize > 0 && hintSize <= VIDEO_CACHE_MAX_BYTES) {
           void (async () => {
-            try {
-              const resp = await fetch(downloadUrl);
-              if (!resp.ok) return;
-              const blob = await resp.blob();
-              await writeMediaBlob(id, blob, { maxItemBytes: VIDEO_CACHE_MAX_BYTES });
-            } catch {
-              // 백그라운드 캐싱 실패는 무시 (재생은 PreSignedURL 로 정상 동작).
-            }
+            // CORS 비활성 시 null → 백그라운드 요청 없음 (재생은 PreSignedURL 로 정상 동작).
+            const blob = await fetchMediaBlob(downloadUrl);
+            if (blob) await writeMediaBlob(id, blob, { maxItemBytes: VIDEO_CACHE_MAX_BYTES });
           })();
         }
       } catch (e) {

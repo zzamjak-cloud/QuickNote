@@ -7,6 +7,7 @@ import { decodeFileRef } from "../files/scheme";
 import {
   readMediaBlob,
   writeMediaBlob,
+  fetchMediaBlob,
   IMAGE_CACHE_MAX_BYTES,
 } from "../media/mediaBlobCache";
 
@@ -77,19 +78,16 @@ export function useImageUrl(
       try {
         const downloadUrl = await imageUrlCache.get(id);
         if (canceled) return;
-        try {
-          const resp = await fetch(downloadUrl);
-          if (resp.ok) {
-            const blob = await resp.blob();
-            if (canceled) return;
-            applyBlobUrl(blob);
-            void writeMediaBlob(id, blob, { maxItemBytes: IMAGE_CACHE_MAX_BYTES });
-            return;
-          }
-        } catch {
-          // 바이트 캐싱 실패 — PreSignedURL 직접 사용으로 폴백.
+        // 바이트 fetch (CORS 비활성 시 null 반환 → 추가 요청·콘솔 스팸 없음).
+        const blob = await fetchMediaBlob(downloadUrl);
+        if (canceled) return;
+        if (blob) {
+          applyBlobUrl(blob);
+          void writeMediaBlob(id, blob, { maxItemBytes: IMAGE_CACHE_MAX_BYTES });
+          return;
         }
-        if (!canceled) setUrl(downloadUrl);
+        // 바이트 캐싱 불가 — PreSignedURL 직접 사용(<img> 는 CORS 불필요).
+        setUrl(downloadUrl);
       } catch (e) {
         if (!canceled) setError(mapImageErrorMessage(e));
       }

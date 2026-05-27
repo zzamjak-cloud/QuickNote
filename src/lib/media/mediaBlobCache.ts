@@ -105,6 +105,33 @@ export async function writeMediaBlob(
   }
 }
 
+// S3 버킷에 CORS(GET) 가 설정돼 있지 않으면 fetch 가 매번 CORS 로 막혀 콘솔이 오염되고
+// 불필요한 실패 요청이 쌓인다. 첫 실패 시 세션 동안 바이트 fetch 를 비활성화해
+// 이후로는 PreSignedURL <img>/<video> 직접 로딩만 사용한다.
+let byteFetchDisabled = false;
+
+/** 바이트 fetch 가 (CORS 등으로) 비활성화됐는지 */
+export function isMediaByteFetchDisabled(): boolean {
+  return byteFetchDisabled;
+}
+
+/** PreSignedURL 에서 바이트를 받아 Blob 으로 반환. 비활성/실패 시 null. */
+export async function fetchMediaBlob(url: string): Promise<Blob | null> {
+  if (byteFetchDisabled) return null;
+  try {
+    // cache: "reload" — <img>/<video> 가 Origin 없이 먼저 받아 ACAO 없는 응답이 HTTP 캐시에
+    // 들어가면, 같은 URL 의 fetch 가 그 캐시를 받아 CORS 로 실패한다. 항상 새 CORS 요청을
+    // 보내 S3 가 Access-Control-Allow-Origin 을 포함한 응답을 주도록 강제한다.
+    const resp = await fetch(url, { mode: "cors", cache: "reload" });
+    if (!resp.ok) return null;
+    return await resp.blob();
+  } catch {
+    // CORS/네트워크 실패 — 세션 동안 추가 시도 차단(콘솔 스팸·중복 실패 요청 방지).
+    byteFetchDisabled = true;
+    return null;
+  }
+}
+
 let pruning = false;
 
 async function pruneIfNeeded(): Promise<void> {
