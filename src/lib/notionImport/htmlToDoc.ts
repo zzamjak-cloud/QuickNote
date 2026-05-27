@@ -1544,12 +1544,17 @@ export function extractNotionPageIcon(html: string | Document): { emoji?: string
   const doc = typeof html === "string"
     ? new DOMParser().parseFromString(html, "text/html")
     : html;
-  const header = doc.querySelector("header") ?? doc.body;
+  const realHeader = doc.querySelector("header");
+  const header = realHeader ?? doc.body;
   if (!header) return null;
 
-  // 1) <img class="page-header-icon" src="..."> — 커스텀 업로드 아이콘
+  // 1) 커스텀 업로드 아이콘 이미지.
+  // Notion export 는 <img class="page-header-icon"> 처럼 img 에 직접 클래스를 주기도 하고,
+  // <span class="page-header-icon"><img/></span> 처럼 컨테이너로 감싸기도 한다. 둘 다 잡는다.
   const iconImg = header.querySelector(
-    "img.page-header-icon, img.notion-page-icon, img.page-icon",
+    "img.page-header-icon, img.notion-page-icon, img.page-icon, " +
+    ".page-header-icon img, .notion-page-icon img, .page-icon img, " +
+    "[data-testid='page-icon'] img, .notion-record-icon img",
   );
   if (iconImg instanceof HTMLImageElement) {
     const src = iconImg.getAttribute("src") ?? "";
@@ -1572,6 +1577,20 @@ export function extractNotionPageIcon(html: string | Document): { emoji?: string
   if (headerText) {
     const emojiMatch = headerText.match(/\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u);
     if (emojiMatch?.[0]) return { emoji: emojiMatch[0] };
+  }
+
+  // 4) 클래스명이 export 변형으로 달라진 경우의 최종 폴백.
+  // 실제 <header> 가 있을 때만, 커버를 제외한 첫 <img> 를 아이콘 이미지로 간주한다.
+  // (body 폴백 상태에서는 본문 이미지를 아이콘으로 오인할 수 있어 적용하지 않는다.)
+  if (!realHeader) return null;
+  const fallbackImg = Array.from(realHeader.querySelectorAll("img")).find((img) => {
+    if (!(img instanceof HTMLImageElement)) return false;
+    if (/cover/i.test(img.className ?? "")) return false;
+    const src = img.getAttribute("src") ?? "";
+    return !!src && !src.startsWith("data:");
+  });
+  if (fallbackImg instanceof HTMLImageElement) {
+    return { imagePath: fallbackImg.getAttribute("src") ?? "" };
   }
   return null;
 }

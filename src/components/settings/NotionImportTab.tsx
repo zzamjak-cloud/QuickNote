@@ -675,7 +675,27 @@ export function NotionImportTab() {
         diagImportMem(`[${idx + 1}/${subtreePaths.length}] 컨텐츠 로드 후: ${contentKb}KB`);
 
         if (source.format === "html") {
-          for (const asset of collectNotionAssetRefsFromHtml(contentByPath.get(path) ?? "", path, assetResolver)) {
+          const htmlContent = contentByPath.get(path) ?? "";
+          // collection-content(인라인 DB) 영역의 이미지(컬럼 속성 아이콘 등)는 업로드에서 제외한다.
+          // DB 는 databaseBlock 으로 치환되고 컬럼 아이콘은 퀵노트 lucide 기본 아이콘을 쓰므로,
+          // Notion 컬럼 헤더 아이콘을 자산으로 올리면 "미사용" 이미지로만 쌓인다.
+          const collectionAssetPaths = new Set<string>();
+          if (typeof DOMParser !== "undefined") {
+            const parsed = new DOMParser().parseFromString(htmlContent, "text/html");
+            const scopes = parsed.querySelectorAll(
+              ".collection-content, table.collection-content, .collection_view_page-block",
+            );
+            for (const scope of scopes) {
+              if (!(scope instanceof HTMLElement)) continue;
+              const scopedDoc = document.implementation.createHTMLDocument("");
+              scopedDoc.body.appendChild(scope.cloneNode(true));
+              for (const a of collectNotionAssetRefsFromHtml(scopedDoc, path, assetResolver)) {
+                collectionAssetPaths.add(a.path);
+              }
+            }
+          }
+          for (const asset of collectNotionAssetRefsFromHtml(htmlContent, path, assetResolver)) {
+            if (collectionAssetPaths.has(asset.path)) continue;
             if (!uploadedAssetByPath.has(asset.path)) {
               try {
                 uploadedAssetByPath.set(asset.path, await uploadNotionAsset(asset));
