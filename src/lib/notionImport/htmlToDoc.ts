@@ -1177,7 +1177,14 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
   for (const el of elements) {
     if (!(el instanceof HTMLElement)) continue;
     if (el.closest("header") && el.tagName.toLowerCase() !== "h1") continue;
-    if (el.tagName.toLowerCase() !== "figure" && el.closest("figure.callout")) continue;
+    // 콜아웃(figure.callout / aside) 내부의 모든 자손 블록(이미지·figure·문단 등)은
+    // 콜아웃 변환(calloutFromFigure/calloutFromAside→blocksFromContainerChildren)에서
+    // 재귀 처리된다. top-level 에서 또 처리하면 콜아웃 안의 이미지가 안/밖으로 중복되므로
+    // 콜아웃 컨테이너 자신을 제외한 자손은 건너뛴다.
+    {
+      const calloutAncestor = el.closest("figure.callout, aside");
+      if (calloutAncestor && calloutAncestor !== el) continue;
+    }
     if (el.tagName.toLowerCase() !== "figure" && el.closest("figure")) continue;
     // column-list 내부의 자손 블록들은 column-list 처리 단계에서 재귀 변환되므로
     // top-level 순회에서는 건너뛴다. (column-list 자체는 통과)
