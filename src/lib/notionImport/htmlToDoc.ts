@@ -115,8 +115,13 @@ function listNodeFromElement(
     const paragraphInlines: JSONContent[] = [];
     const nestedBlocks: JSONContent[] = [];
 
+    // li 의 "직접" 중첩 리스트만 — details/figure/callout 등 블록 자식 내부의 ul/ol 은
+    // 그 블록이 별도 추출되어 자체 변환되므로 제외한다. (li > details > ul 의 ul 을
+    // li 의 중첩 리스트로도, 추출된 details 내부로도 이중 렌더해 이미지/토글이 중복되던 회귀 방지)
     const nestedLists = Array.from(li.querySelectorAll("ul, ol")).filter(
-      (list) => list instanceof HTMLElement && list.closest("li") === li,
+      (list) =>
+        list instanceof HTMLElement &&
+        list.closest(`li, ${LI_BLOCK_CHILD_SELECTOR}`) === li,
     ) as HTMLElement[];
 
     for (const nestedList of nestedLists) {
@@ -1192,6 +1197,11 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
       const closestColumnList = el.closest("div.column-list, div[class*='column-list'], div[class*='column_list']");
       if (closestColumnList && closestColumnList !== el) continue;
     }
+    // li 내부의 모든 자손 블록(문단·이미지·미디어·토글·콜아웃·중첩 리스트 등)은
+    // 리스트 변환(listNodeFromElement)이 재귀로 렌더한다. top-level 에서 또 처리하면
+    // 리스트 안/밖으로 중복(중첩 토글·이미지의 다중 복제 회귀)되므로 li 자손 전체를 건너뛴다.
+    // (top-level 리스트 컨테이너 ul/ol 자신은 li 밖이라 통과)
+    if (el.closest("li")) continue;
 
     const tag = el.tagName.toLowerCase();
     if (tag === "details" && el.closest("ul.toggle")) continue;
@@ -1204,18 +1214,6 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
       blocks.push(...togglesFromToggleList(el, options, blockColor, blockToken));
       continue;
     }
-    if (tag === "li" && el.closest("ul.toggle")) continue;
-    if ((tag === "ul" || tag === "ol") && el.closest("li")) continue;
-    // li 내부의 문단·이미지·미디어 블록은 리스트 변환(listNodeFromElement→blocksFromContainerChildren)
-    // 에서 이미 처리된다. top-level 에서 또 처리하면 글머리 기호 안의 이미지가 리스트 안/밖으로
-    // 두 번 생성되던 회귀가 발생하므로 건너뛴다.
-    if (
-      (tag === "p" || tag === "img" || tag === "figure" || tag === "video") &&
-      el.closest("li")
-    ) {
-      continue;
-    }
-
     if (tag === "details") {
       blocks.push(toggleFromDetails(el, options, blockColor, blockToken));
       continue;
