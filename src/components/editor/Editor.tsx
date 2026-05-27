@@ -38,6 +38,10 @@ import { IconPickerPanel } from "../common/IconPicker";
 import { FileText, Database } from "lucide-react";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { getEditorColumnClass } from "../../lib/editorLayout";
+import {
+  bindPageScrollMemory,
+  restorePageScrollPosition,
+} from "../../lib/navigation/pageScrollMemory";
 import { BubbleToolbar } from "./BubbleToolbar";
 import { ImageResizeOverlay } from "./ImageResizeOverlay";
 import { BlockHandles } from "./BlockHandles";
@@ -185,13 +189,14 @@ export function Editor({
 
   const editorScrollHostRef = useRef<HTMLDivElement | null>(null);
 
-  // 페이지 전환 시 스크롤 최상단으로 초기화.
-  // 단, 피크/본문전용(bodyOnly) 모드에서는 상위 스크롤 컨테이너(DatabaseRowPeek 등)가
-  // 스크롤 위치를 관리하므로 여기서 강제로 0으로 되돌리지 않는다.
+  useLayoutEffect(() => {
+    if (bodyOnly || peek) return undefined;
+    return restorePageScrollPosition(effectivePageId, editorScrollHostRef.current, "main");
+  }, [bodyOnly, effectivePageId, peek]);
+
   useEffect(() => {
-    if (bodyOnly || peek) return;
-    const host = editorScrollHostRef.current;
-    if (host) host.scrollTop = 0;
+    if (bodyOnly || peek) return undefined;
+    return bindPageScrollMemory(effectivePageId, editorScrollHostRef.current, "main");
   }, [bodyOnly, effectivePageId, peek]);
 
   const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(240);
@@ -804,6 +809,8 @@ export function Editor({
   return (
     <div
       ref={editorScrollHostRef}
+      data-qn-scroll-page-id={!bodyOnly && !peek ? effectivePageId : undefined}
+      data-qn-scroll-scope={!bodyOnly && !peek ? "main" : undefined}
       className={`qn-editor-body-scroll relative flex flex-col bg-white dark:bg-[#111111] ${bodyOnly ? "min-h-0" : "min-h-0 flex-1 overflow-y-auto"}`}
     >
       {/* 커버는 max-w- 컬럼 밖에 두어 좁은 본문 폭에서도 에디터 패널 전체 너비로 펼친다(웹·Tauri 공통). */}

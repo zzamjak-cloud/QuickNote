@@ -663,6 +663,17 @@ export function DatabaseTimelineView({
   const focusTimelineCard = useCallback((pageId: string) => {
     setSelectedPageId(pageId);
     setSelectedCardIds(new Set());
+    // 월 축은 visibleMonthStart 가 속한 달의 항목만 렌더한다.
+    // 다른 달 항목을 클릭하면 해당 항목 시작일의 달로 먼저 전환해야 카드가 보인다.
+    if (isMonthAxis) {
+      const row = dateColId ? rows.find((item) => item.pageId === pageId) : null;
+      const range = row && dateColId ? getRange(row.cells[dateColId]) : null;
+      if (range) {
+        const targetMonth = startOfMonth(range.start);
+        setVisibleMonthStart((prev) => (prev === targetMonth ? prev : targetMonth));
+      }
+      return;
+    }
     if (!usesScrollableAxis) return;
     const card = cardLayouts.find((item) => item.pageId === pageId);
     const el = scrollContainerRef.current;
@@ -673,7 +684,7 @@ export function DatabaseTimelineView({
       card.left - (visibleTrackWidth - card.width) / 2,
     );
     el.scrollTo({ left: nextLeft, behavior: "smooth" });
-  }, [cardLayouts, sideLabelWidth, usesScrollableAxis]);
+  }, [cardLayouts, dateColId, isMonthAxis, rows, sideLabelWidth, usesScrollableAxis]);
 
   const commitRange = useCallback(
     (pageId: string, start: number, end: number) => {

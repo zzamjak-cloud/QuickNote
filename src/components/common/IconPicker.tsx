@@ -702,7 +702,7 @@ export function IconPicker({
         {current ? (
           <PageIconDisplay icon={current} size="md" />
         ) : (
-          <PageIconDisplay icon={null} size="md" />
+          defaultIcon ?? <PageIconDisplay icon={null} size="md" />
         )}
       </button>
     ) : (
@@ -715,7 +715,7 @@ export function IconPicker({
         {current ? (
           <PageIconDisplay icon={current} size="sm" />
         ) : (
-          <PageIconDisplay icon={null} size="sm" />
+          defaultIcon ?? <PageIconDisplay icon={null} size="sm" />
         )}
       </button>
     );

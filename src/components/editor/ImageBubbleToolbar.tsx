@@ -118,7 +118,7 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
         a.click();
         a.remove();
       } finally {
-        URL.revokeObjectURL(blobUrl);
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
       }
       showToast("다운로드가 완료되었습니다.", { kind: "success" });
     } catch (err) {

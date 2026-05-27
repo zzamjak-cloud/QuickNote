@@ -73,7 +73,7 @@ function shouldExpandNestedZip(basePath: string, entryName: string, siblingCount
   return siblingCount === 1;
 }
 
-function assetMimeFromPath(path: string): string | null {
+export function assetMimeFromPath(path: string): string | null {
   const lower = path.toLowerCase();
   if (lower.endsWith(".png")) return "image/png";
   if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";

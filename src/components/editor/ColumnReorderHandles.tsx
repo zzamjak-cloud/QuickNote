@@ -242,8 +242,8 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
         colWidth: rect.width,
         colHeight: rect.height,
         left: rect.left - containerRect.left + rect.width / 2 - 12,
-        // 컬럼 박스 상단 경계보다 더 위쪽에 배치
-        top: rect.top - containerRect.top - 24,
+        // 페이지 첫 행처럼 상단 여유가 없는 경우 음수 좌표로 클리핑될 수 있어 최소값으로 클램프.
+        top: Math.max(4, rect.top - containerRect.top - 24),
       });
     });
     if (nextItems.length < 2) {

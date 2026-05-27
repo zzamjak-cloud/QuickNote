@@ -6,6 +6,9 @@ import { ColumnOptionsEditor } from "./ColumnOptionsEditor";
 import { isLCSchedulerDatabaseId, isLCSchedulerRequiredColumnId } from "../../lib/scheduler/database";
 import { AppSelect } from "../common/AppSelect";
 import { AnchoredPanelBase } from "../../lib/ui-primitives";
+import { IconPicker } from "../common/IconPicker";
+import { PageIconDisplay } from "../common/PageIconDisplay";
+import { defaultColumnIcon } from "./columnTypeIcons";
 
 const TYPE_LABELS: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -71,7 +74,13 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
       additionalIgnoreSelector="[data-qn-color-picker]"
     >
       <div className="max-h-[72vh] overflow-y-auto">
-        <div className="border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
+        <div className="flex items-center gap-1 border-b border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
+          <IconPicker
+            current={column.icon ?? null}
+            defaultIcon={<PageIconDisplay icon={defaultColumnIcon(column.type)} size="sm" />}
+            size="sm"
+            onChange={(icon) => updateColumn(databaseId, column.id, { icon: icon ?? undefined })}
+          />
           <input
             ref={nameInputRef}
             value={nameDraft}

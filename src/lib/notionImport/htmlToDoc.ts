@@ -356,6 +356,12 @@ function blocksFromContainerChildren(
           out.push(pageMention);
           return;
         }
+        // 멘션 해소 실패 시에도 아이콘 img 를 본문 이미지로 추출하지 않는다(제목만 보존).
+        if (anchor instanceof HTMLElement) {
+          const fallback = linkToPageFallbackParagraph(anchor);
+          if (fallback) out.push(fallback);
+        }
+        return;
       }
       if (tag === "figure") {
         const yt = youtubeNodeFromElement(node);
@@ -730,6 +736,15 @@ function assetBlockFromAnchor(anchor: HTMLElement, options?: HtmlToDocOptions): 
   if (!href) return null;
   if (options?.resolvePageMentionByHref?.(href)) return null;
   return options?.resolveMediaNode?.(href, anchor) ?? options?.resolveImageNode?.(href, anchor) ?? null;
+}
+
+// link-to-page figure 의 멘션을 해소하지 못했을 때의 폴백.
+// link-to-page 안의 아이콘 <img> 는 장식용이므로 본문 이미지로 떨어뜨리면 안 된다.
+// 대상 페이지를 못 찾으면 최소한 제목 텍스트만 보존한다(아이콘 이미지 누출 방지).
+function linkToPageFallbackParagraph(anchor: HTMLElement): JSONContent | null {
+  const title = (anchor.textContent ?? "").trim();
+  if (!title) return null;
+  return { type: "paragraph", content: [{ type: "text", text: title }] };
 }
 
 function relocateDeferredMentionsInToggleBlocks(blocks: JSONContent[]): JSONContent[] {
@@ -1385,6 +1400,13 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
         blocks.push(pageMention);
         continue;
       }
+      // 멘션 해소 실패 시에도 link-to-page 는 generic figure 분기로 넘어가 아이콘 img 를
+      // 본문 이미지로 추출해서는 안 된다(이미지+멘션 중복처럼 보이던 회귀). 제목만 보존하고 종료.
+      if (anchor instanceof HTMLElement) {
+        const fallback = linkToPageFallbackParagraph(anchor);
+        if (fallback) blocks.push(fallback);
+      }
+      continue;
     }
     if (tag === "figure" && el.classList.contains("bookmark")) {
       // 북마크로 분류되어도 URL이 YouTube면 youtube 노드로 변환

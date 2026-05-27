@@ -37,6 +37,8 @@ export type ColumnDef = {
   id: string;
   name: string;
   type: ColumnType;
+  /** 속성 아이콘. 미지정 시 타입별 기본 아이콘으로 표시. (pageIcon 인코딩 문자열) */
+  icon?: string;
   /** 표 뷰에서의 너비(px). 미지정 시 브라우저 자동. */
   width?: number;
   config?: {

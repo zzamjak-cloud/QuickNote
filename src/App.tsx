@@ -18,6 +18,12 @@ import { zustandStorage } from "./lib/storage/index";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import { parseQuickNoteLink } from "./lib/navigation/quicknoteLinks";
 import { scrollToBlockPosition } from "./lib/editor/editorNavigationBridge";
+import {
+  bindPageScrollMemory,
+  flushPageScrollMemory,
+  installPageScrollCapture,
+  restorePageScrollPosition,
+} from "./lib/navigation/pageScrollMemory";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -76,6 +82,7 @@ function App() {
   }, [migrating]);
 
   const hydrationDone = useRef(false);
+  const databaseRowScrollHostRef = useRef<HTMLDivElement | null>(null);
   /** effect B에서 탭을 active 기준으로 덮어쓸지: activePageId 가 실제로 바뀐 경우만 (탭 클릭 직후 이전 id 로 덮어쓰기 방지) */
   const prevActivePageIdRef = useRef<string | null | undefined>(undefined);
 
@@ -83,6 +90,27 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    const uninstallScrollCapture = installPageScrollCapture();
+    document.addEventListener("pointerdown", flushPageScrollMemory, true);
+    document.addEventListener("keydown", flushPageScrollMemory, true);
+    return () => {
+      document.removeEventListener("pointerdown", flushPageScrollMemory, true);
+      document.removeEventListener("keydown", flushPageScrollMemory, true);
+      uninstallScrollCapture?.();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!activePage?.databaseId) return undefined;
+    return restorePageScrollPosition(activePageId, databaseRowScrollHostRef.current, "db-row");
+  }, [activePage?.databaseId, activePageId]);
+
+  useEffect(() => {
+    if (!activePage?.databaseId) return undefined;
+    return bindPageScrollMemory(activePageId, databaseRowScrollHostRef.current, "db-row");
+  }, [activePage?.databaseId, activePageId]);
 
   // 멘션 클릭 안전망 — PM 플러그인 체인이 어떤 이유로든 클릭을 처리하지 못하더라도
   // document 레벨에서 mention 클릭을 받아 navigate. (DB 행 페이지 등 특정 컨텍스트에서
@@ -285,7 +313,12 @@ function App() {
           <WorkspaceSyncBanner />
           <TopBar />
           {activePage?.databaseId ? (
-            <div className="flex-1 overflow-y-auto">
+            <div
+              ref={databaseRowScrollHostRef}
+              data-qn-scroll-page-id={activePageId ?? undefined}
+              data-qn-scroll-scope="db-row"
+              className="flex-1 overflow-y-auto"
+            >
               <Suspense fallback={null}>
                 <DatabaseRowPage pageId={activePage.id} />
               </Suspense>

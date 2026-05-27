@@ -110,12 +110,24 @@ function dirname(path: string): string {
 }
 
 function findParentHtmlPath(childPath: string, candidates: Set<string>): string | null {
+  // 후보 HTML 들을 "폴더형(.html 제거) + 끝 hex 제거" 기준으로 역색인.
+  // Notion 내보내기는 같은 페이지의 폴더명과 HTML 파일명에 서로 다른 hex 를 붙이거나
+  // 폴더명에서 hex 를 생략하는 변형이 있어, 단순 문자열 재구성(`dir + ".html"`)만으로는
+  // 손자 페이지가 부모를 찾지 못하고 ROW 로 평탄화되던 회귀를 막는다.
+  const byStrippedFolder = new Map<string, string>();
+  for (const candidate of candidates) {
+    const key = stripNotionId(candidate.replace(/\.html$/i, ""));
+    if (!byStrippedFolder.has(key)) byStrippedFolder.set(key, candidate);
+  }
   let dir = dirname(childPath);
   while (dir) {
     const exact = `${dir}.html`;
     if (candidates.has(exact)) return exact;
     const stripped = `${stripNotionId(dir)}.html`;
     if (candidates.has(stripped)) return stripped;
+    // hex 불일치 대응: 디렉터리의 끝 hex 를 제거한 형태로 후보를 조회.
+    const normalized = byStrippedFolder.get(stripNotionId(dir));
+    if (normalized && normalized !== childPath) return normalized;
     dir = dirname(dir);
   }
   return null;

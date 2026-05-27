@@ -788,7 +788,7 @@ export function BlockHandles({
         a.click();
         a.remove();
       } finally {
-        URL.revokeObjectURL(blobUrl);
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
       }
       setDownloadNotice({
         kind: "success",

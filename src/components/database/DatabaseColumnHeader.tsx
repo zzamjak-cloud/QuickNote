@@ -5,6 +5,8 @@ import type { ColumnDef } from "../../types/database";
 import { useUiStore } from "../../store/uiStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
+import { PageIconDisplay } from "../common/PageIconDisplay";
+import { resolveColumnIcon } from "./columnTypeIcons";
 
 const DRAG_MIME = "application/x-quicknote-db-drag";
 /** 사용자가 드래그로 임의 폭으로 줄일 수 있도록 최소값을 매우 작게 — 보이긴 해야 하므로 12px. */
@@ -177,6 +179,7 @@ export function DatabaseColumnHeader({
           className="flex flex-1 items-center gap-1 rounded px-1 py-0.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
           title="클릭하여 속성 편집"
         >
+          <PageIconDisplay icon={resolveColumnIcon(column)} size="sm" className="shrink-0" />
           <span className="truncate">{column.name}</span>
           <ChevronDown size={10} className="ml-auto opacity-0 group-hover:opacity-60" />
         </button>

@@ -42,6 +42,10 @@ import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageSubpageTree } from "../page/PageSubpageTree";
 import { countPageDescendants } from "../page/pageSubpageTreeUtils";
 import { CLEAR_BOX_SELECTION_EVENT } from "../../hooks/boxSelect/constants";
+import {
+  bindPageScrollMemory,
+  restorePageScrollPosition,
+} from "../../lib/navigation/pageScrollMemory";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
@@ -174,8 +178,6 @@ export function DatabaseRowPeek() {
   } | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const scrollBodyRef = useRef<HTMLDivElement | null>(null);
-  const scrollTopByPageRef = useRef<Record<string, number>>({});
-  const restoredPageIdRef = useRef<string | null>(null);
   const openedAtRef = useRef(0);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
   const [editorDeferredReady, setEditorDeferredReady] = useState(false);
@@ -271,21 +273,12 @@ export function DatabaseRowPeek() {
     };
   }, []);
 
-  // 피크 스크롤 위치 유지: 페이지 전환(또는 재오픈) 시에만 복원한다.
-  // 스크롤 중/드래그 중에는 개입하지 않아 사용자의 스크롤바 조작을 덮어쓰지 않는다.
   useLayoutEffect(() => {
-    if (!peekPageId) return;
-    if (restoredPageIdRef.current === peekPageId) return;
-    const scroller = scrollBodyRef.current;
-    if (!scroller) return;
-    const savedTop = scrollTopByPageRef.current[peekPageId] ?? 0;
-    scroller.scrollTop = Math.max(0, savedTop);
-    restoredPageIdRef.current = peekPageId;
+    return restorePageScrollPosition(peekPageId, scrollBodyRef.current, "peek");
   }, [peekPageId]);
 
   useEffect(() => {
-    if (peekPageId) return;
-    restoredPageIdRef.current = null;
+    return bindPageScrollMemory(peekPageId, scrollBodyRef.current, "peek");
   }, [peekPageId]);
 
   useEffect(() => {
@@ -677,10 +670,8 @@ export function DatabaseRowPeek() {
         {/* 단일 스크롤 영역 — 제목·속성·본문·하위페이지 모두 포함 */}
         <div
           ref={scrollBodyRef}
-          onScroll={(e) => {
-            if (!peekPageId) return;
-            scrollTopByPageRef.current[peekPageId] = e.currentTarget.scrollTop;
-          }}
+          data-qn-scroll-page-id={peekPageId ?? undefined}
+          data-qn-scroll-scope="peek"
           className="flex-1 overflow-y-auto px-8 pb-8"
         >
         {isPendingPageCreation ? (

@@ -1,3 +1,4 @@
+import { assetMimeFromPath } from "./zipParser";
 import type { NotionImportedAsset, NotionZipPreview } from "./zipParser";
 
 // --- CSV 파서 (RFC 4180, BOM 지원) ---
@@ -237,25 +238,6 @@ export async function buildFileMap(
 }
 
 // --- 파일맵으로 NotionZipPreview 에셋 빌드 (기존 assetUpload 인프라 재사용) ---
-
-function assetMimeFromPath(path: string): string | null {
-  const lower = path.toLowerCase();
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
-  if (lower.endsWith(".webm")) return "video/webm";
-  if (lower.endsWith(".mov")) return "video/quicktime";
-  if (lower.endsWith(".mp3")) return "audio/mpeg";
-  if (lower.endsWith(".wav")) return "audio/wav";
-  if (lower.endsWith(".pdf")) return "application/pdf";
-  if (lower.endsWith(".doc")) return "application/msword";
-  if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  if (lower.endsWith(".xls")) return "application/vnd.ms-excel";
-  if (lower.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  return null;
-}
 
 export function buildPreviewFromFileMap(
   fileMap: Map<string, FileSystemFileHandle>,
