@@ -270,11 +270,22 @@ function resolveRelativeAssetPath(src: string, currentPagePath?: string): string
 }
 
 function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
+  // Notion export 는 같은 폴더 안에서도 파일명/href 의 URL 인코딩 횟수가 불일치하는 경우가 있다.
+  // (예: 디스크 파일명은 "%EB%A1%9C…"(1회 인코딩이 리터럴로 박힘), HTML href 는 "%25EB%25A1%259C…"(2회 인코딩))
+  // 1회만 디코드하면 양쪽 표준형이 어긋나 자산 매칭이 깨지므로, 더 디코드되지 않을 때까지 반복 디코드해 수렴시킨다.
+  let current = value;
+  for (let i = 0; i < 5; i += 1) {
+    if (!current.includes("%")) break;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(current);
+    } catch {
+      break;
+    }
+    if (decoded === current) break;
+    current = decoded;
   }
+  return current;
 }
 
 function normalizeMatchLeaf(path: string): string {
