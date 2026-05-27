@@ -1199,7 +1199,15 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
     }
     if (tag === "li" && el.closest("ul.toggle")) continue;
     if ((tag === "ul" || tag === "ol") && el.closest("li")) continue;
-    if (tag === "p" && el.closest("li")) continue;
+    // li 내부의 문단·이미지·미디어 블록은 리스트 변환(listNodeFromElement→blocksFromContainerChildren)
+    // 에서 이미 처리된다. top-level 에서 또 처리하면 글머리 기호 안의 이미지가 리스트 안/밖으로
+    // 두 번 생성되던 회귀가 발생하므로 건너뛴다.
+    if (
+      (tag === "p" || tag === "img" || tag === "figure" || tag === "video") &&
+      el.closest("li")
+    ) {
+      continue;
+    }
 
     if (tag === "details") {
       blocks.push(toggleFromDetails(el, options, blockColor, blockToken));
