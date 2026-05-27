@@ -32,4 +32,20 @@ describe("image-presign stable asset id", () => {
       createStableAssetId("user-1", { ...input, size: 124 }),
     );
   });
+
+  it("압축 업로드는 legacy 자산 재사용 조회를 건너뛴다", async () => {
+    const { shouldFindReusableReadyAsset } = await import("./index");
+
+    expect(shouldFindReusableReadyAsset({
+      mimeType: "image/webp",
+      size: 123,
+      sha256: "a".repeat(64),
+      compressed: true,
+    })).toBe(false);
+    expect(shouldFindReusableReadyAsset({
+      mimeType: "image/png",
+      size: 123,
+      sha256: "a".repeat(64),
+    })).toBe(true);
+  });
 });

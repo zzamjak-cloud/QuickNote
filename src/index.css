@@ -402,6 +402,15 @@ body.quicknote-block-dragging .ProseMirror {
   vertical-align: middle;
 }
 
+/* 동영상: Tailwind prose 가 기본으로 추가하는 video margin (2em) 을 제거.
+   컬럼 블록에서 옆 이미지 블록과 시작 위치가 어긋나거나, 상단 텍스트와 큰 간격이 생기는 회귀를 차단. */
+.ProseMirror video,
+.ProseMirror .qn-file-shell,
+.ProseMirror .react-renderer:has(> .qn-file-shell) {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
 .ProseMirror p:has(> img:only-child) {
   margin-top: 0.25rem;
   margin-bottom: 0.25rem;
@@ -446,6 +455,25 @@ body.quicknote-block-dragging .ProseMirror {
 .dark .qn-file-shell.ProseMirror-selectednode {
   background-color: transparent !important;
   box-shadow: none !important;
+}
+
+/* 이미지 블록도 정렬 지원으로 div 블록 wrapper 가 되면서 selectednode 가 행 전체를 덮는다 — 배경 제거. */
+.react-renderer.ProseMirror-selectednode:has(.qn-image-shell),
+.ProseMirror-selectednode:has([data-node-view-wrapper].qn-image-shell),
+.qn-image-shell.ProseMirror-selectednode,
+.dark .react-renderer.ProseMirror-selectednode:has(.qn-image-shell),
+.dark .ProseMirror-selectednode:has([data-node-view-wrapper].qn-image-shell),
+.dark .qn-image-shell.ProseMirror-selectednode {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+/* 선택 시 실제 이미지에만 파란 링 표시 */
+.ProseMirror-selectednode .qn-image-shell > img,
+.ProseMirror-selectednode.qn-image-shell > img,
+.react-renderer.ProseMirror-selectednode .qn-image-shell > img {
+  outline: 2px solid rgba(59, 130, 246, 0.7);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
 li.ProseMirror-selectednode {

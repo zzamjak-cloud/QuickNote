@@ -8,6 +8,36 @@
 
 ---
 
+## UI 규약: 팝업/드롭다운 화면 클리핑 금지 (필수)
+
+**원칙**: 퀵노트 내 모든 팝업, 드롭다운, 팝오버, 메뉴 리스트는 절대로 뷰포트 바깥으로 잘려서는 안 된다. 화면 크기·스크롤 위치·트리거 위치에 따라 위치를 동적으로 보정해야 한다.
+
+**구현 표준**:
+- 셀/버튼 기준 팝오버는 반드시 `useAnchoredPopover` (`src/hooks/useAnchoredPopover.ts`) 를 사용한다. 이 hook 은 아래 배치, 위로 flip, 좌우 clamp, resize/scroll/콘텐츠 크기 변화 재계산을 처리한다.
+- `useAnchoredPopover` 가 맞지 않는 케이스(예: 자유 부유 패널, 부착 기준이 마우스 좌표)에는 동일한 clamp·flip 로직을 직접 구현하고, 가능하면 공용 유틸로 분리한다.
+- 새로 만드는 메뉴/모달이 화면 바깥으로 나갈 가능성이 있으면 반드시 작은 화면과 화면 가장자리 트리거에서 확인한다.
+
+**금지**:
+- `position: fixed` 로 좌표만 박아두고 화면 경계 검사를 생략하는 것.
+- 컨테이너 `overflow: hidden` 안에 팝업을 절대 위치로 두는 것 — Portal 로 body 에 렌더해야 한다.
+
+### 피커뷰 툴바/팝업 좌표·뎁스 회귀 방지
+
+피커뷰에서 이미지 블럭, 동영상 블럭, 파일 블럭 등에 툴바·드롭다운·리스트 팝업을 추가할 때는 좌표와 뎁스를 별도 검증한다. 반복 회귀 증상은 우측 화면 밖으로 밀림, 피커뷰 팝업 뒤로 숨음, 스크롤 컨테이너 기준 좌표를 `fixed` 좌표처럼 쓰는 문제다.
+
+**필수 규칙**:
+- 툴바/드롭다운은 피커뷰 내부 DOM 이 아니라 `document.body` Portal 로 렌더한다.
+- 좌표는 대상 element 의 `getBoundingClientRect()` + `visualViewport.offsetLeft/offsetTop` 기준으로 계산하고, X축은 `viewportLeft + padding` ~ `viewportLeft + viewportWidth - popupWidth - padding` 안으로 clamp 한다.
+- Y축은 아래 우선 배치 후 부족하면 위로 flip 하고, resize/scroll/콘텐츠 크기 변화 시 재계산한다.
+- z-index 는 피커뷰 패널보다 높아야 한다. 새 레이어를 만들면 기존 피커뷰 overlay, resize overlay, block toolbar 위/아래 관계를 실제 화면에서 확인한다.
+- 미디어 블럭 툴바는 block wrapper 전체가 아니라 실제 이미지/비디오/파일 shell rect 를 기준으로 배치한다.
+
+**검증**:
+- 피커뷰를 오른쪽 가장자리, 좁은 화면, 스크롤 중간 상태에서 열고 이미지/동영상 툴바와 드롭다운이 화면 안에 남는지 확인한다.
+- 팝업이 피커뷰 뒤로 숨지 않는지, hover/click 대상이 가려지지 않는지 확인한다.
+
+---
+
 ## 기술 스택
 
 - **프론트엔드**: React + TypeScript + Vite + Tailwind CSS

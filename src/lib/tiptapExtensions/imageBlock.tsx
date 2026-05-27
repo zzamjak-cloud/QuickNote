@@ -1,7 +1,7 @@
 // v4 단순화: 이미지 노드는 src/alt/width/height 만 보유.
 // src 가 quicknote-image:// 스킴이면 React NodeView 가 PreSignedURL 로 비동기 해석.
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import Image from "@tiptap/extension-image";
 import {
   ReactNodeViewRenderer,
@@ -9,6 +9,11 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import { useImageUrl } from "../images/hooks";
+import {
+  nextCaptionAlign,
+  toggleSelectedMediaCaption,
+  type CaptionAlign,
+} from "./mediaCaption";
 
 function shallowImageAttrsEqual(
   prev: NodeViewProps,
@@ -22,9 +27,18 @@ function shallowImageAttrsEqual(
     a.alt === b.alt &&
     a.width === b.width &&
     a.height === b.height &&
+    a.align === b.align &&
+    a.caption === b.caption &&
+    a.captionAlign === b.captionAlign &&
     a.id === b.id
   );
 }
+
+const ALIGN_TO_FLEX: Record<string, string> = {
+  left: "flex-start",
+  center: "center",
+  right: "flex-end",
+};
 
 const ImageView = memo(function ImageView(props: NodeViewProps) {
   const attrs = props.node.attrs as {
@@ -32,15 +46,23 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
     alt?: string | null;
     width?: number | string | null;
     height?: number | string | null;
+    align?: string | null;
+    caption?: string | null;
+    captionAlign?: CaptionAlign | null;
   };
   const { url, error } = useImageUrl(attrs.src ?? null);
+  const align = attrs.align ?? "left";
+  const hasCaption = typeof attrs.caption === "string";
+  const captionAlign = attrs.captionAlign ?? "left";
+  const captionMaxWidth = attrs.width ? `${attrs.width}px` : "100%";
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   return (
     <NodeViewWrapper
-      as="span"
-      className="qn-image-shell inline-block max-w-full my-1 align-middle"
-      // 기본 PM 드래그(노드뷰 위에서 mousedown→drag) 를 차단해 native HTML5 복제(복사) 현상을 막는다.
-      // 이동은 BlockHandles 의 드래그 핸들(startBlockNativeDrag) 경로로만 한다.
+      as="div"
+      // 블록 컨테이너 내 가로 정렬 — flex + justify 로 좌/중앙/우 배치.
+      className="qn-image-shell flex max-w-full flex-col leading-none"
+      style={{ alignItems: ALIGN_TO_FLEX[align] ?? "flex-start" }}
       draggable={false}
     >
       {error ? (
@@ -58,10 +80,66 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               : { maxWidth: "100%" }
           }
           draggable={false}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setPreviewOpen(true);
+          }}
         />
       ) : (
         <span className="inline-block w-12 h-12 bg-neutral-100 dark:bg-neutral-800 animate-pulse align-middle" />
       )}
+      {hasCaption ? (
+        <div className="mt-1 flex w-full items-center gap-1" style={{ maxWidth: captionMaxWidth }}>
+          <button
+            type="button"
+            className="h-3 w-3 shrink-0 rounded-[2px] bg-zinc-300 hover:bg-zinc-400 dark:bg-zinc-600 dark:hover:bg-zinc-500"
+            title="캡션 정렬"
+            aria-label="캡션 정렬"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              props.updateAttributes({ captionAlign: nextCaptionAlign(captionAlign) });
+            }}
+          />
+          <input
+            data-qn-caption-input="true"
+            type="text"
+            value={attrs.caption ?? ""}
+            placeholder="캡션 입력…"
+            // 캡션은 노드 attrs.caption 에 저장 (plain text). 본문 doc 흐름과 분리.
+            onChange={(e) => props.updateAttributes({ caption: e.target.value })}
+            onBlur={(e) => {
+              if (e.currentTarget.value.trim() === "") props.updateAttributes({ caption: null });
+            }}
+            onKeyDown={(e) => {
+              // Enter/Backspace(빈 캡션) 가 에디터 본문으로 전파돼 노드 삭제·블록 분할되는 것 차단.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+              e.stopPropagation();
+            }}
+            className="min-w-0 flex-1 border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+            style={{ textAlign: captionAlign }}
+          />
+        </div>
+      ) : null}
+      {previewOpen && url ? (
+        <div
+          className="fixed inset-0 z-[780] flex items-center justify-center bg-black/75 p-6"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setPreviewOpen(false)}
+        >
+          <img
+            src={url}
+            alt={attrs.alt ?? ""}
+            className="block h-auto w-auto max-h-full max-w-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </NodeViewWrapper>
   );
 }, shallowImageAttrsEqual);
@@ -115,12 +193,40 @@ export const ImageBlock = Image.extend({
         renderHTML: (attrs) =>
           attrs.id ? { "data-id": String(attrs.id) } : {},
       },
+      align: {
+        default: "left",
+        parseHTML: (el) => el.getAttribute("data-align") ?? "left",
+        renderHTML: (attrs) =>
+          attrs.align && attrs.align !== "left" ? { "data-align": String(attrs.align) } : {},
+      },
+      caption: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-caption"),
+        renderHTML: (attrs) =>
+          typeof attrs.caption === "string" ? { "data-caption": String(attrs.caption) } : {},
+      },
+      captionAlign: {
+        default: "left",
+        parseHTML: (el) => el.getAttribute("data-caption-align") ?? "left",
+        renderHTML: (attrs) =>
+          attrs.captionAlign && attrs.captionAlign !== "left"
+            ? { "data-caption-align": String(attrs.captionAlign) }
+            : {},
+      },
+    };
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      "Mod-Shift-c": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
+      "Mod-Shift-C": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
+      "Ctrl-Shift-c": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
+      "Ctrl-Shift-C": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
     };
   },
 
   addNodeView() {
-    // outer wrapper(react-renderer) 도 span 으로 만들어 inline-block 흐름을 유지.
-    // 기본값(div) 일 경우 row 전체를 차지해 ProseMirror-selectednode 시각이 행 전체 박스로 그려짐.
-    return ReactNodeViewRenderer(ImageView, { as: "span" });
+    // 정렬·캡션 지원을 위해 블록 컨테이너(div) 로 렌더. selectednode 시각은 CSS 에서 이미지에만 적용.
+    return ReactNodeViewRenderer(ImageView, { as: "div" });
   },
 });

@@ -937,7 +937,7 @@ export function Editor({
           />
         ) : null}
       </div>
-      <MemoBubbleToolbar editor={editor} />
+      <MemoBubbleToolbar editor={editor} pageId={effectivePageId} />
       <MemoImageResizeOverlay editor={editor} />
       <ImageUpload
         open={imageOpen}

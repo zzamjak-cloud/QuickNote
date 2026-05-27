@@ -31,7 +31,10 @@ type AppSyncEvent = {
 
 type UploadInput = { mimeType: string; size: number; sha256: string; name?: string; compressed?: boolean };
 
-const s3 = new S3Client({});
+const s3 = new S3Client({
+  requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
+});
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 const BUCKET = requireEnv("IMAGES_BUCKET");
@@ -108,7 +111,9 @@ async function getUploadUrl(ownerId: string, input: UploadInput) {
   }
 
   if (!found.Item) {
-    const reusable = await findReusableReadyAsset(ownerId, input);
+    const reusable = shouldFindReusableReadyAsset(input)
+      ? await findReusableReadyAsset(ownerId, input)
+      : null;
     if (reusable) {
       imageId = reusable.id;
       existingKey = reusable.key;
@@ -128,6 +133,11 @@ async function getUploadUrl(ownerId: string, input: UploadInput) {
   const expiresAt = new Date(Date.now() + 600 * 1000).toISOString();
 
   return { imageId, uploadUrl, expiresAt, alreadyUploaded };
+}
+
+export function shouldFindReusableReadyAsset(input: UploadInput): boolean {
+  // 압축 결과물은 stable id 자체가 재사용 키라서 byOwner 전체 필터 조회가 중복 비용이다.
+  return input.compressed !== true;
 }
 
 async function findReusableReadyAsset(

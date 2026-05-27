@@ -9,8 +9,13 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import { useFileUrl } from "../files/hooks";
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { File, FileArchive, FileText, Film, Music } from "lucide-react";
+import {
+  nextCaptionAlign,
+  toggleSelectedMediaCaption,
+  type CaptionAlign,
+} from "./mediaCaption";
 
 type FileAttrs = {
   id?: string | null;
@@ -25,6 +30,9 @@ type FileAttrs = {
   uploading?: boolean | null;
   uploadId?: string | null;
   uploadError?: boolean | null;
+  align?: string | null;
+  caption?: string | null;
+  captionAlign?: CaptionAlign | null;
 };
 
 function formatSize(n: number | null | undefined): string {
@@ -58,7 +66,10 @@ function fileAttrsChanged(a: FileAttrs, b: FileAttrs): boolean {
     a.height !== b.height ||
     a.uploading !== b.uploading ||
     a.uploadId !== b.uploadId ||
-    a.uploadError !== b.uploadError
+    a.uploadError !== b.uploadError ||
+    a.align !== b.align ||
+    a.caption !== b.caption ||
+    a.captionAlign !== b.captionAlign
   );
 }
 
@@ -72,10 +83,73 @@ function areFileNodeViewsEqual(prev: NodeViewProps, next: NodeViewProps): boolea
   );
 }
 
+const ALIGN_TO_FLEX: Record<string, string> = {
+  left: "flex-start",
+  center: "center",
+  right: "flex-end",
+};
+
+function MediaCaptionInput({
+  caption,
+  captionAlign,
+  widthPx,
+  onChange,
+  onCaptionAlignChange,
+  onRemoveEmpty,
+}: {
+  caption: string;
+  captionAlign: CaptionAlign;
+  widthPx: number | null | undefined;
+  onChange: (v: string) => void;
+  onCaptionAlignChange: (v: CaptionAlign) => void;
+  onRemoveEmpty: () => void;
+}) {
+  return (
+    <div className="mt-1 flex w-full items-center gap-1" style={{ maxWidth: widthPx ? `${widthPx}px` : "100%" }}>
+      <button
+        type="button"
+        className="h-3 w-3 shrink-0 rounded-[2px] bg-zinc-300 hover:bg-zinc-400 dark:bg-zinc-600 dark:hover:bg-zinc-500"
+        title="캡션 정렬"
+        aria-label="캡션 정렬"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onCaptionAlignChange(nextCaptionAlign(captionAlign));
+        }}
+      />
+      <input
+        data-qn-caption-input="true"
+        type="text"
+        value={caption}
+        placeholder="캡션 입력…"
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={(e) => {
+          if (e.currentTarget.value.trim() === "") onRemoveEmpty();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+          e.stopPropagation();
+        }}
+        className="min-w-0 flex-1 border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+        style={{ textAlign: captionAlign }}
+      />
+    </div>
+  );
+}
+
 const FileView = memo(function FileView(props: NodeViewProps) {
   const attrs = props.node.attrs as FileAttrs;
   const { url, error } = useFileUrl(attrs.src ?? null);
   const [zoom, setZoom] = useState(false);
+  const inlineVideoRef = useRef<HTMLVideoElement | null>(null);
+  const align = attrs.align ?? "left";
+  const caption = attrs.caption;
+  const hasCaption = typeof caption === "string";
+  const captionAlign = attrs.captionAlign ?? "left";
+  const alignItems = ALIGN_TO_FLEX[align] ?? "flex-start";
   let mime = attrs.mime ?? attrs.mimeType ?? attrs.contentType ?? "";
   // mime 이 비어 있거나 일반(application/octet-stream)이면 파일명 확장자로 보강
   if (!mime || mime === "application/octet-stream") {
@@ -87,6 +161,24 @@ const FileView = memo(function FileView(props: NodeViewProps) {
   }
   const isUploading = !!attrs.uploading;
   const hasUploadError = !!attrs.uploadError;
+
+  useEffect(() => {
+    const videoEl = inlineVideoRef.current;
+    if (!videoEl) return;
+    const blockNativeFullscreen = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      // 브라우저 기본 비디오 전체화면(dblclick) 트리거 차단.
+      if ("stopImmediatePropagation" in event) {
+        (event as Event & { stopImmediatePropagation: () => void }).stopImmediatePropagation();
+      }
+      setZoom(true);
+    };
+    videoEl.addEventListener("dblclick", blockNativeFullscreen, { capture: true });
+    return () => {
+      videoEl.removeEventListener("dblclick", blockNativeFullscreen, { capture: true });
+    };
+  }, [url]);
 
   if (isUploading) {
     return (
@@ -128,18 +220,28 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     return (
       <NodeViewWrapper
         as="div"
-        className="qn-file-shell my-1 leading-none"
+        className="qn-file-shell flex flex-col leading-none"
+        style={{ alignItems }}
         data-drag-handle
+        onDoubleClickCapture={(e: MouseEvent<HTMLDivElement>) => {
+          const target = e.target as HTMLElement | null;
+          if (!target?.closest("video")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setZoom(true);
+        }}
       >
         {url ? (
           <video
             src={url}
+            ref={inlineVideoRef}
             controls
+            controlsList="nofullscreen noremoteplayback"
+            disablePictureInPicture
             className="block h-auto rounded-lg border border-zinc-200 dark:border-zinc-700"
-            onDoubleClick={(e) => {
+            onDoubleClickCapture={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              setZoom(true);
             }}
             style={{
               width: styleW ?? "auto",
@@ -151,9 +253,19 @@ const FileView = memo(function FileView(props: NodeViewProps) {
             로딩…
           </div>
         )}
+        {hasCaption ? (
+          <MediaCaptionInput
+            caption={caption ?? ""}
+            captionAlign={captionAlign}
+            widthPx={attrs.width}
+            onChange={(v) => props.updateAttributes({ caption: v })}
+            onCaptionAlignChange={(v) => props.updateAttributes({ captionAlign: v })}
+            onRemoveEmpty={() => props.updateAttributes({ caption: null })}
+          />
+        ) : null}
         {zoom && url && (
           <div
-            className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 p-6"
+            className="fixed inset-0 z-[780] flex items-center justify-center bg-black/75 p-6"
             role="dialog"
             aria-modal="true"
             onClick={() => setZoom(false)}
@@ -161,9 +273,12 @@ const FileView = memo(function FileView(props: NodeViewProps) {
             <video
               src={url}
               controls
-              autoPlay
-              className="max-h-full max-w-full"
+              className="block h-auto w-auto max-h-full max-w-full object-contain"
               onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
             />
           </div>
         )}
@@ -177,7 +292,8 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     return (
       <NodeViewWrapper
         as="div"
-        className="qn-file-shell my-1 leading-none"
+        className="qn-file-shell flex flex-col leading-none"
+        style={{ alignItems }}
         data-drag-handle
       >
         {url ? (
@@ -197,6 +313,16 @@ const FileView = memo(function FileView(props: NodeViewProps) {
             로딩…
           </div>
         )}
+        {hasCaption ? (
+          <MediaCaptionInput
+            caption={caption ?? ""}
+            captionAlign={captionAlign}
+            widthPx={attrs.width}
+            onChange={(v) => props.updateAttributes({ caption: v })}
+            onCaptionAlignChange={(v) => props.updateAttributes({ captionAlign: v })}
+            onRemoveEmpty={() => props.updateAttributes({ caption: null })}
+          />
+        ) : null}
         {zoom && url && (
           <div
             className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 p-6"
@@ -207,7 +333,7 @@ const FileView = memo(function FileView(props: NodeViewProps) {
             <img
               src={url}
               alt={attrs.name ?? ""}
-              className="max-h-full max-w-full"
+              className="block h-auto w-auto max-h-full max-w-full object-contain"
               onClick={(e) => e.stopPropagation()}
             />
           </div>
@@ -366,6 +492,35 @@ export const FileBlock = Node.create({
         renderHTML: (attrs) =>
           attrs.id ? { "data-id": String(attrs.id) } : {},
       },
+      align: {
+        default: "left",
+        parseHTML: (el) => (el as HTMLElement).getAttribute("data-align") ?? "left",
+        renderHTML: (attrs) =>
+          attrs.align && attrs.align !== "left" ? { "data-align": String(attrs.align) } : {},
+      },
+      caption: {
+        default: null,
+        parseHTML: (el) => (el as HTMLElement).getAttribute("data-caption"),
+        renderHTML: (attrs) =>
+          typeof attrs.caption === "string" ? { "data-caption": String(attrs.caption) } : {},
+      },
+      captionAlign: {
+        default: "left",
+        parseHTML: (el) => (el as HTMLElement).getAttribute("data-caption-align") ?? "left",
+        renderHTML: (attrs) =>
+          attrs.captionAlign && attrs.captionAlign !== "left"
+            ? { "data-caption-align": String(attrs.captionAlign) }
+            : {},
+      },
+    };
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      "Mod-Shift-c": ({ editor }) => toggleSelectedMediaCaption(editor, ["fileBlock"]),
+      "Mod-Shift-C": ({ editor }) => toggleSelectedMediaCaption(editor, ["fileBlock"]),
+      "Ctrl-Shift-c": ({ editor }) => toggleSelectedMediaCaption(editor, ["fileBlock"]),
+      "Ctrl-Shift-C": ({ editor }) => toggleSelectedMediaCaption(editor, ["fileBlock"]),
     };
   },
 

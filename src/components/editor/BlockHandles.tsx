@@ -67,6 +67,7 @@ import {
   isListHandleNodeType,
   pointInGripZone,
   pointInsideListOwnRow,
+  listElementForHover,
   resolveHandleLeft,
   visualElementForBlockNode,
 } from "./blockHandles/helpers";
@@ -234,6 +235,26 @@ export function BlockHandles({
           next.blockStart === prev.blockStart
         ) {
           return prev;
+        }
+
+        // prev 가 리스트 항목이고 커서가 그 항목 행 왼쪽(텍스트→핸들 경로) 의 넉넉한 존 안에 있으면
+        // next 가 (컬럼·콜아웃 등) 다른 블록으로 잡혀도 prev 를 유지한다.
+        // 콜아웃/컬럼 안 글머리에서 핸들로 가려고 거터로 이동할 때, own-row/grip 존 사이의 데드존에서
+        // next 가 컨테이너로 잡혀 핸들이 사라지던 회귀를 차단. li 의 "현재" rect 를 직접 측정해 stale 방지.
+        if (prev && isListHandleNodeType(prev.node.type.name)) {
+          const liEl = listElementForHover(editor, prev);
+          const liRect = liEl?.getBoundingClientRect() ?? prev.rect;
+          const inListPreserveZone =
+            e.clientX >= liRect.left - 80 &&
+            e.clientX <= liRect.right + 40 &&
+            e.clientY >= liRect.top - 4 &&
+            e.clientY <= liRect.bottom + 4;
+          if (
+            inListPreserveZone ||
+            (wrapperRect && pointInGripZone(e.clientX, e.clientY, prev, wrapperRect))
+          ) {
+            return prev;
+          }
         }
 
         if (next) return next;

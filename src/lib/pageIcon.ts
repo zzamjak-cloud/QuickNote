@@ -23,6 +23,7 @@ export function isImageLikePageIcon(icon: string | null | undefined): boolean {
   if (decodeFileRef(icon) !== null) return true;
   if (icon.startsWith("http://") || icon.startsWith("https://")) return true;
   if (icon.startsWith("data:image/")) return true;
+  if (icon.startsWith("blob:")) return true;
   return false;
 }
 

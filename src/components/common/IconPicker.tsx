@@ -317,15 +317,16 @@ function matchesLucideSearch(item: LucidePreset, query: string): boolean {
     .includes(q);
 }
 
-function fileToDataUrl(file: File): Promise<string> {
+// file.arrayBuffer() 가 NotReadableError 로 실패할 때의 폴백 — FileReader 로 바이트를 읽는다.
+function readFileViaReader(file: File): Promise<ArrayBuffer> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === "string") resolve(reader.result);
-      else reject(new Error("아이콘 미리보기 생성 실패"));
+      if (reader.result instanceof ArrayBuffer) resolve(reader.result);
+      else reject(new Error("파일 읽기 실패"));
     };
-    reader.onerror = () => reject(reader.error ?? new Error("아이콘 미리보기 생성 실패"));
-    reader.readAsDataURL(file);
+    reader.onerror = () => reject(reader.error ?? new Error("파일 읽기 실패"));
+    reader.readAsArrayBuffer(file);
   });
 }
 
@@ -726,48 +727,63 @@ export function IconPicker({
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
-    setUploadStatus("이미지 처리 중…");
-    let ok = false;
     const uploadSeq = iconUploadSeqRef.current + 1;
     iconUploadSeqRef.current = uploadSeq;
-    try {
-      const prepared = await prepareIconImageForUpload(file);
-      const previewSrc = await fileToDataUrl(prepared);
-      if (iconUploadSeqRef.current !== uploadSeq) return;
-      onChange(previewSrc);
-      setOpen(false);
-      ok = true;
-      void (async () => {
-        try {
-          const src = await uploadImage(prepared, { compressed: true });
-          if (iconUploadSeqRef.current !== uploadSeq) return;
-          onChange(src);
-          if (savePreset && workspaceId) {
-            try {
-              await addCustomIconSrv({
-                workspaceId,
-                src,
-                label: file.name || "커스텀 아이콘",
-              });
-            } catch (err) {
-              console.error("[IconPicker] addCustomIcon 실패", err);
-              onUploadMessage?.("아이콘 등록은 실패했지만 페이지에는 적용되었습니다.");
-            }
+    const previousIcon = current ?? null;
+    const previewUrl = URL.createObjectURL(file);
+    onChange(previewUrl);
+    setOpen(false);
+    setUploadStatus(null);
+    if (fileRef.current) fileRef.current.value = "";
+
+    void (async () => {
+      try {
+        // 파일 바이트를 비동기 처리 전에 메모리로 즉시 스냅샷해 안정적인 File 로 대체.
+        // 클라우드 동기화(iCloud/Dropbox 미다운로드) 나 쓰기 중 파일은 arrayBuffer 가 NotReadableError 를
+        // 던질 수 있어, 짧은 지연으로 재시도 + FileReader 폴백까지 시도한다.
+        let buf: ArrayBuffer | null = null;
+        for (let attempt = 0; attempt < 3 && buf === null; attempt += 1) {
+          try {
+            buf = await file.arrayBuffer();
+          } catch {
+            buf = await readFileViaReader(file).catch(() => null);
           }
-        } catch (err) {
-          console.error("[IconPicker] uploadCustomIcon background 실패", err);
-          onUploadMessage?.("아이콘 등록에 실패했습니다.");
+          if (buf === null && attempt < 2) await new Promise((r) => setTimeout(r, 150));
         }
-      })();
-    } catch (err) {
-      console.error("[IconPicker] uploadCustomIcon 실패", err);
-    } finally {
-      setUploadStatus(null);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-    if (!ok && file.size <= MAX_ICON_BYTES) {
-      onUploadMessage?.("이미지 업로드에 실패했습니다.");
-    }
+        if (buf === null) {
+          if (iconUploadSeqRef.current === uploadSeq) onChange(previousIcon);
+          onUploadMessage?.(
+            "파일을 읽지 못했습니다. 클라우드(iCloud/Dropbox) 동기화가 끝났는지 확인하거나, 파일을 다른 위치로 복사한 뒤 다시 시도해 주세요.",
+          );
+          return;
+        }
+        const safeFile = new File([buf], file.name || "icon", {
+          type: file.type || "image/png",
+        });
+        const prepared = await prepareIconImageForUpload(safeFile);
+        const src = await uploadImage(prepared, { compressed: true });
+        if (iconUploadSeqRef.current !== uploadSeq) return;
+        onChange(src);
+        if (savePreset && workspaceId) {
+          try {
+            await addCustomIconSrv({
+              workspaceId,
+              src,
+              label: file.name || "커스텀 아이콘",
+            });
+          } catch (err) {
+            console.error("[IconPicker] addCustomIcon 실패", err);
+            onUploadMessage?.("아이콘 등록은 실패했지만 페이지에는 적용되었습니다.");
+          }
+        }
+      } catch (err) {
+        console.error("[IconPicker] uploadCustomIcon background 실패", err);
+        if (iconUploadSeqRef.current === uploadSeq) onChange(previousIcon);
+        onUploadMessage?.("아이콘 등록에 실패했습니다.");
+      } finally {
+        window.setTimeout(() => URL.revokeObjectURL(previewUrl), 1000);
+      }
+    })();
   };
 
   return (

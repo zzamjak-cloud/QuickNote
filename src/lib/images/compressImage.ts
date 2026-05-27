@@ -88,7 +88,28 @@ export async function prepareIconImageForUpload(file: File): Promise<File> {
     throw new Error("GIF는 커스텀 아이콘으로 업로드할 수 없습니다.");
   }
   if (!file.type.startsWith("image/")) return file;
-  const img = await loadImage(file);
+  // <img> 디코드가 실패하는 포맷(일부 WebP/AVIF, 색공간 이슈 등) 대응 — createImageBitmap 폴백.
+  // 둘 다 실패하면 압축을 포기하고 원본 그대로 업로드해 최소한 아이콘 등록은 성공시킨다.
+  let src: CanvasImageSource;
+  let naturalW: number;
+  let naturalH: number;
+  try {
+    const img = await loadImage(file);
+    src = img;
+    naturalW = img.naturalWidth;
+    naturalH = img.naturalHeight;
+  } catch {
+    try {
+      const bitmap = await createImageBitmap(file);
+      src = bitmap;
+      naturalW = bitmap.width;
+      naturalH = bitmap.height;
+    } catch {
+      // 디코드 자체가 불가 — 원본을 그대로 업로드 (서버 보관 + 일부 환경에서 렌더 가능).
+      return file;
+    }
+  }
+  if (!naturalW || !naturalH) return file;
   const canvas = document.createElement("canvas");
   canvas.width = ICON_OUTPUT_SIZE_PX;
   canvas.height = ICON_OUTPUT_SIZE_PX;
@@ -96,14 +117,15 @@ export async function prepareIconImageForUpload(file: File): Promise<File> {
   if (!ctx) throw new Error("2D 캔버스 컨텍스트를 가져오지 못했습니다.");
   ctx.clearRect(0, 0, ICON_OUTPUT_SIZE_PX, ICON_OUTPUT_SIZE_PX);
   const scale = Math.min(
-    ICON_OUTPUT_SIZE_PX / img.naturalWidth,
-    ICON_OUTPUT_SIZE_PX / img.naturalHeight,
+    ICON_OUTPUT_SIZE_PX / naturalW,
+    ICON_OUTPUT_SIZE_PX / naturalH,
   );
-  const width = Math.max(1, Math.round(img.naturalWidth * scale));
-  const height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const width = Math.max(1, Math.round(naturalW * scale));
+  const height = Math.max(1, Math.round(naturalH * scale));
   const x = Math.round((ICON_OUTPUT_SIZE_PX - width) / 2);
   const y = Math.round((ICON_OUTPUT_SIZE_PX - height) / 2);
-  ctx.drawImage(img, x, y, width, height);
+  ctx.drawImage(src, x, y, width, height);
+  if (typeof ImageBitmap !== "undefined" && src instanceof ImageBitmap) src.close();
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (nextBlob) => (nextBlob ? resolve(nextBlob) : reject(new Error("아이콘 압축 실패"))),

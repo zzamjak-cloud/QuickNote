@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
@@ -56,9 +57,56 @@ const HIGHLIGHTS = [
 
 type ToolbarMode = "hidden" | "text" | "image";
 
+type ToolbarAnchor = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+};
+
 type Props = {
   editor: Editor | null;
+  pageId: string | null;
 };
+
+const TOOLBAR_VIEWPORT_PADDING = 8;
+const TOOLBAR_GAP = 8;
+const TOOLBAR_ESTIMATED_SIZE: Record<Exclude<ToolbarMode, "hidden">, { width: number; height: number }> = {
+  text: { width: 360, height: 40 },
+  image: { width: 190, height: 40 },
+};
+
+function getViewportBox() {
+  const vv = window.visualViewport;
+  return {
+    left: vv?.offsetLeft ?? 0,
+    top: vv?.offsetTop ?? 0,
+    width: vv?.width ?? window.innerWidth,
+    height: vv?.height ?? window.innerHeight,
+  };
+}
+
+function placeToolbar(
+  anchor: ToolbarAnchor,
+  mode: Exclude<ToolbarMode, "hidden">,
+  width = TOOLBAR_ESTIMATED_SIZE[mode].width,
+  height = TOOLBAR_ESTIMATED_SIZE[mode].height,
+): { top: number; left: number } {
+  const viewport = getViewportBox();
+  const minLeft = viewport.left + TOOLBAR_VIEWPORT_PADDING;
+  const maxLeft = viewport.left + viewport.width - width - TOOLBAR_VIEWPORT_PADDING;
+  const minTop = viewport.top + TOOLBAR_VIEWPORT_PADDING;
+  const maxTop = viewport.top + viewport.height - height - TOOLBAR_VIEWPORT_PADDING;
+  const centerX = anchor.left + (anchor.right - anchor.left) / 2;
+  const topAbove = anchor.top - height - TOOLBAR_GAP;
+  const topBelow = anchor.bottom + TOOLBAR_GAP;
+  const preferredTop = topAbove >= minTop ? topAbove : topBelow;
+
+  return {
+    top: Math.max(minTop, Math.min(preferredTop, Math.max(minTop, maxTop))),
+    left: Math.max(minLeft, Math.min(centerX - width / 2, Math.max(minLeft, maxLeft))),
+  };
+}
 
 /** 선택 앵커가 tableCell / tableHeader 안인지 */
 function isInTableCell(editor: Editor): boolean {
@@ -84,11 +132,13 @@ function getTableCellAlign(editor: Editor): string | null {
 }
 
 // 텍스트 범위 선택·표 셀(CellSelection) 선택·이미지 노드 선택 시 부유 툴바(셀 안 커서만일 때는 숨김).
-export function BubbleToolbar({ editor }: Props) {
+export function BubbleToolbar({ editor, pageId }: Props) {
   const [mode, setMode] = useState<ToolbarMode>("hidden");
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [colorOpen, setColorOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const anchorRef = useRef<ToolbarAnchor | null>(null);
   const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
   /** 동일 표시 상태면 setState 생략 — 클릭마다 selectionUpdate 로 깜빡임 방지 */
   const lastToolbarSigRef = useRef<string>("");
@@ -102,6 +152,7 @@ export function BubbleToolbar({ editor }: Props) {
       if (editor.isDestroyed) return;
       let nextMode: ToolbarMode = "hidden";
       let nextPos: { top: number; left: number } | null = null;
+      let nextAnchor: ToolbarAnchor | null = null;
 
       // read-only(예: 풀 페이지 DB) 에서는 부유 툴바 자체를 띄우지 않는다.
       if (!editor.isEditable) {
@@ -110,20 +161,27 @@ export function BubbleToolbar({ editor }: Props) {
       } else {
         const sel = editor.state.selection;
 
-        if (sel instanceof NodeSelection && sel.node.type.name === "image") {
+        if (
+          sel instanceof NodeSelection &&
+          (sel.node.type.name === "image" || sel.node.type.name === "fileBlock")
+        ) {
           const dom = editor.view.nodeDOM(sel.from);
           const el =
             dom instanceof HTMLElement ? dom : dom?.parentElement ?? null;
-          if (el instanceof HTMLElement) {
-            const r = el.getBoundingClientRect();
+          // 실제 미디어(img/video) 요소 기준으로 위치 — 컬럼 등에서 wrapper 가 더 클 수 있음.
+          const mediaEl =
+            el?.querySelector("img,video") instanceof HTMLElement
+              ? (el.querySelector("img,video") as HTMLElement)
+              : el;
+          if (mediaEl instanceof HTMLElement) {
+            const r = mediaEl.getBoundingClientRect();
             nextMode = "image";
-            nextPos = {
-              top: r.top + window.scrollY - 44,
-              left: r.left + r.width / 2 + window.scrollX,
-            };
+            nextAnchor = { top: r.top, right: r.right, bottom: r.bottom, left: r.left };
+            nextPos = placeToolbar(nextAnchor, nextMode);
           } else {
             nextMode = "hidden";
             nextPos = null;
+            nextAnchor = null;
           }
         } else if (sel instanceof NodeSelection) {
           // 인라인 DB·HR 등 원자 블록의 NodeSelection — 텍스트 포매팅 툴바 숨김
@@ -134,10 +192,13 @@ export function BubbleToolbar({ editor }: Props) {
           const start = editor.view.coordsAtPos(sel.from);
           const end = editor.view.coordsAtPos(sel.to);
           nextMode = "text";
-          nextPos = {
-            top: Math.min(start.top, end.top) + window.scrollY - 44,
-            left: (start.left + end.left) / 2 + window.scrollX,
+          nextAnchor = {
+            top: Math.min(start.top, end.top),
+            right: Math.max(start.left, end.left),
+            bottom: Math.max(start.bottom, end.bottom),
+            left: Math.min(start.left, end.left),
           };
+          nextPos = placeToolbar(nextAnchor, nextMode);
         } else {
           const { from, to } = sel;
           if (from === to) {
@@ -147,10 +208,13 @@ export function BubbleToolbar({ editor }: Props) {
             const start = editor.view.coordsAtPos(from);
             const end = editor.view.coordsAtPos(to);
             nextMode = "text";
-            nextPos = {
-              top: Math.min(start.top, end.top) + window.scrollY - 44,
-              left: (start.left + end.left) / 2 + window.scrollX,
+            nextAnchor = {
+              top: Math.min(start.top, end.top),
+              right: Math.max(start.left, end.left),
+              bottom: Math.max(start.bottom, end.bottom),
+              left: Math.min(start.left, end.left),
             };
+            nextPos = placeToolbar(nextAnchor, nextMode);
           }
         }
       }
@@ -167,6 +231,7 @@ export function BubbleToolbar({ editor }: Props) {
       if (lastToolbarSigRef.current === sig) return;
       lastToolbarSigRef.current = sig;
 
+      anchorRef.current = nextAnchor;
       setMode(nextMode);
       setPos(nextPos);
       setColorOpen(false);
@@ -176,6 +241,7 @@ export function BubbleToolbar({ editor }: Props) {
     const onMouseDown = () => {
       dragging = true;
       lastToolbarSigRef.current = "hidden";
+      anchorRef.current = null;
       setMode("hidden");
       setPos(null);
     };
@@ -190,17 +256,48 @@ export function BubbleToolbar({ editor }: Props) {
       if (dragging) return;
       compute();
     };
+    const onViewportChange = () => {
+      if (dragging) return;
+      requestAnimationFrame(compute);
+    };
 
     const dom = editor.view.dom;
     dom.addEventListener("mousedown", onMouseDown);
     window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("scroll", onViewportChange, true);
+    window.visualViewport?.addEventListener("resize", onViewportChange);
+    window.visualViewport?.addEventListener("scroll", onViewportChange);
     editor.on("selectionUpdate", onSelectionUpdate);
     return () => {
       dom.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("scroll", onViewportChange, true);
+      window.visualViewport?.removeEventListener("resize", onViewportChange);
+      window.visualViewport?.removeEventListener("scroll", onViewportChange);
       editor.off("selectionUpdate", onSelectionUpdate);
     };
   }, [editor]);
+
+  useLayoutEffect(() => {
+    if (mode === "hidden" || !pos || !anchorRef.current || !toolbarRef.current) return;
+    const activeMode = mode;
+    const update = () => {
+      const rect = toolbarRef.current?.getBoundingClientRect();
+      if (!rect || !anchorRef.current) return;
+      const next = placeToolbar(anchorRef.current, activeMode, rect.width, rect.height);
+      setPos((prev) =>
+        prev && Math.abs(prev.top - next.top) < 1 && Math.abs(prev.left - next.left) < 1
+          ? prev
+          : next,
+      );
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(toolbarRef.current);
+    return () => ro.disconnect();
+  }, [mode, pos]);
 
   if (!editor || !pos || mode === "hidden") return null;
 
@@ -235,9 +332,10 @@ export function BubbleToolbar({ editor }: Props) {
   const showCellAlign = mode === "text" && isInTableCell(editor);
   const cellAlign = showCellAlign ? getTableCellAlign(editor) : null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed z-[390] -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-1 py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+      ref={toolbarRef}
+      className="fixed z-[760] rounded-md border border-zinc-200 bg-white px-1 py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       style={{ top: pos.top, left: pos.left }}
       onPointerDownCapture={(e) => {
         const t = e.target as HTMLElement;
@@ -250,7 +348,7 @@ export function BubbleToolbar({ editor }: Props) {
     >
       <div className="flex items-center gap-0.5">
         {mode === "image" ? (
-          <ImageBubbleToolbar editor={editor} />
+          <ImageBubbleToolbar editor={editor} pageId={pageId} />
         ) : (
           <>
             <ToolbarBtn
@@ -386,7 +484,8 @@ export function BubbleToolbar({ editor }: Props) {
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

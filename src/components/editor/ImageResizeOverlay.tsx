@@ -118,11 +118,14 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     measure();
+    const measureSoon = () => requestAnimationFrame(measure);
     editor.on("selectionUpdate", measure);
+    editor.on("transaction", measureSoon);
     window.addEventListener("scroll", measure, true);
     window.addEventListener("resize", measure);
     return () => {
       editor.off("selectionUpdate", measure);
+      editor.off("transaction", measureSoon);
       window.removeEventListener("scroll", measure, true);
       window.removeEventListener("resize", measure);
     };
@@ -304,7 +307,10 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   return createPortal(
     <div
       data-qn-editor-chrome="image-resize-overlay"
-      className="pointer-events-none fixed z-[35]"
+      // 피크 패널(DatabaseRowPeek) 의 backdrop/panel 이 z-[650] 이라 그 위에 떠야 한다.
+      // 본문 컬럼 컨텍스트에선 z-35 였지만, body 직속 portal 로 바꾸면서 더 이상 상위 컨테이너의
+      // stacking context 가 자동으로 격리해 주지 않으므로 명시적으로 그 위에 둔다.
+      className="pointer-events-none fixed z-[660]"
       aria-hidden
       style={{
         left: box.left,

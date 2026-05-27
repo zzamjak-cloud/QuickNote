@@ -7,15 +7,18 @@ export class ImageUrlCache {
   private readonly fetcher: (id: string) => Promise<string>;
   private readonly ttlMs: number;
   private readonly clock: () => number;
+  private readonly onInvalidate?: (id: string) => void | Promise<void>;
 
   constructor(
     fetcher: (id: string) => Promise<string>,
     ttlMs: number = 50 * 60 * 1000,
     clock: () => number = () => Date.now(),
+    onInvalidate?: (id: string) => void | Promise<void>,
   ) {
     this.fetcher = fetcher;
     this.ttlMs = ttlMs;
     this.clock = clock;
+    this.onInvalidate = onInvalidate;
   }
 
   /** TTL 내에 이미 풀린 URL만 동기 반환 — 노드뷰 재마운트 시 로딩 깜빡임 방지 */
@@ -37,6 +40,7 @@ export class ImageUrlCache {
 
   invalidate(imageId: string): void {
     this.cache.delete(imageId);
+    void this.onInvalidate?.(imageId);
   }
 
   clear(): void {

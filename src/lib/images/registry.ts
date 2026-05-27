@@ -19,6 +19,7 @@ const IMAGE_URL_CACHE_PREFIX = "quicknote.image.cache.url.";
 const MEMORY_TTL_MS = 50 * 60 * 1000;
 const PERSIST_TTL_MS = 45 * 60 * 1000;
 const EXPIRE_SKEW_MS = 30 * 1000;
+const STALE_DOWNLOAD_URL_PARAMS = ["x-amz-checksum-"];
 
 function cacheKey(imageId: string): string {
   return `${IMAGE_URL_CACHE_PREFIX}${imageId}`;
@@ -49,6 +50,11 @@ async function readPersistedUrl(imageId: string): Promise<string | null> {
       typeof parsed.url !== "string" ||
       typeof parsed.expiresAt !== "number"
     ) {
+      return null;
+    }
+    const url = parsed.url;
+    if (STALE_DOWNLOAD_URL_PARAMS.some((param) => url.includes(param))) {
+      await webStorage.removeItem(cacheKey(imageId));
       return null;
     }
     if (parsed.expiresAt <= Date.now() + EXPIRE_SKEW_MS) {
@@ -99,4 +105,6 @@ export const imageUrlCache = new ImageUrlCache(async (imageId) => {
   const persisted = await readPersistedUrl(imageId);
   if (persisted) return persisted;
   return requestImageUrl(imageId);
-}, MEMORY_TTL_MS);
+}, MEMORY_TTL_MS, undefined, async (imageId) => {
+  await webStorage.removeItem(cacheKey(imageId));
+});

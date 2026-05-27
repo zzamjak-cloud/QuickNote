@@ -47,7 +47,7 @@ export function isListHandleNodeType(typeName: string): boolean {
   return LIST_HANDLE_NODE_TYPES.has(typeName);
 }
 
-function listElementForHover(editor: Editor, hover: HoverInfo): HTMLElement | null {
+export function listElementForHover(editor: Editor, hover: HoverInfo): HTMLElement | null {
   if (!isListHandleNodeType(hover.node.type.name)) return null;
   const dom = editor.view.nodeDOM(hover.blockStart);
   return dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
@@ -483,11 +483,14 @@ function considerContainerHandleFromStack(
       const start = $pos.before(d);
       const prev = byStart.get(start);
       const rect = container.getBoundingClientRect();
+      // 컬럼/탭 컨테이너의 "본체" 핸들은 컨테이너 좌상단 모서리(작은 손잡이 영역)에서만 우선시한다.
+      // 이전에는 48×32 영역이라 컬럼 첫 행 내부 블록 위에 호버해도 컨테이너 핸들이 강탈해
+      // 안쪽 블록의 드래그 핸들이 잡히지 않던 회귀가 있었다.
       const nearTopLeft =
         clientX >= rect.left - 6 &&
-        clientX <= rect.left + 48 &&
+        clientX <= rect.left + 12 &&
         clientY >= rect.top - 6 &&
-        clientY <= rect.top + 32;
+        clientY <= rect.top + 12;
       const candidate: HoverInfo = {
         rect,
         blockStart: start,

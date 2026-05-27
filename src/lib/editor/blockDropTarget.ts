@@ -430,14 +430,51 @@ export function resolveBlockDropIndicatorRect(
   const containerRect = container.getBoundingClientRect();
   if (containerRect.width <= 0) return null;
 
+  // 삽입 지점 좌표 산출.
+  // coordsAtPos 만 사용하면 image / fileBlock 같은 atom 블록의 직후 위치가 같은 줄(블록의 중앙 부근)
+  // 으로 잡혀 시각적으로 오정렬되는 회귀가 있다.
+  // 우선 삽입 위치 직전 노드(insertAt-1) 의 DOM rect 하단, 그게 없으면 직후 노드의 상단을 사용한다.
+  // 모두 실패하면 coordsAtPos, 그것도 실패하면 pointerY 폴백.
   let top = clientY;
-  try {
-    const coords = view.coordsAtPos(
-      Math.max(0, Math.min(target.insertAt, view.state.doc.content.size)),
-    );
-    top = coords.top;
-  } catch {
-    /* 좌표 산출 실패 시 포인터 Y를 폴백으로 사용 */
+  const docSize = view.state.doc.content.size;
+  const insertAt = Math.max(0, Math.min(target.insertAt, docSize));
+  const beforeNode = insertAt > 0 ? view.state.doc.nodeAt(insertAt - 1) : null;
+  let resolved = false;
+  if (beforeNode && beforeNode.isBlock) {
+    const beforePos = insertAt - beforeNode.nodeSize;
+    try {
+      const dom = view.nodeDOM(beforePos);
+      const el = dom instanceof HTMLElement ? dom : dom?.parentElement ?? null;
+      if (el) {
+        top = el.getBoundingClientRect().bottom;
+        resolved = true;
+      }
+    } catch {
+      /* noop */
+    }
+  }
+  if (!resolved && insertAt < docSize) {
+    const afterNode = view.state.doc.nodeAt(insertAt);
+    if (afterNode && afterNode.isBlock) {
+      try {
+        const dom = view.nodeDOM(insertAt);
+        const el = dom instanceof HTMLElement ? dom : dom?.parentElement ?? null;
+        if (el) {
+          top = el.getBoundingClientRect().top;
+          resolved = true;
+        }
+      } catch {
+        /* noop */
+      }
+    }
+  }
+  if (!resolved) {
+    try {
+      const coords = view.coordsAtPos(insertAt);
+      top = coords.top;
+    } catch {
+      /* pointerY 폴백 유지 */
+    }
   }
 
   const horizontalInset =
