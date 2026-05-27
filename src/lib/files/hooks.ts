@@ -5,10 +5,21 @@ import { useEffect, useState } from "react";
 import { imageUrlCache } from "../images/registry";
 import { decodeImageRef } from "../sync/imageScheme";
 import { decodeFileRef } from "./scheme";
+import {
+  readMediaBlob,
+  writeMediaBlob,
+  VIDEO_CACHE_MAX_BYTES,
+} from "../media/mediaBlobCache";
 
 export type UseFileUrlResult = {
   url: string | null;
   error: string | null;
+};
+
+/** 로컬 blob 캐싱 판단용 힌트 (fileBlock 노드의 size/mime). */
+export type FileCacheHint = {
+  sizeBytes?: number;
+  mime?: string;
 };
 
 /** 첫 페인트부터 TTL 캐시 URL 반영 — 에디터 입력 시 노드뷰 재마운트해도 동영상 깜빡임 최소화 */
@@ -21,14 +32,17 @@ function initialFileUrl(srcOrRef: string | null | undefined): string | null {
 
 export function useFileUrl(
   srcOrRef: string | null | undefined,
+  cacheHint?: FileCacheHint,
 ): UseFileUrlResult {
   const [url, setUrl] = useState<string | null>(() =>
     initialFileUrl(srcOrRef),
   );
   const [error, setError] = useState<string | null>(null);
+  const hintSize = cacheHint?.sizeBytes;
 
   useEffect(() => {
     let canceled = false;
+    let objectUrl: string | null = null;
     if (!srcOrRef) {
       setUrl(null);
       setError(null);
@@ -44,26 +58,45 @@ export function useFileUrl(
       return;
     }
     setError(null);
-    const cached = imageUrlCache.peek(id);
-    if (cached) {
-      setUrl(cached);
-      return () => {
-        canceled = true;
-      };
-    }
-    setUrl(null);
-    void imageUrlCache.get(id).then(
-      (u) => {
-        if (!canceled) setUrl(u);
-      },
-      (e) => {
+    void (async () => {
+      // 1) 로컬 blob 캐시 우선 — 네트워크 없이 즉시 표시.
+      const localBlob = await readMediaBlob(id);
+      if (canceled) return;
+      if (localBlob) {
+        objectUrl = URL.createObjectURL(localBlob);
+        setUrl(objectUrl);
+        return;
+      }
+      // 2) 미스 — TTL 캐시 URL 이 있으면 먼저 보여주고 PreSignedURL 로딩.
+      const peeked = imageUrlCache.peek(id);
+      setUrl(peeked ?? null);
+      try {
+        const downloadUrl = await imageUrlCache.get(id);
+        if (canceled) return;
+        setUrl(downloadUrl);
+        // 3) 백그라운드 캐싱: 크기 힌트가 한도(소형 동영상/파일) 이하일 때만.
+        // 대형 동영상은 캐싱하지 않고 PreSignedURL 스트리밍을 그대로 둔다.
+        if (hintSize != null && hintSize > 0 && hintSize <= VIDEO_CACHE_MAX_BYTES) {
+          void (async () => {
+            try {
+              const resp = await fetch(downloadUrl);
+              if (!resp.ok) return;
+              const blob = await resp.blob();
+              await writeMediaBlob(id, blob, { maxItemBytes: VIDEO_CACHE_MAX_BYTES });
+            } catch {
+              // 백그라운드 캐싱 실패는 무시 (재생은 PreSignedURL 로 정상 동작).
+            }
+          })();
+        }
+      } catch (e) {
         if (!canceled) setError(e instanceof Error ? e.message : String(e));
-      },
-    );
+      }
+    })();
     return () => {
       canceled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [srcOrRef]);
+  }, [srcOrRef, hintSize]);
 
   return { url, error };
 }

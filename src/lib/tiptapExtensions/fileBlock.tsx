@@ -142,7 +142,10 @@ function MediaCaptionInput({
 
 const FileView = memo(function FileView(props: NodeViewProps) {
   const attrs = props.node.attrs as FileAttrs;
-  const { url, error } = useFileUrl(attrs.src ?? null);
+  const { url, error } = useFileUrl(attrs.src ?? null, {
+    sizeBytes: typeof attrs.size === "number" ? attrs.size : undefined,
+    mime: attrs.mime ?? attrs.mimeType ?? attrs.contentType ?? undefined,
+  });
   const [zoom, setZoom] = useState(false);
   const inlineVideoRef = useRef<HTMLVideoElement | null>(null);
   const align = attrs.align ?? "left";
