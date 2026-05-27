@@ -41,6 +41,10 @@ import {
   resolveImportedCommentAuthorMemberId,
   resolveNotionCommentBlockId,
 } from "../../lib/notionImport/commentImport";
+import {
+  splitPersonTokens,
+  resolveImportedPersonMemberId,
+} from "../../lib/notionImport/personName";
 import { pauseStorageWrites, resumeStorageWrites } from "../../lib/storage/index";
 
 type SectionStatus =
@@ -723,12 +727,22 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
         });
         await yieldToPaint();
 
+        const importMembers = useMemberStore.getState().members;
         const batchRowData = rowPlans.map(({ row, rowTitle }) => {
           const cells: Record<string, import("../../types/database").CellValue> = {};
           for (let colIdx = 1; colIdx < row.length; colIdx++) {
             const colMeta = extraColIds[colIdx - 1];
             if (!colMeta) continue;
             const raw = row[colIdx] ?? "";
+            // person 은 이름("최진평[CAT]" → "최진평")을 추출해 워크스페이스 구성원과 매칭한 memberId 로 저장.
+            // 매칭 실패(예: 동명이인 모호/미등록)는 표시하지 않도록 제외한다.
+            if (colMeta.type === "person") {
+              const ids = splitPersonTokens(raw)
+                .map((token) => resolveImportedPersonMemberId(token, importMembers, ""))
+                .filter((id): id is string => !!id);
+              cells[colMeta.id] = Array.from(new Set(ids));
+              continue;
+            }
             // select/status/multiSelect 는 라벨 → 옵션 ID 변환 (normalizeImportedCellValue 는 라벨을 그대로 반환하므로 셀에 표시되지 않음).
             if (
               colMeta.type === "select" ||

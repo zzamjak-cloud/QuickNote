@@ -8,6 +8,10 @@ import {
 import type { NotionImportSource } from "../../lib/notionImport/importSource";
 import { notionMarkdownToDoc } from "../../lib/notionImport/markdownToDoc";
 import {
+  splitPersonTokens,
+  resolveImportedPersonMemberId,
+} from "../../lib/notionImport/personName";
+import {
   notionHtmlToDoc,
   extractNotionPageIcon,
   type NotionCollectionTable,
@@ -536,6 +540,17 @@ export function NotionImportTab() {
                     } else {
                       updateCell(dbId, rowPageId, colMeta.id, ids[0] ?? "");
                     }
+                    continue;
+                  }
+
+                  // person 은 이름("최진평[CAT]" → "최진평")을 추출해 구성원과 매칭한 memberId 로 저장.
+                  // 매칭 실패는 표시하지 않도록 제외한다.
+                  if (colMeta.type === "person") {
+                    const members = useMemberStore.getState().members;
+                    const ids = splitPersonTokens(rawCell)
+                      .map((token) => resolveImportedPersonMemberId(token, members, ""))
+                      .filter((id): id is string => !!id);
+                    updateCell(dbId, rowPageId, colMeta.id, Array.from(new Set(ids)));
                     continue;
                   }
 
