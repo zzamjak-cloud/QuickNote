@@ -106,6 +106,10 @@ function listNodeFromElement(
 ): JSONContent {
   const tag = el.tagName.toLowerCase();
   const isOrdered = tag === "ol";
+  // Notion 체크박스(to-do) 리스트 — <ul class="to-do-list"> → 퀵노트 taskList/taskItem.
+  const isTaskList =
+    tag === "ul" &&
+    (el.classList.contains("to-do-list") || el.classList.contains("to_do_list"));
   const items: JSONContent[] = [];
   const liNodes = Array.from(el.children).filter(
     (child): child is HTMLElement => child instanceof HTMLElement && child.tagName.toLowerCase() === "li",
@@ -155,9 +159,24 @@ function listNodeFromElement(
       for (const n of innerContent) blockChildJsonNodes.push(n);
     }
 
+    // to-do 항목의 체크 상태 — checkbox-on 클래스 또는 checked input.
+    const checked =
+      isTaskList &&
+      (li.querySelector(".checkbox-on, .checkbox_on, .checkbox-checked") != null ||
+        li.querySelector("input[type='checkbox']:checked") != null ||
+        li.querySelector("input[type='checkbox'][checked]") != null ||
+        li.querySelector(".to-do-children-checked") != null ||
+        /to-do-children-checked|checkbox-on/.test(li.className));
+
     const liClone = li.cloneNode(true) as HTMLElement;
     for (const nested of Array.from(liClone.querySelectorAll("ul, ol"))) {
       nested.remove();
+    }
+    // 체크박스 마커(div.checkbox / input)는 텍스트로 평탄화되지 않도록 제거.
+    for (const cb of Array.from(
+      liClone.querySelectorAll(".checkbox, input[type='checkbox']"),
+    )) {
+      cb.remove();
     }
     // 블록으로 끌어올린 자식들은 inline 추출 대상에서 제거.
     for (const c of Array.from(liClone.children)) {
@@ -177,11 +196,19 @@ function listNodeFromElement(
     }];
     listItemContent.push(...blockChildJsonNodes);
     listItemContent.push(...nestedBlocks);
-    items.push({
-      type: "listItem",
-      attrs: liBgToken ? { backgroundColor: liBgToken } : undefined,
-      content: listItemContent,
-    });
+    if (isTaskList) {
+      items.push({
+        type: "taskItem",
+        attrs: liBgToken ? { checked: !!checked, backgroundColor: liBgToken } : { checked: !!checked },
+        content: listItemContent,
+      });
+    } else {
+      items.push({
+        type: "listItem",
+        attrs: liBgToken ? { backgroundColor: liBgToken } : undefined,
+        content: listItemContent,
+      });
+    }
   }
 
   // Notion 은 번호 목록의 각 항목을 별도의 <ol start="N"> 으로 내보내는 경우가 많다.
@@ -189,6 +216,13 @@ function listNodeFromElement(
   // (start 를 항상 1 로 고정하면 모든 항목이 "1." 로만 표시되는 회귀가 발생한다)
   const startRaw = isOrdered ? el.getAttribute("start") : null;
   const startNum = startRaw && /^\d+$/.test(startRaw) ? Math.max(1, parseInt(startRaw, 10)) : 1;
+  if (isTaskList) {
+    return {
+      type: "taskList",
+      attrs: blockToken ? { blockTextColor: blockToken } : undefined,
+      content: items,
+    };
+  }
   return {
     type: isOrdered ? "orderedList" : "bulletList",
     attrs: isOrdered
