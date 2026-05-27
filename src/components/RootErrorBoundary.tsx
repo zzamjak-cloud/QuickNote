@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { reportNonFatal } from "../lib/reportNonFatal";
+import { attemptChunkReload, isChunkLoadError } from "../lib/chunkReload";
 
 type Props = {
   children: ReactNode;
@@ -7,16 +8,26 @@ type Props = {
 
 type State = {
   error: Error | null;
+  reloading: boolean;
 };
 
 export class RootErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, reloading: false };
 
   static getDerivedStateFromError(error: Error): State {
-    return { error };
+    // 새 배포로 청크 해시가 바뀌어 발생한 로드 실패는 에러 화면 대신 자동 새로고침으로 복구.
+    if (isChunkLoadError(error)) return { error: null, reloading: true };
+    return { error, reloading: false };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    if (isChunkLoadError(error)) {
+      // 쿨다운 내 반복 실패면 더 새로고침하지 않고 일반 에러로 노출.
+      if (!attemptChunkReload()) {
+        this.setState({ error, reloading: false });
+      }
+      return;
+    }
     reportNonFatal(
       `${error.message}\n${info.componentStack}`,
       "root.errorBoundary",
@@ -24,6 +35,13 @@ export class RootErrorBoundary extends Component<Props, State> {
   }
 
   render() {
+    if (this.state.reloading) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-white text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
+          <span>새 버전을 적용하는 중…</span>
+        </div>
+      );
+    }
     if (!this.state.error) return this.props.children;
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-white px-6 text-center text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">

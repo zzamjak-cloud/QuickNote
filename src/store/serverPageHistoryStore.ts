@@ -7,6 +7,10 @@ import {
   restorePageVersionApi,
 } from "../lib/sync/pageHistoryApi";
 import { applyRemotePageToStore } from "../lib/sync/storeApply";
+import { usePageStore, enqueuePageUpsertForSync } from "./pageStore";
+
+// 베이스라인 시드를 페이지당 세션 1회로 제한(재조회 루프 방지).
+const seededBaselinePages = new Set<string>();
 
 type State = {
   byPageId: Record<string, GqlPageHistoryEntry[]>;
@@ -65,6 +69,18 @@ export const useServerPageHistoryStore = create<State & Actions>()((set, get) =>
         byPageId: { ...s.byPageId, [pageId]: rows },
         loading: { ...s.loading, [pageId]: false },
       }));
+      // 서버 버전 기록이 0건인 페이지(기능 도입 이전/첫 upsert 누락)는 현재 상태로 upsert 를 보내
+      // 서버가 베이스라인 v1 을 기록하게 한다. 기록 반영 후 재조회해 타임라인에 노출.
+      if (rows.length === 0 && !seededBaselinePages.has(pageId)) {
+        seededBaselinePages.add(pageId);
+        const page = usePageStore.getState().pages[pageId];
+        if (page) {
+          enqueuePageUpsertForSync(page);
+          setTimeout(() => {
+            void get().fetchPageHistory(pageId, workspaceId);
+          }, 1800);
+        }
+      }
     } catch (err) {
       set((s) => ({
         loading: { ...s.loading, [pageId]: false },

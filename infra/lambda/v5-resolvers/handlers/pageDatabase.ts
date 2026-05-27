@@ -233,13 +233,19 @@ async function recordPageHistory(args: {
   const workspaceId = typeof args.after.workspaceId === "string" ? args.after.workspaceId : null;
   if (!pageId || !workspaceId) return;
   const history = await listPageHistoryAsc({ doc: args.doc, tableName, pageId });
-  const patch = diffPageSnapshot(
-    args.before ? normalizePageSnapshot(args.before) : null,
-    normalizePageSnapshot(args.after),
-  );
+  const afterSnap = normalizePageSnapshot(args.after);
+  const isFirstEver = history.length === 0;
+  // 히스토리가 0건인 페이지는 변경 유무와 무관하게 최초 1건을 베이스라인으로 기록한다.
+  // (기능 도입 이전에 생성됐거나, 첫 upsert 가 기록 경로를 못 탔던 페이지의 버전 보정.)
+  const patch = isFirstEver
+    ? diffPageSnapshot(null, afterSnap)
+    : diffPageSnapshot(args.before ? normalizePageSnapshot(args.before) : null, afterSnap);
   if (patch.length === 0) return;
   const createdAt = new Date().toISOString();
-  const shouldWriteAnchor = history.length === 0 || history.length % PAGE_HISTORY_ANCHOR_INTERVAL === 0;
+  const shouldWriteAnchor = isFirstEver || history.length % PAGE_HISTORY_ANCHOR_INTERVAL === 0;
+  // 최초 베이스라인은 "페이지 생성"으로 표기하고 현재 전체 스냅샷을 anchor 로 남긴다.
+  const kind = isFirstEver ? "page.create" : args.kind;
+  const anchorSnap = isFirstEver ? afterSnap : normalizePageSnapshot(args.before ?? args.after);
   await args.doc.send(
     new PutCommand({
       TableName: tableName,
@@ -247,9 +253,9 @@ async function recordPageHistory(args: {
         pageId,
         historyId: `${createdAt}#${uuid()}`,
         workspaceId,
-        kind: args.kind,
+        kind,
         patch,
-        ...(shouldWriteAnchor ? { anchor: normalizePageSnapshot(args.before ?? args.after) } : {}),
+        ...(shouldWriteAnchor ? { anchor: anchorSnap } : {}),
         createdAt,
         createdByMemberId: args.caller.memberId,
         createdByName: args.caller.name,
