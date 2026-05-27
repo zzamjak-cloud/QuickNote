@@ -42,6 +42,50 @@ function openDb(): Promise<IDBDatabase | null> {
   return dbPromise;
 }
 
+// 세션 내 object URL 인메모리 캐시 — 같은 미디어를 다시 열 때 IndexedDB 비동기 읽기 없이
+// 즉시(동기) 표시해 아이콘/이미지의 "로딩 플래시" 를 없앤다. LRU 로 개수를 제한하고
+// 밀려난 항목은 object URL 을 revoke 한다.
+const objectUrlMem = new Map<string, string>();
+const OBJECT_URL_CACHE_MAX = 300;
+
+/** 인메모리 object URL 즉시 조회(동기). 있으면 LRU touch. */
+export function peekMediaObjectUrl(id: string): string | null {
+  const url = objectUrlMem.get(id);
+  if (!url) return null;
+  objectUrlMem.delete(id);
+  objectUrlMem.set(id, url);
+  return url;
+}
+
+/** blob 으로 object URL 을 만들어 인메모리 캐시에 등록(이미 있으면 재사용). LRU 초과분 revoke. */
+export function rememberMediaObjectUrl(id: string, blob: Blob): string {
+  const existing = objectUrlMem.get(id);
+  if (existing) {
+    objectUrlMem.delete(id);
+    objectUrlMem.set(id, existing);
+    return existing;
+  }
+  const url = URL.createObjectURL(blob);
+  objectUrlMem.set(id, url);
+  while (objectUrlMem.size > OBJECT_URL_CACHE_MAX) {
+    const oldestKey = objectUrlMem.keys().next().value;
+    if (oldestKey === undefined) break;
+    const oldUrl = objectUrlMem.get(oldestKey);
+    objectUrlMem.delete(oldestKey);
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+  }
+  return url;
+}
+
+/** 표시용 object URL 을 얻는다: 인메모리 → IndexedDB 순. 없으면 null. */
+export async function getMediaObjectUrl(id: string): Promise<string | null> {
+  const mem = peekMediaObjectUrl(id);
+  if (mem) return mem;
+  const blob = await readMediaBlob(id);
+  if (!blob) return null;
+  return rememberMediaObjectUrl(id, blob);
+}
+
 /** 캐시된 blob 을 반환하고, LRU 갱신을 위해 updatedAt 을 best-effort 로 touch 한다. */
 export async function readMediaBlob(id: string): Promise<Blob | null> {
   const db = await openDb();

@@ -6,9 +6,11 @@ import { imageUrlCache } from "../images/registry";
 import { decodeImageRef } from "../sync/imageScheme";
 import { decodeFileRef } from "./scheme";
 import {
-  readMediaBlob,
   writeMediaBlob,
   fetchMediaBlob,
+  getMediaObjectUrl,
+  peekMediaObjectUrl,
+  rememberMediaObjectUrl,
   VIDEO_CACHE_MAX_BYTES,
 } from "../media/mediaBlobCache";
 
@@ -28,7 +30,7 @@ function initialFileUrl(srcOrRef: string | null | undefined): string | null {
   if (!srcOrRef) return null;
   const id = decodeFileRef(srcOrRef) ?? decodeImageRef(srcOrRef);
   if (!id) return srcOrRef;
-  return imageUrlCache.peek(id) ?? null;
+  return peekMediaObjectUrl(id) ?? imageUrlCache.peek(id) ?? null;
 }
 
 export function useFileUrl(
@@ -43,7 +45,6 @@ export function useFileUrl(
 
   useEffect(() => {
     let canceled = false;
-    let objectUrl: string | null = null;
     if (!srcOrRef) {
       setUrl(null);
       setError(null);
@@ -59,13 +60,19 @@ export function useFileUrl(
       return;
     }
     setError(null);
+    const memUrl = peekMediaObjectUrl(id);
+    if (memUrl) {
+      setUrl(memUrl);
+      return () => {
+        canceled = true;
+      };
+    }
     void (async () => {
-      // 1) 로컬 blob 캐시 우선 — 네트워크 없이 즉시 표시.
-      const localBlob = await readMediaBlob(id);
+      // 1) 로컬 blob 캐시(인메모리→IndexedDB) 우선 — 네트워크 없이 즉시 표시.
+      const cachedUrl = await getMediaObjectUrl(id);
       if (canceled) return;
-      if (localBlob) {
-        objectUrl = URL.createObjectURL(localBlob);
-        setUrl(objectUrl);
+      if (cachedUrl) {
+        setUrl(cachedUrl);
         return;
       }
       // 2) 미스 — TTL 캐시 URL 이 있으면 먼저 보여주고 PreSignedURL 로딩.
@@ -81,7 +88,10 @@ export function useFileUrl(
           void (async () => {
             // CORS 비활성 시 null → 백그라운드 요청 없음 (재생은 PreSignedURL 로 정상 동작).
             const blob = await fetchMediaBlob(downloadUrl);
-            if (blob) await writeMediaBlob(id, blob, { maxItemBytes: VIDEO_CACHE_MAX_BYTES });
+            if (blob) {
+              await writeMediaBlob(id, blob, { maxItemBytes: VIDEO_CACHE_MAX_BYTES });
+              rememberMediaObjectUrl(id, blob); // 같은 세션 재진입 시 즉시 재사용
+            }
           })();
         }
       } catch (e) {
@@ -90,7 +100,6 @@ export function useFileUrl(
     })();
     return () => {
       canceled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [srcOrRef, hintSize]);
 

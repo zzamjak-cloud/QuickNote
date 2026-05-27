@@ -5,9 +5,11 @@ import { imageUrlCache } from "./registry";
 import { decodeImageRef } from "../sync/imageScheme";
 import { decodeFileRef } from "../files/scheme";
 import {
-  readMediaBlob,
   writeMediaBlob,
   fetchMediaBlob,
+  getMediaObjectUrl,
+  peekMediaObjectUrl,
+  rememberMediaObjectUrl,
   IMAGE_CACHE_MAX_BYTES,
 } from "../media/mediaBlobCache";
 
@@ -34,7 +36,8 @@ function initialImageUrl(srcOrRef: string | null | undefined): string | null {
   if (!srcOrRef) return null;
   const id = decodeImageRef(srcOrRef) ?? decodeFileRef(srcOrRef);
   if (!id) return srcOrRef;
-  return imageUrlCache.peek(id) ?? null;
+  // 인메모리 object URL 캐시가 있으면 동기로 즉시 반환 — 재진입 시 로딩 플래시 제거.
+  return peekMediaObjectUrl(id) ?? imageUrlCache.peek(id) ?? null;
 }
 
 export function useImageUrl(
@@ -60,17 +63,20 @@ export function useImageUrl(
       return;
     }
     setError(null);
-    let objectUrl: string | null = null;
-    const applyBlobUrl = (blob: Blob) => {
-      objectUrl = URL.createObjectURL(blob);
-      if (!canceled) setUrl(objectUrl);
-    };
+    // 동기 인메모리 캐시 적중이면 추가 작업 없이 즉시 표시.
+    const memUrl = peekMediaObjectUrl(id);
+    if (memUrl) {
+      setUrl(memUrl);
+      return () => {
+        canceled = true;
+      };
+    }
     void (async () => {
-      // 1) 로컬 IndexedDB blob 캐시 우선 — 네트워크 없이 즉시 표시.
-      const localBlob = await readMediaBlob(id);
+      // 1) 로컬 blob 캐시(인메모리→IndexedDB) — 네트워크 없이 object URL 표시.
+      const cachedUrl = await getMediaObjectUrl(id);
       if (canceled) return;
-      if (localBlob) {
-        applyBlobUrl(localBlob);
+      if (cachedUrl) {
+        setUrl(cachedUrl);
         return;
       }
       // 2) 미스 — TTL 캐시 URL 이 있으면 먼저 보여주고, PreSignedURL 로 1회 다운로드 후 blob 캐싱.
@@ -82,7 +88,7 @@ export function useImageUrl(
         const blob = await fetchMediaBlob(downloadUrl);
         if (canceled) return;
         if (blob) {
-          applyBlobUrl(blob);
+          setUrl(rememberMediaObjectUrl(id, blob));
           void writeMediaBlob(id, blob, { maxItemBytes: IMAGE_CACHE_MAX_BYTES });
           return;
         }
@@ -94,7 +100,6 @@ export function useImageUrl(
     })();
     return () => {
       canceled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [srcOrRef]);
 
