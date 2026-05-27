@@ -5,6 +5,7 @@ import { FavoritesPanel } from "./components/layout/FavoritesPanel";
 import { TopBar } from "./components/layout/TopBar";
 import { TabBar } from "./components/layout/TabBar";
 import { Editor } from "./components/editor/Editor";
+import { ScrollToTopButton } from "./components/common/ScrollToTopButton";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { ToastViewport } from "./components/ui/ToastViewport";
 import { WorkspaceSyncBanner } from "./components/sync/WorkspaceSyncBanner";
@@ -322,6 +323,7 @@ function App() {
               <Suspense fallback={null}>
                 <DatabaseRowPage pageId={activePage.id} />
               </Suspense>
+              <ScrollToTopButton scrollRef={databaseRowScrollHostRef} position="fixed" />
             </div>
           ) : (
             <Editor />

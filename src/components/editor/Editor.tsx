@@ -9,7 +9,6 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useEditor, EditorContent } from "@tiptap/react";
 import type { createLowlight } from "lowlight";
 import "tippy.js/dist/tippy.css";
@@ -63,9 +62,7 @@ import {
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
-import { PageSubpageTree } from "../page/PageSubpageTree";
-import { countPageDescendants } from "../page/pageSubpageTreeUtils";
-import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
+import { ScrollToTopButton } from "../common/ScrollToTopButton";
 import {
   registerEditorNavigation,
   unregisterEditorNavigation,
@@ -159,7 +156,6 @@ export function Editor({
   const isFullPageDatabase = useMemo(() => {
     return isFullPageDatabaseDoc(pageDoc);
   }, [pageDoc]);
-  const isDatabaseRowPage = Boolean(page?.databaseId) && !isFullPageDatabase;
 
   const titleRef = useRef<HTMLInputElement | null>(null);
   /** 제목 입력 포커스가 잡힌 페이지 — 전환 후 지연 blur 가 새 페이지를 덮어쓰지 않도록 */
@@ -180,7 +176,6 @@ export function Editor({
     useState<BlockDropIndicatorRect | null>(null);
 
   const [simpleAlert, setSimpleAlert] = useState<string | null>(null);
-  const subpagePopover = useAnchoredPopover(280);
   /** @ 키로 멘션 검색 모달 — 인라인 제안과 분리 */
   const [mentionRange, setMentionRange] = useState<{
     from: number;
@@ -363,9 +358,6 @@ export function Editor({
   );
 
   const commentThread = useUiStore((s) => s.commentThread);
-  const descendantCount = usePageStore((s) =>
-    effectivePageId ? countPageDescendants(effectivePageId, s.pages) : 0,
-  );
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -882,8 +874,6 @@ export function Editor({
                     ? <Database size={56} className="text-zinc-400" />
                     : <FileText size={56} className="text-zinc-400" />
                 }
-                showSubpageTree={!isDatabaseRowPage && (descendantCount > 0 || !!page?.parentId)}
-                subpagePopover={subpagePopover}
               />
             </div>
             {/* 페이지 레벨 댓글 — 제목 바로 아래 */}
@@ -923,16 +913,6 @@ export function Editor({
             onClearBoxSelection={clearBoxSelection}
           />
         )}
-        {subpagePopover.open && subpagePopover.coords && createPortal(
-          <div
-            ref={subpagePopover.popoverRef}
-            style={{ position: "fixed", top: subpagePopover.coords.top, left: subpagePopover.coords.left, width: 280, zIndex: 9999 }}
-            className="rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-          >
-            <PageSubpageTree currentPageId={effectivePageId} className="px-2 pb-3 pt-1" hideHeader />
-          </div>,
-          document.body,
-        )}
         {showTailSpacer ? (
           <div
             aria-hidden
@@ -944,6 +924,9 @@ export function Editor({
           />
         ) : null}
       </div>
+      {!bodyOnly && !peek && (
+        <ScrollToTopButton scrollRef={editorScrollHostRef} position="fixed" />
+      )}
       <MemoBubbleToolbar editor={editor} pageId={effectivePageId} />
       <MemoImageResizeOverlay editor={editor} />
       <ImageUpload

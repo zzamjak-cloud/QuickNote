@@ -14,8 +14,13 @@ import {
   CopyPlus,
   FolderInput,
   History,
+  ListTree,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
+import { PageSubpageTree } from "../page/PageSubpageTree";
+import { countPageDescendants } from "../page/pageSubpageTreeUtils";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { pageDocToHtml } from "../../lib/export/pageToHtml";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
@@ -78,6 +83,7 @@ export function TopBar() {
   const clearNavigationBack = useNavigationHistoryStore((s) => s.clearBack);
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const subpagePopover = useAnchoredPopover(280);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -167,6 +173,13 @@ export function TopBar() {
   const fullWidth = activeId
     ? (pageFullWidthById[activeId] ?? globalFullWidth)
     : globalFullWidth;
+  // 페이지 트리 버튼 표시 조건 — DB 항목(풀페이지 DB) 페이지가 아니고 하위/상위 관계가 있을 때.
+  const descendantCount = activeId ? countPageDescendants(activeId, pages) : 0;
+  const showSubpageTree = Boolean(
+    activeId &&
+      activePage?.databaseId == null &&
+      (descendantCount > 0 || !!activePage?.parentId),
+  );
   const parentId = activePage?.parentId ?? null;
   const canGoBack =
     Boolean(activeId && parentId !== null && pages[parentId ?? ""]);
@@ -393,6 +406,18 @@ export function TopBar() {
       <div className="flex items-center gap-1">
         {activeId && (
           <>
+          {showSubpageTree && (
+            <button
+              ref={subpagePopover.buttonRef}
+              type="button"
+              onClick={() => subpagePopover.toggle(280)}
+              className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              aria-label="페이지 트리"
+              title="페이지 트리"
+            >
+              <ListTree size={16} />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => toggleFullWidthForPage(activeId)}
@@ -423,42 +448,7 @@ export function TopBar() {
           >
             <Link2 size={16} />
           </button>
-          <button
-            type="button"
-            onClick={copyPageContent}
-            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            aria-label="페이지 내용 복사"
-            title="페이지 내용 복사"
-          >
-            <Copy size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={handleDuplicate}
-            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            aria-label="페이지 복제"
-            title="페이지 복제"
-          >
-            <CopyPlus size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setMoveDialogOpen(true)}
-            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            aria-label="다른 페이지로 이동"
-            title="다른 페이지로 이동"
-          >
-            <FolderInput size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setHistoryDialogOpen(true)}
-            className="rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            aria-label="버전 히스토리"
-            title="버전 히스토리"
-          >
-            <History size={16} />
-          </button>
+          {/* 페이지 내용 복사·복제·이동·버전 히스토리는 개별 아이콘 대신 "..." 메뉴에서만 제공한다. */}
           <div className="relative" ref={menuRef}>
             <button
               type="button"
@@ -771,6 +761,16 @@ export function TopBar() {
           clearTimelineSelection();
         }}
       />
+      {subpagePopover.open && subpagePopover.coords && activeId && createPortal(
+        <div
+          ref={subpagePopover.popoverRef}
+          style={{ position: "fixed", top: subpagePopover.coords.top, left: subpagePopover.coords.left, width: 280, zIndex: 9999 }}
+          className="rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          <PageSubpageTree currentPageId={activeId} className="px-2 pb-3 pt-1" hideHeader />
+        </div>,
+        document.body,
+      )}
     </header>
   );
 }

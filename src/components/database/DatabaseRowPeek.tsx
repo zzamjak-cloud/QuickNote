@@ -11,6 +11,7 @@ import {
   FolderInput,
   History,
   Link2,
+  ListTree,
   Loader2,
   Maximize2,
   Minus,
@@ -41,6 +42,7 @@ import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageSubpageTree } from "../page/PageSubpageTree";
 import { countPageDescendants } from "../page/pageSubpageTreeUtils";
+import { ScrollToTopButton } from "../common/ScrollToTopButton";
 import { CLEAR_BOX_SELECTION_EVENT } from "../../hooks/boxSelect/constants";
 import {
   bindPageScrollMemory,
@@ -431,19 +433,7 @@ export function DatabaseRowPeek() {
         <div className="shrink-0 px-8 pt-8">
         <div className="mb-8 flex items-center justify-between gap-1">
           <div className="flex items-center gap-1">
-            {peekHistory.length > 0 ? (
-              <button
-                type="button"
-                onClick={peekBack}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                title="이전 페이지로 돌아가기"
-              >
-                <ChevronLeft size={14} />
-                이전 페이지
-              </button>
-            ) : (
-              <div />
-            )}
+            {/* 전체보기 — 헤더 최좌측에 항상 고정 */}
             <button
               type="button"
               onClick={openFullPage}
@@ -454,6 +444,17 @@ export function DatabaseRowPeek() {
             >
               <Maximize2 size={14} />
             </button>
+            {peekHistory.length > 0 && (
+              <button
+                type="button"
+                onClick={peekBack}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                title="이전 페이지로 돌아가기"
+              >
+                <ChevronLeft size={14} />
+                이전 페이지
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-1">
           {/* 전체너비 토글 — 피크 페이지만 타깃팅(배경의 활성 페이지를 건드리지 않음) */}
@@ -471,6 +472,19 @@ export function DatabaseRowPeek() {
           >
             <ArrowLeftRight size={14} strokeWidth={peekFullWidth ? 2.25 : 2} />
           </button>
+          {(peekDescendantCount > 0 || !!page?.parentId) && (
+            <button
+              ref={subpagePopover.buttonRef}
+              type="button"
+              onClick={() => subpagePopover.toggle(280)}
+              disabled={isPendingPageCreation}
+              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
+              title="페이지 트리"
+              aria-label="페이지 트리"
+            >
+              <ListTree size={14} />
+            </button>
+          )}
           <button
             type="button"
             onClick={copyPageLink}
@@ -480,46 +494,6 @@ export function DatabaseRowPeek() {
             aria-label="링크 복사"
           >
             <Link2 size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={copyPageContent}
-            disabled={isPendingPageCreation}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
-            title="페이지 내용 복사"
-            aria-label="페이지 내용 복사"
-          >
-            <Copy size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={handleDuplicate}
-            disabled={isPendingPageCreation}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
-            title="페이지 복제"
-            aria-label="페이지 복제"
-          >
-            <CopyPlus size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setMoveDialogOpen(true)}
-            disabled={isPendingPageCreation}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
-            title="다른 페이지로 이동"
-            aria-label="다른 페이지로 이동"
-          >
-            <FolderInput size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setHistoryDialogOpen(true)}
-            disabled={isPendingPageCreation}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
-            title="버전 히스토리"
-            aria-label="버전 히스토리"
-          >
-            <History size={14} />
           </button>
           <div className="relative" ref={menuRef}>
             <button
@@ -589,7 +563,7 @@ export function DatabaseRowPeek() {
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
-                  <CopyPlus className={MENU_ITEM_ICON} aria-hidden />
+                  <FileText className={MENU_ITEM_ICON} aria-hidden />
                   <span className="min-w-0 flex-1">다른 워크스페이스로 복제</span>
                 </button>
                 <button
@@ -697,8 +671,6 @@ export function DatabaseRowPeek() {
             }}
             onIconChange={(icon) => setIcon(peekPageId, icon)}
             defaultIcon={<FileText size={56} className="text-zinc-400" />}
-            showSubpageTree={peekDescendantCount > 0 || !!page?.parentId}
-            subpagePopover={subpagePopover}
           />
         </div>
         {isDbRow && databaseId && (
@@ -740,13 +712,16 @@ export function DatabaseRowPeek() {
           </>
         ) : null}
         </div>{/* 단일 스크롤 영역 끝 */}
-        <PageMoveDialog
-          pageId={moveDialogOpen ? peekPageId : null}
-          onClose={() => setMoveDialogOpen(false)}
-        />
+        {!isPendingPageCreation && (
+          <ScrollToTopButton scrollRef={scrollBodyRef} position="absolute" />
+        )}
         <PageCopyToWorkspaceDialog
           pageId={copyToWorkspaceOpen ? peekPageId : null}
           onClose={() => setCopyToWorkspaceOpen(false)}
+        />
+        <PageMoveDialog
+          pageId={moveDialogOpen ? peekPageId : null}
+          onClose={() => setMoveDialogOpen(false)}
         />
         {historyDialogOpen && (
           <div

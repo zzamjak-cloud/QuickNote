@@ -1,5 +1,4 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { FileText } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useShallow } from "zustand/react/shallow";
@@ -8,9 +7,6 @@ import { Editor } from "../editor/Editor";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCommentBar } from "../comments/PageCommentBar";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
-import { PageSubpageTree } from "../page/PageSubpageTree";
-import { countPageDescendants } from "../page/pageSubpageTreeUtils";
-import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { DbPropertySection } from "../page/DbPropertySection";
 
@@ -23,7 +19,6 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
       return { title: p.title, icon: p.icon, databaseId: p.databaseId, parentId: p.parentId };
     }),
   );
-  const descendantCount = usePageStore((s) => countPageDescendants(pageId, s.pages));
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
   const databaseId = page?.databaseId;
@@ -32,7 +27,6 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [iconAlert, setIconAlert] = useState<string | null>(null);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
-  const subpagePopover = useAnchoredPopover(280);
 
   useEffect(() => {
     setTitleDraft(page?.title ?? "");
@@ -84,8 +78,6 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
                 onIconChange={(icon) => setIcon(pageId, icon)}
                 onIconUploadMessage={(msg) => setIconAlert(msg)}
                 defaultIcon={<FileText size={56} className="text-zinc-400" />}
-                showSubpageTree={descendantCount > 0 || !!page.parentId}
-                subpagePopover={subpagePopover}
               />
             </div>
 
@@ -94,16 +86,6 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
           </div>
         }
       />
-      {subpagePopover.open && subpagePopover.coords && createPortal(
-        <div
-          ref={subpagePopover.popoverRef}
-          style={{ position: "fixed", top: subpagePopover.coords.top, left: subpagePopover.coords.left, width: 280, zIndex: 9999 }}
-          className="rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
-        >
-          <PageSubpageTree currentPageId={pageId} className="px-2 pb-3 pt-1" hideHeader />
-        </div>,
-        document.body,
-      )}
       <div
         aria-hidden
         className="qn-editor-scroll-tail-spacer mx-auto w-full shrink-0 select-none"

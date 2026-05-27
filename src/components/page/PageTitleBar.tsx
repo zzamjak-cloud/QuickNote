@@ -17,12 +17,6 @@ interface PageTitleBarProps {
   onIconChange: (icon: string | null) => void;
   onIconUploadMessage?: (msg: string) => void;
   defaultIcon?: React.ReactNode;
-  /** true면 페이지트리 버튼 표시 (조건 계산은 호출자가 담당) */
-  showSubpageTree: boolean;
-  subpagePopover: {
-    buttonRef: React.RefObject<HTMLButtonElement | null>;
-    toggle: (width?: number) => void;
-  };
 }
 
 export function PageTitleBar({
@@ -39,8 +33,6 @@ export function PageTitleBar({
   onIconChange,
   onIconUploadMessage,
   defaultIcon,
-  showSubpageTree,
-  subpagePopover,
 }: PageTitleBarProps) {
   // 즐겨찾기 상태는 내부에서 직접 구독 — 다른 페이지 변경 시 이 컴포넌트만 리렌더
   const isFavorite = useSettingsStore(
@@ -67,16 +59,6 @@ export function PageTitleBar({
         placeholder={placeholder}
         className={titleClassName}
       />
-      {showSubpageTree && (
-        <button
-          ref={subpagePopover.buttonRef}
-          type="button"
-          onClick={() => subpagePopover.toggle(280)}
-          className="shrink-0 rounded-md px-2.5 py-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-        >
-          페이지 트리
-        </button>
-      )}
       <button
         type="button"
         onClick={() => toggleFavoritePage(pageId)}
