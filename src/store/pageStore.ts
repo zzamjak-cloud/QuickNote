@@ -946,6 +946,7 @@ export {
   createFilterPageTreeSelector,
   filterPageTree,
   isFullPageDatabaseHomePage,
+  selectFirstSidebarRootId,
   selectPageTree,
   selectSortedPages,
   type PageNode,

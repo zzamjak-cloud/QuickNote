@@ -289,6 +289,22 @@ export class SyncEngine {
     await this.outbox.clear();
   }
 
+  /**
+   * 주어진 페이지 id 들에 대한 모든 pending outbox entry(upsertPage/softDeletePage)를 제거.
+   * 휴지통 영구삭제 직후 호출 — 잔여 upsert 가 flush 되어 서버 row 를 재생성(되살아남)하는 것을 차단한다.
+   */
+  async purgePendingForPageIds(ids: ReadonlySet<string>): Promise<void> {
+    if (ids.size === 0) return;
+    const all = await this.outbox.list(5000);
+    for (const e of all) {
+      if (e.op !== "upsertPage" && e.op !== "softDeletePage") continue;
+      const pid = (e.payload as { id?: string })?.id;
+      if (pid && ids.has(pid)) {
+        await this.outbox.remove(e.id);
+      }
+    }
+  }
+
   scheduleFlush(delayMs: number): void {
     if (this.stopped) return;
     if (this.timer) return;

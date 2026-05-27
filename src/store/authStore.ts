@@ -34,6 +34,36 @@ const GET_USER_MS = 12_000;
 const TOKEN_KEEPALIVE_INTERVAL_MS = 30_000;
 const TOKEN_KEEPALIVE_THRESHOLD_SEC = 180;
 
+// 직전에 인증된 세션이 있었는지 동기적으로 알려주는 마커.
+// 새로고침 시 AuthGate 가 토큰 복원(read 15s + getUser 12s 등)을 기다리지 않고
+// 캐시된 앱 셸을 먼저 그릴지 판단하는 데 쓴다.
+const HAD_SESSION_KEY = "quicknote.auth.hadSession";
+
+function markHadSession(): void {
+  try {
+    globalThis.localStorage?.setItem(HAD_SESSION_KEY, "1");
+  } catch {
+    // localStorage 비가용 환경은 낙관적 셸을 포기(기본 로딩 화면).
+  }
+}
+
+function clearHadSession(): void {
+  try {
+    globalThis.localStorage?.removeItem(HAD_SESSION_KEY);
+  } catch {
+    // 무시
+  }
+}
+
+/** 직전 세션 존재 힌트(동기). 토큰 검증과 무관한 빠른 첫 페인트 판단용. */
+export function hasHadSessionHint(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(HAD_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 async function promiseWithTimeout<T>(
   p: Promise<T>,
   ms: number,
@@ -150,6 +180,7 @@ function startTokenKeepAlive(getState: () => AuthState, setState: (next: AuthSta
           user: userToAuthUser(refreshed),
           tokens,
         });
+        markHadSession();
       } catch (err) {
         console.warn("[auth] keepalive silent renew 실패", err);
       }
@@ -224,6 +255,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           tokens,
         },
       });
+      markHadSession();
       startTokenKeepAlive(
         () => get().state,
         (state) => set({ state }),
@@ -257,6 +289,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     resetOidcManager();
     await clearStoredTokens();
     stopTokenKeepAlive();
+    clearHadSession();
     set({ state: { status: "anonymous", reason: "signedOut" } });
     if (logoutUrl) {
       void openAuthUrl(logoutUrl).catch((error) => {
@@ -295,6 +328,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         }
 
         if (!cached) {
+          clearHadSession();
           set({ state: { status: "anonymous", reason: "initial" } });
           return;
         }
@@ -343,6 +377,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
             // refresh 실패 또는 타임아웃 → 만료 상태로 강등.
           }
           await clearStoredTokens();
+          clearHadSession();
           set({ state: { status: "anonymous", reason: "expired" } });
           return;
         }
@@ -376,6 +411,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         }
 
         await clearStoredTokens();
+        clearHadSession();
         set({ state: { status: "anonymous", reason: "expired" } });
       } catch (err) {
         console.error("[auth] restoreSession: unexpected failure", err);

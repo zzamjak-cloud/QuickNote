@@ -46,6 +46,27 @@ export function selectSortedPages(state: PageStore): Page[] {
 
 export type PageNode = Page & { children: PageNode[] };
 
+/**
+ * 사이드바 트리의 "첫 번째 인덱스" 루트 페이지 id.
+ * selectPageTree()[0] 과 동일한 규칙(루트 = parentId 없음, DB 행/홈 페이지 제외, order 정렬)을
+ * 전체 트리 빌드 없이 O(n) 으로 계산한다. 새로고침 시 기본 선택 페이지 결정에 사용.
+ */
+export function selectFirstSidebarRootId(state: PageStore): string | null {
+  let best: Page | null = null;
+  for (const p of Object.values(state.pages)) {
+    if (p.parentId != null) continue; // 루트만
+    if (isHiddenInSidebar(p, state.pages)) continue; // DB 행/홈 페이지 제외
+    if (
+      !best ||
+      p.order < best.order ||
+      (p.order === best.order && p.id < best.id)
+    ) {
+      best = p;
+    }
+  }
+  return best?.id ?? null;
+}
+
 // 트리 셀렉터: parentId 기반 재귀 빌드. 형제들은 order로 정렬.
 export function selectPageTree(state: PageStore): PageNode[] {
   const byParent = new Map<string | null, Page[]>();

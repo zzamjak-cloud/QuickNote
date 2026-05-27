@@ -40,22 +40,6 @@ export async function fetchTrashedPagesBatch(
   return { items: conn.items, nextToken: conn.nextToken ?? null };
 }
 
-export async function fetchAllTrashedPages(
-  workspaceId: string,
-  onBatch?: (batch: TrashedPageBatch) => void,
-  startToken: string | null = null,
-): Promise<GqlPageBrief[]> {
-  const all: GqlPageBrief[] = [];
-  let nextToken: string | null = startToken;
-  do {
-    const batch = await fetchTrashedPagesBatch(workspaceId, nextToken);
-    all.push(...batch.items);
-    onBatch?.(batch);
-    nextToken = batch.nextToken;
-  } while (nextToken !== null);
-  return all;
-}
-
 export async function restorePageRemote(
   id: string,
   workspaceId: string,

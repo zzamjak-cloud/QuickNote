@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCcw, Search, Trash2, X } from "lucide-react";
 import { applyRemotePageToStore } from "../../lib/sync/storeApply";
 import {
-  fetchAllTrashedPages,
   fetchTrashedPagesBatch,
   permanentlyDeletePageRemote,
   restorePageRemote,
 } from "../../lib/sync/trashApi";
 import { runChunkedPermanentDelete } from "../../lib/sync/chunkedPermanentDelete";
+import { getSyncEngine } from "../../lib/sync/runtime";
 import {
   clearLocalDeleteGuard,
   isPermanentlyDeletedEntity,
@@ -52,6 +52,8 @@ export function TrashDialog({ open, onClose }: Props) {
       workspaceId: string,
     ) =>
       source.filter((item) => {
+        // 이미 영구삭제 확정된 페이지는 서버 eventual-consistency 로 다시 내려와도 숨긴다(되살아남 방지).
+        if (isPermanentlyDeletedEntity("page", item.id, workspaceId)) return false;
         const dbId = item.databaseId;
         if (!dbId) return true;
         return !isPermanentlyDeletedEntity("database", dbId, workspaceId);
@@ -70,23 +72,11 @@ export function TrashDialog({ open, onClose }: Props) {
     setLoading(true);
     setCursor(null);
     try {
+      // 첫 배치만 로드하고 나머지는 "더보기"(loadMore)로 지연 로드한다.
+      // 이전엔 열자마자 전체 배치를 순차 스윕해 휴지통 항목이 많을수록 매우 느렸다.
       const batch = await fetchTrashedPagesBatch(currentWorkspaceId);
       setItems(filterRowsOfPermanentlyDeletedDatabases(batch.items, currentWorkspaceId));
       setCursor(batch.nextToken);
-      if (batch.nextToken !== null) {
-        let loaded = batch.items;
-        setLoadingMore(true);
-        fetchAllTrashedPages(currentWorkspaceId, (nextBatch) => {
-          loaded = [...loaded, ...nextBatch.items];
-          setItems(filterRowsOfPermanentlyDeletedDatabases(loaded, currentWorkspaceId));
-          setCursor(nextBatch.nextToken);
-        }, batch.nextToken).catch((e) => {
-          console.error(e);
-          showToast("일부 휴지통 목록을 불러오지 못했습니다.", { kind: "error" });
-        }).finally(() => {
-          setLoadingMore(false);
-        });
-      }
     } catch (e) {
       console.error(e);
       showToast("휴지통 목록을 불러오지 못했습니다.", { kind: "error" });
@@ -143,32 +133,53 @@ export function TrashDialog({ open, onClose }: Props) {
   const emptyTrash = async () => {
     if (!currentWorkspaceId || emptying) return;
     const wsId = currentWorkspaceId;
-    const targets = items
-      .map((item) => item.id)
-      .filter(Boolean)
-      .map((id) => ({ id, workspaceId: wsId }));
-    if (targets.length === 0) {
-      setConfirmEmptyOpen(false);
-      return;
-    }
     setEmptying(true);
     setConfirmEmptyOpen(false);
-    setEmptyProgress({ done: 0, total: targets.length });
+    setEmptyProgress({ done: 0, total: 0 });
 
+    // 서버 휴지통을 항상 "처음부터" 50건씩 가져와 청크(동시 4) 삭제하고, 빌 때까지 반복한다.
+    // - UI 에 로드된 일부만 지우던 기존 버그(미삭제 잔여) 제거: 서버 기준으로 끝까지 비운다.
+    // - 한 번에 전부가 아니라 배치 단위 순차 처리라 대량에서도 병목/크래시 위험이 낮다.
     const successIds: string[] = [];
-    const { deletedCount, failedCount } = await runChunkedPermanentDelete(targets, {
-      deleteRemote: permanentlyDeletePageRemote,
-      onItemSuccess: ({ id, workspaceId }) => {
-        markPermanentlyDeletedEntity("page", id, workspaceId);
-        successIds.push(id);
-        // 성공 즉시 리스트에서 제거 — 사용자가 실시간으로 줄어드는 걸 확인
-        setItems((prev) => prev.filter((x) => x.id !== id));
-      },
-      onProgress: (done, total) => setEmptyProgress({ done, total }),
-    });
+    let deletedTotal = 0;
+    let failedTotal = 0;
+    try {
+      while (true) {
+        const batch = await fetchTrashedPagesBatch(wsId, null);
+        const targets = batch.items
+          .map((item) => item.id)
+          .filter(Boolean)
+          .map((id) => ({ id, workspaceId: wsId }));
+        if (targets.length === 0) break;
 
-    // 좀비 로컬 캐시 정리 (성공한 id 만)
+        const { deletedCount, failedCount } = await runChunkedPermanentDelete(targets, {
+          deleteRemote: permanentlyDeletePageRemote,
+          onItemSuccess: ({ id, workspaceId }) => {
+            markPermanentlyDeletedEntity("page", id, workspaceId);
+            successIds.push(id);
+            deletedTotal += 1;
+            setEmptyProgress({ done: deletedTotal, total: deletedTotal });
+            // 성공 즉시 리스트에서 제거 — 사용자가 실시간으로 줄어드는 걸 확인
+            setItems((prev) => prev.filter((x) => x.id !== id));
+          },
+        });
+        failedTotal += failedCount;
+        // 진전이 없으면(전부 실패) 무한 루프 방지를 위해 종료.
+        if (deletedCount === 0) break;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    // 영구삭제된 페이지의 잔여 outbox(upsert/softDelete) 제거 — flush 로 인한 서버 재생성(되살아남) 차단.
     if (successIds.length > 0) {
+      try {
+        const engine = await getSyncEngine();
+        await engine.purgePendingForPageIds(new Set(successIds));
+      } catch (e) {
+        console.error(e);
+      }
+      // 좀비 로컬 캐시 정리 (성공한 id 만)
       usePageStore.setState((s) => {
         let nextPages = s.pages;
         let changed = false;
@@ -187,15 +198,15 @@ export function TrashDialog({ open, onClose }: Props) {
     setEmptying(false);
     setEmptyProgress(null);
 
-    if (failedCount > 0) {
-      showToast(`${deletedCount}개 영구삭제 / ${failedCount}개 실패`, {
-        kind: failedCount === targets.length ? "error" : "info",
+    if (failedTotal > 0) {
+      showToast(`${deletedTotal}개 영구삭제 / ${failedTotal}개 실패`, {
+        kind: deletedTotal === 0 ? "error" : "info",
       });
     } else {
-      showToast(`${deletedCount}개 영구삭제됨`, { kind: "success" });
+      showToast(`${deletedTotal}개 영구삭제됨`, { kind: "success" });
     }
 
-    // 삭제 후 남은 휴지통 항목을 재조회 (다음 배치 표시)
+    // 삭제 후 남은(실패) 휴지통 항목을 재조회.
     void loadFirst();
   };
 
@@ -239,7 +250,7 @@ export function TrashDialog({ open, onClose }: Props) {
             >
               <Trash2 size={12} />
               {emptying && emptyProgress
-                ? `${emptyProgress.done}/${emptyProgress.total}개 삭제중`
+                ? `${emptyProgress.done}개 삭제중`
                 : "비우기"}
             </button>
             <button

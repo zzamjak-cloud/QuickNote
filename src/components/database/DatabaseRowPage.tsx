@@ -23,6 +23,9 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const setIcon = usePageStore((s) => s.setIcon);
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
+  // 부트스트랩 하이드레이션 중인지 판별 — 스토어가 아직 비어 있으면 "없음"이 아니라 "로딩 중"이다.
+  const pagesEmpty = usePageStore((s) => Object.keys(s.pages).length === 0);
+  const databasesEmpty = useDatabaseStore((s) => Object.keys(s.databases).length === 0);
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [iconAlert, setIconAlert] = useState<string | null>(null);
@@ -49,9 +52,12 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   }, []);
 
   if (!page || !databaseId || !bundle) {
+    // 새로고침 직후엔 페이지/DB 가 아직 원격에서 도착하지 않았을 수 있다.
+    // 스토어가 비었거나(하이드레이션 전) 페이지는 있는데 DB 번들만 아직이면 "로딩 중"으로 표시.
+    const hydrating = pagesEmpty || databasesEmpty || (!!page && !bundle);
     return (
       <div className="p-8 text-sm text-zinc-500">
-        행 페이지를 찾을 수 없습니다.
+        {hydrating ? "불러오는 중…" : "행 페이지를 찾을 수 없습니다."}
       </div>
     );
   }

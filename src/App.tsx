@@ -11,7 +11,7 @@ import { ToastViewport } from "./components/ui/ToastViewport";
 import { WorkspaceSyncBanner } from "./components/sync/WorkspaceSyncBanner";
 import { AuthGate } from "./components/auth/AuthGate";
 import { useSettingsStore } from "./store/settingsStore";
-import { usePageStore } from "./store/pageStore";
+import { usePageStore, selectFirstSidebarRootId } from "./store/pageStore";
 import { useUiStore } from "./store/uiStore";
 import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
@@ -72,6 +72,8 @@ function App() {
   const activePage = usePageStore((s) =>
     activePageId ? s.pages[activePageId] : undefined,
   );
+  // 사이드바 첫 번째 인덱스(루트) 페이지 — 새로고침 시 기본 선택 대상.
+  const firstSidebarPageId = usePageStore(selectFirstSidebarRootId);
   const [migrating, setMigrating] = useState(
     () => isTauri && hasLocalStorageData(),
   );
@@ -83,6 +85,8 @@ function App() {
   }, [migrating]);
 
   const hydrationDone = useRef(false);
+  /** 새로고침 후 첫 사이드바 페이지 강제 선택을 앱 로드당 1회만 수행 */
+  const didForceInitialSelectRef = useRef(false);
   const databaseRowScrollHostRef = useRef<HTMLDivElement | null>(null);
   /** effect B에서 탭을 active 기준으로 덮어쓸지: activePageId 가 실제로 바뀐 경우만 (탭 클릭 직후 이전 id 로 덮어쓰기 방지) */
   const prevActivePageIdRef = useRef<string | null | undefined>(undefined);
@@ -193,6 +197,24 @@ function App() {
       setActivePage(tabPageId);
     }
   }, [tabPageId, activeTabIndex, setActivePage]);
+
+  // 새로고침 직후: 무조건 사이드바 첫 번째 인덱스(루트) 페이지를 선택한다.
+  // 페이지 하이드레이션 전이면(firstSidebarPageId 미확정) 대기했다가 확정되는 즉시 앱 로드당 1회만 적용 →
+  // "불러오는 중"/빈 탭 노출을 막는다. 단 딥링크로 특정 페이지 진입 시엔 그 페이지를 존중.
+  // tab-sync 뒤에 두어 같은 커밋에서 마지막에 적용되며, prevActivePageIdRef 도 맞춰
+  // 아래 패시브 효과가 이전 값으로 탭을 되돌리지 못하게 한다.
+  useLayoutEffect(() => {
+    if (didForceInitialSelectRef.current) return;
+    if (!firstSidebarPageId) return;
+    didForceInitialSelectRef.current = true;
+    const linkTarget = parseQuickNoteLink(window.location.href);
+    if (linkTarget && usePageStore.getState().pages[linkTarget.pageId]) {
+      return; // 딥링크 진입 — applyLocationLink 가 처리
+    }
+    prevActivePageIdRef.current = firstSidebarPageId;
+    setActivePage(firstSidebarPageId);
+    setCurrentTabPage(firstSidebarPageId);
+  }, [firstSidebarPageId, setActivePage, setCurrentTabPage]);
 
   // 사이드바 등으로 활성 페이지만 바뀐 경우: 현재 탭 내용만 갱신
   useEffect(() => {
