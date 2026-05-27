@@ -62,7 +62,7 @@ import {
   TOGGLE_VARIANT_MENU_ITEMS,
   applyToggleTitleLevel,
   blockAtPoint,
-  flattenWrapperToParagraph,
+  unwrapWrapperBlock,
   isAncestorListHover,
   isListHandleNodeType,
   pointInGripZone,
@@ -949,14 +949,15 @@ export function BlockHandles({
                             onClick={() => {
                               if (!editor) return;
                               if (hover) {
-                                // wrapper(콜아웃·토글·인용) → 새 타입 적용 시 wrapper를 먼저 평탄화하여
-                                // 중첩(예: 콜아웃 안의 헤딩)이 만들어지지 않도록 한다.
-                                const flattened = flattenWrapperToParagraph(
+                                // wrapper(콜아웃·토글·인용) → 새 타입 적용 시 wrapper를 먼저 unwrap 하여
+                                // 내부 블록을 버리지 않고 바깥으로 꺼낸다(이미지·리스트 등 보존).
+                                // 중첩(예: 콜아웃 안의 헤딩)도 방지된다.
+                                const flattened = unwrapWrapperBlock(
                                   editor,
                                   hover.blockStart,
                                 );
                                 if (flattened) {
-                                  // 평탄화된 새 paragraph 안의 텍스트 위치로 selection 이동
+                                  // unwrap 된 첫 블록 안으로 selection 이동
                                   editor
                                     .chain()
                                     .focus()

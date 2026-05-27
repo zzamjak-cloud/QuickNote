@@ -168,22 +168,36 @@ export function applyToggleTitleLevel(
   editor.view.dispatch(tr);
 }
 
-export function flattenWrapperToParagraph(editor: Editor, blockStart: number): boolean {
+/** wrapper(콜아웃·토글·인용) 블록을 타입 변경할 때, 내부 블록을 버리지 않고
+ *  그대로 바깥으로 꺼낸다(unwrap). 내부 블록(이미지·리스트·중첩 블록 등)이 보존된다.
+ *  - callout/blockquote: 내부 블록들을 그대로 끌어올림.
+ *  - toggle: 헤더 인라인을 paragraph 로, toggleContent 의 블록들을 그 뒤로 끌어올림.
+ *  치환 성공 시 true 반환 — 호출자는 첫 블록에 setHeading/setParagraph 등 단일 타입 명령을 적용한다. */
+export function unwrapWrapperBlock(editor: Editor, blockStart: number): boolean {
   const node = editor.state.doc.nodeAt(blockStart);
   if (!node || !shouldFlattenWrapperBeforeTypeChange(node.type.name)) return false;
   const paragraphType = editor.schema.nodes.paragraph;
   if (!paragraphType) return false;
-  let text = "";
-  node.descendants((n) => {
-    if (n.isText) text += n.text;
-    return true;
-  });
-  const paragraph = paragraphType.create(
-    null,
-    text ? editor.schema.text(text) : null,
-  );
+
+  const blocks: PMNode[] = [];
+  if (node.type.name === "toggle") {
+    node.forEach((child) => {
+      if (child.type.name === "toggleHeader") {
+        blocks.push(paragraphType.create(null, child.content));
+      } else if (child.type.name === "toggleContent") {
+        child.forEach((b) => blocks.push(b));
+      } else {
+        blocks.push(child);
+      }
+    });
+  } else {
+    node.forEach((child) => blocks.push(child));
+  }
+
+  // 내용이 비어 있으면 빈 paragraph 하나로 대체(빈 자리 방지).
+  const replacement = blocks.length > 0 ? blocks : [paragraphType.create()];
   editor.view.dispatch(
-    editor.state.tr.replaceWith(blockStart, blockStart + node.nodeSize, paragraph),
+    editor.state.tr.replaceWith(blockStart, blockStart + node.nodeSize, replacement),
   );
   return true;
 }
