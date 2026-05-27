@@ -84,7 +84,7 @@ type DatabaseStoreActions = {
   updateColumn: (
     databaseId: string,
     columnId: string,
-    patch: Partial<Pick<ColumnDef, "name" | "type" | "config" | "width">>,
+    patch: Partial<Pick<ColumnDef, "name" | "type" | "config" | "width" | "icon">>,
   ) => void;
   removeColumn: (databaseId: string, columnId: string) => void;
   moveColumn: (databaseId: string, fromIdx: number, toIdx: number) => void;
