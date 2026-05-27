@@ -11,7 +11,7 @@ import {
   FolderInput,
   History,
   Link2,
-  ListTree,
+  FolderTree,
   Loader2,
   Maximize2,
   Minus,
@@ -457,6 +457,20 @@ export function DatabaseRowPeek() {
             )}
           </div>
           <div className="flex items-center gap-1">
+          {/* 페이지 트리 — 전체 너비 보기 왼쪽에 배치 */}
+          {(peekDescendantCount > 0 || !!page?.parentId) && (
+            <button
+              ref={subpagePopover.buttonRef}
+              type="button"
+              onClick={() => subpagePopover.toggle(280)}
+              disabled={isPendingPageCreation}
+              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
+              title="페이지 트리"
+              aria-label="페이지 트리"
+            >
+              <FolderTree size={14} />
+            </button>
+          )}
           {/* 전체너비 토글 — 피크 페이지만 타깃팅(배경의 활성 페이지를 건드리지 않음) */}
           <button
             type="button"
@@ -472,19 +486,6 @@ export function DatabaseRowPeek() {
           >
             <ArrowLeftRight size={14} strokeWidth={peekFullWidth ? 2.25 : 2} />
           </button>
-          {(peekDescendantCount > 0 || !!page?.parentId) && (
-            <button
-              ref={subpagePopover.buttonRef}
-              type="button"
-              onClick={() => subpagePopover.toggle(280)}
-              disabled={isPendingPageCreation}
-              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
-              title="페이지 트리"
-              aria-label="페이지 트리"
-            >
-              <ListTree size={14} />
-            </button>
-          )}
           <button
             type="button"
             onClick={copyPageLink}
@@ -700,7 +701,7 @@ export function DatabaseRowPeek() {
             style={{ position: "fixed", top: subpagePopover.coords.top, left: subpagePopover.coords.left, width: 280, zIndex: 9999 }}
             className="rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
-            <PageSubpageTree currentPageId={peekPageId} compact onNavigate={(id) => { subpagePopover.close(); peekNavigate(id); }} className="px-2 pb-3 pt-1" hideHeader />
+            <PageSubpageTree currentPageId={peekPageId} compact onNavigate={(id) => peekNavigate(id)} className="px-2 pb-3 pt-1" hideHeader />
           </div>,
           document.body,
         )}

@@ -14,7 +14,7 @@ import {
   CopyPlus,
   FolderInput,
   History,
-  ListTree,
+  FolderTree,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -173,11 +173,11 @@ export function TopBar() {
   const fullWidth = activeId
     ? (pageFullWidthById[activeId] ?? globalFullWidth)
     : globalFullWidth;
-  // 페이지 트리 버튼 표시 조건 — DB 항목(풀페이지 DB) 페이지가 아니고 하위/상위 관계가 있을 때.
+  // 페이지 트리 버튼 표시 조건 — 풀페이지 DB(그리드) 페이지가 아니면 표시(DB 항목 페이지 포함).
   const descendantCount = activeId ? countPageDescendants(activeId, pages) : 0;
   const showSubpageTree = Boolean(
     activeId &&
-      activePage?.databaseId == null &&
+      !isFullPageDatabasePage(activePage) &&
       (descendantCount > 0 || !!activePage?.parentId),
   );
   const parentId = activePage?.parentId ?? null;
@@ -415,7 +415,7 @@ export function TopBar() {
               aria-label="페이지 트리"
               title="페이지 트리"
             >
-              <ListTree size={16} />
+              <FolderTree size={16} />
             </button>
           )}
           <button
