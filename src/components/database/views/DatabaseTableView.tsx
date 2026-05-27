@@ -110,6 +110,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
       </td>
       {visibleCols.map((col, cIdx) => {
         const isFirst = cIdx === 0;
+        const wrapText = col.config?.wrapText === true;
         const isFillRangeCell = Boolean(
           fillDrag &&
           fillDrag.columnId === col.id &&
@@ -141,7 +142,14 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                 ].join(" ")}
               />
             )}
-            <div className="relative min-w-0 max-w-full truncate">
+            <div
+              className={[
+                "relative min-w-0 max-w-full",
+                wrapText
+                  ? "whitespace-normal break-words"
+                  : "max-h-[24px] overflow-hidden whitespace-nowrap",
+              ].join(" ")}
+            >
               {col.type === "title" ? (
                 <div className="flex min-w-0 items-center gap-1">
                   <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
@@ -161,7 +169,10 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                       if (inPeek) peekNavigate(row.pageId);
                       else openPeek(row.pageId);
                     }}
-                    className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                    className={[
+                      "min-w-0 flex-1 rounded px-1 py-0.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800",
+                      wrapText ? "whitespace-normal break-words" : "truncate",
+                    ].join(" ")}
                     title="사이드 피크 열기"
                   >
                     {row.title || "제목 없음"}

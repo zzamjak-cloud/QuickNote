@@ -43,6 +43,8 @@ export type ColumnDef = {
     options?: SelectOption[];
     /** 날짜 범위 UI 표시 */
     dateShowEnd?: boolean;
+    /** 표 셀 텍스트 자동 줄바꿈 여부 (기본: false, 1라인 클리핑) */
+    wrapText?: boolean;
     /** @deprecated 미사용 — 데이터 호환을 위해 필드는 유지 */
     textAlign?: "left" | "center" | "right";
   };
