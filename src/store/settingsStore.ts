@@ -22,6 +22,8 @@ type SettingsState = {
   fullWidth: boolean;
   /** pageId -> fullWidth. 없으면 전역 fullWidth를 fallback으로 사용. */
   pageFullWidthById: Record<string, boolean>;
+  /** 전체 너비 설정 LWW 타임스탬프(epoch ms). 서버 clientPrefs 도 동일 필드명. */
+  fullWidthUpdatedAt: number;
   /** DB 항목 속성 패널 열림 여부(글로벌) — 기본값: true */
   dbPropertyPanelOpen: boolean;
   /** 조직/팀/프로젝트/워크스페이스 아이콘 (엔티티 ID → icon 문자열) */
@@ -90,7 +92,7 @@ type SettingsActions = {
 
 export type SettingsStore = SettingsState & SettingsActions;
 
-export const SETTINGS_STORE_VERSION = 10;
+export const SETTINGS_STORE_VERSION = 11;
 
 export function migrateSettingsStore(
   persisted: unknown,
@@ -185,11 +187,23 @@ export function migrateSettingsStore(
           entityDescriptions: {},
         }),
       },
+      {
+        version: 11,
+        migrate: (state) => ({
+          ...state,
+          fullWidthUpdatedAt:
+            typeof state.fullWidthUpdatedAt === "number" &&
+            Number.isFinite(state.fullWidthUpdatedAt)
+              ? state.fullWidthUpdatedAt
+              : 0,
+        }),
+      },
     ],
     {
       darkMode: false,
       fullWidth: false,
       pageFullWidthById: {},
+      fullWidthUpdatedAt: 0,
       dbPropertyPanelOpen: true,
       entityIcons: {},
       entityDescriptions: {},
@@ -213,6 +227,7 @@ export const useSettingsStore = create<SettingsStore>()(
       darkMode: false,
       fullWidth: false,
       pageFullWidthById: {},
+      fullWidthUpdatedAt: 0,
       dbPropertyPanelOpen: true,
       entityIcons: {},
       entityDescriptions: {},
@@ -368,16 +383,23 @@ export const useSettingsStore = create<SettingsStore>()(
         set((s) => ({
           activeTabIndex: Math.min(s.tabs.length - 1, s.activeTabIndex + 1),
         })),
-      toggleFullWidth: () => set((s) => ({ fullWidth: !s.fullWidth })),
+      toggleFullWidth: () =>
+        set((s) => {
+          queueMicrotask(() => scheduleEnqueueClientPrefs());
+          return { fullWidth: !s.fullWidth, fullWidthUpdatedAt: Date.now() };
+        }),
       toggleFullWidthForPage: (pageId) =>
         set((s) => {
-          if (!pageId) return { fullWidth: !s.fullWidth };
+          const fullWidthUpdatedAt = Date.now();
+          queueMicrotask(() => scheduleEnqueueClientPrefs());
+          if (!pageId) return { fullWidth: !s.fullWidth, fullWidthUpdatedAt };
           const current = s.pageFullWidthById[pageId] ?? s.fullWidth;
           return {
             pageFullWidthById: {
               ...s.pageFullWidthById,
               [pageId]: !current,
             },
+            fullWidthUpdatedAt,
           };
         }),
       setDbPropertyPanelOpen: (open) => set({ dbPropertyPanelOpen: open }),

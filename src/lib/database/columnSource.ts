@@ -186,9 +186,9 @@ export function effectiveOptions(
   scopeCtx?: ScopeOptionsCtx,
 ): SelectOption[] {
   const linked = column.config?.linkedScope;
-  if (linked) return resolveLinkedScopeOptions(linked, scopeCtx);
   const synced = resolveSyncedOptions(column, databases, scopeCtx);
   if (synced) return synced;
+  if (linked) return resolveLinkedScopeOptions(linked, scopeCtx);
   return column.config?.options ?? [];
 }
 

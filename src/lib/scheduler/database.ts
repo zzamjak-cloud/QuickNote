@@ -360,7 +360,12 @@ function mergeSchedulerColumnConfig(
     defaults?.sourceFromDb ||
     defaults?.pageLinkScopeDatabaseId
   ) {
-    return { ...(existing ?? {}), ...defaults };
+    const merged = { ...(existing ?? {}), ...defaults };
+    if (existing?.sourceFromDb) {
+      delete merged.linkedScope;
+      merged.sourceFromDb = existing.sourceFromDb;
+    }
+    return merged;
   }
   return existing ?? defaults;
 }

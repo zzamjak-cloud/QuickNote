@@ -93,6 +93,8 @@ import {
 import { useEditorExtensions } from "./useEditorExtensions";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
+import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
+import type { ViewKind } from "../../types/database";
 
 
 type EditorProps = {
@@ -418,6 +420,18 @@ export function Editor({
     if (!pageDoc) return null;
     return normalizeFullPageDatabaseDoc(stripStaleBlobImages(pageDoc));
   }, [pageDoc]);
+  const fullPageDatabaseAttrs = useMemo(() => {
+    if (!isFullPageDatabase || !safePageDoc) return null;
+    const first = safePageDoc.content?.[0];
+    if (first?.type !== "databaseBlock") return null;
+    const attrs = first.attrs ?? {};
+    const databaseId = typeof attrs.databaseId === "string" ? attrs.databaseId : "";
+    if (!databaseId) return null;
+    const view = typeof attrs.view === "string" ? (attrs.view as ViewKind) : "table";
+    const panelStateRaw =
+      typeof attrs.panelState === "string" ? attrs.panelState : "{}";
+    return { databaseId, view, panelStateRaw };
+  }, [isFullPageDatabase, safePageDoc]);
 
   // 활성 페이지 변경 + 원격 변경 수신 시 본문 동기화.
   // deps 에 page?.updatedAt 을 포함해 다른 클라이언트의 push (subscription → applyRemotePageToStore) 가
@@ -428,6 +442,11 @@ export function Editor({
     if (!editor || !pageDoc || !safePageDoc || !effectivePageId) return;
     if (!tipTapJsonDocEquals(editor.schema, safePageDoc, pageDoc)) {
       updateDoc(effectivePageId, safePageDoc, { skipHistory: true });
+    }
+    if (isFullPageDatabase) {
+      storeDocHydratedRef.current = true;
+      lastSyncedPageIdRef.current = effectivePageId;
+      return;
     }
     // 페이지 자체가 바뀌었으면 blur 대기 없이 즉시 본문을 교체한다.
     // (같은 페이지 안에서 원격 변경 등으로 doc 만 갱신될 때만 cursor 보존을 위한 blur 대기 의미가 있음.)
@@ -475,6 +494,7 @@ export function Editor({
     page?.updatedAt,
     pageDoc,
     safePageDoc,
+    isFullPageDatabase,
     updateDoc,
   ]);
 
@@ -884,7 +904,16 @@ export function Editor({
         )}
         {bodyPrefix}
         <div className="relative">
-          <EditorContent editor={editor} />
+          {fullPageDatabaseAttrs ? (
+            <DatabaseFullPageStandalone
+              pageId={effectivePageId}
+              databaseId={fullPageDatabaseAttrs.databaseId}
+              view={fullPageDatabaseAttrs.view}
+              panelStateRaw={fullPageDatabaseAttrs.panelStateRaw}
+            />
+          ) : (
+            <EditorContent editor={editor} />
+          )}
           {blockDropIndicator ? (
             <div
               className="qn-block-drop-indicator"

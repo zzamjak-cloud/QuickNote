@@ -145,7 +145,7 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
   const src = column.config?.sourceFromDb ?? null;
   const linkedScope = column.config?.linkedScope ?? null;
   const enabled = src != null;
-  const sourceMode = linkedScope ?? (src?.automation ? "_automation" : enabled ? "_db" : "_none");
+  const sourceMode = src?.automation ? "_automation" : enabled ? "_db" : linkedScope ?? "_none";
 
   const targetDb = src?.databaseId ? databases[src.databaseId] : null;
   const targetColumns = (targetDb?.columns ?? []).filter((c) => c.type === column.type);

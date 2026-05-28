@@ -3,17 +3,20 @@ import { enqueueAsync, getSyncEngine } from "./runtime";
 import { realGqlBridge } from "./graphql/bridge";
 import { useMemberStore } from "../../store/memberStore";
 import { useSettingsStore } from "../../store/settingsStore";
-import type { FavoritePageMeta } from "../../store/settingsStore";
+import type { FavoritePageMeta, SettingsStore } from "../../store/settingsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 
 /** clientPrefs 페이로드 버전(AppSync 저장 JSON). */
-export const CLIENT_PREFS_SCHEMA_V = 1 as const;
+export const CLIENT_PREFS_SCHEMA_V = 2 as const;
 
 export type ClientPrefsV1 = {
-  v: typeof CLIENT_PREFS_SCHEMA_V | 2;
+  v: 1 | typeof CLIENT_PREFS_SCHEMA_V;
   favoritePageIds: string[];
   favoritePageIdsUpdatedAt: number;
   favoritePageMetaById?: Record<string, FavoritePageMeta>;
+  fullWidth?: boolean;
+  pageFullWidthById?: Record<string, boolean>;
+  fullWidthUpdatedAt?: number;
 };
 
 function sanitizeFavoritePageMetaById(
@@ -42,6 +45,17 @@ function sanitizeFavoritePageMetaById(
   return result;
 }
 
+function sanitizeBooleanRecord(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const result: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof key === "string" && typeof value === "boolean") {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 /** GraphQL/AWSJSON 또는 로컬에서 온 문자열→객체 디코드. */
 export function decodeClientPrefsField(raw: unknown): ClientPrefsV1 | null {
   if (raw == null || raw === "") return null;
@@ -65,15 +79,19 @@ export function decodeClientPrefsField(raw: unknown): ClientPrefsV1 | null {
     if (!Array.isArray(o.favoritePageIds)) return null;
     const ts = Number(o.favoritePageIdsUpdatedAt);
     if (!Number.isFinite(ts)) return null;
+    const fullWidthUpdatedAt = Number(o.fullWidthUpdatedAt);
     const favoritePageIds = o.favoritePageIds.map(String);
     return {
-      v: version === 2 ? 2 : CLIENT_PREFS_SCHEMA_V,
+      v: version === 2 ? 2 : 1,
       favoritePageIds,
       favoritePageIdsUpdatedAt: ts,
       favoritePageMetaById: sanitizeFavoritePageMetaById(
         o.favoritePageMetaById,
         favoritePageIds,
       ),
+      fullWidth: typeof o.fullWidth === "boolean" ? o.fullWidth : undefined,
+      pageFullWidthById: sanitizeBooleanRecord(o.pageFullWidthById),
+      fullWidthUpdatedAt: Number.isFinite(fullWidthUpdatedAt) ? fullWidthUpdatedAt : 0,
     };
   } catch {
     return null;
@@ -104,6 +122,7 @@ export function applyRemoteClientPrefs(raw: unknown): void {
   }
 
   useSettingsStore.setState((s) => {
+    const next: Partial<SettingsStore> = {};
     const remoteNewer = parsed.favoritePageIdsUpdatedAt > s.favoritePageIdsUpdatedAt;
     const sameTs =
       parsed.favoritePageIdsUpdatedAt === s.favoritePageIdsUpdatedAt;
@@ -113,6 +132,14 @@ export function applyRemoteClientPrefs(raw: unknown): void {
     );
 
     const remoteMeta = parsed.favoritePageMetaById ?? {};
+    const remoteFullWidthNewer =
+      (parsed.fullWidthUpdatedAt ?? 0) > s.fullWidthUpdatedAt;
+
+    if (remoteFullWidthNewer) {
+      if (typeof parsed.fullWidth === "boolean") next.fullWidth = parsed.fullWidth;
+      next.pageFullWidthById = { ...(parsed.pageFullWidthById ?? {}) };
+      next.fullWidthUpdatedAt = parsed.fullWidthUpdatedAt ?? 0;
+    }
 
     if (!remoteNewer) {
       if (sameTs && listsMatch) {
@@ -124,7 +151,8 @@ export function applyRemoteClientPrefs(raw: unknown): void {
           favoritePageMetaById[pageId] = meta;
           changed = true;
         }
-        return changed ? { favoritePageMetaById } : s;
+        if (changed) next.favoritePageMetaById = favoritePageMetaById;
+        return Object.keys(next).length > 0 ? next : s;
       }
       if (sameTs && !listsMatch) {
         const favoritePageMetaById = { ...s.favoritePageMetaById };
@@ -134,13 +162,12 @@ export function applyRemoteClientPrefs(raw: unknown): void {
         for (const pageId of parsed.favoritePageIds) {
           if (remoteMeta[pageId]) favoritePageMetaById[pageId] = remoteMeta[pageId];
         }
-        return {
-          favoritePageIds: [...parsed.favoritePageIds],
-          favoritePageMetaById,
-          favoritePageIdsUpdatedAt: parsed.favoritePageIdsUpdatedAt,
-        };
+        next.favoritePageIds = [...parsed.favoritePageIds];
+        next.favoritePageMetaById = favoritePageMetaById;
+        next.favoritePageIdsUpdatedAt = parsed.favoritePageIdsUpdatedAt;
+        return next;
       }
-      return s;
+      return Object.keys(next).length > 0 ? next : s;
     }
 
     const favoritePageMetaById = { ...s.favoritePageMetaById };
@@ -150,11 +177,10 @@ export function applyRemoteClientPrefs(raw: unknown): void {
     for (const pageId of parsed.favoritePageIds) {
       if (remoteMeta[pageId]) favoritePageMetaById[pageId] = remoteMeta[pageId];
     }
-    return {
-      favoritePageIds: [...parsed.favoritePageIds],
-      favoritePageMetaById,
-      favoritePageIdsUpdatedAt: parsed.favoritePageIdsUpdatedAt,
-    };
+    next.favoritePageIds = [...parsed.favoritePageIds];
+    next.favoritePageMetaById = favoritePageMetaById;
+    next.favoritePageIdsUpdatedAt = parsed.favoritePageIdsUpdatedAt;
+    return next;
   });
 }
 
@@ -165,8 +191,14 @@ async function pushClientPrefsToServer(): Promise<void> {
   const memberId = useMemberStore.getState().me?.memberId;
   if (!memberId) return;
 
-  const { favoritePageIds, favoritePageMetaById, favoritePageIdsUpdatedAt } =
-    useSettingsStore.getState();
+  const {
+    favoritePageIds,
+    favoritePageMetaById,
+    favoritePageIdsUpdatedAt,
+    fullWidth,
+    pageFullWidthById,
+    fullWidthUpdatedAt,
+  } = useSettingsStore.getState();
   const payload: ClientPrefsV1 = {
     v: CLIENT_PREFS_SCHEMA_V,
     favoritePageIds: [...favoritePageIds],
@@ -179,6 +211,9 @@ async function pushClientPrefsToServer(): Promise<void> {
       {},
     ),
     favoritePageIdsUpdatedAt,
+    fullWidth,
+    pageFullWidthById: { ...pageFullWidthById },
+    fullWidthUpdatedAt,
   };
   const json = JSON.stringify(payload);
 

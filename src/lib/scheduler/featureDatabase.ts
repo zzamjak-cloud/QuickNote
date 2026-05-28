@@ -183,6 +183,10 @@ function mergeFeatureColumnConfig(
   if (colConfig?.linkedScope !== undefined) {
     merged.linkedScope = colConfig.linkedScope;
   }
+  if (prevConfig?.sourceFromDb) {
+    delete merged.linkedScope;
+    merged.sourceFromDb = prevConfig.sourceFromDb;
+  }
   return Object.keys(merged).length ? merged : undefined;
 }
 

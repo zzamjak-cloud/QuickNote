@@ -142,10 +142,14 @@ function mergeMilestoneColumns(existing: ColumnDef[] | undefined): ColumnDef[] {
       ...col,
       ...prev,
       type: col.type,
-      config: {
+      config: (() => {
+        const merged = {
         ...(col.config ?? {}),
         ...(prev.config ?? {}),
-      },
+        };
+        if (prev.config?.sourceFromDb) delete merged.linkedScope;
+        return merged;
+      })(),
     };
   });
   const requiredIds = new Set(required.map((c) => c.id));
