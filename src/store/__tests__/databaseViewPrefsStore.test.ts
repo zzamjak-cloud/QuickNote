@@ -5,7 +5,7 @@ import { useWorkspaceStore } from "../workspaceStore";
 describe("databaseViewPrefsStore", () => {
   beforeEach(() => {
     useWorkspaceStore.setState({ currentWorkspaceId: null, workspaces: [] });
-    useDatabaseViewPrefsStore.setState({ panelStateByKey: {} });
+    useDatabaseViewPrefsStore.setState({ panelStateByKey: {}, viewByKey: {} });
   });
 
   it("keeps DB filter/sort/property visibility prefs local per workspace and database", () => {
@@ -46,5 +46,16 @@ describe("databaseViewPrefsStore", () => {
     expect(
       useDatabaseViewPrefsStore.getState().getPanelState("db-1", legacy).searchQuery,
     ).toBe("local");
+  });
+
+  it("stores direct DB view mode per workspace and database", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+
+    useDatabaseViewPrefsStore.getState().setView("db-1", "kanban");
+
+    expect(useDatabaseViewPrefsStore.getState().getView("db-1")).toBe("kanban");
+
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-b" });
+    expect(useDatabaseViewPrefsStore.getState().getView("db-1")).toBe("table");
   });
 });

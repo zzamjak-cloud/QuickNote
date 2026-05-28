@@ -446,7 +446,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     // inline: 60vh 내에서만 스크롤.
     <div
       ref={virtualRows.containerRef}
-      className={`group relative overflow-x-auto ${layout === "fullPage" ? "" : "max-h-[60vh] overflow-y-auto"}`}
+      className={`qn-database-subtle-scrollbar group relative overflow-x-auto ${layout === "fullPage" ? "" : "max-h-[60vh] overflow-y-auto"}`}
     >
       {/* table-layout:fixed + w-full 조합은 한 컬럼 리사이즈 시 다른 컬럼 폭을 100%
           맞추려고 자동 재배분한다 → 사용자가 의도한 폭으로 조절 불가.

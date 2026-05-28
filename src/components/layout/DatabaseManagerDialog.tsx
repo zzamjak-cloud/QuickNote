@@ -4,7 +4,6 @@ import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
-import { emptyPanelState } from "../../types/database";
 import { isLCSchedulerDatabaseId, isProtectedDatabaseId, ensureLCSchedulerDatabase } from "../../lib/scheduler/database";
 import { ensureLCMilestoneDatabase } from "../../lib/scheduler/milestoneDatabase";
 import { ensureLCFeatureDatabase } from "../../lib/scheduler/featureDatabase";
@@ -30,10 +29,8 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   const findFullPagePageIdForDatabase = usePageStore(
     (s) => s.findFullPagePageIdForDatabase,
   );
-  const createPage = usePageStore((s) => s.createPage);
-  const updateDoc = usePageStore((s) => s.updateDoc);
   const setActivePage = usePageStore((s) => s.setActivePage);
-  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const showToast = useUiStore((s) => s.showToast);
   const deletedDbRestorePoints = useHistoryStore((s) =>
@@ -210,29 +207,9 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     }
   };
 
-  const openDatabase = (databaseId: string, title: string) => {
-    const pageId =
-      findFullPagePageIdForDatabase(databaseId) ??
-      (() => {
-        const id = createPage(title, null, { activate: false });
-        updateDoc(id, {
-          type: "doc",
-          content: [
-            {
-              type: "databaseBlock",
-              attrs: {
-                databaseId,
-                layout: "fullPage",
-                view: "table",
-                panelState: JSON.stringify(emptyPanelState()),
-              },
-            },
-          ],
-        });
-        return id;
-      })();
-    setActivePage(pageId);
-    setCurrentTabPage(pageId);
+  const openDatabase = (databaseId: string) => {
+    setActivePage(null);
+    setCurrentTabDatabase(databaseId);
     onClose();
   };
 
@@ -329,7 +306,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                 </span>
                 <button
                   type="button"
-                  onClick={() => openDatabase(d.id, d.meta.title)}
+                  onClick={() => openDatabase(d.id)}
                   className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-base text-white hover:bg-blue-700"
                 >
                   열기

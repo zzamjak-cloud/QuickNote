@@ -25,7 +25,6 @@ import { countPageDescendants } from "../page/pageSubpageTreeUtils";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { pageDocToHtml } from "../../lib/export/pageToHtml";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
-import { emptyPanelState } from "../../types/database";
 import type { Page } from "../../types/page";
 
 /** 페이지 메뉴 드롭다운 왼쪽 아이콘 공통 스타일 */
@@ -75,9 +74,8 @@ export function TopBar() {
   const duplicatePage = usePageStore((s) => s.duplicatePage);
   const deletePage = usePageStore((s) => s.deletePage);
   const databases = useDatabaseStore((s) => s.databases);
-  const createPage = usePageStore((s) => s.createPage);
-  const updateDoc = usePageStore((s) => s.updateDoc);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
   const showToast = useUiStore((s) => s.showToast);
   const previousNavigationPageId = useNavigationHistoryStore((s) => s.peekBack());
   const popNavigationBack = useNavigationHistoryStore((s) => s.popBack);
@@ -308,32 +306,9 @@ export function TopBar() {
   };
 
   // 데이터베이스 관리 팝업과 동일한 로직 — 스토어 함수로 기존 페이지 조회 (중복 생성 방지)
-  const openDatabase = (databaseId: string, title: string) => {
-    const existingId = usePageStore
-      .getState()
-      .findFullPagePageIdForDatabase(databaseId);
-    const pageId =
-      existingId ??
-      (() => {
-        const id = createPage(title, null, { activate: false });
-        updateDoc(id, {
-          type: "doc",
-          content: [
-            {
-              type: "databaseBlock",
-              attrs: {
-                databaseId,
-                layout: "fullPage",
-                view: "table",
-                panelState: JSON.stringify(emptyPanelState()),
-              },
-            },
-          ],
-        });
-        return id;
-      })();
-    setActive(pageId);
-    setCurrentTabPage(pageId);
+  const openDatabase = (databaseId: string) => {
+    setActive(null);
+    setCurrentTabDatabase(databaseId);
   };
 
   return (
@@ -409,7 +384,7 @@ export function TopBar() {
                 type="button"
                 onClick={() => {
                   if (node.dbId) {
-                    openDatabase(node.dbId, node.title);
+                    openDatabase(node.dbId);
                   } else {
                     setActive(node.id);
                     setCurrentTabPage(node.id);

@@ -146,7 +146,7 @@ export function DatabaseKanbanView({
           상태 또는 선택 타입 속성을 추가한 뒤 그룹 컬럼을 지정하세요.
         </p>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-2">
+        <div className="qn-database-subtle-scrollbar flex gap-3 overflow-x-auto pb-2">
           {[
             ...options.map((o) => ({
               id: o.id,

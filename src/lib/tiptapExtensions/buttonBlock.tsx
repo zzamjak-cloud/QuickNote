@@ -58,6 +58,7 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const labelRef = useRef<HTMLInputElement>(null);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
 
   useEffect(() => {
     if (!isDbButton || dbTitle == null) return;
@@ -83,6 +84,15 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   }, [editing, attrs.label, attrs.href, attrs.color]);
 
   const handleClick = () => {
+    if (attrs.databaseId) {
+      const currentPageId = usePageStore.getState().activePageId;
+      if (currentPageId) {
+        useNavigationHistoryStore.getState().pushBack(currentPageId);
+      }
+      setActivePage(null);
+      setCurrentTabDatabase(attrs.databaseId);
+      return;
+    }
     if (!attrs.href) return;
     const internal = parseQuickNoteLink(attrs.href);
     if (internal) {

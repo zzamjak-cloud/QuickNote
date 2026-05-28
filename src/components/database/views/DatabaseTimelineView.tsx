@@ -967,6 +967,7 @@ export function DatabaseTimelineView({
           onMouseDown={beginBoxSelection}
           onScroll={handleTimelineScroll}
           className={[
+            "qn-database-subtle-scrollbar",
             "rounded border border-zinc-200 dark:border-zinc-700",
             usesScrollableAxis ? "overflow-x-auto" : "overflow-hidden",
           ].join(" ")}

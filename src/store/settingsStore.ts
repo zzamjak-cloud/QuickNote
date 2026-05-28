@@ -8,7 +8,7 @@ import { useWorkspaceStore } from "./workspaceStore";
 import type { PersistedObject } from "../lib/migrations/persistedStore";
 import { migratePersistedStore } from "../lib/migrations/persistedStore";
 
-export type Tab = { pageId: string | null; back?: string[] };
+export type Tab = { pageId: string | null; databaseId?: string | null; back?: string[] };
 export type FavoritePageMeta = {
   pageId: string;
   workspaceId: string | null;
@@ -68,6 +68,7 @@ type SettingsActions = {
   setExpanded: (id: string, expanded: boolean) => void;
   // 현재 탭의 pageId만 갱신
   setCurrentTabPage: (pageId: string | null) => void;
+  setCurrentTabDatabase: (databaseId: string | null) => void;
   /** 탭 pageId만 교체 — 방문 이력(back)은 초기화(헤더 부모 이동 등) */
   replaceCurrentTabPage: (pageId: string | null) => void;
   // 새 탭 열기
@@ -339,12 +340,24 @@ export const useSettingsStore = create<SettingsStore>()(
         set((s) => {
           const curTab = s.tabs[s.activeTabIndex];
           const cur = curTab?.pageId ?? null;
-          if (cur === pageId) return s;
+          if (cur === pageId && (curTab?.databaseId ?? null) === null) return s;
           const back = cur !== null
             ? [...(curTab?.back ?? []), cur].slice(-50)
             : (curTab?.back ?? []);
           const tabs = [...s.tabs];
-          tabs[s.activeTabIndex] = { pageId, back };
+          tabs[s.activeTabIndex] = { pageId, databaseId: null, back };
+          return { tabs };
+        }),
+      setCurrentTabDatabase: (databaseId) =>
+        set((s) => {
+          const curTab = s.tabs[s.activeTabIndex];
+          const cur = curTab?.databaseId ?? null;
+          if (cur === databaseId && (curTab?.pageId ?? null) === null) return s;
+          const back = curTab?.pageId != null
+            ? [...(curTab?.back ?? []), curTab.pageId].slice(-50)
+            : (curTab?.back ?? []);
+          const tabs = [...s.tabs];
+          tabs[s.activeTabIndex] = { pageId: null, databaseId, back };
           return { tabs };
         }),
       replaceCurrentTabPage: (pageId) =>
@@ -352,13 +365,13 @@ export const useSettingsStore = create<SettingsStore>()(
           const tabs = [...s.tabs];
           const i = s.activeTabIndex;
           const prev = tabs[i];
-          if ((prev?.pageId ?? null) === pageId) return s;
-          tabs[i] = { pageId, back: [] };
+          if ((prev?.pageId ?? null) === pageId && (prev?.databaseId ?? null) === null) return s;
+          tabs[i] = { pageId, databaseId: null, back: [] };
           return { tabs };
         }),
       openTab: (pageId) =>
         set((s) => ({
-          tabs: [...s.tabs, { pageId }],
+          tabs: [...s.tabs, { pageId, databaseId: null }],
           activeTabIndex: s.tabs.length,
         })),
       closeTab: (index) =>

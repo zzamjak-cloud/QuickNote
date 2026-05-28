@@ -871,6 +871,44 @@ body.qn-box-select-dragging [data-qn-table-grip-row] {
   margin: 1.5rem 0;
 }
 
+/* 데이터베이스 가로 스크롤바 — 기능은 유지하되 시각 노출을 최소화한다. */
+.qn-database-subtle-scrollbar {
+  scrollbar-color: rgba(161, 161, 170, 0.16) transparent;
+  scrollbar-width: thin;
+}
+
+.qn-database-subtle-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.qn-database-subtle-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.qn-database-subtle-scrollbar::-webkit-scrollbar-thumb {
+  background-clip: content-box;
+  background-color: rgba(161, 161, 170, 0.14);
+  border: 3px solid transparent;
+  border-radius: 9999px;
+}
+
+.qn-database-subtle-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(161, 161, 170, 0.22);
+}
+
+html.dark .qn-database-subtle-scrollbar {
+  scrollbar-color: rgba(113, 113, 122, 0.16) transparent;
+}
+
+html.dark .qn-database-subtle-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(113, 113, 122, 0.14);
+}
+
+html.dark .qn-database-subtle-scrollbar:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(113, 113, 122, 0.22);
+}
+
 .dark .ProseMirror [data-column-layout] {
   border-color: rgb(39 39 42);
   background: rgba(39, 39, 42, 0.15);

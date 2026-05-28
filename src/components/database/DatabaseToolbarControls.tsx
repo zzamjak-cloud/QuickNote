@@ -1,5 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  rectSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import {
   ChevronDown,
   X,
@@ -44,6 +59,125 @@ type Props = {
   layout?: "inline" | "fullPage";
 };
 
+type SortablePresetTabProps = {
+  preset: FilterPreset;
+  isActive: boolean;
+  isEditing: boolean;
+  presetNameDraft: string;
+  presetInputRef: RefObject<HTMLInputElement | null>;
+  onActivate: () => void;
+  onStartEdit: () => void;
+  onDelete: () => void;
+  onDraftChange: (value: string) => void;
+  onCommit: (iconPatch?: { icon: string | null }) => void;
+  onCommitAfterBlur: () => void;
+  onCancelEdit: () => void;
+  onIconOpenChange: (open: boolean) => void;
+};
+
+function SortablePresetTab({
+  preset,
+  isActive,
+  isEditing,
+  presetNameDraft,
+  presetInputRef,
+  onActivate,
+  onStartEdit,
+  onDelete,
+  onDraftChange,
+  onCommit,
+  onCommitAfterBlur,
+  onCancelEdit,
+  onIconOpenChange,
+}: SortablePresetTabProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: preset.id, disabled: isEditing });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.55 : 1,
+    zIndex: isDragging ? 20 : undefined,
+  };
+  const dragButtonProps = isEditing ? {} : { ...attributes, ...listeners };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={[
+        "group relative flex max-w-[120px] items-center gap-0 rounded-md border text-xs transition-colors",
+        isDragging ? "shadow-md" : "",
+        isActive
+          ? "border-emerald-300 bg-emerald-100 text-emerald-950 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-100"
+          : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400",
+      ].join(" ")}
+    >
+      {isEditing ? (
+        <>
+          <span
+            className="shrink-0 pl-1"
+            onMouseDown={(event) => {
+              if (event.currentTarget.contains(event.target as Node)) {
+                event.preventDefault();
+              }
+            }}
+          >
+            <IconPicker
+              current={preset.icon ?? null}
+              defaultIcon={null}
+              size="sm"
+              onOpenChange={onIconOpenChange}
+              onChange={(icon) => onCommit({ icon })}
+            />
+          </span>
+          <input
+            ref={presetInputRef}
+            autoFocus
+            value={presetNameDraft}
+            onChange={(e) => onDraftChange(e.target.value)}
+            onBlur={onCommitAfterBlur}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") onCommit();
+              if (e.key === "Escape") onCancelEdit();
+            }}
+            className="w-16 bg-transparent py-1 text-xs outline-none"
+          />
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={onActivate}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            onStartEdit();
+          }}
+          className="flex min-w-0 cursor-grab items-center gap-0.5 overflow-hidden py-1 pl-1 pr-2 text-left active:cursor-grabbing"
+          {...dragButtonProps}
+        >
+          <PageIconDisplay
+            icon={preset.icon ?? null}
+            size="sm"
+            className="shrink-0"
+          />
+          <span className="block max-w-[82px] truncate">{preset.name}</span>
+        </button>
+      )}
+
+      {/* 탭 삭제 — hover 시 표시 */}
+      <button
+        type="button"
+        onClick={onDelete}
+        className="absolute -right-1.5 -top-1.5 rounded-full bg-white/95 p-0.5 opacity-0 shadow-sm ring-1 ring-zinc-200 hover:bg-zinc-200 group-hover:opacity-100 dark:bg-zinc-900/95 dark:ring-zinc-700 dark:hover:bg-zinc-700"
+        title="탭 삭제"
+      >
+        <X size={9} />
+      </button>
+    </div>
+  );
+}
+
 export function DatabaseToolbarControls({
   databaseId,
   viewKind,
@@ -71,6 +205,10 @@ export function DatabaseToolbarControls({
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [presetNameDraft, setPresetNameDraft] = useState("");
   const presetInputRef = useRef<HTMLInputElement>(null);
+  const presetIconPickerOpenRef = useRef<string | null>(null);
+  const presetDragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
 
   // 검색창 — 한글 IME 입력 깨짐 방지: composition 동안 panelState commit 보류.
   const [searchDraft, setSearchDraft] = useState(panelState.searchQuery);
@@ -345,22 +483,42 @@ export function DatabaseToolbarControls({
     setPanelState({ filterPresets: presets, activePresetId: nextActiveId });
   };
 
-  const commitPresetRename = (id: string) => {
+  const handlePresetDragEnd = useCallback((event: DragEndEvent) => {
+    const activeId = String(event.active.id);
+    const overId = event.over?.id ? String(event.over.id) : null;
+    if (!overId || activeId === overId) return;
+
+    const presets = panelState.filterPresets ?? [];
+    const oldIndex = presets.findIndex((preset) => preset.id === activeId);
+    const newIndex = presets.findIndex((preset) => preset.id === overId);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    setPanelState({ filterPresets: arrayMove(presets, oldIndex, newIndex) });
+  }, [panelState.filterPresets, setPanelState]);
+
+  const commitPresetRename = (id: string, iconPatch?: { icon: string | null }) => {
     const name = presetNameDraft.trim();
-    if (name) {
+    if (name || iconPatch) {
       const presets = (panelState.filterPresets ?? []).map((p) =>
-        p.id === id ? { ...p, name } : p,
+        p.id === id
+          ? {
+              ...p,
+              ...(name ? { name } : {}),
+              ...(iconPatch ? { icon: iconPatch.icon ?? undefined } : {}),
+            }
+          : p,
       );
       setPanelState({ filterPresets: presets });
     }
+    presetIconPickerOpenRef.current = null;
     setEditingPresetId(null);
   };
 
-  const setPresetIcon = (id: string, icon: string | null) => {
-    const presets = (panelState.filterPresets ?? []).map((p) =>
-      p.id === id ? { ...p, icon: icon ?? undefined } : p,
-    );
-    setPanelState({ filterPresets: presets });
+  const commitPresetRenameAfterBlur = (id: string) => {
+    window.setTimeout(() => {
+      if (presetIconPickerOpenRef.current === id) return;
+      commitPresetRename(id);
+    }, 0);
   };
 
   const filterPresets = panelState.filterPresets ?? [];
@@ -425,81 +583,54 @@ export function DatabaseToolbarControls({
 
         {/* 필터 프리셋 탭 */}
         {filterPresets.length > 0 && (
-          <div className="flex min-w-0 flex-wrap items-center gap-1">
-            {filterPresets.map((preset) => {
-              const isActive = panelState.activePresetId === preset.id;
-              const isEditing = editingPresetId === preset.id;
-              return (
-                <div
-                  key={preset.id}
-                  className={[
-                    "group relative flex max-w-[120px] items-center gap-0 rounded-md border text-xs transition-colors",
-                    isActive
-                      ? "border-emerald-300 bg-emerald-100 text-emerald-950 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-100"
-                      : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400",
-                  ].join(" ")}
-                >
-                  {isEditing ? (
-                    <>
-                      <span className="shrink-0 pl-1">
-                        <IconPicker
-                          current={preset.icon ?? null}
-                          defaultIcon={null}
-                          size="sm"
-                          onChange={(icon) => setPresetIcon(preset.id, icon)}
-                        />
-                      </span>
-                      <input
-                        ref={presetInputRef}
-                        autoFocus
-                        value={presetNameDraft}
-                        onChange={(e) => setPresetNameDraft(e.target.value)}
-                        onBlur={() => commitPresetRename(preset.id)}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                          if (e.key === "Enter") commitPresetRename(preset.id);
-                          if (e.key === "Escape") setEditingPresetId(null);
-                        }}
-                        className="w-16 bg-transparent py-1 text-xs outline-none"
-                      />
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() =>
+          <DndContext
+            sensors={presetDragSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handlePresetDragEnd}
+          >
+            <SortableContext
+              items={filterPresets.map((preset) => preset.id)}
+              strategy={rectSortingStrategy}
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-1">
+                {filterPresets.map((preset) => {
+                  const isActive = panelState.activePresetId === preset.id;
+                  const isEditing = editingPresetId === preset.id;
+                  return (
+                    <SortablePresetTab
+                      key={preset.id}
+                      preset={preset}
+                      isActive={isActive}
+                      isEditing={isEditing}
+                      presetNameDraft={presetNameDraft}
+                      presetInputRef={presetInputRef}
+                      onActivate={() =>
                         setPanelState({
                           activePresetId: isActive ? null : preset.id,
                         })
                       }
-                      onDoubleClick={(e) => {
-                        e.preventDefault();
+                      onStartEdit={() => {
+                        presetIconPickerOpenRef.current = null;
                         setPresetNameDraft(preset.name);
                         setEditingPresetId(preset.id);
                       }}
-                      className="flex min-w-0 items-center gap-0.5 overflow-hidden py-1 pl-1 pr-2 text-left"
-                    >
-                      <PageIconDisplay
-                        icon={preset.icon ?? null}
-                        size="sm"
-                        className="shrink-0"
-                      />
-                      <span className="block max-w-[82px] truncate">{preset.name}</span>
-                    </button>
-                  )}
-
-                  {/* 탭 삭제 — hover 시 표시 */}
-                  <button
-                    type="button"
-                    onClick={() => deletePreset(preset.id)}
-                    className="absolute -right-1.5 -top-1.5 rounded-full bg-white/95 p-0.5 opacity-0 shadow-sm ring-1 ring-zinc-200 hover:bg-zinc-200 group-hover:opacity-100 dark:bg-zinc-900/95 dark:ring-zinc-700 dark:hover:bg-zinc-700"
-                    title="탭 삭제"
-                  >
-                    <X size={9} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                      onDelete={() => deletePreset(preset.id)}
+                      onDraftChange={setPresetNameDraft}
+                      onCommit={(iconPatch) => commitPresetRename(preset.id, iconPatch)}
+                      onCommitAfterBlur={() => commitPresetRenameAfterBlur(preset.id)}
+                      onCancelEdit={() => {
+                        presetIconPickerOpenRef.current = null;
+                        setEditingPresetId(null);
+                      }}
+                      onIconOpenChange={(open) => {
+                        presetIconPickerOpenRef.current = open ? preset.id : null;
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
 
         {/* 새 프리셋 탭 추가 */}

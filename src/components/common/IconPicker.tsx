@@ -339,6 +339,8 @@ type Props = {
   onUploadMessage?: (message: string) => void;
   /** current가 null일 때 표시할 기본 아이콘. 미지정 시 + 아이콘 */
   defaultIcon?: React.ReactNode;
+  /** 외부 인라인 편집 UI가 picker 열림 상태에 따라 blur 처리를 조정할 때 사용. */
+  onOpenChange?: (open: boolean) => void;
 };
 
 
@@ -576,6 +578,7 @@ export function IconPicker({
   size = "lg",
   onUploadMessage,
   defaultIcon,
+  onOpenChange,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [popoverCoords, setPopoverCoords] = useState<{ top: number; left: number } | null>(null);
@@ -601,6 +604,11 @@ export function IconPicker({
     }));
   }, [customIconsByWs, workspaceId]);
 
+  const setPickerOpen = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+    onOpenChange?.(nextOpen);
+  }, [onOpenChange]);
+
   useEffect(() => {
     if (!workspaceId) return;
     void fetchCustomIcons(workspaceId);
@@ -612,11 +620,13 @@ export function IconPicker({
       // 업로드 진행 중에는 외부 클릭으로 닫히지 않게 막아 진행 표시를 유지.
       if (uploadStatus) return;
       const target = e.target as Node;
-      if (!ref.current?.contains(target) && !panelRef.current?.contains(target)) setOpen(false);
+      if (!ref.current?.contains(target) && !panelRef.current?.contains(target)) {
+        setPickerOpen(false);
+      }
     };
     window.addEventListener("mousedown", onClick);
     return () => window.removeEventListener("mousedown", onClick);
-  }, [open, uploadStatus]);
+  }, [open, setPickerOpen, uploadStatus]);
 
   const computePopoverCoords = useCallback((width: number, height: number) => {
     const rect = ref.current?.getBoundingClientRect();
@@ -642,10 +652,10 @@ export function IconPicker({
   }, []);
 
   const openPicker = () => {
-    if (open) { setOpen(false); return; }
+    if (open) { setPickerOpen(false); return; }
     const coords = computePopoverCoords(ICON_PICKER_PANEL_WIDTH, ICON_PICKER_PANEL_ESTIMATED_HEIGHT);
     if (coords) setPopoverCoords(coords);
-    setOpen(true);
+    setPickerOpen(true);
   };
 
   useLayoutEffect(() => {
@@ -732,7 +742,7 @@ export function IconPicker({
     const previousIcon = current ?? null;
     const previewUrl = URL.createObjectURL(file);
     onChange(previewUrl);
-    setOpen(false);
+    setPickerOpen(false);
     setUploadStatus(null);
     if (fileRef.current) fileRef.current.value = "";
 
@@ -805,17 +815,17 @@ export function IconPicker({
             onPickLucide={(name, nextColor) => {
               iconUploadSeqRef.current += 1;
               onChange(encodeLucidePageIcon(name, nextColor));
-              setOpen(false);
+              setPickerOpen(false);
             }}
             onPickEmoji={(emoji) => {
               iconUploadSeqRef.current += 1;
               onChange(emoji);
-              setOpen(false);
+              setPickerOpen(false);
             }}
             onPickCustom={(icon) => {
               iconUploadSeqRef.current += 1;
               onChange(icon);
-              setOpen(false);
+              setPickerOpen(false);
             }}
             onRequestCustomUpload={() => fileRef.current?.click()}
             customIcons={customIcons}
@@ -846,7 +856,7 @@ export function IconPicker({
                     onClick={() => {
                       iconUploadSeqRef.current += 1;
                       onChange(null);
-                      setOpen(false);
+                      setPickerOpen(false);
                     }}
                     className="group flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
                   >

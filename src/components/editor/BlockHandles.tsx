@@ -1302,13 +1302,10 @@ export function BlockHandles({
                       if (!editor || !hover) return;
                       const databaseId = hover.node.attrs.databaseId as string;
                       if (!databaseId) return;
-                      const homePageId = usePageStore.getState().findFullPagePageIdForDatabase(databaseId);
-                      if (!homePageId) return;
                       const dbTitle = useDatabaseStore.getState().databases[databaseId]?.meta.title ?? "데이터베이스";
-                      const href = buildQuickNotePageUrl({ pageId: homePageId });
                       const btnNode = editor.state.schema.nodes.buttonBlock?.create({
                         label: `${dbTitle} DB`,
-                        href,
+                        href: "",
                         databaseId,
                       });
                       if (!btnNode) return;

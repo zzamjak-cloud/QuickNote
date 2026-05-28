@@ -46,6 +46,10 @@ const COLUMN_TYPES = new Set<ColumnType>([
   "url",
   "phone",
   "email",
+  "dbLink",
+  "pageLink",
+  "progress",
+  "itemFetch",
 ]);
 
 function coerceColumn(value: unknown): ColumnDef | null {

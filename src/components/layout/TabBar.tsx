@@ -1,6 +1,7 @@
-import { ChevronLeft, ChevronRight, ListTree, Plus, Star, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, ListTree, Plus, Star, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
@@ -61,6 +62,7 @@ export function TabBar() {
   const prevTab = useSettingsStore((s) => s.prevTab);
   const nextTab = useSettingsStore((s) => s.nextTab);
   const pages = usePageStore((s) => s.pages);
+  const databases = useDatabaseStore((s) => s.databases);
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
   const rightPanelTab = useUiStore((s) => s.rightPanelTab);
@@ -129,6 +131,7 @@ export function TabBar() {
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
         {tabs.map((tab, idx) => {
           const page = tab.pageId ? pages[tab.pageId] : null;
+          const database = tab.databaseId ? databases[tab.databaseId] : null;
           const active = idx === activeIdx;
           return (
             <div
@@ -146,10 +149,14 @@ export function TabBar() {
                 className="flex flex-1 items-center gap-1 truncate"
               >
                 <span className="flex shrink-0 items-center text-sm leading-none">
-                  <PageIconDisplay icon={page?.icon ?? null} size="sm" />
+                  {database ? (
+                    <Database size={14} className="text-zinc-500" />
+                  ) : (
+                    <PageIconDisplay icon={page?.icon ?? null} size="sm" />
+                  )}
                 </span>
                 <span className="truncate">
-                  {page?.title || "빈 탭"}
+                  {page?.title || database?.meta.title || "빈 탭"}
                 </span>
               </button>
               {tabs.length > 1 && (

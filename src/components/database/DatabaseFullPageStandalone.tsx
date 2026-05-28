@@ -1,8 +1,9 @@
-import { lazy, Suspense, useCallback, useMemo, useRef } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSONContent } from "@tiptap/react";
 import type { DatabasePanelState, ViewKind } from "../../types/database";
 import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
 
@@ -23,10 +24,10 @@ const DatabaseListView = lazy(() =>
 );
 
 type Props = {
-  pageId: string;
+  pageId?: string;
   databaseId: string;
-  view: ViewKind;
-  panelStateRaw: string;
+  view?: ViewKind;
+  panelStateRaw?: string;
 };
 
 function patchFullPageDatabaseBlock(
@@ -53,19 +54,37 @@ function patchFullPageDatabaseBlock(
 export function DatabaseFullPageStandalone({
   pageId,
   databaseId,
-  view,
+  view = "table",
   panelStateRaw,
 }: Props) {
   const updateDoc = usePageStore((s) => s.updateDoc);
-  const panelState = useMemo(
-    () => parseDatabasePanelStateJson(panelStateRaw),
-    [panelStateRaw],
+  const getPanelState = useDatabaseViewPrefsStore((s) => s.getPanelState);
+  const patchPanelState = useDatabaseViewPrefsStore((s) => s.patchPanelState);
+  const getStoredView = useDatabaseViewPrefsStore((s) => s.getView);
+  const setStoredView = useDatabaseViewPrefsStore((s) => s.setView);
+  const [directPanelState, setDirectPanelState] = useState<DatabasePanelState>(() =>
+    getPanelState(databaseId, panelStateRaw),
   );
+  const [directView, setDirectView] = useState<ViewKind>(() =>
+    getStoredView(databaseId, view),
+  );
+  const panelState = useMemo(
+    () => (pageId ? parseDatabasePanelStateJson(panelStateRaw ?? "{}") : directPanelState),
+    [directPanelState, pageId, panelStateRaw],
+  );
+  const activeViewKind = pageId ? view : directView;
   const panelStateRef = useRef<DatabasePanelState>(panelState);
   panelStateRef.current = panelState;
 
+  useEffect(() => {
+    if (pageId) return;
+    setDirectPanelState(getPanelState(databaseId, panelStateRaw));
+    setDirectView(getStoredView(databaseId, view));
+  }, [databaseId, getPanelState, getStoredView, pageId, panelStateRaw, view]);
+
   const updateBlockAttrs = useCallback(
     (attrs: Record<string, unknown>) => {
+      if (!pageId) return;
       const current = usePageStore.getState().pages[pageId]?.doc;
       if (!current) return;
       const next = patchFullPageDatabaseBlock(current, attrs);
@@ -79,20 +98,30 @@ export function DatabaseFullPageStandalone({
     (patch: Partial<DatabasePanelState>) => {
       const next = { ...panelStateRef.current, ...patch };
       panelStateRef.current = next;
-      updateBlockAttrs({ panelState: JSON.stringify(next) });
+      if (pageId) {
+        updateBlockAttrs({ panelState: JSON.stringify(next) });
+      } else {
+        setDirectPanelState(next);
+        patchPanelState(databaseId, patch, panelStateRaw);
+      }
     },
-    [updateBlockAttrs],
+    [databaseId, pageId, panelStateRaw, patchPanelState, updateBlockAttrs],
   );
 
   const setView = useCallback(
     (nextView: ViewKind) => {
-      updateBlockAttrs({ view: nextView });
+      if (pageId) {
+        updateBlockAttrs({ view: nextView });
+      } else {
+        setDirectView(nextView);
+        setStoredView(databaseId, nextView);
+      }
     },
-    [updateBlockAttrs],
+    [databaseId, pageId, setStoredView, updateBlockAttrs],
   );
 
   const activeView = useMemo(() => {
-    switch (view) {
+    switch (activeViewKind) {
       case "table":
         return (
           <DatabaseTableView
@@ -137,14 +166,14 @@ export function DatabaseFullPageStandalone({
       default:
         return null;
     }
-  }, [databaseId, panelState, setPanelState, view]);
+  }, [activeViewKind, databaseId, panelState, setPanelState]);
 
   return (
     <div className="qn-database-block">
       <DatabaseToolbarControls
         databaseId={databaseId}
-        viewKind={view}
-        view={view}
+        viewKind={activeViewKind}
+        view={activeViewKind}
         onViewChange={setView}
         panelState={panelState}
         setPanelState={setPanelState}

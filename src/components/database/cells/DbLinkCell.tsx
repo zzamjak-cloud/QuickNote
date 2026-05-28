@@ -2,8 +2,7 @@ import { useRef, useState } from "react";
 import { Database, Search } from "lucide-react";
 import { usePageStore } from "../../../store/pageStore";
 import { useDatabaseStore } from "../../../store/databaseStore";
-import { useUiStore } from "../../../store/uiStore";
-import { emptyPanelState } from "../../../types/database";
+import { useSettingsStore } from "../../../store/settingsStore";
 import { DbLinkSearchPopup } from "./DbLinkSearchPopup";
 
 type Props = {
@@ -16,36 +15,14 @@ export function DbLinkCell({ value, onChange }: Props) {
   const searchBtnRef = useRef<HTMLButtonElement>(null);
 
   const databases = useDatabaseStore((s) => s.databases);
-  const findFullPagePageIdForDatabase = usePageStore((s) => s.findFullPagePageIdForDatabase);
-  const createPage = usePageStore((s) => s.createPage);
-  const updateDoc = usePageStore((s) => s.updateDoc);
-  const openPeek = useUiStore((s) => s.openPeek);
+  const setActivePage = usePageStore((s) => s.setActivePage);
+  const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
 
   const linkedDb = value ? databases[value] : null;
 
   function openDbInPeek(dbId: string) {
-    const dbTitle = databases[dbId]?.meta.title ?? "데이터베이스";
-    const pageId =
-      findFullPagePageIdForDatabase(dbId) ??
-      (() => {
-        const id = createPage(dbTitle, null, { activate: false });
-        updateDoc(id, {
-          type: "doc",
-          content: [
-            {
-              type: "databaseBlock",
-              attrs: {
-                databaseId: dbId,
-                layout: "fullPage",
-                view: "table",
-                panelState: JSON.stringify(emptyPanelState()),
-              },
-            },
-          ],
-        });
-        return id;
-      })();
-    openPeek(pageId);
+    setCurrentTabDatabase(dbId);
+    setActivePage(null);
   }
 
   return (

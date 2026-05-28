@@ -5,6 +5,7 @@ import { FavoritesPanel } from "./components/layout/FavoritesPanel";
 import { TopBar } from "./components/layout/TopBar";
 import { TabBar } from "./components/layout/TabBar";
 import { Editor } from "./components/editor/Editor";
+import { DatabaseDirectPage } from "./components/database/DatabaseDirectPage";
 import { ScrollToTopButton } from "./components/common/ScrollToTopButton";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { ToastViewport } from "./components/ui/ToastViewport";
@@ -57,9 +58,11 @@ function App() {
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
   const activeTabIndex = useSettingsStore((s) => s.activeTabIndex);
-  const tabPageId = useSettingsStore(
-    (s) => s.tabs[s.activeTabIndex]?.pageId ?? null,
+  const activeTab = useSettingsStore(
+    (s) => s.tabs[s.activeTabIndex] ?? { pageId: null, databaseId: null },
   );
+  const tabDatabaseId = activeTab.databaseId ?? null;
+  const tabPageId = tabDatabaseId ? null : activeTab.pageId ?? null;
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openTab = useSettingsStore((s) => s.openTab);
   const prevTab = useSettingsStore((s) => s.prevTab);
@@ -179,6 +182,9 @@ function App() {
   useLayoutEffect(() => {
     if (hydrationDone.current) return;
     hydrationDone.current = true;
+    if (useSettingsStore.getState().tabs[useSettingsStore.getState().activeTabIndex]?.databaseId) {
+      return;
+    }
     const tabPageId =
       useSettingsStore.getState().tabs[
         useSettingsStore.getState().activeTabIndex
@@ -192,11 +198,17 @@ function App() {
   // 현재 탭의 pageId가 바뀔 때마다(탭 전환·뒤로가기·replaceCurrentTabPage 등) 활성 페이지와 맞춤.
   // useLayoutEffect: 탭 전환 직후 같은 턴에서 active 를 맞추어, 아래 effect B가 이전 active 로 탭을 덮어쓰지 않게 함.
   useLayoutEffect(() => {
+    if (tabDatabaseId) {
+      if (usePageStore.getState().activePageId !== null) {
+        setActivePage(null);
+      }
+      return;
+    }
     const cur = usePageStore.getState().activePageId;
     if (tabPageId !== cur) {
       setActivePage(tabPageId);
     }
-  }, [tabPageId, activeTabIndex, setActivePage]);
+  }, [tabDatabaseId, tabPageId, activeTabIndex, setActivePage]);
 
   // 새로고침 직후: 무조건 사이드바 첫 번째 인덱스(루트) 페이지를 선택한다.
   // 페이지 하이드레이션 전이면(firstSidebarPageId 미확정) 대기했다가 확정되는 즉시 앱 로드당 1회만 적용 →
@@ -205,6 +217,7 @@ function App() {
   // 아래 패시브 효과가 이전 값으로 탭을 되돌리지 못하게 한다.
   useLayoutEffect(() => {
     if (didForceInitialSelectRef.current) return;
+    if (tabDatabaseId) return;
     if (!firstSidebarPageId) return;
     didForceInitialSelectRef.current = true;
     const linkTarget = parseQuickNoteLink(window.location.href);
@@ -213,7 +226,7 @@ function App() {
     }
     prevActivePageIdRef.current = firstSidebarPageId;
     setActivePage(firstSidebarPageId);
-  }, [firstSidebarPageId, setActivePage]);
+  }, [firstSidebarPageId, setActivePage, tabDatabaseId]);
 
   // 사이드바 등으로 활성 페이지만 바뀐 경우: 현재 탭 내용만 갱신
   useEffect(() => {
@@ -221,6 +234,14 @@ function App() {
       useSettingsStore.getState().tabs[
         useSettingsStore.getState().activeTabIndex
       ]?.pageId ?? null;
+    const currentDatabaseId =
+      useSettingsStore.getState().tabs[
+        useSettingsStore.getState().activeTabIndex
+      ]?.databaseId ?? null;
+    if (currentDatabaseId) {
+      prevActivePageIdRef.current = activePageId;
+      return;
+    }
     if (activePageId === null) {
       prevActivePageIdRef.current = activePageId;
       // 워크스페이스 부트스트랩 시 페이지 맵이 잠깐 비면 activePageId 만 null 이 될 수 있음.
@@ -334,7 +355,9 @@ function App() {
           <TabBar />
           <WorkspaceSyncBanner />
           <TopBar />
-          {activePage?.databaseId ? (
+          {tabDatabaseId ? (
+            <DatabaseDirectPage databaseId={tabDatabaseId} />
+          ) : activePage?.databaseId ? (
             <div
               ref={databaseRowScrollHostRef}
               data-qn-scroll-page-id={activePageId ?? undefined}

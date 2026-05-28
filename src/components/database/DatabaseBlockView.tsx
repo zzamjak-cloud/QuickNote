@@ -25,7 +25,6 @@ import type {
   DatabasePanelState,
   ViewKind,
 } from "../../types/database";
-import { emptyPanelState } from "../../types/database";
 import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema";
 const DatabaseTableView = lazy(() =>
   import("./views/DatabaseTableView").then((m) => ({ default: m.DatabaseTableView })),
@@ -93,58 +92,22 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const renamePage = usePageStore((s) => s.renamePage);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePageNav = usePageStore((s) => s.setActivePage);
-  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
-
-  const dbHomePageId = usePageStore((s) =>
-    databaseId.trim() ? s.findFullPagePageIdForDatabase(databaseId) : null,
-  );
+  const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
 
   const inlineTitleLocked =
     isProtectedDatabase ||
-    (layout === "inline" && (readOnlyTitleAttr || dbHomePageId != null));
+    (layout === "inline" && readOnlyTitleAttr);
 
   // 내비게이션 히스토리 (인라인→전체 DB 전환 시 뒤로가기 지원).
   const pushBack = useNavigationHistoryStore((s) => s.pushBack);
 
-  const createPageStore = usePageStore((s) => s.createPage);
-  const updateDocStore = usePageStore((s) => s.updateDoc);
   const openDbHomePage = useCallback(
-    (pageId: string | null) => {
-      // 호스트 페이지가 없으면 lazy 생성 — Notion 임포트 DB 같이 사전 생성을 건너뛴 케이스 지원.
-      // TopBar.openDatabase 와 동일한 패턴(activate:false 로 만든 뒤 doc 갱신, 그다음에 활성화).
-      let targetPageId = pageId;
-      if (!targetPageId) {
-        const existingId = usePageStore
-          .getState()
-          .findFullPagePageIdForDatabase(databaseId);
-        if (existingId) {
-          targetPageId = existingId;
-        } else {
-          const dbTitleNow = useDatabaseStore.getState().databases[databaseId]?.meta.title
-            ?? "데이터베이스";
-          const newId = createPageStore(dbTitleNow, null, { activate: false });
-          updateDocStore(newId, {
-            type: "doc",
-            content: [
-              {
-                type: "databaseBlock",
-                attrs: {
-                  databaseId,
-                  layout: "fullPage",
-                  view: "table",
-                  panelState: JSON.stringify(emptyPanelState()),
-                },
-              },
-            ],
-          });
-          targetPageId = newId;
-        }
-      }
+    (_pageId: string | null) => {
       if (activePageId) pushBack(activePageId);
-      setActivePageNav(targetPageId);
-      setCurrentTabPage(targetPageId);
+      setActivePageNav(null);
+      setCurrentTabDatabase(databaseId);
     },
-    [activePageId, databaseId, pushBack, setActivePageNav, setCurrentTabPage, createPageStore, updateDocStore],
+    [activePageId, databaseId, pushBack, setActivePageNav, setCurrentTabDatabase],
   );
 
   // 더보기 — 추가로 표시할 행 수.
@@ -527,7 +490,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 displayDbTitle={displayDbTitle}
                 onTitleCommit={commitDbTitle}
                 inlineTitleLocked={inlineTitleLocked}
-                dbHomePageId={dbHomePageId}
+                dbHomePageId={null}
                 onOpenDbHomePage={openDbHomePage}
                 onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
                 onOpenLink={() => {

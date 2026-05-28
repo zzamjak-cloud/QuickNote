@@ -153,6 +153,70 @@ describe("persisted store migrations", () => {
     ]);
   });
 
+  it("databaseStore migration preserves advanced database column settings", () => {
+    const migrated = migrateDatabaseStore(
+      {
+        databases: {
+          db1: {
+            meta: { id: "db1", title: "DB", createdAt: 1, updatedAt: 2 },
+            columns: [
+              { id: "title", name: "Name", type: "title" },
+              {
+                id: "select-source",
+                name: "Status",
+                type: "select",
+                config: {
+                  sourceFromDb: {
+                    databaseId: "source-db",
+                    columnId: "source-status",
+                    automation: true,
+                    viaPageLinkColumnId: "feature-link",
+                  },
+                },
+              },
+              {
+                id: "item-fetch",
+                name: "Feature",
+                type: "itemFetch",
+                config: {
+                  itemFetchSourceDatabaseId: "feature-db",
+                  itemFetchMatchColumnId: "task-link",
+                },
+              },
+              {
+                id: "page-link",
+                name: "Task",
+                type: "pageLink",
+                config: {
+                  pageLinkScopeDatabaseId: "task-db",
+                  pageLinkAutoReverse: true,
+                },
+              },
+            ],
+            rowPageOrder: [],
+          },
+        },
+      },
+      3,
+    );
+
+    const db = (migrated.databases as Record<string, { columns: Array<{ id: string; type: string; config?: Record<string, unknown> }> }>).db1;
+    expect(db.columns.map((column) => column.id)).toEqual([
+      "title",
+      "select-source",
+      "item-fetch",
+      "page-link",
+    ]);
+    expect(db.columns.find((column) => column.id === "select-source")?.config?.sourceFromDb).toEqual({
+      databaseId: "source-db",
+      columnId: "source-status",
+      automation: true,
+      viaPageLinkColumnId: "feature-link",
+    });
+    expect(db.columns.find((column) => column.id === "item-fetch")?.type).toBe("itemFetch");
+    expect(db.columns.find((column) => column.id === "page-link")?.type).toBe("pageLink");
+  });
+
   it("databaseStore migration removes legacy LC scheduler databases", () => {
     const migrated = migrateDatabaseStore(
       {

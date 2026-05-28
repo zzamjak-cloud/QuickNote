@@ -83,6 +83,7 @@ const PageListItemInner = function PageListItem({
   const createPage = usePageStore((s) => s.createPage);
   const movePage = usePageStore((s) => s.movePage);
   const activePageId = usePageStore((s) => s.activePageId);
+  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const expanded = useSettingsStore((s) =>
     s.expandedIds.includes(node.id),
   );
@@ -220,7 +221,10 @@ const PageListItemInner = function PageListItem({
             draggable
             className="flex-1 truncate text-left"
             style={{ cursor: "inherit" }}
-            onClick={() => setActivePage(node.id)}
+            onClick={() => {
+              setCurrentTabPage(node.id);
+              setActivePage(node.id);
+            }}
             onDoubleClick={() => setEditing(true)}
             onDragStart={(e) => {
               const url = buildQuickNotePageUrl({ pageId: node.id });
