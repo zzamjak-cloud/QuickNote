@@ -281,8 +281,8 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   }, [selectionMenuOpen]);
   // 선택이 비면 열려있던 메뉴 자동 닫기
   useEffect(() => {
-    if (selectedRowIds.size === 0) setSelectionMenuOpen(false);
-  }, [selectedRowIds.size]);
+    if (selectedRowIds.size === 0 && selectionMenuOpen) setSelectionMenuOpen(false);
+  }, [selectedRowIds.size, selectionMenuOpen]);
 
   // drag cancel(drop 없이 dragend) 시 컬럼 drag state 완전 리셋 안전망
   useEffect(() => {

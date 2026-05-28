@@ -30,12 +30,16 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const databasesEmpty = useDatabaseStore((s) => Object.keys(s.databases).length === 0);
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
+  const titleDraftRef = useRef(titleDraft);
   const [iconAlert, setIconAlert] = useState<string | null>(null);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
   const tailSpacerPxRef = useRef(tailSpacerPx);
 
   useEffect(() => {
-    setTitleDraft(page?.title ?? "");
+    const next = page?.title ?? "";
+    if (titleDraftRef.current === next) return;
+    titleDraftRef.current = next;
+    setTitleDraft(next);
   }, [page?.title, pageId]);
 
   useLayoutEffect(() => {
@@ -84,7 +88,10 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
             icon={page.icon}
             titleDraft={titleDraft}
             titleClassName="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
-            onTitleChange={(v) => setTitleDraft(v)}
+            onTitleChange={(v) => {
+              titleDraftRef.current = v;
+              setTitleDraft(v);
+            }}
             onTitleBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
             onTitleKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();

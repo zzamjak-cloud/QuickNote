@@ -178,6 +178,7 @@ export function DatabaseRowPeek() {
   const showToast = useUiStore((s) => s.showToast);
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
+  const titleDraftRef = useRef(titleDraft);
   const [width, setWidth] = useState<number>(() => loadPeekWidth());
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
@@ -267,7 +268,10 @@ export function DatabaseRowPeek() {
   }, [fetchPageHistory, historyDialogOpen, page?.workspaceId, peekPageId]);
 
   useEffect(() => {
-    setTitleDraft(page?.title ?? "");
+    const next = page?.title ?? "";
+    if (titleDraftRef.current === next) return;
+    titleDraftRef.current = next;
+    setTitleDraft(next);
   }, [page?.title, peekPageId]);
 
   useLayoutEffect(() => {
@@ -680,7 +684,10 @@ export function DatabaseRowPeek() {
             icon={page.icon}
             titleDraft={titleDraft}
             titleClassName="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
-            onTitleChange={(v) => setTitleDraft(v)}
+            onTitleChange={(v) => {
+              titleDraftRef.current = v;
+              setTitleDraft(v);
+            }}
             onTitleBlur={() => renamePage(peekPageId, titleDraft.trim() || "제목 없음")}
             onTitleKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();

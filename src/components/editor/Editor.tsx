@@ -166,6 +166,16 @@ export function Editor({
   const dbTitleBaselineRef = useRef("");
   const debounceRef = useRef<number | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
+  const titleDraftRef = useRef("");
+  const setTitleDraftValue = useCallback((next: string) => {
+    titleDraftRef.current = next;
+    setTitleDraft(next);
+  }, []);
+  const syncTitleDraft = useCallback((next: string) => {
+    if (titleDraftRef.current === next) return;
+    titleDraftRef.current = next;
+    setTitleDraft(next);
+  }, []);
   const [imageOpen, setImageOpen] = useState(false);
   const [serverImageOpen, setServerImageOpen] = useState(false);
   const [serverVideoOpen, setServerVideoOpen] = useState(false);
@@ -739,11 +749,11 @@ export function Editor({
   // 페이지 전환 시 draft·포커스 정리 — 사이드바 + 등으로 새 페이지를 만들 때 이전 제목이 붙는 것 방지.
   useEffect(() => {
     if (!currentPageId) {
-      setTitleDraft((prev) => (prev === "" ? prev : ""));
+      syncTitleDraft("");
       titleFocusPageIdRef.current = null;
       return;
     }
-    setTitleDraft((prev) => (prev === currentPageTitle ? prev : currentPageTitle));
+    syncTitleDraft(currentPageTitle);
     titleFocusPageIdRef.current = null;
     if (titleRef.current && document.activeElement === titleRef.current) {
       titleRef.current.blur();
@@ -754,8 +764,8 @@ export function Editor({
   useEffect(() => {
     if (!currentPageId) return;
     if (titleFocusPageIdRef.current === currentPageId) return;
-    setTitleDraft((prev) => (prev === currentPageTitle ? prev : currentPageTitle));
-  }, [currentPageId, currentPageTitle]);
+    syncTitleDraft(currentPageTitle);
+  }, [currentPageId, currentPageTitle, syncTitleDraft]);
 
   // editor.editable 토글 — read-only 상태로 두면 슬래시 메뉴, 텍스트 입력, 블록 추가 모두 차단.
   // DB 블록의 React NodeView 내부 input/button 은 contenteditable 영향 밖이라 정상 동작.
@@ -868,7 +878,7 @@ export function Editor({
                 titleDraft={titleDraft}
                 titleClassName="min-w-0 flex-1 bg-transparent text-4xl font-bold tracking-tight text-zinc-900 outline-none placeholder:text-zinc-300 dark:text-zinc-100 dark:placeholder:text-zinc-700"
                 titleRef={titleRef}
-                onTitleChange={(v) => setTitleDraft(v)}
+                onTitleChange={setTitleDraftValue}
                 onTitleFocus={() => {
                   titleFocusPageIdRef.current = effectivePageId;
                 }}
@@ -886,10 +896,10 @@ export function Editor({
                   if (!ok) {
                     setSimpleAlert("이미 사용 중인 데이터베이스 이름입니다.");
                     renamePage(effectivePageId, dbTitleBaselineRef.current);
-                    setTitleDraft(dbTitleBaselineRef.current);
+                    setTitleDraftValue(dbTitleBaselineRef.current);
                   } else {
                     dbTitleBaselineRef.current = nextTitle;
-                    setTitleDraft(nextTitle);
+                    setTitleDraftValue(nextTitle);
                   }
                 }}
                 onTitleKeyDown={(e) => {

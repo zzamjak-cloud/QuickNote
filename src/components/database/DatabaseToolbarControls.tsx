@@ -74,13 +74,17 @@ export function DatabaseToolbarControls({
 
   // 검색창 — 한글 IME 입력 깨짐 방지: composition 동안 panelState commit 보류.
   const [searchDraft, setSearchDraft] = useState(panelState.searchQuery);
+  const searchDraftRef = useRef(searchDraft);
   const composingRef = useRef(false);
   useEffect(() => {
-    if (!composingRef.current) setSearchDraft(panelState.searchQuery);
+    if (composingRef.current) return;
+    if (searchDraftRef.current === panelState.searchQuery) return;
+    searchDraftRef.current = panelState.searchQuery;
+    setSearchDraft(panelState.searchQuery);
   }, [panelState.searchQuery]);
   useEffect(() => {
-    if (panelState.searchQuery.trim().length > 0) setSearchOpen(true);
-  }, [panelState.searchQuery]);
+    if (panelState.searchQuery.trim().length > 0 && !searchOpen) setSearchOpen(true);
+  }, [panelState.searchQuery, searchOpen]);
   useEffect(() => {
     if (!bundle) return;
     const unavailable = new Set<ViewKind>(getUnavailableViewKinds(bundle.columns));
@@ -92,7 +96,7 @@ export function DatabaseToolbarControls({
     if (!visibleViews.includes(view)) {
       onViewChange(nextView);
     }
-  }, [bundle, onViewChange, panelState.hiddenViewKinds, view]);
+  }, [bundle, onViewChange, view]);
 
   // 규칙 팝오버 — 한 번에 하나만 열림.
   const [openRuleKey, setOpenRuleKey] = useState<string | null>(null);
@@ -551,6 +555,7 @@ export function DatabaseToolbarControls({
                 placeholder="검색…"
                 value={searchDraft}
                 onChange={(e) => {
+                  searchDraftRef.current = e.target.value;
                   setSearchDraft(e.target.value);
                   if (!composingRef.current) {
                     setPanelState({ searchQuery: e.target.value });
@@ -559,7 +564,10 @@ export function DatabaseToolbarControls({
                 onCompositionStart={() => { composingRef.current = true; }}
                 onCompositionEnd={(e) => {
                   composingRef.current = false;
-                  setPanelState({ searchQuery: (e.target as HTMLInputElement).value });
+                  const value = (e.target as HTMLInputElement).value;
+                  searchDraftRef.current = value;
+                  setSearchDraft(value);
+                  setPanelState({ searchQuery: value });
                 }}
                 onBlur={() => {
                   if (!searchDraft.trim()) setSearchOpen(false);
@@ -813,13 +821,25 @@ function FilterValueControl({
   onChange: (value: string) => void;
 }) {
   const [draft, setDraft] = useState(rule.value ?? "");
+  const draftRef = useRef(draft);
   const composingRef = useRef(false);
   const selectedOption = options.find((option) => option.value === (rule.value ?? ""));
   const [directInputOpen, setDirectInputOpen] = useState(!selectedOption);
+  const directInputOpenRef = useRef(directInputOpen);
 
   useEffect(() => {
-    if (!composingRef.current) setDraft(rule.value ?? "");
-    setDirectInputOpen(!selectedOption);
+    if (!composingRef.current) {
+      const nextDraft = rule.value ?? "";
+      if (draftRef.current !== nextDraft) {
+        draftRef.current = nextDraft;
+        setDraft(nextDraft);
+      }
+    }
+    const nextDirectInputOpen = !selectedOption;
+    if (directInputOpenRef.current !== nextDirectInputOpen) {
+      directInputOpenRef.current = nextDirectInputOpen;
+      setDirectInputOpen(nextDirectInputOpen);
+    }
   }, [rule.value, selectedOption]);
 
   const commit = (value: string) => {
@@ -833,12 +853,16 @@ function FilterValueControl({
           value={selectedOption ? (rule.value ?? "") : ""}
           onChange={(value) => {
             if (!value) {
+              directInputOpenRef.current = true;
               setDirectInputOpen(true);
+              draftRef.current = "";
               setDraft("");
               commit("");
               return;
             }
+            directInputOpenRef.current = false;
             setDirectInputOpen(false);
+            draftRef.current = value;
             setDraft(value);
             commit(value);
           }}
@@ -852,6 +876,7 @@ function FilterValueControl({
           value={draft}
           onChange={(event) => {
             const value = event.target.value;
+            draftRef.current = value;
             setDraft(value);
             if (!composingRef.current) commit(value);
           }}
@@ -861,6 +886,7 @@ function FilterValueControl({
           onCompositionEnd={(event) => {
             composingRef.current = false;
             const value = event.currentTarget.value;
+            draftRef.current = value;
             setDraft(value);
             commit(value);
           }}

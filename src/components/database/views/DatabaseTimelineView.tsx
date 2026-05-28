@@ -339,6 +339,18 @@ export function DatabaseTimelineView({
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
+  const selectedCardIdsRef = useRef(selectedCardIds);
+  const commitSelectedCardIds = useCallback((next: Set<string>) => {
+    const prev = selectedCardIdsRef.current;
+    if (
+      prev.size === next.size &&
+      Array.from(prev).every((id) => next.has(id))
+    ) {
+      return;
+    }
+    selectedCardIdsRef.current = next;
+    setSelectedCardIds(next);
+  }, []);
   const [selectionRect, setSelectionRect] = useState<TimelineBoxRect | null>(null);
   const selectionRectRef = useRef<TimelineBoxRect | null>(null);
   const boxSelectingRef = useRef(false);
@@ -644,11 +656,10 @@ export function DatabaseTimelineView({
     if (selectedPageId && !pageIds.has(selectedPageId)) {
       setSelectedPageId(null);
     }
-    setSelectedCardIds((prev) => {
-      const next = new Set(Array.from(prev).filter((id) => pageIds.has(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [rows, selectedPageId]);
+    commitSelectedCardIds(
+      new Set(Array.from(selectedCardIdsRef.current).filter((id) => pageIds.has(id))),
+    );
+  }, [commitSelectedCardIds, rows, selectedPageId]);
 
   const scrollToToday = useCallback(() => {
     if (isMonthAxis) {
@@ -662,7 +673,7 @@ export function DatabaseTimelineView({
 
   const focusTimelineCard = useCallback((pageId: string) => {
     setSelectedPageId(pageId);
-    setSelectedCardIds(new Set());
+    commitSelectedCardIds(new Set());
     // 월 축은 visibleMonthStart 가 속한 달의 항목만 렌더한다.
     // 다른 달 항목을 클릭하면 해당 항목 시작일의 달로 먼저 전환해야 카드가 보인다.
     if (isMonthAxis) {
@@ -684,7 +695,7 @@ export function DatabaseTimelineView({
       card.left - (visibleTrackWidth - card.width) / 2,
     );
     el.scrollTo({ left: nextLeft, behavior: "smooth" });
-  }, [cardLayouts, dateColId, isMonthAxis, rows, sideLabelWidth, usesScrollableAxis]);
+  }, [cardLayouts, commitSelectedCardIds, dateColId, isMonthAxis, rows, sideLabelWidth, usesScrollableAxis]);
 
   const commitRange = useCallback(
     (pageId: string, start: number, end: number) => {
@@ -714,8 +725,9 @@ export function DatabaseTimelineView({
 
   const selectCard = useCallback((pageId: string) => {
     setSelectedPageId(pageId);
-    setSelectedCardIds((prev) => (prev.has(pageId) ? prev : new Set()));
-  }, []);
+    if (selectedCardIdsRef.current.has(pageId)) return;
+    commitSelectedCardIds(new Set());
+  }, [commitSelectedCardIds]);
 
   const openPageFromKeyboard = useCallback(() => {
     if (!selectedPageId) return;
@@ -726,7 +738,7 @@ export function DatabaseTimelineView({
     const handler = (event: KeyboardEvent) => {
       if (isInteractiveTarget(event.target)) return;
       if (event.key === "Escape" && selectedCardIds.size > 0) {
-        setSelectedCardIds(new Set());
+        commitSelectedCardIds(new Set());
         return;
       }
       if (!selectedPageId) return;
@@ -742,7 +754,7 @@ export function DatabaseTimelineView({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [openPageFromKeyboard, selectedCardIds.size, selectedPageId]);
+  }, [commitSelectedCardIds, openPageFromKeyboard, selectedCardIds.size, selectedPageId]);
 
   const pointFromEvent = useCallback((event: { clientX: number; clientY: number }) => {
     const track = trackRef.current;
@@ -772,11 +784,11 @@ export function DatabaseTimelineView({
       selectionRectRef.current = next;
       boxSelectingRef.current = true;
       setSelectionRect(next);
-      setSelectedCardIds(new Set());
+      commitSelectedCardIds(new Set());
       setSelectedPageId(null);
       setIsBoxSelecting(true);
     },
-    [pointFromEvent],
+    [commitSelectedCardIds, pointFromEvent],
   );
 
   useEffect(() => {
@@ -792,12 +804,12 @@ export function DatabaseTimelineView({
       };
       selectionRectRef.current = next;
       setSelectionRect(next);
-      setSelectedCardIds(getCardsInRect(next));
+      commitSelectedCardIds(getCardsInRect(next));
     };
     const onUp = () => {
       if (!boxSelectingRef.current) return;
       const finalRect = selectionRectRef.current;
-      setSelectedCardIds(finalRect ? getCardsInRect(finalRect) : new Set());
+      commitSelectedCardIds(finalRect ? getCardsInRect(finalRect) : new Set());
       boxSelectingRef.current = false;
       selectionRectRef.current = null;
       setSelectionRect(null);
@@ -809,7 +821,7 @@ export function DatabaseTimelineView({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [getCardsInRect, pointFromEvent]);
+  }, [commitSelectedCardIds, getCardsInRect, pointFromEvent]);
 
   const lockTimelineScroll = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -1200,11 +1212,9 @@ export function DatabaseTimelineView({
           if (rowDeletePageId) {
             deleteRow(databaseId, rowDeletePageId);
             setSelectedPageId(null);
-            setSelectedCardIds((prev) => {
-              const next = new Set(prev);
-              next.delete(rowDeletePageId);
-              return next;
-            });
+            const next = new Set(selectedCardIdsRef.current);
+            next.delete(rowDeletePageId);
+            commitSelectedCardIds(next);
           }
           setRowDeletePageId(null);
         }}

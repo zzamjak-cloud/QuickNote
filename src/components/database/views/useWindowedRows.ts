@@ -31,18 +31,24 @@ export function useWindowedRows({
     start: 0,
     end: enabled ? Math.min(count, INITIAL_FALLBACK_ROWS) : count,
   }));
+  const rangeRef = useRef(range);
+
+  const commitRange = useCallback((next: { start: number; end: number }) => {
+    const prev = rangeRef.current;
+    if (prev.start === next.start && prev.end === next.end) return;
+    rangeRef.current = next;
+    setRange(next);
+  }, []);
 
   const calculate = useCallback(() => {
     if (!enabled || count === 0) {
-      setRange((prev) =>
-        prev.start === 0 && prev.end === count ? prev : { start: 0, end: count },
-      );
+      commitRange({ start: 0, end: count });
       return;
     }
     const node = containerRef.current;
     if (!node) {
       const end = Math.min(count, INITIAL_FALLBACK_ROWS);
-      setRange((prev) => (prev.start === 0 && prev.end === end ? prev : { start: 0, end }));
+      commitRange({ start: 0, end });
       return;
     }
 
@@ -57,12 +63,8 @@ export function useWindowedRows({
       count,
       Math.ceil(viewportBottom / estimateSize) + overscan,
     );
-    setRange((prev) =>
-      prev.start === nextStart && prev.end === nextEnd
-        ? prev
-        : { start: nextStart, end: nextEnd },
-    );
-  }, [count, enabled, estimateSize, overscan]);
+    commitRange({ start: nextStart, end: nextEnd });
+  }, [commitRange, count, enabled, estimateSize, overscan]);
 
   const schedule = useCallback(() => {
     if (rafRef.current != null) return;
