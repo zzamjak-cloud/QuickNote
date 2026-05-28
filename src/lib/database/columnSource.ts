@@ -194,7 +194,7 @@ export function applySearchFilters(
             .map((c) => c.id);
           const hit = pageLinkColumnIds.some((cid) => {
             const v = cells[cid];
-            return Array.isArray(v) && v.includes(value);
+            return Array.isArray(v) && (v as unknown[]).includes(value);
           });
           if (!hit) return false;
           // pages 변수는 시그니처 일관성용 — 향후 확장 대비 (예: 전이적 링크 추적)
