@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 import { useExclusiveDropdown } from "../../hooks/useExclusiveDropdown";
 import { AppSelect } from "../common/AppSelect";
@@ -61,17 +62,32 @@ function DropdownWithAdd({
   const [adding, setAdding] = useState(false);
   const [newValue, setNewValue] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
+  const [dropPos, setDropPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+      const t = e.target as Node;
+      if (
+        (!wrapRef.current || !wrapRef.current.contains(t)) &&
+        (!dropRef.current || !dropRef.current.contains(t))
+      ) {
         setOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open, setOpen]);
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) { setDropPos(null); return; }
+    const r = buttonRef.current.getBoundingClientRect();
+    const PAD = 8;
+    const left = Math.max(PAD, Math.min(r.left, window.innerWidth - r.width - PAD));
+    setDropPos({ top: r.bottom + 2, left, width: r.width });
+  }, [open]);
 
   const sorted = [...options].sort((a, b) => a.localeCompare(b, "ko"));
 
@@ -89,6 +105,7 @@ function DropdownWithAdd({
     <div ref={wrapRef} className="relative">
       <div className="mb-0.5 text-[9px] font-medium text-zinc-500">{label}</div>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => { setOpen((o) => !o); setAdding(false); }}
         className="flex w-full items-center justify-between rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"
@@ -96,8 +113,12 @@ function DropdownWithAdd({
         <span className={value ? "" : "text-zinc-400"}>{value || "선택"}</span>
         <ChevronDown size={10} className="text-zinc-400" />
       </button>
-      {open && (
-        <div className="absolute z-30 mt-0.5 w-full rounded border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+      {open && dropPos && createPortal(
+        <div
+          ref={dropRef}
+          style={{ position: "fixed", top: dropPos.top, left: dropPos.left, width: dropPos.width, zIndex: 9999 }}
+          className="rounded border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+        >
           <div className="max-h-36 overflow-y-auto">
             <button
               type="button"
@@ -162,7 +183,8 @@ function DropdownWithAdd({
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -191,6 +213,7 @@ function SimpleSelect({
           ...options.map((option) => ({ value: option, label: option })),
         ]}
         buttonClassName="w-full px-2 py-1 dark:bg-zinc-950"
+        portal
       />
     </div>
   );
@@ -689,6 +712,7 @@ export function MemberModal(props: Props) {
                       ]
                 }
                 buttonClassName="w-full px-2 py-1 dark:bg-zinc-950 disabled:cursor-not-allowed disabled:opacity-60"
+                portal
               />
             </div>
           </div>

@@ -510,6 +510,22 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                       ? colDragFrom < idx ? "right" : "left"
                       : null
                   }
+                  onHideColumn={() => {
+                    const cfg = panelState.viewConfigs?.["table"] ?? {};
+                    const allColIds = (bundle?.columns ?? []).map((c) => c.id);
+                    const currentVisible: string[] = cfg.visibleColumnIds
+                      ? cfg.visibleColumnIds
+                      : cfg.hiddenColumnIds
+                        ? allColIds.filter((id) => !(cfg.hiddenColumnIds ?? []).includes(id))
+                        : allColIds;
+                    const nextVisible = currentVisible.filter((id) => id !== col.id);
+                    setPanelState({
+                      viewConfigs: {
+                        ...(panelState.viewConfigs ?? {}),
+                        table: { ...cfg, visibleColumnIds: nextVisible, hiddenColumnIds: undefined },
+                      },
+                    });
+                  }}
                 />
               ))}
             </tr>
@@ -555,7 +571,20 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
           </tbody>
         </table>
         <div className="pointer-events-auto absolute top-0 z-[12]" style={{ left: tableWidthPx + 4 }}>
-          <DatabaseAddColumnButton databaseId={databaseId} />
+          <DatabaseAddColumnButton
+            databaseId={databaseId}
+            onAfterAdd={(colId) => {
+              const cfg = panelState.viewConfigs?.["table"];
+              if (cfg?.visibleColumnIds) {
+                setPanelState({
+                  viewConfigs: {
+                    ...(panelState.viewConfigs ?? {}),
+                    table: { ...cfg, visibleColumnIds: [...cfg.visibleColumnIds, colId] },
+                  },
+                });
+              }
+            }}
+          />
         </div>
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">

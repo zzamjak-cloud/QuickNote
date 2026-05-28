@@ -15,6 +15,7 @@ import {
   FolderInput,
   History,
   FolderTree,
+  X,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -81,6 +82,8 @@ export function TopBar() {
   const previousNavigationPageId = useNavigationHistoryStore((s) => s.peekBack());
   const popNavigationBack = useNavigationHistoryStore((s) => s.popBack);
   const clearNavigationBack = useNavigationHistoryStore((s) => s.clearBack);
+  const backStack = useNavigationHistoryStore((s) => s.backStack);
+  const jumpToNavigation = useNavigationHistoryStore((s) => s.jumpTo);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const subpagePopover = useAnchoredPopover(280);
@@ -183,8 +186,9 @@ export function TopBar() {
   const parentId = activePage?.parentId ?? null;
   const canGoBack =
     Boolean(activeId && parentId !== null && pages[parentId ?? ""]);
+  const hasNavTrail = backStack.length > 1;
   const showDatabasePreviousButton = Boolean(
-    previousNavigationPageId && isFullPageDatabasePage(activePage),
+    !hasNavTrail && previousNavigationPageId && isFullPageDatabasePage(activePage),
   );
 
   useEffect(() => {
@@ -214,11 +218,14 @@ export function TopBar() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [activeId, showToast]);
+  // 링크셀(dbLink/pageLink) 네비게이션 중에는 backStack > 1이므로 클리어하지 않음
+  // backStack === 1(기존 DB 인라인→풀페이지 전환)만 비-DB 페이지 이동 시 클리어
   useEffect(() => {
     if (!activeId || !activePage || !previousNavigationPageId) return;
     if (isFullPageDatabasePage(activePage)) return;
+    if (backStack.length > 1) return;
     clearNavigationBack();
-  }, [activeId, activePage, clearNavigationBack, previousNavigationPageId]);
+  }, [activeId, activePage, backStack.length, clearNavigationBack, previousNavigationPageId]);
 
   const handleDuplicate = () => {
     if (!activeId) return;
@@ -354,7 +361,43 @@ export function TopBar() {
         </button>
       )}
       <div className="flex flex-1 items-center gap-1 overflow-hidden text-xs text-zinc-500 dark:text-zinc-400">
-        {breadcrumb.length === 0 ? (
+        {hasNavTrail ? (
+          <>
+            {backStack.map((pageId, idx) => {
+              const p = pages[pageId];
+              return (
+                <span key={pageId} className="flex items-center gap-1">
+                  {idx > 0 && <ChevronRight size={10} className="shrink-0 text-zinc-300" />}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = jumpToNavigation(idx);
+                      if (id) { setActive(id); setCurrentTabPage(id); }
+                    }}
+                    className="flex max-w-28 items-center gap-1 truncate rounded px-1 py-0.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                  >
+                    {p?.icon && (
+                      <PageIconDisplay icon={p.icon} size="sm" className="shrink-0" />
+                    )}
+                    <span className="truncate">{p?.title || "제목 없음"}</span>
+                  </button>
+                </span>
+              );
+            })}
+            <ChevronRight size={10} className="shrink-0 text-zinc-300" />
+            <span className="max-w-28 truncate text-zinc-900 dark:text-zinc-100">
+              {activeId ? (pages[activeId]?.title || "제목 없음") : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => clearNavigationBack()}
+              className="ml-1 shrink-0 rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+              title="히스토리 닫기"
+            >
+              <X size={10} />
+            </button>
+          </>
+        ) : breadcrumb.length === 0 ? (
           <span>페이지를 선택하거나 새로 만드세요</span>
         ) : breadcrumb.length === 1 && breadcrumb[0]?.id === activeId ? null : (
           breadcrumb.map((node, idx) => (

@@ -37,6 +37,9 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
     setDragOver(null);
   };
 
+  // 일반 옵션과 구분선 분리 — 라벨 자동 번호에 사용
+  const nonDividerCount = opts.filter((o) => !o.divider).length;
+
   return (
     <div className="ml-4 mt-2 space-y-1 border-l border-zinc-100 pl-2 dark:border-zinc-800">
       <div className="text-sm font-medium text-zinc-500">선택 옵션</div>
@@ -63,7 +66,7 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
           <button
             type="button"
             draggable
-            title="옵션 순서 변경"
+            title={o.divider ? "구분선 순서 변경" : "옵션 순서 변경"}
             onDragStart={(event) => {
               event.stopPropagation();
               event.dataTransfer.effectAllowed = "move";
@@ -79,28 +82,41 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
           >
             <GripVertical size={12} />
           </button>
-          <OptionColorSwatch
-            color={o.color ?? SELECT_COLOR_PRESETS[0]!}
-            onPick={(color) =>
-              patchOptions(
-                opts.map((x) => (x.id === o.id ? { ...x, color } : x)),
-              )
-            }
-          />
-          <input
-            value={o.label}
-            onChange={(e) =>
-              patchOptions(
-                opts.map((x) =>
-                  x.id === o.id ? { ...x, label: e.target.value } : x,
-                ),
-              )
-            }
-            className="min-w-0 flex-1 rounded border border-zinc-200 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          />
+
+          {o.divider ? (
+            // 구분선 행 — 라벨·색상 편집 없이 가로선으로 시각화
+            <div className="flex flex-1 items-center gap-2 px-1 py-1.5">
+              <div className="h-px flex-1 bg-zinc-300 dark:bg-zinc-600" />
+              <span className="text-[10px] uppercase tracking-wide text-zinc-400">구분선</span>
+              <div className="h-px flex-1 bg-zinc-300 dark:bg-zinc-600" />
+            </div>
+          ) : (
+            <>
+              <OptionColorSwatch
+                color={o.color ?? SELECT_COLOR_PRESETS[0]!}
+                onPick={(color) =>
+                  patchOptions(
+                    opts.map((x) => (x.id === o.id ? { ...x, color } : x)),
+                  )
+                }
+              />
+              <input
+                value={o.label}
+                onChange={(e) =>
+                  patchOptions(
+                    opts.map((x) =>
+                      x.id === o.id ? { ...x, label: e.target.value } : x,
+                    ),
+                  )
+                }
+                className="min-w-0 flex-1 rounded border border-zinc-200 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              />
+            </>
+          )}
+
           <button
             type="button"
-            title="옵션 삭제"
+            title={o.divider ? "구분선 삭제" : "옵션 삭제"}
             className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
             onClick={() => patchOptions(opts.filter((x) => x.id !== o.id))}
           >
@@ -108,22 +124,36 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
           </button>
         </div>
       ))}
-      <button
-        type="button"
-        onClick={() =>
-          patchOptions([
-            ...opts,
-            {
-              id: newId(),
-              label: `옵션 ${opts.length + 1}`,
-              color: SELECT_COLOR_PRESETS[opts.length % SELECT_COLOR_PRESETS.length],
-            },
-          ])
-        }
-        className="flex items-center gap-1 text-[11px] text-blue-600 hover:underline dark:text-blue-400"
-      >
-        <Plus size={14} /> 옵션 추가
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() =>
+            patchOptions([
+              ...opts,
+              {
+                id: newId(),
+                label: `옵션 ${nonDividerCount + 1}`,
+                color: SELECT_COLOR_PRESETS[nonDividerCount % SELECT_COLOR_PRESETS.length],
+              },
+            ])
+          }
+          className="flex items-center gap-1 text-[11px] text-blue-600 hover:underline dark:text-blue-400"
+        >
+          <Plus size={14} /> 옵션 추가
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            patchOptions([
+              ...opts,
+              { id: newId(), label: "", divider: true },
+            ])
+          }
+          className="flex items-center gap-1 text-[11px] text-zinc-500 hover:underline"
+        >
+          <Plus size={14} /> 구분선 추가
+        </button>
+      </div>
     </div>
   );
 }

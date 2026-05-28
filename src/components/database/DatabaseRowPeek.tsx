@@ -34,7 +34,9 @@ import { PageMoveDialog } from "../layout/PageMoveDialog";
 import { useMemberStore } from "../../store/memberStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { PageCommentBar } from "../comments/PageCommentBar";
-import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { isLCSchedulerDatabaseId, isProtectedDatabaseId } from "../../lib/scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { pageDocToHtml } from "../../lib/export/pageToHtml";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
@@ -110,6 +112,14 @@ export function DatabaseRowPeek() {
       window.dispatchEvent(new CustomEvent(CLOSE_LC_SCHEDULER_EVENT, {
         detail: { keepSchedulerWorkspace: true },
       }));
+    }
+    // 보호 DB(작업·마일스톤·피처) 의 전체 페이지는 LC 워크스페이스 컨텍스트에서만 정상 동작.
+    // 다른 워크스페이스에서 진입한 경우 워크스페이스를 LC 로 전환해 데이터 동기화 불일치를 방지.
+    if (isProtectedDatabaseId(page.databaseId)) {
+      const wsState = useWorkspaceStore.getState();
+      if (wsState.currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
+        wsState.setCurrentWorkspaceId(LC_SCHEDULER_WORKSPACE_ID);
+      }
     }
     if (activePageId) setRowBackTarget(peekPageId, activePageId);
     let attempts = 0;

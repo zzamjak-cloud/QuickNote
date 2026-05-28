@@ -11,6 +11,11 @@ import { DateCell } from "./cells/DateCell";
 import { PersonCell } from "./cells/PersonCell";
 import { MultiSelectCell, SelectCell, StatusCell } from "./cells/OptionCells";
 import { EmailCell, FileCell, PhoneCell, UrlCell } from "./cells/SimpleCells";
+import { DbLinkCell } from "./cells/DbLinkCell";
+import { PageLinkCell } from "./cells/PageLinkCell";
+import { ProgressCell } from "./cells/ProgressCell";
+import { usePageStore } from "../../store/pageStore";
+import { resolveDerivedCellValue, isCellValueDerived } from "../../lib/database/columnSource";
 
 type Props = {
   databaseId: string;
@@ -171,8 +176,15 @@ function JsonCell({ value, onChange }: { value: CellValue; onChange: (v: CellVal
 // props 얕은 비교: column 객체·value 모두 불변 패턴으로 전달되므로 memo 효과 있음
 export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, column, value }: Props) {
   const updateCell = useDatabaseStore((s) => s.updateCell);
+  // sourceFromDb.viaPageLinkColumnId 가 설정된 컬럼은 셀값을 자동 derive — 편집 잠금.
+  const pages = usePageStore((s) => s.pages);
+  const rowCells = pages[rowId]?.dbCells;
+  const derived = resolveDerivedCellValue(column, rowCells, pages);
+  const isDerived = isCellValueDerived(column);
+  const effectiveValue: CellValue = (isDerived && derived !== undefined ? (derived as CellValue) : value);
 
   const setVal = (v: CellValue) => {
+    if (isDerived) return; // 미러 컬럼은 직접 편집 차단
     updateCell(databaseId, rowId, column.id, v);
   };
 
@@ -240,7 +252,7 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
       return (
         <SelectCell
           column={column}
-          value={typeof value === "string" ? value : ""}
+          value={typeof effectiveValue === "string" ? effectiveValue : ""}
           onChange={setVal}
         />
       );
@@ -248,7 +260,7 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
       return (
         <StatusCell
           column={column}
-          value={typeof value === "string" ? value : ""}
+          value={typeof effectiveValue === "string" ? effectiveValue : ""}
           onChange={setVal}
         />
       );
@@ -257,9 +269,9 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
         <MultiSelectCell
           column={column}
           value={
-            Array.isArray(value) &&
-            value.every((x) => typeof x === "string")
-              ? (value as string[])
+            Array.isArray(effectiveValue) &&
+            effectiveValue.every((x) => typeof x === "string")
+              ? (effectiveValue as string[])
               : []
           }
           onChange={setVal}
@@ -294,6 +306,31 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
       return (
         <FileCell
           items={Array.isArray(value) ? (value as FileCellItem[]) : []}
+          onChange={setVal}
+        />
+      );
+    case "dbLink":
+      return (
+        <DbLinkCell
+          value={typeof value === "string" ? value : null}
+          onChange={setVal}
+        />
+      );
+    case "pageLink":
+      return (
+        <PageLinkCell
+          databaseId={databaseId}
+          rowId={rowId}
+          columnId={column.id}
+          value={Array.isArray(value) && value.every((x) => typeof x === "string") ? (value as string[]) : []}
+        />
+      );
+    case "progress":
+      return (
+        <ProgressCell
+          column={column}
+          rowId={rowId}
+          value={typeof value === "number" ? value : null}
           onChange={setVal}
         />
       );

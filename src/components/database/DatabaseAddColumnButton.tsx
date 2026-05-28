@@ -19,9 +19,17 @@ const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
   { id: "url", label: "URL" },
   { id: "phone", label: "연락처" },
   { id: "email", label: "이메일" },
+  { id: "dbLink", label: "DB 연결" },
+  { id: "pageLink", label: "페이지 연결" },
 ];
 
-export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) {
+export function DatabaseAddColumnButton({
+  databaseId,
+  onAfterAdd,
+}: {
+  databaseId: string;
+  onAfterAdd?: (colId: string) => void;
+}) {
   const addColumn = useDatabaseStore((s) => s.addColumn);
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
@@ -104,7 +112,8 @@ export function DatabaseAddColumnButton({ databaseId }: { databaseId: string }) 
                 onClick={() => {
                   if (!bundle) return;
                   const idx = bundle.columns.length + 1;
-                  addColumn(databaseId, defaultColumnForType(t.id, `${t.label} ${idx}`));
+                  const colId = addColumn(databaseId, defaultColumnForType(t.id, `${t.label} ${idx}`));
+                  onAfterAdd?.(colId);
                   setOpenColumnMenu(null);
                 }}
                 className="block w-full rounded px-2 py-1 text-left text-base hover:bg-zinc-100 dark:hover:bg-zinc-800"

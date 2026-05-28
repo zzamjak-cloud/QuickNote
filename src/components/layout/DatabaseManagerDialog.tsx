@@ -1,11 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Database, RefreshCcw, Search, X } from "lucide-react";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 import { useHistoryStore } from "../../store/historyStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { emptyPanelState } from "../../types/database";
-import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { isLCSchedulerDatabaseId, isProtectedDatabaseId, ensureLCSchedulerDatabase } from "../../lib/scheduler/database";
+import { ensureLCMilestoneDatabase } from "../../lib/scheduler/milestoneDatabase";
+import { ensureLCFeatureDatabase } from "../../lib/scheduler/featureDatabase";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
 import { permanentlyDeleteDatabaseRemote } from "../../lib/sync/trashApi";
@@ -51,13 +54,32 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   /** 일괄 영구삭제 진행률 — null=비실행, { done, total } */
   const [bulkPurgeProgress, setBulkPurgeProgress] = useState<{ done: number; total: number } | null>(null);
 
+  // DB Manager 열릴 때 보호 DB(작업·마일스톤·피처) 자동 시드 — 한번도 진입한 적 없는 워크스페이스 대응
+  useEffect(() => {
+    if (!open) return;
+    const wsId = currentWorkspaceId ?? "";
+    void Promise.all([
+      ensureLCSchedulerDatabase(wsId),
+      ensureLCMilestoneDatabase(wsId),
+      ensureLCFeatureDatabase(wsId),
+    ]).catch((err) => {
+      console.warn("[db-manager] 보호 DB 시드 실패", err);
+    });
+  }, [open, currentWorkspaceId]);
+
   const activeDbIds = useMemo(
     () => new Set(dbList.map((d) => d.id)),
     [dbList],
   );
   const q = query.trim().toLowerCase();
+  // 보호 DB(작업·마일스톤·피처) 는 LC 워크스페이스 DB 관리 화면에서만 표시.
+  // (인라인 DB 블록 연결 등 다른 경로에서는 어디서나 사용 가능)
+  const inLCWorkspace = currentWorkspaceId === LC_SCHEDULER_WORKSPACE_ID;
   const visibleActive = dbList
-    .filter((d) => d.meta.title.toLowerCase().includes(q))
+    .filter((d) => {
+      if (isProtectedDatabaseId(d.id) && !inLCWorkspace) return false;
+      return d.meta.title.toLowerCase().includes(q);
+    })
     .sort((a, b) => {
       const aScheduler = isLCSchedulerDatabaseId(a.id);
       const bScheduler = isLCSchedulerDatabaseId(b.id);
@@ -299,21 +321,19 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                       </span>
                     </>
                   ) : null}
-                  {isLCSchedulerDatabaseId(d.id) ? (
+                  {isProtectedDatabaseId(d.id) ? (
                     <span className="shrink-0 rounded bg-zinc-100 px-2 py-0.5 text-sm font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300">
                       고정
                     </span>
                   ) : null}
                 </span>
-                {!isLCSchedulerDatabaseId(d.id) ? (
-                  <button
-                    type="button"
-                    onClick={() => openDatabase(d.id, d.meta.title)}
-                    className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-base text-white hover:bg-blue-700"
-                  >
-                    열기
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  onClick={() => openDatabase(d.id, d.meta.title)}
+                  className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-base text-white hover:bg-blue-700"
+                >
+                  열기
+                </button>
               </div>
             );
             })

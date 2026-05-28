@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { GripVertical, ChevronDown } from "lucide-react";
+import { GripVertical } from "lucide-react";
 import type { ColumnDef } from "../../types/database";
 import { useUiStore } from "../../store/uiStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -22,6 +22,7 @@ type Props = {
   highlightDrop?: "left" | "right" | null;
   /** 헤더 우측 리사이즈 핸들 더블클릭 시 호출 — 컬럼 내용 폭에 맞춰 자동 조정 */
   onAutoFit?: () => void;
+  onHideColumn?: () => void;
 };
 
 export function DatabaseColumnHeader({
@@ -33,6 +34,7 @@ export function DatabaseColumnHeader({
   onDrop,
   highlightDrop,
   onAutoFit,
+  onHideColumn,
 }: Props) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
@@ -181,7 +183,6 @@ export function DatabaseColumnHeader({
         >
           <PageIconDisplay icon={resolveColumnIcon(column)} size="sm" className="shrink-0" />
           <span className="truncate">{column.name}</span>
-          <ChevronDown size={10} className="ml-auto opacity-0 group-hover:opacity-60" />
         </button>
       </div>
 
@@ -204,6 +205,7 @@ export function DatabaseColumnHeader({
           column={column}
           anchorEl={thRef.current}
           onClose={() => setOpenColumnMenu(null)}
+          onHide={onHideColumn}
         />
       )}
       {resizeGuideX != null &&

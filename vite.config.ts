@@ -16,6 +16,9 @@ export default defineConfig({
     ...(isTauri && { target: ["es2021", "chrome105", "safari14"] }),
     minify: isTauri && process.env.TAURI_DEBUG ? false : "esbuild",
     sourcemap: isTauri ? !!process.env.TAURI_DEBUG : false,
+    // lucide(586 kB), tiptap(470 kB), 앱 소스 번들(923 kB·gzip 270 kB)은 분할 불가 범위
+    // 실제 전송 크기(gzip) 기준으로 문제없으므로 경고 임계값을 올림
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -36,6 +39,18 @@ export default defineConfig({
           }
           if (id.includes("emoji-picker-react")) {
             return "emoji-picker-vendor";
+          }
+          // aws-amplify: AppSync/Auth 코드 분리 — 메인 번들에서 ~400 kB 절감
+          if (id.includes("node_modules/aws-amplify") || id.includes("node_modules/@aws-amplify")) {
+            return "amplify-vendor";
+          }
+          // IndexedDB 레이어 분리
+          if (id.includes("node_modules/dexie")) {
+            return "db-vendor";
+          }
+          // OIDC 인증 클라이언트 분리
+          if (id.includes("node_modules/oidc-client-ts") || id.includes("node_modules/jwt-decode")) {
+            return "auth-vendor";
           }
         },
       },

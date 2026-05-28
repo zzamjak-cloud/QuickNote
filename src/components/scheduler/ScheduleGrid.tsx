@@ -168,10 +168,10 @@ export function ScheduleGrid({ workspaceId }: Props) {
   const selectedProjectFilterId =
     selectedProjectId?.startsWith("proj:") ? selectedProjectId.slice(5) : null;
 
-  // 구성원 일정은 고유 구성원 기준으로 모두 표시하고, 프로젝트 필터는 특이사항에만 적용한다.
+  // 구성원 일정은 고유 구성원 기준으로 모두 표시하고, 특이사항은 현재 선택된 스코프에 귀속된 것만 표시한다.
   const { schedulesByMember, globalSchedules } = useMemo(
-    () => groupSchedulesByMember(schedules, selectedProjectFilterId),
-    [schedules, selectedProjectFilterId],
+    () => groupSchedulesByMember(schedules, selectedProjectId),
+    [schedules, selectedProjectId],
   );
 
   // 멤버 실제 행 수 계산

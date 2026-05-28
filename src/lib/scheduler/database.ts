@@ -2,7 +2,7 @@ import type { ColumnDef, DatabaseBundle, DatabaseRowPreset } from "../../types/d
 import { LC_SCHEDULER_WORKSPACE_ID, resolveLCSchedulerWorkspaceId } from "./scope";
 
 export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
-export const LC_SCHEDULER_DATABASE_TITLE = "LC스케줄러";
+export const LC_SCHEDULER_DATABASE_TITLE = "작업";
 export const LC_SCHEDULER_DATABASE_ID = `${LC_SCHEDULER_DATABASE_ID_PREFIX}${LC_SCHEDULER_WORKSPACE_ID}`;
 export const LC_SCHEDULER_TASK_PRESET_ID = "lc-scheduler-preset:task";
 export const LC_SCHEDULER_ATTENDANCE_PRESET_ID = "lc-scheduler-preset:annual-leave";
@@ -115,6 +115,33 @@ export function isLCSchedulerRequiredColumnId(columnId: string): boolean {
   return LC_SCHEDULER_REQUIRED_COLUMN_IDS.has(columnId);
 }
 
+/** 마일스톤·피처 DB 식별 프리픽스 — 모두 LC 워크스페이스 전용 보호 DB. */
+export const LC_MILESTONE_DATABASE_ID_PREFIX = "lc-milestone-db:";
+export const LC_FEATURE_DATABASE_ID_PREFIX = "lc-feature-db:";
+
+export const LC_MILESTONE_DATABASE_TITLE = "마일스톤";
+export const LC_FEATURE_DATABASE_TITLE = "피처";
+
+export const LC_MILESTONE_DATABASE_ID = `${LC_MILESTONE_DATABASE_ID_PREFIX}${LC_SCHEDULER_WORKSPACE_ID}`;
+export const LC_FEATURE_DATABASE_ID = `${LC_FEATURE_DATABASE_ID_PREFIX}${LC_SCHEDULER_WORKSPACE_ID}`;
+
+export function isLCMilestoneDatabaseId(databaseId: string | null | undefined): boolean {
+  return Boolean(databaseId?.startsWith(LC_MILESTONE_DATABASE_ID_PREFIX));
+}
+
+export function isLCFeatureDatabaseId(databaseId: string | null | undefined): boolean {
+  return Boolean(databaseId?.startsWith(LC_FEATURE_DATABASE_ID_PREFIX));
+}
+
+/** 삭제·이름 변경 등이 금지되는 보호 DB(작업·마일스톤·피처) 판별 */
+export function isProtectedDatabaseId(databaseId: string | null | undefined): boolean {
+  return (
+    isLCSchedulerDatabaseId(databaseId) ||
+    isLCMilestoneDatabaseId(databaseId) ||
+    isLCFeatureDatabaseId(databaseId)
+  );
+}
+
 export function isLCSchedulerHiddenPropertyColumnId(columnId: string): boolean {
   return columnId === LC_SCHEDULER_COLUMN_IDS.meta;
 }
@@ -135,7 +162,8 @@ function lcSchedulerColumns(): ColumnDef[] {
       name: "프로젝트",
       type: "select",
       width: 150,
-      config: { options: [] },
+      // schedulerProjectsStore와 옵션 자동 미러링
+      config: { linkedScope: "project" },
     },
     {
       id: LC_SCHEDULER_COLUMN_IDS.status,
@@ -160,9 +188,18 @@ function lcSchedulerColumns(): ColumnDef[] {
         options: LC_SCHEDULER_ATTENDANCE_OPTIONS.map(({ id, label, color }) => ({ id, label, color })),
       },
     },
-    { id: LC_SCHEDULER_COLUMN_IDS.organization, name: "조직", type: "select", width: 140, config: { options: [] } },
-    { id: LC_SCHEDULER_COLUMN_IDS.team, name: "팀", type: "select", width: 140, config: { options: [] } },
-    { id: LC_SCHEDULER_COLUMN_IDS.milestone, name: "마일스톤", type: "select", width: 140, config: { options: [] } },
+    // 조직/팀 — organizationStore / teamStore 와 옵션 자동 미러링
+    { id: LC_SCHEDULER_COLUMN_IDS.organization, name: "조직", type: "select", width: 140, config: { linkedScope: "organization" } },
+    { id: LC_SCHEDULER_COLUMN_IDS.team, name: "팀", type: "select", width: 140, config: { linkedScope: "team" } },
+    // 마일스톤 — 마일스톤 DB 페이지로 검색·연결
+    {
+      id: LC_SCHEDULER_COLUMN_IDS.milestone,
+      name: "마일스톤",
+      type: "pageLink",
+      width: 160,
+      // 마일스톤 DB는 워크스페이스 단위 보호 DB라 id가 고정됨.
+      // (실제 id 주입은 mergeColumns 단계에서 처리)
+    },
     { id: LC_SCHEDULER_COLUMN_IDS.version, name: "버전", type: "text", width: 120 },
     { id: LC_SCHEDULER_COLUMN_IDS.feature, name: "피쳐", type: "text", width: 160 },
     {
@@ -290,6 +327,15 @@ function mergeSchedulerColumnConfig(
   }
   if (columnId === LC_SCHEDULER_COLUMN_IDS.attendance) {
     return mergeSelectOptions(existing, defaults, new Set(["hourly-leave"]));
+  }
+  // linkedScope / sourceFromDb / pageLinkScope 가 새로 정의된 컬럼은 defaults 우선.
+  // (구버전 데이터에 잔류한 옵션·설정을 덮어 외부 소스 미러링 모드로 강제 전환)
+  if (
+    defaults?.linkedScope ||
+    defaults?.sourceFromDb ||
+    defaults?.pageLinkScopeDatabaseId
+  ) {
+    return { ...(existing ?? {}), ...defaults };
   }
   return existing ?? defaults;
 }
@@ -501,6 +547,7 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
           ? s
           : { ...s, cacheWorkspaceId: schedulerWorkspaceId },
     );
+    syncFullPageTitleForDatabase(databaseId, LC_SCHEDULER_DATABASE_TITLE, usePageStore, enqueueUpsertPageRaw);
     return;
   }
 
@@ -513,4 +560,35 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
   }));
   migrateAttendanceRows(databaseId, next.rowPageOrder, usePageStore, enqueueUpsertPageRaw);
   enqueueUpsertDatabase(next);
+  syncFullPageTitleForDatabase(databaseId, LC_SCHEDULER_DATABASE_TITLE, usePageStore, enqueueUpsertPageRaw);
+}
+
+/**
+ * 보호 DB(작업·마일스톤·피처)의 전체 페이지(databaseBlock 단독 호스트 페이지) 제목을
+ * DB 메타 타이틀과 일치하도록 강제 동기화 — 구버전 캐시에 잔존한 "LC스케줄러" 같은
+ * 옛 제목을 새 고정 타이틀("작업")로 자동 교체한다.
+ */
+export function syncFullPageTitleForDatabase(
+  databaseId: string,
+  targetTitle: string,
+  usePageStore: typeof import("../../store/pageStore").usePageStore,
+  enqueueUpsertPageRaw: typeof import("../../store/databaseStore/helpers").enqueueUpsertPageRaw,
+): void {
+  const pageId = usePageStore.getState().findFullPagePageIdForDatabase(databaseId);
+  if (!pageId) return;
+  const page = usePageStore.getState().pages[pageId];
+  if (!page || page.title === targetTitle) return;
+  const t = Date.now();
+  usePageStore.setState((s) => {
+    const current = s.pages[pageId];
+    if (!current) return s;
+    return {
+      pages: {
+        ...s.pages,
+        [pageId]: { ...current, title: targetTitle, updatedAt: t },
+      },
+    };
+  });
+  const after = usePageStore.getState().pages[pageId];
+  if (after) enqueueUpsertPageRaw(after);
 }

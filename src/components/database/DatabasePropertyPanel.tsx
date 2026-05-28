@@ -32,6 +32,9 @@ const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
   { id: "url", label: "URL" },
   { id: "phone", label: "연락처" },
   { id: "email", label: "이메일" },
+  { id: "dbLink", label: "DB 연결" },
+  { id: "pageLink", label: "페이지 연결" },
+  { id: "progress", label: "진행률" },
 ];
 
 type PresetScope = "workspace" | "organization" | "team" | "project";

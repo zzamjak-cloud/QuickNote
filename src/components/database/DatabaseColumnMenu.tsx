@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, Type } from "lucide-react";
+import { EyeOff, Trash2, Type } from "lucide-react";
 import type { ColumnDef, ColumnType } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { ColumnOptionsEditor } from "./ColumnOptionsEditor";
@@ -9,6 +9,11 @@ import { AnchoredPanelBase } from "../../lib/ui-primitives";
 import { IconPicker } from "../common/IconPicker";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { defaultColumnIcon } from "./columnTypeIcons";
+import {
+  ProgressSourceEditor,
+  SelectSourceEditor,
+  PageLinkScopeEditor,
+} from "./columnEditors/ColumnSourceEditors";
 
 const TYPE_LABELS: { id: ColumnType; label: string }[] = [
   { id: "text", label: "텍스트" },
@@ -24,6 +29,9 @@ const TYPE_LABELS: { id: ColumnType; label: string }[] = [
   { id: "url", label: "URL" },
   { id: "phone", label: "연락처" },
   { id: "email", label: "이메일" },
+  { id: "dbLink", label: "DB 연결" },
+  { id: "pageLink", label: "페이지 연결" },
+  { id: "progress", label: "진행률" },
 ];
 
 type Props = {
@@ -32,9 +40,10 @@ type Props = {
   /** 부모 헤더 셀 — 메뉴를 그 아래에 띄우기 위한 기준점 */
   anchorEl?: HTMLElement | null;
   onClose: () => void;
+  onHide?: () => void;
 };
 
-export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Props) {
+export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose, onHide }: Props) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const removeColumn = useDatabaseStore((s) => s.removeColumn);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -109,14 +118,29 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
               options={TYPE_LABELS.map((item) => ({ value: item.id, label: item.label }))}
               className="mt-0.5"
               buttonClassName="w-full px-1 py-0.5"
+              portal
             />
           </div>
         )}
 
         {isSelectKind && (
-          <div className="border-t border-zinc-100 px-1 py-1 dark:border-zinc-800">
-            <ColumnOptionsEditor databaseId={databaseId} column={column} />
-          </div>
+          <>
+            <SelectSourceEditor databaseId={databaseId} column={column} />
+            {/* sourceFromDb/linkedScope 가 설정된 경우 옵션은 원본 미러링 — 편집기 숨김 */}
+            {!column.config?.sourceFromDb && !column.config?.linkedScope && (
+              <div className="border-t border-zinc-100 px-1 py-1 dark:border-zinc-800">
+                <ColumnOptionsEditor databaseId={databaseId} column={column} />
+              </div>
+            )}
+          </>
+        )}
+
+        {column.type === "progress" && (
+          <ProgressSourceEditor databaseId={databaseId} column={column} />
+        )}
+
+        {column.type === "pageLink" && (
+          <PageLinkScopeEditor databaseId={databaseId} column={column} />
         )}
 
         <div className="border-t border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
@@ -148,6 +172,16 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose }: Pr
             </span>
           </button>
         </div>
+
+        {!isTitle && onHide && (
+          <button
+            type="button"
+            onClick={() => { onHide(); onClose(); }}
+            className="flex w-full items-center gap-2 rounded px-2 py-1 text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <EyeOff size={12} /> 숨기기
+          </button>
+        )}
 
         {!isTitle && !isProtectedSchedulerColumn && (
           <button

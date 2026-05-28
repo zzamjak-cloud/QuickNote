@@ -25,12 +25,61 @@ export type ColumnType =
   | "checkbox"
   | "url"
   | "phone"
-  | "email";
+  | "email"
+  | "dbLink"
+  | "pageLink"
+  | "progress";
 
 export type SelectOption = {
   id: string;
   label: string;
   color?: string;
+  /** true 면 선택 불가능한 시각적 구분선 — 옵션 목록 그룹핑용. */
+  divider?: boolean;
+};
+
+/** 다른 DB·페이지의 속성·페이지 검색 시 적용할 필터 — 사용자가 + 버튼으로 자유롭게 누적. */
+export type SearchFilterRule = {
+  id: string;
+  /**
+   * - `database`  : 특정 DB의 항목 페이지만
+   * - `milestone` : 특정 마일스톤 항목(또는 그것에 연결된 페이지)
+   * - `feature`   : 특정 피처 항목
+   * - `organization` / `team` / `project` : 조직·팀·프로젝트 스코프 일치
+   */
+  kind: "database" | "milestone" | "feature" | "organization" | "team" | "project";
+  /** kind에 따른 대상 id (databaseId / pageId / scopeId). 빈 값이면 비활성. */
+  value?: string;
+};
+
+/** 다른 DB의 컬럼을 그대로 가져와 옵션·셀값을 미러링 */
+export type ColumnSourceFromDb = {
+  databaseId: string;
+  columnId: string;
+  /**
+   * 설정 시 — 셀 값을 현재 행의 해당 pageLink 컬럼이 가리키는 첫 페이지의
+   * `databaseId`/`columnId` 셀에서 자동으로 가져옴 (read-only 미러).
+   * 미설정 시에는 옵션 목록만 미러링되고 값은 독립적으로 편집 가능.
+   */
+  viaPageLinkColumnId?: string;
+};
+
+/** 진행률 컬럼이 다른 DB의 페이지들 진척을 계산할 때 참조하는 소스 정의 */
+export type ProgressSourceConfig = {
+  /** 진행률을 계산할 대상 DB */
+  databaseId: string;
+  /** 완료 여부 판단에 사용할 컬럼(보통 status 또는 select) */
+  columnId: string;
+  /** 위 컬럼에서 "완료"로 간주할 옵션 id (또는 값) */
+  completedValue: string;
+  /**
+   * 대상 페이지를 어떻게 결정할지:
+   * - `linkedPagesFromColumn` : 현재 행의 특정 pageLink 컬럼에 연결된 페이지들만 계산
+   * - `allRows`               : 대상 DB의 모든 행 페이지
+   */
+  scope?:
+    | { mode: "linkedPagesFromColumn"; pageLinkColumnId: string }
+    | { mode: "allRows" };
 };
 
 export type ColumnDef = {
@@ -49,6 +98,22 @@ export type ColumnDef = {
     wrapText?: boolean;
     /** @deprecated 미사용 — 데이터 호환을 위해 필드는 유지 */
     textAlign?: "left" | "center" | "right";
+    /** select/multiSelect/status 컬럼 — 다른 DB 컬럼에서 옵션·값을 가져와 미러링 */
+    sourceFromDb?: ColumnSourceFromDb;
+    /** progress 컬럼 — 자동 계산 소스 */
+    progressSource?: ProgressSourceConfig;
+    /** pageLink 컬럼 — 검색 대상을 특정 DB로 제한 (없으면 전체) */
+    pageLinkScopeDatabaseId?: string;
+    /** pageLink/dbLink/select(외부소스) 컬럼 — 검색 시 사전 필터 */
+    searchFilters?: SearchFilterRule[];
+    /**
+     * select/multiSelect/status 컬럼 — 옵션을 퀵노트 내부 엔티티 store에서 미러링.
+     * - `"organization"` : organizationStore.organizations
+     * - `"team"`         : teamStore.teams
+     * - `"project"`      : schedulerProjectsStore.projects
+     * 셀값에는 해당 엔티티 id가 저장된다.
+     */
+    linkedScope?: "organization" | "team" | "project";
   };
 };
 
@@ -131,6 +196,16 @@ export type ViewSpecificConfig = {
 
 export type ViewConfigsMap = Partial<Record<ViewKind, ViewSpecificConfig>>;
 
+/** 필터·정렬 프리셋 탭 */
+export type FilterPreset = {
+  id: string;
+  name: string;
+  /** pageIcon 인코딩 문자열 */
+  icon?: string;
+  filterRules: FilterRule[];
+  sortRules: SortRule[];
+};
+
 /** DB 뷰 개인 UI 상태 — 로컬 전용 저장소에만 저장하고 문서/동기화 payload에 싣지 않는다. */
 export type DatabasePanelState = {
   searchQuery: string;
@@ -152,6 +227,10 @@ export type DatabasePanelState = {
   itemLimit?: number;
   /** 갤러리 뷰 열 수 (기본 4). node attrs → 서버 동기화. */
   galleryColumns?: number;
+  /** 필터 프리셋 탭 목록 */
+  filterPresets?: FilterPreset[];
+  /** 현재 활성화된 프리셋 ID. null이면 전역 filterRules/sortRules 사용. */
+  activePresetId?: string | null;
 };
 
 /** DB 템플릿 — 새 행 생성 시 기본 셀 값을 미리 지정. */
@@ -216,6 +295,9 @@ export function defaultMinWidthForType(type: ColumnType): number {
     case "url":
     case "email":
     case "phone": return 180;
+    case "dbLink": return 180;
+    case "pageLink": return 200;
+    case "progress": return 140;
     default: return 140;
   }
 }

@@ -17,6 +17,9 @@ const COLUMN_TYPE_LUCIDE: Record<ColumnType, string> = {
   url: "Link",
   phone: "Phone",
   email: "Mail",
+  dbLink: "Database",
+  pageLink: "Link2",
+  progress: "GaugeCircle",
 };
 
 /** 타입별 기본 아이콘(pageIcon 인코딩 문자열) */

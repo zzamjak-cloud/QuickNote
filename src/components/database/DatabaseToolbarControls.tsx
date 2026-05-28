@@ -12,6 +12,7 @@ import { newId } from "../../lib/id";
 import { FILTER_OPERATORS } from "../../lib/databaseQuery";
 import type {
   DatabasePanelState,
+  FilterPreset,
   FilterRule,
   FilterOperator,
   SortRule,
@@ -22,6 +23,8 @@ import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
 import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
 import { AppSelect } from "../common/AppSelect";
 import { VIEW_ICONS, VIEW_LABELS, getUnavailableViewKinds } from "./databaseBlockViewConstants";
+import { IconPicker } from "../common/IconPicker";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 
 type Props = {
   databaseId: string;
@@ -51,6 +54,11 @@ export function DatabaseToolbarControls({
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [viewMenuHover, setViewMenuHover] = useState(false);
   const viewMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // 프리셋 탭 인라인 이름 편집
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [presetNameDraft, setPresetNameDraft] = useState("");
+  const presetInputRef = useRef<HTMLInputElement>(null);
 
   // 검색창 — 한글 IME 입력 깨짐 방지: composition 동안 panelState commit 보류.
   const [searchDraft, setSearchDraft] = useState(panelState.searchQuery);
@@ -131,13 +139,44 @@ export function DatabaseToolbarControls({
     [columns],
   );
 
-  // 구버전 sortColumnId 마이그레이션.
-  const effectiveSortRules: SortRule[] =
+  // 구버전 sortColumnId 마이그레이션 (전역 규칙에만 적용)
+  const globalSortRules: SortRule[] =
     panelState.sortRules && panelState.sortRules.length > 0
       ? panelState.sortRules
       : panelState.sortColumnId
         ? [{ columnId: panelState.sortColumnId, dir: panelState.sortDir }]
         : [];
+
+  // 활성 프리셋 — activePresetId가 있으면 해당 프리셋의 규칙 사용
+  const activePreset: FilterPreset | null =
+    (panelState.filterPresets ?? []).find((p) => p.id === panelState.activePresetId) ?? null;
+
+  const activeFilterRules: FilterRule[] = activePreset?.filterRules ?? panelState.filterRules;
+  const activeSortRules: SortRule[] = activePreset?.sortRules ?? globalSortRules;
+
+  /** 필터 규칙 업데이트 — 프리셋이 활성화된 경우 프리셋 안에서 업데이트 */
+  const setActiveFilterRules = (rules: FilterRule[]) => {
+    if (activePreset) {
+      const presets = (panelState.filterPresets ?? []).map((p) =>
+        p.id === activePreset.id ? { ...p, filterRules: rules } : p,
+      );
+      setPanelState({ filterPresets: presets });
+    } else {
+      setPanelState({ filterRules: rules });
+    }
+  };
+
+  /** 정렬 규칙 업데이트 — 프리셋이 활성화된 경우 프리셋 안에서 업데이트 */
+  const setActiveSortRules = (rules: SortRule[]) => {
+    if (activePreset) {
+      const presets = (panelState.filterPresets ?? []).map((p) =>
+        p.id === activePreset.id ? { ...p, sortRules: rules } : p,
+      );
+      setPanelState({ filterPresets: presets });
+    } else {
+      setPanelState({ sortRules: rules, sortColumnId: null });
+    }
+  };
 
   const firstFilterColumn = useMemo(
     () => columns.find((column) => column.type === "title") ?? columns[0],
@@ -154,13 +193,13 @@ export function DatabaseToolbarControls({
       operator: "contains",
       value: "",
     };
-    setPanelState({ filterRules: [...panelState.filterRules, rule] });
+    setActiveFilterRules([...activeFilterRules, rule]);
     setRulesExpanded(true);
   };
 
   const toggleFilterRules = () => {
     setOpenRuleKey(null);
-    if (panelState.filterRules.length === 0) {
+    if (activeFilterRules.length === 0) {
       addFilter(firstFilterColumn?.id);
       return;
     }
@@ -168,36 +207,31 @@ export function DatabaseToolbarControls({
   };
 
   const updateRule = (id: string, patch: Partial<FilterRule>) => {
-    setPanelState({
-      filterRules: panelState.filterRules.map((r) =>
-        r.id === id ? { ...r, ...patch } : r,
-      ),
-    });
+    setActiveFilterRules(
+      activeFilterRules.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    );
   };
 
   const removeRule = (id: string) => {
-    setPanelState({
-      filterRules: panelState.filterRules.filter((r) => r.id !== id),
-    });
+    setActiveFilterRules(activeFilterRules.filter((r) => r.id !== id));
     if (openRuleKey === id) setOpenRuleKey(null);
   };
 
   const addSort = (columnId?: string) => {
-    const used = new Set(effectiveSortRules.map((r) => r.columnId));
+    const used = new Set(activeSortRules.map((r) => r.columnId));
     const preferred = columnId ? columns.find((c) => c.id === columnId) : null;
     const first =
       preferred && !used.has(preferred.id)
         ? preferred
         : columns.find((c) => !used.has(c.id)) ?? columns[0];
     if (!first) return;
-    const next: SortRule[] = [...effectiveSortRules, { columnId: first.id, dir: "asc" }];
-    setPanelState({ sortRules: next, sortColumnId: null });
+    setActiveSortRules([...activeSortRules, { columnId: first.id, dir: "asc" }]);
     setRulesExpanded(true);
   };
 
   const toggleSortRules = () => {
     setOpenRuleKey(null);
-    if (effectiveSortRules.length === 0) {
+    if (activeSortRules.length === 0) {
       addSort(firstSortColumn?.id);
       return;
     }
@@ -205,27 +239,72 @@ export function DatabaseToolbarControls({
   };
 
   const updateSortRule = (idx: number, patch: Partial<SortRule>) => {
-    const next = effectiveSortRules.map((r, i) => (i === idx ? { ...r, ...patch } : r));
-    setPanelState({ sortRules: next, sortColumnId: null });
+    const next = activeSortRules.map((r, i) => (i === idx ? { ...r, ...patch } : r));
+    setActiveSortRules(next);
   };
 
   const removeSortRule = (idx: number) => {
-    const next = effectiveSortRules.filter((_, i) => i !== idx);
-    setPanelState({ sortRules: next, sortColumnId: null });
+    const next = activeSortRules.filter((_, i) => i !== idx);
+    setActiveSortRules(next);
     const key = `sort:${idx}`;
     if (openRuleKey === key) setOpenRuleKey(null);
   };
 
-  const hasAnyRules =
-    panelState.filterRules.length > 0 || effectiveSortRules.length > 0;
+  const hasAnyRules = activeFilterRules.length > 0 || activeSortRules.length > 0;
 
   // 현재 열린 필터 규칙
-  const openFilterRule = panelState.filterRules.find((r) => r.id === openRuleKey) ?? null;
+  const openFilterRule = activeFilterRules.find((r) => r.id === openRuleKey) ?? null;
   // 현재 열린 정렬 규칙 idx
   const openSortIdx = openRuleKey?.startsWith("sort:")
     ? parseInt(openRuleKey.slice(5), 10)
     : -1;
-  const openSortRule = openSortIdx >= 0 ? (effectiveSortRules[openSortIdx] ?? null) : null;
+  const openSortRule = openSortIdx >= 0 ? (activeSortRules[openSortIdx] ?? null) : null;
+
+  // ── 프리셋 탭 조작 ──────────────────────────────────────────────────────────
+
+  const addPreset = () => {
+    const presets = panelState.filterPresets ?? [];
+    const lastPreset = presets[presets.length - 1];
+    const newPreset: FilterPreset = {
+      id: newId(),
+      name: `탭 ${presets.length + 1}`,
+      filterRules: lastPreset ? [...lastPreset.filterRules] : [],
+      sortRules: lastPreset ? [...lastPreset.sortRules] : [],
+    };
+    setPanelState({
+      filterPresets: [...presets, newPreset],
+      activePresetId: newPreset.id,
+    });
+  };
+
+  const deletePreset = (id: string) => {
+    const presets = (panelState.filterPresets ?? []).filter((p) => p.id !== id);
+    const nextActiveId =
+      panelState.activePresetId === id
+        ? (presets[presets.length - 1]?.id ?? null)
+        : panelState.activePresetId;
+    setPanelState({ filterPresets: presets, activePresetId: nextActiveId });
+  };
+
+  const commitPresetRename = (id: string) => {
+    const name = presetNameDraft.trim();
+    if (name) {
+      const presets = (panelState.filterPresets ?? []).map((p) =>
+        p.id === id ? { ...p, name } : p,
+      );
+      setPanelState({ filterPresets: presets });
+    }
+    setEditingPresetId(null);
+  };
+
+  const setPresetIcon = (id: string, icon: string | null) => {
+    const presets = (panelState.filterPresets ?? []).map((p) =>
+      p.id === id ? { ...p, icon: icon ?? undefined } : p,
+    );
+    setPanelState({ filterPresets: presets });
+  };
+
+  const filterPresets = panelState.filterPresets ?? [];
 
   return (
     <div className="select-none border-b border-zinc-200 px-2 py-2 dark:border-zinc-700">
@@ -284,6 +363,94 @@ export function DatabaseToolbarControls({
             </div>
           )}
         </div>
+
+        {/* 필터 프리셋 탭 */}
+        {filterPresets.length > 0 && (
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            {filterPresets.map((preset) => {
+              const isActive = panelState.activePresetId === preset.id;
+              const isEditing = editingPresetId === preset.id;
+              return (
+                <div
+                  key={preset.id}
+                  className={[
+                    "group flex items-center gap-0.5 overflow-hidden rounded-full border text-xs transition-colors",
+                    isActive
+                      ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                      : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400",
+                  ].join(" ")}
+                >
+                  {/* 아이콘 피커 */}
+                  <span className="pl-1.5">
+                    <IconPicker
+                      current={preset.icon ?? null}
+                      defaultIcon={null}
+                      size="sm"
+                      onChange={(icon) => setPresetIcon(preset.id, icon)}
+                    />
+                  </span>
+
+                  {isEditing ? (
+                    <input
+                      ref={presetInputRef}
+                      autoFocus
+                      value={presetNameDraft}
+                      onChange={(e) => setPresetNameDraft(e.target.value)}
+                      onBlur={() => commitPresetRename(preset.id)}
+                      onKeyDown={(e) => {
+                        e.stopPropagation();
+                        if (e.key === "Enter") commitPresetRename(preset.id);
+                        if (e.key === "Escape") setEditingPresetId(null);
+                      }}
+                      className="w-20 bg-transparent py-1 text-xs outline-none"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPanelState({
+                          activePresetId: isActive ? null : preset.id,
+                        })
+                      }
+                      onDoubleClick={(e) => {
+                        e.preventDefault();
+                        setPresetNameDraft(preset.name);
+                        setEditingPresetId(preset.id);
+                      }}
+                      className="py-1 pl-1 pr-1.5 text-left"
+                    >
+                      {preset.icon ? (
+                        <PageIconDisplay icon={preset.icon} size="sm" className="mr-0.5 inline-block" />
+                      ) : null}
+                      {preset.name}
+                    </button>
+                  )}
+
+                  {/* 탭 삭제 — hover 시 표시 */}
+                  <button
+                    type="button"
+                    onClick={() => deletePreset(preset.id)}
+                    className="mr-1 rounded-full p-0.5 opacity-0 hover:bg-zinc-200 group-hover:opacity-100 dark:hover:bg-zinc-700"
+                    title="탭 삭제"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 새 프리셋 탭 추가 */}
+        <button
+          type="button"
+          onClick={addPreset}
+          title="필터 프리셋 탭 추가"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-zinc-200 text-zinc-400 hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-600 dark:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+        >
+          <Plus size={12} />
+        </button>
+
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {/* 갤러리 열 수 선택 */}
           {view === "gallery" && (
@@ -338,7 +505,6 @@ export function DatabaseToolbarControls({
                   setPanelState({ searchQuery: (e.target as HTMLInputElement).value });
                 }}
                 onBlur={() => {
-                  // 비어있으면 접힘
                   if (!searchDraft.trim()) setSearchOpen(false);
                 }}
                 className="w-36 select-text bg-transparent py-1 text-base outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500"
@@ -355,18 +521,18 @@ export function DatabaseToolbarControls({
               onClick={toggleFilterRules}
               title="필터"
               aria-label="필터"
-              aria-pressed={panelState.filterRules.length > 0}
+              aria-pressed={activeFilterRules.length > 0}
               className={[
                 "relative inline-flex h-7 w-7 items-center justify-center rounded-md",
-                panelState.filterRules.length > 0
+                activeFilterRules.length > 0
                   ? "text-blue-600 hover:bg-zinc-100 dark:text-blue-400 dark:hover:bg-zinc-800"
                   : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
               ].join(" ")}
             >
               <Funnel size={13} />
-              {panelState.filterRules.length > 0 ? (
+              {activeFilterRules.length > 0 ? (
                 <span className="pointer-events-none absolute bottom-[1px] right-[1px] min-w-[10px] rounded-full bg-blue-600 px-[2px] text-center text-[9px] font-semibold leading-[10px] text-white dark:bg-blue-500">
-                  {panelState.filterRules.length > 99 ? "99+" : panelState.filterRules.length}
+                  {activeFilterRules.length > 99 ? "99+" : activeFilterRules.length}
                 </span>
               ) : null}
             </button>
@@ -378,18 +544,18 @@ export function DatabaseToolbarControls({
               onClick={toggleSortRules}
               title="정렬"
               aria-label="정렬"
-              aria-pressed={effectiveSortRules.length > 0}
+              aria-pressed={activeSortRules.length > 0}
               className={[
                 "relative inline-flex h-7 w-7 items-center justify-center rounded-md",
-                effectiveSortRules.length > 0
+                activeSortRules.length > 0
                   ? "text-orange-600 hover:bg-zinc-100 dark:text-orange-400 dark:hover:bg-zinc-800"
                   : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
               ].join(" ")}
             >
               <ArrowUpDown size={13} />
-              {effectiveSortRules.length > 0 ? (
+              {activeSortRules.length > 0 ? (
                 <span className="pointer-events-none absolute bottom-[1px] right-[1px] min-w-[10px] rounded-full bg-orange-600 px-[2px] text-center text-[9px] font-semibold leading-[10px] text-white dark:bg-orange-500">
-                  {effectiveSortRules.length > 99 ? "99+" : effectiveSortRules.length}
+                  {activeSortRules.length > 99 ? "99+" : activeSortRules.length}
                 </span>
               ) : null}
             </button>
@@ -412,9 +578,9 @@ export function DatabaseToolbarControls({
       {/* 필터·정렬 규칙 인라인 펼침 영역 */}
       {rulesExpanded && hasAnyRules && (
         <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-          {panelState.filterRules.length > 0 && (
+          {activeFilterRules.length > 0 && (
             <div className="flex flex-wrap items-center gap-1">
-              {panelState.filterRules.map((rule) => {
+              {activeFilterRules.map((rule) => {
                 const col = columns.find((c) => c.id === rule.columnId);
                 const op = FILTER_OPERATORS.find((o) => o.id === rule.operator);
                 const hasValue = !["isEmpty", "isNotEmpty"].includes(rule.operator);
@@ -462,13 +628,13 @@ export function DatabaseToolbarControls({
             </div>
           )}
 
-          {panelState.filterRules.length > 0 && effectiveSortRules.length > 0 && (
+          {activeFilterRules.length > 0 && activeSortRules.length > 0 && (
             <span className="select-none px-0.5 text-zinc-300 dark:text-zinc-600">|</span>
           )}
 
-          {effectiveSortRules.length > 0 && (
+          {activeSortRules.length > 0 && (
             <div className="flex flex-wrap items-center gap-1">
-              {effectiveSortRules.map((rule, idx) => {
+              {activeSortRules.map((rule, idx) => {
                 const col = columns.find((c) => c.id === rule.columnId);
                 const key = `sort:${idx}`;
                 const summary = `${col?.name ?? "컬럼"} ${rule.dir === "asc" ? "↑" : "↓"}`;

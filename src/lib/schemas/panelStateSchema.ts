@@ -31,6 +31,14 @@ const viewSpecificSchema = z.object({
 
 const viewKindEnum = z.enum(["table", "kanban", "timeline", "gallery", "list"]);
 
+const filterPresetSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  icon: z.string().optional(),
+  filterRules: z.array(filterRuleSchema),
+  sortRules: z.array(sortRuleSchema),
+});
+
 /** attrs 에 부분 저장 가능 — 알려진 키만 통과·알 수 없는 키는 제거(CWE-1321 완화) */
 const databasePanelStatePartialSchema = z
   .object({
@@ -46,6 +54,8 @@ const databasePanelStatePartialSchema = z
     hiddenViewKinds: z.array(viewKindEnum).optional(),
     itemLimit: z.number().int().positive().optional(),
     galleryColumns: z.number().int().min(1).max(10).optional(),
+    filterPresets: z.array(filterPresetSchema).optional(),
+    activePresetId: z.string().nullable().optional(),
   });
 
 export function parseDatabasePanelStateJson(raw: string): DatabasePanelState {

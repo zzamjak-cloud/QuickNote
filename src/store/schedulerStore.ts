@@ -11,6 +11,8 @@ import {
   updateLCSchedulerSchedule,
 } from "../lib/scheduler/taskAdapter";
 import { LC_SCHEDULER_ATTENDANCE_TITLE, ensureLCSchedulerDatabase } from "../lib/scheduler/database";
+import { ensureLCMilestoneDatabase } from "../lib/scheduler/milestoneDatabase";
+import { ensureLCFeatureDatabase } from "../lib/scheduler/featureDatabase";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../lib/scheduler/scope";
 import {
   DEFAULT_SCHEDULE_COLOR,
@@ -304,7 +306,12 @@ export const useSchedulerStore = create<SchedulerStore>()(
         } catch (error) {
           console.warn("[scheduler] 서버 스냅샷 대조 실패", error);
         }
-        await ensureLCSchedulerDatabase(workspaceId);
+        // LC 워크스페이스 진입 시 보호 DB 3종(작업·마일스톤·피처) 모두 보장
+        await Promise.all([
+          ensureLCSchedulerDatabase(workspaceId),
+          ensureLCMilestoneDatabase(workspaceId),
+          ensureLCFeatureDatabase(workspaceId),
+        ]);
         set({
           schedules: projectSchedulesForStore(workspaceId, from, to),
           cachedWorkspaceId: workspaceId,

@@ -105,10 +105,13 @@ export function seedColumns(): ColumnDef[] {
   ];
 }
 
-/** 컬럼별 기본 셀 값 — 현재는 status만 첫 옵션을 채움, 나머지는 null. */
+/** 컬럼별 기본 셀 값 — status는 첫 옵션, pageLink는 빈 배열, 나머지는 null. */
 export function defaultCellValueForColumn(col: ColumnDef): CellValue {
   if (col.type === "status") {
     return col.config?.options?.[0]?.id ?? null;
+  }
+  if (col.type === "pageLink") {
+    return [];
   }
   return null;
 }

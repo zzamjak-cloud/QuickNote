@@ -8,7 +8,7 @@ import type { WorkspaceSummary } from "../../store/workspaceStore";
 import { zustandStorage } from "../storage/index";
 import { getSyncEngine } from "./runtime";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
-import { isLCSchedulerDatabaseId } from "../scheduler/database";
+import { isProtectedDatabaseId } from "../scheduler/database";
 
 type WorkspaceSnapshot = {
   pages: ReturnType<typeof usePageStore.getState>["pages"];
@@ -261,9 +261,25 @@ function filterPagesForWorkspaceSnapshot(
   workspaceId: string,
   pages: WorkspaceSnapshot["pages"],
 ): WorkspaceSnapshot["pages"] {
-  if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) return { ...pages };
+  if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
+    // LC스케줄러 스냅샷은 반드시 LC스케줄러 소속 페이지만 포함.
+    // workspaceId 가 명시적으로 lc-scheduler-global 이거나
+    // databaseId 가 스케줄러 DB인 행 페이지만 허용한다.
+    return Object.fromEntries(
+      Object.entries(pages).filter(
+        ([, page]) =>
+          isProtectedDatabaseId(page.databaseId) ||
+          page.workspaceId === LC_SCHEDULER_WORKSPACE_ID,
+      ),
+    );
+  }
+  // 다른 워크스페이스 스냅샷에는 LC스케줄러 전용 페이지를 포함하지 않는다.
   return Object.fromEntries(
-    Object.entries(pages).filter(([, page]) => !isLCSchedulerDatabaseId(page.databaseId)),
+    Object.entries(pages).filter(
+      ([, page]) =>
+        !isProtectedDatabaseId(page.databaseId) &&
+        page.workspaceId !== LC_SCHEDULER_WORKSPACE_ID,
+    ),
   );
 }
 
@@ -273,7 +289,7 @@ function filterDatabasesForWorkspaceSnapshot(
 ): WorkspaceSnapshot["databases"] {
   if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) return { ...databases };
   return Object.fromEntries(
-    Object.entries(databases).filter(([databaseId]) => !isLCSchedulerDatabaseId(databaseId)),
+    Object.entries(databases).filter(([databaseId]) => !isProtectedDatabaseId(databaseId)),
   );
 }
 
@@ -416,12 +432,12 @@ function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot
   }
   const schedulerPages = Object.fromEntries(
     Object.entries(usePageStore.getState().pages).filter(([, page]) =>
-      isLCSchedulerDatabaseId(page.databaseId),
+      isProtectedDatabaseId(page.databaseId),
     ),
   );
   const schedulerDatabases = Object.fromEntries(
     Object.entries(useDatabaseStore.getState().databases).filter(([databaseId]) =>
-      isLCSchedulerDatabaseId(databaseId),
+      isProtectedDatabaseId(databaseId),
     ),
   );
   const pages = workspaceId === LC_SCHEDULER_WORKSPACE_ID
@@ -476,10 +492,10 @@ async function restoreWorkspaceSnapshot(workspaceId: string): Promise<boolean> {
 //
 function hasLocalWorkspaceCache(): boolean {
   const hasNonSchedulerPages = Object.values(usePageStore.getState().pages).some(
-    (page) => !isLCSchedulerDatabaseId(page.databaseId),
+    (page) => !isProtectedDatabaseId(page.databaseId),
   );
   const hasNonSchedulerDatabases = Object.keys(useDatabaseStore.getState().databases).some(
-    (databaseId) => !isLCSchedulerDatabaseId(databaseId),
+    (databaseId) => !isProtectedDatabaseId(databaseId),
   );
   return (
     hasNonSchedulerPages ||
@@ -489,10 +505,10 @@ function hasLocalWorkspaceCache(): boolean {
 
 export function cacheBelongsToWorkspace(workspaceId: string): boolean {
   const hasPageCache = Object.values(usePageStore.getState().pages).some(
-    (page) => !isLCSchedulerDatabaseId(page.databaseId),
+    (page) => !isProtectedDatabaseId(page.databaseId),
   );
   const hasDatabaseCache = Object.keys(useDatabaseStore.getState().databases).some(
-    (databaseId) => !isLCSchedulerDatabaseId(databaseId),
+    (databaseId) => !isProtectedDatabaseId(databaseId),
   );
   const pageCacheWorkspaceId = usePageStore.getState().cacheWorkspaceId;
   const databaseCacheWorkspaceId = useDatabaseStore.getState().cacheWorkspaceId;
@@ -514,17 +530,17 @@ export function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
   const activeSchedulerPageId =
     nextWorkspaceId === LC_SCHEDULER_WORKSPACE_ID &&
     activePageId &&
-    isLCSchedulerDatabaseId(currentPages[activePageId]?.databaseId)
+    isProtectedDatabaseId(currentPages[activePageId]?.databaseId)
       ? activePageId
       : null;
   const schedulerPages = Object.fromEntries(
     Object.entries(currentPages).filter(([, page]) =>
-      isLCSchedulerDatabaseId(page.databaseId),
+      isProtectedDatabaseId(page.databaseId),
     ),
   );
   const schedulerDatabases = Object.fromEntries(
     Object.entries(useDatabaseStore.getState().databases).filter(([databaseId]) =>
-      isLCSchedulerDatabaseId(databaseId),
+      isProtectedDatabaseId(databaseId),
     ),
   );
   usePageStore.setState({

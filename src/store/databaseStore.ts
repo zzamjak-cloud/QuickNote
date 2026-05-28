@@ -30,9 +30,16 @@ import {
 } from "./databaseStore/migrations";
 import {
   LC_SCHEDULER_DATABASE_TITLE,
+  LC_MILESTONE_DATABASE_TITLE,
+  LC_FEATURE_DATABASE_TITLE,
   isLCSchedulerDatabaseId,
   isLCSchedulerRequiredColumnId,
+  isLCMilestoneDatabaseId,
+  isLCFeatureDatabaseId,
+  isProtectedDatabaseId,
 } from "../lib/scheduler/database";
+import { isLCMilestoneRequiredColumnId } from "../lib/scheduler/milestoneDatabase";
+import { isLCFeatureRequiredColumnId } from "../lib/scheduler/featureDatabase";
 import {
   allocateUniqueDatabaseTitle,
   createRowPage,
@@ -102,6 +109,13 @@ type DatabaseStoreActions = {
     pageId: string,
     columnId: string,
     value: CellValue,
+  ) => void;
+  /** pageLink 셀 갱신 — 같은 이름의 pageLink 컬럼 기준으로 양방향 연결 처리 */
+  updatePageLinkCell: (
+    databaseId: string,
+    rowPageId: string,
+    columnId: string,
+    nextPageIds: string[],
   ) => void;
   setRowOrder: (databaseId: string, orderedPageIds: string[]) => void;
   attachPageAsRow: (databaseId: string, pageId: string) => boolean;
@@ -175,7 +189,8 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       deleteDatabase: (id) => {
-        if (isLCSchedulerDatabaseId(id)) return;
+        // 보호 DB(작업·마일스톤·피처) 는 삭제 금지
+        if (isProtectedDatabaseId(id)) return;
         const bundle = get().databases[id];
         if (bundle) {
           for (const pageId of bundle.rowPageOrder) {
@@ -216,6 +231,12 @@ export const useDatabaseStore = create<DatabaseStore>()(
         if (!b) return false;
         if (isLCSchedulerDatabaseId(id)) {
           return normalizeDbTitle(title) === LC_SCHEDULER_DATABASE_TITLE;
+        }
+        if (isLCMilestoneDatabaseId(id)) {
+          return normalizeDbTitle(title) === LC_MILESTONE_DATABASE_TITLE;
+        }
+        if (isLCFeatureDatabaseId(id)) {
+          return normalizeDbTitle(title) === LC_FEATURE_DATABASE_TITLE;
         }
         const nextTitle = normalizeDbTitle(title);
         if (isDatabaseTitleTaken(state.databases, nextTitle, id)) {
@@ -322,10 +343,12 @@ export const useDatabaseStore = create<DatabaseStore>()(
 
       updateColumn: (databaseId, columnId, patch) => {
         let patchForColumn = patch;
-        if (
-          isLCSchedulerDatabaseId(databaseId) &&
-          isLCSchedulerRequiredColumnId(columnId)
-        ) {
+        // 보호 DB의 필수 컬럼은 type 변경 차단
+        const isProtectedRequiredCol =
+          (isLCSchedulerDatabaseId(databaseId) && isLCSchedulerRequiredColumnId(columnId)) ||
+          (isLCMilestoneDatabaseId(databaseId) && isLCMilestoneRequiredColumnId(columnId)) ||
+          (isLCFeatureDatabaseId(databaseId) && isLCFeatureRequiredColumnId(columnId));
+        if (isProtectedRequiredCol) {
           const { type: _ignoredType, ...rest } = patch;
           patchForColumn = rest;
         }
@@ -368,9 +391,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       removeColumn: (databaseId, columnId) => {
+        // 보호 DB의 필수 컬럼은 삭제 차단
         if (
-          isLCSchedulerDatabaseId(databaseId) &&
-          isLCSchedulerRequiredColumnId(columnId)
+          (isLCSchedulerDatabaseId(databaseId) && isLCSchedulerRequiredColumnId(columnId)) ||
+          (isLCMilestoneDatabaseId(databaseId) && isLCMilestoneRequiredColumnId(columnId)) ||
+          (isLCFeatureDatabaseId(databaseId) && isLCFeatureRequiredColumnId(columnId))
         ) {
           return;
         }
@@ -677,6 +702,79 @@ export const useDatabaseStore = create<DatabaseStore>()(
         // 셀 값 변경은 "행 페이지"의 내용 변경으로 본다.
         // DB 히스토리에는 남기지 않고, pageStore(setPageDbCell/renamePage)의
         // 페이지 히스토리로만 기록한다.
+      },
+
+      updatePageLinkCell: (databaseId, rowPageId, columnId, nextPageIds) => {
+        const bundle = get().databases[databaseId];
+        if (!bundle) return;
+
+        // 현재 컬럼 이름 조회 — 역방향 매칭에 사용
+        const currentCol = bundle.columns.find((c) => c.id === columnId);
+        const colName = currentCol?.name ?? "";
+
+        // 기존 값과 비교해 추가/제거 목록 계산
+        const pageStore = usePageStore.getState();
+        const prevRaw = pageStore.pages[rowPageId]?.dbCells?.[columnId];
+        const prevIds: string[] = Array.isArray(prevRaw)
+          ? (prevRaw as string[]).filter((v): v is string => typeof v === "string")
+          : [];
+
+        const prevSet = new Set(prevIds);
+        const nextSet = new Set(nextPageIds);
+        const added = nextPageIds.filter((id) => !prevSet.has(id));
+        const removed = prevIds.filter((id) => !nextSet.has(id));
+
+        // 이쪽 셀 저장
+        pageStore.setPageDbCell(rowPageId, columnId, nextPageIds);
+        set((state) => {
+          const b = state.databases[databaseId];
+          if (!b) return state;
+          return {
+            databases: {
+              ...state.databases,
+              [databaseId]: { ...b, meta: { ...b.meta, updatedAt: now() } },
+            },
+          };
+        });
+
+        const databases = get().databases;
+
+        // 추가된 페이지 → 역방향 연결
+        for (const targetPageId of added) {
+          const targetPage = pageStore.pages[targetPageId];
+          if (!targetPage?.databaseId) continue;
+          const targetBundle = databases[targetPage.databaseId];
+          if (!targetBundle) continue;
+          const sameNameCol = targetBundle.columns.find(
+            (c) => c.type === "pageLink" && c.name === colName,
+          );
+          if (!sameNameCol) continue;
+          const existing = targetPage.dbCells?.[sameNameCol.id];
+          const existingIds: string[] = Array.isArray(existing)
+            ? (existing as string[]).filter((v): v is string => typeof v === "string")
+            : [];
+          if (!existingIds.includes(rowPageId)) {
+            pageStore.setPageDbCell(targetPageId, sameNameCol.id, [...existingIds, rowPageId]);
+          }
+        }
+
+        // 제거된 페이지 → 역방향 연결 해제
+        for (const targetPageId of removed) {
+          const targetPage = pageStore.pages[targetPageId];
+          if (!targetPage?.databaseId) continue;
+          const targetBundle = databases[targetPage.databaseId];
+          if (!targetBundle) continue;
+          const sameNameCol = targetBundle.columns.find(
+            (c) => c.type === "pageLink" && c.name === colName,
+          );
+          if (!sameNameCol) continue;
+          const existing = targetPage.dbCells?.[sameNameCol.id];
+          const existingIds: string[] = Array.isArray(existing)
+            ? (existing as string[]).filter((v): v is string => typeof v === "string")
+            : [];
+          const updated = existingIds.filter((id) => id !== rowPageId);
+          pageStore.setPageDbCell(targetPageId, sameNameCol.id, updated);
+        }
       },
 
       setRowOrder: (databaseId, orderedPageIds) => {
@@ -1437,15 +1535,22 @@ export function listDatabases(state: DatabaseStore): { id: string; meta: Databas
   const currentWorkspaceId = useWorkspaceStore.getState().currentWorkspaceId;
   return Object.entries(state.databases)
     .filter(([id, bundle]) => {
-      if (isLCSchedulerDatabaseId(id)) return true;
+      // 보호 DB(작업·마일스톤·피처) 는 모든 워크스페이스에서 공유 — 인라인 DB 블록 연결용으로 항상 노출
+      if (isProtectedDatabaseId(id)) return true;
       const workspaceId = bundle.meta.workspaceId;
       return !currentWorkspaceId || !workspaceId || workspaceId === currentWorkspaceId;
     })
     .map(([id, b]) => ({ id, meta: b.meta }))
     .sort((a, b) => {
-      const aScheduler = isLCSchedulerDatabaseId(a.id);
-      const bScheduler = isLCSchedulerDatabaseId(b.id);
-      if (aScheduler !== bScheduler) return aScheduler ? -1 : 1;
+      // 정렬 순서: 작업 → 마일스톤 → 피처 → 일반(updatedAt desc)
+      const aProtected = isProtectedDatabaseId(a.id);
+      const bProtected = isProtectedDatabaseId(b.id);
+      if (aProtected !== bProtected) return aProtected ? -1 : 1;
+      if (aProtected && bProtected) {
+        const order = (id: string) =>
+          isLCSchedulerDatabaseId(id) ? 0 : isLCMilestoneDatabaseId(id) ? 1 : 2;
+        return order(a.id) - order(b.id);
+      }
       return b.meta.updatedAt - a.meta.updatedAt;
     });
 }

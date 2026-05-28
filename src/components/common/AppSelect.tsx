@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 
 export type AppSelectOption = {
@@ -31,6 +32,8 @@ type AppSelectProps = {
   showSelectedCheck?: boolean;
   openOnMount?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** true이면 드롭다운을 document.body Portal로 렌더 — overflow 컨테이너 안에서 클리핑 방지 */
+  portal?: boolean;
 };
 
 function mergeClassNames(...tokens: Array<string | undefined>): string {
@@ -56,10 +59,13 @@ export function AppSelect({
   showSelectedCheck = false,
   openOnMount = false,
   onOpenChange,
+  portal = false,
 }: AppSelectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(openOnMount);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
 
   const grouped = useMemo<AppSelectGroup[]>(() => {
     if (groups && groups.length > 0) return groups;
@@ -81,6 +87,27 @@ export function AppSelect({
     onOpenChange?.(next);
   };
 
+  // portal 모드: 열릴 때 버튼 기준 fixed 좌표 계산 + 뷰포트 아래 넘치면 위로 플립
+  useLayoutEffect(() => {
+    if (!portal || !open || !buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const menuHeight = 280; // 최대 추정 높이
+    const menuWidth = Math.max(rect.width, 180);
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const openAbove = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+    const rawLeft = align === "right" ? rect.right - menuWidth : rect.left;
+    const clampedLeft = Math.max(8, Math.min(rawLeft, window.innerWidth - menuWidth - 8));
+    setMenuStyle({
+      position: "fixed",
+      top: openAbove ? undefined : rect.bottom + 4,
+      bottom: openAbove ? window.innerHeight - rect.top + 4 : undefined,
+      left: clampedLeft,
+      width: menuWidth,
+      zIndex: 9999,
+    });
+  }, [open, portal, align]);
+
   useEffect(() => {
     if (!openOnMount) return;
     buttonRef.current?.focus();
@@ -90,6 +117,7 @@ export function AppSelect({
     if (!open) return;
     const handlePointerDown = (event: MouseEvent) => {
       if (rootRef.current?.contains(event.target as Node)) return;
+      if (menuRef.current?.contains(event.target as Node)) return;
       setOpen(false);
       onOpenChange?.(false);
     };
@@ -138,15 +166,22 @@ export function AppSelect({
         />
       </button>
 
-      {open && (
-        <div
-          role="listbox"
-          className={mergeClassNames(
-            "absolute top-full z-[720] mt-1 min-w-full rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900",
-            align === "right" ? "right-0" : "left-0",
-            menuClassName,
-          )}
-        >
+      {open && (() => {
+        const menuNode = (
+          <div
+            ref={menuRef}
+            role="listbox"
+            style={portal ? menuStyle : undefined}
+            className={mergeClassNames(
+              portal
+                ? "rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                : mergeClassNames(
+                    "absolute top-full z-[720] mt-1 min-w-full rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900",
+                    align === "right" ? "right-0" : "left-0",
+                  ),
+              menuClassName,
+            )}
+          >
           {flatOptions.length === 0 ? (
             <div className="px-2 py-1.5 text-zinc-400 dark:text-zinc-500">{emptyLabel}</div>
           ) : (
@@ -208,7 +243,9 @@ export function AppSelect({
             </div>
           )}
         </div>
-      )}
+        );
+        return portal ? createPortal(menuNode, document.body) : menuNode;
+      })()}
     </div>
   );
 }
