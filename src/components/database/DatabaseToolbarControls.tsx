@@ -9,8 +9,10 @@ import {
   Plus,
 } from "lucide-react";
 import { newId } from "../../lib/id";
-import { FILTER_OPERATORS } from "../../lib/databaseQuery";
+import { FILTER_OPERATORS, cellToSearchString } from "../../lib/databaseQuery";
 import type {
+  CellValue,
+  ColumnDef,
   DatabasePanelState,
   FilterPreset,
   FilterRule,
@@ -19,6 +21,11 @@ import type {
   ViewKind,
 } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { usePageStore } from "../../store/pageStore";
+import { useOrganizationStore } from "../../store/organizationStore";
+import { useTeamStore } from "../../store/teamStore";
+import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
+import { effectiveOptions } from "../../lib/database/columnSource";
 import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
 import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
 import { AppSelect } from "../common/AppSelect";
@@ -47,6 +54,11 @@ export function DatabaseToolbarControls({
   layout,
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
+  const pages = usePageStore((s) => s.pages);
+  const databases = useDatabaseStore((s) => s.databases);
+  const organizations = useOrganizationStore((s) => s.organizations);
+  const teams = useTeamStore((s) => s.teams);
+  const projects = useSchedulerProjectsStore((s) => s.projects);
   const [rulesExpanded, setRulesExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(
     panelState.searchQuery.trim().length > 0,
@@ -254,6 +266,49 @@ export function DatabaseToolbarControls({
 
   // 현재 열린 필터 규칙
   const openFilterRule = activeFilterRules.find((r) => r.id === openRuleKey) ?? null;
+  const openFilterColumn = openFilterRule
+    ? columns.find((column) => column.id === openFilterRule.columnId) ?? null
+    : null;
+  const filterValueOptions = useMemo(() => {
+    if (!openFilterColumn || !bundle) return [];
+    if (["select", "multiSelect", "status"].includes(openFilterColumn.type)) {
+      return effectiveOptions(openFilterColumn, databases, {
+        organizations,
+        teams,
+        projects,
+      })
+        .filter((option) => !option.divider)
+        .map((option) => ({ value: option.id, label: option.label }));
+    }
+    const seen = new Set<string>();
+    const values: Array<{ value: string; label: string }> = [];
+    for (const rowPageId of bundle.rowPageOrder) {
+      const page = pages[rowPageId];
+      if (!page) continue;
+      const raw: CellValue =
+        openFilterColumn.type === "title"
+          ? page.title
+          : (page.dbCells?.[openFilterColumn.id] as CellValue | undefined) ?? null;
+      const display = cellToSearchString(raw, columns, openFilterColumn.id).trim();
+      if (!display || seen.has(display)) continue;
+      seen.add(display);
+      values.push({ value: display, label: display });
+      if (values.length >= 100) break;
+    }
+    return values;
+  }, [bundle, columns, databases, openFilterColumn, organizations, pages, projects, teams]);
+  const filterRuleValueLabel = (rule: FilterRule, column: ColumnDef | undefined): string => {
+    const value = rule.value ?? "";
+    if (!value || !column) return value;
+    if (["select", "multiSelect", "status"].includes(column.type)) {
+      return (
+        effectiveOptions(column, databases, { organizations, teams, projects }).find(
+          (option) => option.id === value,
+        )?.label ?? value
+      );
+    }
+    return value;
+  };
   // 현재 열린 정렬 규칙 idx
   const openSortIdx = openRuleKey?.startsWith("sort:")
     ? parseInt(openRuleKey.slice(5), 10)
@@ -312,7 +367,7 @@ export function DatabaseToolbarControls({
       <div className="flex flex-wrap items-center gap-2">
         <div
           ref={viewMenuRef}
-          className="relative w-32"
+          className="relative w-24"
           onMouseEnter={() => setViewMenuHover(true)}
           onMouseLeave={() => {
             if (viewMenuOpen) return;
@@ -339,7 +394,7 @@ export function DatabaseToolbarControls({
             </div>
           )}
           {viewMenuOpen && (
-            <div className="absolute left-0 top-full z-[720] mt-1 w-32 rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <div className="absolute left-0 top-full z-[720] mt-1 w-24 rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
               {availableViewOptions.map((option) => {
                 const OptionIcon = VIEW_ICONS[option.value];
                 const selected = option.value === view;
@@ -374,36 +429,36 @@ export function DatabaseToolbarControls({
                 <div
                   key={preset.id}
                   className={[
-                    "group flex items-center gap-0.5 overflow-hidden rounded-full border text-xs transition-colors",
+                    "group relative flex max-w-[120px] items-center gap-0 rounded-md border text-xs transition-colors",
                     isActive
-                      ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                      ? "border-emerald-300 bg-emerald-100 text-emerald-950 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-100"
                       : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400",
                   ].join(" ")}
                 >
-                  {/* 아이콘 피커 */}
-                  <span className="pl-1.5">
-                    <IconPicker
-                      current={preset.icon ?? null}
-                      defaultIcon={null}
-                      size="sm"
-                      onChange={(icon) => setPresetIcon(preset.id, icon)}
-                    />
-                  </span>
-
                   {isEditing ? (
-                    <input
-                      ref={presetInputRef}
-                      autoFocus
-                      value={presetNameDraft}
-                      onChange={(e) => setPresetNameDraft(e.target.value)}
-                      onBlur={() => commitPresetRename(preset.id)}
-                      onKeyDown={(e) => {
-                        e.stopPropagation();
-                        if (e.key === "Enter") commitPresetRename(preset.id);
-                        if (e.key === "Escape") setEditingPresetId(null);
-                      }}
-                      className="w-20 bg-transparent py-1 text-xs outline-none"
-                    />
+                    <>
+                      <span className="shrink-0 pl-1">
+                        <IconPicker
+                          current={preset.icon ?? null}
+                          defaultIcon={null}
+                          size="sm"
+                          onChange={(icon) => setPresetIcon(preset.id, icon)}
+                        />
+                      </span>
+                      <input
+                        ref={presetInputRef}
+                        autoFocus
+                        value={presetNameDraft}
+                        onChange={(e) => setPresetNameDraft(e.target.value)}
+                        onBlur={() => commitPresetRename(preset.id)}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                          if (e.key === "Enter") commitPresetRename(preset.id);
+                          if (e.key === "Escape") setEditingPresetId(null);
+                        }}
+                        className="w-16 bg-transparent py-1 text-xs outline-none"
+                      />
+                    </>
                   ) : (
                     <button
                       type="button"
@@ -417,12 +472,14 @@ export function DatabaseToolbarControls({
                         setPresetNameDraft(preset.name);
                         setEditingPresetId(preset.id);
                       }}
-                      className="py-1 pl-1 pr-1.5 text-left"
+                      className="flex min-w-0 items-center gap-0.5 overflow-hidden py-1 pl-1 pr-2 text-left"
                     >
-                      {preset.icon ? (
-                        <PageIconDisplay icon={preset.icon} size="sm" className="mr-0.5 inline-block" />
-                      ) : null}
-                      {preset.name}
+                      <PageIconDisplay
+                        icon={preset.icon ?? null}
+                        size="sm"
+                        className="shrink-0"
+                      />
+                      <span className="block max-w-[82px] truncate">{preset.name}</span>
                     </button>
                   )}
 
@@ -430,10 +487,10 @@ export function DatabaseToolbarControls({
                   <button
                     type="button"
                     onClick={() => deletePreset(preset.id)}
-                    className="mr-1 rounded-full p-0.5 opacity-0 hover:bg-zinc-200 group-hover:opacity-100 dark:hover:bg-zinc-700"
+                    className="absolute -right-1.5 -top-1.5 rounded-full bg-white/95 p-0.5 opacity-0 shadow-sm ring-1 ring-zinc-200 hover:bg-zinc-200 group-hover:opacity-100 dark:bg-zinc-900/95 dark:ring-zinc-700 dark:hover:bg-zinc-700"
                     title="탭 삭제"
                   >
-                    <X size={10} />
+                    <X size={9} />
                   </button>
                 </div>
               );
@@ -582,14 +639,9 @@ export function DatabaseToolbarControls({
             <div className="flex flex-wrap items-center gap-1">
               {activeFilterRules.map((rule) => {
                 const col = columns.find((c) => c.id === rule.columnId);
-                const op = FILTER_OPERATORS.find((o) => o.id === rule.operator);
                 const hasValue = !["isEmpty", "isNotEmpty"].includes(rule.operator);
-                const summary = [
-                  `${col?.name ?? "컬럼"}${op?.label ?? ""}`,
-                  hasValue && rule.value ? `"${rule.value}"` : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" ");
+                const valueLabel = filterRuleValueLabel(rule, col);
+                const summary = hasValue && valueLabel ? valueLabel : (col?.name ?? "필터");
                 return (
                   <div
                     key={rule.id}
@@ -601,7 +653,6 @@ export function DatabaseToolbarControls({
                       className="flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] text-white hover:bg-blue-600"
                     >
                       <span className="max-w-[160px] truncate">{summary}</span>
-                      <ChevronDown size={10} className="shrink-0 text-blue-200" />
                     </button>
                     <button
                       type="button"
@@ -707,11 +758,10 @@ export function DatabaseToolbarControls({
             {!["isEmpty", "isNotEmpty"].includes(openFilterRule.operator) && (
               <div className="space-y-1">
                 <div className="text-[11px] uppercase text-zinc-400">값</div>
-                <input
-                  value={openFilterRule.value ?? ""}
-                  onChange={(e) => updateRule(openFilterRule.id, { value: e.target.value })}
-                  placeholder="값 입력…"
-                  className="w-full select-text rounded border border-zinc-300 bg-white px-1.5 py-1 text-sm outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-800"
+                <FilterValueControl
+                  rule={openFilterRule}
+                  options={filterValueOptions}
+                  onChange={(value) => updateRule(openFilterRule.id, { value })}
                 />
               </div>
             )}
@@ -749,6 +799,76 @@ export function DatabaseToolbarControls({
           </div>,
           document.body,
         )}
+    </div>
+  );
+}
+
+function FilterValueControl({
+  rule,
+  options,
+  onChange,
+}: {
+  rule: FilterRule;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(rule.value ?? "");
+  const composingRef = useRef(false);
+  const selectedOption = options.find((option) => option.value === (rule.value ?? ""));
+  const [directInputOpen, setDirectInputOpen] = useState(!selectedOption);
+
+  useEffect(() => {
+    if (!composingRef.current) setDraft(rule.value ?? "");
+    setDirectInputOpen(!selectedOption);
+  }, [rule.value, selectedOption]);
+
+  const commit = (value: string) => {
+    onChange(value);
+  };
+
+  return (
+    <div className="space-y-1">
+      {options.length > 0 && (
+        <AppSelect
+          value={selectedOption ? (rule.value ?? "") : ""}
+          onChange={(value) => {
+            if (!value) {
+              setDirectInputOpen(true);
+              setDraft("");
+              commit("");
+              return;
+            }
+            setDirectInputOpen(false);
+            setDraft(value);
+            commit(value);
+          }}
+          options={[{ value: "", label: "직접 입력" }, ...options]}
+          buttonClassName="w-full px-1.5 py-1"
+          menuClassName="max-h-64 overflow-y-auto"
+        />
+      )}
+      {(options.length === 0 || directInputOpen) && (
+        <input
+          value={draft}
+          onChange={(event) => {
+            const value = event.target.value;
+            setDraft(value);
+            if (!composingRef.current) commit(value);
+          }}
+          onCompositionStart={() => {
+            composingRef.current = true;
+          }}
+          onCompositionEnd={(event) => {
+            composingRef.current = false;
+            const value = event.currentTarget.value;
+            setDraft(value);
+            commit(value);
+          }}
+          onBlur={() => commit(draft)}
+          placeholder={options.length > 0 ? "직접 입력…" : "값 입력…"}
+          className="w-full select-text rounded border border-zinc-300 bg-white px-1.5 py-1 text-sm outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-800"
+        />
+      )}
     </div>
   );
 }

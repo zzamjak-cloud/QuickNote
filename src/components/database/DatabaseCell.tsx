@@ -14,8 +14,10 @@ import { EmailCell, FileCell, PhoneCell, UrlCell } from "./cells/SimpleCells";
 import { DbLinkCell } from "./cells/DbLinkCell";
 import { PageLinkCell } from "./cells/PageLinkCell";
 import { ProgressCell } from "./cells/ProgressCell";
+import { ItemFetchCell } from "./cells/ItemFetchCell";
 import { usePageStore } from "../../store/pageStore";
 import { resolveDerivedCellValue, isCellValueDerived } from "../../lib/database/columnSource";
+import { resolvePageLinkMirrorValue } from "../../lib/database/pageLinkMirror";
 
 type Props = {
   databaseId: string;
@@ -176,12 +178,23 @@ function JsonCell({ value, onChange }: { value: CellValue; onChange: (v: CellVal
 // props 얕은 비교: column 객체·value 모두 불변 패턴으로 전달되므로 memo 효과 있음
 export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, column, value }: Props) {
   const updateCell = useDatabaseStore((s) => s.updateCell);
+  const databases = useDatabaseStore((s) => s.databases);
   // sourceFromDb.viaPageLinkColumnId 가 설정된 컬럼은 셀값을 자동 derive — 편집 잠금.
   const pages = usePageStore((s) => s.pages);
   const rowCells = pages[rowId]?.dbCells;
-  const derived = resolveDerivedCellValue(column, rowCells, pages);
+  const derived = resolveDerivedCellValue(column, rowCells, pages, {
+    currentRowPageId: rowId,
+    databases,
+  });
+  const pageLinkMirror = resolvePageLinkMirrorValue({
+    databases,
+    pages,
+    currentDatabaseId: databaseId,
+    rowId,
+    column,
+  });
   const isDerived = isCellValueDerived(column);
-  const effectiveValue: CellValue = (isDerived && derived !== undefined ? (derived as CellValue) : value);
+  const effectiveValue: CellValue = isDerived ? ((derived as CellValue) ?? null) : value;
 
   const setVal = (v: CellValue) => {
     if (isDerived) return; // 미러 컬럼은 직접 편집 차단
@@ -322,7 +335,13 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
           databaseId={databaseId}
           rowId={rowId}
           columnId={column.id}
-          value={Array.isArray(value) && value.every((x) => typeof x === "string") ? (value as string[]) : []}
+          value={
+            pageLinkMirror ??
+            (Array.isArray(value) && value.every((x) => typeof x === "string")
+              ? (value as string[])
+              : [])
+          }
+          readOnly={pageLinkMirror !== undefined}
         />
       );
     case "progress":
@@ -332,6 +351,14 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
           rowId={rowId}
           value={typeof value === "number" ? value : null}
           onChange={setVal}
+        />
+      );
+    case "itemFetch":
+      return (
+        <ItemFetchCell
+          databaseId={databaseId}
+          rowId={rowId}
+          column={column}
         />
       );
     default:

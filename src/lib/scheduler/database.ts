@@ -1,5 +1,14 @@
 import type { ColumnDef, DatabaseBundle, DatabaseRowPreset } from "../../types/database";
 import { LC_SCHEDULER_WORKSPACE_ID, resolveLCSchedulerWorkspaceId } from "./scope";
+// LC_FEATURE_DATABASE_ID 는 이 파일에서 상수로 선언되므로 직접 참조 (순환 import 방지)
+const LC_FEATURE_DATABASE_ID_CONST = `lc-feature-db:${LC_SCHEDULER_WORKSPACE_ID}`;
+// 피처 DB 컬럼 ID — featureDatabase.ts 순환 import 방지용 인라인 상수
+const LC_FEATURE_COL = {
+  milestone: "lc-feature:milestone",
+  organization: "lc-feature:organization",
+  team: "lc-feature:team",
+  project: "lc-feature:project",
+} as const;
 
 export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
 export const LC_SCHEDULER_DATABASE_TITLE = "작업";
@@ -201,7 +210,23 @@ function lcSchedulerColumns(): ColumnDef[] {
       // (실제 id 주입은 mergeColumns 단계에서 처리)
     },
     { id: LC_SCHEDULER_COLUMN_IDS.version, name: "버전", type: "text", width: 120 },
-    { id: LC_SCHEDULER_COLUMN_IDS.feature, name: "피쳐", type: "text", width: 160 },
+    {
+      id: LC_SCHEDULER_COLUMN_IDS.feature,
+      name: "피쳐",
+      type: "pageLink",
+      width: 180,
+      // 피처 DB 항목만 선택. 역방향→피처의 "작업" 컬럼. 피처 선택 시 관련 컬럼값 자동 채움.
+      config: {
+        pageLinkScopeDatabaseId: LC_FEATURE_DATABASE_ID_CONST,
+        pageLinkReverseColumnName: "작업",
+        pageLinkAutoFill: [
+          { targetColumnId: LC_SCHEDULER_COLUMN_IDS.milestone, sourceColumnId: LC_FEATURE_COL.milestone },
+          { targetColumnId: LC_SCHEDULER_COLUMN_IDS.organization, sourceColumnId: LC_FEATURE_COL.organization },
+          { targetColumnId: LC_SCHEDULER_COLUMN_IDS.team, sourceColumnId: LC_FEATURE_COL.team },
+          { targetColumnId: LC_SCHEDULER_COLUMN_IDS.project, sourceColumnId: LC_FEATURE_COL.project },
+        ],
+      },
+    },
     {
       id: LC_SCHEDULER_COLUMN_IDS.color,
       name: "카드 색상",

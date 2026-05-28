@@ -21,6 +21,7 @@ const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
   { id: "email", label: "이메일" },
   { id: "dbLink", label: "DB 연결" },
   { id: "pageLink", label: "페이지 연결" },
+  { id: "itemFetch", label: "페이지 연결 가져오기" },
 ];
 
 export function DatabaseAddColumnButton({

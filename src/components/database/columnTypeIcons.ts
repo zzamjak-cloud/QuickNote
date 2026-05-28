@@ -20,6 +20,7 @@ const COLUMN_TYPE_LUCIDE: Record<ColumnType, string> = {
   dbLink: "Database",
   pageLink: "Link2",
   progress: "GaugeCircle",
+  itemFetch: "PackageSearch",
 };
 
 /** 타입별 기본 아이콘(pageIcon 인코딩 문자열) */

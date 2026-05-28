@@ -1,15 +1,12 @@
 // 컬럼 편집 팝업의 추가 섹션 — sourceFromDb / progressSource / pageLinkScope·검색필터.
 // DatabaseColumnMenu 내부에서 컬럼 type 에 따라 조건부 렌더링.
 
-import { useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
-import { newId } from "../../../lib/id";
+import { useMemo } from "react";
 import { AppSelect } from "../../common/AppSelect";
 import { useDatabaseStore, listDatabases } from "../../../store/databaseStore";
 import type {
   ColumnDef,
   ProgressSourceConfig,
-  SearchFilterRule,
   ColumnSourceFromDb,
 } from "../../../types/database";
 
@@ -25,152 +22,111 @@ type CommonProps = {
 export function ProgressSourceEditor({ databaseId, column }: CommonProps) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const databases = useDatabaseStore((s) => s.databases);
-  const allDatabases = useDatabaseStore(listDatabases);
   const ps = column.config?.progressSource ?? null;
 
-  const targetDb = ps?.databaseId ? databases[ps.databaseId] : null;
-  const targetCol = ps && targetDb ? targetDb.columns.find((c) => c.id === ps.columnId) : null;
-  const targetOptions = targetCol?.config?.options ?? [];
-
-  // 같은 DB 내 pageLink 컬럼들 (linkedPagesFromColumn 모드 선택용)
   const currentBundle = databases[databaseId];
-  const pageLinkColumns = (currentBundle?.columns ?? []).filter((c) => c.type === "pageLink");
+  const linkedPageColumns = (currentBundle?.columns ?? []).filter(
+    (c) => c.type === "pageLink" || c.type === "itemFetch",
+  );
+  const linkedPageColumnId =
+    ps?.scope?.mode === "linkedPagesFromColumn" ? ps.scope.pageLinkColumnId : "";
+  const linkedPageColumn = linkedPageColumns.find((c) => c.id === linkedPageColumnId) ?? null;
+  const targetDbId =
+    linkedPageColumn?.type === "itemFetch"
+      ? linkedPageColumn.config?.itemFetchSourceDatabaseId ?? ps?.databaseId ?? ""
+      : linkedPageColumn?.config?.pageLinkScopeDatabaseId ?? ps?.databaseId ?? "";
+  const targetDb = targetDbId ? databases[targetDbId] : null;
+  const statusColumnOptions = (targetDb?.columns ?? [])
+    .filter((c) => c.type === "status" || c.type === "select" || c.type === "checkbox")
+    .map((c) => ({ value: c.id, label: c.name }));
 
-  /** 진행률 자동 계산 설정 patch — DB 선택 해제 시 progressSource 삭제. */
-  const update = (patch: Partial<ProgressSourceConfig>) => {
-    const merged: ProgressSourceConfig = {
-      databaseId: patch.databaseId ?? ps?.databaseId ?? "",
-      columnId: patch.columnId ?? ps?.columnId ?? "",
-      completedValue: patch.completedValue ?? ps?.completedValue ?? "",
-      scope: patch.scope ?? ps?.scope ?? { mode: "allRows" },
-    };
-    // 대상 DB가 비어있으면 자동 계산 해제 → progressSource 자체를 제거.
-    if (!merged.databaseId) {
+  const setProgressSource = (next: ProgressSourceConfig | null) => {
+    if (!next) {
       const { progressSource: _omit, ...rest } = column.config ?? {};
       updateColumn(databaseId, column.id, { config: rest });
       return;
     }
     updateColumn(databaseId, column.id, {
-      config: { ...(column.config ?? {}), progressSource: merged },
+      config: { ...(column.config ?? {}), progressSource: next },
     });
   };
 
-  const dbOptions = allDatabases.map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" }));
-  const columnOptions = (targetDb?.columns ?? [])
-    .filter((c) => c.type === "status" || c.type === "select" || c.type === "checkbox")
-    .map((c) => ({ value: c.id, label: c.name }));
+  const selectLinkedPageColumn = (pageLinkColumnId: string) => {
+    if (!pageLinkColumnId) {
+      setProgressSource(null);
+      return;
+    }
+    const linkedPageColumn = linkedPageColumns.find((c) => c.id === pageLinkColumnId);
+    const nextTargetDbId =
+      linkedPageColumn?.type === "itemFetch"
+        ? linkedPageColumn.config?.itemFetchSourceDatabaseId ?? ""
+        : linkedPageColumn?.config?.pageLinkScopeDatabaseId ?? "";
+    setProgressSource({
+      databaseId: nextTargetDbId,
+      columnId: "",
+      scope: { mode: "linkedPagesFromColumn", pageLinkColumnId },
+    });
+  };
+
+  const selectStatusColumn = (statusColumnId: string) => {
+    if (!linkedPageColumnId) return;
+    setProgressSource({
+      databaseId: targetDbId,
+      columnId: statusColumnId,
+      scope: { mode: "linkedPagesFromColumn", pageLinkColumnId: linkedPageColumnId },
+    });
+  };
 
   return (
     <div className="border-t border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
       <div className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-        자동 계산 소스
+        진행률 자동 계산
       </div>
       <p className="mb-2 text-[10px] leading-tight text-zinc-400">
-        대상 DB와 완료 판정 컬럼을 선택하면 진행률이 자동 계산됩니다. DB를 비우면 수동 입력 모드로 돌아갑니다.
+        현재 행에 연결된 페이지들의 상태 컬럼에서 완료된 항목 비율을 계산합니다.
       </p>
 
       <div className="space-y-1.5">
         <div>
-          <div className="text-[10px] uppercase text-zinc-400">1단계 · 대상 DB</div>
+          <div className="text-[10px] uppercase text-zinc-400">1단계 · 연결 페이지 컬럼</div>
           <AppSelect
-            value={ps?.databaseId ?? ""}
-            onChange={(v) => update({ databaseId: v, columnId: "", completedValue: "" })}
-            options={[{ value: "", label: "(수동 입력)" }, ...dbOptions]}
+            value={linkedPageColumnId}
+            onChange={selectLinkedPageColumn}
+            options={[
+              { value: "", label: "(수동 입력)" },
+              ...linkedPageColumns.map((c) => ({ value: c.id, label: c.name })),
+            ]}
             buttonClassName="w-full px-1.5 py-1 text-xs"
             portal
           />
+          {linkedPageColumns.length === 0 && (
+            <p className="mt-1 text-[10px] text-amber-500">
+              먼저 현재 DB에 페이지 연결 또는 페이지 연결 가져오기 컬럼이 필요합니다.
+            </p>
+          )}
         </div>
+
+        {linkedPageColumn && !targetDb && (
+          <p className="text-[10px] leading-tight text-amber-500">
+            선택한 컬럼에 연결 DB가 지정되어야 상태 컬럼을 고를 수 있습니다.
+          </p>
+        )}
 
         {targetDb && (
           <div>
-            <div className="text-[10px] uppercase text-zinc-400">2단계 · 완료 판정 컬럼</div>
+            <div className="text-[10px] uppercase text-zinc-400">2단계 · 상태 컬럼</div>
             <AppSelect
               value={ps?.columnId ?? ""}
-              onChange={(v) => update({ columnId: v, completedValue: "" })}
-              options={[{ value: "", label: "선택…" }, ...columnOptions]}
+              onChange={selectStatusColumn}
+              options={[{ value: "", label: "선택…" }, ...statusColumnOptions]}
               buttonClassName="w-full px-1.5 py-1 text-xs"
               portal
             />
-            {columnOptions.length === 0 && (
+            {statusColumnOptions.length === 0 && (
               <p className="mt-1 text-[10px] text-amber-500">
                 상태·선택·체크박스 타입의 컬럼이 필요합니다.
               </p>
             )}
-          </div>
-        )}
-
-        {targetCol && (
-          <div>
-            <div className="text-[10px] uppercase text-zinc-400">3단계 · 완료 값</div>
-            {targetCol.type === "checkbox" ? (
-              <AppSelect
-                value={ps?.completedValue ?? "true"}
-                onChange={(v) => update({ completedValue: v })}
-                options={[{ value: "true", label: "체크됨" }]}
-                buttonClassName="w-full px-1.5 py-1 text-xs"
-                portal
-              />
-            ) : (
-              <AppSelect
-                value={ps?.completedValue ?? ""}
-                onChange={(v) => update({ completedValue: v })}
-                options={[
-                  { value: "", label: "선택…" },
-                  ...targetOptions
-                    .filter((o) => !o.divider)
-                    .map((o) => ({ value: o.id, label: o.label })),
-                ]}
-                buttonClassName="w-full px-1.5 py-1 text-xs"
-                portal
-              />
-            )}
-          </div>
-        )}
-
-        {/* 스코프 모드 */}
-        {ps && (
-          <div>
-            <div className="text-[10px] uppercase text-zinc-400">계산 범위</div>
-            <AppSelect
-              value={ps.scope?.mode ?? "allRows"}
-              onChange={(v) =>
-                update({
-                  scope:
-                    v === "linkedPagesFromColumn"
-                      ? {
-                          mode: "linkedPagesFromColumn",
-                          pageLinkColumnId:
-                            ps.scope?.mode === "linkedPagesFromColumn"
-                              ? ps.scope.pageLinkColumnId
-                              : pageLinkColumns[0]?.id ?? "",
-                        }
-                      : { mode: "allRows" },
-                })
-              }
-              options={[
-                { value: "allRows", label: "대상 DB 전체 행" },
-                ...(pageLinkColumns.length > 0
-                  ? [{ value: "linkedPagesFromColumn", label: "이 행에 연결된 페이지만" }]
-                  : []),
-              ]}
-              buttonClassName="w-full px-1.5 py-1 text-xs"
-              portal
-            />
-          </div>
-        )}
-
-        {ps?.scope?.mode === "linkedPagesFromColumn" && pageLinkColumns.length > 0 && (
-          <div>
-            <div className="text-[10px] uppercase text-zinc-400">연결 컬럼</div>
-            <AppSelect
-              value={ps.scope.pageLinkColumnId}
-              onChange={(v) =>
-                update({ scope: { mode: "linkedPagesFromColumn", pageLinkColumnId: v } })
-              }
-              options={pageLinkColumns.map((c) => ({ value: c.id, label: c.name }))}
-              buttonClassName="w-full px-1.5 py-1 text-xs"
-              portal
-            />
           </div>
         )}
       </div>
@@ -189,11 +145,10 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
   const src = column.config?.sourceFromDb ?? null;
   const linkedScope = column.config?.linkedScope ?? null;
   const enabled = src != null;
+  const sourceMode = linkedScope ?? (src?.automation ? "_automation" : enabled ? "_db" : "_none");
 
   const targetDb = src?.databaseId ? databases[src.databaseId] : null;
-  const targetColumns = (targetDb?.columns ?? []).filter(
-    (c) => c.type === "select" || c.type === "multiSelect" || c.type === "status",
-  );
+  const targetColumns = (targetDb?.columns ?? []).filter((c) => c.type === column.type);
 
   const update = (patch: ColumnSourceFromDb | null) => {
     if (patch === null) {
@@ -224,13 +179,15 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
       <div>
         <div className="text-[10px] uppercase text-zinc-400">옵션 소스</div>
         <AppSelect
-          value={linkedScope ?? (enabled ? "_db" : "_none")}
+          value={sourceMode}
           onChange={(v) => {
             if (v === "_none") {
               setLinkedScope(null);
               update(null);
             } else if (v === "_db") {
-              update({ databaseId: "", columnId: "" });
+              update({ databaseId: "", columnId: "", automation: undefined });
+            } else if (v === "_automation") {
+              update({ databaseId: "", columnId: "", automation: true });
             } else {
               setLinkedScope(v as "organization" | "team" | "project");
             }
@@ -241,6 +198,7 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
             { value: "team", label: "팀 (teamStore)" },
             { value: "project", label: "프로젝트 (schedulerProjects)" },
             { value: "_db", label: "다른 DB 컬럼…" },
+            { value: "_automation", label: "자동화" },
           ]}
           buttonClassName="w-full px-1.5 py-1 text-xs"
           portal
@@ -258,7 +216,13 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
         <div className="mt-2 space-y-1.5">
           <AppSelect
             value={src?.databaseId ?? ""}
-            onChange={(v) => update({ databaseId: v, columnId: "" })}
+            onChange={(v) =>
+              update({
+                databaseId: v,
+                columnId: "",
+                automation: src?.automation,
+              })
+            }
             options={[
               { value: "", label: "DB 선택…" },
               ...allDatabases
@@ -282,7 +246,7 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
           )}
 
           {/* 값 자동 동기화 — 현재 DB 의 pageLink 컬럼이 가리키는 페이지의 셀값을 사용 */}
-          {targetDb && (
+          {targetDb && !src?.automation && (
             <div>
               <div className="text-[10px] uppercase text-zinc-400">값 자동 가져오기</div>
               <AppSelect
@@ -310,6 +274,32 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
             </div>
           )}
 
+          {targetDb && src?.automation && (
+            <div>
+              <div className="text-[10px] uppercase text-zinc-400">소속 항목 기준 컬럼</div>
+              <AppSelect
+                value={src?.viaPageLinkColumnId ?? ""}
+                onChange={(v) =>
+                  update({
+                    ...src!,
+                    viaPageLinkColumnId: v || undefined,
+                  })
+                }
+                options={[
+                  { value: "", label: "자동 감지" },
+                  ...(databases[databaseId]?.columns ?? [])
+                    .filter((c) => c.type === "pageLink")
+                    .map((c) => ({ value: c.id, label: c.name })),
+                ]}
+                buttonClassName="w-full px-1.5 py-1 text-xs"
+                portal
+              />
+              <p className="mt-1 text-[10px] leading-tight text-emerald-600 dark:text-emerald-400">
+                현재 행의 기준 컬럼에 연결된 항목에서 지정 컬럼 값을 가져옵니다. 셀 직접 편집 불가.
+              </p>
+            </div>
+          )}
+
           {enabled && (
             <p className="text-[10px] leading-tight text-zinc-400">
               옵션 목록은 원본 DB에서 자동 미러링됩니다. 이 DB 에서는 옵션 수정 불가.
@@ -322,154 +312,288 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3) PageLink 스코프 + 검색 필터 편집기 — pageLink
+// 3) 페이지 연결 가져오기 편집기 — itemFetch
+//    소스 DB + 매칭 컬럼 선택. 소스 DB 행 중 matchColumn 값이 현재 행 제목과 일치하는 항목을 표시.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const FILTER_KIND_LABELS: { id: SearchFilterRule["kind"]; label: string }[] = [
-  { id: "database", label: "DB" },
-  { id: "milestone", label: "마일스톤" },
-  { id: "feature", label: "피처" },
-  { id: "organization", label: "조직" },
-  { id: "team", label: "팀" },
-  { id: "project", label: "프로젝트" },
-];
+export function ItemFetchEditor({ databaseId, column }: CommonProps) {
+  const updateColumn = useDatabaseStore((s) => s.updateColumn);
+  const databases = useDatabaseStore((s) => s.databases);
+  const allDatabases = useDatabaseStore(listDatabases);
+
+  const sourceDbId = column.config?.itemFetchSourceDatabaseId ?? "";
+  const matchColId = column.config?.itemFetchMatchColumnId ?? "";
+
+  const sourceDb = sourceDbId ? databases[sourceDbId] : null;
+
+  const matchColOptions = useMemo(() => {
+    if (!sourceDb) return [];
+    return sourceDb.columns
+      .filter((c) => c.type !== "title")
+      .map((c) => ({ value: c.id, label: `${c.name} (${c.type})` }));
+  }, [sourceDb]);
+
+  const setSourceDb = (v: string) => {
+    updateColumn(databaseId, column.id, {
+      config: {
+        ...(column.config ?? {}),
+        itemFetchSourceDatabaseId: v || undefined,
+        itemFetchMatchColumnId: undefined,
+      },
+    });
+  };
+
+  const setMatchCol = (v: string) => {
+    updateColumn(databaseId, column.id, {
+      config: { ...(column.config ?? {}), itemFetchMatchColumnId: v || undefined },
+    });
+  };
+
+  const dbOptions = allDatabases
+    .filter((d) => d.id !== databaseId)
+    .map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" }));
+
+  return (
+    <div className="border-t border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
+      <div className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        페이지 연결 가져오기
+      </div>
+      <p className="mb-2 text-[10px] leading-tight text-zinc-400">
+        다른 DB의 특정 컬럼값이 현재 행 이름과 일치하는 항목을 자동으로 연결합니다.
+      </p>
+      <div className="space-y-1.5">
+        <div>
+          <div className="text-[10px] uppercase text-zinc-400">소스 DB</div>
+          <AppSelect
+            value={sourceDbId}
+            onChange={setSourceDb}
+            options={[{ value: "", label: "선택…" }, ...dbOptions]}
+            buttonClassName="w-full px-1.5 py-1 text-xs"
+            portal
+          />
+        </div>
+        {sourceDb && (
+          <div>
+            <div className="text-[10px] uppercase text-zinc-400">매칭 컬럼</div>
+            <AppSelect
+              value={matchColId}
+              onChange={setMatchCol}
+              options={[{ value: "", label: "선택…" }, ...matchColOptions]}
+              buttonClassName="w-full px-1.5 py-1 text-xs"
+              portal
+            />
+            {matchColId && (
+              <p className="mt-0.5 text-[10px] leading-tight text-emerald-600 dark:text-emerald-400">
+                {sourceDb.columns.find((c) => c.id === matchColId)?.type === "pageLink"
+                  ? "pageLink 컬럼: 현재 행 ID를 포함하는 항목을 가져옵니다."
+                  : "텍스트 컬럼: 현재 행 제목과 동일한 값을 가진 항목을 가져옵니다."}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4) PageLink 자동화 편집기 — pageLink
+//    연결 DB 표시 + 상대 컬럼 + 자동 채움 규칙 설정.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AutoFillRule = { targetColumnId: string; sourceColumnId: string };
 
 export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
+  const databases = useDatabaseStore((s) => s.databases);
   const allDatabases = useDatabaseStore(listDatabases);
-  const scopeDbId = column.config?.pageLinkScopeDatabaseId ?? "";
-  const filters: SearchFilterRule[] = useMemo(
-    () => column.config?.searchFilters ?? [],
-    [column.config?.searchFilters],
+
+  const scopeDbId = column.config?.pageLinkScopeDatabaseId;
+  const mirrorColumnId = column.config?.pageLinkMirrorColumnId ?? "";
+  const isAutoReverse = column.config?.pageLinkAutoReverse === true;
+  const autoFillRules: AutoFillRule[] = useMemo(
+    () => column.config?.pageLinkAutoFill ?? [],
+    [column.config?.pageLinkAutoFill],
   );
 
-  const dbOptions = [
-    { value: "", label: "전체 페이지" },
-    ...allDatabases.map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" })),
-  ];
+  const scopeDb = scopeDbId ? databases[scopeDbId] : null;
+  const currentDb = databases[databaseId];
+
+  // 연결 대상 DB에서 현재 셀에 표시할 pageLink 컬럼 목록
+  const mirrorColumnOptions = useMemo(() => {
+    if (!scopeDb) return [];
+    return scopeDb.columns
+      .filter((c) => c.type === "pageLink")
+      .map((c) => ({ value: c.id, label: c.name }));
+  }, [scopeDb]);
+
+  // 현재 DB의 채울 수 있는 컬럼 (title 제외)
+  const targetColOptions = useMemo(() => {
+    if (!currentDb) return [];
+    return currentDb.columns
+      .filter((c) => c.id !== column.id && c.type !== "title")
+      .map((c) => ({ value: c.id, label: c.name }));
+  }, [currentDb, column.id]);
+
+  // 연결 DB의 읽어올 수 있는 컬럼 (title 제외)
+  const sourceColOptions = useMemo(() => {
+    if (!scopeDb) return [];
+    return scopeDb.columns
+      .filter((c) => c.type !== "title")
+      .map((c) => ({ value: c.id, label: c.name }));
+  }, [scopeDb]);
 
   const setScopeDb = (v: string) => {
     updateColumn(databaseId, column.id, {
       config: {
         ...(column.config ?? {}),
         pageLinkScopeDatabaseId: v || undefined,
+        pageLinkMirrorColumnId: undefined,
+        pageLinkAutoFill: undefined,
       },
     });
   };
 
-  const setFilters = (next: SearchFilterRule[]) => {
+  const setMirrorColumnId = (v: string) => {
     updateColumn(databaseId, column.id, {
       config: {
         ...(column.config ?? {}),
-        searchFilters: next.length > 0 ? next : undefined,
+        pageLinkMirrorColumnId: v || undefined,
+        pageLinkReverseColumnName: undefined,
+        pageLinkAutoFill: undefined,
       },
     });
   };
 
-  const addFilter = () => {
-    setFilters([...filters, { id: newId(), kind: "database", value: "" }]);
+  const setAutoFillRules = (rules: AutoFillRule[]) => {
+    updateColumn(databaseId, column.id, {
+      config: {
+        ...(column.config ?? {}),
+        pageLinkAutoFill: rules.length > 0 ? rules : undefined,
+      },
+    });
   };
-  const updateFilter = (id: string, patch: Partial<SearchFilterRule>) => {
-    setFilters(filters.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+
+  const addAutoFillRule = () => {
+    setAutoFillRules([...autoFillRules, { targetColumnId: "", sourceColumnId: "" }]);
   };
-  const removeFilter = (id: string) => {
-    setFilters(filters.filter((f) => f.id !== id));
+
+  const updateAutoFillRule = (idx: number, patch: Partial<AutoFillRule>) => {
+    setAutoFillRules(autoFillRules.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+
+  const removeAutoFillRule = (idx: number) => {
+    setAutoFillRules(autoFillRules.filter((_, i) => i !== idx));
   };
 
   return (
     <div className="border-t border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
-      <div className="space-y-1.5">
-        <div>
-          <div className="text-[10px] uppercase text-zinc-400">검색 대상 DB</div>
-          <AppSelect
-            value={scopeDbId}
-            onChange={setScopeDb}
-            options={dbOptions}
-            buttonClassName="w-full px-1.5 py-1 text-xs"
-            portal
-          />
-        </div>
-
-        <div className="pt-1">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] uppercase text-zinc-400">검색 필터</span>
-            <button
-              type="button"
-              onClick={addFilter}
-              className="inline-flex h-5 items-center gap-0.5 rounded border border-zinc-200 px-1.5 text-[10px] text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              <Plus size={10} /> 추가
-            </button>
-          </div>
-          {filters.length === 0 && (
-            <p className="text-[10px] leading-tight text-zinc-400">필터가 없습니다.</p>
-          )}
-          <div className="space-y-1">
-            {filters.map((f) => (
-              <FilterRow
-                key={f.id}
-                rule={f}
-                onChange={(patch) => updateFilter(f.id, patch)}
-                onRemove={() => removeFilter(f.id)}
-              />
-            ))}
-          </div>
-        </div>
+      <div className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        페이지 연결 자동화
       </div>
-    </div>
-  );
-}
 
-function FilterRow({
-  rule,
-  onChange,
-  onRemove,
-}: {
-  rule: SearchFilterRule;
-  onChange: (patch: Partial<SearchFilterRule>) => void;
-  onRemove: () => void;
-}) {
-  const allDatabases = useDatabaseStore(listDatabases);
-  // kind=database 인 경우 DB 목록을 value 후보로 제공. 그 외는 단순 텍스트 입력.
-  const [textDraft, setTextDraft] = useState(rule.value ?? "");
+      <div className="space-y-2">
+        {/* 연결 DB */}
+        <div>
+          <div className="text-[10px] uppercase text-zinc-400">연결 DB</div>
+          {isAutoReverse ? (
+            <div className="mt-0.5 rounded bg-zinc-100 px-2 py-1 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              {scopeDb?.meta.title ?? scopeDbId ?? "—"}
+              <span className="ml-1 text-[10px] text-emerald-500">(자동 연결)</span>
+            </div>
+          ) : (
+            <AppSelect
+              value={scopeDbId ?? ""}
+              onChange={setScopeDb}
+              options={[
+                { value: "", label: "전체 페이지" },
+                ...allDatabases.map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" })),
+              ]}
+              buttonClassName="w-full px-1.5 py-1 text-xs"
+              portal
+            />
+          )}
+        </div>
 
-  return (
-    <div className="flex items-center gap-1">
-      <AppSelect
-        value={rule.kind}
-        onChange={(v) => onChange({ kind: v as SearchFilterRule["kind"], value: "" })}
-        options={FILTER_KIND_LABELS.map((k) => ({ value: k.id, label: k.label }))}
-        buttonClassName="px-1 py-0.5 text-[11px]"
-        portal
-      />
-      {rule.kind === "database" ? (
-        <AppSelect
-          value={rule.value ?? ""}
-          onChange={(v) => onChange({ value: v })}
-          options={[
-            { value: "", label: "선택…" },
-            ...allDatabases.map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" })),
-          ]}
-          buttonClassName="flex-1 px-1 py-0.5 text-[11px]"
-          portal
-        />
-      ) : (
-        <input
-          value={textDraft}
-          onChange={(e) => setTextDraft(e.target.value)}
-          onBlur={() => onChange({ value: textDraft.trim() || undefined })}
-          placeholder="id…"
-          className="min-w-0 flex-1 rounded border border-zinc-200 bg-white px-1 py-0.5 text-[11px] outline-none dark:border-zinc-700 dark:bg-zinc-900"
-        />
-      )}
-      <button
-        type="button"
-        onClick={onRemove}
-        className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-        aria-label="필터 제거"
-      >
-        <Trash2 size={11} />
-      </button>
+        {/* 연결 대상 DB에서 가져올 컬럼 */}
+        {scopeDb && !isAutoReverse && (
+          <div>
+            <div className="text-[10px] uppercase text-zinc-400">가져올 컬럼</div>
+            <AppSelect
+              value={mirrorColumnId}
+              onChange={setMirrorColumnId}
+              options={[{ value: "", label: "선택…" }, ...mirrorColumnOptions]}
+              buttonClassName="w-full px-1.5 py-1 text-xs"
+              portal
+            />
+            {mirrorColumnId && (
+              <p className="mt-0.5 text-[10px] leading-tight text-emerald-600 dark:text-emerald-400">
+                현재 항목이 속한 {scopeDb.meta.title || "DB"} 항목의 이 컬럼 값을 그대로 표시
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* 자동 채움 규칙 */}
+        {scopeDb && !isAutoReverse && !mirrorColumnId && (
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[10px] uppercase text-zinc-400">자동 채움</span>
+              <button
+                type="button"
+                onClick={addAutoFillRule}
+                className="text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400"
+              >
+                + 규칙 추가
+              </button>
+            </div>
+            {autoFillRules.length === 0 && (
+              <p className="text-[10px] text-zinc-400">
+                페이지 연결 시 자동으로 채울 컬럼 규칙이 없습니다.
+              </p>
+            )}
+            <div className="space-y-1">
+              {autoFillRules.map((rule, idx) => (
+                <div key={idx} className="flex items-center gap-1">
+                  <AppSelect
+                    value={rule.targetColumnId}
+                    onChange={(v) => updateAutoFillRule(idx, { targetColumnId: v })}
+                    options={[{ value: "", label: "채울 컬럼…" }, ...targetColOptions]}
+                    buttonClassName="flex-1 px-1 py-0.5 text-[11px]"
+                    portal
+                  />
+                  <span className="shrink-0 text-[10px] text-zinc-400">←</span>
+                  <AppSelect
+                    value={rule.sourceColumnId}
+                    onChange={(v) => updateAutoFillRule(idx, { sourceColumnId: v })}
+                    options={[{ value: "", label: "소스 컬럼…" }, ...sourceColOptions]}
+                    buttonClassName="flex-1 px-1 py-0.5 text-[11px]"
+                    portal
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeAutoFillRule(idx)}
+                    className="shrink-0 text-[10px] text-zinc-400 hover:text-red-500"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+            {autoFillRules.length > 0 && (
+              <p className="mt-1 text-[10px] leading-tight text-zinc-400">
+                페이지 연결 시 연결된 첫 번째 페이지의 값을 자동으로 채웁니다. 연결 해제 시 초기화됩니다.
+              </p>
+            )}
+          </div>
+        )}
+
+        {isAutoReverse && (
+          <p className="text-[10px] leading-tight text-zinc-400">
+            이 컬럼은 다른 DB의 페이지 연결에서 자동으로 채워집니다. 직접 수정할 수 없습니다.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

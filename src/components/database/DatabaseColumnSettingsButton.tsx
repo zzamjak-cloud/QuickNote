@@ -234,12 +234,15 @@ export function DatabaseColumnSettingsButton({
                   className={[
                     "flex items-center gap-1 rounded px-1 py-1",
                     isDropTarget ? "border-t-2 border-t-blue-500" : "",
-                    it.visible ? "" : "opacity-60",
+                    it.visible ? "" : "text-red-600 dark:text-red-400",
                   ].join(" ")}
                 >
                   <GripVertical
                     size={11}
-                    className="cursor-grab text-zinc-400 active:cursor-grabbing"
+                    className={[
+                      "cursor-grab active:cursor-grabbing",
+                      it.visible ? "text-zinc-400" : "text-red-400 dark:text-red-500",
+                    ].join(" ")}
                   />
                   <span className="min-w-0 flex-1 truncate">{it.col.name}</span>
                   <button

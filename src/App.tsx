@@ -213,8 +213,7 @@ function App() {
     }
     prevActivePageIdRef.current = firstSidebarPageId;
     setActivePage(firstSidebarPageId);
-    setCurrentTabPage(firstSidebarPageId);
-  }, [firstSidebarPageId, setActivePage, setCurrentTabPage]);
+  }, [firstSidebarPageId, setActivePage]);
 
   // 사이드바 등으로 활성 페이지만 바뀐 경우: 현재 탭 내용만 갱신
   useEffect(() => {

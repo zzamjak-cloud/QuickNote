@@ -1399,10 +1399,10 @@ function DatabaseTimelineCard({
         <div className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm">
           <span className={titleClassName}>{card.row.title || "제목 없음"}</span>
           <span className={dateClassName}>{card.dateLabel}</span>
-          {labelCols.some((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c)) && (
+          {labelCols.some((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c) || c.config?.pageLinkMirrorColumnId) && (
             <span className="ml-0.5 flex min-w-0 items-center gap-1 overflow-hidden text-xs">
               {labelCols
-                .filter((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c))
+                .filter((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c) || c.config?.pageLinkMirrorColumnId)
                 .map((c, idx) => (
                   <Fragment key={c.id}>
                     {idx > 0 && (
@@ -1412,6 +1412,7 @@ function DatabaseTimelineCard({
                       <DatabaseCellDisplay
                         column={c}
                         value={card.row.cells[c.id]}
+                        rowId={card.row.pageId}
                         textClassName={labelTextClassName}
                       />
                     </span>

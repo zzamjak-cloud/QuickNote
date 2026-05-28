@@ -7,6 +7,8 @@ import type { PageSnapshot } from "../../types/history";
 import { enqueueAsync } from "../../lib/sync/runtime";
 import {
   isLCSchedulerDatabaseId,
+  isLCMilestoneDatabaseId,
+  isLCFeatureDatabaseId,
   LC_SCHEDULER_DATABASE_ID,
 } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
@@ -32,7 +34,10 @@ export function getCurrentWorkspaceId(): string {
 }
 
 function resolvePageWorkspaceId(p: Page): string {
-  if (isLCSchedulerDatabaseId(p.databaseId)) return LC_SCHEDULER_WORKSPACE_ID;
+  const dbId = p.databaseId;
+  if (isLCSchedulerDatabaseId(dbId) || isLCMilestoneDatabaseId(dbId) || isLCFeatureDatabaseId(dbId)) {
+    return LC_SCHEDULER_WORKSPACE_ID;
+  }
   return p.workspaceId ?? getCurrentWorkspaceId();
 }
 

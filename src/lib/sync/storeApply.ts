@@ -23,6 +23,7 @@ import {
   LC_SCHEDULER_DATABASE_TITLE,
   isLCSchedulerDatabaseId,
   isLegacyLCSchedulerDatabaseId,
+  isProtectedDatabaseId,
 } from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import {
@@ -588,7 +589,7 @@ export function applyRemoteDatabaseToStore(
   const local = useDatabaseStore.getState().databases[db.id];
 
   if (db.deletedAt) {
-    if (isLCSchedulerDatabaseId(db.id)) {
+    if (isProtectedDatabaseId(db.id)) {
       useDatabaseStore.setState((s) =>
         s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId)
           ? s
@@ -719,7 +720,7 @@ export function applyRemoteDatabasesToStore(
       nextCacheWorkspaceId = resolveNextCacheWorkspaceId(nextCacheWorkspaceId, db.workspaceId);
 
       if (db.deletedAt) {
-        if (isLCSchedulerDatabaseId(db.id)) continue;
+        if (isProtectedDatabaseId(db.id)) continue;
         if (!databases[db.id]) continue;
         ensureDatabasesCopy();
         delete databases[db.id];
@@ -809,8 +810,8 @@ export function reconcileWorkspaceFullSnapshot(args: {
 
     for (const [pageId, page] of Object.entries(s.pages)) {
       if (!page) continue;
-      // LC 스케줄러 영역은 별도 흐름이므로 보호.
-      if (page.databaseId && isLCSchedulerDatabaseId(page.databaseId)) continue;
+      // LC 스케줄러·마일스톤·피처 DB 영역은 별도 흐름이므로 보호.
+      if (page.databaseId && isProtectedDatabaseId(page.databaseId)) continue;
       const pageWs = page.workspaceId;
       // 페이지가 다른 워크스페이스 또는 미지정이면 건드리지 않음.
       if (pageWs && pageWs !== workspaceId) continue;
@@ -838,8 +839,8 @@ export function reconcileWorkspaceFullSnapshot(args: {
 
     for (const [dbId, bundle] of Object.entries(s.databases)) {
       if (!bundle) continue;
-      // LC 스케줄러 DB 는 별도 흐름.
-      if (isLCSchedulerDatabaseId(dbId)) continue;
+      // LC 스케줄러·마일스톤·피처 DB 는 별도 흐름.
+      if (isProtectedDatabaseId(dbId)) continue;
       const bundleWs = bundle.meta.workspaceId;
       if (bundleWs && bundleWs !== workspaceId) continue;
       if (remoteDatabaseIds.has(dbId)) continue;

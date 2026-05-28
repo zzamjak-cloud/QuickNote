@@ -70,6 +70,77 @@ function now(): number {
   return Date.now();
 }
 
+function syncPageLinkMirrorColumn(
+  databases: DbMap,
+  sourceDatabaseId: string,
+  sourceColumnId: string,
+): string[] {
+  const sourceBundle = databases[sourceDatabaseId];
+  if (!sourceBundle) return [];
+  const sourceColumn = sourceBundle.columns.find((c) => c.id === sourceColumnId);
+  if (!sourceColumn || sourceColumn.type !== "pageLink") return [];
+  const targetDatabaseId = sourceColumn.config?.pageLinkScopeDatabaseId;
+  if (!targetDatabaseId) return [];
+  const targetBundle = databases[targetDatabaseId];
+  if (!targetBundle) return [];
+  const targetColumnName = sourceColumn.config?.pageLinkReverseColumnName ?? sourceColumn.name;
+  if (!targetColumnName) return [];
+  const targetColumn = targetBundle.columns.find(
+    (c) => c.type === "pageLink" && c.name === targetColumnName,
+  );
+  if (!targetColumn) return [];
+
+  const pageStore = usePageStore.getState();
+  const sourceRowSet = new Set(sourceBundle.rowPageOrder);
+  const linksByTargetPageId = new Map<string, string[]>();
+  for (const sourcePageId of sourceBundle.rowPageOrder) {
+    const raw = pageStore.pages[sourcePageId]?.dbCells?.[sourceColumnId];
+    if (!Array.isArray(raw)) continue;
+    for (const targetPageId of raw) {
+      if (typeof targetPageId !== "string") continue;
+      const targetPage = pageStore.pages[targetPageId];
+      if (targetPage?.databaseId !== targetDatabaseId) continue;
+      const prev = linksByTargetPageId.get(targetPageId) ?? [];
+      prev.push(sourcePageId);
+      linksByTargetPageId.set(targetPageId, prev);
+    }
+  }
+
+  const touchedPageIds: string[] = [];
+  const t = Date.now();
+  usePageStore.setState((state) => {
+    let changed = false;
+    const nextPages = { ...state.pages };
+    for (const targetPageId of targetBundle.rowPageOrder) {
+      const page = nextPages[targetPageId];
+      if (!page) continue;
+      const existingRaw = page.dbCells?.[targetColumn.id];
+      const existingIds: string[] = Array.isArray(existingRaw)
+        ? (existingRaw.filter((v) => typeof v === "string") as string[])
+        : [];
+      const manualIds = existingIds.filter((id) => !sourceRowSet.has(id));
+      const syncedIds = linksByTargetPageId.get(targetPageId) ?? [];
+      const nextIds = Array.from(new Set([...manualIds, ...syncedIds]));
+      if (
+        existingIds.length === nextIds.length &&
+        existingIds.every((id, idx) => id === nextIds[idx])
+      ) {
+        continue;
+      }
+      changed = true;
+      touchedPageIds.push(targetPageId);
+      nextPages[targetPageId] = {
+        ...page,
+        dbCells: { ...(page.dbCells ?? {}), [targetColumn.id]: nextIds },
+        updatedAt: t,
+      };
+    }
+    return changed ? { pages: nextPages } : state;
+  });
+
+  return touchedPageIds;
+}
+
 type DatabaseStoreState = {
   version: number;
   databases: DbMap;
@@ -343,6 +414,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
 
       updateColumn: (databaseId, columnId, patch) => {
         let patchForColumn = patch;
+        const beforeColumn = get().databases[databaseId]?.columns.find((c) => c.id === columnId);
         // 보호 DB의 필수 컬럼은 type 변경 차단
         const isProtectedRequiredCol =
           (isLCSchedulerDatabaseId(databaseId) && isLCSchedulerRequiredColumnId(columnId)) ||
@@ -387,6 +459,19 @@ export const useDatabaseStore = create<DatabaseStore>()(
               : undefined,
           );
           enqueueUpsertDatabase(bundleAfter);
+        }
+        const afterColumn = bundleAfter?.columns.find((c) => c.id === columnId);
+        const shouldSyncMirror =
+          afterColumn?.type === "pageLink" &&
+          (beforeColumn?.config?.pageLinkScopeDatabaseId !== afterColumn.config?.pageLinkScopeDatabaseId ||
+            beforeColumn?.config?.pageLinkReverseColumnName !== afterColumn.config?.pageLinkReverseColumnName);
+        if (shouldSyncMirror) {
+          const touchedPageIds = syncPageLinkMirrorColumn(get().databases, databaseId, columnId);
+          const pages = usePageStore.getState().pages;
+          for (const pageId of touchedPageIds) {
+            const page = pages[pageId];
+            if (page) enqueueUpsertPageRaw(page);
+          }
         }
       },
 
@@ -711,6 +796,8 @@ export const useDatabaseStore = create<DatabaseStore>()(
         // 현재 컬럼 이름 조회 — 역방향 매칭에 사용
         const currentCol = bundle.columns.find((c) => c.id === columnId);
         const colName = currentCol?.name ?? "";
+        // pageLinkReverseColumnName이 지정되면 대상 DB에서 해당 이름의 컬럼을 역방향 매칭에 사용.
+        const reverseColName = currentCol?.config?.pageLinkReverseColumnName ?? colName;
 
         // 기존 값과 비교해 추가/제거 목록 계산
         const pageStore = usePageStore.getState();
@@ -737,6 +824,18 @@ export const useDatabaseStore = create<DatabaseStore>()(
           };
         });
 
+        // pageLinkAutoFill: 연결된 첫 번째 페이지의 지정 컬럼값을 현재 행에 자동 채움.
+        // 연결이 없으면 대상 컬럼을 null로 초기화.
+        const autoFillRules = currentCol?.config?.pageLinkAutoFill;
+        if (autoFillRules && autoFillRules.length > 0) {
+          const firstPageId = nextPageIds[0] ?? null;
+          const firstPage = firstPageId ? pageStore.pages[firstPageId] : null;
+          for (const rule of autoFillRules) {
+            const sourceValue = firstPage?.dbCells?.[rule.sourceColumnId] ?? null;
+            pageStore.setPageDbCell(rowPageId, rule.targetColumnId, sourceValue);
+          }
+        }
+
         const databases = get().databases;
 
         // 추가된 페이지 → 역방향 연결
@@ -746,7 +845,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           const targetBundle = databases[targetPage.databaseId];
           if (!targetBundle) continue;
           const sameNameCol = targetBundle.columns.find(
-            (c) => c.type === "pageLink" && c.name === colName,
+            (c) => c.type === "pageLink" && c.name === reverseColName,
           );
           if (!sameNameCol) continue;
           const existing = targetPage.dbCells?.[sameNameCol.id];
@@ -765,7 +864,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           const targetBundle = databases[targetPage.databaseId];
           if (!targetBundle) continue;
           const sameNameCol = targetBundle.columns.find(
-            (c) => c.type === "pageLink" && c.name === colName,
+            (c) => c.type === "pageLink" && c.name === reverseColName,
           );
           if (!sameNameCol) continue;
           const existing = targetPage.dbCells?.[sameNameCol.id];

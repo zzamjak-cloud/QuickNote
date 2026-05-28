@@ -28,7 +28,8 @@ export type ColumnType =
   | "email"
   | "dbLink"
   | "pageLink"
-  | "progress";
+  | "progress"
+  | "itemFetch";
 
 export type SelectOption = {
   id: string;
@@ -57,6 +58,11 @@ export type ColumnSourceFromDb = {
   databaseId: string;
   columnId: string;
   /**
+   * true 면 선택한 DB에서 현재 행 pageId를 pageLink로 포함하는 행을 찾아
+   * 지정 컬럼 값을 자동으로 가져온다.
+   */
+  automation?: boolean;
+  /**
    * 설정 시 — 셀 값을 현재 행의 해당 pageLink 컬럼이 가리키는 첫 페이지의
    * `databaseId`/`columnId` 셀에서 자동으로 가져옴 (read-only 미러).
    * 미설정 시에는 옵션 목록만 미러링되고 값은 독립적으로 편집 가능.
@@ -66,12 +72,12 @@ export type ColumnSourceFromDb = {
 
 /** 진행률 컬럼이 다른 DB의 페이지들 진척을 계산할 때 참조하는 소스 정의 */
 export type ProgressSourceConfig = {
-  /** 진행률을 계산할 대상 DB */
+  /** 진행률을 계산할 대상 DB. linkedPagesFromColumn 모드에서는 연결 컬럼의 대상 DB를 캐시한다. */
   databaseId: string;
   /** 완료 여부 판단에 사용할 컬럼(보통 status 또는 select) */
   columnId: string;
-  /** 위 컬럼에서 "완료"로 간주할 옵션 id (또는 값) */
-  completedValue: string;
+  /** @deprecated 완료 판정은 상태 컬럼의 "완료"/done 옵션을 자동 감지한다. */
+  completedValue?: string;
   /**
    * 대상 페이지를 어떻게 결정할지:
    * - `linkedPagesFromColumn` : 현재 행의 특정 pageLink 컬럼에 연결된 페이지들만 계산
@@ -104,8 +110,36 @@ export type ColumnDef = {
     progressSource?: ProgressSourceConfig;
     /** pageLink 컬럼 — 검색 대상을 특정 DB로 제한 (없으면 전체) */
     pageLinkScopeDatabaseId?: string;
+    /**
+     * pageLink 컬럼 — pageLinkScopeDatabaseId DB에서 현재 행과 연결된 항목을 찾고,
+     * 그 항목의 지정 pageLink 컬럼값을 현재 셀에 그대로 표시한다.
+     */
+    pageLinkMirrorColumnId?: string;
     /** pageLink/dbLink/select(외부소스) 컬럼 — 검색 시 사전 필터 */
     searchFilters?: SearchFilterRule[];
+    /**
+     * pageLink 컬럼 — 역방향 자동 연결 전용.
+     * true 이면 이 컬럼은 다른 DB에서 자동으로 채워지는 읽기 전용 역참조 컬럼이므로
+     * 셀 UI에서 검색/추가 버튼을 숨긴다.
+     */
+    pageLinkAutoReverse?: boolean;
+    /**
+     * pageLink 컬럼 — 역방향 연결 시 대상 DB에서 찾을 컬럼 이름.
+     * 미지정 시 자신의 이름(name)과 동일한 컬럼을 찾는 기본 동작.
+     * 예) Task DB "피쳐" 컬럼에 "작업"을 지정 → Feature DB의 "작업" 컬럼을 역방향 업데이트.
+     */
+    pageLinkReverseColumnName?: string;
+    /**
+     * pageLink 컬럼 — 페이지 연결 시 연결된 첫 번째 페이지의 지정 컬럼 값을
+     * 현재 행의 대상 컬럼에 자동으로 복사한다.
+     * 예) 피처의 "마일스톤" 컬럼에 마일스톤 연결 시 → 마일스톤의 조직·팀·프로젝트 값을 피처 행에 자동 채움.
+     */
+    pageLinkAutoFill?: Array<{
+      /** 현재 행에서 값을 채울 컬럼 ID */
+      targetColumnId: string;
+      /** 연결된 페이지에서 읽어올 컬럼 ID */
+      sourceColumnId: string;
+    }>;
     /**
      * select/multiSelect/status 컬럼 — 옵션을 퀵노트 내부 엔티티 store에서 미러링.
      * - `"organization"` : organizationStore.organizations
@@ -114,6 +148,13 @@ export type ColumnDef = {
      * 셀값에는 해당 엔티티 id가 저장된다.
      */
     linkedScope?: "organization" | "team" | "project";
+    /**
+     * itemFetch 컬럼 — 다른 DB의 특정 컬럼값이 현재 행 제목과 일치하는 행 페이지를 자동으로 불러온다.
+     * pageLink 타입 컬럼이 matchColumnId 이면 현재 행의 pageId가 배열에 포함되는지로 비교.
+     * 그 외 타입이면 컬럼 값(문자열)이 현재 행 제목과 일치하는지 비교.
+     */
+    itemFetchSourceDatabaseId?: string;
+    itemFetchMatchColumnId?: string;
   };
 };
 
@@ -298,6 +339,7 @@ export function defaultMinWidthForType(type: ColumnType): number {
     case "dbLink": return 180;
     case "pageLink": return 200;
     case "progress": return 140;
+    case "itemFetch": return 200;
     default: return 140;
   }
 }

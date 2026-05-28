@@ -13,6 +13,7 @@ import {
   ProgressSourceEditor,
   SelectSourceEditor,
   PageLinkScopeEditor,
+  ItemFetchEditor,
 } from "./columnEditors/ColumnSourceEditors";
 
 const TYPE_LABELS: { id: ColumnType; label: string }[] = [
@@ -32,6 +33,7 @@ const TYPE_LABELS: { id: ColumnType; label: string }[] = [
   { id: "dbLink", label: "DB 연결" },
   { id: "pageLink", label: "페이지 연결" },
   { id: "progress", label: "진행률" },
+  { id: "itemFetch", label: "페이지 연결 가져오기" },
 ];
 
 type Props = {
@@ -139,6 +141,9 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose, onHi
           <ProgressSourceEditor databaseId={databaseId} column={column} />
         )}
 
+        {column.type === "itemFetch" && (
+          <ItemFetchEditor databaseId={databaseId} column={column} />
+        )}
         {column.type === "pageLink" && (
           <PageLinkScopeEditor databaseId={databaseId} column={column} />
         )}

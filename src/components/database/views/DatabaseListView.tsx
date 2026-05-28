@@ -80,13 +80,13 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
             </span>
             {extraCols.map((col) => {
               const cell = row.cells[col.id];
-              if (!databaseCellHasDisplayValue(cell, col)) return null;
+              if (!databaseCellHasDisplayValue(cell, col) && !col.config?.pageLinkMirrorColumnId) return null;
               return (
                 <span
                   key={col.id}
                   className="shrink-0 truncate text-sm"
                 >
-                  <DatabaseCellDisplay column={col} value={cell} />
+                  <DatabaseCellDisplay column={col} value={cell} rowId={row.pageId} />
                 </span>
               );
             })}

@@ -16,7 +16,7 @@ import { enqueueAsync } from "../../lib/sync/runtime";
 import { useAuthStore } from "../authStore";
 import { useWorkspaceStore } from "../workspaceStore";
 import { usePageStore } from "../pageStore";
-import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { isLCSchedulerDatabaseId, isLCMilestoneDatabaseId, isLCFeatureDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import type { DbMap } from "./migrations";
 
@@ -31,7 +31,9 @@ export function getCurrentWorkspaceId(): string {
 }
 
 function resolveWorkspaceIdByDatabaseId(databaseId: string | null | undefined): string {
-  if (isLCSchedulerDatabaseId(databaseId)) return LC_SCHEDULER_WORKSPACE_ID;
+  if (isLCSchedulerDatabaseId(databaseId) || isLCMilestoneDatabaseId(databaseId) || isLCFeatureDatabaseId(databaseId)) {
+    return LC_SCHEDULER_WORKSPACE_ID;
+  }
   return getCurrentWorkspaceId();
 }
 

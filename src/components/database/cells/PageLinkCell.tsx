@@ -11,9 +11,10 @@ type Props = {
   rowId: string;
   columnId: string;
   value: string[];
+  readOnly?: boolean;
 };
 
-export function PageLinkCell({ databaseId, rowId, columnId, value }: Props) {
+export function PageLinkCell({ databaseId, rowId, columnId, value, readOnly = false }: Props) {
   const [popupOpen, setPopupOpen] = useState(false);
   const searchBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -26,6 +27,9 @@ export function PageLinkCell({ databaseId, rowId, columnId, value }: Props) {
   );
   const scopeDatabaseId = column?.config?.pageLinkScopeDatabaseId;
   const searchFilters = column?.config?.searchFilters;
+  // 자동 미러 컬럼은 사용자가 직접 수정 불가 — 검색/추가 버튼 숨김
+  const isAutoReverse = column?.config?.pageLinkAutoReverse === true;
+  const isReadOnly = readOnly || isAutoReverse;
 
   function handleToggle(pageId: string) {
     const next = value.includes(pageId)
@@ -56,15 +60,17 @@ export function PageLinkCell({ databaseId, rowId, columnId, value }: Props) {
             <PageIconDisplay icon={page.icon ?? null} size="sm" />
             <span className="max-w-[100px] truncate">{page.title || "제목 없음"}</span>
           </button>
-          <button
-            type="button"
-            onClick={() => handleToggle(page.id)}
-            className="ml-0.5 rounded p-0.5 hover:bg-[#a8c5ef]"
-            style={{ color: "#0f345c" }}
-            title="연결 해제"
-          >
-            <X size={10} />
-          </button>
+          {!isReadOnly && (
+            <button
+              type="button"
+              onClick={() => handleToggle(page.id)}
+              className="ml-0.5 rounded p-0.5 hover:bg-[#a8c5ef]"
+              style={{ color: "#0f345c" }}
+              title="연결 해제"
+            >
+              <X size={10} />
+            </button>
+          )}
         </span>
       ))}
 
@@ -72,18 +78,20 @@ export function PageLinkCell({ databaseId, rowId, columnId, value }: Props) {
         <span className="text-xs text-zinc-400">연결 없음</span>
       )}
 
-      {/* 돋보기 — 페이지 검색 팝업 열기 */}
-      <button
-        ref={searchBtnRef}
-        type="button"
-        onClick={() => setPopupOpen(true)}
-        className="shrink-0 rounded p-0.5 text-zinc-400 opacity-0 hover:bg-zinc-100 hover:text-zinc-600 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
-        title="페이지 연결 추가"
-      >
-        <Search size={12} />
-      </button>
+      {/* 자동 미러 컬럼은 검색 버튼 미표시 */}
+      {!isReadOnly && (
+        <button
+          ref={searchBtnRef}
+          type="button"
+          onClick={() => setPopupOpen(true)}
+          className="shrink-0 rounded p-0.5 text-zinc-400 opacity-0 hover:bg-zinc-100 hover:text-zinc-600 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+          title="페이지 연결 추가"
+        >
+          <Search size={12} />
+        </button>
+      )}
 
-      {popupOpen && (
+      {!isReadOnly && popupOpen && (
         <PageLinkSearchPopup
           anchorEl={searchBtnRef.current}
           selectedIds={value}

@@ -398,6 +398,8 @@ export function BlockHandles({
   const [pinnedCommentBadges, setPinnedCommentBadges] = useState<
     PinnedCommentBadge[]
   >([]);
+  // setState 반복 방지 — 안정 키(blockId·count·messageIds)가 같으면 업데이트 건너뜀
+  const pinnedStableKeyRef = useRef<string>("");
 
   useLayoutEffect(() => {
     if (!editor || !activePageId) {
@@ -405,7 +407,10 @@ export function BlockHandles({
       return;
     }
 
-    const refreshPinned = (): void => {
+    let rafId: number | null = null;
+
+    // 실제 계산 및 setState — 항상 RAF 안에서만 호출되므로 React 커밋 단계와 겹치지 않음
+    const computeAndSet = (): void => {
       const root = containerRef.current?.parentElement;
       if (!editor || editor.isDestroyed || !root) return;
       const wrapperRectInner = root.getBoundingClientRect();
@@ -473,18 +478,36 @@ export function BlockHandles({
         });
       });
 
-      setPinnedCommentBadges(items);
+      const nextKey = items
+        .map((i) => `${i.blockId}:${i.count}:${i.messages.map((m) => m.id).join(",")}`)
+        .join("|");
+      if (nextKey !== pinnedStableKeyRef.current) {
+        pinnedStableKeyRef.current = nextKey;
+        setPinnedCommentBadges(items);
+      }
     };
 
-    refreshPinned();
+    // 여러 이벤트가 동시에 몰려도 한 프레임에 한 번만 계산 — 동기 setState 금지
+    const refreshPinned = (): void => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        computeAndSet();
+      });
+    };
+
+    // 초기 계산도 RAF로 미뤄 React 커밋 단계를 완전히 벗어난 뒤 실행
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      computeAndSet();
+    });
+
     const resizeObserver =
       typeof ResizeObserver !== "undefined"
         ? new ResizeObserver(refreshPinned)
         : null;
     const root = containerRef.current?.parentElement;
     if (resizeObserver && root) resizeObserver.observe(root);
-    const viewDom = getEditorViewDom(editor);
-    if (resizeObserver && viewDom) resizeObserver.observe(viewDom);
     const unsub = useBlockCommentStore.subscribe(refreshPinned);
     const unsubMembers = useMemberStore.subscribe(refreshPinned);
     editor.on("update", refreshPinned);
@@ -492,6 +515,7 @@ export function BlockHandles({
     scroller.addEventListener("scroll", refreshPinned, { passive: true });
     window.addEventListener("resize", refreshPinned, { passive: true });
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       resizeObserver?.disconnect();
       unsub();
       unsubMembers();

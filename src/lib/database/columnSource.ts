@@ -63,21 +63,113 @@ export function resolveDerivedCellValue(
   /** 현재 행의 dbCells (pageLink 컬럼 값을 포함) */
   currentRowCells: Record<string, unknown> | undefined,
   pages: Record<string, Page>,
+  ctx?: {
+    currentRowPageId?: string | null;
+    databases?: Record<string, DatabaseBundle>;
+  },
 ): unknown | undefined {
   const src = column.config?.sourceFromDb;
-  if (!src?.viaPageLinkColumnId) return undefined;
+  if (!src) return undefined;
+  const readSourceCell = (sourcePageId: string): unknown => {
+    const sourcePage = pages[sourcePageId];
+    const databases = ctx?.databases;
+    const sourceColumn = databases?.[src.databaseId]?.columns.find((c) => c.id === src.columnId);
+    if (!sourcePage || !sourceColumn) return sourcePage?.dbCells?.[src.columnId];
+    const derived = resolveDerivedCellValue(sourceColumn, sourcePage.dbCells, pages, {
+      currentRowPageId: sourcePageId,
+      databases,
+    });
+    return derived !== undefined ? derived : sourcePage.dbCells?.[src.columnId];
+  };
+
+  if (src.automation) {
+    const currentRowPageId = ctx?.currentRowPageId;
+    const sourceDb = src.databaseId ? ctx?.databases?.[src.databaseId] : undefined;
+    if (!currentRowPageId || !sourceDb || !src.columnId) {
+      return undefined;
+    }
+
+    const currentPage = pages[currentRowPageId];
+    const currentDb = currentPage?.databaseId ? ctx?.databases?.[currentPage.databaseId] : undefined;
+    const sourceLinkColumns = (currentDb?.columns ?? []).filter(
+      (c) => {
+        if (c.type !== "pageLink") return false;
+        if (c.config?.pageLinkScopeDatabaseId === src.databaseId) return true;
+        const value = currentRowCells?.[c.id];
+        return Array.isArray(value) && value.some((pageId) => typeof pageId === "string" && pages[pageId]?.databaseId === src.databaseId);
+      },
+    );
+    const preferredSourceLinkColumn =
+      sourceLinkColumns.find((c) => c.id === src.viaPageLinkColumnId) ??
+      sourceLinkColumns.find((c) => /피처|피쳐|피커|feature/i.test(c.name)) ??
+      sourceLinkColumns[0];
+    const explicitSourcePageId = preferredSourceLinkColumn
+      ? ((currentRowCells?.[preferredSourceLinkColumn.id] as unknown[] | undefined) ?? []).find(
+          (pageId): pageId is string => typeof pageId === "string" && pages[pageId]?.databaseId === src.databaseId,
+        )
+      : undefined;
+    if (explicitSourcePageId) {
+      return readSourceCell(explicitSourcePageId);
+    }
+
+    const pageLinkColumnIds = sourceDb.columns
+      .filter((c) => c.type === "pageLink" && (!currentPage?.databaseId || c.config?.pageLinkScopeDatabaseId === currentPage.databaseId))
+      .map((c) => c.id);
+    const fallbackPageLinkColumnIds = sourceDb.columns
+      .filter((c) => c.type === "pageLink" && !pageLinkColumnIds.includes(c.id))
+      .map((c) => c.id);
+    const findSourceRowByReverseLink = (columnIds: string[]) => sourceDb.rowPageOrder.find((pageId) => {
+      const cells = pages[pageId]?.dbCells ?? {};
+      return columnIds.some((columnId) => {
+        const value = cells[columnId];
+        return Array.isArray(value) && (value as unknown[]).includes(currentRowPageId);
+      });
+    });
+    const matchedPageId =
+      findSourceRowByReverseLink(pageLinkColumnIds) ??
+      findSourceRowByReverseLink(fallbackPageLinkColumnIds);
+    if (matchedPageId) {
+      return readSourceCell(matchedPageId);
+    }
+
+    const itemFetchColumn = currentDb?.columns.find(
+      (c) => c.type === "itemFetch" && c.config?.itemFetchSourceDatabaseId === src.databaseId,
+    );
+    const fetchedPageId = itemFetchColumn
+      ? resolveItemFetchPageIds(itemFetchColumn, currentRowPageId, ctx?.databases ?? {}, pages)[0]
+      : undefined;
+    if (fetchedPageId) {
+      return readSourceCell(fetchedPageId);
+    }
+
+    const directLinkedPageId = Object.values(currentRowCells ?? {}).find((value) => {
+      if (!Array.isArray(value)) return false;
+      return value.some((pageId) => typeof pageId === "string" && pages[pageId]?.databaseId === src.databaseId);
+    });
+    if (Array.isArray(directLinkedPageId)) {
+      const sourcePageId = directLinkedPageId.find(
+        (pageId): pageId is string => typeof pageId === "string" && pages[pageId]?.databaseId === src.databaseId,
+      );
+      if (sourcePageId) {
+        return readSourceCell(sourcePageId);
+      }
+    }
+  }
+
+  if (!src.viaPageLinkColumnId) return undefined;
   const linkedIds = currentRowCells?.[src.viaPageLinkColumnId];
   if (!Array.isArray(linkedIds)) return undefined;
   const firstId = linkedIds.find((v): v is string => typeof v === "string");
   if (!firstId) return undefined;
   const sourcePage = pages[firstId];
   if (!sourcePage) return undefined;
-  return sourcePage.dbCells?.[src.columnId];
+  return readSourceCell(firstId);
 }
 
 /** 컬럼이 자동 derivation 모드인지 — UI에서 편집 잠금 표시에 사용. */
 export function isCellValueDerived(column: ColumnDef): boolean {
-  return Boolean(column.config?.sourceFromDb?.viaPageLinkColumnId);
+  const src = column.config?.sourceFromDb;
+  return Boolean(src?.viaPageLinkColumnId || src?.automation);
 }
 
 /**
@@ -100,13 +192,28 @@ export function effectiveOptions(
   return column.config?.options ?? [];
 }
 
+function isCompletedToken(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "done" || normalized === "complete" || normalized === "completed" || normalized === "완료";
+}
+
 /** 다른 페이지의 셀값에서 "완료" 여부 판정 (status/select/multiSelect/checkbox 모두 대응). */
-function isCellCompleted(cellValue: unknown, completedValue: string): boolean {
+function isCellCompleted(
+  cellValue: unknown,
+  completedValue: string | undefined,
+  column: ColumnDef | undefined,
+): boolean {
   if (cellValue == null) return false;
-  if (typeof cellValue === "boolean") return cellValue && completedValue === "true";
-  if (typeof cellValue === "string") return cellValue === completedValue;
+  if (typeof cellValue === "boolean") return cellValue;
+  const optionById = new Map((column?.config?.options ?? []).map((option) => [option.id, option]));
+  const isCompletedString = (value: string) => {
+    if (completedValue) return value === completedValue;
+    const option = optionById.get(value);
+    return isCompletedToken(value) || (option ? isCompletedToken(option.label) : false);
+  };
+  if (typeof cellValue === "string") return isCompletedString(cellValue);
   if (Array.isArray(cellValue)) {
-    return cellValue.some((v) => typeof v === "string" && v === completedValue);
+    return cellValue.some((v) => typeof v === "string" && isCompletedString(v));
   }
   return false;
 }
@@ -117,6 +224,34 @@ type ProgressContext = {
   /** 현재 행 페이지의 dbCells — currentRowPageId가 없거나 페이지스토어 접근이 곤란할 때 fallback */
   currentRowCells?: Record<string, unknown>;
 };
+
+function resolveItemFetchPageIds(
+  column: ColumnDef,
+  rowPageId: string | null | undefined,
+  databases: Record<string, DatabaseBundle>,
+  pages: Record<string, Page>,
+): string[] {
+  if (!rowPageId) return [];
+  const sourceDbId = column.config?.itemFetchSourceDatabaseId;
+  const matchColId = column.config?.itemFetchMatchColumnId;
+  if (!sourceDbId || !matchColId) return [];
+  const sourceDb = databases[sourceDbId];
+  if (!sourceDb) return [];
+
+  const currentTitle = pages[rowPageId]?.title ?? "";
+  const matchCol = sourceDb.columns.find((c) => c.id === matchColId);
+  const isPageLinkCol = matchCol?.type === "pageLink";
+
+  return sourceDb.rowPageOrder.filter((pageId) => {
+    const page = pages[pageId];
+    if (!page) return false;
+    const cellValue = page.dbCells?.[matchColId];
+    if (isPageLinkCol) {
+      return Array.isArray(cellValue) && (cellValue as unknown[]).includes(rowPageId);
+    }
+    return typeof cellValue === "string" && cellValue === currentTitle;
+  });
+}
 
 /** 진행률 자동 계산 — `progressSource` 설정이 있으면 백분율(0-100) 반환, 없으면 null. */
 export function computeProgressFromSource(
@@ -129,23 +264,30 @@ export function computeProgressFromSource(
   if (!src) return null;
 
   const targetDb = databases[src.databaseId];
-  if (!targetDb) return 0;
 
   // 1) 대상 페이지 ID 목록 결정
   let targetPageIds: string[] = [];
   const scope = src.scope ?? { mode: "allRows" };
 
   if (scope.mode === "allRows") {
+    if (!targetDb) return 0;
     targetPageIds = targetDb.rowPageOrder ?? [];
   } else if (scope.mode === "linkedPagesFromColumn") {
-    // 현재 행의 특정 pageLink 컬럼 값에서 ID 목록 추출
-    const cellSource =
-      ctx.currentRowCells ??
-      (ctx.currentRowPageId ? pages[ctx.currentRowPageId]?.dbCells : undefined) ??
-      {};
-    const linked = (cellSource as Record<string, unknown>)[scope.pageLinkColumnId];
-    if (Array.isArray(linked)) {
-      targetPageIds = linked.filter((v): v is string => typeof v === "string");
+    // 현재 행의 특정 pageLink/itemFetch 컬럼 값에서 대상 페이지 목록 추출
+    const currentPage = ctx.currentRowPageId ? pages[ctx.currentRowPageId] : undefined;
+    const currentDb = currentPage?.databaseId ? databases[currentPage.databaseId] : undefined;
+    const sourceColumn = currentDb?.columns.find((c) => c.id === scope.pageLinkColumnId);
+    if (sourceColumn?.type === "itemFetch") {
+      targetPageIds = resolveItemFetchPageIds(sourceColumn, ctx.currentRowPageId, databases, pages);
+    } else {
+      const cellSource =
+        ctx.currentRowCells ??
+        (ctx.currentRowPageId ? pages[ctx.currentRowPageId]?.dbCells : undefined) ??
+        {};
+      const linked = (cellSource as Record<string, unknown>)[scope.pageLinkColumnId];
+      if (Array.isArray(linked)) {
+        targetPageIds = linked.filter((v): v is string => typeof v === "string");
+      }
     }
   }
 
@@ -157,7 +299,9 @@ export function computeProgressFromSource(
     const page = pages[pid];
     if (!page) continue;
     const cells = page.dbCells ?? {};
-    if (isCellCompleted(cells[src.columnId], src.completedValue)) completed += 1;
+    const pageDb = page.databaseId ? databases[page.databaseId] : targetDb;
+    const statusColumn = pageDb?.columns.find((c) => c.id === src.columnId);
+    if (isCellCompleted(cells[src.columnId], src.completedValue, statusColumn)) completed += 1;
   }
 
   const pct = Math.round((completed / targetPageIds.length) * 100);

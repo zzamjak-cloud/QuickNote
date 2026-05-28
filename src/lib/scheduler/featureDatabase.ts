@@ -7,8 +7,11 @@ import {
   LC_FEATURE_DATABASE_TITLE,
   LC_FEATURE_DATABASE_ID,
   LC_MILESTONE_DATABASE_ID,
+  LC_SCHEDULER_DATABASE_ID,
+  LC_SCHEDULER_COLUMN_IDS,
   syncFullPageTitleForDatabase,
 } from "./database";
+import { LC_MILESTONE_COLUMN_IDS } from "./milestoneDatabase";
 // (마일스톤 컬럼 sourceFromDb 미러링은 linkedScope 패턴으로 대체됨 — import 불필요)
 
 export const LC_FEATURE_COLUMN_IDS = {
@@ -47,8 +50,15 @@ function lcFeatureColumns(): ColumnDef[] {
       name: "마일스톤",
       type: "pageLink",
       width: 180,
-      // 마일스톤 DB의 항목만 검색 대상으로 제한.
-      config: { pageLinkScopeDatabaseId: LC_MILESTONE_DATABASE_ID },
+      // 마일스톤 DB 항목만 검색 대상 + 마일스톤 선택 시 조직·팀·프로젝트 자동 채움.
+      config: {
+        pageLinkScopeDatabaseId: LC_MILESTONE_DATABASE_ID,
+        pageLinkAutoFill: [
+          { targetColumnId: LC_FEATURE_COLUMN_IDS.organization, sourceColumnId: LC_MILESTONE_COLUMN_IDS.organization },
+          { targetColumnId: LC_FEATURE_COLUMN_IDS.team, sourceColumnId: LC_MILESTONE_COLUMN_IDS.team },
+          { targetColumnId: LC_FEATURE_COLUMN_IDS.project, sourceColumnId: LC_MILESTONE_COLUMN_IDS.project },
+        ],
+      },
     },
     {
       id: LC_FEATURE_COLUMN_IDS.organization,
@@ -121,7 +131,18 @@ function lcFeatureColumns(): ColumnDef[] {
       name: "진행률",
       type: "progress",
       width: 160,
-      // progressSource는 사용자가 직접 지정 (예: 작업 DB의 상태=완료 비율).
+      // 작업 DB에서 이 피처와 연결된 작업들의 상태(done) 비율로 자동 계산.
+      config: {
+        progressSource: {
+          databaseId: LC_SCHEDULER_DATABASE_ID,
+          columnId: LC_SCHEDULER_COLUMN_IDS.status,
+          completedValue: "done",
+          scope: {
+            mode: "linkedPagesFromColumn" as const,
+            pageLinkColumnId: LC_FEATURE_COLUMN_IDS.task,
+          },
+        },
+      },
     },
     { id: LC_FEATURE_COLUMN_IDS.workStart, name: "작업시작", type: "date", width: 130 },
     { id: LC_FEATURE_COLUMN_IDS.workEnd, name: "작업종료", type: "date", width: 130 },
@@ -130,10 +151,39 @@ function lcFeatureColumns(): ColumnDef[] {
       name: "작업",
       type: "pageLink",
       width: 200,
-      // 작업 DB 행만 검색 대상. 실제 작업 DB id는 워크스페이스별로 다르므로
-      // 컬럼 편집에서 사용자가 지정하거나 후속 부트스트랩이 채워야 한다.
+      // 작업 DB의 "피쳐" pageLink 컬럼이 변경될 때 자동으로 채워지는 역방향 컬럼.
+      // 사용자가 직접 수정할 수 없도록 pageLinkAutoReverse: true 설정.
+      config: {
+        pageLinkScopeDatabaseId: LC_SCHEDULER_DATABASE_ID,
+        pageLinkAutoReverse: true,
+      },
     },
   ];
+}
+
+function mergeFeatureColumnConfig(
+  colConfig: ColumnDef["config"] | undefined,
+  prevConfig: ColumnDef["config"] | undefined,
+): ColumnDef["config"] | undefined {
+  // 기본: 기존 값(prev) 우선. 단, 시스템 제어 필드는 defaults(col) 우선
+  // — 구버전 캐시의 잔류 값이 새 자동화 설정을 덮지 않도록.
+  const merged = { ...(colConfig ?? {}), ...(prevConfig ?? {}) };
+  if (colConfig?.pageLinkScopeDatabaseId !== undefined) {
+    merged.pageLinkScopeDatabaseId = colConfig.pageLinkScopeDatabaseId;
+  }
+  if (colConfig?.pageLinkAutoReverse !== undefined) {
+    merged.pageLinkAutoReverse = colConfig.pageLinkAutoReverse;
+  }
+  if (colConfig?.pageLinkAutoFill !== undefined) {
+    merged.pageLinkAutoFill = colConfig.pageLinkAutoFill;
+  }
+  if (colConfig?.progressSource !== undefined) {
+    merged.progressSource = colConfig.progressSource;
+  }
+  if (colConfig?.linkedScope !== undefined) {
+    merged.linkedScope = colConfig.linkedScope;
+  }
+  return Object.keys(merged).length ? merged : undefined;
 }
 
 function mergeFeatureColumns(existing: ColumnDef[] | undefined): ColumnDef[] {
@@ -146,10 +196,7 @@ function mergeFeatureColumns(existing: ColumnDef[] | undefined): ColumnDef[] {
       ...col,
       ...prev,
       type: col.type,
-      config: {
-        ...(col.config ?? {}),
-        ...(prev.config ?? {}),
-      },
+      config: mergeFeatureColumnConfig(col.config, prev.config),
     };
   });
   const requiredIds = new Set(required.map((c) => c.id));
@@ -173,6 +220,7 @@ export async function ensureLCFeatureDatabase(workspaceId: string): Promise<void
   const next: DatabaseBundle = {
     meta: {
       id: databaseId,
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
       title: LC_FEATURE_DATABASE_TITLE,
       createdAt: existing?.meta.createdAt ?? t,
       updatedAt: t,

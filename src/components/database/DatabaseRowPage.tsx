@@ -9,6 +9,7 @@ import { PageCommentBar } from "../comments/PageCommentBar";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { DbPropertySection } from "../page/DbPropertySection";
+import { PageCoverImage } from "../editor/PageCoverImage";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   // doc 필드는 Editor 컴포넌트가 내부에서 직접 구독 — 여기서는 메타 필드만 구독해 불필요한 리렌더 방지
@@ -16,11 +17,12 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
     useShallow((s) => {
       const p = s.pages[pageId];
       if (!p) return undefined;
-      return { title: p.title, icon: p.icon, databaseId: p.databaseId, parentId: p.parentId };
+      return { title: p.title, icon: p.icon, coverImage: p.coverImage, databaseId: p.databaseId, parentId: p.parentId };
     }),
   );
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
+  const setCoverImage = usePageStore((s) => s.setCoverImage);
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
   // 부트스트랩 하이드레이션 중인지 판별 — 스토어가 아직 비어 있으면 "없음"이 아니라 "로딩 중"이다.
@@ -64,33 +66,37 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
 
   return (
     <div>
+      <PageCoverImage
+        url={page.coverImage}
+        onChange={(url) => setCoverImage(pageId, url)}
+        onRemove={() => setCoverImage(pageId, null)}
+        onUploadError={(msg) => setIconAlert(msg)}
+      />
+      <div className={`${page.coverImage ? "mt-12" : "mt-4"} px-12`}>
+        <div className="mb-4">
+          <PageTitleBar
+            pageId={pageId}
+            icon={page.icon}
+            titleDraft={titleDraft}
+            titleClassName="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
+            onTitleChange={(v) => setTitleDraft(v)}
+            onTitleBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
+            onTitleKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+            onIconChange={(icon) => setIcon(pageId, icon)}
+            onIconUploadMessage={(msg) => setIconAlert(msg)}
+            defaultIcon={<FileText size={56} className="text-zinc-400" />}
+          />
+        </div>
+
+        <DbPropertySection databaseId={databaseId} pageId={pageId} className="mt-3" />
+        <PageCommentBar pageId={pageId} />
+      </div>
       <Editor
         pageId={pageId}
         bodyOnly
         showTailSpacer={false}
-        bodyPrefix={
-          <div className="px-12 pt-8">
-            <div className="mb-4">
-              <PageTitleBar
-                pageId={pageId}
-                icon={page.icon}
-                titleDraft={titleDraft}
-                titleClassName="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
-                onTitleChange={(v) => setTitleDraft(v)}
-                onTitleBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
-                onTitleKeyDown={(e) => {
-                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                }}
-                onIconChange={(icon) => setIcon(pageId, icon)}
-                onIconUploadMessage={(msg) => setIconAlert(msg)}
-                defaultIcon={<FileText size={56} className="text-zinc-400" />}
-              />
-            </div>
-
-            <DbPropertySection databaseId={databaseId} pageId={pageId} className="mt-3" />
-            <PageCommentBar pageId={pageId} />
-          </div>
-        }
       />
       <div
         aria-hidden

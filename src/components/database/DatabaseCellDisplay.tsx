@@ -7,6 +7,7 @@ import {
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { computeProgressFromSource, resolveDerivedCellValue } from "../../lib/database/columnSource";
+import { resolvePageLinkMirrorValue } from "../../lib/database/pageLinkMirror";
 import { useEffectiveOptions } from "./useEffectiveOptions";
 
 type Props = {
@@ -29,8 +30,13 @@ export function DatabaseCellDisplay({
   const options = useEffectiveOptions(column);
   // viaPageLinkColumnId 미러 — 연결된 페이지의 셀값 자동 사용
   const rowCells = rowId ? pages[rowId]?.dbCells : undefined;
-  const derived = resolveDerivedCellValue(column, rowCells, pages);
-  const effectiveValue: CellValue = derived !== undefined ? (derived as CellValue) : value;
+  const derived = resolveDerivedCellValue(column, rowCells, pages, {
+    currentRowPageId: rowId,
+    databases,
+  });
+  const effectiveValue: CellValue = column.config?.sourceFromDb
+    ? ((derived as CellValue) ?? null)
+    : value;
   // 이후 로직은 effectiveValue 기반
   value = effectiveValue;
 
@@ -75,7 +81,19 @@ export function DatabaseCellDisplay({
   }
 
   if (column.type === "pageLink") {
-    const ids = Array.isArray(value) ? (value as string[]).filter((v) => typeof v === "string") : [];
+    const mirrorValue = rowId
+      ? resolvePageLinkMirrorValue({
+          databases,
+          pages,
+          currentDatabaseId: pages[rowId]?.databaseId,
+          rowId,
+          column,
+        })
+      : undefined;
+    const sourceValue = mirrorValue ?? value;
+    const ids = Array.isArray(sourceValue)
+      ? (sourceValue as string[]).filter((v) => typeof v === "string")
+      : [];
     if (ids.length === 0) return null;
     const titles = ids
       .map((id) => pages[id]?.title || "제목 없음")
@@ -84,6 +102,33 @@ export function DatabaseCellDisplay({
     return (
       <span className={textClassName ?? "text-zinc-500 dark:text-zinc-400"}>
         {titles.join(", ")}{rest > 0 ? ` 외 ${rest}개` : ""}
+      </span>
+    );
+  }
+
+  if (column.type === "itemFetch") {
+    const sourceDbId = column.config?.itemFetchSourceDatabaseId;
+    const matchColId = column.config?.itemFetchMatchColumnId;
+    if (!sourceDbId || !matchColId || !rowId) return null;
+    const sourceDb = databases[sourceDbId];
+    if (!sourceDb) return null;
+    const currentTitle = pages[rowId]?.title ?? "";
+    const matchCol = sourceDb.columns.find((c) => c.id === matchColId);
+    const isPageLinkCol = matchCol?.type === "pageLink";
+    const titles = sourceDb.rowPageOrder
+      .map((pid) => pages[pid])
+      .filter((page): page is NonNullable<typeof page> => {
+        if (!page) return false;
+        const cv = page.dbCells?.[matchColId];
+        if (isPageLinkCol) return Array.isArray(cv) && (cv as string[]).includes(rowId);
+        return typeof cv === "string" && cv === currentTitle;
+      })
+      .map((p) => p.title || "제목 없음")
+      .slice(0, 2);
+    if (titles.length === 0) return null;
+    return (
+      <span className={textClassName ?? "text-zinc-500 dark:text-zinc-400"}>
+        {titles.join(", ")}
       </span>
     );
   }

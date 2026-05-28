@@ -451,13 +451,14 @@ export const usePageStore = create<PageStore>()(
       },
 
       setActivePage: (id) => {
-        set({ activePageId: id });
-        // 탭도 동일 동기 컨텍스트에서 갱신 → App.tsx useEffect 대기 없이 단일 렌더
         if (id) {
           const st = useSettingsStore.getState();
           if (st.tabs[st.activeTabIndex]?.pageId !== id) {
             st.setCurrentTabPage(id);
           }
+        }
+        if (get().activePageId !== id) {
+          set({ activePageId: id });
         }
         const ws = getCurrentWorkspaceId();
         if (ws && id) {

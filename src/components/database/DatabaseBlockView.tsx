@@ -177,7 +177,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   };
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [inlineControlsCollapsed, setInlineControlsCollapsed] = useState(true);
+  const [inlineControlsCollapsed, setInlineControlsCollapsed] = useState(false);
   const [deletePhraseDraft, setDeletePhraseDraft] = useState("");
   const [dbHistoryDialogOpen, setDbHistoryDialogOpen] = useState(false);
   const [dbHistoryDeleteOpen, setDbHistoryDeleteOpen] = useState(false);

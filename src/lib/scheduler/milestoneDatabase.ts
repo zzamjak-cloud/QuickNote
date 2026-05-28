@@ -170,6 +170,7 @@ export async function ensureLCMilestoneDatabase(workspaceId: string): Promise<vo
   const next: DatabaseBundle = {
     meta: {
       id: databaseId,
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
       title: LC_MILESTONE_DATABASE_TITLE,
       createdAt: existing?.meta.createdAt ?? t,
       updatedAt: t,

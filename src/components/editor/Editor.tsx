@@ -709,13 +709,13 @@ export function Editor({
   }, [page?.id, effectivePageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 페이지 전환 시 draft·포커스 정리 — 사이드바 + 등으로 새 페이지를 만들 때 이전 제목이 붙는 것 방지.
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!currentPageId) {
-      setTitleDraft("");
+      setTitleDraft((prev) => (prev === "" ? prev : ""));
       titleFocusPageIdRef.current = null;
       return;
     }
-    setTitleDraft(currentPageTitle);
+    setTitleDraft((prev) => (prev === currentPageTitle ? prev : currentPageTitle));
     titleFocusPageIdRef.current = null;
     if (titleRef.current && document.activeElement === titleRef.current) {
       titleRef.current.blur();
@@ -726,7 +726,7 @@ export function Editor({
   useEffect(() => {
     if (!currentPageId) return;
     if (titleFocusPageIdRef.current === currentPageId) return;
-    setTitleDraft(currentPageTitle);
+    setTitleDraft((prev) => (prev === currentPageTitle ? prev : currentPageTitle));
   }, [currentPageId, currentPageTitle]);
 
   // editor.editable 토글 — read-only 상태로 두면 슬래시 메뉴, 텍스트 입력, 블록 추가 모두 차단.

@@ -187,6 +187,12 @@ function matchesFilter(
   const col = columns.find((c) => c.id === rule.columnId);
   const str = cellToSearchString(raw, columns, rule.columnId);
   const empty = str.trim() === "";
+  const target = rule.value ?? "";
+  const rawStringValues = Array.isArray(raw)
+    ? (raw as unknown[]).filter((value): value is string => typeof value === "string")
+    : typeof raw === "string"
+      ? [raw]
+      : [];
 
   switch (rule.operator) {
     case "isEmpty":
@@ -194,25 +200,25 @@ function matchesFilter(
     case "isNotEmpty":
       return !empty;
     case "contains":
-      return str.toLowerCase().includes((rule.value ?? "").toLowerCase());
+      return str.toLowerCase().includes(target.toLowerCase()) || rawStringValues.some((value) => value === target);
     case "equals":
-      return str === (rule.value ?? "");
+      return str === target || rawStringValues.includes(target);
     case "notEquals":
-      return str !== (rule.value ?? "");
+      return str !== target && !rawStringValues.includes(target);
     case "gt":
       if (col?.type === "number") {
         const n = typeof raw === "number" ? raw : Number(raw);
-        const t = Number(rule.value);
+        const t = Number(target);
         return Number.isFinite(n) && Number.isFinite(t) && n > t;
       }
-      return str > (rule.value ?? "");
+      return str > target;
     case "lt":
       if (col?.type === "number") {
         const n = typeof raw === "number" ? raw : Number(raw);
-        const t = Number(rule.value);
+        const t = Number(target);
         return Number.isFinite(n) && Number.isFinite(t) && n < t;
       }
-      return str < (rule.value ?? "");
+      return str < target;
     default:
       return true;
   }
