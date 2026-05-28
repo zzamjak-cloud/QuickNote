@@ -379,15 +379,44 @@ export async function updateMember(args: {
   return updated;
 }
 
-/** v1 클라이언트 prefs — 즐겨찾기 동기화. */
+/** v1 클라이언트 prefs — 개인 UI 설정 동기화. */
 export type ClientPrefsPayloadV1 = {
   v: 1;
   favoritePageIds: string[];
   favoritePageIdsUpdatedAt: number;
+  favoritePageMetaById?: Record<string, unknown>;
+  fullWidth?: boolean;
+  pageFullWidthById?: Record<string, boolean>;
+  fullWidthUpdatedAt?: number;
 };
 
 const MAX_SYNCED_FAVORITES = 500;
 const MAX_PAGE_ID_CHARS = 128;
+
+function sanitizeClientPrefsMeta(
+  raw: unknown,
+  favoritePageIds: readonly string[],
+): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const ids = new Set(favoritePageIds);
+  const result: Record<string, unknown> = {};
+  for (const [pageId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!ids.has(pageId) || !value || typeof value !== "object" || Array.isArray(value)) continue;
+    result[pageId] = value;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function sanitizeBooleanRecord(raw: unknown): Record<string, boolean> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const result: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === "boolean" && key.length <= MAX_PAGE_ID_CHARS) {
+      result[key] = value;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
 
 function parseClientPrefsStored(raw: unknown): ClientPrefsPayloadV1 | null {
   if (raw == null || raw === "") return null;
@@ -399,11 +428,20 @@ function parseClientPrefsStored(raw: unknown): ClientPrefsPayloadV1 | null {
     const favoritePageIds = o.favoritePageIds.map(String);
     const ts = Number(o.favoritePageIdsUpdatedAt);
     if (!Number.isFinite(ts) || ts < 0) return null;
-    return {
+    const parsed: ClientPrefsPayloadV1 = {
       v: 1,
       favoritePageIds,
       favoritePageIdsUpdatedAt: ts,
     };
+    const favoritePageMetaById = sanitizeClientPrefsMeta(o.favoritePageMetaById, favoritePageIds);
+    if (favoritePageMetaById) parsed.favoritePageMetaById = favoritePageMetaById;
+    const fullWidthUpdatedAt = Number(o.fullWidthUpdatedAt);
+    if (Number.isFinite(fullWidthUpdatedAt) && fullWidthUpdatedAt >= 0) {
+      parsed.fullWidthUpdatedAt = fullWidthUpdatedAt;
+      if (typeof o.fullWidth === "boolean") parsed.fullWidth = o.fullWidth;
+      parsed.pageFullWidthById = sanitizeBooleanRecord(o.pageFullWidthById) ?? {};
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -444,6 +482,14 @@ export async function updateMyClientPrefs(args: {
       favoritePageIds,
       favoritePageIdsUpdatedAt,
     };
+    const favoritePageMetaById = sanitizeClientPrefsMeta(o.favoritePageMetaById, favoritePageIds);
+    if (favoritePageMetaById) incoming.favoritePageMetaById = favoritePageMetaById;
+    const fullWidthUpdatedAt = Number(o.fullWidthUpdatedAt);
+    if (Number.isFinite(fullWidthUpdatedAt) && fullWidthUpdatedAt >= 0) {
+      incoming.fullWidthUpdatedAt = fullWidthUpdatedAt;
+      if (typeof o.fullWidth === "boolean") incoming.fullWidth = o.fullWidth;
+      incoming.pageFullWidthById = sanitizeBooleanRecord(o.pageFullWidthById) ?? {};
+    }
   } catch (e) {
     if (e instanceof ResolverError) throw e;
     const msg = e instanceof Error ? e.message : String(e);
@@ -451,14 +497,25 @@ export async function updateMyClientPrefs(args: {
   }
 
   const existing = parseClientPrefsStored(target.clientPrefs ?? null);
-  if (
-    existing &&
-    incoming.favoritePageIdsUpdatedAt < existing.favoritePageIdsUpdatedAt
-  ) {
-    return target;
+  const merged: ClientPrefsPayloadV1 = existing
+    ? { ...existing }
+    : { v: 1, favoritePageIds: [], favoritePageIdsUpdatedAt: 0 };
+  if (!existing || incoming.favoritePageIdsUpdatedAt >= existing.favoritePageIdsUpdatedAt) {
+    merged.favoritePageIds = incoming.favoritePageIds;
+    merged.favoritePageIdsUpdatedAt = incoming.favoritePageIdsUpdatedAt;
+    if (incoming.favoritePageMetaById) {
+      merged.favoritePageMetaById = incoming.favoritePageMetaById;
+    } else {
+      delete merged.favoritePageMetaById;
+    }
+  }
+  if ((incoming.fullWidthUpdatedAt ?? 0) >= (existing?.fullWidthUpdatedAt ?? 0)) {
+    if (incoming.fullWidthUpdatedAt != null) merged.fullWidthUpdatedAt = incoming.fullWidthUpdatedAt;
+    if (incoming.fullWidth != null) merged.fullWidth = incoming.fullWidth;
+    if (incoming.pageFullWidthById) merged.pageFullWidthById = incoming.pageFullWidthById;
   }
 
-  const toSave = JSON.stringify(incoming satisfies ClientPrefsPayloadV1);
+  const toSave = JSON.stringify(merged satisfies ClientPrefsPayloadV1);
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: args.tables.Members,

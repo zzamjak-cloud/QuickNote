@@ -197,6 +197,7 @@ export function Editor({
   }, [bodyOnly, effectivePageId, peek]);
 
   const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(240);
+  const editorTailSpacerPxRef = useRef(editorTailSpacerPx);
 
   const clearColumnDropUi = useCallback(() => {
     document.body.classList.remove("quicknote-column-drop");
@@ -438,10 +439,17 @@ export function Editor({
   // 즉시 editor 에 반영되도록 한다. 자기 타이핑은 editor.getJSON() === safeDoc 비교로 걸러지므로 무한 루프 없음.
   // 사용자 입력 중(focused)이면 cursor 보존을 위해 blur 까지 setContent 를 보류.
   const lastSyncedPageIdRef = useRef<string | null>(null);
+  // 동일 pageDoc 참조에 대해 정규화 updateDoc 을 한 번만 실행하기 위한 가드
+  const lastNormalizedDocRef = useRef<unknown>(null);
   useEffect(() => {
     if (!editor || !pageDoc || !safePageDoc || !effectivePageId) return;
-    if (!tipTapJsonDocEquals(editor.schema, safePageDoc, pageDoc)) {
+    if (
+      lastNormalizedDocRef.current !== pageDoc &&
+      !tipTapJsonDocEquals(editor.schema, safePageDoc, pageDoc)
+    ) {
+      lastNormalizedDocRef.current = pageDoc;
       updateDoc(effectivePageId, safePageDoc, { skipHistory: true });
+      return;
     }
     if (isFullPageDatabase) {
       storeDocHydratedRef.current = true;
@@ -798,7 +806,10 @@ export function Editor({
       if (host.style.scrollPaddingBottom !== nextPadding) {
         host.style.scrollPaddingBottom = nextPadding;
       }
-      setEditorTailSpacerPx((prev) => (prev === px ? prev : px));
+      if (editorTailSpacerPxRef.current !== px) {
+        editorTailSpacerPxRef.current = px;
+        setEditorTailSpacerPx(px);
+      }
     };
     run();
     window.addEventListener("resize", run, { passive: true });

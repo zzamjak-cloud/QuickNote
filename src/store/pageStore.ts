@@ -451,12 +451,6 @@ export const usePageStore = create<PageStore>()(
       },
 
       setActivePage: (id) => {
-        if (id) {
-          const st = useSettingsStore.getState();
-          if (st.tabs[st.activeTabIndex]?.pageId !== id) {
-            st.setCurrentTabPage(id);
-          }
-        }
         if (get().activePageId !== id) {
           set({ activePageId: id });
         }

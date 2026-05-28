@@ -27,6 +27,18 @@ export interface GqlBridge {
   softDeleteComment(id: string, workspaceId: string, updatedAt: string): Promise<void>;
 }
 
+function normalizeClientPrefsJsonForServer(json: string): string {
+  try {
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    if (Number(parsed.v) === 2) {
+      return JSON.stringify({ ...parsed, v: 1 });
+    }
+  } catch {
+    return json;
+  }
+  return json;
+}
+
 const MAX_BACKOFF_MS = 60_000;
 const DEAD_LETTER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // 영구 실패 entry 를 자동 정리하는 attempts 상한.
@@ -535,7 +547,7 @@ export class SyncEngine {
         if (typeof json !== "string" || !json) {
           throw new Error("updateMyClientPrefs: clientPrefs 문자열 누락");
         }
-        return this.gql.updateMyClientPrefs(json);
+        return this.gql.updateMyClientPrefs(normalizeClientPrefsJsonForServer(json));
       }
     }
   }

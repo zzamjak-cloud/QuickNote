@@ -7,10 +7,10 @@ import type { FavoritePageMeta, SettingsStore } from "../../store/settingsStore"
 import { useWorkspaceStore } from "../../store/workspaceStore";
 
 /** clientPrefs 페이로드 버전(AppSync 저장 JSON). */
-export const CLIENT_PREFS_SCHEMA_V = 2 as const;
+export const CLIENT_PREFS_SCHEMA_V = 1 as const;
 
 export type ClientPrefsV1 = {
-  v: 1 | typeof CLIENT_PREFS_SCHEMA_V;
+  v: 1 | 2;
   favoritePageIds: string[];
   favoritePageIdsUpdatedAt: number;
   favoritePageMetaById?: Record<string, FavoritePageMeta>;

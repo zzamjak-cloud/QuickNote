@@ -192,6 +192,7 @@ export function DatabaseRowPeek() {
   const scrollBodyRef = useRef<HTMLDivElement | null>(null);
   const openedAtRef = useRef(0);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
+  const tailSpacerPxRef = useRef(tailSpacerPx);
   const [editorDeferredReady, setEditorDeferredReady] = useState(false);
   const subpagePopover = useAnchoredPopover(280);
 
@@ -271,7 +272,11 @@ export function DatabaseRowPeek() {
 
   useLayoutEffect(() => {
     const run = (): void => {
-      setTailSpacerPx(computeEditorTailSpacerPx());
+      const px = computeEditorTailSpacerPx();
+      if (tailSpacerPxRef.current !== px) {
+        tailSpacerPxRef.current = px;
+        setTailSpacerPx(px);
+      }
     };
     run();
     window.addEventListener("resize", run, { passive: true });

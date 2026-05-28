@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FileText } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useShallow } from "zustand/react/shallow";
@@ -32,6 +32,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const [iconAlert, setIconAlert] = useState<string | null>(null);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
+  const tailSpacerPxRef = useRef(tailSpacerPx);
 
   useEffect(() => {
     setTitleDraft(page?.title ?? "");
@@ -39,7 +40,11 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
 
   useLayoutEffect(() => {
     const run = (): void => {
-      setTailSpacerPx(computeEditorTailSpacerPx());
+      const px = computeEditorTailSpacerPx();
+      if (tailSpacerPxRef.current !== px) {
+        tailSpacerPxRef.current = px;
+        setTailSpacerPx(px);
+      }
     };
     run();
     window.addEventListener("resize", run, { passive: true });
