@@ -13,6 +13,10 @@ import type { Page } from "../../types/page";
 import { newId } from "../../lib/id";
 import { createRowPageLinkedToDatabase } from "../../lib/services/databaseRowPages";
 import { enqueueAsync } from "../../lib/sync/runtime";
+import {
+  serializeColumns,
+  serializePresets,
+} from "../../lib/database/schema/normalizeDatabase";
 import { useAuthStore } from "../authStore";
 import { useWorkspaceStore } from "../workspaceStore";
 import { usePageStore } from "../pageStore";
@@ -51,8 +55,8 @@ export function toGqlDatabase(
     workspaceId,
     createdByMemberId,
     title: meta.title,
-    columns: JSON.stringify(columns),
-    presets: JSON.stringify(presets ?? []),
+    columns: serializeColumns(columns),
+    presets: serializePresets(presets),
     createdAt: new Date(meta.createdAt).toISOString(),
     updatedAt: new Date(meta.updatedAt).toISOString(),
   };

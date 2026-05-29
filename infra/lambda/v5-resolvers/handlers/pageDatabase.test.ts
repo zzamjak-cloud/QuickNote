@@ -202,6 +202,134 @@ describe("page/database handlers", () => {
     ).rejects.toThrow(/권한/);
   });
 
+  it("upsertDatabase: advanced column config AWSJSON 문자열을 그대로 보존한다", async () => {
+    const columns = JSON.stringify([
+      {
+        id: "status",
+        name: "상태",
+        type: "select",
+        config: {
+          sourceFromDb: {
+            databaseId: "source-db",
+            columnId: "source-status",
+            automation: true,
+            viaPageLinkColumnId: "feature-link",
+          },
+        },
+      },
+      {
+        id: "feature",
+        name: "기능",
+        type: "itemFetch",
+        config: {
+          itemFetchSourceDatabaseId: "feature-db",
+          itemFetchMatchColumnId: "task-link",
+        },
+      },
+    ]);
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      {}, // put
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "now",
+        createdAt: "now",
+        title: "D",
+        columns,
+        createdByMemberId: "m1",
+      },
+    });
+
+    expect(result.columns).toBe(columns);
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls.at(-1)?.[0] as { input?: { Item?: Record<string, unknown> } };
+    expect(putCommand.input?.Item?.columns).toBe(columns);
+    expect(putCommand.input?.Item?.columns).toContain('"automation":true');
+    expect(putCommand.input?.Item?.columns).toContain('"itemFetchSourceDatabaseId":"feature-db"');
+  });
+
+  it("upsertDatabase: advanced column config AWSJSON 배열을 문자열로 정규화한다", async () => {
+    const columns = [
+      {
+        id: "status",
+        name: "상태",
+        type: "select",
+        config: {
+          sourceFromDb: {
+            databaseId: "source-db",
+            columnId: "source-status",
+            automation: true,
+            viaPageLinkColumnId: "feature-link",
+          },
+        },
+      },
+      {
+        id: "feature",
+        name: "기능",
+        type: "itemFetch",
+        config: {
+          itemFetchSourceDatabaseId: "feature-db",
+          itemFetchMatchColumnId: "task-link",
+        },
+      },
+    ];
+    const presets = [
+      {
+        id: "preset-1",
+        databaseId: "d1",
+        name: "Feature",
+        scope: "project",
+        columnDefaults: { status: "todo" },
+        requiredColumnIds: ["status"],
+        visibleColumnIds: ["status", "feature"],
+        hiddenColumnIds: [],
+        schedulerDefaults: { titlePrefix: "[Feature]" },
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ];
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      {}, // put
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "now",
+        createdAt: "now",
+        title: "D",
+        columns,
+        presets,
+        createdByMemberId: "m1",
+      },
+    });
+
+    expect(typeof result.columns).toBe("string");
+    expect(typeof result.presets).toBe("string");
+    expect(JSON.parse(result.columns as string)).toEqual(columns);
+    expect(JSON.parse(result.presets as string)).toEqual(presets);
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls.at(-1)?.[0] as { input?: { Item?: Record<string, unknown> } };
+    expect(typeof putCommand.input?.Item?.columns).toBe("string");
+    expect(typeof putCommand.input?.Item?.presets).toBe("string");
+    expect(putCommand.input?.Item?.columns).toContain('"automation":true');
+    expect(putCommand.input?.Item?.columns).toContain('"itemFetchSourceDatabaseId":"feature-db"');
+  });
+
   it("listTrashedPages: 삭제된 페이지만 반환", async () => {
     const recent = new Date().toISOString();
     const doc = mockDoc(

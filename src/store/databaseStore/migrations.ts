@@ -1,7 +1,7 @@
 // databaseStore persist 마이그레이션 + coerce 헬퍼.
 // databaseStore.ts 에서 분리 — 동작 변경 없음.
 
-import type { ColumnDef, ColumnType, DatabaseBundle, DatabaseRowPreset } from "../../types/database";
+import type { DatabaseBundle } from "../../types/database";
 import {
   attachPersistedMeta,
   attachQuarantine,
@@ -9,6 +9,7 @@ import {
   type PersistedObject,
   type PersistedQuarantine,
 } from "../../lib/migrations/persistedStore";
+import { normalizeDatabaseBundle } from "../../lib/database/schema/normalizeDatabase";
 import {
   isLegacyLCSchedulerDatabaseId,
 } from "../../lib/scheduler/database";
@@ -31,121 +32,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-const COLUMN_TYPES = new Set<ColumnType>([
-  "title",
-  "text",
-  "json",
-  "number",
-  "select",
-  "multiSelect",
-  "status",
-  "date",
-  "person",
-  "file",
-  "checkbox",
-  "url",
-  "phone",
-  "email",
-  "dbLink",
-  "pageLink",
-  "progress",
-  "itemFetch",
-]);
-
-function coerceColumn(value: unknown): ColumnDef | null {
-  if (!isPlainObject(value)) return null;
-  if (
-    typeof value.id !== "string" ||
-    typeof value.name !== "string" ||
-    typeof value.type !== "string" ||
-    !COLUMN_TYPES.has(value.type as ColumnType)
-  ) {
-    return null;
-  }
-  return {
-    id: value.id,
-    name: value.name,
-    type: value.type as ColumnType,
-    width: typeof value.width === "number" ? value.width : undefined,
-    config: isPlainObject(value.config)
-      ? (value.config as ColumnDef["config"])
-      : undefined,
-  };
-}
-
-function coercePreset(value: unknown): DatabaseRowPreset | null {
-  if (!isPlainObject(value)) return null;
-  if (
-    typeof value.id !== "string" ||
-    typeof value.databaseId !== "string" ||
-    typeof value.name !== "string"
-  ) {
-    return null;
-  }
-  const scope = typeof value.scope === "string" ? value.scope : "workspace";
-  if (!["workspace", "organization", "team", "project"].includes(scope)) return null;
-  return {
-    id: value.id,
-    databaseId: value.databaseId,
-    name: value.name,
-    description: typeof value.description === "string" ? value.description : undefined,
-    scope: scope as DatabaseRowPreset["scope"],
-    scopeId: typeof value.scopeId === "string" ? value.scopeId : undefined,
-    columnDefaults: isPlainObject(value.columnDefaults)
-      ? (value.columnDefaults as DatabaseRowPreset["columnDefaults"])
-      : {},
-    requiredColumnIds: Array.isArray(value.requiredColumnIds)
-      ? value.requiredColumnIds.filter((id): id is string => typeof id === "string")
-      : [],
-    visibleColumnIds: Array.isArray(value.visibleColumnIds)
-      ? value.visibleColumnIds.filter((id): id is string => typeof id === "string")
-      : [],
-    hiddenColumnIds: Array.isArray(value.hiddenColumnIds)
-      ? value.hiddenColumnIds.filter((id): id is string => typeof id === "string")
-      : [],
-    schedulerDefaults: isPlainObject(value.schedulerDefaults)
-      ? (value.schedulerDefaults as DatabaseRowPreset["schedulerDefaults"])
-      : undefined,
-    createdAt: Number.isFinite(Number(value.createdAt)) ? Number(value.createdAt) : Date.now(),
-    updatedAt: Number.isFinite(Number(value.updatedAt)) ? Number(value.updatedAt) : Date.now(),
-  };
-}
-
-function coerceDatabaseBundle(value: unknown): DatabaseBundle | null {
-  if (!isPlainObject(value) || !isPlainObject(value.meta)) return null;
-  const createdAt = Number(value.meta.createdAt);
-  const updatedAt = Number(value.meta.updatedAt);
-  if (
-    typeof value.meta.id !== "string" ||
-    typeof value.meta.title !== "string" ||
-    !Number.isFinite(createdAt) ||
-    !Number.isFinite(updatedAt) ||
-    !Array.isArray(value.columns) ||
-    !Array.isArray(value.rowPageOrder)
-  ) {
-    return null;
-  }
-  const columns = value.columns.map(coerceColumn).filter(Boolean) as ColumnDef[];
-  if (columns.length !== value.columns.length) return null;
-  const rawPresets = Array.isArray(value.presets) ? value.presets : [];
-  const presets = rawPresets.map(coercePreset).filter(Boolean) as DatabaseRowPreset[];
-  if (presets.length !== rawPresets.length) return null;
-  return {
-    meta: {
-      id: value.meta.id,
-      workspaceId: typeof value.meta.workspaceId === "string" ? value.meta.workspaceId : undefined,
-      title: value.meta.title,
-      createdAt,
-      updatedAt,
-    },
-    columns,
-    presets,
-    rowPageOrder: value.rowPageOrder.filter(
-      (pageId): pageId is string => typeof pageId === "string",
-    ),
-  };
-}
-
 function coerceDatabaseMap(value: unknown): {
   databases: DbMap;
   quarantined: Record<string, unknown>;
@@ -154,7 +40,7 @@ function coerceDatabaseMap(value: unknown): {
   const quarantined: Record<string, unknown> = {};
   if (!isPlainObject(value)) return { databases, quarantined };
   for (const [key, raw] of Object.entries(value)) {
-    const bundle = coerceDatabaseBundle(raw);
+    const bundle = normalizeDatabaseBundle(raw);
     if (bundle) {
       databases[bundle.meta.id || key] = bundle;
     } else {

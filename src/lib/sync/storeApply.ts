@@ -12,7 +12,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { Page } from "../../types/page";
-import type { ColumnDef, DatabaseBundle, DatabaseRowPreset } from "../../types/database";
+import type { DatabaseBundle } from "../../types/database";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
@@ -26,6 +26,10 @@ import {
   isProtectedDatabaseId,
 } from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
+import {
+  tryParseSerializedColumns,
+  tryParseSerializedPresets,
+} from "../database/schema/normalizeDatabase";
 import {
   isDeletedSchedulePage,
   markDeletedSchedulePage,
@@ -540,6 +544,20 @@ export function applyRemoteCommentsToStore(
   });
 }
 
+function parseRemoteDatabaseSchema(
+  db: GqlDatabase,
+): Pick<DatabaseBundle, "columns" | "presets"> | null {
+  const columns = tryParseSerializedColumns(db.columns);
+  const presets = tryParseSerializedPresets(db.presets);
+  if (!columns || !presets) {
+    console.warn("[sync] storeApply: invalid database schema ignored", {
+      databaseId: db.id,
+    });
+    return null;
+  }
+  return { columns, presets };
+}
+
 export function applyRemoteDatabaseToStore(
   d: GqlDatabase | null | undefined,
 ): void {
@@ -616,8 +634,9 @@ export function applyRemoteDatabaseToStore(
     return;
   }
 
-  const columns = parseAwsJson<ColumnDef[]>(db.columns, []);
-  const presets = parseAwsJson<DatabaseRowPreset[]>(db.presets, []);
+  const schema = parseRemoteDatabaseSchema(db);
+  if (!schema) return;
+  const { columns, presets } = schema;
   const derivedRowOrder = collectRowPageIdsForDatabase(db.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
 
@@ -731,8 +750,9 @@ export function applyRemoteDatabasesToStore(
       const local = databases[db.id];
       if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) continue;
 
-      const columns = parseAwsJson<ColumnDef[]>(db.columns, []);
-      const presets = parseAwsJson<DatabaseRowPreset[]>(db.presets, []);
+      const schema = parseRemoteDatabaseSchema(db);
+      if (!schema) continue;
+      const { columns, presets } = schema;
       const derivedRowOrder = derivedByDbId.get(db.id) ?? [];
       const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
       const bundle: DatabaseBundle = {

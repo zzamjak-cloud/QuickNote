@@ -400,6 +400,31 @@ const MAX_BLOCK_COMMENTS_JSON_CHARS = 280_000;
  * 문자열뿐 아니라 plain object/array 를 받아 문자열로 정규화한다.
  * 클라이언트가 JSON 문자열로내도 동일하게 처리된다.
  */
+function normalizeAwsJsonStringField(
+  input: Record<string, unknown>,
+  fieldName: string,
+  label: string,
+): void {
+  const value = input[fieldName];
+  if (value == null) return;
+
+  if (typeof value === "string") return;
+  if (typeof value !== "object") {
+    badRequest(`${label} 는 JSON 객체·배열·문자열·null 이어야 합니다`);
+  }
+
+  try {
+    input[fieldName] = JSON.stringify(value);
+  } catch {
+    badRequest(`${label} JSON 직렬화에 실패했습니다`);
+  }
+}
+
+function normalizeDatabaseAwsJsonFields(input: Record<string, unknown>): void {
+  normalizeAwsJsonStringField(input, "columns", "columns");
+  normalizeAwsJsonStringField(input, "presets", "presets");
+}
+
 function normalizeBlockCommentsField(input: Record<string, unknown>): void {
   const v = input.blockComments;
   if (v == null) return;
@@ -500,6 +525,7 @@ export async function upsertDatabase(args: {
   if (schedulerWorkspaceId && schedulerWorkspaceId !== workspaceId) {
     badRequest("LC스케줄러 DB ID와 워크스페이스가 일치하지 않습니다");
   }
+  normalizeDatabaseAwsJsonFields(args.input);
   return upsertRecord({ ...args, tableName: args.tables.Databases });
 }
 

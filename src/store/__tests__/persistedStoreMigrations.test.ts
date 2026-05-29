@@ -165,12 +165,27 @@ describe("persisted store migrations", () => {
                 id: "select-source",
                 name: "Status",
                 type: "select",
+                icon: "lucide:Circle:#0EA5E9",
+                width: 160,
                 config: {
                   sourceFromDb: {
                     databaseId: "source-db",
                     columnId: "source-status",
                     automation: true,
                     viaPageLinkColumnId: "feature-link",
+                  },
+                },
+              },
+              {
+                id: "progress",
+                name: "Progress",
+                type: "progress",
+                config: {
+                  progressSource: {
+                    databaseId: "task-db",
+                    columnId: "status",
+                    completedValue: "done",
+                    scope: { mode: "linkedPagesFromColumn", pageLinkColumnId: "task-link" },
                   },
                 },
               },
@@ -190,6 +205,8 @@ describe("persisted store migrations", () => {
                 config: {
                   pageLinkScopeDatabaseId: "task-db",
                   pageLinkAutoReverse: true,
+                  pageLinkAutoFill: [{ targetColumnId: "team", sourceColumnId: "team" }],
+                  searchFilters: [{ id: "filter-1", kind: "database", value: "task-db" }],
                 },
               },
             ],
@@ -204,17 +221,32 @@ describe("persisted store migrations", () => {
     expect(db.columns.map((column) => column.id)).toEqual([
       "title",
       "select-source",
+      "progress",
       "item-fetch",
       "page-link",
     ]);
+    expect(db.columns.find((column) => column.id === "select-source")?.icon).toBe("lucide:Circle:#0EA5E9");
+    expect(db.columns.find((column) => column.id === "select-source")?.width).toBe(160);
     expect(db.columns.find((column) => column.id === "select-source")?.config?.sourceFromDb).toEqual({
       databaseId: "source-db",
       columnId: "source-status",
       automation: true,
       viaPageLinkColumnId: "feature-link",
     });
+    expect(db.columns.find((column) => column.id === "progress")?.config?.progressSource).toEqual({
+      databaseId: "task-db",
+      columnId: "status",
+      completedValue: "done",
+      scope: { mode: "linkedPagesFromColumn", pageLinkColumnId: "task-link" },
+    });
     expect(db.columns.find((column) => column.id === "item-fetch")?.type).toBe("itemFetch");
     expect(db.columns.find((column) => column.id === "page-link")?.type).toBe("pageLink");
+    expect(db.columns.find((column) => column.id === "page-link")?.config?.pageLinkAutoFill).toEqual([
+      { targetColumnId: "team", sourceColumnId: "team" },
+    ]);
+    expect(db.columns.find((column) => column.id === "page-link")?.config?.searchFilters).toEqual([
+      { id: "filter-1", kind: "database", value: "task-db" },
+    ]);
   });
 
   it("databaseStore migration removes legacy LC scheduler databases", () => {
