@@ -38,7 +38,10 @@ Plan
 .playwright-mcp
 .full-review
 .husky
-docs
+docs/*
+!docs/database-architecture.md
+!docs/sync-architecture.md
+!docs/lc-scheduler-database-policy.md
 .vercel
 .superpowers
 .claude

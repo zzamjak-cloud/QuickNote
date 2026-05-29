@@ -75,17 +75,6 @@ export function getLCSchedulerAttendanceDayValue(value: string | null | undefine
 }
 
 
-export const LC_SCHEDULER_REQUIRED_COLUMN_IDS = new Set<string>([
-  LC_SCHEDULER_COLUMN_IDS.title,
-  LC_SCHEDULER_COLUMN_IDS.assignees,
-  LC_SCHEDULER_COLUMN_IDS.period,
-  LC_SCHEDULER_COLUMN_IDS.project,
-  LC_SCHEDULER_COLUMN_IDS.status,
-  LC_SCHEDULER_COLUMN_IDS.attendance,
-  LC_SCHEDULER_COLUMN_IDS.color,
-  LC_SCHEDULER_COLUMN_IDS.meta,
-]);
-
 export function makeLCSchedulerDatabaseId(workspaceId: string): string {
   return `${LC_SCHEDULER_DATABASE_ID_PREFIX}${workspaceId}`;
 }

@@ -28,11 +28,6 @@ export const LC_FEATURE_COLUMN_IDS = {
   task: "lc-feature:task",
 } as const;
 
-export const LC_FEATURE_REQUIRED_COLUMN_IDS = new Set<string>([
-  LC_FEATURE_COLUMN_IDS.title,
-  LC_FEATURE_COLUMN_IDS.status,
-]);
-
 export function makeLCFeatureDatabaseId(workspaceId: string): string {
   return `${LC_FEATURE_DATABASE_ID_PREFIX}${workspaceId}`;
 }

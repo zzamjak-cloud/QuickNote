@@ -29,12 +29,6 @@ export const LC_MILESTONE_COLUMN_IDS = {
   linkedProject: "lc-milestone:linkedProject",
 } as const;
 
-/** 삭제 불가 컬럼 — 마일스톤 행 식별/상태 표시에 필요한 핵심 컬럼. */
-export const LC_MILESTONE_REQUIRED_COLUMN_IDS = new Set<string>([
-  LC_MILESTONE_COLUMN_IDS.title,
-  LC_MILESTONE_COLUMN_IDS.status,
-]);
-
 export function makeLCMilestoneDatabaseId(workspaceId: string): string {
   return `${LC_MILESTONE_DATABASE_ID_PREFIX}${workspaceId}`;
 }
