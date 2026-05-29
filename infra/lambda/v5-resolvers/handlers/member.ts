@@ -500,6 +500,7 @@ export async function updateMyClientPrefs(args: {
   const merged: ClientPrefsPayloadV1 = existing
     ? { ...existing }
     : { v: 1, favoritePageIds: [], favoritePageIdsUpdatedAt: 0 };
+  let changed = false;
   if (!existing || incoming.favoritePageIdsUpdatedAt >= existing.favoritePageIdsUpdatedAt) {
     merged.favoritePageIds = incoming.favoritePageIds;
     merged.favoritePageIdsUpdatedAt = incoming.favoritePageIdsUpdatedAt;
@@ -508,12 +509,18 @@ export async function updateMyClientPrefs(args: {
     } else {
       delete merged.favoritePageMetaById;
     }
+    changed = true;
   }
-  if ((incoming.fullWidthUpdatedAt ?? 0) >= (existing?.fullWidthUpdatedAt ?? 0)) {
+  if (
+    incoming.fullWidthUpdatedAt != null &&
+    incoming.fullWidthUpdatedAt >= (existing?.fullWidthUpdatedAt ?? -1)
+  ) {
     if (incoming.fullWidthUpdatedAt != null) merged.fullWidthUpdatedAt = incoming.fullWidthUpdatedAt;
     if (incoming.fullWidth != null) merged.fullWidth = incoming.fullWidth;
     if (incoming.pageFullWidthById) merged.pageFullWidthById = incoming.pageFullWidthById;
+    changed = true;
   }
+  if (!changed) return target;
 
   const toSave = JSON.stringify(merged satisfies ClientPrefsPayloadV1);
   const r = await args.doc.send(

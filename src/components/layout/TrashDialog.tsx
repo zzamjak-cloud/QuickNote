@@ -85,7 +85,7 @@ export function TrashDialog({ open, onClose }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [currentWorkspaceId, showToast]);
+  }, [currentWorkspaceId, filterRowsOfPermanentlyDeletedDatabases, showToast]);
 
   const loadMore = useCallback(async () => {
     if (!currentWorkspaceId || cursor === null) return;

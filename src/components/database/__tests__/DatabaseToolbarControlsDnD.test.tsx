@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { DatabasePanelState } from "../../../types/database";
 import { emptyPanelState } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
@@ -68,7 +68,9 @@ function ToolbarHarness() {
       { id: "preset-3", name: "탭 3", filterRules: [], sortRules: [] },
     ],
   }));
-  latestPanelState = panelState;
+  useEffect(() => {
+    latestPanelState = panelState;
+  }, [panelState]);
 
   const setPanelState = (patch: Partial<DatabasePanelState>) => {
     setPanelStateRaw((prev) => ({ ...prev, ...patch }));

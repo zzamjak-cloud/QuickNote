@@ -194,66 +194,64 @@ export function PageLinkSearchPopup({
       className="rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
     >
       {/* 단계별 필터 누적 영역 — 사용자가 + 버튼으로 자유 추가 */}
-      {(userFilters.length > 0 || true) && (
-        <div className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wide text-zinc-500">
-              필터 단계 {userFilters.length > 0 ? `(${userFilters.length})` : ""}
-            </span>
-            <button
-              type="button"
-              onClick={addFilter}
-              className="inline-flex h-5 items-center gap-0.5 rounded border border-zinc-200 px-1.5 text-[10px] text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              <Plus size={10} /> 추가
-            </button>
-          </div>
-          {userFilters.length === 0 && (
-            <p className="text-[10px] leading-tight text-zinc-400">
-              + 버튼으로 단계를 추가해 검색 범위를 좁힐 수 있습니다.
-            </p>
-          )}
-          <div className="space-y-1">
-            {userFilters.map((f, idx) => {
-              const valueOptions = valueOptionsForKind(f.kind);
-              return (
-                <div key={f.id} className="flex items-center gap-1">
-                  <span className="w-4 shrink-0 text-center text-[10px] text-zinc-400">
-                    {idx + 1}
-                  </span>
-                  <AppSelect
-                    value={f.kind}
-                    onChange={(v) =>
-                      updateFilter(f.id, {
-                        kind: v as SearchFilterRule["kind"],
-                        value: "",
-                      })
-                    }
-                    options={FILTER_KIND_LABELS.map((k) => ({ value: k.id, label: k.label }))}
-                    buttonClassName="px-1 py-0.5 text-[11px]"
-                    portal
-                  />
-                  <AppSelect
-                    value={f.value ?? ""}
-                    onChange={(v) => updateFilter(f.id, { value: v })}
-                    options={[{ value: "", label: "선택…" }, ...valueOptions]}
-                    buttonClassName="min-w-0 flex-1 px-1 py-0.5 text-[11px]"
-                    portal
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeFilter(f.id)}
-                    className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                    aria-label="필터 제거"
-                  >
-                    <X size={11} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+      <div className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-[10px] uppercase tracking-wide text-zinc-500">
+            필터 단계 {userFilters.length > 0 ? `(${userFilters.length})` : ""}
+          </span>
+          <button
+            type="button"
+            onClick={addFilter}
+            className="inline-flex h-5 items-center gap-0.5 rounded border border-zinc-200 px-1.5 text-[10px] text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <Plus size={10} /> 추가
+          </button>
         </div>
-      )}
+        {userFilters.length === 0 && (
+          <p className="text-[10px] leading-tight text-zinc-400">
+            + 버튼으로 단계를 추가해 검색 범위를 좁힐 수 있습니다.
+          </p>
+        )}
+        <div className="space-y-1">
+          {userFilters.map((f, idx) => {
+            const valueOptions = valueOptionsForKind(f.kind);
+            return (
+              <div key={f.id} className="flex items-center gap-1">
+                <span className="w-4 shrink-0 text-center text-[10px] text-zinc-400">
+                  {idx + 1}
+                </span>
+                <AppSelect
+                  value={f.kind}
+                  onChange={(v) =>
+                    updateFilter(f.id, {
+                      kind: v as SearchFilterRule["kind"],
+                      value: "",
+                    })
+                  }
+                  options={FILTER_KIND_LABELS.map((k) => ({ value: k.id, label: k.label }))}
+                  buttonClassName="px-1 py-0.5 text-[11px]"
+                  portal
+                />
+                <AppSelect
+                  value={f.value ?? ""}
+                  onChange={(v) => updateFilter(f.id, { value: v })}
+                  options={[{ value: "", label: "선택…" }, ...valueOptions]}
+                  buttonClassName="min-w-0 flex-1 px-1 py-0.5 text-[11px]"
+                  portal
+                />
+                <button
+                  type="button"
+                  onClick={() => removeFilter(f.id)}
+                  className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                  aria-label="필터 제거"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* 검색 입력 */}
       <div className="flex items-center gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-700">

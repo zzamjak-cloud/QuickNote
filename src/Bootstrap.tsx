@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { unstable_batchedUpdates } from "react-dom";
 import App from "./App";
 import { AuthCallback } from "./components/auth/AuthCallback";
 import { useAuthStore } from "./store/authStore";
 import {
-  fetchPagesByWorkspace,
-  fetchDatabasesByWorkspace,
-  fetchCommentsByWorkspace,
   startSubscriptions,
 } from "./lib/sync";
 import { getSyncEngine, shutdownSyncEngine } from "./lib/sync/runtime";
@@ -14,20 +10,14 @@ import {
   applyRemotePageToStore,
   applyRemoteDatabaseToStore,
   applyRemoteCommentToStore,
-  applyRemotePagesToStore,
-  applyRemoteDatabasesToStore,
-  applyRemoteCommentsToStore,
-  reconcileWorkspaceFullSnapshot,
 } from "./lib/sync/storeApply";
 import {
   applyWorkspaceSwitch,
-  clearWorkspaceScopedStores,
   preloadWorkspaceSnapshots,
-  refreshWorkspaceSnapshot,
 } from "./lib/sync/workspaceSwitch";
 import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
-import { applyWorkspaceLanding } from "./lib/sync/workspaceLanding";
 import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspaceCacheAfterFlush";
+import { fetchApplyWorkspaceRemoteSnapshot } from "./lib/sync/workspaceSnapshotBootstrap";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useCustomIconStore } from "./store/customIconStore";
 import { usePageStore } from "./store/pageStore";
@@ -48,7 +38,6 @@ import { useOrganizationStore } from "./store/organizationStore";
 import { useUiStore } from "./store/uiStore";
 import { migrateLegacyBlockCommentsToPagesOnce } from "./lib/comments/migrateLegacyBlockCommentsToPages";
 import { CACHE_TTL, isCacheFresh } from "./lib/cache/ttl";
-import { useBlockCommentStore } from "./store/blockCommentStore";
 import { migratePageBlockCommentsToServerOnce } from "./lib/comments/migratePageBlockCommentsToServer";
 import { useNotificationStore } from "./store/notificationStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
@@ -216,63 +205,14 @@ function useSyncBootstrap(): void {
         }
         const fetchApply = async (): Promise<void> => {
           await migrateLegacyBlockCommentsToPagesOnce();
-          const engine = await getSyncEngine();
-          const [[pagesResult, dbsResult, commentsResult], pendingIds] = await Promise.all([
-            Promise.allSettled([
-              fetchPagesByWorkspace(currentWorkspaceId),
-              fetchDatabasesByWorkspace(currentWorkspaceId),
-              fetchCommentsByWorkspace(currentWorkspaceId),
-            ]),
-            engine.getPendingUpsertEntityIds(),
-          ]);
-          if (cancelled) return;
-
-          const pages = pagesResult.status === "fulfilled" ? pagesResult.value : null;
-          const dbs = dbsResult.status === "fulfilled" ? dbsResult.value : null;
-          const comments = commentsResult.status === "fulfilled" ? commentsResult.value : null;
-
-          const failedDomains: string[] = [];
-          if (pagesResult.status === "rejected") {
-            failedDomains.push("pages");
-            console.error("[sync] 페이지 페치 실패, 기존 캐시 유지", pagesResult.reason);
-          }
-          if (dbsResult.status === "rejected") {
-            failedDomains.push("databases");
-            console.error("[sync] DB 페치 실패, 기존 캐시 유지", dbsResult.reason);
-          }
-          if (commentsResult.status === "rejected") {
-            failedDomains.push("comments");
-            console.error("[sync] 댓글 페치 실패, 기존 캐시 유지", commentsResult.reason);
-          }
-          useUiStore.getState().setSyncPartialFetchFailed(failedDomains.length > 0 ? failedDomains : null);
-
-          // 서버 응답에 포함된 id 집합 — 좀비 정리 시 보호 대상.
-          const remotePageIds = new Set<string>();
-          if (pages) for (const p of pages) if (p?.id) remotePageIds.add(p.id);
-          const remoteDatabaseIds = new Set<string>();
-          if (dbs) for (const d of dbs) if (d?.id) remoteDatabaseIds.add(d.id);
-
-          unstable_batchedUpdates(() => {
-            if (switchResult.reason === "deferred-switch") {
-              clearWorkspaceScopedStores(currentWorkspaceId);
-            }
-            useBlockCommentStore.getState().clearMessages();
-            if (pages) applyRemotePagesToStore(pages);
-            if (dbs) applyRemoteDatabasesToStore(dbs);
-            if (comments) applyRemoteCommentsToStore(comments);
-            // pages + dbs 모두 성공한 경우에만 좀비 정리 실행.
-            // 부분 실패 시 빈 집합을 전달하면 유효 캐시까지 삭제되므로 건너뜀.
-            if (pages && dbs) {
-              reconcileWorkspaceFullSnapshot({
-                workspaceId: currentWorkspaceId,
-                remotePageIds,
-                remoteDatabaseIds,
-                pendingUpsertPageIds: pendingIds.pages,
-                pendingUpsertDatabaseIds: pendingIds.databases,
-              });
-            }
-            applyWorkspaceLanding(currentWorkspaceId);
-            refreshWorkspaceSnapshot(currentWorkspaceId);
+          await fetchApplyWorkspaceRemoteSnapshot({
+            workspaceId: currentWorkspaceId,
+            cancelled: () => cancelled,
+            clearWorkspaceBeforeApply: switchResult.reason === "deferred-switch",
+            clearBlockCommentsBeforeApply: true,
+            applyLandingAfterApply: true,
+            refreshSnapshotAfterApply: true,
+            useBatchedUpdates: true,
           });
           if (cancelled) return;
           migratePageBlockCommentsToServerOnce(currentWorkspaceId);
@@ -455,52 +395,10 @@ function useSyncBootstrap(): void {
         }
         try {
           const fetchApply = async (): Promise<void> => {
-            const engine2 = await getSyncEngine();
-            const [[pagesResult, dbsResult, commentsResult], pendingIds] = await Promise.all([
-              Promise.allSettled([
-                fetchPagesByWorkspace(wsId),
-                fetchDatabasesByWorkspace(wsId),
-                fetchCommentsByWorkspace(wsId),
-              ]),
-              engine2.getPendingUpsertEntityIds(),
-            ]);
-
-            const pages = pagesResult.status === "fulfilled" ? pagesResult.value : null;
-            const dbs = dbsResult.status === "fulfilled" ? dbsResult.value : null;
-            const comments = commentsResult.status === "fulfilled" ? commentsResult.value : null;
-
-            const failedDomains: string[] = [];
-            if (pagesResult.status === "rejected") {
-              failedDomains.push("pages");
-              console.error("[sync] 온라인 복귀 — 페이지 페치 실패, 기존 캐시 유지", pagesResult.reason);
-            }
-            if (dbsResult.status === "rejected") {
-              failedDomains.push("databases");
-              console.error("[sync] 온라인 복귀 — DB 페치 실패, 기존 캐시 유지", dbsResult.reason);
-            }
-            if (commentsResult.status === "rejected") {
-              failedDomains.push("comments");
-              console.error("[sync] 온라인 복귀 — 댓글 페치 실패, 기존 캐시 유지", commentsResult.reason);
-            }
-            useUiStore.getState().setSyncPartialFetchFailed(failedDomains.length > 0 ? failedDomains : null);
-
-            const remotePageIds = new Set<string>();
-            if (pages) for (const p of pages) if (p?.id) remotePageIds.add(p.id);
-            const remoteDatabaseIds = new Set<string>();
-            if (dbs) for (const d of dbs) if (d?.id) remoteDatabaseIds.add(d.id);
-
-            if (pages) applyRemotePagesToStore(pages);
-            if (dbs) applyRemoteDatabasesToStore(dbs);
-            if (comments) applyRemoteCommentsToStore(comments);
-            if (pages && dbs) {
-              reconcileWorkspaceFullSnapshot({
-                workspaceId: wsId,
-                remotePageIds,
-                remoteDatabaseIds,
-                pendingUpsertPageIds: pendingIds.pages,
-                pendingUpsertDatabaseIds: pendingIds.databases,
-              });
-            }
+            await fetchApplyWorkspaceRemoteSnapshot({
+              workspaceId: wsId,
+              logPrefix: "온라인 복귀",
+            });
           };
           await fetchApply();
           const engine = await getSyncEngine();

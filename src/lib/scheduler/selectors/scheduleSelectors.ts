@@ -21,6 +21,10 @@ export function filterSchedulesByRange(schedules: Schedule[], from?: string, to?
 
 /** 선택된 스코프("org:id" | "team:id" | "proj:id")에 특이사항이 속하는지 검사 */
 function matchesScope(schedule: Schedule, scopeKey: string): boolean {
+  if (!scopeKey.includes(":")) {
+    // 구버전 persisted state 는 프로젝트 id를 prefix 없이 저장했다.
+    return schedule.projectId === scopeKey;
+  }
   if (scopeKey.startsWith("proj:")) {
     return schedule.projectId === scopeKey.slice(5);
   }

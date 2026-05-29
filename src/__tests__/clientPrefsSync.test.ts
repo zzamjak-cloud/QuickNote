@@ -12,38 +12,32 @@ describe("decodeClientPrefsField", () => {
     favoritePageIds: ["p1"],
     favoritePageIdsUpdatedAt: 99,
   };
+  const decodedPayload = {
+    v: 1,
+    favoritePageIds: ["p1"],
+    favoritePageIdsUpdatedAt: 99,
+    favoritePageMetaById: {},
+    fullWidth: undefined,
+    pageFullWidthById: {},
+    fullWidthUpdatedAt: 0,
+  };
 
   it("객체 한 번 인코딩 문자열을 디코드한다", () => {
     const once = JSON.stringify(payload);
     const r = decodeClientPrefsField(once);
-    expect(r).toEqual({
-      v: 1,
-      favoritePageIds: ["p1"],
-      favoritePageIdsUpdatedAt: 99,
-      favoritePageMetaById: {},
-    });
+    expect(r).toEqual(decodedPayload);
   });
 
   it("이중 JSON 문자열(AppSync AWSJSON 이중 래핑)을 디코드한다", () => {
     const inner = JSON.stringify(payload);
     const double = JSON.stringify(inner);
     const r = decodeClientPrefsField(double);
-    expect(r).toEqual({
-      v: 1,
-      favoritePageIds: ["p1"],
-      favoritePageIdsUpdatedAt: 99,
-      favoritePageMetaById: {},
-    });
+    expect(r).toEqual(decodedPayload);
   });
 
   it("이미 객체이면 그대로 검증한다", () => {
     const r = decodeClientPrefsField(payload);
-    expect(r).toEqual({
-      v: 1,
-      favoritePageIds: ["p1"],
-      favoritePageIdsUpdatedAt: 99,
-      favoritePageMetaById: {},
-    });
+    expect(r).toEqual(decodedPayload);
   });
 
   it("v2 즐겨찾기 메타를 디코드한다", () => {

@@ -264,12 +264,14 @@ function filterPagesForWorkspaceSnapshot(
   if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
     // LC스케줄러 스냅샷은 반드시 LC스케줄러 소속 페이지만 포함.
     // workspaceId 가 명시적으로 lc-scheduler-global 이거나
-    // databaseId 가 스케줄러 DB인 행 페이지만 허용한다.
+    // databaseId 가 스케줄러 DB인 행 페이지를 허용한다.
+    // 과거 캐시에는 workspaceId 가 없는 일반 LC 페이지가 남아 있을 수 있어 함께 보존한다.
     return Object.fromEntries(
       Object.entries(pages).filter(
         ([, page]) =>
           isProtectedDatabaseId(page.databaseId) ||
-          page.workspaceId === LC_SCHEDULER_WORKSPACE_ID,
+          page.workspaceId === LC_SCHEDULER_WORKSPACE_ID ||
+          (page.workspaceId == null && !page.databaseId),
       ),
     );
   }

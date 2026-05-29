@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { DatabasePanelState } from "../../../types/database";
 import { emptyPanelState } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
@@ -18,7 +18,9 @@ function ToolbarHarness() {
   const [panelState, setPanelStateRaw] = useState<DatabasePanelState>(() =>
     emptyPanelState(),
   );
-  latestPanelState = panelState;
+  useEffect(() => {
+    latestPanelState = panelState;
+  }, [panelState]);
 
   const setPanelState = (patch: Partial<DatabasePanelState>) => {
     setPanelStateRaw((prev) => ({ ...prev, ...patch }));
