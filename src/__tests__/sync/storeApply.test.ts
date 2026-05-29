@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   applyRemotePageToStore,
   applyRemoteDatabaseToStore,
+  applyRemotePagesToStore,
+  applyRemoteDatabasesToStore,
   reconcileLCSchedulerRemoteSnapshot,
 } from "../../lib/sync/storeApply";
 import { usePageStore } from "../../store/pageStore";
@@ -12,6 +14,29 @@ import type { GqlDatabase, GqlPage } from "../../lib/sync/graphql/operations";
 import { makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { markLocallyDeletedEntity } from "../../lib/sync/localDeleteGuards";
+
+const GUARDS_KEY = "quicknote.sync.localDeleteGuards.v1";
+
+function spyLocalStorageGetItem(): {
+  getItem: ReturnType<typeof vi.fn>;
+  restore: () => void;
+} {
+  const original = localStorage.getItem.bind(localStorage);
+  const getItem = vi.fn((key: string) => original(key));
+  Object.defineProperty(localStorage, "getItem", {
+    value: getItem,
+    configurable: true,
+  });
+  return {
+    getItem,
+    restore: () => {
+      Object.defineProperty(localStorage, "getItem", {
+        value: original,
+        configurable: true,
+      });
+    },
+  };
+}
 
 function gqlPage(ws: string, id = "pg-1"): GqlPage {
   const now = new Date().toISOString();
@@ -130,6 +155,48 @@ describe("storeApply 워크스페이스 가드", () => {
     remote.updatedAt = new Date(deletedAtMs - 1_000).toISOString();
     applyRemotePageToStore(remote);
     expect(usePageStore.getState().pages["pg-deleted"]).toBeUndefined();
+  });
+
+  it("페이지 batch 적용은 로컬 삭제 guard storage 를 한 번만 읽는다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const deletedAtMs = Date.now();
+    localStorage.setItem(GUARDS_KEY, JSON.stringify({
+      "page:ws-a:pg-0": { deletedAtMs },
+    }));
+    const pages = Array.from({ length: 5 }, (_, index) => {
+      const page = gqlPage("ws-a", `pg-${index}`);
+      page.updatedAt = new Date(deletedAtMs - 1_000).toISOString();
+      return page;
+    });
+    const { getItem, restore } = spyLocalStorageGetItem();
+
+    applyRemotePagesToStore(pages);
+
+    expect(usePageStore.getState().pages["pg-0"]).toBeUndefined();
+    expect(usePageStore.getState().pages["pg-1"]).toBeDefined();
+    expect(getItem.mock.calls.filter(([key]) => key === GUARDS_KEY)).toHaveLength(1);
+    restore();
+  });
+
+  it("DB batch 적용은 로컬 삭제 guard storage 를 한 번만 읽는다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const deletedAtMs = Date.now();
+    localStorage.setItem(GUARDS_KEY, JSON.stringify({
+      "database:ws-a:db-0": { deletedAtMs },
+    }));
+    const dbs = Array.from({ length: 5 }, (_, index) => {
+      const db = gqlDb("ws-a", `db-${index}`);
+      db.updatedAt = new Date(deletedAtMs - 1_000).toISOString();
+      return db;
+    });
+    const { getItem, restore } = spyLocalStorageGetItem();
+
+    applyRemoteDatabasesToStore(dbs);
+
+    expect(useDatabaseStore.getState().databases["db-0"]).toBeUndefined();
+    expect(useDatabaseStore.getState().databases["db-1"]).toBeDefined();
+    expect(getItem.mock.calls.filter(([key]) => key === GUARDS_KEY)).toHaveLength(1);
+    restore();
   });
 
   it("원격 workspaceId 가 비면 적용하지 않는다", () => {

@@ -225,7 +225,7 @@ type ProgressContext = {
   currentRowCells?: Record<string, unknown>;
 };
 
-function resolveItemFetchPageIds(
+export function resolveItemFetchPageIds(
   column: ColumnDef,
   rowPageId: string | null | undefined,
   databases: Record<string, DatabaseBundle>,

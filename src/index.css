@@ -909,6 +909,20 @@ html.dark .qn-database-subtle-scrollbar:hover::-webkit-scrollbar-thumb {
   background-color: rgba(113, 113, 122, 0.22);
 }
 
+/* 스크롤은 가능하되 스크롤바를 시각적으로 숨김 — 드롭다운 메뉴 등. 자기 자신과 모든 하위 요소에 적용. */
+.qn-no-scrollbar,
+.qn-no-scrollbar * {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/legacy Edge */
+}
+
+.qn-no-scrollbar::-webkit-scrollbar,
+.qn-no-scrollbar *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 .dark .ProseMirror [data-column-layout] {
   border-color: rgb(39 39 42);
   background: rgba(39, 39, 42, 0.15);

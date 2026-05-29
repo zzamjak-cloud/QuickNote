@@ -6,6 +6,7 @@ import type {
   ViewKind,
   ViewSpecificConfig,
 } from "../../types/database";
+import { isInternalHiddenColumnId } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 
@@ -66,10 +67,15 @@ export function DatabaseColumnSettingsButton({
   const visibleSet = resolveVisibleColumnIds(allCols, viewKind, cfg);
   if (titleCol) visibleSet.add(titleCol.id);
   // 표시 설정 리스트는 활성/비활성 여부와 무관하게 실제 컬럼 순서를 따른다.
-  const items: { col: typeof allCols[number]; visible: boolean }[] = allCols.map((col) => ({
-    col,
-    visible: visibleSet.has(col.id),
-  }));
+  // 내부 전용 컬럼(카드 색상·스케줄러 메타)은 목록에서 제외 — 사용자가 표시/숨김을 선택할 수 없다.
+  // moveColumn 은 bundle.columns 기준 인덱스를 받으므로 원본 인덱스(bundleIdx)를 함께 보관한다.
+  const items: { col: typeof allCols[number]; visible: boolean; bundleIdx: number }[] = allCols
+    .map((col, bundleIdx) => ({
+      col,
+      visible: visibleSet.has(col.id),
+      bundleIdx,
+    }))
+    .filter((it) => !isInternalHiddenColumnId(it.col.id));
 
   const writeViewCfg = (patch: Partial<ViewSpecificConfig>) => {
     const nextCfg: ViewSpecificConfig = { ...cfg, ...patch };
@@ -100,7 +106,10 @@ export function DatabaseColumnSettingsButton({
     const [m] = next.splice(dragFrom, 1);
     if (m) next.splice(dragOver, 0, m);
     // 표시 설정에서 순서를 바꾸면 실제 컬럼 순서도 함께 바꾼다.
-    moveColumn(databaseId, dragFrom, dragOver);
+    // 내부 컬럼이 제외되어 렌더 인덱스 ≠ bundle 인덱스일 수 있으므로 보관한 bundleIdx 로 변환.
+    const fromBundleIdx = items[dragFrom]?.bundleIdx ?? dragFrom;
+    const toBundleIdx = items[dragOver]?.bundleIdx ?? dragOver;
+    moveColumn(databaseId, fromBundleIdx, toBundleIdx);
     const visibleIds = next
       .filter((it) => visibleSet.has(it.col.id))
       .map((it) => it.col.id);

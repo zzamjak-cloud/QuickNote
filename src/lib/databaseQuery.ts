@@ -15,7 +15,12 @@ export function cellToSearchString(
 ): string {
   if (value === null || value === undefined) return "";
   const col = columns.find((c) => c.id === columnId);
-  if (typeof value === "string") return value;
+  if (typeof value === "string") {
+    return (
+      col?.config?.options?.find((option) => !option.divider && option.id === value)
+        ?.label ?? value
+    );
+  }
   if (typeof value === "number") return String(value);
   if (typeof value === "boolean") return value ? "예" : "아니오";
   if (Array.isArray(value)) {

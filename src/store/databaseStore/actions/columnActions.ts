@@ -6,14 +6,6 @@ import { newId } from "../../../lib/id";
 import { usePageStore } from "../../pageStore";
 import { shouldWriteAnchor, useHistoryStore } from "../../historyStore";
 import {
-  isLCFeatureDatabaseId,
-  isLCMilestoneDatabaseId,
-  isLCSchedulerDatabaseId,
-  isLCSchedulerRequiredColumnId,
-} from "../../../lib/scheduler/database";
-import { isLCMilestoneRequiredColumnId } from "../../../lib/scheduler/milestoneDatabase";
-import { isLCFeatureRequiredColumnId } from "../../../lib/scheduler/featureDatabase";
-import {
   defaultCellValueForColumn,
   enqueueUpsertDatabase,
   enqueueUpsertPageRaw,
@@ -103,13 +95,6 @@ function syncPageLinkMirrorColumn(
   return touchedPageIds;
 }
 
-function isProtectedRequiredColumn(databaseId: string, columnId: string): boolean {
-  return (
-    (isLCSchedulerDatabaseId(databaseId) && isLCSchedulerRequiredColumnId(columnId)) ||
-    (isLCMilestoneDatabaseId(databaseId) && isLCMilestoneRequiredColumnId(columnId)) ||
-    (isLCFeatureDatabaseId(databaseId) && isLCFeatureRequiredColumnId(columnId))
-  );
-}
 
 export function createColumnActions(
   set: DatabaseStoreSet,
@@ -184,12 +169,8 @@ export function createColumnActions(
     },
 
     updateColumn: (databaseId, columnId, patch) => {
-      let patchForColumn = patch;
+      const patchForColumn = patch;
       const beforeColumn = get().databases[databaseId]?.columns.find((c) => c.id === columnId);
-      if (isProtectedRequiredColumn(databaseId, columnId)) {
-        const { type: _ignoredType, ...rest } = patch;
-        patchForColumn = rest;
-      }
       set((state) => {
         const bundle = state.databases[databaseId];
         if (!bundle) return state;
@@ -241,9 +222,6 @@ export function createColumnActions(
     },
 
     removeColumn: (databaseId, columnId) => {
-      if (isProtectedRequiredColumn(databaseId, columnId)) {
-        return;
-      }
       const bundleBefore = get().databases[databaseId];
       if (!bundleBefore) return;
       const target = bundleBefore.columns.find((c) => c.id === columnId);

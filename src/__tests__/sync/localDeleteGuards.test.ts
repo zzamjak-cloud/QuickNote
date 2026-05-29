@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
+  createLocalDeleteGuardChecker,
   markLocallyDeletedEntity,
   markPermanentlyDeletedEntity,
   shouldIgnoreRemoteAfterLocalDelete,
@@ -12,6 +13,27 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function setGuardsRaw(data: Record<string, unknown>): void {
   localStorage.setItem(GUARDS_KEY, JSON.stringify(data));
+}
+
+function spyLocalStorageGetItem(): {
+  getItem: ReturnType<typeof vi.fn>;
+  restore: () => void;
+} {
+  const original = localStorage.getItem.bind(localStorage);
+  const getItem = vi.fn((key: string) => original(key));
+  Object.defineProperty(localStorage, "getItem", {
+    value: getItem,
+    configurable: true,
+  });
+  return {
+    getItem,
+    restore: () => {
+      Object.defineProperty(localStorage, "getItem", {
+        value: original,
+        configurable: true,
+      });
+    },
+  };
 }
 
 beforeEach(() => {
@@ -39,6 +61,25 @@ describe("markLocallyDeletedEntity", () => {
     const remoteAt = new Date(deletedAt - 1).toISOString();
     // pruneGuards 는 다음 read 시 nowMs 기준으로 실행되므로, 만료 후에는 false 반환.
     expect(shouldIgnoreRemoteAfterLocalDelete("page", "p1", "ws1", remoteAt)).toBe(false);
+  });
+});
+
+describe("createLocalDeleteGuardChecker", () => {
+  it("batch 조회에서 localStorage guard 를 한 번만 읽고 같은 판정을 재사용한다", () => {
+    const now = Date.now();
+    setGuardsRaw({
+      "page:ws1:p1": { deletedAtMs: now },
+      "page:ws1:p2": { deletedAtMs: now, permanent: true },
+    });
+    const { getItem, restore } = spyLocalStorageGetItem();
+
+    const shouldIgnore = createLocalDeleteGuardChecker();
+
+    expect(shouldIgnore("page", "p1", "ws1", new Date(now - 1).toISOString())).toBe(true);
+    expect(shouldIgnore("page", "p2", "ws1", new Date(now + DAY_MS).toISOString())).toBe(true);
+    expect(shouldIgnore("page", "p3", "ws1", new Date(now - 1).toISOString())).toBe(false);
+    expect(getItem.mock.calls.filter(([key]) => key === GUARDS_KEY)).toHaveLength(1);
+    restore();
   });
 });
 

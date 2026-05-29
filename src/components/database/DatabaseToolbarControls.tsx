@@ -35,18 +35,27 @@ import type {
   SortRule,
   ViewKind,
 } from "../../types/database";
+import { isInternalHiddenColumnId } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
+import { useMemberStore } from "../../store/memberStore";
 import { effectiveOptions } from "../../lib/database/columnSource";
+import {
+  extractFilterValueIds,
+  filterDisplayOptionsForColumn,
+  isIdLabelBackedColumn,
+  resolveFilterableCellValue,
+  resolveFilterValueLabel,
+  withFilterDisplayOptions,
+} from "../../lib/database/filterValueLabels";
+import { formatPlainDisplay } from "./databaseCellDisplayUtils";
 import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
 import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
 import { AppSelect } from "../common/AppSelect";
 import { VIEW_ICONS, VIEW_LABELS, getUnavailableViewKinds } from "./databaseBlockViewConstants";
-import { IconPicker } from "../common/IconPicker";
-import { PageIconDisplay } from "../common/PageIconDisplay";
 
 type Props = {
   databaseId: string;
@@ -69,10 +78,9 @@ type SortablePresetTabProps = {
   onStartEdit: () => void;
   onDelete: () => void;
   onDraftChange: (value: string) => void;
-  onCommit: (iconPatch?: { icon: string | null }) => void;
+  onCommit: () => void;
   onCommitAfterBlur: () => void;
   onCancelEdit: () => void;
-  onIconOpenChange: (open: boolean) => void;
 };
 
 function SortablePresetTab({
@@ -88,7 +96,6 @@ function SortablePresetTab({
   onCommit,
   onCommitAfterBlur,
   onCancelEdit,
-  onIconOpenChange,
 }: SortablePresetTabProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: preset.id, disabled: isEditing });
@@ -109,42 +116,24 @@ function SortablePresetTab({
         "group relative flex max-w-[120px] items-center gap-0 rounded-md border text-xs transition-colors",
         isDragging ? "shadow-md" : "",
         isActive
-          ? "border-emerald-300 bg-emerald-100 text-emerald-950 dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-100"
+          ? "border-emerald-500 bg-emerald-500 text-white dark:border-emerald-600 dark:bg-emerald-600 dark:text-white"
           : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400",
       ].join(" ")}
     >
       {isEditing ? (
-        <>
-          <span
-            className="shrink-0 pl-1"
-            onMouseDown={(event) => {
-              if (event.currentTarget.contains(event.target as Node)) {
-                event.preventDefault();
-              }
-            }}
-          >
-            <IconPicker
-              current={preset.icon ?? null}
-              defaultIcon={null}
-              size="sm"
-              onOpenChange={onIconOpenChange}
-              onChange={(icon) => onCommit({ icon })}
-            />
-          </span>
-          <input
-            ref={presetInputRef}
-            autoFocus
-            value={presetNameDraft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            onBlur={onCommitAfterBlur}
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter") onCommit();
-              if (e.key === "Escape") onCancelEdit();
-            }}
-            className="w-16 bg-transparent py-1 text-xs outline-none"
-          />
-        </>
+        <input
+          ref={presetInputRef}
+          autoFocus
+          value={presetNameDraft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onBlur={onCommitAfterBlur}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") onCommit();
+            if (e.key === "Escape") onCancelEdit();
+          }}
+          className="w-16 bg-transparent py-1 pl-2 text-xs outline-none"
+        />
       ) : (
         <button
           type="button"
@@ -153,14 +142,9 @@ function SortablePresetTab({
             e.preventDefault();
             onStartEdit();
           }}
-          className="flex min-w-0 cursor-grab items-center gap-0.5 overflow-hidden py-1 pl-1 pr-2 text-left active:cursor-grabbing"
+          className="flex min-w-0 cursor-grab items-center overflow-hidden py-1 pl-2 pr-2 text-left active:cursor-grabbing"
           {...dragButtonProps}
         >
-          <PageIconDisplay
-            icon={preset.icon ?? null}
-            size="sm"
-            className="shrink-0"
-          />
           <span className="block max-w-[82px] truncate">{preset.name}</span>
         </button>
       )}
@@ -169,7 +153,7 @@ function SortablePresetTab({
       <button
         type="button"
         onClick={onDelete}
-        className="absolute -right-1.5 -top-1.5 rounded-full bg-white/95 p-0.5 opacity-0 shadow-sm ring-1 ring-zinc-200 hover:bg-zinc-200 group-hover:opacity-100 dark:bg-zinc-900/95 dark:ring-zinc-700 dark:hover:bg-zinc-700"
+        className="absolute -right-1.5 -top-1.5 rounded-full bg-white/95 p-0.5 text-zinc-500 opacity-0 shadow-sm ring-1 ring-zinc-200 hover:bg-zinc-200 hover:text-zinc-700 group-hover:opacity-100 dark:bg-zinc-900/95 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
         title="탭 삭제"
       >
         <X size={9} />
@@ -193,6 +177,7 @@ export function DatabaseToolbarControls({
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
   const projects = useSchedulerProjectsStore((s) => s.projects);
+  const members = useMemberStore((s) => s.members);
   const [rulesExpanded, setRulesExpanded] = useState(false);
   const [searchOpen, setSearchOpen] = useState(
     panelState.searchQuery.trim().length > 0,
@@ -205,7 +190,6 @@ export function DatabaseToolbarControls({
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [presetNameDraft, setPresetNameDraft] = useState("");
   const presetInputRef = useRef<HTMLInputElement>(null);
-  const presetIconPickerOpenRef = useRef<string | null>(null);
   const presetDragSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -278,7 +262,21 @@ export function DatabaseToolbarControls({
     };
   }, [viewMenuOpen]);
 
-  const columns = useMemo(() => bundle?.columns ?? [], [bundle?.columns]);
+  // 필터·정렬·표시 설정 UI 에서 다루는 컬럼 — 내부 전용 컬럼(카드 색상·스케줄러 메타)은 제외한다.
+  const columns = useMemo(
+    () => (bundle?.columns ?? []).filter((c) => !isInternalHiddenColumnId(c.id)),
+    [bundle?.columns],
+  );
+  const columnsWithFilterOptions = useMemo(
+    () =>
+      withFilterDisplayOptions(columns, {
+        databases,
+        pages,
+        members,
+        scopeCtx: { organizations, teams, projects },
+      }),
+    [columns, databases, members, organizations, pages, projects, teams],
+  );
 
   // 속성 타입 기반으로 사용 불가 뷰를 드롭다운 목록에서 제외
   const autoHiddenViews = getUnavailableViewKinds(columns);
@@ -422,6 +420,58 @@ export function DatabaseToolbarControls({
         .filter((option) => !option.divider)
         .map((option) => ({ value: option.id, label: option.label }));
     }
+    const displayColumn =
+      columnsWithFilterOptions.find((column) => column.id === openFilterColumn.id) ??
+      openFilterColumn;
+    if (isIdLabelBackedColumn(displayColumn)) {
+      const optionById = new Map(
+        filterDisplayOptionsForColumn(displayColumn, {
+          databases,
+          pages,
+          members,
+          scopeCtx: { organizations, teams, projects },
+        }).map((option) => [option.id, option.label]),
+      );
+      const seen = new Set<string>();
+      const values: Array<{ value: string; label: string }> = [];
+      for (const rowPageId of bundle.rowPageOrder) {
+        const page = pages[rowPageId];
+        if (!page) continue;
+        const raw =
+          openFilterColumn.type === "title"
+            ? page.title
+            : (page.dbCells?.[openFilterColumn.id] as CellValue | undefined) ?? null;
+        const filterableValue = resolveFilterableCellValue({
+          column: displayColumn,
+          rowPageId,
+          currentDatabaseId: page.databaseId ?? databaseId,
+          rawValue: raw,
+          pages,
+          databases,
+        });
+        for (const id of extractFilterValueIds(filterableValue)) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+          values.push({
+            value: id,
+            label: resolveFilterValueLabel(
+              displayColumn,
+              id,
+              {
+                databases,
+                pages,
+                members,
+                scopeCtx: { organizations, teams, projects },
+              },
+              optionById,
+            ),
+          });
+          if (values.length >= 100) break;
+        }
+        if (values.length >= 100) break;
+      }
+      return values;
+    }
     const seen = new Set<string>();
     const values: Array<{ value: string; label: string }> = [];
     for (const rowPageId of bundle.rowPageOrder) {
@@ -431,25 +481,68 @@ export function DatabaseToolbarControls({
         openFilterColumn.type === "title"
           ? page.title
           : (page.dbCells?.[openFilterColumn.id] as CellValue | undefined) ?? null;
-      const display = cellToSearchString(raw, columns, openFilterColumn.id).trim();
-      if (!display || seen.has(display)) continue;
-      seen.add(display);
-      values.push({ value: display, label: display });
+      const filterableValue = resolveFilterableCellValue({
+        column: displayColumn,
+        rowPageId,
+        currentDatabaseId: page.databaseId ?? databaseId,
+        rawValue: raw,
+        pages,
+        databases,
+      });
+      // 매칭용 값은 cellToSearchString 기준 그대로 유지하되, 표시 라벨은 셀과 동일한 가독성 있는 형식으로 보여준다.
+      const matchValue = cellToSearchString(
+        filterableValue,
+        columnsWithFilterOptions,
+        openFilterColumn.id,
+      ).trim();
+      if (!matchValue || seen.has(matchValue)) continue;
+      seen.add(matchValue);
+      const label = formatPlainDisplay(filterableValue, openFilterColumn).trim() || matchValue;
+      values.push({ value: matchValue, label });
       if (values.length >= 100) break;
     }
     return values;
-  }, [bundle, columns, databases, openFilterColumn, organizations, pages, projects, teams]);
+  }, [
+    bundle,
+    columnsWithFilterOptions,
+    databases,
+    databaseId,
+    openFilterColumn,
+    members,
+    organizations,
+    pages,
+    projects,
+    teams,
+  ]);
   const filterRuleValueLabel = (rule: FilterRule, column: ColumnDef | undefined): string => {
     const value = rule.value ?? "";
     if (!value || !column) return value;
-    if (["select", "multiSelect", "status"].includes(column.type)) {
-      return (
-        effectiveOptions(column, databases, { organizations, teams, projects }).find(
-          (option) => option.id === value,
-        )?.label ?? value
+    const displayColumn =
+      columnsWithFilterOptions.find((candidate) => candidate.id === column.id) ?? column;
+    const labelCtx = {
+      databases,
+      pages,
+      members,
+      scopeCtx: { organizations, teams, projects },
+    };
+    // id 기반 컬럼(선택·페이지 연결·멤버·DB 연결 등)은 실제 옵션/소스 라벨로 변환.
+    if (isIdLabelBackedColumn(displayColumn)) {
+      const optionById = new Map(
+        filterDisplayOptionsForColumn(displayColumn, labelCtx).map((option) => [
+          option.id,
+          option.label,
+        ]),
       );
+      return resolveFilterValueLabel(displayColumn, value, labelCtx, optionById);
     }
-    return value;
+    // 날짜 컬럼은 매칭용 값이 "startISO endISO" 형태로 join 되어 있으므로 start/end 로 복원해 포맷.
+    if (column.type === "date") {
+      const parts = value.split(/\s+/).filter(Boolean);
+      const range = { start: parts[0], end: parts[1] };
+      return formatPlainDisplay(range, column).trim() || value;
+    }
+    // 그 외 일반 컬럼은 셀 표시 형식으로 변환.
+    return formatPlainDisplay(value, column).trim() || value;
   };
   // 현재 열린 정렬 규칙 idx
   const openSortIdx = openRuleKey?.startsWith("sort:")
@@ -496,27 +589,19 @@ export function DatabaseToolbarControls({
     setPanelState({ filterPresets: arrayMove(presets, oldIndex, newIndex) });
   }, [panelState.filterPresets, setPanelState]);
 
-  const commitPresetRename = (id: string, iconPatch?: { icon: string | null }) => {
+  const commitPresetRename = (id: string) => {
     const name = presetNameDraft.trim();
-    if (name || iconPatch) {
+    if (name) {
       const presets = (panelState.filterPresets ?? []).map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              ...(name ? { name } : {}),
-              ...(iconPatch ? { icon: iconPatch.icon ?? undefined } : {}),
-            }
-          : p,
+        p.id === id ? { ...p, name } : p,
       );
       setPanelState({ filterPresets: presets });
     }
-    presetIconPickerOpenRef.current = null;
     setEditingPresetId(null);
   };
 
   const commitPresetRenameAfterBlur = (id: string) => {
     window.setTimeout(() => {
-      if (presetIconPickerOpenRef.current === id) return;
       commitPresetRename(id);
     }, 0);
   };
@@ -610,20 +695,15 @@ export function DatabaseToolbarControls({
                         })
                       }
                       onStartEdit={() => {
-                        presetIconPickerOpenRef.current = null;
                         setPresetNameDraft(preset.name);
                         setEditingPresetId(preset.id);
                       }}
                       onDelete={() => deletePreset(preset.id)}
                       onDraftChange={setPresetNameDraft}
-                      onCommit={(iconPatch) => commitPresetRename(preset.id, iconPatch)}
+                      onCommit={() => commitPresetRename(preset.id)}
                       onCommitAfterBlur={() => commitPresetRenameAfterBlur(preset.id)}
                       onCancelEdit={() => {
-                        presetIconPickerOpenRef.current = null;
                         setEditingPresetId(null);
-                      }}
-                      onIconOpenChange={(open) => {
-                        presetIconPickerOpenRef.current = open ? preset.id : null;
                       }}
                     />
                   );
@@ -999,7 +1079,7 @@ function FilterValueControl({
           }}
           options={[{ value: "", label: "직접 입력" }, ...options]}
           buttonClassName="w-full px-1.5 py-1"
-          menuClassName="max-h-64 overflow-y-auto"
+          menuClassName="qn-no-scrollbar"
         />
       )}
       {(options.length === 0 || directInputOpen) && (

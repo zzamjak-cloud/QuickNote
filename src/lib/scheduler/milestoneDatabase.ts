@@ -2,12 +2,11 @@
 // 작업/피처와 분리된 prefix(`lc-milestone-db:`) 를 사용해 식별한다.
 
 import type { ColumnDef, DatabaseBundle } from "../../types/database";
-import { resolveLCSchedulerWorkspaceId, LC_SCHEDULER_WORKSPACE_ID } from "./scope";
+import { resolveLCSchedulerWorkspaceId } from "./scope";
 import {
   LC_MILESTONE_DATABASE_ID_PREFIX,
   LC_MILESTONE_DATABASE_TITLE,
   LC_MILESTONE_DATABASE_ID,
-  syncFullPageTitleForDatabase,
 } from "./database";
 
 /** 마일스톤 DB 컬럼 ID 상수 — 외부에서 컬럼을 안전하게 참조하기 위한 키. */
@@ -40,9 +39,6 @@ export function makeLCMilestoneDatabaseId(workspaceId: string): string {
   return `${LC_MILESTONE_DATABASE_ID_PREFIX}${workspaceId}`;
 }
 
-export function isLCMilestoneRequiredColumnId(columnId: string): boolean {
-  return LC_MILESTONE_REQUIRED_COLUMN_IDS.has(columnId);
-}
 
 /** 마일스톤 DB의 기본 컬럼 정의 */
 function lcMilestoneColumns(): ColumnDef[] {
@@ -131,82 +127,37 @@ function lcMilestoneColumns(): ColumnDef[] {
   ];
 }
 
-function mergeMilestoneColumns(existing: ColumnDef[] | undefined): ColumnDef[] {
-  const required = lcMilestoneColumns();
-  const byId = new Map((existing ?? []).map((c) => [c.id, c]));
-  // 필수 컬럼은 type 보장 + 사용자 설정 보존(이름/너비/icon 등)
-  const merged = required.map((col) => {
-    const prev = byId.get(col.id);
-    if (!prev) return col;
-    return {
-      ...col,
-      ...prev,
-      type: col.type,
-      config: (() => {
-        const merged = {
-        ...(col.config ?? {}),
-        ...(prev.config ?? {}),
-        };
-        if (prev.config?.sourceFromDb) delete merged.linkedScope;
-        return merged;
-      })(),
-    };
-  });
-  const requiredIds = new Set(required.map((c) => c.id));
-  for (const col of existing ?? []) {
-    if (!requiredIds.has(col.id)) merged.push(col);
-  }
-  return merged;
-}
 
 /** 마일스톤 DB 시드/스키마 갱신 — 누락 컬럼 자동 추가, 사용자 데이터는 보존. */
 export async function ensureLCMilestoneDatabase(workspaceId: string): Promise<void> {
-  const [{ useDatabaseStore }, { usePageStore }, { enqueueUpsertDatabase, enqueueUpsertPageRaw }] = await Promise.all([
+  const [{ useDatabaseStore }, { enqueueUpsertDatabase }] = await Promise.all([
     import("../../store/databaseStore"),
-    import("../../store/pageStore"),
     import("../../store/databaseStore/helpers"),
   ]);
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
   const databaseId = makeLCMilestoneDatabaseId(schedulerWorkspaceId);
+  const existing = useDatabaseStore.getState().databases[databaseId];
+  if (existing) return;
+
   const t = Date.now();
-  const state = useDatabaseStore.getState();
-  const existing = state.databases[databaseId];
   const next: DatabaseBundle = {
     meta: {
       id: databaseId,
-      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      workspaceId: schedulerWorkspaceId,
       title: LC_MILESTONE_DATABASE_TITLE,
-      createdAt: existing?.meta.createdAt ?? t,
+      createdAt: t,
       updatedAt: t,
     },
-    columns: mergeMilestoneColumns(existing?.columns),
-    presets: existing?.presets ?? [],
-    rowPageOrder: existing?.rowPageOrder ?? [],
+    columns: lcMilestoneColumns(),
+    presets: [],
+    rowPageOrder: [],
   };
-
-  const same =
-    existing &&
-    existing.meta.title === next.meta.title &&
-    JSON.stringify(existing.columns) === JSON.stringify(next.columns);
-
-  if (same) {
-    useDatabaseStore.setState((s) =>
-      schedulerWorkspaceId === LC_SCHEDULER_WORKSPACE_ID
-        ? s
-        : s.cacheWorkspaceId === schedulerWorkspaceId
-          ? s
-          : { ...s, cacheWorkspaceId: schedulerWorkspaceId },
-    );
-    syncFullPageTitleForDatabase(databaseId, LC_MILESTONE_DATABASE_TITLE, usePageStore, enqueueUpsertPageRaw);
-    return;
-  }
 
   useDatabaseStore.setState((s) => ({
     ...s,
     databases: { ...s.databases, [databaseId]: next },
   }));
   enqueueUpsertDatabase(next);
-  syncFullPageTitleForDatabase(databaseId, LC_MILESTONE_DATABASE_TITLE, usePageStore, enqueueUpsertPageRaw);
 }
 
 export { LC_MILESTONE_DATABASE_ID, LC_MILESTONE_DATABASE_TITLE };

@@ -17,7 +17,10 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
 import { enqueueAsync } from "./runtime";
-import { shouldIgnoreRemoteAfterLocalDelete } from "./localDeleteGuards";
+import {
+  createLocalDeleteGuardChecker,
+  shouldIgnoreRemoteAfterLocalDelete,
+} from "./localDeleteGuards";
 import {
   LC_SCHEDULER_DATABASE_ID,
   LC_SCHEDULER_DATABASE_TITLE,
@@ -306,6 +309,7 @@ export function applyRemotePagesToStore(
   if (pages.length === 0) return;
 
   const affectedDatabaseIds = new Set<string>();
+  const shouldIgnoreLocalDelete = createLocalDeleteGuardChecker();
 
   usePageStore.setState((s) => {
     let nextPages = s.pages;
@@ -322,7 +326,7 @@ export function applyRemotePagesToStore(
 
       if (
         !p.deletedAt &&
-        shouldIgnoreRemoteAfterLocalDelete("page", p.id, p.workspaceId, p.updatedAt)
+        shouldIgnoreLocalDelete("page", p.id, p.workspaceId, p.updatedAt)
       ) {
         if (p.databaseId) affectedDatabaseIds.add(p.databaseId);
         continue;
@@ -669,6 +673,7 @@ export function applyRemoteDatabasesToStore(
   const normalizedDatabases: GqlDatabase[] = [];
   const legacyDeleteIds = new Set<string>();
   const candidateDatabaseIds = new Set<string>();
+  const shouldIgnoreLocalDelete = createLocalDeleteGuardChecker();
 
   for (const d of remoteDatabases) {
     if (!d) continue;
@@ -701,7 +706,7 @@ export function applyRemoteDatabasesToStore(
     if (!shouldApplyRemoteSnapshot(normalizedDatabase.workspaceId)) continue;
     if (
       !normalizedDatabase.deletedAt &&
-      shouldIgnoreRemoteAfterLocalDelete(
+      shouldIgnoreLocalDelete(
         "database",
         normalizedDatabase.id,
         normalizedDatabase.workspaceId,

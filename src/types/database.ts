@@ -345,9 +345,26 @@ export function defaultMinWidthForType(type: ColumnType): number {
 }
 
 /**
+ * 표시 UI(뷰·표시설정·속성 패널)에서 항상 숨기는 내부 전용 컬럼 id.
+ * LC 스케줄러의 카드 색상·메타 컬럼은 우클릭 프리셋 메뉴 등 내부 로직에서만 사용하므로
+ * 사용자가 볼 수 있는 어떤 화면에서도 노출/선택되지 않는다.
+ * (scheduler/database.ts 의 LC_SCHEDULER_COLUMN_IDS.color / .meta 와 동일 — 순환 import 방지용 인라인 상수)
+ */
+const INTERNAL_HIDDEN_COLUMN_IDS = new Set<string>([
+  "lc-scheduler:color",
+  "lc-scheduler:meta",
+]);
+
+/** 사용자 화면에서 항상 숨겨야 하는 내부 전용 컬럼인지 판별. */
+export function isInternalHiddenColumnId(id: string): boolean {
+  return INTERNAL_HIDDEN_COLUMN_IDS.has(id);
+}
+
+/**
  * 현재 뷰에서 보일 컬럼을 순서대로 반환.
  * - viewConfigs[viewKind].visibleColumnIds가 있으면 그 집합을 bundle 컬럼 순서대로 반환.
  * - 없으면 bundle 컬럼 - hiddenColumnIds.
+ * - 내부 전용 컬럼은 설정과 무관하게 항상 제외한다.
  */
 export function getVisibleOrderedColumns(
   columns: ColumnDef[],
@@ -359,10 +376,13 @@ export function getVisibleOrderedColumns(
   if (cfg?.visibleColumnIds) {
     const visible = new Set(cfg.visibleColumnIds);
     if (titleCol) visible.add(titleCol.id);
-    return columns.filter((c) => visible.has(c.id));
+    return columns.filter((c) => visible.has(c.id) && !isInternalHiddenColumnId(c.id));
   }
   const hidden = new Set(cfg?.hiddenColumnIds ?? []);
-  return columns.filter((c) => c.id === titleCol?.id || !hidden.has(c.id));
+  return columns.filter(
+    (c) =>
+      c.id === titleCol?.id || (!hidden.has(c.id) && !isInternalHiddenColumnId(c.id)),
+  );
 }
 
 export type DatabaseBundle = {

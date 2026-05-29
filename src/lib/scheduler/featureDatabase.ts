@@ -1,7 +1,7 @@
 // LC 워크스페이스 전용 "피처" 보호 DB — 작업·마일스톤 DB와 연동되는 고정 DB.
 
 import type { ColumnDef, DatabaseBundle } from "../../types/database";
-import { resolveLCSchedulerWorkspaceId, LC_SCHEDULER_WORKSPACE_ID } from "./scope";
+import { resolveLCSchedulerWorkspaceId } from "./scope";
 import {
   LC_FEATURE_DATABASE_ID_PREFIX,
   LC_FEATURE_DATABASE_TITLE,
@@ -9,7 +9,6 @@ import {
   LC_MILESTONE_DATABASE_ID,
   LC_SCHEDULER_DATABASE_ID,
   LC_SCHEDULER_COLUMN_IDS,
-  syncFullPageTitleForDatabase,
 } from "./database";
 import { LC_MILESTONE_COLUMN_IDS } from "./milestoneDatabase";
 // (마일스톤 컬럼 sourceFromDb 미러링은 linkedScope 패턴으로 대체됨 — import 불필요)
@@ -38,9 +37,6 @@ export function makeLCFeatureDatabaseId(workspaceId: string): string {
   return `${LC_FEATURE_DATABASE_ID_PREFIX}${workspaceId}`;
 }
 
-export function isLCFeatureRequiredColumnId(columnId: string): boolean {
-  return LC_FEATURE_REQUIRED_COLUMN_IDS.has(columnId);
-}
 
 function lcFeatureColumns(): ColumnDef[] {
   return [
@@ -161,102 +157,35 @@ function lcFeatureColumns(): ColumnDef[] {
   ];
 }
 
-function mergeFeatureColumnConfig(
-  colConfig: ColumnDef["config"] | undefined,
-  prevConfig: ColumnDef["config"] | undefined,
-): ColumnDef["config"] | undefined {
-  // 기본: 기존 값(prev) 우선. 단, 시스템 제어 필드는 defaults(col) 우선
-  // — 구버전 캐시의 잔류 값이 새 자동화 설정을 덮지 않도록.
-  const merged = { ...(colConfig ?? {}), ...(prevConfig ?? {}) };
-  if (colConfig?.pageLinkScopeDatabaseId !== undefined) {
-    merged.pageLinkScopeDatabaseId = colConfig.pageLinkScopeDatabaseId;
-  }
-  if (colConfig?.pageLinkAutoReverse !== undefined) {
-    merged.pageLinkAutoReverse = colConfig.pageLinkAutoReverse;
-  }
-  if (colConfig?.pageLinkAutoFill !== undefined) {
-    merged.pageLinkAutoFill = colConfig.pageLinkAutoFill;
-  }
-  if (colConfig?.progressSource !== undefined) {
-    merged.progressSource = colConfig.progressSource;
-  }
-  if (colConfig?.linkedScope !== undefined) {
-    merged.linkedScope = colConfig.linkedScope;
-  }
-  if (prevConfig?.sourceFromDb) {
-    delete merged.linkedScope;
-    merged.sourceFromDb = prevConfig.sourceFromDb;
-  }
-  return Object.keys(merged).length ? merged : undefined;
-}
-
-function mergeFeatureColumns(existing: ColumnDef[] | undefined): ColumnDef[] {
-  const required = lcFeatureColumns();
-  const byId = new Map((existing ?? []).map((c) => [c.id, c]));
-  const merged = required.map((col) => {
-    const prev = byId.get(col.id);
-    if (!prev) return col;
-    return {
-      ...col,
-      ...prev,
-      type: col.type,
-      config: mergeFeatureColumnConfig(col.config, prev.config),
-    };
-  });
-  const requiredIds = new Set(required.map((c) => c.id));
-  for (const col of existing ?? []) {
-    if (!requiredIds.has(col.id)) merged.push(col);
-  }
-  return merged;
-}
-
 export async function ensureLCFeatureDatabase(workspaceId: string): Promise<void> {
-  const [{ useDatabaseStore }, { usePageStore }, { enqueueUpsertDatabase, enqueueUpsertPageRaw }] = await Promise.all([
+  const [{ useDatabaseStore }, { enqueueUpsertDatabase }] = await Promise.all([
     import("../../store/databaseStore"),
-    import("../../store/pageStore"),
     import("../../store/databaseStore/helpers"),
   ]);
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
   const databaseId = makeLCFeatureDatabaseId(schedulerWorkspaceId);
+  const existing = useDatabaseStore.getState().databases[databaseId];
+  if (existing) return;
+
   const t = Date.now();
-  const state = useDatabaseStore.getState();
-  const existing = state.databases[databaseId];
   const next: DatabaseBundle = {
     meta: {
       id: databaseId,
-      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      workspaceId: schedulerWorkspaceId,
       title: LC_FEATURE_DATABASE_TITLE,
-      createdAt: existing?.meta.createdAt ?? t,
+      createdAt: t,
       updatedAt: t,
     },
-    columns: mergeFeatureColumns(existing?.columns),
-    presets: existing?.presets ?? [],
-    rowPageOrder: existing?.rowPageOrder ?? [],
+    columns: lcFeatureColumns(),
+    presets: [],
+    rowPageOrder: [],
   };
-
-  const same =
-    existing &&
-    existing.meta.title === next.meta.title &&
-    JSON.stringify(existing.columns) === JSON.stringify(next.columns);
-
-  if (same) {
-    useDatabaseStore.setState((s) =>
-      schedulerWorkspaceId === LC_SCHEDULER_WORKSPACE_ID
-        ? s
-        : s.cacheWorkspaceId === schedulerWorkspaceId
-          ? s
-          : { ...s, cacheWorkspaceId: schedulerWorkspaceId },
-    );
-    syncFullPageTitleForDatabase(databaseId, LC_FEATURE_DATABASE_TITLE, usePageStore, enqueueUpsertPageRaw);
-    return;
-  }
 
   useDatabaseStore.setState((s) => ({
     ...s,
     databases: { ...s.databases, [databaseId]: next },
   }));
   enqueueUpsertDatabase(next);
-  syncFullPageTitleForDatabase(databaseId, LC_FEATURE_DATABASE_TITLE, usePageStore, enqueueUpsertPageRaw);
 }
 
 export { LC_FEATURE_DATABASE_ID, LC_FEATURE_DATABASE_TITLE };

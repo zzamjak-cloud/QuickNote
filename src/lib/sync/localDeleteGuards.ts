@@ -1,10 +1,17 @@
-type EntityKind = "page" | "database";
+export type EntityKind = "page" | "database";
 
 type GuardEntry = {
   deletedAtMs: number;
   /** true 이면 TTL 과 무관하게 영구 차단(서버에서도 사라진 확정 상태). */
   permanent?: boolean;
 };
+
+export type LocalDeleteGuardChecker = (
+  kind: EntityKind,
+  id: string,
+  workspaceId: string,
+  remoteUpdatedAt: string,
+) => boolean;
 
 const LOCAL_DELETE_GUARDS_KEY = "quicknote.sync.localDeleteGuards.v1";
 const LOCAL_DELETE_GUARD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -108,15 +115,22 @@ export function shouldIgnoreRemoteAfterLocalDelete(
   workspaceId: string,
   remoteUpdatedAt: string,
 ): boolean {
-  if (!id || !workspaceId) return false;
-  const guards = pruneGuards(readGuards(), Date.now());
-  const entry = guards[guardKey(kind, workspaceId, id)];
-  if (!entry) return false;
-  // 영구 tombstone 은 timestamp 비교 없이 무조건 차단.
-  if (entry.permanent) return true;
-  const remoteMs = Date.parse(remoteUpdatedAt);
-  if (!Number.isFinite(remoteMs)) return false;
-  return remoteMs <= entry.deletedAtMs;
+  return createLocalDeleteGuardChecker()(kind, id, workspaceId, remoteUpdatedAt);
+}
+
+/** batch 적용 중 localStorage guard 를 한 번만 읽기 위한 checker 를 만든다. */
+export function createLocalDeleteGuardChecker(nowMs = Date.now()): LocalDeleteGuardChecker {
+  const guards = pruneGuards(readGuards(), nowMs);
+  return (kind, id, workspaceId, remoteUpdatedAt) => {
+    if (!id || !workspaceId) return false;
+    const entry = guards[guardKey(kind, workspaceId, id)];
+    if (!entry) return false;
+    // 영구 tombstone 은 timestamp 비교 없이 무조건 차단.
+    if (entry.permanent) return true;
+    const remoteMs = Date.parse(remoteUpdatedAt);
+    if (!Number.isFinite(remoteMs)) return false;
+    return remoteMs <= entry.deletedAtMs;
+  };
 }
 
 /** 영구 tombstone 여부 조회 (UI/디버그용). */
