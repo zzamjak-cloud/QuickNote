@@ -423,6 +423,7 @@ function normalizeAwsJsonStringField(
 function normalizeDatabaseAwsJsonFields(input: Record<string, unknown>): void {
   normalizeAwsJsonStringField(input, "columns", "columns");
   normalizeAwsJsonStringField(input, "presets", "presets");
+  normalizeAwsJsonStringField(input, "panelState", "panelState");
 }
 
 function normalizeBlockCommentsField(input: Record<string, unknown>): void {

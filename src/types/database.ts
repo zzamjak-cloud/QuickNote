@@ -389,6 +389,8 @@ export type DatabaseBundle = {
   meta: DatabaseMeta;
   columns: ColumnDef[];
   presets?: DatabaseRowPreset[];
+  /** 원본 DB 화면의 필터 프리셋 탭·정렬·뷰 설정 — DB 자체와 함께 동기화한다. */
+  panelState?: DatabasePanelState;
   /** 행 페이지 id 배열 — 실제 행 데이터는 pageStore.pages[pageId] */
   rowPageOrder: string[];
 };

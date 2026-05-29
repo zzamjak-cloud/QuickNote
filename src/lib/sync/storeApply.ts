@@ -31,6 +31,7 @@ import {
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import {
   tryParseSerializedColumns,
+  tryParseSerializedPanelState,
   tryParseSerializedPresets,
 } from "../database/schema/normalizeDatabase";
 import {
@@ -550,16 +551,22 @@ export function applyRemoteCommentsToStore(
 
 function parseRemoteDatabaseSchema(
   db: GqlDatabase,
-): Pick<DatabaseBundle, "columns" | "presets"> | null {
+): Pick<DatabaseBundle, "columns" | "presets" | "panelState"> | null {
   const columns = tryParseSerializedColumns(db.columns);
   const presets = tryParseSerializedPresets(db.presets);
+  const panelState = tryParseSerializedPanelState(db.panelState);
   if (!columns || !presets) {
     console.warn("[sync] storeApply: invalid database schema ignored", {
       databaseId: db.id,
     });
     return null;
   }
-  return { columns, presets };
+  if (db.panelState != null && !panelState) {
+    console.warn("[sync] storeApply: invalid database panelState ignored", {
+      databaseId: db.id,
+    });
+  }
+  return { columns, presets, ...(panelState ? { panelState } : {}) };
 }
 
 export function applyRemoteDatabaseToStore(
@@ -594,6 +601,7 @@ export function applyRemoteDatabaseToStore(
         title: normalizedDatabase.title,
         columns: normalizedDatabase.columns,
         presets: normalizedDatabase.presets,
+        panelState: normalizedDatabase.panelState,
         createdAt: normalizedDatabase.createdAt,
         updatedAt: normalizedDatabase.updatedAt,
       });
@@ -640,7 +648,7 @@ export function applyRemoteDatabaseToStore(
 
   const schema = parseRemoteDatabaseSchema(db);
   if (!schema) return;
-  const { columns, presets } = schema;
+  const { columns, presets, panelState } = schema;
   const derivedRowOrder = collectRowPageIdsForDatabase(db.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
 
@@ -654,6 +662,7 @@ export function applyRemoteDatabaseToStore(
     },
     columns,
     presets,
+    panelState: panelState ?? local?.panelState,
     rowPageOrder,
   };
 

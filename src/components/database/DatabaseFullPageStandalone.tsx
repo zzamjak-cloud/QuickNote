@@ -3,6 +3,7 @@ import type { JSONContent } from "@tiptap/react";
 import type { DatabasePanelState, ViewKind } from "../../types/database";
 import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseStore } from "../../store/databaseStore";
 import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
@@ -58,12 +59,14 @@ export function DatabaseFullPageStandalone({
   panelStateRaw,
 }: Props) {
   const updateDoc = usePageStore((s) => s.updateDoc);
+  const databasePanelState = useDatabaseStore((s) => s.databases[databaseId]?.panelState);
+  const patchDatabasePanelState = useDatabaseStore((s) => s.patchDatabasePanelState);
   const getPanelState = useDatabaseViewPrefsStore((s) => s.getPanelState);
   const patchPanelState = useDatabaseViewPrefsStore((s) => s.patchPanelState);
   const getStoredView = useDatabaseViewPrefsStore((s) => s.getView);
   const setStoredView = useDatabaseViewPrefsStore((s) => s.setView);
   const [directPanelState, setDirectPanelState] = useState<DatabasePanelState>(() =>
-    getPanelState(databaseId, panelStateRaw),
+    databasePanelState ?? getPanelState(databaseId, panelStateRaw),
   );
   const [directView, setDirectView] = useState<ViewKind>(() =>
     getStoredView(databaseId, view),
@@ -78,9 +81,9 @@ export function DatabaseFullPageStandalone({
 
   useEffect(() => {
     if (pageId) return;
-    setDirectPanelState(getPanelState(databaseId, panelStateRaw));
+    setDirectPanelState(databasePanelState ?? getPanelState(databaseId, panelStateRaw));
     setDirectView(getStoredView(databaseId, view));
-  }, [databaseId, getPanelState, getStoredView, pageId, panelStateRaw, view]);
+  }, [databaseId, databasePanelState, getPanelState, getStoredView, pageId, panelStateRaw, view]);
 
   const updateBlockAttrs = useCallback(
     (attrs: Record<string, unknown>) => {
@@ -103,9 +106,10 @@ export function DatabaseFullPageStandalone({
       } else {
         setDirectPanelState(next);
         patchPanelState(databaseId, patch, panelStateRaw);
+        patchDatabasePanelState(databaseId, patch);
       }
     },
-    [databaseId, pageId, panelStateRaw, patchPanelState, updateBlockAttrs],
+    [databaseId, pageId, panelStateRaw, patchDatabasePanelState, patchPanelState, updateBlockAttrs],
   );
 
   const setView = useCallback(

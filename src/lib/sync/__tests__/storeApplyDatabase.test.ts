@@ -62,6 +62,31 @@ describe("applyRemoteDatabaseToStore", () => {
     expect(bundle.columns.find((column) => column.id === "fetch")?.config?.itemFetchSourceDatabaseId).toBe("feature-db");
   });
 
+  it("remote panelState의 원본 DB 필터 프리셋 탭을 복원한다", () => {
+    applyRemoteDatabaseToStore({
+      ...remoteDatabase(),
+      panelState: JSON.stringify({
+        filterPresets: [
+          {
+            id: "preset-tab-1",
+            name: "검토",
+            filterRules: [
+              { id: "rule-1", columnId: "source", operator: "equals", value: "review" },
+            ],
+            sortRules: [{ columnId: "title", dir: "asc" }],
+          },
+        ],
+        activePresetId: "preset-tab-1",
+      }),
+    });
+
+    const bundle = useDatabaseStore.getState().databases["db-1"];
+    expect(bundle.panelState?.activePresetId).toBe("preset-tab-1");
+    expect(bundle.panelState?.filterPresets?.[0]?.filterRules).toEqual([
+      { id: "rule-1", columnId: "source", operator: "equals", value: "review" },
+    ]);
+  });
+
   it("invalid remote columns는 기존 local DB를 빈 columns로 덮지 않는다", () => {
     useDatabaseStore.setState({
       databases: {

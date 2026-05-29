@@ -15,6 +15,7 @@ import { createRowPageLinkedToDatabase } from "../../lib/services/databaseRowPag
 import { enqueueAsync } from "../../lib/sync/runtime";
 import {
   serializeColumns,
+  serializePanelState,
   serializePresets,
 } from "../../lib/database/schema/normalizeDatabase";
 import { useAuthStore } from "../authStore";
@@ -48,6 +49,7 @@ export function toGqlDatabase(
   columns: ColumnDef[],
   createdByMemberId: string,
   presets?: DatabaseRowPreset[],
+  panelState?: DatabaseBundle["panelState"],
 ): Record<string, unknown> {
   const workspaceId = meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(meta.id);
   return {
@@ -57,6 +59,7 @@ export function toGqlDatabase(
     title: meta.title,
     columns: serializeColumns(columns),
     presets: serializePresets(presets),
+    panelState: serializePanelState(panelState),
     createdAt: new Date(meta.createdAt).toISOString(),
     updatedAt: new Date(meta.updatedAt).toISOString(),
   };
@@ -73,6 +76,7 @@ export function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
     bundle.columns,
     getCreatedByMemberId(),
     bundle.presets,
+    bundle.panelState,
   );
   enqueueAsync(
     "upsertDatabase",

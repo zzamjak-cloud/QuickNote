@@ -110,6 +110,7 @@ export const GqlDatabaseSchema = z
     title: z.string(),
     columns: z.unknown(),
     presets: z.unknown().nullish(),
+    panelState: z.unknown().nullish(),
     createdAt: z.string(),
     updatedAt: z.string(),
     deletedAt: z.string().nullish(),

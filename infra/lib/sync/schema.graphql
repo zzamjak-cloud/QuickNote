@@ -130,6 +130,7 @@ type Database {
   title: String!
   columns: AWSJSON!
   presets: AWSJSON
+  panelState: AWSJSON
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
   deletedAt: AWSDateTime
@@ -294,6 +295,7 @@ input DatabaseInput {
   title: String!
   columns: AWSJSON!
   presets: AWSJSON
+  panelState: AWSJSON
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
 }

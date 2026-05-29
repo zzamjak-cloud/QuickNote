@@ -3,11 +3,13 @@ import type {
   ColumnDef,
   ColumnType,
   DatabaseBundle,
+  DatabasePanelState,
   DatabaseRowPreset,
   ProgressSourceConfig,
   SearchFilterRule,
   SelectOption,
 } from "../../../types/database";
+import { parseDatabasePanelStateJson } from "../../schemas/panelStateSchema";
 
 type ColumnConfig = NonNullable<ColumnDef["config"]>;
 type MutableColumnConfig = ColumnConfig & Record<string, unknown>;
@@ -374,6 +376,9 @@ export function normalizeDatabaseBundle(value: unknown, now = Date.now()): Datab
     },
     columns,
     presets,
+    ...(value.panelState == null
+      ? {}
+      : { panelState: parseDatabasePanelStateJson(JSON.stringify(value.panelState)) }),
     rowPageOrder: normalizeStringArray(value.rowPageOrder),
   };
 }
@@ -388,6 +393,12 @@ export function serializePresets(presets: DatabaseRowPreset[] | undefined): stri
   const normalized = normalizePresets(presets ?? []);
   if (!normalized) throw new Error("Invalid database presets");
   return JSON.stringify(normalized);
+}
+
+export function serializePanelState(panelState: DatabasePanelState | undefined): string {
+  return JSON.stringify(
+    parseDatabasePanelStateJson(JSON.stringify(panelState ?? {})),
+  );
 }
 
 function parseSerializedArray(value: unknown): unknown[] | null {
@@ -408,6 +419,15 @@ export function tryParseSerializedColumns(value: unknown): ColumnDef[] | null {
 export function tryParseSerializedPresets(value: unknown): DatabaseRowPreset[] | null {
   if (value == null) return [];
   return normalizePresets(parseSerializedArray(value));
+}
+
+export function tryParseSerializedPanelState(value: unknown): DatabasePanelState | null {
+  if (value == null) return null;
+  if (typeof value === "string") return parseDatabasePanelStateJson(value);
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return parseDatabasePanelStateJson(JSON.stringify(value));
+  }
+  return null;
 }
 
 export function parseSerializedColumns(value: unknown): ColumnDef[] {

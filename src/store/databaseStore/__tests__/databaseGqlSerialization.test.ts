@@ -3,6 +3,7 @@ import { toGqlDatabase } from "../helpers";
 import type {
   ColumnDef,
   DatabaseMeta,
+  DatabasePanelState,
   DatabaseRowPreset,
 } from "../../../types/database";
 
@@ -92,5 +93,51 @@ describe("databaseStore GraphQL serialization", () => {
         "member-1",
       ),
     ).toThrow("Invalid database columns");
+  });
+
+  it("원본 DB 필터 프리셋 탭 상태를 AWSJSON payload로 직렬화한다", () => {
+    const meta: DatabaseMeta = {
+      id: "db-1",
+      workspaceId: "ws-1",
+      title: "DB",
+      createdAt: Date.parse("2026-01-01T00:00:00.000Z"),
+      updatedAt: Date.parse("2026-01-01T00:00:01.000Z"),
+    };
+    const panelState: DatabasePanelState = {
+      searchQuery: "",
+      filterRules: [],
+      sortColumnId: null,
+      sortDir: "asc",
+      sortRules: [],
+      kanbanGroupColumnId: null,
+      galleryCoverColumnId: null,
+      timelineDateColumnId: null,
+      viewConfigs: {},
+      hiddenViewKinds: [],
+      filterPresets: [
+        {
+          id: "preset-tab-1",
+          name: "검토",
+          filterRules: [{ id: "rule-1", columnId: "status", operator: "equals", value: "review" }],
+          sortRules: [{ columnId: "title", dir: "asc" }],
+        },
+      ],
+      activePresetId: "preset-tab-1",
+    };
+
+    const payload = toGqlDatabase(
+      meta,
+      [{ id: "title", name: "Name", type: "title" }],
+      "member-1",
+      [],
+      panelState,
+    );
+
+    expect(payload.panelState).toEqual(expect.any(String));
+    const parsedPanelState = JSON.parse(payload.panelState as string) as DatabasePanelState;
+    expect(parsedPanelState.activePresetId).toBe("preset-tab-1");
+    expect(parsedPanelState.filterPresets?.[0]?.filterRules).toEqual([
+      { id: "rule-1", columnId: "status", operator: "equals", value: "review" },
+    ]);
   });
 });

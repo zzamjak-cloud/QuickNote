@@ -7,10 +7,11 @@ import type {
   ColumnType,
   DatabaseBundle,
   DatabaseMeta,
+  DatabasePanelState,
   DatabaseRowPreset,
   DatabaseTemplate,
 } from "../types/database";
-import { DATABASE_STORE_VERSION } from "../types/database";
+import { DATABASE_STORE_VERSION, emptyPanelState } from "../types/database";
 import { newId } from "../lib/id";
 import { usePageStore } from "./pageStore";
 import { shouldWriteAnchor, useHistoryStore } from "./historyStore";
@@ -85,6 +86,8 @@ type DatabaseStoreActions = {
   deleteDatabase: (id: string) => void;
   /** 성공 시 true. 다른 DB와 동일한 표시 제목(정규화 후)이면 false */
   setDatabaseTitle: (id: string, title: string) => boolean;
+  /** 원본 DB 화면의 필터 프리셋 탭·뷰 설정을 DB 동기화 payload에 반영한다. */
+  patchDatabasePanelState: (databaseId: string, patch: Partial<DatabasePanelState>) => void;
   addColumn: (databaseId: string, col: Omit<ColumnDef, "id"> & { id?: string }) => string;
   updateColumn: (
     databaseId: string,
@@ -269,6 +272,29 @@ export const useDatabaseStore = create<DatabaseStore>()(
           usePageStore.getState().updateButtonBlockLabels(homePageId, nextTitle);
         }
         return true;
+      },
+
+      patchDatabasePanelState: (databaseId, patch) => {
+        const state = get();
+        const b = state.databases[databaseId];
+        if (!b) return;
+        const nextPanelState: DatabasePanelState = {
+          ...emptyPanelState(),
+          ...(b.panelState ?? {}),
+          ...patch,
+        };
+        set({
+          databases: {
+            ...state.databases,
+            [databaseId]: {
+              ...b,
+              panelState: nextPanelState,
+              meta: { ...b.meta, updatedAt: now() },
+            },
+          },
+        });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
       },
 
       ...createColumnActions(set, get),
