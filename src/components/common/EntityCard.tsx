@@ -4,7 +4,7 @@ import { PageIconDisplay } from "./PageIconDisplay";
 type Props = {
   icon: string | null;
   name: string;
-  memberCount: number;
+  memberCount?: number;
   leaderLabel: string;
   hasLeaders: boolean;
   onClick: () => void;
@@ -26,9 +26,11 @@ export function EntityCard({ icon, name, memberCount, leaderLabel, hasLeaders, o
         <span className="block truncate text-base font-semibold text-zinc-900 dark:text-zinc-100">
           {name}
         </span>
-        <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-          구성원 {memberCount}명
-        </span>
+        {typeof memberCount === "number" && (
+          <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+            구성원 {memberCount}명
+          </span>
+        )}
       </span>
       {hasLeaders && (
         <span

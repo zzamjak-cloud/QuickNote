@@ -125,10 +125,11 @@ export function createLocalDeleteGuardChecker(nowMs = Date.now()): LocalDeleteGu
     if (!id || !workspaceId) return false;
     const entry = guards[guardKey(kind, workspaceId, id)];
     if (!entry) return false;
-    // 영구 tombstone 은 timestamp 비교 없이 무조건 차단.
-    if (entry.permanent) return true;
     const remoteMs = Date.parse(remoteUpdatedAt);
     if (!Number.isFinite(remoteMs)) return false;
+    // 서버에서 더 최신 버전이 살아난 경우(복구/재생성)는 local tombstone 보다 우선한다.
+    // 이 조건이 없으면 한 번 영구 tombstone 이 잡힌 항목은 같은 PC에서 영구히 복구되지 않는다.
+    if (entry.permanent) return remoteMs <= entry.deletedAtMs;
     return remoteMs <= entry.deletedAtMs;
   };
 }

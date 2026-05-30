@@ -14,6 +14,7 @@ import {
   UpdateCommand,
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { getCallerMember, hasWorkspaceViewAccess } from "../v5-resolvers/handlers/_auth";
 
 // AppSync JS 리졸버에서 invoke 되는 단일 핸들러.
 // 3 fieldName(getImageUploadUrl/confirmImage/getImageDownloadUrl)을 분기 처리한다.
@@ -39,6 +40,11 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 const BUCKET = requireEnv("IMAGES_BUCKET");
 const TABLE = requireEnv("IMAGE_ASSET_TABLE");
+// 다운로드 인가(워크스페이스 멤버십)용 테이블.
+const MEMBERS_TABLE = requireEnv("MEMBERS_TABLE");
+const MEMBER_TEAMS_TABLE = requireEnv("MEMBER_TEAMS_TABLE");
+const WORKSPACE_ACCESS_TABLE = requireEnv("WORKSPACE_ACCESS_TABLE");
+const ASSET_USAGE_TABLE = requireEnv("ASSET_USAGE_TABLE");
 
 // image 외 일반 파일(동영상·PDF·zip 등) 업로드를 같은 인프라로 처리한다.
 // 위험 mimeType(HTML/JS/SVG 등 브라우저 실행 가능 형식) 은 차단해 XSS 회피.
@@ -244,17 +250,58 @@ async function confirmImage(ownerId: string, imageId: string) {
   return updated.Item;
 }
 
-async function getDownloadUrl(ownerId: string, imageId: string) {
+async function getDownloadUrl(callerSub: string, imageId: string) {
   const found = await ddb.send(
     new GetCommand({ TableName: TABLE, Key: { id: imageId } }),
   );
-  if (!found.Item || found.Item.ownerId !== ownerId) {
-    throw new Error("not found");
-  }
+  if (!found.Item) throw new Error("not found");
   if (found.Item.status !== "READY") throw new Error("not ready");
+
+  // 자산은 업로더(ownerId) 소유지만 공유 페이지에 임베드되므로,
+  // 본인 자산이 아니면 자산이 사용된 워크스페이스의 멤버인지로 열람을 인가한다.
+  if (found.Item.ownerId !== callerSub) {
+    const allowed = await hasWorkspaceAccessToAsset(callerSub, imageId);
+    if (!allowed) throw new Error("not found");
+  }
 
   const cmd = new GetObjectCommand({ Bucket: BUCKET, Key: found.Item.key });
   return getSignedUrl(s3, cmd, { expiresIn: 3600 });
+}
+
+/** 자산이 사용된 워크스페이스 중 호출자가 열람 권한을 가진 곳이 하나라도 있으면 true. */
+async function hasWorkspaceAccessToAsset(callerSub: string, assetId: string): Promise<boolean> {
+  // AssetUsage(PK=assetId) 에서 이 자산이 쓰인 워크스페이스 수집.
+  const usage = await ddb.send(
+    new QueryCommand({
+      TableName: ASSET_USAGE_TABLE,
+      KeyConditionExpression: "assetId = :a",
+      ExpressionAttributeValues: { ":a": assetId },
+      ProjectionExpression: "workspaceId",
+    }),
+  );
+  const workspaceIds = new Set<string>();
+  for (const it of usage.Items ?? []) {
+    const wsId = (it as { workspaceId?: string }).workspaceId;
+    if (typeof wsId === "string" && wsId) workspaceIds.add(wsId);
+  }
+  // 사용처가 없으면(어느 페이지에도 안 쓰임) 공유 근거가 없으므로 차단(본인만 접근).
+  if (workspaceIds.size === 0) return false;
+
+  // 호출자 멤버 조회(미등록/비활성이면 차단).
+  const caller = await getCallerMember(ddb, MEMBERS_TABLE, callerSub).catch(() => null);
+  if (!caller) return false;
+
+  for (const workspaceId of workspaceIds) {
+    const ok = await hasWorkspaceViewAccess({
+      doc: ddb,
+      memberTeamsTableName: MEMBER_TEAMS_TABLE,
+      workspaceAccessTableName: WORKSPACE_ACCESS_TABLE,
+      caller,
+      workspaceId,
+    });
+    if (ok) return true;
+  }
+  return false;
 }
 
 function requireEnv(name: string): string {

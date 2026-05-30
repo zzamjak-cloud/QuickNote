@@ -60,7 +60,7 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
         }}
         onDragEnd={onTitleDragEnd}
         className={[
-          "group flex items-center justify-between gap-2 border-b border-zinc-200 px-2 py-2 dark:border-zinc-700",
+          "group flex items-center justify-between gap-2 px-2 py-2",
           onTitleDragStart ? "cursor-grab active:cursor-grabbing" : "",
         ].join(" ")}
         title={onTitleDragStart ? "드래그하여 블럭 이동" : undefined}

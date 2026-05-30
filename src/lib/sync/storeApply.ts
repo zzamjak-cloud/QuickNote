@@ -558,6 +558,10 @@ function parseRemoteDatabaseSchema(
   if (!columns || !presets) {
     console.warn("[sync] storeApply: invalid database schema ignored", {
       databaseId: db.id,
+      columnsOk: Boolean(columns),
+      presetsOk: Boolean(presets),
+      rawColumns: db.columns,
+      rawPresets: db.presets,
     });
     return null;
   }
@@ -652,6 +656,12 @@ export function applyRemoteDatabaseToStore(
   const derivedRowOrder = collectRowPageIdsForDatabase(db.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
 
+  // 서버가 빈 panelState({})로 잘못 덮인 경우(과거 회귀로 탭 유실), local 에 탭이 있으면 보존한다.
+  const remoteHasPresets = (panelState?.filterPresets?.length ?? 0) > 0;
+  const localHasPresets = (local?.panelState?.filterPresets?.length ?? 0) > 0;
+  const resolvedPanelState =
+    remoteHasPresets || !localHasPresets ? (panelState ?? local?.panelState) : local?.panelState;
+
   const bundle: DatabaseBundle = {
     meta: {
       id: db.id,
@@ -662,7 +672,7 @@ export function applyRemoteDatabaseToStore(
     },
     columns,
     presets,
-    panelState: panelState ?? local?.panelState,
+    panelState: resolvedPanelState,
     rowPageOrder,
   };
 

@@ -24,7 +24,18 @@ export function isFullPageDatabaseHomePage(page: Page): boolean {
 function isHiddenInSidebar(
   page: Page,
   pages: Record<string, Page>,
+  currentWorkspaceId: string | null,
 ): boolean {
+  // 다른 워크스페이스(예: LC 스케줄러 공용 워크스페이스) 페이지가 구독/스냅샷으로
+  // 공용 store 에 섞여 들어와도 현재 워크스페이스 사이드바엔 절대 노출하지 않는다.
+  // workspaceId 가 없는(레거시) 페이지는 안전하게 현재 워크스페이스 소속으로 간주.
+  if (
+    currentWorkspaceId != null &&
+    page.workspaceId != null &&
+    page.workspaceId !== currentWorkspaceId
+  ) {
+    return true;
+  }
   let cursor: Page | undefined = page;
   // 순환 안전장치
   const seen = new Set<string>();
@@ -40,7 +51,7 @@ function isHiddenInSidebar(
 
 export function selectSortedPages(state: PageStore): Page[] {
   return Object.values(state.pages)
-    .filter((p) => !isHiddenInSidebar(p, state.pages))
+    .filter((p) => !isHiddenInSidebar(p, state.pages, state.cacheWorkspaceId))
     .sort((a, b) => a.order - b.order);
 }
 
@@ -55,7 +66,7 @@ export function selectFirstSidebarRootId(state: PageStore): string | null {
   let best: Page | null = null;
   for (const p of Object.values(state.pages)) {
     if (p.parentId != null) continue; // 루트만
-    if (isHiddenInSidebar(p, state.pages)) continue; // DB 행/홈 페이지 제외
+    if (isHiddenInSidebar(p, state.pages, state.cacheWorkspaceId)) continue; // DB 행/홈 페이지 제외
     if (
       !best ||
       p.order < best.order ||
@@ -71,7 +82,7 @@ export function selectFirstSidebarRootId(state: PageStore): string | null {
 export function selectPageTree(state: PageStore): PageNode[] {
   const byParent = new Map<string | null, Page[]>();
   for (const p of Object.values(state.pages)) {
-    if (isHiddenInSidebar(p, state.pages)) continue; // DB 행/홈 페이지와 그 자식은 트리에서 제외
+    if (isHiddenInSidebar(p, state.pages, state.cacheWorkspaceId)) continue; // DB 행/홈 페이지와 그 자식은 트리에서 제외
     const list = byParent.get(p.parentId) ?? [];
     list.push(p);
     byParent.set(p.parentId, list);
@@ -94,7 +105,7 @@ export function selectPageTree(state: PageStore): PageNode[] {
 export function selectFullPageTree(state: PageStore): PageNode[] {
   const byParent = new Map<string | null, Page[]>();
   for (const p of Object.values(state.pages)) {
-    if (isHiddenFromSearch(p, state.pages)) continue;
+    if (isHiddenFromSearch(p, state.pages, state.cacheWorkspaceId)) continue;
     const list = byParent.get(p.parentId) ?? [];
     list.push(p);
     byParent.set(p.parentId, list);
@@ -114,7 +125,19 @@ export function selectFullPageTree(state: PageStore): PageNode[] {
  * 검색 결과에서 숨기는 페이지 판정.
  * 트리와 달리 검색에선 DB 항목 페이지도 포함하고, fullPage DB 홈 페이지만 숨긴다.
  */
-function isHiddenFromSearch(page: Page, pages: Record<string, Page>): boolean {
+function isHiddenFromSearch(
+  page: Page,
+  pages: Record<string, Page>,
+  currentWorkspaceId: string | null,
+): boolean {
+  // 타 워크스페이스 페이지는 검색 결과에서도 제외 (사이드바와 동일 규칙).
+  if (
+    currentWorkspaceId != null &&
+    page.workspaceId != null &&
+    page.workspaceId !== currentWorkspaceId
+  ) {
+    return true;
+  }
   let cursor: Page | undefined = page;
   const seen = new Set<string>();
   while (cursor) {
@@ -136,7 +159,7 @@ export function filterPageTree(
   const matched = new Set<string>();
   for (const p of Object.values(state.pages)) {
     // 검색 시에는 DB 항목 페이지도 포함; fullPage DB 홈 페이지만 제외
-    if (isHiddenFromSearch(p, state.pages)) continue;
+    if (isHiddenFromSearch(p, state.pages, state.cacheWorkspaceId)) continue;
     if (p.title.toLowerCase().includes(q)) matched.add(p.id);
   }
   // 매치된 페이지의 표시 가능한 조상 포함.
@@ -146,7 +169,7 @@ export function filterPageTree(
     while (cursor) {
       const parent = state.pages[cursor];
       if (!parent) break;
-      if (!isHiddenFromSearch(parent, state.pages)) {
+      if (!isHiddenFromSearch(parent, state.pages, state.cacheWorkspaceId)) {
         include.add(cursor);
       }
       cursor = parent.parentId;
@@ -154,7 +177,7 @@ export function filterPageTree(
   }
   const visiblePages = Object.values(state.pages)
     .filter((p) => include.has(p.id))
-    .filter((p) => !isHiddenFromSearch(p, state.pages))
+    .filter((p) => !isHiddenFromSearch(p, state.pages, state.cacheWorkspaceId))
     .sort((a, b) => a.order - b.order);
   const visibleIds = new Set(visiblePages.map((p) => p.id));
   const byParent = new Map<string | null, Page[]>();
@@ -175,7 +198,9 @@ export function filterPageTree(
 
 function pageTreeSignature(state: PageStore, query: string): string {
   const q = query.trim().toLowerCase();
-  return Object.values(state.pages)
+  // 현재 워크스페이스가 바뀌면 필터 결과가 달라지므로 시그니처에 포함.
+  const wsKey = state.cacheWorkspaceId ?? "";
+  const body = Object.values(state.pages)
     .map((p) => {
       const first = p.doc?.content?.[0] as
         | { type?: string; attrs?: Record<string, unknown> }
@@ -187,6 +212,7 @@ function pageTreeSignature(state: PageStore, query: string): string {
         p.parentId ?? "",
         p.order,
         p.databaseId ?? "",
+        p.workspaceId ?? "",
         first?.type ?? "",
         first?.attrs?.layout ?? "",
         first?.attrs?.databaseId ?? "",
@@ -194,6 +220,7 @@ function pageTreeSignature(state: PageStore, query: string): string {
       ].join("\u001f");
     })
     .join("\u001e");
+  return `${wsKey}${body}`;
 }
 
 export function createFilterPageTreeSelector(query: string) {

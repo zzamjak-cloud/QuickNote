@@ -76,7 +76,7 @@ describe("createLocalDeleteGuardChecker", () => {
     const shouldIgnore = createLocalDeleteGuardChecker();
 
     expect(shouldIgnore("page", "p1", "ws1", new Date(now - 1).toISOString())).toBe(true);
-    expect(shouldIgnore("page", "p2", "ws1", new Date(now + DAY_MS).toISOString())).toBe(true);
+    expect(shouldIgnore("page", "p2", "ws1", new Date(now - 1).toISOString())).toBe(true);
     expect(shouldIgnore("page", "p3", "ws1", new Date(now - 1).toISOString())).toBe(false);
     expect(getItem.mock.calls.filter(([key]) => key === GUARDS_KEY)).toHaveLength(1);
     restore();
@@ -89,10 +89,12 @@ describe("markPermanentlyDeletedEntity", () => {
     expect(isPermanentlyDeletedEntity("database", "db1", "ws1")).toBe(true);
   });
 
-  it("timestamp 비교 없이 모든 원격 업데이트를 차단한다", () => {
+  it("deletedAt 보다 최신 원격 업데이트는 통과시킨다", () => {
+    const now = Date.now();
+    markLocallyDeletedEntity("page", "p1", "ws1", now);
     markPermanentlyDeletedEntity("page", "p1", "ws1");
-    const futureAt = new Date(Date.now() + 999 * DAY_MS).toISOString();
-    expect(shouldIgnoreRemoteAfterLocalDelete("page", "p1", "ws1", futureAt)).toBe(true);
+    const futureAt = new Date(now + DAY_MS).toISOString();
+    expect(shouldIgnoreRemoteAfterLocalDelete("page", "p1", "ws1", futureAt)).toBe(false);
   });
 });
 

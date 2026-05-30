@@ -424,6 +424,11 @@ export class QuicknoteSyncStack extends cdk.Stack {
       environment: {
         IMAGES_BUCKET: imagesBucket.bucketName,
         IMAGE_ASSET_TABLE: this.imageAssetTable.table.tableName,
+        // getImageDownloadUrl 의 워크스페이스 멤버십 인가용.
+        MEMBERS_TABLE: membersTable.tableName,
+        MEMBER_TEAMS_TABLE: memberTeamsTable.tableName,
+        WORKSPACE_ACCESS_TABLE: workspaceAccessTable.tableName,
+        ASSET_USAGE_TABLE: assetUsageTable.tableName,
       },
       bundling: {
         minify: true,
@@ -436,6 +441,11 @@ export class QuicknoteSyncStack extends cdk.Stack {
     imagesBucket.grantPut(presignFn);
     imagesBucket.grantRead(presignFn);
     this.imageAssetTable.table.grantReadWriteData(presignFn);
+    // 다운로드 인가에 필요한 테이블 읽기 권한.
+    membersTable.grantReadData(presignFn);
+    memberTeamsTable.grantReadData(presignFn);
+    workspaceAccessTable.grantReadData(presignFn);
+    assetUsageTable.grantReadData(presignFn);
 
     const presignDs = api.addLambdaDataSource("ImagePresignDs", presignFn);
 

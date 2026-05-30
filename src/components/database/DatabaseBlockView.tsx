@@ -44,7 +44,7 @@ import { DatabaseBlockBinding } from "./DatabaseBlockBinding";
 import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
 import { DatabaseBlockFullPageHeader } from "./DatabaseBlockFullPageHeader";
 import { DatabaseBlockInlineHeader } from "./DatabaseBlockInlineHeader";
-import { isLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { isProtectedDatabaseId } from "../../lib/scheduler/database";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
 import {
   repairDbHistoryBaselineIfNeeded,
@@ -75,7 +75,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const hasDatabaseId = databaseId.length > 0;
   const needsBinding = !hasDatabaseId;
   const bundleGone = hasDatabaseId && !bundle;
-  const isProtectedDatabase = isLCSchedulerDatabaseId(databaseId);
+  const isProtectedDatabase = isProtectedDatabaseId(databaseId);
 
   const setDatabaseTitle = useDatabaseStore((s) => s.setDatabaseTitle);
   const deleteDatabaseFromStore = useDatabaseStore((s) => s.deleteDatabase);
@@ -527,7 +527,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
               />
             ) : null}
 
-            <DatabaseBlockDataArea bundleGone={bundleGone}>
+            <DatabaseBlockDataArea bundleGone={bundleGone && !isProtectedDatabase}>
               <Suspense fallback={null}>
                 {activeViewComponent}
               </Suspense>

@@ -183,25 +183,18 @@ export function AdminWorkspacesTab() {
               공유 워크스페이스가 없습니다.
             </li>
           ) : (
-            activeWorkspaces.map((ws) => {
-              const cached = entriesCache[ws.workspaceId];
-              const memberCount = cached
-                ? cached.filter((e) => e.subjectType !== "EVERYONE").length
-                : 0;
-              return (
-                <li key={ws.workspaceId}>
-                  <EntityCard
-                    icon={entityIcons[ws.workspaceId] ?? null}
-                    name={ws.name}
-                    memberCount={memberCount}
-                    hasLeaders={false}
-                    leaderLabel=""
-                    onClick={() => openEditModal(ws.workspaceId)}
-                    ariaLabel={`${ws.name} 설정 편집`}
-                  />
-                </li>
-              );
-            })
+            activeWorkspaces.map((ws) => (
+              <li key={ws.workspaceId}>
+                <EntityCard
+                  icon={entityIcons[ws.workspaceId] ?? null}
+                  name={ws.name}
+                  hasLeaders={false}
+                  leaderLabel=""
+                  onClick={() => openEditModal(ws.workspaceId)}
+                  ariaLabel={`${ws.name} 설정 편집`}
+                />
+              </li>
+            ))
           )}
         </ul>
       ) : (
@@ -216,7 +209,6 @@ export function AdminWorkspacesTab() {
                 <EntityCard
                   icon={entityIcons[ws.workspaceId] ?? null}
                   name={ws.name}
-                  memberCount={0}
                   hasLeaders={false}
                   leaderLabel=""
                   onClick={() => setArchivedActionId(ws.workspaceId)}

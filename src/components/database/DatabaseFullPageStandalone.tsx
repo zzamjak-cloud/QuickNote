@@ -1,7 +1,13 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSONContent } from "@tiptap/react";
 import type { DatabasePanelState, ViewKind } from "../../types/database";
+import { emptyPanelState } from "../../types/database";
 import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema";
+
+/** 필터 프리셋 탭이 하나라도 있는지. */
+function hasFilterPresets(ps: DatabasePanelState | null | undefined): boolean {
+  return (ps?.filterPresets?.length ?? 0) > 0;
+}
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
@@ -72,8 +78,17 @@ export function DatabaseFullPageStandalone({
     getStoredView(databaseId, view),
   );
   const panelState = useMemo(
-    () => (pageId ? parseDatabasePanelStateJson(panelStateRaw ?? "{}") : directPanelState),
-    [directPanelState, pageId, panelStateRaw],
+    () => {
+      // 원본 DB 는 bundle.panelState 를 source of truth 로 사용한다.
+      // bundle 에 탭이 있으면 우선, 없으면 블록 attrs(시드 전 폴백) → directPanelState 순.
+      if (hasFilterPresets(databasePanelState)) return databasePanelState!;
+      const blockPanelState = pageId
+        ? parseDatabasePanelStateJson(panelStateRaw ?? "{}")
+        : null;
+      if (blockPanelState && hasFilterPresets(blockPanelState)) return blockPanelState;
+      return pageId ? (blockPanelState ?? emptyPanelState()) : directPanelState;
+    },
+    [databasePanelState, directPanelState, pageId, panelStateRaw],
   );
   const activeViewKind = pageId ? view : directView;
   const panelStateRef = useRef<DatabasePanelState>(panelState);
@@ -84,6 +99,18 @@ export function DatabaseFullPageStandalone({
     setDirectPanelState(databasePanelState ?? getPanelState(databaseId, panelStateRaw));
     setDirectView(getStoredView(databaseId, view));
   }, [databaseId, databasePanelState, getPanelState, getStoredView, pageId, panelStateRaw, view]);
+
+  // 시드/복구: 과거에 블록 attrs 에만 저장되던 필터 프리셋 탭을, bundle.panelState 가
+  // 비어 있을 때 1회 옮겨 DB 귀속 상태로 만들고 서버 동기화를 시작한다.
+  // (Editor 풀페이지 경로 회귀로 bundle 이 비어 탭이 사라진 케이스의 복구 경로)
+  useEffect(() => {
+    if (!pageId) return;
+    const blockPanelState = parseDatabasePanelStateJson(panelStateRaw ?? "{}");
+    if (!hasFilterPresets(blockPanelState)) return;
+    const bundlePanelState = useDatabaseStore.getState().databases[databaseId]?.panelState;
+    if (hasFilterPresets(bundlePanelState)) return;
+    patchDatabasePanelState(databaseId, blockPanelState);
+  }, [databaseId, pageId, panelStateRaw, patchDatabasePanelState]);
 
   const updateBlockAttrs = useCallback(
     (attrs: Record<string, unknown>) => {
@@ -101,12 +128,15 @@ export function DatabaseFullPageStandalone({
     (patch: Partial<DatabasePanelState>) => {
       const next = { ...panelStateRef.current, ...patch };
       panelStateRef.current = next;
+      setDirectPanelState(next);
+      // 원본 DB 의 필터 프리셋(탭)은 DB 에 귀속 + 서버 동기화되어야 하므로 pageId 유무와
+      // 무관하게 항상 bundle.panelState 를 갱신한다. (이전엔 pageId 경로에서 블록 attrs 만
+      // 갱신 → bundle 이 비어 → 다음 업서트가 서버 탭을 비우는 회귀)
+      patchDatabasePanelState(databaseId, patch);
       if (pageId) {
         updateBlockAttrs({ panelState: JSON.stringify(next) });
       } else {
-        setDirectPanelState(next);
         patchPanelState(databaseId, patch, panelStateRaw);
-        patchDatabasePanelState(databaseId, patch);
       }
     },
     [databaseId, pageId, panelStateRaw, patchDatabasePanelState, patchPanelState, updateBlockAttrs],

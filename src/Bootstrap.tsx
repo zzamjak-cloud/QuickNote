@@ -45,6 +45,7 @@ import {
   isLCSchedulerDatabaseId,
 } from "./lib/scheduler/database";
 import { useSchedulerStore } from "./store/schedulerStore";
+import { useSchedulerProjectsStore } from "./store/schedulerProjectsStore";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
@@ -64,6 +65,7 @@ function useSyncBootstrap(): void {
   const clearTeams = useTeamStore((s) => s.clear);
   const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
   const clearOrganizations = useOrganizationStore((s) => s.clear);
+  const fetchProjects = useSchedulerProjectsStore((s) => s.fetchProjects);
   // 한 사용자 세션 내에서 중복 부트스트랩 방지.
   const startedForRef = useRef<string | null>(null);
 
@@ -131,11 +133,22 @@ function useSyncBootstrap(): void {
         const orgsFresh =
           orgState.organizations.length > 0 &&
           isCacheFresh(orgState.lastFetchedAt, CACHE_TTL.WORKSPACE_META);
+        // LC 프로젝트가 이미 적재돼 있으면 매 새로고침마다 재페치하지 않는다(지연 회귀 방지).
+        const projectsState = useSchedulerProjectsStore.getState();
+        const projectsFresh =
+          projectsState.projects.length > 0 &&
+          projectsState.workspaceId === LC_SCHEDULER_WORKSPACE_ID;
 
         const [membersResult, teamsResult, organizationsResult] = await Promise.all([
           membersFresh ? Promise.resolve(null) : listMembersApi(),
           teamsFresh ? Promise.resolve(null) : listTeamsApi(),
           orgsFresh ? Promise.resolve(null) : listOrganizationsApi(),
+          projectsFresh
+            ? Promise.resolve(null)
+            : fetchProjects(LC_SCHEDULER_WORKSPACE_ID).catch((error) => {
+                console.warn("[sync] LC 프로젝트 목록 동기화 실패", error);
+                return null;
+              }),
         ]);
         if (cancelled) return;
         if (membersResult) setMembers(membersResult, LC_SCHEDULER_WORKSPACE_ID);
@@ -156,7 +169,7 @@ function useSyncBootstrap(): void {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, authSub, setMe, setMembers, setTeams, setOrganizations, setWorkspaces, clearWorkspaces, clearMembers, clearTeams, clearOrganizations]);
+  }, [authStatus, authSub, setMe, setMembers, setTeams, setOrganizations, setWorkspaces, clearWorkspaces, clearMembers, clearTeams, clearOrganizations, fetchProjects]);
 
   useLayoutEffect(() => {
     if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) {
@@ -247,6 +260,9 @@ function useSyncBootstrap(): void {
           setHold(null);
         }
         await fetchApply();
+        // LC 스케줄러 워크스페이스 데이터는 부트스트랩에서 미리 끌어오지 않는다.
+        // (타 워크스페이스 사이드바 누수 + 매 새로고침 추가 페치로 인한 지연 회귀의 원인)
+        // LC 데이터는 LC 구독(아래) 및 스케줄러 모달 진입 시점에만 적재한다.
 
         if (cancelled) return;
         const refreshSchedulerPage = (pageId: string) => {

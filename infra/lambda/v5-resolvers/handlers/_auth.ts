@@ -154,6 +154,30 @@ export function computeEffectiveLevel(
   return best;
 }
 
+/**
+ * requireWorkspaceAccess 와 동일한 규칙을 boolean 으로 반환(throw 안 함).
+ * 여러 워크스페이스 후보를 OR 로 검사해야 하는 호출부(예: 이미지 다운로드 인가)에서 사용.
+ */
+export async function hasWorkspaceViewAccess(args: {
+  doc: DynamoDBDocumentClient;
+  memberTeamsTableName: string;
+  workspaceAccessTableName: string;
+  caller: Member;
+  workspaceId: string;
+}): Promise<boolean> {
+  if (args.workspaceId === LC_SCHEDULER_WORKSPACE_ID) return true;
+  if (
+    args.caller.workspaceRole === "developer" ||
+    args.caller.workspaceRole === "owner" ||
+    args.caller.workspaceRole === "leader"
+  ) {
+    return true;
+  }
+  const teamIds = await getMemberTeamIds(args.doc, args.memberTeamsTableName, args.caller.memberId);
+  const entries = await getWorkspaceAccessEntries(args.doc, args.workspaceAccessTableName, args.workspaceId);
+  return computeEffectiveLevel(entries, args.caller.memberId, teamIds) != null;
+}
+
 export async function requireWorkspaceAccess(args: {
   doc: DynamoDBDocumentClient;
   memberTeamsTableName: string;

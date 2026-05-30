@@ -52,17 +52,23 @@ export function toGqlDatabase(
   panelState?: DatabaseBundle["panelState"],
 ): Record<string, unknown> {
   const workspaceId = meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(meta.id);
-  return {
+  const payload: Record<string, unknown> = {
     id: meta.id,
     workspaceId,
     createdByMemberId,
     title: meta.title,
     columns: serializeColumns(columns),
     presets: serializePresets(presets),
-    panelState: serializePanelState(panelState),
     createdAt: new Date(meta.createdAt).toISOString(),
     updatedAt: new Date(meta.updatedAt).toISOString(),
   };
+  // 서버 upsert 는 전체 항목 교체(PutItem)다. panelState 가 없을 때 빈 객체를 실으면
+  // 서버의 기존 필터 프리셋 탭이 통째로 사라진다. 값이 있을 때만 전송한다.
+  // (panelState 미지정 → 키 생략 → 수신 측은 local panelState 로 폴백)
+  if (panelState !== undefined) {
+    payload.panelState = serializePanelState(panelState);
+  }
+  return payload;
 }
 
 export function enqueueUpsertDatabase(bundle: DatabaseBundle): void {

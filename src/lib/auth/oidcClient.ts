@@ -67,3 +67,15 @@ export function resetOidcManager(): void {
   _stateStore = null;
   _userStore = null;
 }
+
+export async function clearOidcStorage(): Promise<void> {
+  const { stateStore, userStore } = ensureStores();
+  const [stateKeys, userKeys] = await Promise.all([
+    stateStore.getAllKeys(),
+    userStore.getAllKeys(),
+  ]);
+  await Promise.all([
+    ...stateKeys.map((key) => stateStore.remove(key)),
+    ...userKeys.map((key) => userStore.remove(key)),
+  ]);
+}

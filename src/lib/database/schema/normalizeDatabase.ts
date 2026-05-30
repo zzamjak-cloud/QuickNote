@@ -405,7 +405,13 @@ function parseSerializedArray(value: unknown): unknown[] | null {
   if (Array.isArray(value)) return value;
   if (typeof value !== "string") return null;
   try {
-    const parsed = JSON.parse(value) as unknown;
+    let parsed = JSON.parse(value) as unknown;
+    // 레거시/이중 인코딩 방어: AWSJSON 필드에 이미 stringify 된 값이 다시 stringify 되어
+    // 저장된 경우(JSON 문자열을 또 감싼 형태) 한 번 더 파싱해 배열을 복구한다.
+    // (이중 인코딩된 columns/presets 가 통째로 폐기돼 DB 가 사라지는 회귀 방지)
+    if (typeof parsed === "string") {
+      parsed = JSON.parse(parsed) as unknown;
+    }
     return Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;

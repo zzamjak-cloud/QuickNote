@@ -9,6 +9,7 @@ import {
 } from "../../../store/schedulerProjectsStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { sortByKoreanName } from "../../../lib/memberSearch";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 import { AdminListHeader } from "../../settings/AdminListHeader";
 import { EntityCard } from "../../common/EntityCard";
 import { EntityEditModal } from "../../common/EntityEditModal";
@@ -30,11 +31,12 @@ const EMPTY_FORM: FormState = {
 type TabType = "active" | "archived";
 
 export function ProjectsPanel() {
-  const { projects, workspaceId, createProject, updateProject, deleteProject } =
+  const { projects, workspaceId, fetchProjects, createProject, updateProject, deleteProject } =
     useSchedulerProjectsStore(
       useShallow((s) => ({
         projects: s.projects,
         workspaceId: s.workspaceId,
+        fetchProjects: s.fetchProjects,
         createProject: s.createProject,
         updateProject: s.updateProject,
         deleteProject: s.deleteProject,
@@ -53,6 +55,12 @@ export function ProjectsPanel() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchProjects(LC_SCHEDULER_WORKSPACE_ID).catch((error) => {
+      setErrorMessage(error instanceof Error ? error.message : "프로젝트 목록을 불러오지 못했습니다.");
+    });
+  }, [fetchProjects]);
 
   const activeProjects = useMemo(
     () =>

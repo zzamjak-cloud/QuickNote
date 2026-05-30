@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { User } from "oidc-client-ts";
-import { getOidcClient, getOidcManager, resetOidcManager } from "../lib/auth/oidcClient";
+import { clearOidcStorage, getOidcClient, getOidcManager, resetOidcManager } from "../lib/auth/oidcClient";
 import { buildAuthConfig } from "../lib/auth/config";
 import { openAuthUrl } from "../lib/auth/openAuthWindow";
 import { shutdownSyncEngine } from "../lib/sync/runtime";
@@ -38,6 +38,7 @@ const TOKEN_KEEPALIVE_THRESHOLD_SEC = 180;
 // 새로고침 시 AuthGate 가 토큰 복원(read 15s + getUser 12s 등)을 기다리지 않고
 // 캐시된 앱 셸을 먼저 그릴지 판단하는 데 쓴다.
 const HAD_SESSION_KEY = "quicknote.auth.hadSession";
+const FORCE_ACCOUNT_SELECTION_KEY = "quicknote.auth.forceAccountSelection";
 
 function markHadSession(): void {
   try {
@@ -52,6 +53,30 @@ function clearHadSession(): void {
     globalThis.localStorage?.removeItem(HAD_SESSION_KEY);
   } catch {
     // 무시
+  }
+}
+
+function markForceAccountSelection(): void {
+  try {
+    globalThis.localStorage?.setItem(FORCE_ACCOUNT_SELECTION_KEY, "1");
+  } catch {
+    // 무시
+  }
+}
+
+function clearForceAccountSelection(): void {
+  try {
+    globalThis.localStorage?.removeItem(FORCE_ACCOUNT_SELECTION_KEY);
+  } catch {
+    // 무시
+  }
+}
+
+function shouldForceAccountSelection(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(FORCE_ACCOUNT_SELECTION_KEY) === "1";
+  } catch {
+    return false;
   }
 }
 
@@ -216,15 +241,21 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const client = getOidcClient();
       const cfg = buildAuthConfig();
+      const forceAccountSelection = shouldForceAccountSelection();
+      const prompt = forceAccountSelection ? "login select_account" : "select_account";
       const request = await client.createSigninRequest({
         redirect_uri: cfg.redirectUri,
         response_type: "code",
         scope: cfg.scope,
         request_type: "si:r",
         // 동일 브라우저 세션에서 다른 Google 계정으로 전환할 수 있도록 계정 선택을 강제한다.
+        // identity_provider 는 항상 포함한다: 동일 Google 계정이 늘 같은 federation 경로로
+        // 로그인되어 동일 sub 가 보장된다. (생략 시 Hosted UI 경유로 같은 이메일이라도 다른 sub 가
+        // 발급돼 기존 페이지/DB/이미지가 "다른 사용자"로 보여 사라지는 사고가 난다.)
         extraQueryParams: {
           identity_provider: cfg.identityProvider,
-          prompt: "select_account",
+          prompt,
+          ...(forceAccountSelection ? { max_age: "0" } : {}),
         },
       });
       await openAuthUrl(request.url);
@@ -248,6 +279,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       if (!user) throw new Error("oidc: signinCallback 가 user 를 반환하지 않았습니다.");
       const tokens = userToTokens(user);
       await writeStoredTokens(tokens);
+      clearForceAccountSelection();
       set({
         state: {
           status: "authenticated",
@@ -287,9 +319,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       // 이미 비어 있을 수 있다.
     }
     resetOidcManager();
+    await clearOidcStorage();
     await clearStoredTokens();
     stopTokenKeepAlive();
     clearHadSession();
+    markForceAccountSelection();
     set({ state: { status: "anonymous", reason: "signedOut" } });
     if (logoutUrl) {
       void openAuthUrl(logoutUrl).catch((error) => {
