@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Copy, CopyPlus, Database, ListTree, Plus, Star, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -233,11 +234,11 @@ export function TabBar() {
           <Plus size={14} />
         </button>
       </div>
-      {tabMenu ? (
+      {tabMenu ? createPortal(
         <div
           ref={tabMenuRef}
           role="menu"
-          className="fixed z-[700] w-40 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          className="fixed z-[900] w-40 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
           style={{
             left: Math.min(tabMenu.x, window.innerWidth - 168),
             top: Math.min(tabMenu.y, window.innerHeight - 92),
@@ -265,7 +266,8 @@ export function TabBar() {
             <CopyPlus size={14} className="shrink-0" />
             <span>탭복제</span>
           </button>
-        </div>
+        </div>,
+        document.body,
       ) : null}
       <button
         type="button"

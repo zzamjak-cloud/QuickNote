@@ -56,6 +56,7 @@ import { DatabaseColumnSettingsButton } from "./DatabaseColumnSettingsButton";
 import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
 import { AppSelect } from "../common/AppSelect";
 import { VIEW_ICONS, VIEW_LABELS, getUnavailableViewKinds } from "./databaseBlockViewConstants";
+import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 
 type Props = {
   databaseId: string;
@@ -142,7 +143,7 @@ function SortablePresetTab({
             e.preventDefault();
             onStartEdit();
           }}
-          className="flex min-w-0 cursor-grab items-center overflow-hidden py-1 pl-2 pr-2 text-left active:cursor-grabbing"
+          className={`flex min-w-0 items-center overflow-hidden py-1 pl-2 pr-2 text-left ${POINTER_PRESS_FEEDBACK_CLASS}`}
           {...dragButtonProps}
         >
           <span className="block max-w-[82px] truncate">{preset.name}</span>

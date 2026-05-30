@@ -243,4 +243,17 @@ describe("DatabaseToolbarControls", () => {
       expect(latestPanelState?.filterPresets?.[0]?.name).toBe("검토 탭");
     });
   });
+
+  it("프리셋 탭 버튼은 pointer 커서와 scale 클릭 피드백을 사용한다", () => {
+    render(<ToolbarHarness />);
+
+    fireEvent.click(screen.getByTitle("필터 프리셋 탭 추가"));
+
+    const tabButton = screen.getByText("탭 1").closest("button");
+    expect(tabButton).not.toBeNull();
+    expect(tabButton).toHaveClass("cursor-pointer");
+    expect(tabButton).toHaveClass("active:scale-[0.985]");
+    expect(tabButton).not.toHaveClass("cursor-grab");
+    expect(tabButton).not.toHaveClass("active:cursor-grabbing");
+  });
 });
