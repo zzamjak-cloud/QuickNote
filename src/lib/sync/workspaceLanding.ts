@@ -27,8 +27,13 @@ export function applyWorkspaceLanding(workspaceId: string): void {
   if (!workspaceId) return;
   const settings = useSettingsStore.getState();
   const { pages, setActivePage } = usePageStore.getState();
-  const tabPageId =
-    settings.tabs[settings.activeTabIndex]?.pageId ?? null;
+  const activeTab = settings.tabs[settings.activeTabIndex];
+  // DirectPage 탭(원본 DB 전체 페이지)은 pageId 가 null 이고 databaseId 로 식별된다.
+  // 이미 유효한 탭이므로 landing 으로 덮어쓰지 않는다(새로고침 시 사이드바 인라인 DB 로 튕기는 회귀 방지).
+  if (activeTab?.databaseId) {
+    return;
+  }
+  const tabPageId = activeTab?.pageId ?? null;
   if (tabPageId && pages[tabPageId]) {
     settings.setLastVisitedPageForWorkspace(workspaceId, tabPageId);
     return;

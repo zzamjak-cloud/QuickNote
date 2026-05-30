@@ -596,7 +596,10 @@ export function applyRemoteDatabaseToStore(
         title: LC_SCHEDULER_DATABASE_TITLE,
       }
     : remote;
-  if (normalizedDatabase !== remote) {
+  // legacy LC 스케줄러 id(canonical 이 아닌 prefix 매치) 만 1회 재업서트해 마이그레이션한다.
+  // 참조 비교(normalizedDatabase !== remote)는 canonical id 에도 항상 true 라 매 수신마다
+  // 재업서트 → echo → 무한 루프를 만들었다. 값 기준(legacy 여부)으로 차단한다.
+  if (isLegacyLCSchedulerDatabaseId(remote.id)) {
     queueMicrotask(() => {
       enqueueAsync("upsertDatabase", {
         id: normalizedDatabase.id,
@@ -730,7 +733,8 @@ export function applyRemoteDatabasesToStore(
           title: LC_SCHEDULER_DATABASE_TITLE,
         }
       : d;
-    if (normalizedDatabase !== d) {
+    // legacy LC 스케줄러 id 만 1회 재업서트(참조 비교 무한 루프 차단 — 위 단건 경로와 동일).
+    if (isLegacyLCSchedulerDatabaseId(d.id)) {
       queueMicrotask(() => {
         enqueueAsync("upsertDatabase", {
           id: normalizedDatabase.id,
