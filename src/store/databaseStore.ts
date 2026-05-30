@@ -193,10 +193,14 @@ export const useDatabaseStore = create<DatabaseStore>()(
         // 보호 DB(작업·마일스톤·피처) 는 삭제 금지
         if (isProtectedDatabaseId(id)) return;
         const bundle = get().databases[id];
+        const homePageId = usePageStore.getState().findFullPagePageIdForDatabase(id);
         if (bundle) {
           for (const pageId of bundle.rowPageOrder) {
             usePageStore.getState().deletePage(pageId);
           }
+        }
+        if (homePageId) {
+          usePageStore.getState().deletePage(homePageId);
         }
         set((state) => {
           if (!(id in state.databases)) return state;
@@ -269,6 +273,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
         // DB 제목 변경 시 해당 DB를 가리키는 buttonBlock 레이블 동기화
         const homePageId = usePageStore.getState().findFullPagePageIdForDatabase(id);
         if (homePageId) {
+          usePageStore.getState().renamePage(homePageId, nextTitle);
           usePageStore.getState().updateButtonBlockLabels(homePageId, nextTitle);
         }
         return true;

@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { deferredPageStorage } from "../lib/storage/index";
 import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../types/page";
-import type { CellValue } from "../types/database";
+import { emptyPanelState, type CellValue, type ViewKind } from "../types/database";
 import { newId } from "../lib/id";
 import {
   shouldWriteAnchor,
@@ -199,6 +199,12 @@ type PageStoreActions = {
   setCoverImage: (id: string, coverImage: string | null) => void;
   /** 해당 DB 의 전체 페이지(본문이 fullPage databaseBlock 단독) 페이지 id — 없으면 null */
   findFullPagePageIdForDatabase: (databaseId: string) => string | null;
+  /** 해당 DB 의 숨김 fullPage 홈 페이지를 보장하고 page id 반환 */
+  ensureFullPagePageForDatabase: (
+    databaseId: string,
+    title?: string,
+    view?: ViewKind,
+  ) => string | null;
   // 페이지를 다른 부모/위치로 이동. parentId=null 이면 루트.
   movePage: (id: string, parentId: string | null, index: number) => void;
   // 키보드 단축키용 상대 이동 (같은 부모 내 위/아래, 들여쓰기/내어쓰기)
@@ -885,30 +891,75 @@ export const usePageStore = create<PageStore>()(
       findFullPagePageIdForDatabase: (databaseId) => {
         const idWant = databaseId.trim();
         if (!idWant) return null;
-        const hasFullPageDatabaseBlock = (node: unknown): boolean => {
-          if (!node || typeof node !== "object") return false;
-          const record = node as {
-            type?: unknown;
-            attrs?: { databaseId?: unknown; layout?: unknown };
-            content?: unknown[];
-          };
-          if (
-            record.type === "databaseBlock" &&
-            record.attrs &&
-            String(record.attrs.databaseId ?? "") === idWant &&
-            String(record.attrs.layout ?? "") === "fullPage"
-          ) {
-            return true;
-          }
-          if (!Array.isArray(record.content)) return false;
-          return record.content.some((child) => hasFullPageDatabaseBlock(child));
-        };
         for (const p of Object.values(get().pages)) {
-          if (hasFullPageDatabaseBlock(p.doc)) {
+          const first = p.doc.content?.[0];
+          const attrs = first?.attrs as
+            | { databaseId?: unknown; layout?: unknown }
+            | undefined;
+          if (
+            first?.type === "databaseBlock" &&
+            attrs &&
+            String(attrs.databaseId ?? "") === idWant &&
+            String(attrs.layout ?? "") === "fullPage"
+          ) {
             return p.id;
           }
         }
         return null;
+      },
+
+      ensureFullPagePageForDatabase: (databaseId, title = "데이터베이스", view = "table") => {
+        const idWant = databaseId.trim();
+        if (!idWant) return null;
+        const existing = get().findFullPagePageIdForDatabase(idWant);
+        if (existing) return existing;
+
+        const id = newId();
+        const now = Date.now();
+        const workspaceId = getCurrentWorkspaceId();
+        const page: Page = {
+          id,
+          workspaceId: workspaceId || undefined,
+          title: title.trim() || "데이터베이스",
+          icon: null,
+          doc: {
+            type: "doc",
+            content: [
+              {
+                type: "databaseBlock",
+                attrs: {
+                  databaseId: idWant,
+                  layout: "fullPage",
+                  view,
+                  panelState: JSON.stringify(emptyPanelState()),
+                },
+              },
+            ],
+          },
+          parentId: null,
+          order: nextOrderForParent(get().pages, null),
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        set((state) => ({
+          pages: { ...state.pages, [id]: page },
+          cacheWorkspaceId: getCurrentWorkspaceId() || state.cacheWorkspaceId,
+        }));
+
+        queueMicrotask(() => {
+          const hs = useHistoryStore.getState();
+          const pageEvents = hs.pageEventsByPageId[id] ?? [];
+          hs.recordPageEvent(
+            id,
+            "page.create",
+            toPageSnapshot(page),
+            shouldWriteAnchor(pageEvents.length + 1) ? toPageSnapshot(page) : undefined,
+          );
+          enqueueUpsertPage(page);
+        });
+
+        return id;
       },
     }),
     {

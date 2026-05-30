@@ -13,6 +13,7 @@ import { WorkspaceSyncBanner } from "./components/sync/WorkspaceSyncBanner";
 import { AuthGate } from "./components/auth/AuthGate";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore, selectFirstSidebarRootId } from "./store/pageStore";
+import { useDatabaseStore } from "./store/databaseStore";
 import { useUiStore } from "./store/uiStore";
 import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
@@ -63,6 +64,9 @@ function App() {
   );
   const tabDatabaseId = activeTab.databaseId ?? null;
   const tabPageId = tabDatabaseId ? null : activeTab.pageId ?? null;
+  const tabDatabaseTitle = useDatabaseStore((s) =>
+    tabDatabaseId ? (s.databases[tabDatabaseId]?.meta.title ?? null) : null,
+  );
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openTab = useSettingsStore((s) => s.openTab);
   const prevTab = useSettingsStore((s) => s.prevTab);
@@ -72,6 +76,12 @@ function App() {
   const createPage = usePageStore((s) => s.createPage);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
+  const ensureFullPagePageForDatabase = usePageStore(
+    (s) => s.ensureFullPagePageForDatabase,
+  );
+  const tabDatabasePageId = usePageStore((s) =>
+    tabDatabaseId ? s.findFullPagePageIdForDatabase(tabDatabaseId) : null,
+  );
   const activePage = usePageStore((s) =>
     activePageId ? s.pages[activePageId] : undefined,
   );
@@ -209,6 +219,16 @@ function App() {
       setActivePage(tabPageId);
     }
   }, [tabDatabaseId, tabPageId, activeTabIndex, setActivePage]);
+
+  useEffect(() => {
+    if (!tabDatabaseId || tabDatabasePageId || tabDatabaseTitle == null) return;
+    ensureFullPagePageForDatabase(tabDatabaseId, tabDatabaseTitle);
+  }, [
+    ensureFullPagePageForDatabase,
+    tabDatabaseId,
+    tabDatabasePageId,
+    tabDatabaseTitle,
+  ]);
 
   // 새로고침 직후: 무조건 사이드바 첫 번째 인덱스(루트) 페이지를 선택한다.
   // 페이지 하이드레이션 전이면(firstSidebarPageId 미확정) 대기했다가 확정되는 즉시 앱 로드당 1회만 적용 →
@@ -356,7 +376,10 @@ function App() {
           <WorkspaceSyncBanner />
           <TopBar />
           {tabDatabaseId ? (
-            <DatabaseDirectPage databaseId={tabDatabaseId} />
+            <DatabaseDirectPage
+              databaseId={tabDatabaseId}
+              pageId={tabDatabasePageId ?? undefined}
+            />
           ) : activePage?.databaseId ? (
             <div
               ref={databaseRowScrollHostRef}

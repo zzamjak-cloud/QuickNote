@@ -43,7 +43,7 @@ export function insertDatabaseBlock(
   });
 }
 
-/** "DB - 전체 페이지": DB를 생성하고 사이드바 page 없이 DB 탭을 직접 연다. */
+/** "DB - 전체 페이지": DB와 숨김 fullPage 홈 문서를 만들고 DB 탭으로 연다. */
 export function insertFullPageDatabase(
   editor: Editor,
   range: Range,
@@ -57,6 +57,7 @@ export function insertFullPageDatabase(
     const store = usePageStore.getState();
 
     useDatabaseViewPrefsStore.getState().setView(dbId, view);
+    store.ensureFullPagePageForDatabase(dbId, actualTitle, view);
 
     editor
       .chain()

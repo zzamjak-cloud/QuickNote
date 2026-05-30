@@ -34,6 +34,31 @@ describe("databaseStore — 페이지 기반 행", () => {
     expect(useDatabaseStore.getState().databases[dbId]?.rowPageOrder).not.toContain(pageId);
   });
 
+  it("deleteDatabase는 fullPage 홈 문서도 함께 제거한다", () => {
+    const dbId = useDatabaseStore.getState().createDatabase("DB1");
+    const homePageId = usePageStore
+      .getState()
+      .ensureFullPagePageForDatabase(dbId, "DB1");
+    expect(homePageId).toBeTruthy();
+
+    useDatabaseStore.getState().deleteDatabase(dbId);
+
+    expect(useDatabaseStore.getState().databases[dbId]).toBeUndefined();
+    expect(usePageStore.getState().pages[homePageId!]).toBeUndefined();
+  });
+
+  it("setDatabaseTitle은 fullPage 홈 문서 제목도 동기화한다", () => {
+    const dbId = useDatabaseStore.getState().createDatabase("DB1");
+    const homePageId = usePageStore
+      .getState()
+      .ensureFullPagePageForDatabase(dbId, "DB1");
+    expect(homePageId).toBeTruthy();
+
+    useDatabaseStore.getState().setDatabaseTitle(dbId, "DB2");
+
+    expect(usePageStore.getState().pages[homePageId!]?.title).toBe("DB2");
+  });
+
   it("updateCell title 컬럼은 page.title을 변경", () => {
     const dbId = useDatabaseStore.getState().createDatabase();
     const bundle = useDatabaseStore.getState().databases[dbId]!;

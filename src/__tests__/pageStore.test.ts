@@ -147,4 +147,37 @@ describe("pageStore — DB 행 페이지 가시성", () => {
     usePageStore.getState().setPageDbCell(id, "col-1", "값1");
     expect(usePageStore.getState().pages[id]?.dbCells?.["col-1"]).toBe("값1");
   });
+
+  it("ensureFullPagePageForDatabase는 사이드바에 숨겨지는 fullPage 홈 문서를 만든다", () => {
+    const id = usePageStore
+      .getState()
+      .ensureFullPagePageForDatabase("db-1", "작업 DB", "kanban");
+    expect(id).toBeTruthy();
+
+    const state = usePageStore.getState();
+    const page = state.pages[id!];
+    expect(page?.title).toBe("작업 DB");
+    expect(page?.databaseId).toBeUndefined();
+    expect(page?.parentId).toBe(null);
+    expect(page?.doc.content?.[0]?.attrs).toMatchObject({
+      databaseId: "db-1",
+      layout: "fullPage",
+      view: "kanban",
+    });
+    expect(state.activePageId).toBe(null);
+    expect(state.findFullPagePageIdForDatabase("db-1")).toBe(id);
+    expect(selectSortedPages(state).map((p) => p.id)).toEqual([]);
+  });
+
+  it("ensureFullPagePageForDatabase는 기존 fullPage 홈 문서를 재사용한다", () => {
+    const first = usePageStore
+      .getState()
+      .ensureFullPagePageForDatabase("db-1", "작업 DB", "table");
+    const second = usePageStore
+      .getState()
+      .ensureFullPagePageForDatabase("db-1", "다른 이름", "gallery");
+
+    expect(second).toBe(first);
+    expect(Object.keys(usePageStore.getState().pages)).toHaveLength(1);
+  });
 });

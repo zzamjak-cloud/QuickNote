@@ -16,14 +16,38 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { isProtectedDatabaseId } from "../../lib/scheduler/database";
 import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
+import type { ViewKind } from "../../types/database";
 
 type Props = {
   databaseId: string;
+  pageId?: string;
 };
 
-export function DatabaseDirectPage({ databaseId }: Props) {
+function isViewKind(value: unknown): value is ViewKind {
+  return (
+    value === "table" ||
+    value === "kanban" ||
+    value === "timeline" ||
+    value === "gallery" ||
+    value === "list"
+  );
+}
+
+export function DatabaseDirectPage({ databaseId, pageId }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const deleteDatabase = useDatabaseStore((s) => s.deleteDatabase);
+  const fullPageAttrs = usePageStore((s) => {
+    if (!pageId) return null;
+    const first = s.pages[pageId]?.doc.content?.[0];
+    if (first?.type !== "databaseBlock") return null;
+    const attrs = first.attrs as Record<string, unknown> | undefined;
+    if (!attrs || attrs.layout !== "fullPage") return null;
+    if (attrs.databaseId !== databaseId) return null;
+    return {
+      view: isViewKind(attrs.view) ? attrs.view : "table",
+      panelStateRaw: typeof attrs.panelState === "string" ? attrs.panelState : "{}",
+    };
+  });
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const members = useMemberStore((s) => s.members);
   const me = useMemberStore((s) => s.me);
@@ -135,7 +159,12 @@ export function DatabaseDirectPage({ databaseId }: Props) {
           </div>
         </div>
 
-        <DatabaseFullPageStandalone databaseId={databaseId} />
+        <DatabaseFullPageStandalone
+          pageId={fullPageAttrs ? pageId : undefined}
+          databaseId={databaseId}
+          view={fullPageAttrs?.view}
+          panelStateRaw={fullPageAttrs?.panelStateRaw}
+        />
       </div>
 
       <DatabaseDeleteConfirmDialog
