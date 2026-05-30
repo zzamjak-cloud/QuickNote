@@ -284,6 +284,18 @@ function useSyncBootstrap(): void {
             applyRemoteDatabaseToStore(d);
           },
           onComment: applyRemoteCommentToStore,
+          onWorkspace: () => {
+            // 접근권한 변경 신호 → 본인 기준 워크스페이스 목록/권한 재페치(회수 시 setWorkspaces 가 자동 전환).
+            void listMyWorkspacesApi()
+              .then((workspaces) => {
+                if (!cancelled) {
+                  setWorkspaces(workspaces as Parameters<typeof setWorkspaces>[0]);
+                }
+              })
+              .catch((error) => {
+                console.warn("[sync] 워크스페이스 접근권한 갱신 실패", error);
+              });
+          },
         });
         // LC 스케줄러는 공용 워크스페이스이므로 항상 별도 구독을 유지한다.
         if (currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {

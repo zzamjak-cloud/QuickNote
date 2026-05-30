@@ -739,6 +739,11 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           ...base,
           workspaceId: event.arguments.workspaceId as string,
         });
+      case "onWorkspaceChanged":
+        return await validateWorkspaceSubscription({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
       default:
         throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");
     }

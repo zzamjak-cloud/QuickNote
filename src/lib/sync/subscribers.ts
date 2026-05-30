@@ -6,6 +6,7 @@ import {
   type GqlDatabase,
 } from "./graphql/operations";
 import { ON_COMMENT_CHANGED, type GqlComment } from "./queries/comment";
+import { ON_WORKSPACE_CHANGED } from "./queries/workspace";
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import { getSyncEngine } from "./runtime";
 import {
@@ -24,6 +25,8 @@ export type SubscribeHandlers = {
   onPage: (item: GqlPage) => void;
   onDatabase: (item: GqlDatabase) => void;
   onComment: (item: GqlComment) => void;
+  /** 워크스페이스 접근권한 변경 신호(트리거). 제공 시에만 구독한다. */
+  onWorkspace?: (workspaceId: string) => void;
 };
 
 type Subscribable = {
@@ -64,6 +67,7 @@ export function startSubscriptions(
   let pageSub: { unsubscribe: () => void } | null = null;
   let dbSub: { unsubscribe: () => void } | null = null;
   let commentSub: { unsubscribe: () => void } | null = null;
+  let workspaceSub: { unsubscribe: () => void } | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryAttempts = 0;
   const lastErrorByChannel = new Map<string, { message: string; at: number }>();
@@ -72,9 +76,11 @@ export function startSubscriptions(
     try { pageSub?.unsubscribe(); } catch { /* noop */ }
     try { dbSub?.unsubscribe(); } catch { /* noop */ }
     try { commentSub?.unsubscribe(); } catch { /* noop */ }
+    try { workspaceSub?.unsubscribe(); } catch { /* noop */ }
     pageSub = null;
     dbSub = null;
     commentSub = null;
+    workspaceSub = null;
   };
 
   const scheduleRetry = () => {
@@ -88,7 +94,7 @@ export function startSubscriptions(
     }, delay);
   };
 
-  const logSubError = (channel: "page" | "database" | "comment", error: unknown) => {
+  const logSubError = (channel: "page" | "database" | "comment" | "workspace", error: unknown) => {
     const msg = getErrorMessage(error);
     const key = `sub:${channel}`;
     const prev = lastErrorByChannel.get(key);
@@ -210,6 +216,39 @@ export function startSubscriptions(
         scheduleRetry();
       },
     });
+
+    // 워크스페이스 접근권한 변경 구독(트리거). onWorkspace 핸들러가 있을 때만.
+    if (handlers.onWorkspace) {
+      let workspaceObs: Subscribable;
+      try {
+        workspaceObs = c.graphql({
+          query: ON_WORKSPACE_CHANGED,
+          variables: { workspaceId },
+          authToken,
+        } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
+      } catch (e) {
+        logSubError("workspace", e);
+        if (isUnauthorizedError(e)) {
+          await ensureFreshTokensForAppSync();
+        }
+        scheduleRetry();
+        return;
+      }
+      workspaceSub = workspaceObs.subscribe({
+        next: ({ data }) => {
+          retryAttempts = 0;
+          const changed = (data.onWorkspaceChanged as { workspaceId?: string } | null)?.workspaceId;
+          if (changed) handlers.onWorkspace?.(changed);
+        },
+        error: (e) => {
+          logSubError("workspace", e);
+          if (isUnauthorizedError(e)) {
+            void ensureFreshTokensForAppSync();
+          }
+          scheduleRetry();
+        },
+      });
+    }
 
     // 구독 연결 완료 후 오프라인 중 쌓인 outbox 즉시 flush
     void getSyncEngine().then((e) => e.scheduleFlush(0));

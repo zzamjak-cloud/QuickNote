@@ -808,6 +808,8 @@ export function response(ctx) {
     v5Ds.createResolver("MutationcreateCustomIcon", { typeName: "Mutation", fieldName: "createCustomIcon" });
     v5Ds.createResolver("MutationdeleteCustomIcon", { typeName: "Mutation", fieldName: "deleteCustomIcon" });
     v5Ds.createResolver("SubscriptiononCustomIconChanged", { typeName: "Subscription", fieldName: "onCustomIconChanged" });
+    // 워크스페이스 접근권한 변경 실시간 구독.
+    v5Ds.createResolver("SubscriptiononWorkspaceChanged", { typeName: "Subscription", fieldName: "onWorkspaceChanged" });
 
     // 자산 관리 — 사용자 단위 자산 목록·사용 위치·삭제·교체.
     v5Ds.createResolver("QuerylistMyAssets", { typeName: "Query", fieldName: "listMyAssets" });

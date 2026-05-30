@@ -538,6 +538,10 @@ type Subscription {
     @aws_subscribe(mutations: ["upsertMmEntry", "reviewMmEntry", "lockMmEntry", "unlockMmEntry"])
   onCustomIconChanged(workspaceId: ID!): CustomIcon
     @aws_subscribe(mutations: ["createCustomIcon", "deleteCustomIcon"])
+  """워크스페이스 접근권한 변경 실시간 알림. 클라이언트는 이 신호로 워크스페이스를 재페치해
+     각자 본인 기준 권한(myEffectiveLevel)을 갱신한다(회수 시 자동 전환)."""
+  onWorkspaceChanged(workspaceId: ID!): Workspace
+    @aws_subscribe(mutations: ["setWorkspaceAccess"])
 }
 
 # ========== Schedule ==========
