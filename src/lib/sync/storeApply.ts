@@ -7,6 +7,7 @@ import type {
   GqlPage,
   GqlDatabase,
 } from "./graphql/operations";
+import type { JSONContent } from "@tiptap/react";
 import type { GqlComment } from "./queries/comment";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -233,6 +234,75 @@ function ensurePageInDatabaseRowOrder(databaseId: string, pageId: string): void 
   });
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function getFullPageDatabaseBlock(doc: JSONContent | null | undefined): JSONContent | null {
+  const first = doc?.content?.[0];
+  if (first?.type !== "databaseBlock") return null;
+  if (!isPlainRecord(first.attrs) || first.attrs.layout !== "fullPage") return null;
+  return first;
+}
+
+function parsePanelStateAttr(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return isPlainRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return isPlainRecord(value) ? value : null;
+}
+
+function hasPanelStateFilterPresets(value: unknown): boolean {
+  const parsed = parsePanelStateAttr(value);
+  return Boolean(parsed && Object.prototype.hasOwnProperty.call(parsed, "filterPresets"));
+}
+
+function mergeRemoteFullPagePanelStateAcrossLww(local: Page, remote: GqlPage): Page | null {
+  const remoteDoc = parseAwsJson<JSONContent>(remote.doc, {
+    type: "doc",
+    content: [{ type: "paragraph" }],
+  });
+  const localBlock = getFullPageDatabaseBlock(local.doc);
+  const remoteBlock = getFullPageDatabaseBlock(remoteDoc);
+  if (!localBlock || !remoteBlock) return null;
+  const localAttrs = isPlainRecord(localBlock.attrs) ? localBlock.attrs : {};
+  const remoteAttrs = isPlainRecord(remoteBlock.attrs) ? remoteBlock.attrs : {};
+  if (
+    typeof localAttrs.databaseId === "string" &&
+    typeof remoteAttrs.databaseId === "string" &&
+    localAttrs.databaseId !== remoteAttrs.databaseId
+  ) {
+    return null;
+  }
+
+  const remotePanelState = parsePanelStateAttr(remoteAttrs.panelState);
+  if (!remotePanelState || !hasPanelStateFilterPresets(remoteAttrs.panelState)) return null;
+  if (hasPanelStateFilterPresets(localAttrs.panelState)) return null;
+
+  const localPanelState = parsePanelStateAttr(localAttrs.panelState) ?? {};
+  const nextPanelState: Record<string, unknown> = {
+    ...localPanelState,
+    filterPresets: remotePanelState.filterPresets,
+  };
+  if (Object.prototype.hasOwnProperty.call(remotePanelState, "activePresetId")) {
+    nextPanelState.activePresetId = remotePanelState.activePresetId;
+  }
+
+  const nextDoc = structuredClone(local.doc) as JSONContent;
+  const nextBlock = nextDoc.content?.[0];
+  if (!nextBlock) return null;
+  nextBlock.attrs = {
+    ...(isPlainRecord(nextBlock.attrs) ? nextBlock.attrs : {}),
+    panelState: JSON.stringify(nextPanelState),
+  };
+  return { ...local, doc: nextDoc };
+}
+
 export function applyRemotePageToStore(
   remotePage: GqlPage | null | undefined,
 ): void {
@@ -275,6 +345,14 @@ export function applyRemotePageToStore(
       };
     }
     if (local && !shouldApplyRemotePageOverwrite(local, p)) {
+      const merged = mergeRemoteFullPagePanelStateAcrossLww(local, p);
+      if (merged) {
+        return {
+          ...s,
+          pages: { ...s.pages, [p.id]: merged },
+          cacheWorkspaceId: nextCacheWorkspaceId,
+        };
+      }
       return s.cacheWorkspaceId === nextCacheWorkspaceId
         ? s
         : { ...s, cacheWorkspaceId: nextCacheWorkspaceId };
@@ -355,7 +433,15 @@ export function applyRemotePagesToStore(
         continue;
       }
 
-      if (local && !shouldApplyRemotePageOverwrite(local, p)) continue;
+      if (local && !shouldApplyRemotePageOverwrite(local, p)) {
+        const merged = mergeRemoteFullPagePanelStateAcrossLww(local, p);
+        if (merged) {
+          ensurePagesCopy();
+          nextPages[p.id] = merged;
+          changed = true;
+        }
+        continue;
+      }
       const merged = gqlPageToLocalPage(p);
       ensurePagesCopy();
       nextPages[p.id] = merged;

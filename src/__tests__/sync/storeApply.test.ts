@@ -14,6 +14,7 @@ import type { GqlDatabase, GqlPage } from "../../lib/sync/graphql/operations";
 import { makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { markLocallyDeletedEntity } from "../../lib/sync/localDeleteGuards";
+import type { JSONContent } from "@tiptap/react";
 
 const GUARDS_KEY = "quicknote.sync.localDeleteGuards.v1";
 
@@ -63,6 +64,37 @@ function gqlDb(ws: string, id = "db-1"): GqlDatabase {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function fullPageDatabaseDoc(panelState = "{}"): JSONContent {
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "databaseBlock",
+        attrs: {
+          databaseId: "db-1",
+          layout: "fullPage",
+          view: "table",
+          panelState,
+        },
+      },
+    ],
+  };
+}
+
+function fullPagePresetPanelState(): string {
+  return JSON.stringify({
+    filterPresets: [
+      {
+        id: "preset-tab-1",
+        name: "검토",
+        filterRules: [{ id: "rule-1", columnId: "title", operator: "contains", value: "A" }],
+        sortRules: [],
+      },
+    ],
+    activePresetId: "preset-tab-1",
+  });
 }
 
 describe("storeApply 워크스페이스 가드", () => {
@@ -155,6 +187,70 @@ describe("storeApply 워크스페이스 가드", () => {
     remote.updatedAt = new Date(deletedAtMs - 1_000).toISOString();
     applyRemotePageToStore(remote);
     expect(usePageStore.getState().pages["pg-deleted"]).toBeUndefined();
+  });
+
+  it("전체 페이지 DB는 로컬 timestamp가 더 커도 remote 탭 프리셋 필드를 병합한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const localUpdatedAt = Date.parse("2026-01-01T00:00:02.000Z");
+    usePageStore.setState({
+      pages: {
+        "pg-full": {
+          id: "pg-full",
+          workspaceId: "ws-a",
+          title: "Full DB",
+          icon: null,
+          doc: fullPageDatabaseDoc(),
+          parentId: null,
+          order: 0,
+          createdAt: localUpdatedAt,
+          updatedAt: localUpdatedAt,
+        },
+      },
+      activePageId: null,
+      cacheWorkspaceId: "ws-a",
+    });
+    const remote = gqlPage("ws-a", "pg-full");
+    remote.doc = JSON.stringify(fullPageDatabaseDoc(fullPagePresetPanelState()));
+    remote.updatedAt = "2026-01-01T00:00:01.000Z";
+
+    applyRemotePageToStore(remote);
+
+    const block = usePageStore.getState().pages["pg-full"]?.doc.content?.[0];
+    const panelState = JSON.parse(String(block?.attrs?.panelState ?? "{}"));
+    expect(panelState.activePresetId).toBe("preset-tab-1");
+    expect(panelState.filterPresets?.[0]?.name).toBe("검토");
+  });
+
+  it("batch 전체 페이지 DB도 remote 탭 프리셋 필드를 병합한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const localUpdatedAt = Date.parse("2026-01-01T00:00:02.000Z");
+    usePageStore.setState({
+      pages: {
+        "pg-full": {
+          id: "pg-full",
+          workspaceId: "ws-a",
+          title: "Full DB",
+          icon: null,
+          doc: fullPageDatabaseDoc(),
+          parentId: null,
+          order: 0,
+          createdAt: localUpdatedAt,
+          updatedAt: localUpdatedAt,
+        },
+      },
+      activePageId: null,
+      cacheWorkspaceId: "ws-a",
+    });
+    const remote = gqlPage("ws-a", "pg-full");
+    remote.doc = JSON.stringify(fullPageDatabaseDoc(fullPagePresetPanelState()));
+    remote.updatedAt = "2026-01-01T00:00:01.000Z";
+
+    applyRemotePagesToStore([remote]);
+
+    const block = usePageStore.getState().pages["pg-full"]?.doc.content?.[0];
+    const panelState = JSON.parse(String(block?.attrs?.panelState ?? "{}"));
+    expect(panelState.activePresetId).toBe("preset-tab-1");
+    expect(panelState.filterPresets?.[0]?.name).toBe("검토");
   });
 
   it("페이지 batch 적용은 로컬 삭제 guard storage 를 한 번만 읽는다", () => {
