@@ -641,6 +641,28 @@ export function applyRemoteDatabaseToStore(
     return;
   }
 
+  // LC 스케줄러 보호 DB(scheduler/milestone/feature)는 컬럼·구조를 각 클라이언트가 ensure* 로
+  // 재구성하며 비결정 시드 timestamp 를 가져 LWW 가드에 막힌다. 하지만 사용자 필터 탭
+  // (panelState.filterPresets)은 서버가 최신값을 보유하므로, 원격 탭이 비어있지 않고 로컬과
+  // 다르면 panelState 만 즉시 병합해 클라이언트 간 동기화를 보장한다(전역 LWW 는 유지).
+  if (local && !db.deletedAt && isProtectedDatabaseId(db.id)) {
+    const remotePanel = tryParseSerializedPanelState(db.panelState);
+    const remoteHasPresets = (remotePanel?.filterPresets?.length ?? 0) > 0;
+    if (
+      remoteHasPresets &&
+      JSON.stringify(remotePanel) !== JSON.stringify(local.panelState ?? null)
+    ) {
+      useDatabaseStore.setState((s) => {
+        const b = s.databases[db.id];
+        if (!b) return s;
+        return {
+          ...s,
+          databases: { ...s.databases, [db.id]: { ...b, panelState: remotePanel ?? b.panelState } },
+        };
+      });
+    }
+  }
+
   if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) {
     useDatabaseStore.setState((s) =>
       s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId)
