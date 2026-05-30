@@ -17,6 +17,8 @@ import {
 import type { GqlAsset, GqlAssetUsage } from "../../lib/sync/graphql/operations";
 import { usePageStore } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useCustomIconStore } from "../../store/customIconStore";
+import { collectCustomIconAssetIds } from "../../lib/assets/customIconAssetProtection";
 import { imageUrlCache } from "../../lib/images/registry";
 
 type SortKey = "SIZE_DESC" | "SIZE_ASC" | "CREATED_AT_DESC";
@@ -92,6 +94,18 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
   const setActivePage = usePageStore((s) => s.setActivePage);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
+  const customIconsByWorkspace = useCustomIconStore((s) => s.byWorkspace);
+  const fetchCustomIcons = useCustomIconStore((s) => s.fetch);
+
+  const customIconAssetIds = useMemo(() => {
+    if (!currentWorkspaceId) return new Set<string>();
+    return collectCustomIconAssetIds(customIconsByWorkspace[currentWorkspaceId] ?? []);
+  }, [currentWorkspaceId, customIconsByWorkspace]);
+
+  useEffect(() => {
+    if (!currentWorkspaceId) return;
+    void fetchCustomIcons(currentWorkspaceId);
+  }, [currentWorkspaceId, fetchCustomIcons]);
 
   const fetchAssets = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -121,6 +135,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return assets.filter((a) => {
+      if (unusedOnly && customIconAssetIds.has(a.id)) return false;
       if (mimeFilter === "other") {
         if (a.mimeType.startsWith("image/") || a.mimeType.startsWith("video/") || a.mimeType.startsWith("audio/")) return false;
       }
@@ -130,7 +145,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
       }
       return true;
     });
-  }, [assets, search, mimeFilter]);
+  }, [assets, customIconAssetIds, mimeFilter, search, unusedOnly]);
 
   const totalBytes = useMemo(() => assets.reduce((sum, a) => sum + (a.size || 0), 0), [assets]);
   const selectedBytes = useMemo(() => {
@@ -139,20 +154,26 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
     return s;
   }, [filtered, selected]);
 
-  const allInViewSelected = filtered.length > 0 && filtered.every((a) => selected.has(a.id));
-  const someInViewSelected = filtered.some((a) => selected.has(a.id));
+  const selectableFiltered = useMemo(
+    () => filtered.filter((a) => !customIconAssetIds.has(a.id)),
+    [customIconAssetIds, filtered],
+  );
+  const allSelectableInViewSelected =
+    selectableFiltered.length > 0 &&
+    selectableFiltered.every((a) => selected.has(a.id));
+  const someSelectableInViewSelected = selectableFiltered.some((a) => selected.has(a.id));
 
   const toggleAll = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (allInViewSelected) {
-        for (const a of filtered) next.delete(a.id);
+      if (allSelectableInViewSelected) {
+        for (const a of selectableFiltered) next.delete(a.id);
       } else {
-        for (const a of filtered) next.add(a.id);
+        for (const a of selectableFiltered) next.add(a.id);
       }
       return next;
     });
-  }, [allInViewSelected, filtered]);
+  }, [allSelectableInViewSelected, selectableFiltered]);
 
   const toggleOne = useCallback((id: string) => {
     setSelected((prev) => {
@@ -164,10 +185,21 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
   }, []);
 
   const runDelete = useCallback(async () => {
-    const ids = Array.from(selected);
-    if (ids.length === 0) return;
+    const protectedCount = Array.from(selected).filter((id) =>
+      customIconAssetIds.has(id),
+    ).length;
+    const ids = Array.from(selected).filter((id) => !customIconAssetIds.has(id));
+    if (protectedCount > 0) {
+      setError(
+        `커스텀 아이콘으로 등록된 자산 ${protectedCount}개는 아이콘 삭제 후 제거할 수 있습니다.`,
+      );
+    }
+    if (ids.length === 0) {
+      setConfirmOpen(false);
+      return;
+    }
     setDeleting(true);
-    setError(null);
+    if (protectedCount === 0) setError(null);
     setConfirmOpen(false);
     setDeleteProgress({ done: 0, total: ids.length });
     // Lambda 호출당 처리량 제한(타임아웃·동시성) 회피 — 청크로 분할 호출하고 실패는 부분 성공으로 누적.
@@ -198,7 +230,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
     }
     setDeleting(false);
     setDeleteProgress(null);
-  }, [selected]);
+  }, [customIconAssetIds, selected]);
 
   const renameAsset = useCallback(async (asset: GqlAsset) => {
     const current = asset.name ?? "";
@@ -378,11 +410,15 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
       <div className="flex items-center gap-2 border-b border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
         <input
           type="checkbox"
-          checked={allInViewSelected}
+          checked={allSelectableInViewSelected}
           ref={(el) => {
-            if (el) el.indeterminate = !allInViewSelected && someInViewSelected;
+            if (el) {
+              el.indeterminate =
+                !allSelectableInViewSelected && someSelectableInViewSelected;
+            }
           }}
           onChange={toggleAll}
+          disabled={selectableFiltered.length === 0}
           className="size-4"
         />
         <div className="w-12 text-center">미리보기</div>
@@ -413,7 +449,9 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
             {({ index, style }) => {
               const a = filtered[index]!;
               const isSel = selected.has(a.id);
-              const usedCount = a.usageCount ?? 0;
+              const customIconProtected = customIconAssetIds.has(a.id);
+              const serverUsedCount = a.usageCount ?? 0;
+              const usedCount = Math.max(serverUsedCount, customIconProtected ? 1 : 0);
               return (
                 <div
                   style={style}
@@ -438,9 +476,11 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
                   <input
                     type="checkbox"
                     checked={isSel}
+                    disabled={customIconProtected}
+                    title={customIconProtected ? "커스텀 아이콘 등록 자산" : undefined}
                     onChange={() => toggleOne(a.id)}
                     onClick={(e) => e.stopPropagation()}
-                    className="size-4"
+                    className="size-4 disabled:cursor-not-allowed disabled:opacity-40"
                   />
                   <AssetThumb asset={a} />
                   <div
@@ -469,7 +509,11 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
                   <div className="w-20 text-right tabular-nums text-zinc-700 dark:text-zinc-300">
                     {formatBytes(a.size)}
                   </div>
-                  {usedCount === 0 ? (
+                  {customIconProtected && serverUsedCount === 0 ? (
+                    <div className="w-24 text-right text-xs text-emerald-600 dark:text-emerald-400">
+                      커스텀 아이콘
+                    </div>
+                  ) : usedCount === 0 ? (
                     <div className="w-24 text-right text-xs text-zinc-300">사용 안 됨</div>
                   ) : (
                     <button
@@ -732,23 +776,45 @@ function UsageDialog(props: {
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {props.rows.map((r) => {
+                const isCustomIconUsage =
+                  r.blockType === "customIcon" ||
+                  r.pageId.startsWith("__customIcon__:");
                 const page = props.pages[r.pageId];
-                const title = page?.title || r.pageTitle || "(제목 없음)";
+                const title = isCustomIconUsage
+                  ? "커스텀 아이콘 라이브러리"
+                  : page?.title || r.pageTitle || "(제목 없음)";
                 return (
                   <li key={`${r.assetId}-${r.pageId}-${r.blockId ?? ""}`}>
                     <button
                       type="button"
-                      onClick={() => props.onNavigate(r.pageId, r.workspaceId)}
-                      className="group flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-blue-50 dark:hover:bg-blue-950/30"
-                      title="이 페이지로 바로가기"
+                      onClick={() => {
+                        if (!isCustomIconUsage) props.onNavigate(r.pageId, r.workspaceId);
+                      }}
+                      disabled={isCustomIconUsage}
+                      className={[
+                        "group flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm",
+                        isCustomIconUsage
+                          ? "cursor-default"
+                          : "hover:bg-blue-50 dark:hover:bg-blue-950/30",
+                      ].join(" ")}
+                      title={isCustomIconUsage ? "커스텀 아이콘 등록 자산" : "이 페이지로 바로가기"}
                     >
-                      <span className="min-w-0 flex-1 truncate text-zinc-800 group-hover:text-blue-700 dark:text-zinc-200 dark:group-hover:text-blue-300">
+                      <span
+                        className={[
+                          "min-w-0 flex-1 truncate text-zinc-800 dark:text-zinc-200",
+                          isCustomIconUsage
+                            ? ""
+                            : "group-hover:text-blue-700 dark:group-hover:text-blue-300",
+                        ].join(" ")}
+                      >
                         {title}
                       </span>
                       <span className="shrink-0 text-xs text-zinc-400">
                         {r.blockType ?? ""}
                       </span>
-                      <ExternalLink size={12} className="shrink-0 text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+                      {isCustomIconUsage ? null : (
+                        <ExternalLink size={12} className="shrink-0 text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
+                      )}
                     </button>
                   </li>
                 );

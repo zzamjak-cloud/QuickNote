@@ -126,7 +126,6 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
             className={[
               "group/cell relative align-top px-2 py-1",
               isFirst ? "overflow-visible" : "overflow-hidden",
-              isFirst ? "pr-16" : "",
             ].join(" ")}
           >
             {isFillRangeCell && (

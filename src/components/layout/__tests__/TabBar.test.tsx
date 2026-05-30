@@ -1,6 +1,7 @@
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
+import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useWorkspaceStore } from "../../../store/workspaceStore";
 import { TabBar } from "../TabBar";
@@ -10,6 +11,10 @@ describe("TabBar", () => {
     useSettingsStore.setState({
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
+    });
+    usePageStore.setState({
+      pages: {},
+      activePageId: null,
     });
     useWorkspaceStore.setState({
       currentWorkspaceId: "ws-personal",
@@ -36,5 +41,81 @@ describe("TabBar", () => {
 
     expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-personal");
     expect(useWorkspaceStore.getState().currentWorkspaceId).not.toBe(LC_SCHEDULER_WORKSPACE_ID);
+  });
+
+  it("탭 클릭 영역은 포인터와 press scale 피드백을 사용한다", () => {
+    render(<TabBar />);
+
+    const tabButton = screen.getByRole("button", { name: "빈 탭" });
+    expect(tabButton.className).toContain("cursor-pointer");
+    expect(tabButton.className).toContain("active:scale-[0.985]");
+  });
+
+  it("탭 우클릭 시 퀵노트 컨텍스트 메뉴에서 탭을 복제한다", () => {
+    usePageStore.setState({
+      pages: {
+        "page-1": {
+          id: "page-1",
+          title: "문서 1",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+      activePageId: "page-1",
+    });
+    useSettingsStore.setState({
+      tabs: [{ pageId: "page-1", databaseId: null }],
+      activeTabIndex: 0,
+    });
+    render(<TabBar />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "문서 1" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "탭복제" }));
+
+    expect(useSettingsStore.getState().tabs).toHaveLength(2);
+    expect(useSettingsStore.getState().tabs[1]).toMatchObject({ pageId: "page-1" });
+    expect(useSettingsStore.getState().activeTabIndex).toBe(1);
+  });
+
+  it("상단 X 버튼으로 탭을 닫고 마지막 탭은 닫기 버튼을 숨긴다", () => {
+    useSettingsStore.setState({
+      tabs: [{ pageId: "page-1" }, { pageId: "page-2" }],
+      activeTabIndex: 0,
+    });
+    usePageStore.setState({
+      pages: {
+        "page-1": {
+          id: "page-1",
+          title: "문서 1",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        "page-2": {
+          id: "page-2",
+          title: "문서 2",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+      activePageId: "page-1",
+    });
+    render(<TabBar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "탭 닫기: 문서 1" }));
+
+    expect(useSettingsStore.getState().tabs).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "탭 닫기: 문서 2" })).toBeNull();
   });
 });

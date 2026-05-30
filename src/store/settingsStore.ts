@@ -73,6 +73,8 @@ type SettingsActions = {
   replaceCurrentTabPage: (pageId: string | null) => void;
   // 새 탭 열기
   openTab: (pageId: string | null) => void;
+  openDatabaseTab: (databaseId: string) => void;
+  duplicateTab: (index: number) => void;
   // 특정 탭 닫기
   closeTab: (index: number) => void;
   // 탭 활성화
@@ -374,6 +376,28 @@ export const useSettingsStore = create<SettingsStore>()(
           tabs: [...s.tabs, { pageId, databaseId: null }],
           activeTabIndex: s.tabs.length,
         })),
+      openDatabaseTab: (databaseId) =>
+        set((s) => ({
+          tabs: [...s.tabs, { pageId: null, databaseId }],
+          activeTabIndex: s.tabs.length,
+        })),
+      duplicateTab: (index) =>
+        set((s) => {
+          const source = s.tabs[index];
+          if (!source) return s;
+          return {
+            tabs: [
+              ...s.tabs.slice(0, index + 1),
+              {
+                pageId: source.pageId ?? null,
+                databaseId: source.databaseId ?? null,
+                back: [...(source.back ?? [])],
+              },
+              ...s.tabs.slice(index + 1),
+            ],
+            activeTabIndex: index + 1,
+          };
+        }),
       closeTab: (index) =>
         set((s) => {
           if (s.tabs.length <= 1) return s;

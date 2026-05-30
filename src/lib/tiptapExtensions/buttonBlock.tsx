@@ -1,12 +1,18 @@
 import { Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react";
 import { Database, ExternalLink, Pencil, Link } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
-import { useSettingsStore } from "../../store/settingsStore";
 import { parseQuickNoteLink } from "../navigation/quicknoteLinks";
+import {
+  openDatabaseInCurrentTab,
+  openDatabaseInNewTab,
+  openPageInCurrentTab,
+  openPageInNewTab,
+  shouldOpenInternalLinkInNewTab,
+} from "../navigation/internalNavigation";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import { scrollToBlockPosition } from "../editor/editorNavigationBridge";
 
@@ -56,9 +62,6 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const [draftColor, setDraftColor] = useState<ButtonColor>(color);
   const popoverRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
-  const setActivePage = usePageStore((s) => s.setActivePage);
-  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
-  const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
 
   useEffect(() => {
     if (!isDbButton || dbTitle == null) return;
@@ -83,25 +86,41 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
     return () => document.removeEventListener("mousedown", close);
   }, [editing, attrs.label, attrs.href, attrs.color]);
 
-  const handleClick = () => {
+  const handleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
     if (attrs.databaseId) {
+      if (shouldOpenInternalLinkInNewTab(event)) {
+        openDatabaseInNewTab(attrs.databaseId);
+        return;
+      }
       const currentPageId = usePageStore.getState().activePageId;
       if (currentPageId) {
         useNavigationHistoryStore.getState().pushBack(currentPageId);
       }
-      setActivePage(null);
-      setCurrentTabDatabase(attrs.databaseId);
+      openDatabaseInCurrentTab(attrs.databaseId);
       return;
     }
     if (!attrs.href) return;
     const internal = parseQuickNoteLink(attrs.href);
     if (internal) {
+      if (shouldOpenInternalLinkInNewTab(event)) {
+        openPageInNewTab(internal.pageId);
+        window.setTimeout(() => {
+          if (internal.block != null) scrollToBlockPosition(internal.block);
+          if (internal.tab) {
+            document
+              .querySelector<HTMLButtonElement>(
+                `[data-qn-tab-id="${CSS.escape(internal.tab)}"]`,
+              )
+              ?.click();
+          }
+        }, 80);
+        return;
+      }
       const currentPageId = usePageStore.getState().activePageId;
       if (currentPageId) {
         useNavigationHistoryStore.getState().pushBack(currentPageId);
       }
-      setActivePage(internal.pageId);
-      setCurrentTabPage(internal.pageId);
+      openPageInCurrentTab(internal.pageId);
       window.setTimeout(() => {
         if (internal.block != null) scrollToBlockPosition(internal.block);
         if (internal.tab) {

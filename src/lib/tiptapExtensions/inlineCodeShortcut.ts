@@ -1,5 +1,33 @@
 import { Extension } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
+
+function isInsideCodeBlock(view: EditorView, from: number, to = from): boolean {
+  let hasCodeBlock = false;
+  view.state.doc.nodesBetween(from, to, (node) => {
+    if (node.type.name === "codeBlock") {
+      hasCodeBlock = true;
+      return false;
+    }
+    return true;
+  });
+  if (hasCodeBlock) return true;
+
+  const $from = view.state.doc.resolve(from);
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === "codeBlock") return true;
+  }
+  return false;
+}
+
+function applyInlineCodeMark(view: EditorView, from: number, to: number): boolean {
+  if (from === to) return false;
+  if (isInsideCodeBlock(view, from, to)) return false;
+  const codeMark = view.state.schema.marks.code;
+  if (!codeMark) return false;
+  view.dispatch(view.state.tr.addMark(from, to, codeMark.create()));
+  return true;
+}
 
 export const InlineCodeShortcut = Extension.create({
   name: "inlineCodeShortcut",
@@ -18,13 +46,11 @@ export const InlineCodeShortcut = Extension.create({
         props: {
           handleTextInput: (view, from, to, text) => {
             if (text !== "`") return false;
-            if (from !== to) return false;
             const codeMark = view.state.schema.marks.code;
             if (!codeMark) return false;
+            if (from !== to) return applyInlineCodeMark(view, from, to);
+            if (isInsideCodeBlock(view, from)) return false;
             const { $from } = view.state.selection;
-            for (let depth = $from.depth; depth > 0; depth -= 1) {
-              if ($from.node(depth).type.name === "codeBlock") return false;
-            }
             const blockStart = $from.start();
             const beforeText = view.state.doc.textBetween(blockStart, from, "\0", "\0");
             const hit = beforeText.match(/`([^`\n]+)$/);
@@ -45,10 +71,8 @@ export const InlineCodeShortcut = Extension.create({
             if (!codeMark) return false;
             if (state.selection.empty) {
               const from = state.selection.from;
+              if (isInsideCodeBlock(this.editor.view, from)) return false;
               const $from = state.selection.$from;
-              for (let depth = $from.depth; depth > 0; depth -= 1) {
-                if ($from.node(depth).type.name === "codeBlock") return false;
-              }
               const blockStart = $from.start();
               const beforeText = state.doc.textBetween(blockStart, from, "\0", "\0");
               const hit = beforeText.match(/`([^`\n]+)$/);
@@ -62,13 +86,11 @@ export const InlineCodeShortcut = Extension.create({
               this.editor.view.dispatch(tr);
               return true;
             }
-            if (state.selection.empty) return false;
-            const { $from } = state.selection;
-            for (let depth = $from.depth; depth > 0; depth -= 1) {
-              if ($from.node(depth).type.name === "codeBlock") return false;
-            }
+            const { from, to } = state.selection;
+            const applied = applyInlineCodeMark(this.editor.view, from, to);
+            if (!applied) return false;
             event.preventDefault();
-            return this.editor.chain().focus().toggleCode().run();
+            return true;
           },
         },
       }),

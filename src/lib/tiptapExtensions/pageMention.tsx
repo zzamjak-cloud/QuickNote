@@ -11,8 +11,12 @@ import {
   useState,
 } from "react";
 import { usePageStore } from "../../store/pageStore";
-import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
+import {
+  openPageInCurrentTab,
+  openPageInNewTab,
+  shouldOpenInternalLinkInNewTab,
+} from "../navigation/internalNavigation";
 
 type Item = { id: string; title: string; icon: string | null };
 
@@ -111,6 +115,15 @@ function PageMentionView({ node, editor }: NodeViewProps) {
           // 사이드 피크 내부에서 클릭됐는지 판별:
           // DatabaseRowPeek 의 콘텐츠 영역에 data-qn-peek-editor="true" 속성을 부여하므로 그것으로 검사.
           const isInPeek = !!(e.currentTarget.closest("[data-qn-peek-editor='true']"));
+          if (shouldOpenInternalLinkInNewTab(e)) {
+            try {
+              editor?.commands.blur();
+            } catch {
+              /* noop */
+            }
+            openPageInNewTab(id);
+            return;
+          }
           if (isInPeek && peekPageId) {
             peekNavigate(id);
             return;
@@ -123,8 +136,7 @@ function PageMentionView({ node, editor }: NodeViewProps) {
           } catch {
             /* noop */
           }
-          usePageStore.getState().setActivePage(id);
-          useSettingsStore.getState().setCurrentTabPage(id);
+          openPageInCurrentTab(id);
         }}
         className="page-mention"
         data-type="mention"
@@ -171,13 +183,16 @@ const PageMentionNode = Mention.extend({
             // 현재 에디터 본문 sync 가 blur 이벤트 대기 중이면 navigation 직후 본문이 갱신되지 않을 수 있다.
             // 명시적으로 blur 를 호출해 setContent 지연을 풀어준다.
             try { editorRef?.commands.blur(); } catch { /* noop */ }
+            if (shouldOpenInternalLinkInNewTab(event)) {
+              openPageInNewTab(id);
+              return true;
+            }
             const isInPeek = !!btn.closest("[data-qn-peek-editor='true']");
             const peekId = useUiStore.getState().peekPageId;
             if (isInPeek && peekId) {
               useUiStore.getState().peekNavigate(id);
             } else {
-              usePageStore.getState().setActivePage(id);
-              useSettingsStore.getState().setCurrentTabPage(id);
+              openPageInCurrentTab(id);
             }
             return true;
           },

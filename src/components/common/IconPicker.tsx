@@ -10,6 +10,7 @@ import { IconPickerEmoji } from "./IconPickerEmoji";
 import { type CustomIconPreset } from "../../lib/iconStorage";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useCustomIconStore } from "../../store/customIconStore";
+import { EMOJI_SHORTCODE_GROUPS } from "../../lib/emojiShortcodes";
 
 const MAX_ICON_BYTES = 5 * 1024 * 1024;
 const DEFAULT_LUCIDE_COLOR = "#3f3f46";
@@ -355,6 +356,15 @@ type IconPickerPanelProps = {
   onDeleteCustomIcon?: (id: string) => void;
 };
 
+const ICON_PICKER_MENUS = [
+  { id: "lucide", label: "루시드" },
+  { id: "emoji", label: "이모지" },
+  { id: "custom", label: "커스텀" },
+  { id: "shortcuts", label: "단축어" },
+] as const;
+
+type IconPickerMenu = (typeof ICON_PICKER_MENUS)[number]["id"];
+
 export function IconPickerPanel({
   title: _title = "페이지 아이콘",
   footer,
@@ -367,7 +377,7 @@ export function IconPickerPanel({
 }: IconPickerPanelProps) {
   const [color, setColor] = useState(DEFAULT_LUCIDE_COLOR);
   const [colorOpen, setColorOpen] = useState(false);
-  const [activeMenu, setActiveMenu] = useState<"lucide" | "emoji" | "custom">("lucide");
+  const [activeMenu, setActiveMenu] = useState<IconPickerMenu>("lucide");
   const [activeLucideCategory, setActiveLucideCategory] = useState("all");
   const [lucideQuery, setLucideQuery] = useState("");
 
@@ -393,19 +403,19 @@ export function IconPickerPanel({
           {/* 탭 버튼 중앙 정렬 */}
           <div className="flex flex-1 justify-center">
             <div className="flex rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800">
-              {(["lucide", "emoji", "custom"] as const).map((menu) => (
+              {ICON_PICKER_MENUS.map((menu) => (
                 <button
-                  key={menu}
+                  key={menu.id}
                   type="button"
-                  onClick={() => { setActiveMenu(menu); setColorOpen(false); }}
+                  onClick={() => { setActiveMenu(menu.id); setColorOpen(false); }}
                   className={[
                     "rounded px-2 py-1 text-xs",
-                    activeMenu === menu
+                    activeMenu === menu.id
                       ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-50"
                       : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100",
                   ].join(" ")}
                 >
-                  {menu === "lucide" ? "루시드" : menu === "emoji" ? "이모지" : "커스텀"}
+                  {menu.label}
                 </button>
               ))}
             </div>
@@ -557,6 +567,39 @@ export function IconPickerPanel({
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          ) : null}
+
+          {activeMenu === "shortcuts" ? (
+            <div className="flex h-full flex-col">
+              <div className="mb-2 rounded-md bg-zinc-50 px-2 py-1.5 text-[11px] leading-4 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400">
+                <span className="font-medium text-zinc-700 dark:text-zinc-200">입력 규칙</span>
+                <span className="block">예: :체크 입력 후 Space</span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 gap-1">
+                  {EMOJI_SHORTCODE_GROUPS.map((entry) => (
+                    <button
+                      key={entry.emoji}
+                      type="button"
+                      onClick={() => onPickEmoji(entry.emoji)}
+                      className="flex h-9 min-w-0 items-center gap-2 rounded px-2 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      title={entry.label}
+                      aria-label={entry.label}
+                    >
+                      <span className="shrink-0 text-lg leading-none">{entry.emoji}</span>
+                      <span className="min-w-0 truncate text-[11px] text-zinc-600 dark:text-zinc-300">
+                        {entry.keywords.map((keyword, index) => (
+                          <span key={keyword}>
+                            {index === 0 ? null : <span className="mx-1 text-zinc-400">또는</span>}
+                            <span className="font-mono">:{keyword}</span>
+                          </span>
+                        ))}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           ) : null}

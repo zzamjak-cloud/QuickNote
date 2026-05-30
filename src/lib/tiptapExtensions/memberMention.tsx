@@ -8,9 +8,13 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import { usePageStore } from "../../store/pageStore";
-import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
+import {
+  openPageInCurrentTab,
+  openPageInNewTab,
+  shouldOpenInternalLinkInNewTab,
+} from "../navigation/internalNavigation";
 
 /** 멘션 노드뷰 — 페이지 멘션의 경우 pageStore 를 구독해 페이지 제목 변경을 즉시 반영 */
 function MentionNodeView({ node }: NodeViewProps) {
@@ -71,8 +75,16 @@ function MentionNodeView({ node }: NodeViewProps) {
   );
 }
 
-function navigateToPage(pageId: string, anchor: HTMLElement | null): void {
+function navigateToPage(
+  pageId: string,
+  anchor: HTMLElement | null,
+  event?: MouseEvent,
+): void {
   if (!pageId) return;
+  if (event && shouldOpenInternalLinkInNewTab(event)) {
+    openPageInNewTab(pageId);
+    return;
+  }
   // 사이드 피크 내부에서 클릭됐는지 검사 — DatabaseRowPeek 의 wrapper 에 data-qn-peek-editor="true".
   // peek 안에서 mention 을 클릭했는데 메인 탭만 갱신하면 사용자는 "이동 안됨" 으로 인지한다.
   const inPeek = !!anchor?.closest("[data-qn-peek-editor='true']");
@@ -81,8 +93,7 @@ function navigateToPage(pageId: string, anchor: HTMLElement | null): void {
     useUiStore.getState().peekNavigate(pageId);
     return;
   }
-  useSettingsStore.getState().setCurrentTabPage(pageId);
-  usePageStore.getState().setActivePage(pageId);
+  openPageInCurrentTab(pageId);
 }
 
 let memberProfilePopup: HTMLDivElement | null = null;
@@ -228,7 +239,7 @@ const MemberMentionNode = Mention.extend({
               }
               if (kindAttr === "page" || rawId.startsWith("p:")) {
                 event.preventDefault();
-                navigateToPage(rawId.startsWith("p:") ? rawId.slice(2) : rawId, el);
+                navigateToPage(rawId.startsWith("p:") ? rawId.slice(2) : rawId, el, event);
                 return true;
               }
               return false;
@@ -260,7 +271,7 @@ const MemberMentionNode = Mention.extend({
 
               if (kindAttr === "page" || rawId.startsWith("p:")) {
                 const pageId = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
-                navigateToPage(pageId, el);
+                navigateToPage(pageId, el, event);
                 return true;
               }
 
@@ -274,7 +285,7 @@ const MemberMentionNode = Mention.extend({
 
               const page = usePageStore.getState().pages[rawId];
               if (page) {
-                navigateToPage(rawId, el);
+                navigateToPage(rawId, el, event);
                 return true;
               }
 

@@ -785,25 +785,29 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
   background: rgb(63 63 70);
 }
 
-/* inline code(<p><code>) — 한 단계 작은 폰트 + 얇은 어두운 회색 아웃라인 + 라운딩 박스
-   강조감을 주기 위해 배경은 약간 어둡게, 글자색은 진한 톤 유지. */
+/* inline code(<p><code>) — Tailwind prose의 백틱 장식을 제거하고 회색 박스+빨간 텍스트로 표시 */
 .ProseMirror :not(pre) > code {
-  background: rgba(241, 245, 249, 0.95);
-  border: 1px solid rgba(82, 82, 91, 0.45);
+  background: rgb(243, 244, 246);
+  border: 1px solid rgba(209, 213, 219, 0.95);
   border-radius: 4px;
-  padding: 0 5px;
+  padding: 1px 5px;
   font-size: 0.82em;
   line-height: 1.3;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "JetBrains Mono",
     Consolas, monospace;
-  color: rgb(63, 63, 70);
+  color: rgb(220, 38, 38);
   vertical-align: baseline;
 }
 
+.ProseMirror :not(pre) > code::before,
+.ProseMirror :not(pre) > code::after {
+  content: none !important;
+}
+
 .dark .ProseMirror :not(pre) > code {
-  background: rgba(39, 39, 42, 0.9);
-  border-color: rgba(212, 212, 216, 0.4);
-  color: rgb(228, 228, 231);
+  background: rgba(63, 63, 70, 0.85);
+  border-color: rgba(113, 113, 122, 0.9);
+  color: rgb(248, 113, 113);
 }
 
 /* 박스 선택 — 훅에서 body에 붙임; fixed 뷰포트 좌표 */

@@ -1,5 +1,5 @@
-import { ChevronLeft, ChevronRight, Database, ListTree, Plus, Star, X } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight, Copy, CopyPlus, Database, ListTree, Plus, Star, X } from "lucide-react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -7,6 +7,8 @@ import { useUiStore } from "../../store/uiStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { PageIconDisplay } from "../common/PageIconDisplay";
+import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
+import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 
 const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
 
@@ -54,15 +56,19 @@ function LCSchedulerModalFallback({ onClose }: { onClose: () => void }) {
 
 export function TabBar() {
   const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const [tabMenu, setTabMenu] = useState<{ index: number; x: number; y: number } | null>(null);
+  const tabMenuRef = useRef<HTMLDivElement | null>(null);
   const tabs = useSettingsStore((s) => s.tabs);
   const activeIdx = useSettingsStore((s) => s.activeTabIndex);
   const setActiveTab = useSettingsStore((s) => s.setActiveTab);
   const closeTab = useSettingsStore((s) => s.closeTab);
   const openTab = useSettingsStore((s) => s.openTab);
+  const duplicateTab = useSettingsStore((s) => s.duplicateTab);
   const prevTab = useSettingsStore((s) => s.prevTab);
   const nextTab = useSettingsStore((s) => s.nextTab);
   const pages = usePageStore((s) => s.pages);
   const databases = useDatabaseStore((s) => s.databases);
+  const showToast = useUiStore((s) => s.showToast);
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const rightPanelOpen = useUiStore((s) => s.rightPanelOpen);
   const rightPanelTab = useUiStore((s) => s.rightPanelTab);
@@ -70,6 +76,41 @@ export function TabBar() {
   const setCurrentWorkspaceId = useWorkspaceStore((s) => s.setCurrentWorkspaceId);
   const tocPanelOpen = rightPanelOpen && rightPanelTab === "toc";
   const favoritesPanelOpen = rightPanelOpen && rightPanelTab === "favorites";
+
+  useEffect(() => {
+    if (!tabMenu) return;
+    const close = (event: MouseEvent) => {
+      if (!tabMenuRef.current?.contains(event.target as Node)) setTabMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setTabMenu(null);
+    };
+    document.addEventListener("mousedown", close);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [tabMenu]);
+
+  const copyTabPageLink = useCallback((index: number) => {
+    const tab = useSettingsStore.getState().tabs[index];
+    if (!tab?.pageId) {
+      showToast("복사할 페이지 링크가 없습니다.", { kind: "error" });
+      setTabMenu(null);
+      return;
+    }
+    const writeText = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+    if (!writeText) {
+      showToast("페이지 링크 복사에 실패했습니다.", { kind: "error" });
+      setTabMenu(null);
+      return;
+    }
+    void writeText(buildQuickNotePageUrl({ pageId: tab.pageId }))
+      .then(() => showToast("페이지 링크 복사 완료!", { kind: "success" }))
+      .catch(() => showToast("페이지 링크 복사에 실패했습니다.", { kind: "error" }));
+    setTabMenu(null);
+  }, [showToast]);
 
   const openScheduler = useCallback(() => {
     void preloadLCSchedulerModal();
@@ -133,11 +174,17 @@ export function TabBar() {
           const page = tab.pageId ? pages[tab.pageId] : null;
           const database = tab.databaseId ? databases[tab.databaseId] : null;
           const active = idx === activeIdx;
+          const title = page?.title || database?.meta.title || "빈 탭";
           return (
             <div
               key={idx}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setTabMenu({ index: idx, x: event.clientX, y: event.clientY });
+              }}
               className={[
-                "group flex max-w-48 shrink-0 items-center gap-1 rounded-t-md border-t border-l border-r px-2 py-1 text-xs",
+                "group relative flex max-w-48 shrink-0 items-center gap-1 rounded-t-md border-t border-l border-r py-1 pl-2 pr-4 text-xs",
                 active
                   ? "border-zinc-200 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                   : "border-transparent text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800",
@@ -146,7 +193,7 @@ export function TabBar() {
               <button
                 type="button"
                 onClick={() => setActiveTab(idx)}
-                className="flex flex-1 items-center gap-1 truncate"
+                className={`flex flex-1 items-center gap-1 truncate ${POINTER_PRESS_FEEDBACK_CLASS}`}
               >
                 <span className="flex shrink-0 items-center text-sm leading-none">
                   {database ? (
@@ -156,17 +203,22 @@ export function TabBar() {
                   )}
                 </span>
                 <span className="truncate">
-                  {page?.title || database?.meta.title || "빈 탭"}
+                  {title}
                 </span>
               </button>
               {tabs.length > 1 && (
                 <button
                   type="button"
-                  onClick={() => closeTab(idx)}
-                  className="rounded p-0.5 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-zinc-700"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    closeTab(idx);
+                    setTabMenu(null);
+                  }}
+                  className="absolute right-0.5 top-0.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-zinc-100 text-zinc-400 opacity-0 transition hover:bg-zinc-200 hover:text-red-500 group-hover:opacity-100 dark:bg-zinc-800 dark:hover:bg-zinc-700"
                   title="탭 닫기"
+                  aria-label={`탭 닫기: ${title}`}
                 >
-                  <X size={12} />
+                  <X size={10} />
                 </button>
               )}
             </div>
@@ -181,6 +233,40 @@ export function TabBar() {
           <Plus size={14} />
         </button>
       </div>
+      {tabMenu ? (
+        <div
+          ref={tabMenuRef}
+          role="menu"
+          className="fixed z-[700] w-40 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          style={{
+            left: Math.min(tabMenu.x, window.innerWidth - 168),
+            top: Math.min(tabMenu.y, window.innerHeight - 92),
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => copyTabPageLink(tabMenu.index)}
+            disabled={!tabs[tabMenu.index]?.pageId}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <Copy size={14} className="shrink-0" />
+            <span>링크복사</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              duplicateTab(tabMenu.index);
+              setTabMenu(null);
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <CopyPlus size={14} className="shrink-0" />
+            <span>탭복제</span>
+          </button>
+        </div>
+      ) : null}
       <button
         type="button"
         onClick={openScheduler}
