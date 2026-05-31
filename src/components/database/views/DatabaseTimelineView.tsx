@@ -990,6 +990,7 @@ export function DatabaseTimelineView({
     }
     return pageIds;
   }, [cardLayouts, selectedCardIds]);
+  const scrollableContentWidth = sideLabelWidth + axis.totalW;
 
   if (!bundle) return null;
 
@@ -1238,8 +1239,9 @@ export function DatabaseTimelineView({
             style={{
               width:
                 usesScrollableAxis
-                  ? sideLabelWidth + axis.totalW
+                  ? scrollableContentWidth
                   : "100%",
+              minWidth: usesScrollableAxis ? scrollableContentWidth : undefined,
               minHeight:
                 HEADER_HEIGHT + (rows.length || 1) * (ROW_HEIGHT + ROW_GAP) + 16,
             }}
@@ -1290,7 +1292,10 @@ export function DatabaseTimelineView({
                   ))}
                 </div>
               ) : (
-                <div className="relative" style={{ width: axis.totalW }}>
+                <div
+                  className="relative shrink-0"
+                  style={{ width: axis.totalW, minWidth: axis.totalW }}
+                >
                   {headerTicks.map((t, i) => (
                     <div
                       key={i}
@@ -1310,7 +1315,15 @@ export function DatabaseTimelineView({
             </div>
 
             {/* 본문 */}
-            <div ref={virtualRows.containerRef} className="flex">
+            <div
+              ref={virtualRows.containerRef}
+              className="flex"
+              style={
+                usesScrollableAxis
+                  ? { width: scrollableContentWidth, minWidth: scrollableContentWidth }
+                  : undefined
+              }
+            >
               {/* 좌측 라벨 컬럼 — 수평 스크롤 시 고정 */}
               <div
                 className="sticky left-0 z-[5] shrink-0 border-r border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950"
@@ -1341,10 +1354,10 @@ export function DatabaseTimelineView({
               {/* 우측 트랙 + 카드 */}
               <div
                 ref={trackRef}
-                className="relative flex-1"
+                className={usesScrollableAxis ? "relative shrink-0" : "relative flex-1"}
                 style={
                   usesScrollableAxis
-                    ? { width: axis.totalW, height: totalRowsHeight }
+                    ? { width: axis.totalW, minWidth: axis.totalW, height: totalRowsHeight }
                     : { height: totalRowsHeight }
                 }
               >

@@ -4,6 +4,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { DEFAULT_SCHEDULE_COLOR, DEFAULT_WEEKEND_COLOR } from "../lib/scheduler/colors";
 
 export type SchedulerViewMode = "year" | "month" | "week";
+export type SchedulerEntityMode = "milestone" | "feature" | "task";
 
 export type MonthVisibility = Record<number, boolean>;
 
@@ -16,6 +17,7 @@ const allMonthsVisible: MonthVisibility = (() => {
 type ViewState = {
   // 뷰 모드
   viewMode: SchedulerViewMode;
+  entityMode: SchedulerEntityMode;
 
   // 줌
   zoomLevel: number;
@@ -47,6 +49,7 @@ type ViewState = {
 
 type ViewActions = {
   setViewMode: (m: SchedulerViewMode) => void;
+  setEntityMode: (m: SchedulerEntityMode) => void;
   setZoomLevel: (z: number) => void;
   setColumnWidthScale: (s: number) => void;
   setCurrentYear: (y: number) => void;
@@ -69,7 +72,8 @@ type ViewActions = {
 export type SchedulerViewStore = ViewState & ViewActions;
 
 const initial: ViewState = {
-  viewMode: "year",
+  viewMode: "week",
+  entityMode: "task",
   zoomLevel: 1,
   columnWidthScale: 1,
   currentYear: new Date().getFullYear(),
@@ -92,6 +96,13 @@ export const useSchedulerViewStore = create<SchedulerViewStore>()(
     (set) => ({
       ...initial,
       setViewMode: (viewMode) => set({ viewMode }),
+      setEntityMode: (entityMode) =>
+        set({
+          entityMode,
+          selectedMemberId: null,
+          selectedScheduleId: null,
+          multiSelectedIds: [],
+        }),
       setZoomLevel: (zoomLevel) => set({ zoomLevel }),
       setColumnWidthScale: (columnWidthScale) => set({ columnWidthScale }),
       setCurrentYear: (currentYear) => set({ currentYear }),
@@ -118,6 +129,7 @@ export const useSchedulerViewStore = create<SchedulerViewStore>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         viewMode: s.viewMode,
+        entityMode: s.entityMode,
         zoomLevel: s.zoomLevel,
         columnWidthScale: s.columnWidthScale,
         currentYear: s.currentYear,

@@ -1,4 +1,4 @@
-// 연간 그리드 상단 날짜 헤더 — 월 라벨 행 + 일자 행 2층 구조.
+// 연간 그리드 상단 날짜 헤더 — 주간/월간 뷰와 같은 40px + 36px 2층 구조.
 import { useMemo } from "react";
 import {
   startOfYear,
@@ -90,18 +90,17 @@ export function DateAxis({ year, cellWidth }: Props) {
   return (
     <div className="sticky top-0 z-10 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 flex-shrink-0">
       {/* 월 라벨 행 */}
-      <div className="flex" style={{ width: totalWidth }}>
+      <div className="flex border-b border-zinc-200 dark:border-zinc-800" style={{ width: totalWidth, height: 40 }}>
         {monthInfos.map((info, idx) => (
           <div
             key={info.month}
-            className={`flex-shrink-0 flex items-center px-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 overflow-hidden ${
+            className={`flex-shrink-0 flex items-center justify-center px-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100 overflow-hidden ${
               idx % 2 === 0
-                ? "bg-slate-50 dark:bg-zinc-900"
-                : "bg-slate-100 dark:bg-zinc-800"
+                ? "bg-white dark:bg-zinc-900"
+                : "bg-zinc-50 dark:bg-zinc-800/60"
             }`}
             style={{
               width: info.dayCount * cellWidth,
-              height: 24,
               borderLeft: !info.isFirst ? "2px dashed rgba(0,0,0,0.12)" : undefined,
             }}
           >
@@ -111,7 +110,7 @@ export function DateAxis({ year, cellWidth }: Props) {
       </div>
 
       {/* 일자 행 */}
-      <div className="flex" style={{ width: totalWidth }}>
+      <div className="flex" style={{ width: totalWidth, height: 36 }}>
         {dayCells.map(({ i, d, weekend, isMonthBoundary, isToday, holidayName }) => (
           <div
             key={i}
@@ -124,15 +123,18 @@ export function DateAxis({ year, cellWidth }: Props) {
             }`}
             style={{
               width: cellWidth,
-              height: 28,
               borderLeft: isMonthBoundary ? "2px dashed rgba(0,0,0,0.12)" : undefined,
             }}
+            title={holidayName || undefined}
           >
-            {/* 일자 숫자 */}
-            <span className="text-[10px] leading-none">{d.getDate()}</span>
+            {/* 요일 + 월/일 — 주간/월간 뷰와 동일한 순서 */}
+            <span className="text-[10px] leading-tight font-medium text-zinc-900/80 dark:text-zinc-100/80">
+              {"일월화수목금토"[d.getDay()]}
+            </span>
+            <span className="text-[10px] leading-tight tabular-nums">{d.getMonth() + 1}/{d.getDate()}</span>
             {/* 공휴일 텍스트 (대체는 "대체"로 축약) */}
             {holidayName && (
-              <span className="text-[9px] leading-none truncate w-full text-center text-rose-600 dark:text-rose-400">
+              <span className="text-[9px] leading-tight truncate w-full text-center text-red-600 dark:text-red-400 px-0.5">
                 {abbreviateHolidayName(holidayName)}
               </span>
             )}

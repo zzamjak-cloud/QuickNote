@@ -61,8 +61,8 @@ import {
   type SchedulerCreateRange,
 } from "./hooks/scheduleInteractions";
 
-// DateAxis 고정 높이: 월 라벨 24px + 일자/공휴일 행 28px = 52px
-const DATE_AXIS_HEIGHT = 52;
+// DateAxis 고정 높이: 주간/월간 뷰와 동일한 40px + 36px
+const DATE_AXIS_HEIGHT = 76;
 const MEMBER_COLUMN_WIDTH = 120;
 
 // 마지막 구성원도 화면 중앙 근처까지 올려 볼 수 있도록 하단 스크롤 여백을 둔다.
@@ -211,6 +211,11 @@ export function ScheduleGrid({ workspaceId }: Props) {
   );
   const globalRowHeight = showGlobalRow ? getRowHeight(globalRowCount, zoomLevel) : 0;
   const memberRowsTop = DATE_AXIS_HEIGHT + globalRowHeight;
+  const bodyRowsHeight = globalRowHeight + memberRowsHeight;
+  const contentMinHeight =
+    visibleMembers.length > 0
+      ? `calc(${DATE_AXIS_HEIGHT + bodyRowsHeight}px + max(240px, ${TIMELINE_BOTTOM_SPACER_HEIGHT}))`
+      : DATE_AXIS_HEIGHT + 128;
   const normalizedViewportScrollTop = Math.min(
     Math.max(0, viewportState.scrollTop),
     Math.max(0, memberRowsTop + memberRowsHeight - viewportState.height),
@@ -690,6 +695,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
           style={{
             width: totalWidth + MEMBER_COLUMN_WIDTH,
             minWidth: totalWidth + MEMBER_COLUMN_WIDTH,
+            minHeight: contentMinHeight,
             position: "relative",
           }}
         >
@@ -775,20 +781,6 @@ export function ScheduleGrid({ workspaceId }: Props) {
             </div>
           )}
 
-          {/* 멤버가 없을 때 좌측 공간 */}
-          {visibleMembers.length === 0 && (
-            <div style={{ height: 128 }} />
-          )}
-
-          {visibleMembers.length > 0 && (
-            <div
-              aria-hidden="true"
-              style={{
-                height: TIMELINE_BOTTOM_SPACER_HEIGHT,
-                minHeight: 240,
-              }}
-            />
-          )}
             </div>
           </div>
           <div

@@ -20,6 +20,8 @@ type Props = {
 export function SchedulerHeader({ onClose }: Props) {
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
   const setViewMode = useSchedulerViewStore((s) => s.setViewMode);
+  const entityMode = useSchedulerViewStore((s) => s.entityMode);
+  const setEntityMode = useSchedulerViewStore((s) => s.setEntityMode);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
   const setSelectedProjectId = useSchedulerViewStore((s) => s.setSelectedProjectId);
 
@@ -149,7 +151,7 @@ export function SchedulerHeader({ onClose }: Props) {
   return (
     <>
       <div className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
-        {/* 좌측: 아이콘 + 타이틀 + 뷰 모드 탭 */}
+        {/* 좌측: 아이콘 + 타이틀 + 데이터 모드 + 뷰 모드 탭 */}
         <div className="flex items-center gap-3 flex-wrap">
           <Calendar className="w-6 h-6 text-amber-500 shrink-0" />
           <div className="flex items-center gap-2">
@@ -157,6 +159,32 @@ export function SchedulerHeader({ onClose }: Props) {
               {headerTitle}
             </h1>
             <span className="text-sm text-zinc-500">일정</span>
+          </div>
+          <div
+            className="flex rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-100/40 dark:bg-zinc-800/40 p-0.5"
+            role="tablist"
+            aria-label="일정 데이터 모드"
+          >
+            {[
+              ["milestone", "마일스톤"],
+              ["feature", "피처"],
+              ["task", "작업"],
+            ].map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={entityMode === mode}
+                onClick={() => setEntityMode(mode as typeof entityMode)}
+                className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                  entityMode === mode
+                    ? "bg-green-600 text-white shadow-sm"
+                    : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
           {/* 뷰 모드 segmented control */}
           <div

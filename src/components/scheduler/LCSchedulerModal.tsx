@@ -33,6 +33,9 @@ const WeekScheduleView = lazy(() =>
 const MonthScheduleView = lazy(() =>
   import("./WeekScheduleView").then((m) => ({ default: m.MonthScheduleView })),
 );
+const SchedulerDatabaseTimeline = lazy(() =>
+  import("./SchedulerDatabaseTimeline").then((m) => ({ default: m.SchedulerDatabaseTimeline })),
+);
 
 // 연도의 마지막 날짜
 function endOfYear(year: number): Date {
@@ -55,6 +58,7 @@ export function LCSchedulerModal({ onClose }: Props) {
   const disabledOrgIds = useSchedulerFiltersStore((s) => s.disabledOrgIds);
   const disabledTeamIds = useSchedulerFiltersStore((s) => s.disabledTeamIds);
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
+  const entityMode = useSchedulerViewStore((s) => s.entityMode);
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
   const selectMember = useSchedulerViewStore((s) => s.selectMember);
   const setMultiSelected = useSchedulerViewStore((s) => s.setMultiSelected);
@@ -199,7 +203,7 @@ export function LCSchedulerModal({ onClose }: Props) {
       <SchedulerHeader onClose={onClose} />
 
       {/* 팀 탭 */}
-      <SchedulerTeamTabs />
+      {entityMode === "task" && <SchedulerTeamTabs />}
 
       {/* 툴바: 연도·월·직군·이름 필터 + 오늘·열너비·줌·도움말 */}
       <SchedulerToolbar />
@@ -207,7 +211,9 @@ export function LCSchedulerModal({ onClose }: Props) {
       {/* 본문: 연간 / 월간 / 주간 뷰 */}
       <Suspense fallback={<div className="flex-1 min-h-0 bg-zinc-50 dark:bg-zinc-950" />}>
         {bodyReady ? (
-          viewMode === "year" ? (
+          entityMode !== "task" ? (
+            <SchedulerDatabaseTimeline mode={entityMode} workspaceId={schedulerWorkspaceId} />
+          ) : viewMode === "year" ? (
             <ScheduleGrid workspaceId={schedulerWorkspaceId} />
           ) : viewMode === "month" ? (
             <MonthScheduleView />
@@ -219,7 +225,7 @@ export function LCSchedulerModal({ onClose }: Props) {
         )}
       </Suspense>
 
-      {bodyReady && <WeeklyMmPanel />}
+      {bodyReady && entityMode === "task" && <WeeklyMmPanel />}
     </div>,
     document.body,
   );

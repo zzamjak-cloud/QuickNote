@@ -287,6 +287,8 @@ export type DatabasePanelState = {
   filterPresets?: FilterPreset[];
   /** 현재 활성화된 프리셋 ID. null이면 전역 filterRules/sortRules 사용. */
   activePresetId?: string | null;
+  /** LC 스케줄러 피처 모드에서 표시할 마일스톤 항목 ID. null이면 전체 표시. */
+  schedulerFeatureMilestoneIds?: string[] | null;
 };
 
 /** DB 템플릿 — 새 행 생성 시 기본 셀 값을 미리 지정. */

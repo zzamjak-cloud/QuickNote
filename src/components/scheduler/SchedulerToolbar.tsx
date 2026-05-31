@@ -16,15 +16,18 @@ import { YearSelector } from "./YearSelector";
 import { MonthFilter } from "./filters/MonthFilter";
 import { JobTitleFilter } from "./filters/JobTitleFilter";
 import { WeekViewMemberFilter } from "./filters/WeekViewMemberFilter";
+import { FeatureMilestoneFilter } from "./filters/FeatureMilestoneFilter";
 
 export function SchedulerToolbar() {
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
+  const entityMode = useSchedulerViewStore((s) => s.entityMode);
   const zoomLevel = useSchedulerViewStore((s) => s.zoomLevel);
   const columnWidthScale = useSchedulerViewStore((s) => s.columnWidthScale);
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
   const setZoomLevel = useSchedulerViewStore((s) => s.setZoomLevel);
   const setColumnWidthScale = useSchedulerViewStore((s) => s.setColumnWidthScale);
   const showUnifiedOnlyFilters = selectedMemberId === null;
+  const isTaskMode = entityMode === "task";
 
   // 오늘로 이동 — ScheduleGrid 에서 이벤트를 listen
   const scrollToToday = () => {
@@ -40,7 +43,13 @@ export function SchedulerToolbar() {
     <div className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
       {/* 좌측: 필터 그룹 */}
       <div className="flex items-center gap-4 flex-wrap">
-        {viewMode === "year" ? (
+        {!isTaskMode ? (
+          <>
+            <YearSelector />
+            <MonthFilter />
+            {entityMode === "feature" && <FeatureMilestoneFilter />}
+          </>
+        ) : viewMode === "year" ? (
           <>
             <YearSelector />
             <MonthFilter />

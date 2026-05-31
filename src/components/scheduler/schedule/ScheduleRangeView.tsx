@@ -797,7 +797,7 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
             />
             <div
               style={{
-                height: bodyRowsHeight + (hasVisibleRows ? TIMELINE_BOTTOM_SPACER_HEIGHT : 0),
+                height: bodyRowsHeight,
                 position: 'relative',
               }}
             >
@@ -956,7 +956,7 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
                     <div className="font-medium text-zinc-900/80 dark:text-zinc-100/80">{fmtDow(slot.date)}</div>
                     <div className="tabular-nums">{fmtMD(slot.date)}</div>
                     {holidayText ? (
-                      <div className="text-[9px] leading-tight text-zinc-900/85 dark:text-zinc-100/85 truncate px-0.5 max-w-full">
+                      <div className="text-[9px] leading-tight text-red-600 dark:text-red-400 truncate px-0.5 max-w-full">
                         {holidayText}
                       </div>
                     ) : null}

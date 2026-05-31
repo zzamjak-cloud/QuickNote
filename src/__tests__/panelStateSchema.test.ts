@@ -14,10 +14,12 @@ describe("parseDatabasePanelStateJson", () => {
           value: "x",
         },
       ],
+      schedulerFeatureMilestoneIds: ["milestone-1"],
     });
     const out = parseDatabasePanelStateJson(raw);
     expect(out.searchQuery).toBe("hello");
     expect(out.filterRules).toHaveLength(1);
+    expect(out.schedulerFeatureMilestoneIds).toEqual(["milestone-1"]);
     expect(out.sortRules).toEqual(emptyPanelState().sortRules);
   });
 
