@@ -2,6 +2,7 @@ export type EntityKind = "page" | "database";
 
 type GuardEntry = {
   deletedAtMs: number;
+  strictUntilMs?: number;
   /** true 이면 TTL 과 무관하게 영구 차단(서버에서도 사라진 확정 상태). */
   permanent?: boolean;
 };
@@ -17,6 +18,7 @@ const LOCAL_DELETE_GUARDS_KEY = "quicknote.sync.localDeleteGuards.v1";
 const LOCAL_DELETE_GUARD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // permanent tombstone 도 무한 누적을 막기 위해 30일 후 자동 만료.
 const PERMANENT_TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const RECENT_DELETE_STRICT_MS = 5 * 60 * 1000;
 
 function guardKey(kind: EntityKind, workspaceId: string, id: string): string {
   return `${kind}:${workspaceId}:${id}`;
@@ -84,7 +86,10 @@ export function markLocallyDeletedEntity(
       deletedAtMs: Math.max(existing.deletedAtMs, deletedAtMs),
     };
   } else {
-    guards[guardKey(kind, workspaceId, id)] = { deletedAtMs };
+    guards[guardKey(kind, workspaceId, id)] = {
+      deletedAtMs,
+      strictUntilMs: deletedAtMs + RECENT_DELETE_STRICT_MS,
+    };
   }
   writeGuards(guards);
 }
@@ -104,6 +109,10 @@ export function markPermanentlyDeletedEntity(
   const existing = guards[guardKey(kind, workspaceId, id)];
   guards[guardKey(kind, workspaceId, id)] = {
     deletedAtMs: Math.max(existing?.deletedAtMs ?? 0, now),
+    strictUntilMs: Math.max(
+      existing?.strictUntilMs ?? 0,
+      now + RECENT_DELETE_STRICT_MS,
+    ),
     permanent: true,
   };
   writeGuards(guards);
@@ -125,6 +134,12 @@ export function createLocalDeleteGuardChecker(nowMs = Date.now()): LocalDeleteGu
     if (!id || !workspaceId) return false;
     const entry = guards[guardKey(kind, workspaceId, id)];
     if (!entry) return false;
+    if (
+      Number.isFinite(entry.strictUntilMs) &&
+      nowMs <= (entry.strictUntilMs ?? 0)
+    ) {
+      return true;
+    }
     const remoteMs = Date.parse(remoteUpdatedAt);
     if (!Number.isFinite(remoteMs)) return false;
     // 서버에서 더 최신 버전이 살아난 경우(복구/재생성)는 local tombstone 보다 우선한다.

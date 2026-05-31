@@ -8,7 +8,9 @@ import { useSchedulerProjectsStore } from "../../../store/schedulerProjectsStore
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 
 // selectedProjectId 포맷: "org:{id}", "team:{id}", "proj:{id}" 또는 null
-export function useVisibleMembers(): Member[] {
+// ignoreJobFilter: 직무 필터 자체의 옵션 목록처럼 직무 필터를 적용하면 안 되는 호출부용
+export function useVisibleMembers(options?: { ignoreJobFilter?: boolean }): Member[] {
+  const ignoreJobFilter = options?.ignoreJobFilter ?? false;
   const allMembers = useMemberStore((s) => s.members);
   const memberCacheWorkspaceId = useMemberStore((s) => s.cacheWorkspaceId);
   const organizations = useOrganizationStore((s) => s.organizations);
@@ -17,13 +19,17 @@ export function useVisibleMembers(): Member[] {
   const teamCacheWorkspaceId = useTeamStore((s) => s.cacheWorkspaceId);
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
+  const selectedJobTitle = useSchedulerViewStore((s) => s.selectedJobTitle);
+  const jobFilter = ignoreJobFilter ? null : selectedJobTitle;
 
   return useMemo(() => {
     if (memberCacheWorkspaceId && memberCacheWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
       return [];
     }
-    // 활성 멤버만(재직중 우선 표시는 별도 정렬에서 처리)
-    const active = allMembers.filter((m) => m.status === "active");
+    // 활성 멤버만(재직중 우선 표시는 별도 정렬에서 처리) + 직무(jobCategory) 필터
+    const active = allMembers
+      .filter((m) => m.status === "active")
+      .filter((m) => !jobFilter || m.jobCategory === jobFilter);
 
     if (!selectedProjectId) return sortMembers(active);
 
@@ -66,6 +72,7 @@ export function useVisibleMembers(): Member[] {
     organizations,
     projects,
     selectedProjectId,
+    jobFilter,
     teamCacheWorkspaceId,
     teams,
   ]);

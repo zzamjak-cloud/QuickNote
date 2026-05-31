@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Check,
@@ -95,7 +95,7 @@ export function ScopeSelectDropdown({
     return placeholder;
   }, [columns, placeholder, value]);
 
-  const updateScrollHint = (columnKey: string) => {
+  const updateScrollHint = useCallback((columnKey: string) => {
     const list = listRefs.current[columnKey];
     if (!list) return;
     const hasOverflow = list.scrollHeight > list.clientHeight + 2;
@@ -104,7 +104,7 @@ export function ScopeSelectDropdown({
     setScrollHintByColumn((prev) =>
       prev[columnKey] === showHint ? prev : { ...prev, [columnKey]: showHint },
     );
-  };
+  }, []);
 
   return (
     <div className={mergeClassNames("relative", className)}>

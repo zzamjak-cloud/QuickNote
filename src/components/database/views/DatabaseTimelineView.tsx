@@ -40,6 +40,7 @@ import {
   DatabaseCellDisplay,
 } from "../DatabaseCellDisplay";
 import { databaseCellHasDisplayValue } from "../databaseCellDisplayUtils";
+import { getScheduleCardContentOffset } from "../../scheduler/scheduleCardDisplay";
 import { AppSelect } from "../../common/AppSelect";
 import { SELECT_COLOR_PRESETS } from "../selectColorPresets";
 
@@ -975,11 +976,23 @@ export function DatabaseTimelineView({
     scrollLockLeftRef.current = null;
   }, []);
 
+  const [timelineScrollLeft, setTimelineScrollLeft] = useState(0);
+  const scrollSyncRafRef = useRef<number | null>(null);
+
   const handleTimelineScroll = useCallback(() => {
-    const locked = scrollLockLeftRef.current;
     const el = scrollContainerRef.current;
-    if (locked == null || !el) return;
-    if (el.scrollLeft !== locked) el.scrollLeft = locked;
+    // 리사이즈 중 가로 스크롤 위치 고정
+    const locked = scrollLockLeftRef.current;
+    if (locked != null && el && el.scrollLeft !== locked) {
+      el.scrollLeft = locked;
+    }
+    // 긴 카드 텍스트 sticky 처리를 위한 scrollLeft 추적 (rAF 스로틀)
+    if (!el || scrollSyncRafRef.current != null) return;
+    scrollSyncRafRef.current = window.requestAnimationFrame(() => {
+      scrollSyncRafRef.current = null;
+      const node = scrollContainerRef.current;
+      if (node) setTimelineScrollLeft(node.scrollLeft);
+    });
   }, []);
 
   const selectedMultiPageIds = useMemo(() => {
@@ -1427,6 +1440,7 @@ export function DatabaseTimelineView({
                     labelCols={labelCols}
                     axisMinT={axis.minT}
                     pxPerDay={pxPerDay}
+                    scrollLeft={timelineScrollLeft}
                     selected={selectedCardId === card.id}
                     multiSelected={selectedCardIds.has(card.id)}
                     multiDragDeltaX={
@@ -1506,6 +1520,7 @@ function DatabaseTimelineCard({
   labelCols,
   axisMinT,
   pxPerDay,
+  scrollLeft,
   selected,
   multiSelected,
   multiDragDeltaX,
@@ -1523,6 +1538,7 @@ function DatabaseTimelineCard({
   labelCols: ColumnDef[];
   axisMinT: number;
   pxPerDay: number;
+  scrollLeft: number;
   selected: boolean;
   multiSelected: boolean;
   multiDragDeltaX: number | null;
@@ -1551,6 +1567,10 @@ function DatabaseTimelineCard({
     !card.isUnscheduled && multiDragDeltaX != null
       ? card.left + multiDragDeltaX
       : localX;
+  // 긴 카드가 좌측으로 스크롤될 때 텍스트를 화면 안에 유지 (LC 스케줄러와 동일)
+  const contentOffset = card.isUnscheduled
+    ? 0
+    : getScheduleCardContentOffset({ scrollLeft, cardLeft: visualX, cardWidth: localW });
   const titleClassName = card.isUnscheduled
     ? "font-medium text-zinc-700 dark:text-zinc-200"
     : "font-medium text-white";
@@ -1684,7 +1704,10 @@ function DatabaseTimelineCard({
           onOpenPeek(card.pageId);
         }}
       >
-        <div className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm">
+        <div
+          className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm"
+          style={contentOffset ? { transform: `translateX(${contentOffset}px)` } : undefined}
+        >
           <span className={titleClassName}>{card.title}</span>
           <span className={dateClassName}>{card.dateLabel}</span>
           {labelCols.some((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c) || c.config?.pageLinkMirrorColumnId) && (

@@ -180,4 +180,27 @@ describe("pageStore — DB 행 페이지 가시성", () => {
     expect(second).toBe(first);
     expect(Object.keys(usePageStore.getState().pages)).toHaveLength(1);
   });
+
+  it("fullPage 홈 문서 삭제 시 같은 DB 탭을 해제해 즉시 재생성을 막는다", () => {
+    const fallbackPageId = usePageStore
+      .getState()
+      .createPage("일반", null, { activate: false });
+    const homePageId = usePageStore
+      .getState()
+      .ensureFullPagePageForDatabase("db-1", "작업 DB", "table");
+    expect(homePageId).toBeTruthy();
+    usePageStore.getState().setActivePage(fallbackPageId);
+    useSettingsStore.setState({
+      tabs: [{ pageId: null, databaseId: "db-1" }],
+      activeTabIndex: 0,
+    });
+
+    usePageStore.getState().deletePage(homePageId!);
+
+    expect(usePageStore.getState().pages[homePageId!]).toBeUndefined();
+    expect(useSettingsStore.getState().tabs[0]).toMatchObject({
+      pageId: fallbackPageId,
+      databaseId: null,
+    });
+  });
 });

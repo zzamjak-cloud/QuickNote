@@ -10,6 +10,7 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import { markLocallyDeletedEntity } from "../../lib/sync/localDeleteGuards";
 
 // runtime.getSyncEngine 을 mock 하여 outbox 상태(peekPending)를 제어한다.
 vi.mock("../../lib/sync/runtime", () => {
@@ -157,6 +158,51 @@ describe("applyWorkspaceSwitch", () => {
     expect(usePageStore.getState().pages["page-1"]).toBeDefined();
     expect(useBlockCommentStore.getState().messages).toHaveLength(1);
     expect(useBlockCommentStore.getState().messages[0]?.bodyText).toBe("댓글");
+  });
+
+  it("워크스페이스 스냅샷 복원 시 로컬에서 삭제한 페이지는 되살리지 않는다", async () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      activePageId: "page-1",
+      pages: {
+        "page-1": {
+          id: "page-1",
+          workspaceId: "ws-1",
+          title: "아트 직군 살롱 지식 DB",
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 1,
+          createdAt: 0,
+          updatedAt: Date.now() - 1_000,
+        },
+      },
+    });
+    useSettingsStore.setState({
+      tabs: [{ pageId: "page-1" }],
+      activeTabIndex: 0,
+    });
+    refreshWorkspaceSnapshot("ws-1");
+    markLocallyDeletedEntity("page", "page-1", "ws-1", Date.now());
+
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-2",
+      activePageId: null,
+      pages: {},
+    });
+    useSettingsStore.setState({
+      tabs: [{ pageId: null }],
+      activeTabIndex: 0,
+    });
+
+    const result = await applyWorkspaceSwitch("ws-2", "ws-1");
+
+    expect(result.reason).toBe("restored-snapshot");
+    expect(usePageStore.getState().pages["page-1"]).toBeUndefined();
+    expect(usePageStore.getState().activePageId).toBe(null);
+    expect(useSettingsStore.getState().tabs[0]).toMatchObject({
+      pageId: null,
+      databaseId: null,
+    });
   });
 
   it("LC 스케줄러 워크스페이스도 일반 페이지와 스케줄러 페이지/DB 스냅샷을 복원한다", async () => {

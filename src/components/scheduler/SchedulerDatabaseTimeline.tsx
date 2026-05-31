@@ -1,6 +1,6 @@
 // LC 마일스톤/피처 DB 행을 스케줄러 타임라인으로 투영하는 읽기 전용 뷰.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Database, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Layers, PanelRight } from "lucide-react";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSchedulerViewStore, type SchedulerEntityMode } from "../../store/schedulerViewStore";
@@ -224,6 +224,8 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const [rangeTimelineWidth, setRangeTimelineWidth] = useState(900);
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthIndex, setMonthIndex] = useState(() => new Date().getMonth());
+  // 리스트 클릭 시 해당 행/카드로 스크롤하기 위한 대기 상태 (뷰 범위 변경 후 다음 렌더에서 처리)
+  const [pendingFocusPageId, setPendingFocusPageId] = useState<string | null>(null);
 
   const isAnnualView = viewMode === "year";
   const annualCellWidth = getCellWidth(zoomLevel, columnWidthScale);
@@ -401,6 +403,73 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     return () => window.cancelAnimationFrame(id);
   }, [currentYear, mode, scrollToToday, viewMode]);
 
+  // 리스트 행 클릭: 첫 카드가 보이도록 뷰 범위를 맞추고 스크롤 대기 상태로 진입
+  const handleRowFocus = useCallback(
+    (row: TimelineRow) => {
+      const card = row.cards[0];
+      if (card) {
+        if (viewMode === "month") {
+          setCurrentYear(card.start.getFullYear());
+          setMonthIndex(card.start.getMonth());
+        } else if (viewMode === "week") {
+          const offset = Math.round(
+            differenceInCalendarDays(startOfWeek(card.start), startOfWeek(new Date())) / 7,
+          );
+          setWeekOffset(offset);
+        } else {
+          setCurrentYear(card.start.getFullYear());
+        }
+      }
+      setPendingFocusPageId(row.page.id);
+    },
+    [setCurrentYear, viewMode],
+  );
+
+  // 뷰 범위 반영 후 해당 행/카드로 스크롤 (수직: 행 중앙, 수평: 첫 카드 시작)
+  useEffect(() => {
+    if (!pendingFocusPageId) return;
+    const container = containerRef.current;
+    const rowIndex = container
+      ? rows.findIndex((r) => r.page.id === pendingFocusPageId)
+      : -1;
+    if (!container || rowIndex < 0) {
+      setPendingFocusPageId(null);
+      return;
+    }
+    const row = rows[rowIndex];
+    if (!row) {
+      setPendingFocusPageId(null);
+      return;
+    }
+    const rowTop = DATE_AXIS_HEIGHT + rowIndex * rowHeight;
+    container.scrollTop = Math.max(0, rowTop - container.clientHeight / 2 + rowHeight / 2);
+
+    const card = row.cards[0];
+    if (card) {
+      let cardLeft: number | null = null;
+      if (isAnnualView) {
+        const visibleRange = clampVisibleRange(currentYear, card.start, card.end);
+        if (visibleRange) cardLeft = visibleRange.startIdx * annualCellWidth + CARD_MARGIN;
+      } else {
+        const slotRange = getCardSlotRange(card, slots);
+        if (slotRange) cardLeft = slotRange.startSlot * activeCellWidth + CARD_MARGIN;
+      }
+      if (cardLeft !== null) {
+        container.scrollLeft = Math.max(0, ITEM_COLUMN_WIDTH + cardLeft - container.clientWidth / 2);
+      }
+    }
+    setPendingFocusPageId(null);
+  }, [
+    pendingFocusPageId,
+    rows,
+    slots,
+    isAnnualView,
+    currentYear,
+    annualCellWidth,
+    activeCellWidth,
+    rowHeight,
+  ]);
+
   return (
     <div ref={containerRef} className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-950">
       <div
@@ -427,17 +496,36 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
             <span className="truncate">{titleColumnName}</span>
           </div>
           {rows.map((row) => (
-            <button
+            <div
               key={row.page.id}
-              type="button"
-              onDoubleClick={() => openPeek(row.page.id)}
-              className="flex w-full items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 px-3 text-left text-sm text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800/70"
+              role="button"
+              tabIndex={0}
+              onClick={() => handleRowFocus(row)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleRowFocus(row);
+                }
+              }}
+              className="group flex w-full cursor-pointer items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 px-3 text-left text-sm text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800/70"
               style={{ height: rowHeight }}
-              title="더블클릭하여 항목 열기"
+              title="클릭하여 일정 카드로 이동"
             >
               <PageIconDisplay icon={row.page.icon ?? null} size="sm" />
               <span className="min-w-0 flex-1 truncate">{row.page.title || "제목 없음"}</span>
-            </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openPeek(row.page.id);
+                }}
+                className="shrink-0 rounded p-1 text-zinc-400 opacity-0 transition-opacity hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                aria-label="피커뷰로 열기"
+                title="피커뷰로 열기"
+              >
+                <PanelRight size={14} />
+              </button>
+            </div>
           ))}
         </div>
 

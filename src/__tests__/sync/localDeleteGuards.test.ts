@@ -52,7 +52,19 @@ describe("markLocallyDeletedEntity", () => {
     const now = Date.now();
     markLocallyDeletedEntity("page", "p1", "ws1", now);
     const remoteAt = new Date(now + 1000).toISOString();
-    expect(shouldIgnoreRemoteAfterLocalDelete("page", "p1", "ws1", remoteAt)).toBe(false);
+    expect(createLocalDeleteGuardChecker(now + 5 * 60 * 1000 + 1)(
+      "page",
+      "p1",
+      "ws1",
+      remoteAt,
+    )).toBe(false);
+  });
+
+  it("삭제 직후 원격 업데이트는 최신이어도 보호 시간 동안 차단한다", () => {
+    const now = Date.now();
+    markLocallyDeletedEntity("page", "p1", "ws1", now);
+    const remoteAt = new Date(now + 1000).toISOString();
+    expect(shouldIgnoreRemoteAfterLocalDelete("page", "p1", "ws1", remoteAt)).toBe(true);
   });
 
   it("7일 TTL 경과 시 guard 만료 — 원격 업데이트 통과", () => {
@@ -94,7 +106,12 @@ describe("markPermanentlyDeletedEntity", () => {
     markLocallyDeletedEntity("page", "p1", "ws1", now);
     markPermanentlyDeletedEntity("page", "p1", "ws1");
     const futureAt = new Date(now + DAY_MS).toISOString();
-    expect(shouldIgnoreRemoteAfterLocalDelete("page", "p1", "ws1", futureAt)).toBe(false);
+    expect(createLocalDeleteGuardChecker(now + 5 * 60 * 1000 + 1)(
+      "page",
+      "p1",
+      "ws1",
+      futureAt,
+    )).toBe(false);
   });
 });
 

@@ -10,14 +10,22 @@ export function shouldOpenInternalLinkInNewTab(event: InternalNavigationClick): 
   return Boolean(event.ctrlKey || event.metaKey);
 }
 
-export function openPageInCurrentTab(pageId: string): void {
-  useSettingsStore.getState().setCurrentTabPage(pageId);
-  usePageStore.getState().setActivePage(pageId);
+function pageExists(pageId: string): boolean {
+  return Boolean(usePageStore.getState().pages[pageId]);
 }
 
-export function openPageInNewTab(pageId: string): void {
+export function openPageInCurrentTab(pageId: string): boolean {
+  if (!pageExists(pageId)) return false;
+  useSettingsStore.getState().setCurrentTabPage(pageId);
+  usePageStore.getState().setActivePage(pageId);
+  return true;
+}
+
+export function openPageInNewTab(pageId: string): boolean {
+  if (!pageExists(pageId)) return false;
   useSettingsStore.getState().openTab(pageId);
   usePageStore.getState().setActivePage(pageId);
+  return true;
 }
 
 export function openDatabaseInCurrentTab(databaseId: string): void {

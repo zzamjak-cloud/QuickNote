@@ -48,7 +48,9 @@ function colorPreset(color: ButtonColor) {
 function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const attrs = node.attrs as ButtonBlockAttrs;
   const color: ButtonColor = (attrs.color as ButtonColor) ?? "default";
-  const isDbButton = Boolean(attrs.databaseId);
+  const href = attrs.href?.trim() ?? "";
+  const internalHref = href ? parseQuickNoteLink(href) : null;
+  const isDbButton = Boolean(attrs.databaseId) && !href;
   const dbTitle = useDatabaseStore((s) =>
     isDbButton ? s.databases[attrs.databaseId!]?.meta.title ?? null : null,
   );
@@ -87,29 +89,15 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   }, [editing, attrs.label, attrs.href, attrs.color]);
 
   const handleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (attrs.databaseId) {
+    if (internalHref) {
       if (shouldOpenInternalLinkInNewTab(event)) {
-        openDatabaseInNewTab(attrs.databaseId);
-        return;
-      }
-      const currentPageId = usePageStore.getState().activePageId;
-      if (currentPageId) {
-        useNavigationHistoryStore.getState().pushBack(currentPageId);
-      }
-      openDatabaseInCurrentTab(attrs.databaseId);
-      return;
-    }
-    if (!attrs.href) return;
-    const internal = parseQuickNoteLink(attrs.href);
-    if (internal) {
-      if (shouldOpenInternalLinkInNewTab(event)) {
-        openPageInNewTab(internal.pageId);
+        if (!openPageInNewTab(internalHref.pageId)) return;
         window.setTimeout(() => {
-          if (internal.block != null) scrollToBlockPosition(internal.block);
-          if (internal.tab) {
+          if (internalHref.block != null) scrollToBlockPosition(internalHref.block);
+          if (internalHref.tab) {
             document
               .querySelector<HTMLButtonElement>(
-                `[data-qn-tab-id="${CSS.escape(internal.tab)}"]`,
+                `[data-qn-tab-id="${CSS.escape(internalHref.tab)}"]`,
               )
               ?.click();
           }
@@ -120,21 +108,35 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
       if (currentPageId) {
         useNavigationHistoryStore.getState().pushBack(currentPageId);
       }
-      openPageInCurrentTab(internal.pageId);
+      if (!openPageInCurrentTab(internalHref.pageId)) return;
       window.setTimeout(() => {
-        if (internal.block != null) scrollToBlockPosition(internal.block);
-        if (internal.tab) {
+        if (internalHref.block != null) scrollToBlockPosition(internalHref.block);
+        if (internalHref.tab) {
           document
             .querySelector<HTMLButtonElement>(
-              `[data-qn-tab-id="${CSS.escape(internal.tab)}"]`,
+              `[data-qn-tab-id="${CSS.escape(internalHref.tab)}"]`,
             )
             ?.click();
         }
       }, 80);
       return;
     }
-    const href = attrs.href.startsWith("http") ? attrs.href : `https://${attrs.href}`;
-    window.open(href, "_blank", "noopener,noreferrer");
+    if (href) {
+      const targetHref = href.startsWith("http") ? href : `https://${href}`;
+      window.open(targetHref, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (attrs.databaseId) {
+      if (shouldOpenInternalLinkInNewTab(event)) {
+        openDatabaseInNewTab(attrs.databaseId);
+        return;
+      }
+      const currentPageId = usePageStore.getState().activePageId;
+      if (currentPageId) {
+        useNavigationHistoryStore.getState().pushBack(currentPageId);
+      }
+      openDatabaseInCurrentTab(attrs.databaseId);
+    }
   };
 
   const handleSave = () => {

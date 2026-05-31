@@ -9,6 +9,7 @@ import { zustandStorage } from "../storage/index";
 import { getSyncEngine } from "./runtime";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { isProtectedDatabaseId } from "../scheduler/database";
+import { createLocalDeleteGuardChecker } from "./localDeleteGuards";
 
 type WorkspaceSnapshot = {
   pages: ReturnType<typeof usePageStore.getState>["pages"];
@@ -32,6 +33,81 @@ function workspaceSnapshotKey(workspaceId: string): string {
 
 function cloneSnapshot<T>(value: T): T {
   return structuredClone(value);
+}
+
+function updatedAtIso(updatedAt: unknown): string {
+  const ms = typeof updatedAt === "number" && Number.isFinite(updatedAt)
+    ? updatedAt
+    : Date.now();
+  return new Date(ms).toISOString();
+}
+
+function filterLocalDeletedSnapshotPages(
+  workspaceId: string,
+  pages: WorkspaceSnapshot["pages"],
+): WorkspaceSnapshot["pages"] {
+  const shouldIgnore = createLocalDeleteGuardChecker();
+  let changed = false;
+  const next: WorkspaceSnapshot["pages"] = {};
+  for (const [pageId, page] of Object.entries(pages)) {
+    const pageWorkspaceId = page.workspaceId ?? workspaceId;
+    if (
+      shouldIgnore(
+        "page",
+        page.id || pageId,
+        pageWorkspaceId,
+        updatedAtIso(page.updatedAt),
+      )
+    ) {
+      changed = true;
+      continue;
+    }
+    next[pageId] = page;
+  }
+  return changed ? next : pages;
+}
+
+function filterLocalDeletedSnapshotDatabases(
+  workspaceId: string,
+  databases: WorkspaceSnapshot["databases"],
+): WorkspaceSnapshot["databases"] {
+  const shouldIgnore = createLocalDeleteGuardChecker();
+  let changed = false;
+  const next: WorkspaceSnapshot["databases"] = {};
+  for (const [databaseId, database] of Object.entries(databases)) {
+    const databaseWorkspaceId = database.meta.workspaceId ?? workspaceId;
+    if (
+      shouldIgnore(
+        "database",
+        database.meta.id || databaseId,
+        databaseWorkspaceId,
+        updatedAtIso(database.meta.updatedAt),
+      )
+    ) {
+      changed = true;
+      continue;
+    }
+    next[databaseId] = database;
+  }
+  return changed ? next : databases;
+}
+
+function normalizeSnapshotTabs(
+  tabs: WorkspaceSnapshot["tabs"],
+  pages: WorkspaceSnapshot["pages"],
+  databases: WorkspaceSnapshot["databases"],
+): WorkspaceSnapshot["tabs"] {
+  return tabs.map((tab) => {
+    const pageId = tab.pageId && pages[tab.pageId] ? tab.pageId : null;
+    const databaseId =
+      tab.databaseId && databases[tab.databaseId] ? tab.databaseId : null;
+    return {
+      ...tab,
+      pageId: databaseId ? null : pageId,
+      databaseId,
+      back: tab.back?.filter((id) => pages[id]),
+    };
+  });
 }
 
 function favoriteMetaFromSnapshotPage(
@@ -442,20 +518,27 @@ function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot
       isProtectedDatabaseId(databaseId),
     ),
   );
-  const pages = workspaceId === LC_SCHEDULER_WORKSPACE_ID
+  const snapshotPages = workspaceId === LC_SCHEDULER_WORKSPACE_ID
     ? cloneSnapshot(normalized.pages)
     : { ...cloneSnapshot(normalized.pages), ...schedulerPages };
-  const databases = workspaceId === LC_SCHEDULER_WORKSPACE_ID
+  const snapshotDatabases = workspaceId === LC_SCHEDULER_WORKSPACE_ID
     ? cloneSnapshot(normalized.databases)
     : { ...cloneSnapshot(normalized.databases), ...schedulerDatabases };
-  const tabs = normalized.tabs.length > 0 ? cloneSnapshot(normalized.tabs) : [{ pageId: null }];
+  const pages = filterLocalDeletedSnapshotPages(workspaceId, snapshotPages);
+  const databases = filterLocalDeletedSnapshotDatabases(workspaceId, snapshotDatabases);
+  const rawTabs = normalized.tabs.length > 0 ? cloneSnapshot(normalized.tabs) : [{ pageId: null }];
+  const tabs = normalizeSnapshotTabs(rawTabs, pages, databases);
+  const activePageId =
+    normalized.activePageId && pages[normalized.activePageId]
+      ? normalized.activePageId
+      : null;
   const activeTabIndex = Math.min(
     Math.max(normalized.activeTabIndex, 0),
     Math.max(tabs.length - 1, 0),
   );
   usePageStore.setState({
     pages,
-    activePageId: normalized.activePageId,
+    activePageId,
     cacheWorkspaceId: workspaceId,
   });
   useDatabaseStore.setState({

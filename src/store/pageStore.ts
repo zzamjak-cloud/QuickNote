@@ -62,6 +62,45 @@ function resolveDeletedPageWorkspaceId(page: Page, removedPageById: Map<string, 
   return getCurrentWorkspaceId();
 }
 
+function getFullPageDatabaseId(page: Page): string | null {
+  const first = page.doc?.content?.[0] as
+    | { type?: string; attrs?: Record<string, unknown> }
+    | undefined;
+  if (first?.type !== "databaseBlock") return null;
+  if (first.attrs?.layout !== "fullPage") return null;
+  const databaseId = first.attrs.databaseId;
+  return typeof databaseId === "string" && databaseId.trim()
+    ? databaseId
+    : null;
+}
+
+function clearTabsForDeletedFullPageDatabases(
+  databaseIds: string[],
+  pages: PageMap,
+  fallbackPageId: string | null,
+): void {
+  const idSet = new Set(databaseIds.filter(Boolean));
+  if (idSet.size === 0) return;
+  const fallback = fallbackPageId && pages[fallbackPageId] ? fallbackPageId : null;
+  useSettingsStore.setState((state) => {
+    let changed = false;
+    const tabs = state.tabs.map((tab) => {
+      const databaseId = tab.databaseId ?? null;
+      if (!databaseId || !idSet.has(databaseId)) return tab;
+      changed = true;
+      const back = tab.back ?? [];
+      const backTarget =
+        [...back].reverse().find((pageId) => pages[pageId]) ?? null;
+      return {
+        pageId: fallback ?? backTarget,
+        databaseId: null,
+        back,
+      };
+    });
+    return changed ? { tabs } : state;
+  });
+}
+
 function notifyNewPageMentions(pageId: string, before: JSONContent, after: JSONContent): void {
   const authorMemberId = getCurrentMemberId();
   if (!authorMemberId) return;
@@ -352,6 +391,16 @@ export const usePageStore = create<PageStore>()(
         }
         if (removedIds.length > 0) {
           useSettingsStore.getState().removeFavoritesForPages(removedIds);
+        }
+        const removedFullPageDatabaseIds = Array.from(
+          new Set(removedPages.map(getFullPageDatabaseId).filter(Boolean) as string[]),
+        );
+        if (removedFullPageDatabaseIds.length > 0) {
+          clearTabsForDeletedFullPageDatabases(
+            removedFullPageDatabaseIds,
+            get().pages,
+            get().activePageId,
+          );
         }
       },
 
