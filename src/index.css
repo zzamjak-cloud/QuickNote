@@ -59,7 +59,7 @@ body,
   overscroll-behavior-x: contain;
 }
 
-.ProseMirror table {
+.ProseMirror table:not(.qn-database-table) {
   border-collapse: collapse;
   /* 인접 블록(컬럼/탭/콜아웃)과 시각·호버 분리: 위아래 마진 확장 */
   margin: 1.75rem 0;
@@ -67,27 +67,32 @@ body,
   width: 100%;
   overflow: hidden;
 }
-.ProseMirror table td,
-.ProseMirror table th {
+
+.ProseMirror table.qn-database-table {
+  margin: 0;
+}
+
+.ProseMirror table:not(.qn-database-table) td,
+.ProseMirror table:not(.qn-database-table) th {
   border: 1px solid rgb(228 228 231);
   padding: 6px 10px;
   vertical-align: top;
   position: relative;
   min-width: 80px;
 }
-.dark .ProseMirror table td,
-.dark .ProseMirror table th {
+.dark .ProseMirror table:not(.qn-database-table) td,
+.dark .ProseMirror table:not(.qn-database-table) th {
   border-color: rgb(63 63 70);
 }
-.ProseMirror table th {
+.ProseMirror table:not(.qn-database-table) th {
   background: rgb(244 244 245);
   font-weight: 600;
   text-align: left;
 }
-.dark .ProseMirror table th {
+.dark .ProseMirror table:not(.qn-database-table) th {
   background: rgb(39 39 42);
 }
-.ProseMirror table .selectedCell::after {
+.ProseMirror table:not(.qn-database-table) .selectedCell::after {
   background: rgba(99, 102, 241, 0.15);
   content: "";
   inset: 0;
@@ -950,18 +955,6 @@ html.dark .qn-database-subtle-scrollbar:hover::-webkit-scrollbar-thumb {
 
 .dark .ProseMirror [data-column-layout] > [data-column]:not(:last-child)::after {
   background: rgb(39 39 42);
-}
-
-/* 컬럼 레이아웃 컬러 프리셋 적용 시(empty 가 아님): 내부 데이터테이블 헤더가 배경과 묻히지 않도록
-   thead 의 흰색 배경을 투명화하고 th 셀에 어두운 알파 오버레이를 입혀 시각적 구분을 만든다. */
-.ProseMirror [data-column-layout]:not([data-preset="empty"]) .qn-database-block thead {
-  background: transparent !important;
-}
-.ProseMirror [data-column-layout]:not([data-preset="empty"]) .qn-database-block table th {
-  background: rgba(0, 0, 0, 0.08);
-}
-.dark .ProseMirror [data-column-layout]:not([data-preset="empty"]) .qn-database-block table th {
-  background: rgba(255, 255, 255, 0.08);
 }
 
 /* 컬럼 핸들 드래그 중에는 블록 드래그 시각요소를 숨겨 혼선을 줄인다. */

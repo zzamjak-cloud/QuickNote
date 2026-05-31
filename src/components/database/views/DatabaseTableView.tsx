@@ -28,7 +28,6 @@ type Props = {
   setPanelState: (p: Partial<DatabasePanelState>) => void;
   /** 표시할 최대 행 수. 미지정 시 전체 표시. */
   visibleRowLimit?: number;
-  layout?: "inline" | "fullPage";
 };
 
 function cloneCellValue<T>(value: T): T {
@@ -223,7 +222,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   );
 });
 
-export function DatabaseTableView({ databaseId, panelState, setPanelState, visibleRowLimit, layout }: Props) {
+export function DatabaseTableView({ databaseId, panelState, setPanelState, visibleRowLimit }: Props) {
   void setPanelState;
   const { bundle, rows: allRows } = useProcessedRows(databaseId, panelState);
   // 표시 제한이 있으면 slice 적용.
@@ -441,11 +440,9 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   if (!bundle) return null;
 
   return (
-    // fullPage: 페이지 스크롤에 맡겨 터치패드 스크롤이 자연스럽게 작동.
-    // inline: 60vh 내에서만 스크롤.
     <div
       ref={virtualRows.containerRef}
-      className={`qn-database-subtle-scrollbar group relative overflow-x-auto ${layout === "fullPage" ? "" : "max-h-[60vh] overflow-y-auto"}`}
+      className="qn-database-subtle-scrollbar group relative overflow-x-auto"
     >
       {/* table-layout:fixed + w-full 조합은 한 컬럼 리사이즈 시 다른 컬럼 폭을 100%
           맞추려고 자동 재배분한다 → 사용자가 의도한 폭으로 조절 불가.
@@ -453,7 +450,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
           parent 가 더 넓으면 좌측 정렬, 좁으면 가로 스크롤(이미 overflow-x-auto). */}
       <div className="relative" style={{ width: tableWidthPx + 40 }}>
         <table
-          className="border-collapse text-left text-base"
+          className="qn-database-table border-separate border-spacing-0 text-left text-base"
           style={{ tableLayout: "fixed", width: `${tableWidthPx}px` }}
         >
           <colgroup>
@@ -462,9 +459,9 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
               <col key={col.id} style={{ width: resolvedColWidths[idx] }} />
             ))}
           </colgroup>
-          <thead className="sticky top-0 z-[5] bg-white dark:bg-zinc-950">
+          <thead className="bg-white dark:bg-zinc-950">
             <tr className="group/thead">
-              <th className="px-0 py-0 align-middle">
+              <th className="sticky top-0 z-[6] border-b border-zinc-100 bg-white px-0 py-0 align-middle dark:border-zinc-800 dark:bg-zinc-950">
                 {(() => {
                   const total = orderedRowIds.length;
                   const sel = selectedRowIds.size;

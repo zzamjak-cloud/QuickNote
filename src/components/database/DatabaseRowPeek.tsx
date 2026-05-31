@@ -50,6 +50,7 @@ import {
   bindPageScrollMemory,
   restorePageScrollPosition,
 } from "../../lib/navigation/pageScrollMemory";
+import { getEditorColumnClass } from "../../lib/editorLayout";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
@@ -678,28 +679,41 @@ export function DatabaseRowPeek() {
           </div>
         ) : page ? (
           <>
-        <div className="mb-2">
-          <PageTitleBar
-            pageId={peekPageId}
-            icon={page.icon}
-            titleDraft={titleDraft}
-            titleClassName="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
-            onTitleChange={(v) => {
-              titleDraftRef.current = v;
-              setTitleDraft(v);
-            }}
-            onTitleBlur={() => renamePage(peekPageId, titleDraft.trim() || "제목 없음")}
-            onTitleKeyDown={(e) => {
-              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-            }}
-            onIconChange={(icon) => setIcon(peekPageId, icon)}
-            defaultIcon={<FileText size={56} className="text-zinc-400" />}
-          />
+        <div className="-mx-8">
+          <div
+            className={`relative mx-auto w-full ${getEditorColumnClass({
+              fullWidth: peekFullWidth,
+              hasPageComments: false,
+              peek: true,
+            })}`}
+            data-qn-peek-page-header-column
+          >
+            <div className="px-12">
+              <div className="mb-2">
+                <PageTitleBar
+                  pageId={peekPageId}
+                  icon={page.icon}
+                  titleDraft={titleDraft}
+                  titleClassName="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
+                  onTitleChange={(v) => {
+                    titleDraftRef.current = v;
+                    setTitleDraft(v);
+                  }}
+                  onTitleBlur={() => renamePage(peekPageId, titleDraft.trim() || "제목 없음")}
+                  onTitleKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  onIconChange={(icon) => setIcon(peekPageId, icon)}
+                  defaultIcon={<FileText size={56} className="text-zinc-400" />}
+                />
+              </div>
+              {isDbRow && databaseId && (
+                <DbPropertySection databaseId={databaseId} pageId={peekPageId} />
+              )}
+              <PageCommentBar pageId={peekPageId} />
+            </div>
+          </div>
         </div>
-        {isDbRow && databaseId && (
-          <DbPropertySection databaseId={databaseId} pageId={peekPageId} />
-        )}
-        <PageCommentBar pageId={peekPageId} />
         {/* 노션 스타일: 피크에서도 본문 편집 가능 — Editor에 pageId 주입, bodyOnly로 제목/아이콘 영역 숨김 */}
         <div className="qn-peek-editor mt-2 -mx-8">
           {editorDeferredReady ? (

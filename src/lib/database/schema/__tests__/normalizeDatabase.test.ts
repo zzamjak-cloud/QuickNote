@@ -47,6 +47,20 @@ const advancedColumns = [
     },
   },
   {
+    id: "date",
+    name: "QA",
+    type: "date",
+    config: {
+      dateShowEnd: true,
+      timelineCard: {
+        enabled: true,
+        titleMode: "custom",
+        title: "QA",
+        color: "#2563eb",
+      },
+    },
+  },
+  {
     id: "page-link",
     name: "Task",
     type: "pageLink",
@@ -65,7 +79,7 @@ describe("normalizeDatabase schema", () => {
   it("advanced column config를 normalize와 AWSJSON serialization 경로에서 보존한다", () => {
     const normalized = advancedColumns.map((column) => normalizeColumnDef(column));
 
-    expect(normalized).toHaveLength(5);
+    expect(normalized).toHaveLength(6);
     expect(normalized[1]?.icon).toBe("lucide:Circle:#0EA5E9");
     expect(normalized[1]?.width).toBe(160);
     expect(normalized[1]?.config?.sourceFromDb).toEqual({
@@ -82,7 +96,13 @@ describe("normalizeDatabase schema", () => {
     });
     expect(normalized[3]?.type).toBe("itemFetch");
     expect(normalized[3]?.config?.itemFetchSourceDatabaseId).toBe("feature-db");
-    expect(normalized[4]?.config?.pageLinkAutoFill).toEqual([
+    expect(normalized[4]?.config?.timelineCard).toEqual({
+      enabled: true,
+      titleMode: "custom",
+      title: "QA",
+      color: "#2563eb",
+    });
+    expect(normalized[5]?.config?.pageLinkAutoFill).toEqual([
       { targetColumnId: "team", sourceColumnId: "team" },
     ]);
 

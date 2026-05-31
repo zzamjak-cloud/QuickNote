@@ -88,6 +88,19 @@ export type ProgressSourceConfig = {
     | { mode: "allRows" };
 };
 
+export type TimelineDateCardTitleMode = "pageTitle" | "custom";
+
+export type TimelineDateCardConfig = {
+  /** 타임라인에 이 날짜 컬럼을 별도 일정 카드로 표시 */
+  enabled?: boolean;
+  /** 일정 카드 제목을 페이지 제목으로 쓸지, 컬럼별 별도 문구로 쓸지 */
+  titleMode?: TimelineDateCardTitleMode;
+  /** titleMode가 custom일 때 카드에 표시할 제목 */
+  title?: string;
+  /** 카드 배경색 */
+  color?: string;
+};
+
 export type ColumnDef = {
   id: string;
   name: string;
@@ -100,6 +113,8 @@ export type ColumnDef = {
     options?: SelectOption[];
     /** 날짜 범위 UI 표시 */
     dateShowEnd?: boolean;
+    /** 날짜 컬럼 전용 타임라인 카드 표시 설정 */
+    timelineCard?: TimelineDateCardConfig;
     /** 표 셀 텍스트 자동 줄바꿈 여부 (기본: false, 1라인 클리핑) */
     wrapText?: boolean;
     /** @deprecated 미사용 — 데이터 호환을 위해 필드는 유지 */

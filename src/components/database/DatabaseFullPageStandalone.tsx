@@ -137,7 +137,6 @@ export function DatabaseFullPageStandalone({
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
-            layout="fullPage"
           />
         );
       case "list":

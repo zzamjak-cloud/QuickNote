@@ -53,6 +53,11 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
 import { DatabaseBlockHistoryDialog } from "./DatabaseBlockHistoryDialog";
 import { DatabaseBlockLinkExistingDialog } from "./DatabaseBlockLinkExistingDialog";
+import { useMemberStore } from "../../store/memberStore";
+import {
+  makeInlineControlsPrefsKey,
+  useDatabaseInlineUiPrefsStore,
+} from "../../store/databaseInlineUiPrefsStore";
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
@@ -63,6 +68,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const view = rawView as ViewKind;
   const panelStateRaw = String(node.attrs.panelState ?? "{}");
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const currentMemberId = useMemberStore((s) => s.me?.memberId ?? null);
   const panelState = parseDatabasePanelStateJson(panelStateRaw);
   const isInsidePeek = useMemo(
     () => Boolean(editor?.view?.dom?.closest("[data-qn-peek-editor='true']")),
@@ -130,9 +136,27 @@ export function DatabaseBlockView(props: NodeViewProps) {
   };
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [inlineControlsCollapsed, setInlineControlsCollapsed] = useState(false);
   const [deletePhraseDraft, setDeletePhraseDraft] = useState("");
   const [dbHistoryDialogOpen, setDbHistoryDialogOpen] = useState(false);
+  const inlineControlsCollapsedByKey = useDatabaseInlineUiPrefsStore(
+    (s) => s.inlineControlsCollapsedByKey,
+  );
+  const setInlineControlsCollapsed = useDatabaseInlineUiPrefsStore(
+    (s) => s.setInlineControlsCollapsed,
+  );
+
+  const inlineControlsPrefsKey = useMemo(() => {
+    if (!databaseId) return null;
+    return makeInlineControlsPrefsKey({
+      workspaceId: currentWorkspaceId,
+      memberId: currentMemberId,
+      databaseId,
+    });
+  }, [currentWorkspaceId, currentMemberId, databaseId]);
+
+  const inlineControlsCollapsed = inlineControlsPrefsKey
+    ? (inlineControlsCollapsedByKey[inlineControlsPrefsKey] ?? false)
+    : false;
 
   const openDeleteDatabaseModal = () => {
     if (isProtectedDatabase) return;
@@ -412,7 +436,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
             panelState={panelState}
             setPanelState={setPanelState}
             visibleRowLimit={visibleRowLimit}
-            layout={layout}
           />
         );
       case "list":
@@ -457,7 +480,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   }, [databaseId, bundle, layout, panelState, setPanelState, view, visibleRowLimit]);
 
   return (
-    <NodeViewWrapper className="qn-database-block">
+    <NodeViewWrapper className="qn-database-block not-prose">
       <div
         className={shellClass}
         onMouseDown={(e) => {
@@ -501,9 +524,17 @@ export function DatabaseBlockView(props: NodeViewProps) {
                   setLinkOpen(true);
                 }}
                 inlineControlsCollapsed={inlineControlsCollapsed}
-                onToggleInlineControls={() =>
-                  setInlineControlsCollapsed((prev) => !prev)
-                }
+                onToggleInlineControls={() => {
+                  if (!databaseId) return;
+                  setInlineControlsCollapsed(
+                    {
+                      workspaceId: currentWorkspaceId,
+                      memberId: currentMemberId,
+                      databaseId,
+                    },
+                    !inlineControlsCollapsed,
+                  );
+                }}
                 onTitleDragStart={onInlineTitleDragStart}
                 onTitleDragEnd={onInlineTitleDragEnd}
               />

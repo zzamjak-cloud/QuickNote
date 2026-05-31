@@ -11,12 +11,13 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { ChevronLeft, ChevronRight, PanelRight, Plus, X, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelRight, Plus, SlidersHorizontal, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Rnd } from "react-rnd";
 import type {
   ColumnDef,
   DatabasePanelState,
   DatabaseRowView,
+  TimelineDateCardConfig,
 } from "../../../types/database";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
@@ -39,6 +40,8 @@ import {
   DatabaseCellDisplay,
 } from "../DatabaseCellDisplay";
 import { databaseCellHasDisplayValue } from "../databaseCellDisplayUtils";
+import { AppSelect } from "../../common/AppSelect";
+import { SELECT_COLOR_PRESETS } from "../selectColorPresets";
 
 type Props = {
   databaseId: string;
@@ -68,6 +71,36 @@ const LS_MONTH_KEY = "quicknote.timeline.month";
 const DRAG_ACTIVATE_PX = 3;
 const UNSCHEDULED_CARD_LEFT = 8;
 const UNSCHEDULED_CARD_WIDTH = 168;
+const DEFAULT_TIMELINE_CARD_COLOR = "#16a34a";
+const TIMELINE_CARD_COLOR_PRESETS = SELECT_COLOR_PRESETS;
+
+const makeTimelineCardId = (pageId: string, columnId: string) => `${pageId}::${columnId}`;
+
+function isValidTimelineColor(value: string | undefined): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function defaultTimelineColor(index: number): string {
+  return TIMELINE_CARD_COLOR_PRESETS[index % TIMELINE_CARD_COLOR_PRESETS.length] ?? DEFAULT_TIMELINE_CARD_COLOR;
+}
+
+function timelineCardTitle(row: DatabaseRowView, entry: TimelineDateEntry): string {
+  if (entry.titleMode === "custom") {
+    const title = entry.title.trim();
+    if (title) return title;
+    return entry.columnName;
+  }
+  return row.title || "제목 없음";
+}
+
+type TimelineDateEntry = {
+  columnId: string;
+  columnName: string;
+  titleMode: "pageTitle" | "custom";
+  title: string;
+  color: string;
+  isPrimary: boolean;
+};
 
 const fmtDate = (ts: number) => {
   const d = new Date(ts);
@@ -171,8 +204,13 @@ type TimelineBoxRect = {
 };
 
 type TimelineCardLayout = {
+  id: string;
   row: DatabaseRowView;
   pageId: string;
+  columnId: string;
+  columnName: string;
+  title: string;
+  color: string;
   start: number;
   end: number;
   left: number;
@@ -234,7 +272,7 @@ const TimelineLabelRow = memo(function TimelineLabelRow({
 export function DatabaseTimelineView({
   databaseId,
   panelState,
-  setPanelState: _setPanelState,
+  setPanelState,
   visibleRowLimit,
 }: Props) {
   const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
@@ -252,6 +290,7 @@ export function DatabaseTimelineView({
   const totalRowsHeight = rows.length * (ROW_HEIGHT + ROW_GAP);
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
+  const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const openPeek = useUiStore((s) => s.openPeek);
 
@@ -338,6 +377,7 @@ export function DatabaseTimelineView({
 
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
   const selectedCardIdsRef = useRef(selectedCardIds);
   const commitSelectedCardIds = useCallback((next: Set<string>) => {
@@ -359,30 +399,98 @@ export function DatabaseTimelineView({
   const [multiDragDeltaX, setMultiDragDeltaX] = useState(0);
   const scrollLockLeftRef = useRef<number | null>(null);
 
-  const dateCols = columns.filter((c) => c.type === "date");
-  const dateColId =
-    panelState.timelineDateColumnId ?? dateCols[0]?.id ?? null;
+  const [timelineSettingsOpen, setTimelineSettingsOpen] = useState(false);
+
+  const dateCols = useMemo(() => columns.filter((c) => c.type === "date"), [columns]);
+  const primaryDateCol = useMemo(
+    () => dateCols.find((c) => c.id === panelState.timelineDateColumnId) ?? dateCols[0] ?? null,
+    [dateCols, panelState.timelineDateColumnId],
+  );
+  const dateColId = primaryDateCol?.id ?? null;
+  const hasExplicitTimelineCards = useMemo(
+    () => dateCols.some((c) => c.config?.timelineCard?.enabled === true),
+    [dateCols],
+  );
+  const timelineDateEntries = useMemo<TimelineDateEntry[]>(() => {
+    const activeColumns = hasExplicitTimelineCards
+      ? dateCols.filter((c) => c.config?.timelineCard?.enabled === true)
+      : primaryDateCol
+        ? [primaryDateCol]
+        : [];
+    return activeColumns.map((column, index) => {
+      const config = column.config?.timelineCard;
+      return {
+        columnId: column.id,
+        columnName: column.name,
+        titleMode: config?.titleMode === "custom" ? "custom" : "pageTitle",
+        title: typeof config?.title === "string" ? config.title : "",
+        color: isValidTimelineColor(config?.color) ? config.color : defaultTimelineColor(index),
+        isPrimary: column.id === dateColId || (!dateColId && index === 0),
+      };
+    });
+  }, [dateColId, dateCols, hasExplicitTimelineCards, primaryDateCol]);
+
+  const activeTimelineColumnIds = useMemo(
+    () => new Set(timelineDateEntries.map((entry) => entry.columnId)),
+    [timelineDateEntries],
+  );
+
+  const timelineDateOptions = useMemo(
+    () => dateCols.map((column) => ({ value: column.id, label: column.name })),
+    [dateCols],
+  );
+
+  const updateTimelineCardConfig = useCallback(
+    (column: ColumnDef, patch: TimelineDateCardConfig) => {
+      updateColumn(databaseId, column.id, {
+        config: {
+          ...column.config,
+          timelineCard: {
+            ...(column.config?.timelineCard ?? {}),
+            ...patch,
+          },
+        },
+      });
+    },
+    [databaseId, updateColumn],
+  );
+
+  const setTimelineColumnEnabled = useCallback(
+    (column: ColumnDef, enabled: boolean) => {
+      if (enabled && !hasExplicitTimelineCards && primaryDateCol && primaryDateCol.id !== column.id) {
+        updateTimelineCardConfig(primaryDateCol, { enabled: true });
+      }
+      updateTimelineCardConfig(column, { enabled });
+    },
+    [hasExplicitTimelineCards, primaryDateCol, updateTimelineCardConfig],
+  );
 
   const labelCols = useMemo(() => {
     const titleCol = columns.find((c) => c.type === "title");
     const v = getVisibleOrderedColumns(columns, "timeline", panelState.viewConfigs);
+    const excludeColumnIds = new Set([
+      ...Array.from(activeTimelineColumnIds),
+      ...(dateColId ? [dateColId] : []),
+    ]);
     if (panelState.viewConfigs?.timeline?.visibleColumnIds) {
-      return v.filter((c) => c.id !== titleCol?.id && c.id !== dateColId);
+      return v.filter((c) => c.id !== titleCol?.id && !excludeColumnIds.has(c.id));
     }
     return columns
-      .filter((c) => c.id !== titleCol?.id && c.id !== dateColId)
+      .filter((c) => c.id !== titleCol?.id && !excludeColumnIds.has(c.id))
       .slice(0, 1);
-  }, [columns, panelState.viewConfigs, dateColId]);
+  }, [activeTimelineColumnIds, columns, panelState.viewConfigs, dateColId]);
 
   const dateRanges = useMemo(() => {
-    if (!dateColId) return [] as { row: DatabaseRowView; start: number; end: number }[];
+    if (timelineDateEntries.length === 0) return [] as { row: DatabaseRowView; start: number; end: number }[];
     const out: { row: DatabaseRowView; start: number; end: number }[] = [];
     for (const r of rows) {
-      const range = getRange(r.cells[dateColId]);
-      if (range) out.push({ row: r, ...range });
+      for (const entry of timelineDateEntries) {
+        const range = getRange(r.cells[entry.columnId]);
+        if (range) out.push({ row: r, ...range });
+      }
     }
     return out;
-  }, [rows, dateColId]);
+  }, [rows, timelineDateEntries]);
 
   const customRange = useMemo(() => {
     const start = parseDateInput(rangeStartInput);
@@ -550,10 +658,11 @@ export function DatabaseTimelineView({
       : dayToX(startOfDay(Date.now()));
 
   const cardLayouts = useMemo<TimelineCardLayout[]>(() => {
-    if (!dateColId) return [];
+    if (timelineDateEntries.length === 0) return [];
     if (usesFitAxis && (!Number.isFinite(pxPerDay) || pxPerDay <= 0)) return [];
     const layouts: TimelineCardLayout[] = [];
     const trackWidth = usesScrollableAxis ? axis.totalW : trackPxWidth;
+    const showUnscheduledCards = timelineDateEntries.length === 1;
     const unscheduledWidth = Math.max(
       96,
       Math.min(
@@ -565,58 +674,72 @@ export function DatabaseTimelineView({
     );
     for (const [localIdx, row] of renderedRows.entries()) {
       const rIdx = virtualRows.start + localIdx;
-      const range = getRange(row.cells[dateColId]);
-      if (!range) {
-        const dateLabel = "날짜 없음";
+      for (const entry of timelineDateEntries) {
+        const cardTitle = timelineCardTitle(row, entry);
+        const range = getRange(row.cells[entry.columnId]);
+        if (!range) {
+          if (!showUnscheduledCards || !entry.isPrimary) continue;
+          const dateLabel = "날짜 없음";
+          layouts.push({
+            id: makeTimelineCardId(row.pageId, entry.columnId),
+            row,
+            pageId: row.pageId,
+            columnId: entry.columnId,
+            columnName: entry.columnName,
+            title: cardTitle,
+            color: entry.color,
+            start: axis.minT,
+            end: axis.minT,
+            left: UNSCHEDULED_CARD_LEFT,
+            width: unscheduledWidth,
+            top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
+            dateLabel,
+            tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
+            isUnscheduled: true,
+          });
+          continue;
+        }
+        let visStart = Math.max(range.start, axis.minT);
+        let visEnd = Math.min(range.end, axis.maxT);
+        if (visEnd < axis.minT || visStart > axis.maxT) continue;
+        if (isWeekAxis) {
+          const clamped = clampToWeekday(visStart, visEnd);
+          if (!clamped) continue;
+          visStart = clamped.start;
+          visEnd = clamped.end;
+        }
+        const left = dayToX(visStart);
+        const width = Math.max(dayWidth(visStart, visEnd), 24);
+        const dateLabel = `${fmtDate(range.start)} ~ ${fmtDate(range.end)}`;
         layouts.push({
+          id: makeTimelineCardId(row.pageId, entry.columnId),
           row,
           pageId: row.pageId,
-          start: axis.minT,
-          end: axis.minT,
-          left: UNSCHEDULED_CARD_LEFT,
-          width: unscheduledWidth,
+          columnId: entry.columnId,
+          columnName: entry.columnName,
+          title: cardTitle,
+          color: entry.color,
+          start: visStart,
+          end: visEnd,
+          left,
+          width,
           top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
           dateLabel,
-          tooltipText: `${row.title || "제목 없음"} (${dateLabel})`,
-          isUnscheduled: true,
+          tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
         });
-        continue;
       }
-      let visStart = Math.max(range.start, axis.minT);
-      let visEnd = Math.min(range.end, axis.maxT);
-      if (visEnd < axis.minT || visStart > axis.maxT) continue;
-      if (isWeekAxis) {
-        const clamped = clampToWeekday(visStart, visEnd);
-        if (!clamped) continue;
-        visStart = clamped.start;
-        visEnd = clamped.end;
-      }
-      const left = dayToX(visStart);
-      const width = Math.max(dayWidth(visStart, visEnd), 24);
-      const dateLabel = `${fmtDate(range.start)} ~ ${fmtDate(range.end)}`;
-      layouts.push({
-        row,
-        pageId: row.pageId,
-        start: visStart,
-        end: visEnd,
-        left,
-        width,
-        top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
-        dateLabel,
-        tooltipText: `${row.title || "제목 없음"} (${dateLabel})`,
-      });
     }
     return layouts;
   }, [
     axis.maxT,
     axis.minT,
     axis.totalW,
-    dateColId,
     dayToX,
     dayWidth,
     isWeekAxis,
     pxPerDay,
     renderedRows,
+    timelineDateEntries,
     trackPxWidth,
     usesFitAxis,
     usesScrollableAxis,
@@ -643,7 +766,7 @@ export function DatabaseTimelineView({
             card.top + ROW_HEIGHT - 4,
           )
         ) {
-          next.add(card.pageId);
+          next.add(card.id);
         }
       }
       return next;
@@ -656,10 +779,19 @@ export function DatabaseTimelineView({
     if (selectedPageId && !pageIds.has(selectedPageId)) {
       setSelectedPageId(null);
     }
+    const validCardIds = new Set<string>();
+    for (const row of rows) {
+      for (const entry of timelineDateEntries) {
+        validCardIds.add(makeTimelineCardId(row.pageId, entry.columnId));
+      }
+    }
+    if (selectedCardId && !validCardIds.has(selectedCardId)) {
+      setSelectedCardId(null);
+    }
     commitSelectedCardIds(
-      new Set(Array.from(selectedCardIdsRef.current).filter((id) => pageIds.has(id))),
+      new Set(Array.from(selectedCardIdsRef.current).filter((id) => validCardIds.has(id))),
     );
-  }, [commitSelectedCardIds, rows, selectedPageId]);
+  }, [commitSelectedCardIds, rows, selectedCardId, selectedPageId, timelineDateEntries]);
 
   const scrollToToday = useCallback(() => {
     if (isMonthAxis) {
@@ -672,21 +804,31 @@ export function DatabaseTimelineView({
   }, [isMonthAxis, todayX]);
 
   const focusTimelineCard = useCallback((pageId: string) => {
+    const row = rows.find((item) => item.pageId === pageId) ?? null;
+    const targetEntry =
+      row
+        ? timelineDateEntries.find((entry) => getRange(row.cells[entry.columnId])) ??
+          timelineDateEntries.find((entry) => entry.isPrimary) ??
+          timelineDateEntries[0] ??
+          null
+        : null;
+    const targetRange = row && targetEntry ? getRange(row.cells[targetEntry.columnId]) : null;
     setSelectedPageId(pageId);
+    setSelectedCardId(targetEntry ? makeTimelineCardId(pageId, targetEntry.columnId) : null);
     commitSelectedCardIds(new Set());
     // 월 축은 visibleMonthStart 가 속한 달의 항목만 렌더한다.
     // 다른 달 항목을 클릭하면 해당 항목 시작일의 달로 먼저 전환해야 카드가 보인다.
     if (isMonthAxis) {
-      const row = dateColId ? rows.find((item) => item.pageId === pageId) : null;
-      const range = row && dateColId ? getRange(row.cells[dateColId]) : null;
-      if (range) {
-        const targetMonth = startOfMonth(range.start);
+      if (targetRange) {
+        const targetMonth = startOfMonth(targetRange.start);
         setVisibleMonthStart((prev) => (prev === targetMonth ? prev : targetMonth));
       }
       return;
     }
     if (!usesScrollableAxis) return;
-    const card = cardLayouts.find((item) => item.pageId === pageId);
+    const card = targetEntry
+      ? cardLayouts.find((item) => item.id === makeTimelineCardId(pageId, targetEntry.columnId))
+      : cardLayouts.find((item) => item.pageId === pageId);
     const el = scrollContainerRef.current;
     if (!card || !el) return;
     const visibleTrackWidth = Math.max(1, el.clientWidth - sideLabelWidth);
@@ -695,37 +837,37 @@ export function DatabaseTimelineView({
       card.left - (visibleTrackWidth - card.width) / 2,
     );
     el.scrollTo({ left: nextLeft, behavior: "smooth" });
-  }, [cardLayouts, commitSelectedCardIds, dateColId, isMonthAxis, rows, sideLabelWidth, usesScrollableAxis]);
+  }, [cardLayouts, commitSelectedCardIds, isMonthAxis, rows, sideLabelWidth, timelineDateEntries, usesScrollableAxis]);
 
   const commitRange = useCallback(
-    (pageId: string, start: number, end: number) => {
-      if (!dateColId) return;
-      updateCell(databaseId, pageId, dateColId, {
+    (card: TimelineCardLayout, start: number, end: number) => {
+      updateCell(databaseId, card.pageId, card.columnId, {
         start: toDateIso(start),
         end: toDateIso(end),
       });
     },
-    [databaseId, dateColId, updateCell],
+    [databaseId, updateCell],
   );
 
   const moveCardsByDays = useCallback(
-    (pageIds: Iterable<string>, deltaDays: number) => {
-      if (!dateColId || deltaDays === 0) return;
+    (cardIds: Iterable<string>, deltaDays: number) => {
+      if (deltaDays === 0) return;
       const deltaMs = deltaDays * DAY_MS;
-      for (const pageId of pageIds) {
-        const row = rows.find((item) => item.pageId === pageId);
-        if (!row) continue;
-        const range = getRange(row.cells[dateColId]);
+      for (const cardId of cardIds) {
+        const card = cardLayouts.find((item) => item.id === cardId);
+        if (!card || card.isUnscheduled) continue;
+        const range = getRange(card.row.cells[card.columnId]);
         if (!range) continue;
-        commitRange(pageId, range.start + deltaMs, range.end + deltaMs);
+        commitRange(card, range.start + deltaMs, range.end + deltaMs);
       }
     },
-    [commitRange, dateColId, rows],
+    [cardLayouts, commitRange],
   );
 
-  const selectCard = useCallback((pageId: string) => {
-    setSelectedPageId(pageId);
-    if (selectedCardIdsRef.current.has(pageId)) return;
+  const selectCard = useCallback((card: TimelineCardLayout) => {
+    setSelectedPageId(card.pageId);
+    setSelectedCardId(card.id);
+    if (selectedCardIdsRef.current.has(card.id)) return;
     commitSelectedCardIds(new Set());
   }, [commitSelectedCardIds]);
 
@@ -786,6 +928,7 @@ export function DatabaseTimelineView({
       setSelectionRect(next);
       commitSelectedCardIds(new Set());
       setSelectedPageId(null);
+      setSelectedCardId(null);
       setIsBoxSelecting(true);
     },
     [commitSelectedCardIds, pointFromEvent],
@@ -839,6 +982,15 @@ export function DatabaseTimelineView({
     if (el.scrollLeft !== locked) el.scrollLeft = locked;
   }, []);
 
+  const selectedMultiPageIds = useMemo(() => {
+    const pageIds = new Set<string>();
+    if (selectedCardIds.size === 0) return pageIds;
+    for (const card of cardLayouts) {
+      if (selectedCardIds.has(card.id)) pageIds.add(card.pageId);
+    }
+    return pageIds;
+  }, [cardLayouts, selectedCardIds]);
+
   if (!bundle) return null;
 
   return (
@@ -862,6 +1014,39 @@ export function DatabaseTimelineView({
             </button>
           ))}
         </div>
+        {dateCols.length > 0 && (
+          <div className="inline-flex items-center gap-1.5">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">날짜</span>
+            <AppSelect
+              value={dateColId ?? ""}
+              onChange={(next) => {
+                setPanelState({ timelineDateColumnId: next || null });
+                setSelectedPageId(null);
+                setSelectedCardId(null);
+                commitSelectedCardIds(new Set());
+              }}
+              options={timelineDateOptions}
+              ariaLabel="타임라인 기준 날짜"
+              className="w-36"
+              buttonClassName="h-7 py-0 text-xs shadow-none"
+              menuClassName="max-h-64 overflow-y-auto"
+              portal
+            />
+            <button
+              type="button"
+              onClick={() => setTimelineSettingsOpen((open) => !open)}
+              className={[
+                "flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+                timelineSettingsOpen ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100" : "",
+              ].join(" ")}
+              title="타임라인 날짜 카드 설정"
+              aria-label="타임라인 날짜 카드 설정"
+              aria-pressed={timelineSettingsOpen}
+            >
+              <SlidersHorizontal size={14} />
+            </button>
+          </div>
+        )}
         {isMonthAxis && (
           <div className="inline-flex items-center gap-1">
             <button
@@ -956,6 +1141,82 @@ export function DatabaseTimelineView({
           </>
         )}
       </div>
+
+      {timelineSettingsOpen && dateCols.length > 0 && (
+        <div className="mb-2 rounded-md border border-zinc-200 bg-zinc-50/70 p-2 text-xs dark:border-zinc-700 dark:bg-zinc-900/60">
+          <div className="grid gap-1.5">
+            {dateCols.map((column, index) => {
+              const config = column.config?.timelineCard;
+              const enabled = hasExplicitTimelineCards
+                ? config?.enabled === true
+                : column.id === dateColId;
+              const customTitle = config?.titleMode === "custom";
+              const color = isValidTimelineColor(config?.color)
+                ? config.color
+                : defaultTimelineColor(index);
+              return (
+                <div
+                  key={column.id}
+                  className="grid grid-cols-1 items-center gap-2 rounded bg-white px-2 py-1.5 sm:grid-cols-[minmax(7rem,1fr)_auto_minmax(9rem,14rem)_auto] dark:bg-zinc-950"
+                >
+                  <label className="flex min-w-0 items-center gap-2 text-zinc-700 dark:text-zinc-200">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => setTimelineColumnEnabled(column, event.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 dark:border-zinc-600"
+                    />
+                    <span className="truncate">{column.name}</span>
+                  </label>
+                  <label className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
+                    <input
+                      type="checkbox"
+                      checked={customTitle}
+                      onChange={(event) => {
+                        updateTimelineCardConfig(column, {
+                          titleMode: event.target.checked ? "custom" : "pageTitle",
+                          title: event.target.checked ? (config?.title || column.name) : config?.title,
+                        });
+                      }}
+                      className="h-3.5 w-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 dark:border-zinc-600"
+                    />
+                    별도 제목
+                  </label>
+                  <input
+                    type="text"
+                    value={config?.title ?? ""}
+                    disabled={!customTitle}
+                    onChange={(event) => updateTimelineCardConfig(column, {
+                      titleMode: "custom",
+                      title: event.target.value,
+                    })}
+                    placeholder="페이지 제목"
+                    className="h-7 min-w-0 rounded border border-zinc-200 bg-white px-2 text-xs text-zinc-700 outline-none focus:border-blue-400 disabled:bg-zinc-50 disabled:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:disabled:bg-zinc-900"
+                  />
+                  <div className="flex items-center gap-1">
+                    {TIMELINE_CARD_COLOR_PRESETS.map((preset) => (
+                      <button
+                        key={`${column.id}:${preset}`}
+                        type="button"
+                        onClick={() => updateTimelineCardConfig(column, { color: preset })}
+                        className={[
+                          "h-4 w-4 rounded-full border transition-transform hover:scale-110",
+                          color === preset
+                            ? "border-zinc-950 ring-2 ring-zinc-950/20 dark:border-white dark:ring-white/25"
+                            : "border-white/80 dark:border-zinc-700",
+                        ].join(" ")}
+                        style={{ backgroundColor: preset }}
+                        title={preset}
+                        aria-label={`${column.name} 카드 색상 ${preset}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {!dateColId ? (
         <p className="py-6 text-center text-xs text-zinc-500">
@@ -1062,7 +1323,7 @@ export function DatabaseTimelineView({
                   <TimelineLabelRow
                     key={row.pageId}
                     row={row}
-                    isSelected={selectedPageId === row.pageId || selectedCardIds.has(row.pageId)}
+                    isSelected={selectedPageId === row.pageId || selectedMultiPageIds.has(row.pageId)}
                     onFocus={focusTimelineCard}
                     openPeek={openPeek}
                   />
@@ -1132,38 +1393,38 @@ export function DatabaseTimelineView({
                 )}
 
                 {/* 행별 트랙 배경 */}
-                {renderedRows.map((row, localIdx) => {
-                  const rIdx = virtualRows.start + localIdx;
-                  return (
-                  <div
-                    key={`track:${row.pageId}`}
-                    className="absolute left-0 right-0 border-b border-zinc-100 dark:border-zinc-800"
-                    style={{
-                      top: rIdx * (ROW_HEIGHT + ROW_GAP),
-                      height: ROW_HEIGHT + ROW_GAP,
-                    }}
-                  />
-                  );
-                })}
+                  {renderedRows.map((row, localIdx) => {
+                    const rIdx = virtualRows.start + localIdx;
+                    return (
+                      <div
+                        key={`track:${row.pageId}`}
+                        className="absolute left-0 right-0 border-b border-zinc-100 dark:border-zinc-800"
+                        style={{
+                          top: rIdx * (ROW_HEIGHT + ROW_GAP),
+                          height: ROW_HEIGHT + ROW_GAP,
+                        }}
+                      />
+                    );
+                  })}
 
                 {cardLayouts.map((card) => (
                   <DatabaseTimelineCard
-                    key={card.pageId}
+                    key={card.id}
                     card={card}
                     labelCols={labelCols}
                     axisMinT={axis.minT}
                     pxPerDay={pxPerDay}
-                    selected={selectedPageId === card.pageId}
-                    multiSelected={selectedCardIds.has(card.pageId)}
+                    selected={selectedCardId === card.id}
+                    multiSelected={selectedCardIds.has(card.id)}
                     multiDragDeltaX={
-                      isMultiDragging && selectedCardIds.has(card.pageId)
+                      isMultiDragging && selectedCardIds.has(card.id)
                         ? multiDragDeltaX
                         : null
                     }
                     onSelect={selectCard}
                     onOpenPeek={openPeek}
-                    onMove={(pageId, deltaDays) => moveCardsByDays([pageId], deltaDays)}
-                    onResize={(pageId, start, end) => commitRange(pageId, start, end)}
+                    onMove={(targetCard, deltaDays) => moveCardsByDays([targetCard.id], deltaDays)}
+                    onResize={(targetCard, start, end) => commitRange(targetCard, start, end)}
                     onMultiDragStart={() => {
                       setIsMultiDragging(true);
                       setMultiDragDeltaX(0);
@@ -1207,18 +1468,21 @@ export function DatabaseTimelineView({
         title="행 삭제"
         message="이 행을 삭제할까요? (연결된 페이지도 삭제됩니다)"
         confirmLabel="삭제"
-        danger
-        onCancel={() => setRowDeletePageId(null)}
-        onConfirm={() => {
-          if (rowDeletePageId) {
-            deleteRow(databaseId, rowDeletePageId);
-            setSelectedPageId(null);
-            const next = new Set(selectedCardIdsRef.current);
-            next.delete(rowDeletePageId);
-            commitSelectedCardIds(next);
-          }
-          setRowDeletePageId(null);
-        }}
+          danger
+          onCancel={() => setRowDeletePageId(null)}
+          onConfirm={() => {
+            if (rowDeletePageId) {
+              deleteRow(databaseId, rowDeletePageId);
+              setSelectedPageId(null);
+              setSelectedCardId(null);
+              const next = new Set(selectedCardIdsRef.current);
+              for (const entry of timelineDateEntries) {
+                next.delete(makeTimelineCardId(rowDeletePageId, entry.columnId));
+              }
+              commitSelectedCardIds(next);
+            }
+            setRowDeletePageId(null);
+          }}
       />
     </div>
   );
@@ -1249,10 +1513,10 @@ function DatabaseTimelineCard({
   selected: boolean;
   multiSelected: boolean;
   multiDragDeltaX: number | null;
-  onSelect: (pageId: string) => void;
+  onSelect: (card: TimelineCardLayout) => void;
   onOpenPeek: (pageId: string) => void;
-  onMove: (pageId: string, deltaDays: number) => void;
-  onResize: (pageId: string, start: number, end: number) => void;
+  onMove: (card: TimelineCardLayout, deltaDays: number) => void;
+  onResize: (card: TimelineCardLayout, start: number, end: number) => void;
   onMultiDragStart: () => void;
   onMultiDragMove: (deltaX: number) => void;
   onMultiDragEnd: (deltaDays: number) => void;
@@ -1279,13 +1543,13 @@ function DatabaseTimelineCard({
     : "font-medium text-white";
   const dateClassName = card.isUnscheduled
     ? "shrink-0 text-xs text-zinc-400 dark:text-zinc-500"
-    : "shrink-0 text-xs text-green-200";
+    : "shrink-0 text-xs text-white/80";
   const labelTextClassName = card.isUnscheduled
     ? "text-zinc-500 dark:text-zinc-400"
-    : "text-green-100";
+    : "text-white/80";
   const separatorClassName = card.isUnscheduled
     ? "shrink-0 text-zinc-300 dark:text-zinc-600"
-    : "shrink-0 text-green-200";
+    : "shrink-0 text-white/60";
 
   return (
     <Rnd
@@ -1330,14 +1594,14 @@ function DatabaseTimelineCard({
       }}
       onDragStop={(_event, data) => {
         if (!dragMovedRef.current) {
-          onSelect(card.pageId);
+          onSelect(card);
           return;
         }
         if (card.isUnscheduled) {
           const startIdx = Math.max(0, Math.round(data.x / safePxPerDay));
           const start = axisMinT + startIdx * DAY_MS;
           setLocalX(card.left);
-          onResize(card.pageId, start, start);
+          onResize(card, start, start);
           return;
         }
         const deltaDays = Math.round((data.x - card.left) / safePxPerDay);
@@ -1348,7 +1612,7 @@ function DatabaseTimelineCard({
             setLocalX(card.left);
             return;
           }
-          onMove(card.pageId, deltaDays);
+          onMove(card, deltaDays);
         }
       }}
       onResizeStart={() => {
@@ -1375,7 +1639,7 @@ function DatabaseTimelineCard({
         const nextEnd = axisMinT + nextEndIdx * DAY_MS;
         setLocalX(Math.round(nextStartIdx * safePxPerDay));
         setLocalW(Math.max(safePxPerDay, (nextEndIdx - nextStartIdx + 1) * safePxPerDay));
-        onResize(card.pageId, nextStart, nextEnd);
+        onResize(card, nextStart, nextEnd);
       }}
       style={{ position: "absolute" }}
       className={[
@@ -1390,17 +1654,17 @@ function DatabaseTimelineCard({
             : "border-transparent hover:border-white/40",
       ].join(" ")}
     >
-          <div
-            className={[
-              "relative h-full w-full overflow-hidden",
-              "cursor-move",
-              card.isUnscheduled ? "bg-white dark:bg-zinc-950" : "",
-            ].join(" ")}
-        style={card.isUnscheduled ? undefined : { background: "#16a34a" }}
-        onMouseDown={() => onSelect(card.pageId)}
+      <div
+        className={[
+          "relative h-full w-full overflow-hidden",
+          "cursor-move",
+          card.isUnscheduled ? "bg-white dark:bg-zinc-950" : "",
+        ].join(" ")}
+        style={card.isUnscheduled ? undefined : { background: card.color }}
+        onMouseDown={() => onSelect(card)}
         onClick={(e) => {
           e.stopPropagation();
-          onSelect(card.pageId);
+          onSelect(card);
         }}
         onDoubleClick={(e) => {
           e.stopPropagation();
@@ -1408,7 +1672,7 @@ function DatabaseTimelineCard({
         }}
       >
         <div className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm">
-          <span className={titleClassName}>{card.row.title || "제목 없음"}</span>
+          <span className={titleClassName}>{card.title}</span>
           <span className={dateClassName}>{card.dateLabel}</span>
           {labelCols.some((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c) || c.config?.pageLinkMirrorColumnId) && (
             <span className="ml-0.5 flex min-w-0 items-center gap-1 overflow-hidden text-xs">

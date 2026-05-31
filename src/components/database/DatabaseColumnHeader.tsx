@@ -122,7 +122,7 @@ export function DatabaseColumnHeader({
       }}
       className={[
         // sticky thead 시 본문이 비치지 않도록 bg를 셀에 직접 부여.
-        "group relative whitespace-nowrap border-b border-zinc-200 bg-white px-2 py-1.5 font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-400",
+        "group sticky top-0 z-[6] whitespace-nowrap border-b border-zinc-100 bg-white px-2 py-1.5 font-medium text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400",
         // 드롭 대상 — 파란 ring-inset (점선 제거)
         highlightDrop !== null ? "ring-2 ring-inset ring-blue-500" : "",
       ].join(" ")}

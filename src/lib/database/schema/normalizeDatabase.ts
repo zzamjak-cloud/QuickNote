@@ -8,6 +8,7 @@ import type {
   ProgressSourceConfig,
   SearchFilterRule,
   SelectOption,
+  TimelineDateCardConfig,
 } from "../../../types/database";
 import { parseDatabasePanelStateJson } from "../../schemas/panelStateSchema";
 
@@ -166,6 +167,32 @@ function normalizeColumnConfig(value: unknown): ColumnConfig | undefined {
 
   delete config.dateShowEnd;
   if (typeof value.dateShowEnd === "boolean") config.dateShowEnd = value.dateShowEnd;
+
+  delete config.timelineCard;
+  if (isPlainObject(value.timelineCard)) {
+    const timelineCard: TimelineDateCardConfig = {};
+    if (typeof value.timelineCard.enabled === "boolean") {
+      timelineCard.enabled = value.timelineCard.enabled;
+    }
+    if (
+      value.timelineCard.titleMode === "pageTitle" ||
+      value.timelineCard.titleMode === "custom"
+    ) {
+      timelineCard.titleMode = value.timelineCard.titleMode;
+    }
+    if (typeof value.timelineCard.title === "string") {
+      timelineCard.title = value.timelineCard.title;
+    }
+    if (
+      typeof value.timelineCard.color === "string" &&
+      /^#[0-9a-fA-F]{6}$/.test(value.timelineCard.color)
+    ) {
+      timelineCard.color = value.timelineCard.color;
+    }
+    if (Object.keys(timelineCard).length > 0) {
+      config.timelineCard = timelineCard;
+    }
+  }
 
   delete config.wrapText;
   if (typeof value.wrapText === "boolean") config.wrapText = value.wrapText;
