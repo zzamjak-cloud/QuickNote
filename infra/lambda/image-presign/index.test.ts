@@ -5,6 +5,10 @@ describe("image-presign stable asset id", () => {
     vi.resetModules();
     process.env.IMAGES_BUCKET = "bucket";
     process.env.IMAGE_ASSET_TABLE = "assets";
+    process.env.MEMBERS_TABLE = "members";
+    process.env.MEMBER_TEAMS_TABLE = "member-teams";
+    process.env.WORKSPACE_ACCESS_TABLE = "workspace-access";
+    process.env.ASSET_USAGE_TABLE = "asset-usage";
   });
 
   it("같은 사용자와 파일 지문이면 같은 업로드 ID를 만든다", async () => {
