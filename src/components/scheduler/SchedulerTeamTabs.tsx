@@ -162,13 +162,6 @@ export function SchedulerTeamTabs() {
       reorderedVisibleIds,
     );
     const nextUpdatedAt = Date.now();
-    // [QN-MEMBER-ORDER] 보내는 쪽: 드래그로 순서 변경 발생
-    console.info("[QN-MEMBER-ORDER][send] drag-end", {
-      visibleBefore: memberIds,
-      reorderedVisible: reorderedVisibleIds,
-      mergedOrder: nextOrder,
-      updatedAt: nextUpdatedAt,
-    });
     patchDatabasePanelState(LC_SCHEDULER_DATABASE_ID, {
       schedulerMemberOrder: nextOrder,
       schedulerMemberOrderUpdatedAt: nextUpdatedAt,
