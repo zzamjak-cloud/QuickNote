@@ -65,6 +65,13 @@ export function parseDatabasePanelStateJson(raw: string): DatabasePanelState {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
+    // 이중 인코딩 방어: AWSJSON 필드가 이미 stringify 된 값을 다시 stringify 해 저장/전송된 경우
+    // (구독 onDatabaseChanged 페이로드에서 흔함) 객체가 나올 때까지 한 겹씩 더 벗긴다(상한 5회).
+    // columns/presets 의 parseSerializedArray 와 동일한 방어 — 이게 없어서 구독 수신 시
+    // panelState 가 통째로 빈 값으로 붕괴돼 구성원 순서·표시설정 실시간 동기화가 누락됐다.
+    for (let depth = 0; depth < 5 && typeof parsed === "string"; depth += 1) {
+      parsed = JSON.parse(parsed);
+    }
   } catch {
     return emptyPanelState();
   }

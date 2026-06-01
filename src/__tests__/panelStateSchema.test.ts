@@ -33,6 +33,20 @@ describe("parseDatabasePanelStateJson", () => {
     expect(out.schedulerMemberOrderUpdatedAt).toBe(1234);
   });
 
+  it("이중 인코딩(AWSJSON 구독 페이로드)된 panelState 도 복구한다", () => {
+    // 서버/AppSync 가 이미 stringify 된 panelState 를 다시 stringify 해 내려보내는 경우.
+    const inner = JSON.stringify({
+      schedulerMemberOrder: ["m2", "m1"],
+      schedulerMemberOrderUpdatedAt: 1780312873975,
+      searchQuery: "hi",
+    });
+    const doubleEncoded = JSON.stringify(inner);
+    const out = parseDatabasePanelStateJson(doubleEncoded);
+    expect(out.schedulerMemberOrder).toEqual(["m2", "m1"]);
+    expect(out.schedulerMemberOrderUpdatedAt).toBe(1780312873975);
+    expect(out.searchQuery).toBe("hi");
+  });
+
   it("손상 JSON이면 기본 패널 상태", () => {
     expect(parseDatabasePanelStateJson("")).toEqual(emptyPanelState());
     expect(parseDatabasePanelStateJson("{")).toEqual(emptyPanelState());
