@@ -27,8 +27,15 @@ import { makeDeferredStorage } from "../lib/storage/index";
 
 const deferredSchedulerStorage = makeDeferredStorage();
 import { fetchDatabasesByWorkspace, fetchPagesByWorkspace } from "../lib/sync/bootstrap";
+import type { GqlSchedule } from "../lib/sync/graphql/operations";
 import { getSyncEngine } from "../lib/sync/runtime";
-import { reconcileLCSchedulerRemoteSnapshot } from "../lib/sync/storeApply";
+import { applyRemotePagesToStore, reconcileLCSchedulerRemoteSnapshot } from "../lib/sync/storeApply";
+import { extractScheduleRangeSourcePages, fetchScheduleRange } from "../lib/sync/scheduleRangeApi";
+import {
+  readSchedulerReconcileWatermark,
+  resolveNextSchedulerReconcileWatermark,
+  writeSchedulerReconcileWatermark,
+} from "../lib/scheduler/schedulerReconcileCache";
 
 export type Schedule = {
   id: string;
@@ -109,6 +116,41 @@ function projectSchedulesForStore(workspaceId: string, from?: string, to?: strin
 function projectSchedulesForPage(workspaceId: string, pageId: string, from?: string, to?: string): Schedule[] {
   const projected = projectLCSchedulerPageSchedules(workspaceId, pageId, useMemberStore.getState().members);
   return filterSchedulesByRange(projected, from, to);
+}
+
+function gqlScheduleToSchedule(schedule: GqlSchedule): Schedule {
+  return {
+    id: schedule.id,
+    workspaceId: schedule.workspaceId,
+    title: schedule.title,
+    comment: schedule.comment ?? null,
+    link: schedule.link ?? null,
+    kind: schedule.kind === "leave" ? "leave" : "schedule",
+    projectId: schedule.projectId ?? null,
+    teamId: schedule.teamId ?? null,
+    organizationId: schedule.organizationId ?? null,
+    startAt: schedule.startAt,
+    endAt: schedule.endAt,
+    assigneeId: schedule.assigneeId ?? null,
+    color: schedule.color ?? null,
+    textColor: schedule.textColor ?? null,
+    rowIndex: schedule.rowIndex ?? 0,
+    createdByMemberId: schedule.createdByMemberId,
+    createdAt: schedule.createdAt,
+    updatedAt: schedule.updatedAt,
+  };
+}
+
+function mergeSchedulesById(primary: Schedule[], secondary: Schedule[]): Schedule[] {
+  if (secondary.length === 0) return primary;
+  const seen = new Set(primary.map((schedule) => schedule.id));
+  const merged = [...primary];
+  for (const schedule of secondary) {
+    if (seen.has(schedule.id)) continue;
+    seen.add(schedule.id);
+    merged.push(schedule);
+  }
+  return merged;
 }
 
 function sameSchedule(a: Schedule, b: Schedule): boolean {
@@ -249,16 +291,25 @@ async function reconcileSchedulerWorkspaceFromServer(workspaceId: string): Promi
     schedulerRemoteReconcileInFlight = (async () => {
       const engine = await getSyncEngine();
       await engine.flush();
+      const updatedAfter = await readSchedulerReconcileWatermark(workspaceId);
+      if (!updatedAfter) {
+        await writeSchedulerReconcileWatermark(workspaceId, new Date().toISOString());
+        return;
+      }
       const protectedPageIds = await getPendingLCSchedulerPageIds();
       const [pages, databases] = await Promise.all([
-        fetchPagesByWorkspace(LC_SCHEDULER_WORKSPACE_ID),
-        fetchDatabasesByWorkspace(LC_SCHEDULER_WORKSPACE_ID),
+        fetchPagesByWorkspace(LC_SCHEDULER_WORKSPACE_ID, updatedAfter),
+        fetchDatabasesByWorkspace(LC_SCHEDULER_WORKSPACE_ID, updatedAfter),
       ]);
       const { prunedPageIds } = reconcileLCSchedulerRemoteSnapshot({
         pages,
         databases,
         protectedPageIds,
       });
+      const nextWatermark = resolveNextSchedulerReconcileWatermark(updatedAfter, pages, databases);
+      if (nextWatermark && nextWatermark !== updatedAfter) {
+        await writeSchedulerReconcileWatermark(workspaceId, nextWatermark);
+      }
       if (prunedPageIds.length > 0) {
         console.warn("[scheduler] stale local cards pruned from server snapshot", {
           count: prunedPageIds.length,
@@ -312,8 +363,31 @@ export const useSchedulerStore = create<SchedulerStore>()(
           ensureLCMilestoneDatabase(workspaceId),
           ensureLCFeatureDatabase(workspaceId),
         ]);
+        const localProjected = projectSchedulesForStore(workspaceId, from, to);
+        let remoteProjected: Schedule[] | null = null;
+        if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
+          try {
+            const rangeSchedules = await fetchScheduleRange({ workspaceId, from, to });
+            const sourcePages = extractScheduleRangeSourcePages(rangeSchedules);
+            applyRemotePagesToStore(sourcePages);
+            remoteProjected = rangeSchedules.map(gqlScheduleToSchedule);
+          } catch (error) {
+            console.warn("[scheduler] 범위 일정 조회 실패", error);
+          }
+        }
+        const pendingPageIds = await getPendingLCSchedulerPageIds();
+        const pendingSchedules = pendingPageIds.size > 0
+          ? localProjected.filter((schedule) => {
+              const pageId = parseScheduleInstanceId(schedule.id)?.pageId;
+              return Boolean(pageId && pendingPageIds.has(pageId));
+            })
+          : [];
+        const schedules =
+          remoteProjected && (remoteProjected.length > 0 || localProjected.length === 0)
+            ? mergeSchedulesById(remoteProjected, pendingSchedules)
+            : localProjected;
         set({
-          schedules: projectSchedulesForStore(workspaceId, from, to),
+          schedules,
           cachedWorkspaceId: workspaceId,
           visibleRangeFrom: from,
           visibleRangeTo: to,

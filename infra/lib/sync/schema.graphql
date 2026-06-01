@@ -421,7 +421,15 @@ type Query {
   getImageDownloadUrl(imageId: ID!): String!
   listMyNotifications: [Notification!]!
 
-  listSchedules(workspaceId: ID!, from: AWSDateTime!, to: AWSDateTime!): [Schedule!]!
+  listSchedules(
+    workspaceId: ID!
+    from: AWSDateTime!
+    to: AWSDateTime!
+    organizationId: ID
+    teamId: ID
+    projectId: ID
+    assigneeId: ID
+  ): [Schedule!]!
   listProjects(workspaceId: ID!): [Project!]!
   listHolidays(workspaceId: ID!): [Holiday!]!
   listMmEntries(workspaceId: ID!, fromWeekStart: String!, toWeekStart: String!, memberId: ID): [MmEntry!]!
@@ -555,6 +563,8 @@ type Subscription {
 # ========== Schedule ==========
 type Schedule {
   id: ID!
+  sourcePageId: ID
+  sourcePage: Page
   workspaceId: ID!
   title: String!
   """일정 코멘트(툴팁/편집팝업)"""
@@ -563,6 +573,9 @@ type Schedule {
   link: String
   """소속 프로젝트/조직 ID"""
   projectId: ID
+  teamId: ID
+  organizationId: ID
+  kind: String
   startAt: AWSDateTime!
   endAt: AWSDateTime!
   assigneeId: ID

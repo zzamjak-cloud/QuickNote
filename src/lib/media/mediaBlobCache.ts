@@ -2,12 +2,14 @@
 // 새로고침·워크스페이스/페이지 이동 시 S3 재다운로드 없이 로컬 blob 으로 즉시 표시하기 위함.
 // 총 용량은 LRU(updatedAt 기준) 로 관리한다. IndexedDB 사용 불가 환경에서는 모든 함수가 no-op.
 
+import { CACHE_HARD_LIMIT_BYTES, CACHE_PRUNE_TARGET_BYTES } from "../storage/cacheQuota";
+
 const DB_NAME = "quicknote-media-cache";
 const DB_VERSION = 1;
 const STORE = "blobs";
 
-const TOTAL_LIMIT_BYTES = 300 * 1024 * 1024; // 전체 한도 300MB
-const PRUNE_TARGET_BYTES = 250 * 1024 * 1024; // prune 후 목표 250MB
+const TOTAL_LIMIT_BYTES = CACHE_HARD_LIMIT_BYTES;
+const PRUNE_TARGET_BYTES = CACHE_PRUNE_TARGET_BYTES;
 
 /** 항목별 캐시 허용 최대 크기 */
 export const IMAGE_CACHE_MAX_BYTES = 30 * 1024 * 1024; // 이미지 30MB

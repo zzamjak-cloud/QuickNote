@@ -1,3 +1,4 @@
+import { BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it, vi } from "vitest";
 import {
   emptyTrash,
@@ -20,6 +21,11 @@ const tables: Tables = {
   WorkspaceAccess: "WA",
   Pages: "P",
   Databases: "D",
+};
+
+const tablesWithSchedules: Tables = {
+  ...tables,
+  Schedules: "S",
 };
 
 const caller: Member = {
@@ -65,6 +71,52 @@ describe("page/database handlers", () => {
       input: { id: "p1", workspaceId: "ws-1", updatedAt: "now", createdAt: "now", title: "T", doc: "{}", order: "a", createdByMemberId: "m1" },
     });
     expect(result.id).toBe("p1");
+  });
+
+  it("upsertPage: LC schedule page 저장 시 Schedules read index를 갱신한다", async () => {
+    const doc = mockDoc(
+      { Item: undefined },
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {},
+      {},
+    );
+    await upsertPage({
+      doc,
+      tables: tablesWithSchedules,
+      caller,
+      input: {
+        id: "page-1",
+        workspaceId: "lc-scheduler-global",
+        databaseId: "lc-scheduler-db:lc-scheduler-global",
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "일정 A",
+        doc: "{}",
+        order: "a",
+        createdByMemberId: "m1",
+        dbCells: {
+          "lc-scheduler:period": {
+            start: "2026-06-10T00:00:00.000Z",
+            end: "2026-06-12T23:59:59.999Z",
+          },
+          "lc-scheduler:assignees": ["member-a"],
+        },
+      },
+    });
+
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const batchCommand = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof BatchWriteCommand) as BatchWriteCommand | undefined;
+    expect(batchCommand?.input.RequestItems?.S?.[0]).toMatchObject({
+      PutRequest: {
+        Item: {
+          id: "page-1::member-a",
+          sourcePageId: "page-1",
+        },
+      },
+    });
   });
 
   it("upsertPage: blockComments 가 객체여도 문자열로 정규화되어 성공(AppSync AWSJSON 파싱 경로)", async () => {

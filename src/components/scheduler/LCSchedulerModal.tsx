@@ -10,11 +10,7 @@ import { useTeamStore } from "../../store/teamStore";
 import { useSchedulerFiltersStore } from "../../store/schedulerFiltersStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import type { SelectOption } from "../../types/database";
-import {
-  startOfYear,
-  toIsoStartOfDay,
-  toIsoEndOfDay,
-} from "../../lib/scheduler/dateUtils";
+import { getSchedulerFetchWindow } from "../../lib/scheduler/rangeWindow";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { LC_SCHEDULER_COLUMN_IDS, makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { SchedulerHeader } from "./SchedulerHeader";
@@ -35,11 +31,6 @@ const MonthScheduleView = lazy(() =>
 const SchedulerDatabaseTimeline = lazy(() =>
   import("./SchedulerDatabaseTimeline").then((m) => ({ default: m.SchedulerDatabaseTimeline })),
 );
-
-// 연도의 마지막 날짜
-function endOfYear(year: number): Date {
-  return new Date(year, 11, 31, 23, 59, 59, 999);
-}
 
 type Props = {
   onClose: () => void;
@@ -78,10 +69,9 @@ export function LCSchedulerModal({ onClose }: Props) {
     setMultiSelected([]);
   }, [selectMember, setMultiSelected]);
 
-  // 마운트 시 + 연도 변경 시 해당 연도 일정 페치
+  // 마운트 시 + 연도 변경 시 사용자가 보는 주변 월만 먼저 가져온다.
   useEffect(() => {
-    const from = toIsoStartOfDay(startOfYear(currentYear));
-    const to = toIsoEndOfDay(endOfYear(currentYear));
+    const { from, to } = getSchedulerFetchWindow({ currentYear });
     void fetchSchedules(schedulerWorkspaceId, from, to);
   }, [
     currentYear,

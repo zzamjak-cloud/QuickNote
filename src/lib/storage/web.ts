@@ -1,4 +1,8 @@
 import type { KVStorage } from "./adapter";
+import {
+  isPrunableCacheKey,
+  selectCacheKeysToPrune,
+} from "./cacheQuota";
 
 const DB_NAME = "quicknote-web-kv";
 const DB_VERSION = 1;
@@ -7,8 +11,6 @@ const STORE_NAME = "kv_store";
 // IDB 캐시 quota:
 // - HARD_LIMIT: 이를 초과하면 prune 트리거
 // - TARGET: prune 후 도달하고자 하는 목표 크기 (LRU 기반 삭제)
-const IDB_HARD_LIMIT_BYTES = 20 * 1024 * 1024; // 20MB
-const IDB_TARGET_BYTES = 16 * 1024 * 1024; // 16MB
 
 // setItem 호출 N회마다 prune 검사 (매번 검사하면 비용 큼)
 const PRUNE_CHECK_INTERVAL = 24;
@@ -82,10 +84,6 @@ function byteLength(value: string): number {
  * 새 캐시 키를 만들 때 서버에서 재페치 가능하면 반드시 ".cache." segment 를 포함시켜
  * 자동 prune 대상에 들어가도록 한다.
  */
-function isPrunableCacheKey(key: string): boolean {
-  return key.startsWith("quicknote.") && key.includes(".cache.");
-}
-
 function idbSetItem(key: string, value: string): Promise<void> {
   return openWebKvDatabase().then(
     (db) =>
@@ -176,18 +174,11 @@ async function pruneIndexedDbCachesIfNeeded(): Promise<void> {
   });
 
   const totalBytes = entries.reduce((sum, row) => sum + row.size, 0);
-  if (totalBytes <= IDB_HARD_LIMIT_BYTES) return;
-
-  const sorted = entries
-    .slice()
-    .sort((a, b) => a.updatedAt - b.updatedAt);
-  let reclaimed = totalBytes;
-  const keysToDelete: string[] = [];
-  for (const row of sorted) {
-    if (reclaimed <= IDB_TARGET_BYTES) break;
-    reclaimed -= row.size;
-    keysToDelete.push(row.key);
-  }
+  const keysToDelete = selectCacheKeysToPrune(entries);
+  const deletedBytes = entries
+    .filter((row) => keysToDelete.includes(row.key))
+    .reduce((sum, row) => sum + row.size, 0);
+  const reclaimed = totalBytes - deletedBytes;
   if (keysToDelete.length === 0) return;
 
   await new Promise<void>((resolve, reject) => {

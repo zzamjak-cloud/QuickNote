@@ -532,6 +532,10 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           workspaceId: event.arguments.workspaceId as string,
           from: event.arguments.from as string,
           to: event.arguments.to as string,
+          organizationId: event.arguments.organizationId as string | undefined,
+          teamId: event.arguments.teamId as string | undefined,
+          projectId: event.arguments.projectId as string | undefined,
+          assigneeId: event.arguments.assigneeId as string | undefined,
         });
       case "createSchedule":
         return await createSchedule({

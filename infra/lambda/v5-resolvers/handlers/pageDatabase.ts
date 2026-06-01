@@ -49,6 +49,10 @@ import {
 } from "./_auth";
 import type { Tables } from "./member";
 import { syncPageAssetUsage, cascadeDeletePageAssetUsage } from "./asset";
+import {
+  removeLCScheduleIndexForPage,
+  syncLCScheduleIndexForPage,
+} from "./lcScheduleIndex";
 
 const PAGE_HISTORY_ANCHOR_INTERVAL = 20;
 
@@ -570,6 +574,16 @@ export async function upsertPage(args: {
       console.error("[upsertPage] AssetUsage sync 실패 (무시)", err);
     }
   }
+  try {
+    await syncLCScheduleIndexForPage({
+      doc: args.doc,
+      tables: args.tables,
+      before: existingPage,
+      after: saved,
+    });
+  } catch (err) {
+    console.error("[upsertPage] LC schedule index sync failed", err);
+  }
   return saved;
 }
 
@@ -726,7 +740,17 @@ export async function softDeletePage(args: {
   updatedAt: string;
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
-  return softDeleteRecord({ ...args, tableName: args.tables.Pages });
+  const deleted = await softDeleteRecord({ ...args, tableName: args.tables.Pages });
+  try {
+    await removeLCScheduleIndexForPage({
+      doc: args.doc,
+      tables: args.tables,
+      page: deleted,
+    });
+  } catch (err) {
+    console.error("[softDeletePage] LC schedule index remove failed", err);
+  }
+  return deleted;
 }
 
 export async function softDeleteDatabase(args: {

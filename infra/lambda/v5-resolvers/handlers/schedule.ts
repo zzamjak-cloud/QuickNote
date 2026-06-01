@@ -1,6 +1,7 @@
 // LC 스케줄러 일정 핸들러 — workspace 권한 검사 후 DynamoDB CRUD 수행.
 import {
   DynamoDBDocumentClient,
+  BatchGetCommand,
   DeleteCommand,
   PutCommand,
   QueryCommand,
@@ -12,11 +13,15 @@ import type { Tables } from "./member";
 // 스케줄 레코드 형상 (DynamoDB 저장 단위)
 type ScheduleRecord = {
   id: string;
+  sourcePageId?: string;
   workspaceId: string;
   title: string;
   comment?: string;
   link?: string;
   projectId?: string;
+  teamId?: string;
+  organizationId?: string;
+  kind?: "schedule" | "leave";
   startAt: string;
   endAt: string;
   assigneeId?: string;
@@ -26,6 +31,7 @@ type ScheduleRecord = {
   createdByMemberId: string;
   createdAt: string;
   updatedAt: string;
+  sourcePage?: Record<string, unknown>;
 };
 
 // 단순 ID 생성기 — 충돌 가능성 매우 낮은 timestamp+random 조합
@@ -40,6 +46,10 @@ export async function listSchedules(args: {
   workspaceId: string;
   from: string;
   to: string;
+  organizationId?: string | null;
+  teamId?: string | null;
+  projectId?: string | null;
+  assigneeId?: string | null;
 }): Promise<ScheduleRecord[]> {
   await requireWorkspaceAccess({
     doc: args.doc,
@@ -50,19 +60,68 @@ export async function listSchedules(args: {
     required: "view",
   });
 
+  const expressionValues: Record<string, unknown> = {
+    ":w": args.workspaceId,
+    ":from": args.from,
+    ":to": args.to,
+  };
+  const expressionNames: Record<string, string> = {};
+  const filters: string[] = [];
+  for (const [field, value] of Object.entries({
+    organizationId: args.organizationId,
+    teamId: args.teamId,
+    projectId: args.projectId,
+    assigneeId: args.assigneeId,
+  })) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    expressionNames[`#${field}`] = field;
+    expressionValues[`:${field}`] = value.trim();
+    filters.push(`#${field} = :${field}`);
+  }
+
   const r = await args.doc.send(
     new QueryCommand({
       TableName: args.tables.Schedules!,
       IndexName: "byWorkspaceAndStartAt",
       KeyConditionExpression: "workspaceId = :w AND startAt BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":w": args.workspaceId,
-        ":from": args.from,
-        ":to": args.to,
-      },
+      ExpressionAttributeValues: expressionValues,
+      ...(filters.length ? { FilterExpression: filters.join(" AND ") } : {}),
+      ...(Object.keys(expressionNames).length ? { ExpressionAttributeNames: expressionNames } : {}),
     }),
   );
-  return (r.Items ?? []) as ScheduleRecord[];
+  const items = (r.Items ?? []) as ScheduleRecord[];
+  if (!args.tables.Pages || items.length === 0) return items;
+
+  const pageIds = Array.from(new Set(
+    items
+      .map((item) => item.sourcePageId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  ));
+  if (!pageIds.length) return items;
+
+  const pagesById = new Map<string, Record<string, unknown>>();
+  for (let i = 0; i < pageIds.length; i += 100) {
+    const chunk = pageIds.slice(i, i + 100);
+    const pageResult = await args.doc.send(
+      new BatchGetCommand({
+        RequestItems: {
+          [args.tables.Pages]: {
+            Keys: chunk.map((id) => ({ id })),
+          },
+        },
+      }),
+    );
+    for (const page of pageResult.Responses?.[args.tables.Pages] ?? []) {
+      if (typeof page.id === "string") pagesById.set(page.id, page as Record<string, unknown>);
+    }
+  }
+
+  return items.map((item) => ({
+    ...item,
+    ...(item.sourcePageId && pagesById.has(item.sourcePageId)
+      ? { sourcePage: pagesById.get(item.sourcePageId) }
+      : {}),
+  }));
 }
 
 export async function createSchedule(args: {
