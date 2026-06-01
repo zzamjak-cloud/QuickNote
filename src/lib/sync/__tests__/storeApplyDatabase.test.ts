@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { applyRemoteDatabaseToStore } from "../storeApply";
+import { applyRemoteDatabaseToStore, applyRemoteDatabasesToStore } from "../storeApply";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import type { GqlDatabase } from "../queries/database";
 import { LC_MILESTONE_DATABASE_ID } from "../../scheduler/database";
@@ -195,6 +195,28 @@ describe("applyRemoteDatabaseToStore", () => {
 
     const bundle = useDatabaseStore.getState().databases[LC_MILESTONE_DATABASE_ID];
     // 로컬의 최신 표시설정이 그대로 보존됨.
+    expect(bundle.panelState?.viewConfigs?.timeline?.hiddenColumnIds).toEqual(["source"]);
+  });
+
+  it("배치(batch) 경로도 remote panelState(구성원 순서·표시설정)를 보존한다", () => {
+    // reconcileLCSchedulerRemoteSnapshot(전체 페치/새로고침)는 batch 경로를 쓴다.
+    // 과거 이 경로가 panelState 를 누락해 새로고침 시 스케줄러 구성원 순서·표시설정이 사라졌다.
+    applyRemoteDatabasesToStore([
+      {
+        ...remoteDatabase(),
+        panelState: JSON.stringify({
+          schedulerMemberOrder: ["member-3", "member-1", "member-2"],
+          viewConfigs: { timeline: { hiddenColumnIds: ["source"] } },
+        }),
+      },
+    ]);
+
+    const bundle = useDatabaseStore.getState().databases["db-1"];
+    expect(bundle.panelState?.schedulerMemberOrder).toEqual([
+      "member-3",
+      "member-1",
+      "member-2",
+    ]);
     expect(bundle.panelState?.viewConfigs?.timeline?.hiddenColumnIds).toEqual(["source"]);
   });
 

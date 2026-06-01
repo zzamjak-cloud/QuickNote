@@ -783,9 +783,16 @@ export function applyRemoteDatabasesToStore(
 
       const schema = parseRemoteDatabaseSchema(db);
       if (!schema) continue;
-      const { columns, presets } = schema;
+      const { columns, presets, panelState } = schema;
       const derivedRowOrder = derivedByDbId.get(db.id) ?? [];
       const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
+      // 단건 경로(applyRemoteDatabaseToStore)와 동일하게 panelState 를 반영해야 한다.
+      // (과거 누락으로 전체 페치/새로고침 시 스케줄러 DB 의 표시설정·구성원 순서가 사라졌다.)
+      // 서버가 빈 panelState({})로 잘못 덮인 경우 local 에 탭이 있으면 보존한다.
+      const remoteHasPresets = (panelState?.filterPresets?.length ?? 0) > 0;
+      const localHasPresets = (local?.panelState?.filterPresets?.length ?? 0) > 0;
+      const resolvedPanelState =
+        remoteHasPresets || !localHasPresets ? (panelState ?? local?.panelState) : local?.panelState;
       const bundle: DatabaseBundle = {
         meta: {
           id: db.id,
@@ -796,6 +803,7 @@ export function applyRemoteDatabasesToStore(
         },
         columns,
         presets,
+        panelState: resolvedPanelState,
         rowPageOrder,
       };
 
