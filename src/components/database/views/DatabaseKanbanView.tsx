@@ -9,6 +9,7 @@ import type {
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
+import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { DatabaseCell } from "../DatabaseCell";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
@@ -224,7 +225,7 @@ export function DatabaseKanbanView({
       )}
       <button
         type="button"
-        onClick={() => addRow(databaseId)}
+        onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
         className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
       >
         <Plus size={14} /> 새 항목

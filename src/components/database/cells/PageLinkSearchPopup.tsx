@@ -1,5 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, Search, X } from "lucide-react";
 import { newId } from "../../../lib/id";
 import { usePageStore } from "../../../store/pageStore";
@@ -20,6 +19,7 @@ import {
   makeSearchFilterPrefKey,
 } from "../../../store/searchFilterPrefsStore";
 import type { SearchFilterRule } from "../../../types/database";
+import { AnchoredPanelBase } from "../../../lib/ui-primitives";
 
 type Props = {
   anchorEl: HTMLElement | null;
@@ -58,9 +58,7 @@ export function PageLinkSearchPopup({
   onClose,
 }: Props) {
   const [query, setQuery] = useState("");
-  const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
   const inputRef = useRef<HTMLInputElement>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
 
   const pages = usePageStore((s) => s.pages);
   const databases = useDatabaseStore((s) => s.databases);
@@ -118,47 +116,12 @@ export function PageLinkSearchPopup({
     }
   };
 
-  // 앵커 기준 위치 계산
-  useLayoutEffect(() => {
-    if (!anchorEl) return;
-    const rect = anchorEl.getBoundingClientRect();
-    const popupWidth = 320;
-    const gap = 4;
-    const left = Math.min(rect.left, window.innerWidth - popupWidth - 8);
-    const top = rect.bottom + gap;
-    setStyle({
-      position: "fixed",
-      top,
-      left: Math.max(8, left),
-      width: popupWidth,
-      zIndex: 9999,
-    });
-  }, [anchorEl]);
-
+  // 위치 보정(클램프/플립/스크롤·리사이즈 재계산)·외부 클릭·ESC 닫힘은 AnchoredPanelBase 가 흡수.
+  // AppSelect 등 portal 드롭다운(role="listbox")은 팝업 외부지만 닫지 않는다.
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    const handlePointerDown = (e: PointerEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      if (popupRef.current?.contains(target)) return;
-      // AppSelect 등 portal 로 띄운 드롭다운(role="listbox")은 popup 외부지만 닫지 않음
-      if (target.closest('[role="listbox"]')) return;
-      onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [onClose]);
 
   // 후보 페이지 산출 — scope → 컬럼 config 필터 → 사용자 동적 필터 → 검색어
   const candidatePages = useMemo(() => {
@@ -187,11 +150,15 @@ export function PageLinkSearchPopup({
     setUserFilters((prev) => prev.filter((f) => f.id !== id));
   };
 
-  return createPortal(
-    <div
-      ref={popupRef}
-      style={style}
-      className="rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+  return (
+    <AnchoredPanelBase
+      anchorEl={anchorEl}
+      open
+      onClose={onClose}
+      width={320}
+      zClassName="z-[9999]"
+      additionalIgnoreSelector='[role="listbox"]'
+      contentClassName="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
     >
       {/* 단계별 필터 누적 영역 — 사용자가 + 버튼으로 자유 추가 */}
       <div className="border-b border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
@@ -290,7 +257,6 @@ export function PageLinkSearchPopup({
           <p className="px-3 py-4 text-center text-sm text-zinc-400">검색 결과가 없습니다</p>
         )}
       </div>
-    </div>,
-    document.body,
+    </AnchoredPanelBase>
   );
 }

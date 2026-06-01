@@ -23,6 +23,7 @@ import type {
 import { getVisibleOrderedColumns, resolveViewColumnOrderState } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
+import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import {
@@ -42,7 +43,10 @@ import { ScheduleCardDetailRows } from "../ScheduleCardDetailRows";
 import { getScheduleCardContentOffset } from "../../scheduler/scheduleCardDisplay";
 import { animateScrollLeft } from "../../../lib/animateScroll";
 import { TimelineCardText } from "../TimelineCardText";
-import { applyTimelineCardStickyOffset } from "../timelineCardStickyOffset";
+import {
+  applyTimelineCardStickyOffset,
+  applyUnscheduledCardPin,
+} from "../timelineCardStickyOffset";
 import { SELECT_COLOR_PRESETS } from "../selectColorPresets";
 import { buildTimelineCardConfigPatch } from "./timelineCardConfig";
 
@@ -583,7 +587,6 @@ export function DatabaseTimelineView({
     if (usesFitAxis && (!Number.isFinite(pxPerDay) || pxPerDay <= 0)) return [];
     const layouts: TimelineCardLayout[] = [];
     const trackWidth = usesScrollableAxis ? axis.totalW : trackPxWidth;
-    const showUnscheduledCards = timelineDateEntries.length === 1;
     const unscheduledWidth = Math.max(
       96,
       Math.min(
@@ -595,32 +598,11 @@ export function DatabaseTimelineView({
     );
     for (const [localIdx, row] of renderedRows.entries()) {
       const rIdx = virtualRows.start + localIdx;
+      let rowHasScheduledCard = false;
       for (const entry of timelineDateEntries) {
-        const cardTitle = timelineCardTitle(row, entry);
         const range = getRange(row.cells[entry.columnId]);
-        if (!range) {
-          if (!showUnscheduledCards || !entry.isPrimary) continue;
-          const dateLabel = "날짜 없음";
-          layouts.push({
-            id: makeTimelineCardId(row.pageId, entry.columnId),
-            row,
-            pageId: row.pageId,
-            columnId: entry.columnId,
-            columnName: entry.columnName,
-            title: cardTitle,
-            color: entry.color,
-            start: axis.minT,
-            end: axis.minT,
-            left: UNSCHEDULED_CARD_LEFT,
-            width: unscheduledWidth,
-            top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
-            dateLabel,
-            showDateLabel: visibleTimelineColumnIdSet ? visibleTimelineColumnIdSet.has(entry.columnId) : true,
-            tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
-            isUnscheduled: true,
-          });
-          continue;
-        }
+        if (!range) continue;
+        const cardTitle = timelineCardTitle(row, entry);
         let visStart = Math.max(range.start, axis.minT);
         let visEnd = Math.min(range.end, axis.maxT);
         if (visEnd < axis.minT || visStart > axis.maxT) continue;
@@ -650,6 +632,35 @@ export function DatabaseTimelineView({
           showDateLabel: visibleTimelineColumnIdSet ? visibleTimelineColumnIdSet.has(entry.columnId) : true,
           tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
         });
+        rowHasScheduledCard = true;
+      }
+      // 날짜가 하나도 지정되지 않은 행 → 미등록(흰색) 카드 1개를 항목열 우측에 표시한다.
+      // (날짜 컬럼이 여러 개여도 항상 표시 — LC 스케줄러 타임라인과 동일 동작)
+      if (!rowHasScheduledCard) {
+        const entry =
+          timelineDateEntries.find((e) => e.isPrimary) ?? timelineDateEntries[0];
+        if (entry) {
+          const cardTitle = timelineCardTitle(row, entry);
+          const dateLabel = "날짜 없음";
+          layouts.push({
+            id: makeTimelineCardId(row.pageId, entry.columnId),
+            row,
+            pageId: row.pageId,
+            columnId: entry.columnId,
+            columnName: entry.columnName,
+            title: cardTitle,
+            color: entry.color,
+            start: axis.minT,
+            end: axis.minT,
+            left: UNSCHEDULED_CARD_LEFT,
+            width: unscheduledWidth,
+            top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
+            dateLabel,
+            showDateLabel: visibleTimelineColumnIdSet ? visibleTimelineColumnIdSet.has(entry.columnId) : true,
+            tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
+            isUnscheduled: true,
+          });
+        }
       }
     }
     return layouts;
@@ -791,7 +802,11 @@ export function DatabaseTimelineView({
               // 종료 후 React 가 인라인 style 로 최종 오프셋을 다시 설정하도록 한 번만 동기화.
               setTimelineScrollLeft(root.scrollLeft);
             },
-            (scrollLeft) => applyTimelineCardStickyOffset(root, scrollLeft),
+            (scrollLeft) => {
+              applyTimelineCardStickyOffset(root, scrollLeft);
+              // 미등록 카드는 매 프레임 화면 고정해 애니메이션 중 밀림/깜빡임을 방지.
+              applyUnscheduledCardPin(root, scrollLeft);
+            },
           );
         });
       }
@@ -1465,7 +1480,7 @@ export function DatabaseTimelineView({
       )}
       <button
         type="button"
-        onClick={() => addRow(databaseId)}
+        onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
         className="mt-3 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
       >
         <Plus size={14} /> 새 항목
@@ -1544,9 +1559,11 @@ function DatabaseTimelineCard({
   const [tipPos, setTipPos] = useState<{ top: number; left: number; placeAbove: boolean } | null>(null);
 
   useLayoutEffect(() => {
-    setLocalX(card.left);
+    // 미등록(날짜 없음) 카드는 가로 스크롤과 무관하게 항상 항목열 우측에 고정한다.
+    // (scrollLeft 만큼 더해 트랙이 스크롤돼도 화면상 같은 위치 유지 — LC 스케줄러와 동일)
+    setLocalX(card.isUnscheduled ? scrollLeft + card.left : card.left);
     setLocalW(card.width);
-  }, [card.left, card.width]);
+  }, [card.left, card.width, card.isUnscheduled, scrollLeft]);
 
   const safePxPerDay = Math.max(pxPerDay, 1);
   const visualX =
@@ -1573,6 +1590,10 @@ function DatabaseTimelineCard({
       data-db-timeline-card="true"
       data-db-timeline-card-page={card.row.pageId}
       data-db-timeline-card-id={card.id}
+      // 미등록 카드는 포커싱 애니메이션 중 매 프레임 DOM 으로 화면 고정(applyUnscheduledCardPin).
+      {...(card.isUnscheduled
+        ? { "data-unscheduled-card": UNSCHEDULED_CARD_LEFT, "data-card-top": card.top }
+        : {})}
       position={{ x: visualX, y: card.top }}
       size={{ width: Math.max(localW, 24), height: ROW_HEIGHT - 4 }}
       dragAxis="x"

@@ -1,12 +1,27 @@
 import type {
   CellValue,
   ColumnDef,
+  DatabasePanelState,
   DatabaseRowView,
   FilterOperator,
   FilterRule,
   SortRule,
 } from "../types/database";
 import { stringifyJsonValue } from "./database/jsonCell";
+
+/**
+ * panelState에서 현재 활성화된 필터 규칙을 해석한다.
+ * 활성 프리셋이 있으면 그 규칙을, 없으면 전역 filterRules를 사용한다.
+ */
+export function resolveActiveFilterRules(
+  panelState: DatabasePanelState,
+): FilterRule[] {
+  const activePreset =
+    (panelState.filterPresets ?? []).find(
+      (preset) => preset.id === panelState.activePresetId,
+    ) ?? null;
+  return activePreset?.filterRules ?? panelState.filterRules ?? [];
+}
 
 export function cellToSearchString(
   value: CellValue,

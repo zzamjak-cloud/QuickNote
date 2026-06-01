@@ -1,6 +1,9 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { useDatabaseStore } from "../store/databaseStore";
 import { usePageStore } from "../store/pageStore";
+import { applyFilters } from "../lib/databaseQuery";
+import { seedDefaultsForFilters } from "../store/databaseStore/helpers";
+import type { DatabaseRowView, FilterRule } from "../types/database";
 
 describe("databaseStore — 페이지 기반 행", () => {
   beforeEach(() => {
@@ -112,5 +115,98 @@ describe("databaseStore — 페이지 기반 행", () => {
     const callsForThisOp = spy.mock.calls.length - before;
     expect(callsForThisOp).toBe(1);
     spy.mockRestore();
+  });
+});
+
+describe("addRow — 활성 필터 시드 주입", () => {
+  beforeEach(() => {
+    useDatabaseStore.setState({ databases: {}, version: 2 });
+    usePageStore.setState({ pages: {}, activePageId: null });
+  });
+
+  const rowViewOf = (dbId: string, pageId: string): DatabaseRowView => ({
+    pageId,
+    databaseId: dbId,
+    title: usePageStore.getState().pages[pageId]?.title ?? "",
+    icon: null,
+    cells: usePageStore.getState().pages[pageId]?.dbCells ?? {},
+  });
+
+  it("select equals 필터가 활성이면 새 행이 그 값을 받아 필터를 통과한다", () => {
+    const dbId = useDatabaseStore.getState().createDatabase();
+    const selCol = useDatabaseStore.getState().addColumn(dbId, {
+      name: "상태",
+      type: "select",
+      config: { options: [{ id: "open", label: "열림" }, { id: "done", label: "완료" }] },
+    });
+    const rule: FilterRule = { id: "r1", columnId: selCol, operator: "equals", value: "done" };
+    const pageId = useDatabaseStore.getState().addRow(dbId, [rule]);
+    expect(usePageStore.getState().pages[pageId]?.dbCells?.[selCol]).toBe("done");
+    const bundle = useDatabaseStore.getState().databases[dbId]!;
+    expect(applyFilters([rowViewOf(dbId, pageId)], [rule], bundle.columns)).toHaveLength(1);
+  });
+
+  it("multiSelect equals 필터는 배열로 시드되어 통과한다", () => {
+    const dbId = useDatabaseStore.getState().createDatabase();
+    const msCol = useDatabaseStore.getState().addColumn(dbId, {
+      name: "OS",
+      type: "multiSelect",
+      config: { options: [{ id: "iOS", label: "iOS" }, { id: "AOS", label: "AOS" }] },
+    });
+    const rule: FilterRule = { id: "r1", columnId: msCol, operator: "equals", value: "iOS" };
+    const pageId = useDatabaseStore.getState().addRow(dbId, [rule]);
+    expect(usePageStore.getState().pages[pageId]?.dbCells?.[msCol]).toEqual(["iOS"]);
+    const bundle = useDatabaseStore.getState().databases[dbId]!;
+    expect(applyFilters([rowViewOf(dbId, pageId)], [rule], bundle.columns)).toHaveLength(1);
+  });
+
+  it("seedFilters 없이 추가하면 빈 행이라 동일 필터를 통과하지 못한다 (회귀 가드)", () => {
+    const dbId = useDatabaseStore.getState().createDatabase();
+    const selCol = useDatabaseStore.getState().addColumn(dbId, {
+      name: "상태",
+      type: "select",
+      config: { options: [{ id: "open", label: "열림" }, { id: "done", label: "완료" }] },
+    });
+    const rule: FilterRule = { id: "r1", columnId: selCol, operator: "equals", value: "done" };
+    const pageId = useDatabaseStore.getState().addRow(dbId);
+    const bundle = useDatabaseStore.getState().databases[dbId]!;
+    expect(applyFilters([rowViewOf(dbId, pageId)], [rule], bundle.columns)).toHaveLength(0);
+  });
+
+  it("파생(자동화) 컬럼 필터는 소스 pageLink 를 일치 행에 연결해 시드한다", () => {
+    // 마일스톤 DB: project select 컬럼 + project=projA 인 행 1개
+    const msDbId = useDatabaseStore.getState().createDatabase("MS");
+    const msProjCol = useDatabaseStore.getState().addColumn(msDbId, {
+      name: "프로젝트",
+      type: "select",
+      config: { options: [{ id: "projA", label: "A" }, { id: "projB", label: "B" }] },
+    });
+    const msRow = useDatabaseStore.getState().addRow(msDbId);
+    useDatabaseStore.getState().updateCell(msDbId, msRow, msProjCol, "projA");
+
+    // 피처 DB: 마일스톤 pageLink + 마일스톤 project 를 참조하는 파생 project 컬럼
+    const ftDbId = useDatabaseStore.getState().createDatabase("FT");
+    const ftMsLink = useDatabaseStore.getState().addColumn(ftDbId, {
+      name: "마일스톤",
+      type: "pageLink",
+      config: { pageLinkScopeDatabaseId: msDbId },
+    });
+    const ftProjCol = useDatabaseStore.getState().addColumn(ftDbId, {
+      name: "프로젝트",
+      type: "select",
+      config: { sourceFromDb: { databaseId: msDbId, columnId: msProjCol, viaPageLinkColumnId: ftMsLink } },
+    });
+
+    const bundle = useDatabaseStore.getState().databases[ftDbId]!;
+    const rule: FilterRule = { id: "r1", columnId: ftProjCol, operator: "equals", value: "projA" };
+    const defaults = seedDefaultsForFilters(
+      bundle,
+      [rule],
+      useDatabaseStore.getState().databases,
+      usePageStore.getState().pages,
+    );
+    // 파생 컬럼 raw 셀은 시드하지 않고, 마일스톤 링크를 projA 마일스톤으로 연결한다.
+    expect(defaults[ftMsLink]).toEqual([msRow]);
+    expect(defaults[ftProjCol]).toBeUndefined();
   });
 });

@@ -89,6 +89,8 @@ export function TopBar() {
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  // 페이지 삭제 확인 (히스토리 삭제와 별개) — 즉시 삭제 방지.
+  const [pageDeleteConfirmOpen, setPageDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
     label: string;
     eventIds: string[];
@@ -254,7 +256,7 @@ export function TopBar() {
 
   const handleDelete = () => {
     if (!activeId) return;
-    deletePage(activeId);
+    setPageDeleteConfirmOpen(true);
     setMenuOpen(false);
   };
 
@@ -777,6 +779,18 @@ export function TopBar() {
           setDeleteConfirmOpen(false);
           setDeleteTarget(null);
           clearTimelineSelection();
+        }}
+      />
+      <SimpleConfirmDialog
+        open={pageDeleteConfirmOpen}
+        title="페이지 삭제"
+        message="이 페이지를 삭제할까요? 이 작업은 되돌릴 수 없습니다."
+        confirmLabel="삭제"
+        danger
+        onCancel={() => setPageDeleteConfirmOpen(false)}
+        onConfirm={() => {
+          if (activeId) deletePage(activeId);
+          setPageDeleteConfirmOpen(false);
         }}
       />
       {subpagePopover.open && subpagePopover.coords && activeId && createPortal(

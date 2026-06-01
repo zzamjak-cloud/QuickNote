@@ -43,6 +43,7 @@ import {
 } from "../../lib/scheduler/dateUtils";
 import { clampVisibleRange } from "../../lib/scheduler/gridUtils";
 import { animateScroll } from "../../lib/animateScroll";
+import { resolveActiveFilterRules } from "../../lib/databaseQuery";
 import { CARD_MARGIN, ROW_PADDING_TOP, getCellWidth, getRowHeight } from "../../lib/scheduler/grid";
 import { getHolidaysForYear } from "../../lib/scheduler/koreanHolidays";
 import { LC_FEATURE_COLUMN_IDS, makeLCFeatureDatabaseId } from "../../lib/scheduler/featureDatabase";
@@ -76,8 +77,6 @@ import {
 
 // 항목 선택 시 포커싱 스크롤 지속 시간(ms). 0.3초 동안 부드럽게 이동.
 const FOCUS_SCROLL_DURATION_MS = 300;
-// 포커싱 시 카드를 화면 정중앙이 아니라 항목(첫) 컬럼 우측에 살짝 띄워 정렬하기 위한 여백(px).
-const FOCUS_LEFT_GAP_PX = 16;
 const DATE_AXIS_HEIGHT = 76;
 const DEFAULT_ITEM_COLUMN_WIDTH = 220;
 const BOTTOM_SPACER_HEIGHT = 220;
@@ -437,7 +436,10 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   // 항목(마일스톤/피처) 추가 — DB에 행을 추가하고, 현재 스코프 선택을 기본값으로 적용한 뒤
   // 신규 페이지를 사이드 피커뷰로 띄운다. (DB에서 직접 추가해도 동일 DB라 자동 동기화)
   const handleAddItem = useCallback(() => {
-    const newPageId = addRow(databaseId);
+    const seedFilters = bundle?.panelState
+      ? resolveActiveFilterRules(bundle.panelState)
+      : undefined;
+    const newPageId = addRow(databaseId, seedFilters);
     if (!newPageId) return;
     if (selectedProjectId) {
       const colIds = mode === "milestone" ? LC_MILESTONE_COLUMN_IDS : LC_FEATURE_COLUMN_IDS;
@@ -754,19 +756,25 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     let targetLeft: number | undefined;
     const card = row.cards[0];
     if (card) {
-      let cardLeft: number | null = null;
+      let startCellIndex: number | null = null;
+      let cellW = activeCellWidth;
       if (isAnnualView) {
         const visibleRange = clampVisibleRange(currentYear, card.start, card.end);
-        if (visibleRange) cardLeft = visibleRange.startIdx * annualCellWidth + CARD_MARGIN;
+        if (visibleRange) {
+          startCellIndex = visibleRange.startIdx;
+          cellW = annualCellWidth;
+        }
       } else {
         const slotRange = getCardSlotRange(card, slots);
-        if (slotRange) cardLeft = slotRange.startSlot * activeCellWidth + CARD_MARGIN;
+        if (slotRange) {
+          startCellIndex = slotRange.startSlot;
+          cellW = activeCellWidth;
+        }
       }
-      if (cardLeft !== null) {
-        // 화면 정중앙이 아니라 항목(첫) 컬럼 바로 우측에 카드를 정렬한다.
-        // 카드의 콘텐츠 좌표 = itemColumnWidth + cardLeft 를 뷰포트의 itemColumnWidth + 여백 위치로
-        // 보내려면 scrollLeft = cardLeft - 여백 이면 된다.
-        targetLeft = Math.max(0, cardLeft - FOCUS_LEFT_GAP_PX);
+      if (startCellIndex !== null) {
+        // 시작일 하루 전(셀 1칸)이 타임라인의 첫 셀이 되도록 셀 경계에 정렬한다.
+        // 예: 6월 2일 시작 일정이면 6월 1일 셀이 타임라인 첫 칸으로 보인다.
+        targetLeft = Math.max(0, (startCellIndex - 1) * cellW);
       }
     }
 

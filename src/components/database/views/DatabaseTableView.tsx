@@ -25,7 +25,7 @@ import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import { useTableRowSelection } from "./useTableRowSelection";
 import { useHistoryStore } from "../../../store/historyStore";
 import { useWindowedRows } from "./useWindowedRows";
-import { cellToSearchString } from "../../../lib/databaseQuery";
+import { cellToSearchString, resolveActiveFilterRules } from "../../../lib/databaseQuery";
 
 type Props = {
   databaseId: string;
@@ -601,7 +601,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
       <div className="mt-2 flex items-center justify-between gap-2">
         <button
           type="button"
-          onClick={() => addRow(databaseId)}
+          onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
           className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >
           <Plus size={14} /> 새 항목

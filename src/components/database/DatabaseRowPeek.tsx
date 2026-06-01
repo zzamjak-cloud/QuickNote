@@ -186,6 +186,8 @@ export function DatabaseRowPeek() {
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  // 페이지 삭제 확인 (히스토리 삭제와 별개) — 즉시 삭제 방지.
+  const [pageDeleteConfirmOpen, setPageDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
     label: string;
     eventIds: string[];
@@ -347,9 +349,8 @@ export function DatabaseRowPeek() {
 
   const handleDelete = () => {
     if (!peekPageId) return;
-    deletePage(peekPageId);
+    setPageDeleteConfirmOpen(true);
     setMenuOpen(false);
-    handleClose();
   };
 
   const handleExportMarkdown = () => {
@@ -921,6 +922,21 @@ export function DatabaseRowPeek() {
             setDeleteConfirmOpen(false);
             setDeleteTarget(null);
             clearTimelineSelection();
+          }}
+        />
+        <SimpleConfirmDialog
+          open={pageDeleteConfirmOpen}
+          title="페이지 삭제"
+          message="이 페이지를 삭제할까요? 이 작업은 되돌릴 수 없습니다."
+          confirmLabel="삭제"
+          danger
+          // 피커뷰 오버레이(z-[650])·내부 모달(z-[670]) 위에 떠야 함.
+          zIndex={700}
+          onCancel={() => setPageDeleteConfirmOpen(false)}
+          onConfirm={() => {
+            setPageDeleteConfirmOpen(false);
+            if (peekPageId) deletePage(peekPageId);
+            handleClose();
           }}
         />
       </div>

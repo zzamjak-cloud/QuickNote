@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { Check, Database, Search } from "lucide-react";
 import { useDatabaseStore, listDatabases } from "../../../store/databaseStore";
 import { koreanIncludes } from "../../../lib/koreanSearch";
+import { AnchoredPanelBase } from "../../../lib/ui-primitives";
 
 type Props = {
   anchorEl: HTMLElement | null;
@@ -13,61 +13,29 @@ type Props = {
 
 export function DbLinkSearchPopup({ anchorEl, currentValue, onSelect, onClose }: Props) {
   const [query, setQuery] = useState("");
-  const [style, setStyle] = useState<React.CSSProperties>({ visibility: "hidden" });
   const inputRef = useRef<HTMLInputElement>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
 
   const databases = useDatabaseStore(listDatabases);
 
-  // 앵커 기준 위치 계산
-  useLayoutEffect(() => {
-    if (!anchorEl) return;
-    const rect = anchorEl.getBoundingClientRect();
-    const popupWidth = 260;
-    const gap = 4;
-    const left = Math.min(rect.left, window.innerWidth - popupWidth - 8);
-    const top = rect.bottom + gap;
-    setStyle({
-      position: "fixed",
-      top,
-      left: Math.max(8, left),
-      width: popupWidth,
-      zIndex: 9999,
-    });
-  }, [anchorEl]);
-
+  // 위치 보정(클램프/플립/스크롤·리사이즈 재계산)·외부 클릭·ESC 닫힘은 AnchoredPanelBase 가 흡수.
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
   }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    const handlePointerDown = (e: PointerEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [onClose]);
 
   const q = query.trim().toLowerCase();
   const filtered = q
     ? databases.filter((d) => koreanIncludes(d.meta.title.toLowerCase(), q))
     : databases.slice(0, 20);
 
-  return createPortal(
-    <div
-      ref={popupRef}
-      style={style}
-      className="rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+  return (
+    <AnchoredPanelBase
+      anchorEl={anchorEl}
+      open
+      onClose={onClose}
+      width={260}
+      zClassName="z-[9999]"
+      contentClassName="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
     >
       {/* 검색 입력 */}
       <div className="flex items-center gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-700">
@@ -109,7 +77,6 @@ export function DbLinkSearchPopup({ anchorEl, currentValue, onSelect, onClose }:
           <p className="px-3 py-4 text-center text-sm text-zinc-400">검색 결과가 없습니다</p>
         )}
       </div>
-    </div>,
-    document.body,
+    </AnchoredPanelBase>
   );
 }

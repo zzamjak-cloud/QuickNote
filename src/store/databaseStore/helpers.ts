@@ -7,10 +7,12 @@ import type {
   DatabaseBundle,
   DatabaseMeta,
   DatabaseRowPreset,
+  FilterRule,
 } from "../../types/database";
 import type { DatabaseSnapshot, PageSnapshot } from "../../types/history";
 import type { Page } from "../../types/page";
 import { newId } from "../../lib/id";
+import { isCellValueDerived } from "../../lib/database/columnSource";
 import { createRowPageLinkedToDatabase } from "../../lib/services/databaseRowPages";
 import { enqueueAsync } from "../../lib/sync/runtime";
 import {
@@ -130,6 +132,104 @@ export function defaultCellValueForColumn(col: ColumnDef): CellValue {
     return [];
   }
   return null;
+}
+
+// 배열(다중 값)로 저장되는 컬럼 타입 — 시드 값도 배열로 감싸야 필터를 통과한다.
+const ARRAY_VALUED_COLUMN_TYPES = new Set<ColumnDef["type"]>([
+  "pageLink",
+  "multiSelect",
+  "person",
+  "itemFetch",
+]);
+
+/**
+ * 활성 필터 규칙을 만족시키는 새 행의 셀 시드 값을 계산한다.
+ * 필터가 걸린 상태에서 행을 추가해도 결과 목록에서 곧바로 보이도록,
+ * 해당 필터를 통과하는 값을 컬럼에 주입한다.
+ * 주입할 값이 없거나 기본(null/빈) 값이 이미 조건을 충족하면 undefined 반환.
+ */
+export function seedValueForFilterRule(
+  col: ColumnDef,
+  rule: FilterRule,
+): CellValue | undefined {
+  const value = rule.value ?? "";
+  switch (rule.operator) {
+    case "equals":
+    case "contains": {
+      if (value === "") return undefined;
+      if (col.type === "number") {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      // pageLink/multiSelect/person 등은 id 배열로 저장된다.
+      if (ARRAY_VALUED_COLUMN_TYPES.has(col.type)) return [value];
+      // text/title/select/status(옵션 id)/그 외는 필터 값 그대로.
+      return value;
+    }
+    case "isNotEmpty": {
+      // 비어있지 않기만 하면 되는 케이스 — 안전하게 채울 수 있는 타입만 처리.
+      if (col.type === "status" || col.type === "select") {
+        return col.config?.options?.[0]?.id ?? undefined;
+      }
+      if (col.type === "number") return 0;
+      return undefined;
+    }
+    case "gt":
+    case "lt": {
+      if (col.type !== "number") return undefined;
+      const n = Number(value);
+      if (!Number.isFinite(n)) return undefined;
+      return rule.operator === "gt" ? n + 1 : n - 1;
+    }
+    // isEmpty, notEquals → 기본(null/빈) 값이 이미 조건을 충족하므로 주입 불필요.
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * 활성 필터 규칙들을 만족시키는 새 행의 셀 시드 묶음을 계산한다.
+ * 일반 컬럼은 seedValueForFilterRule 로 직접 주입한다.
+ * 단, 자동화(파생) 컬럼(sourceFromDb.automation/viaPageLinkColumnId)은 raw 셀 시드가
+ * 필터에서 무시되므로(필터는 파생값을 본다), 소스 DB를 가리키는 pageLink 컬럼을
+ * 필터값과 일치하는 소스 행으로 연결해 파생값이 필터를 통과하도록 한다.
+ * 예) 피처의 "프로젝트"가 연결된 마일스톤에서 파생될 때 → 그 프로젝트의 마일스톤을 링크.
+ */
+export function seedDefaultsForFilters(
+  bundle: DatabaseBundle,
+  seedFilters: FilterRule[],
+  databases: Record<string, DatabaseBundle>,
+  pages: Record<string, Page>,
+): Record<string, CellValue> {
+  const defaults: Record<string, CellValue> = {};
+  for (const rule of seedFilters) {
+    const col = bundle.columns.find((c) => c.id === rule.columnId);
+    if (!col) continue;
+    const src = col.config?.sourceFromDb;
+    if (isCellValueDerived(col) && src?.databaseId && src.columnId && rule.value) {
+      const sourceDb = databases[src.databaseId];
+      if (!sourceDb) continue;
+      const targetValue = rule.value;
+      // 소스 DB(예: 마일스톤)에서 파생 기준 컬럼 값이 필터값과 일치하는 첫 행을 찾는다.
+      const matchSourcePageId = sourceDb.rowPageOrder.find((pid) => {
+        const v = pages[pid]?.dbCells?.[src.columnId];
+        return Array.isArray(v) ? (v as unknown[]).includes(targetValue) : v === targetValue;
+      });
+      if (!matchSourcePageId) continue;
+      // 소스 행을 가리킬 pageLink 컬럼 (viaPageLinkColumnId 우선 → scope 일치 → 첫 pageLink).
+      const linkCol =
+        bundle.columns.find((c) => c.type === "pageLink" && c.id === src.viaPageLinkColumnId) ??
+        bundle.columns.find(
+          (c) => c.type === "pageLink" && c.config?.pageLinkScopeDatabaseId === src.databaseId,
+        ) ??
+        bundle.columns.find((c) => c.type === "pageLink");
+      if (linkCol) defaults[linkCol.id] = [matchSourcePageId];
+      continue;
+    }
+    const seeded = seedValueForFilterRule(col, rule);
+    if (seeded !== undefined) defaults[col.id] = seeded;
+  }
+  return defaults;
 }
 
 /** 표시용 제목 정규화 — 비교·중복 검사에 공통 사용 */

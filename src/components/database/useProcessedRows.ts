@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { applyFilterSortSearch } from "../../lib/databaseQuery";
+import { applyFilterSortSearch, resolveActiveFilterRules } from "../../lib/databaseQuery";
 import type { CellValue, DatabasePanelState, DatabaseRowView } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
@@ -83,7 +83,7 @@ export function useProcessedRows(
     });
     const activePreset =
       (panelState.filterPresets ?? []).find((preset) => preset.id === panelState.activePresetId) ?? null;
-    const effectiveFilterRules = activePreset?.filterRules ?? panelState.filterRules;
+    const effectiveFilterRules = resolveActiveFilterRules(panelState);
     // 구버전(sortRules 미존재 + sortColumnId 있음)은 첫 규칙으로 자동 마이그레이션.
     const effectiveSortRules =
       activePreset?.sortRules && activePreset.sortRules.length > 0

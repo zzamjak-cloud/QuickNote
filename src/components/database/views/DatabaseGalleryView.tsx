@@ -10,6 +10,7 @@ import type {
 } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
+import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { DatabaseCell } from "../DatabaseCell";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import { getDatabaseFile } from "../../../lib/databaseFileStorage";
@@ -136,7 +137,7 @@ export function DatabaseGalleryView({
       </div>
       <button
         type="button"
-        onClick={() => addRow(databaseId)}
+        onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
         className="mt-3 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
       >
         + 새 항목

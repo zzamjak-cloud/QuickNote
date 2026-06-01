@@ -10,6 +10,7 @@ import type {
   DatabasePanelState,
   DatabaseRowPreset,
   DatabaseTemplate,
+  FilterRule,
 } from "../types/database";
 import { DATABASE_STORE_VERSION, emptyPanelState } from "../types/database";
 import { newId } from "../lib/id";
@@ -51,6 +52,7 @@ import {
   makeReferenceCellValue,
   normalizeDbTitle,
   seedColumns,
+  seedDefaultsForFilters,
   toDatabaseSnapshot,
   toPageSnapshot,
 } from "./databaseStore/helpers";
@@ -97,7 +99,7 @@ type DatabaseStoreActions = {
   removeColumn: (databaseId: string, columnId: string) => void;
   moveColumn: (databaseId: string, fromIdx: number, toIdx: number) => void;
   /** 시드/추가 행을 위한 행 페이지 생성 — 새 페이지 id 반환 */
-  addRow: (databaseId: string) => string;
+  addRow: (databaseId: string, seedFilters?: FilterRule[]) => string;
   /** 가져오기 전용 일괄 행 생성 — 단일 setState로 메모리 절약 */
   importRowsBatch: (
     databaseId: string,
@@ -304,7 +306,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
 
       ...createColumnActions(set, get),
 
-      addRow: (databaseId) => {
+      addRow: (databaseId, seedFilters) => {
         const bundle = get().databases[databaseId];
         if (!bundle) return "";
         const pageId = createRowPage(
@@ -316,6 +318,18 @@ export const useDatabaseStore = create<DatabaseStore>()(
         for (const col of bundle.columns) {
           const def = defaultCellValueForColumn(col);
           if (def != null) defaults[col.id] = def;
+        }
+        // 필터가 걸린 상태에서 추가한 행이 곧바로 보이도록, 활성 필터를
+        // 통과하는 값을 해당 컬럼에 주입한다(기본값보다 우선).
+        // 파생(자동화) 컬럼은 소스 pageLink 연결로 처리되므로 store 데이터가 필요하다.
+        if (seedFilters && seedFilters.length > 0) {
+          const seeded = seedDefaultsForFilters(
+            bundle,
+            seedFilters,
+            get().databases,
+            usePageStore.getState().pages,
+          );
+          Object.assign(defaults, seeded);
         }
         if (Object.keys(defaults).length > 0) {
           const t = Date.now();
