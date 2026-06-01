@@ -294,6 +294,8 @@ export type DatabasePanelState = {
    * 워크스페이스 전 사용자에게 공유 동기화한다(개인 설정 아님).
    */
   schedulerMemberOrder?: string[];
+  /** LC 스케줄러 구성원 순서의 field-level LWW 타임스탬프(epoch ms). */
+  schedulerMemberOrderUpdatedAt?: number;
 };
 
 /** DB 템플릿 — 새 행 생성 시 기본 셀 값을 미리 지정. */

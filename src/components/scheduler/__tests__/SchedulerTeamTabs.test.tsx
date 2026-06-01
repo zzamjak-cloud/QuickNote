@@ -1,28 +1,38 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
+import { useDatabaseStore } from "../../../store/databaseStore";
 import { useMemberStore, type Member } from "../../../store/memberStore";
 import { useOrganizationStore } from "../../../store/organizationStore";
 import { useSchedulerProjectsStore } from "../../../store/schedulerProjectsStore";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useTeamStore } from "../../../store/teamStore";
+import { LC_SCHEDULER_DATABASE_ID, LC_SCHEDULER_DATABASE_TITLE } from "../../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 import { SchedulerTeamTabs } from "../SchedulerTeamTabs";
 
+vi.mock("../../../lib/sync/runtime", () => ({
+  enqueueAsync: vi.fn(),
+}));
+
 const dndMockState = vi.hoisted(() => ({
   modifiers: undefined as undefined | Array<(args: { transform: { x: number; y: number; scaleX: number; scaleY: number } }) => { x: number; y: number; scaleX: number; scaleY: number }>,
+  onDragEnd: undefined as undefined | ((event: { active: { id: string }; over: { id: string } | null }) => void),
 }));
 
 vi.mock("@dnd-kit/core", () => ({
   DndContext: ({
     children,
     modifiers,
+    onDragEnd,
   }: {
     children: ReactNode;
     modifiers?: typeof dndMockState.modifiers;
+    onDragEnd?: typeof dndMockState.onDragEnd;
   }) => {
     dndMockState.modifiers = modifiers;
+    dndMockState.onDragEnd = onDragEnd;
     return <div data-testid="member-dnd-context">{children}</div>;
   },
   closestCenter: vi.fn(),
@@ -77,6 +87,7 @@ function member(memberId: string, name: string): Member {
 describe("SchedulerTeamTabs", () => {
   beforeEach(() => {
     dndMockState.modifiers = undefined;
+    dndMockState.onDragEnd = undefined;
     useMemberStore.setState({
       members: [
         member("member-1", "가람"),
@@ -97,6 +108,25 @@ describe("SchedulerTeamTabs", () => {
       multiSelectedIds: [],
     });
     useSettingsStore.setState({ schedulerMemberOrder: [] });
+    useDatabaseStore.setState({
+      databases: {
+        [LC_SCHEDULER_DATABASE_ID]: {
+          meta: {
+            id: LC_SCHEDULER_DATABASE_ID,
+            workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+            title: LC_SCHEDULER_DATABASE_TITLE,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [{ id: "title", name: "Name", type: "title" }],
+          presets: [],
+          rowPageOrder: [],
+        },
+      },
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      migrationQuarantine: [],
+      dbTemplates: {},
+    });
   });
 
   it("구성원 탭 자체를 drag surface로 사용하고 별도 핸들을 노출하지 않는다", () => {
@@ -115,5 +145,25 @@ describe("SchedulerTeamTabs", () => {
     expect(
       modifier?.({ transform: { x: 24, y: 40, scaleX: 1, scaleY: 1 } }),
     ).toEqual({ x: 24, y: 0, scaleX: 1, scaleY: 1 });
+  });
+
+  it("드래그한 구성원 순서와 field-level timestamp를 작업 DB panelState에 저장한다", () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(12345);
+    try {
+      render(<SchedulerTeamTabs />);
+
+      act(() => {
+        dndMockState.onDragEnd?.({
+          active: { id: "member-1" },
+          over: { id: "member-2" },
+        });
+      });
+
+      const panelState = useDatabaseStore.getState().databases[LC_SCHEDULER_DATABASE_ID]?.panelState;
+      expect(panelState?.schedulerMemberOrder).toEqual(["member-2", "member-1"]);
+      expect(panelState?.schedulerMemberOrderUpdatedAt).toBe(12345);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });

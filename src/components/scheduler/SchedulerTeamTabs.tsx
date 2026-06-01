@@ -162,6 +162,7 @@ export function SchedulerTeamTabs() {
         memberIds,
         reorderedVisibleIds,
       ),
+      schedulerMemberOrderUpdatedAt: Date.now(),
     });
   };
 

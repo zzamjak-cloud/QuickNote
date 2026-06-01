@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { applyRemoteDatabaseToStore, applyRemoteDatabasesToStore } from "../storeApply";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import type { GqlDatabase } from "../queries/database";
-import { LC_MILESTONE_DATABASE_ID } from "../../scheduler/database";
+import {
+  LC_MILESTONE_DATABASE_ID,
+  LC_SCHEDULER_DATABASE_ID,
+  LC_SCHEDULER_DATABASE_TITLE,
+} from "../../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 import { emptyPanelState } from "../../../types/database";
 
@@ -218,6 +222,50 @@ describe("applyRemoteDatabaseToStore", () => {
       "member-2",
     ]);
     expect(bundle.panelState?.viewConfigs?.timeline?.hiddenColumnIds).toEqual(["source"]);
+  });
+
+  it("LC 작업 DB는 로컬 DB updatedAt 이 더 최신이어도 더 최신 구성원 순서만 병합한다", () => {
+    useDatabaseStore.setState({
+      databases: {
+        [LC_SCHEDULER_DATABASE_ID]: {
+          meta: {
+            id: LC_SCHEDULER_DATABASE_ID,
+            workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+            title: LC_SCHEDULER_DATABASE_TITLE,
+            createdAt: Date.parse("2026-01-01T00:00:00.000Z"),
+            updatedAt: Date.parse("2026-06-02T00:00:00.000Z"),
+          },
+          columns: [{ id: "title", name: "Name", type: "title" }],
+          presets: [],
+          panelState: {
+            ...emptyPanelState(),
+            schedulerMemberOrder: ["local-1", "local-2"],
+            schedulerMemberOrderUpdatedAt: 100,
+          },
+          rowPageOrder: [],
+        },
+      },
+      cacheWorkspaceId: "ws-1",
+      migrationQuarantine: [],
+      dbTemplates: {},
+    });
+
+    applyRemoteDatabaseToStore({
+      ...remoteDatabase(),
+      id: LC_SCHEDULER_DATABASE_ID,
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      title: LC_SCHEDULER_DATABASE_TITLE,
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      panelState: JSON.stringify({
+        schedulerMemberOrder: ["remote-2", "remote-1"],
+        schedulerMemberOrderUpdatedAt: 200,
+      }),
+    });
+
+    const bundle = useDatabaseStore.getState().databases[LC_SCHEDULER_DATABASE_ID];
+    expect(bundle.panelState?.schedulerMemberOrder).toEqual(["remote-2", "remote-1"]);
+    expect(bundle.panelState?.schedulerMemberOrderUpdatedAt).toBe(200);
+    expect(bundle.meta.updatedAt).toBe(Date.parse("2026-06-02T00:00:00.000Z"));
   });
 
   it("invalid remote columns는 기존 local DB를 빈 columns로 덮지 않는다", () => {

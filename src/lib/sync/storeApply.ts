@@ -12,7 +12,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { Page } from "../../types/page";
-import type { DatabaseBundle } from "../../types/database";
+import type { DatabaseBundle, DatabasePanelState } from "../../types/database";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
@@ -573,6 +573,68 @@ function parseRemoteDatabaseSchema(
   return { columns, presets, ...(panelState ? { panelState } : {}) };
 }
 
+function mergeRemoteSchedulerMemberOrder(
+  localPanelState: DatabasePanelState | undefined,
+  remotePanelState: DatabasePanelState | undefined,
+): DatabasePanelState | undefined {
+  const remoteOrder = remotePanelState?.schedulerMemberOrder;
+  if (!remoteOrder) return localPanelState;
+
+  const localOrder = localPanelState?.schedulerMemberOrder ?? [];
+  const remoteUpdatedAt = remotePanelState.schedulerMemberOrderUpdatedAt ?? 0;
+  const localUpdatedAt = localPanelState?.schedulerMemberOrderUpdatedAt ?? 0;
+  const remoteWins =
+    remoteUpdatedAt > localUpdatedAt ||
+    (remoteUpdatedAt === localUpdatedAt && !stringArrayEqual(remoteOrder, localOrder));
+  if (!remoteWins) return localPanelState;
+
+  return {
+    ...(localPanelState ?? remotePanelState),
+    schedulerMemberOrder: [...remoteOrder],
+    schedulerMemberOrderUpdatedAt: remoteUpdatedAt,
+  };
+}
+
+function resolvePanelStateWithLocalFallback(
+  localPanelState: DatabasePanelState | undefined,
+  remotePanelState: DatabasePanelState | undefined,
+): DatabasePanelState | undefined {
+  // 서버가 빈 panelState({})로 잘못 덮인 경우(과거 회귀로 탭 유실), local 에 탭이 있으면 보존한다.
+  const remoteHasPresets = (remotePanelState?.filterPresets?.length ?? 0) > 0;
+  const localHasPresets = (localPanelState?.filterPresets?.length ?? 0) > 0;
+  const resolvedPanelState =
+    remoteHasPresets || !localHasPresets ? (remotePanelState ?? localPanelState) : localPanelState;
+
+  return mergeRemoteSchedulerMemberOrder(resolvedPanelState, remotePanelState);
+}
+
+function mergeRemoteSchedulerMemberOrderIntoLocalDatabase(
+  db: GqlDatabase,
+  local: DatabaseBundle | undefined,
+  schema: Pick<DatabaseBundle, "columns" | "presets" | "panelState"> | null,
+): boolean {
+  if (!local || db.id !== LC_SCHEDULER_DATABASE_ID || !schema?.panelState) return false;
+  const nextPanelState = mergeRemoteSchedulerMemberOrder(local.panelState, schema.panelState);
+  if (nextPanelState === local.panelState) return false;
+
+  useDatabaseStore.setState((s) => {
+    const bundle = s.databases[db.id];
+    if (!bundle) return s;
+    return {
+      ...s,
+      databases: {
+        ...s.databases,
+        [db.id]: {
+          ...bundle,
+          panelState: nextPanelState,
+        },
+      },
+      cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
+    };
+  });
+  return true;
+}
+
 export function applyRemoteDatabaseToStore(
   d: GqlDatabase | null | undefined,
 ): void {
@@ -644,10 +706,11 @@ export function applyRemoteDatabaseToStore(
     return;
   }
 
-  // LC 스케줄러 DB(작업·마일스톤·피처)도 일반 DB 와 동일하게 LWW 로 동기화한다.
-  // (시드는 고정 과거 타임스탬프라 사용자 편집이 항상 이기고, 서버 upsertDatabase 가
-  //  LWW + 부분 payload 병합을 보장하므로 별도 특수처리가 필요 없다. 삭제 보호만 유지.)
+  const schema = parseRemoteDatabaseSchema(db);
+  if (!schema) return;
+
   if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) {
+    if (mergeRemoteSchedulerMemberOrderIntoLocalDatabase(db, local, schema)) return;
     useDatabaseStore.setState((s) =>
       s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId)
         ? s
@@ -656,17 +719,10 @@ export function applyRemoteDatabaseToStore(
     return;
   }
 
-  const schema = parseRemoteDatabaseSchema(db);
-  if (!schema) return;
   const { columns, presets, panelState } = schema;
   const derivedRowOrder = collectRowPageIdsForDatabase(db.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
-
-  // 서버가 빈 panelState({})로 잘못 덮인 경우(과거 회귀로 탭 유실), local 에 탭이 있으면 보존한다.
-  const remoteHasPresets = (panelState?.filterPresets?.length ?? 0) > 0;
-  const localHasPresets = (local?.panelState?.filterPresets?.length ?? 0) > 0;
-  const resolvedPanelState =
-    remoteHasPresets || !localHasPresets ? (panelState ?? local?.panelState) : local?.panelState;
+  const resolvedPanelState = resolvePanelStateWithLocalFallback(local?.panelState, panelState);
 
   const bundle: DatabaseBundle = {
     meta: {
@@ -778,21 +834,27 @@ export function applyRemoteDatabasesToStore(
         continue;
       }
 
-      const local = databases[db.id];
-      if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) continue;
-
       const schema = parseRemoteDatabaseSchema(db);
       if (!schema) continue;
+      const local = databases[db.id];
+      if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) {
+        if (db.id === LC_SCHEDULER_DATABASE_ID) {
+          const nextPanelState = mergeRemoteSchedulerMemberOrder(local.panelState, schema.panelState);
+          if (nextPanelState !== local.panelState) {
+            ensureDatabasesCopy();
+            databases[db.id] = { ...local, panelState: nextPanelState };
+            changed = true;
+          }
+        }
+        continue;
+      }
+
       const { columns, presets, panelState } = schema;
       const derivedRowOrder = derivedByDbId.get(db.id) ?? [];
       const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
       // 단건 경로(applyRemoteDatabaseToStore)와 동일하게 panelState 를 반영해야 한다.
       // (과거 누락으로 전체 페치/새로고침 시 스케줄러 DB 의 표시설정·구성원 순서가 사라졌다.)
-      // 서버가 빈 panelState({})로 잘못 덮인 경우 local 에 탭이 있으면 보존한다.
-      const remoteHasPresets = (panelState?.filterPresets?.length ?? 0) > 0;
-      const localHasPresets = (local?.panelState?.filterPresets?.length ?? 0) > 0;
-      const resolvedPanelState =
-        remoteHasPresets || !localHasPresets ? (panelState ?? local?.panelState) : local?.panelState;
+      const resolvedPanelState = resolvePanelStateWithLocalFallback(local?.panelState, panelState);
       const bundle: DatabaseBundle = {
         meta: {
           id: db.id,
