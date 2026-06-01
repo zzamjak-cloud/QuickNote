@@ -40,6 +40,9 @@ import { useWindowedRows } from "./useWindowedRows";
 import { TimelineCardPropertyLabels } from "../TimelineCardPropertyLabels";
 import { ScheduleCardDetailRows } from "../ScheduleCardDetailRows";
 import { getScheduleCardContentOffset } from "../../scheduler/scheduleCardDisplay";
+import { animateScrollLeft } from "../../../lib/animateScroll";
+import { TimelineCardText } from "../TimelineCardText";
+import { applyTimelineCardStickyOffset } from "../timelineCardStickyOffset";
 import { SELECT_COLOR_PRESETS } from "../selectColorPresets";
 import { buildTimelineCardConfigPatch } from "./timelineCardConfig";
 
@@ -240,6 +243,9 @@ const TimelineLabelRow = memo(function TimelineLabelRow({
   );
 });
 
+// 항목 선택 시 가로 포커싱 스크롤 지속 시간(ms). 0.3초 동안 부드럽게 이동.
+const FOCUS_SCROLL_DURATION_MS = 300;
+
 export function DatabaseTimelineView({
   databaseId,
   panelState,
@@ -265,6 +271,14 @@ export function DatabaseTimelineView({
   const openPeek = useUiStore((s) => s.openPeek);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  // 진행 중인 포커싱 스크롤 애니메이션 핸들 — 새 포커싱/언마운트 시 중단한다.
+  const focusScrollRef = useRef<{ cancel: () => void } | null>(null);
+  // 포커싱 애니메이션 진행 중 여부 — true 인 동안에는 onScroll 의 sticky 재렌더를 건너뛴다.
+  const focusAnimatingRef = useRef(false);
+  useEffect(() => () => focusScrollRef.current?.cancel(), []);
+  // 긴 카드 텍스트 sticky 처리를 위한 가로 스크롤 위치. focusTimelineCard 보다 먼저 선언해
+  // setter 가 안정적(stable)으로 인식되도록 한다(React Compiler 메모이제이션 보존).
+  const [timelineScrollLeft, setTimelineScrollLeft] = useState(0);
   const [granularity, setGranularity] = useState<Granularity>(() => {
     const saved = localStorage.getItem(LS_GRANULARITY_KEY);
     return saved === "month" || saved === "week" || saved === "year" ? saved : "year";
@@ -742,16 +756,58 @@ export function DatabaseTimelineView({
       const targetMonth = startOfMonth(targetRange.start);
       setVisibleMonthStart((prev) => (prev === targetMonth ? prev : targetMonth));
     }
-    // 대상 카드(값이 등록된 첫 날짜) DOM 으로 부드럽게 스크롤. 월 전환 후 렌더를 기다려 실행.
-    window.requestAnimationFrame(() => {
-      const root = scrollContainerRef.current;
-      const cardEl =
-        (targetCardId &&
-          root?.querySelector(`[data-db-timeline-card-id="${targetCardId}"]`)) ||
-        root?.querySelector(`[data-db-timeline-card-page="${pageId}"]`);
-      cardEl?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-    });
-  }, [commitSelectedCardIds, isMonthAxis, rows, timelineDateEntries]);
+    // 대상 카드를 화면 가로 중앙으로 0.3초 동안 부드럽게 이동.
+    // 라벨 행은 좌측 sticky 컬럼이라 클릭 시점에 이미 세로로 보이므로 세로 스크롤은 불필요하다.
+    // 가로 스크롤이 있는 연간 축에서만 의미가 있다(월/주 축은 화면 폭에 맞춰져 스크롤이 없다).
+    // 카드 위치는 DOM 조회(react-rnd 가 data-* 속성을 DOM 에 전달하는지에 의존, 실패 시 무동작)
+    // 대신 카드 렌더와 동일한 레이아웃 계산(dayToX/dayWidth)으로 직접 구해 항상 동작하게 한다.
+    if (usesScrollableAxis && targetRange) {
+      const visStart = Math.max(targetRange.start, axis.minT);
+      const visEnd = Math.min(targetRange.end, axis.maxT);
+      // 대상 날짜가 현재 연도 범위를 벗어나면 표시할 카드가 없어 스크롤하지 않는다.
+      if (visEnd >= axis.minT && visStart <= axis.maxT) {
+        // 선택 상태 반영(re-render) 후의 레이아웃 기준으로 측정하도록 다음 프레임에서 실행.
+        window.requestAnimationFrame(() => {
+          const root = scrollContainerRef.current;
+          if (!root) return;
+          const cardLeft = dayToX(visStart);
+          const cardWidth = Math.max(dayWidth(visStart, visEnd), 24);
+          // 트랙은 좌측 sticky 라벨(sideLabelWidth) 뒤에서 시작하므로 그만큼 더한 값이
+          // 스크롤 콘텐츠 기준 카드 위치다. 카드 중앙이 뷰포트 중앙에 오도록 목표를 계산.
+          const cardCenter = sideLabelWidth + cardLeft + cardWidth / 2;
+          const maxLeft = Math.max(0, root.scrollWidth - root.clientWidth);
+          const target = Math.max(0, Math.min(maxLeft, cardCenter - root.clientWidth / 2));
+          focusScrollRef.current?.cancel();
+          // 애니메이션 중에는 onScroll 의 sticky 재렌더(전체 카드 리렌더)를 멈춰 프레임을 매끄럽게 한다.
+          // 대신 카드 내부 텍스트의 sticky 오프셋은 매 프레임 DOM transform 으로 직접 갱신해
+          // (React 리렌더 없이) 스크롤에 맞춰 부드럽게 따라오게 한다.
+          focusAnimatingRef.current = true;
+          focusScrollRef.current = animateScrollLeft(
+            root,
+            target,
+            FOCUS_SCROLL_DURATION_MS,
+            () => {
+              focusAnimatingRef.current = false;
+              // 종료 후 React 가 인라인 style 로 최종 오프셋을 다시 설정하도록 한 번만 동기화.
+              setTimelineScrollLeft(root.scrollLeft);
+            },
+            (scrollLeft) => applyTimelineCardStickyOffset(root, scrollLeft),
+          );
+        });
+      }
+    }
+  }, [
+    axis.minT,
+    axis.maxT,
+    commitSelectedCardIds,
+    dayToX,
+    dayWidth,
+    isMonthAxis,
+    rows,
+    sideLabelWidth,
+    timelineDateEntries,
+    usesScrollableAxis,
+  ]);
 
   const commitRange = useCallback(
     (card: TimelineCardLayout, start: number, end: number) => {
@@ -889,7 +945,6 @@ export function DatabaseTimelineView({
     scrollLockLeftRef.current = null;
   }, []);
 
-  const [timelineScrollLeft, setTimelineScrollLeft] = useState(0);
   const scrollSyncRafRef = useRef<number | null>(null);
 
   const handleTimelineScroll = useCallback(() => {
@@ -899,6 +954,10 @@ export function DatabaseTimelineView({
     if (locked != null && el && el.scrollLeft !== locked) {
       el.scrollLeft = locked;
     }
+    // 포커싱 애니메이션이 도는 동안에는 sticky 동기화를 건너뛴다.
+    // (프레임마다 timelineScrollLeft state 를 갱신하면 전체 카드가 리렌더되어 프레임이 끊긴다.
+    //  애니메이션 종료 시 onComplete 에서 한 번만 동기화한다.)
+    if (focusAnimatingRef.current) return;
     // 긴 카드 텍스트 sticky 처리를 위한 scrollLeft 추적 (rAF 스로틀)
     if (!el || scrollSyncRafRef.current != null) return;
     scrollSyncRafRef.current = window.requestAnimationFrame(() => {
@@ -917,6 +976,11 @@ export function DatabaseTimelineView({
     }
     const el = scrollContainerRef.current;
     if (!el || axis.totalW <= 0) return;
+    // 컨테이너가 아직 레이아웃되지 않은 상태(워크스페이스 전환 직후 숨김/0폭)에서는
+    // 오늘 포커싱을 "잠그지" 않는다. 이 시점에 scrollLeft 를 쓰면 스크롤 콘텐츠 폭이 0이라
+    // 0(연초)으로 클램프된 채 ref 가 잠겨 다시는 오늘로 스크롤하지 못한다(새로고침 전까지).
+    // 레이아웃이 잡히면 trackPxWidth 변화로 이 effect 가 재실행되어 보정한다.
+    if (el.clientWidth === 0) return;
     const key = String(visibleYear);
     if (yearAutoScrollKeyRef.current === key) return;
     yearAutoScrollKeyRef.current = key;
@@ -926,7 +990,7 @@ export function DatabaseTimelineView({
       now < axis.minT || now > axis.maxT
         ? 0
         : Math.max(0, todayX - el.clientWidth / 2);
-  }, [isYearAxis, visibleYear, axis.totalW, axis.minT, axis.maxT, todayX]);
+  }, [isYearAxis, visibleYear, axis.totalW, axis.minT, axis.maxT, todayX, trackPxWidth]);
 
   const selectedMultiPageIds = useMemo(() => {
     const pageIds = new Set<string>();
@@ -1343,7 +1407,13 @@ export function DatabaseTimelineView({
 
                 {cardLayouts.map((card) => (
                   <DatabaseTimelineCard
-                    key={card.id}
+                    // react-rnd 는 mount 시점(componentDidMount)에 getBoundingClientRect 로
+                    // 부모 기준 오프셋을 한 번만 측정하고 이후 prop/레이아웃 변화로는 재측정하지
+                    // 않는다(드래그·리사이즈 제외). 워크스페이스 전환처럼 컨테이너가 숨김/0폭 상태에서
+                    // 카드가 mount 되면 오프셋이 잘못 고정돼 카드가 엉뚱한 날짜(행 밖)에 표시되고
+                    // 새로고침 전까지 복구되지 않는다. 트랙이 측정되면(trackPxWidth 0→유효) key 를
+                    // 바꿔 카드를 remount → 유효한 레이아웃 기준으로 오프셋을 다시 측정시킨다.
+                    key={`${card.id}:${trackPxWidth > 0 ? "ready" : "pending"}`}
                     card={card}
                     databaseId={databaseId}
                     excludeColumnIds={timelineExcludeColumnIds}
@@ -1491,8 +1561,8 @@ function DatabaseTimelineCard({
     ? "font-medium text-zinc-700 dark:text-zinc-200"
     : "font-medium text-white";
   const dateClassName = card.isUnscheduled
-    ? "shrink-0 text-xs text-zinc-400 dark:text-zinc-500"
-    : "shrink-0 text-xs text-white/80";
+    ? "text-xs text-zinc-400 dark:text-zinc-500"
+    : "text-xs text-white/80";
   const labelTextClassName = card.isUnscheduled
     ? "text-zinc-500 dark:text-zinc-400"
     : "text-white/80";
@@ -1630,12 +1700,16 @@ function DatabaseTimelineCard({
           onOpenPeek(card.pageId);
         }}
       >
-        <div
-          className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm"
-          style={contentOffset ? { transform: `translateX(${contentOffset}px)` } : undefined}
+        <TimelineCardText
+          cardLeft={visualX}
+          cardWidth={localW}
+          contentOffset={contentOffset}
+          title={card.title}
+          titleClassName={titleClassName}
+          dateLabel={card.showDateLabel ? card.dateLabel : undefined}
+          dateClassName={dateClassName}
+          containerClassName="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm"
         >
-          <span className={`shrink-0 ${titleClassName}`}>{card.title}</span>
-          {card.showDateLabel && <span className={dateClassName}>{card.dateLabel}</span>}
           <TimelineCardPropertyLabels
             databaseId={databaseId}
             pageId={card.row.pageId}
@@ -1644,7 +1718,7 @@ function DatabaseTimelineCard({
             className="ml-0.5 text-xs"
             textClassName={labelTextClassName}
           />
-        </div>
+        </TimelineCardText>
         <div className="absolute -right-7 top-1/2 z-20 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-900/90">
           <button
             type="button"

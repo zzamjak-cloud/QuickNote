@@ -42,6 +42,7 @@ import {
   todayIndex as calcTodayIndex,
 } from "../../lib/scheduler/dateUtils";
 import { clampVisibleRange } from "../../lib/scheduler/gridUtils";
+import { animateScroll } from "../../lib/animateScroll";
 import { CARD_MARGIN, ROW_PADDING_TOP, getCellWidth, getRowHeight } from "../../lib/scheduler/grid";
 import { getHolidaysForYear } from "../../lib/scheduler/koreanHolidays";
 import { LC_FEATURE_COLUMN_IDS, makeLCFeatureDatabaseId } from "../../lib/scheduler/featureDatabase";
@@ -57,6 +58,9 @@ import { GridRow } from "./GridRow";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { DatabaseColumnSettingsButton } from "../database/DatabaseColumnSettingsButton";
 import { TimelineCardPropertyLabels } from "../database/TimelineCardPropertyLabels";
+import { TimelineCardText } from "../database/TimelineCardText";
+import { applyTimelineCardStickyOffset } from "../database/timelineCardStickyOffset";
+import { getScheduleCardContentOffset } from "./scheduleCardDisplay";
 import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
 import {
   addWeeks,
@@ -70,6 +74,10 @@ import {
   type WeekDaySlot,
 } from "./schedule/weekScheduleUtils";
 
+// 항목 선택 시 포커싱 스크롤 지속 시간(ms). 0.3초 동안 부드럽게 이동.
+const FOCUS_SCROLL_DURATION_MS = 300;
+// 포커싱 시 카드를 화면 정중앙이 아니라 항목(첫) 컬럼 우측에 살짝 띄워 정렬하기 위한 여백(px).
+const FOCUS_LEFT_GAP_PX = 16;
 const DATE_AXIS_HEIGHT = 76;
 const DEFAULT_ITEM_COLUMN_WIDTH = 220;
 const BOTTOM_SPACER_HEIGHT = 220;
@@ -294,6 +302,11 @@ function getCardSlotRange(card: TimelineCard, slots: WeekDaySlot[]): { startSlot
 
 export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // 진행 중인 포커싱 스크롤 애니메이션 핸들 + 진행 여부 플래그.
+  // 애니메이션 중에는 onScroll 의 setTrackScrollLeft(전체 행/카드 리렌더)를 멈춰 프레임을 매끄럽게 한다.
+  const focusScrollRef = useRef<{ cancel: () => void } | null>(null);
+  const focusAnimatingRef = useRef(false);
+  useEffect(() => () => focusScrollRef.current?.cancel(), []);
   const milestoneDatabaseId = makeLCMilestoneDatabaseId(workspaceId);
   const featureDatabaseId = makeLCFeatureDatabaseId(workspaceId);
   const databaseId =
@@ -736,8 +749,9 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
       return;
     }
     const rowTop = DATE_AXIS_HEIGHT + rowIndex * rowHeight;
-    container.scrollTop = Math.max(0, rowTop - container.clientHeight / 2 + rowHeight / 2);
+    const targetTop = Math.max(0, rowTop - container.clientHeight / 2 + rowHeight / 2);
 
+    let targetLeft: number | undefined;
     const card = row.cards[0];
     if (card) {
       let cardLeft: number | null = null;
@@ -749,9 +763,28 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
         if (slotRange) cardLeft = slotRange.startSlot * activeCellWidth + CARD_MARGIN;
       }
       if (cardLeft !== null) {
-        container.scrollLeft = Math.max(0, itemColumnWidth + cardLeft - container.clientWidth / 2);
+        // 화면 정중앙이 아니라 항목(첫) 컬럼 바로 우측에 카드를 정렬한다.
+        // 카드의 콘텐츠 좌표 = itemColumnWidth + cardLeft 를 뷰포트의 itemColumnWidth + 여백 위치로
+        // 보내려면 scrollLeft = cardLeft - 여백 이면 된다.
+        targetLeft = Math.max(0, cardLeft - FOCUS_LEFT_GAP_PX);
       }
     }
+
+    // 수직(행 중앙) + 수평(첫 카드)을 0.3초 동안 함께 부드럽게 이동.
+    // 카드 내부 텍스트의 sticky 오프셋은 매 프레임 DOM transform 으로 직접 갱신해 부드럽게 따라오게 한다.
+    focusScrollRef.current?.cancel();
+    focusAnimatingRef.current = true;
+    focusScrollRef.current = animateScroll(
+      container,
+      { left: targetLeft, top: targetTop },
+      FOCUS_SCROLL_DURATION_MS,
+      () => {
+        focusAnimatingRef.current = false;
+        // 종료 후 sticky 오프셋·"날짜 없음" 카드 위치(trackScrollLeft) 를 한 번만 동기화.
+        setTrackScrollLeft(container.scrollLeft);
+      },
+      (pos) => applyTimelineCardStickyOffset(container, pos.left),
+    );
     setPendingFocusPageId(null);
   }, [
     pendingFocusPageId,
@@ -762,14 +795,17 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     annualCellWidth,
     activeCellWidth,
     rowHeight,
-    itemColumnWidth,
   ]);
 
   return (
     <>
     <div
       ref={containerRef}
-      onScroll={(event) => setTrackScrollLeft(event.currentTarget.scrollLeft)}
+      onScroll={(event) => {
+        // 포커싱 애니메이션 중에는 setTrackScrollLeft(전체 행/카드 리렌더)를 건너뛴다.
+        if (focusAnimatingRef.current) return;
+        setTrackScrollLeft(event.currentTarget.scrollLeft);
+      }}
       className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-950"
     >
       <div
@@ -1040,6 +1076,12 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                   const labelTextColor =
                     textColor === "#ffffff" ? "rgba(255,255,255,0.82)" : "rgba(26,26,26,0.72)";
                   const cellW = isAnnualView ? annualCellWidth : activeCellWidth;
+                  // 긴 카드가 좌측으로 스크롤될 때 텍스트를 화면(항목 컬럼 우측) 안에 유지.
+                  const contentOffset = getScheduleCardContentOffset({
+                    scrollLeft: trackScrollLeft,
+                    cardLeft: left,
+                    cardWidth: width,
+                  });
                   return (
                     <Rnd
                       key={card.id}
@@ -1088,13 +1130,16 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                         className="h-full w-full cursor-grab overflow-hidden rounded-md px-2 text-left text-xs font-semibold shadow-sm active:cursor-grabbing"
                         style={{ backgroundColor: card.color, color: textColor }}
                       >
-                        <span className="flex h-full items-center gap-1.5 overflow-hidden whitespace-nowrap">
-                          <span className="shrink-0">{card.title}</span>
-                          {card.showDateLabel && (
-                            <span className="shrink-0 font-normal" style={{ color: labelTextColor }}>
-                              {card.dateLabel}
-                            </span>
-                          )}
+                        <TimelineCardText
+                          cardLeft={left}
+                          cardWidth={width}
+                          contentOffset={contentOffset}
+                          title={card.title}
+                          dateLabel={card.showDateLabel ? card.dateLabel : undefined}
+                          dateClassName="font-normal"
+                          dateStyle={{ color: labelTextColor }}
+                          containerClassName="flex h-full items-center gap-1.5 overflow-hidden whitespace-nowrap"
+                        >
                           <TimelineCardPropertyLabels
                             databaseId={databaseId}
                             pageId={row.page.id}
@@ -1102,7 +1147,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                             className="font-normal"
                             style={{ color: labelTextColor }}
                           />
-                        </span>
+                        </TimelineCardText>
                       </div>
                     </Rnd>
                   );
