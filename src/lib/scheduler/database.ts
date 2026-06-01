@@ -11,6 +11,17 @@ const LC_FEATURE_COL = {
   project: "lc-feature:project",
 } as const;
 
+/**
+ * LC 스케줄러 보호 DB(작업·마일스톤·피처) 최초 시드의 고정 타임스탬프(ms).
+ *
+ * 시드는 각 클라이언트가 코드로 동일하게 재구성하는 기본 정의일 뿐이므로, 시드의 updatedAt 은
+ * 항상 "아주 과거" 의 고정값이어야 한다. 그래야 사용자의 실제 변경(컬럼·표시설정 편집 → updatedAt=now)이
+ * 언제나 시드보다 최신으로 판정되어 LWW(클라이언트·서버 양쪽)에서 이긴다.
+ * 과거엔 시드가 Date.now() 를 써서, 나중에 시드한 클라이언트가 먼저 편집한 클라이언트의 변경을
+ * 영구히 거부(되돌림)하는 회귀가 있었다.
+ */
+export const LC_SCHEDULER_SEED_TIMESTAMP_MS = Date.UTC(2020, 0, 1);
+
 export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
 export const LC_SCHEDULER_DATABASE_TITLE = "작업";
 export const LC_SCHEDULER_DATABASE_ID = `${LC_SCHEDULER_DATABASE_ID_PREFIX}${LC_SCHEDULER_WORKSPACE_ID}`;
@@ -319,7 +330,8 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
     return;
   }
 
-  const t = Date.now();
+  // 고정 과거 타임스탬프로 시드 → 사용자 편집(updatedAt=now)이 항상 LWW 에서 이긴다.
+  const t = LC_SCHEDULER_SEED_TIMESTAMP_MS;
   const next: DatabaseBundle = {
     meta: {
       id: databaseId,

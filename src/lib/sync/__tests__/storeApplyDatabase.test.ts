@@ -109,10 +109,9 @@ describe("applyRemoteDatabaseToStore", () => {
     ]);
   });
 
-  it("보호 DB(마일스톤/피처)의 원격 viewConfigs 표시 설정을 로컬에 병합한다", () => {
-    // 보호 DB 는 각 클라이언트가 비결정 시드 timestamp 로 재구성되어 로컬 updatedAt 이
-    // 원격보다 최신일 수 있다 → 일반 LWW 경로가 막힌다. 이 상황에서도 일정 카드 속성
-    // 표시 설정(viewConfigs.timeline)은 원격값으로 동기화되어야 한다.
+  it("LC 스케줄러 DB 의 표시설정(viewConfigs)은 일반 LWW 로 동기화된다", () => {
+    // 시드는 고정 과거 타임스탬프라 로컬이 항상 원격 편집보다 오래됨 → 원격(더 최신)이 적용된다.
+    // 별도 보호 DB 특수처리 없이 일반 DB 와 동일하게 동기화되어야 한다.
     useDatabaseStore.setState({
       databases: {
         [LC_MILESTONE_DATABASE_ID]: {
@@ -120,9 +119,9 @@ describe("applyRemoteDatabaseToStore", () => {
             id: LC_MILESTONE_DATABASE_ID,
             workspaceId: LC_SCHEDULER_WORKSPACE_ID,
             title: "마일스톤",
-            createdAt: 1,
-            // 원격(2026-01-01T00:00:01)보다 최신 → LWW 가드가 일반 경로를 막는다.
-            updatedAt: Date.parse("2030-01-01T00:00:00.000Z"),
+            createdAt: Date.parse("2020-01-01T00:00:00.000Z"),
+            // 시드의 고정 과거 타임스탬프.
+            updatedAt: Date.parse("2020-01-01T00:00:00.000Z"),
           },
           columns: [
             { id: "title", name: "Name", type: "title" },
@@ -143,6 +142,7 @@ describe("applyRemoteDatabaseToStore", () => {
       ...remoteDatabase(),
       id: LC_MILESTONE_DATABASE_ID,
       workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      // 원격은 더 최신(remoteDatabase()의 updatedAt=2026-01-01) + viewConfigs 보유.
       panelState: JSON.stringify({
         viewConfigs: {
           timeline: { hiddenColumnIds: ["source"] },
@@ -154,9 +154,9 @@ describe("applyRemoteDatabaseToStore", () => {
     expect(bundle.panelState?.viewConfigs?.timeline?.hiddenColumnIds).toEqual(["source"]);
   });
 
-  it("보호 DB 원격이 더 최신이어도 로컬 필터 프리셋을 viewConfigs 병합 과정에서 잃지 않는다", () => {
-    // 원격이 로컬보다 최신(LWW 통과) → 일반 경로 진입. 원격은 viewConfigs 만, 로컬은
-    // 필터 프리셋만 보유한 상황에서 둘 다 보존되어야 한다.
+  it("로컬 편집이 더 최신이면 오래된 원격이 표시설정을 되돌리지 않는다(LWW)", () => {
+    // 사용자가 방금 표시설정을 바꿔 로컬 updatedAt 이 최신인 상태에서, 오래된 원격 스냅샷이
+    // 도착해도 로컬 변경을 덮지 않아야 한다(되돌림 방지).
     useDatabaseStore.setState({
       databases: {
         [LC_MILESTONE_DATABASE_ID]: {
@@ -164,9 +164,9 @@ describe("applyRemoteDatabaseToStore", () => {
             id: LC_MILESTONE_DATABASE_ID,
             workspaceId: LC_SCHEDULER_WORKSPACE_ID,
             title: "마일스톤",
-            createdAt: 1,
-            // 원격(2026-01-01)보다 과거 → 원격이 더 최신으로 판정되어 일반 경로로 진입.
-            updatedAt: Date.parse("2020-01-01T00:00:00.000Z"),
+            createdAt: Date.parse("2020-01-01T00:00:00.000Z"),
+            // 원격(2026-01-01)보다 최신 → 로컬 편집 보존.
+            updatedAt: Date.parse("2026-06-01T00:00:00.000Z"),
           },
           columns: [
             { id: "title", name: "Name", type: "title" },
@@ -175,9 +175,7 @@ describe("applyRemoteDatabaseToStore", () => {
           presets: [],
           panelState: {
             ...emptyPanelState(),
-            filterPresets: [
-              { id: "p-local", name: "로컬탭", filterRules: [], sortRules: [] },
-            ],
+            viewConfigs: { timeline: { hiddenColumnIds: ["source"] } },
           },
           rowPageOrder: [],
         },
@@ -191,15 +189,13 @@ describe("applyRemoteDatabaseToStore", () => {
       ...remoteDatabase(),
       id: LC_MILESTONE_DATABASE_ID,
       workspaceId: LC_SCHEDULER_WORKSPACE_ID,
-      panelState: JSON.stringify({
-        viewConfigs: { timeline: { hiddenColumnIds: ["source"] } },
-      }),
+      // 오래된 원격 — 표시설정 없음.
+      panelState: JSON.stringify({}),
     });
 
     const bundle = useDatabaseStore.getState().databases[LC_MILESTONE_DATABASE_ID];
-    // 원격 viewConfigs 채택 + 로컬 필터 프리셋 보존.
+    // 로컬의 최신 표시설정이 그대로 보존됨.
     expect(bundle.panelState?.viewConfigs?.timeline?.hiddenColumnIds).toEqual(["source"]);
-    expect(bundle.panelState?.filterPresets?.[0]?.id).toBe("p-local");
   });
 
   it("invalid remote columns는 기존 local DB를 빈 columns로 덮지 않는다", () => {

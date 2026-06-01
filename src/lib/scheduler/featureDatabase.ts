@@ -9,6 +9,7 @@ import {
   LC_MILESTONE_DATABASE_ID,
   LC_SCHEDULER_DATABASE_ID,
   LC_SCHEDULER_COLUMN_IDS,
+  LC_SCHEDULER_SEED_TIMESTAMP_MS,
 } from "./database";
 import { LC_MILESTONE_COLUMN_IDS } from "./milestoneDatabase";
 // (마일스톤 컬럼 sourceFromDb 미러링은 linkedScope 패턴으로 대체됨 — import 불필요)
@@ -191,7 +192,8 @@ export async function ensureLCFeatureDatabase(workspaceId: string): Promise<void
     return;
   }
 
-  const t = Date.now();
+  // 고정 과거 타임스탬프로 시드 → 사용자 편집(updatedAt=now)이 항상 LWW 에서 이긴다.
+  const t = LC_SCHEDULER_SEED_TIMESTAMP_MS;
   const next: DatabaseBundle = {
     meta: {
       id: databaseId,

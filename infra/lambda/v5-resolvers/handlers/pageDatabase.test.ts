@@ -243,6 +243,7 @@ describe("page/database handlers", () => {
     const doc = mockDoc(
       { Items: [] }, // memberTeams
       { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      { Item: undefined }, // 기존 DB 조회 — 없음
       {}, // put
     );
 
@@ -327,6 +328,7 @@ describe("page/database handlers", () => {
     const doc = mockDoc(
       { Items: [] }, // memberTeams
       { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      { Item: undefined }, // 기존 DB 조회 — 없음
       {}, // put
     );
 
@@ -358,6 +360,87 @@ describe("page/database handlers", () => {
     expect(putCommand.input?.Item?.columns).toContain('"itemFetchSourceDatabaseId":"feature-db"');
     expect(putCommand.input?.Item?.columns).toContain('"timelineCard"');
     expect(putCommand.input?.Item?.columns).toContain('"title":"QA 일정"');
+  });
+
+  it("upsertDatabase: LWW — 더 오래된 updatedAt 은 서버 최신값을 덮지 않는다", async () => {
+    const existingItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      panelState: JSON.stringify({ viewConfigs: { timeline: { hiddenColumnIds: ["c1"] } } }),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-02T00:00:00.000Z", // 서버가 더 최신
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      { Item: existingItem }, // 기존 DB 조회 — 더 최신
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-01T00:00:00.000Z", // 더 오래됨 → 무시되어야 함
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "STALE",
+        columns: "[]",
+        createdByMemberId: "m1",
+      },
+    });
+
+    // stale write 는 폐기되고 기존값이 반환된다(쓰기 send 가 호출되지 않음).
+    expect(result).toEqual(existingItem);
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    expect(sendMock.mock.calls).toHaveLength(3); // memberTeams, workspaceAccess, get (put 없음)
+  });
+
+  it("upsertDatabase: 부분 payload 는 기존 panelState 를 지우지 않고 병합한다", async () => {
+    const existingPanelState = JSON.stringify({ viewConfigs: { timeline: { hiddenColumnIds: ["c1"] } } });
+    const existingItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      panelState: existingPanelState,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      { Item: existingItem }, // 기존 DB 조회
+      {}, // put
+    );
+
+    // panelState 를 생략한(시드/컬럼편집) 더 최신 payload.
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-02T00:00:00.000Z", // 더 최신 → 수락
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D2",
+        columns: "[]",
+        createdByMemberId: "m1",
+      },
+    });
+
+    // 기존 panelState 보존 + 신규 title 반영.
+    expect(result.panelState).toBe(existingPanelState);
+    expect(result.title).toBe("D2");
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls.at(-1)?.[0] as { input?: { Item?: Record<string, unknown> } };
+    expect(putCommand.input?.Item?.panelState).toBe(existingPanelState);
   });
 
   it("listTrashedPages: 삭제된 페이지만 반환", async () => {

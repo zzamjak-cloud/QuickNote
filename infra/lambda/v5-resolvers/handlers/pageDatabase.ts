@@ -527,7 +527,68 @@ export async function upsertDatabase(args: {
     badRequest("LC스케줄러 DB ID와 워크스페이스가 일치하지 않습니다");
   }
   normalizeDatabaseAwsJsonFields(args.input);
-  return upsertRecord({ ...args, tableName: args.tables.Databases });
+
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId,
+    required: "edit",
+  });
+
+  const tableName = args.tables.Databases;
+  const incomingUpdatedAt =
+    typeof args.input.updatedAt === "string" ? args.input.updatedAt : "";
+
+  // 기존 레코드 조회 — LWW 비교 및 부분 payload 병합(생략 필드 보존)용.
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: tableName, Key: { id } }),
+  );
+  const existingItem = existing.Item as Record<string, unknown> | undefined;
+  const existingUpdatedAt =
+    typeof existingItem?.updatedAt === "string" ? (existingItem.updatedAt as string) : "";
+
+  // LWW: 들어온 변경이 서버 최신값보다 오래됐거나 같으면 무시하고 기존값을 반환한다.
+  // (ISO 8601 문자열은 사전식 비교 = 시간순 비교. 시드의 옛 타임스탬프·중복 echo 를 거른다.)
+  if (existingItem && existingUpdatedAt && incomingUpdatedAt && incomingUpdatedAt <= existingUpdatedAt) {
+    return existingItem;
+  }
+
+  // 부분 payload 가 기존 필드(panelState 등)를 지우지 않도록 기존값 위에 병합한다.
+  // 과거 blind PutItem 은 panelState 가 생략되면 서버 표시설정을 통째로 삭제했다.
+  const merged: Record<string, unknown> = {
+    ...(existingItem ?? {}),
+    ...args.input,
+    // 최초 생성 메타는 보존한다.
+    createdAt: existingItem?.createdAt ?? args.input.createdAt,
+    createdByMemberId:
+      (existingItem?.createdByMemberId as string | undefined) ||
+      (args.input.createdByMemberId as string | undefined) ||
+      args.caller.memberId,
+  };
+
+  try {
+    await args.doc.send(
+      new PutCommand({
+        TableName: tableName,
+        Item: merged,
+        // 조회~쓰기 사이 경쟁 보호 — 그 사이 더 최신 쓰기가 들어왔으면 거부.
+        ConditionExpression: "attribute_not_exists(updatedAt) OR updatedAt <= :incoming",
+        ExpressionAttributeValues: { ":incoming": incomingUpdatedAt },
+      }),
+    );
+  } catch (err) {
+    if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
+      // 경쟁 중 더 최신 쓰기가 선반영됨 → 최신 서버값을 반환(이 쓰기는 stale 로 폐기).
+      const latest = await args.doc.send(
+        new GetCommand({ TableName: tableName, Key: { id } }),
+      );
+      return (latest.Item ?? existingItem ?? merged) as Record<string, unknown>;
+    }
+    throw err;
+  }
+  return merged;
 }
 
 async function softDeleteRecord(args: {

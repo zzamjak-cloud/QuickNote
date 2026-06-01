@@ -12,8 +12,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { Page } from "../../types/page";
-import type { DatabaseBundle, DatabasePanelState } from "../../types/database";
-import { emptyPanelState } from "../../types/database";
+import type { DatabaseBundle } from "../../types/database";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
@@ -574,51 +573,6 @@ function parseRemoteDatabaseSchema(
   return { columns, presets, ...(panelState ? { panelState } : {}) };
 }
 
-/**
- * LC 스케줄러 보호 DB(작업·마일스톤·피처)의 원격 panelState 중 "사용자 뷰 설정"을 로컬에 병합한다.
- *
- * 보호 DB 는 컬럼·구조를 각 클라이언트가 ensure* 로 재구성하며 비결정 시드 timestamp 를 가져
- * 전역 LWW 가드가 원격 적용을 막는다. 따라서 아래 뷰 설정들은 LWW 와 무관하게,
- * 원격이 "의미 있는 값"을 가질 때만 채택한다(원격이 비어있으면 로컬 보존 — 과거 빈 panelState 가
- * 로컬 표시설정을 통째로 덮던 회귀 방지).
- *
- * 동기화 대상:
- * - filterPresets / activePresetId : 원본 DB 화면의 필터 프리셋 탭
- * - viewConfigs                    : 컬럼 표시·순서 (일정 카드 속성 표시 설정 = viewConfigs.timeline)
- * - timelineDateColumnId           : 타임라인 기준 날짜 컬럼
- *
- * 변경이 없으면 입력 local 을 그대로 반환한다(참조 동일성 유지 → 불필요한 setState 방지).
- */
-function mergeProtectedDatabaseViewSettings(
-  local: DatabasePanelState | undefined,
-  remote: DatabasePanelState | null,
-): DatabasePanelState | undefined {
-  if (!remote) return local;
-  const base = local ?? emptyPanelState();
-  const next: DatabasePanelState = { ...base };
-
-  // 필터 프리셋 탭 — 원격이 비어있지 않을 때만 채택.
-  const remotePresets = remote.filterPresets ?? [];
-  if (remotePresets.length > 0) {
-    next.filterPresets = remotePresets;
-    next.activePresetId = remote.activePresetId ?? base.activePresetId;
-  }
-
-  // 컬럼 표시·순서 — 원격이 비어있지 않을 때만 채택(일정 카드 속성 표시 동기화).
-  const remoteViewConfigs = remote.viewConfigs ?? {};
-  if (Object.keys(remoteViewConfigs).length > 0) {
-    next.viewConfigs = remoteViewConfigs;
-  }
-
-  // 타임라인 기준 날짜 컬럼 — 원격이 지정돼 있을 때만 채택.
-  if (remote.timelineDateColumnId != null) {
-    next.timelineDateColumnId = remote.timelineDateColumnId;
-  }
-
-  // 변경이 없으면 동일 참조를 유지한다.
-  return JSON.stringify(next) === JSON.stringify(base) ? local : next;
-}
-
 export function applyRemoteDatabaseToStore(
   d: GqlDatabase | null | undefined,
 ): void {
@@ -690,26 +644,9 @@ export function applyRemoteDatabaseToStore(
     return;
   }
 
-  // LC 스케줄러 보호 DB(scheduler/milestone/feature)는 컬럼·구조를 각 클라이언트가 ensure* 로
-  // 재구성하며 비결정 시드 timestamp 를 가져 LWW 가드에 막힌다. 하지만 필터 프리셋 탭·컬럼 표시
-  // 설정(viewConfigs)·타임라인 날짜 컬럼 같은 사용자 뷰 설정은 서버가 최신값을 보유하므로,
-  // 원격이 의미 있는 값을 가질 때 LWW 와 무관하게 즉시 병합한다(전역 LWW 는 유지).
-  // (특히 일정 카드 속성 표시 설정 viewConfigs.timeline 이 동기화 안 되던 회귀를 막는다.)
-  if (local && !db.deletedAt && isProtectedDatabaseId(db.id)) {
-    const remotePanel = tryParseSerializedPanelState(db.panelState);
-    const mergedPanel = mergeProtectedDatabaseViewSettings(local.panelState, remotePanel);
-    if (mergedPanel !== local.panelState) {
-      useDatabaseStore.setState((s) => {
-        const b = s.databases[db.id];
-        if (!b) return s;
-        return {
-          ...s,
-          databases: { ...s.databases, [db.id]: { ...b, panelState: mergedPanel } },
-        };
-      });
-    }
-  }
-
+  // LC 스케줄러 DB(작업·마일스톤·피처)도 일반 DB 와 동일하게 LWW 로 동기화한다.
+  // (시드는 고정 과거 타임스탬프라 사용자 편집이 항상 이기고, 서버 upsertDatabase 가
+  //  LWW + 부분 payload 병합을 보장하므로 별도 특수처리가 필요 없다. 삭제 보호만 유지.)
   if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) {
     useDatabaseStore.setState((s) =>
       s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId)
@@ -726,22 +663,10 @@ export function applyRemoteDatabaseToStore(
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
 
   // 서버가 빈 panelState({})로 잘못 덮인 경우(과거 회귀로 탭 유실), local 에 탭이 있으면 보존한다.
-  let resolvedPanelState: DatabasePanelState | undefined;
-  if (isProtectedDatabaseId(db.id)) {
-    // 보호 DB 는 원격이 더 최신이어도 비결정 시드 timestamp 때문에 신뢰할 수 없다.
-    // 위 분기에서 이미 뷰 설정을 병합했을 수 있으므로 최신 로컬을 기준으로 다시 병합해
-    // 원격 표시설정(viewConfigs.timeline 등)을 잃지 않는다. local 이 없으면 전체 원격을 적용한다.
-    const freshLocalPanel =
-      useDatabaseStore.getState().databases[db.id]?.panelState ?? local?.panelState;
-    resolvedPanelState = freshLocalPanel
-      ? mergeProtectedDatabaseViewSettings(freshLocalPanel, panelState ?? null)
-      : (panelState ?? undefined);
-  } else {
-    const remoteHasPresets = (panelState?.filterPresets?.length ?? 0) > 0;
-    const localHasPresets = (local?.panelState?.filterPresets?.length ?? 0) > 0;
-    resolvedPanelState =
-      remoteHasPresets || !localHasPresets ? (panelState ?? local?.panelState) : local?.panelState;
-  }
+  const remoteHasPresets = (panelState?.filterPresets?.length ?? 0) > 0;
+  const localHasPresets = (local?.panelState?.filterPresets?.length ?? 0) > 0;
+  const resolvedPanelState =
+    remoteHasPresets || !localHasPresets ? (panelState ?? local?.panelState) : local?.panelState;
 
   const bundle: DatabaseBundle = {
     meta: {

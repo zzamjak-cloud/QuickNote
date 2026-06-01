@@ -7,6 +7,7 @@ import {
   LC_MILESTONE_DATABASE_ID_PREFIX,
   LC_MILESTONE_DATABASE_TITLE,
   LC_MILESTONE_DATABASE_ID,
+  LC_SCHEDULER_SEED_TIMESTAMP_MS,
 } from "./database";
 
 /** 마일스톤 DB 컬럼 ID 상수 — 외부에서 컬럼을 안전하게 참조하기 위한 키. */
@@ -133,7 +134,8 @@ export async function ensureLCMilestoneDatabase(workspaceId: string): Promise<vo
   const existing = useDatabaseStore.getState().databases[databaseId];
   if (existing) return;
 
-  const t = Date.now();
+  // 고정 과거 타임스탬프로 시드 → 사용자 편집(updatedAt=now)이 항상 LWW 에서 이긴다.
+  const t = LC_SCHEDULER_SEED_TIMESTAMP_MS;
   const next: DatabaseBundle = {
     meta: {
       id: databaseId,
