@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import { DYNAMODB_TABLE_ENCRYPTION } from "./table-encryption";
 
 export type SyncModelName = "Page" | "Database" | "Contact" | "ImageAsset" | "Comment";
 
@@ -22,7 +23,7 @@ export function createSyncTable(
     pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     removalPolicy: cdk.RemovalPolicy.RETAIN,
     timeToLiveAttribute: opts.ttlAttribute,
-    encryption: dynamodb.TableEncryption.AWS_MANAGED,
+    encryption: DYNAMODB_TABLE_ENCRYPTION,
   });
 
   // ImageAsset 은 createdAt, 나머지는 updatedAt 으로 정렬.

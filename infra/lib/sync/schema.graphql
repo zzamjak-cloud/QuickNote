@@ -97,6 +97,13 @@ type Workspace {
   options: WorkspaceOptions!
 }
 
+type WorkspaceMeta {
+  members: [Member!]!
+  teams: [Team!]!
+  organizations: [Organization!]!
+  projects: [Project!]!
+}
+
 type WorkspaceAccessEntry {
   subjectType: AccessSubjectType!
   subjectId: ID
@@ -402,6 +409,7 @@ type Query {
 
   listMyWorkspaces: [Workspace!]!
   getWorkspace(workspaceId: ID!): Workspace
+  getWorkspaceMeta(workspaceId: ID!): WorkspaceMeta!
 
   listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
   listPageHistory(pageId: ID!, workspaceId: ID!, limit: Int, nextToken: String): [PageHistoryEntry!]!

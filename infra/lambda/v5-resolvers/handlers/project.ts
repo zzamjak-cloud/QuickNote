@@ -10,7 +10,7 @@ import { requireWorkspaceAccess, type Member } from "./_auth";
 import type { Tables } from "./member";
 
 // 프로젝트 레코드 형상 (DynamoDB 저장 단위)
-type ProjectRecord = {
+export type ProjectRecord = {
   id: string;
   workspaceId: string;
   name: string;

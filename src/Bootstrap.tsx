@@ -5,6 +5,7 @@ import { useAuthStore } from "./store/authStore";
 import {
   startSubscriptions,
 } from "./lib/sync";
+import type { GqlProject } from "./lib/sync/graphql/operations";
 import { getSyncEngine, shutdownSyncEngine } from "./lib/sync/runtime";
 import {
   applyRemotePageToStore,
@@ -23,7 +24,7 @@ import { useCustomIconStore } from "./store/customIconStore";
 import { usePageStore } from "./store/pageStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
-import { listMembersApi, fetchMeWithClientPrefs } from "./lib/sync/memberApi";
+import { fetchMeWithClientPrefs } from "./lib/sync/memberApi";
 import { listMyWorkspacesApi } from "./lib/sync/workspaceApi";
 import {
   applyRemoteClientPrefs,
@@ -31,13 +32,10 @@ import {
   ensureWorkspacePersistHydrated,
   flushClientPrefsToServerNow,
 } from "./lib/sync/clientPrefsSync";
-import { listTeamsApi } from "./lib/sync/teamApi";
 import { useTeamStore } from "./store/teamStore";
-import { listOrganizationsApi } from "./lib/sync/organizationApi";
 import { useOrganizationStore } from "./store/organizationStore";
 import { useUiStore } from "./store/uiStore";
 import { migrateLegacyBlockCommentsToPagesOnce } from "./lib/comments/migrateLegacyBlockCommentsToPages";
-import { CACHE_TTL, isCacheFresh } from "./lib/cache/ttl";
 import { migratePageBlockCommentsToServerOnce } from "./lib/comments/migratePageBlockCommentsToServer";
 import { useNotificationStore } from "./store/notificationStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
@@ -46,6 +44,7 @@ import {
 } from "./lib/scheduler/database";
 import { useSchedulerStore } from "./store/schedulerStore";
 import { useSchedulerProjectsStore } from "./store/schedulerProjectsStore";
+import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
@@ -59,13 +58,9 @@ function useSyncBootstrap(): void {
   const setWorkspaces = useWorkspaceStore((s) => s.setWorkspaces);
   const clearWorkspaces = useWorkspaceStore((s) => s.clear);
   const setMe = useMemberStore((s) => s.setMe);
-  const setMembers = useMemberStore((s) => s.setMembers);
   const clearMembers = useMemberStore((s) => s.clear);
-  const setTeams = useTeamStore((s) => s.setTeams);
   const clearTeams = useTeamStore((s) => s.clear);
-  const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
   const clearOrganizations = useOrganizationStore((s) => s.clear);
-  const fetchProjects = useSchedulerProjectsStore((s) => s.fetchProjects);
   // 한 사용자 세션 내에서 중복 부트스트랩 방지.
   const startedForRef = useRef<string | null>(null);
 
@@ -120,40 +115,10 @@ function useSyncBootstrap(): void {
         // memberId 확정 직후 즐겨찾기를 서버로 올리고 flush(워크스페이스 부트와 무관)
         await flushClientPrefsToServerNow();
 
-        // 캐시가 신선(< WORKSPACE_META TTL)하고 비어있지 않으면 API 호출 생략
-        const memberState = useMemberStore.getState();
-        const teamState = useTeamStore.getState();
-        const orgState = useOrganizationStore.getState();
-        const membersFresh =
-          memberState.members.length > 0 &&
-          isCacheFresh(memberState.lastFetchedAt, CACHE_TTL.WORKSPACE_META);
-        const teamsFresh =
-          teamState.teams.length > 0 &&
-          isCacheFresh(teamState.lastFetchedAt, CACHE_TTL.WORKSPACE_META);
-        const orgsFresh =
-          orgState.organizations.length > 0 &&
-          isCacheFresh(orgState.lastFetchedAt, CACHE_TTL.WORKSPACE_META);
-        // LC 프로젝트가 이미 적재돼 있으면 매 새로고침마다 재페치하지 않는다(지연 회귀 방지).
-        const projectsState = useSchedulerProjectsStore.getState();
-        const projectsFresh =
-          projectsState.projects.length > 0 &&
-          projectsState.workspaceId === LC_SCHEDULER_WORKSPACE_ID;
-
-        const [membersResult, teamsResult, organizationsResult] = await Promise.all([
-          membersFresh ? Promise.resolve(null) : listMembersApi(),
-          teamsFresh ? Promise.resolve(null) : listTeamsApi(),
-          orgsFresh ? Promise.resolve(null) : listOrganizationsApi(),
-          projectsFresh
-            ? Promise.resolve(null)
-            : fetchProjects(LC_SCHEDULER_WORKSPACE_ID).catch((error) => {
-                console.warn("[sync] LC 프로젝트 목록 동기화 실패", error);
-                return null;
-              }),
-        ]);
+        await refreshWorkspaceMeta(LC_SCHEDULER_WORKSPACE_ID).catch((error) => {
+          console.warn("[sync] LC 워크스페이스 메타 동기화 실패", error);
+        });
         if (cancelled) return;
-        if (membersResult) setMembers(membersResult, LC_SCHEDULER_WORKSPACE_ID);
-        if (teamsResult) setTeams(teamsResult, LC_SCHEDULER_WORKSPACE_ID);
-        if (organizationsResult) setOrganizations(organizationsResult, LC_SCHEDULER_WORKSPACE_ID);
 
         // 알림 초기 로드는 스케줄러 첫 화면과 무관하므로 뒤에서 갱신한다.
         void import("./lib/sync/notificationApi")
@@ -169,7 +134,7 @@ function useSyncBootstrap(): void {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, authSub, setMe, setMembers, setTeams, setOrganizations, setWorkspaces, clearWorkspaces, clearMembers, clearTeams, clearOrganizations, fetchProjects]);
+  }, [authStatus, authSub, setMe, setWorkspaces, clearWorkspaces, clearMembers, clearTeams, clearOrganizations]);
 
   useLayoutEffect(() => {
     if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) {
@@ -270,6 +235,11 @@ function useSyncBootstrap(): void {
             .getState()
             .refreshSchedulePageFromLocal(pageId, LC_SCHEDULER_WORKSPACE_ID);
         };
+        const applySchedulerProject = (project: GqlProject) => {
+          if (project.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
+            useSchedulerProjectsStore.getState().applyRemote(project);
+          }
+        };
         unsub = startSubscriptions(currentWorkspaceId, {
           onPage: (p) => {
             const isSchedulerPage = isLCSchedulerDatabaseId(
@@ -284,6 +254,11 @@ function useSyncBootstrap(): void {
             applyRemoteDatabaseToStore(d);
           },
           onComment: applyRemoteCommentToStore,
+          ...(currentWorkspaceId === LC_SCHEDULER_WORKSPACE_ID
+            ? {
+                onProject: applySchedulerProject,
+              }
+            : {}),
           onWorkspace: () => {
             // 접근권한 변경 신호 → 본인 기준 워크스페이스 목록/권한 재페치(회수 시 setWorkspaces 가 자동 전환).
             void listMyWorkspacesApi()
@@ -313,6 +288,7 @@ function useSyncBootstrap(): void {
               applyRemoteDatabaseToStore(d);
             },
             onComment: applyRemoteCommentToStore,
+            onProject: applySchedulerProject,
           });
         }
 

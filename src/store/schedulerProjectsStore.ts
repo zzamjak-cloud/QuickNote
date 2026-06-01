@@ -51,6 +51,9 @@ type SchedulerProjectsStore = {
   loading: boolean;
   /** 마지막으로 fetch한 workspaceId — 워크스페이스 전환 시 캐시 무효화에 사용 */
   workspaceId: string | null;
+  /** 마지막으로 서버에서 프로젝트 메타를 가져온 시점(ms). */
+  lastFetchedAt: number | null;
+  setProjects: (projects: SchedulerProject[], workspaceId: string) => void;
   fetchProjects: (workspaceId: string) => Promise<void>;
   createProject: (input: CreateProjectInput) => Promise<SchedulerProject>;
   updateProject: (input: UpdateProjectInput) => Promise<SchedulerProject>;
@@ -73,6 +76,20 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
       projects: [],
       loading: false,
       workspaceId: null,
+      lastFetchedAt: null,
+
+      setProjects: (projects, workspaceId) => {
+        set({
+          projects: projects.map((project) => ({
+            ...project,
+            memberIds: project.memberIds ?? [],
+            leaderMemberIds: project.leaderMemberIds ?? [],
+          })),
+          workspaceId,
+          lastFetchedAt: Date.now(),
+          loading: false,
+        });
+      },
 
       fetchProjects: async (workspaceId) => {
         // 워크스페이스가 다르면 캐시를 비우고 시작 (다른 워크스페이스 데이터 노출 방지)
@@ -85,7 +102,11 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
             query: LIST_PROJECTS,
             variables: { workspaceId },
           }) as Promise<{ data: { listProjects: GqlProject[] } }>);
-          set({ projects: r.data.listProjects.map(normalizeProject), workspaceId });
+          set({
+            projects: r.data.listProjects.map(normalizeProject),
+            workspaceId,
+            lastFetchedAt: Date.now(),
+          });
         } finally {
           set({ loading: false });
         }
@@ -97,7 +118,11 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
           variables: { input },
         }) as Promise<{ data: { createProject: GqlProject } }>);
         const p = normalizeProject(r.data.createProject);
-        set((st) => ({ projects: [...st.projects, p] }));
+        set((st) => ({
+          projects: [...st.projects, p],
+          workspaceId: p.workspaceId,
+          lastFetchedAt: Date.now(),
+        }));
         return p;
       },
 
@@ -109,6 +134,8 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
         const p = normalizeProject(r.data.updateProject);
         set((st) => ({
           projects: st.projects.map((x) => (x.id === p.id ? p : x)),
+          workspaceId: p.workspaceId,
+          lastFetchedAt: Date.now(),
         }));
         return p;
       },
@@ -118,21 +145,36 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
           query: DELETE_PROJECT,
           variables: { id, workspaceId },
         });
-        set((st) => ({ projects: st.projects.filter((x) => x.id !== id) }));
+        set((st) => ({
+          projects: st.projects.filter((x) => x.id !== id),
+          workspaceId,
+          lastFetchedAt: Date.now(),
+        }));
       },
 
       applyRemote: (project) => {
         set((st) => {
           const exists = st.projects.find((x) => x.id === project.id);
           if (exists) {
-            return { projects: st.projects.map((x) => (x.id === project.id ? project : x)) };
+            return {
+              projects: st.projects.map((x) => (x.id === project.id ? project : x)),
+              workspaceId: project.workspaceId,
+              lastFetchedAt: Date.now(),
+            };
           }
-          return { projects: [...st.projects, project] };
+          return {
+            projects: [...st.projects, project],
+            workspaceId: project.workspaceId,
+            lastFetchedAt: Date.now(),
+          };
         });
       },
 
       removeLocal: (id) => {
-        set((st) => ({ projects: st.projects.filter((x) => x.id !== id) }));
+        set((st) => ({
+          projects: st.projects.filter((x) => x.id !== id),
+          lastFetchedAt: Date.now(),
+        }));
       },
     }),
     {
@@ -142,6 +184,7 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
       partialize: (st) => ({
         projects: st.projects,
         workspaceId: st.workspaceId,
+        lastFetchedAt: st.lastFetchedAt,
       }),
     },
   ),

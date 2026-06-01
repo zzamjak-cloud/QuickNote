@@ -137,6 +137,24 @@ export const GqlCommentSchema = z
 
 export type GqlCommentParsed = z.infer<typeof GqlCommentSchema>;
 
+export const GqlProjectSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    name: z.string(),
+    color: z.string(),
+    description: z.string().nullish(),
+    memberIds: z.array(z.string()).default([]),
+    leaderMemberIds: z.array(z.string()).default([]),
+    isHidden: z.boolean(),
+    createdByMemberId: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+export type GqlProjectParsed = z.infer<typeof GqlProjectSchema>;
+
 /**
  * GraphQL 응답 배열을 검증하고 실패한 항목은 reportNonFatal 후 제외.
  * 부분 실패에도 나머지 정상 항목은 유지 — 앱 안 죽음.

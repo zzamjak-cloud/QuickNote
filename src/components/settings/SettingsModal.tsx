@@ -11,13 +11,8 @@ import { AdminWorkspacesTab } from "./AdminWorkspacesTab";
 import { AdminTeamsTab } from "./AdminTeamsTab";
 import { AdminOrganizationsTab } from "./AdminOrganizationsTab";
 import { ProjectsPanel } from "../scheduler/admin/ProjectsPanel";
-import { listTeamsApi } from "../../lib/sync/teamApi";
-import { listOrganizationsApi } from "../../lib/sync/organizationApi";
-import { useTeamStore } from "../../store/teamStore";
-import { useOrganizationStore } from "../../store/organizationStore";
-import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
-import { CACHE_TTL, isCacheFresh } from "../../lib/cache/ttl";
+import { isWorkspaceMetaCacheFresh, refreshWorkspaceMeta } from "../../lib/sync/workspaceMetaCache";
 
 // NotionImportTab 은 ~174KB 청크라 자주·전체 사용자가 쓰지 않으므로 lazy 유지.
 // 클릭한 시점에만 다운로드된다.
@@ -44,9 +39,6 @@ export function SettingsModal({ open, onClose }: Props) {
   const role = useMemberStore((s) => s.me?.workspaceRole ?? "member");
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
-  const setTeams = useTeamStore((s) => s.setTeams);
-  const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
-  const fetchProjects = useSchedulerProjectsStore((s) => s.fetchProjects);
   const isAdmin = role === "developer" || role === "owner" || role === "leader" || role === "manager";
   const [tab, setTab] = useState<TabId>("profile");
 
@@ -78,29 +70,12 @@ export function SettingsModal({ open, onClose }: Props) {
     let cancelled = false;
     let inFlight = false;
 
-    const isWorkspaceMetaFresh = (): boolean => {
-      const teamsState = useTeamStore.getState();
-      const orgsState = useOrganizationStore.getState();
-      if (teamsState.teams.length === 0 || orgsState.organizations.length === 0) return false;
-      return (
-        isCacheFresh(teamsState.lastFetchedAt, CACHE_TTL.WORKSPACE_META) &&
-        isCacheFresh(orgsState.lastFetchedAt, CACHE_TTL.WORKSPACE_META)
-      );
-    };
-
     const refreshAdminMetadata = async (opts: { force?: boolean } = {}) => {
       if (cancelled || inFlight) return;
-      if (!opts.force && isWorkspaceMetaFresh()) return;
+      if (!opts.force && isWorkspaceMetaCacheFresh(LC_SCHEDULER_WORKSPACE_ID)) return;
       inFlight = true;
       try {
-        const [teams, organizations] = await Promise.all([
-          listTeamsApi(),
-          listOrganizationsApi(),
-          fetchProjects(LC_SCHEDULER_WORKSPACE_ID),
-        ]);
-        if (cancelled) return;
-        setTeams(teams, LC_SCHEDULER_WORKSPACE_ID);
-        setOrganizations(organizations, LC_SCHEDULER_WORKSPACE_ID);
+        await refreshWorkspaceMeta(LC_SCHEDULER_WORKSPACE_ID, opts);
       } catch (error) {
         console.error("[SettingsModal] 조직/팀/프로젝트 동기화 실패", error);
       } finally {
@@ -124,7 +99,7 @@ export function SettingsModal({ open, onClose }: Props) {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fetchProjects, isAdmin, open, setOrganizations, setTeams]);
+  }, [isAdmin, open]);
 
   if (!open) return null;
 

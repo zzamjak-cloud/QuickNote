@@ -2,8 +2,10 @@ import { appsyncClient } from "./graphql/client";
 import {
   ON_PAGE_CHANGED,
   ON_DATABASE_CHANGED,
+  ON_PROJECT_CHANGED,
   type GqlPage,
   type GqlDatabase,
+  type GqlProject,
 } from "./graphql/operations";
 import { ON_COMMENT_CHANGED, type GqlComment } from "./queries/comment";
 import { ON_WORKSPACE_CHANGED } from "./queries/workspace";
@@ -13,6 +15,7 @@ import {
   GqlCommentSchema,
   GqlDatabaseSchema,
   GqlPageSchema,
+  GqlProjectSchema,
   parseGqlOne,
 } from "./schemas";
 
@@ -25,6 +28,7 @@ export type SubscribeHandlers = {
   onPage: (item: GqlPage) => void;
   onDatabase: (item: GqlDatabase) => void;
   onComment: (item: GqlComment) => void;
+  onProject?: (item: GqlProject) => void;
   /** 워크스페이스 접근권한 변경 신호(트리거). 제공 시에만 구독한다. */
   onWorkspace?: (workspaceId: string) => void;
 };
@@ -67,6 +71,7 @@ export function startSubscriptions(
   let pageSub: { unsubscribe: () => void } | null = null;
   let dbSub: { unsubscribe: () => void } | null = null;
   let commentSub: { unsubscribe: () => void } | null = null;
+  let projectSub: { unsubscribe: () => void } | null = null;
   let workspaceSub: { unsubscribe: () => void } | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryAttempts = 0;
@@ -76,10 +81,12 @@ export function startSubscriptions(
     try { pageSub?.unsubscribe(); } catch { /* noop */ }
     try { dbSub?.unsubscribe(); } catch { /* noop */ }
     try { commentSub?.unsubscribe(); } catch { /* noop */ }
+    try { projectSub?.unsubscribe(); } catch { /* noop */ }
     try { workspaceSub?.unsubscribe(); } catch { /* noop */ }
     pageSub = null;
     dbSub = null;
     commentSub = null;
+    projectSub = null;
     workspaceSub = null;
   };
 
@@ -94,7 +101,7 @@ export function startSubscriptions(
     }, delay);
   };
 
-  const logSubError = (channel: "page" | "database" | "comment" | "workspace", error: unknown) => {
+  const logSubError = (channel: "page" | "database" | "comment" | "project" | "workspace", error: unknown) => {
     const msg = getErrorMessage(error);
     const key = `sub:${channel}`;
     const prev = lastErrorByChannel.get(key);
@@ -218,6 +225,42 @@ export function startSubscriptions(
     });
 
     // 워크스페이스 접근권한 변경 구독(트리거). onWorkspace 핸들러가 있을 때만.
+    if (handlers.onProject) {
+      let projectObs: Subscribable;
+      try {
+        projectObs = c.graphql({
+          query: ON_PROJECT_CHANGED,
+          variables: { workspaceId },
+          authToken,
+        } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
+      } catch (e) {
+        logSubError("project", e);
+        if (isUnauthorizedError(e)) {
+          await ensureFreshTokensForAppSync();
+        }
+        scheduleRetry();
+        return;
+      }
+      projectSub = projectObs.subscribe({
+        next: ({ data }) => {
+          retryAttempts = 0;
+          const parsed = parseGqlOne(
+            data.onProjectChanged,
+            GqlProjectSchema,
+            "onProjectChanged",
+          );
+          if (parsed) handlers.onProject?.(parsed as unknown as GqlProject);
+        },
+        error: (e) => {
+          logSubError("project", e);
+          if (isUnauthorizedError(e)) {
+            void ensureFreshTokensForAppSync();
+          }
+          scheduleRetry();
+        },
+      });
+    }
+
     if (handlers.onWorkspace) {
       let workspaceObs: Subscribable;
       try {

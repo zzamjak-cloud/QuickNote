@@ -21,8 +21,7 @@ import { SchedulerHeader } from "./SchedulerHeader";
 import { SchedulerTeamTabs } from "./SchedulerTeamTabs";
 import { SchedulerToolbar } from "./SchedulerToolbar";
 import { WeeklyMmPanel } from "./mm/WeeklyMmPanel";
-import { listTeamsApi } from "../../lib/sync/teamApi";
-import { listOrganizationsApi } from "../../lib/sync/organizationApi";
+import { refreshWorkspaceMeta } from "../../lib/sync/workspaceMetaCache";
 
 const ScheduleGrid = lazy(() =>
   import("./ScheduleGrid").then((m) => ({ default: m.ScheduleGrid })),
@@ -48,13 +47,10 @@ type Props = {
 
 export function LCSchedulerModal({ onClose }: Props) {
   const fetchSchedules = useSchedulerStore((s) => s.fetchSchedules);
-  const fetchProjects = useSchedulerProjectsStore((s) => s.fetchProjects);
   const fetchHolidays = useSchedulerHolidaysStore((s) => s.fetchHolidays);
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
-  const setTeams = useTeamStore((s) => s.setTeams);
-  const setOrganizations = useOrganizationStore((s) => s.setOrganizations);
   const disabledOrgIds = useSchedulerFiltersStore((s) => s.disabledOrgIds);
   const disabledTeamIds = useSchedulerFiltersStore((s) => s.disabledTeamIds);
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
@@ -94,10 +90,9 @@ export function LCSchedulerModal({ onClose }: Props) {
     schedulerDbUpdatedAt,
   ]);
 
-  // 프로젝트·공휴일은 첫 페인트 이후 갱신한다.
+  // 공휴일은 첫 페인트 이후 갱신한다. 프로젝트는 workspace meta 통합 API가 함께 가져온다.
   useEffect(() => {
     const loadSecondaryData = () => {
-      void fetchProjects(LC_SCHEDULER_WORKSPACE_ID);
       void fetchHolidays(LC_SCHEDULER_WORKSPACE_ID);
     };
     if ("requestIdleCallback" in window) {
@@ -106,9 +101,9 @@ export function LCSchedulerModal({ onClose }: Props) {
     }
     const id = setTimeout(loadSecondaryData, 0);
     return () => clearTimeout(id);
-  }, [fetchProjects, fetchHolidays]);
+  }, [fetchHolidays]);
 
-  // 모달이 열려있는 동안 프로젝트/조직/팀 메타를 주기적으로 재조회해 다중 클라이언트 변경을 빠르게 반영한다.
+  // 모달 진입 및 화면 복귀 시에만 프로젝트/조직/팀 메타를 재조회한다.
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
@@ -117,14 +112,7 @@ export function LCSchedulerModal({ onClose }: Props) {
       if (cancelled || inFlight) return;
       inFlight = true;
       try {
-        const [teamsList, organizationsList] = await Promise.all([
-          listTeamsApi(),
-          listOrganizationsApi(),
-          fetchProjects(LC_SCHEDULER_WORKSPACE_ID),
-        ]);
-        if (cancelled) return;
-        setTeams(teamsList, LC_SCHEDULER_WORKSPACE_ID);
-        setOrganizations(organizationsList, LC_SCHEDULER_WORKSPACE_ID);
+        await refreshWorkspaceMeta(LC_SCHEDULER_WORKSPACE_ID);
       } catch (error) {
         console.error("[LCSchedulerModal] 메타 동기화 실패", error);
       } finally {
@@ -140,21 +128,16 @@ export function LCSchedulerModal({ onClose }: Props) {
       void refreshSchedulerMeta();
     };
 
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      void refreshSchedulerMeta();
-    }, 2500);
-
+    void refreshSchedulerMeta();
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [fetchProjects, setOrganizations, setTeams]);
+  }, []);
 
   // 프로젝트/조직/팀 옵션은 스케줄러 설정의 활성 목록과 자동 동기화한다.
   useEffect(() => {

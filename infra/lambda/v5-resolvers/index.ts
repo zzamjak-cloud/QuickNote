@@ -110,6 +110,7 @@ import {
   createCustomIcon,
   deleteCustomIcon,
 } from "./handlers/customIcon";
+import { getWorkspaceMeta } from "./handlers/workspaceMeta";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -366,6 +367,18 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
       case "unassignMemberFromOrganization":
         await unassignMemberFromOrganization({ ...base, memberId: event.arguments.memberId as string, organizationId: event.arguments.organizationId as string });
         return true;
+      case "getWorkspaceMeta": {
+        const meta = await getWorkspaceMeta({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+        return {
+          members: meta.members.map((member) => normalizeMemberForGql(member as unknown as Record<string, unknown>)),
+          teams: meta.teams.map((team) => normalizeTeamForGql(team as unknown as Record<string, unknown>)),
+          organizations: meta.organizations.map((organization) => normalizeOrgForGql(organization as unknown as Record<string, unknown>)),
+          projects: meta.projects,
+        };
+      }
       case "createWorkspace":
         return normalizeWorkspaceForGql((await createWorkspace({
           ...base,

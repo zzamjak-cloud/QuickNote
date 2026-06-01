@@ -29,14 +29,15 @@ import {
   unassignMemberFromTeamApi,
   updateMemberApi,
 } from "../../lib/sync/memberApi";
-import { createTeamApi, listTeamsApi } from "../../lib/sync/teamApi";
+import { createTeamApi } from "../../lib/sync/teamApi";
 import {
   assignMemberToOrganizationApi,
   createOrganizationApi,
-  listOrganizationsApi,
   unassignMemberFromOrganizationApi,
 } from "../../lib/sync/organizationApi";
 import { reportNonFatal } from "../../lib/reportNonFatal";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import { refreshWorkspaceMeta } from "../../lib/sync/workspaceMetaCache";
 
 type Props = {
   open: boolean;
@@ -227,7 +228,8 @@ export function CsvImportModal({ open, onClose }: Props) {
 
       let serverTeams: Team[] = [];
       try {
-        serverTeams = await listTeamsApi();
+        await refreshWorkspaceMeta(LC_SCHEDULER_WORKSPACE_ID, { force: true });
+        serverTeams = useTeamStore.getState().teams;
         // 로컬 스토어도 최신화 — 후속 diff 가 정확해지도록
         for (const t of serverTeams) upsertTeam(t);
       } catch (err) {
@@ -339,7 +341,8 @@ export function CsvImportModal({ open, onClose }: Props) {
 
       let serverOrgs: Organization[] = [];
       try {
-        serverOrgs = await listOrganizationsApi();
+        await refreshWorkspaceMeta(LC_SCHEDULER_WORKSPACE_ID);
+        serverOrgs = useOrganizationStore.getState().organizations;
         for (const o of serverOrgs) upsertOrganization(o);
       } catch (err) {
         reportNonFatal(err, "csvImport.listOrganizations.refresh");

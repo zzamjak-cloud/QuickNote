@@ -16,7 +16,7 @@ const DAY = 24 * HOUR;
 
 export const CACHE_TTL = {
   /** 팀/조직/멤버 등 워크스페이스 메타데이터 — 자주 바뀌지 않음 */
-  WORKSPACE_META: 5 * MINUTE,
+  WORKSPACE_META: 24 * HOUR,
 
   /** 이미지 메모리 캐시 — Object URL 등 */
   IMAGE_MEMORY: 50 * MINUTE,

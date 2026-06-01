@@ -1,6 +1,7 @@
 import { Amplify } from "aws-amplify";
 import { generateClient } from "aws-amplify/api";
 import { ensureFreshTokensForAppSync } from "../../auth/apiTokens";
+import { createGuardedGraphql, type GraphqlArgs } from "./graphqlGuard";
 
 // Amplify v6 GraphQL 클라이언트 구성. Cognito User Pool JWT 를 헤더로 주입.
 
@@ -47,17 +48,21 @@ export function configureAppSync(): void {
 
 // generateClient 의 반환 타입이 너무 깊어 TS 추론이 폭발한다. unknown 캐스팅 사용.
 type AppSyncClient = {
-  graphql: (args: {
-    query: string;
-    variables?: Record<string, unknown>;
-  }) => Promise<unknown> | unknown;
+  graphql: (args: GraphqlArgs) => Promise<unknown> | unknown;
 };
 
 let _client: AppSyncClient | null = null;
 export function appsyncClient(): AppSyncClient {
   if (!_client) {
     configureAppSync();
-    _client = generateClient() as unknown as AppSyncClient;
+    const rawClient = generateClient() as unknown as AppSyncClient;
+    _client = {
+      graphql: createGuardedGraphql((args) => rawClient.graphql(args), {
+        onBlocked: () => {
+          console.warn("[sync] GraphQL 반복 호출 circuit breaker 동작");
+        },
+      }),
+    };
   }
   return _client;
 }

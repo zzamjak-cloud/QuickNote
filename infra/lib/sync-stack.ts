@@ -11,6 +11,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
+import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 
 export interface SyncStackProps extends cdk.StackProps {
   // CognitoStack 의 출력값을 cross-stack reference 로 받는다.
@@ -109,7 +110,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "notificationId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
       timeToLiveAttribute: "expiresAt",
     });
@@ -121,7 +122,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     membersTable.addGlobalSecondaryIndex({
@@ -140,7 +141,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       partitionKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -150,7 +151,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     memberTeamsTable.addGlobalSecondaryIndex({
@@ -165,7 +166,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     workspacesTable.addGlobalSecondaryIndex({
@@ -181,7 +182,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "subjectKey", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     workspaceAccessTable.addGlobalSecondaryIndex({
@@ -197,7 +198,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       partitionKey: { name: "organizationId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
@@ -208,7 +209,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "organizationId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
-      encryption: dynamodb.TableEncryption.AWS_MANAGED,
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     memberOrganizationsTable.addGlobalSecondaryIndex({
@@ -784,6 +785,7 @@ export function response(ctx) {
     v5Ds.createResolver("SubscriptiononScheduleChanged", { typeName: "Subscription", fieldName: "onScheduleChanged" });
     // 프로젝트 resolver wiring
     v5Ds.createResolver("QuerylistProjects", { typeName: "Query", fieldName: "listProjects" });
+    v5Ds.createResolver("QuerygetWorkspaceMeta", { typeName: "Query", fieldName: "getWorkspaceMeta" });
     v5Ds.createResolver("MutationcreateProject", { typeName: "Mutation", fieldName: "createProject" });
     v5Ds.createResolver("MutationupdateProject", { typeName: "Mutation", fieldName: "updateProject" });
     v5Ds.createResolver("MutationdeleteProject", { typeName: "Mutation", fieldName: "deleteProject" });
