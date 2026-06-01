@@ -23,6 +23,14 @@ describe("parseDatabasePanelStateJson", () => {
     expect(out.sortRules).toEqual(emptyPanelState().sortRules);
   });
 
+  it("구성원 탭 순서(schedulerMemberOrder)를 동기화 round-trip 에서 보존한다", () => {
+    const raw = JSON.stringify({
+      schedulerMemberOrder: ["member-3", "member-1", "member-2"],
+    });
+    const out = parseDatabasePanelStateJson(raw);
+    expect(out.schedulerMemberOrder).toEqual(["member-3", "member-1", "member-2"]);
+  });
+
   it("손상 JSON이면 기본 패널 상태", () => {
     expect(parseDatabasePanelStateJson("")).toEqual(emptyPanelState());
     expect(parseDatabasePanelStateJson("{")).toEqual(emptyPanelState());

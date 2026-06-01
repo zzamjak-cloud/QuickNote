@@ -289,6 +289,11 @@ export type DatabasePanelState = {
   activePresetId?: string | null;
   /** LC 스케줄러 피처 모드에서 표시할 마일스톤 항목 ID. null이면 전체 표시. */
   schedulerFeatureMilestoneIds?: string[] | null;
+  /**
+   * LC 스케줄러 구성원 탭/타임라인 표시 순서. 작업 DB(LC_SCHEDULER_DATABASE_ID) panelState 에 저장해
+   * 워크스페이스 전 사용자에게 공유 동기화한다(개인 설정 아님).
+   */
+  schedulerMemberOrder?: string[];
 };
 
 /** DB 템플릿 — 새 행 생성 시 기본 셀 값을 미리 지정. */

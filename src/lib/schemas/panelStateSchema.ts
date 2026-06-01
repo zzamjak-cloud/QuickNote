@@ -57,6 +57,7 @@ const databasePanelStatePartialSchema = z
     filterPresets: z.array(filterPresetSchema).optional(),
     activePresetId: z.string().nullable().optional(),
     schedulerFeatureMilestoneIds: z.array(z.string()).nullable().optional(),
+    schedulerMemberOrder: z.array(z.string()).optional(),
   });
 
 export function parseDatabasePanelStateJson(raw: string): DatabasePanelState {

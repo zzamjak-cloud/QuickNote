@@ -19,7 +19,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
-import { useSettingsStore } from "../../store/settingsStore";
+import { useDatabaseStore } from "../../store/databaseStore";
+import { LC_SCHEDULER_DATABASE_ID } from "../../lib/scheduler/database";
 import { COLOR_PRESETS } from "../../lib/scheduler/colors";
 import { useVisibleMembers } from "./hooks/useVisibleMembers";
 import type { Member } from "../../store/memberStore";
@@ -111,8 +112,11 @@ export function SchedulerTeamTabs() {
   const multiSelectedIds = useSchedulerViewStore((s) => s.multiSelectedIds);
   const setMultiSelected = useSchedulerViewStore((s) => s.setMultiSelected);
   const activeMembers = useVisibleMembers();
-  const schedulerMemberOrder = useSettingsStore((s) => s.schedulerMemberOrder);
-  const reorderSchedulerMembers = useSettingsStore((s) => s.reorderSchedulerMembers);
+  // 구성원 탭 순서는 작업 DB panelState 에 저장 → 워크스페이스 전 사용자에게 공유 동기화.
+  const schedulerMemberOrder = useDatabaseStore(
+    (s) => s.databases[LC_SCHEDULER_DATABASE_ID]?.panelState?.schedulerMemberOrder,
+  );
+  const patchDatabasePanelState = useDatabaseStore((s) => s.patchDatabasePanelState);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -152,9 +156,13 @@ export function SchedulerTeamTabs() {
     if (oldIndex < 0 || newIndex < 0) return;
 
     const reorderedVisibleIds = arrayMove(memberIds, oldIndex, newIndex);
-    reorderSchedulerMembers(
-      mergeVisibleMemberOrder(schedulerMemberOrder, memberIds, reorderedVisibleIds),
-    );
+    patchDatabasePanelState(LC_SCHEDULER_DATABASE_ID, {
+      schedulerMemberOrder: mergeVisibleMemberOrder(
+        schedulerMemberOrder ?? [],
+        memberIds,
+        reorderedVisibleIds,
+      ),
+    });
   };
 
   return (

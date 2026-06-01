@@ -5,8 +5,9 @@ import { useOrganizationStore } from "../../../store/organizationStore";
 import { useTeamStore } from "../../../store/teamStore";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { useSchedulerProjectsStore } from "../../../store/schedulerProjectsStore";
-import { useSettingsStore } from "../../../store/settingsStore";
+import { useDatabaseStore } from "../../../store/databaseStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
+import { LC_SCHEDULER_DATABASE_ID } from "../../../lib/scheduler/database";
 
 // selectedProjectId 포맷: "org:{id}", "team:{id}", "proj:{id}" 또는 null
 // ignoreJobFilter: 직무 필터 자체의 옵션 목록처럼 직무 필터를 적용하면 안 되는 호출부용
@@ -21,7 +22,10 @@ export function useVisibleMembers(options?: { ignoreJobFilter?: boolean }): Memb
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
   const selectedJobTitle = useSchedulerViewStore((s) => s.selectedJobTitle);
-  const schedulerMemberOrder = useSettingsStore((s) => s.schedulerMemberOrder);
+  // 구성원 표시 순서는 작업 DB panelState 에 저장돼 워크스페이스 전 사용자에게 공유 동기화된다.
+  const schedulerMemberOrder = useDatabaseStore(
+    (s) => s.databases[LC_SCHEDULER_DATABASE_ID]?.panelState?.schedulerMemberOrder,
+  );
   const jobFilter = ignoreJobFilter ? null : selectedJobTitle;
 
   return useMemo(() => {
