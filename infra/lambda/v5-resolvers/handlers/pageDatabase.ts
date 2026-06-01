@@ -426,6 +426,66 @@ function normalizeDatabaseAwsJsonFields(input: Record<string, unknown>): void {
   normalizeAwsJsonStringField(input, "panelState", "panelState");
 }
 
+const MAX_SYNCED_SCHEDULER_MEMBER_ORDER = 1000;
+const MAX_SYNCED_ID_CHARS = 128;
+
+function parsePanelStateObject(raw: unknown): Record<string, unknown> | null {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return isPlainObject(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  return isPlainObject(raw) ? raw : null;
+}
+
+function sanitizeSyncedStringArray(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null;
+  if (raw.length > MAX_SYNCED_SCHEDULER_MEMBER_ORDER) {
+    badRequest("동기화 목록 최대 개수 초과");
+  }
+  const result = raw.map(String);
+  for (const id of result) {
+    if (id.length > MAX_SYNCED_ID_CHARS) badRequest("동기화 ID 길이 초과");
+  }
+  return result;
+}
+
+function mergeStaleSchedulerMemberOrderPanelState(
+  databaseId: string,
+  input: Record<string, unknown>,
+  existingItem: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (!isLCSchedulerDatabaseId(databaseId)) return null;
+
+  const incomingPanelState = parsePanelStateObject(input.panelState);
+  if (!incomingPanelState) return null;
+  const incomingUpdatedAt = Number(incomingPanelState.schedulerMemberOrderUpdatedAt);
+  if (!Number.isFinite(incomingUpdatedAt) || incomingUpdatedAt < 0) return null;
+
+  const existingPanelState = parsePanelStateObject(existingItem.panelState) ?? {};
+  const existingUpdatedAt = Number(existingPanelState.schedulerMemberOrderUpdatedAt);
+  const currentUpdatedAt = Number.isFinite(existingUpdatedAt) ? existingUpdatedAt : -1;
+  const incomingOrder = sanitizeSyncedStringArray(incomingPanelState.schedulerMemberOrder) ?? [];
+  const existingOrder = sanitizeSyncedStringArray(existingPanelState.schedulerMemberOrder) ?? [];
+  const shouldMerge =
+    incomingUpdatedAt > currentUpdatedAt ||
+    (incomingUpdatedAt === currentUpdatedAt && !jsonEqual(incomingOrder, existingOrder));
+  if (!shouldMerge) return null;
+
+  return {
+    ...existingItem,
+    panelState: JSON.stringify({
+      ...existingPanelState,
+      schedulerMemberOrder: incomingOrder,
+      schedulerMemberOrderUpdatedAt: incomingUpdatedAt,
+    }),
+  };
+}
+
 function normalizeBlockCommentsField(input: Record<string, unknown>): void {
   const v = input.blockComments;
   if (v == null) return;
@@ -552,6 +612,32 @@ export async function upsertDatabase(args: {
   // LWW: 들어온 변경이 서버 최신값보다 오래됐거나 같으면 무시하고 기존값을 반환한다.
   // (ISO 8601 문자열은 사전식 비교 = 시간순 비교. 시드의 옛 타임스탬프·중복 echo 를 거른다.)
   if (existingItem && existingUpdatedAt && incomingUpdatedAt && incomingUpdatedAt <= existingUpdatedAt) {
+    const schedulerOrderMerge = mergeStaleSchedulerMemberOrderPanelState(
+      id,
+      args.input,
+      existingItem,
+    );
+    if (schedulerOrderMerge) {
+      try {
+        await args.doc.send(
+          new PutCommand({
+            TableName: tableName,
+            Item: schedulerOrderMerge,
+            ConditionExpression: "updatedAt = :existingUpdatedAt",
+            ExpressionAttributeValues: { ":existingUpdatedAt": existingUpdatedAt },
+          }),
+        );
+        return schedulerOrderMerge;
+      } catch (err) {
+        if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
+          const latest = await args.doc.send(
+            new GetCommand({ TableName: tableName, Key: { id } }),
+          );
+          return (latest.Item ?? existingItem) as Record<string, unknown>;
+        }
+        throw err;
+      }
+    }
     return existingItem;
   }
 

@@ -400,6 +400,55 @@ describe("page/database handlers", () => {
     expect(sendMock.mock.calls).toHaveLength(3); // memberTeams, workspaceAccess, get (put 없음)
   });
 
+  it("upsertDatabase: LC 작업 DB 구성원 순서는 DB updatedAt 이 stale 이어도 field timestamp 가 최신이면 병합한다", async () => {
+    const existingItem = {
+      id: "lc-scheduler-db:lc-scheduler-global",
+      workspaceId: "lc-scheduler-global",
+      title: "작업",
+      columns: "[]",
+      panelState: JSON.stringify({
+        viewConfigs: { timeline: { hiddenColumnIds: ["c1"] } },
+        schedulerMemberOrder: ["old-1", "old-2"],
+        schedulerMemberOrderUpdatedAt: 100,
+      }),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-02T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Item: existingItem },
+      {},
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "lc-scheduler-db:lc-scheduler-global",
+        workspaceId: "lc-scheduler-global",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "작업",
+        columns: "[]",
+        createdByMemberId: "m1",
+        panelState: JSON.stringify({
+          schedulerMemberOrder: ["new-2", "new-1"],
+          schedulerMemberOrderUpdatedAt: 200,
+        }),
+      },
+    });
+
+    const panelState = JSON.parse(result.panelState as string) as Record<string, unknown>;
+    expect(panelState.schedulerMemberOrder).toEqual(["new-2", "new-1"]);
+    expect(panelState.schedulerMemberOrderUpdatedAt).toBe(200);
+    expect(panelState.viewConfigs).toEqual({ timeline: { hiddenColumnIds: ["c1"] } });
+
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls.at(-1)?.[0] as { input?: { Item?: Record<string, unknown> } };
+    expect(putCommand.input?.Item?.updatedAt).toBe("2026-06-02T00:00:00.000Z");
+  });
+
   it("upsertDatabase: 부분 payload 는 기존 panelState 를 지우지 않고 병합한다", async () => {
     const existingPanelState = JSON.stringify({ viewConfigs: { timeline: { hiddenColumnIds: ["c1"] } } });
     const existingItem = {
