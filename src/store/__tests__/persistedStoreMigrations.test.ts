@@ -31,8 +31,9 @@ describe("persisted store migrations", () => {
     expect(migrated.favoritePageIds).toEqual(["p1"]);
     expect(migrated.favoritePageMetaById).toEqual({});
     expect(migrated.lastVisitedPageIdByWorkspaceId).toEqual({});
-    expect(migrated.schedulerMemberOrder).toEqual([]);
-    expect(migrated.schedulerMemberOrderUpdatedAt).toBe(0);
+    // 구성원 순서 개인화 필드는 제거됨(공유 DB panelState 로 일원화).
+    expect(migrated.schedulerMemberOrder).toBeUndefined();
+    expect(migrated.schedulerMemberOrderUpdatedAt).toBeUndefined();
     vi.useRealTimers();
   });
 

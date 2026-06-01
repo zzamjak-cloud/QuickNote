@@ -300,6 +300,16 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
+        // [QN-MEMBER-ORDER] 보내는 쪽: panelState 패치가 outbox(upsertDatabase)로 적재됨
+        if ("schedulerMemberOrder" in patch) {
+          console.info("[QN-MEMBER-ORDER][send] patchDatabasePanelState → enqueue upsertDatabase", {
+            databaseId,
+            schedulerMemberOrder: nextPanelState.schedulerMemberOrder,
+            schedulerMemberOrderUpdatedAt: nextPanelState.schedulerMemberOrderUpdatedAt,
+            dbUpdatedAt: bundleAfter?.meta.updatedAt,
+            enqueued: Boolean(bundleAfter),
+          });
+        }
       },
 
       ...createColumnActions(set, get),

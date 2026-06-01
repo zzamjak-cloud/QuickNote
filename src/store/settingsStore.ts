@@ -40,10 +40,6 @@ type SettingsState = {
   favoritePageMetaById: Record<string, FavoritePageMeta>;
   /** 즐겨찾기 LWW 타임스탬프(epoch ms). 서버 clientPrefs 도 동일 필드명. */
   favoritePageIdsUpdatedAt: number;
-  /** LC스케줄러 구성원 탭/타임라인 표시 순서 */
-  schedulerMemberOrder: string[];
-  /** LC스케줄러 구성원 순서 LWW 타임스탬프(epoch ms). 서버 clientPrefs 도 동일 필드명. */
-  schedulerMemberOrderUpdatedAt: number;
   expandedIds: string[];
   // 페이지 탭. activeTabIndex 위치의 탭 pageId가 곧 활성 페이지.
   tabs: Tab[];
@@ -65,7 +61,6 @@ type SettingsActions = {
     opts?: { sync?: boolean },
   ) => void;
   reorderFavorites: (orderedIds: string[]) => void;
-  reorderSchedulerMembers: (orderedIds: string[]) => void;
   removeFavoritePage: (pageId: string) => void;
   /** 페이지 삭제 시 즐겨찾기 배열에서 제거 */
   removeFavoritesForPages: (pageIds: string[]) => void;
@@ -207,18 +202,15 @@ export function migrateSettingsStore(
         }),
       },
       {
+        // v12: 과거 LC스케줄러 구성원 순서 개인화(clientPrefs) 필드를 제거한다.
+        // 구성원 순서는 공유 DB panelState 로 일원화됨.
         version: 12,
-        migrate: (state) => ({
-          ...state,
-          schedulerMemberOrder: Array.isArray(state.schedulerMemberOrder)
-            ? (state.schedulerMemberOrder as string[]).map(String)
-            : [],
-          schedulerMemberOrderUpdatedAt:
-            typeof state.schedulerMemberOrderUpdatedAt === "number" &&
-            Number.isFinite(state.schedulerMemberOrderUpdatedAt)
-              ? state.schedulerMemberOrderUpdatedAt
-              : 0,
-        }),
+        migrate: (state) => {
+          const next = { ...state };
+          delete next.schedulerMemberOrder;
+          delete next.schedulerMemberOrderUpdatedAt;
+          return next;
+        },
       },
     ],
     {
@@ -235,8 +227,6 @@ export function migrateSettingsStore(
       favoritePageIds: [],
       favoritePageMetaById: {},
       favoritePageIdsUpdatedAt: 0,
-      schedulerMemberOrder: [],
-      schedulerMemberOrderUpdatedAt: 0,
       expandedIds: [],
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
@@ -261,8 +251,6 @@ export const useSettingsStore = create<SettingsStore>()(
       favoritePageIds: [],
       favoritePageMetaById: {},
       favoritePageIdsUpdatedAt: 0,
-      schedulerMemberOrder: [],
-      schedulerMemberOrderUpdatedAt: 0,
       expandedIds: [],
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
@@ -327,13 +315,6 @@ export const useSettingsStore = create<SettingsStore>()(
           const favoritePageIdsUpdatedAt = Date.now();
           queueMicrotask(() => scheduleEnqueueClientPrefs());
           return { favoritePageIds, favoritePageIdsUpdatedAt };
-        }),
-      reorderSchedulerMembers: (orderedIds) =>
-        set(() => {
-          const schedulerMemberOrder = [...orderedIds];
-          const schedulerMemberOrderUpdatedAt = Date.now();
-          queueMicrotask(() => scheduleEnqueueClientPrefs());
-          return { schedulerMemberOrder, schedulerMemberOrderUpdatedAt };
         }),
       removeFavoritePage: (pageId) =>
         set((s) => {

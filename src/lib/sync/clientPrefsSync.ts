@@ -17,8 +17,6 @@ export type ClientPrefsV1 = {
   fullWidth?: boolean;
   pageFullWidthById?: Record<string, boolean>;
   fullWidthUpdatedAt?: number;
-  schedulerMemberOrder?: string[];
-  schedulerMemberOrderUpdatedAt?: number;
 };
 
 function sanitizeFavoritePageMetaById(
@@ -58,11 +56,6 @@ function sanitizeBooleanRecord(raw: unknown): Record<string, boolean> {
   return result;
 }
 
-function sanitizeStringArray(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((value): value is string => typeof value === "string");
-}
-
 /** GraphQL/AWSJSON 또는 로컬에서 온 문자열→객체 디코드. */
 export function decodeClientPrefsField(raw: unknown): ClientPrefsV1 | null {
   if (raw == null || raw === "") return null;
@@ -87,7 +80,6 @@ export function decodeClientPrefsField(raw: unknown): ClientPrefsV1 | null {
     const ts = Number(o.favoritePageIdsUpdatedAt);
     if (!Number.isFinite(ts)) return null;
     const fullWidthUpdatedAt = Number(o.fullWidthUpdatedAt);
-    const schedulerMemberOrderUpdatedAt = Number(o.schedulerMemberOrderUpdatedAt);
     const favoritePageIds = o.favoritePageIds.map(String);
     return {
       v: version === 2 ? 2 : 1,
@@ -100,10 +92,6 @@ export function decodeClientPrefsField(raw: unknown): ClientPrefsV1 | null {
       fullWidth: typeof o.fullWidth === "boolean" ? o.fullWidth : undefined,
       pageFullWidthById: sanitizeBooleanRecord(o.pageFullWidthById),
       fullWidthUpdatedAt: Number.isFinite(fullWidthUpdatedAt) ? fullWidthUpdatedAt : 0,
-      schedulerMemberOrder: sanitizeStringArray(o.schedulerMemberOrder),
-      schedulerMemberOrderUpdatedAt: Number.isFinite(schedulerMemberOrderUpdatedAt)
-        ? schedulerMemberOrderUpdatedAt
-        : 0,
     };
   } catch {
     return null;
@@ -146,18 +134,11 @@ export function applyRemoteClientPrefs(raw: unknown): void {
     const remoteMeta = parsed.favoritePageMetaById ?? {};
     const remoteFullWidthNewer =
       (parsed.fullWidthUpdatedAt ?? 0) > s.fullWidthUpdatedAt;
-    const remoteSchedulerOrderNewer =
-      (parsed.schedulerMemberOrderUpdatedAt ?? 0) > s.schedulerMemberOrderUpdatedAt;
 
     if (remoteFullWidthNewer) {
       if (typeof parsed.fullWidth === "boolean") next.fullWidth = parsed.fullWidth;
       next.pageFullWidthById = { ...(parsed.pageFullWidthById ?? {}) };
       next.fullWidthUpdatedAt = parsed.fullWidthUpdatedAt ?? 0;
-    }
-
-    if (remoteSchedulerOrderNewer) {
-      next.schedulerMemberOrder = [...(parsed.schedulerMemberOrder ?? [])];
-      next.schedulerMemberOrderUpdatedAt = parsed.schedulerMemberOrderUpdatedAt ?? 0;
     }
 
     if (!remoteNewer) {
@@ -217,8 +198,6 @@ async function pushClientPrefsToServer(): Promise<void> {
     fullWidth,
     pageFullWidthById,
     fullWidthUpdatedAt,
-    schedulerMemberOrder,
-    schedulerMemberOrderUpdatedAt,
   } = useSettingsStore.getState();
   const payload: ClientPrefsV1 = {
     v: CLIENT_PREFS_SCHEMA_V,
@@ -235,8 +214,6 @@ async function pushClientPrefsToServer(): Promise<void> {
     fullWidth,
     pageFullWidthById: { ...pageFullWidthById },
     fullWidthUpdatedAt,
-    schedulerMemberOrder: [...schedulerMemberOrder],
-    schedulerMemberOrderUpdatedAt,
   };
   const json = JSON.stringify(payload);
 

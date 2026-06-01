@@ -578,7 +578,13 @@ function mergeRemoteSchedulerMemberOrder(
   remotePanelState: DatabasePanelState | undefined,
 ): DatabasePanelState | undefined {
   const remoteOrder = remotePanelState?.schedulerMemberOrder;
-  if (!remoteOrder) return localPanelState;
+  if (!remoteOrder) {
+    // [QN-MEMBER-ORDER] 받는 쪽: 원격 panelState 에 schedulerMemberOrder 가 없음(병합 스킵)
+    console.info("[QN-MEMBER-ORDER][recv] merge 스킵: 원격에 schedulerMemberOrder 없음", {
+      hasRemotePanelState: Boolean(remotePanelState),
+    });
+    return localPanelState;
+  }
 
   const localOrder = localPanelState?.schedulerMemberOrder ?? [];
   const remoteUpdatedAt = remotePanelState.schedulerMemberOrderUpdatedAt ?? 0;
@@ -586,6 +592,14 @@ function mergeRemoteSchedulerMemberOrder(
   const remoteWins =
     remoteUpdatedAt > localUpdatedAt ||
     (remoteUpdatedAt === localUpdatedAt && !stringArrayEqual(remoteOrder, localOrder));
+  // [QN-MEMBER-ORDER] 받는 쪽: LWW 병합 결정
+  console.info("[QN-MEMBER-ORDER][recv] mergeRemoteSchedulerMemberOrder 결정", {
+    localOrder,
+    remoteOrder,
+    localUpdatedAt,
+    remoteUpdatedAt,
+    remoteWins,
+  });
   if (!remoteWins) return localPanelState;
 
   return {
@@ -677,6 +691,17 @@ export function applyRemoteDatabaseToStore(
     });
   }
   const db = normalizedDatabase;
+  // [QN-MEMBER-ORDER] 받는 쪽: 구독 단건이 storeApply 까지 도달했는지 + 적용 가드 통과 여부
+  if (db.id === LC_SCHEDULER_DATABASE_ID) {
+    const localBundle = useDatabaseStore.getState().databases[db.id];
+    console.info("[QN-MEMBER-ORDER][recv] applyRemoteDatabaseToStore 진입(구독 단건)", {
+      dbUpdatedAt: db.updatedAt,
+      willApplySnapshot: shouldApplyRemoteSnapshot(db.workspaceId),
+      hasLocal: Boolean(localBundle),
+      localDbUpdatedAt: localBundle?.meta.updatedAt,
+      isRemoteNewer: localBundle ? isRemoteNewer(localBundle.meta.updatedAt, db.updatedAt) : true,
+    });
+  }
   if (!shouldApplyRemoteSnapshot(db.workspaceId)) return;
   if (
     !db.deletedAt &&

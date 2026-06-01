@@ -11,8 +11,6 @@ describe("decodeClientPrefsField", () => {
     v: 1,
     favoritePageIds: ["p1"],
     favoritePageIdsUpdatedAt: 99,
-    schedulerMemberOrder: ["m2", "m1"],
-    schedulerMemberOrderUpdatedAt: 101,
   };
   const decodedPayload = {
     v: 1,
@@ -22,8 +20,6 @@ describe("decodeClientPrefsField", () => {
     fullWidth: undefined,
     pageFullWidthById: {},
     fullWidthUpdatedAt: 0,
-    schedulerMemberOrder: ["m2", "m1"],
-    schedulerMemberOrderUpdatedAt: 101,
   };
 
   it("객체 한 번 인코딩 문자열을 디코드한다", () => {
@@ -117,28 +113,6 @@ describe("applyRemoteClientPrefs", () => {
       }),
     );
     expect(useSettingsStore.getState().favoritePageIds).toEqual(["a"]);
-  });
-  it("원격 구성원 순서가 더 최신이면 스케줄러 탭 순서를 갱신한다", () => {
-    useSettingsStore.setState({
-      schedulerMemberOrder: ["local"],
-      schedulerMemberOrderUpdatedAt: 100,
-    });
-
-    applyRemoteClientPrefs(
-      JSON.stringify({
-        v: 1,
-        favoritePageIds: ["a"],
-        favoritePageIdsUpdatedAt: 100,
-        schedulerMemberOrder: ["remote-2", "remote-1"],
-        schedulerMemberOrderUpdatedAt: 101,
-      }),
-    );
-
-    expect(useSettingsStore.getState().schedulerMemberOrder).toEqual([
-      "remote-2",
-      "remote-1",
-    ]);
-    expect(useSettingsStore.getState().schedulerMemberOrderUpdatedAt).toBe(101);
   });
 });
 

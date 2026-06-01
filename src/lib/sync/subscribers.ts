@@ -172,6 +172,18 @@ export function startSubscriptions(
           GqlDatabaseSchema,
           "onDatabaseChanged",
         );
+        // [QN-MEMBER-ORDER] 받는 쪽: 구독으로 DB 변경이 WebSocket 으로 실제 도착했는지
+        {
+          const raw = data.onDatabaseChanged as { id?: string; panelState?: unknown } | null;
+          const rawPanel = typeof raw?.panelState === "string" ? raw.panelState : "";
+          if (rawPanel.includes("schedulerMemberOrder")) {
+            console.info("[QN-MEMBER-ORDER][recv] onDatabaseChanged 수신(WebSocket)", {
+              dbId: raw?.id,
+              parsedOk: Boolean(parsed),
+              rawPanelState: rawPanel,
+            });
+          }
+        }
         if (parsed) handlers.onDatabase(parsed as unknown as GqlDatabase);
       },
       error: (e) => {
