@@ -6,7 +6,12 @@ import type {
   ViewKind,
   ViewSpecificConfig,
 } from "../../types/database";
-import { isInternalHiddenColumnId } from "../../types/database";
+import {
+  buildViewColumnConfig,
+  isInternalHiddenColumnId,
+  resolveViewColumnOrderState,
+  setColumnVisibleInViewConfig,
+} from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 
@@ -19,6 +24,11 @@ type Props = {
   asTh?: boolean;
   /** 인라인/전체페이지 레이아웃 구분 — 항목 표시 섹션에서 사용. */
   layout?: "inline" | "fullPage";
+  /**
+   * 팝오버 z-index Tailwind 클래스. 기본 z-[320].
+   * LC 스케줄러처럼 z-[500] 모달 내부에서 띄울 때는 그 위 값을 넘겨 뒤로 숨지 않게 한다.
+   */
+  popoverZClassName?: string;
 };
 
 /**
@@ -31,9 +41,10 @@ export function DatabaseColumnSettingsButton({
   panelState,
   setPanelState,
   asTh,
+  popoverZClassName = "z-[320]",
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
-  const moveColumn = useDatabaseStore((s) => s.moveColumn);
+  const patchDatabasePanelState = useDatabaseStore((s) => s.patchDatabasePanelState);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
   const setOpenColumnMenu = useUiStore((s) => s.setOpenColumnMenu);
   const menuKey = `settings:${databaseId}:${viewKind}`;
@@ -63,37 +74,43 @@ export function DatabaseColumnSettingsButton({
     panelState.viewConfigs?.[viewKind] ?? {};
 
   const allCols = bundle.columns;
-  const titleCol = allCols.find((c) => c.type === "title");
-  const visibleSet = resolveVisibleColumnIds(allCols, viewKind, cfg);
-  if (titleCol) visibleSet.add(titleCol.id);
-  // 표시 설정 리스트는 활성/비활성 여부와 무관하게 실제 컬럼 순서를 따른다.
+  // 모든 뷰는 동일 규칙을 따른다 — 설정이 없으면 전체 표시가 기본값.
+  // (이전엔 list 뷰만 title-only 기본값으로 특수 처리해 설정 패널과 실제 렌더가 어긋났다.)
+  const cfgForOrder: ViewSpecificConfig = cfg;
+  const columnOrderState = resolveViewColumnOrderState(allCols, viewKind, cfgForOrder);
+  const visibleSet = new Set(columnOrderState.visibleColumnIds);
+  const columnsById = new Map(allCols.map((column) => [column.id, column]));
+  const orderedCols = columnOrderState.orderedColumnIds
+    .map((columnId) => columnsById.get(columnId))
+    .filter((column): column is typeof allCols[number] => Boolean(column));
+  // 표시 설정 리스트는 활성/비활성 여부와 무관하게 현재 뷰의 표시 순서를 따른다.
   // 내부 전용 컬럼(카드 색상·스케줄러 메타)은 목록에서 제외 — 사용자가 표시/숨김을 선택할 수 없다.
-  // moveColumn 은 bundle.columns 기준 인덱스를 받으므로 원본 인덱스(bundleIdx)를 함께 보관한다.
-  const items: { col: typeof allCols[number]; visible: boolean; bundleIdx: number }[] = allCols
-    .map((col, bundleIdx) => ({
+  const items: { col: typeof allCols[number]; visible: boolean }[] = orderedCols
+    .map((col) => ({
       col,
       visible: visibleSet.has(col.id),
-      bundleIdx,
     }))
     .filter((it) => !isInternalHiddenColumnId(it.col.id));
 
   const writeViewCfg = (patch: Partial<ViewSpecificConfig>) => {
     const nextCfg: ViewSpecificConfig = { ...cfg, ...patch };
-    setPanelState({
-      viewConfigs: { ...(panelState.viewConfigs ?? {}), [viewKind]: nextCfg },
-    });
+    const nextViewConfigs = { ...(panelState.viewConfigs ?? {}), [viewKind]: nextCfg };
+    setPanelState({ viewConfigs: nextViewConfigs });
+    // 표시설정 컬럼 순서/가시성을 DB 레벨(bundle.panelState)에도 미러링한다.
+    // 인라인 DB 블럭은 panelState 를 블럭 attrs 에 저장하므로, DB 단위로 순서를 참조하는
+    // 피커뷰 속성 패널이 표시설정 순서를 따르도록 bundle.panelState 에 함께 기록한다.
+    patchDatabasePanelState(databaseId, { viewConfigs: nextViewConfigs });
   };
 
   const toggleVisible = (id: string) => {
-    const nextVisible = new Set(visibleSet);
-    if (nextVisible.has(id)) nextVisible.delete(id);
-    else nextVisible.add(id);
-    // title 컬럼은 항상 보이도록 보장.
-    if (titleCol) nextVisible.add(titleCol.id);
-    const visibleColumnIds = allCols
-      .filter((col) => nextVisible.has(col.id))
-      .map((col) => col.id);
-    writeViewCfg({ visibleColumnIds, hiddenColumnIds: undefined });
+    const nextCfg = setColumnVisibleInViewConfig(
+      allCols,
+      viewKind,
+      cfgForOrder,
+      id,
+      !visibleSet.has(id),
+    );
+    writeViewCfg(nextCfg);
   };
 
   const onDrop = () => {
@@ -105,15 +122,14 @@ export function DatabaseColumnSettingsButton({
     const next = [...items];
     const [m] = next.splice(dragFrom, 1);
     if (m) next.splice(dragOver, 0, m);
-    // 표시 설정에서 순서를 바꾸면 실제 컬럼 순서도 함께 바꾼다.
-    // 내부 컬럼이 제외되어 렌더 인덱스 ≠ bundle 인덱스일 수 있으므로 보관한 bundleIdx 로 변환.
-    const fromBundleIdx = items[dragFrom]?.bundleIdx ?? dragFrom;
-    const toBundleIdx = items[dragOver]?.bundleIdx ?? dragOver;
-    moveColumn(databaseId, fromBundleIdx, toBundleIdx);
-    const visibleIds = next
-      .filter((it) => visibleSet.has(it.col.id))
-      .map((it) => it.col.id);
-    writeViewCfg({ visibleColumnIds: visibleIds, hiddenColumnIds: undefined });
+    // 표시 설정의 순서는 뷰별 설정에만 저장한다. 숨김 컬럼은 현재 위치를 유지한다.
+    const nextCfg = buildViewColumnConfig(
+      allCols,
+      viewKind,
+      next.map((it) => it.col.id),
+      columnOrderState.hiddenColumnIds,
+    );
+    writeViewCfg(nextCfg);
     setDragFrom(null);
     setDragOver(null);
   };
@@ -162,7 +178,7 @@ export function DatabaseColumnSettingsButton({
           <div
             ref={popoverRef}
             style={{ position: "fixed", top: coords.top, left: coords.left, width: 240 }}
-            className="z-[320] max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            className={`${popoverZClassName} max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900`}
             onMouseDown={(e) => {
               // 팝업 클릭이 에디터/뒤쪽 레이어로 전파되어 선택되는 현상 방지
               e.stopPropagation();
@@ -284,21 +300,4 @@ export function DatabaseColumnSettingsButton({
         )}
     </>
   );
-}
-
-function resolveVisibleColumnIds(
-  columns: { id: string; type: string }[],
-  viewKind: ViewKind,
-  cfg: ViewSpecificConfig,
-): Set<string> {
-  if (cfg.visibleColumnIds) return new Set(cfg.visibleColumnIds);
-  if (cfg.hiddenColumnIds) {
-    const hidden = new Set(cfg.hiddenColumnIds);
-    return new Set(columns.filter((col) => !hidden.has(col.id)).map((col) => col.id));
-  }
-  if (viewKind === "list") {
-    const title = columns.find((col) => col.type === "title");
-    return new Set(title ? [title.id] : []);
-  }
-  return new Set(columns.map((col) => col.id));
 }

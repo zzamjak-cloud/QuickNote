@@ -135,8 +135,7 @@ function lcFeatureColumns(): ColumnDef[] {
         },
       },
     },
-    { id: LC_FEATURE_COLUMN_IDS.workStart, name: "작업시작", type: "date", width: 130 },
-    { id: LC_FEATURE_COLUMN_IDS.workEnd, name: "작업종료", type: "date", width: 130 },
+    { id: LC_FEATURE_COLUMN_IDS.workStart, name: "작업 기간", type: "date", width: 130 },
     {
       id: LC_FEATURE_COLUMN_IDS.task,
       name: "작업",
@@ -152,6 +151,22 @@ function lcFeatureColumns(): ColumnDef[] {
   ];
 }
 
+function normalizeFeaturePeriodColumns(columns: ColumnDef[]): { columns: ColumnDef[]; changed: boolean } {
+  let changed = false;
+  const nextColumns = columns.flatMap((column) => {
+    if (column.id === LC_FEATURE_COLUMN_IDS.workEnd) {
+      changed = true;
+      return [];
+    }
+    if (column.id === LC_FEATURE_COLUMN_IDS.workStart && column.name !== "작업 기간") {
+      changed = true;
+      return [{ ...column, name: "작업 기간" }];
+    }
+    return [column];
+  });
+  return { columns: nextColumns, changed };
+}
+
 export async function ensureLCFeatureDatabase(workspaceId: string): Promise<void> {
   const [{ useDatabaseStore }, { enqueueUpsertDatabase }] = await Promise.all([
     import("../../store/databaseStore"),
@@ -160,7 +175,21 @@ export async function ensureLCFeatureDatabase(workspaceId: string): Promise<void
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
   const databaseId = makeLCFeatureDatabaseId(schedulerWorkspaceId);
   const existing = useDatabaseStore.getState().databases[databaseId];
-  if (existing) return;
+  if (existing) {
+    const normalized = normalizeFeaturePeriodColumns(existing.columns);
+    if (!normalized.changed) return;
+    const next: DatabaseBundle = {
+      ...existing,
+      columns: normalized.columns,
+      meta: { ...existing.meta, updatedAt: Date.now() },
+    };
+    useDatabaseStore.setState((s) => ({
+      ...s,
+      databases: { ...s.databases, [databaseId]: next },
+    }));
+    enqueueUpsertDatabase(next);
+    return;
+  }
 
   const t = Date.now();
   const next: DatabaseBundle = {

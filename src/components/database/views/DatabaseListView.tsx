@@ -8,7 +8,10 @@ import { useWindowedRows } from "./useWindowedRows";
 import {
   DatabaseCellDisplay,
 } from "../DatabaseCellDisplay";
-import { databaseCellHasDisplayValue } from "../databaseCellDisplayUtils";
+import {
+  databaseCellHasDisplayValue,
+  databaseColumnMayHaveDerivedDisplayValue,
+} from "../databaseCellDisplayUtils";
 
 type Props = {
   databaseId: string;
@@ -36,14 +39,11 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
   if (!bundle) return null;
 
   const titleCol = columns.find((c) => c.type === "title");
-  const listCfg = panelState.viewConfigs?.list;
 
-  // 명시적으로 visibleColumnIds가 설정되어 있으면 그것을 사용, 없으면 타이틀만 표시
-  const extraCols = listCfg?.visibleColumnIds && listCfg.visibleColumnIds.length > 0
-    ? getVisibleOrderedColumns(columns, "list", panelState.viewConfigs).filter(
-        (c) => c.id !== titleCol?.id,
-      )
-    : [];
+  // 모든 뷰 공통 규칙 — getVisibleOrderedColumns 결과(설정 없으면 전체 표시)에서 제목만 분리.
+  const extraCols = getVisibleOrderedColumns(columns, "list", panelState.viewConfigs).filter(
+    (c) => c.id !== titleCol?.id,
+  );
 
   if (rows.length === 0) {
     return (
@@ -75,12 +75,12 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
                 onChange={(icon) => setIcon(row.pageId, icon)}
               />
             </span>
-            <span className="min-w-0 flex-1 truncate text-base text-zinc-800 dark:text-zinc-100">
+            <span className="min-w-0 flex-1 truncate text-sm text-zinc-800 dark:text-zinc-100">
               {title}
             </span>
             {extraCols.map((col) => {
               const cell = row.cells[col.id];
-              if (!databaseCellHasDisplayValue(cell, col) && !col.config?.pageLinkMirrorColumnId) return null;
+              if (!databaseCellHasDisplayValue(cell, col) && !databaseColumnMayHaveDerivedDisplayValue(col)) return null;
               return (
                 <span
                   key={col.id}

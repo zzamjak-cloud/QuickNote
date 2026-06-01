@@ -5,6 +5,7 @@ import { useOrganizationStore } from "../../../store/organizationStore";
 import { useTeamStore } from "../../../store/teamStore";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { useSchedulerProjectsStore } from "../../../store/schedulerProjectsStore";
+import { useSettingsStore } from "../../../store/settingsStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 
 // selectedProjectId 포맷: "org:{id}", "team:{id}", "proj:{id}" 또는 null
@@ -20,6 +21,7 @@ export function useVisibleMembers(options?: { ignoreJobFilter?: boolean }): Memb
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
   const selectedJobTitle = useSchedulerViewStore((s) => s.selectedJobTitle);
+  const schedulerMemberOrder = useSettingsStore((s) => s.schedulerMemberOrder);
   const jobFilter = ignoreJobFilter ? null : selectedJobTitle;
 
   return useMemo(() => {
@@ -31,46 +33,56 @@ export function useVisibleMembers(options?: { ignoreJobFilter?: boolean }): Memb
       .filter((m) => m.status === "active")
       .filter((m) => !jobFilter || m.jobCategory === jobFilter);
 
-    if (!selectedProjectId) return sortMembers(active);
+    if (!selectedProjectId) return sortMembersBySchedulerOrder(active, schedulerMemberOrder);
 
     if (selectedProjectId.startsWith("org:")) {
       if (organizationCacheWorkspaceId && organizationCacheWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
-        return sortMembers(active);
+        return sortMembersBySchedulerOrder(active, schedulerMemberOrder);
       }
       const orgId = selectedProjectId.slice(4);
       const org = organizations.find((o) => o.organizationId === orgId);
-      if (!org) return sortMembers(active);
+      if (!org) return sortMembersBySchedulerOrder(active, schedulerMemberOrder);
       const ids = new Set(org.members.map((m) => m.memberId));
-      return sortMembers(active.filter((m) => ids.has(m.memberId)));
+      return sortMembersBySchedulerOrder(
+        active.filter((m) => ids.has(m.memberId)),
+        schedulerMemberOrder,
+      );
     }
 
     if (selectedProjectId.startsWith("team:")) {
       if (teamCacheWorkspaceId && teamCacheWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
-        return sortMembers(active);
+        return sortMembersBySchedulerOrder(active, schedulerMemberOrder);
       }
       const teamId = selectedProjectId.slice(5);
       const team = teams.find((t) => t.teamId === teamId);
-      if (!team) return sortMembers(active);
+      if (!team) return sortMembersBySchedulerOrder(active, schedulerMemberOrder);
       const ids = new Set(team.members.map((m) => m.memberId));
-      return sortMembers(active.filter((m) => ids.has(m.memberId)));
+      return sortMembersBySchedulerOrder(
+        active.filter((m) => ids.has(m.memberId)),
+        schedulerMemberOrder,
+      );
     }
 
     // 프로젝트 선택: memberIds 기준 필터
     if (selectedProjectId.startsWith("proj:")) {
       const projId = selectedProjectId.slice(5);
       const project = projects.find((p) => p.id === projId);
-      if (!project) return sortMembers(active);
+      if (!project) return sortMembersBySchedulerOrder(active, schedulerMemberOrder);
       const ids = new Set(project.memberIds);
-      return sortMembers(active.filter((m) => ids.has(m.memberId)));
+      return sortMembersBySchedulerOrder(
+        active.filter((m) => ids.has(m.memberId)),
+        schedulerMemberOrder,
+      );
     }
 
-    return sortMembers(active);
+    return sortMembersBySchedulerOrder(active, schedulerMemberOrder);
   }, [
     allMembers,
     memberCacheWorkspaceId,
     organizationCacheWorkspaceId,
     organizations,
     projects,
+    schedulerMemberOrder,
     selectedProjectId,
     jobFilter,
     teamCacheWorkspaceId,
@@ -79,11 +91,25 @@ export function useVisibleMembers(options?: { ignoreJobFilter?: boolean }): Memb
 }
 
 // 재직중 우선 → name 오름차순
-function sortMembers(list: Member[]): Member[] {
-  return [...list].sort((a, b) => {
+export function sortMembersBySchedulerOrder(
+  list: Member[],
+  schedulerMemberOrder: readonly string[] = [],
+): Member[] {
+  const base = [...list].sort((a, b) => {
     const aActive = (a.employmentStatus ?? "재직중") === "재직중" ? 0 : 1;
     const bActive = (b.employmentStatus ?? "재직중") === "재직중" ? 0 : 1;
     if (aActive !== bActive) return aActive - bActive;
     return a.name.localeCompare(b.name, "ko");
+  });
+  if (schedulerMemberOrder.length === 0) return base;
+
+  const order = new Map(schedulerMemberOrder.map((memberId, index) => [memberId, index]));
+  return base.sort((a, b) => {
+    const aOrder = order.get(a.memberId);
+    const bOrder = order.get(b.memberId);
+    if (aOrder != null && bOrder != null) return aOrder - bOrder;
+    if (aOrder != null) return -1;
+    if (bOrder != null) return 1;
+    return 0;
   });
 }

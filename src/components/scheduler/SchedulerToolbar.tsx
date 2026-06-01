@@ -11,12 +11,14 @@ import {
   ZoomIn,
   HelpCircle,
 } from "lucide-react";
+import { useState } from "react";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { YearSelector } from "./YearSelector";
 import { MonthFilter } from "./filters/MonthFilter";
 import { JobTitleFilter } from "./filters/JobTitleFilter";
 import { WeekViewMemberFilter } from "./filters/WeekViewMemberFilter";
 import { FeatureMilestoneFilter } from "./filters/FeatureMilestoneFilter";
+import { SchedulerGuideModal } from "./SchedulerGuideModal";
 
 export function SchedulerToolbar() {
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
@@ -26,6 +28,7 @@ export function SchedulerToolbar() {
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
   const setZoomLevel = useSchedulerViewStore((s) => s.setZoomLevel);
   const setColumnWidthScale = useSchedulerViewStore((s) => s.setColumnWidthScale);
+  const [guideOpen, setGuideOpen] = useState(false);
   const showUnifiedOnlyFilters = selectedMemberId === null;
   const isTaskMode = entityMode === "task";
 
@@ -154,14 +157,19 @@ export function SchedulerToolbar() {
           </div>
         )}
 
-        {/* 도움말 버튼 (Phase 4에서 모달 추가 예정) */}
+        {/* 사용가이드 모달 */}
         <button
-          className="p-2 bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+          type="button"
+          onClick={() => setGuideOpen(true)}
+          className="flex h-8 w-8 items-center justify-center rounded-md bg-zinc-100 text-zinc-900 transition-colors hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
           title="사용 가이드"
+          aria-label="사용 가이드 열기"
         >
-          <HelpCircle className="w-5 h-5" />
+          <HelpCircle className="h-4 w-4" />
         </button>
       </div>
+
+      {guideOpen && <SchedulerGuideModal onClose={() => setGuideOpen(false)} />}
     </div>
   );
 }

@@ -388,9 +388,12 @@ export type ClientPrefsPayloadV1 = {
   fullWidth?: boolean;
   pageFullWidthById?: Record<string, boolean>;
   fullWidthUpdatedAt?: number;
+  schedulerMemberOrder?: string[];
+  schedulerMemberOrderUpdatedAt?: number;
 };
 
 const MAX_SYNCED_FAVORITES = 500;
+const MAX_SYNCED_SCHEDULER_MEMBER_ORDER = 1000;
 const MAX_PAGE_ID_CHARS = 128;
 
 function sanitizeClientPrefsMeta(
@@ -418,6 +421,16 @@ function sanitizeBooleanRecord(raw: unknown): Record<string, boolean> | undefine
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+function sanitizeStringArray(raw: unknown, maxLength: number): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  if (raw.length > maxLength) badRequest("동기화 목록 최대 개수 초과");
+  const result = raw.map(String);
+  for (const id of result) {
+    if (id.length > MAX_PAGE_ID_CHARS) badRequest("동기화 ID 길이 초과");
+  }
+  return result;
+}
+
 function parseClientPrefsStored(raw: unknown): ClientPrefsPayloadV1 | null {
   if (raw == null || raw === "") return null;
   const str = typeof raw === "string" ? raw : JSON.stringify(raw);
@@ -440,6 +453,12 @@ function parseClientPrefsStored(raw: unknown): ClientPrefsPayloadV1 | null {
       parsed.fullWidthUpdatedAt = fullWidthUpdatedAt;
       if (typeof o.fullWidth === "boolean") parsed.fullWidth = o.fullWidth;
       parsed.pageFullWidthById = sanitizeBooleanRecord(o.pageFullWidthById) ?? {};
+    }
+    const schedulerMemberOrderUpdatedAt = Number(o.schedulerMemberOrderUpdatedAt);
+    if (Number.isFinite(schedulerMemberOrderUpdatedAt) && schedulerMemberOrderUpdatedAt >= 0) {
+      parsed.schedulerMemberOrderUpdatedAt = schedulerMemberOrderUpdatedAt;
+      parsed.schedulerMemberOrder =
+        sanitizeStringArray(o.schedulerMemberOrder, MAX_SYNCED_SCHEDULER_MEMBER_ORDER) ?? [];
     }
     return parsed;
   } catch {
@@ -490,6 +509,12 @@ export async function updateMyClientPrefs(args: {
       if (typeof o.fullWidth === "boolean") incoming.fullWidth = o.fullWidth;
       incoming.pageFullWidthById = sanitizeBooleanRecord(o.pageFullWidthById) ?? {};
     }
+    const schedulerMemberOrderUpdatedAt = Number(o.schedulerMemberOrderUpdatedAt);
+    if (Number.isFinite(schedulerMemberOrderUpdatedAt) && schedulerMemberOrderUpdatedAt >= 0) {
+      incoming.schedulerMemberOrderUpdatedAt = schedulerMemberOrderUpdatedAt;
+      incoming.schedulerMemberOrder =
+        sanitizeStringArray(o.schedulerMemberOrder, MAX_SYNCED_SCHEDULER_MEMBER_ORDER) ?? [];
+    }
   } catch (e) {
     if (e instanceof ResolverError) throw e;
     const msg = e instanceof Error ? e.message : String(e);
@@ -518,6 +543,14 @@ export async function updateMyClientPrefs(args: {
     if (incoming.fullWidthUpdatedAt != null) merged.fullWidthUpdatedAt = incoming.fullWidthUpdatedAt;
     if (incoming.fullWidth != null) merged.fullWidth = incoming.fullWidth;
     if (incoming.pageFullWidthById) merged.pageFullWidthById = incoming.pageFullWidthById;
+    changed = true;
+  }
+  if (
+    incoming.schedulerMemberOrderUpdatedAt != null &&
+    incoming.schedulerMemberOrderUpdatedAt >= (existing?.schedulerMemberOrderUpdatedAt ?? -1)
+  ) {
+    merged.schedulerMemberOrderUpdatedAt = incoming.schedulerMemberOrderUpdatedAt;
+    merged.schedulerMemberOrder = incoming.schedulerMemberOrder ?? [];
     changed = true;
   }
   if (!changed) return target;

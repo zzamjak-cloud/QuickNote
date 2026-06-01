@@ -42,6 +42,7 @@ import {
   type SchedulerCreateRange,
 } from '../hooks/scheduleInteractions'
 import { ScheduleWeekCard } from './ScheduleWeekCard'
+import { SchedulerTaskColumnSettingsButton } from '../SchedulerTaskColumnSettingsButton'
 import {
   type ProjectMeta,
   type WeekDaySlot,
@@ -792,9 +793,11 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
         >
           <div className="sticky left-0 z-30 w-[120px] flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
             <div
-              className="sticky top-0 z-40 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"
+              className="sticky top-0 z-40 flex items-center justify-end border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5"
               style={{ height: WEEK_HEADER_HEIGHT }}
-            />
+            >
+              <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />
+            </div>
             <div
               style={{
                 height: bodyRowsHeight,

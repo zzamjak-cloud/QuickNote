@@ -1,11 +1,36 @@
-// LC 마일스톤/피처 DB 행을 스케줄러 타임라인으로 투영하는 읽기 전용 뷰.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Database, Layers, PanelRight } from "lucide-react";
+// LC 마일스톤/피처 DB 행을 스케줄러 타임라인으로 투영하고 행 순서를 조정하는 뷰.
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { createPortal } from "react-dom";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { ChevronLeft, ChevronRight, Database, GripVertical, Layers, PanelRight, Plus } from "lucide-react";
+import { Rnd } from "react-rnd";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSchedulerViewStore, type SchedulerEntityMode } from "../../store/schedulerViewStore";
 import { useUiStore } from "../../store/uiStore";
-import type { CellValue, ColumnDef } from "../../types/database";
+import { emptyPanelState, getVisibleOrderedColumns, resolveViewColumnOrderState, type CellValue, type ColumnDef } from "../../types/database";
 import type { Page } from "../../types/page";
 import { pickTextColor } from "../../lib/scheduler/colors";
 import {
@@ -30,6 +55,9 @@ import { useSchedulerHolidaysStore } from "../../store/schedulerHolidaysStore";
 import { DateAxis } from "./DateAxis";
 import { GridRow } from "./GridRow";
 import { PageIconDisplay } from "../common/PageIconDisplay";
+import { DatabaseColumnSettingsButton } from "../database/DatabaseColumnSettingsButton";
+import { TimelineCardPropertyLabels } from "../database/TimelineCardPropertyLabels";
+import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
 import {
   addWeeks,
   buildMonthDaySlots,
@@ -43,8 +71,10 @@ import {
 } from "./schedule/weekScheduleUtils";
 
 const DATE_AXIS_HEIGHT = 76;
-const ITEM_COLUMN_WIDTH = 220;
+const DEFAULT_ITEM_COLUMN_WIDTH = 220;
 const BOTTOM_SPACER_HEIGHT = 220;
+const ADD_ITEM_ROW_HEIGHT = 44;
+const TIMELINE_CARD_COLORS = ["#2563eb", "#9333ea", "#f59e0b", "#dc2626", "#16a34a"];
 
 type TimelineMode = Exclude<SchedulerEntityMode, "task">;
 
@@ -61,9 +91,13 @@ type DateRange = {
 type TimelineCard = {
   id: string;
   pageId: string;
+  columnId: string;
+  columnName: string;
   title: string;
   start: Date;
   end: Date;
+  dateLabel: string;
+  showDateLabel: boolean;
   color: string;
 };
 
@@ -71,6 +105,86 @@ type TimelineRow = {
   page: Page;
   cards: TimelineCard[];
 };
+
+type SchedulerTimelineDateEntry = {
+  columnId: string;
+  columnName: string;
+  titleMode: "pageTitle" | "custom";
+  title: string;
+  color: string;
+  isPrimary: boolean;
+};
+
+type SortableTimelineLabelRowProps = {
+  row: TimelineRow;
+  rowHeight: number;
+  onFocus: (row: TimelineRow) => void;
+  onOpenPeek: (pageId: string) => void;
+};
+
+function SortableTimelineLabelRow({
+  row,
+  rowHeight,
+  onFocus,
+  onOpenPeek,
+}: SortableTimelineLabelRowProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.page.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      role="button"
+      tabIndex={0}
+      onClick={() => onFocus(row)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onFocus(row);
+        }
+      }}
+      className={`group flex w-full cursor-pointer items-center gap-2 border-b border-zinc-200 px-3 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-800/70 ${
+        isDragging ? "bg-zinc-100 shadow-sm dark:bg-zinc-800" : ""
+      }`}
+      style={{
+        height: rowHeight,
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 40 : undefined,
+      }}
+      title="클릭하여 일정 카드로 이동"
+    >
+      <span
+        {...attributes}
+        {...listeners}
+        className="shrink-0 cursor-grab rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 active:cursor-grabbing dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        aria-label={`${row.page.title || "제목 없음"} 순서 변경`}
+      >
+        <GripVertical size={14} />
+      </span>
+      <PageIconDisplay icon={row.page.icon ?? null} size="sm" />
+      <span className="min-w-0 flex-1 truncate">{row.page.title || "제목 없음"}</span>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenPeek(row.page.id);
+        }}
+        className="shrink-0 rounded p-1 text-zinc-400 opacity-0 transition-opacity hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        aria-label="피커뷰로 열기"
+        title="피커뷰로 열기"
+      >
+        <PanelRight size={14} />
+      </button>
+    </div>
+  );
+}
 
 function parseCellDate(value: unknown): Date | null {
   if (typeof value !== "string" || value.trim() === "") return null;
@@ -96,88 +210,68 @@ function readDateRange(value: CellValue): DateRange | null {
   return resolvedStart && resolvedEnd ? normalizeRange(resolvedStart, resolvedEnd) : null;
 }
 
+function formatCardDateLabel(range: DateRange): string {
+  return `${fmtMD(range.start)} ~ ${fmtMD(range.end)}`;
+}
+
+// 날짜 셀에 저장할 YYYY-MM-DD 문자열.
+function toDateCellIso(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function isValidTimelineColor(value: string | undefined): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
+function defaultTimelineColor(index: number): string {
+  return TIMELINE_CARD_COLORS[index % TIMELINE_CARD_COLORS.length] ?? "#16a34a";
+}
+
 function resolveCardTitle(
   page: Page,
   column: ColumnDef | undefined,
   fallback: string,
-  usePageTitle: boolean,
+  _usePageTitle: boolean,
 ): string {
   const config = column?.config?.timelineCard;
   if (config?.titleMode === "pageTitle") return page.title.trim() || "제목 없음";
   if (config?.titleMode === "custom") return config.title?.trim() || fallback;
-  return usePageTitle ? page.title.trim() || "제목 없음" : fallback;
+  return page.title.trim() || "제목 없음";
 }
 
 function resolveCardColor(column: ColumnDef | undefined, fallback: string): string {
   return column?.config?.timelineCard?.color ?? fallback;
 }
 
-function milestoneCards(page: Page, columnsById: Map<string, ColumnDef>): TimelineCard[] {
+function databaseTimelineCards(
+  page: Page,
+  entries: SchedulerTimelineDateEntry[],
+  columnsById: Map<string, ColumnDef>,
+): TimelineCard[] {
   const cells = page.dbCells ?? {};
-  const specs = [
-    {
-      columnId: LC_MILESTONE_COLUMN_IDS.devPeriod,
-      fallbackTitle: page.title.trim() || "제목 없음",
-      usePageTitle: true,
-      color: "#2563eb",
-    },
-    {
-      columnId: LC_MILESTONE_COLUMN_IDS.qaStart,
-      fallbackTitle: "QA",
-      usePageTitle: false,
-      color: "#9333ea",
-    },
-    {
-      columnId: LC_MILESTONE_COLUMN_IDS.submit,
-      fallbackTitle: "서밋",
-      usePageTitle: false,
-      color: "#f59e0b",
-    },
-    {
-      columnId: LC_MILESTONE_COLUMN_IDS.release,
-      fallbackTitle: "출시",
-      usePageTitle: false,
-      color: "#dc2626",
-    },
-  ];
-
-  return specs.flatMap((spec) => {
-    const column = columnsById.get(spec.columnId);
+  return entries.flatMap((entry) => {
+    const column = columnsById.get(entry.columnId);
     if (column?.config?.timelineCard?.enabled === false) return [];
-    const range = readDateRange(cells[spec.columnId]);
+    let range = readDateRange(cells[entry.columnId]);
+    if (!range && entry.columnId === LC_FEATURE_COLUMN_IDS.workStart) {
+      range = readDateRange(cells[LC_FEATURE_COLUMN_IDS.workEnd]);
+    }
     if (!range) return [];
     return [
       {
-        id: `${page.id}:${spec.columnId}`,
+        id: `${page.id}:${entry.columnId}`,
         pageId: page.id,
-        title: resolveCardTitle(page, column, spec.fallbackTitle, spec.usePageTitle),
+        columnId: entry.columnId,
+        columnName: column?.name ?? entry.columnName,
+        title: resolveCardTitle(page, column, entry.title || entry.columnName, true),
         start: range.start,
         end: range.end,
-        color: resolveCardColor(column, spec.color),
+        dateLabel: formatCardDateLabel(range),
+        showDateLabel: true,
+        color: resolveCardColor(column, entry.color),
       },
     ];
   });
-}
-
-function featureCards(page: Page, columnsById: Map<string, ColumnDef>): TimelineCard[] {
-  const cells = page.dbCells ?? {};
-  const startRange = readDateRange(cells[LC_FEATURE_COLUMN_IDS.workStart]);
-  const endRange = readDateRange(cells[LC_FEATURE_COLUMN_IDS.workEnd]);
-  const start = startRange?.start ?? endRange?.start ?? null;
-  const end = endRange?.end ?? endRange?.start ?? startRange?.end ?? start;
-  const column = columnsById.get(LC_FEATURE_COLUMN_IDS.workStart);
-  if (!start || !end || column?.config?.timelineCard?.enabled === false) return [];
-  const range = normalizeRange(start, end);
-  return [
-    {
-      id: `${page.id}:${LC_FEATURE_COLUMN_IDS.workStart}:${LC_FEATURE_COLUMN_IDS.workEnd}`,
-      pageId: page.id,
-      title: resolveCardTitle(page, column, page.title.trim() || "제목 없음", true),
-      start: range.start,
-      end: range.end,
-      color: resolveCardColor(column, "#16a34a"),
-    },
-  ];
 }
 
 function cardOverlapsSlot(card: TimelineCard, slot: WeekDaySlot): boolean {
@@ -208,6 +302,10 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
       : featureDatabaseId;
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const milestoneDb = useDatabaseStore((s) => s.databases[milestoneDatabaseId]);
+  const setRowOrder = useDatabaseStore((s) => s.setRowOrder);
+  const addRow = useDatabaseStore((s) => s.addRow);
+  const updateCell = useDatabaseStore((s) => s.updateCell);
+  const patchDatabasePanelState = useDatabaseStore((s) => s.patchDatabasePanelState);
   const selectedFeatureMilestoneIds =
     useDatabaseStore((s) => s.databases[featureDatabaseId]?.panelState?.schedulerFeatureMilestoneIds) ??
     null;
@@ -216,6 +314,12 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
   const zoomLevel = useSchedulerViewStore((s) => s.zoomLevel);
   const columnWidthScale = useSchedulerViewStore((s) => s.columnWidthScale);
+  const itemColumnWidth =
+    useSchedulerViewStore((s) => s.databaseTimelineItemColumnWidth) ??
+    DEFAULT_ITEM_COLUMN_WIDTH;
+  const setItemColumnWidth = useSchedulerViewStore(
+    (s) => s.setDatabaseTimelineItemColumnWidth,
+  );
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
   const setCurrentYear = useSchedulerViewStore((s) => s.setCurrentYear);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
@@ -224,8 +328,23 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const [rangeTimelineWidth, setRangeTimelineWidth] = useState(900);
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthIndex, setMonthIndex] = useState(() => new Date().getMonth());
+  const rowSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
   // 리스트 클릭 시 해당 행/카드로 스크롤하기 위한 대기 상태 (뷰 범위 변경 후 다음 렌더에서 처리)
   const [pendingFocusPageId, setPendingFocusPageId] = useState<string | null>(null);
+  // 카드 호버 툴팁 — 표시 설정 속성을 작업 카드와 동일하게 보여준다.
+  const [hoveredCard, setHoveredCard] = useState<{
+    pageId: string;
+    title: string;
+    columnName: string;
+    dateLabel: string;
+    left: number;
+    top: number;
+    placeAbove: boolean;
+  } | null>(null);
+  // 가로 스크롤 위치 — 날짜 미등록(흰색) 카드를 항목 컬럼 우측에 고정해 따라다니게 한다.
+  const [trackScrollLeft, setTrackScrollLeft] = useState(0);
 
   const isAnnualView = viewMode === "year";
   const annualCellWidth = getCellWidth(zoomLevel, columnWidthScale);
@@ -233,7 +352,92 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const annualTotalWidth = total * annualCellWidth;
   const rowHeight = getRowHeight(1, zoomLevel);
   const cardHeight = Math.max(22, Math.min(30, rowHeight - ROW_PADDING_TOP * 2));
+  // 카드를 행 높이 중앙에 배치 (상단 정렬 방지).
+  const cardTop = Math.max(0, (rowHeight - cardHeight) / 2);
   const todayIdx = calcTodayIndex(currentYear);
+  // 날짜 컬럼을 표시설정(viewConfigs.timeline) 순서대로 정렬 → 첫 포커싱 대상이 표시 순서를 따른다.
+  const dateCols = useMemo(() => {
+    if (!bundle) return [] as ColumnDef[];
+    const all = bundle.columns.filter((column) => column.type === "date");
+    const orderedIds = resolveViewColumnOrderState(
+      bundle.columns,
+      "timeline",
+      bundle.panelState?.viewConfigs?.timeline,
+    ).orderedColumnIds;
+    const rank = new Map(orderedIds.map((id, index) => [id, index]));
+    return [...all].sort(
+      (a, b) =>
+        (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [bundle]);
+  const primaryDateCol = useMemo(
+    () =>
+      dateCols.find((column) => column.id === bundle?.panelState?.timelineDateColumnId) ??
+      dateCols[0] ??
+      null,
+    [bundle?.panelState?.timelineDateColumnId, dateCols],
+  );
+  const hasExplicitTimelineCards = useMemo(
+    () => dateCols.some((column) => column.config?.timelineCard?.enabled === true),
+    [dateCols],
+  );
+  const timelineDateEntries = useMemo<SchedulerTimelineDateEntry[]>(() => {
+    const activeColumns = hasExplicitTimelineCards
+      ? dateCols.filter((column) => column.config?.timelineCard?.enabled === true)
+      : primaryDateCol && primaryDateCol.config?.timelineCard?.enabled !== false
+        ? [primaryDateCol]
+        : [];
+    return activeColumns.map((column, index) => {
+      const config = column.config?.timelineCard;
+      return {
+        columnId: column.id,
+        columnName: column.name,
+        titleMode: config?.titleMode === "custom" ? "custom" : "pageTitle",
+        title: typeof config?.title === "string" ? config.title : "",
+        color: isValidTimelineColor(config?.color) ? config.color : defaultTimelineColor(index),
+        isPrimary: column.id === primaryDateCol?.id || (!primaryDateCol && index === 0),
+      };
+    });
+  }, [dateCols, hasExplicitTimelineCards, primaryDateCol]);
+  const activeDateColumnIds = useMemo(
+    () => new Set(timelineDateEntries.map((entry) => entry.columnId)),
+    [timelineDateEntries],
+  );
+  // 일반 DB 타임라인과 동일 규칙 — 설정 없으면 전체 표시. LC 스케줄러 DB도 컬럼 표시/순서를
+  // 동일하게 따른다(차이는 DB 삭제 불가뿐).
+  const visibleTimelineColumnIdSet = useMemo(
+    () =>
+      bundle
+        ? new Set(
+            getVisibleOrderedColumns(bundle.columns, "timeline", bundle.panelState?.viewConfigs)
+              .map((column) => column.id),
+          )
+        : null,
+    [bundle],
+  );
+  // 카드 라벨에서 제외할 활성 날짜 컬럼 목록 (타임라인 막대로 쓰임) — 공용 라벨 컴포넌트에 전달.
+  const activeDateColumnIdList = useMemo(
+    () => [...activeDateColumnIds],
+    [activeDateColumnIds],
+  );
+
+  // 항목(마일스톤/피처) 추가 — DB에 행을 추가하고, 현재 스코프 선택을 기본값으로 적용한 뒤
+  // 신규 페이지를 사이드 피커뷰로 띄운다. (DB에서 직접 추가해도 동일 DB라 자동 동기화)
+  const handleAddItem = useCallback(() => {
+    const newPageId = addRow(databaseId);
+    if (!newPageId) return;
+    if (selectedProjectId) {
+      const colIds = mode === "milestone" ? LC_MILESTONE_COLUMN_IDS : LC_FEATURE_COLUMN_IDS;
+      if (selectedProjectId.startsWith("org:")) {
+        updateCell(databaseId, newPageId, colIds.organization, selectedProjectId.slice(4));
+      } else if (selectedProjectId.startsWith("team:")) {
+        updateCell(databaseId, newPageId, colIds.team, selectedProjectId.slice(5));
+      } else if (selectedProjectId.startsWith("proj:")) {
+        updateCell(databaseId, newPageId, colIds.project, selectedProjectId.slice(5));
+      }
+    }
+    openPeek(newPageId);
+  }, [addRow, databaseId, mode, selectedProjectId, updateCell, openPeek]);
 
   const rows = useMemo<TimelineRow[]>(() => {
     if (!bundle) return [];
@@ -262,13 +466,20 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
         if (mode !== "feature" || !milestoneFilterSet) return true;
         return schedulerPageLinkIncludes(page.dbCells?.[LC_FEATURE_COLUMN_IDS.milestone], milestoneFilterSet);
       })
-      .map((page) => ({
-        page,
-        cards: mode === "milestone"
-          ? milestoneCards(page, columnsById)
-          : featureCards(page, columnsById),
-      }));
-  }, [bundle, milestoneDb, mode, pages, selectedFeatureMilestoneIds, selectedProjectId]);
+      .map((page) => {
+        const cards = databaseTimelineCards(page, timelineDateEntries, columnsById);
+        return {
+          page,
+          cards: cards.map((card) => ({
+            ...card,
+            showDateLabel: visibleTimelineColumnIdSet
+              ? visibleTimelineColumnIdSet.has(card.columnId)
+              : true,
+          })),
+        };
+      });
+  }, [bundle, milestoneDb, mode, pages, selectedFeatureMilestoneIds, selectedProjectId, timelineDateEntries, visibleTimelineColumnIdSet]);
+  const rowIds = useMemo(() => rows.map((row) => row.page.id), [rows]);
 
   const { slots, weekBlocks, mondays, slotCount } = useMemo(() => {
     if (viewMode === "month") {
@@ -350,6 +561,54 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const activeCellWidth = isAnnualView ? annualCellWidth : rangeCellWidth;
   const activeTimelineWidth = isAnnualView ? annualTotalWidth : rangeTimelineWidth;
 
+  // 날짜 미등록 카드를 드롭한 x 위치 → 기본 날짜 컬럼에 시작=종료 날짜로 기록 (드래그로 일정 확정).
+  const commitUnscheduledDate = useCallback(
+    (pageId: string, dropX: number) => {
+      if (!primaryDateCol) return;
+      let date: Date;
+      if (isAnnualView) {
+        const maxIdx = daysInYear(currentYear) - 1;
+        const dayIdx = Math.max(0, Math.min(maxIdx, Math.round((dropX - CARD_MARGIN) / annualCellWidth)));
+        date = addDays(startOfDay(new Date(currentYear, 0, 1)), dayIdx);
+      } else {
+        if (slots.length === 0) return;
+        const idx = Math.max(0, Math.min(slots.length - 1, Math.round((dropX - CARD_MARGIN) / activeCellWidth)));
+        date = startOfDay(slots[idx]!.date);
+      }
+      const iso = toDateCellIso(date);
+      updateCell(databaseId, pageId, primaryDateCol.id, { start: iso, end: iso });
+    },
+    [primaryDateCol, isAnnualView, currentYear, annualCellWidth, slots, activeCellWidth, updateCell, databaseId],
+  );
+
+  // 일정 카드 드래그/리사이즈 → 새 left·width(px) 를 날짜 범위로 변환해 해당 날짜 컬럼에 기록.
+  // 작업 일정 카드와 동일하게 가로 드래그(이동)·좌우 핸들(기간 조절)을 지원한다.
+  const commitCardRange = useCallback(
+    (card: TimelineCard, leftPx: number, widthPx: number) => {
+      const cellW = isAnnualView ? annualCellWidth : activeCellWidth;
+      if (cellW <= 0) return;
+      const span = Math.max(1, Math.round((widthPx + CARD_MARGIN * 2) / cellW));
+      let start: Date;
+      let end: Date;
+      if (isAnnualView) {
+        const maxIdx = daysInYear(currentYear) - 1;
+        const startIdx = Math.max(0, Math.min(maxIdx, Math.round((leftPx - CARD_MARGIN) / annualCellWidth)));
+        const endIdx = Math.max(startIdx, Math.min(maxIdx, startIdx + span - 1));
+        const yearStart = startOfDay(new Date(currentYear, 0, 1));
+        start = addDays(yearStart, startIdx);
+        end = addDays(yearStart, endIdx);
+      } else {
+        if (slots.length === 0) return;
+        const startSlot = Math.max(0, Math.min(slots.length - 1, Math.round((leftPx - CARD_MARGIN) / activeCellWidth)));
+        const endSlot = Math.max(startSlot, Math.min(slots.length - 1, startSlot + span - 1));
+        start = startOfDay(slots[startSlot]!.date);
+        end = startOfDay(slots[endSlot]!.date);
+      }
+      updateCell(databaseId, card.pageId, card.columnId, { start: toDateCellIso(start), end: toDateCellIso(end) });
+    },
+    [isAnnualView, annualCellWidth, activeCellWidth, currentYear, slots, updateCell, databaseId],
+  );
+
   const titleColumnName =
     bundle?.columns.find((column) => column.type === "title")?.name ??
     (mode === "milestone" ? "마일스톤" : "피처");
@@ -361,27 +620,27 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     if (isAnnualView || !containerRef.current) return;
     const element = containerRef.current;
     const updateWidth = () => {
-      setRangeTimelineWidth(Math.max(720, element.clientWidth - ITEM_COLUMN_WIDTH));
+      setRangeTimelineWidth(Math.max(720, element.clientWidth - itemColumnWidth));
     };
     updateWidth();
     const observer = new ResizeObserver(updateWidth);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [isAnnualView]);
+  }, [isAnnualView, itemColumnWidth]);
 
   const scrollToToday = useCallback(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
     if (isAnnualView) {
       if (todayIdx === null) return;
-      const target = ITEM_COLUMN_WIDTH + todayIdx * annualCellWidth - container.clientWidth / 2;
+      const target = itemColumnWidth + todayIdx * annualCellWidth - container.clientWidth / 2;
       container.scrollLeft = Math.max(0, target);
       return;
     }
     if (todaySlotIndex === null) return;
-    const target = ITEM_COLUMN_WIDTH + todaySlotIndex * rangeCellWidth - container.clientWidth / 2;
+    const target = itemColumnWidth + todaySlotIndex * rangeCellWidth - container.clientWidth / 2;
     container.scrollLeft = Math.max(0, target);
-  }, [annualCellWidth, isAnnualView, rangeCellWidth, todayIdx, todaySlotIndex]);
+  }, [annualCellWidth, isAnnualView, itemColumnWidth, rangeCellWidth, todayIdx, todaySlotIndex]);
 
   useEffect(() => {
     const handleScrollToday = () => {
@@ -425,6 +684,41 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     [setCurrentYear, viewMode],
   );
 
+  const handleRowDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (!bundle) return;
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const oldIndex = bundle.rowPageOrder.indexOf(String(active.id));
+      const newIndex = bundle.rowPageOrder.indexOf(String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return;
+
+      setRowOrder(databaseId, arrayMove(bundle.rowPageOrder, oldIndex, newIndex));
+    },
+    [bundle, databaseId, setRowOrder],
+  );
+
+  const handleColumnResizeStart = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = itemColumnWidth;
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        setItemColumnWidth(startWidth + moveEvent.clientX - startX);
+      };
+      const handlePointerUp = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+    },
+    [itemColumnWidth, setItemColumnWidth],
+  );
+
   // 뷰 범위 반영 후 해당 행/카드로 스크롤 (수직: 행 중앙, 수평: 첫 카드 시작)
   useEffect(() => {
     if (!pendingFocusPageId) return;
@@ -455,7 +749,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
         if (slotRange) cardLeft = slotRange.startSlot * activeCellWidth + CARD_MARGIN;
       }
       if (cardLeft !== null) {
-        container.scrollLeft = Math.max(0, ITEM_COLUMN_WIDTH + cardLeft - container.clientWidth / 2);
+        container.scrollLeft = Math.max(0, itemColumnWidth + cardLeft - container.clientWidth / 2);
       }
     }
     setPendingFocusPageId(null);
@@ -468,21 +762,27 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     annualCellWidth,
     activeCellWidth,
     rowHeight,
+    itemColumnWidth,
   ]);
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-950">
+    <>
+    <div
+      ref={containerRef}
+      onScroll={(event) => setTrackScrollLeft(event.currentTarget.scrollLeft)}
+      className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-950"
+    >
       <div
         className="relative"
         style={{
-          width: ITEM_COLUMN_WIDTH + activeTimelineWidth,
-          minWidth: ITEM_COLUMN_WIDTH + activeTimelineWidth,
+          width: itemColumnWidth + activeTimelineWidth,
+          minWidth: itemColumnWidth + activeTimelineWidth,
           minHeight: contentHeight,
         }}
       >
         <div
           className="sticky left-0 z-20 bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800"
-          style={{ width: ITEM_COLUMN_WIDTH, height: fixedColumnHeight }}
+          style={{ width: itemColumnWidth, height: fixedColumnHeight }}
         >
           <div
             className="sticky top-0 z-30 flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 text-sm font-semibold text-zinc-700 dark:text-zinc-200"
@@ -494,44 +794,59 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
               <Layers className="w-4 h-4 text-zinc-500" />
             )}
             <span className="truncate">{titleColumnName}</span>
-          </div>
-          {rows.map((row) => (
-            <div
-              key={row.page.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => handleRowFocus(row)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  handleRowFocus(row);
-                }
-              }}
-              className="group flex w-full cursor-pointer items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 px-3 text-left text-sm text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800/70"
-              style={{ height: rowHeight }}
-              title="클릭하여 일정 카드로 이동"
-            >
-              <PageIconDisplay icon={row.page.icon ?? null} size="sm" />
-              <span className="min-w-0 flex-1 truncate">{row.page.title || "제목 없음"}</span>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openPeek(row.page.id);
-                }}
-                className="shrink-0 rounded p-1 text-zinc-400 opacity-0 transition-opacity hover:bg-zinc-100 hover:text-zinc-700 focus:opacity-100 group-hover:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                aria-label="피커뷰로 열기"
-                title="피커뷰로 열기"
-              >
-                <PanelRight size={14} />
-              </button>
+            <div className="ml-auto shrink-0">
+              <DatabaseColumnSettingsButton
+                databaseId={databaseId}
+                viewKind="timeline"
+                panelState={bundle?.panelState ?? emptyPanelState()}
+                setPanelState={(patch) => patchDatabasePanelState(databaseId, patch)}
+                // LC 스케줄러 모달(z-[500]) 내부라 팝오버가 뒤로 숨지 않도록 그 위 z-index 사용.
+                popoverZClassName="z-[560]"
+              />
             </div>
-          ))}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="첫 컬럼 너비 조절"
+              onPointerDown={handleColumnResizeStart}
+              className="absolute right-[-4px] top-0 z-40 h-full w-2 cursor-col-resize touch-none"
+            >
+              <div className="mx-auto h-full w-px bg-transparent transition-colors hover:bg-green-500" />
+            </div>
+          </div>
+          <DndContext sensors={rowSensors} collisionDetection={closestCenter} onDragEnd={handleRowDragEnd}>
+            <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
+              {rows.map((row) => (
+                <SortableTimelineLabelRow
+                  key={row.page.id}
+                  row={row}
+                  rowHeight={rowHeight}
+                  onFocus={handleRowFocus}
+                  onOpenPeek={openPeek}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </div>
+
+        {/* 항목 추가 — 배경/구분선 없이 텍스트만, 우측 정렬 (항목 컬럼 영역 하단) */}
+        <div
+          className="sticky left-0 z-20"
+          style={{ width: itemColumnWidth, height: ADD_ITEM_ROW_HEIGHT }}
+        >
+          <button
+            type="button"
+            onClick={handleAddItem}
+            className="flex h-full w-full items-center justify-end gap-1 pr-3 text-right text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+          >
+            <Plus size={12} className="shrink-0" />
+            {mode === "milestone" ? "마일스톤 추가" : "피처 추가"}
+          </button>
         </div>
 
         <div
           className="absolute top-0"
-          style={{ left: ITEM_COLUMN_WIDTH, width: activeTimelineWidth, minWidth: activeTimelineWidth }}
+          style={{ left: itemColumnWidth, width: activeTimelineWidth, minWidth: activeTimelineWidth }}
         >
           {isAnnualView ? (
             <DateAxis year={currentYear} cellWidth={annualCellWidth} />
@@ -667,7 +982,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
               className="flex items-center justify-center border-b border-zinc-200 dark:border-zinc-800 text-sm text-zinc-500 dark:text-zinc-400"
               style={{ height: rowHeight, width: activeTimelineWidth }}
             >
-              등록된 {mode === "milestone" ? "마일스톤" : "피처"}가 없습니다.
+              {mode === "milestone" ? "등록된 마일스톤이 없습니다." : "등록된 피처가 없습니다."}
             </div>
           ) : (
             rows.map((row) => (
@@ -721,31 +1036,138 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                       24,
                       ((slotRange?.endSlot ?? 0) - (slotRange?.startSlot ?? 0) + 1) * activeCellWidth - CARD_MARGIN * 2,
                     );
+                  const textColor = pickTextColor(card.color);
+                  const labelTextColor =
+                    textColor === "#ffffff" ? "rgba(255,255,255,0.82)" : "rgba(26,26,26,0.72)";
+                  const cellW = isAnnualView ? annualCellWidth : activeCellWidth;
                   return (
-                    <button
+                    <Rnd
                       key={card.id}
-                      type="button"
-                      onDoubleClick={() => openPeek(card.pageId)}
-                      className="absolute rounded-md px-2 text-left text-xs font-semibold shadow-sm transition-transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      style={{
-                        left,
-                        top: ROW_PADDING_TOP,
-                        width,
-                        height: cardHeight,
-                        backgroundColor: card.color,
-                        color: pickTextColor(card.color),
+                      position={{ x: left, y: cardTop }}
+                      size={{ width, height: cardHeight }}
+                      dragAxis="x"
+                      bounds="parent"
+                      enableResizing={{
+                        left: true,
+                        right: true,
+                        top: false,
+                        bottom: false,
+                        topLeft: false,
+                        topRight: false,
+                        bottomLeft: false,
+                        bottomRight: false,
                       }}
-                      title="더블클릭하여 항목 열기"
+                      resizeHandleStyles={{
+                        left: { cursor: "ew-resize", width: 8, left: 0 },
+                        right: { cursor: "ew-resize", width: 8, right: 0 },
+                      }}
+                      minWidth={Math.max(16, cellW - CARD_MARGIN * 2)}
+                      onDragStop={(_event, data) => commitCardRange(card, data.x, width)}
+                      onResizeStop={(_event, _dir, ref, _delta, position) =>
+                        commitCardRange(card, position.x, ref.offsetWidth)
+                      }
+                      className="z-[3]"
                     >
-                      <span className="block truncate">{card.title}</span>
-                    </button>
+                      <div
+                        onDoubleClick={() => openPeek(card.pageId)}
+                        onMouseEnter={(event: ReactMouseEvent<HTMLDivElement>) => {
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const placeAbove = rect.top > window.innerHeight - rect.bottom;
+                          setHoveredCard({
+                            pageId: card.pageId,
+                            title: card.title,
+                            columnName: card.columnName,
+                            dateLabel: card.dateLabel,
+                            // 카드 시작점이 아니라 마우스 X 좌표 기준으로 툴팁 위치 설정.
+                            left: Math.max(8, Math.min(event.clientX, window.innerWidth - 268)),
+                            top: placeAbove ? rect.top - 6 : rect.bottom + 6,
+                            placeAbove,
+                          });
+                        }}
+                        onMouseLeave={() => setHoveredCard(null)}
+                        className="h-full w-full cursor-grab overflow-hidden rounded-md px-2 text-left text-xs font-semibold shadow-sm active:cursor-grabbing"
+                        style={{ backgroundColor: card.color, color: textColor }}
+                      >
+                        <span className="flex h-full items-center gap-1.5 overflow-hidden whitespace-nowrap">
+                          <span className="shrink-0">{card.title}</span>
+                          {card.showDateLabel && (
+                            <span className="shrink-0 font-normal" style={{ color: labelTextColor }}>
+                              {card.dateLabel}
+                            </span>
+                          )}
+                          <TimelineCardPropertyLabels
+                            databaseId={databaseId}
+                            pageId={row.page.id}
+                            excludeColumnIds={activeDateColumnIdList}
+                            className="font-normal"
+                            style={{ color: labelTextColor }}
+                          />
+                        </span>
+                      </div>
+                    </Rnd>
                   );
                 })}
+                {row.cards.length === 0 && primaryDateCol && (
+                  // 날짜 미등록 항목 — 항목 컬럼 우측에 흰색 카드로 고정, 드래그하면 날짜가 정해진다.
+                  // (일반 데이터베이스 타임라인의 "날짜 없음" 카드와 동일 동작)
+                  <Rnd
+                    dragAxis="x"
+                    enableResizing={false}
+                    bounds="parent"
+                    position={{ x: trackScrollLeft + CARD_MARGIN, y: cardTop }}
+                    size={{ width: 168, height: cardHeight }}
+                    onDragStop={(_event, data) => commitUnscheduledDate(row.page.id, data.x)}
+                    className="z-[2]"
+                  >
+                    <button
+                      type="button"
+                      onDoubleClick={() => openPeek(row.page.id)}
+                      title="드래그하여 날짜를 지정하세요"
+                      className="flex h-full w-full cursor-grab items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border border-dashed border-zinc-300 bg-white px-2 text-left text-xs font-semibold text-zinc-700 shadow-sm active:cursor-grabbing dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                    >
+                      <span className="shrink-0">{row.page.title || "제목 없음"}</span>
+                      <span className="shrink-0 font-normal text-zinc-400 dark:text-zinc-500">
+                        날짜 없음
+                      </span>
+                      <TimelineCardPropertyLabels
+                        databaseId={databaseId}
+                        pageId={row.page.id}
+                        excludeColumnIds={activeDateColumnIdList}
+                        className="font-normal text-zinc-500 dark:text-zinc-400"
+                      />
+                    </button>
+                  </Rnd>
+                )}
               </div>
             ))
           )}
         </div>
       </div>
     </div>
+    {hoveredCard &&
+      createPortal(
+        <div
+          className="pointer-events-none fixed z-[600] max-w-[260px] rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          style={{
+            top: hoveredCard.top,
+            left: hoveredCard.left,
+            transform: hoveredCard.placeAbove ? "translateY(-100%)" : undefined,
+          }}
+        >
+          <div className="mb-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+            {hoveredCard.columnName} · {hoveredCard.dateLabel}
+          </div>
+          <div className="font-semibold text-zinc-900 dark:text-zinc-100">
+            {hoveredCard.title || "제목 없음"}
+          </div>
+          <ScheduleCardDetailRows
+            databaseId={databaseId}
+            pageId={hoveredCard.pageId}
+            excludeColumnIds={activeDateColumnIdList}
+          />
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

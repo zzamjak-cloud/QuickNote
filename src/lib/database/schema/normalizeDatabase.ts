@@ -15,6 +15,19 @@ import { parseDatabasePanelStateJson } from "../../schemas/panelStateSchema";
 type ColumnConfig = NonNullable<ColumnDef["config"]>;
 type MutableColumnConfig = ColumnConfig & Record<string, unknown>;
 
+const PAGE_LINK_CONFIG_KEYS = [
+  "pageLinkScopeDatabaseId",
+  "pageLinkMirrorColumnId",
+  "pageLinkAutoReverse",
+  "pageLinkReverseColumnName",
+  "pageLinkAutoFill",
+] as const;
+
+const ITEM_FETCH_CONFIG_KEYS = [
+  "itemFetchSourceDatabaseId",
+  "itemFetchMatchColumnId",
+] as const;
+
 export const DATABASE_COLUMN_TYPES = new Set<ColumnType>([
   "title",
   "text",
@@ -267,6 +280,23 @@ function normalizeColumnConfig(value: unknown): ColumnConfig | undefined {
   return Object.keys(config).length > 0 ? config : undefined;
 }
 
+function normalizeColumnConfigForType(
+  config: ColumnConfig | undefined,
+  type: ColumnType,
+): ColumnConfig | undefined {
+  if (!config) return undefined;
+  const next: MutableColumnConfig = { ...config };
+
+  if (type !== "pageLink") {
+    for (const key of PAGE_LINK_CONFIG_KEYS) delete next[key];
+  }
+  if (type !== "itemFetch") {
+    for (const key of ITEM_FETCH_CONFIG_KEYS) delete next[key];
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 export function normalizeColumnDef(value: unknown): ColumnDef | null {
   if (
     !isPlainObject(value) ||
@@ -287,7 +317,10 @@ export function normalizeColumnDef(value: unknown): ColumnDef | null {
   if (typeof value.width === "number" && Number.isFinite(value.width)) {
     column.width = value.width;
   }
-  const config = normalizeColumnConfig(value.config);
+  const config = normalizeColumnConfigForType(
+    normalizeColumnConfig(value.config),
+    column.type,
+  );
   if (config) column.config = config;
   return column;
 }

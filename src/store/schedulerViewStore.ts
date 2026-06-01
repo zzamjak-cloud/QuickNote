@@ -15,6 +15,9 @@ const allMonthsVisible: MonthVisibility = (() => {
 })();
 
 type ViewState = {
+  // 스케줄러 팝업 열림 상태 — 새로고침 후에도 마지막 상태 유지
+  schedulerOpen: boolean;
+
   // 뷰 모드
   viewMode: SchedulerViewMode;
   entityMode: SchedulerEntityMode;
@@ -22,6 +25,7 @@ type ViewState = {
   // 줌
   zoomLevel: number;
   columnWidthScale: number;
+  databaseTimelineItemColumnWidth: number;
 
   // 현재 표시
   currentYear: number;
@@ -48,10 +52,12 @@ type ViewState = {
 };
 
 type ViewActions = {
+  setSchedulerOpen: (open: boolean) => void;
   setViewMode: (m: SchedulerViewMode) => void;
   setEntityMode: (m: SchedulerEntityMode) => void;
   setZoomLevel: (z: number) => void;
   setColumnWidthScale: (s: number) => void;
+  setDatabaseTimelineItemColumnWidth: (width: number) => void;
   setCurrentYear: (y: number) => void;
   selectMember: (id: string | null) => void;
   setSelectedProjectId: (id: string | null) => void;
@@ -72,10 +78,12 @@ type ViewActions = {
 export type SchedulerViewStore = ViewState & ViewActions;
 
 const initial: ViewState = {
+  schedulerOpen: false,
   viewMode: "week",
   entityMode: "task",
   zoomLevel: 1,
   columnWidthScale: 1,
+  databaseTimelineItemColumnWidth: 220,
   currentYear: new Date().getFullYear(),
   selectedMemberId: null,
   selectedProjectId: null,
@@ -95,6 +103,7 @@ export const useSchedulerViewStore = create<SchedulerViewStore>()(
   persist(
     (set) => ({
       ...initial,
+      setSchedulerOpen: (schedulerOpen) => set({ schedulerOpen }),
       setViewMode: (viewMode) => set({ viewMode }),
       setEntityMode: (entityMode) =>
         set({
@@ -105,6 +114,13 @@ export const useSchedulerViewStore = create<SchedulerViewStore>()(
         }),
       setZoomLevel: (zoomLevel) => set({ zoomLevel }),
       setColumnWidthScale: (columnWidthScale) => set({ columnWidthScale }),
+      setDatabaseTimelineItemColumnWidth: (databaseTimelineItemColumnWidth) =>
+        set({
+          databaseTimelineItemColumnWidth: Math.max(
+            160,
+            Math.min(420, databaseTimelineItemColumnWidth),
+          ),
+        }),
       setCurrentYear: (currentYear) => set({ currentYear }),
       selectMember: (selectedMemberId) => set({ selectedMemberId }),
       setSelectedProjectId: (selectedProjectId) => set({ selectedProjectId }),
@@ -128,10 +144,12 @@ export const useSchedulerViewStore = create<SchedulerViewStore>()(
       name: "quicknote.scheduler.view.v1",
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
+        schedulerOpen: s.schedulerOpen,
         viewMode: s.viewMode,
         entityMode: s.entityMode,
         zoomLevel: s.zoomLevel,
         columnWidthScale: s.columnWidthScale,
+        databaseTimelineItemColumnWidth: s.databaseTimelineItemColumnWidth,
         currentYear: s.currentYear,
         monthVisibility: s.monthVisibility,
         defaultScheduleColor: s.defaultScheduleColor,

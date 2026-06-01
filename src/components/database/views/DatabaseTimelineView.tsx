@@ -1,7 +1,6 @@
 /* eslint-disable react-hooks/purity -- 축/오늘 기준선은 렌더 시각의 Date.now() 사용 */
  
 import {
-  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -11,15 +10,17 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { ChevronLeft, ChevronRight, PanelRight, Plus, SlidersHorizontal, X, ZoomIn, ZoomOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelRight, Plus, SlidersHorizontal, ZoomIn, ZoomOut } from "lucide-react";
 import { Rnd } from "react-rnd";
+import { createPortal } from "react-dom";
 import type {
   ColumnDef,
   DatabasePanelState,
   DatabaseRowView,
   TimelineDateCardConfig,
+  ViewConfigsMap,
 } from "../../../types/database";
-import { getVisibleOrderedColumns } from "../../../types/database";
+import { getVisibleOrderedColumns, resolveViewColumnOrderState } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { useUiStore } from "../../../store/uiStore";
@@ -36,13 +37,11 @@ import {
   timelineWeekdayIndex as weekdayIndex,
 } from "../../../lib/database/timelineGeometry";
 import { useWindowedRows } from "./useWindowedRows";
-import {
-  DatabaseCellDisplay,
-} from "../DatabaseCellDisplay";
-import { databaseCellHasDisplayValue } from "../databaseCellDisplayUtils";
+import { TimelineCardPropertyLabels } from "../TimelineCardPropertyLabels";
+import { ScheduleCardDetailRows } from "../ScheduleCardDetailRows";
 import { getScheduleCardContentOffset } from "../../scheduler/scheduleCardDisplay";
-import { AppSelect } from "../../common/AppSelect";
 import { SELECT_COLOR_PRESETS } from "../selectColorPresets";
+import { buildTimelineCardConfigPatch } from "./timelineCardConfig";
 
 type Props = {
   databaseId: string;
@@ -52,7 +51,7 @@ type Props = {
   visibleRowLimit?: number;
 };
 
-type Granularity = "month" | "day" | "week" | "range";
+type Granularity = "year" | "month" | "week";
 
 const ROW_HEIGHT = 32;
 const ROW_GAP = 4;
@@ -66,9 +65,8 @@ const CELL_WIDTH_STEP = 8;
 const CELL_WIDTH_DEFAULT = 100;
 const LS_ZOOM_KEY = "quicknote.timeline.zoom";
 const LS_GRANULARITY_KEY = "quicknote.timeline.granularity";
-const LS_RANGE_START_KEY = "quicknote.timeline.rangeStart";
-const LS_RANGE_END_KEY = "quicknote.timeline.rangeEnd";
 const LS_MONTH_KEY = "quicknote.timeline.month";
+const LS_YEAR_KEY = "quicknote.timeline.year";
 const DRAG_ACTIVATE_PX = 3;
 const UNSCHEDULED_CARD_LEFT = 8;
 const UNSCHEDULED_CARD_WIDTH = 168;
@@ -116,13 +114,6 @@ const toDateIso = (ms: number) => {
   return `${y}-${m}-${day}`;
 };
 
-const parseDateInput = (value: string): number | null => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  const [, y, m, d] = match;
-  return startOfDay(new Date(Number(y), Number(m) - 1, Number(d)).getTime());
-};
-
 const startOfMonth = (t: number) => {
   const d = new Date(t);
   d.setDate(1);
@@ -149,30 +140,6 @@ const monthInputToStart = (value: string): number | null => {
 const monthLabel = (monthStart: number) => {
   const d = new Date(monthStart);
   return `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
-};
-
-const rangeBucketDays = (totalDays: number): number => {
-  if (totalDays <= 35) return 7;
-  if (totalDays <= 120) return 10;
-  if (totalDays <= 240) return 15;
-  if (totalDays <= 370) return 30;
-  if (totalDays <= 730) return 60;
-  return 90;
-};
-
-const buildRangeBuckets = (totalDays: number, bucketDays: number): { offset: number; days: number }[] => {
-  const buckets: { offset: number; days: number }[] = [];
-  let offset = 0;
-  while (offset < totalDays) {
-    let days = Math.min(bucketDays, totalDays - offset);
-    const remaining = totalDays - offset - days;
-    if (remaining > 0 && remaining < Math.ceil(bucketDays / 2)) {
-      days += remaining;
-    }
-    buckets.push({ offset, days });
-    offset += days;
-  }
-  return buckets;
 };
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -218,6 +185,7 @@ type TimelineCardLayout = {
   width: number;
   top: number;
   dateLabel: string;
+  showDateLabel: boolean;
   tooltipText: string;
   isUnscheduled?: boolean;
 };
@@ -236,7 +204,9 @@ const TimelineLabelRow = memo(function TimelineLabelRow({
 }) {
   return (
     <div
+      // 단일 클릭 = 일정 카드로 스크롤 포커싱, 더블 클릭 = 사이드바(피커뷰) 열기.
       onClick={() => onFocus(row.pageId)}
+      onDoubleClick={() => openPeek(row.pageId)}
       className={[
         "group relative flex cursor-pointer items-center gap-1 border-b border-zinc-100 px-2 pr-8 dark:border-zinc-800",
         isSelected
@@ -253,7 +223,7 @@ const TimelineLabelRow = memo(function TimelineLabelRow({
         }
       }}
     >
-      <span className="min-w-0 flex-1 truncate text-base text-zinc-700 dark:text-zinc-200">
+      <span className="min-w-0 flex-1 truncate text-sm text-zinc-700 dark:text-zinc-200">
         {row.title || "제목 없음"}
       </span>
       <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-950/90">
@@ -273,7 +243,6 @@ const TimelineLabelRow = memo(function TimelineLabelRow({
 export function DatabaseTimelineView({
   databaseId,
   panelState,
-  setPanelState,
   visibleRowLimit,
 }: Props) {
   const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
@@ -298,39 +267,28 @@ export function DatabaseTimelineView({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [granularity, setGranularity] = useState<Granularity>(() => {
     const saved = localStorage.getItem(LS_GRANULARITY_KEY);
-    return saved === "month" || saved === "week" || saved === "range" ? saved : "day";
+    return saved === "month" || saved === "week" || saved === "year" ? saved : "year";
   });
-  const [rangeStartInput, setRangeStartInput] = useState(() =>
-    localStorage.getItem(LS_RANGE_START_KEY) ?? "",
-  );
-  const [rangeEndInput, setRangeEndInput] = useState(() =>
-    localStorage.getItem(LS_RANGE_END_KEY) ?? "",
-  );
   const [visibleMonthStart, setVisibleMonthStart] = useState(() => {
     const saved = localStorage.getItem(LS_MONTH_KEY);
     return monthInputToStart(saved ?? "") ?? startOfMonth(Date.now());
+  });
+  // 연간 축에서 보고 있는 연도 (LC 스케줄러와 동일하게 연도 단위 이동).
+  const [visibleYear, setVisibleYear] = useState(() => {
+    const saved = localStorage.getItem(LS_YEAR_KEY);
+    const n = saved ? parseInt(saved, 10) : NaN;
+    return Number.isFinite(n) ? n : new Date().getFullYear();
   });
 
   useEffect(() => {
     localStorage.setItem(LS_GRANULARITY_KEY, granularity);
   }, [granularity]);
   useEffect(() => {
-    if (rangeStartInput) {
-      localStorage.setItem(LS_RANGE_START_KEY, rangeStartInput);
-    } else {
-      localStorage.removeItem(LS_RANGE_START_KEY);
-    }
-  }, [rangeStartInput]);
-  useEffect(() => {
-    if (rangeEndInput) {
-      localStorage.setItem(LS_RANGE_END_KEY, rangeEndInput);
-    } else {
-      localStorage.removeItem(LS_RANGE_END_KEY);
-    }
-  }, [rangeEndInput]);
-  useEffect(() => {
     localStorage.setItem(LS_MONTH_KEY, toDateIso(visibleMonthStart).slice(0, 7));
   }, [visibleMonthStart]);
+  useEffect(() => {
+    localStorage.setItem(LS_YEAR_KEY, String(visibleYear));
+  }, [visibleYear]);
 
   const [cellWidthOverride, setCellWidthOverride] = useState(() => {
     const saved = localStorage.getItem(LS_ZOOM_KEY);
@@ -353,7 +311,7 @@ export function DatabaseTimelineView({
     ro.observe(el);
     setTrackPxWidth(el.clientWidth);
     return () => ro.disconnect();
-  }, [granularity, rangeEndInput, rangeStartInput]);
+  }, [granularity]);
   const onSideLabelResizeStart = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -402,7 +360,21 @@ export function DatabaseTimelineView({
 
   const [timelineSettingsOpen, setTimelineSettingsOpen] = useState(false);
 
-  const dateCols = useMemo(() => columns.filter((c) => c.type === "date"), [columns]);
+  // 날짜 컬럼을 표시설정(viewConfigs.timeline) 순서대로 정렬한다.
+  // → 표시설정에서 날짜 속성을 앞으로 옮기면 그 컬럼이 primary/첫 포커싱 대상이 되도록.
+  const dateCols = useMemo(() => {
+    const all = columns.filter((c) => c.type === "date");
+    const orderedIds = resolveViewColumnOrderState(
+      columns,
+      "timeline",
+      panelState.viewConfigs?.timeline,
+    ).orderedColumnIds;
+    const rank = new Map(orderedIds.map((id, index) => [id, index]));
+    return [...all].sort(
+      (a, b) =>
+        (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [columns, panelState.viewConfigs]);
   const primaryDateCol = useMemo(
     () => dateCols.find((c) => c.id === panelState.timelineDateColumnId) ?? dateCols[0] ?? null,
     [dateCols, panelState.timelineDateColumnId],
@@ -415,7 +387,7 @@ export function DatabaseTimelineView({
   const timelineDateEntries = useMemo<TimelineDateEntry[]>(() => {
     const activeColumns = hasExplicitTimelineCards
       ? dateCols.filter((c) => c.config?.timelineCard?.enabled === true)
-      : primaryDateCol
+      : primaryDateCol && primaryDateCol.config?.timelineCard?.enabled !== false
         ? [primaryDateCol]
         : [];
     return activeColumns.map((column, index) => {
@@ -436,21 +408,10 @@ export function DatabaseTimelineView({
     [timelineDateEntries],
   );
 
-  const timelineDateOptions = useMemo(
-    () => dateCols.map((column) => ({ value: column.id, label: column.name })),
-    [dateCols],
-  );
-
   const updateTimelineCardConfig = useCallback(
     (column: ColumnDef, patch: TimelineDateCardConfig) => {
       updateColumn(databaseId, column.id, {
-        config: {
-          ...column.config,
-          timelineCard: {
-            ...(column.config?.timelineCard ?? {}),
-            ...patch,
-          },
-        },
+        config: buildTimelineCardConfigPatch(databaseId, column, patch),
       });
     },
     [databaseId, updateColumn],
@@ -466,64 +427,31 @@ export function DatabaseTimelineView({
     [hasExplicitTimelineCards, primaryDateCol, updateTimelineCardConfig],
   );
 
-  const labelCols = useMemo(() => {
-    const titleCol = columns.find((c) => c.type === "title");
-    const v = getVisibleOrderedColumns(columns, "timeline", panelState.viewConfigs);
-    const excludeColumnIds = new Set([
-      ...Array.from(activeTimelineColumnIds),
-      ...(dateColId ? [dateColId] : []),
-    ]);
-    if (panelState.viewConfigs?.timeline?.visibleColumnIds) {
-      return v.filter((c) => c.id !== titleCol?.id && !excludeColumnIds.has(c.id));
-    }
-    return columns
-      .filter((c) => c.id !== titleCol?.id && !excludeColumnIds.has(c.id))
-      .slice(0, 1);
-  }, [activeTimelineColumnIds, columns, panelState.viewConfigs, dateColId]);
+  // 모든 뷰 공통 규칙 — 설정 없으면 전체 표시. 카드 보조 라벨은 표시 컬럼에서 제목과
+  // 타임라인 막대로 쓰이는 날짜 컬럼만 제외한 나머지다.
+  // 카드 라벨/툴팁 공용 컴포넌트에 넘길 제외 컬럼 — 타임라인 막대로 쓰이는 활성 날짜 컬럼.
+  const timelineExcludeColumnIds = useMemo(
+    () => [...activeTimelineColumnIds, ...(dateColId ? [dateColId] : [])],
+    [activeTimelineColumnIds, dateColId],
+  );
 
-  const dateRanges = useMemo(() => {
-    if (timelineDateEntries.length === 0) return [] as { row: DatabaseRowView; start: number; end: number }[];
-    const out: { row: DatabaseRowView; start: number; end: number }[] = [];
-    for (const r of rows) {
-      for (const entry of timelineDateEntries) {
-        const range = getRange(r.cells[entry.columnId]);
-        if (range) out.push({ row: r, ...range });
-      }
-    }
-    return out;
-  }, [rows, timelineDateEntries]);
+  const visibleTimelineColumnIdSet = useMemo(
+    () =>
+      new Set(
+        getVisibleOrderedColumns(columns, "timeline", panelState.viewConfigs).map(
+          (column) => column.id,
+        ),
+      ),
+    [columns, panelState.viewConfigs],
+  );
 
-  const customRange = useMemo(() => {
-    const start = parseDateInput(rangeStartInput);
-    const end = parseDateInput(rangeEndInput);
-    if (start == null || end == null) return null;
-    return {
-      start: Math.min(start, end),
-      end: Math.max(start, end),
-    };
-  }, [rangeEndInput, rangeStartInput]);
-  const fallbackRange = useMemo(() => ({
-    start: startOfMonth(Date.now()),
-    end: endOfMonth(Date.now()),
-  }), []);
-  const isRangeAxis = granularity === "range";
-  const effectiveRange = isRangeAxis ? (customRange ?? fallbackRange) : null;
-  const isWeekAxis = granularity === "week" && !isRangeAxis;
-  const isMonthAxis = granularity === "month" && !isRangeAxis;
-  const usesScrollableAxis = granularity === "day" && !isRangeAxis;
+  const isYearAxis = granularity === "year";
+  const isWeekAxis = granularity === "week";
+  const isMonthAxis = granularity === "month";
+  const usesScrollableAxis = isYearAxis;
   const usesFitAxis = !usesScrollableAxis;
 
   const axis = useMemo(() => {
-    if (effectiveRange) {
-      const totalDays = Math.max(1, Math.round((effectiveRange.end - effectiveRange.start) / DAY_MS) + 1);
-      return {
-        minT: effectiveRange.start,
-        maxT: effectiveRange.end,
-        totalDays,
-        cellWidth: 0,
-        totalW: 0,
-      };
-    }
     if (granularity === "week") {
       const thisWeekStart = startOfWeekMon(Date.now());
       const minT = thisWeekStart - WEEK_CAL_DAYS * DAY_MS;
@@ -536,19 +464,16 @@ export function DatabaseTimelineView({
     if (granularity === "month") {
       minT = visibleMonthStart;
       maxT = endOfMonth(visibleMonthStart);
-    } else if (dateRanges.length === 0) {
-      const today = startOfDay(Date.now());
-      minT = today - 14 * DAY_MS;
-      maxT = today + 14 * DAY_MS;
     } else {
-      minT = Math.min(...dateRanges.map((r) => r.start)) - 7 * DAY_MS;
-      maxT = Math.max(...dateRanges.map((r) => r.end)) + 7 * DAY_MS;
+      // 연간 축 — 해당 연도 1/1 ~ 12/31 전체를 일자 셀로 스크롤 표시 (LC 스케줄러와 동일).
+      minT = startOfDay(new Date(visibleYear, 0, 1).getTime());
+      maxT = startOfDay(new Date(visibleYear, 11, 31).getTime());
     }
     const totalDays = Math.max(1, Math.round((maxT - minT) / DAY_MS) + 1);
     const cellWidth = granularity === "month" ? 0 : cellWidthOverride;
     const totalW = totalDays * cellWidth;
     return { minT, maxT, totalDays, cellWidth, totalW };
-  }, [cellWidthOverride, dateRanges, effectiveRange, granularity, visibleMonthStart]);
+  }, [cellWidthOverride, granularity, visibleMonthStart, visibleYear]);
 
   const pxPerDay =
     isWeekAxis
@@ -597,25 +522,6 @@ export function DatabaseTimelineView({
         label: `${labels[i]} (${weekLabel(wkStart)})`,
         major: i === 1,
         widthPct: 100 / 3,
-      });
-    }
-  } else if (isRangeAxis && effectiveRange) {
-    const bucketDays = rangeBucketDays(axis.totalDays);
-    for (const bucket of buildRangeBuckets(axis.totalDays, bucketDays)) {
-      const offset = bucket.offset;
-      const bucketStart = axis.minT + offset * DAY_MS;
-      const bucketEnd = Math.min(axis.maxT, bucketStart + (bucket.days - 1) * DAY_MS);
-      const x = trackPxWidth > 0 ? (offset / axis.totalDays) * trackPxWidth : dayToX(bucketStart);
-      const rawWidth = trackPxWidth > 0
-        ? (bucket.days / axis.totalDays) * trackPxWidth
-        : dayWidth(bucketStart, bucketEnd);
-      const width = Math.max(1, Math.min(rawWidth, Math.max(0, trackPxWidth - x)));
-      headerTicks.push({
-        x,
-        label: fmtDate(bucketStart),
-        major: offset === 0,
-        align: "left",
-        width,
       });
     }
   } else if (isMonthAxis) {
@@ -695,6 +601,7 @@ export function DatabaseTimelineView({
             width: unscheduledWidth,
             top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
             dateLabel,
+            showDateLabel: visibleTimelineColumnIdSet ? visibleTimelineColumnIdSet.has(entry.columnId) : true,
             tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
             isUnscheduled: true,
           });
@@ -726,6 +633,7 @@ export function DatabaseTimelineView({
           width,
           top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
           dateLabel,
+          showDateLabel: visibleTimelineColumnIdSet ? visibleTimelineColumnIdSet.has(entry.columnId) : true,
           tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
         });
       }
@@ -744,6 +652,7 @@ export function DatabaseTimelineView({
     trackPxWidth,
     usesFitAxis,
     usesScrollableAxis,
+    visibleTimelineColumnIdSet,
     virtualRows.start,
   ]);
 
@@ -799,10 +708,18 @@ export function DatabaseTimelineView({
       setVisibleMonthStart(startOfMonth(Date.now()));
       return;
     }
+    if (isYearAxis) {
+      // 다른 연도를 보고 있으면 올해로 전환 (다음 렌더에서 오늘 위치로 스크롤됨).
+      const thisYear = new Date().getFullYear();
+      if (visibleYear !== thisYear) {
+        setVisibleYear(thisYear);
+        return;
+      }
+    }
     const el = scrollContainerRef.current;
     if (!el) return;
     el.scrollLeft = Math.max(0, todayX - el.clientWidth / 2);
-  }, [isMonthAxis, todayX]);
+  }, [isMonthAxis, isYearAxis, todayX, visibleYear]);
 
   const focusTimelineCard = useCallback((pageId: string) => {
     const row = rows.find((item) => item.pageId === pageId) ?? null;
@@ -814,31 +731,27 @@ export function DatabaseTimelineView({
           null
         : null;
     const targetRange = row && targetEntry ? getRange(row.cells[targetEntry.columnId]) : null;
+    // 포커싱 대상 = 값이 등록된 첫 번째 날짜 컬럼의 카드. (없으면 primary→첫 항목)
+    const targetCardId = targetEntry ? makeTimelineCardId(pageId, targetEntry.columnId) : null;
     setSelectedPageId(pageId);
-    setSelectedCardId(targetEntry ? makeTimelineCardId(pageId, targetEntry.columnId) : null);
+    setSelectedCardId(targetCardId);
     commitSelectedCardIds(new Set());
     // 월 축은 visibleMonthStart 가 속한 달의 항목만 렌더한다.
     // 다른 달 항목을 클릭하면 해당 항목 시작일의 달로 먼저 전환해야 카드가 보인다.
-    if (isMonthAxis) {
-      if (targetRange) {
-        const targetMonth = startOfMonth(targetRange.start);
-        setVisibleMonthStart((prev) => (prev === targetMonth ? prev : targetMonth));
-      }
-      return;
+    if (isMonthAxis && targetRange) {
+      const targetMonth = startOfMonth(targetRange.start);
+      setVisibleMonthStart((prev) => (prev === targetMonth ? prev : targetMonth));
     }
-    if (!usesScrollableAxis) return;
-    const card = targetEntry
-      ? cardLayouts.find((item) => item.id === makeTimelineCardId(pageId, targetEntry.columnId))
-      : cardLayouts.find((item) => item.pageId === pageId);
-    const el = scrollContainerRef.current;
-    if (!card || !el) return;
-    const visibleTrackWidth = Math.max(1, el.clientWidth - sideLabelWidth);
-    const nextLeft = Math.max(
-      0,
-      card.left - (visibleTrackWidth - card.width) / 2,
-    );
-    el.scrollTo({ left: nextLeft, behavior: "smooth" });
-  }, [cardLayouts, commitSelectedCardIds, isMonthAxis, rows, sideLabelWidth, timelineDateEntries, usesScrollableAxis]);
+    // 대상 카드(값이 등록된 첫 날짜) DOM 으로 부드럽게 스크롤. 월 전환 후 렌더를 기다려 실행.
+    window.requestAnimationFrame(() => {
+      const root = scrollContainerRef.current;
+      const cardEl =
+        (targetCardId &&
+          root?.querySelector(`[data-db-timeline-card-id="${targetCardId}"]`)) ||
+        root?.querySelector(`[data-db-timeline-card-page="${pageId}"]`);
+      cardEl?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    });
+  }, [commitSelectedCardIds, isMonthAxis, rows, timelineDateEntries]);
 
   const commitRange = useCallback(
     (card: TimelineCardLayout, start: number, end: number) => {
@@ -995,6 +908,26 @@ export function DatabaseTimelineView({
     });
   }, []);
 
+  // 연간 축 진입 또는 연도 변경 시 오늘 날짜로 자동 포커싱 (연도당 1회 — 이후 사용자 스크롤은 보존).
+  const yearAutoScrollKeyRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!isYearAxis) {
+      yearAutoScrollKeyRef.current = null;
+      return;
+    }
+    const el = scrollContainerRef.current;
+    if (!el || axis.totalW <= 0) return;
+    const key = String(visibleYear);
+    if (yearAutoScrollKeyRef.current === key) return;
+    yearAutoScrollKeyRef.current = key;
+    const now = startOfDay(Date.now());
+    // 오늘이 보고 있는 연도 범위 밖이면 연초로, 범위 안이면 오늘을 화면 중앙에 맞춘다.
+    el.scrollLeft =
+      now < axis.minT || now > axis.maxT
+        ? 0
+        : Math.max(0, todayX - el.clientWidth / 2);
+  }, [isYearAxis, visibleYear, axis.totalW, axis.minT, axis.maxT, todayX]);
+
   const selectedMultiPageIds = useMemo(() => {
     const pageIds = new Set<string>();
     if (selectedCardIds.size === 0) return pageIds;
@@ -1012,7 +945,7 @@ export function DatabaseTimelineView({
       {/* 컨트롤 바 */}
       <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
         <div className="inline-flex overflow-hidden rounded border border-zinc-300 dark:border-zinc-600">
-          {(["month", "day", "week", "range"] as Granularity[]).map((g) => (
+          {(["year", "month", "week"] as Granularity[]).map((g) => (
             <button
               key={g}
               type="button"
@@ -1024,28 +957,12 @@ export function DatabaseTimelineView({
                   : "bg-white text-zinc-600 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800",
               ].join(" ")}
             >
-              {g === "month" ? "월" : g === "day" ? "일" : g === "week" ? "주" : "범위"}
+              {g === "year" ? "연" : g === "month" ? "월" : "주"}
             </button>
           ))}
         </div>
         {dateCols.length > 0 && (
           <div className="inline-flex items-center gap-1.5">
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">날짜</span>
-            <AppSelect
-              value={dateColId ?? ""}
-              onChange={(next) => {
-                setPanelState({ timelineDateColumnId: next || null });
-                setSelectedPageId(null);
-                setSelectedCardId(null);
-                commitSelectedCardIds(new Set());
-              }}
-              options={timelineDateOptions}
-              ariaLabel="타임라인 기준 날짜"
-              className="w-36"
-              buttonClassName="h-7 py-0 text-xs shadow-none"
-              menuClassName="max-h-64 overflow-y-auto"
-              portal
-            />
             <button
               type="button"
               onClick={() => setTimelineSettingsOpen((open) => !open)}
@@ -1086,41 +1003,33 @@ export function DatabaseTimelineView({
             </button>
           </div>
         )}
-        {isRangeAxis && (
-          <div className="flex items-center gap-1">
-            <input
-              type="date"
-              value={rangeStartInput}
-              onChange={(event) => setRangeStartInput(event.target.value)}
-              className="h-7 w-[8.6rem] border-b border-zinc-200 bg-transparent px-1 text-sm text-zinc-700 outline-none focus:border-blue-400 dark:border-zinc-700 dark:text-zinc-200"
-              aria-label="타임라인 범위 시작일"
-            />
-            <span className="text-zinc-400">~</span>
-            <input
-              type="date"
-              value={rangeEndInput}
-              onChange={(event) => setRangeEndInput(event.target.value)}
-              className="h-7 w-[8.6rem] border-b border-zinc-200 bg-transparent px-1 text-sm text-zinc-700 outline-none focus:border-blue-400 dark:border-zinc-700 dark:text-zinc-200"
-              aria-label="타임라인 범위 종료일"
-            />
-            {(rangeStartInput || rangeEndInput) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setRangeStartInput("");
-                  setRangeEndInput("");
-                }}
-                className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                title="범위 초기화"
-                aria-label="범위 초기화"
-              >
-                <X size={13} />
-              </button>
-            )}
+        {isYearAxis && (
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setVisibleYear((prev) => prev - 1)}
+              className="flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              title="이전 연도"
+              aria-label="이전 연도"
+            >
+              <ChevronLeft size={15} />
+            </button>
+            <span className="min-w-[4rem] text-center text-sm font-medium text-zinc-700 dark:text-zinc-200">
+              {visibleYear}년
+            </span>
+            <button
+              type="button"
+              onClick={() => setVisibleYear((prev) => prev + 1)}
+              className="flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              title="다음 연도"
+              aria-label="다음 연도"
+            >
+              <ChevronRight size={15} />
+            </button>
           </div>
         )}
-        {/* 일 모드 전용 오늘 이동 + 셀 너비 줌 컨트롤 */}
-        {!isWeekAxis && !isRangeAxis && (
+        {/* 오늘 이동 + (연간 전용) 셀 너비 줌 컨트롤 */}
+        {!isWeekAxis && (
           <>
             <button
               type="button"
@@ -1129,7 +1038,7 @@ export function DatabaseTimelineView({
             >
               오늘
             </button>
-            {granularity === "day" && (
+            {isYearAxis && (
             <div className="inline-flex items-center gap-1 rounded border border-zinc-300 px-1 dark:border-zinc-600">
             <button
               type="button"
@@ -1243,7 +1152,6 @@ export function DatabaseTimelineView({
           onScroll={handleTimelineScroll}
           className={[
             "qn-database-subtle-scrollbar",
-            "rounded border border-zinc-200 dark:border-zinc-700",
             usesScrollableAxis ? "overflow-x-auto" : "overflow-hidden",
           ].join(" ")}
         >
@@ -1286,7 +1194,7 @@ export function DatabaseTimelineView({
                     </div>
                   ))}
                 </div>
-              ) : isMonthAxis || isRangeAxis ? (
+              ) : isMonthAxis ? (
                 <div className="relative flex-1">
                   {headerTicks.map((t, i) => (
                     <div
@@ -1437,7 +1345,9 @@ export function DatabaseTimelineView({
                   <DatabaseTimelineCard
                     key={card.id}
                     card={card}
-                    labelCols={labelCols}
+                    databaseId={databaseId}
+                    excludeColumnIds={timelineExcludeColumnIds}
+                    viewConfigs={panelState.viewConfigs}
                     axisMinT={axis.minT}
                     pxPerDay={pxPerDay}
                     scrollLeft={timelineScrollLeft}
@@ -1517,7 +1427,9 @@ export function DatabaseTimelineView({
 
 function DatabaseTimelineCard({
   card,
-  labelCols,
+  databaseId,
+  excludeColumnIds,
+  viewConfigs,
   axisMinT,
   pxPerDay,
   scrollLeft,
@@ -1535,7 +1447,9 @@ function DatabaseTimelineCard({
   unlockScroll,
 }: {
   card: TimelineCardLayout;
-  labelCols: ColumnDef[];
+  databaseId: string;
+  excludeColumnIds: readonly string[];
+  viewConfigs: ViewConfigsMap | undefined;
   axisMinT: number;
   pxPerDay: number;
   scrollLeft: number;
@@ -1556,6 +1470,8 @@ function DatabaseTimelineCard({
   const [localW, setLocalW] = useState(card.width);
   const dragMovedRef = useRef(false);
   const resizeStartRef = useRef<{ startIdx: number; endIdx: number } | null>(null);
+  // 호버 툴팁 위치 — LC 스케줄러 카드와 동일한 상세 속성 툴팁을 띄운다.
+  const [tipPos, setTipPos] = useState<{ top: number; left: number; placeAbove: boolean } | null>(null);
 
   useLayoutEffect(() => {
     setLocalX(card.left);
@@ -1580,14 +1496,13 @@ function DatabaseTimelineCard({
   const labelTextClassName = card.isUnscheduled
     ? "text-zinc-500 dark:text-zinc-400"
     : "text-white/80";
-  const separatorClassName = card.isUnscheduled
-    ? "shrink-0 text-zinc-300 dark:text-zinc-600"
-    : "shrink-0 text-white/60";
 
   return (
+    <>
     <Rnd
       data-db-timeline-card="true"
-      title={card.tooltipText}
+      data-db-timeline-card-page={card.row.pageId}
+      data-db-timeline-card-id={card.id}
       position={{ x: visualX, y: card.top }}
       size={{ width: Math.max(localW, 24), height: ROW_HEIGHT - 4 }}
       dragAxis="x"
@@ -1676,7 +1591,7 @@ function DatabaseTimelineCard({
       }}
       style={{ position: "absolute" }}
       className={[
-        "group select-none overflow-visible rounded-md border-2 shadow-sm transition-[border-color,box-shadow,opacity] hover:shadow-md",
+        "group select-none overflow-visible rounded-xl border-2 shadow-sm transition-[border-color,box-shadow,opacity] hover:shadow-md",
         card.isUnscheduled ? "opacity-55 hover:opacity-100" : "",
         selected || multiSelected
           ? card.isUnscheduled
@@ -1689,12 +1604,23 @@ function DatabaseTimelineCard({
     >
       <div
         className={[
-          "relative h-full w-full overflow-hidden",
+          "relative h-full w-full overflow-hidden rounded-[10px]",
           "cursor-move",
           card.isUnscheduled ? "bg-white dark:bg-zinc-950" : "",
         ].join(" ")}
         style={card.isUnscheduled ? undefined : { background: card.color }}
         onMouseDown={() => onSelect(card)}
+        onMouseEnter={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const placeAbove = rect.top > window.innerHeight - rect.bottom;
+          setTipPos({
+            top: placeAbove ? rect.top - 6 : rect.bottom + 6,
+            // 카드 시작점이 아니라 마우스 X 좌표 기준으로 툴팁 위치 설정.
+            left: Math.max(8, Math.min(e.clientX, window.innerWidth - 268)),
+            placeAbove,
+          });
+        }}
+        onMouseLeave={() => setTipPos(null)}
         onClick={(e) => {
           e.stopPropagation();
           onSelect(card);
@@ -1708,29 +1634,16 @@ function DatabaseTimelineCard({
           className="flex h-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap px-2 pr-16 text-sm"
           style={contentOffset ? { transform: `translateX(${contentOffset}px)` } : undefined}
         >
-          <span className={titleClassName}>{card.title}</span>
-          <span className={dateClassName}>{card.dateLabel}</span>
-          {labelCols.some((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c) || c.config?.pageLinkMirrorColumnId) && (
-            <span className="ml-0.5 flex min-w-0 items-center gap-1 overflow-hidden text-xs">
-              {labelCols
-                .filter((c) => databaseCellHasDisplayValue(card.row.cells[c.id], c) || c.config?.pageLinkMirrorColumnId)
-                .map((c, idx) => (
-                  <Fragment key={c.id}>
-                    {idx > 0 && (
-                      <span className={separatorClassName}>·</span>
-                    )}
-                    <span className="min-w-0 truncate">
-                      <DatabaseCellDisplay
-                        column={c}
-                        value={card.row.cells[c.id]}
-                        rowId={card.row.pageId}
-                        textClassName={labelTextClassName}
-                      />
-                    </span>
-                  </Fragment>
-                ))}
-            </span>
-          )}
+          <span className={`shrink-0 ${titleClassName}`}>{card.title}</span>
+          {card.showDateLabel && <span className={dateClassName}>{card.dateLabel}</span>}
+          <TimelineCardPropertyLabels
+            databaseId={databaseId}
+            pageId={card.row.pageId}
+            excludeColumnIds={excludeColumnIds}
+            viewConfigs={viewConfigs}
+            className="ml-0.5 text-xs"
+            textClassName={labelTextClassName}
+          />
         </div>
         <div className="absolute -right-7 top-1/2 z-20 flex -translate-y-1/2 items-center gap-0.5 rounded bg-white/90 opacity-0 backdrop-blur-sm group-hover:opacity-100 dark:bg-zinc-900/90">
           <button
@@ -1747,5 +1660,31 @@ function DatabaseTimelineCard({
         </div>
       </div>
     </Rnd>
+    {tipPos && !card.isUnscheduled &&
+      createPortal(
+        <div
+          className="pointer-events-none fixed z-[320] max-w-[260px] rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+          style={{
+            top: tipPos.top,
+            left: tipPos.left,
+            transform: tipPos.placeAbove ? "translateY(-100%)" : undefined,
+          }}
+        >
+          <div className="mb-0.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+            {card.columnName} · {card.dateLabel}
+          </div>
+          <div className="font-semibold text-zinc-900 dark:text-zinc-100">
+            {card.title || "제목 없음"}
+          </div>
+          <ScheduleCardDetailRows
+            databaseId={databaseId}
+            pageId={card.row.pageId}
+            excludeColumnIds={excludeColumnIds}
+            viewConfigs={viewConfigs}
+          />
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

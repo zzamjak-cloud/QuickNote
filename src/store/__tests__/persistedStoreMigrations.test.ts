@@ -31,6 +31,8 @@ describe("persisted store migrations", () => {
     expect(migrated.favoritePageIds).toEqual(["p1"]);
     expect(migrated.favoritePageMetaById).toEqual({});
     expect(migrated.lastVisitedPageIdByWorkspaceId).toEqual({});
+    expect(migrated.schedulerMemberOrder).toEqual([]);
+    expect(migrated.schedulerMemberOrderUpdatedAt).toBe(0);
     vi.useRealTimers();
   });
 

@@ -7,6 +7,7 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
@@ -56,7 +57,9 @@ function LCSchedulerModalFallback({ onClose }: { onClose: () => void }) {
 }
 
 export function TabBar() {
-  const [schedulerOpen, setSchedulerOpen] = useState(false);
+  // 스케줄러 열림 상태는 persist 스토어에 저장 → 새로고침 후에도 마지막 상태 유지
+  const schedulerOpen = useSchedulerViewStore((s) => s.schedulerOpen);
+  const setSchedulerOpen = useSchedulerViewStore((s) => s.setSchedulerOpen);
   const [tabMenu, setTabMenu] = useState<{ index: number; x: number; y: number } | null>(null);
   const tabMenuRef = useRef<HTMLDivElement | null>(null);
   const tabs = useSettingsStore((s) => s.tabs);
@@ -116,7 +119,7 @@ export function TabBar() {
   const openScheduler = useCallback(() => {
     void preloadLCSchedulerModal();
     setSchedulerOpen(true);
-  }, []);
+  }, [setSchedulerOpen]);
 
   const closeScheduler = useCallback((options?: { keepSchedulerWorkspace?: boolean }) => {
     const wasSchedulerOpen = schedulerOpen;
@@ -127,7 +130,7 @@ export function TabBar() {
       }
       return;
     }
-  }, [currentWorkspaceId, schedulerOpen, setCurrentWorkspaceId]);
+  }, [currentWorkspaceId, schedulerOpen, setCurrentWorkspaceId, setSchedulerOpen]);
 
   useEffect(() => {
     const handleCloseScheduler = (event: Event) => {

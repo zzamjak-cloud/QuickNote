@@ -111,6 +111,39 @@ describe("normalizeDatabase schema", () => {
     expect(parsed).toEqual(normalized);
   });
 
+  it("pageLink와 itemFetch 전용 config를 타입별로 분리해 정규화한다", () => {
+    const itemFetchColumn = normalizeColumnDef({
+      id: "fetch",
+      name: "페이지 연결 가져오기",
+      type: "itemFetch",
+      config: {
+        itemFetchSourceDatabaseId: "task-db",
+        itemFetchMatchColumnId: "feature-link",
+        pageLinkScopeDatabaseId: "legacy-page-db",
+        pageLinkAutoReverse: true,
+      },
+    });
+    const pageLinkColumn = normalizeColumnDef({
+      id: "link",
+      name: "페이지 연결",
+      type: "pageLink",
+      config: {
+        pageLinkScopeDatabaseId: "feature-db",
+        itemFetchSourceDatabaseId: "legacy-task-db",
+        itemFetchMatchColumnId: "legacy-feature-link",
+      },
+    });
+
+    expect(itemFetchColumn?.type).toBe("itemFetch");
+    expect(itemFetchColumn?.config?.itemFetchSourceDatabaseId).toBe("task-db");
+    expect(itemFetchColumn?.config).not.toHaveProperty("pageLinkScopeDatabaseId");
+    expect(itemFetchColumn?.config).not.toHaveProperty("pageLinkAutoReverse");
+    expect(pageLinkColumn?.type).toBe("pageLink");
+    expect(pageLinkColumn?.config?.pageLinkScopeDatabaseId).toBe("feature-db");
+    expect(pageLinkColumn?.config).not.toHaveProperty("itemFetchSourceDatabaseId");
+    expect(pageLinkColumn?.config).not.toHaveProperty("itemFetchMatchColumnId");
+  });
+
   it("invalid column record가 있으면 partial database로 정규화하지 않는다", () => {
     const bundle = normalizeDatabaseBundle({
       meta: { id: "db-1", title: "DB", createdAt: 1, updatedAt: 2, workspaceId: "ws-1" },

@@ -226,6 +226,19 @@ describe("page/database handlers", () => {
           itemFetchMatchColumnId: "task-link",
         },
       },
+      {
+        id: "qa-period",
+        name: "QA 기간",
+        type: "date",
+        config: {
+          timelineCard: {
+            enabled: true,
+            titleMode: "custom",
+            title: "QA 일정",
+            color: "#2563EB",
+          },
+        },
+      },
     ]);
     const doc = mockDoc(
       { Items: [] }, // memberTeams
@@ -254,6 +267,8 @@ describe("page/database handlers", () => {
     expect(putCommand.input?.Item?.columns).toBe(columns);
     expect(putCommand.input?.Item?.columns).toContain('"automation":true');
     expect(putCommand.input?.Item?.columns).toContain('"itemFetchSourceDatabaseId":"feature-db"');
+    expect(putCommand.input?.Item?.columns).toContain('"timelineCard"');
+    expect(putCommand.input?.Item?.columns).toContain('"title":"QA 일정"');
   });
 
   it("upsertDatabase: advanced column config AWSJSON 배열을 문자열로 정규화한다", async () => {
@@ -278,6 +293,19 @@ describe("page/database handlers", () => {
         config: {
           itemFetchSourceDatabaseId: "feature-db",
           itemFetchMatchColumnId: "task-link",
+        },
+      },
+      {
+        id: "qa-period",
+        name: "QA 기간",
+        type: "date",
+        config: {
+          timelineCard: {
+            enabled: true,
+            titleMode: "custom",
+            title: "QA 일정",
+            color: "#2563EB",
+          },
         },
       },
     ];
@@ -328,6 +356,8 @@ describe("page/database handlers", () => {
     expect(typeof putCommand.input?.Item?.presets).toBe("string");
     expect(putCommand.input?.Item?.columns).toContain('"automation":true');
     expect(putCommand.input?.Item?.columns).toContain('"itemFetchSourceDatabaseId":"feature-db"');
+    expect(putCommand.input?.Item?.columns).toContain('"timelineCard"');
+    expect(putCommand.input?.Item?.columns).toContain('"title":"QA 일정"');
   });
 
   it("listTrashedPages: 삭제된 페이지만 반환", async () => {

@@ -42,6 +42,19 @@ describe("databaseStore GraphQL serialization", () => {
           itemFetchMatchColumnId: "feature-name",
         },
       },
+      {
+        id: "qa-period",
+        name: "QA Period",
+        type: "date",
+        config: {
+          timelineCard: {
+            enabled: true,
+            titleMode: "custom",
+            title: "QA",
+            color: "#2563EB",
+          },
+        },
+      },
     ];
     const presets: DatabaseRowPreset[] = [
       {
@@ -74,6 +87,12 @@ describe("databaseStore GraphQL serialization", () => {
     });
     expect(parsedColumns.find((column) => column.id === "fetch")?.type).toBe("itemFetch");
     expect(parsedColumns.find((column) => column.id === "fetch")?.config?.itemFetchSourceDatabaseId).toBe("feature-db");
+    expect(parsedColumns.find((column) => column.id === "qa-period")?.config?.timelineCard).toEqual({
+      enabled: true,
+      titleMode: "custom",
+      title: "QA",
+      color: "#2563EB",
+    });
     expect(parsedPresets[0]?.schedulerDefaults?.titlePrefix).toBe("[Feature]");
   });
 

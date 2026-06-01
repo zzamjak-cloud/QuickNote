@@ -32,6 +32,7 @@ import { parseDateKey } from "../../lib/scheduler/mm/weekUtils";
 import { DateAxis } from "./DateAxis";
 import { GridRow } from "./GridRow";
 import { ScheduleCard } from "./ScheduleCard";
+import { SchedulerTaskColumnSettingsButton } from "./SchedulerTaskColumnSettingsButton";
 import type { Schedule } from "../../store/schedulerStore";
 import {
   ANNUAL_LEAVE_COLOR,
@@ -700,7 +701,9 @@ export function ScheduleGrid({ workspaceId }: Props) {
           }}
         >
           <div className="sticky left-0 z-30 w-[120px] border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-            <div className="sticky top-0 z-40 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900" style={{ height: DATE_AXIS_HEIGHT }} />
+            <div className="sticky top-0 z-40 flex items-center justify-end border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5" style={{ height: DATE_AXIS_HEIGHT }}>
+              <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />
+            </div>
 
             <div>
           {/* 특이사항 행 — 프로젝트 선택 시에만 표시 */}

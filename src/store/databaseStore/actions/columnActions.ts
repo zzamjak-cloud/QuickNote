@@ -3,6 +3,7 @@ import type { ColumnDef } from "../../../types/database";
 import type { DbMap } from "../migrations";
 import type { DatabaseStore } from "../../databaseStore";
 import { newId } from "../../../lib/id";
+import { normalizeColumnDef } from "../../../lib/database/schema/normalizeDatabase";
 import { usePageStore } from "../../pageStore";
 import { shouldWriteAnchor, useHistoryStore } from "../../historyStore";
 import {
@@ -103,7 +104,12 @@ export function createColumnActions(
   return {
     addColumn: (databaseId, colIn) => {
       const colId = colIn.id ?? newId();
-      const col: ColumnDef = {
+      const col: ColumnDef = normalizeColumnDef({
+        id: colId,
+        name: colIn.name,
+        type: colIn.type,
+        config: colIn.config,
+      }) ?? {
         id: colId,
         name: colIn.name,
         type: colIn.type,
@@ -179,7 +185,7 @@ export function createColumnActions(
           if (c.type === "title" && patchForColumn.type && patchForColumn.type !== "title") {
             return c;
           }
-          return { ...c, ...patchForColumn, id: c.id };
+          return normalizeColumnDef({ ...c, ...patchForColumn, id: c.id }) ?? c;
         });
         return {
           databases: {

@@ -10,22 +10,35 @@ export function databaseCellHasDisplayValue(
   value: CellValue,
   column: ColumnDef,
 ): boolean {
+  if (column.type === "itemFetch") return false;
   if (column.type === "status") {
     return (column.config?.options ?? []).length > 0;
   }
+  // linkedScope / sourceFromDb 컬럼은 옵션이 워크스페이스 스코프·외부 DB에서 동적 생성되므로
+  // column.config.options 로 검증할 수 없다. 이 경우 값 존재 여부로 표시값을 판정한다.
+  const hasDynamicOptions = Boolean(column.config?.linkedScope || column.config?.sourceFromDb);
   if (column.type === "select") {
-    return (
-      typeof value === "string" &&
-      !!column.config?.options?.some((option) => option.id === value)
-    );
+    if (typeof value !== "string" || value === "") return false;
+    if (hasDynamicOptions) return true;
+    return !!column.config?.options?.some((option) => option.id === value);
   }
   if (column.type === "multiSelect") {
     const ids = stringArrayValue(value);
+    if (ids.length === 0) return false;
+    if (hasDynamicOptions) return true;
     return ids.some((id) =>
       !!column.config?.options?.some((option) => option.id === id),
     );
   }
   return formatPlainDisplay(value, column).length > 0;
+}
+
+export function databaseColumnMayHaveDerivedDisplayValue(column: ColumnDef): boolean {
+  return Boolean(
+    column.type === "itemFetch" ||
+      column.config?.sourceFromDb ||
+      column.config?.pageLinkMirrorColumnId,
+  );
 }
 
 export function stringArrayValue(value: CellValue): string[] {

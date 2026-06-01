@@ -209,6 +209,44 @@ describe("scheduler protected database column customization", () => {
     expect(after?.columns).toEqual(existing.columns);
   });
 
+  it("피처 DB 최초 생성 기본 컬럼은 작업 기간만 사용하고 작업 종료 컬럼을 만들지 않는다", async () => {
+    const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+
+    await ensureLCFeatureDatabase(LC_SCHEDULER_WORKSPACE_ID);
+
+    const columns = useDatabaseStore.getState().databases[databaseId]?.columns ?? [];
+    expect(columns.find((column) => column.id === LC_FEATURE_COLUMN_IDS.workStart)?.name)
+      .toBe("작업 기간");
+    expect(columns.find((column) => column.id === LC_FEATURE_COLUMN_IDS.workEnd))
+      .toBeUndefined();
+  });
+
+  it("기존 피처 DB의 레거시 작업 기간 컬럼 구성을 보정한다", async () => {
+    const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    useDatabaseStore.setState({
+      databases: {
+        [databaseId]: {
+          ...makeFeatureBundle(databaseId),
+          columns: [
+            { id: LC_FEATURE_COLUMN_IDS.title, name: "피처", type: "title" },
+            { id: LC_FEATURE_COLUMN_IDS.workStart, name: "작업시작", type: "date" },
+            { id: LC_FEATURE_COLUMN_IDS.workEnd, name: "작업종료", type: "date" },
+          ],
+        },
+      },
+    });
+
+    await ensureLCFeatureDatabase(LC_SCHEDULER_WORKSPACE_ID);
+
+    const columns = useDatabaseStore.getState().databases[databaseId]?.columns ?? [];
+    expect(columns.map((column) => column.id)).toEqual([
+      LC_FEATURE_COLUMN_IDS.title,
+      LC_FEATURE_COLUMN_IDS.workStart,
+    ]);
+    expect(columns.find((column) => column.id === LC_FEATURE_COLUMN_IDS.workStart)?.name)
+      .toBe("작업 기간");
+  });
+
   it("마일스톤 DB의 기본 컬럼 타입 변경도 ensure 중 유지한다", async () => {
     const databaseId = makeLCMilestoneDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
     const existing = makeMilestoneBundle(databaseId);

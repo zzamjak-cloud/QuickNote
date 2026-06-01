@@ -7,7 +7,12 @@ import {
   Trash2,
 } from "lucide-react";
 import type { DatabasePanelState, ColumnDef, DatabaseRowView, CellValue } from "../../../types/database";
-import { defaultMinWidthForType, getVisibleOrderedColumns } from "../../../types/database";
+import {
+  defaultMinWidthForType,
+  getVisibleOrderedColumns,
+  moveVisibleColumnInViewConfig,
+  setColumnVisibleInViewConfig,
+} from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { DatabaseCell } from "../DatabaseCell";
@@ -223,14 +228,12 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
 });
 
 export function DatabaseTableView({ databaseId, panelState, setPanelState, visibleRowLimit }: Props) {
-  void setPanelState;
   const { bundle, rows: allRows } = useProcessedRows(databaseId, panelState);
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? (allRows ?? []).slice(0, visibleRowLimit) : allRows;
   const autoFitRows = allRows ?? rows;
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
-  const moveColumn = useDatabaseStore((s) => s.moveColumn);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const setIcon = usePageStore((s) => s.setIcon);
   const openPeek = useUiStore((s) => s.openPeek);
@@ -366,20 +369,24 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     ? rows.slice(virtualRows.start, virtualRows.end)
     : rows;
 
-  // moveColumn은 bundle.columns 기준 인덱스를 받으므로 visibleCols 인덱스를 변환.
-  const colIdToBundleIdx = useMemo(
-    () => new Map((bundle?.columns ?? []).map((c, i) => [c.id, i])),
-    [bundle?.columns],
-  );
-
   const onColDrop = () => {
     if (colDragFrom != null && colDragOver != null && colDragFrom !== colDragOver) {
-      const fromCol = visibleCols[colDragFrom];
-      const toCol = visibleCols[colDragOver];
-      if (fromCol && toCol) {
-        const from = colIdToBundleIdx.get(fromCol.id) ?? -1;
-        const to = colIdToBundleIdx.get(toCol.id) ?? -1;
-        if (from >= 0 && to >= 0) moveColumn(databaseId, from, to);
+      const columns = bundle?.columns ?? [];
+      if (columns.length > 0) {
+        const cfg = panelState.viewConfigs?.table ?? {};
+        const nextCfg = moveVisibleColumnInViewConfig(
+          columns,
+          "table",
+          cfg,
+          colDragFrom,
+          colDragOver,
+        );
+        setPanelState({
+          viewConfigs: {
+            ...(panelState.viewConfigs ?? {}),
+            table: { ...cfg, ...nextCfg },
+          },
+        });
       }
     }
     // DB 컬럼 드래그 종료 — dropcursor/indicator 복구
@@ -508,17 +515,17 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
                   }
                   onHideColumn={() => {
                     const cfg = panelState.viewConfigs?.["table"] ?? {};
-                    const allColIds = (bundle?.columns ?? []).map((c) => c.id);
-                    const currentVisible: string[] = cfg.visibleColumnIds
-                      ? cfg.visibleColumnIds
-                      : cfg.hiddenColumnIds
-                        ? allColIds.filter((id) => !(cfg.hiddenColumnIds ?? []).includes(id))
-                        : allColIds;
-                    const nextVisible = currentVisible.filter((id) => id !== col.id);
+                    const nextCfg = setColumnVisibleInViewConfig(
+                      bundle?.columns ?? [],
+                      "table",
+                      cfg,
+                      col.id,
+                      false,
+                    );
                     setPanelState({
                       viewConfigs: {
                         ...(panelState.viewConfigs ?? {}),
-                        table: { ...cfg, visibleColumnIds: nextVisible, hiddenColumnIds: undefined },
+                        table: { ...cfg, ...nextCfg },
                       },
                     });
                   }}
@@ -572,10 +579,18 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
             onAfterAdd={(colId) => {
               const cfg = panelState.viewConfigs?.["table"];
               if (cfg?.visibleColumnIds) {
+                const columns = useDatabaseStore.getState().databases[databaseId]?.columns ?? [];
+                const nextCfg = setColumnVisibleInViewConfig(
+                  columns,
+                  "table",
+                  cfg,
+                  colId,
+                  true,
+                );
                 setPanelState({
                   viewConfigs: {
                     ...(panelState.viewConfigs ?? {}),
-                    table: { ...cfg, visibleColumnIds: [...cfg.visibleColumnIds, colId] },
+                    table: { ...cfg, ...nextCfg },
                   },
                 });
               }

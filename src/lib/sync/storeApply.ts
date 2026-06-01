@@ -650,17 +650,21 @@ export function applyRemoteDatabaseToStore(
   // 다르면 panelState 만 즉시 병합해 클라이언트 간 동기화를 보장한다(전역 LWW 는 유지).
   if (local && !db.deletedAt && isProtectedDatabaseId(db.id)) {
     const remotePanel = tryParseSerializedPanelState(db.panelState);
-    const remoteHasPresets = (remotePanel?.filterPresets?.length ?? 0) > 0;
-    if (
-      remoteHasPresets &&
-      JSON.stringify(remotePanel) !== JSON.stringify(local.panelState ?? null)
-    ) {
+    const remotePresets = remotePanel?.filterPresets ?? [];
+    const remoteHasPresets = remotePresets.length > 0;
+    const localPresets = local.panelState?.filterPresets ?? [];
+    if (remoteHasPresets && JSON.stringify(remotePresets) !== JSON.stringify(localPresets)) {
       useDatabaseStore.setState((s) => {
         const b = s.databases[db.id];
         if (!b) return s;
+        // 필터 프리셋 탭만 원격값으로 병합한다. viewConfigs(컬럼 표시 순서) 등 다른 로컬
+        // 뷰 설정은 보존해야 한다 — 과거엔 panelState 를 통째로 덮어 표시설정 순서가 되돌아갔다.
+        const nextPanel = b.panelState
+          ? { ...b.panelState, filterPresets: remotePresets }
+          : (remotePanel ?? undefined);
         return {
           ...s,
-          databases: { ...s.databases, [db.id]: { ...b, panelState: remotePanel ?? b.panelState } },
+          databases: { ...s.databases, [db.id]: { ...b, panelState: nextPanel ?? b.panelState } },
         };
       });
     }

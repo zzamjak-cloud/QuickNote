@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Eye, EyeOff, Pencil, Plus, Save } from "lucide-react";
 import type { CellValue, ColumnType, DatabaseRowPreset } from "../../types/database";
+import { resolveViewColumnOrderState } from "../../types/database";
 import { useDatabaseStore, defaultColumnForType } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSchedulerStore } from "../../store/schedulerStore";
@@ -151,10 +152,28 @@ export function DatabasePropertyPanel({
   const propertyPanelMetaCellId = isSchedulerDb
     ? LC_SCHEDULER_COLUMN_IDS.meta
     : PROPERTY_PANEL_META_CELL_ID;
-  const allPropertyColumns = useMemo(
-    () => (bundle?.columns ?? []).filter((c) => c.type !== "title"),
-    [bundle?.columns],
-  );
+  // 항목 페이지 속성 패널은 데이터베이스 "표시설정"(viewConfigs)에서 지정한 컬럼 순서를 따른다.
+  // 표 뷰를 우선하되, 명시적 순서가 있는 다른 뷰가 있으면 그 순서를 사용한다.
+  const allPropertyColumns = useMemo(() => {
+    const cols = (bundle?.columns ?? []).filter((c) => c.type !== "title");
+    const vc = bundle?.panelState?.viewConfigs;
+    const orderSourceCfg =
+      vc?.table?.visibleColumnIds || vc?.table?.hiddenColumnIds
+        ? vc.table
+        : (["table", "list", "gallery", "kanban", "timeline"] as const)
+            .map((v) => vc?.[v])
+            .find((c) => c?.visibleColumnIds || c?.hiddenColumnIds);
+    const orderedIds = resolveViewColumnOrderState(
+      bundle?.columns ?? [],
+      "table",
+      orderSourceCfg,
+    ).orderedColumnIds;
+    const rank = new Map(orderedIds.map((id, index) => [id, index]));
+    return [...cols].sort(
+      (a, b) =>
+        (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [bundle?.columns, bundle?.panelState?.viewConfigs]);
   const editableColumns = allPropertyColumns.filter((c) => !isLCSchedulerHiddenPropertyColumnId(c.id));
   const presets = useMemo(() => bundle?.presets ?? [], [bundle?.presets]);
 

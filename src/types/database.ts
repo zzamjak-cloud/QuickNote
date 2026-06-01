@@ -244,9 +244,9 @@ export type SortRule = {
 
 /** 뷰별 표시/순서 설정 (#9). */
 export type ViewSpecificConfig = {
-  /** 이 뷰에서 보일 컬럼 id 목록. 표시 순서는 항상 bundle.columns 순서를 따른다. */
+  /** 이 뷰의 컬럼 순서. hiddenColumnIds가 없던 레거시 값은 보이는 컬럼 목록으로 해석한다. */
   visibleColumnIds?: string[];
-  /** visibleColumnIds 미지정 시 적용되는 숨김 목록. */
+  /** 숨김 컬럼 목록. 값이 있으면 visibleColumnIds는 숨김 컬럼까지 포함한 전체 순서다. */
   hiddenColumnIds?: string[];
 };
 
@@ -377,10 +377,159 @@ export function isInternalHiddenColumnId(id: string): boolean {
   return INTERNAL_HIDDEN_COLUMN_IDS.has(id);
 }
 
+type ViewColumnIdentity = Pick<ColumnDef, "id" | "type">;
+
+export type ViewColumnOrderState = {
+  orderedColumnIds: string[];
+  visibleColumnIds: string[];
+  hiddenColumnIds: string[];
+};
+
+function viewConfigurableColumns(columns: ViewColumnIdentity[]): ViewColumnIdentity[] {
+  return columns.filter((column) => !isInternalHiddenColumnId(column.id));
+}
+
+function uniqueExistingColumnIds(
+  candidateIds: readonly string[] | undefined,
+  allowedIds: Set<string>,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of candidateIds ?? []) {
+    if (!allowedIds.has(id) || seen.has(id)) continue;
+    out.push(id);
+    seen.add(id);
+  }
+  return out;
+}
+
+function completeColumnOrder(
+  allColumnIds: string[],
+  preferredIds: readonly string[] | undefined,
+): string[] {
+  const allowedIds = new Set(allColumnIds);
+  const out = uniqueExistingColumnIds(preferredIds, allowedIds);
+  const seen = new Set(out);
+  for (const id of allColumnIds) {
+    if (seen.has(id)) continue;
+    out.push(id);
+    seen.add(id);
+  }
+  return out;
+}
+
+function sanitizeHiddenColumnIds(
+  hiddenColumnIds: readonly string[] | undefined,
+  allowedIds: Set<string>,
+  titleColumnId: string | undefined,
+): string[] {
+  return uniqueExistingColumnIds(hiddenColumnIds, allowedIds)
+    .filter((id) => id !== titleColumnId);
+}
+
+export function resolveViewColumnOrderState(
+  columns: ViewColumnIdentity[],
+  _viewKind: ViewKind,
+  cfg: ViewSpecificConfig | undefined,
+): ViewColumnOrderState {
+  const configurableColumns = viewConfigurableColumns(columns);
+  const allColumnIds = configurableColumns.map((column) => column.id);
+  const allowedIds = new Set(allColumnIds);
+  const titleColumnId = configurableColumns.find((column) => column.type === "title")?.id;
+  const hasStoredOrder = Array.isArray(cfg?.visibleColumnIds);
+  const hasStoredHidden = Array.isArray(cfg?.hiddenColumnIds);
+
+  const orderedColumnIds = hasStoredOrder
+    ? completeColumnOrder(allColumnIds, cfg?.visibleColumnIds)
+    : allColumnIds;
+
+  let hiddenColumnIds: string[];
+  if (hasStoredOrder && !hasStoredHidden) {
+    const legacyVisible = new Set(uniqueExistingColumnIds(cfg?.visibleColumnIds, allowedIds));
+    if (titleColumnId) legacyVisible.add(titleColumnId);
+    hiddenColumnIds = allColumnIds.filter((id) => !legacyVisible.has(id));
+  } else {
+    hiddenColumnIds = sanitizeHiddenColumnIds(cfg?.hiddenColumnIds, allowedIds, titleColumnId);
+  }
+
+  const hidden = new Set(hiddenColumnIds);
+  const visibleColumnIds = orderedColumnIds.filter(
+    (id) => id === titleColumnId || !hidden.has(id),
+  );
+
+  return { orderedColumnIds, visibleColumnIds, hiddenColumnIds };
+}
+
+export function buildViewColumnConfig(
+  columns: ViewColumnIdentity[],
+  _viewKind: ViewKind,
+  orderedColumnIds: readonly string[],
+  hiddenColumnIds: readonly string[],
+): ViewSpecificConfig {
+  const configurableColumns = viewConfigurableColumns(columns);
+  const allColumnIds = configurableColumns.map((column) => column.id);
+  const allowedIds = new Set(allColumnIds);
+  const titleColumnId = configurableColumns.find((column) => column.type === "title")?.id;
+  return {
+    visibleColumnIds: completeColumnOrder(allColumnIds, orderedColumnIds),
+    hiddenColumnIds: sanitizeHiddenColumnIds(hiddenColumnIds, allowedIds, titleColumnId),
+  };
+}
+
+export function setColumnVisibleInViewConfig(
+  columns: ViewColumnIdentity[],
+  viewKind: ViewKind,
+  cfg: ViewSpecificConfig | undefined,
+  columnId: string,
+  visible: boolean,
+): ViewSpecificConfig {
+  const state = resolveViewColumnOrderState(columns, viewKind, cfg);
+  const titleColumnId = viewConfigurableColumns(columns).find((column) => column.type === "title")?.id;
+  if (columnId === titleColumnId) {
+    return buildViewColumnConfig(columns, viewKind, state.orderedColumnIds, state.hiddenColumnIds);
+  }
+  const hidden = new Set(state.hiddenColumnIds);
+  if (visible) hidden.delete(columnId);
+  else hidden.add(columnId);
+  return buildViewColumnConfig(columns, viewKind, state.orderedColumnIds, [...hidden]);
+}
+
+export function moveVisibleColumnInViewConfig(
+  columns: ViewColumnIdentity[],
+  viewKind: ViewKind,
+  cfg: ViewSpecificConfig | undefined,
+  fromVisibleIndex: number,
+  toVisibleIndex: number,
+): ViewSpecificConfig {
+  const state = resolveViewColumnOrderState(columns, viewKind, cfg);
+  if (
+    fromVisibleIndex < 0 ||
+    toVisibleIndex < 0 ||
+    fromVisibleIndex >= state.visibleColumnIds.length ||
+    toVisibleIndex >= state.visibleColumnIds.length ||
+    fromVisibleIndex === toVisibleIndex
+  ) {
+    return buildViewColumnConfig(columns, viewKind, state.orderedColumnIds, state.hiddenColumnIds);
+  }
+
+  const nextVisible = [...state.visibleColumnIds];
+  const [moved] = nextVisible.splice(fromVisibleIndex, 1);
+  if (moved) nextVisible.splice(toVisibleIndex, 0, moved);
+
+  const visibleSlots = new Set(state.visibleColumnIds);
+  const queue = [...nextVisible];
+  const nextOrder = state.orderedColumnIds.map((id) =>
+    visibleSlots.has(id) ? (queue.shift() ?? id) : id,
+  );
+
+  return buildViewColumnConfig(columns, viewKind, nextOrder, state.hiddenColumnIds);
+}
+
 /**
  * 현재 뷰에서 보일 컬럼을 순서대로 반환.
- * - viewConfigs[viewKind].visibleColumnIds가 있으면 그 집합을 bundle 컬럼 순서대로 반환.
- * - 없으면 bundle 컬럼 - hiddenColumnIds.
+ * - hiddenColumnIds가 있으면 visibleColumnIds를 전체 순서로 보고 숨김 위치를 보존한다.
+ * - hiddenColumnIds가 없는 레거시 visibleColumnIds는 보이는 컬럼 목록으로 유지한다.
+ * - 설정이 없으면 bundle 컬럼 - hiddenColumnIds.
  * - 내부 전용 컬럼은 설정과 무관하게 항상 제외한다.
  */
 export function getVisibleOrderedColumns(
@@ -390,10 +539,16 @@ export function getVisibleOrderedColumns(
 ): ColumnDef[] {
   const cfg = viewConfigs?.[viewKind];
   const titleCol = columns.find((c) => c.type === "title");
-  if (cfg?.visibleColumnIds) {
-    const visible = new Set(cfg.visibleColumnIds);
-    if (titleCol) visible.add(titleCol.id);
-    return columns.filter((c) => visible.has(c.id) && !isInternalHiddenColumnId(c.id));
+  if (cfg?.visibleColumnIds || cfg?.hiddenColumnIds) {
+    const columnsById = new Map(columns.map((c) => [c.id, c]));
+    const state = resolveViewColumnOrderState(columns, viewKind, cfg);
+    const ordered: ColumnDef[] = [];
+    for (const columnId of state.visibleColumnIds) {
+      const column = columnsById.get(columnId);
+      if (!column || isInternalHiddenColumnId(column.id)) continue;
+      ordered.push(column);
+    }
+    return ordered;
   }
   const hidden = new Set(cfg?.hiddenColumnIds ?? []);
   return columns.filter(

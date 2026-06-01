@@ -82,14 +82,15 @@ export function DatabaseKanbanView({
     [groupCol?.config?.options],
   );
 
-  // 카드에 표시할 속성 (#7) — viewConfigs.kanban 우선, 없으면 title 외 첫 2개.
-  const visibleCardCols = useMemo(() => {
-    const v = getVisibleOrderedColumns(columns, "kanban", panelState.viewConfigs);
-    if (panelState.viewConfigs?.kanban?.visibleColumnIds) {
-      return v.filter((c) => c.type !== "title");
-    }
-    return columns.filter((c) => c.type !== "title").slice(0, 2);
-  }, [columns, panelState.viewConfigs]);
+  // 카드에 표시할 속성 (#7) — 모든 뷰 공통 규칙: getVisibleOrderedColumns 결과(설정 없으면
+  // 전체 표시)에서 제목만 제외. 설정 패널이 보여주는 상태와 실제 카드 표시가 항상 일치한다.
+  const visibleCardCols = useMemo(
+    () =>
+      getVisibleOrderedColumns(columns, "kanban", panelState.viewConfigs).filter(
+        (c) => c.type !== "title",
+      ),
+    [columns, panelState.viewConfigs],
+  );
 
   // 버킷 구성
   const buckets = useMemo(() => {
@@ -280,7 +281,7 @@ function KanbanCard({
       }}
     >
       <div className="mb-1 flex items-start justify-between gap-1">
-        <span className="flex min-w-0 flex-1 items-center gap-1 text-base font-medium text-zinc-900 dark:text-zinc-100">
+        <span className="flex min-w-0 flex-1 items-center gap-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
           <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
             <IconPicker current={pageIcon} size="sm" onChange={onIconChange} />
           </span>

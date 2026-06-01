@@ -34,6 +34,19 @@ function remoteDatabase(): GqlDatabase {
           itemFetchMatchColumnId: "feature-name",
         },
       },
+      {
+        id: "qa-period",
+        name: "QA Period",
+        type: "date",
+        config: {
+          timelineCard: {
+            enabled: true,
+            titleMode: "custom",
+            title: "QA",
+            color: "#2563EB",
+          },
+        },
+      },
     ]),
     presets: "[]",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -60,6 +73,12 @@ describe("applyRemoteDatabaseToStore", () => {
     expect(bundle.columns.find((column) => column.id === "source")?.config?.sourceFromDb?.automation).toBe(true);
     expect(bundle.columns.find((column) => column.id === "fetch")?.type).toBe("itemFetch");
     expect(bundle.columns.find((column) => column.id === "fetch")?.config?.itemFetchSourceDatabaseId).toBe("feature-db");
+    expect(bundle.columns.find((column) => column.id === "qa-period")?.config?.timelineCard).toEqual({
+      enabled: true,
+      titleMode: "custom",
+      title: "QA",
+      color: "#2563EB",
+    });
   });
 
   it("remote panelState의 원본 DB 필터 프리셋 탭을 복원한다", () => {

@@ -11,6 +11,10 @@ import type { Member } from '../../../store/memberStore'
 import { hasCollision } from '../../../lib/scheduler/collisionDetection'
 import { ContextMenu } from '../ContextMenu'
 import { getScheduleCardContentOffset, shouldUseCompactScheduleCard } from '../scheduleCardDisplay'
+import { ScheduleCardPropertyLabels } from '../ScheduleCardPropertyLabels'
+import { ScheduleCardDetailRows } from '../../database/ScheduleCardDetailRows'
+import { usePageStore } from '../../../store/pageStore'
+import { parseScheduleInstanceId } from '../../../lib/scheduler/taskAdapter'
 import {
   type ProjectMeta,
   type WeekDaySlot,
@@ -84,6 +88,9 @@ export function ScheduleWeekCard({
   const meta = getScheduleScopeMeta(s, projects)
   const zoomLevel = useSchedulerViewStore((state) => state.zoomLevel)
   const compactLayout = shouldUseCompactScheduleCard(zoomLevel)
+  // 호버 툴팁에 표시 설정 속성을 함께 보여주기 위한 원본 작업 DB 행 참조.
+  const taskPageId = parseScheduleInstanceId(s.id)?.pageId
+  const taskDatabaseId = usePageStore((state) => (taskPageId ? state.pages[taskPageId]?.databaseId : undefined))
   const span = Math.max(1, endSlot - startSlot + 1)
   const x = startSlot * cellWidth
   const w = span * cellWidth
@@ -420,19 +427,18 @@ export function ScheduleWeekCard({
           }}
         >
           <div
-            className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden"
+            className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
             style={{ left: contentOffset + 6, right: 6 }}
           >
-            <div className="min-w-0 flex-1 flex flex-col justify-center overflow-hidden">
-              <span className="text-[11px] font-semibold leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-                {annual ? s.title || '연차' : s.title || '제목 없음'}
-              </span>
-              {!compactLayout && (
-                <span className="text-[10px] opacity-80 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-                  {meta.displayText}
-                </span>
-              )}
-            </div>
+            <span className="shrink-0 text-[11px] font-semibold leading-tight">
+              {annual ? s.title || '연차' : s.title || '제목 없음'}
+            </span>
+            {!compactLayout && (
+              <ScheduleCardPropertyLabels
+                scheduleId={s.id}
+                className="text-[10px] leading-tight opacity-80"
+              />
+            )}
             {s.link && (
               <button
                 type="button"
@@ -472,6 +478,11 @@ export function ScheduleWeekCard({
                 {s.comment}
               </div>
             )}
+            <ScheduleCardDetailRows
+              databaseId={taskDatabaseId}
+              pageId={taskPageId}
+              excludeDateColumns
+            />
           </div>,
           document.body,
         )}

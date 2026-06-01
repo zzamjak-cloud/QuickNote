@@ -228,6 +228,55 @@ describe("updateMyClientPrefs", () => {
     expect(result.clientPrefs).toBe(existingJson);
     expect(doc.send).toHaveBeenCalledTimes(1);
   });
+
+  it("구성원 순서 prefs 는 즐겨찾기와 별도 LWW 로 병합", async () => {
+    const existingJson = JSON.stringify({
+      v: 1,
+      favoritePageIds: ["keep"],
+      favoritePageIdsUpdatedAt: 999,
+      schedulerMemberOrder: ["old"],
+      schedulerMemberOrderUpdatedAt: 1,
+    });
+    const incomingJson = JSON.stringify({
+      v: 1,
+      favoritePageIds: ["stale"],
+      favoritePageIdsUpdatedAt: 1,
+      schedulerMemberOrder: ["m2", "m1"],
+      schedulerMemberOrderUpdatedAt: 100,
+    });
+    const row = { ...selfCaller, memberId: "self-m", clientPrefs: existingJson };
+    const doc = mockDoc(
+      { Item: row },
+      {
+        Attributes: {
+          ...row,
+          clientPrefs: JSON.stringify({
+            v: 1,
+            favoritePageIds: ["keep"],
+            favoritePageIdsUpdatedAt: 999,
+            schedulerMemberOrder: ["m2", "m1"],
+            schedulerMemberOrderUpdatedAt: 100,
+          }),
+        },
+      },
+    );
+
+    await updateMyClientPrefs({
+      doc,
+      tables,
+      caller: selfCaller,
+      input: { clientPrefs: incomingJson },
+    });
+
+    const updateCommand = vi.mocked(doc.send).mock.calls[1]?.[0] as {
+      input?: { ExpressionAttributeValues?: Record<string, string> };
+    };
+    const saved = JSON.parse(
+      updateCommand.input?.ExpressionAttributeValues?.[":cp"] ?? "{}",
+    ) as Record<string, unknown>;
+    expect(saved.favoritePageIds).toEqual(["keep"]);
+    expect(saved.schedulerMemberOrder).toEqual(["m2", "m1"]);
+  });
 });
 
 // ─── promoteToManager ─────────────────────────────────────────────────────────

@@ -163,15 +163,10 @@ const GalleryCard = memo(function GalleryCard({
   onSetCoverSrc?: (src: string | null) => void;
 }) {
   const titleCol = columns.find((c) => c.type === "title");
-  const cardCols = (() => {
-    const explicit = visibleColumns.filter(
-      (c) => c.id !== titleCol?.id && c.id !== coverColumn?.id,
-    );
-    const allEqual =
-      visibleColumns.length === columns.length &&
-      visibleColumns.every((c, i) => c.id === columns[i]?.id);
-    return allEqual ? [] : explicit;
-  })();
+  // 모든 뷰 공통 규칙 — getVisibleOrderedColumns 결과에서 제목/커버만 제외. (설정 없으면 전체 표시)
+  const cardCols = visibleColumns.filter(
+    (c) => c.id !== titleCol?.id && c.id !== coverColumn?.id,
+  );
   const setIcon = usePageStore((s) => s.setIcon);
   const openPeek = useUiStore((s) => s.openPeek);
   const pageDoc = usePageStore((s) => s.pages[row.pageId]?.doc);
@@ -218,7 +213,7 @@ const GalleryCard = memo(function GalleryCard({
         )}
       </div>
       <div className="p-2">
-        <div className="flex min-w-0 items-center gap-1 text-base font-medium text-zinc-900 dark:text-zinc-100">
+        <div className="flex min-w-0 items-center gap-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
           <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
             <IconPicker current={row.icon ?? null} size="sm" onChange={(icon) => setIcon(row.pageId, icon)} />
           </span>

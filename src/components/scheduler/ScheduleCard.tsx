@@ -12,7 +12,7 @@ import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { dateToX, widthForRange, xToDate } from "../../lib/scheduler/gridUtils";
-import { CARD_MARGIN } from "../../lib/scheduler/grid";
+import { CARD_MARGIN, ROW_PADDING_TOP } from "../../lib/scheduler/grid";
 import { daysInYear, parseIsoDate, toIsoStartOfDay, toIsoEndOfDay } from "../../lib/scheduler/dateUtils";
 import { hasCollision } from "../../lib/scheduler/collisionDetection";
 import {
@@ -27,6 +27,10 @@ import {
   getScheduleScopeName,
   shouldUseCompactScheduleCard,
 } from "./scheduleCardDisplay";
+import { ScheduleCardPropertyLabels } from "./ScheduleCardPropertyLabels";
+import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
+import { usePageStore } from "../../store/pageStore";
+import { parseScheduleInstanceId } from "../../lib/scheduler/taskAdapter";
 
 type Props = {
   schedule: Schedule;
@@ -72,6 +76,9 @@ export function ScheduleCard({
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
   const zoomLevel = useSchedulerViewStore((s) => s.zoomLevel);
+  // 호버 툴팁에 표시 설정 속성을 함께 보여주기 위한 원본 작업 DB 행 참조.
+  const taskPageId = parseScheduleInstanceId(schedule.id)?.pageId;
+  const taskDatabaseId = usePageStore((s) => (taskPageId ? s.pages[taskPageId]?.databaseId : undefined));
 
   const startDate = parseIsoDate(schedule.startAt);
   const endDate = parseIsoDate(schedule.endAt);
@@ -82,6 +89,9 @@ export function ScheduleCard({
   const rowIdx = schedule.rowIndex ?? 0;
   const slotHeight = rowCount > 0 ? rowHeight / rowCount : rowHeight;
   const y = rowIdx * slotHeight;
+  // 카드 높이를 마일스톤·피처 타임라인 카드와 동일하게 통일 (22~30px) 하고, 슬롯 높이 중앙에 배치한다.
+  const cardHeight = Math.max(22, Math.min(30, slotHeight - ROW_PADDING_TOP * 2));
+  const cardVOffset = Math.max(CARD_MARGIN, (slotHeight - cardHeight) / 2);
 
   const isAnnualLeave = schedule.kind === "leave";
   const isPast = !isAnnualLeave && endDate.getTime() < Date.now();
@@ -172,15 +182,15 @@ export function ScheduleCard({
     dragMovedRef.current = true;
     if (isMultiSelected) {
       const adjustedX = data.x - CARD_MARGIN;
-      const adjustedY = data.y - CARD_MARGIN;
+      const adjustedY = data.y - cardVOffset;
       const deltaX = adjustedX - x;
       const deltaY = adjustedY - y;
       onMultiDragMove?.(deltaX, deltaY);
       return;
     }
     setLocalX(data.x - CARD_MARGIN);
-    setLocalY(data.y - CARD_MARGIN);
-  }, [isMultiSelected, onMultiDragMove, x, y]);
+    setLocalY(data.y - cardVOffset);
+  }, [isMultiSelected, onMultiDragMove, x, y, cardVOffset]);
 
   // 드래그 완료 — 이동이 있었을 때만 서버 업데이트
   const handleDragStop = useCallback(
@@ -199,7 +209,7 @@ export function ScheduleCard({
       const wasShiftDrag = isShiftDragRef.current;
       isShiftDragRef.current = false;
       const adjustedX = data.x - CARD_MARGIN;
-      const adjustedY = data.y - CARD_MARGIN;
+      const adjustedY = data.y - cardVOffset;
       const snappedX = Math.round(adjustedX / cellWidth) * cellWidth;
       const snappedY = Math.round(adjustedY / slotHeight) * slotHeight;
       const newStart = xToDate(year, snappedX, cellWidth);
@@ -269,6 +279,7 @@ export function ScheduleCard({
       findAvailableRowIndex,
       rowCount,
       slotHeight,
+      cardVOffset,
       x,
       y,
       w,
@@ -461,8 +472,8 @@ export function ScheduleCard({
         resizeGrid={[cellWidth, 1]}
         minWidth={cellWidth - CARD_MARGIN * 2}
         // 위치·크기 (CARD_MARGIN 반영)
-        position={{ x: effectiveX + CARD_MARGIN, y: effectiveY + CARD_MARGIN }}
-        size={{ width: visualWidth, height: Math.max(0, slotHeight - CARD_MARGIN * 2) }}
+        position={{ x: effectiveX + CARD_MARGIN, y: effectiveY + cardVOffset }}
+        size={{ width: visualWidth, height: cardHeight }}
         // 좌우 리사이즈만 활성
         enableResizing={{ left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
         // 이동·리사이즈 핸들러
@@ -510,19 +521,18 @@ export function ScheduleCard({
           onDoubleClick={() => onEdit(schedule.id)}
         >
           <div
-            className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden"
+            className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
             style={{ left: contentOffset + 6, right: 6 }}
           >
-            <div className="min-w-0 flex-1 flex flex-col justify-center overflow-hidden">
-              <span className="text-xs font-medium leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-                {schedule.title || "제목 없음"}
-              </span>
-              {!compactLayout && (
-                <span className="text-[10px] opacity-80 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
-                  {scopeText}
-                </span>
-              )}
-            </div>
+            <span className="shrink-0 text-xs font-medium leading-tight">
+              {schedule.title || "제목 없음"}
+            </span>
+            {!compactLayout && (
+              <ScheduleCardPropertyLabels
+                scheduleId={schedule.id}
+                className="text-[10px] leading-tight opacity-80"
+              />
+            )}
             {schedule.link && (
               <button
                 type="button"
@@ -567,6 +577,11 @@ export function ScheduleCard({
                 {schedule.comment}
               </div>
             )}
+            <ScheduleCardDetailRows
+              databaseId={taskDatabaseId}
+              pageId={taskPageId}
+              excludeDateColumns
+            />
           </div>,
           document.body,
         )}
