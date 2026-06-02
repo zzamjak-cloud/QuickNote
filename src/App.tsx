@@ -10,6 +10,7 @@ import { ScrollToTopButton } from "./components/common/ScrollToTopButton";
 import { TextPromptDialog } from "./components/ui/TextPromptDialog";
 import { ToastViewport } from "./components/ui/ToastViewport";
 import { WorkspaceSyncBanner } from "./components/sync/WorkspaceSyncBanner";
+import { SearchCommandPalette } from "./components/search/SearchCommandPalette";
 import { AuthGate } from "./components/auth/AuthGate";
 import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore, selectFirstSidebarRootId } from "./store/pageStore";
@@ -19,8 +20,8 @@ import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
 import { zustandStorage } from "./lib/storage/index";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
-import { parseQuickNoteLink } from "./lib/navigation/quicknoteLinks";
-import { scrollToBlockPosition } from "./lib/editor/editorNavigationBridge";
+import { parseQuickNoteLink, type QuickNoteLinkTarget } from "./lib/navigation/quicknoteLinks";
+import { navigateToBlockLink } from "./lib/editor/editorNavigationBridge";
 import {
   bindPageScrollMemory,
   flushPageScrollMemory,
@@ -58,6 +59,7 @@ function isLCSchedulerModalOpen(): boolean {
 function App() {
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
+  const [searchOpen, setSearchOpen] = useState(false);
   const activeTabIndex = useSettingsStore((s) => s.activeTabIndex);
   const activeTab = useSettingsStore(
     (s) => s.tabs[s.activeTabIndex] ?? { pageId: null, databaseId: null },
@@ -164,27 +166,65 @@ function App() {
   }, []);
 
   useEffect(() => {
+    // 딥링크 대상의 블록/탭으로 이동 — 대상 페이지 에디터가 준비될 때까지 재시도한다.
+    const scrollToLinkTarget = (target: QuickNoteLinkTarget) => {
+      if (target.blockId != null || target.block != null) {
+        navigateToBlockLink(target.pageId, {
+          blockId: target.blockId,
+          blockPos: target.block,
+        });
+      }
+      if (target.tab) {
+        window.setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>(
+              `[data-qn-tab-id="${CSS.escape(target.tab!)}"]`,
+            )
+            ?.click();
+        }, 120);
+      }
+    };
+
+    // 페이지를 연다. 스토어에 아직 없으면 false(콜드 부트 비동기 하이드레이션/원격 페치 대기용).
+    const openLinkTarget = (target: QuickNoteLinkTarget): boolean => {
+      if (!usePageStore.getState().pages[target.pageId]) return false;
+      setActivePage(target.pageId);
+      setCurrentTabPage(target.pageId);
+      scrollToLinkTarget(target);
+      return true;
+    };
+
     const applyLocationLink = () => {
       const target = parseQuickNoteLink(window.location.href);
       if (!target) return;
-      if (!usePageStore.getState().pages[target.pageId]) return;
-      setActivePage(target.pageId);
-      setCurrentTabPage(target.pageId);
-      window.setTimeout(() => {
-        if (target.block != null) scrollToBlockPosition(target.block);
-        if (target.tab) {
-          document
-            .querySelector<HTMLButtonElement>(
-              `[data-qn-tab-id="${CSS.escape(target.tab)}"]`,
-            )
-            ?.click();
-        }
-      }, 120);
+      openLinkTarget(target);
     };
-    applyLocationLink();
+
+    // 콜드 부트: 영속 스토어가 비동기로 하이드레이션되고, DB 행 등 일부 페이지는 원격 페치
+    // 이후에야 스토어에 들어온다. 마운트 시점에 대상이 없으면 곧장 포기하지 말고, 대상 페이지가
+    // 스토어에 들어올 때까지 구독하며 기다렸다가 연다(타임아웃 후 해제).
+    let unsubscribe: (() => void) | undefined;
+    let waitTimeoutId: number | undefined;
+    const initialTarget = parseQuickNoteLink(window.location.href);
+    if (initialTarget && !openLinkTarget(initialTarget)) {
+      unsubscribe = usePageStore.subscribe((state) => {
+        if (!state.pages[initialTarget.pageId]) return;
+        unsubscribe?.();
+        unsubscribe = undefined;
+        if (waitTimeoutId) window.clearTimeout(waitTimeoutId);
+        openLinkTarget(initialTarget);
+      });
+      waitTimeoutId = window.setTimeout(() => {
+        unsubscribe?.();
+        unsubscribe = undefined;
+      }, 20000);
+    }
+
     window.addEventListener("popstate", applyLocationLink);
     window.addEventListener("hashchange", applyLocationLink);
     return () => {
+      unsubscribe?.();
+      if (waitTimeoutId) window.clearTimeout(waitTimeoutId);
       window.removeEventListener("popstate", applyLocationLink);
       window.removeEventListener("hashchange", applyLocationLink);
     };
@@ -243,8 +283,11 @@ function App() {
     if (!firstSidebarPageId) return;
     didForceInitialSelectRef.current = true;
     const linkTarget = parseQuickNoteLink(window.location.href);
-    if (linkTarget && usePageStore.getState().pages[linkTarget.pageId]) {
-      return; // 딥링크 진입 — applyLocationLink 가 처리
+    if (linkTarget) {
+      // 딥링크 진입 — 대상이 아직 스토어에 없어도(콜드 부트 비동기 하이드레이션/원격 페치)
+      // 첫 사이드바 페이지를 강제로 열지 않는다. applyLocationLink 의 구독이 대상이 들어오는
+      // 즉시 연다(끝내 안 들어오면 20초 타임아웃). 첫 페이지 강제 시 딥링크가 덮어써지는 것 방지.
+      return;
     }
     prevActivePageIdRef.current = firstSidebarPageId;
     setActivePage(firstSidebarPageId);
@@ -332,13 +375,10 @@ function App() {
       if (e.key === "n") {
         e.preventDefault();
         createPage();
-      } else if (e.key === "k") {
+      } else if (e.key === "f") {
+        // Ctrl/Cmd+F → 검색 팔레트(브라우저 기본 찾기 대체). Ctrl+K 는 링크 단축키로 비워둔다.
         e.preventDefault();
-        const input =
-          document.querySelector<HTMLInputElement>(
-            "[data-search-input='true']",
-          );
-        input?.focus();
+        setSearchOpen(true);
       } else if (e.key === "/") {
         e.preventDefault();
         toggleDarkMode();
@@ -366,6 +406,13 @@ function App() {
     nextTab,
     toggleSidebarCollapsed,
   ]);
+
+  // 사이드바 검색 버튼 등에서 발행하는 검색 팔레트 열기 이벤트 수신
+  useEffect(() => {
+    const open = () => setSearchOpen(true);
+    window.addEventListener("quicknote:open-search", open);
+    return () => window.removeEventListener("quicknote:open-search", open);
+  }, []);
 
   if (migrating) return <MigrationScreen />;
 
@@ -405,6 +452,10 @@ function App() {
           <DatabaseRowPeek />
           <BlockCommentThreadPanel editor={null} />
         </Suspense>
+        <SearchCommandPalette
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+        />
         <TextPromptDialog />
         <ToastViewport />
         {autoUpdate.isSupported && (

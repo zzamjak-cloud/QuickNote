@@ -1,8 +1,6 @@
 import { PanelLeftClose, Plus, Search, Settings } from "lucide-react";
-import { useRef, useState } from "react";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { NotificationBell } from "../notifications/NotificationBell";
-import { PageSearchPopup } from "./PageSearchPopup";
 
 type Props = {
   onCreatePage: () => void;
@@ -15,17 +13,8 @@ export function SidebarHeader({
   onOpenSettings,
   onCollapseSidebar,
 }: Props) {
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchBtnRef = useRef<HTMLButtonElement>(null);
-
   return (
     <>
-      {searchOpen && (
-        <PageSearchPopup
-          anchorEl={searchBtnRef.current}
-          onClose={() => setSearchOpen(false)}
-        />
-      )}
     <div className="mb-2 space-y-2 px-1">
       <div className="flex items-center gap-1">
         {onCollapseSidebar ? (
@@ -44,14 +33,13 @@ export function SidebarHeader({
         <div className="hidden lg:flex items-center">
           <NotificationBell />
         </div>
-        {/* 검색 버튼 */}
+        {/* 검색 버튼 — 커맨드 팔레트 열기(Cmd/Ctrl+F 와 동일) */}
         <button
-          ref={searchBtnRef}
           type="button"
-          onClick={() => setSearchOpen(true)}
+          onClick={() => window.dispatchEvent(new Event("quicknote:open-search"))}
           className="rounded-md p-1 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
           aria-label="검색"
-          title="검색"
+          title="검색 (Cmd/Ctrl+F)"
         >
           <Search size={15} />
         </button>

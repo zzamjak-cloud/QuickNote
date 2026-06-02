@@ -127,6 +127,37 @@ export function koreanIncludes(text: string, query: string): boolean {
   return koreanMatchScore(text, query) > 0;
 }
 
+/**
+ * 본문 스니펫 위치 계산용 — text(소문자) 안에서 query(소문자)가 처음 나타나는 인덱스.
+ * 직접 포함 → 영문 자모 변환(rkskek→가나다) → 마지막 받침 제거 순으로 시도.
+ * 초성 매칭은 위치 계산이 모호하므로 여기서는 다루지 않는다(찾지 못하면 -1).
+ * 성능: 본문 전체를 대상으로 호출되므로 초성 변환처럼 비싼 경로는 의도적으로 제외한다.
+ */
+export function koreanMatchOffset(textLower: string, queryLower: string): number {
+  return koreanMatchRange(textLower, queryLower)?.index ?? -1;
+}
+
+/** koreanMatchOffset 의 매치 위치 + 길이 버전(스니펫 하이라이트 범위 계산용) */
+export function koreanMatchRange(
+  textLower: string,
+  queryLower: string,
+): { index: number; length: number } | null {
+  if (!queryLower) return null;
+  const candidates = [queryLower];
+  const converted = englishToKoreanTyped(queryLower);
+  if (converted && converted !== queryLower) candidates.push(converted);
+  for (const q of candidates) {
+    let idx = textLower.indexOf(q);
+    if (idx >= 0) return { index: idx, length: q.length };
+    const stripped = stripLastJongseong(q);
+    if (stripped !== q) {
+      idx = textLower.indexOf(stripped);
+      if (idx >= 0) return { index: idx, length: stripped.length };
+    }
+  }
+  return null;
+}
+
 export function koreanMatchScore(text: string, query: string): number {
   const candidates = [query];
   const converted = englishToKoreanTyped(query);

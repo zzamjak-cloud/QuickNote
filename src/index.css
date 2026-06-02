@@ -1167,6 +1167,24 @@ html.dark .ProseMirror .qn-block-has-comments.qn-block-comment-glow {
   box-shadow: inset 0 0 0 2px rgba(52, 211, 153, 0.55);
 }
 
+/* 검색/블록 링크 이동 시 대상 위치 시각화 — body 포털 오버레이(PM DOM 밖이라 본문 재조정에 안 지워짐).
+   position:fixed 좌표는 JS 가 매 프레임 대상 블록 rect 로 갱신한다. 약 1.6s 후 자동 페이드아웃. */
+.qn-block-spotlight {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  border-radius: 8px;
+  background-color: rgba(250, 204, 21, 0.18);
+  box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.8), 0 0 0 6px rgba(234, 179, 8, 0.22);
+  animation: qn-block-spotlight 1.6s ease-out forwards;
+}
+@keyframes qn-block-spotlight {
+  0%   { opacity: 0; }
+  12%  { opacity: 1; }
+  65%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* 블록 배경색 프리셋 */
 .ProseMirror [data-bg-color] { border-radius: 4px; }
 .ProseMirror [data-bg-color="yellow"]  { background-color: rgba(253,246,178,0.70); }

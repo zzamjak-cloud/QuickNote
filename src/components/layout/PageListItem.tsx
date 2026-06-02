@@ -10,7 +10,7 @@ import {
   ArrowUpToLine,
   CopyPlus,
   History,
-  MoveRight,
+  FolderInput,
   RotateCcw,
 } from "lucide-react";
 import type { SidebarDropMode } from "../../lib/sidebarPageTreeCollision";
@@ -18,6 +18,7 @@ import type { PageNode } from "../../store/pageStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
+import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
 import { useHistorySelection } from "../history/useHistorySelection";
@@ -39,7 +40,7 @@ type Props = {
 type ContextMenuPosition = { x: number; y: number };
 
 const PAGE_CONTEXT_MENU_WIDTH = 208;
-const PAGE_CONTEXT_MENU_HEIGHT = 240;
+const PAGE_CONTEXT_MENU_HEIGHT = 280;
 const PAGE_CONTEXT_MENU_WITH_HISTORY_HEIGHT = 440;
 const CONTEXT_MENU_PADDING = 8;
 
@@ -127,6 +128,7 @@ const PageListItemInner = function PageListItem({
   const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuOpen = menuPosition !== null;
@@ -366,12 +368,24 @@ const PageListItemInner = function PageListItem({
               role="menuitem"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
+                setMenuPosition(null);
+                setCopyToWorkspaceOpen(true);
+              }}
+              className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              <CopyPlus size={12} /> <span>다른 워크스페이스로 복제</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => {
                 onMove(node.id);
                 setMenuPosition(null);
               }}
               className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              <MoveRight size={12} /> <span>다른 페이지로 이동</span>
+              <FolderInput size={12} /> <span>다른 페이지로 이동</span>
             </button>
             {node.parentId !== null && (
               <button
@@ -463,6 +477,10 @@ const PageListItemInner = function PageListItem({
           setDeleteConfirmOpen(false);
           deletePage(node.id);
         }}
+      />
+      <PageCopyToWorkspaceDialog
+        pageId={copyToWorkspaceOpen ? node.id : null}
+        onClose={() => setCopyToWorkspaceOpen(false)}
       />
       {hasChildren && expanded && (
         <PageListGroup

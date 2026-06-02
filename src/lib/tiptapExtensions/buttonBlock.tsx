@@ -14,7 +14,7 @@ import {
   shouldOpenInternalLinkInNewTab,
 } from "../navigation/internalNavigation";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
-import { scrollToBlockPosition } from "../editor/editorNavigationBridge";
+import { navigateToBlockLink } from "../editor/editorNavigationBridge";
 
 type ButtonColor = "default" | "blue" | "red" | "purple" | "green" | "orange" | "darkGray";
 
@@ -90,18 +90,24 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
 
   const handleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
     if (internalHref) {
+      const applyTab = () => {
+        if (!internalHref.tab) return;
+        document
+          .querySelector<HTMLButtonElement>(
+            `[data-qn-tab-id="${CSS.escape(internalHref.tab)}"]`,
+          )
+          ?.click();
+      };
+      const hasBlockTarget = internalHref.blockId != null || internalHref.block != null;
       if (shouldOpenInternalLinkInNewTab(event)) {
         if (!openPageInNewTab(internalHref.pageId)) return;
-        window.setTimeout(() => {
-          if (internalHref.block != null) scrollToBlockPosition(internalHref.block);
-          if (internalHref.tab) {
-            document
-              .querySelector<HTMLButtonElement>(
-                `[data-qn-tab-id="${CSS.escape(internalHref.tab)}"]`,
-              )
-              ?.click();
-          }
-        }, 80);
+        if (hasBlockTarget) {
+          navigateToBlockLink(internalHref.pageId, {
+            blockId: internalHref.blockId,
+            blockPos: internalHref.block,
+          });
+        }
+        window.setTimeout(applyTab, 80);
         return;
       }
       const currentPageId = usePageStore.getState().activePageId;
@@ -109,16 +115,13 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
         useNavigationHistoryStore.getState().pushBack(currentPageId);
       }
       if (!openPageInCurrentTab(internalHref.pageId)) return;
-      window.setTimeout(() => {
-        if (internalHref.block != null) scrollToBlockPosition(internalHref.block);
-        if (internalHref.tab) {
-          document
-            .querySelector<HTMLButtonElement>(
-              `[data-qn-tab-id="${CSS.escape(internalHref.tab)}"]`,
-            )
-            ?.click();
-        }
-      }, 80);
+      if (hasBlockTarget) {
+        navigateToBlockLink(internalHref.pageId, {
+          blockId: internalHref.blockId,
+          blockPos: internalHref.block,
+        });
+      }
+      window.setTimeout(applyTab, 80);
       return;
     }
     if (href) {

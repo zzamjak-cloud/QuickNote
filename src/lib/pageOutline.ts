@@ -1,4 +1,5 @@
 import type { JSONContent } from "@tiptap/react";
+import { collectNodeText } from "./search/tiptapText";
 
 export type OutlineItem = {
   /** 1~4 */
@@ -6,11 +7,8 @@ export type OutlineItem = {
   text: string;
 };
 
-function extractTextFromJson(node: JSONContent): string {
-  if (typeof node.text === "string") return node.text;
-  if (!node.content?.length) return "";
-  return node.content.map(extractTextFromJson).join("");
-}
+// 공용 텍스트 추출 유틸 재사용(검색 인덱스와 동일 로직 공유)
+const extractTextFromJson = collectNodeText;
 
 /**
  * 현재 페이지 doc JSON에서 헤딩(# ~ ####)만 깊이 우선 순서로 추출.

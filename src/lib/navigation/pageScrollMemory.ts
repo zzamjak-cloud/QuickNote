@@ -26,6 +26,33 @@ const markUserScrollInput = (): void => {
   lastUserScrollInputAt = window.performance.now();
 };
 
+/**
+ * 프로그래밍적 스크롤(블록 링크·댓글·검색 결과 이동)이 발생했음을 알린다.
+ * 진행 중인 스크롤 위치 복원이 우리 스크롤을 즉시 되돌리지 못하도록,
+ * "사용자가 스크롤을 가로챘다"와 동일하게 취급해 복원 루프를 종료시킨다.
+ */
+export const markProgrammaticScroll = (): void => {
+  lastUserScrollInputAt = window.performance.now();
+};
+
+// 특정 스크롤러에 대해 위치 복원을 일정 시간 억제한다(블록 링크 이동 등).
+// startedAt 비교 기반 양보(userTookOver)는 복원이 우리 스크롤보다 늦게 시작되면 실패하므로,
+// 복원의 RAF/MutationObserver 수명(최대 3s)을 덮는 시간 동안 해당 스크롤러의 복원을 강제 종료시킨다.
+const suppressRestoreUntilByScroller = new WeakMap<HTMLElement, number>();
+
+export const suppressScrollRestoreFor = (
+  scroller: HTMLElement | null | undefined,
+  durationMs = 3500,
+): void => {
+  if (!scroller) return;
+  const until = window.performance.now() + durationMs;
+  const prev = suppressRestoreUntilByScroller.get(scroller) ?? 0;
+  suppressRestoreUntilByScroller.set(scroller, Math.max(prev, until));
+};
+
+const isScrollRestoreSuppressedFor = (scroller: HTMLElement): boolean =>
+  window.performance.now() < (suppressRestoreUntilByScroller.get(scroller) ?? 0);
+
 const hasRecentUserScrollInput = (): boolean =>
   window.performance.now() - lastUserScrollInputAt < USER_SCROLL_INPUT_WINDOW_MS;
 
@@ -163,7 +190,13 @@ export function restorePageScrollPosition(
   if (!pageId || !scroller) return undefined;
   hydrate();
   const key = makeKey(scope, pageId);
-  const saved = scrollByKey.get(key) ?? { left: 0, top: 0 };
+  const savedEntry = scrollByKey.get(key);
+  // 저장된 스크롤 위치가 없거나 맨 위면 복원할 것이 없다. 이때 0(시작 지점)으로 강제 고정하면
+  // 블록 링크·댓글·검색 결과 등 프로그래밍적 이동을 덮어쓰므로 복원 루프를 아예 시작하지 않는다.
+  if (!savedEntry || (savedEntry.top <= 0 && savedEntry.left <= 0)) {
+    return undefined;
+  }
+  const saved = savedEntry;
   restoringByScroller.set(scroller, {
     key,
     target: saved,
@@ -196,7 +229,7 @@ export function restorePageScrollPosition(
 
   const apply = () => {
     if (cancelled || finished) return;
-    if (userTookOver()) {
+    if (userTookOver() || isScrollRestoreSuppressedFor(scroller)) {
       finish();
       return;
     }

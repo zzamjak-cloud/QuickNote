@@ -1,5 +1,8 @@
 export type QuickNoteLinkTarget = {
   pageId: string;
+  /** 블록 노드 attrs.id — 페이지 편집(블록 추가/삭제)에도 안전한 기준. 우선 사용. */
+  blockId?: string | null;
+  /** 블록 시작 PM 위치 — blockId 가 없는(레거시) 링크의 폴백. */
   block?: number | null;
   tab?: string | null;
 };
@@ -11,6 +14,10 @@ export function buildQuickNotePageUrl(target: QuickNoteLinkTarget): string {
       : "";
   const params = new URLSearchParams();
   params.set("page", target.pageId);
+  // blockId 우선(편집에도 안전). 구버전 호환·폴백용으로 숫자 위치도 함께 싣는다.
+  if (target.blockId) {
+    params.set("blockId", target.blockId);
+  }
   if (typeof target.block === "number" && Number.isFinite(target.block)) {
     params.set("block", String(target.block));
   }
@@ -31,6 +38,7 @@ export function parseQuickNoteLink(raw: string): QuickNoteLinkTarget | null {
       const block = blockRaw == null ? null : Number(blockRaw);
       return {
         pageId,
+        blockId: url.searchParams.get("blockId"),
         block: Number.isFinite(block) ? block : null,
         tab: null,
       };
@@ -48,6 +56,7 @@ export function parseQuickNoteLink(raw: string): QuickNoteLinkTarget | null {
     const tabHash = url.hash.match(/^#tab-(.+)$/);
     return {
       pageId,
+      blockId: url.searchParams.get("blockId"),
       block: Number.isFinite(block) ? block : null,
       tab: tabHash ? decodeURIComponent(tabHash[1] ?? "") : null,
     };
@@ -58,10 +67,10 @@ export function parseQuickNoteLink(raw: string): QuickNoteLinkTarget | null {
 
 export function quickNoteLinkLabel(
   pageTitle: string | null | undefined,
-  target: Pick<QuickNoteLinkTarget, "block" | "tab">,
+  target: Pick<QuickNoteLinkTarget, "blockId" | "block" | "tab">,
 ): string {
   const title = pageTitle?.trim() || "페이지";
-  if (target.block != null) return `${title} / 블럭 이동`;
+  if (target.blockId || target.block != null) return `${title} / 블럭 이동`;
   if (target.tab) return `${title} / 탭 이동`;
   return title;
 }

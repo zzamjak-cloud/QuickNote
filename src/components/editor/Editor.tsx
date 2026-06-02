@@ -67,7 +67,12 @@ import {
   registerEditorNavigation,
   unregisterEditorNavigation,
   scrollToBlockId,
+  scrollToSearchHit,
 } from "../../lib/editor/editorNavigationBridge";
+import {
+  peekPendingNavigation,
+  consumePendingNavigation,
+} from "../../lib/editor/pendingNavigation";
 import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
@@ -388,6 +393,7 @@ export function Editor({
     return () => window.clearTimeout(t);
   }, [commentThread, editor, effectivePageId]);
 
+
   /** 이 페이지 댓글·방문 기록·멤버와 관련된 스토어 변경만 decoration 갱신(prev 인자 미지원·persist 경로 대비) */
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -515,6 +521,34 @@ export function Editor({
     isFullPageDatabase,
     updateDoc,
   ]);
+
+  // 검색 결과 클릭으로 들어온 대기 중 이동 요청 소비.
+  // scrollToSearchHit 은 라이브 문서에 query 텍스트가 실제로 존재할 때만 성공(자체 게이팅)하므로,
+  // 페이지 전환 직후 빈/이전 문서에서는 false 를 반환하고 본문이 하이드레이션될 때까지 폴링한다.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !effectivePageId) return;
+    const pending = peekPendingNavigation();
+    if (!pending || pending.pageId !== effectivePageId) return;
+
+    let attempts = 0;
+    let timer = 0;
+    const run = () => {
+      if (editor.isDestroyed) return;
+      const still = peekPendingNavigation();
+      if (!still || still.pageId !== effectivePageId) return;
+      if (scrollToSearchHit(still.target)) {
+        consumePendingNavigation();
+        return;
+      }
+      if (attempts++ < 40) {
+        timer = window.setTimeout(run, 100);
+      } else {
+        consumePendingNavigation(); // 끝내 실패 시 stale 큐 정리
+      }
+    };
+    timer = window.setTimeout(run, 60);
+    return () => window.clearTimeout(timer);
+  }, [editor, effectivePageId, page?.updatedAt]);
 
   // 디바운스 자동 저장
   // doc 가 실제로 변경됐을 때만 normalize/저장 — 이전 저장 시점 doc 참조로 빠른 skip

@@ -630,8 +630,11 @@ export function BlockHandles({
 
   const copyBlockLink = () => {
     if (!hover || !activePageId) return;
+    // 편집(블록 추가/삭제)에도 안전하도록 블록에 안정적 id 를 부여해 링크에 싣는다.
+    // 숫자 위치(blockStart)는 폴백으로 함께 저장한다.
+    const blockId = editor ? ensureBlockId(editor, hover.blockStart) : null;
     void navigator.clipboard.writeText(
-      buildQuickNotePageUrl({ pageId: activePageId, block: hover.blockStart }),
+      buildQuickNotePageUrl({ pageId: activePageId, blockId, block: hover.blockStart }),
     );
     setMenuOpen(false);
   };

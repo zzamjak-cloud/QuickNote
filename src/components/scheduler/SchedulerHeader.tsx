@@ -232,25 +232,24 @@ export function SchedulerHeader({ onClose }: Props) {
               주간
             </button>
           </div>
-        </div>
-
-        {/* 우측: 조직/팀/프로젝트 선택 + 설정 버튼 + 닫기 */}
-        <div className="flex items-center gap-2">
-          {/* 조직 / 팀 / 프로젝트 선택 드롭다운 */}
+          {/* 조직 / 팀 / 프로젝트 선택 드롭다운 — 자주 쓰는 위치라 뷰 모드 탭 오른쪽으로 배치 */}
           <ScopeSelectDropdown
             value={selectedProjectId ?? ""}
             onChange={(value) => setSelectedProjectId(value || null)}
             organizations={scopeOrganizations}
             teams={scopeTeams}
             projects={scopeProjects}
-            align="right"
+            align="left"
             ariaLabel="조직, 팀 또는 프로젝트 선택"
             placeholder={headerTitle}
             buttonClassName="max-w-[260px]"
             menuClassName="w-[920px] max-w-[calc(100vw-24px)]"
             listMaxHeightClass="max-h-[560px]"
           />
+        </div>
 
+        {/* 우측: 설정 버튼 + 닫기 */}
+        <div className="flex items-center gap-2">
           {/* 설정 버튼 — MANAGER 이상만 노출 */}
           {canManage && (
             <button
