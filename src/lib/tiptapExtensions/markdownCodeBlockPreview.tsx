@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import CodeBlock from "@tiptap/extension-code-block";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlockLowlightStable } from "./codeBlockLowlightStable";
@@ -155,6 +156,13 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
     </NodeViewWrapper>
   );
 }
+
+/** lowlight 로딩 전에도 첫 렌더부터 마크다운 미리보기 NodeView 를 쓴다. */
+export const CodeBlockWithMarkdownPreview = CodeBlock.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(MarkdownCodeBlockNodeView);
+  },
+});
 
 /** lowlight 안정 플러그인 유지 + 마크다운 블록에 미리보기 탭 */
 export const CodeBlockLowlightWithMarkdownPreview = CodeBlockLowlightStable.extend({

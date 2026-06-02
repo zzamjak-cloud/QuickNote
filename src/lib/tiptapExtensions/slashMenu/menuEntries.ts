@@ -102,12 +102,37 @@ function runTabBlockCommand(
 
 export const slashMenuEntries: SlashMenuEntry[] = [
   slashLeaf({
-    id: "tabBlock",
-    title: "탭",
-    description: "탭으로 구분된 컨텐츠 블록",
-    icon: PanelTop,
-    keywords: ["tabs", "tab", "탭", "tab block"],
-    command: ({ editor }) => runTabBlockCommand(editor, "top"),
+    title: "새 페이지",
+    description: "현재 페이지의 하위 페이지를 추가하고 멘션 삽입",
+    icon: FileText,
+    keywords: ["page", "subpage", "new", "페이지", "하위"],
+    command: ({ editor, range }) => {
+      const store = usePageStore.getState();
+      // 호스트 페이지 ID 우선순위: editor 의 pageContext → activePageId 폴백.
+      // 피크/풀뷰의 DB 항목 페이지를 편집 중일 때도 그 항목을 부모로 잡기 위함.
+      const ctx = editor.storage.pageContext as { pageId?: string | null } | undefined;
+      const parentId = ctx?.pageId ?? store.activePageId;
+      // 자동 활성화는 끈다 — 사용자는 현재 페이지에 머무르고 멘션 버튼만 보게 된다.
+      const newId = store.createPage("새 페이지", parentId, { activate: false });
+      setTimeout(() => {
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertContent({
+            type: "mention",
+            // 페이지 멘션은 "p:" 프리픽스 + mentionKind: "page" 로 식별 —
+            // 이 포맷이어야 MemberMention NodeView 가 페이지 제목을 반응형으로 동기화함
+            attrs: {
+              id: `p:${newId}`,
+              label: "새 페이지",
+              mentionKind: "page",
+            },
+          })
+          .insertContent(" ")
+          .run();
+      }, 0);
+    },
   }),
   slashLeaf({
     title: "본문",
@@ -246,39 +271,6 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.insertDateInline()),
   }),
   slashLeaf({
-    title: "새 페이지",
-    description: "현재 페이지의 하위 페이지를 추가하고 멘션 삽입",
-    icon: FileText,
-    keywords: ["page", "subpage", "new", "페이지", "하위"],
-    command: ({ editor, range }) => {
-      const store = usePageStore.getState();
-      // 호스트 페이지 ID 우선순위: editor 의 pageContext → activePageId 폴백.
-      // 피크/풀뷰의 DB 항목 페이지를 편집 중일 때도 그 항목을 부모로 잡기 위함.
-      const ctx = editor.storage.pageContext as { pageId?: string | null } | undefined;
-      const parentId = ctx?.pageId ?? store.activePageId;
-      // 자동 활성화는 끈다 — 사용자는 현재 페이지에 머무르고 멘션 버튼만 보게 된다.
-      const newId = store.createPage("새 페이지", parentId, { activate: false });
-      setTimeout(() => {
-        editor
-          .chain()
-          .focus()
-          .deleteRange(range)
-          .insertContent({
-            type: "mention",
-            // 페이지 멘션은 "p:" 프리픽스 + mentionKind: "page" 로 식별 —
-            // 이 포맷이어야 MemberMention NodeView 가 페이지 제목을 반응형으로 동기화함
-            attrs: {
-              id: `p:${newId}`,
-              label: "새 페이지",
-              mentionKind: "page",
-            },
-          })
-          .insertContent(" ")
-          .run();
-      }, 0);
-    },
-  }),
-  slashLeaf({
     id: "table",
     title: "표",
     description: "3 × 3 표 삽입",
@@ -336,6 +328,14 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     icon: Heading3,
     keywords: ["toggle h3", "토글 제목3", "heading toggle 3"],
     command: (ctx) => runSlashCommand(ctx, (chain) => chain.setHeadingToggle(3)),
+  }),
+  slashLeaf({
+    id: "tabBlock",
+    title: "탭",
+    description: "탭으로 구분된 컨텐츠 블록",
+    icon: PanelTop,
+    keywords: ["tabs", "tab", "탭", "tab block"],
+    command: ({ editor }) => runTabBlockCommand(editor, "top"),
   }),
   slashLeaf({
     id: "columnLayout",

@@ -37,7 +37,10 @@ import {
 } from "../../lib/tiptapExtensions/toggle";
 import { ColumnLayout, Column } from "../../lib/tiptapExtensions/columns";
 import { TabBlock, TabPanel } from "../../lib/tiptapExtensions/tabBlock";
-import { CodeBlockLowlightWithMarkdownPreview } from "../../lib/tiptapExtensions/markdownCodeBlockPreview";
+import {
+  CodeBlockLowlightWithMarkdownPreview,
+  CodeBlockWithMarkdownPreview,
+} from "../../lib/tiptapExtensions/markdownCodeBlockPreview";
 import { CodeBlockCopy } from "../../lib/tiptapExtensions/codeBlockCopy";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
 import { MemberMention } from "../../lib/tiptapExtensions/memberMention";
@@ -91,14 +94,8 @@ export function useEditorExtensions({
       PageContext,
       NodeRange.configure({}),
       StarterKit.configure({
-        // lowlight 청크 로딩 전: 기본 codeBlock(구문강조 없음). 로드 후 CodeBlockLowlight로 교체됨.
-        codeBlock: lowlightApi
-          ? false
-          : {
-              HTMLAttributes: {
-                class: "hljs qn-code-block not-prose",
-              },
-            },
+        // 기본 codeBlock 은 첫 프레임에 원본 마크다운을 노출하므로 항상 별도 NodeView 로 교체한다.
+        codeBlock: false,
         blockquote: false,
         orderedList: false,
         // listItem 은 ListItemPermissive 로 교체 — content 를 "block+" 으로 완화해
@@ -132,19 +129,22 @@ export function useEditorExtensions({
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      ...(lowlightApi
-        ? [
-            CodeBlockLowlightWithMarkdownPreview.configure({
-              lowlight: lowlightApi,
-              /* null + fallbackLanguage: highlightAuto 없이 고정 언어로만 강조(입력 중 색 요동 방지) */
-              defaultLanguage: null,
-              fallbackLanguage: "javascript",
-              HTMLAttributes: {
-                class: "hljs qn-code-block not-prose",
-              },
-            }),
-          ]
-        : []),
+      lowlightApi
+        ? CodeBlockLowlightWithMarkdownPreview.configure({
+            lowlight: lowlightApi,
+            /* null + fallbackLanguage: highlightAuto 없이 고정 언어로만 강조(입력 중 색 요동 방지) */
+            defaultLanguage: null,
+            fallbackLanguage: "javascript",
+            HTMLAttributes: {
+              class: "hljs qn-code-block not-prose",
+            },
+          })
+        : CodeBlockWithMarkdownPreview.configure({
+            defaultLanguage: null,
+            HTMLAttributes: {
+              class: "hljs qn-code-block not-prose",
+            },
+          }),
       CodeBlockCopy,
       // 대용량 data: URL 을 문서 JSON 에 넣지 않음 — 이미지는 v4 S3 ref(quicknote-image://) 사용.
       ImageBlock.configure({ allowBase64: false }),

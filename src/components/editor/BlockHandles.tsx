@@ -564,7 +564,10 @@ export function BlockHandles({
       const keys = Object.keys(next);
       const same =
         keys.length === Object.keys(prev).length &&
-        keys.every((k) => Math.abs((prev[k] ?? Number.NaN) - next[k]) < 0.5);
+        keys.every(
+          (k) =>
+            Math.abs((prev[k] ?? Number.NaN) - (next[k] ?? Number.NaN)) < 0.5,
+        );
       return same ? prev : next;
     });
   }, [pinnedCommentBadges, compactComments]);
