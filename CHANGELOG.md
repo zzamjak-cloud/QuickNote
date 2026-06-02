@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.23] - 2026-06-02
+
+### Fixed
+
+- 일반 DB 타임라인에서 항목 클릭 시 일정 카드 중앙이 아니라 시작일의 하루 전 셀이 첫 날짜 칸에 오도록 스크롤 기준을 복구.
+
+### Changed
+
+- QuickNote Serena 프로젝트 설정과 repo-local memory를 초기화하고 `serena memories check` 검증 경로를 추가.
+
 ## [5.4.20] - 2026-05-30
 
 ### Added

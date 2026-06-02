@@ -31,6 +31,7 @@ import {
   TIMELINE_WEEK_CAL_DAYS as WEEK_CAL_DAYS,
   TIMELINE_WEEK_RANGE_DAYS as WEEK_RANGE_DAYS,
   timelineClampToWeekday as clampToWeekday,
+  timelineFocusScrollLeft as focusScrollLeft,
   timelineGetRange as getRange,
   timelineStartOfDay as startOfDay,
   timelineStartOfWeekMon as startOfWeekMon,
@@ -782,12 +783,12 @@ export function DatabaseTimelineView({
           const root = scrollContainerRef.current;
           if (!root) return;
           const cardLeft = dayToX(visStart);
-          const cardWidth = Math.max(dayWidth(visStart, visEnd), 24);
-          // 트랙은 좌측 sticky 라벨(sideLabelWidth) 뒤에서 시작하므로 그만큼 더한 값이
-          // 스크롤 콘텐츠 기준 카드 위치다. 카드 중앙이 뷰포트 중앙에 오도록 목표를 계산.
-          const cardCenter = sideLabelWidth + cardLeft + cardWidth / 2;
           const maxLeft = Math.max(0, root.scrollWidth - root.clientWidth);
-          const target = Math.max(0, Math.min(maxLeft, cardCenter - root.clientWidth / 2));
+          const target = focusScrollLeft({
+            cardLeft,
+            pxPerDay,
+            maxLeft,
+          });
           focusScrollRef.current?.cancel();
           // 애니메이션 중에는 onScroll 의 sticky 재렌더(전체 카드 리렌더)를 멈춰 프레임을 매끄럽게 한다.
           // 대신 카드 내부 텍스트의 sticky 오프셋은 매 프레임 DOM transform 으로 직접 갱신해
@@ -816,10 +817,9 @@ export function DatabaseTimelineView({
     axis.maxT,
     commitSelectedCardIds,
     dayToX,
-    dayWidth,
     isMonthAxis,
+    pxPerDay,
     rows,
-    sideLabelWidth,
     timelineDateEntries,
     usesScrollableAxis,
   ]);

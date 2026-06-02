@@ -122,3 +122,16 @@ export function timelineClampToWeekday(
   if (ns > ne) return null;
   return { start: ns, end: ne };
 }
+
+export function timelineFocusScrollLeft({
+  cardLeft,
+  pxPerDay,
+  maxLeft,
+}: {
+  cardLeft: number;
+  pxPerDay: number;
+  maxLeft: number;
+}): number {
+  const target = cardLeft - pxPerDay;
+  return Math.max(0, Math.min(maxLeft, target));
+}
