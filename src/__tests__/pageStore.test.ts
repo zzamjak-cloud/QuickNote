@@ -72,7 +72,7 @@ describe("pageStore - duplicatePage", () => {
     const pages = Object.values(usePageStore.getState().pages);
     expect(pages).toHaveLength(2);
     const copy = pages.find((p) => p.id !== id);
-    expect(copy?.title).toBe("원본 (복사본)");
+    expect(copy?.title).toBe("원본 (Copy)");
     expect(copy?.parentId).toBe(null);
   });
 

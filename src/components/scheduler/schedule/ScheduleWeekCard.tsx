@@ -1,6 +1,6 @@
 // 주간/월간 뷰에서 개별 일정을 드래그·리사이즈 가능한 카드로 렌더링하는 컴포넌트
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Rnd } from 'react-rnd'
 import { ExternalLink } from 'lucide-react'
@@ -9,7 +9,7 @@ import { useSchedulerViewStore } from '../../../store/schedulerViewStore'
 import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR, pickTextColor } from '../../../lib/scheduler/colors'
 import type { Member } from '../../../store/memberStore'
 import { hasCollision } from '../../../lib/scheduler/collisionDetection'
-import { ContextMenu } from '../ContextMenu'
+import { ContextMenu, announceSchedulerContextMenuOpen } from '../ContextMenu'
 import { getScheduleCardContentOffset, shouldUseCompactScheduleCard } from '../scheduleCardDisplay'
 import { ScheduleCardPropertyLabels } from '../ScheduleCardPropertyLabels'
 import { ScheduleCardDetailRows } from '../../database/ScheduleCardDetailRows'
@@ -26,6 +26,14 @@ import {
   slotRangeToIso,
   clampSlotStart,
 } from './weekScheduleUtils'
+
+type ContextPointerEvent = {
+  button?: number
+  clientX: number
+  clientY: number
+  preventDefault: () => void
+  stopPropagation: () => void
+}
 
 export function ScheduleWeekCard({
   schedule: s,
@@ -328,12 +336,61 @@ export function ScheduleWeekCard({
         workspaceId: s.workspaceId,
         color,
         textColor: pickTextColor(color),
+        colorScope: "card",
       }).catch(() => {
         window.alert('색상 변경에 실패했습니다. 잠시 후 다시 시도해 주세요.')
       })
     },
     [onUpdate, s.id, s.workspaceId],
   )
+
+  const openContextMenu = useCallback(
+    (event: ContextPointerEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      announceSchedulerContextMenuOpen()
+      onSelect(s.id)
+      setTooltipPos(null)
+      setContextMenuPos({ left: event.clientX, top: event.clientY })
+    },
+    [onSelect, s.id],
+  )
+
+  const handleContextMenu = useCallback(
+    (e: ReactMouseEvent<HTMLElement>) => openContextMenu(e),
+    [openContextMenu],
+  )
+
+  const handleRndMouseDown = useCallback(
+    (e: MouseEvent) => {
+      if (e.button === 2) {
+        openContextMenu(e)
+      }
+    },
+    [openContextMenu],
+  )
+
+  const handleCardMouseDown = useCallback(
+    (e: ReactMouseEvent<HTMLElement>) => {
+      if (e.button === 2) {
+        openContextMenu(e)
+        return
+      }
+      if (!isMultiSelected) onSelect(s.id)
+    },
+    [isMultiSelected, onSelect, openContextMenu, s.id],
+  )
+
+  useEffect(() => {
+    const handleNativeContextMenu = (event: MouseEvent) => {
+      const element = rndRef.current?.getSelfElement()
+      if (!element || !(event.target instanceof Node) || !element.contains(event.target)) return
+      openContextMenu(event)
+    }
+
+    document.addEventListener('contextmenu', handleNativeContextMenu, true)
+    return () => document.removeEventListener('contextmenu', handleNativeContextMenu, true)
+  }, [openContextMenu])
 
   const handleTransfer = useCallback(
     (targetMemberId: string) => {
@@ -394,6 +451,8 @@ export function ScheduleWeekCard({
         onDragStop={handleDragStop}
         onResizeStart={handleResizeStart}
         onResizeStop={handleResizeStop}
+        onContextMenu={handleContextMenu}
+        onMouseDown={handleRndMouseDown}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={() => setTooltipPos(null)}
       >
@@ -402,19 +461,12 @@ export function ScheduleWeekCard({
           role="button"
           className="relative w-full h-full overflow-hidden focus:outline-none focus:ring-2 focus:ring-blue-500/60"
           style={{ backgroundColor: bg, color: textColor }}
-          onMouseDown={() => {
-            if (!isMultiSelected) onSelect(s.id)
-          }}
+          onMouseDown={handleCardMouseDown}
           onClick={(e) => {
             e.stopPropagation()
             onSelect(s.id)
           }}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onSelect(s.id)
-            setContextMenuPos({ left: e.clientX, top: e.clientY })
-          }}
+          onContextMenu={handleContextMenu}
           onDoubleClick={(e) => {
             e.stopPropagation()
             onOpenPage(s.id)

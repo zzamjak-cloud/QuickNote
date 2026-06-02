@@ -18,8 +18,11 @@ import {
 import { resolveLCSchedulerWorkspaceId } from "./scope";
 import { readRememberedSchedulerPropertyValues } from "./lastPropertyMemory";
 import {
+  getSchedulerTaskCardColor,
+  getSchedulerTaskCardTextColor,
   getSchedulerTaskRowIndex,
   parseSchedulerTaskMeta,
+  setSchedulerTaskCardColor,
   setSchedulerTaskRowIndex,
   type SchedulerTaskMeta,
 } from "./taskMeta";
@@ -127,7 +130,7 @@ function scheduleFromPage(args: {
     ? ANNUAL_LEAVE_COLOR
     : isAutoAttendanceColor
       ? DEFAULT_SCHEDULE_COLOR
-      : args.color ?? DEFAULT_SCHEDULE_COLOR;
+      : getSchedulerTaskCardColor(args.meta, args.assigneeId) ?? args.color ?? DEFAULT_SCHEDULE_COLOR;
   return {
     id: makeScheduleInstanceId(args.page.id, args.assigneeId),
     workspaceId: args.workspaceId,
@@ -142,7 +145,9 @@ function scheduleFromPage(args: {
     endAt: args.range.end ?? args.range.start ?? new Date(args.page.createdAt).toISOString(),
     assigneeId: args.assigneeId,
     color,
-    textColor: args.meta.textColor ?? pickTextColor(color),
+    textColor: getSchedulerTaskCardTextColor(args.meta, args.assigneeId)
+      ?? args.meta.textColor
+      ?? pickTextColor(color),
     rowIndex: getSchedulerTaskRowIndex(args.meta, args.assigneeId),
     createdByMemberId: args.page.createdByMemberId ?? "",
     createdAt: new Date(args.page.createdAt).toISOString(),
@@ -358,17 +363,28 @@ export async function updateLCSchedulerSchedule(input: UpdateScheduleInput): Pro
       replaceAssignee(current, parsed.assigneeId, input.assigneeId),
     );
   }
-  if (input.color !== undefined) {
-    setCell(databaseId, page.id, LC_SCHEDULER_COLUMN_IDS.color, input.color);
-  }
-
   const latest = usePageStore.getState().pages[page.id] ?? page;
   const meta = parseSchedulerTaskMeta(latest.dbCells?.[LC_SCHEDULER_COLUMN_IDS.meta]);
+  const assigneeIds = normalizeAssignees(
+    latest.dbCells?.[LC_SCHEDULER_COLUMN_IDS.assignees],
+    useMemberStore.getState().members,
+  );
+  const targetAssigneeId = input.assigneeId !== undefined ? input.assigneeId : parsed.assigneeId;
+  const useCardColorOverride =
+    input.color !== undefined &&
+    input.colorScope !== "row" &&
+    (input.colorScope === "card" || (targetAssigneeId !== null && assigneeIds.length > 1));
+  if (input.color !== undefined && !useCardColorOverride) {
+    setCell(databaseId, page.id, LC_SCHEDULER_COLUMN_IDS.color, input.color);
+  }
+  const colorMeta = useCardColorOverride
+    ? setSchedulerTaskCardColor(meta, targetAssigneeId, input.color, input.textColor)
+    : {
+        ...meta,
+        textColor: input.textColor !== undefined ? input.textColor : meta.textColor,
+      };
   const nextMeta = setSchedulerTaskRowIndex(
-    {
-      ...meta,
-      textColor: input.textColor !== undefined ? input.textColor : meta.textColor,
-    },
+    colorMeta,
     input.assigneeId ?? parsed.assigneeId,
     input.rowIndex,
   );

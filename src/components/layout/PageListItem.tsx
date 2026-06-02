@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
   ChevronRight,
@@ -7,6 +8,8 @@ import {
   Trash2,
   Check,
   ArrowUpToLine,
+  CopyPlus,
+  History,
   MoveRight,
   RotateCcw,
 } from "lucide-react";
@@ -32,6 +35,34 @@ type Props = {
   // 드롭 힌트: before/after=행 위·아래 파란 선, child-first/-last=파란 링+가이드, disabled=빨간 링
   dropTarget: { id: string; mode: SidebarDropMode } | null;
 };
+
+type ContextMenuPosition = { x: number; y: number };
+
+const PAGE_CONTEXT_MENU_WIDTH = 208;
+const PAGE_CONTEXT_MENU_HEIGHT = 240;
+const PAGE_CONTEXT_MENU_WITH_HISTORY_HEIGHT = 440;
+const CONTEXT_MENU_PADDING = 8;
+
+function clampFixedMenuPosition(
+  position: ContextMenuPosition,
+  width: number,
+  height: number,
+) {
+  const visualViewport = window.visualViewport;
+  const viewportLeft = visualViewport?.offsetLeft ?? 0;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const viewportWidth = visualViewport?.width ?? window.innerWidth;
+  const viewportHeight = visualViewport?.height ?? window.innerHeight;
+  const minLeft = viewportLeft + CONTEXT_MENU_PADDING;
+  const minTop = viewportTop + CONTEXT_MENU_PADDING;
+  const maxLeft = viewportLeft + viewportWidth - width - CONTEXT_MENU_PADDING;
+  const maxTop = viewportTop + viewportHeight - height - CONTEXT_MENU_PADDING;
+
+  return {
+    left: Math.max(minLeft, Math.min(position.x + viewportLeft, Math.max(minLeft, maxLeft))),
+    top: Math.max(minTop, Math.min(position.y + viewportTop, Math.max(minTop, maxTop))),
+  };
+}
 
 function dropHintForRow(
   dt: Props["dropTarget"],
@@ -81,6 +112,7 @@ const PageListItemInner = function PageListItem({
   const renamePage = usePageStore((s) => s.renamePage);
   const deletePage = usePageStore((s) => s.deletePage);
   const createPage = usePageStore((s) => s.createPage);
+  const duplicatePage = usePageStore((s) => s.duplicatePage);
   const movePage = usePageStore((s) => s.movePage);
   const activePageId = usePageStore((s) => s.activePageId);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
@@ -92,11 +124,12 @@ const PageListItemInner = function PageListItem({
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(node.title);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuOpen = menuPosition !== null;
 
   const {
     attributes,
@@ -127,7 +160,7 @@ const PageListItemInner = function PageListItem({
   useEffect(() => {
     if (!menuOpen) return;
     const onClick = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+      if (!menuRef.current?.contains(e.target as Node)) setMenuPosition(null);
     };
     window.addEventListener("mousedown", onClick);
     return () => window.removeEventListener("mousedown", onClick);
@@ -146,6 +179,22 @@ const PageListItemInner = function PageListItem({
   const isChild = mode === "child-first" || mode === "child-last";
   const isDisabled = mode === "disabled";
   const rowDragEnabled = draggable && !menuOpen && !editing;
+  const menuStyle = menuPosition
+    ? clampFixedMenuPosition(
+        menuPosition,
+        PAGE_CONTEXT_MENU_WIDTH,
+        historyOpen ? PAGE_CONTEXT_MENU_WITH_HISTORY_HEIGHT : PAGE_CONTEXT_MENU_HEIGHT,
+      )
+    : undefined;
+
+  const handleDuplicatePage = () => {
+    const newId = duplicatePage(node.id);
+    if (newId) {
+      setCurrentTabPage(newId);
+      setActivePage(newId);
+    }
+    setMenuPosition(null);
+  };
 
   const rowPadLeft = depth * 14;
   const childGuideLeft = (depth + 1) * 14;
@@ -175,7 +224,7 @@ const PageListItemInner = function PageListItem({
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setMenuOpen(true);
+          setMenuPosition({ x: e.clientX, y: e.clientY });
         }}
       >
         {hasChildren ? (
@@ -294,63 +343,54 @@ const PageListItemInner = function PageListItem({
             aria-hidden
           />
         )}
-        {menuOpen && (
+        {menuOpen && menuStyle ? createPortal(
           <div
             ref={menuRef}
+            role="menu"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="absolute right-1 top-full z-30 mt-0.5 w-44 rounded-md border border-zinc-200 bg-white py-1 text-xs shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            className="fixed z-[900] w-52 rounded-md border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            style={menuStyle}
           >
             <button
               type="button"
+              role="menuitem"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => {
-                createPage("새 페이지", node.id);
-                setExpanded(node.id, true);
-                setMenuOpen(false);
-              }}
+              onClick={handleDuplicatePage}
               className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              <Plus size={12} /> 하위 페이지 추가
+              <CopyPlus size={12} /> <span>페이지 복제</span>
             </button>
             <button
               type="button"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => {
-                setEditing(true);
-                setMenuOpen(false);
-              }}
-              className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            >
-              이름 변경
-            </button>
-            <button
-              type="button"
+              role="menuitem"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
                 onMove(node.id);
-                setMenuOpen(false);
+                setMenuPosition(null);
               }}
               className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              <MoveRight size={12} /> 다른 페이지로 이동
+              <MoveRight size={12} /> <span>다른 페이지로 이동</span>
             </button>
             {node.parentId !== null && (
               <button
                 type="button"
+                role="menuitem"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => {
                   movePage(node.id, null, Number.MAX_SAFE_INTEGER);
-                  setMenuOpen(false);
+                  setMenuPosition(null);
                 }}
                 className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >
-                <ArrowUpToLine size={12} /> 루트로 이동
+                <ArrowUpToLine size={12} /> <span>루트로 이동</span>
               </button>
             )}
             <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
             <button
               type="button"
+              role="menuitem"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
                 void (async () => {
@@ -362,21 +402,22 @@ const PageListItemInner = function PageListItem({
                     await store.restorePageHistoryEvent(node.id, node.workspaceId, latest.historyId);
                   }
                 })();
-                setMenuOpen(false);
+                setMenuPosition(null);
               }}
               className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              <RotateCcw size={12} /> 최근 버전으로 복원
+              <RotateCcw size={12} /> <span>최근 버전으로 복원</span>
             </button>
             <button
               type="button"
+              role="menuitem"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
                 setHistoryOpen((v) => !v);
               }}
               className="flex w-full items-center gap-2 px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
-              버전 히스토리
+              <History size={12} /> <span>버전 히스토리</span>
             </button>
             {historyOpen && (
               node.workspaceId ? (
@@ -384,7 +425,7 @@ const PageListItemInner = function PageListItem({
                   pageId={node.id}
                   workspaceId={node.workspaceId}
                   onClose={() => {
-                    setMenuOpen(false);
+                    setMenuPosition(null);
                     setHistoryOpen(false);
                   }}
                 />
@@ -392,19 +433,21 @@ const PageListItemInner = function PageListItem({
             )}
             <button
               type="button"
+              role="menuitem"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setMenuOpen(false);
+                setMenuPosition(null);
                 setDeleteConfirmOpen(true);
               }}
               className="flex w-full items-center gap-2 px-2 py-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
             >
-              <Trash2 size={12} /> 삭제
+              <Trash2 size={12} /> <span>삭제</span>
             </button>
-          </div>
-        )}
+          </div>,
+          document.body,
+        ) : null}
       </div>
       <SimpleConfirmDialog
         open={deleteConfirmOpen}

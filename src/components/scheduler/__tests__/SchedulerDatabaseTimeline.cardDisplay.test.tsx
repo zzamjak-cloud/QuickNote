@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { emptyPanelState, type DatabasePanelState } from "../../../types/database";
@@ -7,6 +7,8 @@ import { usePageStore } from "../../../store/pageStore";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { LC_FEATURE_COLUMN_IDS, makeLCFeatureDatabaseId } from "../../../lib/scheduler/featureDatabase";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
+import { COLOR_PRESETS } from "../../../lib/scheduler/colors";
+import { TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID } from "../../../lib/database/timelineCardColor";
 import { SchedulerDatabaseTimeline } from "../SchedulerDatabaseTimeline";
 
 class ResizeObserverStub {
@@ -50,7 +52,12 @@ vi.mock("@dnd-kit/utilities", () => ({
   },
 }));
 
-function seedFeatureTimeline(panelState: DatabasePanelState) {
+function seedFeatureTimeline(
+  panelState: DatabasePanelState,
+  rows: Array<{ id: string; title: string; owner: string }> = [
+    { id: "feature-1", title: "Feature card", owner: "Member 1" },
+  ],
+) {
   const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
   useDatabaseStore.setState({
     databases: {
@@ -58,46 +65,49 @@ function seedFeatureTimeline(panelState: DatabasePanelState) {
         meta: {
           id: databaseId,
           workspaceId: LC_SCHEDULER_WORKSPACE_ID,
-          title: "피처",
+          title: "Features",
           createdAt: 1,
           updatedAt: 1,
         },
         columns: [
-          { id: LC_FEATURE_COLUMN_IDS.title, name: "피처", type: "title" },
-          { id: LC_FEATURE_COLUMN_IDS.workStart, name: "작업 기간", type: "date" },
-          { id: "owner", name: "담당", type: "text" },
+          { id: LC_FEATURE_COLUMN_IDS.title, name: "Feature", type: "title" },
+          { id: LC_FEATURE_COLUMN_IDS.workStart, name: "Work period", type: "date" },
+          { id: "owner", name: "Owner", type: "text" },
         ],
         panelState,
-        rowPageOrder: ["feature-1"],
+        rowPageOrder: rows.map((row) => row.id),
       },
     },
     cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
   });
   usePageStore.setState({
-    pages: {
-      "feature-1": {
-        id: "feature-1",
-        workspaceId: LC_SCHEDULER_WORKSPACE_ID,
-        title: "피처 카드",
-        icon: null,
-        doc: { type: "doc", content: [] },
-        parentId: null,
-        order: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        databaseId,
-        dbCells: {
-          [LC_FEATURE_COLUMN_IDS.workStart]: { start: "2026-05-07", end: "2026-05-11" },
-          owner: "홍길동",
+    pages: Object.fromEntries(
+      rows.map((row, index) => [
+        row.id,
+        {
+          id: row.id,
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          title: row.title,
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: index + 1,
+          createdAt: 1,
+          updatedAt: 1,
+          databaseId,
+          dbCells: {
+            [LC_FEATURE_COLUMN_IDS.workStart]: { start: "2026-05-07", end: "2026-05-11" },
+            owner: row.owner,
+          },
         },
-      },
-    },
+      ]),
+    ),
     activePageId: null,
     cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
   });
 }
 
-describe("SchedulerDatabaseTimeline 카드 표시 속성", () => {
+describe("SchedulerDatabaseTimeline card display properties", () => {
   beforeEach(() => {
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
     localStorage.clear();
@@ -113,7 +123,7 @@ describe("SchedulerDatabaseTimeline 카드 표시 속성", () => {
     });
   });
 
-  it("피처 DB 카드도 타임라인 표시 설정의 표시 컬럼을 보조 정보로 사용한다", () => {
+  it("uses timeline display settings as supplementary card info", () => {
     seedFeatureTimeline({
       ...emptyPanelState(),
       viewConfigs: {
@@ -124,10 +134,10 @@ describe("SchedulerDatabaseTimeline 카드 표시 속성", () => {
     render(<SchedulerDatabaseTimeline mode="feature" workspaceId={LC_SCHEDULER_WORKSPACE_ID} />);
 
     expect(screen.queryByText("5/7 ~ 5/11")).not.toBeNull();
-    expect(screen.queryByText("홍길동")).not.toBeNull();
+    expect(screen.queryByText("Member 1")).not.toBeNull();
   });
 
-  it("피처 DB 카드도 hiddenColumnIds에 날짜 컬럼이 있으면 기간 텍스트를 숨긴다", () => {
+  it("hides the date label when the date column is hidden", () => {
     seedFeatureTimeline({
       ...emptyPanelState(),
       viewConfigs: {
@@ -141,6 +151,59 @@ describe("SchedulerDatabaseTimeline 카드 표시 속성", () => {
     render(<SchedulerDatabaseTimeline mode="feature" workspaceId={LC_SCHEDULER_WORKSPACE_ID} />);
 
     expect(screen.queryByText("5/7 ~ 5/11")).toBeNull();
-    expect(screen.queryByText("홍길동")).not.toBeNull();
+    expect(screen.queryByText("Member 1")).not.toBeNull();
+  });
+
+  it("changes only the selected timeline card color from the context menu", () => {
+    const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    seedFeatureTimeline(
+      {
+        ...emptyPanelState(),
+        timelineDateColumnId: LC_FEATURE_COLUMN_IDS.workStart,
+      },
+      [
+        { id: "feature-1", title: "Feature card", owner: "Member 1" },
+        { id: "feature-2", title: "Feature card 2", owner: "Member 2" },
+      ],
+    );
+
+    render(<SchedulerDatabaseTimeline mode="feature" workspaceId={LC_SCHEDULER_WORKSPACE_ID} />);
+
+    const cardTitle = screen
+      .getAllByText("Feature card")
+      .find((element) => element.closest(".cursor-grab"));
+    expect(cardTitle).toBeDefined();
+
+    const cardElement = cardTitle!.closest(".cursor-grab") as HTMLElement;
+    const event = createEvent.mouseDown(cardElement, {
+      button: 2,
+      clientX: 100,
+      clientY: 120,
+    });
+    fireEvent(cardElement, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    const cardWrapper = cardElement.closest("[data-scheduler-db-timeline-card='true']");
+    expect(cardWrapper).not.toBeNull();
+    const contextMenuEvent = createEvent.contextMenu(cardWrapper as HTMLElement, {
+      clientX: 100,
+      clientY: 120,
+    });
+    fireEvent(cardWrapper as HTMLElement, contextMenuEvent);
+    expect(contextMenuEvent.defaultPrevented).toBe(true);
+
+    const nextColor = COLOR_PRESETS[0];
+    fireEvent.click(screen.getByTitle(nextColor));
+
+    const pages = usePageStore.getState().pages;
+    expect(pages["feature-1"]?.dbCells?.[TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID]).toEqual({
+      [LC_FEATURE_COLUMN_IDS.workStart]: nextColor,
+    });
+    expect(pages["feature-2"]?.dbCells?.[TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID]).toBeUndefined();
+    const column = useDatabaseStore
+      .getState()
+      .databases[databaseId]
+      ?.columns.find((candidate) => candidate.id === LC_FEATURE_COLUMN_IDS.workStart);
+    expect(column?.config?.timelineCard?.color).toBeUndefined();
   });
 });

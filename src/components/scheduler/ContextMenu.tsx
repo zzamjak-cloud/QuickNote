@@ -3,6 +3,12 @@ import { Palette, Search, UserCog, ChevronRight } from "lucide-react";
 import { COLOR_PRESETS, DEFAULT_SCHEDULE_COLOR } from "../../lib/scheduler/colors";
 import type { Member } from "../../store/memberStore";
 
+export const SCHEDULER_CONTEXT_MENU_OPEN_EVENT = "quicknote:scheduler-context-menu-open";
+
+export function announceSchedulerContextMenuOpen() {
+  window.dispatchEvent(new Event(SCHEDULER_CONTEXT_MENU_OPEN_EVENT));
+}
+
 type Props = {
   x: number;
   y: number;
@@ -13,6 +19,22 @@ type Props = {
   onTransfer?: (memberId: string) => void;
   onClose: () => void;
 };
+
+function normalizeColorForCompare(color: string): string {
+  return color.trim().toLowerCase();
+}
+
+function uniqueColorOptions(colors: string[]): string[] {
+  const seen = new Set<string>();
+  const options: string[] = [];
+  for (const color of colors) {
+    const key = normalizeColorForCompare(color);
+    if (!/^#[0-9a-f]{6}$/.test(key) || seen.has(key)) continue;
+    seen.add(key);
+    options.push(color);
+  }
+  return options;
+}
 
 export function ContextMenu({
   x,
@@ -37,15 +59,28 @@ export function ContextMenu({
         onClose();
       }
     };
+    const handleContextMenu = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
+      if (menuRef.current?.contains(e.target as Node)) {
+        e.preventDefault();
+        return;
+      }
+      onClose();
+    };
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
+    const handleAnotherContextMenuOpen = () => onClose();
 
-    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside, true);
+    document.addEventListener("contextmenu", handleContextMenu, true);
     document.addEventListener("keydown", handleEscape);
+    window.addEventListener(SCHEDULER_CONTEXT_MENU_OPEN_EVENT, handleAnotherContextMenuOpen);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside, true);
+      document.removeEventListener("contextmenu", handleContextMenu, true);
       document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener(SCHEDULER_CONTEXT_MENU_OPEN_EVENT, handleAnotherContextMenuOpen);
     };
   }, [onClose]);
 
@@ -76,7 +111,8 @@ export function ContextMenu({
         member.name.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : transferableMembers;
-  const colorOptions = Array.from(new Set([DEFAULT_SCHEDULE_COLOR, ...COLOR_PRESETS]));
+  const normalizedCurrentColor = normalizeColorForCompare(currentColor);
+  const colorOptions = uniqueColorOptions([DEFAULT_SCHEDULE_COLOR, ...COLOR_PRESETS, currentColor]);
 
   return (
     <div
@@ -99,7 +135,7 @@ export function ContextMenu({
               onClose();
             }}
             className={`w-7 h-7 rounded-md border-2 transition-transform hover:scale-110 ${
-              currentColor === color
+              normalizedCurrentColor === normalizeColorForCompare(color)
                 ? "border-white ring-2 ring-blue-500"
                 : "border-transparent hover:border-zinc-400"
             }`}
@@ -120,7 +156,7 @@ export function ContextMenu({
           type="text"
           value={customColor}
           onChange={(e) => setCustomColor(e.target.value)}
-          className="flex-1 px-2 py-1 text-xs font-mono border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+          className="flex-1 px-2 py-1 text-sm font-mono border border-zinc-300 dark:border-zinc-600 rounded bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
         />
         <button
           type="button"
@@ -129,7 +165,7 @@ export function ContextMenu({
             onColorChange(customColor);
             onClose();
           }}
-          className="px-2 py-1 text-xs rounded bg-blue-500 hover:bg-blue-600 text-white"
+          className="px-2 py-1 text-sm rounded bg-blue-500 hover:bg-blue-600 text-white"
         >
           적용
         </button>

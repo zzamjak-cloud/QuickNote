@@ -754,7 +754,7 @@ export const usePageStore = create<PageStore>()(
                   threadVisitedAt: { ...orig.blockComments.threadVisitedAt },
                 }
               : undefined,
-            title: isRoot ? `${orig.title} (복사본)` : orig.title,
+            title: isRoot ? `${orig.title} (Copy)` : orig.title,
             parentId: isRoot
               ? orig.parentId
               : cloneMap.get(orig.parentId ?? "") ?? orig.parentId,
@@ -819,7 +819,7 @@ export const usePageStore = create<PageStore>()(
             doc: structuredClone(orig.doc),
             dbCells: orig.dbCells ? structuredClone(orig.dbCells) : orig.dbCells,
             blockComments: undefined,
-            title: isRoot ? `${orig.title} (복사본)` : orig.title,
+            title: isRoot ? `${orig.title} (Copy)` : orig.title,
             workspaceId: targetWorkspaceId || undefined,
             parentId: isRoot ? null : (cloneMap.get(orig.parentId ?? "") ?? null),
             order: orig.order,

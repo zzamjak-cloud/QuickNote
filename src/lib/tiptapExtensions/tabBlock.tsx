@@ -627,7 +627,7 @@ const TabBlockView = memo(function TabBlockView({
                 <button
                   type="button"
                   onClick={() => renameTab(tabMenuIndex)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
                   <Edit3 size={14} className="shrink-0" />
                   이름 변경
@@ -635,7 +635,7 @@ const TabBlockView = memo(function TabBlockView({
                 <button
                   type="button"
                   onClick={() => openIconPicker(tabMenuIndex)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
                   <ImagePlus size={14} className="shrink-0" />
                   아이콘
@@ -647,7 +647,7 @@ const TabBlockView = memo(function TabBlockView({
                       updateTabAttrs(tabMenuIndex, { icon: null });
                       setTabMenuIndex(null);
                     }}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                   >
                     <ImagePlus size={14} className="shrink-0" />
                     아이콘 제거
@@ -656,7 +656,7 @@ const TabBlockView = memo(function TabBlockView({
                 <button
                   type="button"
                   onClick={() => copyTabLink(tabMenuIndex)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
                   <Copy size={14} className="shrink-0" />
                   링크 복사
@@ -664,7 +664,7 @@ const TabBlockView = memo(function TabBlockView({
                 <button
                   type="button"
                   onClick={() => deleteTab(tabMenuIndex)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40"
                 >
                   <Trash2 size={14} className="shrink-0" />
                   삭제
@@ -742,7 +742,7 @@ const TabBlockView = memo(function TabBlockView({
                       type="button"
                       onClick={() => setPlacement(item.value)}
                       className={[
-                        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs",
+                        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm",
                         placement === item.value
                           ? "bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50"
                           : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-50",

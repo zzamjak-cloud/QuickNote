@@ -64,6 +64,8 @@ function App() {
   );
   const tabDatabaseId = activeTab.databaseId ?? null;
   const tabPageId = tabDatabaseId ? null : activeTab.pageId ?? null;
+  const tabRefreshKey = activeTab.refreshKey ?? 0;
+  const activeTabContentKey = `${activeTabIndex}:${tabDatabaseId ?? tabPageId ?? "empty"}:${tabRefreshKey}`;
   const tabDatabaseTitle = useDatabaseStore((s) =>
     tabDatabaseId ? (s.databases[tabDatabaseId]?.meta.title ?? null) : null,
   );
@@ -377,11 +379,13 @@ function App() {
           <TopBar />
           {tabDatabaseId ? (
             <DatabaseDirectPage
+              key={activeTabContentKey}
               databaseId={tabDatabaseId}
               pageId={tabDatabasePageId ?? undefined}
             />
           ) : activePage?.databaseId ? (
             <div
+              key={activeTabContentKey}
               ref={databaseRowScrollHostRef}
               data-qn-scroll-page-id={activePageId ?? undefined}
               data-qn-scroll-scope="db-row"
@@ -393,7 +397,7 @@ function App() {
               <ScrollToTopButton scrollRef={databaseRowScrollHostRef} position="fixed" />
             </div>
           ) : (
-            <Editor />
+            <Editor key={activeTabContentKey} />
           )}
         </div>
         <FavoritesPanel />

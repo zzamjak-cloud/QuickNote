@@ -1,4 +1,16 @@
-import { ChevronLeft, ChevronRight, Copy, CopyPlus, Database, ListTree, Plus, Star, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  CopyPlus,
+  Database,
+  ListTree,
+  Plus,
+  RefreshCw,
+  Star,
+  Undo2,
+  X,
+} from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePageStore } from "../../store/pageStore";
@@ -13,6 +25,30 @@ import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 
 const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
+const TAB_CONTEXT_MENU_WIDTH = 224;
+const TAB_CONTEXT_MENU_HEIGHT = 224;
+const CONTEXT_MENU_PADDING = 8;
+
+function clampFixedMenuPosition(
+  position: { x: number; y: number },
+  width: number,
+  height: number,
+) {
+  const visualViewport = window.visualViewport;
+  const viewportLeft = visualViewport?.offsetLeft ?? 0;
+  const viewportTop = visualViewport?.offsetTop ?? 0;
+  const viewportWidth = visualViewport?.width ?? window.innerWidth;
+  const viewportHeight = visualViewport?.height ?? window.innerHeight;
+  const minLeft = viewportLeft + CONTEXT_MENU_PADDING;
+  const minTop = viewportTop + CONTEXT_MENU_PADDING;
+  const maxLeft = viewportLeft + viewportWidth - width - CONTEXT_MENU_PADDING;
+  const maxTop = viewportTop + viewportHeight - height - CONTEXT_MENU_PADDING;
+
+  return {
+    left: Math.max(minLeft, Math.min(position.x + viewportLeft, Math.max(minLeft, maxLeft))),
+    top: Math.max(minTop, Math.min(position.y + viewportTop, Math.max(minTop, maxTop))),
+  };
+}
 
 type LCSchedulerModalModule = typeof import("../scheduler/LCSchedulerModal");
 
@@ -68,6 +104,9 @@ export function TabBar() {
   const closeTab = useSettingsStore((s) => s.closeTab);
   const openTab = useSettingsStore((s) => s.openTab);
   const duplicateTab = useSettingsStore((s) => s.duplicateTab);
+  const refreshTab = useSettingsStore((s) => s.refreshTab);
+  const reopenLastClosedTab = useSettingsStore((s) => s.reopenLastClosedTab);
+  const lastClosedTab = useSettingsStore((s) => s.lastClosedTab);
   const prevTab = useSettingsStore((s) => s.prevTab);
   const nextTab = useSettingsStore((s) => s.nextTab);
   const pages = usePageStore((s) => s.pages);
@@ -241,12 +280,34 @@ export function TabBar() {
         <div
           ref={tabMenuRef}
           role="menu"
-          className="fixed z-[900] w-40 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-          style={{
-            left: Math.min(tabMenu.x, window.innerWidth - 168),
-            top: Math.min(tabMenu.y, window.innerHeight - 92),
-          }}
+          className="fixed z-[900] w-56 rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          style={clampFixedMenuPosition(tabMenu, TAB_CONTEXT_MENU_WIDTH, TAB_CONTEXT_MENU_HEIGHT)}
         >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              refreshTab(tabMenu.index);
+              setTabMenu(null);
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <RefreshCw size={14} className="shrink-0" />
+            <span>탭 새로고침</span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              reopenLastClosedTab();
+              setTabMenu(null);
+            }}
+            disabled={!lastClosedTab}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <Undo2 size={14} className="shrink-0" />
+            <span>마지막으로 닫은 탭 다시 열기</span>
+          </button>
           <button
             type="button"
             role="menuitem"

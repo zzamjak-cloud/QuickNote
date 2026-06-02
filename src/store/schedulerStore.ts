@@ -85,6 +85,7 @@ export type UpdateScheduleInput = {
   endAt?: string | null;
   assigneeId?: string | null;
   color?: string | null;
+  colorScope?: "row" | "card";
   textColor?: string | null;
   rowIndex?: number | null;
 };

@@ -1036,7 +1036,7 @@ export function BlockHandles({
                             key={p.id}
                             type="button"
                             onClick={() => applyCalloutPreset(p.id)}
-                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                           >
                             <span className="w-6 shrink-0 text-center text-base leading-6">
                               {p.emoji || "·"}
@@ -1079,7 +1079,7 @@ export function BlockHandles({
                             key={p.id}
                             type="button"
                             onClick={() => applyColumnLayoutPreset(p.id)}
-                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                           >
                             <span className="w-6 shrink-0 text-center text-base leading-6">
                               {p.emoji || "·"}
@@ -1153,7 +1153,7 @@ export function BlockHandles({
                         <button
                           type="button"
                           onClick={() => applyBlockTextColor(null)}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                         >
                           <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-300 text-[10px] text-zinc-400 dark:border-zinc-600">✕</span>
                           <span className="text-zinc-700 dark:text-zinc-300">텍스트 색상 제거</span>
@@ -1164,7 +1164,7 @@ export function BlockHandles({
                             key={p.id}
                             type="button"
                             onClick={() => applyBlockTextColor(p.id)}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                           >
                             <span
                               className="inline-block h-4 w-4 shrink-0 rounded-sm border border-zinc-200 dark:border-zinc-700"
@@ -1202,7 +1202,7 @@ export function BlockHandles({
                         <button
                           type="button"
                           onClick={() => applyBlockBackground(null)}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                         >
                           <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-300 dark:border-zinc-600 text-zinc-400 text-[10px]">✕</span>
                           <span className="text-zinc-700 dark:text-zinc-300">배경색 제거</span>
@@ -1213,7 +1213,7 @@ export function BlockHandles({
                             key={p.id}
                             type="button"
                             onClick={() => applyBlockBackground(p.id)}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                           >
                             <span
                               className="inline-block h-4 w-4 shrink-0 rounded-sm border border-zinc-200 dark:border-zinc-700"

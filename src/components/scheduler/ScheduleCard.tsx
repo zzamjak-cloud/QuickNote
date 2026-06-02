@@ -1,6 +1,6 @@
 // 일정 카드 — react-rnd로 드래그(이동)·리사이즈(좌우) 지원.
 // Phase 2: x축 드래그 이동 + 좌/우 핸들 리사이즈. 수직 이동 비활성.
-import { useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Rnd } from "react-rnd";
 import { ExternalLink } from "lucide-react";
@@ -21,7 +21,7 @@ import {
   GLOBAL_EVENT_COLOR,
   pickTextColor,
 } from "../../lib/scheduler/colors";
-import { ContextMenu } from "./ContextMenu";
+import { ContextMenu, announceSchedulerContextMenuOpen } from "./ContextMenu";
 import {
   getScheduleCardContentOffset,
   getScheduleScopeName,
@@ -51,6 +51,13 @@ type Props = {
 };
 
 type TooltipPos = { top: number; left: number; placement?: "above" | "below" };
+type ContextPointerEvent = {
+  button?: number;
+  clientX: number;
+  clientY: number;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+};
 
 export function ScheduleCard({
   schedule,
@@ -379,12 +386,63 @@ export function ScheduleCard({
         workspaceId: schedule.workspaceId,
         color,
         textColor: pickTextColor(color),
+        colorScope: "card",
       }).catch(() => {
         window.alert("색상 변경에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       });
     },
     [schedule.id, schedule.workspaceId, updateSchedule],
   );
+
+  const openContextMenu = useCallback(
+    (event: ContextPointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      announceSchedulerContextMenuOpen();
+      onSelect(schedule.id);
+      setTooltipPos(null);
+      setContextMenuPos({ left: event.clientX, top: event.clientY });
+    },
+    [onSelect, schedule.id],
+  );
+
+  const handleContextMenu = useCallback(
+    (e: ReactMouseEvent<HTMLElement>) => openContextMenu(e),
+    [openContextMenu],
+  );
+
+  const handleRndMouseDown = useCallback(
+    (e: MouseEvent) => {
+      if (e.button === 2) {
+        openContextMenu(e);
+      }
+    },
+    [openContextMenu],
+  );
+
+  const handleCardMouseDown = useCallback(
+    (e: ReactMouseEvent<HTMLElement>) => {
+      if (e.button === 2) {
+        openContextMenu(e);
+        return;
+      }
+      if (!isMultiSelected) {
+        onSelect(schedule.id);
+      }
+    },
+    [isMultiSelected, onSelect, openContextMenu, schedule.id],
+  );
+
+  useEffect(() => {
+    const handleNativeContextMenu = (event: MouseEvent) => {
+      const element = rndRef.current?.getSelfElement();
+      if (!element || !(event.target instanceof Node) || !element.contains(event.target)) return;
+      openContextMenu(event);
+    };
+
+    document.addEventListener("contextmenu", handleNativeContextMenu, true);
+    return () => document.removeEventListener("contextmenu", handleNativeContextMenu, true);
+  }, [openContextMenu]);
 
   const handleDuplicate = useCallback(() => {
     const schedules = useSchedulerStore.getState().schedules;
@@ -482,6 +540,8 @@ export function ScheduleCard({
         onDragStop={handleDragStop}
         onResizeStart={handleResizeStart}
         onResizeStop={handleResizeStop}
+        onContextMenu={handleContextMenu}
+        onMouseDown={handleRndMouseDown}
         // 리사이즈 핸들 커서 스타일
         resizeHandleStyles={{
           left: { cursor: "ew-resize", width: 8, left: 0 },
@@ -503,21 +563,12 @@ export function ScheduleCard({
         <div
           className="relative w-full h-full overflow-hidden"
           style={{ backgroundColor: color, color: textColor }}
-          onMouseDown={() => {
-            if (!isMultiSelected) {
-              onSelect(schedule.id);
-            }
-          }}
+          onMouseDown={handleCardMouseDown}
           onClick={(e) => {
             e.stopPropagation();
             onSelect(schedule.id);
           }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onSelect(schedule.id);
-            setContextMenuPos({ left: e.clientX, top: e.clientY });
-          }}
+          onContextMenu={handleContextMenu}
           onDoubleClick={() => onEdit(schedule.id)}
         >
           <div

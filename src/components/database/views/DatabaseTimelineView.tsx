@@ -50,6 +50,12 @@ import {
 } from "../timelineCardStickyOffset";
 import { SELECT_COLOR_PRESETS } from "../selectColorPresets";
 import { buildTimelineCardConfigPatch } from "./timelineCardConfig";
+import { ContextMenu, announceSchedulerContextMenuOpen } from "../../scheduler/ContextMenu";
+import {
+  makeTimelineCardColorOverrides,
+  resolveTimelineCardColor,
+  TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID,
+} from "../../../lib/database/timelineCardColor";
 
 type Props = {
   databaseId: string;
@@ -107,6 +113,14 @@ type TimelineDateEntry = {
   title: string;
   color: string;
   isPrimary: boolean;
+};
+
+type ContextPointerEvent = {
+  button?: number;
+  clientX: number;
+  clientY: number;
+  preventDefault: () => void;
+  stopPropagation: () => void;
 };
 
 const fmtDate = (ts: number) => {
@@ -436,6 +450,30 @@ export function DatabaseTimelineView({
     [databaseId, updateColumn],
   );
 
+  const updateTimelineCardColor = useCallback(
+    (card: TimelineCardLayout, color: string) => {
+      updateCell(
+        databaseId,
+        card.pageId,
+        TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID,
+        makeTimelineCardColorOverrides(card.row.cells, card.columnId, color),
+      );
+    },
+    [databaseId, updateCell],
+  );
+
+  useEffect(() => {
+    const handleNativeContextMenu = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      if (event.target.closest("[data-db-timeline-card='true']")) {
+        event.preventDefault();
+      }
+    };
+
+    document.addEventListener("contextmenu", handleNativeContextMenu, true);
+    return () => document.removeEventListener("contextmenu", handleNativeContextMenu, true);
+  }, []);
+
   const setTimelineColumnEnabled = useCallback(
     (column: ColumnDef, enabled: boolean) => {
       if (enabled && !hasExplicitTimelineCards && primaryDateCol && primaryDateCol.id !== column.id) {
@@ -623,7 +661,7 @@ export function DatabaseTimelineView({
           columnId: entry.columnId,
           columnName: entry.columnName,
           title: cardTitle,
-          color: entry.color,
+          color: resolveTimelineCardColor(row.cells, entry.columnId, entry.color),
           start: visStart,
           end: visEnd,
           left,
@@ -650,7 +688,7 @@ export function DatabaseTimelineView({
             columnId: entry.columnId,
             columnName: entry.columnName,
             title: cardTitle,
-            color: entry.color,
+            color: resolveTimelineCardColor(row.cells, entry.columnId, entry.color),
             start: axis.minT,
             end: axis.minT,
             left: UNSCHEDULED_CARD_LEFT,
@@ -1447,6 +1485,7 @@ export function DatabaseTimelineView({
                     onOpenPeek={openPeek}
                     onMove={(targetCard, deltaDays) => moveCardsByDays([targetCard.id], deltaDays)}
                     onResize={(targetCard, start, end) => commitRange(targetCard, start, end)}
+                    onColorChange={updateTimelineCardColor}
                     onMultiDragStart={() => {
                       setIsMultiDragging(true);
                       setMultiDragDeltaX(0);
@@ -1525,6 +1564,7 @@ function DatabaseTimelineCard({
   onOpenPeek,
   onMove,
   onResize,
+  onColorChange,
   onMultiDragStart,
   onMultiDragMove,
   onMultiDragEnd,
@@ -1545,6 +1585,7 @@ function DatabaseTimelineCard({
   onOpenPeek: (pageId: string) => void;
   onMove: (card: TimelineCardLayout, deltaDays: number) => void;
   onResize: (card: TimelineCardLayout, start: number, end: number) => void;
+  onColorChange: (card: TimelineCardLayout, color: string) => void;
   onMultiDragStart: () => void;
   onMultiDragMove: (deltaX: number) => void;
   onMultiDragEnd: (deltaDays: number) => void;
@@ -1557,6 +1598,7 @@ function DatabaseTimelineCard({
   const resizeStartRef = useRef<{ startIdx: number; endIdx: number } | null>(null);
   // 호버 툴팁 위치 — LC 스케줄러 카드와 동일한 상세 속성 툴팁을 띄운다.
   const [tipPos, setTipPos] = useState<{ top: number; left: number; placeAbove: boolean } | null>(null);
+  const [contextMenuPos, setContextMenuPos] = useState<{ left: number; top: number } | null>(null);
 
   useLayoutEffect(() => {
     // 미등록(날짜 없음) 카드는 가로 스크롤과 무관하게 항상 항목열 우측에 고정한다.
@@ -1583,6 +1625,43 @@ function DatabaseTimelineCard({
   const labelTextClassName = card.isUnscheduled
     ? "text-zinc-500 dark:text-zinc-400"
     : "text-white/80";
+
+  const openContextMenu = useCallback(
+    (event: ContextPointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      announceSchedulerContextMenuOpen();
+      setTipPos(null);
+      onSelect(card);
+      setContextMenuPos({ left: event.clientX, top: event.clientY });
+    },
+    [card, onSelect],
+  );
+
+  const handleContextMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => openContextMenu(event),
+    [openContextMenu],
+  );
+
+  const handleRndMouseDown = useCallback(
+    (event: MouseEvent) => {
+      if (event.button === 2) {
+        openContextMenu(event);
+      }
+    },
+    [openContextMenu],
+  );
+
+  const handleCardMouseDown = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (event.button === 2) {
+        openContextMenu(event);
+        return;
+      }
+      onSelect(card);
+    },
+    [card, onSelect, openContextMenu],
+  );
 
   return (
     <>
@@ -1620,6 +1699,7 @@ function DatabaseTimelineCard({
       }}
       onDragStart={() => {
         dragMovedRef.current = false;
+        setContextMenuPos(null);
         if (multiSelected) onMultiDragStart();
       }}
       onDrag={(_event, data) => {
@@ -1656,6 +1736,7 @@ function DatabaseTimelineCard({
       }}
       onResizeStart={() => {
         if (card.isUnscheduled) return;
+        setContextMenuPos(null);
         lockScroll();
         const startIdx = Math.round((card.start - axisMinT) / DAY_MS);
         const endIdx = Math.max(startIdx, Math.round((card.end - axisMinT) / DAY_MS));
@@ -1680,6 +1761,8 @@ function DatabaseTimelineCard({
         setLocalW(Math.max(safePxPerDay, (nextEndIdx - nextStartIdx + 1) * safePxPerDay));
         onResize(card, nextStart, nextEnd);
       }}
+      onMouseDown={handleRndMouseDown}
+      onContextMenu={handleContextMenu}
       style={{ position: "absolute" }}
       className={[
         "group select-none overflow-visible rounded-xl border-2 shadow-sm transition-[border-color,box-shadow,opacity] hover:shadow-md",
@@ -1700,7 +1783,8 @@ function DatabaseTimelineCard({
           card.isUnscheduled ? "bg-white dark:bg-zinc-950" : "",
         ].join(" ")}
         style={card.isUnscheduled ? undefined : { background: card.color }}
-        onMouseDown={() => onSelect(card)}
+        onMouseDown={handleCardMouseDown}
+        onContextMenu={handleContextMenu}
         onMouseEnter={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const placeAbove = rect.top > window.innerHeight - rect.bottom;
@@ -1778,6 +1862,17 @@ function DatabaseTimelineCard({
             viewConfigs={viewConfigs}
           />
         </div>,
+        document.body,
+      )}
+    {contextMenuPos && !card.isUnscheduled &&
+      createPortal(
+        <ContextMenu
+          x={contextMenuPos.left}
+          y={contextMenuPos.top}
+          currentColor={card.color}
+          onColorChange={(color) => onColorChange(card, color)}
+          onClose={() => setContextMenuPos(null)}
+        />,
         document.body,
       )}
     </>

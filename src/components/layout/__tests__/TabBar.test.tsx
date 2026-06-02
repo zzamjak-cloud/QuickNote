@@ -11,6 +11,7 @@ describe("TabBar", () => {
     useSettingsStore.setState({
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
+      lastClosedTab: null,
     });
     usePageStore.setState({
       pages: {},
@@ -79,6 +80,91 @@ describe("TabBar", () => {
     expect(useSettingsStore.getState().tabs).toHaveLength(2);
     expect(useSettingsStore.getState().tabs[1]).toMatchObject({ pageId: "page-1" });
     expect(useSettingsStore.getState().activeTabIndex).toBe(1);
+  });
+
+  it("탭 우클릭 메뉴에서 현재 탭만 새로고침한다", () => {
+    usePageStore.setState({
+      pages: {
+        "page-1": {
+          id: "page-1",
+          title: "문서 1",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        "page-2": {
+          id: "page-2",
+          title: "문서 2",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+      activePageId: "page-1",
+    });
+    useSettingsStore.setState({
+      tabs: [
+        { pageId: "page-1", databaseId: null },
+        { pageId: "page-2", databaseId: null },
+      ],
+      activeTabIndex: 0,
+    });
+    render(<TabBar />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "문서 1" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "탭 새로고침" }));
+
+    expect((useSettingsStore.getState().tabs[0] as { refreshKey?: number })?.refreshKey).toBe(1);
+    expect((useSettingsStore.getState().tabs[1] as { refreshKey?: number })?.refreshKey).toBeUndefined();
+    expect(useSettingsStore.getState().activeTabIndex).toBe(0);
+  });
+
+  it("탭 우클릭 메뉴에서 마지막으로 닫은 탭을 다시 연다", () => {
+    useSettingsStore.setState({
+      tabs: [{ pageId: "page-1" }, { pageId: "page-2" }],
+      activeTabIndex: 0,
+    });
+    usePageStore.setState({
+      pages: {
+        "page-1": {
+          id: "page-1",
+          title: "문서 1",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        "page-2": {
+          id: "page-2",
+          title: "문서 2",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+      activePageId: "page-1",
+    });
+    render(<TabBar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "탭 닫기: 문서 1" }));
+    fireEvent.contextMenu(screen.getByRole("button", { name: "문서 2" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "마지막으로 닫은 탭 다시 열기" }));
+
+    expect(useSettingsStore.getState().tabs).toHaveLength(2);
+    expect(useSettingsStore.getState().tabs[0]).toMatchObject({ pageId: "page-1" });
+    expect(useSettingsStore.getState().activeTabIndex).toBe(0);
+    expect((useSettingsStore.getState() as { lastClosedTab?: unknown }).lastClosedTab).toBeNull();
   });
 
   it("상단 X 버튼으로 탭을 닫고 마지막 탭은 닫기 버튼을 숨긴다", () => {

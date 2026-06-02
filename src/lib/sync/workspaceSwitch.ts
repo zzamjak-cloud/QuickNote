@@ -548,6 +548,7 @@ function applyWorkspaceSnapshot(workspaceId: string, snapshot: WorkspaceSnapshot
   useSettingsStore.setState({
     tabs,
     activeTabIndex,
+    lastClosedTab: null,
   });
   useBlockCommentStore.setState({
     messages: cloneSnapshot(normalized.comments),
@@ -640,6 +641,7 @@ export function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
   useSettingsStore.setState({
     tabs: [{ pageId: activeSchedulerPageId }],
     activeTabIndex: 0,
+    lastClosedTab: null,
   });
   useBlockCommentStore.getState().clearMessages();
 }

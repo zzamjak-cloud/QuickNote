@@ -860,7 +860,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
                             key={p.id}
                             type="button"
                             onClick={() => applyColumnLayoutPreset(menu.layoutStart, p.id)}
-                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                           >
                             <span className="w-6 shrink-0 text-center text-base leading-6">
                               {p.emoji || "·"}

@@ -63,6 +63,12 @@ import { TimelineCardText } from "../database/TimelineCardText";
 import { applyTimelineCardStickyOffset } from "../database/timelineCardStickyOffset";
 import { getScheduleCardContentOffset } from "./scheduleCardDisplay";
 import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
+import { ContextMenu, announceSchedulerContextMenuOpen } from "./ContextMenu";
+import {
+  makeTimelineCardColorOverrides,
+  resolveTimelineCardColor,
+  TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID,
+} from "../../lib/database/timelineCardColor";
 import {
   addWeeks,
   buildMonthDaySlots,
@@ -106,6 +112,14 @@ type TimelineCard = {
   dateLabel: string;
   showDateLabel: boolean;
   color: string;
+};
+
+type ContextPointerEvent = {
+  button?: number;
+  clientX: number;
+  clientY: number;
+  preventDefault: () => void;
+  stopPropagation: () => void;
 };
 
 type TimelineRow = {
@@ -275,7 +289,7 @@ function databaseTimelineCards(
         end: range.end,
         dateLabel: formatCardDateLabel(range),
         showDateLabel: true,
-        color: resolveCardColor(column, entry.color),
+        color: resolveTimelineCardColor(cells, entry.columnId, resolveCardColor(column, entry.color)),
       },
     ];
   });
@@ -354,6 +368,13 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     left: number;
     top: number;
     placeAbove: boolean;
+  } | null>(null);
+  const [cardColorMenu, setCardColorMenu] = useState<{
+    left: number;
+    top: number;
+    pageId: string;
+    columnId: string;
+    currentColor: string;
   } | null>(null);
   // 가로 스크롤 위치 — 날짜 미등록(흰색) 카드를 항목 컬럼 우측에 고정해 따라다니게 한다.
   const [trackScrollLeft, setTrackScrollLeft] = useState(0);
@@ -623,6 +644,46 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     },
     [isAnnualView, annualCellWidth, activeCellWidth, currentYear, slots, updateCell, databaseId],
   );
+
+  const openCardColorMenu = useCallback((event: ContextPointerEvent, card: TimelineCard) => {
+    event.preventDefault();
+    event.stopPropagation();
+    announceSchedulerContextMenuOpen();
+    setHoveredCard(null);
+    setCardColorMenu({
+      left: event.clientX,
+      top: event.clientY,
+      pageId: card.pageId,
+      columnId: card.columnId,
+      currentColor: card.color,
+    });
+  }, []);
+
+  const handleTimelineCardColorChange = useCallback(
+    (color: string) => {
+      if (!cardColorMenu || !bundle) return;
+      const cells = pages[cardColorMenu.pageId]?.dbCells;
+      updateCell(
+        databaseId,
+        cardColorMenu.pageId,
+        TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID,
+        makeTimelineCardColorOverrides(cells, cardColorMenu.columnId, color),
+      );
+    },
+    [bundle, cardColorMenu, databaseId, pages, updateCell],
+  );
+
+  useEffect(() => {
+    const handleNativeContextMenu = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      if (event.target.closest("[data-scheduler-db-timeline-card='true']")) {
+        event.preventDefault();
+      }
+    };
+
+    document.addEventListener("contextmenu", handleNativeContextMenu, true);
+    return () => document.removeEventListener("contextmenu", handleNativeContextMenu, true);
+  }, []);
 
   const titleColumnName =
     bundle?.columns.find((column) => column.type === "title")?.name ??
@@ -1093,6 +1154,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                   return (
                     <Rnd
                       key={card.id}
+                      data-scheduler-db-timeline-card="true"
                       position={{ x: left, y: cardTop }}
                       size={{ width, height: cardHeight }}
                       dragAxis="x"
@@ -1116,10 +1178,23 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                       onResizeStop={(_event, _dir, ref, _delta, position) =>
                         commitCardRange(card, position.x, ref.offsetWidth)
                       }
+                      onMouseDown={(event: MouseEvent) => {
+                        if (event.button === 2) {
+                          openCardColorMenu(event, card);
+                        }
+                      }}
+                      onContextMenu={(event: ReactMouseEvent<HTMLElement>) => openCardColorMenu(event, card)}
                       className="z-[3]"
                     >
                       <div
                         onDoubleClick={() => openPeek(card.pageId)}
+                        onMouseDown={(event) => {
+                          if (event.button === 2) {
+                            openCardColorMenu(event, card);
+                          }
+                        }}
+                        data-scheduler-db-timeline-card="true"
+                        onContextMenu={(event) => openCardColorMenu(event, card)}
                         onMouseEnter={(event: ReactMouseEvent<HTMLDivElement>) => {
                           const rect = event.currentTarget.getBoundingClientRect();
                           const placeAbove = rect.top > window.innerHeight - rect.bottom;
@@ -1219,6 +1294,17 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
             excludeColumnIds={activeDateColumnIdList}
           />
         </div>,
+        document.body,
+      )}
+    {cardColorMenu &&
+      createPortal(
+        <ContextMenu
+          x={cardColorMenu.left}
+          y={cardColorMenu.top}
+          currentColor={cardColorMenu.currentColor}
+          onColorChange={handleTimelineCardColorChange}
+          onClose={() => setCardColorMenu(null)}
+        />,
         document.body,
       )}
     </>

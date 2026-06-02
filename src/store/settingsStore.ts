@@ -8,7 +8,13 @@ import { useWorkspaceStore } from "./workspaceStore";
 import type { PersistedObject } from "../lib/migrations/persistedStore";
 import { migratePersistedStore } from "../lib/migrations/persistedStore";
 
-export type Tab = { pageId: string | null; databaseId?: string | null; back?: string[] };
+export type Tab = {
+  pageId: string | null;
+  databaseId?: string | null;
+  back?: string[];
+  refreshKey?: number;
+};
+export type ClosedTabSnapshot = { tab: Tab; index: number };
 export type FavoritePageMeta = {
   pageId: string;
   workspaceId: string | null;
@@ -44,6 +50,8 @@ type SettingsState = {
   // 페이지 탭. activeTabIndex 위치의 탭 pageId가 곧 활성 페이지.
   tabs: Tab[];
   activeTabIndex: number;
+  /** 직전에 닫은 탭. 탭 컨텍스트 메뉴의 다시 열기에 사용한다. */
+  lastClosedTab: ClosedTabSnapshot | null;
   /** 워크스페이스별 마지막으로 연 페이지 id(복원용) */
   lastVisitedPageIdByWorkspaceId: Record<string, string>;
 };
@@ -75,8 +83,10 @@ type SettingsActions = {
   openTab: (pageId: string | null) => void;
   openDatabaseTab: (databaseId: string) => void;
   duplicateTab: (index: number) => void;
+  refreshTab: (index: number) => void;
   // 특정 탭 닫기
   closeTab: (index: number) => void;
+  reopenLastClosedTab: () => void;
   // 탭 활성화
   setActiveTab: (index: number) => void;
   prevTab: () => void;
@@ -230,6 +240,7 @@ export function migrateSettingsStore(
       expandedIds: [],
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
+      lastClosedTab: null,
       lastVisitedPageIdByWorkspaceId: {},
     },
   );
@@ -254,6 +265,7 @@ export const useSettingsStore = create<SettingsStore>()(
       expandedIds: [],
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
+      lastClosedTab: null,
       lastVisitedPageIdByWorkspaceId: {},
       toggleDarkMode: () => set((s) => ({ darkMode: !s.darkMode })),
       setSidebarWidth: (width) =>
@@ -409,15 +421,47 @@ export const useSettingsStore = create<SettingsStore>()(
             activeTabIndex: index + 1,
           };
         }),
+      refreshTab: (index) =>
+        set((s) => {
+          const source = s.tabs[index];
+          if (!source) return s;
+          const tabs = [...s.tabs];
+          tabs[index] = {
+            ...source,
+            refreshKey: (source.refreshKey ?? 0) + 1,
+          };
+          return { tabs, activeTabIndex: index };
+        }),
       closeTab: (index) =>
         set((s) => {
           if (s.tabs.length <= 1) return s;
+          const closedTab = s.tabs[index];
+          if (!closedTab) return s;
           const tabs = s.tabs.filter((_, i) => i !== index);
           let activeTabIndex = s.activeTabIndex;
           if (index < s.activeTabIndex) activeTabIndex -= 1;
           if (activeTabIndex >= tabs.length) activeTabIndex = tabs.length - 1;
           if (activeTabIndex < 0) activeTabIndex = 0;
-          return { tabs, activeTabIndex };
+          return {
+            tabs,
+            activeTabIndex,
+            lastClosedTab: { tab: { ...closedTab, back: [...(closedTab.back ?? [])] }, index },
+          };
+        }),
+      reopenLastClosedTab: () =>
+        set((s) => {
+          const closed = s.lastClosedTab;
+          if (!closed) return s;
+          const insertIndex = Math.max(0, Math.min(closed.index, s.tabs.length));
+          return {
+            tabs: [
+              ...s.tabs.slice(0, insertIndex),
+              { ...closed.tab, back: [...(closed.tab.back ?? [])] },
+              ...s.tabs.slice(insertIndex),
+            ],
+            activeTabIndex: insertIndex,
+            lastClosedTab: null,
+          };
         }),
       setActiveTab: (index) =>
         set((s) => ({
@@ -473,6 +517,11 @@ export const useSettingsStore = create<SettingsStore>()(
       storage: createJSONStorage(() => zustandStorage),
       version: SETTINGS_STORE_VERSION,
       migrate: migrateSettingsStore,
+      partialize: (state) => {
+        const persisted: Partial<SettingsStore> = { ...state };
+        delete persisted.lastClosedTab;
+        return persisted;
+      },
     },
   ),
 );
