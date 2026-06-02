@@ -55,7 +55,8 @@ function SortableRule({
   };
 
   const isEveryone = rule.subjectType === "EVERYONE";
-  const locked = readOnly || isEveryone;
+  // 고정 규칙 없음 — 권한이 없을 때(readOnly)에만 잠근다. EVERYONE 규칙도 편집/삭제/이동 가능.
+  const locked = readOnly;
 
   return (
     <div
@@ -63,7 +64,7 @@ function SortableRule({
       style={style}
       className={`mb-1 grid grid-cols-[14px_56px_1fr_auto_auto] items-center gap-1.5 rounded border px-2 py-1.5 text-sm ${
         isEveryone
-          ? "border-dashed border-zinc-300 bg-zinc-50 opacity-80 dark:border-zinc-700 dark:bg-zinc-900"
+          ? "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900"
           : "border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950"
       }`}
     >
@@ -76,7 +77,7 @@ function SortableRule({
       <span
         className={`rounded px-1 py-0.5 text-center text-xs font-bold ${
           isEveryone
-            ? "bg-zinc-200 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400"
+            ? "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300"
             : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
         }`}
       >
@@ -114,35 +115,27 @@ export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason 
   const [addLevel, setAddLevel] = useState<Level>("EDIT");
   const [query, setQuery] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const memberNameById = useMemo(() => new Map(members.map((m) => [m.memberId, m.name])), [members]);
   const teamNameById = useMemo(() => new Map(teams.map((t) => [t.teamId, t.name])), [teams]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  // EVERYONE 규칙은 항상 마지막 고정
-  const everyoneEntry = useMemo(() => value.find((v) => v.subjectType === "EVERYONE"), [value]);
-  const priorityEntries = useMemo(() => value.filter((v) => v.subjectType !== "EVERYONE"), [value]);
-
-  const rows: RuleRow[] = useMemo(() => [
-    ...priorityEntries.map((e) => ({ ...e, _key: makeKey(e) })),
-    ...(everyoneEntry ? [{ ...everyoneEntry, _key: "EVERYONE:*" }] : []),
-  ], [priorityEntries, everyoneEntry]);
+  // 모든 규칙을 동일하게 취급한다 — 고정/잠금되는 규칙은 없다.
+  const rows: RuleRow[] = useMemo(
+    () => value.map((e) => ({ ...e, _key: makeKey(e) })),
+    [value],
+  );
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (readOnly) return;
     if (!over || active.id === over.id) return;
-    // EVERYONE 항목은 이동 불가
-    const activeKey = active.id as string;
-    const overKey = over.id as string;
-    if (activeKey === "EVERYONE:*" || overKey === "EVERYONE:*") return;
-
-    const oldIdx = priorityEntries.findIndex((e) => makeKey(e) === activeKey);
-    const newIdx = priorityEntries.findIndex((e) => makeKey(e) === overKey);
+    const oldIdx = value.findIndex((e) => makeKey(e) === (active.id as string));
+    const newIdx = value.findIndex((e) => makeKey(e) === (over.id as string));
     if (oldIdx === -1 || newIdx === -1) return;
-    const reordered = arrayMove(priorityEntries, oldIdx, newIdx);
-    onChange([...reordered, ...(everyoneEntry ? [everyoneEntry] : [])]);
+    onChange(arrayMove(value, oldIdx, newIdx));
   };
 
   const getLabel = useCallback((e: WorkspaceAccessInput): string => {
@@ -168,15 +161,25 @@ export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason 
 
   const handleAdd = () => {
     const resolvedId = addType === "EVERYONE" ? undefined : addSubjectId || undefined;
-    if (addType !== "EVERYONE" && !resolvedId) return;
+    if (addType !== "EVERYONE" && !resolvedId) {
+      setAddError(addType === "TEAM" ? "팀을 선택해 주세요." : "구성원을 선택해 주세요.");
+      return;
+    }
     const key = `${addType}:${resolvedId ?? "*"}`;
-    const existing = value.findIndex((v) => makeKey(v) === key);
-    if (existing >= 0) return;
+    if (value.some((v) => makeKey(v) === key)) {
+      setAddError(
+        addType === "EVERYONE"
+          ? "이미 '모든 구성원' 규칙이 있습니다. 목록에서 해당 규칙의 권한을 직접 변경하세요."
+          : "이미 추가된 대상입니다.",
+      );
+      return;
+    }
     const newEntry: WorkspaceAccessInput = { subjectType: addType, subjectId: resolvedId, level: addLevel };
-    // 새 규칙은 맨 앞(최고 우선순위)에 추가, EVERYONE은 맨 뒤 유지
-    onChange([newEntry, ...priorityEntries, ...(everyoneEntry ? [everyoneEntry] : [])]);
+    // 새 규칙은 맨 앞(최고 우선순위)에 추가
+    onChange([newEntry, ...value]);
     setAddSubjectId("");
     setQuery("");
+    setAddError(null);
     setShowAdd(false);
   };
 
@@ -188,7 +191,7 @@ export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason 
           접근 규칙
           <span className="ml-1 text-xs font-normal text-zinc-400">낮은 숫자의 규칙을 최우선 적용합니다.</span>
         </div>
-        <button type="button" onClick={() => setShowAdd(true)} disabled={readOnly}
+        <button type="button" onClick={() => { setShowAdd(true); setAddError(null); }} disabled={readOnly}
           className="inline-flex items-center gap-0.5 rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700">
           <Plus size={10} /> 규칙 추가
         </button>
@@ -209,6 +212,7 @@ export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason 
                 setAddType(nextValue as SubjectType);
                 setAddSubjectId("");
                 setQuery("");
+                setAddError(null);
               }}
               options={[
                 { value: "MEMBER", label: "👤 특정 구성원" },
@@ -249,10 +253,11 @@ export function AccessEntriesEditor({ value, onChange, readOnly, readOnlyReason 
               buttonClassName="w-[150px] px-2 py-1"
             />
           </div>
+          {addError ? <p className="mt-1.5 text-xs text-red-500">{addError}</p> : null}
           <div className="mt-2 flex justify-end gap-1.5">
             <button type="button" onClick={handleAdd}
               className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700">추가</button>
-            <button type="button" onClick={() => setShowAdd(false)}
+            <button type="button" onClick={() => { setShowAdd(false); setAddError(null); }}
               className="rounded border px-2 py-1 text-xs">취소</button>
           </div>
         </div>

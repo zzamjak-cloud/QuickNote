@@ -625,6 +625,15 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
   color: #c9d1d9;
 }
 
+/* 코드블럭 React 노드뷰 마운트 전 깜빡임 차단.
+   ReactNodeViewRenderer 는 외곽 DOM(.node-codeBlock)과 원본 텍스트 임시 stub 을
+   동기 생성하지만 실제 React 컴포넌트(미리보기 탭 UI)는 다음 프레임에 포털로 마운트된다.
+   그 1프레임 동안 마크다운 원본 소스가 노출되는 회귀를 막기 위해,
+   래퍼(.qn-markdown-code-block / .qn-codeblock-nodeview)가 마운트되기 전까지 숨긴다. */
+.ProseMirror .react-renderer.node-codeBlock:not(:has(.qn-markdown-code-block, .qn-codeblock-nodeview)) {
+  visibility: hidden;
+}
+
 /* 마크다운 언어 블록 소스 탭: 전역 pre.hljs(position:relative 등)보다 우선 — 박스 안 스크롤 */
 .ProseMirror .qn-markdown-code-block pre.qn-markdown-code-source.hljs {
   position: absolute !important;

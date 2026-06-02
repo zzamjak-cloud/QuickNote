@@ -272,9 +272,11 @@ function App() {
     tabDatabaseTitle,
   ]);
 
-  // 새로고침 직후: 무조건 사이드바 첫 번째 인덱스(루트) 페이지를 선택한다.
+  // 새로고침 직후: 보던 페이지(영속화된 activePageId)를 유지한다.
   // 페이지 하이드레이션 전이면(firstSidebarPageId 미확정) 대기했다가 확정되는 즉시 앱 로드당 1회만 적용 →
   // "불러오는 중"/빈 탭 노출을 막는다. 단 딥링크로 특정 페이지 진입 시엔 그 페이지를 존중.
+  // 영속화된 activePageId 가 스토어에 존재하면 그대로 두고, 없거나(최초 진입) 원격 전용이라
+  // 캐시에 아직 없을 때만 사이드바 첫 번째 인덱스(루트) 페이지로 폴백한다.
   // tab-sync 뒤에 두어 같은 커밋에서 마지막에 적용되며, prevActivePageIdRef 도 맞춰
   // 아래 패시브 효과가 이전 값으로 탭을 되돌리지 못하게 한다.
   useLayoutEffect(() => {
@@ -287,6 +289,12 @@ function App() {
       // 딥링크 진입 — 대상이 아직 스토어에 없어도(콜드 부트 비동기 하이드레이션/원격 페치)
       // 첫 사이드바 페이지를 강제로 열지 않는다. applyLocationLink 의 구독이 대상이 들어오는
       // 즉시 연다(끝내 안 들어오면 20초 타임아웃). 첫 페이지 강제 시 딥링크가 덮어써지는 것 방지.
+      return;
+    }
+    // 새로고침 시 보던 페이지 유지: 영속화된 activePageId 가 유효하면 폴백하지 않는다.
+    const persistedActive = usePageStore.getState().activePageId;
+    if (persistedActive && usePageStore.getState().pages[persistedActive]) {
+      prevActivePageIdRef.current = persistedActive;
       return;
     }
     prevActivePageIdRef.current = firstSidebarPageId;

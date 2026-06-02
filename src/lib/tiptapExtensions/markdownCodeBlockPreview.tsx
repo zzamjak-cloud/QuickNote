@@ -37,8 +37,12 @@ function isMarkdownLanguage(lang: unknown): boolean {
 const tabBtnBase =
   "rounded px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400";
 
-/** 탭 아래 본문: 미리보기·소스 공통 뷰포트(박스 높이 = 스크롤 영역) */
-const MARKDOWN_PANEL_H = "min(70vh,560px)";
+/** 탭 아래 본문: 미리보기·소스 공통 뷰포트(박스 높이 = 스크롤 영역)
+    세로 높이 최대값을 기존(min(70vh,560px))의 약 2배로 확대 */
+const MARKDOWN_PANEL_H = "min(90vh,1120px)";
+
+/** 미리보기 본문 글자 크기 — 마크다운 소스 탭(15px)과 동일하게 맞춤 */
+const MARKDOWN_PREVIEW_FONT_SIZE = "15px";
 
 function MarkdownCodeBlockNodeView(props: NodeViewProps) {
   const { node } = props;
@@ -102,9 +106,11 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
           마크다운
         </button>
       </div>
-      {/* 고정 높이 한 덩어리: 테두리·스크롤 경계가 동일(미리보기/소스 규격 일치) */}
+      {/* 고정 높이 한 덩어리: 테두리·스크롤 경계가 동일(미리보기/소스 규격 일치)
+          진입 시 미리보기 레이어 마운트 전 회색 배경이 한번 깜빡이는 회귀를 막기 위해
+          컨테이너 배경을 미리보기와 동일한 흰색으로 미리 깔아둔다. */}
       <div
-        className="relative w-full overflow-hidden rounded-b-lg"
+        className="relative w-full overflow-hidden rounded-b-lg bg-white dark:bg-zinc-950"
         style={{ height: MARKDOWN_PANEL_H }}
       >
         <button
@@ -123,9 +129,10 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
           <span className="qn-code-copy-label">복사</span>
         </button>
         <div
-          className={`absolute inset-0 box-border overflow-y-auto bg-zinc-100 px-3 pb-2 pl-3 pr-14 pt-10 prose prose-sm prose-zinc max-w-none dark:bg-zinc-950 dark:prose-invert prose-headings:text-orange-700 prose-a:text-amber-700 dark:prose-headings:text-orange-300 dark:prose-a:text-amber-400 prose-strong:text-zinc-800 dark:prose-strong:text-zinc-100 ${
+          className={`absolute inset-0 box-border overflow-y-auto bg-white px-3 pb-2 pl-3 pr-14 pt-10 prose prose-sm prose-zinc max-w-none dark:bg-zinc-950 dark:prose-invert prose-headings:text-orange-700 prose-a:text-amber-700 dark:prose-headings:text-orange-300 dark:prose-a:text-amber-400 prose-strong:text-zinc-800 dark:prose-strong:text-zinc-100 ${
             previewActive ? "z-10" : "pointer-events-none invisible z-0"
           }`}
+          style={{ fontSize: MARKDOWN_PREVIEW_FONT_SIZE }}
         >
           {text.trim() ? (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
