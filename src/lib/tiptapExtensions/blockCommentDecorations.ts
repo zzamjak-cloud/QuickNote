@@ -81,10 +81,25 @@ export function createBlockCommentDecorations(
                 ]
                   .filter(Boolean)
                   .join(" ");
-                if (!classes) return;
-                decos.push(
-                  Decoration.node(pos, pos + node.nodeSize, { class: classes }),
-                );
+                if (classes) {
+                  decos.push(
+                    Decoration.node(pos, pos + node.nodeSize, { class: classes }),
+                  );
+                }
+                // 표·리스트·콜아웃·컬럼·탭 등 중첩 블록에서는 블록 단위 node decoration 의
+                // 배경/밑줄이 셀·아이템 레이아웃에 가려 보이지 않는다. 실제 텍스트 span 에
+                // 직접 입히는 inline decoration 을 함께 추가해 어디서든 동일하게 표시한다.
+                if (n > 0 && node.isTextblock) {
+                  const innerFrom = pos + 1;
+                  const innerTo = pos + node.nodeSize - 1;
+                  if (innerTo > innerFrom) {
+                    decos.push(
+                      Decoration.inline(innerFrom, innerTo, {
+                        class: "qn-block-comment-text",
+                      }),
+                    );
+                  }
+                }
               });
 
               const result = DecorationSet.create(state.doc, decos);

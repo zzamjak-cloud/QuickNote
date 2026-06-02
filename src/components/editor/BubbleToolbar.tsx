@@ -14,10 +14,13 @@ import {
   Highlighter,
   Palette,
   Link as LinkIcon,
+  MessageSquarePlus,
 } from "lucide-react";
 import { ImageBubbleToolbar } from "./ImageBubbleToolbar";
 import { sanitizeWebLinkHref } from "../../lib/safeUrl";
 import { useUiStore } from "../../store/uiStore";
+import { ensureBlockId } from "../../lib/comments/ensureBlockId";
+import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
 
 const COLORS = [
   { label: "기본", value: null },
@@ -72,7 +75,7 @@ type Props = {
 const TOOLBAR_VIEWPORT_PADDING = 8;
 const TOOLBAR_GAP = 8;
 const TOOLBAR_ESTIMATED_SIZE: Record<Exclude<ToolbarMode, "hidden">, { width: number; height: number }> = {
-  text: { width: 360, height: 40 },
+  text: { width: 400, height: 40 },
   image: { width: 190, height: 40 },
 };
 
@@ -106,6 +109,22 @@ function placeToolbar(
     top: Math.max(minTop, Math.min(preferredTop, Math.max(minTop, maxTop))),
     left: Math.max(minLeft, Math.min(centerX - width / 2, Math.max(minLeft, maxLeft))),
   };
+}
+
+/**
+ * 텍스트 선택 위치에서 댓글을 부착할 행(블록)의 시작 좌표를 찾는다.
+ * 가장 안쪽 텍스트 블록(문단/제목 등)부터 위로 올라가며 댓글 가능한 블록을 고른다.
+ * 컨테이너(코드블록·표 등)는 canBlockHaveComment 로 제외된다.
+ */
+function resolveCommentBlockStart(editor: Editor): number | null {
+  const { $from } = editor.state.selection;
+  for (let d = $from.depth; d > 0; d -= 1) {
+    const node = $from.node(d);
+    if (node.isTextblock && canBlockHaveComment(node.type.name)) {
+      return $from.before(d);
+    }
+  }
+  return null;
 }
 
 /** 선택 앵커가 tableCell / tableHeader 안인지 */
@@ -329,6 +348,33 @@ export function BubbleToolbar({ editor, pageId }: Props) {
     savedSelectionRef.current = null;
   };
 
+  /** 선택된 텍스트가 있는 행에 댓글 스레드를 연다 — 블록 댓글 시스템 재사용. */
+  const openCommentOnSelection = () => {
+    if (!pageId) return;
+    const blockStart = resolveCommentBlockStart(editor);
+    if (blockStart === null) return;
+    const blockId = ensureBlockId(editor, blockStart);
+    if (!blockId) return;
+    const anchor = anchorRef.current;
+    useUiStore.getState().openCommentThread({
+      pageId,
+      blockId,
+      blockStart,
+      skipScroll: true,
+      anchorViewport: anchor
+        ? {
+            top: anchor.top,
+            left: anchor.left,
+            right: anchor.right,
+            bottom: anchor.bottom,
+          }
+        : undefined,
+    });
+    // 패널이 열리면 선택이 바뀌며 툴바가 자동으로 닫히지만, 즉시 숨겨 깜빡임을 줄인다.
+    setMode("hidden");
+    setPos(null);
+  };
+
   const showCellAlign = mode === "text" && isInTableCell(editor);
   const cellAlign = showCellAlign ? getTableCellAlign(editor) : null;
 
@@ -446,6 +492,13 @@ export function BubbleToolbar({ editor, pageId }: Props) {
                 />
               )}
             </div>
+            <div
+              className="mx-0.5 h-5 w-px shrink-0 bg-zinc-200 dark:bg-zinc-600"
+              aria-hidden
+            />
+            <ToolbarBtn onClick={openCommentOnSelection} title="댓글">
+              <MessageSquarePlus size={14} />
+            </ToolbarBtn>
             {showCellAlign ? (
               <>
                 <div

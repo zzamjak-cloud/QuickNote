@@ -1167,6 +1167,19 @@ html.dark .ProseMirror .qn-block-has-comments.qn-block-comment-glow {
   box-shadow: inset 0 0 0 2px rgba(52, 211, 153, 0.55);
 }
 
+/* 댓글이 달린 텍스트 자체의 배경·밑줄 — 표 셀/리스트 항목/콜아웃/컬럼/탭 등
+   블록 배경이 가려지는 중첩 컨텍스트에서도 텍스트에 직접 입혀 항상 보이게 한다.
+   inline decoration 으로 적용되므로 줄바꿈 구간마다 동일하게 그려진다. */
+.ProseMirror .qn-block-comment-text {
+  background-color: rgba(254, 240, 138, 0.6);
+  border-radius: 3px;
+  box-shadow: inset 0 -2px 0 rgba(234, 179, 8, 0.6);
+}
+html.dark .ProseMirror .qn-block-comment-text {
+  background-color: rgba(133, 77, 14, 0.5);
+  box-shadow: inset 0 -2px 0 rgba(250, 204, 21, 0.6);
+}
+
 /* 검색/블록 링크 이동 시 대상 위치 시각화 — body 포털 오버레이(PM DOM 밖이라 본문 재조정에 안 지워짐).
    position:fixed 좌표는 JS 가 매 프레임 대상 블록 rect 로 갱신한다. 약 1.6s 후 자동 페이드아웃. */
 .qn-block-spotlight {
