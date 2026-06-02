@@ -50,14 +50,17 @@ import {
 import { searchMembersForMention } from "./handlers/mention";
 import {
   emptyTrash,
+  deleteDatabaseHistoryEvents,
   deletePageHistoryEvents,
   listDatabases,
+  listDatabaseHistory,
   listPageHistory,
   listPages,
   listTrashedPages,
   permanentlyDeleteDatabase,
   permanentlyDeletePage,
   restorePage,
+  restoreDatabaseVersion,
   restorePageVersion,
   softDeleteDatabase,
   softDeletePage,
@@ -138,6 +141,7 @@ const tables: Tables = {
   ImagesBucketName: process.env.IMAGES_BUCKET_NAME,
   CustomIcons: process.env.CUSTOM_ICONS_TABLE_NAME,
   PageHistory: process.env.PAGE_HISTORY_TABLE_NAME,
+  DatabaseHistory: process.env.DATABASE_HISTORY_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -429,6 +433,13 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           workspaceId: event.arguments.workspaceId as string,
           limit: event.arguments.limit as number | undefined,
         });
+      case "listDatabaseHistory":
+        return await listDatabaseHistory({
+          ...base,
+          databaseId: event.arguments.databaseId as string,
+          workspaceId: event.arguments.workspaceId as string,
+          limit: event.arguments.limit as number | undefined,
+        });
       case "listDatabases":
         return await listDatabases({
           ...base,
@@ -468,6 +479,18 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
         return await deletePageHistoryEvents({
           ...base,
           pageId: event.arguments.pageId as string,
+          workspaceId: event.arguments.workspaceId as string,
+          historyIds: event.arguments.historyIds as string[],
+        });
+      case "restoreDatabaseVersion":
+        return await restoreDatabaseVersion({
+          ...base,
+          input: event.arguments.input as { databaseId: string; workspaceId: string; historyId: string },
+        });
+      case "deleteDatabaseHistoryEvents":
+        return await deleteDatabaseHistoryEvents({
+          ...base,
+          databaseId: event.arguments.databaseId as string,
           workspaceId: event.arguments.workspaceId as string,
           historyIds: event.arguments.historyIds as string[],
         });

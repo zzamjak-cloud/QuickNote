@@ -80,12 +80,19 @@ const CELL_WIDTH_DEFAULT = 100;
 const LS_ZOOM_KEY = "quicknote.timeline.zoom";
 const LS_GRANULARITY_KEY = "quicknote.timeline.granularity";
 const LS_MONTH_KEY = "quicknote.timeline.month";
-const LS_YEAR_KEY = "quicknote.timeline.year";
 const DRAG_ACTIVATE_PX = 3;
 const UNSCHEDULED_CARD_LEFT = 8;
 const UNSCHEDULED_CARD_WIDTH = 168;
 const DEFAULT_TIMELINE_CARD_COLOR = "#16a34a";
 const TIMELINE_CARD_COLOR_PRESETS = SELECT_COLOR_PRESETS;
+
+let lastTimelineScrollerClientWidth = 0;
+
+function estimateTimelineScrollerClientWidth(): number {
+  if (lastTimelineScrollerClientWidth > 0) return lastTimelineScrollerClientWidth;
+  if (typeof window === "undefined") return 900;
+  return Math.max(360, Math.min(1400, window.innerWidth - 280));
+}
 
 const makeTimelineCardId = (pageId: string, columnId: string) => `${pageId}::${columnId}`;
 
@@ -307,11 +314,7 @@ export function DatabaseTimelineView({
     return monthInputToStart(saved ?? "") ?? startOfMonth(Date.now());
   });
   // 연간 축에서 보고 있는 연도 (LC 스케줄러와 동일하게 연도 단위 이동).
-  const [visibleYear, setVisibleYear] = useState(() => {
-    const saved = localStorage.getItem(LS_YEAR_KEY);
-    const n = saved ? parseInt(saved, 10) : NaN;
-    return Number.isFinite(n) ? n : new Date().getFullYear();
-  });
+  const [visibleYear, setVisibleYear] = useState(() => new Date().getFullYear());
 
   useEffect(() => {
     localStorage.setItem(LS_GRANULARITY_KEY, granularity);
@@ -319,10 +322,6 @@ export function DatabaseTimelineView({
   useEffect(() => {
     localStorage.setItem(LS_MONTH_KEY, toDateIso(visibleMonthStart).slice(0, 7));
   }, [visibleMonthStart]);
-  useEffect(() => {
-    localStorage.setItem(LS_YEAR_KEY, String(visibleYear));
-  }, [visibleYear]);
-
   const [cellWidthOverride, setCellWidthOverride] = useState(() => {
     const saved = localStorage.getItem(LS_ZOOM_KEY);
     const n = saved ? parseInt(saved, 10) : NaN;
@@ -335,6 +334,7 @@ export function DatabaseTimelineView({
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [trackPxWidth, setTrackPxWidth] = useState(0);
   const [sideLabelWidth, setSideLabelWidth] = useState(SIDE_LABEL_W);
+  const headerYearTrackRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = trackRef.current;
     if (!el) return;
@@ -621,6 +621,52 @@ export function DatabaseTimelineView({
         })()
       : dayToX(startOfDay(Date.now()));
 
+  const getTodayScrollLeft = useCallback((el: HTMLElement): number => {
+    if (!isYearAxis) return 0;
+    const now = startOfDay(Date.now());
+    if (now < axis.minT || now > axis.maxT) return 0;
+    const clientWidth = el.clientWidth;
+    const maxScrollLeft = Math.max(0, el.scrollWidth - clientWidth);
+    const centered = Math.max(0, todayX - clientWidth / 2);
+    return maxScrollLeft > 0 ? Math.min(centered, maxScrollLeft) : centered;
+  }, [axis.maxT, axis.minT, isYearAxis, todayX]);
+
+  const initialYearScrollKey = isYearAxis
+    ? `${visibleYear}:${axis.totalW}:${todayX}`
+    : null;
+  const scrollableContentWidth = sideLabelWidth + axis.totalW;
+  const [initialYearClientWidth] = useState(() => estimateTimelineScrollerClientWidth());
+  const [yearScrollSyncedKey, setYearScrollSyncedKey] = useState<string | null>(null);
+  const initialVisualScrollLeft = useMemo(() => {
+    if (!isYearAxis || !initialYearScrollKey) return 0;
+    const now = startOfDay(Date.now());
+    if (now < axis.minT || now > axis.maxT) return 0;
+    const maxScrollLeft = Math.max(0, scrollableContentWidth - initialYearClientWidth);
+    const centered = Math.max(0, todayX - initialYearClientWidth / 2);
+    return maxScrollLeft > 0 ? Math.min(centered, maxScrollLeft) : centered;
+  }, [
+    axis.maxT,
+    axis.minT,
+    initialYearClientWidth,
+    initialYearScrollKey,
+    isYearAxis,
+    scrollableContentWidth,
+    todayX,
+  ]);
+  const visualScrollCompensation =
+    isYearAxis && yearScrollSyncedKey !== initialYearScrollKey
+      ? initialVisualScrollLeft
+      : 0;
+  const yearTrackVisualStyle = visualScrollCompensation > 0
+    ? { transform: `translateX(${-visualScrollCompensation}px)` }
+    : undefined;
+  const displayTimelineScrollLeft = visualScrollCompensation > 0
+    ? visualScrollCompensation
+    : timelineScrollLeft;
+  const timelineCardLayoutSyncKey = isYearAxis
+    ? `${initialYearScrollKey ?? "year"}:${yearScrollSyncedKey === initialYearScrollKey ? "synced" : "visual"}:${trackPxWidth > 0 ? "ready" : "pending"}`
+    : `${granularity}:${trackPxWidth > 0 ? "ready" : "pending"}`;
+
   const cardLayouts = useMemo<TimelineCardLayout[]>(() => {
     if (timelineDateEntries.length === 0) return [];
     if (usesFitAxis && (!Number.isFinite(pxPerDay) || pxPerDay <= 0)) return [];
@@ -782,8 +828,12 @@ export function DatabaseTimelineView({
     }
     const el = scrollContainerRef.current;
     if (!el) return;
-    el.scrollLeft = Math.max(0, todayX - el.clientWidth / 2);
-  }, [isMonthAxis, isYearAxis, todayX, visibleYear]);
+    const nextScrollLeft = getTodayScrollLeft(el);
+    el.scrollLeft = nextScrollLeft;
+    setTimelineScrollLeft(nextScrollLeft);
+    applyTimelineCardStickyOffset(el, nextScrollLeft);
+    applyUnscheduledCardPin(el, nextScrollLeft);
+  }, [getTodayScrollLeft, isMonthAxis, isYearAxis, visibleYear]);
 
   const focusTimelineCard = useCallback((pageId: string) => {
     const row = rows.find((item) => item.pageId === pageId) ?? null;
@@ -1016,34 +1066,53 @@ export function DatabaseTimelineView({
     scrollSyncRafRef.current = window.requestAnimationFrame(() => {
       scrollSyncRafRef.current = null;
       const node = scrollContainerRef.current;
-      if (node) setTimelineScrollLeft(node.scrollLeft);
+      if (node) {
+        setTimelineScrollLeft(node.scrollLeft);
+      }
     });
   }, []);
 
-  // 연간 축 진입 또는 연도 변경 시 오늘 날짜로 자동 포커싱 (연도당 1회 — 이후 사용자 스크롤은 보존).
-  const yearAutoScrollKeyRef = useRef<string | null>(null);
-  useLayoutEffect(() => {
+  const applyInitialTimelineScroll = useCallback((el: HTMLDivElement) => {
     if (!isYearAxis) {
-      yearAutoScrollKeyRef.current = null;
+      if (el && el.scrollLeft !== 0) el.scrollLeft = 0;
+      setTimelineScrollLeft(0);
+      setYearScrollSyncedKey(null);
       return;
     }
+    if (!el || axis.totalW <= 0 || el.clientWidth === 0 || !initialYearScrollKey) return;
+    if (yearScrollSyncedKey === initialYearScrollKey) return;
+    if (el.scrollWidth <= el.clientWidth && scrollableContentWidth > el.clientWidth) return;
+    lastTimelineScrollerClientWidth = el.clientWidth;
+    const nextScrollLeft = getTodayScrollLeft(el);
+    headerYearTrackRef.current?.style.removeProperty("transform");
+    trackRef.current?.style.removeProperty("transform");
+    el.scrollLeft = nextScrollLeft;
+    setTimelineScrollLeft(nextScrollLeft);
+    applyTimelineCardStickyOffset(el, nextScrollLeft);
+    applyUnscheduledCardPin(el, nextScrollLeft);
+    setYearScrollSyncedKey(initialYearScrollKey);
+  }, [
+    axis.totalW,
+    getTodayScrollLeft,
+    initialYearScrollKey,
+    isYearAxis,
+    scrollableContentWidth,
+    yearScrollSyncedKey,
+  ]);
+
+  const setScrollContainerNode = useCallback((node: HTMLDivElement | null) => {
+    scrollContainerRef.current = node;
+    if (node) applyInitialTimelineScroll(node);
+  }, [applyInitialTimelineScroll]);
+
+  useLayoutEffect(() => {
     const el = scrollContainerRef.current;
-    if (!el || axis.totalW <= 0) return;
-    // 컨테이너가 아직 레이아웃되지 않은 상태(워크스페이스 전환 직후 숨김/0폭)에서는
-    // 오늘 포커싱을 "잠그지" 않는다. 이 시점에 scrollLeft 를 쓰면 스크롤 콘텐츠 폭이 0이라
-    // 0(연초)으로 클램프된 채 ref 가 잠겨 다시는 오늘로 스크롤하지 못한다(새로고침 전까지).
-    // 레이아웃이 잡히면 trackPxWidth 변화로 이 effect 가 재실행되어 보정한다.
-    if (el.clientWidth === 0) return;
-    const key = String(visibleYear);
-    if (yearAutoScrollKeyRef.current === key) return;
-    yearAutoScrollKeyRef.current = key;
-    const now = startOfDay(Date.now());
-    // 오늘이 보고 있는 연도 범위 밖이면 연초로, 범위 안이면 오늘을 화면 중앙에 맞춘다.
-    el.scrollLeft =
-      now < axis.minT || now > axis.maxT
-        ? 0
-        : Math.max(0, todayX - el.clientWidth / 2);
-  }, [isYearAxis, visibleYear, axis.totalW, axis.minT, axis.maxT, todayX, trackPxWidth]);
+    if (!el) return;
+    applyInitialTimelineScroll(el);
+  }, [
+    applyInitialTimelineScroll,
+    trackPxWidth,
+  ]);
 
   const selectedMultiPageIds = useMemo(() => {
     const pageIds = new Set<string>();
@@ -1053,7 +1122,6 @@ export function DatabaseTimelineView({
     }
     return pageIds;
   }, [cardLayouts, selectedCardIds]);
-  const scrollableContentWidth = sideLabelWidth + axis.totalW;
 
   if (!bundle) return null;
 
@@ -1264,7 +1332,7 @@ export function DatabaseTimelineView({
         </p>
       ) : (
         <div
-          ref={scrollContainerRef}
+          ref={setScrollContainerNode}
           onMouseDown={beginBoxSelection}
           onScroll={handleTimelineScroll}
           className={[
@@ -1331,8 +1399,9 @@ export function DatabaseTimelineView({
                 </div>
               ) : (
                 <div
+                  ref={headerYearTrackRef}
                   className="relative shrink-0"
-                  style={{ width: axis.totalW, minWidth: axis.totalW }}
+                  style={{ width: axis.totalW, minWidth: axis.totalW, ...yearTrackVisualStyle }}
                 >
                   {headerTicks.map((t, i) => (
                     <div
@@ -1395,7 +1464,12 @@ export function DatabaseTimelineView({
                 className={usesScrollableAxis ? "relative shrink-0" : "relative flex-1"}
                 style={
                   usesScrollableAxis
-                    ? { width: axis.totalW, minWidth: axis.totalW, height: totalRowsHeight }
+                    ? {
+                        width: axis.totalW,
+                        minWidth: axis.totalW,
+                        height: totalRowsHeight,
+                        ...yearTrackVisualStyle,
+                      }
                     : { height: totalRowsHeight }
                 }
               >
@@ -1460,20 +1534,15 @@ export function DatabaseTimelineView({
 
                 {cardLayouts.map((card) => (
                   <DatabaseTimelineCard
-                    // react-rnd 는 mount 시점(componentDidMount)에 getBoundingClientRect 로
-                    // 부모 기준 오프셋을 한 번만 측정하고 이후 prop/레이아웃 변화로는 재측정하지
-                    // 않는다(드래그·리사이즈 제외). 워크스페이스 전환처럼 컨테이너가 숨김/0폭 상태에서
-                    // 카드가 mount 되면 오프셋이 잘못 고정돼 카드가 엉뚱한 날짜(행 밖)에 표시되고
-                    // 새로고침 전까지 복구되지 않는다. 트랙이 측정되면(trackPxWidth 0→유효) key 를
-                    // 바꿔 카드를 remount → 유효한 레이아웃 기준으로 오프셋을 다시 측정시킨다.
-                    key={`${card.id}:${trackPxWidth > 0 ? "ready" : "pending"}`}
+                    key={card.id}
                     card={card}
                     databaseId={databaseId}
                     excludeColumnIds={timelineExcludeColumnIds}
                     viewConfigs={panelState.viewConfigs}
                     axisMinT={axis.minT}
                     pxPerDay={pxPerDay}
-                    scrollLeft={timelineScrollLeft}
+                    scrollLeft={displayTimelineScrollLeft}
+                    layoutSyncKey={timelineCardLayoutSyncKey}
                     selected={selectedCardId === card.id}
                     multiSelected={selectedCardIds.has(card.id)}
                     multiDragDeltaX={
@@ -1557,6 +1626,7 @@ function DatabaseTimelineCard({
   axisMinT,
   pxPerDay,
   scrollLeft,
+  layoutSyncKey,
   selected,
   multiSelected,
   multiDragDeltaX,
@@ -1578,6 +1648,7 @@ function DatabaseTimelineCard({
   axisMinT: number;
   pxPerDay: number;
   scrollLeft: number;
+  layoutSyncKey: string;
   selected: boolean;
   multiSelected: boolean;
   multiDragDeltaX: number | null;
@@ -1592,6 +1663,7 @@ function DatabaseTimelineCard({
   lockScroll: () => void;
   unlockScroll: () => void;
 }) {
+  const rndRef = useRef<Rnd | null>(null);
   const [localX, setLocalX] = useState(card.left);
   const [localW, setLocalW] = useState(card.width);
   const dragMovedRef = useRef(false);
@@ -1606,6 +1678,18 @@ function DatabaseTimelineCard({
     setLocalX(card.isUnscheduled ? scrollLeft + card.left : card.left);
     setLocalW(card.width);
   }, [card.left, card.width, card.isUnscheduled, scrollLeft]);
+
+  const measuredX = card.isUnscheduled ? scrollLeft + card.left : card.left;
+  useLayoutEffect(() => {
+    // react-rnd 는 mount 때 부모 offset 을 캐시하므로, 0폭/transform 전환 뒤 remount 없이 재측정한다.
+    if (multiDragDeltaX != null) return;
+    const rnd = rndRef.current;
+    if (!rnd) return;
+    rnd.updateOffsetFromParent();
+    const { left, top } = rnd.offsetFromParent;
+    rnd.updatePosition({ x: measuredX - left, y: card.top - top });
+    rnd.forceUpdate();
+  }, [card.top, layoutSyncKey, measuredX, multiDragDeltaX]);
 
   const safePxPerDay = Math.max(pxPerDay, 1);
   const visualX =
@@ -1666,6 +1750,7 @@ function DatabaseTimelineCard({
   return (
     <>
     <Rnd
+      ref={rndRef}
       data-db-timeline-card="true"
       data-db-timeline-card-page={card.row.pageId}
       data-db-timeline-card-id={card.id}

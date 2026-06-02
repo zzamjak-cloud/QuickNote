@@ -55,6 +55,7 @@ import {
 } from "./lcScheduleIndex";
 
 const PAGE_HISTORY_ANCHOR_INTERVAL = 20;
+const DATABASE_HISTORY_ANCHOR_INTERVAL = 20;
 
 type Connection<T> = { items: T[]; nextToken?: string | null };
 
@@ -84,6 +85,19 @@ const PAGE_HISTORY_FIELDS = [
   "updatedAt",
 ] as const;
 
+const DATABASE_HISTORY_FIELDS = [
+  "id",
+  "workspaceId",
+  "createdByMemberId",
+  "title",
+  "columns",
+  "presets",
+  "panelState",
+  "createdAt",
+  "updatedAt",
+  "deletedAt",
+] as const;
+
 type PagePatchOp = {
   op: "set" | "unset";
   path: Array<string | number>;
@@ -98,6 +112,14 @@ function cloneJson<T>(value: T): T {
 function normalizePageSnapshot(item: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of PAGE_HISTORY_FIELDS) {
+    if (key in item) out[key] = cloneJson(item[key]);
+  }
+  return out;
+}
+
+function normalizeDatabaseSnapshot(item: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of DATABASE_HISTORY_FIELDS) {
     if (key in item) out[key] = cloneJson(item[key]);
   }
   return out;
@@ -142,6 +164,27 @@ function diffPageSnapshot(
   const normalizedBefore = normalizePageSnapshot(before);
   const normalizedAfter = normalizePageSnapshot(after);
   for (const key of PAGE_HISTORY_FIELDS) {
+    if (!(key in normalizedAfter)) {
+      if (key in normalizedBefore) patch.push({ op: "unset", path: [key] });
+      continue;
+    }
+    diffValue(normalizedBefore[key], normalizedAfter[key], [key], patch);
+  }
+  return patch;
+}
+
+function diffDatabaseSnapshot(
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+): PagePatchOp[] {
+  const patch: PagePatchOp[] = [];
+  if (!before) {
+    patch.push({ op: "set", path: [], value: normalizeDatabaseSnapshot(after) });
+    return patch;
+  }
+  const normalizedBefore = normalizeDatabaseSnapshot(before);
+  const normalizedAfter = normalizeDatabaseSnapshot(after);
+  for (const key of DATABASE_HISTORY_FIELDS) {
     if (!(key in normalizedAfter)) {
       if (key in normalizedBefore) patch.push({ op: "unset", path: [key] });
       continue;
@@ -200,6 +243,23 @@ function applyPagePatch(
   return typeof next.id === "string" ? next : null;
 }
 
+function applyDatabasePatch(
+  base: Record<string, unknown> | null,
+  patch: PagePatchOp[],
+): Record<string, unknown> | null {
+  let next: Record<string, unknown> = base ? cloneJson(base) : {};
+  for (const op of patch) {
+    if (op.op === "set") next = setPath(next, op.path, op.value);
+    else unsetPath(next, op.path);
+  }
+  return typeof next.id === "string" ? next : null;
+}
+
+function requireDatabaseHistoryOwnerKey(caller: Member): string {
+  if (!caller.cognitoSub) forbidden("DB 히스토리 owner key 없음");
+  return caller.cognitoSub;
+}
+
 async function listPageHistoryAsc(args: {
   doc: DynamoDBDocumentClient;
   tableName: string;
@@ -213,6 +273,29 @@ async function listPageHistoryAsc(args: {
         TableName: args.tableName,
         KeyConditionExpression: "pageId = :p",
         ExpressionAttributeValues: { ":p": args.pageId },
+        ScanIndexForward: true,
+        ExclusiveStartKey: startKey,
+      }),
+    );
+    out.push(...((res.Items ?? []) as Array<Record<string, unknown>>));
+    startKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (startKey);
+  return out;
+}
+
+async function listDatabaseHistoryAsc(args: {
+  doc: DynamoDBDocumentClient;
+  tableName: string;
+  databaseId: string;
+}): Promise<Array<Record<string, unknown>>> {
+  const out: Array<Record<string, unknown>> = [];
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const res = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tableName,
+        KeyConditionExpression: "databaseId = :d",
+        ExpressionAttributeValues: { ":d": args.databaseId },
         ScanIndexForward: true,
         ExclusiveStartKey: startKey,
       }),
@@ -257,6 +340,50 @@ async function recordPageHistory(args: {
         pageId,
         historyId: `${createdAt}#${uuid()}`,
         workspaceId,
+        kind,
+        patch,
+        ...(shouldWriteAnchor ? { anchor: anchorSnap } : {}),
+        createdAt,
+        createdByMemberId: args.caller.memberId,
+        createdByName: args.caller.name,
+      },
+    }),
+  );
+}
+
+async function recordDatabaseHistory(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown>;
+  kind: string;
+}): Promise<void> {
+  const tableName = args.tables.DatabaseHistory;
+  if (!tableName) return;
+  const ownerId = requireDatabaseHistoryOwnerKey(args.caller);
+  const databaseId = typeof args.after.id === "string" ? args.after.id : null;
+  const workspaceId = typeof args.after.workspaceId === "string" ? args.after.workspaceId : null;
+  if (!databaseId || !workspaceId) return;
+  const history = await listDatabaseHistoryAsc({ doc: args.doc, tableName, databaseId });
+  const afterSnap = normalizeDatabaseSnapshot(args.after);
+  const isFirstEver = history.length === 0;
+  const patch = isFirstEver
+    ? diffDatabaseSnapshot(null, afterSnap)
+    : diffDatabaseSnapshot(args.before ? normalizeDatabaseSnapshot(args.before) : null, afterSnap);
+  if (patch.length === 0) return;
+  const createdAt = new Date().toISOString();
+  const shouldWriteAnchor = isFirstEver || history.length % DATABASE_HISTORY_ANCHOR_INTERVAL === 0;
+  const kind = isFirstEver ? "database.create" : args.kind;
+  const anchorSnap = isFirstEver ? afterSnap : normalizeDatabaseSnapshot(args.before ?? args.after);
+  await args.doc.send(
+    new PutCommand({
+      TableName: tableName,
+      Item: {
+        databaseId,
+        historyId: `${createdAt}#${uuid()}`,
+        workspaceId,
+        ownerId,
         kind,
         patch,
         ...(shouldWriteAnchor ? { anchor: anchorSnap } : {}),
@@ -610,6 +737,7 @@ export async function upsertDatabase(args: {
     workspaceId,
     required: "edit",
   });
+  if (args.tables.DatabaseHistory) requireDatabaseHistoryOwnerKey(args.caller);
 
   const tableName = args.tables.Databases;
   const incomingUpdatedAt =
@@ -641,6 +769,18 @@ export async function upsertDatabase(args: {
             ExpressionAttributeValues: { ":existingUpdatedAt": existingUpdatedAt },
           }),
         );
+        try {
+          await recordDatabaseHistory({
+            doc: args.doc,
+            tables: args.tables,
+            caller: args.caller,
+            before: existingItem,
+            after: schedulerOrderMerge,
+            kind: "database.update",
+          });
+        } catch (err) {
+          console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
+        }
         return schedulerOrderMerge;
       } catch (err) {
         if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
@@ -687,6 +827,18 @@ export async function upsertDatabase(args: {
       return (latest.Item ?? existingItem ?? merged) as Record<string, unknown>;
     }
     throw err;
+  }
+  try {
+    await recordDatabaseHistory({
+      doc: args.doc,
+      tables: args.tables,
+      caller: args.caller,
+      before: existingItem ?? null,
+      after: merged,
+      kind: existingItem ? "database.update" : "database.create",
+    });
+  } catch (err) {
+    console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
   }
   return merged;
 }
@@ -765,7 +917,25 @@ export async function softDeleteDatabase(args: {
   if (isLCSchedulerDatabaseId(args.id)) {
     forbidden("LC스케줄러 데이터베이스는 삭제할 수 없습니다");
   }
-  return softDeleteRecord({ ...args, tableName: args.tables.Databases });
+  if (args.tables.DatabaseHistory) requireDatabaseHistoryOwnerKey(args.caller);
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Databases, Key: { id: args.id } }),
+  );
+  const before = (existing.Item as Record<string, unknown> | undefined) ?? null;
+  const deleted = await softDeleteRecord({ ...args, tableName: args.tables.Databases });
+  try {
+    await recordDatabaseHistory({
+      doc: args.doc,
+      tables: args.tables,
+      caller: args.caller,
+      before,
+      after: deleted,
+      kind: "database.delete",
+    });
+  } catch (err) {
+    console.error("[softDeleteDatabase] DatabaseHistory 기록 실패 (무시)", err);
+  }
+  return deleted;
 }
 
 export async function permanentlyDeleteDatabase(args: {
@@ -787,6 +957,7 @@ export async function permanentlyDeleteDatabase(args: {
     workspaceId: args.workspaceId,
     required: "edit",
   });
+  if (args.tables.DatabaseHistory) requireDatabaseHistoryOwnerKey(args.caller);
   const existing = await args.doc.send(
     new GetCommand({ TableName: args.tables.Databases, Key: { id: args.id } }),
   );
@@ -872,6 +1043,25 @@ export async function permanentlyDeleteDatabase(args: {
         );
         commentStartKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
       } while (commentStartKey);
+    }
+  }
+  if (args.tables.DatabaseHistory) {
+    const history = (await listDatabaseHistoryAsc({
+      doc: args.doc,
+      tableName: args.tables.DatabaseHistory,
+      databaseId: args.id,
+    })).filter((item) => item.workspaceId === args.workspaceId);
+    for (let i = 0; i < history.length; i += 25) {
+      const chunk = history.slice(i, i + 25);
+      await args.doc.send(
+        new BatchWriteCommand({
+          RequestItems: {
+            [args.tables.DatabaseHistory]: chunk.map((item) => ({
+              DeleteRequest: { Key: { databaseId: args.id, historyId: item.historyId } },
+            })),
+          },
+        }),
+      );
     }
   }
   return true;
@@ -1314,6 +1504,146 @@ export async function deletePageHistoryEvents(args: {
         RequestItems: {
           [args.tables.PageHistory]: chunk.map((historyId) => ({
             DeleteRequest: { Key: { pageId: args.pageId, historyId } },
+          })),
+        },
+      }),
+    );
+  }
+  return true;
+}
+
+export async function listDatabaseHistory(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  databaseId: string;
+  workspaceId: string;
+  limit?: number;
+}): Promise<Array<Record<string, unknown>>> {
+  if (!args.tables.DatabaseHistory) badRequest("DatabaseHistory table 미설정");
+  requireDatabaseHistoryOwnerKey(args.caller);
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "view",
+  });
+  const limit = Math.min(Math.max(args.limit ?? 100, 1), 200);
+  const res = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.DatabaseHistory,
+      KeyConditionExpression: "databaseId = :d",
+      ExpressionAttributeValues: { ":d": args.databaseId },
+      ScanIndexForward: false,
+      Limit: limit,
+    }),
+  );
+  return ((res.Items ?? []) as Array<Record<string, unknown>>).filter(
+    (item) => item.workspaceId === args.workspaceId,
+  );
+}
+
+export async function restoreDatabaseVersion(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  input: { databaseId: string; workspaceId: string; historyId: string };
+}): Promise<Record<string, unknown>> {
+  if (!args.tables.Databases) badRequest("Databases table 미설정");
+  if (!args.tables.DatabaseHistory) badRequest("DatabaseHistory table 미설정");
+  requireDatabaseHistoryOwnerKey(args.caller);
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.input.workspaceId,
+    required: "edit",
+  });
+  const history = await listDatabaseHistoryAsc({
+    doc: args.doc,
+    tableName: args.tables.DatabaseHistory,
+    databaseId: args.input.databaseId,
+  });
+  let snapshot: Record<string, unknown> | null = null;
+  let found = false;
+  for (const event of history) {
+    if (event.workspaceId !== args.input.workspaceId) continue;
+    if (event.anchor && typeof event.anchor === "object") {
+      snapshot = cloneJson(event.anchor as Record<string, unknown>);
+    }
+    const patch = event.patch;
+    if (!Array.isArray(patch)) continue;
+    snapshot = applyDatabasePatch(snapshot, patch as PagePatchOp[]);
+    if (event.historyId === args.input.historyId) {
+      found = true;
+      break;
+    }
+  }
+  if (!found || !snapshot) notFound("DB 히스토리 없음");
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Databases, Key: { id: args.input.databaseId } }),
+  );
+  const before = (existing.Item as Record<string, unknown> | undefined) ?? null;
+  const now = new Date().toISOString();
+  const restored: Record<string, unknown> = {
+    ...snapshot,
+    id: args.input.databaseId,
+    workspaceId: args.input.workspaceId,
+    updatedAt: now,
+  };
+  delete restored["deletedAt"];
+  await args.doc.send(
+    new PutCommand({
+      TableName: args.tables.Databases,
+      Item: restored,
+      ConditionExpression: "attribute_not_exists(workspaceId) OR workspaceId = :w",
+      ExpressionAttributeValues: { ":w": args.input.workspaceId },
+    }),
+  );
+  try {
+    await recordDatabaseHistory({
+      doc: args.doc,
+      tables: args.tables,
+      caller: args.caller,
+      before,
+      after: restored,
+      kind: "database.restoreVersion",
+    });
+  } catch (err) {
+    console.error("[restoreDatabaseVersion] DatabaseHistory 기록 실패 (무시)", err);
+  }
+  return restored;
+}
+
+export async function deleteDatabaseHistoryEvents(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  databaseId: string;
+  workspaceId: string;
+  historyIds: string[];
+}): Promise<boolean> {
+  if (!args.tables.DatabaseHistory) badRequest("DatabaseHistory table 미설정");
+  requireDatabaseHistoryOwnerKey(args.caller);
+  if (!Array.isArray(args.historyIds) || args.historyIds.length === 0) return true;
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "edit",
+  });
+  for (let i = 0; i < args.historyIds.length; i += 25) {
+    const chunk = args.historyIds.slice(i, i + 25);
+    await args.doc.send(
+      new BatchWriteCommand({
+        RequestItems: {
+          [args.tables.DatabaseHistory]: chunk.map((historyId) => ({
+            DeleteRequest: { Key: { databaseId: args.databaseId, historyId } },
           })),
         },
       }),

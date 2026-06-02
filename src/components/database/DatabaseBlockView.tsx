@@ -46,9 +46,6 @@ import { DatabaseBlockFullPageHeader } from "./DatabaseBlockFullPageHeader";
 import { DatabaseBlockInlineHeader } from "./DatabaseBlockInlineHeader";
 import { isProtectedDatabaseId } from "../../lib/scheduler/database";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
-import {
-  repairDbHistoryBaselineIfNeeded,
-} from "../../store/historyStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
 import { DatabaseBlockHistoryDialog } from "./DatabaseBlockHistoryDialog";
@@ -114,12 +111,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
     const name = displayDbTitle.trim() || "데이터베이스";
     return `${name} 삭제`;
   }, [displayDbTitle]);
-
-  // db.create 없이 패치만 있으면 버전 기록 UI가 비어 보인다 — 고아 체인 복구 후 베이스라인 심기.
-  useEffect(() => {
-    if (!hasDatabaseId || !bundle) return;
-    repairDbHistoryBaselineIfNeeded(databaseId, structuredClone(bundle));
-  }, [hasDatabaseId, databaseId, bundle]);
 
   const commitDbTitle = (draft: string) => {
     if (!hasDatabaseId) return false;
@@ -194,19 +185,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
     refreshSnapshotAfterDatabaseDelete();
     closeDeleteDatabaseModal();
   };
-
-  const restoreLatestDatabaseHistory = useCallback(() => {
-    if (!hasDatabaseId) return;
-    useDatabaseStore.getState().restoreDatabaseFromLatestHistory(databaseId);
-  }, [databaseId, hasDatabaseId]);
-
-  const restoreDatabaseHistoryEvent = useCallback(
-    (eventId: string) => {
-      if (!hasDatabaseId) return;
-      useDatabaseStore.getState().restoreDatabaseFromHistoryEvent(databaseId, eventId);
-    },
-    [databaseId, hasDatabaseId],
-  );
 
   const deleteDatabaseFromHistoryDialog = useCallback(() => {
     if (!hasDatabaseId || isProtectedDatabase) return;
@@ -477,7 +455,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       default:
         return null;
     }
-  }, [databaseId, bundle, layout, panelState, setPanelState, view, visibleRowLimit]);
+  }, [databaseId, bundle, panelState, setPanelState, view, visibleRowLimit]);
 
   return (
     <NodeViewWrapper className="qn-database-block not-prose">
@@ -624,8 +602,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
         isInsidePeek={isInsidePeek}
         isProtectedDatabase={isProtectedDatabase}
         onClose={() => setDbHistoryDialogOpen(false)}
-        onRestoreLatest={restoreLatestDatabaseHistory}
-        onRestoreHistoryEvent={restoreDatabaseHistoryEvent}
         onDeletePermanently={deleteDatabaseFromHistoryDialog}
       />
       <DatabaseBlockLinkExistingDialog

@@ -53,6 +53,8 @@ export type Tables = {
   CustomIcons?: string;
   /** 서버 기반 페이지 버전 히스토리 테이블 */
   PageHistory?: string;
+  /** 서버 기반 DB 버전 히스토리 테이블 */
+  DatabaseHistory?: string;
 };
 
 export type CreateMemberInput = {

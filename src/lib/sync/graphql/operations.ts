@@ -36,6 +36,12 @@ export {
   type GqlPageHistoryEntry,
 } from "../queries/pageHistory";
 export {
+  LIST_DATABASE_HISTORY,
+  RESTORE_DATABASE_VERSION,
+  DELETE_DATABASE_HISTORY_EVENTS,
+  type GqlDatabaseHistoryEntry,
+} from "../queries/databaseHistory";
+export {
   LIST_DATABASES,
   ON_DATABASE_CHANGED,
   SOFT_DELETE_DATABASE,

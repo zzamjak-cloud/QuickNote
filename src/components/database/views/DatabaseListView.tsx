@@ -1,8 +1,11 @@
+import { Plus } from "lucide-react";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import type { DatabasePanelState } from "../../../types/database";
 import { useProcessedRows } from "../useProcessedRows";
 import { usePageStore } from "../../../store/pageStore";
 import { useUiStore } from "../../../store/uiStore";
+import { useDatabaseStore } from "../../../store/databaseStore";
+import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { IconPicker } from "../../common/IconPicker";
 import { useWindowedRows } from "./useWindowedRows";
 import {
@@ -26,6 +29,7 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
 
   const setIcon = usePageStore((s) => s.setIcon);
   const openPeek = useUiStore((s) => s.openPeek);
+  const addRow = useDatabaseStore((s) => s.addRow);
   const virtualRows = useWindowedRows({
     count: rows.length,
     estimateSize: 34,
@@ -47,7 +51,16 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
 
   if (rows.length === 0) {
     return (
-      <p className="py-6 text-center text-xs text-zinc-400">항목이 없습니다.</p>
+      <div className="pt-2">
+        <p className="py-6 text-center text-xs text-zinc-400">항목이 없습니다.</p>
+        <button
+          type="button"
+          onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+          className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          <Plus size={14} /> 새 항목
+        </button>
+      </div>
     );
   }
 
@@ -96,6 +109,13 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
       {virtualRows.bottomPadding > 0 && (
         <div aria-hidden="true" style={{ height: virtualRows.bottomPadding }} />
       )}
+      <button
+        type="button"
+        onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+        className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+      >
+        <Plus size={14} /> 새 항목
+      </button>
     </div>
   );
 }
