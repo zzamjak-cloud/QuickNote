@@ -400,6 +400,10 @@ export function BlockHandles({
   >([]);
   // setState 반복 방지 — 안정 키(blockId·count·messageIds)가 같으면 업데이트 건너뜀
   const pinnedStableKeyRef = useRef<string>("");
+  // 렌더된 카드 DOM 참조(key→element) — 실제 높이 측정용
+  const badgeElRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  // 겹침 보정 후 카드별 top(key→px). 비어 있으면 자연 위치(pin.top) 사용
+  const [stackedTops, setStackedTops] = useState<Record<string, number>>({});
 
   useLayoutEffect(() => {
     if (!editor || !activePageId) {
@@ -478,6 +482,14 @@ export function BlockHandles({
         });
       });
 
+      // 같은 행(컬럼 블록 등)에 달린 카드들이 right:12 에 정렬돼 겹치는 문제는
+      // 실제 렌더 높이를 알아야 정확히 나열할 수 있으므로, 여기서는 자연 위치(top)만
+      // 둔다. 겹침 보정은 렌더 후 높이를 측정하는 별도 layout effect 에서 수행한다.
+      // 단, 측정 전 첫 페인트에서 완전히 겹쳐 보이지 않도록 top 오름차순으로 정렬해 둔다.
+      if (!compactComments && items.length > 1) {
+        items.sort((a, b) => a.top - b.top || a.commentLeft - b.commentLeft);
+      }
+
       const nextKey = items
         .map((i) => `${i.blockId}:${i.count}:${i.messages.map((m) => m.id).join(",")}`)
         .join("|");
@@ -523,7 +535,39 @@ export function BlockHandles({
       scroller.removeEventListener("scroll", refreshPinned);
       window.removeEventListener("resize", refreshPinned);
     };
-  }, [editor, activePageId]);
+  }, [editor, activePageId, compactComments]);
+
+  // 렌더된 카드의 실제 높이를 측정해 겹치지 않게 세로로 나열한다(카드 높이에 맞춰 자동 보정).
+  // 자연 위치(pin.top)에서 시작하되, 위 카드와 겹치면 그 카드 '실측 높이 + 간격'만큼만 밀어낸다.
+  useLayoutEffect(() => {
+    if (compactComments || pinnedCommentBadges.length === 0) {
+      setStackedTops((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      return;
+    }
+    const GAP_PX = 8;
+    const sorted = [...pinnedCommentBadges].sort(
+      (a, b) => a.top - b.top || a.commentLeft - b.commentLeft,
+    );
+    const next: Record<string, number> = {};
+    let prevBottom = Number.NEGATIVE_INFINITY;
+    for (const pin of sorted) {
+      const el = badgeElRef.current.get(pin.key);
+      const height = el?.offsetHeight ?? 0;
+      const top =
+        prevBottom === Number.NEGATIVE_INFINITY
+          ? pin.top
+          : Math.max(pin.top, prevBottom + GAP_PX);
+      next[pin.key] = top;
+      prevBottom = top + height;
+    }
+    setStackedTops((prev) => {
+      const keys = Object.keys(next);
+      const same =
+        keys.length === Object.keys(prev).length &&
+        keys.every((k) => Math.abs((prev[k] ?? Number.NaN) - next[k]) < 0.5);
+      return same ? prev : next;
+    });
+  }, [pinnedCommentBadges, compactComments]);
 
   const onGripPointerDown = (e: React.PointerEvent) => {
     dragCommittedRef.current = false;
@@ -1345,6 +1389,10 @@ export function BlockHandles({
       {pinnedCommentBadges.map((pin) => (
         <div
           key={pin.key}
+          ref={(el) => {
+            if (el) badgeElRef.current.set(pin.key, el);
+            else badgeElRef.current.delete(pin.key);
+          }}
           data-qn-comment-badge-block-id={pin.blockId}
           role="button"
           tabIndex={0}
@@ -1378,7 +1426,12 @@ export function BlockHandles({
           style={
             compactComments
               ? { top: pin.top, left: pin.commentLeft }
-              : { top: pin.top, right: 12, width: 232, maxHeight: 240 }
+              : {
+                  top: stackedTops[pin.key] ?? pin.top,
+                  right: 12,
+                  width: 232,
+                  maxHeight: 240,
+                }
           }
         >
           {compactComments ? (
