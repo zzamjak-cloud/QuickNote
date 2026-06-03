@@ -12,6 +12,8 @@ import {
   getPreviousPageHistorySnapshot,
 } from "../../lib/history/pageHistoryPatch";
 import { buildPagePreviewChanges } from "../../lib/history/historyPreviewDiff";
+import { useDatabaseStore } from "../../store/databaseStore";
+import { usePageStore } from "../../store/pageStore";
 import type { GqlPageHistoryEntry } from "../../lib/sync/graphql/operations";
 
 const EMPTY_ENTRIES: GqlPageHistoryEntry[] = [];
@@ -82,6 +84,9 @@ export function PageHistoryPreviewDialog({
     [selectedEntries],
   );
 
+  const pages = usePageStore((s) => s.pages);
+  const databases = useDatabaseStore((s) => s.databases);
+
   const snapshotMap = useMemo(
     () => (pageId && workspaceId ? buildPageHistorySnapshotMap(historyEntries, pageId, workspaceId) : new Map()),
     [historyEntries, pageId, workspaceId],
@@ -90,9 +95,26 @@ export function PageHistoryPreviewDialog({
   const selectedBefore = selectedHistoryId && pageId && workspaceId
     ? getPreviousPageHistorySnapshot(historyEntries, pageId, workspaceId, selectedHistoryId)
     : null;
+
+  const previewContext = useMemo(() => {
+    const dbId = selectedAfter?.databaseId ?? selectedBefore?.databaseId;
+    const bundle = dbId ? databases[dbId] : null;
+    const columns = bundle?.columns ?? [];
+    const colMap = new Map(columns.map((c) => [c.id, c]));
+    return {
+      getDatabaseTitle: (id: string) => databases[id]?.meta.title ?? null,
+      getPageTitle: (id: string) => pages[id]?.title ?? null,
+      getColumnName: (columnId: string) => colMap.get(columnId)?.name ?? null,
+      getOptionLabel: (columnId: string, optionId: string) => {
+        const col = colMap.get(columnId);
+        return col?.config?.options?.find((o) => o.id === optionId)?.label ?? null;
+      },
+    };
+  }, [databases, pages, selectedAfter, selectedBefore]);
+
   const previewChanges = useMemo(
-    () => buildPagePreviewChanges(selectedBefore, selectedAfter),
-    [selectedAfter, selectedBefore],
+    () => buildPagePreviewChanges(selectedBefore, selectedAfter, previewContext),
+    [selectedAfter, selectedBefore, previewContext],
   );
   const confirmZIndex = isInsidePeek ? 730 : 500;
 
@@ -165,11 +187,9 @@ export function PageHistoryPreviewDialog({
                       </div>
                       <div className="grid gap-2 text-sm md:grid-cols-2">
                         <div className="min-w-0 rounded bg-red-50/70 p-2 text-red-900 dark:bg-red-950/25 dark:text-red-100">
-                          <div className="mb-1 text-xs text-red-500 dark:text-red-300">이전</div>
                           <div className="break-words">{change.before}</div>
                         </div>
                         <div className="min-w-0 rounded bg-emerald-50/70 p-2 text-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100">
-                          <div className="mb-1 text-xs text-emerald-500 dark:text-emerald-300">선택 버전</div>
                           <div className="break-words">{change.after}</div>
                         </div>
                       </div>

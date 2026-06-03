@@ -183,11 +183,9 @@ export function DatabaseBlockHistoryDialog({
                       </div>
                       <div className="grid gap-2 text-sm md:grid-cols-2">
                         <div className="min-w-0 rounded bg-red-50/70 p-2 text-red-900 dark:bg-red-950/25 dark:text-red-100">
-                          <div className="mb-1 text-xs text-red-500 dark:text-red-300">이전</div>
                           <div className="break-words">{change.before}</div>
                         </div>
                         <div className="min-w-0 rounded bg-emerald-50/70 p-2 text-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100">
-                          <div className="mb-1 text-xs text-emerald-500 dark:text-emerald-300">선택 버전</div>
                           <div className="break-words">{change.after}</div>
                         </div>
                       </div>

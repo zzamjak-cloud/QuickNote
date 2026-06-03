@@ -10,6 +10,13 @@ export type HistoryPreviewChange = {
   kind: "added" | "removed" | "changed";
 };
 
+export type PagePreviewContext = {
+  getDatabaseTitle?: (id: string) => string | null | undefined;
+  getPageTitle?: (id: string) => string | null | undefined;
+  getColumnName?: (columnId: string) => string | null | undefined;
+  getOptionLabel?: (columnId: string, optionId: string) => string | null | undefined;
+};
+
 function stringifyValue(value: unknown): string {
   if (value == null || value === "") return "비어 있음";
   if (typeof value === "string") return value;
@@ -23,6 +30,42 @@ function stringifyValue(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function formatColumnConfig(config: unknown): string {
+  if (config == null || config === "") return "비어 있음";
+  const parsed = parseJsonValue<Record<string, unknown>>(config, {});
+  if (!isRecord(parsed)) return stringifyValue(config);
+  const parts: string[] = [];
+  if (Array.isArray(parsed.options)) {
+    const labels = parsed.options
+      .filter((o): o is Record<string, unknown> => isRecord(o) && !o.divider)
+      .map((o) => (typeof o.label === "string" ? o.label : String(o.id)));
+    if (labels.length > 0) parts.push(`옵션: ${labels.join(", ")}`);
+  }
+  if (typeof parsed.dateShowEnd === "boolean") {
+    parts.push(`날짜 범위: ${parsed.dateShowEnd ? "표시" : "숨김"}`);
+  }
+  if (isRecord(parsed.sourceFromDb)) parts.push("다른 DB에서 가져옴");
+  return parts.length > 0 ? parts.join(" / ") : stringifyValue(config);
+}
+
+function resolveCellValue(
+  value: unknown,
+  columnId: string,
+  ctx: PagePreviewContext,
+): string {
+  if (value == null || value === "") return "비어 있음";
+  const resolve = (id: unknown): string => {
+    if (typeof id !== "string") return stringifyValue(id);
+    const label = ctx.getOptionLabel?.(columnId, id);
+    return label ?? id;
+  };
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "비어 있음";
+    return value.map(resolve).join(", ");
+  }
+  return resolve(value);
 }
 
 function equalJson(a: unknown, b: unknown): boolean {
@@ -155,20 +198,38 @@ function pageCells(snapshot: PageSnapshot | null): Record<string, unknown> {
 export function buildPagePreviewChanges(
   before: PageSnapshot | null,
   after: PageSnapshot | null,
+  ctx: PagePreviewContext = {},
 ): HistoryPreviewChange[] {
   if (!after) return [];
   const out: HistoryPreviewChange[] = [];
   pushValueChange(out, "title", "페이지 제목", before?.title, after.title);
   pushValueChange(out, "icon", "아이콘", before?.icon, after.icon);
   pushValueChange(out, "cover", "커버", before?.coverImage, after.coverImage);
-  pushValueChange(out, "parent", "상위 페이지", before?.parentId, after.parentId);
-  pushValueChange(out, "order", "정렬 순서", before?.order, after.order);
-  pushValueChange(out, "database", "연결 DB", before?.databaseId, after.databaseId);
+
+  const resolveParent = (id: string | null | undefined) =>
+    id ? (ctx.getPageTitle?.(id) ?? id) : id;
+  pushValueChange(out, "parent", "상위 페이지", resolveParent(before?.parentId), resolveParent(after.parentId));
+
+  const resolveDb = (id: string | null | undefined) =>
+    id ? (ctx.getDatabaseTitle?.(id) ?? id) : id;
+  pushValueChange(out, "database", "연결 DB", resolveDb(before?.databaseId), resolveDb(after.databaseId));
 
   const beforeCells = pageCells(before);
   const afterCells = pageCells(after);
   for (const key of new Set([...Object.keys(beforeCells), ...Object.keys(afterCells)])) {
-    pushValueChange(out, `cell:${key}`, `속성 ${key}`, beforeCells[key], afterCells[key]);
+    const colLabel = ctx.getColumnName?.(key) ?? key;
+    const beforeVal = resolveCellValue(beforeCells[key], key, ctx);
+    const afterVal = resolveCellValue(afterCells[key], key, ctx);
+    if (beforeVal === afterVal) continue;
+    const beforeEmpty = beforeCells[key] == null || beforeCells[key] === "";
+    const afterEmpty = afterCells[key] == null || afterCells[key] === "";
+    out.push({
+      id: `cell:${key}`,
+      label: `속성: ${colLabel}`,
+      before: beforeVal,
+      after: afterVal,
+      kind: beforeEmpty ? "added" : afterEmpty ? "removed" : "changed",
+    });
   }
 
   buildLineChanges(
@@ -212,7 +273,6 @@ export function buildDatabasePreviewChanges(
   if (!after) return [];
   const out: HistoryPreviewChange[] = [];
   pushValueChange(out, "title", "DB 이름", before?.title, after.title);
-  pushValueChange(out, "workspace", "워크스페이스", before?.workspaceId, after.workspaceId);
   pushValueChange(out, "deleted", "삭제 상태", before?.deletedAt, after.deletedAt);
 
   const beforeColumns = new Map(databaseColumns(before).map((column) => [column.id, column]));
@@ -228,7 +288,15 @@ export function buildDatabasePreviewChanges(
     }
     pushValueChange(out, `column-name:${id}`, `컬럼 이름 ${label}`, beforeColumn.name, afterColumn.name);
     pushValueChange(out, `column-type:${id}`, `컬럼 타입 ${label}`, beforeColumn.type, afterColumn.type);
-    pushValueChange(out, `column-config:${id}`, `컬럼 설정 ${label}`, beforeColumn.config, afterColumn.config);
+    if (!equalJson(beforeColumn.config, afterColumn.config)) {
+      out.push({
+        id: `column-config:${id}`,
+        label: `컬럼 설정 ${label}`,
+        before: formatColumnConfig(beforeColumn.config),
+        after: formatColumnConfig(afterColumn.config),
+        kind: "changed",
+      });
+    }
   }
 
   const beforePanel = databasePanelState(before);

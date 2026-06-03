@@ -335,16 +335,49 @@ export function DatabaseTimelineView({
   const [trackPxWidth, setTrackPxWidth] = useState(0);
   const [sideLabelWidth, setSideLabelWidth] = useState(SIDE_LABEL_W);
   const headerYearTrackRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
+  // 실측 너비는 0 으로 덮어쓰지 않는다. 0 으로 두면 fit 축에서 pxPerDay=0 → cardLayouts 가
+  // 빈 배열이 되어 카드가 사라지는 빈 프레임(깜빡임)이 생긴다.
+  const measureTrack = useCallback(() => {
     const el = trackRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => {
-      setTrackPxWidth(el.clientWidth);
-    });
+    const w = el.clientWidth;
+    if (w > 0) setTrackPxWidth((prev) => (prev === w ? prev : w));
+  }, []);
+  // 트랙 DOM 이 붙는 즉시(커밋 단계, 페인트 전) 동기 측정한다. 날짜 라인이 CSS % 라 안 깜빡이듯,
+  // 카드도 첫 페인트부터 올바른 픽셀 너비를 갖게 해 측정 공백으로 인한 깜빡임을 없앤다.
+  const setTrackNode = useCallback(
+    (node: HTMLDivElement | null) => {
+      trackRef.current = node;
+      if (!node) return;
+      const w = node.clientWidth;
+      if (w > 0) setTrackPxWidth((prev) => (prev === w ? prev : w));
+    },
+    [],
+  );
+  useLayoutEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => measureTrack());
     ro.observe(el);
-    setTrackPxWidth(el.clientWidth);
+    measureTrack();
     return () => ro.disconnect();
-  }, [granularity]);
+  }, [granularity, measureTrack]);
+
+  // 깜빡임 대신 "빈 상태 → 한 번에 완성된 모습". 너비가 잡힌 뒤에도 react-rnd 가 페인트 직후
+  // 부모 offset 을 재측정해 카드를 한 번 더 옮기므로, 측정 후 2프레임(rAF) 기다려 카드 위치·
+  // 스크롤이 모두 정착한 다음 본문을 드러낸다. 그 전에는 visibility 로 숨긴다(공간은 예약).
+  const [contentReady, setContentReady] = useState(false);
+  useEffect(() => {
+    if (trackPxWidth <= 0 || contentReady) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setContentReady(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [trackPxWidth, contentReady]);
   const onSideLabelResizeStart = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1339,6 +1372,8 @@ export function DatabaseTimelineView({
             "qn-database-subtle-scrollbar",
             usesScrollableAxis ? "overflow-x-auto" : "overflow-hidden",
           ].join(" ")}
+          // 카드 위치가 완전히 정착하기 전에는 숨긴다 (깜빡임 대신 빈 상태 → 한 번에 노출).
+          style={{ visibility: contentReady ? undefined : "hidden" }}
         >
           <div
             className="relative"
@@ -1460,7 +1495,7 @@ export function DatabaseTimelineView({
 
               {/* 우측 트랙 + 카드 */}
               <div
-                ref={trackRef}
+                ref={setTrackNode}
                 className={usesScrollableAxis ? "relative shrink-0" : "relative flex-1"}
                 style={
                   usesScrollableAxis
