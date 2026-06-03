@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Database, History, Trash2 } from "lucide-react";
 import { DatabaseFullPageStandalone } from "./DatabaseFullPageStandalone";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
@@ -29,6 +29,7 @@ function isViewKind(value: unknown): value is ViewKind {
 export function DatabaseDirectPage({ databaseId, pageId }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const deleteDatabase = useDatabaseStore((s) => s.deleteDatabase);
+  const setDatabaseTitle = useDatabaseStore((s) => s.setDatabaseTitle);
   const fullPageAttrs = usePageStore((s) => {
     if (!pageId) return null;
     const first = s.pages[pageId]?.doc.content?.[0];
@@ -45,9 +46,38 @@ export function DatabaseDirectPage({ databaseId, pageId }: Props) {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deletePhraseDraft, setDeletePhraseDraft] = useState("");
+  const [titleHovered, setTitleHovered] = useState(false);
+  const [titleFocused, setTitleFocused] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
 
   const title = bundle?.meta.title ?? "데이터베이스";
   const isProtectedDatabase = isProtectedDatabaseId(databaseId);
+
+  useEffect(() => {
+    const input = titleInputRef.current;
+    if (!input || document.activeElement === input) return;
+    input.value = title;
+  }, [title]);
+
+  useEffect(() => {
+    if (!titleFocused) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (titleInputRef.current && !titleInputRef.current.contains(e.target as Node)) {
+        titleInputRef.current.blur();
+      }
+    };
+    document.addEventListener("mousedown", handleOutside, true);
+    return () => document.removeEventListener("mousedown", handleOutside, true);
+  }, [titleFocused]);
+
+  const commitTitle = (draft: string) => {
+    const next = draft.trim() || "제목 없음";
+    const ok = setDatabaseTitle(databaseId, next);
+    if (!ok) {
+      alert("이미 사용 중인 데이터베이스 이름입니다.");
+      if (titleInputRef.current) titleInputRef.current.value = title;
+    }
+  };
   const deleteConfirmPhrase = useMemo(() => {
     const name = title.trim() || "데이터베이스";
     return `${name} 삭제`;
@@ -89,9 +119,38 @@ export function DatabaseDirectPage({ databaseId, pageId }: Props) {
       >
         <div className="mb-4 flex min-w-0 items-center gap-3 px-2">
           <Database size={40} className="shrink-0 text-zinc-400" />
-          <h1 className="min-w-0 flex-1 truncate text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
-            {title}
-          </h1>
+          {isProtectedDatabase ? (
+            <h1 className="min-w-0 flex-1 truncate text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+              {title}
+            </h1>
+          ) : (
+            <input
+              ref={titleInputRef}
+              type="text"
+              defaultValue={title}
+              onMouseEnter={() => setTitleHovered(true)}
+              onMouseLeave={() => setTitleHovered(false)}
+              onFocus={() => setTitleFocused(true)}
+              onBlur={() => {
+                setTitleFocused(false);
+                setTitleHovered(false);
+                commitTitle(titleInputRef.current?.value ?? title);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              placeholder="데이터베이스 이름"
+              title="이름 변경"
+              className={[
+                "min-w-0 flex-1 cursor-text rounded-md border bg-transparent px-2 text-4xl font-bold tracking-tight text-zinc-900 outline-none dark:text-zinc-100",
+                titleFocused
+                  ? "border-zinc-300 dark:border-zinc-600"
+                  : titleHovered
+                    ? "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/40"
+                    : "border-transparent",
+              ].join(" ")}
+            />
+          )}
           <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"

@@ -18,7 +18,7 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 | `node.attrs.layout` | `"inline" \| "fullPage"` | 인라인 vs 전체 페이지 레이아웃 |
 | `node.attrs.view` | `ViewKind` | 현재 뷰 종류 (table/timeline/gallery 등) |
 | `node.attrs.panelState` | `string` (JSON) | 직렬화된 `DatabasePanelState` |
-| `node.attrs.readOnlyTitle` | `boolean` | 제목 편집 잠금 여부 |
+| `node.attrs.readOnlyTitle` | `boolean` | 기존 DB 연결 시 자동으로 `true`로 설정되나, 제목 잠금에는 더 이상 사용되지 않음 (하위 호환용 attr) |
 
 ## 주요 로직
 | 항목 | 설명 |
@@ -27,6 +27,7 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 | 더보기 버튼 | `visibleRowLimit` 초과 시 "+ N개 더보기" 버튼 노출, 10개씩 추가하며 자동 스크롤 |
 | 삭제 확인 | `deleteConfirmPhrase` 문구 직접 입력 후 `executeDeleteDatabasePermanently` 실행 |
 | 보호된 DB | `isProtectedDatabaseId` 판별 후 삭제/수정 차단 |
+| 제목 편집 UX | 제목 hover 시 테두리 표시, 클릭 시 포커스. `inlineTitleLocked`는 `isProtectedDatabase`만 참조 (readOnlyTitle은 더 이상 잠금에 사용 안 함). 외부 클릭 시 blur를 위해 `document.addEventListener("mousedown", ..., true)` 캡처 리스너 사용 (tiptap이 mousedown을 가로채므로). |
 | 인라인 컨트롤 접기 | `useDatabaseInlineUiPrefsStore`로 컨트롤 영역 접힘 상태 관리 |
 | 기존 DB 연결 | `DatabaseBlockLinkExistingDialog`로 다른 DB에 바인딩 |
 | 히스토리 | `DatabaseBlockHistoryDialog`로 DB 버전 히스토리 열람·복원 |
@@ -41,6 +42,9 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 ## 주의사항
 - `layout === "fullPage"` 일 때 DB 삭제 시 연결된 activePageId도 함께 삭제한다.
 - `isProtectedDatabase` 체크를 반드시 삭제·수정 액션 진입부에서 수행해야 한다. 스케줄러/마일스톤/피처 DB는 UI에서 보호되어야 한다.
+- 제목 잠금은 `isProtectedDatabase`만으로 판단한다. `readOnlyTitle` attr은 기존 DB 연결 시 자동 세팅되지만 편집 가능 여부에는 영향을 주지 않는다.
+- 제목 편집 input의 외부 클릭 감지는 `onBlur`만으로 불충분하다(tiptap이 mousedown을 소비). `useEffect`에서 `isFocused` 시 `document.addEventListener("mousedown", handler, true)` 캡처 리스너를 등록하고 cleanup에서 제거해야 한다. `onBlur`에서 `setIsHovered(false)`도 함께 호출해야 hover 테두리가 즉시 사라진다.
+- `DatabaseDirectPage`(`src/components/database/DatabaseDirectPage.tsx`)도 동일한 hover/click 편집 UX와 캡처 리스너 패턴을 따른다.
 - `panelState`는 node.attrs에 JSON 문자열로 저장된다. `parseDatabasePanelStateJson`으로 파싱 후 사용.
 - DB가 없는 상태(`bundleGone`)와 아직 바인딩 안 된 상태(`needsBinding`)를 구분하여 다른 UI를 표시한다.
 - `isInsidePeek`는 `editor.view.dom.closest("[data-qn-peek-editor='true']")`로 감지하며, 피크뷰 내부 여부에 따라 다이얼로그 동작이 달라질 수 있다.

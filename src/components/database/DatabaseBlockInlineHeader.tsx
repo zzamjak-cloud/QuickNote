@@ -1,5 +1,5 @@
 import { ChevronDown, Database, History, Link2, Maximize2 } from "lucide-react";
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
 
 type Props = {
@@ -32,12 +32,27 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
   onTitleDragEnd,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
+
   useEffect(() => {
     const input = inputRef.current;
     if (!input) return;
     if (document.activeElement === input) return;
     input.value = displayDbTitle;
   }, [displayDbTitle]);
+
+  // tiptap이 mousedown을 가로채 blur가 발화하지 않으므로 document 레벨에서 외부 클릭 감지
+  useEffect(() => {
+    if (!isFocused) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        inputRef.current.blur();
+      }
+    };
+    document.addEventListener("mousedown", handleOutside, true);
+    return () => document.removeEventListener("mousedown", handleOutside, true);
+  }, [isFocused]);
 
   return (
     <>
@@ -79,6 +94,18 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
               ref={inputRef}
               type="text"
               defaultValue={displayDbTitle}
+              onMouseEnter={() => setIsHovered(true)}
+              onMouseLeave={() => setIsHovered(false)}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => {
+                setIsFocused(false);
+                setIsHovered(false);
+                const nextTitle = inputRef.current?.value ?? displayDbTitle;
+                const ok = onTitleCommit(nextTitle);
+                if (!ok) {
+                  if (inputRef.current) inputRef.current.value = displayDbTitle;
+                }
+              }}
               onKeyDownCapture={(e) => {
                 // 에디터 단축키/트랜잭션으로 전파되지 않게 차단
                 e.stopPropagation();
@@ -92,13 +119,6 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
               onInput={(e) => {
                 e.stopPropagation();
               }}
-              onBlur={() => {
-                const nextTitle = inputRef.current?.value ?? displayDbTitle;
-                const ok = onTitleCommit(nextTitle);
-                if (!ok) {
-                  if (inputRef.current) inputRef.current.value = displayDbTitle;
-                }
-              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   (e.target as HTMLInputElement).blur();
@@ -106,7 +126,14 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
               }}
               placeholder="데이터베이스 이름"
               title="이름 변경"
-              className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 text-left text-2xl font-bold text-zinc-800 outline-none focus:border-zinc-300 dark:text-zinc-200 dark:focus:border-zinc-600"
+              className={[
+                "min-w-0 flex-1 cursor-text rounded border bg-transparent px-1 text-left text-2xl font-bold text-zinc-800 outline-none dark:text-zinc-200",
+                isFocused
+                  ? "border-zinc-300 dark:border-zinc-600"
+                  : isHovered
+                    ? "border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/40"
+                    : "border-transparent",
+              ].join(" ")}
             />
           )}
         </div>

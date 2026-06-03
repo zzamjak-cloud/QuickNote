@@ -59,7 +59,6 @@ import {
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
   const databaseId = String(node.attrs.databaseId ?? "");
-  const readOnlyTitleAttr = Boolean(node.attrs.readOnlyTitle);
   const layout = (node.attrs.layout ?? "inline") as DatabaseLayout;
   const rawView = String(node.attrs.view ?? "table");
   const view = rawView as ViewKind;
@@ -87,9 +86,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const setActivePageNav = usePageStore((s) => s.setActivePage);
   const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
 
-  const inlineTitleLocked =
-    isProtectedDatabase ||
-    (layout === "inline" && readOnlyTitleAttr);
+  const inlineTitleLocked = isProtectedDatabase;
 
   // 내비게이션 히스토리 (인라인→전체 DB 전환 시 뒤로가기 지원).
   const pushBack = useNavigationHistoryStore((s) => s.pushBack);
@@ -518,6 +515,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
               />
             ) : (
               <DatabaseBlockFullPageHeader
+                displayDbTitle={displayDbTitle}
+                onTitleCommit={commitDbTitle}
+                titleLocked={isProtectedDatabase}
                 onOpenDbHistory={() => setDbHistoryDialogOpen(true)}
                 onOpenDeleteModal={openDeleteDatabaseModal}
                 deleteDisabled={isProtectedDatabase}
