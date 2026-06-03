@@ -36,6 +36,12 @@ import {
 import { decodeFileRef } from "../../lib/files/scheme";
 import { imageUrlCache } from "../../lib/images/registry";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
+import {
+  applyHeaderColToggle,
+  applyHeaderRowToggle,
+  isHeaderColActive,
+  isHeaderRowActive,
+} from "../../lib/editor/tableHeaders";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import { usePageStore } from "../../store/pageStore";
@@ -793,6 +799,17 @@ export function BlockHandles({
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isColumnLayout = hover?.node.type.name === "columnLayout";
   const isToggleBlock = hover?.node.type.name === "toggle";
+  const isTable = hover?.node.type.name === "table";
+  // 표 헤더 상태는 토글 직후 hover.node 가 갱신되기 전일 수 있어 live doc 에서 조회.
+  const liveTableNode =
+    isTable && hover && editor
+      ? (() => {
+          const n = editor.state.doc.nodeAt(hover.blockStart);
+          return n?.type.name === "table" ? n : hover.node;
+        })()
+      : null;
+  const tableHeaderRowActive = liveTableNode ? isHeaderRowActive(liveTableNode) : false;
+  const tableHeaderColActive = liveTableNode ? isHeaderColActive(liveTableNode) : false;
   const isTextBlock = hover
     ? [
         "paragraph",
@@ -1274,6 +1291,45 @@ export function BlockHandles({
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* 표 헤더행/헤더열 토글 (표 블록일 때만) */}
+                {isTable && (
+                  <div className="px-1 py-1">
+                    {(["row", "col"] as const).map((kind) => {
+                      const active = kind === "row" ? tableHeaderRowActive : tableHeaderColActive;
+                      return (
+                        <button
+                          key={kind}
+                          type="button"
+                          className="flex w-full items-center justify-between rounded px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          onClick={() => {
+                            if (!editor || !hover) return;
+                            if (kind === "row") applyHeaderRowToggle(editor, hover.blockStart);
+                            else applyHeaderColToggle(editor, hover.blockStart);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          <span className="text-sm text-zinc-800 dark:text-zinc-200">
+                            {kind === "row" ? "헤더행" : "헤더열"}
+                          </span>
+                          <div
+                            className={[
+                              "relative inline-flex h-[18px] w-8 flex-shrink-0 items-center rounded-full transition-colors duration-200",
+                              active ? "bg-blue-500" : "bg-zinc-200 dark:bg-zinc-600",
+                            ].join(" ")}
+                          >
+                            <span
+                              className={[
+                                "inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform duration-200",
+                                active ? "translate-x-[18px]" : "translate-x-[3px]",
+                              ].join(" ")}
+                            />
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
 

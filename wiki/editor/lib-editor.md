@@ -21,6 +21,8 @@
 | `blockDropTarget.ts` | `BlockDropIndicatorRect`, 관련 유틸 | 블록 드래그 중 드롭 위치 rect 계산 |
 | `editorHandleDrop.ts` | `BlockDropIndicatorRect`, `ColumnDropState`, 드롭 핸들러 | 블록·컬럼 드롭 이벤트 처리 로직 |
 | `tableReorderDrag.ts` | — | 테이블 행/열 드래그 재정렬 로직 |
+| `tableHeaders.ts` | `isHeaderRowActive`, `isHeaderColActive`, `applyHeaderRowToggle`, `applyHeaderColToggle` | 표 헤더행/헤더열 판별·토글. TipTap toggleHeader 명령 신뢰성 문제로 PM 트랜잭션 직접 처리. `TableBlockControls`(행/열 그립 메뉴)와 `BlockHandles`(표 블록 좌상단 핸들 메뉴)가 공유 |
+| `tableColumnWidths.ts` | `getSelectedColumnCount`, `distributeSelectedColumnsEvenly` | CellSelection 으로 연속 다중 열 선택 시, 선택 열 전체 너비를 열 개수로 균등 분배(colwidth 갱신). `BubbleToolbar` 의 "균등 너비" 버튼에서 호출 |
 
 ### 내비게이션
 | 파일 | 주요 export | 설명 |
@@ -50,7 +52,9 @@
 |--------|----------|
 | `Editor.tsx` | `insertImageFromFile`, `editorNavigationBridge`, `pendingNavigation`, `editorByPageRegistry`, `editorHandleDrop` |
 | `useEditorProps.ts` | `editorHandleDrop`, `clipboardFiles`, `insertImageFromFile`, `insertFileFromFile` |
-| `TableBlockControls.tsx` | `tableReorderDrag` |
+| `TableBlockControls.tsx` | `tableReorderDrag`, `tableHeaders` |
+| `BlockHandles.tsx` | `tableHeaders` (표 블록 좌상단 핸들 메뉴의 헤더행/열 토글) |
+| `BubbleToolbar.tsx` | `tableColumnWidths` (다중 열 선택 시 균등 너비 버튼) |
 
 ## 주의사항
 - **`editorNavigationBridge`**: 에디터 마운트 시 `registerEditorNavigation`, 언마운트 시 `unregisterEditorNavigation`을 호출해야 한다. 미호출 시 검색 결과 클릭 등 외부 스크롤 이동이 동작하지 않는다.

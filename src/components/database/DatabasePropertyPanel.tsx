@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Eye, EyeOff, Pencil, Plus, Save } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Eye, EyeOff, Pencil, Plus, Save } from "lucide-react";
 import type { CellValue, ColumnType, DatabaseRowPreset } from "../../types/database";
 import { resolveViewColumnOrderState } from "../../types/database";
 import { useDatabaseStore, defaultColumnForType } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { DatabaseCell } from "./DatabaseCell";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
@@ -113,10 +114,15 @@ function removeAttendanceMeta(meta: Record<string, unknown>): Record<string, unk
 export function DatabasePropertyPanel({
   databaseId,
   pageId,
+  className = "mt-2",
 }: {
   databaseId: string;
   pageId: string;
+  /** 폴딩 헤더를 포함한 wrapper 의 추가 클래스 */
+  className?: string;
 }) {
+  const open = useSettingsStore((s) => s.dbPropertyPanelOpen);
+  const setDbPropertyPanelOpen = useSettingsStore((s) => s.setDbPropertyPanelOpen);
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const page = usePageStore((s) => s.pages[pageId]);
   const addColumn = useDatabaseStore((s) => s.addColumn);
@@ -420,7 +426,25 @@ export function DatabasePropertyPanel({
 
   const statusLabel = currentPreset ? currentPreset.name : "속성 프리셋";
 
-  if (!hasData || !bundle || !page) return null;
+  // 폴딩(접기) 헤더 — 좌측 토글, 우측 프리셋 드롭다운.
+  const foldToggle = (
+    <button
+      type="button"
+      onClick={() => setDbPropertyPanelOpen(!open)}
+      className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+    >
+      {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+      속성
+    </button>
+  );
+
+  if (!hasData || !bundle || !page) {
+    return (
+      <div className={className}>
+        <div className="mb-1 flex items-center justify-between gap-2">{foldToggle}</div>
+      </div>
+    );
+  }
 
   const presetDropdown = (
     <div className="relative min-w-0" ref={presetMenuRef}>
@@ -434,7 +458,7 @@ export function DatabasePropertyPanel({
       </button>
 
       {presetMenuOpen && (
-        <div className="absolute bottom-full left-0 z-[710] mb-1 w-[300px] rounded border border-zinc-200 bg-white p-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <div className="absolute top-full right-0 z-[710] mt-1 w-[300px] rounded border border-zinc-200 bg-white p-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
           <div className="max-h-56 space-y-1 overflow-y-auto p-1">
             {filteredPresets.map((preset) => (
               <div
@@ -550,8 +574,14 @@ export function DatabasePropertyPanel({
   );
 
   return (
-    <div className="my-3 space-y-1 border-y border-zinc-200 py-3 text-sm dark:border-zinc-800">
-      {visibleColumns.map((col) => {
+    <div className={className}>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        {foldToggle}
+        {presetDropdown}
+      </div>
+      {open && (
+        <div className="space-y-1 border-y border-zinc-200 py-3 text-sm dark:border-zinc-800">
+          {visibleColumns.map((col) => {
         const value = (col.id in rowCells)
           ? rowCells[col.id]
           : null;
@@ -663,8 +693,9 @@ export function DatabasePropertyPanel({
             <Plus size={12} /> 속성 추가
           </button>
         )}
-        {presetDropdown}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

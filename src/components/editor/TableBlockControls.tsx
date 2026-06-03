@@ -9,6 +9,12 @@ import {
   setTableReorderDragData,
   TABLE_REORDER_DRAG_BODY_CLASS,
 } from "../../lib/editor/tableReorderDrag";
+import {
+  applyHeaderColToggle,
+  applyHeaderRowToggle,
+  isHeaderColActive,
+  isHeaderRowActive,
+} from "../../lib/editor/tableHeaders";
 
 type TableUi = {
   pos: number;
@@ -173,61 +179,6 @@ type GripMenuState = {
 
 
 
-function isHeaderRowActive(table: PMNode): boolean {
-  const firstRow = table.maybeChild(0);
-  if (!firstRow || firstRow.childCount === 0) return false;
-  for (let i = 0; i < firstRow.childCount; i++) {
-    if (firstRow.child(i).type.name !== "tableHeader") return false;
-  }
-  return true;
-}
-
-function isHeaderColActive(table: PMNode): boolean {
-  if (table.childCount < 2) return false;
-  return table.child(1).maybeChild(0)?.type.name === "tableHeader";
-}
-
-/**
- * 첫 행의 셀들을 tableHeader↔tableCell 로 직접 변환한다.
- * TipTap toggleHeaderRow 명령이 셀렉션 위치·확장 등록 상태에 따라 실패할 수 있어 PM 트랜잭션으로 처리.
- */
-function applyHeaderRowToggle(editor: Editor, tablePos: number): boolean {
-  const state = editor.state;
-  const table = state.doc.nodeAt(tablePos);
-  if (!table || table.type.name !== "table") return false;
-  const firstRow = table.maybeChild(0);
-  if (!firstRow) return false;
-  const headerType = state.schema.nodes.tableHeader;
-  const cellType = state.schema.nodes.tableCell;
-  if (!headerType || !cellType) return false;
-  const deactivating = isHeaderRowActive(table);
-  const targetType = deactivating ? cellType : headerType;
-  const headerColActive = isHeaderColActive(table);
-  const newCells: PMNode[] = [];
-  firstRow.forEach((cell, _o, i) => {
-    // 헤더행 비활성화 시, 헤더열이 활성화된 상태라면 첫 셀은 헤더열 타입 유지
-    if (deactivating && headerColActive && i === 0) {
-      newCells.push(headerType.createChecked(cell.attrs, cell.content, cell.marks));
-    } else {
-      newCells.push(targetType.createChecked(cell.attrs, cell.content, cell.marks));
-    }
-  });
-  const newRow = firstRow.type.createChecked(firstRow.attrs, newCells, firstRow.marks);
-  const rowFrom = tablePos + 1; // 테이블 노드 진입 후 첫 자식
-  const rowTo = rowFrom + firstRow.nodeSize;
-  editor.view.dispatch(state.tr.replaceWith(rowFrom, rowTo, newRow));
-  return true;
-}
-
-/** 표 전체 삭제: 테이블 노드 자체를 문서에서 제거. */
-function applyDeleteTable(editor: Editor, tablePos: number): boolean {
-  const state = editor.state;
-  const table = state.doc.nodeAt(tablePos);
-  if (!table || table.type.name !== "table") return false;
-  editor.view.dispatch(state.tr.delete(tablePos, tablePos + table.nodeSize));
-  return true;
-}
-
 /** 열 삭제: 각 행에서 colIndex 셀을 제거한 새 테이블로 교체 — TipTap deleteColumn 신뢰성 문제 회피. */
 function applyDeleteColumn(editor: Editor, tablePos: number, colIndex: number): boolean {
   const state = editor.state;
@@ -260,39 +211,6 @@ function applyDeleteRow(editor: Editor, tablePos: number, rowIndex: number): boo
   const newRows: PMNode[] = [];
   table.forEach((row, _o, i) => {
     if (i !== rowIndex) newRows.push(row);
-  });
-  const newTable = table.type.createChecked(table.attrs, newRows, table.marks);
-  editor.view.dispatch(state.tr.replaceWith(tablePos, tablePos + table.nodeSize, newTable));
-  return true;
-}
-
-/** 각 행의 첫 셀을 tableHeader↔tableCell 로 직접 변환 — 테이블 전체 재생성 트랜잭션. */
-function applyHeaderColToggle(editor: Editor, tablePos: number): boolean {
-  const state = editor.state;
-  const table = state.doc.nodeAt(tablePos);
-  if (!table || table.type.name !== "table") return false;
-  const headerType = state.schema.nodes.tableHeader;
-  const cellType = state.schema.nodes.tableCell;
-  if (!headerType || !cellType) return false;
-  const deactivating = isHeaderColActive(table);
-  const targetType = deactivating ? cellType : headerType;
-  const headerRowActive = isHeaderRowActive(table);
-  const newRows: PMNode[] = [];
-  table.forEach((row, _o, rowIdx) => {
-    const newCells: PMNode[] = [];
-    row.forEach((cell, _offset, i) => {
-      if (i === 0) {
-        // 헤더열 비활성화 시, 헤더행이 활성화된 상태라면 첫 행의 첫 셀은 헤더행 타입 유지
-        if (deactivating && headerRowActive && rowIdx === 0) {
-          newCells.push(headerType.createChecked(cell.attrs, cell.content, cell.marks));
-        } else {
-          newCells.push(targetType.createChecked(cell.attrs, cell.content, cell.marks));
-        }
-      } else {
-        newCells.push(cell);
-      }
-    });
-    newRows.push(row.type.createChecked(row.attrs, newCells, row.marks));
   });
   const newTable = table.type.createChecked(table.attrs, newRows, table.marks);
   editor.view.dispatch(state.tr.replaceWith(tablePos, tablePos + table.nodeSize, newTable));
@@ -701,21 +619,6 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
                   ? "열 삭제"
                   : "행 삭제"}
             </button>
-            {!gripMenu.deleteArmed && (
-              <button
-                type="button"
-                role="menuitem"
-                className="flex w-full items-center rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                onClick={() => {
-                  const ok = window.confirm("표를 삭제하시겠습니까?");
-                  if (!ok) return;
-                  applyDeleteTable(editor, gripMenu.tablePos);
-                  setGripMenu(null);
-                }}
-              >
-                표 전체 삭제
-              </button>
-            )}
           </div>
         </div>,
         document.body,

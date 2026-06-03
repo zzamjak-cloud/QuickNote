@@ -292,10 +292,13 @@ export function hoverFromResolvedPos(
       break;
     }
   }
-  // inner 가 atom 블록(image / fileBlock / horizontalRule 등) 이면 list/task 항목보다 먼저 반환.
-  // 글머리·체크 항목 안에 들어간 이미지·파일 위에서 드래그 핸들이 listItem 으로 가려져
-  // 이미지 자체를 잡지 못하던 회귀를 방지한다.
-  if (inner?.node.isAtom) return inner;
+  // inner 가 atom 블록(image / fileBlock / horizontalRule 등) 또는 paragraph 가 아닌
+  // 블록(codeBlock 등) 이면 list/task 항목보다 먼저 반환한다. list/task 우선 규칙은
+  // 마커+텍스트(paragraph)를 하나의 이동 단위로 묶기 위한 것이므로, 글머리·번호·체크 항목
+  // 안에 중첩된 코드 블록·이미지가 자기 드래그 핸들을 갖지 못하던 회귀를 함께 방지한다.
+  if (inner && (inner.node.isAtom || inner.node.type.name !== "paragraph")) {
+    return inner;
+  }
   return taskItem ?? listItem ?? inner ?? wrapper;
 }
 
@@ -353,28 +356,24 @@ function listItemOwnRowContainsPoint(
   const itemRect = listItemEl.getBoundingClientRect();
   if (!rectContainsPoint(itemRect, clientX, clientY)) return false;
 
-  const ownContentChildren = Array.from(listItemEl.children).filter((child) => {
-    const tag = child.tagName.toLowerCase();
-    return tag !== "ul" && tag !== "ol";
-  });
+  // own row = 리스트 마커 + 첫 텍스트 라인. 그 아래에 중첩된 블록(코드블럭·이미지·표·중첩 리스트
+  // 등)은 own row 가 아니라 각자 드래그 핸들을 가져야 하므로 own row 세로 범위에서 제외한다.
+  // 첫 텍스트 블록(문단/헤딩)의 하단을 own row 의 바닥으로 본다. taskItem 은 체크박스+본문 div
+  // 구조라 div 안의 첫 문단까지 함께 본다.
+  const firstLine = listItemEl.querySelector(
+    ":scope > p, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > h6, :scope > div > p, :scope > div > h1, :scope > div > h2, :scope > div > h3",
+  );
+  const rowBottom =
+    firstLine instanceof HTMLElement
+      ? firstLine.getBoundingClientRect().bottom
+      : itemRect.top + Math.min(itemRect.height, ROW_HEIGHT_FALLBACK_PX);
 
-  for (const child of ownContentChildren) {
-    const rect = child.getBoundingClientRect();
-    if (
-      clientX >= itemRect.left - GUTTER_LEFT_PX &&
-      clientX <= itemRect.right + RECT_PAD_X &&
-      clientY >= rect.top - 2 &&
-      clientY <= rect.bottom + 2
-    ) {
-      return true;
-    }
-  }
-
-  if (ownContentChildren.length === 0) {
-    const fallbackBottom = itemRect.top + Math.min(itemRect.height, ROW_HEIGHT_FALLBACK_PX);
-    return clientY >= itemRect.top && clientY <= fallbackBottom;
-  }
-  return false;
+  return (
+    clientX >= itemRect.left - GUTTER_LEFT_PX &&
+    clientX <= itemRect.right + RECT_PAD_X &&
+    clientY >= itemRect.top - 2 &&
+    clientY <= rowBottom + 2
+  );
 }
 
 function considerListItemHandleFromStack(

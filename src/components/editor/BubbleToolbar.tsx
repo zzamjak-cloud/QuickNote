@@ -15,12 +15,17 @@ import {
   Palette,
   Link as LinkIcon,
   MessageSquarePlus,
+  AlignHorizontalDistributeCenter,
 } from "lucide-react";
 import { ImageBubbleToolbar } from "./ImageBubbleToolbar";
 import { sanitizeWebLinkHref } from "../../lib/safeUrl";
 import { useUiStore } from "../../store/uiStore";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
 import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
+import {
+  distributeSelectedColumnsEvenly,
+  getSelectedColumnCount,
+} from "../../lib/editor/tableColumnWidths";
 
 const COLORS = [
   { label: "기본", value: null },
@@ -377,6 +382,8 @@ export function BubbleToolbar({ editor, pageId }: Props) {
 
   const showCellAlign = mode === "text" && isInTableCell(editor);
   const cellAlign = showCellAlign ? getTableCellAlign(editor) : null;
+  // 연속된 여러 열을 CellSelection 으로 선택한 경우에만 "균등 너비" 버튼 노출.
+  const showColEqualize = showCellAlign && getSelectedColumnCount(editor) >= 2;
 
   return createPortal(
     <div
@@ -532,6 +539,14 @@ export function BubbleToolbar({ editor, pageId }: Props) {
                 >
                   <AlignRight size={14} />
                 </ToolbarBtn>
+                {showColEqualize ? (
+                  <ToolbarBtn
+                    onClick={() => distributeSelectedColumnsEvenly(editor)}
+                    title="선택한 열 너비 균등 분배"
+                  >
+                    <AlignHorizontalDistributeCenter size={14} />
+                  </ToolbarBtn>
+                ) : null}
               </>
             ) : null}
           </>
