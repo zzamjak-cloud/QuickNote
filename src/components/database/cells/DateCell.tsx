@@ -56,7 +56,7 @@ export function DateCell({
 
   return (
     <CellEditorBase
-      width={248}
+      width={280}
       title={label || "날짜 선택"}
       triggerClassName={[
         "flex min-h-[20px] w-full items-center rounded px-1 py-0.5 text-sm",
@@ -64,7 +64,7 @@ export function DateCell({
           ? "text-transparent hover:bg-zinc-100 dark:hover:bg-zinc-800"
           : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800",
       ].join(" ")}
-      contentClassName="rounded-md border border-zinc-200 bg-white p-2 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      contentClassName="rounded-md border border-zinc-200 bg-white p-2 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
       display={isEmpty ? <>&nbsp;</> : <span>{label}</span>}
       editor={({ close }) => (
         <>
@@ -76,21 +76,34 @@ export function DateCell({
             onPickDay={onPickDay}
           />
           <div className="mt-1 flex items-center justify-between border-t border-zinc-100 pt-1 dark:border-zinc-800">
-            <button
-              type="button"
-              onClick={() => {
-                onChange({ start: undefined, end: undefined });
-                close();
-              }}
-              className="rounded px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            >
-              지우기
-            </button>
-            <span className="text-[10px] text-zinc-400">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onChange({ start: undefined, end: undefined });
+                  close();
+                }}
+                className="rounded px-2 py-0.5 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                지우기
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const today = new Date();
+                  onPickDay(today);
+                  setViewMonth(today);
+                }}
+                className="rounded px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+              >
+                오늘
+              </button>
+            </div>
+            <span className="text-xs text-zinc-400">
               {!startDate
                 ? "시작일을 클릭"
                 : !endDate
-                  ? "종료일을 클릭 (또는 같은 날짜 다시 클릭하여 단일)"
+                  ? "종료일을 클릭"
                   : "선택 완료"}
             </span>
           </div>
@@ -185,14 +198,14 @@ function CalendarMonth({
               if (e.key === "Enter") commitJump();
               if (e.key === "Escape") setJumpOpen(false);
             }}
-            className="w-24 rounded border border-zinc-300 px-1 py-0.5 text-center text-xs outline-none dark:border-zinc-700 dark:bg-zinc-900"
+            className="w-24 rounded border border-zinc-300 px-1 py-0.5 text-center text-sm outline-none dark:border-zinc-700 dark:bg-zinc-900"
             placeholder="YYYY-MM"
           />
         ) : (
           <button
             type="button"
             onDoubleClick={() => setJumpOpen(true)}
-            className="rounded px-2 py-0.5 text-xs font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="rounded px-2 py-0.5 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800"
             title="더블클릭하여 년/월 직접 입력"
           >
             {year}년 {month + 1}월
@@ -206,7 +219,7 @@ function CalendarMonth({
           <ChevronRight size={12} />
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-y-0.5 text-center text-[10px] text-zinc-400">
+      <div className="grid grid-cols-7 gap-y-0.5 text-center text-xs text-zinc-400">
         {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
           <div key={d} className="py-0.5">{d}</div>
         ))}
@@ -223,7 +236,7 @@ function CalendarMonth({
               type="button"
               onClick={() => onPickDay(c.date)}
               className={[
-                "h-6 text-center text-[11px] transition-colors",
+                "h-7 text-center text-sm transition-colors",
                 !c.current ? "text-zinc-300 dark:text-zinc-600" : "text-zinc-700 dark:text-zinc-200",
                 s || e
                   ? "bg-blue-500 text-white hover:bg-blue-600"

@@ -18,12 +18,30 @@ export function ScrollToTopButton({
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    const host = scrollRef.current;
-    if (!host) return;
-    const update = () => setVisible(host.scrollTop > SHOW_THRESHOLD_PX);
-    update();
-    host.addEventListener("scroll", update, { passive: true });
-    return () => host.removeEventListener("scroll", update);
+    // 이 버튼은 scrollRef 가 가리키는 컨테이너의 "자식"으로 렌더되는 경우가 많다.
+    // React 의 ref attach 는 bottom-up(자식 먼저) 이라, 마운트 직후 effect 시점에
+    // 조상 컨테이너의 ref(scrollRef.current)가 아직 null 일 수 있다.
+    // → rAF 재시도로 ref 가 채워질 때까지 기다렸다가 리스너를 건다.
+    let host: HTMLElement | null = null;
+    let raf = 0;
+    const update = () => {
+      if (host) setVisible(host.scrollTop > SHOW_THRESHOLD_PX);
+    };
+    const attach = () => {
+      host = scrollRef.current;
+      if (!host) {
+        raf = requestAnimationFrame(attach);
+        return;
+      }
+      update();
+      host.addEventListener("scroll", update, { passive: true });
+    };
+    attach();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      host?.removeEventListener("scroll", update);
+      setVisible(false);
+    };
   }, [scrollRef]);
 
   if (!visible) return null;
@@ -36,7 +54,7 @@ export function ScrollToTopButton({
       aria-label="맨 위로"
       className={[
         position === "fixed" ? "fixed" : "absolute",
-        "bottom-6 right-6 z-[400] inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-lg transition hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-100",
+        "bottom-6 right-6 z-[660] inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 shadow-lg transition hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-100",
       ].join(" ")}
     >
       <ArrowUp size={18} />

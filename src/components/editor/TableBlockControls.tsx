@@ -629,7 +629,7 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
         <div
           data-qn-table-grip-menu="1"
           role="menu"
-          className="pointer-events-auto fixed z-[120] min-w-[11rem] overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
+          className="pointer-events-auto fixed z-[660] min-w-[11rem] overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
           style={{ left: menuLeft, top: menuTop }}
         >
           <div className="px-1 py-1">
@@ -729,9 +729,9 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
   return (
     <>
       {gripMenuPortal}
-      <HandleLayerBase
+      {createPortal(<HandleLayerBase
         positioning="fixed"
-        zClassName="z-[36]"
+        zClassName="z-[660]"
         dataAttrs={{ "data-qn-editor-chrome": "table-block-controls" }}
       >
       {dragColRect ? (
@@ -926,7 +926,7 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
           <GripVertical size={14} />
         </button>
       ))}
-    </HandleLayerBase>
+    </HandleLayerBase>, document.body)}
     </>
   );
 }
