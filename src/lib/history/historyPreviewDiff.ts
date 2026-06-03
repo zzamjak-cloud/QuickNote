@@ -10,6 +10,13 @@ export type HistoryPreviewChange = {
   kind: "added" | "removed" | "changed";
 };
 
+/** 변경 목록을 한 줄 요약으로 — 리스트에서 "무엇이 바뀌었나"를 직관적으로 보여주기 위함 */
+export function summarizePreviewChanges(changes: HistoryPreviewChange[]): string {
+  if (changes.length === 0) return "";
+  const first = changes[0]!.label;
+  return changes.length > 1 ? `${first} 외 ${changes.length - 1}건` : first;
+}
+
 export type PagePreviewContext = {
   getDatabaseTitle?: (id: string) => string | null | undefined;
   getPageTitle?: (id: string) => string | null | undefined;

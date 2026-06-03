@@ -35,6 +35,22 @@ export const ON_DATABASE_CHANGED = `
   }
 `;
 
+// 삭제된 DB(휴지통) 조회 — 서버 권위. 보관 기간(30일) 내, 삭제 시각 최신순.
+export const LIST_TRASHED_DATABASES = `
+  query ListTrashedDatabases($workspaceId: ID!, $limit: Int, $nextToken: String) {
+    listTrashedDatabases(workspaceId: $workspaceId, limit: $limit, nextToken: $nextToken) {
+      items { ${DATABASE_FIELDS} }
+      nextToken
+    }
+  }
+`;
+
+export const RESTORE_DATABASE = `
+  mutation RestoreDatabase($id: ID!, $workspaceId: ID!) {
+    restoreDatabase(id: $id, workspaceId: $workspaceId) { ${DATABASE_FIELDS} }
+  }
+`;
+
 export type GqlDatabase = {
   id: string;
   workspaceId: string;

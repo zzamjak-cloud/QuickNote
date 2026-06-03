@@ -38,9 +38,7 @@
 | `orderedPageIds` | `(databaseId) => string[]` | 정렬된 행 ID 목록 반환 |
 | `attachPageAsRow` | `(databaseId, pageId) => void` | 기존 페이지를 DB 행으로 연결 |
 | `detachRowToNormalPage` | `(databaseId, pageId) => void` | DB 행을 일반 페이지로 분리 |
-| `restoreDatabaseFromLatestHistory` | `(databaseId) => void` | 최신 히스토리로 DB 복원 |
-| `restoreDatabaseFromHistoryEvent` | `(databaseId, eventId) => void` | 특정 이벤트로 DB 복원 |
-| `restoreDeletedRowFromHistory` | `(databaseId, pageId) => void` | 삭제된 행 복원 |
+| `restoreDeletedRowFromHistory` | `(databaseId, tombstoneId) => boolean` | 삭제된 행 복원(로컬 톰스톤). 복원 시 페이지 삭제 가드 해제 필수 |
 | `getBundle` | `(databaseId) => DatabaseBundle \| undefined` | DB 번들 조회 |
 | `resolveBundle` | `(databaseId) => DatabaseBundle \| undefined` | getBundle 별칭 |
 | `createTemplate` | `(databaseId, pageId) => string` | 템플릿 생성, pageId 반환 |

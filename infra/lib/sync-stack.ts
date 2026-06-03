@@ -81,6 +81,13 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
+    // 삭제된 DB(휴지통) 조회용 — Pages 의 byWorkspaceAndDeletedAt 와 동일 모델.
+    this.databaseTable.table.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndDeletedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "deletedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
     this.commentTable.table.addGlobalSecondaryIndex({
       indexName: "byWorkspaceAndUpdatedAt",
@@ -323,6 +330,14 @@ export class QuicknoteSyncStack extends cdk.Stack {
     pageHistoryTable.addGlobalSecondaryIndex({
       indexName: "byWorkspaceAndCreatedAt",
       partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    // DB 소속 row 페이지 히스토리를 단일 쿼리로 모으기 위한 GSI.
+    // databaseId 가 있는 항목(=row 페이지)만 색인되어 인덱스가 가볍다.
+    pageHistoryTable.addGlobalSecondaryIndex({
+      indexName: "byDatabaseAndCreatedAt",
+      partitionKey: { name: "databaseId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
@@ -702,6 +717,11 @@ export function response(ctx) {
       fieldName: "listDatabaseHistory",
     });
 
+    v5Ds.createResolver("QuerylistDatabaseRowHistory", {
+      typeName: "Query",
+      fieldName: "listDatabaseRowHistory",
+    });
+
     const listDatabasesResolver = v5Ds.createResolver("QuerylistDatabases", {
       typeName: "Query",
       fieldName: "listDatabases",
@@ -711,6 +731,11 @@ export function response(ctx) {
     v5Ds.createResolver("QuerylistTrashedPages", {
       typeName: "Query",
       fieldName: "listTrashedPages",
+    });
+
+    v5Ds.createResolver("QuerylistTrashedDatabases", {
+      typeName: "Query",
+      fieldName: "listTrashedDatabases",
     });
 
     const upsertPageResolver = v5Ds.createResolver("MutationupsertPage", {
@@ -757,6 +782,11 @@ export function response(ctx) {
     v5Ds.createResolver("MutationrestorePage", {
       typeName: "Mutation",
       fieldName: "restorePage",
+    });
+
+    v5Ds.createResolver("MutationrestoreDatabase", {
+      typeName: "Mutation",
+      fieldName: "restoreDatabase",
     });
 
     v5Ds.createResolver("MutationrestorePageVersion", {

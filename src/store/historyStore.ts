@@ -75,25 +75,14 @@ type HistoryActions = {
   ) => void;
   recordDeletedRowTombstone: (row: Omit<DeletedRowTombstone, "id" | "ts">) => void;
   getLatestPageSnapshot: (pageId: string) => PageSnapshot | null;
-  getLatestDbSnapshot: (databaseId: string) => DatabaseSnapshot | null;
   getPageEvents: (pageId: string) => PageHistoryEvent[];
-  getDbEvents: (databaseId: string) => DbHistoryEvent[];
   getPageTimeline: (pageId: string) => HistoryTimelineEntry[];
-  getDbTimeline: (databaseId: string) => HistoryTimelineEntry[];
   deletePageHistoryEvents: (pageId: string, eventIds: string[]) => void;
   deleteDbHistoryEvents: (databaseId: string, eventIds: string[]) => void;
   purgeDatabaseHistory: (databaseId: string) => void;
   getPageSnapshotAtEvent: (pageId: string, eventId: string) => PageSnapshot | null;
-  getDbSnapshotAtEvent: (databaseId: string, eventId: string) => DatabaseSnapshot | null;
   getDeletedRowTombstones: (databaseId: string) => DeletedRowTombstone[];
   popDeletedRowTombstone: (databaseId: string, tombstoneId: string) => DeletedRowTombstone | null;
-  getDeletedDbRestorePoints: () => Array<{
-    databaseId: string;
-    eventId: string;
-    ts: number;
-    title: string;
-    workspaceId?: string | null;
-  }>;
 };
 
 export type HistoryStore = HistoryState & HistoryActions;
@@ -106,8 +95,8 @@ function trimEventsByRetention<T extends { ts: number }>(events: T[]): T[] {
 }
 
 /**
- * DB 이벤트 보존 정책 — 가장 오래된 항목부터 자르면 db.create 가 먼저 사라져
- * mergeDbPatch(null, …) 가 실패하고 getDbTimeline 이 전부 필터링되는 문제가 생긴다.
+ * DB 이벤트 보존 정책 — db.create 베이스라인은 가장 오래돼도 보존한다.
+ * (repairDbHistoryBaselineIfNeeded 가 베이스라인 존재 여부로 재시드를 판단하므로)
  */
 export function trimDbEventsByRetention(events: DbHistoryEvent[]): DbHistoryEvent[] {
   if (events.length === 0) return events;
@@ -153,126 +142,6 @@ function mergePagePatch(
   }
   if (!base) return null;
   return { ...base, ...patch };
-}
-
-function mergeDbPatch(
-  base: DatabaseSnapshot | null,
-  patch: Partial<DatabaseSnapshot>,
-): DatabaseSnapshot | null {
-  if (!base) {
-    // 첫 이벤트(db.create)는 anchor 없이도 전체 스냅샷 patch가 올 수 있다.
-    // 이 경우 초기 스냅샷으로 승격해 타임라인/복원이 가능해야 한다.
-    if (
-      patch.meta &&
-      typeof patch.meta.id === "string" &&
-      Array.isArray(patch.columns) &&
-      Array.isArray(patch.rowPageOrder)
-    ) {
-      return structuredClone(patch as DatabaseSnapshot);
-    }
-    return null;
-  }
-  return { ...base, ...patch };
-}
-
-function isValidDatabaseSnapshot(snapshot: DatabaseSnapshot | null): snapshot is DatabaseSnapshot {
-  if (!snapshot) return false;
-  if (!snapshot.meta || typeof snapshot.meta.id !== "string") return false;
-  if (!Array.isArray(snapshot.columns)) return false;
-  if (!Array.isArray(snapshot.rowPageOrder)) return false;
-  return true;
-}
-
-function shouldCoalesceDbEvent(kind: DbHistoryKind): boolean {
-  // DB 이름 입력도 타이핑 중에는 마지막 상태만 남긴다.
-  return kind === "db.title";
-}
-
-function dbKindLabel(kind: DbHistoryKind): string {
-  switch (kind) {
-    case "db.cell":
-      return "셀 값 수정";
-    case "db.row.add":
-      return "행 추가";
-    case "db.row.delete":
-      return "행 삭제";
-    case "db.row.order":
-      return "행 순서 변경";
-    case "db.column.add":
-      return "컬럼 추가";
-    case "db.column.update":
-      return "컬럼 수정";
-    case "db.column.remove":
-      return "컬럼 삭제";
-    case "db.column.move":
-      return "컬럼 순서 변경";
-    case "db.title":
-      return "데이터베이스 이름 변경";
-    case "db.create":
-      return "데이터베이스 생성";
-    case "db.delete":
-      return "데이터베이스 삭제";
-    default:
-      return kind;
-  }
-}
-
-function dbBucket(kind: DbHistoryKind): "content" | "structure" {
-  if (kind === "db.cell") return "content";
-  return "structure";
-}
-
-function groupTimeline<T extends {
-  id: string;
-  ts: number;
-  kind: string;
-  editedByMemberId?: string;
-  editedByName?: string;
-}>(
-  ascEvents: T[],
-  getBucket: (kind: T["kind"]) => "content" | "structure",
-  getLabel: (kind: T["kind"]) => string,
-): HistoryTimelineEntry[] {
-  if (ascEvents.length === 0) return [];
-  const grouped: HistoryTimelineEntry[] = [];
-  for (const ev of ascEvents) {
-    const bucket = getBucket(ev.kind);
-    const prev = grouped[grouped.length - 1];
-    const canMerge =
-      prev &&
-      prev.bucket === bucket &&
-      ev.ts - prev.endTs <= HISTORY_GROUP_WINDOW_MS &&
-      bucket === "content";
-    if (canMerge) {
-      prev.eventIds.push(ev.id);
-      prev.endTs = ev.ts;
-      prev.count += 1;
-      prev.lastEditedByMemberId = ev.editedByMemberId ?? prev.lastEditedByMemberId;
-      prev.lastEditedByName = ev.editedByName ?? prev.lastEditedByName;
-      continue;
-    }
-    grouped.push({
-      id: ev.id,
-      bucket,
-      representativeKind: ev.kind as HistoryTimelineEntry["representativeKind"],
-      eventIds: [ev.id],
-      startTs: ev.ts,
-      endTs: ev.ts,
-      count: 1,
-      label: getLabel(ev.kind),
-      lastEditedByMemberId: ev.editedByMemberId,
-      lastEditedByName: ev.editedByName,
-    });
-  }
-  return grouped
-    .map((g) => ({
-      ...g,
-      label:
-        g.bucket === "content" && g.count > 1
-          ? `${g.label} (${g.count}회)`
-          : g.label,
-    }))
-    .sort((a, b) => b.endTs - a.endTs);
 }
 
 function groupPageTimeline(ascEvents: PageHistoryEvent[]): HistoryTimelineEntry[] {
@@ -324,32 +193,15 @@ export const useHistoryStore = create<HistoryStore>()(
         return;
       },
       recordDbEvent: (databaseId, kind, patch, anchor) => {
+        // 서버 일원화: DB 히스토리/삭제 복구는 모두 서버가 권위다.
+        // (DB 버전 = database-history, row 페이지 변경 = page-history GSI(byDatabaseAndCreatedAt),
+        //  삭제된 DB = listTrashedDatabases/restoreDatabase)
+        // 로컬에는 repairDbHistoryBaselineIfNeeded 가 쓰는 db.create 베이스라인만 남긴다.
+        if (kind !== "db.create") return;
         set((state) => {
           const workspaceId = getCurrentWorkspaceId();
           const editor = getPageEventEditorFields();
           const prev = state.dbEventsByDatabaseId[databaseId] ?? [];
-          const last = prev[prev.length - 1];
-          if (last && last.kind === kind && shouldCoalesceDbEvent(kind)) {
-            const merged: DbHistoryEvent = {
-              ...last,
-              workspaceId,
-              ts: Date.now(),
-              patch: { ...last.patch, ...patch },
-              anchor: last.anchor,
-              ...editor,
-            };
-            const next = trimDbEventsByRetention([
-              ...prev.slice(0, -1),
-              merged,
-            ]);
-            return {
-              dbEventsByDatabaseId: {
-                ...state.dbEventsByDatabaseId,
-                [databaseId]: next,
-              },
-              cacheWorkspaceId: workspaceId ?? state.cacheWorkspaceId,
-            };
-          }
           const nextEvent: DbHistoryEvent = {
             id: newId(),
             ts: Date.now(),
@@ -399,29 +251,9 @@ export const useHistoryStore = create<HistoryStore>()(
         return snapshot;
       },
 
-      getLatestDbSnapshot: (databaseId) => {
-        const events = filterCurrentWorkspaceEvents(
-          get().dbEventsByDatabaseId[databaseId] ?? [],
-        )
-          .slice()
-          .sort((a, b) => a.ts - b.ts);
-        if (events.length === 0) return null;
-        let snapshot: DatabaseSnapshot | null = null;
-        for (const event of events) {
-          if (event.anchor) snapshot = structuredClone(event.anchor);
-          snapshot = mergeDbPatch(snapshot, event.patch);
-        }
-        return isValidDatabaseSnapshot(snapshot) ? snapshot : null;
-      },
-
       getPageEvents: (pageId) =>
         filterCurrentWorkspaceEvents([...(get().pageEventsByPageId[pageId] ?? [])])
           .sort((a, b) => b.ts - a.ts),
-
-      getDbEvents: (databaseId) =>
-        filterCurrentWorkspaceEvents([
-          ...(get().dbEventsByDatabaseId[databaseId] ?? []),
-        ]).sort((a, b) => b.ts - a.ts),
 
       getPageTimeline: (pageId) =>
         groupPageTimeline(
@@ -429,21 +261,6 @@ export const useHistoryStore = create<HistoryStore>()(
             ...(get().pageEventsByPageId[pageId] ?? []),
           ]).sort((a, b) => a.ts - b.ts),
         ),
-
-      getDbTimeline: (databaseId) =>
-        groupTimeline(
-          filterCurrentWorkspaceEvents([
-            ...(get().dbEventsByDatabaseId[databaseId] ?? []),
-          ]).sort((a, b) => a.ts - b.ts),
-          dbBucket,
-          dbKindLabel,
-        ).filter((entry) => {
-          const targetEventId = entry.eventIds[entry.eventIds.length - 1];
-          if (!targetEventId) return false;
-          return isValidDatabaseSnapshot(
-            get().getDbSnapshotAtEvent(databaseId, targetEventId),
-          );
-        }),
 
       deletePageHistoryEvents: (pageId, eventIds) => {
         if (eventIds.length === 0) return;
@@ -500,24 +317,6 @@ export const useHistoryStore = create<HistoryStore>()(
         return null;
       },
 
-      getDbSnapshotAtEvent: (databaseId, eventId) => {
-        const events = filterCurrentWorkspaceEvents(
-          get().dbEventsByDatabaseId[databaseId] ?? [],
-        )
-          .slice()
-          .sort((a, b) => a.ts - b.ts);
-        if (events.length === 0) return null;
-        let snapshot: DatabaseSnapshot | null = null;
-        for (const event of events) {
-          if (event.anchor) snapshot = structuredClone(event.anchor);
-          snapshot = mergeDbPatch(snapshot, event.patch);
-          if (event.id === eventId) {
-            return isValidDatabaseSnapshot(snapshot) ? snapshot : null;
-          }
-        }
-        return null;
-      },
-
       getDeletedRowTombstones: (databaseId) =>
         filterCurrentWorkspaceEvents([
           ...(get().deletedRowTombstonesByDbId[databaseId] ?? []),
@@ -545,31 +344,6 @@ export const useHistoryStore = create<HistoryStore>()(
         });
         return removed;
       },
-      getDeletedDbRestorePoints: () => {
-        const out: Array<{
-          databaseId: string;
-          eventId: string;
-          ts: number;
-          title: string;
-          workspaceId?: string | null;
-        }> = [];
-        for (const [databaseId, eventsRaw] of Object.entries(get().dbEventsByDatabaseId)) {
-          const events = filterCurrentWorkspaceEvents(eventsRaw);
-          if (!events.length) continue;
-          const sorted = [...events].sort((a, b) => a.ts - b.ts);
-          const lastDelete = [...sorted].reverse().find((e) => e.kind === "db.delete");
-          if (!lastDelete) continue;
-          const title = lastDelete.patch.meta?.title ?? "삭제된 데이터베이스";
-          out.push({
-            databaseId,
-            eventId: lastDelete.id,
-            ts: lastDelete.ts,
-            title,
-            workspaceId: lastDelete.workspaceId ?? null,
-          });
-        }
-        return out.sort((a, b) => b.ts - a.ts);
-      },
     }),
     {
       name: "quicknote.historyStore.v1",
@@ -584,8 +358,8 @@ export const useHistoryStore = create<HistoryStore>()(
 );
 
 /**
- * db.create 없이 패치만 쌓이면 getDbTimeline 이 전부 탈락한다.
- * 로컬·원격 적용 순서로 생긴 고아 체인은 삭제 후 현재 bundle 기준으로 재시드한다.
+ * db.create 베이스라인이 없는 고아 체인(로컬·원격 적용 순서로 발생)은
+ * 삭제 후 현재 bundle 기준으로 재시드한다.
  */
 export function repairDbHistoryBaselineIfNeeded(
   databaseId: string,

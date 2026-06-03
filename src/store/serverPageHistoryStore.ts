@@ -7,6 +7,7 @@ import {
   restorePageVersionApi,
 } from "../lib/sync/pageHistoryApi";
 import { applyRemotePageToStore } from "../lib/sync/storeApply";
+import { clearLocalDeleteGuard } from "../lib/sync/localDeleteGuards";
 import { usePageStore, enqueuePageUpsertForSync } from "./pageStore";
 
 // 베이스라인 시드를 페이지당 세션 1회로 제한(재조회 루프 방지).
@@ -29,6 +30,7 @@ function kindLabel(kind: string): string {
   if (kind === "page.create") return "페이지 생성";
   if (kind === "page.restoreVersion") return "버전 복구";
   if (kind === "page.update") return "페이지 수정";
+  if (kind === "page.delete") return "페이지 삭제";
   return kind;
 }
 
@@ -94,6 +96,8 @@ export const useServerPageHistoryStore = create<State & Actions>()((set, get) =>
 
   restorePageHistoryEvent: async (pageId, workspaceId, historyId) => {
     const restored = await restorePageVersionApi({ pageId, workspaceId, historyId });
+    // 사용자가 명시적으로 복원 → 삭제 가드를 해제해야 복원본이 무시/제거되지 않는다.
+    clearLocalDeleteGuard("page", pageId, workspaceId);
     applyRemotePageToStore(restored);
     await get().fetchPageHistory(pageId, workspaceId);
     return true;

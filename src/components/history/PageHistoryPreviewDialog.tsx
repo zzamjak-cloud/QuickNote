@@ -11,7 +11,7 @@ import {
   buildPageHistorySnapshotMap,
   getPreviousPageHistorySnapshot,
 } from "../../lib/history/pageHistoryPatch";
-import { buildPagePreviewChanges } from "../../lib/history/historyPreviewDiff";
+import { buildPagePreviewChanges, summarizePreviewChanges } from "../../lib/history/historyPreviewDiff";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import type { GqlPageHistoryEntry } from "../../lib/sync/graphql/operations";
@@ -116,6 +116,48 @@ export function PageHistoryPreviewDialog({
     () => buildPagePreviewChanges(selectedBefore, selectedAfter, previewContext),
     [selectedAfter, selectedBefore, previewContext],
   );
+
+  // 리스트에 "무엇이 바뀌었나" 요약 — 컬럼명 해석용 ctx 는 페이지의 databaseId 기준.
+  const listCtx = useMemo(() => {
+    let dbId = pageId ? pages[pageId]?.databaseId ?? null : null;
+    if (!dbId) {
+      for (const snap of snapshotMap.values()) {
+        if (snap?.databaseId) {
+          dbId = snap.databaseId;
+          break;
+        }
+      }
+    }
+    const colMap = new Map((dbId ? databases[dbId]?.columns ?? [] : []).map((c) => [c.id, c]));
+    return {
+      getDatabaseTitle: (id: string) => databases[id]?.meta.title ?? null,
+      getPageTitle: (id: string) => pages[id]?.title ?? null,
+      getColumnName: (columnId: string) => colMap.get(columnId)?.name ?? null,
+      getOptionLabel: (columnId: string, optionId: string) =>
+        colMap.get(columnId)?.config?.options?.find((o) => o.id === optionId)?.label ?? null,
+    };
+  }, [databases, pages, pageId, snapshotMap]);
+
+  const pageSummaries = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!pageId || !workspaceId) return map;
+    const asc = [...historyEntries]
+      .filter((e) => e.workspaceId === workspaceId)
+      .sort(
+        (a, b) =>
+          (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0) ||
+          a.historyId.localeCompare(b.historyId),
+      );
+    let prev: ReturnType<typeof snapshotMap.get> | null = null;
+    for (const e of asc) {
+      const cur = snapshotMap.get(e.historyId) ?? null;
+      // 첫 버전(이전 스냅샷 없음)은 요약 대신 항목 라벨("페이지 생성")로 폴백.
+      const summary = prev === null ? "" : summarizePreviewChanges(buildPagePreviewChanges(prev, cur, listCtx));
+      map.set(e.historyId, summary);
+      if (cur) prev = cur;
+    }
+    return map;
+  }, [historyEntries, snapshotMap, listCtx, pageId, workspaceId]);
   const confirmZIndex = isInsidePeek ? 730 : 500;
 
   if (!open || !pageId || !workspaceId) return null;
@@ -134,7 +176,7 @@ export function PageHistoryPreviewDialog({
           role="dialog"
           aria-modal="true"
           aria-labelledby="qn-page-history-title"
-          className="flex max-h-[86vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+          className="flex h-[86vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
@@ -235,8 +277,9 @@ export function PageHistoryPreviewDialog({
                 {pageHistoryTimeline.length === 0 ? (
                   <div className="px-3 py-2 text-sm text-zinc-500">버전 기록이 없습니다.</div>
                 ) : (
-                  pageHistoryTimeline.slice(0, 100).map((entry, idx, arr) => {
+                  pageHistoryTimeline.slice(0, 100).map((entry) => {
                     const active = selectedHistoryId === entry.id;
+                    const summary = pageSummaries.get(entry.id) || entry.label;
                     return (
                       <button
                         key={entry.id}
@@ -265,7 +308,18 @@ export function PageHistoryPreviewDialog({
                           {selectedTimelineIds.has(entry.id) ? <Check size={10} strokeWidth={3} /> : null}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-zinc-700 dark:text-zinc-200">{`버전 ${arr.length - idx}`}</span>
+                          <span
+                            className={[
+                              "block truncate",
+                              entry.representativeKind === "page.delete"
+                                ? "text-red-600 dark:text-red-400"
+                                : entry.representativeKind === "page.create"
+                                  ? "text-blue-600 dark:text-blue-400"
+                                  : "text-zinc-700 dark:text-zinc-200",
+                            ].join(" ")}
+                          >
+                            {summary}
+                          </span>
                           <span className="block truncate text-xs text-zinc-400">
                             {formatPageHistoryEditorLine(entry, { members, me })}
                           </span>
@@ -278,7 +332,7 @@ export function PageHistoryPreviewDialog({
                           tabIndex={-1}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setDeleteTarget({ label: `버전 ${arr.length - idx}`, eventIds: entry.eventIds });
+                            setDeleteTarget({ label: summary, eventIds: entry.eventIds });
                             setDeleteConfirmOpen(true);
                           }}
                           className="shrink-0 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"

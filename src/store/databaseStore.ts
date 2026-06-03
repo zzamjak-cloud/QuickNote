@@ -48,7 +48,6 @@ import {
   extractFullPageDatabaseId,
   getCurrentWorkspaceId,
   isDatabaseTitleTaken,
-  isValidDatabaseSnapshot,
   makeReferenceCellValue,
   normalizeDbTitle,
   seedColumns,
@@ -57,10 +56,6 @@ import {
   toPageSnapshot,
 } from "./databaseStore/helpers";
 import { createColumnActions } from "./databaseStore/actions/columnActions";
-
-function canRestoreLocalDatabaseHistory(): boolean {
-  return false;
-}
 import type { Page } from "../types/page";
 import { EMPTY_DOC, nextOrderForParent } from "./pageStore/helpers";
 
@@ -123,8 +118,6 @@ type DatabaseStoreActions = {
   setRowOrder: (databaseId: string, orderedPageIds: string[]) => void;
   attachPageAsRow: (databaseId: string, pageId: string) => boolean;
   detachRowToNormalPage: (pageId: string) => boolean;
-  restoreDatabaseFromLatestHistory: (databaseId: string) => boolean;
-  restoreDatabaseFromHistoryEvent: (databaseId: string, eventId: string) => boolean;
   restoreDeletedRowFromHistory: (databaseId: string, tombstoneId: string) => boolean;
   getBundle: (databaseId: string) => DatabaseBundle | undefined;
   /** 스키마·행을 소스와 공유하는지 */
@@ -906,118 +899,15 @@ export const useDatabaseStore = create<DatabaseStore>()(
         return true;
       },
 
-      restoreDatabaseFromLatestHistory: (databaseId) => {
-        if (!canRestoreLocalDatabaseHistory()) {
-          console.warn("[history] 로컬 DB 히스토리 복구는 서버 히스토리 도입 전까지 비활성화됨", { databaseId });
-          return false;
-        }
-        const snapshot = useHistoryStore.getState().getLatestDbSnapshot(databaseId);
-        if (!isValidDatabaseSnapshot(snapshot)) return false;
-        // 사용자가 명시적으로 복원 → 이전 삭제 가드(영구 tombstone 포함) 제거.
-        const restoreWs = snapshot.meta?.workspaceId ?? getCurrentWorkspaceId();
-        if (restoreWs) clearLocalDeleteGuard("database", databaseId, restoreWs);
-        set((state) => ({
-          databases: {
-            ...state.databases,
-            [databaseId]: {
-              ...structuredClone(snapshot),
-              meta: {
-                ...structuredClone(snapshot.meta),
-                updatedAt: Date.now(),
-              },
-            },
-          },
-        }));
-        // DB 삭제 후 복원 시 row 페이지가 누락될 수 있어, 페이지 히스토리 스냅샷으로 함께 복원.
-        const restoredPageIds: string[] = [];
-        usePageStore.setState((s) => {
-          const nextPages = { ...s.pages };
-          let changed = false;
-          const hs = useHistoryStore.getState();
-          for (const pageId of snapshot.rowPageOrder) {
-            if (nextPages[pageId]) continue;
-            const pageSnap = hs.getLatestPageSnapshot(pageId);
-            if (!pageSnap) continue;
-            nextPages[pageId] = {
-              ...structuredClone(pageSnap),
-              databaseId,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            };
-            restoredPageIds.push(pageId);
-            changed = true;
-          }
-          return changed ? { pages: nextPages } : s;
-        });
-        const bundleAfter = get().databases[databaseId];
-        if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
-        const pages = usePageStore.getState().pages;
-        for (const pid of restoredPageIds) {
-          const p = pages[pid];
-          if (p) enqueueUpsertPageRaw(p);
-        }
-        return true;
-      },
-
-      restoreDatabaseFromHistoryEvent: (databaseId, eventId) => {
-        if (!canRestoreLocalDatabaseHistory()) {
-          console.warn("[history] 로컬 DB 히스토리 복구는 서버 히스토리 도입 전까지 비활성화됨", { databaseId, eventId });
-          return false;
-        }
-        const snapshot = useHistoryStore
-          .getState()
-          .getDbSnapshotAtEvent(databaseId, eventId);
-        if (!isValidDatabaseSnapshot(snapshot)) return false;
-        // 사용자가 명시적으로 복원 → 이전 삭제 가드(영구 tombstone 포함) 제거.
-        const restoreWs = snapshot.meta?.workspaceId ?? getCurrentWorkspaceId();
-        if (restoreWs) clearLocalDeleteGuard("database", databaseId, restoreWs);
-        set((state) => ({
-          databases: {
-            ...state.databases,
-            [databaseId]: {
-              ...structuredClone(snapshot),
-              meta: {
-                ...structuredClone(snapshot.meta),
-                updatedAt: Date.now(),
-              },
-            },
-          },
-        }));
-        const restoredPageIds: string[] = [];
-        usePageStore.setState((s) => {
-          const nextPages = { ...s.pages };
-          let changed = false;
-          const hs = useHistoryStore.getState();
-          for (const pageId of snapshot.rowPageOrder) {
-            if (nextPages[pageId]) continue;
-            const pageSnap = hs.getLatestPageSnapshot(pageId);
-            if (!pageSnap) continue;
-            nextPages[pageId] = {
-              ...structuredClone(pageSnap),
-              databaseId,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            };
-            restoredPageIds.push(pageId);
-            changed = true;
-          }
-          return changed ? { pages: nextPages } : s;
-        });
-        const bundleAfter = get().databases[databaseId];
-        if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
-        const pages = usePageStore.getState().pages;
-        for (const pid of restoredPageIds) {
-          const p = pages[pid];
-          if (p) enqueueUpsertPageRaw(p);
-        }
-        return true;
-      },
-
       restoreDeletedRowFromHistory: (databaseId, tombstoneId) => {
         const tombstone = useHistoryStore
           .getState()
           .popDeletedRowTombstone(databaseId, tombstoneId);
         if (!tombstone) return false;
+
+        // 명시적 복원 → 페이지 삭제 가드 해제(없으면 enqueue 한 복원본이 sync 에서 다시 무시됨).
+        const restoreWs = tombstone.workspaceId ?? getCurrentWorkspaceId();
+        if (restoreWs) clearLocalDeleteGuard("page", tombstone.pageId, restoreWs);
 
         usePageStore.setState((s) => ({
           pages: {

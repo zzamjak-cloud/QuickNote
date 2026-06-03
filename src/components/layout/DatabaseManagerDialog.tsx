@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Database, RefreshCcw, Search, X } from "lucide-react";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 import { useHistoryStore } from "../../store/historyStore";
+import { useServerTrashedDatabaseStore } from "../../store/serverTrashedDatabaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { isLCSchedulerDatabaseId, isProtectedDatabaseId, ensureLCSchedulerDatabase } from "../../lib/scheduler/database";
@@ -22,9 +23,6 @@ type Props = {
 
 export function DatabaseManagerDialog({ open, onClose }: Props) {
   const dbList = useDatabaseStore(listDatabases);
-  const restoreDatabaseFromHistoryEvent = useDatabaseStore(
-    (s) => s.restoreDatabaseFromHistoryEvent,
-  );
   const pages = usePageStore((s) => s.pages);
   const findFullPagePageIdForDatabase = usePageStore(
     (s) => s.findFullPagePageIdForDatabase,
@@ -33,9 +31,12 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const showToast = useUiStore((s) => s.showToast);
-  const deletedDbRestorePoints = useHistoryStore((s) =>
-    s.getDeletedDbRestorePoints(),
+  // 삭제된 DB 목록·복원은 서버 권위(휴지통). 기존 로컬 getDeletedDbRestorePoints 대체.
+  const trashedDatabases = useServerTrashedDatabaseStore((s) =>
+    currentWorkspaceId ? s.getTrashedDatabases(currentWorkspaceId) : [],
   );
+  const fetchTrashedDatabases = useServerTrashedDatabaseStore((s) => s.fetchTrashedDatabases);
+  const restoreTrashedDatabase = useServerTrashedDatabaseStore((s) => s.restoreTrashedDatabase);
   const purgeDatabaseHistory = useHistoryStore((s) => s.purgeDatabaseHistory);
   const [query, setQuery] = useState("");
   const [showDeleted, setShowDeleted] = useState(false);
@@ -64,6 +65,12 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     });
   }, [open, currentWorkspaceId]);
 
+  // 삭제된 DB 보기 진입 시 서버에서 휴지통 목록을 가져온다.
+  useEffect(() => {
+    if (!open || !showDeleted || !currentWorkspaceId) return;
+    void fetchTrashedDatabases(currentWorkspaceId);
+  }, [open, showDeleted, currentWorkspaceId, fetchTrashedDatabases]);
+
   const activeDbIds = useMemo(
     () => new Set(dbList.map((d) => d.id)),
     [dbList],
@@ -83,10 +90,16 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
       if (aScheduler !== bScheduler) return aScheduler ? -1 : 1;
       return b.meta.updatedAt - a.meta.updatedAt;
     });
-  const visibleDeleted = deletedDbRestorePoints
-    .filter((d) => !activeDbIds.has(d.databaseId))
-    .filter((d) => !hiddenDeletedDbIds.has(d.databaseId))
-    .filter((d) => d.title.toLowerCase().includes(q));
+  const visibleDeleted = trashedDatabases
+    .filter((d) => !activeDbIds.has(d.id))
+    .filter((d) => !hiddenDeletedDbIds.has(d.id))
+    .filter((d) => (d.title ?? "").toLowerCase().includes(q))
+    .map((d) => ({
+      databaseId: d.id,
+      title: d.title || "제목 없음",
+      workspaceId: d.workspaceId,
+      ts: Date.parse(d.deletedAt ?? "") || 0,
+    }));
 
   const removeDatabaseAndRowsFromLocalCache = (databaseId: string): void => {
     useDatabaseStore.setState((s) => {
@@ -386,7 +399,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
               ) : (
                 visibleDeleted.map((d) => (
                   <div
-                    key={d.eventId}
+                    key={d.databaseId}
                     className="flex items-center gap-2 border-b border-zinc-100 px-4 py-2.5 last:border-b-0 dark:border-zinc-800"
                   >
                     <input
@@ -413,8 +426,9 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                     <button
                       type="button"
                       onClick={() => {
-                        restoreDatabaseFromHistoryEvent(d.databaseId, d.eventId);
-                        setShowDeleted(false);
+                        void restoreTrashedDatabase(d.databaseId, d.workspaceId).then((ok) => {
+                          if (ok) showToast("데이터베이스를 복원했습니다.");
+                        });
                       }}
                       className="inline-flex shrink-0 items-center gap-1 rounded border border-zinc-200 px-2.5 py-1.5 text-base hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                     >

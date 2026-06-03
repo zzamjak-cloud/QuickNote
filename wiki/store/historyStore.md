@@ -1,48 +1,43 @@
 # historyStore
 
-## 역할
-페이지·DB의 버전 히스토리와 삭제된 DB 행의 tombstone을 관리하는 스토어.
+> 버전 히스토리는 **서버 권위**로 일원화됨. 전체 아키텍처·UI·복원 흐름은 **`wiki/history/overview.md`** 참고.
+> 이 문서는 로컬 `historyStore` 의 **잔존 역할**만 다룬다.
 
-## 위치
-`src/store/historyStore.ts`
+## 역할 (대부분 은퇴)
 
-## State 타입
+`src/store/historyStore.ts`. 서버 일원화 후 로컬 히스토리 기록은 거의 사용하지 않는다.
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `pageHistory` | `Record<string, PageHistoryEvent[]>` | pageId 별 히스토리 이벤트 목록 |
-| `dbHistory` | `Record<string, DbHistoryEvent[]>` | databaseId 별 히스토리 이벤트 목록 |
-| `deletedRowTombstonesByDbId` | `Record<string, DeletedRowTombstone[]>` | DB별 삭제된 행 tombstone (복원용) |
+- `recordPageEvent` — **no-op** (페이지 히스토리는 서버가 기록).
+- `recordDbEvent` — `db.create` 베이스라인만 기록(나머지 kind 는 no-op). `repairDbHistoryBaselineIfNeeded` 가 이 베이스라인 유무로 재시드 여부를 판단한다.
+- **살아있는 기능 = 삭제-행 톰스톤**: 표 뷰에서 삭제한 행을 즉시 복구하기 위한 로컬 보조 경로.
 
-## 액션 목록
+## State
 
-| 액션명 | 파라미터 | 설명 |
-|--------|---------|------|
-| `recordPageAnchor` | `pageId, snapshot` | 페이지 히스토리 앵커 이벤트 기록 |
-| `getPageTimeline` | `pageId` | 해당 페이지의 히스토리 이벤트 목록 반환 |
-| `restorePageFromEvent` | `pageId, eventId` | 특정 이벤트 시점의 페이지 스냅샷 반환 |
-| `recordDbEvent` | `databaseId, event` | DB 히스토리 이벤트 기록 |
-| `getDbTimeline` | `databaseId` | 해당 DB의 히스토리 이벤트 목록 반환 |
-| `getDeletedDbRestorePoints` | 없음 | 복원 가능한 DB 목록 반환 |
-| `pushDeletedRowTombstone` | `row` | 삭제된 DB 행 tombstone 추가 |
-| `popDeletedRowTombstone` | `databaseId, tombstoneId` | tombstone 꺼내기 (복원 후 제거) |
+| 필드 | 설명 |
+|------|------|
+| `pageEventsByPageId` | (사실상 미사용) |
+| `dbEventsByDatabaseId` | `db.create` 베이스라인만 쌓임 |
+| `deletedRowTombstonesByDbId` | DB별 삭제 행 톰스톤(복원용) — **사용 중** |
+
+## 주요 액션 (현재 유효한 것)
+
+| 액션 | 설명 |
+|------|------|
+| `recordDeletedRowTombstone(row)` | 행 삭제 시 스냅샷 톰스톤 기록 |
+| `getDeletedRowTombstones(databaseId)` | 톰스톤 목록 |
+| `popDeletedRowTombstone(databaseId, tombstoneId)` | 톰스톤 꺼내기(복원 후 제거) |
+| `recordDbEvent(databaseId, "db.create", …)` | DB 베이스라인 기록(그 외 kind no-op) |
+| `purgeDatabaseHistory(databaseId)` | DB 영구삭제 시 로컬 잔여 정리 |
+
+> 제거됨(죽은 코드 정리): `getDbEvents`/`getDbTimeline`/`getLatestDbSnapshot`/`getDbSnapshotAtEvent`/`getDeletedDbRestorePoints` 및 DB 스냅샷 복구 헬퍼. 신규 기능은 로컬에 추가하지 말고 서버 경로로.
 
 ## Persist
 
-- storage: `deferredHistoryStorage` (커스텀 deferred 스토리지)
-- 보존 정책: `HISTORY_RETENTION_MAX_AGE_MS` 이상 오래된 이벤트 자동 정리
-- 최대 이벤트 수: `HISTORY_RETENTION_MAX_EVENTS` 초과 시 오래된 항목부터 삭제
-- DB 히스토리 주의: `db.create` 이벤트는 가장 오래됐더라도 보존 (삭제 시 `mergeDbPatch` 실패 방지)
-- 마이그레이션 필요 조건: `PageSnapshot`, `DatabaseSnapshot` 타입 변경 시
+- storage: `deferredHistoryStorage` (`src/lib/storage/index.ts`)
+- 보존: `HISTORY_RETENTION_MAX_AGE_MS` / `HISTORY_RETENTION_MAX_EVENTS`. `db.create` 는 가장 오래돼도 보존(`trimDbEventsByRetention`).
+- 마이그레이션: `HISTORY_STORE_VERSION` bump 시 (→ `wiki/store/schema-versioning.md`).
 
-## 의존 관계
+## 서버 측
 
-- `src/lib/storage/index.ts` — `makeDeferredStorage`
-- `pageStore` — `updateDoc` 에서 `shouldWriteAnchor` 호출, `restorePageFromLatestHistory` / `restorePageFromHistoryEvent` 에서 히스토리 조회
-- `src/store/pageStore/helpers.ts` — `toPageSnapshot`
-
-## 사용처 (주요 컴포넌트)
-
-- `src/store/pageStore.ts` — 페이지 본문 저장 시 히스토리 앵커 기록 및 복원
-- `src/components/VersionHistoryPanel.tsx` (또는 유사 패널) — 버전 히스토리 UI 표시
-- `src/lib/sync/storeApply.ts` — 원격 DB 이벤트 적용 시 히스토리 기록
+서버 히스토리 스토어/테이블/복원은 `wiki/history/overview.md` 참고:
+`serverPageHistoryStore`, `serverDatabaseHistoryStore`, `serverDatabaseRowHistoryStore`, `serverTrashedDatabaseStore`.

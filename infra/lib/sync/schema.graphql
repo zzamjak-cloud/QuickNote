@@ -255,6 +255,7 @@ input CustomIconInput {
 
 type PageConnection { items: [Page!]! nextToken: String }
 type DatabaseConnection { items: [Database!]! nextToken: String }
+type PageHistoryConnection { items: [PageHistoryEntry!]! nextToken: String }
 
 type PageHistoryEntry {
   pageId: ID!
@@ -433,9 +434,13 @@ type Query {
   listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
   listPageHistory(pageId: ID!, workspaceId: ID!, limit: Int, nextToken: String): [PageHistoryEntry!]!
   listDatabaseHistory(databaseId: ID!, workspaceId: ID!, limit: Int, nextToken: String): [DatabaseHistoryEntry!]!
+  """DB 소속 모든 row 페이지의 변경 히스토리 — page-history GSI(byDatabaseAndCreatedAt) 단일 쿼리, 삭제된 행 포함, createdAt 최신순"""
+  listDatabaseRowHistory(databaseId: ID!, workspaceId: ID!, limit: Int, nextToken: String): PageHistoryConnection!
   listComments(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): CommentConnection!
   """삭제 후 보관 기간(30일) 내 페이지만, 삭제 시각 최신순(페이지당 최대 50개·nextToken 연속 조회)"""
   listTrashedPages(workspaceId: ID!, limit: Int, nextToken: String): PageConnection!
+  """삭제 후 보관 기간(30일) 내 데이터베이스만, 삭제 시각 최신순"""
+  listTrashedDatabases(workspaceId: ID!, limit: Int, nextToken: String): DatabaseConnection!
   listDatabases(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): DatabaseConnection!
 
   getImageDownloadUrl(imageId: ID!): String!
@@ -515,6 +520,7 @@ type Mutation {
   permanentlyDeletePage(id: ID!, workspaceId: ID!): Boolean!
   upsertDatabase(input: DatabaseInput!): Database!
   softDeleteDatabase(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Database!
+  restoreDatabase(id: ID!, workspaceId: ID!): Database!
   restoreDatabaseVersion(input: RestoreDatabaseVersionInput!): Database!
   deleteDatabaseHistoryEvents(databaseId: ID!, workspaceId: ID!, historyIds: [ID!]!): Boolean!
   permanentlyDeleteDatabase(id: ID!, workspaceId: ID!): Boolean!
@@ -565,7 +571,7 @@ type Subscription {
   onPageChanged(workspaceId: ID!): Page
     @aws_subscribe(mutations: ["upsertPage", "softDeletePage", "restorePage"])
   onDatabaseChanged(workspaceId: ID!): Database
-    @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase"])
+    @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase", "restoreDatabase"])
   onScheduleChanged(workspaceId: ID!): Schedule
     @aws_subscribe(mutations: ["createSchedule", "updateSchedule"])
   onProjectChanged(workspaceId: ID!): Project

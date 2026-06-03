@@ -319,6 +319,11 @@ async function recordPageHistory(args: {
   const pageId = typeof args.after.id === "string" ? args.after.id : null;
   const workspaceId = typeof args.after.workspaceId === "string" ? args.after.workspaceId : null;
   if (!pageId || !workspaceId) return;
+  // row 페이지(=databaseId 보유)는 byDatabaseAndCreatedAt GSI 색인용으로 databaseId 를 함께 저장한다.
+  const rowDatabaseId =
+    typeof args.after.databaseId === "string" && args.after.databaseId
+      ? args.after.databaseId
+      : null;
   const history = await listPageHistoryAsc({ doc: args.doc, tableName, pageId });
   const afterSnap = normalizePageSnapshot(args.after);
   const isFirstEver = history.length === 0;
@@ -340,9 +345,49 @@ async function recordPageHistory(args: {
         pageId,
         historyId: `${createdAt}#${uuid()}`,
         workspaceId,
+        ...(rowDatabaseId ? { databaseId: rowDatabaseId } : {}),
         kind,
         patch,
         ...(shouldWriteAnchor ? { anchor: anchorSnap } : {}),
+        createdAt,
+        createdByMemberId: args.caller.memberId,
+        createdByName: args.caller.name,
+      },
+    }),
+  );
+}
+
+/** 행/페이지 soft delete 를 히스토리에 명시적으로 남긴다.
+ *  (deletedAt 은 스냅샷 diff 로 잡히지 않으므로 일반 recordPageHistory 로는 기록되지 않는다.) */
+async function recordPageDeleteHistory(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  deleted: Record<string, unknown>;
+}): Promise<void> {
+  const tableName = args.tables.PageHistory;
+  if (!tableName) return;
+  const pageId = typeof args.deleted.id === "string" ? args.deleted.id : null;
+  const workspaceId =
+    typeof args.deleted.workspaceId === "string" ? args.deleted.workspaceId : null;
+  if (!pageId || !workspaceId) return;
+  const rowDatabaseId =
+    typeof args.deleted.databaseId === "string" && args.deleted.databaseId
+      ? args.deleted.databaseId
+      : null;
+  const createdAt = new Date().toISOString();
+  const deletedAt =
+    typeof args.deleted.deletedAt === "string" ? args.deleted.deletedAt : createdAt;
+  await args.doc.send(
+    new PutCommand({
+      TableName: tableName,
+      Item: {
+        pageId,
+        historyId: `${createdAt}#${uuid()}`,
+        workspaceId,
+        ...(rowDatabaseId ? { databaseId: rowDatabaseId } : {}),
+        kind: "page.delete",
+        patch: [{ op: "set", path: ["deletedAt"], value: deletedAt }],
         createdAt,
         createdByMemberId: args.caller.memberId,
         createdByName: args.caller.name,
@@ -894,6 +939,16 @@ export async function softDeletePage(args: {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
   const deleted = await softDeleteRecord({ ...args, tableName: args.tables.Pages });
   try {
+    await recordPageDeleteHistory({
+      doc: args.doc,
+      tables: args.tables,
+      caller: args.caller,
+      deleted,
+    });
+  } catch (err) {
+    console.error("[softDeletePage] PageHistory 기록 실패 (무시)", err);
+  }
+  try {
     await removeLCScheduleIndexForPage({
       doc: args.doc,
       tables: args.tables,
@@ -1375,6 +1430,132 @@ export async function restorePage(args: {
   return next;
 }
 
+/** 삭제된 데이터베이스 목록(휴지통) — Pages 와 동일한 byWorkspaceAndDeletedAt GSI + 30일 보관 모델 */
+export async function listTrashedDatabases(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  workspaceId: string;
+  limit?: number;
+  nextToken?: string | null;
+}): Promise<Connection<Record<string, unknown>>> {
+  if (!args.tables.Databases) badRequest("Databases table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "view",
+  });
+  const cutoffIso = new Date(Date.now() - TRASH_RETENTION_MS).toISOString();
+  const pageSize = Math.min(Math.max(args.limit ?? TRASH_PAGE_MAX, 1), TRASH_PAGE_MAX);
+  const parsed = decodeTrashCursor(args.nextToken ?? undefined);
+  const collected: Record<string, unknown>[] = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined = parsed?.ek;
+  let itemSkip = parsed?.skip ?? 0;
+
+  let iterations = 0;
+  while (collected.length < pageSize && iterations < 100) {
+    iterations += 1;
+    const queryStartKey = exclusiveStartKey;
+    const r = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tables.Databases,
+        IndexName: "byWorkspaceAndDeletedAt",
+        KeyConditionExpression: "workspaceId = :w AND deletedAt > :cutoff",
+        ExpressionAttributeValues: { ":w": args.workspaceId, ":cutoff": cutoffIso },
+        Limit: 100,
+        ScanIndexForward: false,
+        ExclusiveStartKey: exclusiveStartKey,
+      }),
+    );
+    const batch = (r.Items ?? []) as Record<string, unknown>[];
+    let i = itemSkip;
+    itemSkip = 0;
+    for (; i < batch.length && collected.length < pageSize; i++) {
+      collected.push(batch[i]!);
+    }
+    if (collected.length >= pageSize) {
+      collected.sort((a, b) =>
+        String(b["deletedAt"] ?? "").localeCompare(String(a["deletedAt"] ?? "")),
+      );
+      let nextTok: string | null = null;
+      if (i < batch.length) {
+        nextTok = encodeTrashCursor({ ek: queryStartKey, skip: i });
+      } else if (r.LastEvaluatedKey) {
+        nextTok = encodeTrashCursor({ ek: r.LastEvaluatedKey as Record<string, unknown>, skip: 0 });
+      }
+      return { items: collected, nextToken: nextTok };
+    }
+    if (!r.LastEvaluatedKey) {
+      collected.sort((a, b) =>
+        String(b["deletedAt"] ?? "").localeCompare(String(a["deletedAt"] ?? "")),
+      );
+      return { items: collected, nextToken: null };
+    }
+    exclusiveStartKey = r.LastEvaluatedKey as Record<string, unknown>;
+  }
+  collected.sort((a, b) =>
+    String(b["deletedAt"] ?? "").localeCompare(String(a["deletedAt"] ?? "")),
+  );
+  return { items: collected, nextToken: null };
+}
+
+/** 삭제된 데이터베이스 복원 — deletedAt 제거(restorePage 와 동일 모델). row 페이지는 삭제되지 않으므로 그대로 복귀. */
+export async function restoreDatabase(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  id: string;
+  workspaceId: string;
+}): Promise<Record<string, unknown>> {
+  if (!args.tables.Databases) badRequest("Databases table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "edit",
+  });
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Databases, Key: { id: args.id } }),
+  );
+  const item = existing.Item as Record<string, unknown> | undefined;
+  if (!item) notFound("데이터베이스 없음");
+  if (String(item["workspaceId"]) !== args.workspaceId) {
+    badRequest("워크스페이스가 일치하지 않습니다");
+  }
+  if (item["deletedAt"] == null || item["deletedAt"] === "") {
+    badRequest("삭제되지 않은 데이터베이스입니다");
+  }
+  const deletedMs = Date.parse(String(item["deletedAt"]));
+  if (Number.isNaN(deletedMs)) badRequest("삭제 일시가 올바르지 않습니다");
+  if (deletedMs < Date.now() - TRASH_RETENTION_MS) {
+    badRequest("보관 기간이 지나 복원할 수 없습니다");
+  }
+  const next: Record<string, unknown> = { ...item };
+  delete next["deletedAt"];
+  next["updatedAt"] = new Date().toISOString();
+  await args.doc.send(
+    new PutCommand({ TableName: args.tables.Databases, Item: next }),
+  );
+  try {
+    await recordDatabaseHistory({
+      doc: args.doc,
+      tables: args.tables,
+      caller: args.caller,
+      before: item,
+      after: next,
+      kind: "database.update",
+    });
+  } catch (err) {
+    console.error("[restoreDatabase] DatabaseHistory 기록 실패 (무시)", err);
+  }
+  return next;
+}
+
 export async function listPageHistory(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -1405,6 +1586,49 @@ export async function listPageHistory(args: {
   return ((res.Items ?? []) as Array<Record<string, unknown>>).filter(
     (item) => item.workspaceId === args.workspaceId,
   );
+}
+
+/**
+ * DB 소속 모든 row 페이지의 page-history 를 byDatabaseAndCreatedAt GSI 단일 쿼리로 모은다.
+ * N+1(행마다 listPageHistory) 을 제거하고, 삭제된 행의 히스토리까지 포함한다.
+ */
+export async function listDatabaseRowHistory(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  databaseId: string;
+  workspaceId: string;
+  limit?: number;
+  nextToken?: string;
+}): Promise<Connection<Record<string, unknown>>> {
+  if (!args.tables.PageHistory) badRequest("PageHistory table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "view",
+  });
+  const limit = Math.min(Math.max(args.limit ?? 100, 1), 200);
+  const r = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.PageHistory,
+      IndexName: "byDatabaseAndCreatedAt",
+      KeyConditionExpression: "databaseId = :d",
+      ExpressionAttributeValues: { ":d": args.databaseId },
+      ScanIndexForward: false,
+      Limit: limit,
+      ExclusiveStartKey: args.nextToken ? JSON.parse(args.nextToken) : undefined,
+    }),
+  );
+  const items = ((r.Items ?? []) as Array<Record<string, unknown>>).filter(
+    (item) => item.workspaceId === args.workspaceId,
+  );
+  return {
+    items,
+    nextToken: r.LastEvaluatedKey ? JSON.stringify(r.LastEvaluatedKey) : null,
+  };
 }
 
 export async function restorePageVersion(args: {

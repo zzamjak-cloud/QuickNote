@@ -54,12 +54,15 @@ import {
   deletePageHistoryEvents,
   listDatabases,
   listDatabaseHistory,
+  listDatabaseRowHistory,
   listPageHistory,
   listPages,
   listTrashedPages,
+  listTrashedDatabases,
   permanentlyDeleteDatabase,
   permanentlyDeletePage,
   restorePage,
+  restoreDatabase,
   restoreDatabaseVersion,
   restorePageVersion,
   softDeleteDatabase,
@@ -440,6 +443,14 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           workspaceId: event.arguments.workspaceId as string,
           limit: event.arguments.limit as number | undefined,
         });
+      case "listDatabaseRowHistory":
+        return await listDatabaseRowHistory({
+          ...base,
+          databaseId: event.arguments.databaseId as string,
+          workspaceId: event.arguments.workspaceId as string,
+          limit: event.arguments.limit as number | undefined,
+          nextToken: event.arguments.nextToken as string | undefined,
+        });
       case "listDatabases":
         return await listDatabases({
           ...base,
@@ -454,6 +465,19 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           workspaceId: event.arguments.workspaceId as string,
           limit: event.arguments.limit as number | undefined,
           nextToken: event.arguments.nextToken as string | null | undefined,
+        });
+      case "listTrashedDatabases":
+        return await listTrashedDatabases({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          limit: event.arguments.limit as number | undefined,
+          nextToken: event.arguments.nextToken as string | null | undefined,
+        });
+      case "restoreDatabase":
+        return await restoreDatabase({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
         });
       case "upsertPage":
         return await upsertPage({ ...base, input: event.arguments.input as Record<string, unknown> });

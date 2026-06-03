@@ -2,6 +2,9 @@ import { BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it, vi } from "vitest";
 import {
   emptyTrash,
+  listDatabaseRowHistory,
+  listTrashedDatabases,
+  restoreDatabase,
   listDatabases,
   listPages,
   listTrashedPages,
@@ -625,5 +628,144 @@ describe("page/database handlers", () => {
         updatedAt: "old",
       }),
     ).rejects.toThrow(/없음/);
+  });
+
+  it("listDatabaseRowHistory: GSI 단일 쿼리로 workspace 일치 항목과 nextToken 을 반환", async () => {
+    const tablesWithHistory: Tables = { ...tables, PageHistory: "PH" };
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "view" }] }, // workspaceAccess
+      {
+        Items: [
+          { pageId: "p1", historyId: "h2", workspaceId: "ws-1", databaseId: "db-1", kind: "page.update" },
+          { pageId: "p2", historyId: "h1", workspaceId: "ws-other", databaseId: "db-1", kind: "page.create" },
+        ],
+        LastEvaluatedKey: { pageId: "p1", historyId: "h2", databaseId: "db-1", createdAt: "t" },
+      }, // GSI query
+    );
+    const res = await listDatabaseRowHistory({
+      doc,
+      tables: tablesWithHistory,
+      caller,
+      databaseId: "db-1",
+      workspaceId: "ws-1",
+    });
+    // 다른 workspace 항목은 제외
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0]!.pageId).toBe("p1");
+    expect(res.nextToken).toBe(
+      JSON.stringify({ pageId: "p1", historyId: "h2", databaseId: "db-1", createdAt: "t" }),
+    );
+    // GSI 사용 확인
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const queryArg = sendMock.mock.calls[2]![0].input;
+    expect(queryArg.IndexName).toBe("byDatabaseAndCreatedAt");
+    expect(queryArg.ScanIndexForward).toBe(false);
+  });
+
+  it("restoreDatabase: 삭제된 DB 의 deletedAt 을 제거하고 복원", async () => {
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      {
+        Item: {
+          id: "db-1",
+          workspaceId: "ws-1",
+          title: "DB",
+          deletedAt: new Date().toISOString(),
+        },
+      }, // Get
+      {}, // Put
+    );
+    const res = await restoreDatabase({
+      doc,
+      tables, // DatabaseHistory 미설정 → recordDatabaseHistory 는 early-return
+      caller,
+      id: "db-1",
+      workspaceId: "ws-1",
+    });
+    expect(res.deletedAt).toBeUndefined();
+    expect(res.id).toBe("db-1");
+  });
+
+  it("restoreDatabase: 삭제되지 않은 DB 면 실패", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      { Item: { id: "db-1", workspaceId: "ws-1", title: "DB" } }, // deletedAt 없음
+    );
+    await expect(
+      restoreDatabase({ doc, tables, caller, id: "db-1", workspaceId: "ws-1" }),
+    ).rejects.toThrow(/삭제되지 않은/);
+  });
+
+  it("listTrashedDatabases: byWorkspaceAndDeletedAt GSI 로 삭제 DB 를 조회", async () => {
+    const recent = new Date().toISOString();
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "view" }] }, // workspaceAccess
+      { Items: [{ id: "db-1", workspaceId: "ws-1", title: "삭제된 DB", deletedAt: recent }] }, // GSI query
+    );
+    const res = await listTrashedDatabases({
+      doc,
+      tables,
+      caller,
+      workspaceId: "ws-1",
+    });
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0]!.id).toBe("db-1");
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    expect(sendMock.mock.calls[2]![0].input.IndexName).toBe("byWorkspaceAndDeletedAt");
+  });
+
+  it("softDeletePage: 삭제 시 page.delete 히스토리를 databaseId 포함해 기록", async () => {
+    const tablesWithHistory: Tables = { ...tables, PageHistory: "PH" };
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      { Item: { id: "p1", workspaceId: "ws-1", databaseId: "db-1", title: "행" } }, // Get
+      {
+        Attributes: {
+          id: "p1",
+          workspaceId: "ws-1",
+          databaseId: "db-1",
+          title: "행",
+          deletedAt: "2026-06-03T00:00:00.000Z",
+        },
+      }, // Update(softDeleteRecord)
+      {}, // Put(recordPageDeleteHistory)
+    );
+    await softDeletePage({
+      doc,
+      tables: tablesWithHistory,
+      caller,
+      id: "p1",
+      workspaceId: "ws-1",
+      updatedAt: "old",
+    });
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const historyPut = sendMock.mock.calls
+      .map((c) => c[0].input)
+      .find((inp) => inp?.TableName === "PH" && inp?.Item?.kind === "page.delete");
+    expect(historyPut).toBeTruthy();
+    expect(historyPut.Item.databaseId).toBe("db-1");
+    expect(historyPut.Item.pageId).toBe("p1");
+  });
+
+  it("listDatabaseRowHistory: view 권한 없으면 실패", async () => {
+    const tablesWithHistory: Tables = { ...tables, PageHistory: "PH" };
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [] }, // workspaceAccess
+    );
+    await expect(
+      listDatabaseRowHistory({
+        doc,
+        tables: tablesWithHistory,
+        caller,
+        databaseId: "db-1",
+        workspaceId: "ws-x",
+      }),
+    ).rejects.toThrow(/권한|접근/);
   });
 });
