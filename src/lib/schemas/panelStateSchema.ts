@@ -48,6 +48,7 @@ const databasePanelStatePartialSchema = z
     sortDir: z.enum(["asc", "desc"]).optional(),
     sortRules: z.array(sortRuleSchema).optional(),
     kanbanGroupColumnId: z.string().nullable().optional(),
+    groupByColumnId: z.string().nullable().optional(),
     galleryCoverColumnId: z.string().nullable().optional(),
     timelineDateColumnId: z.string().nullable().optional(),
     viewConfigs: z.record(viewKindEnum, viewSpecificSchema).optional(),

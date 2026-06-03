@@ -9,7 +9,10 @@ import type {
   FileCellItem,
 } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
+import { useDatabaseGroupCollapseStore } from "../../../store/databaseGroupCollapseStore";
 import { useProcessedRows } from "../useProcessedRows";
+import { useRowGroups } from "../useRowGroups";
+import { GroupSectionHeader } from "../GroupSectionHeader";
 import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { DatabaseCell } from "../DatabaseCell";
 import { getVisibleOrderedColumns } from "../../../types/database";
@@ -84,6 +87,9 @@ export function DatabaseGalleryView({
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
   const addRow = useDatabaseStore((s) => s.addRow);
+  const groups = useRowGroups(rows, columns, panelState.groupByColumnId);
+  const isCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
+  const toggleCollapsed = useDatabaseGroupCollapseStore((s) => s.toggle);
 
   // 행별 커버 이미지 오버라이드 (세션 한정)
   const [coverOverrides, setCoverOverrides] = useState<Map<string, string>>(new Map());
@@ -109,39 +115,74 @@ export function DatabaseGalleryView({
 
   if (!bundle) return null;
 
+  const gridStyle = {
+    gridTemplateColumns: `repeat(${panelState.galleryColumns ?? 4}, minmax(0, 1fr))`,
+  };
+
+  const renderCard = (row: DatabaseRowView) => (
+    <GalleryCard
+      key={row.pageId}
+      databaseId={databaseId}
+      row={row}
+      columns={columns}
+      coverColumn={coverColumn}
+      coverSrcOverride={coverOverrides.get(row.pageId)}
+      visibleColumns={visibleColumns}
+      onSetCoverSrc={(src) => {
+        setCoverOverrides((prev) => {
+          const next = new Map(prev);
+          if (src) next.set(row.pageId, src);
+          else next.delete(row.pageId);
+          return next;
+        });
+      }}
+    />
+  );
+
+  const addRowButton = (
+    <button
+      type="button"
+      onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+      className="mt-3 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+    >
+      + 새 항목
+    </button>
+  );
+
+  // 그룹화 렌더 — 그룹 헤더 + 그룹별 카드 그리드(galleryColumns 유지).
+  if (groups) {
+    return (
+      <div className="pt-3">
+        {groups.map((group) => {
+          const collapsed = isCollapsed(databaseId, "gallery", group.key);
+          return (
+            <div key={group.key} className="mb-6">
+              <GroupSectionHeader
+                label={group.label}
+                collapsed={collapsed}
+                onToggle={() => toggleCollapsed(databaseId, "gallery", group.key)}
+              />
+              {!collapsed && (
+                <div className="mt-2 pl-3">
+                  <div className="grid gap-3" style={gridStyle}>
+                    {group.rows.map(renderCard)}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {addRowButton}
+      </div>
+    );
+  }
+
   return (
     <div className="pt-3">
-      <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(${panelState.galleryColumns ?? 4}, minmax(0, 1fr))` }}
-      >
-        {rows.map((row) => (
-          <GalleryCard
-            key={row.pageId}
-            databaseId={databaseId}
-            row={row}
-            columns={columns}
-            coverColumn={coverColumn}
-            coverSrcOverride={coverOverrides.get(row.pageId)}
-            visibleColumns={visibleColumns}
-            onSetCoverSrc={(src) => {
-              setCoverOverrides((prev) => {
-                const next = new Map(prev);
-                if (src) next.set(row.pageId, src);
-                else next.delete(row.pageId);
-                return next;
-              });
-            }}
-          />
-        ))}
+      <div className="grid gap-3" style={gridStyle}>
+        {rows.map(renderCard)}
       </div>
-      <button
-        type="button"
-        onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
-        className="mt-3 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-      >
-        + 새 항목
-      </button>
+      {addRowButton}
     </div>
   );
 }

@@ -47,6 +47,18 @@ describe("parseDatabasePanelStateJson", () => {
     expect(out.searchQuery).toBe("hi");
   });
 
+  it("그룹화 설정(groupByColumnId)을 동기화 round-trip 에서 보존한다", () => {
+    // zod 스키마 누락 시 동기화에서 잘리는 회귀 방지 — 설정값/해제(null) 모두 검증.
+    const raw = JSON.stringify({ groupByColumnId: "c-person" });
+    expect(parseDatabasePanelStateJson(raw).groupByColumnId).toBe("c-person");
+
+    const cleared = JSON.stringify({ groupByColumnId: null });
+    expect(parseDatabasePanelStateJson(cleared).groupByColumnId).toBeNull();
+
+    // 미설정 시 기본값(null)
+    expect(parseDatabasePanelStateJson("{}").groupByColumnId).toBeNull();
+  });
+
   it("손상 JSON이면 기본 패널 상태", () => {
     expect(parseDatabasePanelStateJson("")).toEqual(emptyPanelState());
     expect(parseDatabasePanelStateJson("{")).toEqual(emptyPanelState());

@@ -14,7 +14,10 @@ import {
   setColumnVisibleInViewConfig,
 } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
+import { useDatabaseGroupCollapseStore } from "../../../store/databaseGroupCollapseStore";
 import { useProcessedRows } from "../useProcessedRows";
+import { useRowGroups } from "../useRowGroups";
+import { GroupSectionHeader } from "../GroupSectionHeader";
 import { DatabaseCell } from "../DatabaseCell";
 import { DatabaseColumnHeader } from "../DatabaseColumnHeader";
 import { DatabaseAddColumnButton } from "../DatabaseAddColumnButton";
@@ -232,6 +235,15 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? (allRows ?? []).slice(0, visibleRowLimit) : allRows;
   const autoFitRows = allRows ?? rows;
+  const groups = useRowGroups(rows, bundle?.columns ?? [], panelState.groupByColumnId);
+  const isGroupCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
+  const toggleGroupCollapsed = useDatabaseGroupCollapseStore((s) => s.toggle);
+  // fill-drag·렌더 공통 기준 행 목록. 그룹화 시 그룹 순서로 평탄화(person 다중값은 중복 가능).
+  // rIdx 는 이 배열의 인덱스이므로 fill 핸들러도 동일 배열을 참조해야 일관된다.
+  const effectiveRows = useMemo(
+    () => (groups ? groups.flatMap((g) => g.rows) : rows),
+    [groups, rows],
+  );
   const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
@@ -321,7 +333,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
           const end = Math.max(fillDrag.sourceRowIndex, endRowIndex);
           for (let i = start; i <= end; i += 1) {
             if (i === fillDrag.sourceRowIndex) continue;
-            const targetRow = rows[i];
+            const targetRow = effectiveRows[i];
             if (!targetRow) continue;
             updateCell(
               databaseId,
@@ -343,7 +355,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, [databaseId, fillDrag, rows, updateCell]);
+  }, [databaseId, fillDrag, effectiveRows, updateCell]);
 
   // 뷰별 가시·정렬 컬럼 (#9) — memo 행 비교를 위해 참조 안정화
   const bundleColumns = bundle?.columns;
@@ -362,7 +374,8 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   const virtualRows = useWindowedRows({
     count: rows.length,
     estimateSize: 32,
-    enabled: visibleRowLimit == null && rows.length > 120,
+    // 그룹화 활성 시 가상화 비활성(그룹별 tbody 분할과 평면 윈도잉이 충돌).
+    enabled: !groups && visibleRowLimit == null && rows.length > 120,
     overscan: 10,
   });
   const renderedRows = virtualRows.enabled
@@ -445,6 +458,26 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   );
 
   if (!bundle) return null;
+
+  // 그룹/평면 공통 행 렌더 — rIdx 는 effectiveRows 기준 평면 인덱스(fill-drag 일관성).
+  const renderTableRow = (row: DatabaseRowView, rIdx: number, key: string) => (
+    <DatabaseTableRow
+      key={key}
+      row={row}
+      rIdx={rIdx}
+      databaseId={databaseId}
+      visibleCols={visibleCols}
+      isBoxSelected={selectedRowIds.has(row.pageId)}
+      fillDrag={fillDrag}
+      fillHoverRowIndex={fillHoverRowIndex}
+      fillApplying={fillApplying}
+      handleCheckboxClick={handleCheckboxClick}
+      openPeek={openPeek}
+      peekNavigate={peekNavigate}
+      setIcon={setIcon}
+      setFillDrag={setFillDrag}
+    />
+  );
 
   return (
     <div
@@ -533,45 +566,64 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
               ))}
             </tr>
           </thead>
-          <tbody>
-            {virtualRows.topPadding > 0 && (
-              <tr aria-hidden="true">
-                <td
-                  colSpan={visibleCols.length + 1}
-                  style={{ height: virtualRows.topPadding, padding: 0, border: 0 }}
-                />
-              </tr>
-            )}
-            {renderedRows.map((row, localIdx) => {
-              const rIdx = virtualRows.start + localIdx;
+          {groups ? (
+            // 그룹화 렌더 — 그룹별 <tbody> + colSpan 그룹 헤더 <tr>. rIdx 는 그룹 순서 누적 인덱스.
+            groups.map((group, gi) => {
+              const collapsed = isGroupCollapsed(databaseId, "table", group.key);
+              // baseIdx 는 effectiveRows(=groups.flatMap(g=>g.rows)) 인덱스와 정합해야 한다.
+              // effectiveRows 가 collapsed 여부와 무관하게 전체 행을 포함하므로, 여기서도
+              // 접힘 여부와 무관하게 이전 그룹들의 전체 행 수를 누적한다(불변식: 둘 다 전체 행 기준).
+              const baseIdx = groups
+                .slice(0, gi)
+                .reduce((acc, g) => acc + g.rows.length, 0);
               return (
-                <DatabaseTableRow
-                  key={row.pageId}
-                  row={row}
-                  rIdx={rIdx}
-                  databaseId={databaseId}
-                  visibleCols={visibleCols}
-                  isBoxSelected={selectedRowIds.has(row.pageId)}
-                  fillDrag={fillDrag}
-                  fillHoverRowIndex={fillHoverRowIndex}
-                  fillApplying={fillApplying}
-                  handleCheckboxClick={handleCheckboxClick}
-                  openPeek={openPeek}
-                  peekNavigate={peekNavigate}
-                  setIcon={setIcon}
-                  setFillDrag={setFillDrag}
-                />
+                <tbody key={group.key}>
+                  <tr>
+                    <td
+                      colSpan={visibleCols.length + 1}
+                      // 그룹 간 간격 — 첫 그룹을 제외하고 위쪽 여백을 둬 단위를 분리한다.
+                      className={[
+                        "border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800",
+                        gi > 0 ? "pt-6" : "pt-1",
+                      ].join(" ")}
+                    >
+                      <GroupSectionHeader
+                        label={group.label}
+                        collapsed={collapsed}
+                        onToggle={() => toggleGroupCollapsed(databaseId, "table", group.key)}
+                      />
+                    </td>
+                  </tr>
+                  {!collapsed &&
+                    group.rows.map((row, li) =>
+                      renderTableRow(row, baseIdx + li, `${group.key}:${row.pageId}`),
+                    )}
+                </tbody>
               );
-            })}
-            {virtualRows.bottomPadding > 0 && (
-              <tr aria-hidden="true">
-                <td
-                  colSpan={visibleCols.length + 1}
-                  style={{ height: virtualRows.bottomPadding, padding: 0, border: 0 }}
-                />
-              </tr>
-            )}
-          </tbody>
+            })
+          ) : (
+            <tbody>
+              {virtualRows.topPadding > 0 && (
+                <tr aria-hidden="true">
+                  <td
+                    colSpan={visibleCols.length + 1}
+                    style={{ height: virtualRows.topPadding, padding: 0, border: 0 }}
+                  />
+                </tr>
+              )}
+              {renderedRows.map((row, localIdx) =>
+                renderTableRow(row, virtualRows.start + localIdx, row.pageId),
+              )}
+              {virtualRows.bottomPadding > 0 && (
+                <tr aria-hidden="true">
+                  <td
+                    colSpan={visibleCols.length + 1}
+                    style={{ height: virtualRows.bottomPadding, padding: 0, border: 0 }}
+                  />
+                </tr>
+              )}
+            </tbody>
+          )}
         </table>
         <div className="pointer-events-auto absolute top-0 z-[12]" style={{ left: tableWidthPx + 4 }}>
           <DatabaseAddColumnButton

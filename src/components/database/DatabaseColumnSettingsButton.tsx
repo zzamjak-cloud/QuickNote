@@ -12,8 +12,10 @@ import {
   resolveViewColumnOrderState,
   setColumnVisibleInViewConfig,
 } from "../../types/database";
+import { getGroupableColumns } from "../../lib/database/grouping";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
+import { AppSelect } from "../common/AppSelect";
 
 type Props = {
   databaseId: string;
@@ -187,6 +189,39 @@ export function DatabaseColumnSettingsButton({
               e.stopPropagation();
             }}
           >
+            {/* 그룹화 섹션 — 칸반은 자체 그룹 컨트롤을 쓰므로 숨김. */}
+            {viewKind !== "kanban" && (
+              <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
+                <div className="px-1 py-1 text-xs uppercase tracking-wide text-zinc-500">
+                  그룹화
+                </div>
+                {(() => {
+                  const groupableCols = getGroupableColumns(allCols).filter(
+                    (c) => !isInternalHiddenColumnId(c.id),
+                  );
+                  if (groupableCols.length === 0) {
+                    return (
+                      <p className="px-1 py-1 text-xs text-zinc-400">
+                        사람·상태·선택 속성을 추가하면 그룹화할 수 있습니다.
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="px-1 py-1">
+                      <AppSelect
+                        value={panelState.groupByColumnId ?? ""}
+                        onChange={(v) => setPanelState({ groupByColumnId: v || null })}
+                        options={[
+                          { value: "", label: "그룹화 안 함" },
+                          ...groupableCols.map((c) => ({ value: c.id, label: c.name })),
+                        ]}
+                        buttonClassName="w-full px-1.5 py-1"
+                      />
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
             {/* 항목 표시 섹션 */}
             <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
               <div className="px-1 py-1 text-xs uppercase tracking-wide text-zinc-500">

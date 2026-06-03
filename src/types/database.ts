@@ -273,6 +273,8 @@ export type DatabasePanelState = {
   /** 다중 정렬 규칙 (#4). */
   sortRules: SortRule[];
   kanbanGroupColumnId: string | null;
+  /** 표시설정 그룹화 — 선택한 컬럼으로 표/리스트/갤러리(+후속 타임라인)를 그룹 분할. null=그룹화 안 함. node attrs → 서버 동기화. */
+  groupByColumnId: string | null;
   galleryCoverColumnId: string | null;
   timelineDateColumnId: string | null;
   /** 뷰별 컬럼 표시·순서 (#6, #9). */
@@ -336,6 +338,7 @@ export const emptyPanelState = (): DatabasePanelState => ({
   sortDir: "asc",
   sortRules: [],
   kanbanGroupColumnId: null,
+  groupByColumnId: null,
   galleryCoverColumnId: null,
   timelineDateColumnId: null,
   viewConfigs: {},
