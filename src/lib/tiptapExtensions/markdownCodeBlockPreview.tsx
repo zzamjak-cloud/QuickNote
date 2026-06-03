@@ -116,7 +116,7 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
       >
         <button
           type="button"
-          className="qn-code-copy-btn pointer-events-auto absolute right-9 top-2 z-30"
+          className="qn-code-copy-btn pointer-events-auto absolute right-3 top-2 z-30"
           title="코드 복사"
           aria-label="코드 복사"
           onMouseDown={(e) => e.preventDefault()}

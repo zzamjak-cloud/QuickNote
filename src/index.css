@@ -749,7 +749,8 @@ body.quicknote-column-reorder-dragging .qn-block-drop-indicator {
 .qn-code-copy-anchor {
   position: absolute;
   top: 0.5rem;
-  right: 2.25rem;
+  /* 스크롤바 영역(약 8px)만 남기고 우측에 가깝게 배치 */
+  right: 0.75rem;
   z-index: 30;
   pointer-events: auto;
   user-select: none;

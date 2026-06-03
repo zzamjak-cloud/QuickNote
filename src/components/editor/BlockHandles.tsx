@@ -13,6 +13,7 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  Baseline,
   Copy,
   Download,
   GripVertical,
@@ -20,6 +21,7 @@ import {
   Link2,
   MessageSquare,
   MessageSquarePlus,
+  PaintBucket,
   Pilcrow,
   Trash2,
 } from "lucide-react";
@@ -1206,8 +1208,8 @@ export function BlockHandles({
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <span className="flex items-center gap-2">
-                        <span className="inline-block h-3.5 w-3.5 rounded-sm border border-zinc-300 bg-gradient-to-br from-blue-400 via-emerald-400 to-rose-400 dark:border-zinc-600" />
-                        텍스트 색상
+                        <Baseline size={14} />
+                        텍스트 컬러
                       </span>
                       <span className="text-zinc-400">›</span>
                     </button>
@@ -1222,8 +1224,8 @@ export function BlockHandles({
                           onClick={() => applyBlockTextColor(null)}
                           className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                         >
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-300 text-[10px] text-zinc-400 dark:border-zinc-600">✕</span>
-                          <span className="text-zinc-700 dark:text-zinc-300">텍스트 색상 제거</span>
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-red-300 text-[10px] text-red-500 dark:border-red-500/60 dark:text-red-400">✕</span>
+                          <span className="text-red-600 dark:text-red-400">텍스트 컬러 제거</span>
                         </button>
                         <div className="mx-3 my-1 border-t border-zinc-100 dark:border-zinc-800" />
                         {BLOCK_TEXT_PRESETS.map((p) => (
@@ -1255,8 +1257,8 @@ export function BlockHandles({
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <span className="flex items-center gap-2">
-                        <span className="inline-block h-3.5 w-3.5 rounded-sm border border-zinc-300 bg-gradient-to-br from-yellow-200 via-pink-200 to-blue-200 dark:border-zinc-600" />
-                        배경색
+                        <PaintBucket size={14} />
+                        배경 컬러
                       </span>
                       <span className="text-zinc-400">›</span>
                     </button>
@@ -1271,8 +1273,8 @@ export function BlockHandles({
                           onClick={() => applyBlockBackground(null)}
                           className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                         >
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-300 dark:border-zinc-600 text-zinc-400 text-[10px]">✕</span>
-                          <span className="text-zinc-700 dark:text-zinc-300">배경색 제거</span>
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-red-300 text-[10px] text-red-500 dark:border-red-500/60 dark:text-red-400">✕</span>
+                          <span className="text-red-600 dark:text-red-400">배경 컬러 제거</span>
                         </button>
                         <div className="mx-3 my-1 border-t border-zinc-100 dark:border-zinc-800" />
                         {BLOCK_BG_PRESETS.map((p) => (
