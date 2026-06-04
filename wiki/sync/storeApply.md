@@ -22,6 +22,11 @@ AppSync(GraphQL)에서 내려온 원격 변경을 LWW(Last-Write-Wins) 규칙으
 | `shouldApplyRemoteSnapshot` | `remoteWorkspaceId` | `boolean` | 현재 워크스페이스와 다른 원격 데이터 필터링 |
 | `collectRowPageIdsForDatabase` | `databaseId` | `string[]` | DB에 속한 페이지 id 목록 (템플릿 제외, order 정렬) |
 | `reconcileDatabaseRowOrders` | `databaseIds: Set<string>` | `void` | 여러 DB의 rowPageOrder를 페이지 스토어 기준으로 재동기화 |
+| `reconcileLCSchedulerRemoteSnapshot` | `{ pages, databases }` | `{ prunedPageIds: [] }` | LC 스케줄러 증분 스냅샷 **적용 전용**. 아래 주의 참고 |
+
+## reconcileLCSchedulerRemoteSnapshot — prune 금지 (CRITICAL)
+
+이 함수는 `applyRemoteDatabasesToStore` + `applyRemotePagesToStore` **적용만** 한다. 과거엔 "전체 살아있는 목록에 없는 로컬 작업 행"을 prune 했으나, 호출자(`schedulerStore.reconcileSchedulerWorkspaceFromServer`)가 **증분(delta) fetch** 를 넘기므로 "delta 에 없다"는 이유로 멀쩩한 행이 삭제되는 회귀가 있었다(+ 톰스톤까지 남겨 영구 억제). scoped/부분 로딩과 absence prune 은 양립 불가 → **prune 제거**. 삭제는 `deletedAt` 전파·구독·scoped 조회로만 반영. `prunedPageIds` 는 항상 `[]`.
 
 ## 동작 흐름
 

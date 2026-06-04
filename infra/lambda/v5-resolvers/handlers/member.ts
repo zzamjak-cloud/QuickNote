@@ -56,6 +56,8 @@ export type Tables = {
   PageHistory?: string;
   /** 서버 기반 DB 버전 히스토리 테이블 */
   DatabaseHistory?: string;
+  /** 작업 DB row 의 구성원(assignee)별 색인 테이블 (PK=pk, SK=pageId) */
+  DatabaseRowMembers?: string;
 };
 
 export type CreateMemberInput = {

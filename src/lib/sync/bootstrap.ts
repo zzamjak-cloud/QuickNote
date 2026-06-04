@@ -107,6 +107,10 @@ export async function fetchDatabaseById(
 export async function fetchDatabaseRowsBatch(args: {
   workspaceId: string;
   databaseId: string;
+  organizationId?: string;
+  teamId?: string;
+  projectId?: string;
+  assigneeId?: string;
   limit?: number;
   nextToken?: string | null;
 }): Promise<GqlConnection<GqlPage>> {
@@ -115,6 +119,11 @@ export async function fetchDatabaseRowsBatch(args: {
     variables: {
       workspaceId: args.workspaceId,
       databaseId: args.databaseId,
+      // scope/구성원 인자는 지정된 경우에만 전달(미지정=전체 로드, 회귀 없음).
+      ...(args.organizationId ? { organizationId: args.organizationId } : {}),
+      ...(args.teamId ? { teamId: args.teamId } : {}),
+      ...(args.projectId ? { projectId: args.projectId } : {}),
+      ...(args.assigneeId ? { assigneeId: args.assigneeId } : {}),
       limit: args.limit ?? PAGE_LIMIT,
       nextToken: args.nextToken ?? null,
     },

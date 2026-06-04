@@ -13,12 +13,35 @@ import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 
-type PageTableGsiDeployStage = "meta" | "all";
+// DynamoDB 는 한 번의 업데이트에 GSI 를 하나만 생성/삭제할 수 있다.
+// 그래서 Pages 테이블 GSI 는 누적 단계로 하나씩 추가한다(아래 순서대로 cdk deploy 반복).
+//   meta → all(byDatabaseAndOrder) → scope-org → scope-team → scope-project
+const PAGE_TABLE_GSI_STAGES = [
+  "meta",
+  "all",
+  "scope-org",
+  "scope-team",
+  "scope-project",
+] as const;
+type PageTableGsiDeployStage = (typeof PAGE_TABLE_GSI_STAGES)[number];
 
 function resolvePageTableGsiDeployStage(scope: Construct): PageTableGsiDeployStage {
-  const rawStage = scope.node.tryGetContext("pageTableGsiDeployStage") ?? "all";
-  if (rawStage === "meta" || rawStage === "all") return rawStage;
-  throw new Error("pageTableGsiDeployStage 는 meta 또는 all 이어야 합니다.");
+  // 기본값은 최종 단계. 신규 GSI 를 단계 배포할 때만 -c pageTableGsiDeployStage=scope-org 등으로 지정.
+  const rawStage = scope.node.tryGetContext("pageTableGsiDeployStage") ?? "scope-project";
+  if ((PAGE_TABLE_GSI_STAGES as readonly string[]).includes(rawStage)) {
+    return rawStage as PageTableGsiDeployStage;
+  }
+  throw new Error(
+    `pageTableGsiDeployStage 는 ${PAGE_TABLE_GSI_STAGES.join(" | ")} 중 하나여야 합니다.`,
+  );
+}
+
+/** 현재 단계가 target 단계 이상인지(누적 게이팅). */
+function pageTableGsiStageAtLeast(
+  stage: PageTableGsiDeployStage,
+  target: PageTableGsiDeployStage,
+): boolean {
+  return PAGE_TABLE_GSI_STAGES.indexOf(stage) >= PAGE_TABLE_GSI_STAGES.indexOf(target);
 }
 
 export interface SyncStackProps extends cdk.StackProps {
@@ -106,10 +129,37 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "deletedAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
-    if (pageTableGsiDeployStage === "all") {
+    // DynamoDB: 한 번의 업데이트에 GSI 하나만 생성 가능 → 단계별 누적 추가.
+    if (pageTableGsiStageAtLeast(pageTableGsiDeployStage, "all")) {
       this.pageTable.table.addGlobalSecondaryIndex({
         indexName: "byDatabaseAndOrder",
         partitionKey: { name: "databaseId", type: dynamodb.AttributeType.STRING },
+        sortKey: { name: "order", type: dynamodb.AttributeType.STRING },
+        projectionType: dynamodb.ProjectionType.ALL,
+      });
+    }
+    // LC 보호 DB row 의 org/팀/프로젝트 scope 필터링용 sparse GSI.
+    // 키 형식: `${databaseId}#${scopeId}`. 해당 속성이 없는 항목은 자동 미색인(sparse).
+    if (pageTableGsiStageAtLeast(pageTableGsiDeployStage, "scope-org")) {
+      this.pageTable.table.addGlobalSecondaryIndex({
+        indexName: "byDbScopeOrg",
+        partitionKey: { name: "dbScopeOrg", type: dynamodb.AttributeType.STRING },
+        sortKey: { name: "order", type: dynamodb.AttributeType.STRING },
+        projectionType: dynamodb.ProjectionType.ALL,
+      });
+    }
+    if (pageTableGsiStageAtLeast(pageTableGsiDeployStage, "scope-team")) {
+      this.pageTable.table.addGlobalSecondaryIndex({
+        indexName: "byDbScopeTeam",
+        partitionKey: { name: "dbScopeTeam", type: dynamodb.AttributeType.STRING },
+        sortKey: { name: "order", type: dynamodb.AttributeType.STRING },
+        projectionType: dynamodb.ProjectionType.ALL,
+      });
+    }
+    if (pageTableGsiStageAtLeast(pageTableGsiDeployStage, "scope-project")) {
+      this.pageTable.table.addGlobalSecondaryIndex({
+        indexName: "byDbScopeProject",
+        partitionKey: { name: "dbScopeProject", type: dynamodb.AttributeType.STRING },
         sortKey: { name: "order", type: dynamodb.AttributeType.STRING },
         projectionType: dynamodb.ProjectionType.ALL,
       });
@@ -440,6 +490,21 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "SchedulesTableName", { value: schedulesTable.tableName });
 
+    // 작업 DB row 의 구성원(assignee)별 색인 테이블 — listDatabaseRows 의 assigneeId 필터용.
+    // PK=`${databaseId}#${memberId}`, SK=pageId. assignee 마다 1엔트리(per-assignee).
+    const databaseRowMembersTable = new dynamodb.Table(this, "DatabaseRowMembersTable", {
+      tableName: "quicknote-database-row-members",
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "pageId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    new cdk.CfnOutput(this, "DatabaseRowMembersTableName", {
+      value: databaseRowMembersTable.tableName,
+    });
+
     new cdk.CfnOutput(this, "MembersTableName", { value: membersTable.tableName });
     new cdk.CfnOutput(this, "TeamsTableName", { value: teamsTable.tableName });
     new cdk.CfnOutput(this, "MemberTeamsTableName", { value: memberTeamsTable.tableName });
@@ -677,6 +742,7 @@ export function response(ctx) {
         ASSET_USAGE_TABLE_NAME: assetUsageTable.tableName,
         PAGE_HISTORY_TABLE_NAME: pageHistoryTable.tableName,
         DATABASE_HISTORY_TABLE_NAME: databaseHistoryTable.tableName,
+        DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
         IMAGES_BUCKET_NAME: imagesBucket.bucketName,
         CUSTOM_ICONS_TABLE_NAME: customIconsTable.tableName,
       },
@@ -708,6 +774,7 @@ export function response(ctx) {
     assetUsageTable.grantReadWriteData(v5ResolversFn);
     pageHistoryTable.grantReadWriteData(v5ResolversFn);
     databaseHistoryTable.grantReadWriteData(v5ResolversFn);
+    databaseRowMembersTable.grantReadWriteData(v5ResolversFn);
     imagesBucket.grantReadWrite(v5ResolversFn);
     customIconsTable.grantReadWriteData(v5ResolversFn);
 

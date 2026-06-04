@@ -11,6 +11,7 @@ import {
   isProtectedDatabaseId,
 } from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
+import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import {
   fetchDatabaseById,
   fetchDatabaseRowsBatch,
@@ -21,6 +22,58 @@ import { applyRemoteDatabasesToStore, applyRemotePagesToStore } from "./storeApp
 import { refreshWorkspaceSnapshot } from "./workspaceSwitch";
 
 const DEFAULT_ROW_BATCH_LIMIT = 100;
+
+/** schedulerViewStore 선택값 → listDatabaseRows scope 인자(org/team/project/assignee). */
+type DatabaseRowScope = {
+  organizationId?: string;
+  teamId?: string;
+  projectId?: string;
+  assigneeId?: string;
+};
+
+/**
+ * 현재 스케줄러 뷰 선택(selectedProjectId / selectedMemberId)을 서버 scope 인자로 변환한다.
+ * selectedProjectId 는 "org:{id}" | "team:{id}" | "proj:{id}" | (접두사 없는 projectId) 형식.
+ */
+function resolveCurrentDatabaseRowScope(): DatabaseRowScope {
+  const { selectedProjectId, selectedMemberId } = useSchedulerViewStore.getState();
+  const scope: DatabaseRowScope = {};
+  if (selectedProjectId) {
+    if (selectedProjectId.startsWith("org:")) {
+      scope.organizationId = selectedProjectId.slice("org:".length);
+    } else if (selectedProjectId.startsWith("team:")) {
+      scope.teamId = selectedProjectId.slice("team:".length);
+    } else if (selectedProjectId.startsWith("proj:")) {
+      scope.projectId = selectedProjectId.slice("proj:".length);
+    } else {
+      scope.projectId = selectedProjectId;
+    }
+  }
+  if (selectedMemberId) scope.assigneeId = selectedMemberId;
+  return scope;
+}
+
+/** scope 를 in-flight/nextToken/완료판정 맵 키로 안정 직렬화. scope 없으면 빈 문자열. */
+function scopeKey(scope: DatabaseRowScope): string {
+  const parts: string[] = [];
+  if (scope.organizationId) parts.push(`o:${scope.organizationId}`);
+  if (scope.teamId) parts.push(`t:${scope.teamId}`);
+  if (scope.projectId) parts.push(`p:${scope.projectId}`);
+  if (scope.assigneeId) parts.push(`m:${scope.assigneeId}`);
+  return parts.join("|");
+}
+
+/** resolvedDatabaseId + scope 복합키 — scope 별로 로드 상태를 분리한다. */
+function compositeKey(resolvedDatabaseId: string, scope: DatabaseRowScope): string {
+  const key = scopeKey(scope);
+  return key ? `${resolvedDatabaseId}|${key}` : resolvedDatabaseId;
+}
+
+function hasScope(scope: DatabaseRowScope): boolean {
+  return Boolean(
+    scope.organizationId || scope.teamId || scope.projectId || scope.assigneeId,
+  );
+}
 
 type EnsureExternalProtectedDatabaseLoadedArgs = {
   databaseId: string;
@@ -137,20 +190,29 @@ export async function ensureExternalProtectedDatabaseLoaded({
   // 홈 워크스페이스(LC 스케줄러) 내부에서도 로드한다 — 메타 baseline 은 row 콘텐츠(dbCells)를
   // 내려받지 않으므로, 워크스페이스 스냅샷에 의존하지 않고 listDatabaseRows 로 직접 적재한다.
   if (!currentWorkspaceId) return false;
-  if (protectedDatabaseRowsAreCached(resolvedDatabaseId)) {
+
+  const scope = resolveCurrentDatabaseRowScope();
+  const scoped = hasScope(scope);
+  const loadKey = compositeKey(resolvedDatabaseId, scope);
+
+  // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
+  // scope 지정 시 캐시 완료 판정이 과복잡하므로 "scope 1회 로드"(session 가드)로 단순화해 무한로드를 막는다.
+  if (!scoped && protectedDatabaseRowsAreCached(resolvedDatabaseId)) {
     devLog("skip", {
       databaseId,
       resolvedDatabaseId,
+      scope: scopeKey(scope),
       currentWorkspaceId,
       reason: "local-cache-complete",
       source,
     });
     return false;
   }
-  if (completedLoadDatabaseIds.has(resolvedDatabaseId) && protectedDatabaseBundleIsEmpty(resolvedDatabaseId)) {
+  if (completedLoadDatabaseIds.has(loadKey) && (scoped || protectedDatabaseBundleIsEmpty(resolvedDatabaseId))) {
     devLog("skip", {
       databaseId,
       resolvedDatabaseId,
+      scope: scopeKey(scope),
       currentWorkspaceId,
       reason: "session-load-complete",
       source,
@@ -158,13 +220,14 @@ export async function ensureExternalProtectedDatabaseLoaded({
     return false;
   }
 
-  const existing = inFlightByDatabaseId.get(resolvedDatabaseId);
+  const existing = inFlightByDatabaseId.get(loadKey);
   if (existing) return existing;
 
   const task = (async () => {
     devLog("load-start", {
       databaseId,
       resolvedDatabaseId,
+      scope: scopeKey(scope),
       currentWorkspaceId,
       workspaceId: LC_SCHEDULER_WORKSPACE_ID,
       rowLimit,
@@ -175,6 +238,7 @@ export async function ensureExternalProtectedDatabaseLoaded({
       fetchDatabaseRowsBatch({
         workspaceId: LC_SCHEDULER_WORKSPACE_ID,
         databaseId: resolvedDatabaseId,
+        ...scope,
         limit: rowLimit,
       }),
     ]);
@@ -183,6 +247,7 @@ export async function ensureExternalProtectedDatabaseLoaded({
       devLog("load-missing-database", {
         databaseId,
         resolvedDatabaseId,
+        scope: scopeKey(scope),
         currentWorkspaceId,
         source,
       });
@@ -191,14 +256,15 @@ export async function ensureExternalProtectedDatabaseLoaded({
 
     applyRemotePagesToStore(rows.items);
     applyRemoteDatabasesToStore([database]);
-    useDatabaseRowRemoteStore.getState().setNextToken(resolvedDatabaseId, rows.nextToken ?? null);
+    useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
     refreshWorkspaceSnapshot(LC_SCHEDULER_WORKSPACE_ID);
 
-    const resolved = protectedDatabaseRowsAreCached(resolvedDatabaseId);
-    completedLoadDatabaseIds.add(resolvedDatabaseId);
+    const resolved = scoped ? true : protectedDatabaseRowsAreCached(resolvedDatabaseId);
+    completedLoadDatabaseIds.add(loadKey);
     devLog("load-applied", {
       databaseId,
       resolvedDatabaseId,
+      scope: scopeKey(scope),
       currentWorkspaceId,
       rowCount: rows.items.length,
       nextTokenAvailable: Boolean(rows.nextToken),
@@ -219,16 +285,17 @@ export async function ensureExternalProtectedDatabaseLoaded({
     console.warn("[QN_EXTERNAL_DB] load-failed", {
       databaseId,
       resolvedDatabaseId,
+      scope: scopeKey(scope),
       currentWorkspaceId,
       source,
       error,
     });
     return false;
   }).finally(() => {
-    inFlightByDatabaseId.delete(resolvedDatabaseId);
+    inFlightByDatabaseId.delete(loadKey);
   });
 
-  inFlightByDatabaseId.set(resolvedDatabaseId, task);
+  inFlightByDatabaseId.set(loadKey, task);
   return task;
 }
 
@@ -241,18 +308,21 @@ export async function loadMoreExternalProtectedDatabaseRows(args: {
   const resolvedDatabaseId = resolveExternalProtectedDatabaseId(args.databaseId);
   if (!resolvedDatabaseId) return false;
   if (!args.currentWorkspaceId) return false;
+  const scope = resolveCurrentDatabaseRowScope();
+  const loadKey = compositeKey(resolvedDatabaseId, scope);
   const store = useDatabaseRowRemoteStore.getState();
-  const nextToken = store.nextTokenByDatabaseId[resolvedDatabaseId];
+  const nextToken = store.nextTokenByDatabaseId[loadKey];
   if (!nextToken) return false;
-  const existing = inFlightMoreByDatabaseId.get(resolvedDatabaseId);
+  const existing = inFlightMoreByDatabaseId.get(loadKey);
   if (existing) return existing;
 
   const rowLimit = args.rowLimit ?? DEFAULT_ROW_BATCH_LIMIT;
   const task = (async () => {
-    store.setLoading(resolvedDatabaseId, true);
+    store.setLoading(loadKey, true);
     devLog("load-more-start", {
       databaseId: args.databaseId,
       resolvedDatabaseId,
+      scope: scopeKey(scope),
       currentWorkspaceId: args.currentWorkspaceId,
       rowLimit,
       source: args.source ?? "unknown",
@@ -260,15 +330,17 @@ export async function loadMoreExternalProtectedDatabaseRows(args: {
     const rows = await fetchDatabaseRowsBatch({
       workspaceId: LC_SCHEDULER_WORKSPACE_ID,
       databaseId: resolvedDatabaseId,
+      ...scope,
       limit: rowLimit,
       nextToken,
     });
     applyRemotePagesToStore(rows.items);
-    useDatabaseRowRemoteStore.getState().setNextToken(resolvedDatabaseId, rows.nextToken ?? null);
+    useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
     refreshWorkspaceSnapshot(LC_SCHEDULER_WORKSPACE_ID);
     devLog("load-more-applied", {
       databaseId: args.databaseId,
       resolvedDatabaseId,
+      scope: scopeKey(scope),
       rowCount: rows.items.length,
       nextTokenAvailable: Boolean(rows.nextToken),
       source: args.source ?? "unknown",
@@ -278,17 +350,18 @@ export async function loadMoreExternalProtectedDatabaseRows(args: {
     console.warn("[QN_EXTERNAL_DB] load-more-failed", {
       databaseId: args.databaseId,
       resolvedDatabaseId,
+      scope: scopeKey(scope),
       currentWorkspaceId: args.currentWorkspaceId,
       source: args.source ?? "unknown",
       error,
     });
     return false;
   }).finally(() => {
-    useDatabaseRowRemoteStore.getState().setLoading(resolvedDatabaseId, false);
-    inFlightMoreByDatabaseId.delete(resolvedDatabaseId);
+    useDatabaseRowRemoteStore.getState().setLoading(loadKey, false);
+    inFlightMoreByDatabaseId.delete(loadKey);
   });
 
-  inFlightMoreByDatabaseId.set(resolvedDatabaseId, task);
+  inFlightMoreByDatabaseId.set(loadKey, task);
   return task;
 }
 

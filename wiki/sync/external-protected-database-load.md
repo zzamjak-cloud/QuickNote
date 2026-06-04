@@ -1,66 +1,76 @@
-# 외부 보호 DB 행 배치 로드
+# 외부/보호 DB 행 배치 로드 + scope 필터링
 
-LC 스케줄러 워크스페이스에 속한 보호 DB(스케줄러·마일스톤·피처)의 행(row)을 배치 + 페이지네이션으로 지연 로드하는 메커니즘.
+LC 스케줄러 워크스페이스에 속한 보호 DB(작업·마일스톤·피처)의 행(row)을 배치 + 페이지네이션으로 지연 로드하고, **조직/팀/프로젝트/구성원 scope로 서버 필터링**하는 메커니즘.
 
 ## 핵심 파일
 
 | 파일 | 역할 |
 |------|------|
-| `src/lib/sync/externalProtectedDatabaseLoad.ts` | `ensureExternalProtectedDatabaseLoaded`, `loadMoreExternalProtectedDatabaseRows` |
+| `src/lib/sync/externalProtectedDatabaseLoad.ts` | `ensureExternalProtectedDatabaseLoaded`, `loadMoreExternalProtectedDatabaseRows`, scope 변환 유틸 |
 | `src/store/databaseRowRemoteStore.ts` | nextToken·로딩 상태. persist 키 `quicknote.database-row-remote.v1` |
+| `src/lib/sync/bootstrap.ts` | `fetchDatabaseRowsBatch({ databaseId, workspaceId, organizationId?, teamId?, projectId?, assigneeId?, limit?, nextToken? })` |
+| `infra/.../handlers/pageDatabase.ts` | `listDatabaseRows` 서버 핸들러 (scope 라우팅) |
+| `infra/.../handlers/lcDatabaseRowMemberIndex.ts` | 구성원 색인 sync/remove (작업 DB 전용) |
+
+## scope 필터링 (서버)
+
+`listDatabaseRows` 인자: `organizationId? / teamId? / projectId? / assigneeId?`. 라우팅 우선순위 **assigneeId > project > team > org > 없음**.
+
+| scope | 메커니즘 | 키 |
+|-------|---------|-----|
+| 조직/팀/프로젝트 (단일값) | Pages **sparse GSI** `byDbScopeOrg/Team/Project` | `dbScopeOrg/Team/Project = ${databaseId}#${scopeId}` |
+| 구성원 assignee (배열·다중) | 전용 테이블 `quicknote-database-row-members` | PK `${databaseId}#${assigneeId}`, SK `pageId` |
+| 없음 | 기존 `byDatabaseAndOrder` | `databaseId` |
+
+- **org/팀/프로젝트**: 단일값이라 GSI 가능. `upsertPage`가 작업 DB(`lc-scheduler-db:`) row 저장 시 dbCells 의 scope 셀을 top-level `dbScope*` 키로 비정규화(값 없으면 미기록 → sparse). 세 보호 DB 모두 대상(`LC_PROTECTED_DB_SCOPE_COLUMN_IDS` 매핑).
+- **구성원**: assignees 가 배열이라 GSI 키 불가 → per-assignee 전용 인덱스 테이블. `upsertPage`가 before/after diff 로 BatchWrite(`lcScheduleIndex.ts` 패턴), `softDeletePage`가 제거. **기간(period) 조건 없이 모든 작업 row 색인**(작업 DB 전용; 마일스톤/피처 제외).
+- 구성원 조회 경로: member 인덱스 Query → pageId → Pages **BatchGet(100청크)** → 미삭제 + (o/t/p 동시 지정 시) post-filter → order 정렬.
+- scope 출처(클라이언트): `schedulerViewStore.selectedProjectId`("org:"/"team:"/"proj:"/projectId) + `selectedMemberId`. `resolveCurrentDatabaseRowScope()` 가 변환.
 
 ## Store 구조
 
 ```typescript
-// databaseRowRemoteStore
-nextTokenByDatabaseId: Record<string, string | null>  // 페이지네이션 커서 (persist)
-loadingByDatabaseId:   Record<string, boolean>         // 로드 진행 중 (비persist)
+nextTokenByDatabaseId: Record<string, string | null>  // 키는 ${resolvedDatabaseId}|${scopeKey} 복합 (scope별 분리)
+loadingByDatabaseId:   Record<string, boolean>
 ```
 
-## 보호 DB 식별
-
-`resolveExternalProtectedDatabaseId(databaseId)` 가 null이면 비보호 DB → 처리 생략.
-
-대상: `LC_SCHEDULER_DATABASE_ID`, `LC_MILESTONE_DATABASE_ID`, `LC_FEATURE_DATABASE_ID` 및 기타 `isProtectedDatabaseId()` 통과 ID.
+`compositeKey(resolvedDatabaseId, scope)` 로 scope 별 로드 상태를 분리한다(scope 바뀌면 다른 키 → 재로드).
 
 ## 동작 흐름
 
 ### 첫 로드 (`ensureExternalProtectedDatabaseLoaded`)
 ```
 1. resolveExternalProtectedDatabaseId → null이면 skip
-2. currentWorkspaceId === LC_SCHEDULER_WORKSPACE_ID 이면 skip (스케줄러 내부 접근)
-3. protectedDatabaseRowsAreCached() → 로컬 캐시 완전 → skip
-4. completedLoadDatabaseIds 세션 완료 + 빈 bundle → skip
-5. inFlightByDatabaseId 중복 방지
-6. Promise.all([fetchDatabaseById, fetchDatabaseRowsBatch({ limit: 100 })])
-7. applyRemotePagesToStore(rows.items)
-   applyRemoteDatabasesToStore([database])
-   databaseRowRemoteStore.setNextToken(resolvedId, rows.nextToken)
-   refreshWorkspaceSnapshot(LC_SCHEDULER_WORKSPACE_ID)
-8. completedLoadDatabaseIds.add(resolvedId)
-```
-
-### 추가 로드 (`loadMoreExternalProtectedDatabaseRows`)
-```
-1. nextTokenByDatabaseId[resolvedId] 없으면 skip
-2. inFlightMoreByDatabaseId 중복 방지
-3. fetchDatabaseRowsBatch({ nextToken, limit: 100 })
-4. applyRemotePagesToStore(rows.items)
-   databaseRowRemoteStore.setNextToken(resolvedId, rows.nextToken)
-   refreshWorkspaceSnapshot(LC_SCHEDULER_WORKSPACE_ID)
+2. currentWorkspaceId 없으면 skip (홈 워크스페이스 내부에서도 로드함 — 메타 baseline 은 dbCells 를 안 줌)
+3. scope 미지정 + protectedDatabaseRowsAreCached() 완전 → skip
+   (scope 지정 시엔 "1회 로드" 세션 가드로 단순화, 무한로드 방지)
+4. fetchDatabaseById + fetchDatabaseRowsBatch({ ...scope, limit: 100 })
+5. applyRemotePagesToStore / applyRemoteDatabasesToStore / setNextToken(복합키)
 ```
 
 ### Schema 미지원 서버 fallback
-`getDatabase` 또는 `listDatabaseRows` 필드가 schema에 없을 때 (`isSchemaUnavailableError`):
-- `loadLegacyFullProtectedDatabaseSnapshot()` 호출
-- `fetchPagesByWorkspace(LC_SCHEDULER_WORKSPACE_ID)` + `fetchDatabasesByWorkspace(...)` 전체 로드
-- 구형 서버와의 하위 호환성 유지
+`getDatabase`/`listDatabaseRows` 필드 없을 때 → `loadLegacyFullProtectedDatabaseSnapshot()` 전체 로드(하위호환).
 
 ## CRITICAL 주의사항
 
-- `protectedDatabaseRowsAreCached()` 검사는 `rowPageOrder`의 모든 pageId가 `pageStore`에 있는지 확인. 한 개라도 없으면 false → 재로드.
-- `completedLoadDatabaseIds`는 **세션 메모리**에만 있다(persist 없음). 페이지 새로고침 시 초기화 → `databaseRowRemoteStore.nextToken`이 null이면 첫 배치부터 다시 로드.
-- 테스트에서는 `__resetExternalProtectedDatabaseLoadForTests()` 호출로 세션 상태 초기화.
+- `protectedDatabaseRowsAreCached()` 는 페이지 존재뿐 아니라 **콘텐츠 적재(`contentLoaded !== false`)까지** 요구한다. 메타 baseline 은 row 를 dbCells 없이(`contentLoaded=false`) 적재하므로, 존재만으로 "완료"로 보면 셀이 빈 row 가 표시된다.
+- 홈 워크스페이스(LC 스케줄러) 내부에서도 로드한다(과거엔 skip 했음). 메타 baseline 이 row 콘텐츠를 안 내려주기 때문.
+- scope 하 "더 보기" 페이지네이션은 `DatabaseBlockView` 가 databaseId 키로만 nextToken 을 읽어 제한적 — scope 지정 시 1회 로드로 단순화. (후속 개선 여지)
+
+## 인프라 배포 (GSI 단계 추가 필수)
+
+DynamoDB 는 **한 번의 업데이트에 GSI 하나만** 생성 가능. `sync-stack.ts` `pageTableGsiDeployStage` 누적 단계로 하나씩 배포:
+```
+meta → all(byDatabaseAndOrder) → scope-org → scope-team → scope-project
+cdk deploy -c pageTableGsiDeployStage=scope-org    # + member 테이블 + resolver + schema
+cdk deploy -c pageTableGsiDeployStage=scope-team
+cdk deploy -c pageTableGsiDeployStage=scope-project # (기본값)
+```
+기존 테이블에 신규 3개를 한꺼번에 추가하면 "Cannot perform more than one GSI creation" 실패.
+
+배포 후 백필: `infra/scripts/backfill-database-row-scope.ts --apply` — 기존 작업 row 에 `dbScope*` SET + member 인덱스 엔트리 Put(멱등, dry-run 기본).
 
 ## 관련 위키
 - [architecture.md](architecture.md) — 분할 로드 전략 전체 그림
+- [storeApply.md](storeApply.md) — reconcileLCSchedulerRemoteSnapshot
+- [../store/schedulerStore.md](../store/schedulerStore.md) — 스케줄러 데이터/캐시

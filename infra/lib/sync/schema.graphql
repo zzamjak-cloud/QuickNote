@@ -458,7 +458,7 @@ type Query {
   listPageMetas(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageMetaConnection!
   listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
   """DB row 페이지를 화면 노출 단위로 가져온다. 대형 DB에서 워크스페이스 전체 fetch를 피하기 위한 cursor API."""
-  listDatabaseRows(databaseId: ID!, workspaceId: ID!, limit: Int, nextToken: String): PageConnection!
+  listDatabaseRows(databaseId: ID!, workspaceId: ID!, organizationId: ID, teamId: ID, projectId: ID, assigneeId: ID, limit: Int, nextToken: String): PageConnection!
   listPageHistory(pageId: ID!, workspaceId: ID!, limit: Int, nextToken: String): [PageHistoryEntry!]!
   listDatabaseHistory(databaseId: ID!, workspaceId: ID!, limit: Int, nextToken: String): [DatabaseHistoryEntry!]!
   """DB 소속 모든 row 페이지의 변경 히스토리 — page-history GSI(byDatabaseAndCreatedAt) 단일 쿼리, 삭제된 행 포함, createdAt 최신순"""

@@ -149,6 +149,7 @@ const tables: Tables = {
   CustomIcons: process.env.CUSTOM_ICONS_TABLE_NAME,
   PageHistory: process.env.PAGE_HISTORY_TABLE_NAME,
   DatabaseHistory: process.env.DATABASE_HISTORY_TABLE_NAME,
+  DatabaseRowMembers: process.env.DATABASE_ROW_MEMBERS_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -452,6 +453,10 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           ...base,
           databaseId: event.arguments.databaseId as string,
           workspaceId: event.arguments.workspaceId as string,
+          organizationId: event.arguments.organizationId as string | undefined,
+          teamId: event.arguments.teamId as string | undefined,
+          projectId: event.arguments.projectId as string | undefined,
+          assigneeId: event.arguments.assigneeId as string | undefined,
           limit: event.arguments.limit as number | undefined,
           nextToken: event.arguments.nextToken as string | undefined,
         });
