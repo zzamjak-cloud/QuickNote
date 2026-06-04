@@ -22,6 +22,7 @@
 | 이미지 리사이즈 버그 | `wiki/editor/image-resize.md` |
 | DB 뷰/셀/필터 수정 | `wiki/database/` |
 | DB 그룹화(표시설정) | `wiki/database/grouping.md` |
+| 자산 관리 탭·캐싱 | `wiki/settings/assets.md` |
 | 동기화 버그 | `wiki/sync/architecture.md` |
 | 버전 히스토리(페이지/DB·복원·삭제) | `wiki/history/overview.md` |
 | Zustand persist 버전 bump | `wiki/store/schema-versioning.md` |

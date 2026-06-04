@@ -7,17 +7,16 @@ import { Loader2, Search, Trash2, RefreshCw, Filter, ExternalLink, Pencil } from
 import { ListVirtualizer } from "../../lib/ui-primitives/ListVirtualizer";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import {
-  listMyAssetsApi,
   deleteMyAssetsApi,
   getAssetUsagesApi,
   migrateAssetUsageApi,
   renameAssetApi,
-  type ListMyAssetsInput,
 } from "../../lib/sync/assetApi";
 import type { GqlAsset, GqlAssetUsage } from "../../lib/sync/graphql/operations";
 import { usePageStore } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useCustomIconStore } from "../../store/customIconStore";
+import { useAssetCacheStore } from "../../store/assetCacheStore";
 import { collectCustomIconAssetIds } from "../../lib/assets/customIconAssetProtection";
 import { imageUrlCache } from "../../lib/images/registry";
 
@@ -58,25 +57,24 @@ function mimeChip(mime: string): string {
   return mime;
 }
 
-function dedupeAssetsById(items: GqlAsset[]): GqlAsset[] {
-  const seen = new Set<string>();
-  const out: GqlAsset[] = [];
-  for (const item of items) {
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
-    out.push(item);
-  }
-  return out;
-}
-
 export function AdminAssetsTab(props: { onClose?: () => void }) {
-  const [assets, setAssets] = useState<GqlAsset[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
+  // 자산 목록은 세션 캐시(assetCacheStore)에서 읽는다 — 탭 진입마다 서버 호출하지 않고,
+  // 갱신은 새로고침 버튼(refresh)으로만. 필터·정렬·검색은 모두 클라이언트에서 처리한다.
+  const assets = useAssetCacheStore((s) => s.items);
+  const loading = useAssetCacheStore((s) => s.loading);
+  const cacheError = useAssetCacheStore((s) => s.error);
+  const ensureLoaded = useAssetCacheStore((s) => s.ensureLoaded);
+  const refresh = useAssetCacheStore((s) => s.refresh);
+  const removeManyFromCache = useAssetCacheStore((s) => s.removeMany);
+  const patchOneInCache = useAssetCacheStore((s) => s.patchOne);
+  // 로컬 액션(삭제·이름변경·인덱싱) 오류 — 캐시 로드 오류(cacheError)와 분리해 표시.
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState<string>("");
   const [sortBy, setSortBy] = useState<SortKey>("SIZE_DESC");
   const [mimeFilter, setMimeFilter] = useState<"" | "image" | "video" | "audio" | "other">("");
-  const [unusedOnly, setUnusedOnly] = useState<boolean>(false);
+  // 자산 탭의 주 용도는 미사용 리소스 확인이므로 기본값을 "사용 안 됨만"=true 로 둔다.
+  // (목록은 캐시에서 클라이언트 필터링하므로, 기본 화면에서 사용 중 자산의 썸네일 presign 호출이 줄어든다.)
+  const [unusedOnly, setUnusedOnly] = useState<boolean>(true);
   const [minSizeMb, setMinSizeMb] = useState<number>(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState<boolean>(false);
@@ -107,45 +105,39 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
     void fetchCustomIcons(currentWorkspaceId);
   }, [currentWorkspaceId, fetchCustomIcons]);
 
-  const fetchAssets = useCallback(async (opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setLoading(true);
-    setError(null);
-    try {
-      const input: ListMyAssetsInput = {
-        sortBy,
-        ...(mimeFilter && mimeFilter !== "other" ? { filterMimePrefix: `${mimeFilter}/` } : {}),
-        ...(unusedOnly ? { filterUnusedOnly: true } : {}),
-        ...(minSizeMb > 0 ? { minSize: minSizeMb * 1024 * 1024 } : {}),
-        limit: 500,
-      };
-      const res = await listMyAssetsApi(input);
-      setAssets(dedupeAssetsById(res.items));
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [sortBy, mimeFilter, unusedOnly, minSizeMb]);
-
+  // 캐시가 비어 있을 때만 1회 로드(이후 진입은 캐시 재사용).
   useEffect(() => {
-    void fetchAssets();
-  }, [fetchAssets]);
+    void ensureLoaded();
+  }, [ensureLoaded]);
 
-  // 'other' (image/video/audio 외) 클라이언트 측 필터.
+  // B — 정렬·MIME·사용여부·최소크기·검색을 모두 클라이언트에서 적용한다.
+  // 필터를 바꿔도 서버를 호출하지 않으므로 minSize 입력 등에서 연쇄 요청이 발생하지 않는다.
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return assets.filter((a) => {
-      if (unusedOnly && customIconAssetIds.has(a.id)) return false;
+    const minBytes = minSizeMb > 0 ? minSizeMb * 1024 * 1024 : 0;
+    const out = assets.filter((a) => {
+      if (unusedOnly) {
+        if ((a.usageCount ?? 0) > 0) return false;
+        if (customIconAssetIds.has(a.id)) return false;
+      }
       if (mimeFilter === "other") {
         if (a.mimeType.startsWith("image/") || a.mimeType.startsWith("video/") || a.mimeType.startsWith("audio/")) return false;
+      } else if (mimeFilter) {
+        if (!a.mimeType.startsWith(`${mimeFilter}/`)) return false;
       }
+      if (minBytes > 0 && (a.size || 0) < minBytes) return false;
       if (q) {
         const hay = `${a.name ?? ""} ${a.mimeType} ${a.id}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [assets, customIconAssetIds, mimeFilter, search, unusedOnly]);
+    const sorted = [...out];
+    if (sortBy === "SIZE_DESC") sorted.sort((a, b) => (b.size || 0) - (a.size || 0));
+    else if (sortBy === "SIZE_ASC") sorted.sort((a, b) => (a.size || 0) - (b.size || 0));
+    else sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); // CREATED_AT_DESC
+    return sorted;
+  }, [assets, customIconAssetIds, mimeFilter, minSizeMb, search, sortBy, unusedOnly]);
 
   const totalBytes = useMemo(() => assets.reduce((sum, a) => sum + (a.size || 0), 0), [assets]);
   const selectedBytes = useMemo(() => {
@@ -210,10 +202,9 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
       const chunk = ids.slice(i, i + CHUNK);
       try {
         const deleted = await deleteMyAssetsApi(chunk);
-        const deletedSet = new Set(deleted);
         totalDeleted += deleted.length;
         for (const id of deleted) imageUrlCache.invalidate(id);
-        setAssets((prev) => prev.filter((a) => !deletedSet.has(a.id)));
+        removeManyFromCache(deleted);
         setSelected((prev) => {
           const next = new Set(prev);
           for (const id of deleted) next.delete(id);
@@ -230,7 +221,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
     }
     setDeleting(false);
     setDeleteProgress(null);
-  }, [customIconAssetIds, selected]);
+  }, [customIconAssetIds, selected, removeManyFromCache]);
 
   const renameAsset = useCallback(async (asset: GqlAsset) => {
     const current = asset.name ?? "";
@@ -241,13 +232,11 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
     try {
       const updated = await renameAssetApi(asset.id, trimmed.length > 0 ? trimmed : null);
       if (!updated) return;
-      setAssets((prev) =>
-        prev.map((a) => (a.id === asset.id ? { ...a, name: updated.name } : a)),
-      );
+      patchOneInCache(asset.id, { name: updated.name });
     } catch (err) {
       setError(`이름 변경 실패: ${formatError(err)}`);
     }
-  }, []);
+  }, [patchOneInCache]);
 
   const openUsage = useCallback(async (asset: GqlAsset) => {
     setUsageOpenFor(asset);
@@ -286,13 +275,14 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         }
       }
       setMigrateNotice(`인덱싱 완료 — 총 ${totalRows}건의 참조 (${pass}회차)`);
-      await fetchAssets({ silent: true });
+      // 인덱싱으로 usageCount 가 바뀌므로 캐시를 강제 재로드.
+      await refresh();
     } catch (err) {
       setMigrateNotice(`실패 (${totalRows}건까지 처리됨): ${formatError(err)}`);
     } finally {
       setMigrating(false);
     }
-  }, [fetchAssets]);
+  }, [refresh]);
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -351,9 +341,11 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         </label>
         <button
           type="button"
-          onClick={() => void fetchAssets()}
-          className="ml-auto flex h-8 items-center gap-1 rounded border border-zinc-200 bg-white px-2 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          onClick={() => void refresh()}
+          disabled={loading}
+          className="ml-auto flex h-8 items-center gap-1 rounded border border-zinc-200 bg-white px-2 text-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
           aria-label="새로고침"
+          title="서버에서 자산 목록을 다시 불러옵니다"
         >
           <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           새로고침
@@ -400,9 +392,9 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
           {migrateNotice}
         </div>
       ) : null}
-      {error ? (
+      {(error ?? cacheError) ? (
         <div className="rounded border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
-          {error}
+          {error ?? cacheError}
         </div>
       ) : null}
 
