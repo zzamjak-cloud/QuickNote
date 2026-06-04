@@ -9,6 +9,7 @@ import { useSchedulerViewStore } from '../../../store/schedulerViewStore'
 import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR, pickTextColor } from '../../../lib/scheduler/colors'
 import type { Member } from '../../../store/memberStore'
 import { hasCollision } from '../../../lib/scheduler/collisionDetection'
+import { getScheduleCardHeight, getScheduleCardVOffset } from '../../../lib/scheduler/grid'
 import { ContextMenu, announceSchedulerContextMenuOpen } from '../ContextMenu'
 import { getScheduleCardContentOffset, shouldUseCompactScheduleCard } from '../scheduleCardDisplay'
 import { ScheduleCardPropertyLabels } from '../ScheduleCardPropertyLabels'
@@ -104,6 +105,9 @@ export function ScheduleWeekCard({
   const w = span * cellWidth
   const rowIdx = Math.max(0, Math.min(rowCount - 1, s.rowIndex ?? 0))
   const y = rowIdx * slotHeight
+  // 카드 높이는 모든 뷰·탭 공통 헬퍼로 통일(22~30px), 슬롯 세로 중앙 배치.
+  const cardHeight = getScheduleCardHeight(slotHeight)
+  const cardVOffset = getScheduleCardVOffset(slotHeight, cardHeight)
   const rndRef = useRef<Rnd>(null)
   const dragMovedRef = useRef(false)
   const isShiftDragRef = useRef(false)
@@ -429,11 +433,11 @@ export function ScheduleWeekCard({
         minWidth={Math.max(1, cellWidth - WEEK_CARD_MARGIN * 2)}
         position={{
           x: effectiveX + WEEK_CARD_MARGIN,
-          y: effectiveY + WEEK_CARD_MARGIN,
+          y: effectiveY + cardVOffset,
         }}
         size={{
           width: visualWidth,
-          height: Math.max(0, slotHeight - WEEK_CARD_MARGIN * 2),
+          height: cardHeight,
         }}
         enableResizing={{ left: true, right: true, top: false, bottom: false, topLeft: false, topRight: false, bottomLeft: false, bottomRight: false }}
         resizeHandleStyles={{

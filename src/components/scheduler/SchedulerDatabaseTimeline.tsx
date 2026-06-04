@@ -44,7 +44,7 @@ import {
 import { clampVisibleRange } from "../../lib/scheduler/gridUtils";
 import { animateScroll } from "../../lib/animateScroll";
 import { resolveActiveFilterRules } from "../../lib/databaseQuery";
-import { CARD_MARGIN, ROW_PADDING_TOP, getCellWidth, getRowHeight } from "../../lib/scheduler/grid";
+import { CARD_MARGIN, getCellWidth, getRowHeight, getScheduleCardHeight, getScheduleCardVOffset } from "../../lib/scheduler/grid";
 import { getHolidaysForYear } from "../../lib/scheduler/koreanHolidays";
 import { LC_FEATURE_COLUMN_IDS, makeLCFeatureDatabaseId } from "../../lib/scheduler/featureDatabase";
 import { LC_MILESTONE_COLUMN_IDS, makeLCMilestoneDatabaseId } from "../../lib/scheduler/milestoneDatabase";
@@ -384,9 +384,9 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const total = daysInYear(currentYear);
   const annualTotalWidth = total * annualCellWidth;
   const rowHeight = getRowHeight(1, zoomLevel);
-  const cardHeight = Math.max(22, Math.min(30, rowHeight - ROW_PADDING_TOP * 2));
-  // 카드를 행 높이 중앙에 배치 (상단 정렬 방지).
-  const cardTop = Math.max(0, (rowHeight - cardHeight) / 2);
+  // 카드 높이는 모든 뷰·탭 공통 헬퍼로 통일(22~30px), 행 높이 중앙 배치.
+  const cardHeight = getScheduleCardHeight(rowHeight);
+  const cardTop = getScheduleCardVOffset(rowHeight, cardHeight);
   const todayIdx = calcTodayIndex(currentYear);
   // 날짜 컬럼을 표시설정(viewConfigs.timeline) 순서대로 정렬 → 첫 포커싱 대상이 표시 순서를 따른다.
   const dateCols = useMemo(() => {

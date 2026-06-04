@@ -12,7 +12,7 @@ import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { dateToX, widthForRange, xToDate } from "../../lib/scheduler/gridUtils";
-import { CARD_MARGIN, ROW_PADDING_TOP } from "../../lib/scheduler/grid";
+import { CARD_MARGIN, getScheduleCardHeight, getScheduleCardVOffset } from "../../lib/scheduler/grid";
 import { daysInYear, parseIsoDate, toIsoStartOfDay, toIsoEndOfDay } from "../../lib/scheduler/dateUtils";
 import { hasCollision } from "../../lib/scheduler/collisionDetection";
 import {
@@ -96,9 +96,9 @@ export function ScheduleCard({
   const rowIdx = schedule.rowIndex ?? 0;
   const slotHeight = rowCount > 0 ? rowHeight / rowCount : rowHeight;
   const y = rowIdx * slotHeight;
-  // 카드 높이를 마일스톤·피처 타임라인 카드와 동일하게 통일 (22~30px) 하고, 슬롯 높이 중앙에 배치한다.
-  const cardHeight = Math.max(22, Math.min(30, slotHeight - ROW_PADDING_TOP * 2));
-  const cardVOffset = Math.max(CARD_MARGIN, (slotHeight - cardHeight) / 2);
+  // 카드 높이는 모든 뷰·탭 공통 헬퍼로 통일(22~30px), 슬롯 높이 중앙 배치.
+  const cardHeight = getScheduleCardHeight(slotHeight);
+  const cardVOffset = getScheduleCardVOffset(slotHeight, cardHeight);
 
   const isAnnualLeave = schedule.kind === "leave";
   const isPast = !isAnnualLeave && endDate.getTime() < Date.now();

@@ -22,3 +22,20 @@ export function getRowHeight(rowCount: number, zoom: number): number {
 export function getCellWidth(zoom: number, columnScale: number): number {
   return DEFAULT_CELL_WIDTH * zoom * columnScale;
 }
+
+// 일정 카드(개별 바) 통일 높이 — 모든 뷰(연간·주간·월간)·탭(작업·마일스톤·피처)에서 동일.
+export const SCHEDULE_CARD_MIN_HEIGHT = 22;
+export const SCHEDULE_CARD_MAX_HEIGHT = 30;
+
+/** 카드 1개의 세로 공간(slotHeight)에서 통일된 카드 높이를 구한다(22~30px, 상하 패딩 반영). */
+export function getScheduleCardHeight(slotHeight: number): number {
+  return Math.max(
+    SCHEDULE_CARD_MIN_HEIGHT,
+    Math.min(SCHEDULE_CARD_MAX_HEIGHT, slotHeight - ROW_PADDING_TOP * 2),
+  );
+}
+
+/** 카드를 slot 세로 중앙에 배치하기 위한 top offset. */
+export function getScheduleCardVOffset(slotHeight: number, cardHeight: number): number {
+  return Math.max(CARD_MARGIN, (slotHeight - cardHeight) / 2);
+}
