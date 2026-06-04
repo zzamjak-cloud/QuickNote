@@ -47,6 +47,11 @@ import { DatabaseBlockInlineHeader } from "./DatabaseBlockInlineHeader";
 import { isProtectedDatabaseId } from "../../lib/scheduler/database";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import {
+  ensureExternalProtectedDatabaseLoaded,
+  loadMoreExternalProtectedDatabaseRows,
+  resolveExternalProtectedDatabaseId,
+} from "../../lib/sync/externalProtectedDatabaseLoad";
 import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
 import { DatabaseBlockHistoryDialog } from "./DatabaseBlockHistoryDialog";
 import { DatabaseBlockLinkExistingDialog } from "./DatabaseBlockLinkExistingDialog";
@@ -55,10 +60,15 @@ import {
   makeInlineControlsPrefsKey,
   useDatabaseInlineUiPrefsStore,
 } from "../../store/databaseInlineUiPrefsStore";
+import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+
+const DEFAULT_VISIBLE_ROW_LIMIT = 100;
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
   const databaseId = String(node.attrs.databaseId ?? "");
+  const viewDatabaseId = resolveExternalProtectedDatabaseId(databaseId) ?? databaseId;
   const layout = (node.attrs.layout ?? "inline") as DatabaseLayout;
   const rawView = String(node.attrs.view ?? "table");
   const view = rawView as ViewKind;
@@ -73,11 +83,18 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const panelStateRef = useRef(panelState);
   panelStateRef.current = panelState;
 
-  const bundle = useDatabaseStore((s) => s.databases[databaseId]);
+  const bundle = useDatabaseStore((s) => s.databases[viewDatabaseId]);
   const hasDatabaseId = databaseId.length > 0;
   const needsBinding = !hasDatabaseId;
   const bundleGone = hasDatabaseId && !bundle;
   const isProtectedDatabase = isProtectedDatabaseId(databaseId);
+  const rowPageOrder = bundle?.rowPageOrder;
+  const remoteRowNextToken = useDatabaseRowRemoteStore(
+    (s) => s.nextTokenByDatabaseId[viewDatabaseId] ?? null,
+  );
+  const remoteRowsLoading = useDatabaseRowRemoteStore(
+    (s) => s.loadingByDatabaseId[viewDatabaseId] ?? false,
+  );
 
   const setDatabaseTitle = useDatabaseStore((s) => s.setDatabaseTitle);
   const deleteDatabaseFromStore = useDatabaseStore((s) => s.deleteDatabase);
@@ -95,9 +112,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
     (_pageId: string | null) => {
       if (activePageId) pushBack(activePageId);
       setActivePageNav(null);
-      setCurrentTabDatabase(databaseId);
+      setCurrentTabDatabase(viewDatabaseId);
     },
-    [activePageId, databaseId, pushBack, setActivePageNav, setCurrentTabDatabase],
+    [activePageId, pushBack, setActivePageNav, setCurrentTabDatabase, viewDatabaseId],
   );
 
   // 더보기 — 추가로 표시할 행 수.
@@ -112,7 +129,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const commitDbTitle = (draft: string) => {
     if (!hasDatabaseId) return false;
     const t = draft.trim() || "제목 없음";
-    const ok = setDatabaseTitle(databaseId, t);
+    const ok = setDatabaseTitle(viewDatabaseId, t);
     if (!ok) {
       alert("이미 사용 중인 데이터베이스 이름입니다.");
       return false;
@@ -138,9 +155,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
     return makeInlineControlsPrefsKey({
       workspaceId: currentWorkspaceId,
       memberId: currentMemberId,
-      databaseId,
+      databaseId: viewDatabaseId,
     });
-  }, [currentWorkspaceId, currentMemberId, databaseId]);
+  }, [currentWorkspaceId, currentMemberId, databaseId, viewDatabaseId]);
 
   const inlineControlsCollapsed = inlineControlsPrefsKey
     ? (inlineControlsCollapsedByKey[inlineControlsPrefsKey] ?? false)
@@ -161,6 +178,21 @@ export function DatabaseBlockView(props: NodeViewProps) {
     if (!currentWorkspaceId) return;
     window.setTimeout(() => refreshWorkspaceSnapshot(currentWorkspaceId), 0);
   }, [currentWorkspaceId]);
+
+  useEffect(() => {
+    if (!hasDatabaseId || !isProtectedDatabase || !currentWorkspaceId) return;
+    let cancelled = false;
+    void ensureExternalProtectedDatabaseLoaded({
+      databaseId,
+      currentWorkspaceId,
+      cancelled: () => cancelled,
+      rowLimit: panelState.itemLimit ?? DEFAULT_VISIBLE_ROW_LIMIT,
+      source: "database-block",
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentWorkspaceId, databaseId, hasDatabaseId, isProtectedDatabase, panelState.itemLimit, rowPageOrder]);
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
@@ -275,8 +307,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
     );
   }, [databasesList, linkPickerQuery]);
   const linkPickerCandidates = useMemo(
-    () => linkPickerFiltered.filter((d) => d.id !== databaseId),
-    [databaseId, linkPickerFiltered],
+    () => linkPickerFiltered.filter((d) => d.id !== viewDatabaseId),
+    [linkPickerFiltered, viewDatabaseId],
   );
 
   useEffect(() => {
@@ -392,9 +424,14 @@ export function DatabaseBlockView(props: NodeViewProps) {
   // - DB 의 행 수가 100 미만이면 limit 을 적용하지 않고 전체 노출 (시각적 마스킹 어색함 제거).
   // - 사용자가 표시 설정 팝업에서 10/30/50/100 으로 명시 지정한 경우에만 그 값을 그대로 적용.
   // - extraRows 는 컴포넌트 state 이므로 페이지 재진입 시 자동으로 초기화됨.
-  const defaultLimit = 100;
+  const defaultLimit = DEFAULT_VISIBLE_ROW_LIMIT;
   const explicitLimit = panelState.itemLimit ?? null;
   const totalRowsForLimit = bundle?.rowPageOrder.length ?? 0;
+  const remoteRowsHasMore =
+    isProtectedDatabase &&
+    Boolean(currentWorkspaceId) &&
+    currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
+    Boolean(remoteRowNextToken);
   const visibleRowLimit = (() => {
     if (explicitLimit != null) return explicitLimit + extraRows;
     if (totalRowsForLimit < defaultLimit) return undefined; // 100 미만 → 클리핑 없음
@@ -407,7 +444,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       case "table":
         return (
           <DatabaseTableView
-            databaseId={databaseId}
+            databaseId={viewDatabaseId}
             panelState={panelState}
             setPanelState={setPanelState}
             visibleRowLimit={visibleRowLimit}
@@ -416,7 +453,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       case "list":
         return (
           <DatabaseListView
-            databaseId={databaseId}
+            databaseId={viewDatabaseId}
             panelState={panelState}
             setPanelState={setPanelState}
             visibleRowLimit={visibleRowLimit}
@@ -425,7 +462,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       case "kanban":
         return (
           <DatabaseKanbanView
-            databaseId={databaseId}
+            databaseId={viewDatabaseId}
             panelState={panelState}
             setPanelState={setPanelState}
             visibleRowLimit={visibleRowLimit}
@@ -434,7 +471,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       case "gallery":
         return (
           <DatabaseGalleryView
-            databaseId={databaseId}
+            databaseId={viewDatabaseId}
             panelState={panelState}
             setPanelState={setPanelState}
             visibleRowLimit={visibleRowLimit}
@@ -443,7 +480,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       case "timeline":
         return (
           <DatabaseTimelineView
-            databaseId={databaseId}
+            databaseId={viewDatabaseId}
             panelState={panelState}
             setPanelState={setPanelState}
             visibleRowLimit={visibleRowLimit}
@@ -452,7 +489,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       default:
         return null;
     }
-  }, [databaseId, bundle, panelState, setPanelState, view, visibleRowLimit]);
+  }, [bundle, panelState, setPanelState, view, viewDatabaseId, visibleRowLimit]);
 
   return (
     <NodeViewWrapper className="qn-database-block not-prose">
@@ -505,7 +542,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                     {
                       workspaceId: currentWorkspaceId,
                       memberId: currentMemberId,
-                      databaseId,
+                      databaseId: viewDatabaseId,
                     },
                     !inlineControlsCollapsed,
                   );
@@ -526,7 +563,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
             {layout !== "inline" || !inlineControlsCollapsed ? (
               <DatabaseToolbarControls
-                databaseId={databaseId}
+                databaseId={viewDatabaseId}
                 viewKind={view}
                 view={view}
                 onViewChange={setView}
@@ -544,20 +581,34 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
             {/* 더보기 버튼 — visibleRowLimit 이 적용되어 일부가 잘릴 때만 노출.
                 클릭 시 10개씩 추가 (잔여 < 10 이면 그만큼만), 추가된 분량만큼 자동 스크롤로 보여줌. */}
-            {bundle && visibleRowLimit != null && (() => {
-              const limit = visibleRowLimit;
+            {bundle && (visibleRowLimit != null || remoteRowsHasMore) && (() => {
+              const limit = visibleRowLimit ?? totalRowsForLimit;
               const totalRows = bundle.rowPageOrder.length;
-              if (totalRows <= limit) return null;
+              const localRemaining = Math.max(0, totalRows - limit);
+              if (localRemaining <= 0 && !remoteRowsHasMore) return null;
               const remaining = totalRows - limit;
-              const step = Math.min(10, remaining);
+              const localStep = Math.min(10, Math.max(0, remaining));
+              const remoteStep = explicitLimit ?? defaultLimit;
+              const step = localStep > 0 ? localStep : remoteStep;
               return (
                 <button
                   type="button"
-                  onClick={(e) => {
-                    setExtraRows((prev) => prev + step);
+                  disabled={remoteRowsLoading}
+                  onClick={async (e) => {
+                    const btn = e.currentTarget;
+                    if (localStep > 0) {
+                      setExtraRows((prev) => prev + localStep);
+                    } else if (remoteRowsHasMore) {
+                      const loaded = await loadMoreExternalProtectedDatabaseRows({
+                        databaseId,
+                        currentWorkspaceId,
+                        rowLimit: remoteStep,
+                        source: "database-block-more",
+                      });
+                      if (loaded) setExtraRows((prev) => prev + remoteStep);
+                    }
                     // 추가된 항목 영역 만큼 자동 스크롤 — 사용자가 새로 노출된 항목을 인지하도록.
                     // 버튼 위쪽 (= 새 항목들이 들어가는 위치) 으로 step * 행 추정 높이만큼 스크롤.
-                    const btn = e.currentTarget;
                     const ROUGH_ROW_PX = 34;
                     const targetScroll = btn.getBoundingClientRect().bottom;
                     const scrollAmount = step * ROUGH_ROW_PX;
@@ -576,9 +627,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
                       void targetScroll;
                     });
                   }}
-                  className="mt-1 ml-auto block rounded-md border-transparent bg-transparent px-2 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  className="mt-1 ml-auto block rounded-md border-transparent bg-transparent px-2 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
                 >
-                  + {step}개 더보기
+                  {remoteRowsLoading ? "불러오는 중" : `+ ${step}개 더보기`}
                 </button>
               );
             })()}
@@ -597,7 +648,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       />
       <DatabaseBlockHistoryDialog
         open={dbHistoryDialogOpen && hasDatabaseId}
-        databaseId={databaseId}
+        databaseId={viewDatabaseId}
         layout={layout}
         isInsidePeek={isInsidePeek}
         isProtectedDatabase={isProtectedDatabase}

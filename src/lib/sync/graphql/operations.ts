@@ -21,6 +21,9 @@ export {
   GET_WORKSPACE_META,
 } from "../queries/workspaceMeta";
 export {
+  GET_PAGE,
+  LIST_DATABASE_ROWS,
+  LIST_PAGE_METAS,
   LIST_PAGES,
   LIST_TRASHED_PAGES,
   ON_PAGE_CHANGED,
@@ -28,6 +31,7 @@ export {
   SOFT_DELETE_PAGE,
   UPSERT_PAGE,
   type GqlPage,
+  type GqlPageMeta,
 } from "../queries/page";
 export {
   LIST_PAGE_HISTORY,
@@ -43,6 +47,7 @@ export {
   type GqlDatabaseHistoryEntry,
 } from "../queries/databaseHistory";
 export {
+  GET_DATABASE,
   LIST_DATABASES,
   LIST_TRASHED_DATABASES,
   RESTORE_DATABASE,

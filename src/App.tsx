@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { Sidebar } from "./components/layout/Sidebar";
 import { SidebarCollapsedRail } from "./components/layout/SidebarCollapsedRail";
 import { FavoritesPanel } from "./components/layout/FavoritesPanel";
@@ -83,6 +84,7 @@ function App() {
   const nextTab = useSettingsStore((s) => s.nextTab);
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const toggleSidebarCollapsed = useSettingsStore((s) => s.toggleSidebarCollapsed);
+  const workspaceLoading = useUiStore((s) => s.workspaceLoading);
   const createPage = usePageStore((s) => s.createPage);
   const activePageId = usePageStore((s) => s.activePageId);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -466,6 +468,19 @@ function App() {
           <TabBar />
           <WorkspaceSyncBanner />
           <TopBar />
+          {workspaceLoading ? (
+            <div
+              role="status"
+              className="flex shrink-0 items-center gap-2 border-b border-yellow-300 bg-yellow-100 px-4 py-2 text-xs font-medium text-yellow-950 shadow-sm dark:border-yellow-500/60 dark:bg-yellow-400/20 dark:text-yellow-100"
+            >
+              <Loader2 size={14} className="animate-spin text-yellow-700 dark:text-yellow-200" />
+              <span>
+                {workspaceLoading.workspaceName
+                  ? `${workspaceLoading.workspaceName} 불러오는 중…`
+                  : "워크스페이스 불러오는 중…"}
+              </span>
+            </div>
+          ) : null}
           {tabDatabaseId ? (
             <DatabaseDirectPage
               key={activeTabContentKey}

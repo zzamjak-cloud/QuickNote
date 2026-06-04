@@ -5,10 +5,12 @@
 
 import type {
   GqlPage,
+  GqlPageMeta,
   GqlDatabase,
 } from "./graphql/operations";
 import type { GqlComment } from "./queries/comment";
 import { usePageStore } from "../../store/pageStore";
+import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { Page } from "../../types/page";
@@ -34,10 +36,7 @@ import {
   tryParseSerializedPanelState,
   tryParseSerializedPresets,
 } from "../database/schema/normalizeDatabase";
-import {
-  isDeletedSchedulePage,
-  markDeletedSchedulePage,
-} from "../scheduler/deletedSchedulePages";
+import { isDeletedSchedulePage } from "../scheduler/deletedSchedulePages";
 
 /**
  * 구독 레이스·백엔드 오류로 다른 워크스페이스 스냅샷이 내려올 때 로컬 캐시가 오염되지 않게 한다.
@@ -73,12 +72,14 @@ import {
   parseAwsJson,
   isRemoteNewer,
   isLCSchedulerPage,
+  gqlOrderNumber,
   stringArrayEqual,
   toPageInputPayload,
   shouldApplyRemotePageOverwrite,
   gqlPageToLocalPage,
   mergeRowPageOrderWithDerived,
 } from "./storeApply/helpers";
+import { EMPTY_DOC } from "../../store/pageStore/helpers";
 
 function normalizeLCSchedulerPageWorkspace(p: GqlPage): GqlPage {
   if (!isLCSchedulerPage(p)) return p;
@@ -115,6 +116,44 @@ function normalizeLCSchedulerPageWorkspace(p: GqlPage): GqlPage {
     });
   }
   return repaired;
+}
+
+function shouldApplyRemotePageMetaOverwrite(
+  local: Page | undefined,
+  p: GqlPageMeta,
+): boolean {
+  if (!local) return true;
+  const remoteMs = isoToMs(p.updatedAt);
+  if (remoteMs > local.updatedAt) return true;
+  if (remoteMs !== local.updatedAt || local.updatedAt <= 0) return false;
+  const remoteParent = p.parentId ?? null;
+  const remoteOrder = gqlOrderNumber(p);
+  const remoteDb = p.databaseId ?? null;
+  const localDb = local.databaseId ?? null;
+  return (
+    local.parentId !== remoteParent ||
+    local.order !== remoteOrder ||
+    localDb !== remoteDb
+  );
+}
+
+function gqlPageMetaToLocalPage(p: GqlPageMeta, local?: Page): Page {
+  return {
+    id: p.id,
+    workspaceId: p.workspaceId,
+    title: p.title,
+    icon: p.icon ?? null,
+    coverImage: typeof p.coverImage === "string" ? p.coverImage : null,
+    doc: local?.doc ?? structuredClone(EMPTY_DOC),
+    parentId: p.parentId ?? null,
+    order: gqlOrderNumber(p),
+    databaseId: p.databaseId ?? undefined,
+    dbCells: local?.dbCells,
+    createdByMemberId: p.createdByMemberId ?? undefined,
+    createdAt: isoToMs(p.createdAt) || Date.now(),
+    updatedAt: isoToMs(p.updatedAt) || Date.now(),
+    contentLoaded: local?.contentLoaded === true ? true : false,
+  };
 }
 
 /** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다.
@@ -190,27 +229,6 @@ function removePageIdFromDatabaseRowOrder(databaseId: string, pageId: string): v
   });
 }
 
-function removePageIdsFromDatabaseRowOrders(
-  databaseIds: Set<string>,
-  pageIds: Set<string>,
-): void {
-  if (databaseIds.size === 0 || pageIds.size === 0) return;
-  useDatabaseStore.setState((s) => {
-    let databases = s.databases;
-    let changed = false;
-    for (const databaseId of databaseIds) {
-      const db = databases[databaseId];
-      if (!db || !db.rowPageOrder.some((pageId) => pageIds.has(pageId))) continue;
-      if (databases === s.databases) databases = { ...s.databases };
-      databases[databaseId] = {
-        ...db,
-        rowPageOrder: db.rowPageOrder.filter((pageId) => !pageIds.has(pageId)),
-      };
-      changed = true;
-    }
-    return changed ? { ...s, databases } : s;
-  });
-}
 
 /** 구독 순서상 DB 스냅샷보다 행 페이지가 먼저 올 때 rowPageOrder 에 id 가 빠지지 않게 한다.
  *  템플릿 페이지(_qn_isTemplate)는 rowPageOrder 에 추가하지 않는다. */
@@ -260,6 +278,9 @@ export function applyRemotePageToStore(
 
   usePageStore.setState((s) => {
     const local = s.pages[p.id];
+    const localIsMetaOnly =
+      local?.contentLoaded === false ||
+      Boolean(usePageContentLoadStore.getState().metaOnlyByPageId[p.id]);
     const nextCacheWorkspaceId = resolveNextCacheWorkspaceId(s.cacheWorkspaceId, p.workspaceId);
     if (p.deletedAt) {
       if (!local) return s;
@@ -274,7 +295,7 @@ export function applyRemotePageToStore(
         cacheWorkspaceId: nextCacheWorkspaceId,
       };
     }
-    if (local && !shouldApplyRemotePageOverwrite(local, p)) {
+    if (local && !localIsMetaOnly && !shouldApplyRemotePageOverwrite(local, p)) {
       return s.cacheWorkspaceId === nextCacheWorkspaceId
         ? s
         : { ...s, cacheWorkspaceId: nextCacheWorkspaceId };
@@ -289,9 +310,11 @@ export function applyRemotePageToStore(
   });
 
   if (p.deletedAt) {
+    usePageContentLoadStore.getState().markLoaded([p.id]);
     if (deletedDbId) removePageIdFromDatabaseRowOrder(deletedDbId, p.id);
     return;
   }
+  usePageContentLoadStore.getState().markLoaded([p.id]);
 
   const after = usePageStore.getState().pages[p.id];
   if (after?.databaseId) {
@@ -317,6 +340,7 @@ export function applyRemotePagesToStore(
     let nextActive = s.activePageId;
     let nextCacheWorkspaceId = s.cacheWorkspaceId;
     let changed = false;
+    const metaOnlyByPageId = usePageContentLoadStore.getState().metaOnlyByPageId;
 
     const ensurePagesCopy = () => {
       if (nextPages === s.pages) nextPages = { ...s.pages };
@@ -345,6 +369,8 @@ export function applyRemotePagesToStore(
       }
 
       const local = nextPages[p.id];
+      const localIsMetaOnly =
+        local?.contentLoaded === false || Boolean(metaOnlyByPageId[p.id]);
       if (p.deletedAt) {
         if (!local) continue;
         ensurePagesCopy();
@@ -355,7 +381,7 @@ export function applyRemotePagesToStore(
         continue;
       }
 
-      if (local && !shouldApplyRemotePageOverwrite(local, p)) continue;
+      if (local && !localIsMetaOnly && !shouldApplyRemotePageOverwrite(local, p)) continue;
       const merged = gqlPageToLocalPage(p);
       ensurePagesCopy();
       nextPages[p.id] = merged;
@@ -379,71 +405,92 @@ export function applyRemotePagesToStore(
   });
 
   reconcileDatabaseRowOrders(affectedDatabaseIds);
+  usePageContentLoadStore.getState().markLoaded(pages.map((page) => page.id));
 }
 
+export function applyRemotePageMetasToStore(
+  remotePageMetas: Array<GqlPageMeta | null | undefined>,
+): void {
+  if (remotePageMetas.length === 0) return;
+  const pageMetas = remotePageMetas
+    .filter((remotePage): remotePage is GqlPageMeta => Boolean(remotePage))
+    .filter((p) => shouldApplyRemoteSnapshot(p.workspaceId));
+  if (pageMetas.length === 0) return;
+
+  const metaOnlyIds: string[] = [];
+  const loadedIds: string[] = [];
+
+  usePageStore.setState((s) => {
+    let nextPages = s.pages;
+    let nextActive = s.activePageId;
+    let nextCacheWorkspaceId = s.cacheWorkspaceId;
+    let changed = false;
+    const metaOnlyByPageId = usePageContentLoadStore.getState().metaOnlyByPageId;
+
+    const ensurePagesCopy = () => {
+      if (nextPages === s.pages) nextPages = { ...s.pages };
+    };
+
+    for (const p of pageMetas) {
+      nextCacheWorkspaceId = resolveNextCacheWorkspaceId(nextCacheWorkspaceId, p.workspaceId);
+      const local = nextPages[p.id];
+      if (p.deletedAt) {
+        loadedIds.push(p.id);
+        if (!local) continue;
+        ensurePagesCopy();
+        delete nextPages[p.id];
+        if (nextActive === p.id) nextActive = null;
+        changed = true;
+        continue;
+      }
+
+      if (local && !shouldApplyRemotePageMetaOverwrite(local, p)) continue;
+      const merged = gqlPageMetaToLocalPage(p, local);
+      ensurePagesCopy();
+      nextPages[p.id] = merged;
+      if (merged.contentLoaded === false || metaOnlyByPageId[p.id]) metaOnlyIds.push(p.id);
+      changed = true;
+    }
+
+    if (
+      !changed &&
+      nextActive === s.activePageId &&
+      nextCacheWorkspaceId === s.cacheWorkspaceId
+    ) {
+      return s;
+    }
+    return {
+      ...s,
+      pages: nextPages,
+      activePageId: nextActive,
+      cacheWorkspaceId: nextCacheWorkspaceId,
+    };
+  });
+
+  if (loadedIds.length > 0) usePageContentLoadStore.getState().markLoaded(loadedIds);
+  if (metaOnlyIds.length > 0) usePageContentLoadStore.getState().markMetaOnly(metaOnlyIds);
+}
+
+/**
+ * LC 스케줄러 워크스페이스의 증분(delta) 스냅샷을 적용한다.
+ *
+ * 과거에는 "전체 살아있는 목록을 받아 그에 없는 로컬 행을 prune" 했으나, 이는 scoped/부분 로딩
+ * (필터 단위·범위 단위로만 가져오는 효율적 방향)과 양립하지 않는다. 부분만 로드한 상태에서
+ * "로드 안 된 것을 삭제"하면 서버에 멀쩡히 살아있는 행이 사라진다.
+ *
+ * 따라서 absence 기반 prune 을 제거하고 적용만 수행한다. 삭제 반영은:
+ *  - delta 의 deletedAt 전파(applyRemotePagesToStore 가 삭제 처리),
+ *  - 실시간 구독(onPageChanged),
+ *  - scoped 조회(fetchScheduleRange / listDatabaseRows)가 살아있는 행만 반환
+ * 로 보장된다.
+ */
 export function reconcileLCSchedulerRemoteSnapshot(args: {
   pages: Array<GqlPage | null | undefined>;
   databases: Array<GqlDatabase | null | undefined>;
-  protectedPageIds?: Set<string>;
-  recentLocalGuardMs?: number;
 }): { prunedPageIds: string[] } {
-  const protectedPageIds = args.protectedPageIds ?? new Set<string>();
-  const recentLocalGuardMs = args.recentLocalGuardMs ?? 120_000;
   applyRemoteDatabasesToStore(args.databases);
   applyRemotePagesToStore(args.pages);
-
-  const liveRemotePageIds = new Set<string>();
-  for (const remotePage of args.pages) {
-    if (!remotePage) continue;
-    const page = normalizeLCSchedulerPageWorkspace(remotePage);
-    if (
-      page.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
-      !page.deletedAt &&
-      page.databaseId &&
-      isLCSchedulerDatabaseId(page.databaseId)
-    ) {
-      liveRemotePageIds.add(page.id);
-    }
-  }
-
-  const now = Date.now();
-  const affectedDatabaseIds = new Set<string>();
-  const prunedPageIds: string[] = [];
-  usePageStore.setState((s) => {
-    let pages = s.pages;
-    let activePageId = s.activePageId;
-    let changed = false;
-    for (const [pageId, page] of Object.entries(s.pages)) {
-      if (!isLCSchedulerDatabaseId(page.databaseId)) continue;
-      if (liveRemotePageIds.has(pageId) || protectedPageIds.has(pageId)) continue;
-      if (now - page.updatedAt < recentLocalGuardMs) continue;
-      if (pages === s.pages) pages = { ...s.pages };
-      delete pages[pageId];
-      prunedPageIds.push(pageId);
-      if (page.databaseId) affectedDatabaseIds.add(page.databaseId);
-      if (activePageId === pageId) activePageId = null;
-      changed = true;
-    }
-    return changed
-      ? {
-          ...s,
-          pages,
-          activePageId,
-          cacheWorkspaceId: resolveNextCacheWorkspaceId(
-            s.cacheWorkspaceId,
-            LC_SCHEDULER_WORKSPACE_ID,
-          ),
-        }
-      : s;
-  });
-
-  if (prunedPageIds.length > 0) {
-    const prunedSet = new Set(prunedPageIds);
-    for (const pageId of prunedPageIds) markDeletedSchedulePage(pageId);
-    removePageIdsFromDatabaseRowOrders(affectedDatabaseIds, prunedSet);
-  }
-
-  return { prunedPageIds };
+  return { prunedPageIds: [] };
 }
 
 // 페이지 댓글 sentinel (PageCommentBar 와 동일 값 유지)

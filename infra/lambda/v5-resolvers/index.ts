@@ -52,9 +52,13 @@ import {
   emptyTrash,
   deleteDatabaseHistoryEvents,
   deletePageHistoryEvents,
+  getDatabase,
+  getPage,
   listDatabases,
   listDatabaseHistory,
+  listDatabaseRows,
   listDatabaseRowHistory,
+  listPageMetas,
   listPageHistory,
   listPages,
   listTrashedPages,
@@ -429,6 +433,28 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           limit: event.arguments.limit as number | undefined,
           nextToken: event.arguments.nextToken as string | undefined,
         });
+      case "listPageMetas":
+        return await listPageMetas({
+          ...base,
+          workspaceId: event.arguments.workspaceId as string,
+          updatedAfter: event.arguments.updatedAfter as string | undefined,
+          limit: event.arguments.limit as number | undefined,
+          nextToken: event.arguments.nextToken as string | undefined,
+        });
+      case "getPage":
+        return await getPage({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
+        });
+      case "listDatabaseRows":
+        return await listDatabaseRows({
+          ...base,
+          databaseId: event.arguments.databaseId as string,
+          workspaceId: event.arguments.workspaceId as string,
+          limit: event.arguments.limit as number | undefined,
+          nextToken: event.arguments.nextToken as string | undefined,
+        });
       case "listPageHistory":
         return await listPageHistory({
           ...base,
@@ -458,6 +484,12 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
           updatedAfter: event.arguments.updatedAfter as string | undefined,
           limit: event.arguments.limit as number | undefined,
           nextToken: event.arguments.nextToken as string | undefined,
+        });
+      case "getDatabase":
+        return await getDatabase({
+          ...base,
+          id: event.arguments.id as string,
+          workspaceId: event.arguments.workspaceId as string,
         });
       case "listTrashedPages":
         return await listTrashedPages({

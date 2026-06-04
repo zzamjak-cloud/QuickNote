@@ -11,6 +11,12 @@ export const LIST_DATABASES = `
   }
 `;
 
+export const GET_DATABASE = `
+  query GetDatabase($id: ID!, $workspaceId: ID!) {
+    getDatabase(id: $id, workspaceId: $workspaceId) { ${DATABASE_FIELDS} }
+  }
+`;
+
 export const UPSERT_DATABASE = `
   mutation UpsertDatabase($input: DatabaseInput!) {
     upsertDatabase(input: $input) { ${DATABASE_FIELDS} }

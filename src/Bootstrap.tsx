@@ -14,11 +14,17 @@ import {
 } from "./lib/sync/storeApply";
 import {
   applyWorkspaceSwitch,
+  cacheBelongsToWorkspace,
   preloadWorkspaceSnapshots,
+  workspaceHasPageContentCache,
 } from "./lib/sync/workspaceSwitch";
 import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
 import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspaceCacheAfterFlush";
-import { fetchApplyWorkspaceRemoteSnapshot } from "./lib/sync/workspaceSnapshotBootstrap";
+import {
+  fetchApplyWorkspaceRemoteMetaSnapshot,
+  fetchApplyWorkspaceRemoteSnapshot,
+} from "./lib/sync/workspaceSnapshotBootstrap";
+import { resolveWorkspaceRemoteFetchMode } from "./lib/sync/workspaceFetchMode";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useCustomIconStore } from "./store/customIconStore";
 import { useSyncWatermarkStore } from "./store/syncWatermarkStore";
@@ -156,8 +162,8 @@ function useSyncBootstrap(): void {
     let cancelled = false;
     let workspaceLoadingTimer: number | null = null;
     const setWorkspaceLoading = useUiStore.getState().setWorkspaceLoading;
-    const startWorkspaceLoadingTimer = () => {
-      if (!prevWorkspaceId || prevWorkspaceId === currentWorkspaceId) return;
+    const startWorkspaceLoadingTimer = (force = false, delayMs = 160) => {
+      if (!force && (!prevWorkspaceId || prevWorkspaceId === currentWorkspaceId)) return;
       if (workspaceLoadingTimer !== null) return;
       workspaceLoadingTimer = window.setTimeout(() => {
         const workspaceName =
@@ -166,7 +172,7 @@ function useSyncBootstrap(): void {
             .workspaces.find((w) => w.workspaceId === currentWorkspaceId)?.name ??
           "";
         setWorkspaceLoading({ workspaceId: currentWorkspaceId, workspaceName });
-      }, 160);
+      }, delayMs);
     };
 
     (async () => {
@@ -175,27 +181,118 @@ function useSyncBootstrap(): void {
           prevWorkspaceId,
           currentWorkspaceId,
         );
-        if (
+        const isInitialWorkspaceBootstrap = prevWorkspaceId === null;
+        const cacheBelongsToCurrentWorkspace = cacheBelongsToWorkspace(currentWorkspaceId);
+        const pageContentCacheAvailable =
+          workspaceHasPageContentCache(currentWorkspaceId);
+        const cacheAvailableForWorkspace =
+          cacheBelongsToCurrentWorkspace && pageContentCacheAvailable;
+        const fetchMode = resolveWorkspaceRemoteFetchMode({
+          cacheAvailable: cacheAvailableForWorkspace,
+          switchCleared: switchResult.cleared,
+          switchReason: switchResult.reason,
+          watermark: useSyncWatermarkStore
+            .getState()
+            .getWatermark(currentWorkspaceId),
+        });
+        const needsInitialWorkspaceLoading =
+          isInitialWorkspaceBootstrap && !cacheAvailableForWorkspace;
+        const needsBlockingWorkspaceLoading =
+          !cacheAvailableForWorkspace ||
           switchResult.reason === "deferred-switch" ||
           switchResult.reason === "pending-outbox" ||
-          switchResult.cleared
-        ) {
-          startWorkspaceLoadingTimer();
+          switchResult.cleared;
+        if (needsInitialWorkspaceLoading || needsBlockingWorkspaceLoading) {
+          startWorkspaceLoadingTimer(
+            isInitialWorkspaceBootstrap || needsInitialWorkspaceLoading,
+            isInitialWorkspaceBootstrap ? 0 : 160,
+          );
         }
-        const fetchApply = async (): Promise<void> => {
-          await migrateLegacyBlockCommentsToPagesOnce();
-          await fetchApplyWorkspaceRemoteSnapshot({
+        if (import.meta.env.DEV) {
+          console.info("[QN_WORKSPACE_SYNC] remote-fetch", {
             workspaceId: currentWorkspaceId,
-            cancelled: () => cancelled,
-            clearWorkspaceBeforeApply: switchResult.reason === "deferred-switch",
-            clearBlockCommentsBeforeApply: true,
-            applyLandingAfterApply: true,
-            refreshSnapshotAfterApply: true,
-            useBatchedUpdates: true,
+            mode: fetchMode.kind,
+            reason: fetchMode.reason,
+            switchReason: switchResult.reason,
+            cacheAvailable: cacheAvailableForWorkspace,
+            cacheBelongsToWorkspace: cacheBelongsToCurrentWorkspace,
+            pageContentCacheAvailable,
+            baseline:
+              fetchMode.kind === "full" && fetchMode.reason === "no-cache"
+                ? "meta"
+                : "snapshot",
           });
+        }
+        const fetchApply = async (forceFull = false): Promise<void> => {
+          const updatedAfter = forceFull ? undefined : fetchMode.updatedAfter;
+          const useMetaBaseline =
+            !forceFull &&
+            !updatedAfter &&
+            fetchMode.kind === "full" &&
+            fetchMode.reason === "no-cache";
+          await migrateLegacyBlockCommentsToPagesOnce();
+          const applyRemote = async (
+            nextUpdatedAfter: string | undefined,
+            logPrefix: string,
+          ) => {
+            const fetcher = useMetaBaseline
+              ? fetchApplyWorkspaceRemoteMetaSnapshot
+              : fetchApplyWorkspaceRemoteSnapshot;
+            await fetcher({
+              workspaceId: currentWorkspaceId,
+              cancelled: () => cancelled,
+              clearWorkspaceBeforeApply:
+                !nextUpdatedAfter && switchResult.reason === "deferred-switch",
+              clearBlockCommentsBeforeApply: true,
+              applyLandingAfterApply: true,
+              refreshSnapshotAfterApply: true,
+              useBatchedUpdates: true,
+              updatedAfter: nextUpdatedAfter,
+              logPrefix,
+            });
+          };
+          await applyRemote(
+            updatedAfter,
+            updatedAfter
+              ? "워크스페이스 전환(증분)"
+              : useMetaBaseline
+                ? "워크스페이스 전환(메타)"
+                : "워크스페이스 전환(전체)",
+          );
+          if (
+            updatedAfter &&
+            !cancelled &&
+            !workspaceHasPageContentCache(currentWorkspaceId)
+          ) {
+            console.warn("[QN_WORKSPACE_SYNC] delta-empty-cache-fallback", {
+              workspaceId: currentWorkspaceId,
+              updatedAfter,
+            });
+            await applyRemote(undefined, "워크스페이스 전환(증분 캐시 비어 있음 → 전체)");
+          }
+          if (
+            useMetaBaseline &&
+            !cancelled &&
+            !workspaceHasPageContentCache(currentWorkspaceId)
+          ) {
+            console.warn("[QN_WORKSPACE_SYNC] meta-empty-cache-fallback", {
+              workspaceId: currentWorkspaceId,
+            });
+            await fetchApplyWorkspaceRemoteSnapshot({
+              workspaceId: currentWorkspaceId,
+              cancelled: () => cancelled,
+              clearWorkspaceBeforeApply: false,
+              clearBlockCommentsBeforeApply: true,
+              applyLandingAfterApply: true,
+              refreshSnapshotAfterApply: true,
+              useBatchedUpdates: true,
+              logPrefix: "워크스페이스 전환(메타 캐시 비어 있음 → 전체)",
+            });
+          }
           if (cancelled) return;
           migratePageBlockCommentsToServerOnce(currentWorkspaceId);
         };
+        const fetchApplyFull = async (): Promise<void> => fetchApply(true);
         const setHold = useUiStore.getState().setOutboxWorkspaceSwitchHold;
         if (switchResult.reason === "pending-outbox") {
           setHold({
@@ -212,7 +309,7 @@ function useSyncBootstrap(): void {
             await reconcileWorkspaceCacheAfterFlush({
               currentWorkspaceId,
               sessionPrevWorkspaceId: prevWorkspaceId,
-              fetchApply,
+              fetchApply: fetchApplyFull,
               cancelled: () => cancelled,
             });
           }
@@ -226,9 +323,8 @@ function useSyncBootstrap(): void {
           setHold(null);
         }
         await fetchApply();
-        // LC 스케줄러 워크스페이스 데이터는 부트스트랩에서 미리 끌어오지 않는다.
-        // (타 워크스페이스 사이드바 누수 + 매 새로고침 추가 페치로 인한 지연 회귀의 원인)
-        // LC 데이터는 LC 구독(아래) 및 스케줄러 모달 진입 시점에만 적재한다.
+        // LC 스케줄러 워크스페이스 데이터는 CAT 등 다른 워크스페이스 진입 시 미리 끌어오지 않는다.
+        // 외부 DB/row page 는 사용자가 실제로 열 때 캐시 결손만 보정해야 한다.
 
         if (cancelled) return;
         const refreshSchedulerPage = (pageId: string) => {
@@ -283,7 +379,7 @@ function useSyncBootstrap(): void {
           await reconcileWorkspaceCacheAfterFlush({
             currentWorkspaceId,
             sessionPrevWorkspaceId: prevWorkspaceId,
-            fetchApply,
+            fetchApply: fetchApplyFull,
             cancelled: () => cancelled,
           });
         }
@@ -316,7 +412,7 @@ function useSyncBootstrap(): void {
         console.error("[sync] unsubscribe failed", err);
       }
     };
-  }, [authStatus, authSub, currentWorkspaceId]);
+  }, [authStatus, authSub, currentWorkspaceId, setWorkspaces]);
 
   // 탭 복귀 시 즐겨찾기(clientPrefs)만 가볍게 재동기화.
   useEffect(() => {

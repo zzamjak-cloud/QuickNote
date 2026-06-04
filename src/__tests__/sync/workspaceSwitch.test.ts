@@ -4,6 +4,7 @@ import {
   clearWorkspaceScopedStores,
   refreshWorkspaceSnapshot,
   workspaceCacheNeedsPrepaintClear,
+  workspaceHasPageContentCache,
 } from "../../lib/sync/workspaceSwitch";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -411,5 +412,27 @@ describe("applyWorkspaceSwitch", () => {
     expect(result.cleared).toBe(false);
     expect(result.reason).toBe("deferred-switch");
     expect(result.pending).toBe(0);
+  });
+
+  it("DB 캐시만 남아 있으면 페이지 콘텐츠 캐시로 보지 않는다", () => {
+    usePageStore.setState({ pages: {}, cacheWorkspaceId: "ws-1" });
+    useDatabaseStore.setState({
+      cacheWorkspaceId: "ws-1",
+      databases: {
+        "db-1": {
+          meta: {
+            id: "db-1",
+            workspaceId: "ws-1",
+            title: "DB",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+          columns: [],
+          rowPageOrder: [],
+        },
+      },
+    });
+
+    expect(workspaceHasPageContentCache("ws-1")).toBe(false);
   });
 });

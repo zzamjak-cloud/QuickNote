@@ -32,8 +32,8 @@ export function isRemoteNewer(localUpdatedMs: number, remoteIso: string): boolea
 }
 
 /** GraphQL Page 의 order 를 스토어 number 와 동일 규칙으로 정규화 */
-export function gqlOrderNumber(p: { order: string; updatedAt: string }): number {
-  const n = Number(p.order);
+export function gqlOrderNumber(p: { order?: string | null; updatedAt: string }): number {
+  const n = p.order == null || p.order === "" ? NaN : Number(p.order);
   if (!Number.isNaN(n)) return n;
   return isoToMs(p.updatedAt);
 }
@@ -75,7 +75,9 @@ export function toPageInputPayload(
     icon: p.icon ?? null,
     coverImage: p.coverImage ?? null,
     parentId: p.parentId ?? null,
-    order: p.order,
+    // order 는 byDatabaseAndOrder GSI sort key — null/빈 값이면 GSI 에서 누락되어
+    // listDatabaseRows 에 안 잡힌다. 항상 유효한 문자열로 보정한다(updatedAt 폴백).
+    order: String(gqlOrderNumber(p)),
     databaseId: p.databaseId ?? null,
     doc:
       stringifyAwsJson(p.doc) ??
@@ -133,6 +135,7 @@ export function gqlPageToLocalPage(p: GqlPage): Page {
     createdByMemberId: p.createdByMemberId ?? undefined,
     createdAt: isoToMs(p.createdAt) || Date.now(),
     updatedAt: isoToMs(p.updatedAt) || Date.now(),
+    contentLoaded: true,
   };
 }
 

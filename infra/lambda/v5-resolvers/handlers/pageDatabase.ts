@@ -483,6 +483,121 @@ export async function listPages(args: {
   };
 }
 
+export async function listPageMetas(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  workspaceId: string;
+  updatedAfter?: string;
+  limit?: number;
+  nextToken?: string;
+}): Promise<Connection<Record<string, unknown>>> {
+  if (!args.tables.Pages) badRequest("Pages table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "view",
+  });
+  const expressionValues: Record<string, unknown> = {
+    ":w": args.workspaceId,
+    ":empty": "",
+    ":nullType": "NULL",
+  };
+  let keyCondition = "workspaceId = :w";
+  if (args.updatedAfter) {
+    keyCondition += " AND updatedAt > :u";
+    expressionValues[":u"] = args.updatedAfter;
+  }
+  const r = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.Pages,
+      IndexName: "byWorkspaceMetaUpdatedAt",
+      KeyConditionExpression: keyCondition,
+      FilterExpression: "attribute_not_exists(databaseId) OR attribute_type(databaseId, :nullType) OR databaseId = :empty",
+      ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt",
+      ExpressionAttributeNames: { "#order": "order" },
+      ExpressionAttributeValues: expressionValues,
+      Limit: args.limit ?? 100,
+      ExclusiveStartKey: args.nextToken ? JSON.parse(args.nextToken) : undefined,
+      ScanIndexForward: false,
+    }),
+  );
+  return {
+    items: (r.Items ?? []) as Record<string, unknown>[],
+    nextToken: r.LastEvaluatedKey ? JSON.stringify(r.LastEvaluatedKey) : null,
+  };
+}
+
+export async function getPage(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  id: string;
+  workspaceId: string;
+}): Promise<Record<string, unknown> | null> {
+  if (!args.tables.Pages) badRequest("Pages table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "view",
+  });
+  const r = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Pages, Key: { id: args.id } }),
+  );
+  const item = r.Item as Record<string, unknown> | undefined;
+  if (!item) return null;
+  if (String(item["workspaceId"]) !== args.workspaceId) return null;
+  return item;
+}
+
+export async function listDatabaseRows(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  databaseId: string;
+  workspaceId: string;
+  limit?: number;
+  nextToken?: string;
+}): Promise<Connection<Record<string, unknown>>> {
+  if (!args.tables.Pages) badRequest("Pages table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "view",
+  });
+  const limit = Math.min(Math.max(args.limit ?? 100, 1), 200);
+  const r = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.Pages,
+      IndexName: "byDatabaseAndOrder",
+      KeyConditionExpression: "databaseId = :d",
+      FilterExpression: "workspaceId = :w AND (attribute_not_exists(deletedAt) OR attribute_type(deletedAt, :nullType) OR deletedAt = :empty)",
+      ExpressionAttributeValues: {
+        ":d": args.databaseId,
+        ":w": args.workspaceId,
+        ":empty": "",
+        ":nullType": "NULL",
+      },
+      ScanIndexForward: true,
+      Limit: limit,
+      ExclusiveStartKey: args.nextToken ? JSON.parse(args.nextToken) : undefined,
+    }),
+  );
+  return {
+    items: (r.Items ?? []) as Record<string, unknown>[],
+    nextToken: r.LastEvaluatedKey ? JSON.stringify(r.LastEvaluatedKey) : null,
+  };
+}
+
 export async function listDatabases(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -526,6 +641,31 @@ export async function listDatabases(args: {
   };
 }
 
+export async function getDatabase(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  id: string;
+  workspaceId: string;
+}): Promise<Record<string, unknown> | null> {
+  if (!args.tables.Databases) badRequest("Databases table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.workspaceId,
+    required: "view",
+  });
+  const r = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Databases, Key: { id: args.id } }),
+  );
+  const item = r.Item as Record<string, unknown> | undefined;
+  if (!item) return null;
+  if (String(item["workspaceId"]) !== args.workspaceId) return null;
+  return item;
+}
+
 async function upsertRecord(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -556,6 +696,32 @@ async function upsertRecord(args: {
 
 /** data URL·base64 커버가 DynamoDB 400KB 항목 한도를 압박하지 않도록 상한(문자열 length 기준). */
 const MAX_COVER_IMAGE_CHARS = 350_000;
+
+/**
+ * order 를 byDatabaseAndOrder GSI sort key(STRING, non-null)에 적합하게 보정한다.
+ * 유효한 숫자 문자열이면 그대로 두고, 아니면 createdAt→updatedAt epoch ms 문자열로 채운다.
+ */
+function normalizePageOrderField(input: Record<string, unknown>): void {
+  const order = input.order;
+  if (typeof order === "string" && order !== "" && !Number.isNaN(Number(order))) {
+    return;
+  }
+  for (const key of ["createdAt", "updatedAt"]) {
+    const v = input[key];
+    if (typeof v === "string" && v) {
+      const ms = Date.parse(v);
+      if (!Number.isNaN(ms)) {
+        input.order = String(ms);
+        return;
+      }
+    }
+    if (typeof v === "number" && Number.isFinite(v)) {
+      input.order = String(v);
+      return;
+    }
+  }
+  input.order = "0";
+}
 
 function validateCoverImageField(input: Record<string, unknown>): void {
   const v = input.coverImage;
@@ -710,6 +876,14 @@ export async function upsertPage(args: {
   }
   validateCoverImageField(input);
   normalizeBlockCommentsField(input);
+  // byDatabaseAndOrder GSI 키는 NULL 타입을 거부한다(파티션=databaseId, 정렬=order).
+  // non-row 페이지는 databaseId 가 null 이므로 속성 자체를 제거해 sparse GSI 에서 제외한다.
+  // (NULL 타입으로 두면 Put/Update 모두 "Type mismatch ... actual: NULL" 로 거부된다.)
+  if (input.databaseId == null) {
+    delete input.databaseId;
+  }
+  // order 가 null/누락/비문자열이면 createdAt/updatedAt 기반 안정 키로 보정한다.
+  normalizePageOrderField(input);
   const saved = await upsertRecord({ ...args, tableName: args.tables.Pages, input });
   try {
     await recordPageHistory({
@@ -917,13 +1091,18 @@ async function softDeleteRecord(args: {
   if (!existing.Item) notFound("리소스 없음");
   const now = new Date().toISOString();
   const setPurge = typeof args.ttlSeconds === "number" && Number.isFinite(args.ttlSeconds);
+  // byDatabaseAndOrder GSI 파티션 키(databaseId)가 NULL 타입으로 남아 있으면 Update 도
+  // "Type mismatch ... actual: NULL" 로 거부된다. 기존 항목이 NULL databaseId 면 함께 제거한다.
+  const removeNullDatabaseId =
+    "databaseId" in existing.Item && existing.Item.databaseId == null;
+  const setExpr = setPurge
+    ? "SET deletedAt = :d, updatedAt = :u, purgeAt = :p"
+    : "SET deletedAt = :d, updatedAt = :u";
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: args.tableName,
       Key: { id: args.id },
-      UpdateExpression: setPurge
-        ? "SET deletedAt = :d, updatedAt = :u, purgeAt = :p"
-        : "SET deletedAt = :d, updatedAt = :u",
+      UpdateExpression: removeNullDatabaseId ? `${setExpr} REMOVE databaseId` : setExpr,
       ExpressionAttributeValues: {
         ":d": now,
         ":u": now,

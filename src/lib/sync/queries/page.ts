@@ -14,6 +14,35 @@ export const LIST_PAGES = `
   }
 `;
 
+const PAGE_META_FIELDS = `
+  id workspaceId createdByMemberId title icon coverImage parentId order databaseId
+  createdAt updatedAt deletedAt
+`;
+
+export const LIST_PAGE_METAS = `
+  query ListPageMetas($workspaceId: ID!, $updatedAfter: AWSDateTime, $limit: Int, $nextToken: String) {
+    listPageMetas(workspaceId: $workspaceId, updatedAfter: $updatedAfter, limit: $limit, nextToken: $nextToken) {
+      items { ${PAGE_META_FIELDS} }
+      nextToken
+    }
+  }
+`;
+
+export const GET_PAGE = `
+  query GetPage($id: ID!, $workspaceId: ID!) {
+    getPage(id: $id, workspaceId: $workspaceId) { ${PAGE_FIELDS} }
+  }
+`;
+
+export const LIST_DATABASE_ROWS = `
+  query ListDatabaseRows($databaseId: ID!, $workspaceId: ID!, $limit: Int, $nextToken: String) {
+    listDatabaseRows(databaseId: $databaseId, workspaceId: $workspaceId, limit: $limit, nextToken: $nextToken) {
+      items { ${PAGE_FIELDS} }
+      nextToken
+    }
+  }
+`;
+
 export const UPSERT_PAGE = `
   mutation UpsertPage($input: PageInput!) {
     upsertPage(input: $input) { ${PAGE_FIELDS} }
@@ -87,7 +116,7 @@ export type GqlPage = {
   icon?: string | null;
   coverImage?: string | null;
   parentId?: string | null;
-  order: string;
+  order?: string | null;
   databaseId?: string | null;
   doc: unknown;
   dbCells?: unknown | null;
@@ -96,3 +125,5 @@ export type GqlPage = {
   updatedAt: string;
   deletedAt?: string | null;
 };
+
+export type GqlPageMeta = Omit<GqlPage, "doc" | "dbCells" | "blockComments">;

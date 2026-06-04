@@ -119,12 +119,30 @@ type Page {
   """페이지 상단 커버. `quicknote-image://{imageId}` S3 자산 참조 권장(레거시 data URL 가능)."""
   coverImage: String
   parentId: ID
-  order: String!
+  """정렬 순서. 레거시·이상 데이터에서 null 일 수 있어 nullable. 클라이언트는 updatedAt 으로 폴백."""
+  order: String
   databaseId: ID
   doc: AWSJSON!
   dbCells: AWSJSON
   """블록 댓글 스레드·읽음 상태 JSON(`{ messages, threadVisitedAt }`)."""
   blockComments: AWSJSON
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  deletedAt: AWSDateTime
+}
+
+type PageMeta {
+  id: ID!
+  workspaceId: ID!
+  createdByMemberId: ID!
+  title: String!
+  icon: String
+  """페이지 상단 커버. `quicknote-image://{imageId}` S3 자산 참조 권장(레거시 data URL 가능)."""
+  coverImage: String
+  parentId: ID
+  """정렬 순서. 레거시·이상 데이터에서 null 일 수 있어 nullable. 클라이언트는 updatedAt 으로 폴백."""
+  order: String
+  databaseId: ID
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
   deletedAt: AWSDateTime
@@ -256,6 +274,7 @@ input CustomIconInput {
 }
 
 type PageConnection { items: [Page!]! nextToken: String }
+type PageMetaConnection { items: [PageMeta!]! nextToken: String }
 type DatabaseConnection { items: [Database!]! nextToken: String }
 type PageHistoryConnection { items: [PageHistoryEntry!]! nextToken: String }
 
@@ -433,7 +452,13 @@ type Query {
   getWorkspace(workspaceId: ID!): Workspace
   getWorkspaceMeta(workspaceId: ID!): WorkspaceMeta!
 
+  getPage(id: ID!, workspaceId: ID!): Page
+  getDatabase(id: ID!, workspaceId: ID!): Database
+  """사이드바/탭 기준선용 페이지 메타. doc/dbCells/blockComments 는 내려받지 않는다."""
+  listPageMetas(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageMetaConnection!
   listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
+  """DB row 페이지를 화면 노출 단위로 가져온다. 대형 DB에서 워크스페이스 전체 fetch를 피하기 위한 cursor API."""
+  listDatabaseRows(databaseId: ID!, workspaceId: ID!, limit: Int, nextToken: String): PageConnection!
   listPageHistory(pageId: ID!, workspaceId: ID!, limit: Int, nextToken: String): [PageHistoryEntry!]!
   listDatabaseHistory(databaseId: ID!, workspaceId: ID!, limit: Int, nextToken: String): [DatabaseHistoryEntry!]!
   """DB 소속 모든 row 페이지의 변경 히스토리 — page-history GSI(byDatabaseAndCreatedAt) 단일 쿼리, 삭제된 행 포함, createdAt 최신순"""

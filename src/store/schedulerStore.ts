@@ -98,6 +98,8 @@ type SchedulerStore = {
   /** 마지막 렌더 범위(캐시 재투영 기준) */
   visibleRangeFrom: string | null;
   visibleRangeTo: string | null;
+  /** 마지막으로 캐시된 스코프 키 (team:xxx / org:xxx / projectId / null) */
+  cachedScopeKey: string | null;
   fetchSchedules: (workspaceId: string, from: string, to: string) => Promise<void>;
   createSchedule: (input: CreateScheduleInput) => Promise<Schedule>;
   updateSchedule: (input: UpdateScheduleInput) => Promise<Schedule>;
@@ -297,24 +299,17 @@ async function reconcileSchedulerWorkspaceFromServer(workspaceId: string): Promi
         await writeSchedulerReconcileWatermark(workspaceId, new Date().toISOString());
         return;
       }
-      const protectedPageIds = await getPendingLCSchedulerPageIds();
+      // 증분(updatedAfter)만 가져와 적용한다. 삭제는 deltaPages 의 deletedAt 으로 전파되고,
+      // 실시간 구독(onPageChanged)·scoped 조회(fetchScheduleRange)가 추가로 보장한다.
+      // "전체 목록을 받아 없는 것을 prune" 하는 방식은 scoped/부분 로딩과 양립 불가이므로 쓰지 않는다.
       const [pages, databases] = await Promise.all([
         fetchPagesByWorkspace(LC_SCHEDULER_WORKSPACE_ID, updatedAfter),
         fetchDatabasesByWorkspace(LC_SCHEDULER_WORKSPACE_ID, updatedAfter),
       ]);
-      const { prunedPageIds } = reconcileLCSchedulerRemoteSnapshot({
-        pages,
-        databases,
-        protectedPageIds,
-      });
+      reconcileLCSchedulerRemoteSnapshot({ pages, databases });
       const nextWatermark = resolveNextSchedulerReconcileWatermark(updatedAfter, pages, databases);
       if (nextWatermark && nextWatermark !== updatedAfter) {
         await writeSchedulerReconcileWatermark(workspaceId, nextWatermark);
-      }
-      if (prunedPageIds.length > 0) {
-        console.warn("[scheduler] stale local cards pruned from server snapshot", {
-          count: prunedPageIds.length,
-        });
       }
     })().finally(() => {
       schedulerRemoteReconcileInFlight = null;
@@ -331,14 +326,23 @@ export const useSchedulerStore = create<SchedulerStore>()(
       cachedWorkspaceId: null,
       visibleRangeFrom: null,
       visibleRangeTo: null,
+      cachedScopeKey: null,
 
       fetchSchedules: async (workspaceId, from, to) => {
         const startedAt = nowSchedulerPerf();
+        const { selectedProjectId, selectedMemberId } = useSchedulerViewStore.getState();
+        const scopeKey = selectedProjectId ?? null;
+        const assigneeId = selectedMemberId ?? null;
         const current = get();
         const hasSameVisibleCache =
           current.cachedWorkspaceId === workspaceId &&
           current.visibleRangeFrom === from &&
-          current.visibleRangeTo === to;
+          current.visibleRangeTo === to &&
+          current.cachedScopeKey === scopeKey &&
+          // 빈 schedules 캐시는 cache-hit 으로 막지 않는다.
+          // (과거 망가진 시점에 persist 된 빈 배열이 영구히 재계산을 차단하던 회귀 방지 —
+          //  page store 에 행이 있어도 빈 캐시로 early-return 하면 카드가 안 보였음)
+          current.schedules.length > 0;
         if (hasSameVisibleCache) {
           logSchedulerPerf("fetchSchedules:cache-hit", startedAt, {
             workspaceId,
@@ -368,7 +372,18 @@ export const useSchedulerStore = create<SchedulerStore>()(
         let remoteProjected: Schedule[] | null = null;
         if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
           try {
-            const rangeSchedules = await fetchScheduleRange({ workspaceId, from, to });
+            const teamId = scopeKey?.startsWith("team:") ? scopeKey.slice(5) : null;
+            const organizationId = scopeKey?.startsWith("org:") ? scopeKey.slice(4) : null;
+            const projectId = !teamId && !organizationId ? scopeKey : null;
+            const rangeSchedules = await fetchScheduleRange({
+              workspaceId,
+              from,
+              to,
+              teamId,
+              organizationId,
+              projectId,
+              assigneeId,
+            });
             const sourcePages = extractScheduleRangeSourcePages(rangeSchedules);
             applyRemotePagesToStore(sourcePages);
             remoteProjected = rangeSchedules.map(gqlScheduleToSchedule);
@@ -392,6 +407,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
           cachedWorkspaceId: workspaceId,
           visibleRangeFrom: from,
           visibleRangeTo: to,
+          cachedScopeKey: scopeKey,
           loading: false,
         });
         logSchedulerPerf("fetchSchedules:project-visible-range", startedAt, {
@@ -595,6 +611,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
         cachedWorkspaceId: st.cachedWorkspaceId,
         visibleRangeFrom: st.visibleRangeFrom,
         visibleRangeTo: st.visibleRangeTo,
+        cachedScopeKey: st.cachedScopeKey,
       }),
     },
   ),

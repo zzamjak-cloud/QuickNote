@@ -29,21 +29,22 @@
 
 ### 워크스페이스 동기화 (`currentWorkspaceId` 변경 감지, `useLayoutEffect`)
 1. `applyWorkspaceSwitch(prevWorkspaceId, currentWorkspaceId)` — 전환 이유 판정
-2. `switchResult.reason` 분기:
-   - `"pending-outbox"`: outbox flush 완료 대기 → `reconcileWorkspaceCacheAfterFlush`
-   - `"deferred-switch"`: 이전 캐시 clear 후 fresh fetch
-3. `fetchApply()` 실행:
-   - `migrateLegacyBlockCommentsToPagesOnce()`
-   - `fetchApplyWorkspaceRemoteSnapshot()` — 원격 페이지·DB·댓글 전체 적재
-   - `migratePageBlockCommentsToServerOnce()`
+2. `resolveWorkspaceRemoteFetchMode(...)` — delta/full/meta 경로 결정
+   - `cacheAvailable`: cacheBelongsToCurrentWorkspace && pageContentCacheAvailable
+   - `switchCleared`, `switchReason`, `watermark` 참조
+3. `fetchApply()` 실행 (내부 경로 분기):
+   - `useMetaBaseline`(no-cache full): `fetchApplyWorkspaceRemoteMetaSnapshot()` → 캐시 비어 있으면 전체 fallback
+   - delta 모드: `fetchApplyWorkspaceRemoteSnapshot({ updatedAfter })` → 캐시 비어 있으면 전체 fallback
+   - full 모드: `fetchApplyWorkspaceRemoteSnapshot()`
+   - `migrateLegacyBlockCommentsToPagesOnce()` / `migratePageBlockCommentsToServerOnce()`
 4. `startSubscriptions(currentWorkspaceId, handlers)` — 실시간 구독 시작
    - LC 스케줄러는 항상 별도 구독 유지 (`unsubLcScheduler`)
 5. `engine.flush()` — 오프라인 중 쌓인 outbox 전송
-6. `reconcileWorkspaceCacheAfterFlush()` — flush 후 서버 상태와 로컬 캐시 정합성 검증
+6. `reconcileWorkspaceCacheAfterFlush()` — flush 후 캐시 정합성 검증 (전체 모드 `fetchApplyFull` 사용)
 7. cleanup: `unsub()`, `unsubLcScheduler()`, `shutdownSyncEngine()`
 
 ### 온라인 복귀 핸들러
-- `window 'online'` 이벤트 → 원격 전체 재페치 (`fetchApplyWorkspaceRemoteSnapshot`)
+- `window 'online'` 이벤트 → fetchMode 결정 후 delta 또는 full 재페치
 
 ### Bootstrap 컴포넌트
 - `window.location.pathname === "/auth/callback"` → `AuthCallback` 렌더

@@ -13,6 +13,14 @@ import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 
+type PageTableGsiDeployStage = "meta" | "all";
+
+function resolvePageTableGsiDeployStage(scope: Construct): PageTableGsiDeployStage {
+  const rawStage = scope.node.tryGetContext("pageTableGsiDeployStage") ?? "all";
+  if (rawStage === "meta" || rawStage === "all") return rawStage;
+  throw new Error("pageTableGsiDeployStage 는 meta 또는 all 이어야 합니다.");
+}
+
 export interface SyncStackProps extends cdk.StackProps {
   // CognitoStack 의 출력값을 cross-stack reference 로 받는다.
   userPoolId: string;
@@ -65,6 +73,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     this.imageAssetTable = createSyncTable(this, "ImageAssetTable", "ImageAsset", {
       ttlAttribute: "expireAt", // pending 1일 자동 삭제용
     });
+    const pageTableGsiDeployStage = resolvePageTableGsiDeployStage(this);
 
     // v5: workspaceId 스코핑 조회용 GSI. 기존 byOwner GSI 는 마이그레이션 완료 후 제거.
     this.pageTable.table.addGlobalSecondaryIndex({
@@ -74,11 +83,37 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
     this.pageTable.table.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceMetaUpdatedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.INCLUDE,
+      nonKeyAttributes: [
+        "id",
+        "createdByMemberId",
+        "title",
+        "icon",
+        "coverImage",
+        "parentId",
+        "order",
+        "databaseId",
+        "createdAt",
+        "deletedAt",
+      ],
+    });
+    this.pageTable.table.addGlobalSecondaryIndex({
       indexName: "byWorkspaceAndDeletedAt",
       partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "deletedAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
+    if (pageTableGsiDeployStage === "all") {
+      this.pageTable.table.addGlobalSecondaryIndex({
+        indexName: "byDatabaseAndOrder",
+        partitionKey: { name: "databaseId", type: dynamodb.AttributeType.STRING },
+        sortKey: { name: "order", type: dynamodb.AttributeType.STRING },
+        projectionType: dynamodb.ProjectionType.ALL,
+      });
+    }
 
     this.databaseTable.table.addGlobalSecondaryIndex({
       indexName: "byWorkspaceAndUpdatedAt",
@@ -738,6 +773,21 @@ export function response(ctx) {
     });
     (listPagesResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiQuerylistPagesB67FE9DA");
 
+    v5Ds.createResolver("QuerylistPageMetas", {
+      typeName: "Query",
+      fieldName: "listPageMetas",
+    });
+
+    v5Ds.createResolver("QuerygetPage", {
+      typeName: "Query",
+      fieldName: "getPage",
+    });
+
+    v5Ds.createResolver("QuerylistDatabaseRows", {
+      typeName: "Query",
+      fieldName: "listDatabaseRows",
+    });
+
     v5Ds.createResolver("QuerylistPageHistory", {
       typeName: "Query",
       fieldName: "listPageHistory",
@@ -758,6 +808,11 @@ export function response(ctx) {
       fieldName: "listDatabases",
     });
     (listDatabasesResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiQuerylistDatabasesC5178196");
+
+    v5Ds.createResolver("QuerygetDatabase", {
+      typeName: "Query",
+      fieldName: "getDatabase",
+    });
 
     v5Ds.createResolver("QuerylistTrashedPages", {
       typeName: "Query",

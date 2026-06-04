@@ -1,4 +1,5 @@
-import { usePageStore } from "../../store/pageStore";
+import { usePageStore, isFullPageDatabaseHomePage } from "../../store/pageStore";
+import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import type { FavoritePageMeta } from "../../store/settingsStore";
@@ -603,6 +604,17 @@ export function cacheBelongsToWorkspace(workspaceId: string): boolean {
   return hasPageCache || hasDatabaseCache;
 }
 
+export function workspaceHasPageContentCache(workspaceId: string): boolean {
+  const state = usePageStore.getState();
+  if (state.cacheWorkspaceId !== workspaceId) return false;
+  return Object.values(state.pages).some((page) => {
+    if (page.workspaceId && page.workspaceId !== workspaceId) return false;
+    if (page.databaseId) return false;
+    if (isFullPageDatabaseHomePage(page)) return false;
+    return true;
+  });
+}
+
 export function workspaceCacheNeedsPrepaintClear(workspaceId: string | null): boolean {
   if (hasWorkspaceSnapshot(workspaceId)) return false;
   return Boolean(
@@ -644,6 +656,7 @@ export function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
     lastClosedTab: null,
   });
   useBlockCommentStore.getState().clearMessages();
+  usePageContentLoadStore.getState().clear();
 }
 
 // prev=null 은 부트스트랩 첫 실행(세션 시작·새로고침 직후)을 의미한다.

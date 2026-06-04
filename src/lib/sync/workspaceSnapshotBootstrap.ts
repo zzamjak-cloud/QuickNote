@@ -1,10 +1,16 @@
 import { unstable_batchedUpdates } from "react-dom";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useUiStore } from "../../store/uiStore";
-import { fetchPagesByWorkspace, fetchDatabasesByWorkspace } from "./bootstrap";
+import {
+  fetchDatabasesByWorkspace,
+  fetchPageMetasBatch,
+  fetchPagesByWorkspace,
+} from "./bootstrap";
+import { usePageMetaRemoteStore } from "../../store/pageMetaRemoteStore";
 import { fetchCommentsByWorkspace } from "./commentApi";
 import { getSyncEngine } from "./runtime";
 import {
+  applyRemotePageMetasToStore,
   applyRemotePagesToStore,
   applyRemoteDatabasesToStore,
   applyRemoteCommentsToStore,
@@ -29,7 +35,7 @@ type FetchApplyWorkspaceSnapshotOptions = {
   /**
    * 지정 시 "증분 모드": 이 시각 이후 변경분만 페치하고 좀비 prune 을 건너뛴다.
    * (부분 스냅샷으로 prune 하면 변경되지 않은 항목이 모두 삭제되므로 절대 prune 하지 않는다.)
-   * 워크스페이스 전환처럼 prune 이 필요한 경로는 이 값을 비워 전체 모드로 호출해야 한다.
+   * 전체 prune 이 필요한 복구 경로는 이 값을 비워 전체 모드로 호출해야 한다.
    */
   updatedAfter?: string;
 };
@@ -52,6 +58,25 @@ function maxUpdatedAt(
 function logFetchFailure(domainLabel: string, reason: unknown, logPrefix?: string): void {
   const prefix = logPrefix ? `${logPrefix} — ` : "";
   console.error(`[sync] ${prefix}${domainLabel} 페치 실패, 기존 캐시 유지`, reason);
+}
+
+function errorText(reason: unknown): string {
+  if (reason instanceof Error) return `${reason.message}\n${reason.stack ?? ""}`;
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    return String(reason);
+  }
+}
+
+function isPageMetaSchemaUnavailable(reason: unknown): boolean {
+  const text = errorText(reason);
+  const schemaValidationError =
+    text.includes("Cannot query field") ||
+    text.includes("Unknown field") ||
+    text.includes("Validation error") ||
+    text.includes("FieldUndefined");
+  return schemaValidationError && text.includes("listPageMetas");
 }
 
 /** 워크스페이스 원격 스냅샷을 가져와 부분 실패를 보존하면서 로컬 store에 적용한다. */
@@ -144,6 +169,82 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
   // (한 도메인이라도 실패하면 그 도메인의 미수신 변경분을 다음 증분에서 놓치지 않도록 보류.)
   if (failedDomains.length === 0) {
     const mx = maxUpdatedAt(pages, dbs, comments);
+    if (mx) useSyncWatermarkStore.getState().advance(workspaceId, mx);
+  }
+}
+
+export async function fetchApplyWorkspaceRemoteMetaSnapshot({
+  workspaceId,
+  cancelled,
+  clearWorkspaceBeforeApply = false,
+  clearBlockCommentsBeforeApply = false,
+  applyLandingAfterApply = false,
+  refreshSnapshotAfterApply = false,
+  useBatchedUpdates = false,
+  logPrefix,
+  updatedAfter,
+}: FetchApplyWorkspaceSnapshotOptions): Promise<void> {
+  const isDelta = Boolean(updatedAfter);
+  const [pageMetasBatchResult, dbsResult, commentsResult] = await Promise.allSettled([
+    fetchPageMetasBatch({ workspaceId, updatedAfter }),
+    fetchDatabasesByWorkspace(workspaceId, updatedAfter),
+    fetchCommentsByWorkspace(workspaceId, updatedAfter),
+  ]);
+  if (cancelled?.()) return;
+
+  const pageMetasBatch = pageMetasBatchResult.status === "fulfilled" ? pageMetasBatchResult.value : null;
+  const dbs = dbsResult.status === "fulfilled" ? dbsResult.value : null;
+  const comments = commentsResult.status === "fulfilled" ? commentsResult.value : null;
+
+  const failedDomains: string[] = [];
+  if (pageMetasBatchResult.status === "rejected") {
+    if (isPageMetaSchemaUnavailable(pageMetasBatchResult.reason)) {
+      console.warn("[sync] 페이지 메타 API 미배포, 전체 스냅샷 fallback 대기", {
+        workspaceId,
+        logPrefix,
+      });
+    } else {
+      failedDomains.push("pageMetas");
+      logFetchFailure("페이지 메타", pageMetasBatchResult.reason, logPrefix);
+    }
+  }
+  if (dbsResult.status === "rejected") {
+    failedDomains.push("databases");
+    logFetchFailure("DB", dbsResult.reason, logPrefix);
+  }
+  if (commentsResult.status === "rejected") {
+    failedDomains.push("comments");
+    logFetchFailure("댓글", commentsResult.reason, logPrefix);
+  }
+  useUiStore
+    .getState()
+    .setSyncPartialFetchFailed(failedDomains.length > 0 ? failedDomains : null);
+
+  const apply = () => {
+    if (clearWorkspaceBeforeApply && !isDelta) {
+      clearWorkspaceScopedStores(workspaceId);
+    }
+    if (clearBlockCommentsBeforeApply && !isDelta) {
+      useBlockCommentStore.getState().clearMessages();
+    }
+    if (pageMetasBatch) {
+      applyRemotePageMetasToStore(pageMetasBatch.items);
+      usePageMetaRemoteStore.getState().setNextToken(workspaceId, pageMetasBatch.nextToken ?? null);
+    }
+    if (dbs) applyRemoteDatabasesToStore(dbs);
+    if (comments) applyRemoteCommentsToStore(comments);
+    if (applyLandingAfterApply) applyWorkspaceLanding(workspaceId);
+    if (refreshSnapshotAfterApply) refreshWorkspaceSnapshot(workspaceId);
+  };
+
+  if (useBatchedUpdates) {
+    unstable_batchedUpdates(apply);
+  } else {
+    apply();
+  }
+
+  if (failedDomains.length === 0) {
+    const mx = maxUpdatedAt(pageMetasBatch?.items ?? [], dbs, comments);
     if (mx) useSyncWatermarkStore.getState().advance(workspaceId, mx);
   }
 }

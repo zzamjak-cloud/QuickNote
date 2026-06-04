@@ -1,8 +1,12 @@
-import { BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchWriteCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it, vi } from "vitest";
 import {
   emptyTrash,
+  getDatabase,
+  getPage,
+  listDatabaseRows,
   listDatabaseRowHistory,
+  listPageMetas,
   listTrashedDatabases,
   restoreDatabase,
   listDatabases,
@@ -74,6 +78,71 @@ describe("page/database handlers", () => {
       input: { id: "p1", workspaceId: "ws-1", updatedAt: "now", createdAt: "now", title: "T", doc: "{}", order: "a", createdByMemberId: "m1" },
     });
     expect(result.id).toBe("p1");
+  });
+
+  it("upsertPage: order 가 null 이면 createdAt 기반 숫자 문자열로 보정한다(byDatabaseAndOrder GSI 보호)", async () => {
+    const doc = mockDoc(
+      { Item: undefined }, // blockComments 보존용 Get
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      {}, // put
+    );
+    await upsertPage({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "p-null-order",
+        workspaceId: "ws-1",
+        databaseId: "db-1",
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "T",
+        doc: "{}",
+        order: null,
+        createdByMemberId: "m1",
+      },
+    });
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand) as PutCommand | undefined;
+    const savedOrder = putCommand?.input.Item?.order;
+    expect(typeof savedOrder).toBe("string");
+    expect(Number.isNaN(Number(savedOrder))).toBe(false);
+    expect(savedOrder).toBe(String(Date.parse("2026-01-01T00:00:00.000Z")));
+  });
+
+  it("upsertPage: databaseId 가 null 이면 속성을 제거해 저장한다(byDatabaseAndOrder GSI NULL 키 거부 방지)", async () => {
+    const doc = mockDoc(
+      { Item: undefined }, // blockComments 보존용 Get
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      {}, // put
+    );
+    await upsertPage({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "p-null-db",
+        workspaceId: "ws-1",
+        databaseId: null,
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "마일스톤",
+        doc: "{}",
+        order: "14",
+        createdByMemberId: "m1",
+      },
+    });
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand) as PutCommand | undefined;
+    const item = putCommand?.input.Item ?? {};
+    expect("databaseId" in item).toBe(false);
+    expect(item.order).toBe("14");
   });
 
   it("upsertPage: LC schedule page 저장 시 Schedules read index를 갱신한다", async () => {
@@ -240,6 +309,90 @@ describe("page/database handlers", () => {
     );
     const result = await listDatabases({ doc, tables, caller, workspaceId: "ws-1" });
     expect(result.items).toHaveLength(1);
+  });
+
+  it("getPage: view 권한이면 단일 페이지를 조회한다", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "everyone", subjectId: null, level: "view" }] },
+      { Item: { id: "p1", workspaceId: "ws-1", title: "P1" } },
+    );
+
+    const result = await getPage({ doc, tables, caller, id: "p1", workspaceId: "ws-1" });
+
+    expect(result?.id).toBe("p1");
+  });
+
+  it("getDatabase: view 권한이면 단일 DB를 조회한다", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "everyone", subjectId: null, level: "view" }] },
+      { Item: { id: "db-1", workspaceId: "ws-1", title: "DB" } },
+    );
+
+    const result = await getDatabase({ doc, tables, caller, id: "db-1", workspaceId: "ws-1" });
+
+    expect(result?.id).toBe("db-1");
+  });
+
+  it("listPageMetas: doc 없는 메타 GSI로 사이드바 기준선을 조회한다", async () => {
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "everyone", subjectId: null, level: "view" }] },
+      {
+        Items: [
+          { id: "p1", workspaceId: "ws-1", title: "P1", order: "a" },
+        ],
+      },
+    );
+
+    const result = await listPageMetas({
+      doc,
+      tables,
+      caller,
+      workspaceId: "ws-1",
+      limit: 25,
+    });
+
+    expect(result.items.map((page) => page.id)).toEqual(["p1"]);
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const queryArg = sendMock.mock.calls[2]?.[0].input;
+    expect(queryArg.IndexName).toBe("byWorkspaceMetaUpdatedAt");
+    expect(queryArg.ProjectionExpression).not.toContain("doc");
+    expect(queryArg.FilterExpression).toContain("attribute_not_exists(databaseId)");
+    expect(queryArg.Limit).toBe(25);
+  });
+
+  it("listDatabaseRows: DB row GSI로 화면 단위 row와 nextToken을 조회한다", async () => {
+    const lastKey = { databaseId: "db-1", order: "b", id: "row-2" };
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "everyone", subjectId: null, level: "view" }] },
+      {
+        Items: [
+          { id: "row-1", workspaceId: "ws-1", databaseId: "db-1", order: "a" },
+          { id: "row-2", workspaceId: "ws-1", databaseId: "db-1", order: "b" },
+        ],
+        LastEvaluatedKey: lastKey,
+      },
+    );
+
+    const result = await listDatabaseRows({
+      doc,
+      tables,
+      caller,
+      databaseId: "db-1",
+      workspaceId: "ws-1",
+      limit: 2,
+    });
+
+    expect(result.items.map((row) => row.id)).toEqual(["row-1", "row-2"]);
+    expect(result.nextToken).toBe(JSON.stringify(lastKey));
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const queryArg = sendMock.mock.calls[2]?.[0].input;
+    expect(queryArg.IndexName).toBe("byDatabaseAndOrder");
+    expect(queryArg.KeyConditionExpression).toBe("databaseId = :d");
+    expect(queryArg.Limit).toBe(2);
   });
 
   it("upsertDatabase: edit 권한 없음 실패", async () => {

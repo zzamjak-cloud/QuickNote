@@ -8,6 +8,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { getSyncEngine } from "../../lib/sync/runtime";
 
 const DOMAIN_LABEL: Record<string, string> = {
+  pageMetas: "페이지 메타",
   pages: "페이지",
   databases: "데이터베이스",
   comments: "댓글",

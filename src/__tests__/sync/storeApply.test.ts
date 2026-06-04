@@ -1,16 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   applyRemotePageToStore,
+  applyRemotePageMetasToStore,
   applyRemoteDatabaseToStore,
   applyRemotePagesToStore,
   applyRemoteDatabasesToStore,
   reconcileLCSchedulerRemoteSnapshot,
 } from "../../lib/sync/storeApply";
 import { usePageStore } from "../../store/pageStore";
+import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useHistoryStore } from "../../store/historyStore";
-import type { GqlDatabase, GqlPage } from "../../lib/sync/graphql/operations";
+import type { GqlDatabase, GqlPage, GqlPageMeta } from "../../lib/sync/graphql/operations";
 import { makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { markLocallyDeletedEntity } from "../../lib/sync/localDeleteGuards";
@@ -52,6 +54,18 @@ function gqlPage(ws: string, id = "pg-1"): GqlPage {
   };
 }
 
+function gqlPageMeta(ws: string, id = "pg-1", updatedAt = new Date().toISOString()): GqlPageMeta {
+  return {
+    id,
+    workspaceId: ws,
+    createdByMemberId: "mem",
+    title: "T",
+    order: "0",
+    createdAt: updatedAt,
+    updatedAt,
+  };
+}
+
 function gqlDb(ws: string, id = "db-1"): GqlDatabase {
   const now = new Date().toISOString();
   return {
@@ -74,6 +88,7 @@ describe("storeApply 워크스페이스 가드", () => {
       activePageId: null,
       cacheWorkspaceId: null,
     });
+    usePageContentLoadStore.getState().clear();
     useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
     useHistoryStore.setState({
       pageEventsByPageId: {},
@@ -89,6 +104,34 @@ describe("storeApply 워크스페이스 가드", () => {
     applyRemoteDatabaseToStore(gqlDb("ws-a"));
     expect(usePageStore.getState().pages["pg-1"]).toBeDefined();
     expect(useDatabaseStore.getState().databases["db-1"]).toBeDefined();
+  });
+
+  it("페이지 메타는 본문 placeholder로 저장하고 같은 updatedAt의 full page가 오면 교체한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const updatedAt = "2026-01-01T00:00:00.000Z";
+    applyRemotePageMetasToStore([gqlPageMeta("ws-a", "pg-1", updatedAt)]);
+
+    expect(usePageContentLoadStore.getState().metaOnlyByPageId["pg-1"]).toBe(true);
+    expect(usePageStore.getState().pages["pg-1"]?.contentLoaded).toBe(false);
+    expect(usePageStore.getState().pages["pg-1"]?.doc.content).toHaveLength(1);
+
+    applyRemotePageToStore({
+      ...gqlPage("ws-a", "pg-1"),
+      updatedAt,
+      doc: JSON.stringify({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "loaded" }],
+          },
+        ],
+      }),
+    });
+
+    expect(usePageContentLoadStore.getState().metaOnlyByPageId["pg-1"]).toBeUndefined();
+    expect(usePageStore.getState().pages["pg-1"]?.contentLoaded).toBe(true);
+    expect(JSON.stringify(usePageStore.getState().pages["pg-1"]?.doc)).toContain("loaded");
   });
 
   it("현재 워크스페이스와 다르면 적용하지 않는다", () => {
@@ -266,15 +309,16 @@ describe("storeApply 워크스페이스 가드", () => {
     expect(usePageStore.getState().pages["pg-1"]?.title).toBe("KeepMe");
   });
 
-  it("LC 스케줄러 서버 스냅샷에 없는 오래된 로컬 행 페이지는 제거한다", () => {
+  it("증분 스냅샷에 없는(=변경되지 않은) 로컬 LC 스케줄러 행은 prune 하지 않는다", () => {
+    // scoped/부분 로딩 방향: delta 에 없다고 살아있는 행을 지우면 안 된다.
     useWorkspaceStore.setState({ currentWorkspaceId: "personal-ws" });
     const dbId = makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
     const old = Date.now() - 300_000;
     usePageStore.setState({
       pages: {
-        "stale-row": {
-          id: "stale-row",
-          title: "삭제된 일정",
+        "unchanged-row": {
+          id: "unchanged-row",
+          title: "변경 안 된 일정",
           icon: null,
           doc: { type: "doc", content: [{ type: "paragraph" }] },
           parentId: null,
@@ -285,7 +329,7 @@ describe("storeApply 워크스페이스 가드", () => {
           updatedAt: old,
         },
       },
-      activePageId: "stale-row",
+      activePageId: "unchanged-row",
       cacheWorkspaceId: "personal-ws",
     });
     useDatabaseStore.setState({
@@ -293,7 +337,7 @@ describe("storeApply 워크스페이스 가드", () => {
         [dbId]: {
           meta: { id: dbId, title: "LC스케줄러", createdAt: old, updatedAt: old },
           columns: [],
-          rowPageOrder: ["stale-row"],
+          rowPageOrder: ["unchanged-row"],
         },
       },
       cacheWorkspaceId: "personal-ws",
@@ -302,24 +346,21 @@ describe("storeApply 워크스페이스 가드", () => {
     const result = reconcileLCSchedulerRemoteSnapshot({
       pages: [],
       databases: [],
-      protectedPageIds: new Set(),
-      recentLocalGuardMs: 0,
     });
 
-    expect(result.prunedPageIds).toEqual(["stale-row"]);
-    expect(usePageStore.getState().pages["stale-row"]).toBeUndefined();
-    expect(usePageStore.getState().activePageId).toBeNull();
-    expect(useDatabaseStore.getState().databases[dbId]?.rowPageOrder).toEqual([]);
+    expect(result.prunedPageIds).toEqual([]);
+    expect(usePageStore.getState().pages["unchanged-row"]).toBeDefined();
+    expect(useDatabaseStore.getState().databases[dbId]?.rowPageOrder).toEqual(["unchanged-row"]);
   });
 
-  it("LC 스케줄러 서버 스냅샷에 없어도 outbox 보호 대상 행 페이지는 유지한다", () => {
+  it("증분 스냅샷의 deletedAt 행은 로컬에서 제거한다(삭제 전파)", () => {
     const dbId = makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
     const old = Date.now() - 300_000;
     usePageStore.setState({
       pages: {
-        "pending-row": {
-          id: "pending-row",
-          title: "전송 대기 일정",
+        "deleted-row": {
+          id: "deleted-row",
+          title: "삭제된 일정",
           icon: null,
           doc: { type: "doc", content: [{ type: "paragraph" }] },
           parentId: null,
@@ -334,14 +375,12 @@ describe("storeApply 워크스페이스 가드", () => {
       cacheWorkspaceId: "personal-ws",
     });
 
-    const result = reconcileLCSchedulerRemoteSnapshot({
-      pages: [],
-      databases: [],
-      protectedPageIds: new Set(["pending-row"]),
-      recentLocalGuardMs: 0,
-    });
+    const remote = gqlPage(LC_SCHEDULER_WORKSPACE_ID, "deleted-row");
+    remote.databaseId = dbId;
+    remote.deletedAt = new Date().toISOString();
+    reconcileLCSchedulerRemoteSnapshot({ pages: [remote], databases: [] });
 
-    expect(result.prunedPageIds).toEqual([]);
-    expect(usePageStore.getState().pages["pending-row"]).toBeDefined();
+    expect(usePageStore.getState().pages["deleted-row"]).toBeUndefined();
   });
+
 });

@@ -5,7 +5,7 @@ import {
   useState,
   useCallback,
 } from "react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { HandleLayerBase } from "./handles/HandleLayerBase";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -109,6 +109,57 @@ type DownloadNotice = {
   message: string;
 } | null;
 
+type SubmenuKey = "type" | "preset" | "textColor" | "background";
+type SubmenuStyles = Partial<Record<SubmenuKey, CSSProperties>>;
+
+const SUBMENU_GAP_PX = 4;
+const SUBMENU_VIEWPORT_PAD_PX = 8;
+const SUBMENU_MIN_HEIGHT_PX = 144;
+
+function computeViewportAwareSubmenuStyle(
+  anchor: HTMLElement,
+  submenu: HTMLElement,
+  preferredMaxHeight: number,
+): CSSProperties {
+  const anchorRect = anchor.getBoundingClientRect();
+  const submenuRect = submenu.getBoundingClientRect();
+  const width = submenuRect.width || anchorRect.width;
+  const measuredHeight = submenuRect.height || preferredMaxHeight;
+  const canOpenRight =
+    anchorRect.right + SUBMENU_GAP_PX + width <=
+    window.innerWidth - SUBMENU_VIEWPORT_PAD_PX;
+  const canOpenLeft =
+    anchorRect.left - SUBMENU_GAP_PX - width >= SUBMENU_VIEWPORT_PAD_PX;
+  const openLeft = !canOpenRight && canOpenLeft;
+
+  const availableBelow =
+    window.innerHeight - SUBMENU_VIEWPORT_PAD_PX - anchorRect.top;
+  const availableAbove = anchorRect.bottom - SUBMENU_VIEWPORT_PAD_PX;
+  const availableHeight = Math.max(availableBelow, availableAbove);
+  const maxHeight = Math.max(
+    SUBMENU_MIN_HEIGHT_PX,
+    Math.min(preferredMaxHeight, availableHeight),
+  );
+  const effectiveHeight = Math.min(measuredHeight, maxHeight);
+  let top = 0;
+  const bottomOverflow =
+    anchorRect.top + effectiveHeight - (window.innerHeight - SUBMENU_VIEWPORT_PAD_PX);
+  if (bottomOverflow > 0) {
+    top = -bottomOverflow;
+  }
+  if (anchorRect.top + top < SUBMENU_VIEWPORT_PAD_PX) {
+    top = SUBMENU_VIEWPORT_PAD_PX - anchorRect.top;
+  }
+
+  return {
+    left: openLeft ? "auto" : `calc(100% + ${SUBMENU_GAP_PX}px)`,
+    right: openLeft ? `calc(100% + ${SUBMENU_GAP_PX}px)` : "auto",
+    top,
+    maxHeight,
+    overflowY: "auto",
+  };
+}
+
 function getEditorViewDom(editor: Editor | null | undefined): Element | null {
   if (!editor || editor.isDestroyed) return null;
   try {
@@ -138,6 +189,15 @@ export function BlockHandles({
   const [bgOpen, setBgOpen] = useState(false);
   const [textColorOpen, setTextColorOpen] = useState(false);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [submenuStyles, setSubmenuStyles] = useState<SubmenuStyles>({});
+  const typeSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
+  const typeSubmenuRef = useRef<HTMLDivElement | null>(null);
+  const presetSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
+  const presetSubmenuRef = useRef<HTMLDivElement | null>(null);
+  const textColorSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
+  const textColorSubmenuRef = useRef<HTMLDivElement | null>(null);
+  const bgSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
+  const bgSubmenuRef = useRef<HTMLDivElement | null>(null);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
   const globalActivePageId = usePageStore((s) => s.activePageId);
   // pageId prop 우선 — 피크 뷰처럼 활성 페이지와 다른 페이지를 편집할 때 정확한 페이지 ID 사용
@@ -338,11 +398,70 @@ export function BlockHandles({
         setMenuOpen(false);
         setPresetOpen(false);
         setTypeMenuOpen(false);
+        setTextColorOpen(false);
+        setBgOpen(false);
       }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
+
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setSubmenuStyles({});
+      setPresetOpen(false);
+      setTypeMenuOpen(false);
+      setTextColorOpen(false);
+      setBgOpen(false);
+      return;
+    }
+
+    const update = () => {
+      const next: SubmenuStyles = {};
+      if (typeMenuOpen && typeSubmenuAnchorRef.current && typeSubmenuRef.current) {
+        next.type = computeViewportAwareSubmenuStyle(
+          typeSubmenuAnchorRef.current,
+          typeSubmenuRef.current,
+          320,
+        );
+      }
+      if (presetOpen && presetSubmenuAnchorRef.current && presetSubmenuRef.current) {
+        next.preset = computeViewportAwareSubmenuStyle(
+          presetSubmenuAnchorRef.current,
+          presetSubmenuRef.current,
+          256,
+        );
+      }
+      if (
+        textColorOpen &&
+        textColorSubmenuAnchorRef.current &&
+        textColorSubmenuRef.current
+      ) {
+        next.textColor = computeViewportAwareSubmenuStyle(
+          textColorSubmenuAnchorRef.current,
+          textColorSubmenuRef.current,
+          320,
+        );
+      }
+      if (bgOpen && bgSubmenuAnchorRef.current && bgSubmenuRef.current) {
+        next.background = computeViewportAwareSubmenuStyle(
+          bgSubmenuAnchorRef.current,
+          bgSubmenuRef.current,
+          320,
+        );
+      }
+      setSubmenuStyles(next);
+    };
+
+    const rafId = window.requestAnimationFrame(update);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [menuOpen, typeMenuOpen, presetOpen, textColorOpen, bgOpen]);
 
   // 팝업 열림 상태에서 단축키(삭제·복제)
   const deleteBlockRef = useRef<() => void>(() => {});
@@ -989,7 +1108,10 @@ export function BlockHandles({
                     다운로드
                   </button>
                 ) : shouldShowTypeChange ? (
-                  <div className="relative border-t border-zinc-200 dark:border-zinc-700">
+                  <div
+                    ref={typeSubmenuAnchorRef}
+                    className="relative border-t border-zinc-200 dark:border-zinc-700"
+                  >
                     <button
                       type="button"
                       onMouseEnter={() => setTypeMenuOpen(true)}
@@ -1004,7 +1126,9 @@ export function BlockHandles({
                     </button>
                     {typeMenuOpen && (
                       <div
-                        className="absolute left-full top-0 z-50 max-h-80 w-44 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        ref={typeSubmenuRef}
+                        className="absolute left-full top-0 z-50 w-44 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        style={submenuStyles.type}
                         onMouseEnter={() => setTypeMenuOpen(true)}
                         onMouseLeave={() => setTypeMenuOpen(false)}
                       >
@@ -1081,7 +1205,7 @@ export function BlockHandles({
 
                 {/* 콜아웃 프리셋 (콜아웃 블럭일 때만) */}
                 {isCallout && (
-                  <div className="relative">
+                  <div ref={presetSubmenuAnchorRef} className="relative">
                     <button
                       type="button"
                       onMouseEnter={() => setPresetOpen(true)}
@@ -1096,7 +1220,9 @@ export function BlockHandles({
                     </button>
                     {presetOpen && (
                       <div
-                        className="absolute left-full top-0 z-50 max-h-64 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        ref={presetSubmenuRef}
+                        className="absolute left-full top-0 z-50 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        style={submenuStyles.preset}
                         onMouseEnter={() => setPresetOpen(true)}
                         onMouseLeave={() => setPresetOpen(false)}
                       >
@@ -1124,7 +1250,7 @@ export function BlockHandles({
 
                 {/* 컬럼 레이아웃 컬러 변경 (컬럼 블록일 때만) */}
                 {isColumnLayout && (
-                  <div className="relative">
+                  <div ref={presetSubmenuAnchorRef} className="relative">
                     <button
                       type="button"
                       onMouseEnter={() => setPresetOpen(true)}
@@ -1139,7 +1265,9 @@ export function BlockHandles({
                     </button>
                     {presetOpen && (
                       <div
-                        className="absolute left-full top-0 z-50 max-h-64 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        ref={presetSubmenuRef}
+                        className="absolute left-full top-0 z-50 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        style={submenuStyles.preset}
                         onMouseEnter={() => setPresetOpen(true)}
                         onMouseLeave={() => setPresetOpen(false)}
                       >
@@ -1200,7 +1328,7 @@ export function BlockHandles({
 
                 {/* 텍스트 블록 배경색 */}
                 {isTextBlock && (
-                  <div className="relative">
+                  <div ref={textColorSubmenuAnchorRef} className="relative">
                     <button
                       type="button"
                       onMouseEnter={() => setTextColorOpen(true)}
@@ -1215,7 +1343,9 @@ export function BlockHandles({
                     </button>
                     {textColorOpen && (
                       <div
-                        className="absolute left-full top-0 z-50 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        ref={textColorSubmenuRef}
+                        className="absolute left-full top-0 z-50 w-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        style={submenuStyles.textColor}
                         onMouseEnter={() => setTextColorOpen(true)}
                         onMouseLeave={() => setTextColorOpen(false)}
                       >
@@ -1249,7 +1379,7 @@ export function BlockHandles({
 
                 {/* 텍스트 블록 배경색 */}
                 {isTextBlock && (
-                  <div className="relative">
+                  <div ref={bgSubmenuAnchorRef} className="relative">
                     <button
                       type="button"
                       onMouseEnter={() => setBgOpen(true)}
@@ -1264,7 +1394,9 @@ export function BlockHandles({
                     </button>
                     {bgOpen && (
                       <div
-                        className="absolute left-full top-0 z-50 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        ref={bgSubmenuRef}
+                        className="absolute left-full top-0 z-50 w-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                        style={submenuStyles.background}
                         onMouseEnter={() => setBgOpen(true)}
                         onMouseLeave={() => setBgOpen(false)}
                       >

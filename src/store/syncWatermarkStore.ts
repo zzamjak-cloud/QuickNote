@@ -1,7 +1,7 @@
 // 워크스페이스별 증분 동기화 워터마크.
 // 마지막으로 로컬에 성공 적용한 원격 항목의 최대 updatedAt(ISO)을 보관한다.
-// 온라인 복귀 등 재페치 경로에서 이 값을 updatedAfter 로 넘겨 변경분만 받는다.
-// 워크스페이스 "전환"은 좀비 prune 을 위해 항상 전체 페치를 쓰고, 그 결과로도 워터마크를 갱신한다.
+// 온라인 복귀·워크스페이스 전환 재페치 경로에서 이 값을 updatedAfter 로 넘겨 변경분만 받는다.
+// 전체 페치는 캐시가 없거나 워터마크가 없는 첫 기준선 생성/복구 경로로 제한한다.
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";

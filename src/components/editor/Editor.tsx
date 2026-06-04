@@ -28,13 +28,15 @@ type PasteUrlChoice = {
 };
 
 import { enqueuePageUpsertForSync, usePageStore } from "../../store/pageStore";
+import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { ensurePageContentLoaded } from "../../lib/sync/pageContentLoad";
 import { setPageContext } from "../../lib/tiptapExtensions/pageContext";
 import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { ImageUpload } from "./ImageUpload";
 import { ServerImagePicker } from "./ServerImagePicker";
 import { IconPickerPanel } from "../common/IconPicker";
-import { FileText, Database } from "lucide-react";
+import { FileText, Database, Loader2 } from "lucide-react";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { getEditorColumnClass } from "../../lib/editorLayout";
 import {
@@ -145,6 +147,12 @@ export function Editor({
   const page = usePageStore((s) =>
     effectivePageId ? s.pages[effectivePageId] : undefined,
   );
+  const pageContentMetaOnly = usePageContentLoadStore((s) =>
+    effectivePageId ? Boolean(s.metaOnlyByPageId[effectivePageId]) : false,
+  );
+  const pageContentLoading = usePageContentLoadStore((s) =>
+    effectivePageId ? Boolean(s.loadingByPageId[effectivePageId]) : false,
+  );
   const updateDoc = usePageStore((s) => s.updateDoc);
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
@@ -160,6 +168,7 @@ export function Editor({
   const pageDoc = page?.doc;
   const currentPageId = page?.id ?? null;
   const currentPageTitle = page?.title ?? "";
+  const pageContentMissing = page?.contentLoaded === false || pageContentMetaOnly;
   const isFullPageDatabase = useMemo(() => {
     return isFullPageDatabaseDoc(pageDoc);
   }, [pageDoc]);
@@ -210,6 +219,15 @@ export function Editor({
     if (bodyOnly || peek) return undefined;
     return bindPageScrollMemory(effectivePageId, editorScrollHostRef.current, "main");
   }, [bodyOnly, effectivePageId, peek]);
+
+  useEffect(() => {
+    if (!effectivePageId || !pageContentMissing) return;
+    void ensurePageContentLoaded({
+      pageId: effectivePageId,
+      workspaceId: page?.workspaceId,
+      source: peek ? "editor-peek" : bodyOnly ? "editor-body" : "editor-main",
+    });
+  }, [bodyOnly, effectivePageId, page?.workspaceId, pageContentMissing, peek]);
 
   const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(240);
   const editorTailSpacerPxRef = useRef(editorTailSpacerPx);
@@ -869,6 +887,17 @@ export function Editor({
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-zinc-400">
         페이지를 선택하거나 좌측 + 버튼으로 새 페이지를 만드세요.
+      </div>
+    );
+  }
+  if (pageContentMissing) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-white text-sm font-medium text-zinc-500 dark:bg-[#111111] dark:text-zinc-300">
+        <Loader2
+          size={16}
+          className={`mr-2 ${pageContentLoading ? "animate-spin" : ""}`}
+        />
+        페이지 불러오는 중
       </div>
     );
   }
