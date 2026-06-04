@@ -28,6 +28,10 @@
 | `src/store/navigationHistoryStore.ts` | 페이지 네비게이션 이력 |
 | `src/store/uiStore.ts` | 전역 UI 상태 |
 | `src/store/workspaceAccessCacheStore.ts` | 워크스페이스 접근 권한 캐시 |
+| `src/store/assetCacheStore.ts` | 자산 목록 세션 캐시(새로고침 전용 갱신) → [settings/assets.md](../settings/assets.md) |
+| `src/store/customIconStore.ts` | 워크스페이스 공유 커스텀 아이콘 캐시(메모리 전용, 구독 페이로드로 증분 반영) |
+| `src/store/syncWatermarkStore.ts` | 워크스페이스별 증분 동기화 워터마크(persist) → [sync/incremental-sync.md](../sync/incremental-sync.md) |
+| `src/store/databaseGroupCollapseStore.ts` | DB 그룹화 접힘 상태(로컬 전용) → [database/grouping.md](../database/grouping.md) |
 
 ## persist 적용 스토어
 `pageStore`, `databaseStore` — localStorage 키: `quicknote.pages.v1`, `quicknote.databases.v1`
