@@ -221,6 +221,20 @@ export function TabBar() {
           return (
             <div
               key={idx}
+              onMouseDown={(event) => {
+                // 가운데(휠) 클릭 시 브라우저 자동 스크롤이 시작되지 않도록 기본 동작 차단
+                if (event.button === 1) event.preventDefault();
+              }}
+              onAuxClick={(event) => {
+                // 마우스 가운데(휠) 클릭 → 탭 닫기 (X 버튼과 동일하게 탭이 2개 이상일 때만)
+                if (event.button !== 1) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (tabs.length > 1) {
+                  closeTab(idx);
+                  setTabMenu(null);
+                }
+              }}
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();

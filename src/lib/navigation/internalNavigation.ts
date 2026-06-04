@@ -1,5 +1,6 @@
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { buildQuickNotePageUrl } from "./quicknoteLinks";
 
 export type InternalNavigationClick = {
   ctrlKey?: boolean;
@@ -14,10 +15,31 @@ function pageExists(pageId: string): boolean {
   return Boolean(usePageStore.getState().pages[pageId]);
 }
 
+/**
+ * 현재 탭 내부 페이지 이동을 브라우저 히스토리에 기록한다.
+ * 이렇게 해야 브라우저 뒤로가기가 앱을 벗어나지 않고 이전 페이지로 돌아온다
+ * (popstate → App.tsx 의 applyLocationLink 가 URL 의 ?page 를 읽어 복원).
+ */
+function pushPageBrowserHistory(pageId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const current = new URLSearchParams(window.location.search).get("page");
+    if (current === pageId) return; // 같은 페이지면 중복 히스토리 엔트리 방지
+    window.history.pushState(
+      { qnPage: pageId },
+      "",
+      buildQuickNotePageUrl({ pageId }),
+    );
+  } catch {
+    /* noop */
+  }
+}
+
 export function openPageInCurrentTab(pageId: string): boolean {
   if (!pageExists(pageId)) return false;
   useSettingsStore.getState().setCurrentTabPage(pageId);
   usePageStore.getState().setActivePage(pageId);
+  pushPageBrowserHistory(pageId);
   return true;
 }
 

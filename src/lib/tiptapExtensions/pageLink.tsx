@@ -3,6 +3,7 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
+import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import {
   openPageInCurrentTab,
   openPageInNewTab,
@@ -29,6 +30,11 @@ function PageLinkView({ node }: NodeViewProps) {
           if (isInPeek && peekPageId) {
             peekNavigate(id);
           } else {
+            // 이동 전 현재 페이지를 뒤로가기 스택에 기록 → 헤더 '이전 페이지' 버튼.
+            const fromId = usePageStore.getState().activePageId;
+            if (fromId && fromId !== id) {
+              useNavigationHistoryStore.getState().pushBack(fromId, id);
+            }
             openPageInCurrentTab(id);
           }
         }}

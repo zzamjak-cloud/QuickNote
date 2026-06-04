@@ -16,11 +16,17 @@ import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore, selectFirstSidebarRootId } from "./store/pageStore";
 import { useDatabaseStore } from "./store/databaseStore";
 import { useUiStore } from "./store/uiStore";
+import { useNavigationHistoryStore } from "./store/navigationHistoryStore";
 import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
 import { zustandStorage } from "./lib/storage/index";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
-import { parseQuickNoteLink, type QuickNoteLinkTarget } from "./lib/navigation/quicknoteLinks";
+import { buildQuickNotePageUrl, parseQuickNoteLink, type QuickNoteLinkTarget } from "./lib/navigation/quicknoteLinks";
+import {
+  openPageInCurrentTab,
+  openPageInNewTab,
+  shouldOpenInternalLinkInNewTab,
+} from "./lib/navigation/internalNavigation";
 import { navigateToBlockLink } from "./lib/editor/editorNavigationBridge";
 import {
   bindPageScrollMemory,
@@ -146,19 +152,31 @@ function App() {
       if (!el) return;
       const rawId = el.getAttribute("data-id");
       if (!rawId) return;
-      // 멤버 멘션은 페이지 이동이 아니므로 그대로 PM 핸들러에 위임
-      if (rawId.startsWith("m:") || el.getAttribute("data-mention-kind") === "member") return;
+      const kind = el.getAttribute("data-mention-kind");
+      // 멤버·DB 멘션은 페이지 이동이 아니므로 PM 핸들러(프로필 팝업·안내 토스트)에 위임
+      if (rawId.startsWith("m:") || kind === "member") return;
+      if (rawId.startsWith("d:") || kind === "database") return;
       const id = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
       if (!id) return;
       e.preventDefault();
       e.stopPropagation();
+      // Ctrl/Cmd+클릭 → 새 탭에서 열기
+      if (shouldOpenInternalLinkInNewTab(e)) {
+        openPageInNewTab(id);
+        return;
+      }
       const inPeek = !!el.closest("[data-qn-peek-editor='true']");
       const peekActive = useUiStore.getState().peekPageId;
       if (inPeek && peekActive) {
         useUiStore.getState().peekNavigate(id);
       } else {
-        useSettingsStore.getState().setCurrentTabPage(id);
-        usePageStore.getState().setActivePage(id);
+        // 멘션으로 이동하기 전 현재 페이지를 뒤로가기 스택에 기록 → 헤더 '이전 페이지' 버튼.
+        const fromId = usePageStore.getState().activePageId;
+        if (fromId && fromId !== id) {
+          useNavigationHistoryStore.getState().pushBack(fromId, id);
+        }
+        // openPageInCurrentTab 이 브라우저 히스토리도 push 해 뒤로가기를 지원한다.
+        openPageInCurrentTab(id);
       }
     };
     document.addEventListener("click", onMentionClick, true);
@@ -218,6 +236,22 @@ function App() {
         unsubscribe?.();
         unsubscribe = undefined;
       }, 20000);
+    } else if (!initialTarget) {
+      // URL 에 ?page 가 없으면 현재 활성 페이지를 초기 히스토리 엔트리로 기록한다.
+      // 이후 내부 이동마다 pushState 가 쌓이므로 뒤로가기가 시작 페이지까지
+      // 앱 내부를 순회하고, 앱 자체를 벗어나지 않는다.
+      const activeId = usePageStore.getState().activePageId;
+      if (activeId) {
+        try {
+          window.history.replaceState(
+            { qnPage: activeId },
+            "",
+            buildQuickNotePageUrl({ pageId: activeId }),
+          );
+        } catch {
+          /* noop */
+        }
+      }
     }
 
     window.addEventListener("popstate", applyLocationLink);

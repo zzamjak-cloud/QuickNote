@@ -76,6 +76,7 @@ export function TopBar() {
   const popNavigationBack = useNavigationHistoryStore((s) => s.popBack);
   const clearNavigationBack = useNavigationHistoryStore((s) => s.clearBack);
   const backStack = useNavigationHistoryStore((s) => s.backStack);
+  const lastTargetPageId = useNavigationHistoryStore((s) => s.lastTargetPageId);
   const jumpToNavigation = useNavigationHistoryStore((s) => s.jumpTo);
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -153,9 +154,9 @@ export function TopBar() {
   const canGoBack =
     Boolean(activeId && parentId !== null && pages[parentId ?? ""]);
   const hasNavTrail = backStack.length > 1;
-  const showDatabasePreviousButton = Boolean(
-    !hasNavTrail && previousNavigationPageId && isFullPageDatabasePage(activePage),
-  );
+  // 멘션·링크·블록 링크·DB 전환 등으로 이전 페이지가 기록돼 있으면 "이전 페이지" 버튼을 노출
+  // (기존엔 DB 풀페이지에서만 노출했으나 일반 페이지 멘션/링크 이동도 지원).
+  const showPreviousButton = Boolean(!hasNavTrail && previousNavigationPageId);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -185,13 +186,22 @@ export function TopBar() {
     return () => window.removeEventListener("keydown", onKey);
   }, [activeId, showToast]);
   // 링크셀(dbLink/pageLink) 네비게이션 중에는 backStack > 1이므로 클리어하지 않음
-  // backStack === 1(기존 DB 인라인→풀페이지 전환)만 비-DB 페이지 이동 시 클리어
+  // backStack === 1(기존 DB 인라인→풀페이지 전환)만 비-DB 페이지 이동 시 클리어.
+  // 단, 멘션/링크로 "도착"한 페이지(lastTargetPageId)에 머무는 동안엔 유효한 백스택이므로 유지한다.
   useEffect(() => {
     if (!activeId || !activePage || !previousNavigationPageId) return;
     if (isFullPageDatabasePage(activePage)) return;
     if (backStack.length > 1) return;
+    if (activeId === lastTargetPageId) return;
     clearNavigationBack();
-  }, [activeId, activePage, backStack.length, clearNavigationBack, previousNavigationPageId]);
+  }, [
+    activeId,
+    activePage,
+    backStack.length,
+    clearNavigationBack,
+    previousNavigationPageId,
+    lastTargetPageId,
+  ]);
 
   const handleDuplicate = () => {
     if (!activeId) return;
@@ -281,7 +291,7 @@ export function TopBar() {
 
   return (
     <header className="relative z-[350] flex h-10 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
-      {showDatabasePreviousButton ? (
+      {showPreviousButton ? (
         <button
           type="button"
           onClick={handleNavigationBack}

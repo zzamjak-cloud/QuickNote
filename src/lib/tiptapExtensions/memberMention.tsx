@@ -10,11 +10,6 @@ import {
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
-import {
-  openPageInCurrentTab,
-  openPageInNewTab,
-  shouldOpenInternalLinkInNewTab,
-} from "../navigation/internalNavigation";
 
 /** 멘션 노드뷰 — 페이지 멘션의 경우 pageStore 를 구독해 페이지 제목 변경을 즉시 반영 */
 function MentionNodeView({ node }: NodeViewProps) {
@@ -73,27 +68,6 @@ function MentionNodeView({ node }: NodeViewProps) {
       </span>
     </NodeViewWrapper>
   );
-}
-
-function navigateToPage(
-  pageId: string,
-  anchor: HTMLElement | null,
-  event?: MouseEvent,
-): void {
-  if (!pageId) return;
-  if (event && shouldOpenInternalLinkInNewTab(event)) {
-    openPageInNewTab(pageId);
-    return;
-  }
-  // 사이드 피크 내부에서 클릭됐는지 검사 — DatabaseRowPeek 의 wrapper 에 data-qn-peek-editor="true".
-  // peek 안에서 mention 을 클릭했는데 메인 탭만 갱신하면 사용자는 "이동 안됨" 으로 인지한다.
-  const inPeek = !!anchor?.closest("[data-qn-peek-editor='true']");
-  const peekId = useUiStore.getState().peekPageId;
-  if (inPeek && peekId) {
-    useUiStore.getState().peekNavigate(pageId);
-    return;
-  }
-  openPageInCurrentTab(pageId);
 }
 
 let memberProfilePopup: HTMLDivElement | null = null;
@@ -211,85 +185,59 @@ const MemberMentionNode = Mention.extend({
   },
 
   addProseMirrorPlugins() {
+    // 멘션 mousedown 처리:
+    //  - 멤버 멘션 → 프로필 팝업, DB 멘션 → 안내 토스트 (여기서 처리)
+    //  - 페이지 멘션의 실제 이동(현재 탭/새 탭(Ctrl·Cmd)/사이드 피크)은
+    //    App.tsx 의 document 캡처 click 핸들러가 단일 경로로 담당한다.
+    //    여기서 또 이동하면 Ctrl+클릭 시 openPageInNewTab 이 두 번 실행돼
+    //    새 탭이 2개 열리므로, 페이지 멘션은 atom NodeSelection 만 막고 이동하지 않는다.
+    const handleMentionMouseDown = (event: MouseEvent): boolean => {
+      const target = event.target as HTMLElement;
+      const el = target.closest<HTMLElement>('[data-type="mention"][data-id]');
+      if (!el) return false;
+      const rawId = el.getAttribute("data-id");
+      if (!rawId) return false;
+      const kindAttr =
+        el.getAttribute("data-mention-kind") ??
+        (rawId.startsWith("p:")
+          ? "page"
+          : rawId.startsWith("d:")
+            ? "database"
+            : rawId.startsWith("m:")
+              ? "member"
+              : "page");
+
+      // 멤버 멘션 — 프로필 팝업만 표시
+      if (kindAttr === "member" || rawId.startsWith("m:")) {
+        event.preventDefault();
+        showMemberProfilePopup(
+          rawId.startsWith("m:") ? rawId.slice(2) : rawId,
+          el,
+        );
+        return true;
+      }
+
+      // 데이터베이스 멘션 — 안내 토스트
+      if (kindAttr === "database" || rawId.startsWith("d:")) {
+        event.preventDefault();
+        useUiStore.getState().showToast(
+          "데이터베이스는 왼쪽 사이드바 하단「데이터베이스 관리」에서 열 수 있습니다.",
+          { kind: "info" },
+        );
+        return true;
+      }
+
+      // 페이지 멘션 — 이동은 App.tsx 의 click 핸들러가 담당. 여기선 선택만 막는다.
+      event.preventDefault();
+      return true;
+    };
+
     return [
       new Plugin({
         props: {
           handleDOMEvents: {
             mousedown(_view, event) {
-              const target = event.target as HTMLElement;
-              const el = target.closest<HTMLElement>(
-                '[data-type="mention"][data-id]',
-              );
-              if (!el) return false;
-              const rawId = el.getAttribute("data-id");
-              if (!rawId) return false;
-              const kindAttr =
-                el.getAttribute("data-mention-kind") ??
-                (rawId.startsWith("p:")
-                  ? "page"
-                  : rawId.startsWith("d:")
-                    ? "database"
-                    : rawId.startsWith("m:")
-                      ? "member"
-                      : "page");
-              if (kindAttr === "member" || rawId.startsWith("m:")) {
-                event.preventDefault();
-                showMemberProfilePopup(rawId.startsWith("m:") ? rawId.slice(2) : rawId, el);
-                return true;
-              }
-              if (kindAttr === "page" || rawId.startsWith("p:")) {
-                event.preventDefault();
-                navigateToPage(rawId.startsWith("p:") ? rawId.slice(2) : rawId, el, event);
-                return true;
-              }
-              return false;
-            },
-            click(_view, event) {
-              const target = event.target as HTMLElement;
-              const el = target.closest<HTMLElement>(
-                '[data-type="mention"][data-id]',
-              );
-              if (!el) return false;
-              const rawId = el.getAttribute("data-id");
-              if (!rawId) return false;
-
-              event.preventDefault();
-
-              /** 멤버 멘션(m:)은 페이지 이동하지 않음 */
-              if (rawId.startsWith("m:")) {
-                showMemberProfilePopup(rawId.slice(2), el);
-                return true;
-              }
-
-              const kindAttr =
-                el.getAttribute("data-mention-kind") ??
-                (rawId.startsWith("p:")
-                  ? "page"
-                  : rawId.startsWith("d:")
-                    ? "database"
-                    : "member");
-
-              if (kindAttr === "page" || rawId.startsWith("p:")) {
-                const pageId = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
-                navigateToPage(pageId, el, event);
-                return true;
-              }
-
-              if (kindAttr === "database" || rawId.startsWith("d:")) {
-                useUiStore.getState().showToast(
-                  "데이터베이스는 왼쪽 사이드바 하단「데이터베이스 관리」에서 열 수 있습니다.",
-                  { kind: "info" },
-                );
-                return true;
-              }
-
-              const page = usePageStore.getState().pages[rawId];
-              if (page) {
-                navigateToPage(rawId, el, event);
-                return true;
-              }
-
-              return false;
+              return handleMentionMouseDown(event);
             },
           },
         },
