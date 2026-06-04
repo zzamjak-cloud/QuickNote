@@ -245,6 +245,8 @@ type CustomIcon {
   label: String!
   createdAt: AWSDateTime!
   createdByMemberId: ID
+  """삭제 이벤트 tombstone. deleteCustomIcon 이 채워 구독 수신측이 전체 재페치 없이 제거를 반영한다(#9)."""
+  deletedAt: AWSDateTime
 }
 
 input CustomIconInput {

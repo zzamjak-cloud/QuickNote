@@ -28,6 +28,8 @@ export type CustomIcon = {
   label: string;
   createdAt: string;
   createdByMemberId?: string | null;
+  /** 삭제 이벤트 tombstone. deleteCustomIcon 응답(=구독 페이로드)에만 채워진다(#9). */
+  deletedAt?: string | null;
 };
 
 export async function listCustomIcons(args: {
@@ -154,5 +156,7 @@ export async function deleteCustomIcon(args: {
   } catch (err) {
     console.error("[deleteCustomIcon] AssetUsage 제거 실패 (무시)", err);
   }
-  return item;
+  // 구독 수신측이 create/delete 를 구분할 수 있도록 tombstone 을 채워 반환한다(#9).
+  // 이 값이 있으면 클라이언트는 전체 재페치 없이 해당 아이콘만 캐시에서 제거한다.
+  return { ...item, deletedAt: new Date().toISOString() };
 }

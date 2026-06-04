@@ -3,6 +3,7 @@
 // 관계 테이블: quicknote-member-organizations (memberId PK, organizationId SK, byOrganization GSI)
 
 import {
+  BatchGetCommand,
   BatchWriteCommand,
   DeleteCommand,
   DynamoDBDocumentClient,
@@ -15,6 +16,42 @@ import {
 import { v4 as uuid } from "uuid";
 import { badRequest, notFound, requireRoleAtLeast, type Member } from "./_auth";
 import type { Tables } from "./member";
+
+// memberId 목록을 BatchGetCommand 로 일괄 조회한다.
+// - 100개씩 청크로 분할 (BatchGet 단일 요청 한계).
+// - throttle 등으로 UnprocessedKeys 가 반환되면 최대 5회까지 재시도(지수 백오프).
+// - 반환 순서는 보장하지 않으며(BatchGet 특성), 호출부에서 필터/정렬을 수행한다.
+async function batchGetMembersByIds(
+  doc: DynamoDBDocumentClient,
+  membersTableName: string,
+  ids: string[],
+): Promise<Member[]> {
+  if (ids.length === 0) return [];
+  const collected: Member[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    // 미처리 키 재시도 루프 — 처리할 키가 없을 때까지 반복(최대 5회).
+    let keys: Array<{ memberId: string }> = chunk.map((memberId) => ({ memberId }));
+    for (let attempt = 0; attempt < 5 && keys.length > 0; attempt++) {
+      if (attempt > 0) {
+        // 간단한 지수 백오프 (50ms, 100ms, 200ms ...)
+        await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+      }
+      const res = await doc.send(
+        new BatchGetCommand({
+          RequestItems: { [membersTableName]: { Keys: keys } },
+        }),
+      );
+      const items = (res.Responses?.[membersTableName] ?? []) as Member[];
+      collected.push(...items);
+      const unprocessed = res.UnprocessedKeys?.[membersTableName]?.Keys as
+        | Array<{ memberId: string }>
+        | undefined;
+      keys = unprocessed ?? [];
+    }
+  }
+  return collected;
+}
 
 export type Organization = {
   organizationId: string;
@@ -53,14 +90,9 @@ async function resolveOrgMembers(
   );
   const memberIds = (rel.Items ?? []).map((v) => v.memberId as string);
   if (memberIds.length === 0) return [];
-  const rows = await Promise.all(
-    memberIds.map((memberId) =>
-      doc.send(new GetCommand({ TableName: tables.Members, Key: { memberId } })),
-    ),
-  );
-  return rows
-    .map((r) => r.Item as Member | undefined)
-    .filter((m): m is Member => Boolean(m && m.status === "active"));
+  // N+1 GetItem 대신 BatchGetCommand 로 일괄 조회.
+  const rows = await batchGetMembersByIds(doc, tables.Members, memberIds);
+  return rows.filter((m): m is Member => Boolean(m && m.status === "active"));
 }
 
 export async function listOrganizations(args: {
@@ -90,11 +122,17 @@ export async function createOrganization(args: {
   if (!name) badRequest("조직 이름은 비어 있을 수 없음");
   // 동일 이름 중복 생성 방지 — trim + case-insensitive 비교.
   // 활성 조직이 있으면 그대로 반환, 보관(removedAt) 조직이 있으면 복원 후 반환.
+  // 전체 Scan 대신 byName GSI(파티션키 nameLower) Query 로 후보만 조회.
   const normalized = name.toLowerCase();
-  const scan = await args.doc.send(
-    new ScanCommand({ TableName: args.tables.Organizations! }),
+  const q = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tables.Organizations!,
+      IndexName: "byName",
+      KeyConditionExpression: "nameLower = :n",
+      ExpressionAttributeValues: { ":n": normalized },
+    }),
   );
-  const items = (scan.Items ?? []) as Array<{
+  const items = (q.Items ?? []) as Array<{
     organizationId: string;
     name: string;
     createdAt: string;
@@ -144,7 +182,8 @@ export async function createOrganization(args: {
   await args.doc.send(
     new PutCommand({
       TableName: args.tables.Organizations!,
-      Item: { organizationId, name, leaderMemberIds: [], createdAt: now },
+      // nameLower 는 byName GSI 파티션키 — 중복체크 Query 가 동작하려면 반드시 저장.
+      Item: { organizationId, name, nameLower: normalized, leaderMemberIds: [], createdAt: now },
       ConditionExpression: "attribute_not_exists(organizationId)",
     }),
   );
@@ -171,6 +210,9 @@ export async function updateOrganization(args: {
     sets.push("#n = :n");
     names["#n"] = "name";
     vals[":n"] = name;
+    // 이름 변경 시 byName GSI 색인 키도 함께 갱신.
+    sets.push("nameLower = :nl");
+    vals[":nl"] = name.toLowerCase();
   }
   if (Array.isArray(args.leaderMemberIds)) {
     sets.push("leaderMemberIds = :l");

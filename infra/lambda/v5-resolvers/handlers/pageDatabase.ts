@@ -896,6 +896,12 @@ async function softDeleteRecord(args: {
   id: string;
   workspaceId: string;
   updatedAt: string;
+  /**
+   * 지정 시 purgeAt(epoch seconds) 을 함께 기록한다(#1).
+   * Pages 테이블에는 TTL(purgeAt)이 설정돼 있어 이 시각이 지나면 DynamoDB 가 자동·무료로 영구삭제한다.
+   * (Databases 테이블에는 TTL 이 없으므로 전달하지 않는다.)
+   */
+  ttlSeconds?: number;
 }): Promise<Record<string, unknown>> {
   await requireWorkspaceAccess({
     doc: args.doc,
@@ -910,16 +916,20 @@ async function softDeleteRecord(args: {
   );
   if (!existing.Item) notFound("리소스 없음");
   const now = new Date().toISOString();
+  const setPurge = typeof args.ttlSeconds === "number" && Number.isFinite(args.ttlSeconds);
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: args.tableName,
       Key: { id: args.id },
-      UpdateExpression: "SET deletedAt = :d, updatedAt = :u",
+      UpdateExpression: setPurge
+        ? "SET deletedAt = :d, updatedAt = :u, purgeAt = :p"
+        : "SET deletedAt = :d, updatedAt = :u",
       ExpressionAttributeValues: {
         ":d": now,
         ":u": now,
         ":old": args.updatedAt,
         ":w": args.workspaceId,
+        ...(setPurge ? { ":p": args.ttlSeconds } : {}),
       },
       ConditionExpression: "workspaceId = :w AND (attribute_not_exists(updatedAt) OR updatedAt <= :old)",
       ReturnValues: "ALL_NEW",
@@ -937,7 +947,13 @@ export async function softDeletePage(args: {
   updatedAt: string;
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
-  const deleted = await softDeleteRecord({ ...args, tableName: args.tables.Pages });
+  // 휴지통 보관 만료 시각(epoch seconds)을 purgeAt 으로 기록 → DynamoDB TTL 자동 삭제(#1).
+  // trash-purge Lambda 의 일일 풀스캔/개별 DeleteCommand 를 대체한다.
+  const deleted = await softDeleteRecord({
+    ...args,
+    tableName: args.tables.Pages,
+    ttlSeconds: Math.floor((Date.now() + TRASH_RETENTION_MS) / 1000),
+  });
   try {
     await recordPageDeleteHistory({
       doc: args.doc,
@@ -1420,6 +1436,8 @@ export async function restorePage(args: {
   }
   const next: Record<string, unknown> = { ...item };
   delete next["deletedAt"];
+  // 복원 시 TTL 자동삭제 예약(purgeAt)을 반드시 제거한다 — 안 그러면 복원해도 만료시각에 삭제된다(#1).
+  delete next["purgeAt"];
   next["updatedAt"] = new Date().toISOString();
   await args.doc.send(
     new PutCommand({

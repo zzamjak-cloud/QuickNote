@@ -54,7 +54,12 @@ export class QuicknoteSyncStack extends cdk.Stack {
     );
 
     // 4개 owner-scoped 테이블을 팩토리로 생성.
-    this.pageTable = createSyncTable(this, "PageTable", "Page");
+    // Page 는 휴지통 만료 자동 삭제용 TTL 속성(purgeAt, epoch seconds)을 둔다(#1).
+    // soft delete 시 purgeAt = deletedAt + 30일 을 기록하고, 복원 시 제거한다.
+    // DynamoDB TTL 삭제는 WCU 과금이 없어 trash-purge 일일 풀스캔/삭제를 대체한다.
+    this.pageTable = createSyncTable(this, "PageTable", "Page", {
+      ttlAttribute: "purgeAt",
+    });
     this.databaseTable = createSyncTable(this, "DatabaseTable", "Database");
     this.commentTable = createSyncTable(this, "CommentTable", "Comment");
     this.imageAssetTable = createSyncTable(this, "ImageAssetTable", "ImageAsset", {
@@ -104,6 +109,18 @@ export class QuicknoteSyncStack extends cdk.Stack {
       nonKeyAttributes: ["authorMemberId", "workspaceId"],
     });
 
+    // image-gc 가 status(READY/PENDING) 별로 Query 하도록 GSI 추가(#2).
+    // 기존 image-gc 는 ImageAsset 전체를 FilterExpression 으로 풀스캔했다.
+    // PK=status, SK=createdAt → 상태별 + 생성시각 cutoff 조회를 인덱스만으로 처리.
+    // 삭제 판단에 필요한 key 만 INCLUDE(id 는 base PK 라 자동 포함).
+    this.imageAssetTable.table.addGlobalSecondaryIndex({
+      indexName: "byStatus",
+      partitionKey: { name: "status", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.INCLUDE,
+      nonKeyAttributes: ["key"],
+    });
+
     new cdk.CfnOutput(this, "PageTableName", { value: this.pageTable.table.tableName });
     new cdk.CfnOutput(this, "DatabaseTableName", { value: this.databaseTable.table.tableName });
     new cdk.CfnOutput(this, "CommentTableName", { value: this.commentTable.table.tableName });
@@ -150,6 +167,14 @@ export class QuicknoteSyncStack extends cdk.Stack {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    // 팀 생성 시 이름 중복체크를 전체 Scan 대신 Query 로 처리(#7).
+    // PK=nameLower(소문자 정규화 이름). createTeam/updateTeam 이 nameLower 를 함께 기록한다.
+    // 테이블이 작아 ALL 프로젝션의 쓰기 증폭은 무시할 수준.
+    teamsTable.addGlobalSecondaryIndex({
+      indexName: "byName",
+      partitionKey: { name: "nameLower", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
     });
 
     const memberTeamsTable = new dynamodb.Table(this, "MemberTeamsTable", {
@@ -207,6 +232,13 @@ export class QuicknoteSyncStack extends cdk.Stack {
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       encryption: DYNAMODB_TABLE_ENCRYPTION,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    // 조직 생성 시 이름 중복체크를 전체 Scan 대신 Query 로 처리(#7).
+    // PK=nameLower. createOrganization/updateOrganization 이 nameLower 를 함께 기록한다.
+    organizationsTable.addGlobalSecondaryIndex({
+      indexName: "byName",
+      partitionKey: { name: "nameLower", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
     });
 
     // 멤버-조직 관계 테이블 (memberId PK, organizationId SK, byOrganization GSI)
@@ -573,10 +605,9 @@ export function response(ctx) {
       },
     });
     this.pageTable.table.grantReadWriteData(trashPurgeFn);
-    new events.Rule(this, "TrashPurgeSchedule", {
-      schedule: events.Schedule.cron({ minute: "15", hour: "18" }),
-      targets: [new eventsTargets.LambdaFunction(trashPurgeFn)],
-    });
+    // #1 백필 완료 후 휴지통 영구삭제는 Pages 테이블 TTL(purgeAt)이 무료로 처리한다.
+    // 일일 풀스캔 EventBridge 스케줄(TrashPurgeSchedule)은 제거했다 — 매일 Pages 풀스캔 비용 제거.
+    // trashPurgeFn 자체는 필요 시 수동 invoke 할 수 있도록 남겨둔다(스케줄 없음 = 호출 없음 = 비용 없음).
     new cdk.CfnOutput(this, "TrashPurgeFunctionName", {
       value: trashPurgeFn.functionName,
     });

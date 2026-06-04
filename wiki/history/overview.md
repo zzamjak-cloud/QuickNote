@@ -43,6 +43,20 @@ DB 히스토리는 한 화면에서 두 탭으로 본다 (`DatabaseBlockHistoryD
 
 > **주의 — rowPageOrder**: 서버 Database 모델에 `rowPageOrder` 가 없다. 페이지에서 역추적해 재구성한다(`storeApply.ts` `collectRowPageIdsForDatabase` / `ensurePageInDatabaseRowOrder` / `removePageIdFromDatabaseRowOrder`).
 
+## 휴지통 영구삭제 — DynamoDB TTL (`purgeAt`)
+
+휴지통 30일 만료 영구삭제는 **Pages 테이블의 DynamoDB TTL** 이 처리한다(WCU 무과금). 기존의 `trash-purge` Lambda 일일 풀스캔은 제거됐다.
+
+- `softDeletePage` 가 `purgeAt = floor((Date.now() + 30일) / 1000)` (epoch **초**)를 기록 → 그 시각이 지나면 DynamoDB 가 자동 영구삭제(최대 48h 지연).
+- Pages 테이블 TTL 속성 = `purgeAt` (`createSyncTable(... { ttlAttribute: "purgeAt" })`).
+- `trashPurgeFn` Lambda 자체는 수동 invoke 용으로 남아 있으나, EventBridge 스케줄(`TrashPurgeSchedule`)은 제거됨.
+
+> **CRITICAL 회귀 주의 — purgeAt**
+> - `purgeAt` 은 반드시 epoch **초**(밀리초 아님). 잘못 넣으면 TTL 미동작 또는 즉시 삭제.
+> - **복원·upsert 경로는 `purgeAt` 을 제거해야 한다.** `restorePage` 는 `delete next["purgeAt"]`; `upsertPage` 의 blind Put 은 입력에 purgeAt 이 없으면 자연 제거된다. 안 지우면 복원해도 만료 시각에 삭제된다.
+> - Databases 테이블엔 TTL 이 없다(페이지만). `softDeleteRecord` 의 `ttlSeconds` 는 페이지 호출에서만 전달.
+> - 배포·기존 휴지통 백필 절차: [infra/cost-optimization-deploy.md](../infra/cost-optimization-deploy.md) #1 + `infra/scripts/backfill-purge-at.ts`.
+
 ## 핵심 파일
 
 | 파일 | 역할 |

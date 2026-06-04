@@ -5,6 +5,7 @@ import {
   ScanCommand,
   TransactWriteCommand,
   UpdateCommand,
+  BatchGetCommand,
   BatchWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
@@ -221,17 +222,9 @@ export async function listMembers(args: {
     );
     const ids = (r.Items ?? []).map((i) => i["memberId"] as string);
     if (ids.length === 0) return [];
-    // 단순화: 각 id 별 GetItem (작은 조직 가정). 큰 조직은 BatchGetItem 필요.
-    const results = await Promise.all(
-      ids.map((id) =>
-        args.doc.send(
-          new GetCommand({ TableName: args.tables.Members, Key: { memberId: id } }),
-        ),
-      ),
-    );
-    return (results.map((res) => res.Item as Member | undefined).filter(Boolean) as Member[]).filter(
-      (m) => passesFilter(m, args.filter),
-    );
+    // N+1 GetItem 대신 BatchGetCommand 로 일괄 조회 (큰 조직 대응).
+    const results = await batchGetMembersByIds(args.doc, args.tables.Members, ids);
+    return results.filter((m) => passesFilter(m, args.filter));
   }
 
   // 전체 Scan (소규모 조직 가정. 향후 페이지네이션/검색은 OpenSearch).
@@ -259,6 +252,42 @@ export async function getMember(args: {
     new GetCommand({ TableName: args.tables.Members, Key: { memberId: args.memberId } }),
   );
   return (r.Item as Member | undefined) ?? null;
+}
+
+// memberId 목록을 BatchGetCommand 로 일괄 조회한다.
+// - 100개씩 청크로 분할 (BatchGet 단일 요청 한계).
+// - throttle 등으로 UnprocessedKeys 가 반환되면 최대 5회까지 재시도(지수 백오프).
+// - 반환 순서는 보장하지 않으며(BatchGet 특성), 호출부에서 필터/정렬을 수행한다.
+async function batchGetMembersByIds(
+  doc: DynamoDBDocumentClient,
+  membersTableName: string,
+  ids: string[],
+): Promise<Member[]> {
+  if (ids.length === 0) return [];
+  const collected: Member[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    // 미처리 키 재시도 루프 — 처리할 키가 없을 때까지 반복(최대 5회).
+    let keys: Array<{ memberId: string }> = chunk.map((memberId) => ({ memberId }));
+    for (let attempt = 0; attempt < 5 && keys.length > 0; attempt++) {
+      if (attempt > 0) {
+        // 간단한 지수 백오프 (50ms, 100ms, 200ms ...)
+        await new Promise((r) => setTimeout(r, 50 * 2 ** attempt));
+      }
+      const res = await doc.send(
+        new BatchGetCommand({
+          RequestItems: { [membersTableName]: { Keys: keys } },
+        }),
+      );
+      const items = (res.Responses?.[membersTableName] ?? []) as Member[];
+      collected.push(...items);
+      const unprocessed = res.UnprocessedKeys?.[membersTableName]?.Keys as
+        | Array<{ memberId: string }>
+        | undefined;
+      keys = unprocessed ?? [];
+    }
+  }
+  return collected;
 }
 
 // 내부 helper: memberId 로 Member 직접 조회 (권한 검사 없음)

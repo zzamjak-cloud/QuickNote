@@ -2,6 +2,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   ScanCommand,
+  QueryCommand,
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
@@ -21,18 +22,18 @@ const PAGE_TABLE = requireEnv("PAGE_TABLE");
 const IMAGE_ASSET_TABLE = requireEnv("IMAGE_ASSET_TABLE");
 const IMAGES_BUCKET = requireEnv("IMAGES_BUCKET");
 const GRACE_DAYS = 30;
-const PENDING_GRACE_DAYS = 1;
 const UNTRACKED_S3_GRACE_DAYS = 2;
 const SCHEMES = ["quicknote-image://", "quicknote-file://"];
 
 export async function handler() {
   const reachable = await collectReachableImageIds();
   const orphans = await findReadyOrphans(reachable);
-  const stalePending = await findStalePending();
+  // 오래된 PENDING 항목은 ImageAsset 테이블의 expireAt TTL 이 자동·무료로 정리한다(#2).
+  // TTL 은 DDB row 만 지우므로, 남은 S3 객체는 아래 untracked-S3 sweep 이 회수한다.
   const knownKeys = await collectKnownAssetKeys();
   const untrackedS3Keys = await findUntrackedS3Keys(knownKeys);
   let deleted = 0;
-  for (const item of [...orphans, ...stalePending]) {
+  for (const item of orphans) {
     try {
       await deleteAsset(item);
       deleted += 1;
@@ -51,7 +52,6 @@ export async function handler() {
   return {
     reachable: reachable.size,
     readyOrphans: orphans.length,
-    stalePending: stalePending.length,
     untrackedS3: untrackedS3Keys.length,
     deleted,
   };
@@ -96,54 +96,32 @@ function collectFromValue(value: unknown, out: Set<string>): void {
 async function findReadyOrphans(
   reachable: Set<string>,
 ): Promise<{ id: string; key: string }[]> {
-  const cutoff = Date.now() - GRACE_DAYS * 24 * 60 * 60 * 1000;
+  // 생성 후 GRACE_DAYS 이상 지난 READY 항목만 byStatus GSI 로 Query(#2).
+  // 기존 전체 Scan + FilterExpression 대비 READY·오래된 항목만 읽어 RCU 절감.
+  // GSI: PK=status, SK=createdAt, INCLUDE=[key]. id 는 base PK 라 자동 포함.
+  const cutoffIso = new Date(Date.now() - GRACE_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const orphans: { id: string; key: string }[] = [];
   let nextToken: Record<string, unknown> | undefined;
   do {
     const r = await ddb.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName: IMAGE_ASSET_TABLE,
-        FilterExpression: "#s = :ready",
+        IndexName: "byStatus",
+        KeyConditionExpression: "#s = :ready AND createdAt < :cutoff",
         ExpressionAttributeNames: { "#s": "status" },
-        ExpressionAttributeValues: { ":ready": "READY" },
+        ExpressionAttributeValues: { ":ready": "READY", ":cutoff": cutoffIso },
         ExclusiveStartKey: nextToken,
       }),
     );
     for (const it of r.Items ?? []) {
       if (reachable.has(it.id as string)) continue;
-      const created = Date.parse(it.createdAt as string);
-      if (created < cutoff && typeof it.key === "string") {
-        orphans.push({ id: it.id as string, key: it.key as string });
+      if (typeof it.key === "string") {
+        orphans.push({ id: it.id as string, key: it.key });
       }
     }
     nextToken = r.LastEvaluatedKey;
   } while (nextToken);
   return orphans;
-}
-
-async function findStalePending(): Promise<{ id: string; key: string }[]> {
-  const cutoff = Date.now() - PENDING_GRACE_DAYS * 24 * 60 * 60 * 1000;
-  const stale: { id: string; key: string }[] = [];
-  let nextToken: Record<string, unknown> | undefined;
-  do {
-    const r = await ddb.send(
-      new ScanCommand({
-        TableName: IMAGE_ASSET_TABLE,
-        FilterExpression: "#s = :pending",
-        ExpressionAttributeNames: { "#s": "status" },
-        ExpressionAttributeValues: { ":pending": "PENDING" },
-        ExclusiveStartKey: nextToken,
-      }),
-    );
-    for (const it of r.Items ?? []) {
-      const created = Date.parse(it.createdAt as string);
-      if (created < cutoff && typeof it.key === "string") {
-        stale.push({ id: it.id as string, key: it.key });
-      }
-    }
-    nextToken = r.LastEvaluatedKey;
-  } while (nextToken);
-  return stale;
 }
 
 async function collectKnownAssetKeys(): Promise<Set<string>> {
