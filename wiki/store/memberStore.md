@@ -56,3 +56,10 @@
 - `src/lib/tiptapExtensions/mention/` — 멘션 후보 검색 및 표시
 - `src/store/pageStore/helpers.ts` — `getCurrentMemberId()`, `getCreatedByMemberId()` 에서 참조
 - `src/lib/sync/storeApply.ts` — 원격 멤버 변경 이벤트 적용
+
+## CRITICAL 회귀 주의 — 멘션/검색은 캐시 전용
+
+멤버 정보는 설정팝업 변경 시 즉시 이 캐시에 반영되므로(`AdminMembersTab` 의 `upsertMember`, 단일 `getWorkspaceMeta` API), **멘션·인물셀 자동완성은 로컬 캐시(`filterWorkspaceMembersForMention`)만으로 처리한다. 키 입력마다 서버를 호출하지 말 것.**
+- `src/components/database/cells/PersonCell.tsx` — 로컬 필터만. 이전엔 키 입력마다 `searchMembersForMentionApi`(AppSync→Lambda→Members Scan) 를 쳐 비용이 컸다.
+- `src/lib/comments/mentionItems.ts` — `isMemberCacheFresh()`(멤버 캐시 비어있지 않고 `WORKSPACE_META` TTL 내)면 원격 검색 생략. 원격은 캐시가 비었거나 만료됐을 때만 fallback.
+- 검색 기능(`src/lib/search/`)은 원래부터 완전 로컬 인덱스 — 서버 호출 없음. 페이지/DB 멘션 후보도 `usePageStore`/`useDatabaseStore` 로컬.

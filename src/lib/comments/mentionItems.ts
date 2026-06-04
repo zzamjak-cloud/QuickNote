@@ -3,6 +3,17 @@ import { searchMembersForMentionApi } from "../sync/memberApi";
 import { useMemberStore } from "../../store/memberStore";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { CACHE_TTL, isCacheFresh } from "../cache/ttl";
+
+/**
+ * 멤버 로컬 캐시가 신선한지 판단한다.
+ * 캐시가 비었거나(최초 로드 전) TTL 이 만료된 경우에만 원격 멤버 검색을 fallback 으로 허용한다.
+ * 평상시(워크스페이스 메타 캐시가 따뜻한 상태)에는 멘션 후보를 캐시만으로 처리한다.
+ */
+function isMemberCacheFresh(): boolean {
+  const state = useMemberStore.getState();
+  return state.members.length > 0 && isCacheFresh(state.lastFetchedAt, CACHE_TTL.WORKSPACE_META);
+}
 
 /** TipTap Mention 삽입 attrs용 — label 필수 */
 export type MentionListItem = {
@@ -79,7 +90,9 @@ export async function loadMergedMentionItems(
   for (const m of localMemberItems) {
     mergedMembers.set(m.id, m);
   }
-  if (includeRemoteMembers) {
+  // 캐시가 신선하면 원격 검색을 생략한다 — 멤버 변경은 설정팝업에서 즉시 캐시에 반영되므로
+  // 캐시만으로 충분하고, 키 입력마다 AppSync/Lambda 를 호출할 필요가 없다.
+  if (includeRemoteMembers && !isMemberCacheFresh()) {
     let remoteMembers: Awaited<ReturnType<typeof searchMembersForMentionApi>> = [];
     try {
       remoteMembers = await searchMembersForMentionApi(query, 14);

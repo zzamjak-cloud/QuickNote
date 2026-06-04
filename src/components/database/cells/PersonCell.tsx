@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CellValue } from "../../../types/database";
-import { searchMembersForMentionApi } from "../../../lib/sync/memberApi";
+import { filterWorkspaceMembersForMention } from "../../../lib/comments/filterMembersForMention";
 import { normalizePersonValue, personChipColor } from "./utils";
 import { useMemberStore } from "../../../store/memberStore";
 import { AnchoredPanelBase } from "../../../lib/ui-primitives";
@@ -28,18 +28,13 @@ export function PersonCell({
   const [chipFocusIdx, setChipFocusIdx] = useState(-1);
 
   useEffect(() => {
-    let cancelled = false;
     if (!open) return;
-    void (async () => {
-      const query = draft.startsWith("@") ? draft.slice(1) : draft;
-      const found = await searchMembersForMentionApi(query, 8);
-      if (!cancelled) {
-        setItems(found);
-        setActiveIdx(0);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [open, draft]);
+    // 멤버 정보는 설정팝업 변경 시 즉시 로컬 캐시(useMemberStore)에 반영되므로
+    // 자동완성은 캐시만으로 처리한다. 키 입력마다 서버를 호출하지 않는다.
+    const query = draft.startsWith("@") ? draft.slice(1) : draft;
+    setItems(filterWorkspaceMembersForMention(query, 8));
+    setActiveIdx(0);
+  }, [open, draft, members]);
 
   const memberNameById = new Map(members.map((member) => [member.memberId, member.name]));
   const chipLabel = (raw: string) => memberNameById.get(raw) ?? raw;
