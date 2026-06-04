@@ -37,11 +37,21 @@ const FAVORITE_NAV_TIMEOUT_MS = 6000;
 async function resolveFavoritePageMeta(
   pageId: string,
   workspaces: readonly WorkspaceSummary[],
+  preferWorkspaceId?: string | null,
 ): Promise<FavoritePageMeta | null> {
   const cached = await resolveFavoritePageMetaFromWorkspaceSnapshots(pageId, workspaces);
   if (cached) return cached;
 
-  for (const workspace of workspaces) {
+  // 현재 워크스페이스를 먼저 조회해 흔한 경우를 1회 페치로 끝낸다(#4).
+  // (이전: 전 워크스페이스를 순서대로 풀페치 → 페이지가 마지막 워크스페이스에 있으면 전부 페치)
+  const ordered = preferWorkspaceId
+    ? [
+        ...workspaces.filter((w) => w.workspaceId === preferWorkspaceId),
+        ...workspaces.filter((w) => w.workspaceId !== preferWorkspaceId),
+      ]
+    : workspaces;
+
+  for (const workspace of ordered) {
     try {
       const pages = await fetchPagesByWorkspace(workspace.workspaceId);
       const page = pages.find((candidate) => candidate.id === pageId && !candidate.deletedAt);
@@ -106,7 +116,7 @@ function FavoriteRow({ pageId }: { pageId: string }) {
           void (async () => {
             let targetMeta = snapshotMeta;
             if (!targetMeta && !pageMeta) {
-              targetMeta = await resolveFavoritePageMeta(pageId, workspaces);
+              targetMeta = await resolveFavoritePageMeta(pageId, workspaces, currentWorkspaceId);
               if (targetMeta) {
                 updateFavoritePageMeta(pageId, targetMeta);
               }
@@ -208,7 +218,7 @@ export function FavoritesList() {
           continue;
         }
         if (favoritePageMetaById[pageId]?.workspaceId) continue;
-        const meta = await resolveFavoritePageMeta(pageId, workspaces);
+        const meta = await resolveFavoritePageMeta(pageId, workspaces, currentWorkspaceId);
         if (!cancelled && meta) updateFavoritePageMeta(pageId, meta);
       }
     })();

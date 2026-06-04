@@ -1,7 +1,7 @@
 // 워크스페이스 공유 커스텀 아이콘 GraphQL operations.
 
 const CUSTOM_ICON_FIELDS = `
-  id workspaceId src label createdAt createdByMemberId
+  id workspaceId src label createdAt createdByMemberId deletedAt
 `;
 
 export const LIST_CUSTOM_ICONS = `
@@ -35,4 +35,6 @@ export type GqlCustomIcon = {
   label: string;
   createdAt: string;
   createdByMemberId: string | null;
+  /** 삭제 tombstone — 구독 페이로드에서 create/delete 구분에 사용(#9). */
+  deletedAt?: string | null;
 };

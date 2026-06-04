@@ -15,6 +15,7 @@ import {
   clearWorkspaceScopedStores,
   refreshWorkspaceSnapshot,
 } from "./workspaceSwitch";
+import { useSyncWatermarkStore } from "../../store/syncWatermarkStore";
 
 type FetchApplyWorkspaceSnapshotOptions = {
   workspaceId: string;
@@ -25,7 +26,28 @@ type FetchApplyWorkspaceSnapshotOptions = {
   refreshSnapshotAfterApply?: boolean;
   useBatchedUpdates?: boolean;
   logPrefix?: string;
+  /**
+   * 지정 시 "증분 모드": 이 시각 이후 변경분만 페치하고 좀비 prune 을 건너뛴다.
+   * (부분 스냅샷으로 prune 하면 변경되지 않은 항목이 모두 삭제되므로 절대 prune 하지 않는다.)
+   * 워크스페이스 전환처럼 prune 이 필요한 경로는 이 값을 비워 전체 모드로 호출해야 한다.
+   */
+  updatedAfter?: string;
 };
+
+/** 항목 배열들에서 최대 updatedAt(ISO) 을 구한다. 없으면 undefined. */
+function maxUpdatedAt(
+  ...lists: Array<Array<{ updatedAt?: string | null } | null> | null>
+): string | undefined {
+  let max: string | undefined;
+  for (const list of lists) {
+    if (!list) continue;
+    for (const item of list) {
+      const u = item?.updatedAt;
+      if (typeof u === "string" && (!max || u > max)) max = u;
+    }
+  }
+  return max;
+}
 
 function logFetchFailure(domainLabel: string, reason: unknown, logPrefix?: string): void {
   const prefix = logPrefix ? `${logPrefix} — ` : "";
@@ -42,13 +64,15 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
   refreshSnapshotAfterApply = false,
   useBatchedUpdates = false,
   logPrefix,
+  updatedAfter,
 }: FetchApplyWorkspaceSnapshotOptions): Promise<void> {
+  const isDelta = Boolean(updatedAfter);
   const engine = await getSyncEngine();
   const [[pagesResult, dbsResult, commentsResult], pendingIds] = await Promise.all([
     Promise.allSettled([
-      fetchPagesByWorkspace(workspaceId),
-      fetchDatabasesByWorkspace(workspaceId),
-      fetchCommentsByWorkspace(workspaceId),
+      fetchPagesByWorkspace(workspaceId, updatedAfter),
+      fetchDatabasesByWorkspace(workspaceId, updatedAfter),
+      fetchCommentsByWorkspace(workspaceId, updatedAfter),
     ]),
     engine.getPendingUpsertEntityIds(),
   ]);
@@ -81,18 +105,19 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
   if (dbs) for (const database of dbs) if (database?.id) remoteDatabaseIds.add(database.id);
 
   const apply = () => {
-    if (clearWorkspaceBeforeApply) {
+    if (clearWorkspaceBeforeApply && !isDelta) {
       clearWorkspaceScopedStores(workspaceId);
     }
-    if (clearBlockCommentsBeforeApply) {
+    if (clearBlockCommentsBeforeApply && !isDelta) {
       useBlockCommentStore.getState().clearMessages();
     }
     if (pages) applyRemotePagesToStore(pages);
     if (dbs) applyRemoteDatabasesToStore(dbs);
     if (comments) applyRemoteCommentsToStore(comments);
-    // pages + dbs 모두 성공한 경우에만 좀비 정리 실행한다.
-    // 부분 실패 시 빈 집합을 전달하면 유효 캐시까지 삭제될 수 있다.
-    if (pages && dbs) {
+    // 좀비 정리(prune)는 전체 스냅샷에서만 안전하다. 증분 모드에서는 부분 결과만 오므로
+    // prune 하면 변경되지 않은 멀쩡한 항목까지 삭제된다 → 절대 prune 하지 않는다.
+    // 또한 pages + dbs 모두 성공한 경우에만 실행한다(부분 실패 시 유효 캐시 삭제 방지).
+    if (!isDelta && pages && dbs) {
       reconcileWorkspaceFullSnapshot({
         workspaceId,
         remotePageIds,
@@ -113,5 +138,12 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
     unstable_batchedUpdates(apply);
   } else {
     apply();
+  }
+
+  // 모든 도메인이 성공한 경우에만 워터마크를 전진시킨다.
+  // (한 도메인이라도 실패하면 그 도메인의 미수신 변경분을 다음 증분에서 놓치지 않도록 보류.)
+  if (failedDomains.length === 0) {
+    const mx = maxUpdatedAt(pages, dbs, comments);
+    if (mx) useSyncWatermarkStore.getState().advance(workspaceId, mx);
   }
 }

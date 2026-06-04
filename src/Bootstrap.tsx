@@ -21,6 +21,8 @@ import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspace
 import { fetchApplyWorkspaceRemoteSnapshot } from "./lib/sync/workspaceSnapshotBootstrap";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useCustomIconStore } from "./store/customIconStore";
+import { useSyncWatermarkStore } from "./store/syncWatermarkStore";
+import { useSchedulerViewStore } from "./store/schedulerViewStore";
 import { usePageStore } from "./store/pageStore";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
@@ -151,7 +153,6 @@ function useSyncBootstrap(): void {
     startedForRef.current = startedKey;
 
     let unsub: (() => void) | undefined;
-    let unsubLcScheduler: (() => void) | undefined;
     let cancelled = false;
     let workspaceLoadingTimer: number | null = null;
     const setWorkspaceLoading = useUiStore.getState().setWorkspaceLoading;
@@ -272,25 +273,8 @@ function useSyncBootstrap(): void {
               });
           },
         });
-        // LC 스케줄러는 공용 워크스페이스이므로 항상 별도 구독을 유지한다.
-        if (currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
-          unsubLcScheduler = startSubscriptions(LC_SCHEDULER_WORKSPACE_ID, {
-            onPage: (p) => {
-              const isSchedulerPage = isLCSchedulerDatabaseId(
-                p.databaseId ?? usePageStore.getState().pages[p.id]?.databaseId ?? null,
-              );
-              applyRemotePageToStore(p);
-              if (isSchedulerPage) {
-                refreshSchedulerPage(p.id);
-              }
-            },
-            onDatabase: (d) => {
-              applyRemoteDatabaseToStore(d);
-            },
-            onComment: applyRemoteCommentToStore,
-            onProject: applySchedulerProject,
-          });
-        }
+        // LC 스케줄러 구독은 스케줄러 팝업이 열려 있을 때만 유지한다(#8 — 아래 별도 effect).
+        // 닫혀 있는 동안의 변경분은 모달 진입 시 fetchSchedules/refreshWorkspaceMeta(증분)로 보정된다.
 
         const engine = await getSyncEngine();
         await engine.flush();
@@ -328,7 +312,6 @@ function useSyncBootstrap(): void {
       }
       try {
         unsub?.();
-        unsubLcScheduler?.();
       } catch (err) {
         console.error("[sync] unsubscribe failed", err);
       }
@@ -356,7 +339,8 @@ function useSyncBootstrap(): void {
   }, [authStatus, authSub]);
 
   // 워크스페이스 공유 커스텀 아이콘 구독 — 다른 사용자의 추가/삭제를 실시간 반영.
-  // 이벤트가 도착할 때마다 list 전체를 재페치해 단순·정확한 동기화.
+  // 최초 1회만 list 를 페치하고, 이후 변경은 구독 페이로드를 직접 캐시에 반영한다(#9).
+  // (이전: 이벤트마다 list 전체 재페치 → AppSync 쿼리 + Lambda 호출 반복)
   useEffect(() => {
     if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) return;
     const wsId = currentWorkspaceId;
@@ -366,8 +350,9 @@ function useSyncBootstrap(): void {
       const { subscribeCustomIcons } = await import("./lib/sync/customIconApi");
       sub = subscribeCustomIcons(
         wsId,
-        () => {
-          void useCustomIconStore.getState().fetch(wsId);
+        (icon) => {
+          // deletedAt tombstone 이 있으면 삭제, 없으면 추가/갱신 — 페이로드만으로 동기화.
+          useCustomIconStore.getState().applyServerEvent(icon, Boolean(icon.deletedAt));
         },
         () => {
           /* error 는 console.warn 만 — 재시도는 다음 fetch 트리거에서. */
@@ -382,6 +367,48 @@ function useSyncBootstrap(): void {
       }
     };
   }, [authStatus, authSub, currentWorkspaceId]);
+
+  // LC 스케줄러 구독은 스케줄러 팝업이 열려 있을 때만 유지한다(#8).
+  // 공용 워크스페이스라 상시 구독하면 미사용 세션에서도 AppSync WebSocket 연결 시간이 과금된다.
+  // 닫혀 있는 동안의 변경분은 모달 진입 시 fetchSchedules·refreshWorkspaceMeta(증분)로 보정된다.
+  const schedulerOpen = useSchedulerViewStore((s) => s.schedulerOpen);
+  useEffect(() => {
+    if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) return;
+    if (!schedulerOpen) return;
+    // 현재 워크스페이스가 이미 LC 스케줄러면 메인 구독이 커버하므로 중복 구독하지 않는다.
+    if (currentWorkspaceId === LC_SCHEDULER_WORKSPACE_ID) return;
+    const refreshSchedulerPage = (pageId: string) => {
+      useSchedulerStore
+        .getState()
+        .refreshSchedulePageFromLocal(pageId, LC_SCHEDULER_WORKSPACE_ID);
+    };
+    const applySchedulerProject = (project: GqlProject) => {
+      if (project.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
+        useSchedulerProjectsStore.getState().applyRemote(project);
+      }
+    };
+    const unsubLc = startSubscriptions(LC_SCHEDULER_WORKSPACE_ID, {
+      onPage: (p) => {
+        const isSchedulerPage = isLCSchedulerDatabaseId(
+          p.databaseId ?? usePageStore.getState().pages[p.id]?.databaseId ?? null,
+        );
+        applyRemotePageToStore(p);
+        if (isSchedulerPage) refreshSchedulerPage(p.id);
+      },
+      onDatabase: (d) => {
+        applyRemoteDatabaseToStore(d);
+      },
+      onComment: applyRemoteCommentToStore,
+      onProject: applySchedulerProject,
+    });
+    return () => {
+      try {
+        unsubLc();
+      } catch (err) {
+        console.error("[sync] LC scheduler unsubscribe failed", err);
+      }
+    };
+  }, [authStatus, authSub, currentWorkspaceId, schedulerOpen]);
 
   // 온라인 복귀 시 원격 데이터 재페치 + outbox flush.
   // 오프라인 동안 다른 클라이언트가 만든 변경을 즉시 반영하고
@@ -398,18 +425,26 @@ function useSyncBootstrap(): void {
           /* ignore */
         }
         try {
-          const fetchApply = async (): Promise<void> => {
+          // reconcile 에 넘기는 fetchApply 는 캐시 클리어 후 재호출될 수 있으므로 반드시 "전체 모드".
+          const fetchApplyFull = async (): Promise<void> => {
             await fetchApplyWorkspaceRemoteSnapshot({
               workspaceId: wsId,
               logPrefix: "온라인 복귀",
             });
           };
-          await fetchApply();
+          // 1차 페치는 증분 모드(#3): 워터마크 이후 변경분만 받아 비용 절감.
+          // 워터마크가 없으면(첫 동기화) updatedAfter=undefined → 자동으로 전체 페치 + prune.
+          const watermark = useSyncWatermarkStore.getState().getWatermark(wsId);
+          await fetchApplyWorkspaceRemoteSnapshot({
+            workspaceId: wsId,
+            updatedAfter: watermark,
+            logPrefix: watermark ? "온라인 복귀(증분)" : "온라인 복귀",
+          });
           const engine = await getSyncEngine();
           await engine.flush();
           await reconcileWorkspaceCacheAfterFlush({
             currentWorkspaceId: wsId,
-            fetchApply,
+            fetchApply: fetchApplyFull,
           });
         } catch (err) {
           console.error("[sync] online refetch failed", err);
