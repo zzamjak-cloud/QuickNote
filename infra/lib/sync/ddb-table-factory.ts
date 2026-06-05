@@ -14,10 +14,10 @@ export function createSyncTable(
   scope: Construct,
   id: string,
   modelName: SyncModelName,
-  opts: { ttlAttribute?: string } = {},
+  opts: { ttlAttribute?: string; envPrefix?: string } = {},
 ): ModelTable {
   const table = new dynamodb.Table(scope, id, {
-    tableName: `quicknote-${modelName.toLowerCase()}`,
+    tableName: `${opts.envPrefix ?? ""}quicknote-${modelName.toLowerCase()}`,
     partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
     billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
     pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },

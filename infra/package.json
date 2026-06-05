@@ -13,6 +13,8 @@
     "cdk": "cdk",
     "diff": "cdk diff",
     "deploy": "cdk deploy --all --outputs-file cdk-outputs.json",
+    "deploy:live": "cdk deploy --all --outputs-file cdk-outputs.json",
+    "deploy:dev": "DEPLOY_ENV=dev cdk deploy --all --require-approval never --outputs-file cdk-outputs.dev.json",
     "diff:gsi-meta": "cdk diff QuicknoteSyncStack -c pageTableGsiDeployStage=meta",
     "deploy:gsi-meta": "cdk deploy QuicknoteSyncStack -c pageTableGsiDeployStage=meta --outputs-file cdk-outputs.json",
     "diff:gsi-all": "cdk diff QuicknoteSyncStack -c pageTableGsiDeployStage=all",
