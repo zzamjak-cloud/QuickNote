@@ -5,8 +5,10 @@ import {
   refreshWorkspaceSnapshot,
   workspaceCacheNeedsPrepaintClear,
   workspaceHasPageContentCache,
+  workspaceHasStructureCache,
 } from "../../lib/sync/workspaceSwitch";
 import { usePageStore } from "../../store/pageStore";
+import { usePageMetaRemoteStore } from "../../store/pageMetaRemoteStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
@@ -44,6 +46,7 @@ const setSnapshot = runtimeMock.__setSnapshot;
 beforeEach(() => {
   localStorage.clear();
   usePageStore.setState({ pages: {}, activePageId: null, cacheWorkspaceId: null });
+  usePageMetaRemoteStore.setState({ nextTokenByWorkspaceId: {}, loadingByWorkspaceId: {} });
   useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
   useSettingsStore.setState({ tabs: [{ pageId: null }], activeTabIndex: 0 });
   useBlockCommentStore.setState({ messages: [] });
@@ -434,5 +437,131 @@ describe("applyWorkspaceSwitch", () => {
     });
 
     expect(workspaceHasPageContentCache("ws-1")).toBe(false);
+  });
+
+  it("메타 baseline placeholder(contentLoaded=false)는 페이지 콘텐츠 캐시로 보지 않는다", () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      pages: {
+        "meta-only": {
+          id: "meta-only",
+          workspaceId: "ws-1",
+          title: "메타만 있음",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          contentLoaded: false,
+        },
+      },
+    });
+
+    expect(workspaceHasPageContentCache("ws-1")).toBe(false);
+  });
+
+  it("구버전 빈 placeholder(contentLoaded 누락)는 페이지 콘텐츠 캐시로 보지 않는다", () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      pages: {
+        "legacy-empty": {
+          id: "legacy-empty",
+          workspaceId: "ws-1",
+          title: "본문 플래그 누락",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      },
+    });
+
+    expect(workspaceHasPageContentCache("ws-1")).toBe(false);
+  });
+
+  it("본문이 로드된 단일 페이지는 워크스페이스 구조 캐시로 보지 않는다", () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      pages: {
+        "loaded-page": {
+          id: "loaded-page",
+          workspaceId: "ws-1",
+          title: "본문 있음",
+          icon: null,
+          doc: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "본문" }],
+              },
+            ],
+          },
+          parentId: null,
+          order: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          contentLoaded: true,
+        },
+      },
+    });
+
+    expect(workspaceHasPageContentCache("ws-1")).toBe(true);
+    expect(workspaceHasStructureCache("ws-1")).toBe(false);
+  });
+
+  it("page meta 배치가 남아 있으면 워크스페이스 구조 캐시로 보지 않는다", () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      pages: {
+        "meta-page": {
+          id: "meta-page",
+          workspaceId: "ws-1",
+          title: "메타",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          contentLoaded: false,
+        },
+      },
+    });
+    usePageMetaRemoteStore.setState({
+      nextTokenByWorkspaceId: { "ws-1": "next-token" },
+      loadingByWorkspaceId: {},
+    });
+
+    expect(workspaceHasStructureCache("ws-1")).toBe(false);
+  });
+
+  it("page meta 배치가 완료되면 워크스페이스 구조 캐시로 본다", () => {
+    usePageStore.setState({
+      cacheWorkspaceId: "ws-1",
+      pages: {
+        "meta-page": {
+          id: "meta-page",
+          workspaceId: "ws-1",
+          title: "메타",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          contentLoaded: false,
+        },
+      },
+    });
+    usePageMetaRemoteStore.setState({
+      nextTokenByWorkspaceId: { "ws-1": null },
+      loadingByWorkspaceId: {},
+    });
+
+    expect(workspaceHasStructureCache("ws-1")).toBe(true);
   });
 });

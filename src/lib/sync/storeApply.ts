@@ -67,6 +67,35 @@ function resolveNextCacheWorkspaceId(
   return remoteWorkspaceId === LC_SCHEDULER_WORKSPACE_ID ? current : remoteWorkspaceId;
 }
 
+function dbSyncDevLog(event: string, payload: Record<string, unknown>): void {
+  if (!import.meta.env.DEV) return;
+  console.info(`[QN_DB_SYNC] ${event}`, payload);
+}
+
+function summarizePagesForDbSyncLog(
+  pages: Array<{ id?: string | null; databaseId?: string | null; deletedAt?: string | null }>,
+) {
+  const databaseCounts = new Map<string, number>();
+  let deleted = 0;
+  let withDatabase = 0;
+  for (const page of pages) {
+    if (page?.deletedAt) deleted += 1;
+    const databaseId = page?.databaseId;
+    if (!databaseId) continue;
+    withDatabase += 1;
+    databaseCounts.set(databaseId, (databaseCounts.get(databaseId) ?? 0) + 1);
+  }
+  return {
+    total: pages.length,
+    deleted,
+    withDatabase,
+    databaseCounts: Array.from(databaseCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([databaseId, count]) => ({ databaseId, count })),
+  };
+}
+
 import {
   isoToMs,
   parseAwsJson,
@@ -326,10 +355,21 @@ export function applyRemotePagesToStore(
   remotePages: Array<GqlPage | null | undefined>,
 ): void {
   if (remotePages.length === 0) return;
+  const nonNullRemotePages = remotePages.filter(
+    (remotePage): remotePage is GqlPage => Boolean(remotePage),
+  );
   const pages = remotePages
     .filter((remotePage): remotePage is GqlPage => Boolean(remotePage))
     .map(normalizeLCSchedulerPageWorkspace)
     .filter((p) => shouldApplyRemoteSnapshot(p.workspaceId));
+  dbSyncDevLog("pages-apply-start", {
+    remoteCount: remotePages.length,
+    nonNullRemoteCount: nonNullRemotePages.length,
+    appliedCount: pages.length,
+    ignoredByWorkspaceCount: nonNullRemotePages.length - pages.length,
+    incomingSummary: summarizePagesForDbSyncLog(nonNullRemotePages),
+    appliedSummary: summarizePagesForDbSyncLog(pages),
+  });
   if (pages.length === 0) return;
 
   const affectedDatabaseIds = new Set<string>();
@@ -405,6 +445,14 @@ export function applyRemotePagesToStore(
   });
 
   reconcileDatabaseRowOrders(affectedDatabaseIds);
+  dbSyncDevLog("pages-apply-done", {
+    affectedDatabaseIds: Array.from(affectedDatabaseIds),
+    affectedRowCounts: Array.from(affectedDatabaseIds).map((databaseId) => ({
+      databaseId,
+      rowPageOrderCount:
+        useDatabaseStore.getState().databases[databaseId]?.rowPageOrder.length ?? null,
+    })),
+  });
   usePageContentLoadStore.getState().markLoaded(pages.map((page) => page.id));
 }
 
@@ -412,13 +460,25 @@ export function applyRemotePageMetasToStore(
   remotePageMetas: Array<GqlPageMeta | null | undefined>,
 ): void {
   if (remotePageMetas.length === 0) return;
+  const nonNullPageMetas = remotePageMetas.filter(
+    (remotePage): remotePage is GqlPageMeta => Boolean(remotePage),
+  );
   const pageMetas = remotePageMetas
     .filter((remotePage): remotePage is GqlPageMeta => Boolean(remotePage))
     .filter((p) => shouldApplyRemoteSnapshot(p.workspaceId));
+  dbSyncDevLog("page-metas-apply-start", {
+    remoteCount: remotePageMetas.length,
+    nonNullRemoteCount: nonNullPageMetas.length,
+    appliedCount: pageMetas.length,
+    ignoredByWorkspaceCount: nonNullPageMetas.length - pageMetas.length,
+    incomingSummary: summarizePagesForDbSyncLog(nonNullPageMetas),
+    appliedSummary: summarizePagesForDbSyncLog(pageMetas),
+  });
   if (pageMetas.length === 0) return;
 
   const metaOnlyIds: string[] = [];
   const loadedIds: string[] = [];
+  const affectedDatabaseIds = new Set<string>();
 
   usePageStore.setState((s) => {
     let nextPages = s.pages;
@@ -434,6 +494,8 @@ export function applyRemotePageMetasToStore(
     for (const p of pageMetas) {
       nextCacheWorkspaceId = resolveNextCacheWorkspaceId(nextCacheWorkspaceId, p.workspaceId);
       const local = nextPages[p.id];
+      if (local?.databaseId) affectedDatabaseIds.add(local.databaseId);
+      if (p.databaseId) affectedDatabaseIds.add(p.databaseId);
       if (p.deletedAt) {
         loadedIds.push(p.id);
         if (!local) continue;
@@ -467,6 +529,17 @@ export function applyRemotePageMetasToStore(
     };
   });
 
+  reconcileDatabaseRowOrders(affectedDatabaseIds);
+  dbSyncDevLog("page-metas-apply-done", {
+    affectedDatabaseIds: Array.from(affectedDatabaseIds),
+    affectedRowCounts: Array.from(affectedDatabaseIds).map((databaseId) => ({
+      databaseId,
+      rowPageOrderCount:
+        useDatabaseStore.getState().databases[databaseId]?.rowPageOrder.length ?? null,
+    })),
+    metaOnlyIds: metaOnlyIds.slice(0, 20),
+    loadedIds: loadedIds.slice(0, 20),
+  });
   if (loadedIds.length > 0) usePageContentLoadStore.getState().markLoaded(loadedIds);
   if (metaOnlyIds.length > 0) usePageContentLoadStore.getState().markMetaOnly(metaOnlyIds);
 }
@@ -798,6 +871,7 @@ export function applyRemoteDatabasesToStore(
   remoteDatabases: Array<GqlDatabase | null | undefined>,
 ): void {
   if (remoteDatabases.length === 0) return;
+  const nonNullRemoteDatabaseCount = remoteDatabases.filter(Boolean).length;
   const normalizedDatabases: GqlDatabase[] = [];
   const legacyDeleteIds = new Set<string>();
   const candidateDatabaseIds = new Set<string>();
@@ -848,10 +922,20 @@ export function applyRemoteDatabasesToStore(
     if (!normalizedDatabase.deletedAt) candidateDatabaseIds.add(normalizedDatabase.id);
   }
 
+  dbSyncDevLog("databases-normalized", {
+    remoteCount: remoteDatabases.length,
+    nonNullRemoteCount: nonNullRemoteDatabaseCount,
+    normalizedCount: normalizedDatabases.length,
+    ignoredOrLegacyCount: nonNullRemoteDatabaseCount - normalizedDatabases.length,
+    legacyDeleteIds: Array.from(legacyDeleteIds),
+    candidateDatabaseIds: Array.from(candidateDatabaseIds),
+  });
+
   if (normalizedDatabases.length === 0 && legacyDeleteIds.size === 0) return;
 
   const derivedByDbId = collectRowPageIdsForDatabases(candidateDatabaseIds);
   const repairedBundles: DatabaseBundle[] = [];
+  const databaseDebugRows: Array<Record<string, unknown>> = [];
 
   useDatabaseStore.setState((s) => {
     let databases = s.databases;
@@ -866,6 +950,7 @@ export function applyRemoteDatabasesToStore(
       if (!databases[id]) continue;
       ensureDatabasesCopy();
       delete databases[id];
+      databaseDebugRows.push({ databaseId: id, action: "legacy-delete" });
       changed = true;
     }
 
@@ -873,25 +958,62 @@ export function applyRemoteDatabasesToStore(
       nextCacheWorkspaceId = resolveNextCacheWorkspaceId(nextCacheWorkspaceId, db.workspaceId);
 
       if (db.deletedAt) {
-        if (isProtectedDatabaseId(db.id)) continue;
-        if (!databases[db.id]) continue;
+        if (isProtectedDatabaseId(db.id)) {
+          databaseDebugRows.push({ databaseId: db.id, action: "delete-skip-protected" });
+          continue;
+        }
+        if (!databases[db.id]) {
+          databaseDebugRows.push({ databaseId: db.id, action: "delete-skip-missing-local" });
+          continue;
+        }
         ensureDatabasesCopy();
         delete databases[db.id];
+        databaseDebugRows.push({ databaseId: db.id, action: "delete" });
         changed = true;
         continue;
       }
 
       const schema = parseRemoteDatabaseSchema(db);
-      if (!schema) continue;
+      if (!schema) {
+        databaseDebugRows.push({ databaseId: db.id, action: "schema-invalid" });
+        continue;
+      }
       const local = databases[db.id];
       if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) {
-        if (db.id === LC_SCHEDULER_DATABASE_ID) {
-          const nextPanelState = mergeRemoteSchedulerMemberOrder(local.panelState, schema.panelState);
-          if (nextPanelState !== local.panelState) {
-            ensureDatabasesCopy();
-            databases[db.id] = { ...local, panelState: nextPanelState };
-            changed = true;
-          }
+        const derived = derivedByDbId.get(db.id) ?? [];
+        const rowPageOrder = mergeRowPageOrderWithDerived(local.rowPageOrder, derived);
+        const nextPanelState =
+          db.id === LC_SCHEDULER_DATABASE_ID
+            ? mergeRemoteSchedulerMemberOrder(local.panelState, schema.panelState)
+            : local.panelState;
+        if (
+          !stringArrayEqual(local.rowPageOrder, rowPageOrder) ||
+          nextPanelState !== local.panelState
+        ) {
+          ensureDatabasesCopy();
+          databases[db.id] = { ...local, panelState: nextPanelState, rowPageOrder };
+          changed = true;
+          databaseDebugRows.push({
+            databaseId: db.id,
+            workspaceId: db.workspaceId,
+            action: "stale-repair",
+            localUpdatedAt: local.meta.updatedAt,
+            remoteUpdatedAt: db.updatedAt,
+            localRowCount: local.rowPageOrder.length,
+            derivedRowCount: derived.length,
+            nextRowCount: rowPageOrder.length,
+            panelStateChanged: nextPanelState !== local.panelState,
+          });
+        } else {
+          databaseDebugRows.push({
+            databaseId: db.id,
+            workspaceId: db.workspaceId,
+            action: "stale-skip",
+            localUpdatedAt: local.meta.updatedAt,
+            remoteUpdatedAt: db.updatedAt,
+            localRowCount: local.rowPageOrder.length,
+            derivedRowCount: derived.length,
+          });
         }
         continue;
       }
@@ -919,6 +1041,16 @@ export function applyRemoteDatabasesToStore(
       ensureDatabasesCopy();
       databases[db.id] = bundle;
       repairedBundles.push(bundle);
+      databaseDebugRows.push({
+        databaseId: db.id,
+        workspaceId: db.workspaceId,
+        action: local ? "upsert-newer" : "upsert-new-local",
+        localUpdatedAt: local?.meta.updatedAt ?? null,
+        remoteUpdatedAt: db.updatedAt,
+        localRowCount: local?.rowPageOrder.length ?? null,
+        derivedRowCount: derivedRowOrder.length,
+        nextRowCount: rowPageOrder.length,
+      });
       changed = true;
     }
 
@@ -933,6 +1065,16 @@ export function applyRemoteDatabasesToStore(
   for (const bundle of repairedBundles) {
     repairDbHistoryBaselineIfNeeded(bundle.meta.id, structuredClone(bundle));
   }
+  dbSyncDevLog("databases-apply", {
+    remoteCount: remoteDatabases.length,
+    normalizedCount: normalizedDatabases.length,
+    candidateDatabaseIds: Array.from(candidateDatabaseIds),
+    derivedRowCounts: Array.from(derivedByDbId.entries()).map(([databaseId, rows]) => ({
+      databaseId,
+      count: rows.length,
+    })),
+    actions: databaseDebugRows.slice(0, 40),
+  });
 }
 
 /**

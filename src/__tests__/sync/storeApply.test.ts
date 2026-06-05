@@ -172,6 +172,47 @@ describe("storeApply 워크스페이스 가드", () => {
     ]);
   });
 
+  it("페이지 메타 적용 시 로컬 DB rowPageOrder 가 비어 있으면 databaseId 행 페이지로 복구한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    applyRemoteDatabaseToStore(gqlDb("ws-a", "db-1"));
+    const row = gqlPageMeta("ws-a", "row-1");
+    row.databaseId = "db-1";
+
+    applyRemotePageMetasToStore([row]);
+
+    expect(useDatabaseStore.getState().databases["db-1"]?.rowPageOrder).toEqual([
+      "row-1",
+    ]);
+  });
+
+  it("DB batch 적용이 최신/동일 DB를 건너뛰어도 rowPageOrder 는 복구한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    const iso = "2026-01-01T00:00:00.000Z";
+    const ms = Date.parse(iso);
+    const row = gqlPage("ws-a", "row-1");
+    row.databaseId = "db-1";
+    applyRemotePageToStore(row);
+    useDatabaseStore.setState({
+      databases: {
+        "db-1": {
+          meta: { id: "db-1", workspaceId: "ws-a", title: "D", createdAt: ms, updatedAt: ms },
+          columns: [],
+          rowPageOrder: [],
+        },
+      },
+      cacheWorkspaceId: "ws-a",
+    });
+    const remote = gqlDb("ws-a", "db-1");
+    remote.createdAt = iso;
+    remote.updatedAt = iso;
+
+    applyRemoteDatabasesToStore([remote]);
+
+    expect(useDatabaseStore.getState().databases["db-1"]?.rowPageOrder).toEqual([
+      "row-1",
+    ]);
+  });
+
   it("원격 DB 최초 적용 시 로컬 히스토리가 비어 있으면 db.create 베이스라인을 남긴다", () => {
     useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
     applyRemoteDatabaseToStore(gqlDb("ws-a", "db-seed"));

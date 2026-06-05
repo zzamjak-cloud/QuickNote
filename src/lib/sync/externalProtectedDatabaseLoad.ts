@@ -83,6 +83,13 @@ type EnsureExternalProtectedDatabaseLoadedArgs = {
   source?: string;
 };
 
+type DatabaseRowLoadTarget = {
+  resolvedDatabaseId: string;
+  workspaceId: string;
+  scope: DatabaseRowScope;
+  protectedDatabase: boolean;
+};
+
 const inFlightByDatabaseId = new Map<string, Promise<boolean>>();
 const inFlightMoreByDatabaseId = new Map<string, Promise<boolean>>();
 const completedLoadDatabaseIds = new Set<string>();
@@ -95,21 +102,47 @@ export function resolveExternalProtectedDatabaseId(databaseId: string | null | u
   return databaseId ?? null;
 }
 
-export function protectedDatabaseRowsAreCached(databaseId: string | null | undefined): boolean {
-  const resolvedDatabaseId = resolveExternalProtectedDatabaseId(databaseId);
+function resolveDatabaseRowLoadTarget(
+  databaseId: string | null | undefined,
+  currentWorkspaceId: string | null,
+): DatabaseRowLoadTarget | null {
+  if (!databaseId) return null;
+  const protectedDatabaseId = resolveExternalProtectedDatabaseId(databaseId);
+  if (protectedDatabaseId) {
+    return {
+      resolvedDatabaseId: protectedDatabaseId,
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      scope: resolveCurrentDatabaseRowScope(),
+      protectedDatabase: true,
+    };
+  }
+  if (!currentWorkspaceId) return null;
+  return {
+    resolvedDatabaseId: databaseId,
+    workspaceId: currentWorkspaceId,
+    scope: {},
+    protectedDatabase: false,
+  };
+}
+
+export function databaseRowsAreCached(databaseId: string | null | undefined): boolean {
+  const resolvedDatabaseId = resolveExternalProtectedDatabaseId(databaseId) ?? databaseId;
   if (!resolvedDatabaseId) return false;
   const bundle = useDatabaseStore.getState().databases[resolvedDatabaseId];
   if (!bundle || bundle.rowPageOrder.length === 0) return false;
   const pages = usePageStore.getState().pages;
-  // 메타 baseline 은 row 를 dbCells 없이(contentLoaded=false) 적재한다.
-  // 페이지 존재만으로 "캐시 완료"로 보면 셀이 빈 row 가 표시되므로, 콘텐츠 적재까지 요구한다.
   return bundle.rowPageOrder.every((pageId) => {
     const page = pages[pageId];
     return Boolean(page) && page!.contentLoaded !== false;
   });
 }
 
-function protectedDatabaseBundleIsEmpty(databaseId: string): boolean {
+export function protectedDatabaseRowsAreCached(databaseId: string | null | undefined): boolean {
+  if (!resolveExternalProtectedDatabaseId(databaseId)) return false;
+  return databaseRowsAreCached(databaseId);
+}
+
+function databaseBundleIsEmpty(databaseId: string): boolean {
   const bundle = useDatabaseStore.getState().databases[databaseId];
   return Boolean(bundle && bundle.rowPageOrder.length === 0);
 }
@@ -145,7 +178,9 @@ function isSchemaUnavailableError(error: unknown): boolean {
 async function loadLegacyFullProtectedDatabaseSnapshot(args: {
   databaseId: string;
   resolvedDatabaseId: string;
-  currentWorkspaceId: string;
+  currentWorkspaceId: string | null;
+  workspaceId: string;
+  protectedDatabase: boolean;
   cancelled?: () => boolean;
   source: string;
 }): Promise<boolean> {
@@ -153,11 +188,13 @@ async function loadLegacyFullProtectedDatabaseSnapshot(args: {
     databaseId: args.databaseId,
     resolvedDatabaseId: args.resolvedDatabaseId,
     currentWorkspaceId: args.currentWorkspaceId,
+    workspaceId: args.workspaceId,
+    protectedDatabase: args.protectedDatabase,
     source: args.source,
   });
   const [pages, databases] = await Promise.all([
-    fetchPagesByWorkspace(LC_SCHEDULER_WORKSPACE_ID),
-    fetchDatabasesByWorkspace(LC_SCHEDULER_WORKSPACE_ID),
+    fetchPagesByWorkspace(args.workspaceId),
+    fetchDatabasesByWorkspace(args.workspaceId),
   ]);
   if (args.cancelled?.()) return false;
   const database = databases.find((item) => item.id === args.resolvedDatabaseId);
@@ -165,12 +202,14 @@ async function loadLegacyFullProtectedDatabaseSnapshot(args: {
   applyRemotePagesToStore(pages);
   applyRemoteDatabasesToStore([database]);
   useDatabaseRowRemoteStore.getState().setNextToken(args.resolvedDatabaseId, null);
-  refreshWorkspaceSnapshot(LC_SCHEDULER_WORKSPACE_ID);
-  const resolved = protectedDatabaseRowsAreCached(args.resolvedDatabaseId);
+  refreshWorkspaceSnapshot(args.workspaceId);
+  const resolved = databaseRowsAreCached(args.resolvedDatabaseId);
   devLog("legacy-full-fallback-applied", {
     databaseId: args.databaseId,
     resolvedDatabaseId: args.resolvedDatabaseId,
     currentWorkspaceId: args.currentWorkspaceId,
+    workspaceId: args.workspaceId,
+    protectedDatabase: args.protectedDatabase,
     rowCount: pages.filter((page) => page.databaseId === args.resolvedDatabaseId).length,
     resolved,
     source: args.source,
@@ -185,35 +224,51 @@ export async function ensureExternalProtectedDatabaseLoaded({
   rowLimit = DEFAULT_ROW_BATCH_LIMIT,
   source = "unknown",
 }: EnsureExternalProtectedDatabaseLoadedArgs): Promise<boolean> {
-  const resolvedDatabaseId = resolveExternalProtectedDatabaseId(databaseId);
-  if (!resolvedDatabaseId) return false;
-  // 홈 워크스페이스(LC 스케줄러) 내부에서도 로드한다 — 메타 baseline 은 row 콘텐츠(dbCells)를
-  // 내려받지 않으므로, 워크스페이스 스냅샷에 의존하지 않고 listDatabaseRows 로 직접 적재한다.
-  if (!currentWorkspaceId) return false;
+  return ensureDatabaseRowsLoaded({
+    databaseId,
+    currentWorkspaceId,
+    cancelled,
+    rowLimit,
+    source,
+  });
+}
 
-  const scope = resolveCurrentDatabaseRowScope();
+export async function ensureDatabaseRowsLoaded({
+  databaseId,
+  currentWorkspaceId,
+  cancelled,
+  rowLimit = DEFAULT_ROW_BATCH_LIMIT,
+  source = "unknown",
+}: EnsureExternalProtectedDatabaseLoadedArgs): Promise<boolean> {
+  const target = resolveDatabaseRowLoadTarget(databaseId, currentWorkspaceId);
+  if (!target) return false;
+  const { resolvedDatabaseId, workspaceId, scope, protectedDatabase } = target;
   const scoped = hasScope(scope);
   const loadKey = compositeKey(resolvedDatabaseId, scope);
 
   // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
   // scope 지정 시 캐시 완료 판정이 과복잡하므로 "scope 1회 로드"(session 가드)로 단순화해 무한로드를 막는다.
-  if (!scoped && protectedDatabaseRowsAreCached(resolvedDatabaseId)) {
+  if (!scoped && databaseRowsAreCached(resolvedDatabaseId)) {
     devLog("skip", {
       databaseId,
       resolvedDatabaseId,
       scope: scopeKey(scope),
       currentWorkspaceId,
+      workspaceId,
+      protectedDatabase,
       reason: "local-cache-complete",
       source,
     });
     return false;
   }
-  if (completedLoadDatabaseIds.has(loadKey) && (scoped || protectedDatabaseBundleIsEmpty(resolvedDatabaseId))) {
+  if (completedLoadDatabaseIds.has(loadKey) && (scoped || databaseBundleIsEmpty(resolvedDatabaseId))) {
     devLog("skip", {
       databaseId,
       resolvedDatabaseId,
       scope: scopeKey(scope),
       currentWorkspaceId,
+      workspaceId,
+      protectedDatabase,
       reason: "session-load-complete",
       source,
     });
@@ -229,14 +284,15 @@ export async function ensureExternalProtectedDatabaseLoaded({
       resolvedDatabaseId,
       scope: scopeKey(scope),
       currentWorkspaceId,
-      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      workspaceId,
+      protectedDatabase,
       rowLimit,
       source,
     });
     const [database, rows] = await Promise.all([
-      fetchDatabaseById(LC_SCHEDULER_WORKSPACE_ID, resolvedDatabaseId),
+      fetchDatabaseById(workspaceId, resolvedDatabaseId),
       fetchDatabaseRowsBatch({
-        workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+        workspaceId,
         databaseId: resolvedDatabaseId,
         ...scope,
         limit: rowLimit,
@@ -249,6 +305,8 @@ export async function ensureExternalProtectedDatabaseLoaded({
         resolvedDatabaseId,
         scope: scopeKey(scope),
         currentWorkspaceId,
+        workspaceId,
+        protectedDatabase,
         source,
       });
       return false;
@@ -257,15 +315,17 @@ export async function ensureExternalProtectedDatabaseLoaded({
     applyRemotePagesToStore(rows.items);
     applyRemoteDatabasesToStore([database]);
     useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
-    refreshWorkspaceSnapshot(LC_SCHEDULER_WORKSPACE_ID);
+    refreshWorkspaceSnapshot(workspaceId);
 
-    const resolved = scoped ? true : protectedDatabaseRowsAreCached(resolvedDatabaseId);
+    const resolved = scoped ? true : databaseRowsAreCached(resolvedDatabaseId);
     completedLoadDatabaseIds.add(loadKey);
     devLog("load-applied", {
       databaseId,
       resolvedDatabaseId,
       scope: scopeKey(scope),
       currentWorkspaceId,
+      workspaceId,
+      protectedDatabase,
       rowCount: rows.items.length,
       nextTokenAvailable: Boolean(rows.nextToken),
       resolved,
@@ -278,6 +338,8 @@ export async function ensureExternalProtectedDatabaseLoaded({
         databaseId,
         resolvedDatabaseId,
         currentWorkspaceId,
+        workspaceId,
+        protectedDatabase,
         cancelled,
         source,
       });
@@ -287,6 +349,8 @@ export async function ensureExternalProtectedDatabaseLoaded({
       resolvedDatabaseId,
       scope: scopeKey(scope),
       currentWorkspaceId,
+      workspaceId,
+      protectedDatabase,
       source,
       error,
     });
@@ -305,10 +369,18 @@ export async function loadMoreExternalProtectedDatabaseRows(args: {
   rowLimit?: number;
   source?: string;
 }): Promise<boolean> {
-  const resolvedDatabaseId = resolveExternalProtectedDatabaseId(args.databaseId);
-  if (!resolvedDatabaseId) return false;
-  if (!args.currentWorkspaceId) return false;
-  const scope = resolveCurrentDatabaseRowScope();
+  return loadMoreDatabaseRows(args);
+}
+
+export async function loadMoreDatabaseRows(args: {
+  databaseId: string;
+  currentWorkspaceId: string | null;
+  rowLimit?: number;
+  source?: string;
+}): Promise<boolean> {
+  const target = resolveDatabaseRowLoadTarget(args.databaseId, args.currentWorkspaceId);
+  if (!target) return false;
+  const { resolvedDatabaseId, workspaceId, scope, protectedDatabase } = target;
   const loadKey = compositeKey(resolvedDatabaseId, scope);
   const store = useDatabaseRowRemoteStore.getState();
   const nextToken = store.nextTokenByDatabaseId[loadKey];
@@ -324,11 +396,13 @@ export async function loadMoreExternalProtectedDatabaseRows(args: {
       resolvedDatabaseId,
       scope: scopeKey(scope),
       currentWorkspaceId: args.currentWorkspaceId,
+      workspaceId,
+      protectedDatabase,
       rowLimit,
       source: args.source ?? "unknown",
     });
     const rows = await fetchDatabaseRowsBatch({
-      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      workspaceId,
       databaseId: resolvedDatabaseId,
       ...scope,
       limit: rowLimit,
@@ -336,11 +410,13 @@ export async function loadMoreExternalProtectedDatabaseRows(args: {
     });
     applyRemotePagesToStore(rows.items);
     useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
-    refreshWorkspaceSnapshot(LC_SCHEDULER_WORKSPACE_ID);
+    refreshWorkspaceSnapshot(workspaceId);
     devLog("load-more-applied", {
       databaseId: args.databaseId,
       resolvedDatabaseId,
       scope: scopeKey(scope),
+      workspaceId,
+      protectedDatabase,
       rowCount: rows.items.length,
       nextTokenAvailable: Boolean(rows.nextToken),
       source: args.source ?? "unknown",
@@ -352,6 +428,8 @@ export async function loadMoreExternalProtectedDatabaseRows(args: {
       resolvedDatabaseId,
       scope: scopeKey(scope),
       currentWorkspaceId: args.currentWorkspaceId,
+      workspaceId,
+      protectedDatabase,
       source: args.source ?? "unknown",
       error,
     });

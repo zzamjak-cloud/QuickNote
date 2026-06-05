@@ -18,7 +18,9 @@ export async function loadMorePageMetas(workspaceId: string): Promise<boolean> {
       const batch = await fetchPageMetasBatch({ workspaceId, nextToken });
       applyRemotePageMetasToStore(batch.items);
       usePageMetaRemoteStore.getState().setNextToken(workspaceId, batch.nextToken ?? null);
-      refreshWorkspaceSnapshot(workspaceId);
+      if (!batch.nextToken) {
+        refreshWorkspaceSnapshot(workspaceId);
+      }
       return batch.items.length > 0;
     } catch (error) {
       console.warn("[QN_PAGE_META] load-more-failed", { workspaceId, error });

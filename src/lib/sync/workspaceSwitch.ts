@@ -1,5 +1,6 @@
 import { usePageStore, isFullPageDatabaseHomePage } from "../../store/pageStore";
 import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
+import { usePageMetaRemoteStore } from "../../store/pageMetaRemoteStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import type { FavoritePageMeta } from "../../store/settingsStore";
@@ -136,6 +137,17 @@ function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function isLikelyEmptyPlaceholderDoc(value: unknown): boolean {
+  if (!isRecord(value) || value.type !== "doc") return true;
+  const content = Array.isArray(value.content) ? value.content : [];
+  if (content.length === 0) return true;
+  if (content.length !== 1) return false;
+  const first = content[0];
+  if (!isRecord(first) || first.type !== "paragraph") return false;
+  if (typeof first.text === "string" && first.text.length > 0) return false;
+  return !Array.isArray(first.content) || first.content.length === 0;
+}
+
 function sanitizeWorkspacePages(
   pages: WorkspaceSnapshot["pages"],
 ): WorkspaceSnapshot["pages"] {
@@ -171,6 +183,9 @@ function sanitizeWorkspacePages(
       createdByMemberId: typeof rawPage.createdByMemberId === "string"
         ? rawPage.createdByMemberId
         : undefined,
+      contentLoaded: typeof rawPage.contentLoaded === "boolean"
+        ? rawPage.contentLoaded
+        : !isLikelyEmptyPlaceholderDoc(nextDoc),
     };
     sanitized[nextId] = nextPage;
   }
@@ -609,10 +624,19 @@ export function workspaceHasPageContentCache(workspaceId: string): boolean {
   if (state.cacheWorkspaceId !== workspaceId) return false;
   return Object.values(state.pages).some((page) => {
     if (page.workspaceId && page.workspaceId !== workspaceId) return false;
+    if (page.contentLoaded === false) return false;
+    if (page.contentLoaded !== true && isLikelyEmptyPlaceholderDoc(page.doc)) return false;
     if (page.databaseId) return false;
     if (isFullPageDatabaseHomePage(page)) return false;
     return true;
   });
+}
+
+export function workspaceHasStructureCache(workspaceId: string): boolean {
+  const tokens = usePageMetaRemoteStore.getState().nextTokenByWorkspaceId;
+  if (!Object.prototype.hasOwnProperty.call(tokens, workspaceId)) return false;
+  if (tokens[workspaceId] !== null) return false;
+  return cacheBelongsToWorkspace(workspaceId);
 }
 
 export function workspaceCacheNeedsPrepaintClear(workspaceId: string | null): boolean {

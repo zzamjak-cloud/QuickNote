@@ -15,6 +15,7 @@ import {
 } from "../bootstrap";
 import {
   __resetExternalProtectedDatabaseLoadForTests,
+  ensureDatabaseRowsLoaded,
   ensureExternalProtectedDatabaseLoaded,
   loadMoreExternalProtectedDatabaseRows,
   protectedDatabaseRowsAreCached,
@@ -194,6 +195,59 @@ describe("externalProtectedDatabaseLoad", () => {
       limit: 100,
     });
     expect(usePageStore.getState().pages["row-1"]).toBeDefined();
+  });
+
+  it("일반 워크스페이스 DB도 row 콘텐츠를 listDatabaseRows 로 적재한다", async () => {
+    const updatedAt = "2026-06-04T00:00:00.000Z";
+    fetchDatabaseByIdMock.mockResolvedValue({
+      id: "normal-db",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "CAT DB",
+      columns: [],
+      presets: [],
+      panelState: null,
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "cat-row-1",
+          workspaceId: "cat-workspace",
+          createdByMemberId: "member-1",
+          title: "항목 1",
+          parentId: null,
+          order: "1",
+          databaseId: "normal-db",
+          doc: { type: "doc", content: [] },
+          dbCells: {},
+          blockComments: null,
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: null,
+    });
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        source: "test",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchDatabaseByIdMock).toHaveBeenCalledWith("cat-workspace", "normal-db");
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledWith({
+      workspaceId: "cat-workspace",
+      databaseId: "normal-db",
+      limit: 100,
+    });
+    expect(useDatabaseStore.getState().databases["normal-db"]?.rowPageOrder).toEqual([
+      "cat-row-1",
+    ]);
+    expect(usePageStore.getState().pages["cat-row-1"]).toBeDefined();
   });
 
   it("캐시가 없을 때만 보이는 protected DB에서 LC 스케줄러 스냅샷을 지연 로드한다", async () => {

@@ -30,7 +30,11 @@ type PasteUrlChoice = {
 import { enqueuePageUpsertForSync, usePageStore } from "../../store/pageStore";
 import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { useSettingsStore } from "../../store/settingsStore";
-import { ensurePageContentLoaded } from "../../lib/sync/pageContentLoad";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import {
+  ensurePageContentLoaded,
+  shouldLoadPageContent,
+} from "../../lib/sync/pageContentLoad";
 import { setPageContext } from "../../lib/tiptapExtensions/pageContext";
 import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/insertBeforeBlock";
 import { ImageUpload } from "./ImageUpload";
@@ -153,6 +157,7 @@ export function Editor({
   const pageContentLoading = usePageContentLoadStore((s) =>
     effectivePageId ? Boolean(s.loadingByPageId[effectivePageId]) : false,
   );
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const updateDoc = usePageStore((s) => s.updateDoc);
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
@@ -168,7 +173,9 @@ export function Editor({
   const pageDoc = page?.doc;
   const currentPageId = page?.id ?? null;
   const currentPageTitle = page?.title ?? "";
-  const pageContentMissing = page?.contentLoaded === false || pageContentMetaOnly;
+  const pageContentMissing =
+    (Boolean(effectivePageId) && !page) ||
+    shouldLoadPageContent(page, pageContentMetaOnly);
   const isFullPageDatabase = useMemo(() => {
     return isFullPageDatabaseDoc(pageDoc);
   }, [pageDoc]);
@@ -224,10 +231,17 @@ export function Editor({
     if (!effectivePageId || !pageContentMissing) return;
     void ensurePageContentLoaded({
       pageId: effectivePageId,
-      workspaceId: page?.workspaceId,
+      workspaceId: page?.workspaceId ?? currentWorkspaceId,
       source: peek ? "editor-peek" : bodyOnly ? "editor-body" : "editor-main",
     });
-  }, [bodyOnly, effectivePageId, page?.workspaceId, pageContentMissing, peek]);
+  }, [
+    bodyOnly,
+    currentWorkspaceId,
+    effectivePageId,
+    page?.workspaceId,
+    pageContentMissing,
+    peek,
+  ]);
 
   const [editorTailSpacerPx, setEditorTailSpacerPx] = useState(240);
   const editorTailSpacerPxRef = useRef(editorTailSpacerPx);

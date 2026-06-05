@@ -5,8 +5,12 @@ import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema"
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { ensureDatabaseRowsLoaded } from "../../lib/sync/externalProtectedDatabaseLoad";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
+
+const DEFAULT_VISIBLE_ROW_LIMIT = 100;
 
 const DatabaseTableView = lazy(() =>
   import("./views/DatabaseTableView").then((m) => ({ default: m.DatabaseTableView })),
@@ -59,7 +63,11 @@ export function DatabaseFullPageStandalone({
   panelStateRaw,
 }: Props) {
   const updateDoc = usePageStore((s) => s.updateDoc);
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const databasePanelState = useDatabaseStore((s) => s.databases[databaseId]?.panelState);
+  const rowPageOrderKey = useDatabaseStore(
+    (s) => s.databases[databaseId]?.rowPageOrder.join("|") ?? "",
+  );
   const patchDatabasePanelState = useDatabaseStore((s) => s.patchDatabasePanelState);
   const getPanelState = useDatabaseViewPrefsStore((s) => s.getPanelState);
   const patchPanelState = useDatabaseViewPrefsStore((s) => s.patchPanelState);
@@ -87,6 +95,21 @@ export function DatabaseFullPageStandalone({
     setDirectPanelState(databasePanelState ?? getPanelState(databaseId, panelStateRaw));
     setDirectView(getStoredView(databaseId, view));
   }, [databaseId, databasePanelState, getPanelState, getStoredView, pageId, panelStateRaw, view]);
+
+  useEffect(() => {
+    if (!currentWorkspaceId) return;
+    let cancelled = false;
+    void ensureDatabaseRowsLoaded({
+      databaseId,
+      currentWorkspaceId,
+      cancelled: () => cancelled,
+      rowLimit: panelState.itemLimit ?? DEFAULT_VISIBLE_ROW_LIMIT,
+      source: pageId ? "database-fullpage-editor" : "database-fullpage-direct",
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentWorkspaceId, databaseId, pageId, panelState.itemLimit, rowPageOrderKey]);
 
   const updateBlockAttrs = useCallback(
     (attrs: Record<string, unknown>) => {

@@ -48,8 +48,8 @@ import { isProtectedDatabaseId } from "../../lib/scheduler/database";
 import { DatabaseDeleteConfirmDialog } from "./DatabaseDeleteConfirmDialog";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import {
-  ensureExternalProtectedDatabaseLoaded,
-  loadMoreExternalProtectedDatabaseRows,
+  ensureDatabaseRowsLoaded,
+  loadMoreDatabaseRows,
   resolveExternalProtectedDatabaseId,
 } from "../../lib/sync/externalProtectedDatabaseLoad";
 import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
@@ -180,9 +180,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
   }, [currentWorkspaceId]);
 
   useEffect(() => {
-    if (!hasDatabaseId || !isProtectedDatabase || !currentWorkspaceId) return;
+    if (!hasDatabaseId || !currentWorkspaceId) return;
     let cancelled = false;
-    void ensureExternalProtectedDatabaseLoaded({
+    void ensureDatabaseRowsLoaded({
       databaseId,
       currentWorkspaceId,
       cancelled: () => cancelled,
@@ -192,7 +192,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [currentWorkspaceId, databaseId, hasDatabaseId, isProtectedDatabase, panelState.itemLimit, rowPageOrder]);
+  }, [currentWorkspaceId, databaseId, hasDatabaseId, panelState.itemLimit, rowPageOrder]);
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
@@ -599,7 +599,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                     if (localStep > 0) {
                       setExtraRows((prev) => prev + localStep);
                     } else if (remoteRowsHasMore) {
-                      const loaded = await loadMoreExternalProtectedDatabaseRows({
+                      const loaded = await loadMoreDatabaseRows({
                         databaseId,
                         currentWorkspaceId,
                         rowLimit: remoteStep,

@@ -17,6 +17,7 @@ import {
   cacheBelongsToWorkspace,
   preloadWorkspaceSnapshots,
   workspaceHasPageContentCache,
+  workspaceHasStructureCache,
 } from "./lib/sync/workspaceSwitch";
 import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
 import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspaceCacheAfterFlush";
@@ -185,8 +186,10 @@ function useSyncBootstrap(): void {
         const cacheBelongsToCurrentWorkspace = cacheBelongsToWorkspace(currentWorkspaceId);
         const pageContentCacheAvailable =
           workspaceHasPageContentCache(currentWorkspaceId);
+        const structureCacheAvailable =
+          workspaceHasStructureCache(currentWorkspaceId);
         const cacheAvailableForWorkspace =
-          cacheBelongsToCurrentWorkspace && pageContentCacheAvailable;
+          cacheBelongsToCurrentWorkspace && structureCacheAvailable;
         const fetchMode = resolveWorkspaceRemoteFetchMode({
           cacheAvailable: cacheAvailableForWorkspace,
           switchCleared: switchResult.cleared,
@@ -217,6 +220,7 @@ function useSyncBootstrap(): void {
             cacheAvailable: cacheAvailableForWorkspace,
             cacheBelongsToWorkspace: cacheBelongsToCurrentWorkspace,
             pageContentCacheAvailable,
+            structureCacheAvailable,
             baseline:
               fetchMode.kind === "full" && fetchMode.reason === "no-cache"
                 ? "meta"
@@ -262,9 +266,9 @@ function useSyncBootstrap(): void {
           if (
             updatedAfter &&
             !cancelled &&
-            !workspaceHasPageContentCache(currentWorkspaceId)
+            !workspaceHasStructureCache(currentWorkspaceId)
           ) {
-            console.warn("[QN_WORKSPACE_SYNC] delta-empty-cache-fallback", {
+            console.warn("[QN_WORKSPACE_SYNC] delta-empty-structure-cache-fallback", {
               workspaceId: currentWorkspaceId,
               updatedAfter,
             });
@@ -273,9 +277,9 @@ function useSyncBootstrap(): void {
           if (
             useMetaBaseline &&
             !cancelled &&
-            !workspaceHasPageContentCache(currentWorkspaceId)
+            !cacheBelongsToWorkspace(currentWorkspaceId)
           ) {
-            console.warn("[QN_WORKSPACE_SYNC] meta-empty-cache-fallback", {
+            console.warn("[QN_WORKSPACE_SYNC] meta-empty-structure-fallback", {
               workspaceId: currentWorkspaceId,
             });
             await fetchApplyWorkspaceRemoteSnapshot({

@@ -17,6 +17,7 @@ import { useSettingsStore } from "./store/settingsStore";
 import { usePageStore, selectFirstSidebarRootId } from "./store/pageStore";
 import { useDatabaseStore } from "./store/databaseStore";
 import { useUiStore } from "./store/uiStore";
+import { useWorkspaceStore } from "./store/workspaceStore";
 import { useNavigationHistoryStore } from "./store/navigationHistoryStore";
 import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
@@ -78,6 +79,7 @@ function App() {
   const tabDatabaseTitle = useDatabaseStore((s) =>
     tabDatabaseId ? (s.databases[tabDatabaseId]?.meta.title ?? null) : null,
   );
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openTab = useSettingsStore((s) => s.openTab);
   const prevTab = useSettingsStore((s) => s.prevTab);
@@ -300,8 +302,28 @@ function App() {
 
   useEffect(() => {
     if (!tabDatabaseId || tabDatabasePageId || tabDatabaseTitle == null) return;
-    ensureFullPagePageForDatabase(tabDatabaseId, tabDatabaseTitle);
+    if (import.meta.env.DEV) {
+      const pageState = usePageStore.getState();
+      const dbState = useDatabaseStore.getState();
+      console.warn("[QN_FULLPAGE_DB] app-ensure-missing-tab-page", {
+        tabDatabaseId,
+        tabDatabaseTitle,
+        activeTabIndex,
+        tabDatabasePageId,
+        pageCount: Object.keys(pageState.pages).length,
+        databaseRowCount: dbState.databases[tabDatabaseId]?.rowPageOrder.length ?? null,
+        existingByDoc: pageState.findFullPagePageIdForDatabase(tabDatabaseId),
+      });
+    }
+    const ensuredPageId = ensureFullPagePageForDatabase(tabDatabaseId, tabDatabaseTitle);
+    if (import.meta.env.DEV) {
+      console.warn("[QN_FULLPAGE_DB] app-ensure-result", {
+        tabDatabaseId,
+        ensuredPageId,
+      });
+    }
   }, [
+    activeTabIndex,
     ensureFullPagePageForDatabase,
     tabDatabaseId,
     tabDatabasePageId,
@@ -362,6 +384,10 @@ function App() {
           return;
         }
         if (!pages[current]) {
+          if (currentWorkspaceId) {
+            setActivePage(current);
+            return;
+          }
           const fallback = Object.values(pages)
             .sort((a, b) => {
               if (a.parentId == null && b.parentId != null) return -1;
@@ -382,6 +408,7 @@ function App() {
     {
       const pages = usePageStore.getState().pages;
       if (!pages[activePageId] && Object.keys(pages).length > 0) {
+        if (currentWorkspaceId) return;
         const fallback = Object.values(pages)
           .sort((a, b) => {
             if (a.parentId == null && b.parentId != null) return -1;
@@ -408,7 +435,7 @@ function App() {
       }
       setCurrentTabPage(activePageId);
     }
-  }, [activePageId, activeTabIndex, setActivePage, setCurrentTabPage]);
+  }, [activePageId, activeTabIndex, currentWorkspaceId, setActivePage, setCurrentTabPage]);
 
   // 글로벌 단축키
   useEffect(() => {
