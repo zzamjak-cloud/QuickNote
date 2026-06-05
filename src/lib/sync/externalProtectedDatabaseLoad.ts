@@ -105,7 +105,7 @@ export function protectedDatabaseRowsAreCached(databaseId: string | null | undef
   // 페이지 존재만으로 "캐시 완료"로 보면 셀이 빈 row 가 표시되므로, 콘텐츠 적재까지 요구한다.
   return bundle.rowPageOrder.every((pageId) => {
     const page = pages[pageId];
-    return Boolean(page) && page.contentLoaded !== false;
+    return Boolean(page) && page!.contentLoaded !== false;
   });
 }
 
