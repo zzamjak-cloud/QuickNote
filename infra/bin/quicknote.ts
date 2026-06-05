@@ -24,15 +24,14 @@ const cognitoDomainPrefix = isDev
 const webCallbackUrls: string[] = isDev
   ? [
       "http://localhost:5173/auth/callback",
-      // dev Vercel Preview URL — 첫 배포 후 실제 URL을 여기에 추가
-      "https://quick-note-develop.vercel.app/auth/callback",
+      "https://quick-note-git-develop-zzamjak-4139s-projects.vercel.app/auth/callback",
     ]
   : (app.node.tryGetContext("webCallbackUrls") as string[]);
 
 const webLogoutUrls: string[] = isDev
   ? [
       "http://localhost:5173/auth/signout",
-      "https://quick-note-develop.vercel.app/auth/signout",
+      "https://quick-note-git-develop-zzamjak-4139s-projects.vercel.app/auth/signout",
     ]
   : (app.node.tryGetContext("webLogoutUrls") as string[]);
 
