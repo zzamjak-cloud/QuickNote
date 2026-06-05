@@ -198,9 +198,25 @@ export async function ensureExternalProtectedDatabaseLoaded({
   // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
   // scope 지정 시 캐시 완료 판정이 과복잡하므로 "scope 1회 로드"(session 가드)로 단순화해 무한로드를 막는다.
   if (!scoped && protectedDatabaseRowsAreCached(resolvedDatabaseId)) {
+    devLog("skip", {
+      databaseId,
+      resolvedDatabaseId,
+      scope: scopeKey(scope),
+      currentWorkspaceId,
+      reason: "local-cache-complete",
+      source,
+    });
     return false;
   }
   if (completedLoadDatabaseIds.has(loadKey) && (scoped || protectedDatabaseBundleIsEmpty(resolvedDatabaseId))) {
+    devLog("skip", {
+      databaseId,
+      resolvedDatabaseId,
+      scope: scopeKey(scope),
+      currentWorkspaceId,
+      reason: "session-load-complete",
+      source,
+    });
     return false;
   }
 

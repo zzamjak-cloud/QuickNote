@@ -98,7 +98,6 @@ const DATABASE_HISTORY_FIELDS = [
   "columns",
   "presets",
   "panelState",
-  "templates",
   "createdAt",
   "updatedAt",
   "deletedAt",
@@ -1020,7 +1019,6 @@ function normalizeDatabaseAwsJsonFields(input: Record<string, unknown>): void {
   normalizeAwsJsonStringField(input, "columns", "columns");
   normalizeAwsJsonStringField(input, "presets", "presets");
   normalizeAwsJsonStringField(input, "panelState", "panelState");
-  normalizeAwsJsonStringField(input, "templates", "templates");
 }
 
 const MAX_SYNCED_SCHEDULER_MEMBER_ORDER = 1000;

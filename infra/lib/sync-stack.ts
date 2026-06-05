@@ -778,14 +778,6 @@ export function response(ctx) {
     imagesBucket.grantReadWrite(v5ResolversFn);
     customIconsTable.grantReadWriteData(v5ResolversFn);
 
-    // DB 템플릿 자동 생성 — 30분 주기로 v5ResolversFn 을 스케줄 호출.
-    // 이벤트에 info(fieldName)가 없으면 핸들러가 runTemplateAutomations 로 분기한다.
-    // cron minute "0,30" = 매시 정각·30분(UTC). KST 는 UTC+9(분 오프셋 0)라 :00/:30 KST 에 정렬된다.
-    new events.Rule(this, "TemplateAutomationSchedule", {
-      schedule: events.Schedule.cron({ minute: "0,30" }),
-      targets: [new eventsTargets.LambdaFunction(v5ResolversFn)],
-    });
-
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
 

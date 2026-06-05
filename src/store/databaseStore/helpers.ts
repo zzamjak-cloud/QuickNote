@@ -7,7 +7,6 @@ import type {
   DatabaseBundle,
   DatabaseMeta,
   DatabaseRowPreset,
-  DatabaseTemplate,
   FilterRule,
 } from "../../types/database";
 import type { DatabaseSnapshot, PageSnapshot } from "../../types/history";
@@ -20,7 +19,6 @@ import {
   serializeColumns,
   serializePanelState,
   serializePresets,
-  serializeTemplates,
 } from "../../lib/database/schema/normalizeDatabase";
 import { useAuthStore } from "../authStore";
 import { useWorkspaceStore } from "../workspaceStore";
@@ -54,7 +52,6 @@ export function toGqlDatabase(
   createdByMemberId: string,
   presets?: DatabaseRowPreset[],
   panelState?: DatabaseBundle["panelState"],
-  templates?: DatabaseTemplate[],
 ): Record<string, unknown> {
   const workspaceId = meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(meta.id);
   const payload: Record<string, unknown> = {
@@ -73,17 +70,10 @@ export function toGqlDatabase(
   if (panelState !== undefined) {
     payload.panelState = serializePanelState(panelState);
   }
-  // templates 도 동일 — 변경이 있을 때만 전송한다. (생략 시 서버 기존 templates 보존)
-  if (templates !== undefined) {
-    payload.templates = serializeTemplates(templates);
-  }
   return payload;
 }
 
-export function enqueueUpsertDatabase(
-  bundle: DatabaseBundle,
-  templates?: DatabaseTemplate[],
-): void {
+export function enqueueUpsertDatabase(bundle: DatabaseBundle): void {
   const workspaceId = bundle.meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(bundle.meta.id);
   if (!workspaceId) {
     console.warn("[sync] upsertDatabase skipped: workspaceId 미설정", { dbId: bundle.meta.id });
@@ -95,7 +85,6 @@ export function enqueueUpsertDatabase(
     getCreatedByMemberId(),
     bundle.presets,
     bundle.panelState,
-    templates,
   );
   enqueueAsync(
     "upsertDatabase",

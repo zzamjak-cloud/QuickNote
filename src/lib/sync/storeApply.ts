@@ -35,7 +35,6 @@ import {
   tryParseSerializedColumns,
   tryParseSerializedPanelState,
   tryParseSerializedPresets,
-  tryParseSerializedTemplates,
 } from "../database/schema/normalizeDatabase";
 import { isDeletedSchedulePage } from "../scheduler/deletedSchedulePages";
 
@@ -786,16 +785,9 @@ export function applyRemoteDatabaseToStore(
     rowPageOrder,
   };
 
-  // templates(자동화 설정 포함)는 Database 레코드와 함께 LWW 동기화된다.
-  // remote 가 templates 를 실어왔을 때만 반영(생략 시 로컬 보존).
-  const remoteTemplates = tryParseSerializedTemplates(db.templates);
-
   useDatabaseStore.setState((s) => ({
     ...s,
     databases: { ...s.databases, [db.id]: bundle },
-    dbTemplates: remoteTemplates
-      ? { ...s.dbTemplates, [db.id]: remoteTemplates }
-      : s.dbTemplates,
     cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
 
@@ -863,15 +855,11 @@ export function applyRemoteDatabasesToStore(
 
   useDatabaseStore.setState((s) => {
     let databases = s.databases;
-    let dbTemplates = s.dbTemplates;
     let nextCacheWorkspaceId = s.cacheWorkspaceId;
     let changed = false;
 
     const ensureDatabasesCopy = () => {
       if (databases === s.databases) databases = { ...s.databases };
-    };
-    const ensureTemplatesCopy = () => {
-      if (dbTemplates === s.dbTemplates) dbTemplates = { ...s.dbTemplates };
     };
 
     for (const id of legacyDeleteIds) {
@@ -932,26 +920,12 @@ export function applyRemoteDatabasesToStore(
       databases[db.id] = bundle;
       repairedBundles.push(bundle);
       changed = true;
-
-      // remote-wins 경로에서만 templates 반영(생략 시 로컬 보존).
-      const remoteTemplates = tryParseSerializedTemplates(db.templates);
-      if (remoteTemplates) {
-        ensureTemplatesCopy();
-        dbTemplates[db.id] = remoteTemplates;
-      }
     }
 
-    if (
-      !changed &&
-      dbTemplates === s.dbTemplates &&
-      nextCacheWorkspaceId === s.cacheWorkspaceId
-    ) {
-      return s;
-    }
+    if (!changed && nextCacheWorkspaceId === s.cacheWorkspaceId) return s;
     return {
       ...s,
       databases,
-      dbTemplates,
       cacheWorkspaceId: nextCacheWorkspaceId,
     };
   });

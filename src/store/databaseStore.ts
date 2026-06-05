@@ -1,4 +1,4 @@
-import { create, type StoreApi } from "zustand";
+import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { deferredDatabaseStorage } from "../lib/storage/index";
 import type {
@@ -144,23 +144,6 @@ type DatabaseStoreActions = {
 };
 
 export type DatabaseStore = DatabaseStoreState & DatabaseStoreActions;
-
-/**
- * 템플릿(자동화 설정 포함)을 서버에 동기화한다.
- * templates 는 Database 레코드의 templates(AWSJSON) 필드로 LWW 동기화되므로,
- * 변경 시 meta.updatedAt 을 갱신해 최신 쓰기로 인식되도록 한다.
- */
-function syncDatabaseTemplatesToServer(
-  set: StoreApi<DatabaseStore>["setState"],
-  get: StoreApi<DatabaseStore>["getState"],
-  databaseId: string,
-): void {
-  const bundle = get().databases[databaseId];
-  if (!bundle) return;
-  const bumped = { ...bundle, meta: { ...bundle.meta, updatedAt: now() } };
-  set((s) => ({ databases: { ...s.databases, [databaseId]: bumped } }));
-  enqueueUpsertDatabase(bumped, get().dbTemplates[databaseId] ?? []);
-}
 
 export const useDatabaseStore = create<DatabaseStore>()(
   persist(
@@ -1139,7 +1122,6 @@ export const useDatabaseStore = create<DatabaseStore>()(
           [databaseId]: [...(state.dbTemplates[databaseId] ?? []), tmpl],
         },
       }));
-      syncDatabaseTemplatesToServer(set, get, databaseId);
       return pageId;
     },
 
@@ -1155,7 +1137,6 @@ export const useDatabaseStore = create<DatabaseStore>()(
           },
         };
       });
-      syncDatabaseTemplatesToServer(set, get, databaseId);
     },
 
     deleteTemplate: (databaseId, templateId) => {
@@ -1173,7 +1154,6 @@ export const useDatabaseStore = create<DatabaseStore>()(
           },
         };
       });
-      syncDatabaseTemplatesToServer(set, get, databaseId);
     },
 
     applyTemplate: (databaseId, templateId) => {

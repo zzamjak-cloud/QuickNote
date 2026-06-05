@@ -80,7 +80,6 @@ import {
   upsertComment,
   softDeleteComment,
 } from "./handlers/commentDatabase";
-import { runTemplateAutomations } from "./handlers/templateAutomation";
 import { listMyNotifications, markNotificationRead, deleteMyNotification } from "./handlers/notification";
 import {
   listSchedules,
@@ -158,9 +157,6 @@ type AppsyncEvent = {
   identity?: { sub?: string };
   info: { fieldName: string };
 };
-
-// EventBridge 스케줄 호출 — AppSync 이벤트가 아니므로 info 가 없다.
-type ScheduledEvent = { source?: string; "detail-type"?: string };
 
 function roleToGql(role: string): "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER" {
   if (role === "developer") return "DEVELOPER";
@@ -272,11 +268,7 @@ function normalizeMmEntryForGql(entry: Record<string, unknown>) {
   };
 }
 
-export async function handler(event: AppsyncEvent | ScheduledEvent): Promise<unknown> {
-  // EventBridge 스케줄 호출(템플릿 자동 생성) — AppSync caller 가 없는 경로.
-  if (!("info" in event) || !event.info) {
-    return await runTemplateAutomations({ doc, tables });
-  }
+export async function handler(event: AppsyncEvent): Promise<unknown> {
   try {
     const caller = await getCallerMember(doc, tables.Members, event.identity?.sub);
     const base = { doc, tables, caller };
