@@ -5,6 +5,7 @@ import type {
   DatabaseBundle,
   DatabasePanelState,
   DatabaseRowPreset,
+  DatabaseTemplate,
   ProgressSourceConfig,
   SearchFilterRule,
   SelectOption,
@@ -459,6 +460,26 @@ export function serializePanelState(panelState: DatabasePanelState | undefined):
   return JSON.stringify(
     parseDatabasePanelStateJson(JSON.stringify(panelState ?? {})),
   );
+}
+
+/** DB 템플릿 배열 직렬화 — AWSJSON 필드용. */
+export function serializeTemplates(templates: DatabaseTemplate[] | undefined): string {
+  return JSON.stringify(Array.isArray(templates) ? templates : []);
+}
+
+/** 원격 templates(AWSJSON) → DatabaseTemplate[] 파싱. 실패 시 null. */
+export function tryParseSerializedTemplates(value: unknown): DatabaseTemplate[] | null {
+  if (value == null) return null;
+  const arr = parseSerializedArray(value);
+  if (!arr) return null;
+  const out: DatabaseTemplate[] = [];
+  for (const raw of arr) {
+    if (!raw || typeof raw !== "object") continue;
+    const t = raw as Record<string, unknown>;
+    if (typeof t.id !== "string" || typeof t.title !== "string") continue;
+    out.push(t as unknown as DatabaseTemplate);
+  }
+  return out;
 }
 
 function parseSerializedArray(value: unknown): unknown[] | null {

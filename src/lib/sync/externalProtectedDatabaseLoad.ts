@@ -105,7 +105,7 @@ export function protectedDatabaseRowsAreCached(databaseId: string | null | undef
   // 페이지 존재만으로 "캐시 완료"로 보면 셀이 빈 row 가 표시되므로, 콘텐츠 적재까지 요구한다.
   return bundle.rowPageOrder.every((pageId) => {
     const page = pages[pageId];
-    return Boolean(page) && page.contentLoaded !== false;
+    return Boolean(page) && page!.contentLoaded !== false;
   });
 }
 
@@ -198,25 +198,9 @@ export async function ensureExternalProtectedDatabaseLoaded({
   // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
   // scope 지정 시 캐시 완료 판정이 과복잡하므로 "scope 1회 로드"(session 가드)로 단순화해 무한로드를 막는다.
   if (!scoped && protectedDatabaseRowsAreCached(resolvedDatabaseId)) {
-    devLog("skip", {
-      databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId,
-      reason: "local-cache-complete",
-      source,
-    });
     return false;
   }
   if (completedLoadDatabaseIds.has(loadKey) && (scoped || protectedDatabaseBundleIsEmpty(resolvedDatabaseId))) {
-    devLog("skip", {
-      databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId,
-      reason: "session-load-complete",
-      source,
-    });
     return false;
   }
 

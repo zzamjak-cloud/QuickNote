@@ -300,6 +300,21 @@ export type DatabasePanelState = {
   schedulerMemberOrderUpdatedAt?: number;
 };
 
+/** 템플릿 자동 생성 설정 — 지정 요일·시각에 새 행 페이지를 자동 생성. */
+export type TemplateAutomation = {
+  /** 자동 생성할 요일 — JS getDay() 기준(0=일 ~ 6=토). 비어있으면 비활성. */
+  weekdays: number[];
+  /** 생성 시각 (24시간제) */
+  hour: number;
+  minute: number;
+  /** 제목 접두 — 실제 생성 시 " YY/MM/DD" 가 뒤에 붙는다. 예) "[CAT] 주간회의". */
+  titlePrefix: string;
+  /** 미리 등록할 참여자 memberId 목록 (person 컬럼에 주입, 등록 시 템플릿 값 덮어씀) */
+  participantMemberIds?: string[];
+  /** 마지막으로 자동 생성을 수행한 날짜 키 "YYYY-MM-DD" — 하루 1회 중복 방지. */
+  lastRunDate?: string;
+};
+
 /** DB 템플릿 — 새 행 생성 시 기본 셀 값을 미리 지정. */
 export type DatabaseTemplate = {
   id: string;
@@ -308,6 +323,8 @@ export type DatabaseTemplate = {
   cells: Record<string, CellValue>;
   /** 템플릿 전용 페이지 ID — 페이지로 이동해 속성·내용을 편집. */
   pageId?: string;
+  /** 자동 생성 일정 설정 — 미지정 시 자동화 비활성. */
+  automation?: TemplateAutomation;
 };
 
 export type DatabaseRowPreset = {

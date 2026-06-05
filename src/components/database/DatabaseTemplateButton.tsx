@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pencil, Plus, X } from "lucide-react";
+import { Clock, Pencil, Plus, X } from "lucide-react";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { TemplateAutomationPopup } from "./TemplateAutomationPopup";
 
 type Props = {
   databaseId: string;
@@ -17,6 +18,8 @@ type Props = {
 export function DatabaseTemplateButton({ databaseId }: Props) {
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  // 자동화 설정 팝업 대상 템플릿 id (null 이면 닫힘).
+  const [automationTemplateId, setAutomationTemplateId] = useState<string | null>(null);
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -149,6 +152,19 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
                       >
                         {pageTitle}
                       </button>
+                      <button
+                        type="button"
+                        title="자동화 설정"
+                        onClick={() => setAutomationTemplateId(tmpl.id)}
+                        className={[
+                          "shrink-0 rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700",
+                          (tmpl.automation?.weekdays.length ?? 0) > 0
+                            ? "text-blue-500"
+                            : "text-zinc-400",
+                        ].join(" ")}
+                      >
+                        <Clock size={11} />
+                      </button>
                       {tmpl.pageId && (
                         <button
                           type="button"
@@ -175,6 +191,15 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
           </div>,
           document.body,
         )}
+
+      {automationTemplateId && (
+        <TemplateAutomationPopup
+          databaseId={databaseId}
+          templateId={automationTemplateId}
+          open
+          onClose={() => setAutomationTemplateId(null)}
+        />
+      )}
     </>
   );
 }
