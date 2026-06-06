@@ -124,10 +124,16 @@ export function gqlPageToLocalPage(p: GqlPage): Page {
     title: p.title,
     icon: p.icon ?? null,
     coverImage: typeof p.coverImage === "string" ? p.coverImage : null,
-    doc: parseAwsJson<JSONContent>(p.doc, {
-      type: "doc",
-      content: [{ type: "paragraph" }],
-    }),
+    doc: (() => {
+      const parsed = parseAwsJson<JSONContent>(p.doc, {
+        type: "doc",
+        content: [{ type: "paragraph" }],
+      });
+      if (parsed.content) {
+        parsed.content = parsed.content.filter(Boolean);
+      }
+      return parsed;
+    })(),
     parentId: p.parentId ?? null,
     order: gqlOrderNumber(p),
     databaseId: p.databaseId ?? undefined,
