@@ -522,7 +522,7 @@ export async function listPageMetas(args: {
       IndexName: "byWorkspaceMetaUpdatedAt",
       KeyConditionExpression: keyCondition,
       FilterExpression: "attribute_not_exists(databaseId) OR attribute_type(databaseId, :nullType) OR databaseId = :empty",
-      ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt",
+      ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt, fullPageDatabaseId",
       ExpressionAttributeNames: { "#order": "order" },
       ExpressionAttributeValues: expressionValues,
       Limit: args.limit ?? 100,
