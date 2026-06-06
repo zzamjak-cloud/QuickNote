@@ -23,7 +23,10 @@ type WorkspaceSnapshot = {
 };
 
 const workspaceSnapshotById = new Map<string, WorkspaceSnapshot>();
-const WORKSPACE_SNAPSHOT_KEY_PREFIX = "quicknote.workspace.snapshot.v2:";
+// v3: 구버전 clearWorkspaceScopedStores 버그로 LC 스케줄러 루트 페이지가 빠진 채
+// persist 된 스냅샷을 일괄 무효화한다. 키가 바뀌면 부팅 시 복원할 캐시가 없어
+// full 재페치(no-cache)가 강제되어 서버 권위 데이터로 자기복구된다.
+const WORKSPACE_SNAPSHOT_KEY_PREFIX = "quicknote.workspace.snapshot.v3:";
 const EMPTY_PAGE_DOC = {
   type: "doc",
   content: [{ type: "paragraph" }],
