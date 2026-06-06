@@ -305,9 +305,6 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
     if (dbs) applyRemoteDatabasesToStore(dbs);
     if (comments) applyRemoteCommentsToStore(comments);
     if (applyLandingAfterApply) applyWorkspaceLanding(workspaceId);
-    if (refreshSnapshotAfterApply && pageMetasBatch && !pageMetasBatch.nextToken) {
-      refreshWorkspaceSnapshot(workspaceId);
-    }
   };
 
   if (useBatchedUpdates) {
@@ -319,5 +316,29 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
   if (failedDomains.length === 0) {
     const mx = maxUpdatedAt(pageMetasBatch?.items ?? [], dbs, comments);
     if (mx) useSyncWatermarkStore.getState().advance(workspaceId, mx);
+  }
+
+  // 100개 초과 워크스페이스: nextToken 있으면 나머지 페이지 메타를 모두 로드
+  if (pageMetasBatch?.nextToken && !cancelled?.()) {
+    let nextToken: string | null = pageMetasBatch.nextToken;
+    while (nextToken && !cancelled?.()) {
+      try {
+        const moreBatch = await fetchPageMetasBatch({ workspaceId, nextToken });
+        applyRemotePageMetasToStore(moreBatch.items);
+        nextToken = moreBatch.nextToken ?? null;
+        usePageMetaRemoteStore.getState().setNextToken(workspaceId, nextToken);
+        const mx = maxUpdatedAt(moreBatch.items);
+        if (mx) useSyncWatermarkStore.getState().advance(workspaceId, mx);
+      } catch (error) {
+        console.warn("[sync] 페이지 메타 추가 배치 페치 실패", { workspaceId, error });
+        break;
+      }
+    }
+  }
+
+  // 모든 페이지 메타 로드 완료(nextToken 없음) 후 스냅샷 갱신
+  const finalToken = usePageMetaRemoteStore.getState().nextTokenByWorkspaceId[workspaceId];
+  if (refreshSnapshotAfterApply && pageMetasBatch && !finalToken && !cancelled?.()) {
+    refreshWorkspaceSnapshot(workspaceId);
   }
 }
