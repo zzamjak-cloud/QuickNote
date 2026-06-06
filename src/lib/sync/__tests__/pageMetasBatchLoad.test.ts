@@ -71,25 +71,41 @@ describe("fetchApplyWorkspaceRemoteMetaSnapshot — 단일 배치 로드", () =>
     expect(pages["p2"]).toBeDefined();
   });
 
-  it("nextToken 이 있으면 pageMetaRemoteStore 에 저장된다", async () => {
-    const items = [makePageMeta("p1", "2026-01-01T00:00:00.000Z")];
+  it("초기 배치에 nextToken 이 있으면 끝까지 자동 로드하고 store 토큰을 비운다", async () => {
     const token = "eyJuZXh0IjoidG9rZW4ifQ==";
-    fetchPageMetasMock.mockResolvedValue({ items, nextToken: token });
+    fetchPageMetasMock
+      .mockResolvedValueOnce({
+        items: [makePageMeta("p1", "2026-01-01T00:00:00.000Z")],
+        nextToken: token,
+      })
+      .mockResolvedValueOnce({
+        items: [makePageMeta("p2", "2026-01-02T00:00:00.000Z")],
+        nextToken: null,
+      });
 
     await fetchApplyWorkspaceRemoteMetaSnapshot({ workspaceId: WS });
 
-    expect(usePageMetaRemoteStore.getState().nextTokenByWorkspaceId[WS]).toBe(token);
+    // 자동 루프가 후속 배치까지 모두 로드해야 한다
+    expect(fetchPageMetasMock).toHaveBeenCalledTimes(2);
+    expect(usePageStore.getState().pages["p2"]).toBeDefined();
+    // 끝까지 로드 완료되면 store 토큰은 null
+    expect(usePageMetaRemoteStore.getState().nextTokenByWorkspaceId[WS]).toBeNull();
   });
 
-  it("초기 메타 배치가 미완료이면 workspace snapshot 을 저장하지 않는다", async () => {
-    const items = [makePageMeta("p1", "2026-01-01T00:00:00.000Z")];
-    fetchPageMetasMock.mockResolvedValue({ items, nextToken: "next-token" });
+  it("추가 배치 실패로 로드가 미완료이면 workspace snapshot 을 저장하지 않는다", async () => {
+    fetchPageMetasMock
+      .mockResolvedValueOnce({
+        items: [makePageMeta("p1", "2026-01-01T00:00:00.000Z")],
+        nextToken: "next-token",
+      })
+      .mockRejectedValueOnce(new Error("network error"));
 
     await fetchApplyWorkspaceRemoteMetaSnapshot({
       workspaceId: WS,
       refreshSnapshotAfterApply: true,
     });
 
+    // 루프가 에러로 중단되어 토큰이 남으면 스냅샷을 저장하지 않는다
     expect(refreshWorkspaceSnapshotMock).not.toHaveBeenCalled();
   });
 

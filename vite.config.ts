@@ -60,12 +60,5 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/__tests__/setup.ts",
-    pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true,
-        execArgv: ["--max-old-space-size=6144"],
-      },
-    },
   },
 });

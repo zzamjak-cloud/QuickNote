@@ -321,11 +321,19 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
   // 100개 초과 워크스페이스: nextToken 있으면 나머지 페이지 메타를 모두 로드
   if (pageMetasBatch?.nextToken && !cancelled?.()) {
     let nextToken: string | null = pageMetasBatch.nextToken;
+    // 서버가 동일 토큰을 반복 반환하면 무한 루프에 빠지므로 본 토큰을 추적해 차단
+    const seenTokens = new Set<string>([nextToken]);
     while (nextToken && !cancelled?.()) {
       try {
         const moreBatch = await fetchPageMetasBatch({ workspaceId, nextToken });
         applyRemotePageMetasToStore(moreBatch.items);
+        const prevToken = nextToken;
         nextToken = moreBatch.nextToken ?? null;
+        if (nextToken && (nextToken === prevToken || seenTokens.has(nextToken))) {
+          console.warn("[sync] 페이지 메타 nextToken 반복 감지 — 루프 중단", { workspaceId });
+          break;
+        }
+        if (nextToken) seenTokens.add(nextToken);
         usePageMetaRemoteStore.getState().setNextToken(workspaceId, nextToken);
         const mx = maxUpdatedAt(moreBatch.items);
         if (mx) useSyncWatermarkStore.getState().advance(workspaceId, mx);
