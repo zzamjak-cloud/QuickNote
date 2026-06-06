@@ -14,6 +14,8 @@ export type Page = {
   updatedAt: number;
   /** 이 페이지가 DB 행이면 소속 데이터베이스 id */
   databaseId?: string;
+  /** fullPage 레이아웃 DB 홈 페이지면 연결된 databaseId — doc 로드 없이 메타만으로 식별 가능 */
+  fullPageDatabaseId?: string;
   /** title 컬럼을 제외한 셀 값 */
   dbCells?: Record<string, CellValue>;
   /** 커버 이미지 data URL 또는 원격 URL */

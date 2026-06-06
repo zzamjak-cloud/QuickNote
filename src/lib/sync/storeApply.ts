@@ -177,6 +177,7 @@ function gqlPageMetaToLocalPage(p: GqlPageMeta, local?: Page): Page {
     parentId: p.parentId ?? null,
     order: gqlOrderNumber(p),
     databaseId: p.databaseId ?? undefined,
+    fullPageDatabaseId: p.fullPageDatabaseId ?? undefined,
     dbCells: local?.dbCells,
     createdByMemberId: p.createdByMemberId ?? undefined,
     createdAt: isoToMs(p.createdAt) || Date.now(),

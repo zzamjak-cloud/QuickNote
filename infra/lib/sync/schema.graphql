@@ -122,6 +122,8 @@ type Page {
   """정렬 순서. 레거시·이상 데이터에서 null 일 수 있어 nullable. 클라이언트는 updatedAt 으로 폴백."""
   order: String
   databaseId: ID
+  """fullPage 레이아웃 DB 홈 페이지면 연결된 databaseId — doc 없이 메타만으로 식별."""
+  fullPageDatabaseId: ID
   doc: AWSJSON!
   dbCells: AWSJSON
   """블록 댓글 스레드·읽음 상태 JSON(`{ messages, threadVisitedAt }`)."""
@@ -143,6 +145,8 @@ type PageMeta {
   """정렬 순서. 레거시·이상 데이터에서 null 일 수 있어 nullable. 클라이언트는 updatedAt 으로 폴백."""
   order: String
   databaseId: ID
+  """fullPage 레이아웃 DB 홈 페이지면 연결된 databaseId — doc 없이 메타만으로 식별."""
+  fullPageDatabaseId: ID
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
   deletedAt: AWSDateTime
@@ -323,6 +327,7 @@ input PageInput {
   parentId: ID
   order: String!
   databaseId: ID
+  fullPageDatabaseId: ID
   doc: AWSJSON!
   dbCells: AWSJSON
   blockComments: AWSJSON
