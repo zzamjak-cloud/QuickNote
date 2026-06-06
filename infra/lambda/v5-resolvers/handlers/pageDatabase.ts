@@ -2152,6 +2152,10 @@ export async function restorePageVersion(args: {
     updatedAt: now,
   };
   delete restored["deletedAt"];
+  // byDatabaseAndOrder GSI는 NULL 타입 databaseId를 거부 — upsertPage와 동일하게 정제
+  if (restored.databaseId == null) delete restored.databaseId;
+  normalizePageOrderField(restored);
+  deriveDatabaseRowScopeKeys(restored);
   await args.doc.send(
     new PutCommand({
       TableName: args.tables.Pages,
