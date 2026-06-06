@@ -39,6 +39,8 @@ DB 히스토리는 한 화면에서 두 탭으로 본다 (`DatabaseBlockHistoryD
 
 > **CRITICAL 회귀 주의 — 삭제 가드**: 페이지/DB 삭제 시 `markLocallyDeletedEntity` 로 로컬 삭제 가드가 걸려 strict 창 동안 원격 스냅샷을 차단한다. **복원 경로는 반드시 `clearLocalDeleteGuard(...)` 를 호출**해야 복원본이 무시·`rowPageOrder` 제거되지 않는다. (`serverPageHistoryStore.restorePageHistoryEvent`, `databaseStore.restoreDeletedRowFromHistory`)
 
+> **CRITICAL 회귀 주의 — restorePageVersion 정제**: `restorePageVersion` 핸들러는 히스토리 스냅샷을 `PutCommand`로 직접 저장한다. 스냅샷에 `databaseId: null`이 포함되면 `byDatabaseAndOrder` GSI가 `"Type mismatch actual:NULL"` 에러를 던진다. **`PutCommand` 전에 반드시 `databaseId null 제거` + `normalizePageOrderField` + `deriveDatabaseRowScopeKeys`를 적용해야 한다** (`upsertPage`와 동일 정제 로직). 이 처리가 없으면 일반 페이지(databaseId 없음)의 버전 복원이 항상 실패한다.
+
 > **주의 — 삭제 히스토리**: `deletedAt` 은 스냅샷 diff 로 잡히지 않으므로, `softDeletePage` 가 전용 `recordPageDeleteHistory`(kind `page.delete`, `databaseId` 포함)로 별도 기록한다. 이게 빠지면 삭제가 히스토리에 안 남고 페이지 탭에도 안 보인다.
 
 > **주의 — rowPageOrder**: 서버 Database 모델에 `rowPageOrder` 가 없다. 페이지에서 역추적해 재구성한다(`storeApply.ts` `collectRowPageIdsForDatabase` / `ensurePageInDatabaseRowOrder` / `removePageIdFromDatabaseRowOrder`).

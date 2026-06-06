@@ -28,7 +28,8 @@ deferred-switch / pending-outbox /
 
 ### 1. 메타 베이스라인 (첫 방문 / 캐시 없음)
 - 조건: `fetchMode.kind === "full" && fetchMode.reason === "no-cache"`
-- `fetchApplyWorkspaceRemoteMetaSnapshot()` 호출 → 페이지 메타(제목·아이콘 등)만 수신, doc 제외
+- `fetchApplyWorkspaceRemoteMetaSnapshot()` 호출 → 페이지 메타(제목·아이콘·`fullPageDatabaseId` 등)만 수신, doc 제외
+- **nextToken 자동 루프**: 첫 배치(100개) 이후 `nextToken`이 있으면 자동으로 다음 배치를 순차 로드 → 페이지 수 제한 없음. 각 배치마다 워터마크도 전진.
 - 메타 적용 후 캐시가 여전히 비어 있으면 `fetchApplyWorkspaceRemoteSnapshot()`(전체) fallback
 - **효과**: 워크스페이스가 아무리 커도 첫 로드가 빠름; 페이지 본문은 열 때 지연 로드
 
@@ -51,6 +52,8 @@ deferred-switch / pending-outbox /
 - **워터마크는 모든 도메인 성공 시에만 전진**한다. 한 도메인이라도 실패하면 보류.
 - 하드 삭제(영구삭제/`emptyTrash`)는 구독·델타로 전파되지 않는다 → 다음 **워크스페이스 전환의 전체 prune**에서 정리(설계상 허용).
 - `listPageMetas` API 미배포 서버에서는 schema 에러 감지 → 경고 로그만 남기고 전체 스냅샷 fallback 대기.
+- `listPageMetas`는 **`byWorkspaceAndUpdatedAt` GSI(ALL 프로젝션)** 를 사용한다. 과거의 `byWorkspaceMetaUpdatedAt`(INCLUDE 프로젝션)은 `fullPageDatabaseId` 같은 신규 속성을 추가할 수 없어 GSI를 교체했다. CDK 배포 없이 Lambda IndexName 변경만으로 전환 가능.
+- **nextToken 미처리 버그 회귀 주의**: `fetchApplyWorkspaceRemoteMetaSnapshot` 내부에서 nextToken 루프를 직접 돌린다. `loadMorePageMetas`(pageMetasLoad.ts)는 별도 외부 호출용이므로 Bootstrap 경로에서 호출하지 않는다.
 
 ## 비용 메모
 - 분할 로드: 초기 `listPageMetas`는 doc 필드를 제외하므로 RCU·전송량 대폭 절감.
