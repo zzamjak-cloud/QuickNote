@@ -327,7 +327,7 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
       try {
         const moreBatch = await fetchPageMetasBatch({ workspaceId, nextToken });
         applyRemotePageMetasToStore(moreBatch.items);
-        const prevToken = nextToken;
+        const prevToken: string = nextToken;
         nextToken = moreBatch.nextToken ?? null;
         if (nextToken && (nextToken === prevToken || seenTokens.has(nextToken))) {
           console.warn("[sync] 페이지 메타 nextToken 반복 감지 — 루프 중단", { workspaceId });
