@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   );
 
   let startKey: Record<string, unknown> | undefined;
-  let scanned = 0;
+  let _scanned = 0;
   let candidates = 0;
   let updated = 0;
   let skippedExisting = 0;
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
       }),
     );
     for (const item of res.Items ?? []) {
-      scanned += 1;
+      _scanned += 1;
       const id = item.id as string | undefined;
       if (!id) continue;
       const purgeAt = purgeAtSecondsFrom(item.deletedAt);
