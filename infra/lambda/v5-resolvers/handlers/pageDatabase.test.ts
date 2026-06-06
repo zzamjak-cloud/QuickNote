@@ -516,7 +516,7 @@ describe("page/database handlers", () => {
     expect(result.items.map((page) => page.id)).toEqual(["p1"]);
     const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
     const queryArg = sendMock.mock.calls[2]?.[0].input;
-    expect(queryArg.IndexName).toBe("byWorkspaceMetaUpdatedAt");
+    expect(queryArg.IndexName).toBe("byWorkspaceAndUpdatedAt");
     expect(queryArg.ProjectionExpression).not.toContain("doc");
     expect(queryArg.FilterExpression).toContain("attribute_not_exists(databaseId)");
     expect(queryArg.Limit).toBe(25);
