@@ -519,7 +519,7 @@ export async function listPageMetas(args: {
   const r = await args.doc.send(
     new QueryCommand({
       TableName: args.tables.Pages,
-      IndexName: "byWorkspaceMetaUpdatedAt",
+      IndexName: "byWorkspaceAndUpdatedAt",
       KeyConditionExpression: keyCondition,
       FilterExpression: "attribute_not_exists(databaseId) OR attribute_type(databaseId, :nullType) OR databaseId = :empty",
       ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt, fullPageDatabaseId",

@@ -127,7 +127,6 @@ export class QuicknoteSyncStack extends cdk.Stack {
         "databaseId",
         "createdAt",
         "deletedAt",
-        "fullPageDatabaseId",
       ],
     });
     this.pageTable.table.addGlobalSecondaryIndex({
