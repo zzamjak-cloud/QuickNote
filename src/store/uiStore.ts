@@ -67,6 +67,12 @@ type UiStoreState = {
   pendingFavoriteNavigation: FavoriteNavigationRequest | null;
   outboxWorkspaceSwitchHold: OutboxWorkspaceSwitchHold | null;
   workspaceLoading: WorkspaceLoadingState | null;
+  /**
+   * 워크스페이스 부트스트랩(원격 페치~landing) 진행 중 플래그. 세션 전용.
+   * 이 구간에는 persist 로 복원된 풀페이지 DB 탭으로 ensureFullPagePageForDatabase 가
+   * 홈을 재생성해 유령 페이지가 생기므로, 부트 중에는 자동 생성을 막는다.
+   */
+  workspaceBootstrapping: boolean;
   /** 부분 페치 실패 시 실패한 도메인 목록. null이면 정상. 세션 전용 — persist 제외. */
   syncPartialFetchFailed: string[] | null;
 };
@@ -106,6 +112,7 @@ type UiStoreActions = {
   clearFavoriteNavigation: () => void;
   setOutboxWorkspaceSwitchHold: (payload: OutboxWorkspaceSwitchHold | null) => void;
   setWorkspaceLoading: (payload: WorkspaceLoadingState | null) => void;
+  setWorkspaceBootstrapping: (value: boolean) => void;
   setSyncPartialFetchFailed: (domains: string[] | null) => void;
 };
 
@@ -129,6 +136,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   pendingFavoriteNavigation: null,
   outboxWorkspaceSwitchHold: null,
   workspaceLoading: null,
+  workspaceBootstrapping: false,
   syncPartialFetchFailed: null,
 
   toggleRightPanel: (tab) =>
@@ -232,6 +240,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   setOutboxWorkspaceSwitchHold: (payload) =>
     set({ outboxWorkspaceSwitchHold: payload }),
   setWorkspaceLoading: (payload) => set({ workspaceLoading: payload }),
+  setWorkspaceBootstrapping: (value) => set({ workspaceBootstrapping: value }),
   setSyncPartialFetchFailed: (domains) => set({ syncPartialFetchFailed: domains }),
 
 }),
