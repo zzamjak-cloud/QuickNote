@@ -114,6 +114,11 @@ body,
   margin: 0;
 }
 
+/* 붙여넣기 등으로 유입된 인라인 color 스타일이 콜아웃 배경색과 충돌하지 않도록 기본 색상으로 강제 */
+.callout-body span[style] {
+  color: inherit !important;
+}
+
 /* Empty: 아이콘 열 없음 — 편집 영역이 테두리 안 가로 전체를 쓰도록 */
 .callout--empty .callout-body {
   display: block;

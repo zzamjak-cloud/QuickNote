@@ -288,6 +288,7 @@ export const usePageStore = create<PageStore>()(
           title,
           icon: null,
           doc: structuredClone(EMPTY_DOC),
+          contentLoaded: true,
           parentId,
           order: nextOrderForParent(get().pages, parentId),
           createdAt: now,
