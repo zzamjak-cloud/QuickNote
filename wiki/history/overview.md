@@ -45,6 +45,8 @@ DB 히스토리는 한 화면에서 두 탭으로 본다 (`DatabaseBlockHistoryD
 
 > **주의 — rowPageOrder**: 서버 Database 모델에 `rowPageOrder` 가 없다. 페이지에서 역추적해 재구성한다(`storeApply.ts` `collectRowPageIdsForDatabase` / `ensurePageInDatabaseRowOrder` / `removePageIdFromDatabaseRowOrder`).
 
+> **주의 — 복원 직후 `null.type` 크래시**: 복원된 doc 의 `content` 배열에 null 항목이 있으면 에디터 헤더 렌더 중 `Cannot read properties of null (reading 'type')` 로 터진다. `gqlPageToLocalPage`(`storeApply/helpers.ts`)가 `parseAwsJson` 후 `content.filter(Boolean)` 로 null 노드를 거른다. 서버 데이터 자체는 정상이라 새로고침하면 복구되지만, 이 가드로 복원 직후 전환 렌더에서도 크래시를 막는다.
+
 ## 휴지통 영구삭제 — DynamoDB TTL (`purgeAt`)
 
 휴지통 30일 만료 영구삭제는 **Pages 테이블의 DynamoDB TTL** 이 처리한다(WCU 무과금). 기존의 `trash-purge` Lambda 일일 풀스캔은 제거됐다.
