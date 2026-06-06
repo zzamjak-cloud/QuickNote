@@ -177,6 +177,8 @@ function useSyncBootstrap(): void {
     };
 
     (async () => {
+      // 부트스트랩 진행 중에는 복원된 풀페이지 DB 탭으로 홈을 재생성하지 않도록 막는다.
+      useUiStore.getState().setWorkspaceBootstrapping(true);
       try {
         const switchResult = await applyWorkspaceSwitch(
           prevWorkspaceId,
@@ -249,6 +251,11 @@ function useSyncBootstrap(): void {
                 !nextUpdatedAfter && switchResult.reason === "deferred-switch",
               clearBlockCommentsBeforeApply: true,
               applyLandingAfterApply: true,
+              // 워크스페이스 진입(전환·새로고침·강제 새로고침 모두)에서 직전에 보던 페이지/
+              // 풀페이지 DB 탭을 복원하지 않고 항상 첫 인덱스 페이지로 리셋한다.
+              // 풀페이지 DB 탭이 복원되면 ensureFullPagePageForDatabase 가 메타 상태에서
+              // 홈을 재생성해 유령 페이지가 생기므로, 진입 화면을 결정적으로 고정해 차단한다.
+              landingForceFirstRoot: true,
               refreshSnapshotAfterApply: true,
               useBatchedUpdates: true,
               updatedAfter: nextUpdatedAfter,
@@ -288,6 +295,7 @@ function useSyncBootstrap(): void {
               clearWorkspaceBeforeApply: false,
               clearBlockCommentsBeforeApply: true,
               applyLandingAfterApply: true,
+              landingForceFirstRoot: true,
               refreshSnapshotAfterApply: true,
               useBatchedUpdates: true,
               logPrefix: "워크스페이스 전환(메타 캐시 비어 있음 → 전체)",
@@ -390,6 +398,7 @@ function useSyncBootstrap(): void {
       } catch (err) {
         console.error("[sync] bootstrap failed", err);
       } finally {
+        useUiStore.getState().setWorkspaceBootstrapping(false);
         if (workspaceLoadingTimer !== null) {
           window.clearTimeout(workspaceLoadingTimer);
           workspaceLoadingTimer = null;

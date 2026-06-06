@@ -23,10 +23,26 @@ export function getFirstRootSidebarPageId(pages: PageMap): string | null {
  * 마지막 방문 페이지(있으면) 또는 루트 첫 페이지로 맞춘다.
  * 탭이 이미 유효한 페이지를 가리키면(새로고침 등) 건드리지 않고 방문 기록만 동기화한다.
  */
-export function applyWorkspaceLanding(workspaceId: string): void {
+export function applyWorkspaceLanding(
+  workspaceId: string,
+  options: { forceFirstRoot?: boolean } = {},
+): void {
   if (!workspaceId) return;
   const settings = useSettingsStore.getState();
   const { pages, setActivePage } = usePageStore.getState();
+
+  // 워크스페이스 전환 진입: 직전에 보던 상태(원본 풀페이지 DB 탭·마지막 방문 페이지)를
+  // 복원하지 않고 항상 첫 인덱스 페이지로 리셋한다. 풀페이지 DB 탭을 복원하면
+  // ensureFullPagePageForDatabase 가 메타 상태에서 홈을 재생성해 데이터가 꼬이므로,
+  // 진입 화면을 결정적으로 고정해 회귀를 차단한다.
+  if (options.forceFirstRoot) {
+    const target = getFirstRootSidebarPageId(pages);
+    settings.replaceCurrentTabPage(target);
+    setActivePage(target);
+    if (target) settings.setLastVisitedPageForWorkspace(workspaceId, target);
+    return;
+  }
+
   const activeTab = settings.tabs[settings.activeTabIndex];
   // DirectPage 탭(원본 DB 전체 페이지)은 pageId 가 null 이고 databaseId 로 식별된다.
   // 이미 유효한 탭이므로 landing 으로 덮어쓰지 않는다(새로고침 시 사이드바 인라인 DB 로 튕기는 회귀 방지).

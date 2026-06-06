@@ -29,6 +29,8 @@ type FetchApplyWorkspaceSnapshotOptions = {
   clearWorkspaceBeforeApply?: boolean;
   clearBlockCommentsBeforeApply?: boolean;
   applyLandingAfterApply?: boolean;
+  /** 워크스페이스 전환 진입 시 true — landing 이 직전 상태를 무시하고 첫 인덱스 페이지로 리셋한다. */
+  landingForceFirstRoot?: boolean;
   refreshSnapshotAfterApply?: boolean;
   useBatchedUpdates?: boolean;
   logPrefix?: string;
@@ -116,6 +118,7 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
   clearWorkspaceBeforeApply = false,
   clearBlockCommentsBeforeApply = false,
   applyLandingAfterApply = false,
+  landingForceFirstRoot = false,
   refreshSnapshotAfterApply = false,
   useBatchedUpdates = false,
   logPrefix,
@@ -204,7 +207,7 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
       });
     }
     if (applyLandingAfterApply) {
-      applyWorkspaceLanding(workspaceId);
+      applyWorkspaceLanding(workspaceId, { forceFirstRoot: landingForceFirstRoot });
     }
     if (refreshSnapshotAfterApply) {
       refreshWorkspaceSnapshot(workspaceId);
@@ -231,6 +234,7 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
   clearWorkspaceBeforeApply = false,
   clearBlockCommentsBeforeApply = false,
   applyLandingAfterApply = false,
+  landingForceFirstRoot = false,
   refreshSnapshotAfterApply = false,
   useBatchedUpdates = false,
   logPrefix,
@@ -304,7 +308,7 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
     }
     if (dbs) applyRemoteDatabasesToStore(dbs);
     if (comments) applyRemoteCommentsToStore(comments);
-    if (applyLandingAfterApply) applyWorkspaceLanding(workspaceId);
+    if (applyLandingAfterApply) applyWorkspaceLanding(workspaceId, { forceFirstRoot: landingForceFirstRoot });
   };
 
   if (useBatchedUpdates) {

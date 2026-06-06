@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { getFirstRootSidebarPageId } from "../../lib/sync/workspaceLanding";
+import { describe, it, expect, beforeEach } from "vitest";
+import {
+  applyWorkspaceLanding,
+  getFirstRootSidebarPageId,
+} from "../../lib/sync/workspaceLanding";
+import { usePageStore } from "../../store/pageStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import type { Page, PageMap } from "../../types/page";
 
 const emptyDoc = { type: "doc" as const, content: [{ type: "paragraph" as const }] };
@@ -43,5 +48,52 @@ describe("getFirstRootSidebarPageId", () => {
       normal: makePage({ id: "normal", order: 1 }),
     };
     expect(getFirstRootSidebarPageId(pages)).toBe("normal");
+  });
+});
+
+describe("applyWorkspaceLanding — forceFirstRoot", () => {
+  const WS = "ws-1";
+  const fullPageHomeDoc = {
+    type: "doc" as const,
+    content: [
+      {
+        type: "databaseBlock" as const,
+        attrs: { layout: "fullPage", databaseId: "db1" },
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    usePageStore.setState({
+      pages: {
+        home: makePage({ id: "home", order: 0, doc: fullPageHomeDoc }),
+        idx: makePage({ id: "idx", order: 1, title: "첫 인덱스" }),
+      },
+      activePageId: null,
+      cacheWorkspaceId: WS,
+    });
+    useSettingsStore.setState({
+      tabs: [{ pageId: null, databaseId: "db1" }],
+      activeTabIndex: 0,
+      lastVisitedPageIdByWorkspaceId: { [WS]: "home" },
+    });
+  });
+
+  it("전환 진입(forceFirstRoot)이면 직전 풀페이지 DB 탭·기억된 페이지를 무시하고 첫 인덱스로 리셋한다", () => {
+    applyWorkspaceLanding(WS, { forceFirstRoot: true });
+
+    const settings = useSettingsStore.getState();
+    const tab = settings.tabs[settings.activeTabIndex];
+    expect(tab.pageId).toBe("idx");
+    expect(tab.databaseId ?? null).toBeNull();
+    expect(usePageStore.getState().activePageId).toBe("idx");
+  });
+
+  it("일반 진입(forceFirstRoot 미지정)이면 직전 풀페이지 DB 탭을 유지한다", () => {
+    applyWorkspaceLanding(WS);
+
+    const settings = useSettingsStore.getState();
+    const tab = settings.tabs[settings.activeTabIndex];
+    expect(tab.databaseId).toBe("db1");
   });
 });
