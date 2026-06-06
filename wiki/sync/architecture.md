@@ -13,7 +13,9 @@ localStorage    ←  빠른 첫 렌더용 캐시 (원격 스냅샷)
 ```
 1단계: 메타 스냅샷 로드 (항상)
   fetchApplyWorkspaceRemoteMetaSnapshot()
-  ├─ listPageMetas (제목·아이콘·parentId 등 메타만, doc 제외)
+  ├─ listPageMetas (제목·아이콘·parentId·fullPageDatabaseId 등 메타만, doc 제외)
+  │   └─ GSI: byWorkspaceAndUpdatedAt (ALL 프로젝션) — 페이지 수 무제한
+  │       nextToken 자동 루프 → 100개 초과 워크스페이스도 전부 로드
   ├─ listDatabases
   └─ listComments
   → 사이드바·트리 즉시 렌더 가능
@@ -33,6 +35,19 @@ localStorage    ←  빠른 첫 렌더용 캐시 (원격 스냅샷)
 
 **예외(전체 스냅샷 경로):**
 - `no-cache` 상태이면서 `listPageMetas` API가 응답 후 캐시가 여전히 비어 있는 경우 → `fetchApplyWorkspaceRemoteSnapshot`(전체) fallback 자동 실행
+
+## Ghost 페이지 방지 (풀페이지 DB 홈 페이지)
+
+풀페이지 DB를 생성하면 홈 페이지가 사이드바에 중복 표시(`ghost`)될 수 있다.
+
+**방지 체계:**
+- `upsertPage` 시 `fullPageDatabaseId` 필드를 함께 저장 (클라이언트 → 서버 → DynamoDB)
+- `listPageMetas` 응답에 `fullPageDatabaseId` 포함 → 동기화 시 클라이언트 수신
+- `isHiddenInSidebar` selector: `fullPageDatabaseId` 있으면 `true` → 사이드바 필터링
+
+**레거시 backfill:** 기존 생성 항목(dev 22건, live 24건)은 일괄 `fullPageDatabaseId` 설정 완료.
+
+관련: [ghost-page-prevention.md](../pages/ghost-page-prevention.md)
 
 ## fetchMode 결정 (delta vs full)
 

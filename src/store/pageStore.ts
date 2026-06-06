@@ -288,6 +288,7 @@ export const usePageStore = create<PageStore>()(
           title,
           icon: null,
           doc: structuredClone(EMPTY_DOC),
+          contentLoaded: true,
           parentId,
           order: nextOrderForParent(get().pages, parentId),
           createdAt: now,
@@ -941,6 +942,9 @@ export const usePageStore = create<PageStore>()(
         const idWant = databaseId.trim();
         if (!idWant) return null;
         for (const p of Object.values(get().pages)) {
+          // 메타데이터 필드 우선 — doc 로드 전에도 동작
+          if (p.fullPageDatabaseId === idWant) return p.id;
+          // 레거시·마이그레이션 페이지: doc content 로 폴백
           const first = p.doc.content?.[0];
           const attrs = first?.attrs as
             | { databaseId?: unknown; layout?: unknown }
@@ -1016,6 +1020,7 @@ export const usePageStore = create<PageStore>()(
           workspaceId: workspaceId || undefined,
           title: title.trim() || "데이터베이스",
           icon: null,
+          fullPageDatabaseId: idWant,
           doc: {
             type: "doc",
             content: [

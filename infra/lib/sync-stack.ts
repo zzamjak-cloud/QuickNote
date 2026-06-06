@@ -45,6 +45,8 @@ function pageTableGsiStageAtLeast(
 }
 
 export interface SyncStackProps extends cdk.StackProps {
+  /** 리소스 이름 접두사. dev 환경은 "dev-", live 환경은 "" */
+  envPrefix: string;
   // CognitoStack 의 출력값을 cross-stack reference 로 받는다.
   userPoolId: string;
   userPoolArn: string;
@@ -78,6 +80,8 @@ export class QuicknoteSyncStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: SyncStackProps) {
     super(scope, id, props);
 
+    const envPrefix = props.envPrefix;
+
     const userPool = cognito.UserPool.fromUserPoolArn(
       this,
       "ImportedUserPool",
@@ -90,11 +94,13 @@ export class QuicknoteSyncStack extends cdk.Stack {
     // DynamoDB TTL 삭제는 WCU 과금이 없어 trash-purge 일일 풀스캔/삭제를 대체한다.
     this.pageTable = createSyncTable(this, "PageTable", "Page", {
       ttlAttribute: "purgeAt",
+      envPrefix,
     });
-    this.databaseTable = createSyncTable(this, "DatabaseTable", "Database");
-    this.commentTable = createSyncTable(this, "CommentTable", "Comment");
+    this.databaseTable = createSyncTable(this, "DatabaseTable", "Database", { envPrefix });
+    this.commentTable = createSyncTable(this, "CommentTable", "Comment", { envPrefix });
     this.imageAssetTable = createSyncTable(this, "ImageAssetTable", "ImageAsset", {
       ttlAttribute: "expireAt", // pending 1일 자동 삭제용
+      envPrefix,
     });
     const pageTableGsiDeployStage = resolvePageTableGsiDeployStage(this);
 
@@ -214,7 +220,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const notificationTable = new dynamodb.Table(this, "NotificationTable", {
-      tableName: "quicknote-notification",
+      tableName: `${envPrefix}quicknote-notification`,
       partitionKey: { name: "recipientMemberId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "notificationId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -227,7 +233,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     // v5 신규 테이블 5종 — workspace 기반 멀티 유저 협업 인프라
     const membersTable = new dynamodb.Table(this, "MembersTable", {
-      tableName: props.membersTableName ?? "quicknote-members",
+      tableName: props.membersTableName ?? `${envPrefix}quicknote-members`,
       partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -246,7 +252,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const teamsTable = new dynamodb.Table(this, "TeamsTable", {
-      tableName: props.teamsTableName ?? "quicknote-teams",
+      tableName: props.teamsTableName ?? `${envPrefix}quicknote-teams`,
       partitionKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -263,7 +269,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const memberTeamsTable = new dynamodb.Table(this, "MemberTeamsTable", {
-      tableName: props.memberTeamsTableName ?? "quicknote-member-teams",
+      tableName: props.memberTeamsTableName ?? `${envPrefix}quicknote-member-teams`,
       partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "teamId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -279,7 +285,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const workspacesTable = new dynamodb.Table(this, "WorkspacesTable", {
-      tableName: props.workspacesTableName ?? "quicknote-workspaces",
+      tableName: props.workspacesTableName ?? `${envPrefix}quicknote-workspaces`,
       partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -294,7 +300,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
 
     const workspaceAccessTable = new dynamodb.Table(this, "WorkspaceAccessTable", {
-      tableName: props.workspaceAccessTableName ?? "quicknote-workspace-access",
+      tableName: props.workspaceAccessTableName ?? `${envPrefix}quicknote-workspace-access`,
       partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "subjectKey", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -311,7 +317,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     // 조직(실) 테이블
     const organizationsTable = new dynamodb.Table(this, "OrganizationsTable", {
-      tableName: props.organizationsTableName ?? "quicknote-organizations",
+      tableName: props.organizationsTableName ?? `${envPrefix}quicknote-organizations`,
       partitionKey: { name: "organizationId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -328,7 +334,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     // 멤버-조직 관계 테이블 (memberId PK, organizationId SK, byOrganization GSI)
     const memberOrganizationsTable = new dynamodb.Table(this, "MemberOrganizationsTable", {
-      tableName: props.memberOrganizationsTableName ?? "quicknote-member-organizations",
+      tableName: props.memberOrganizationsTableName ?? `${envPrefix}quicknote-member-organizations`,
       partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "organizationId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -345,7 +351,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     // LC 스케줄러 프로젝트 테이블 — 신규 생성
     const projectsTable = new dynamodb.Table(this, "SchedulerProjectsTable", {
-      tableName: "quicknote-scheduler-projects",
+      tableName: `${envPrefix}quicknote-scheduler-projects`,
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -359,7 +365,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     // LC 스케줄러 공휴일 테이블 — 신규 생성
     const holidaysTable = new dynamodb.Table(this, "SchedulerHolidaysTable", {
-      tableName: "quicknote-scheduler-holidays",
+      tableName: `${envPrefix}quicknote-scheduler-holidays`,
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -373,7 +379,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     // LC 스케줄러 주간 MM 원본 테이블
     const mmEntriesTable = new dynamodb.Table(this, "SchedulerMmEntriesTable", {
-      tableName: "quicknote-scheduler-mm-entries",
+      tableName: `${envPrefix}quicknote-scheduler-mm-entries`,
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -395,7 +401,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     // 워크스페이스 공유 커스텀 아이콘 프리셋. 모든 멤버가 같은 아이콘 목록을 볼 수 있도록 동기화.
     // PK = id (UUID), GSI byWorkspace = (workspaceId, createdAt) — 최신순 정렬.
     const customIconsTable = new dynamodb.Table(this, "CustomIconsTable", {
-      tableName: "quicknote-custom-icons",
+      tableName: `${envPrefix}quicknote-custom-icons`,
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -416,7 +422,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     // GSI byOwner: ownerId → 사용자의 모든 사용 매핑. listMyAssets 에서 자산별 usageCount 집계용.
     // GSI byPage: pageId → 페이지 전체 자산. 페이지 삭제/재기록 시 cascade.
     const assetUsageTable = new dynamodb.Table(this, "AssetUsageTable", {
-      tableName: "quicknote-asset-usage",
+      tableName: `${envPrefix}quicknote-asset-usage`,
       partitionKey: { name: "assetId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -437,7 +443,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     new cdk.CfnOutput(this, "AssetUsageTableName", { value: assetUsageTable.tableName });
 
     const pageHistoryTable = new dynamodb.Table(this, "PageHistoryTable", {
-      tableName: "quicknote-page-history",
+      tableName: `${envPrefix}quicknote-page-history`,
       partitionKey: { name: "pageId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "historyId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -461,7 +467,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     new cdk.CfnOutput(this, "PageHistoryTableName", { value: pageHistoryTable.tableName });
 
     const databaseHistoryTable = new dynamodb.Table(this, "DatabaseHistoryTable", {
-      tableName: "quicknote-database-history",
+      tableName: `${envPrefix}quicknote-database-history`,
       partitionKey: { name: "databaseId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "historyId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -482,18 +488,36 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "DatabaseHistoryTableName", { value: databaseHistoryTable.tableName });
 
-    // LC 스케줄러 일정 테이블 — 1차 배포 시 이미 생성됐으므로 import로 참조.
-    // GSI 권한 부여를 위해 fromTableAttributes 로 인덱스를 함께 등록한다.
-    const schedulesTable = dynamodb.Table.fromTableAttributes(this, "SchedulesTable", {
-      tableName: "quicknote-schedules",
-      globalIndexes: ["byWorkspaceAndStartAt"],
-    });
+    // LC 스케줄러 일정 테이블
+    // live 환경: CDK 외부에서 먼저 생성된 테이블이므로 import. dev 환경: 신규 생성.
+    let schedulesTable: dynamodb.ITable;
+    if (envPrefix !== "") {
+      const createdSchedulesTable = new dynamodb.Table(this, "SchedulesTable", {
+        tableName: `${envPrefix}quicknote-schedules`,
+        partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+        sortKey: { name: "id", type: dynamodb.AttributeType.STRING },
+        billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+        removalPolicy: cdk.RemovalPolicy.RETAIN,
+      });
+      createdSchedulesTable.addGlobalSecondaryIndex({
+        indexName: "byWorkspaceAndStartAt",
+        partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+        sortKey: { name: "startAt", type: dynamodb.AttributeType.STRING },
+        projectionType: dynamodb.ProjectionType.ALL,
+      });
+      schedulesTable = createdSchedulesTable;
+    } else {
+      schedulesTable = dynamodb.Table.fromTableAttributes(this, "SchedulesTable", {
+        tableName: "quicknote-schedules",
+        globalIndexes: ["byWorkspaceAndStartAt"],
+      });
+    }
     new cdk.CfnOutput(this, "SchedulesTableName", { value: schedulesTable.tableName });
 
     // 작업 DB row 의 구성원(assignee)별 색인 테이블 — listDatabaseRows 의 assigneeId 필터용.
     // PK=`${databaseId}#${memberId}`, SK=pageId. assignee 마다 1엔트리(per-assignee).
     const databaseRowMembersTable = new dynamodb.Table(this, "DatabaseRowMembersTable", {
-      tableName: "quicknote-database-row-members",
+      tableName: `${envPrefix}quicknote-database-row-members`,
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "pageId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -552,7 +576,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     // AppSync GraphQL API. Cognito User Pool 을 primary authorizer 로 사용한다.
     const api = new appsync.GraphqlApi(this, "SyncApi", {
-      name: "quicknote-sync",
+      name: `${envPrefix}quicknote-sync`,
       definition: appsync.Definition.fromFile(
         path.join(__dirname, "sync", "schema.graphql"),
       ),

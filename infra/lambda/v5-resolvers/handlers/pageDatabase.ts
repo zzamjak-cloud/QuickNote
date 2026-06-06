@@ -519,10 +519,10 @@ export async function listPageMetas(args: {
   const r = await args.doc.send(
     new QueryCommand({
       TableName: args.tables.Pages,
-      IndexName: "byWorkspaceMetaUpdatedAt",
+      IndexName: "byWorkspaceAndUpdatedAt",
       KeyConditionExpression: keyCondition,
       FilterExpression: "attribute_not_exists(databaseId) OR attribute_type(databaseId, :nullType) OR databaseId = :empty",
-      ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt",
+      ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt, fullPageDatabaseId",
       ExpressionAttributeNames: { "#order": "order" },
       ExpressionAttributeValues: expressionValues,
       Limit: args.limit ?? 100,
@@ -2152,6 +2152,10 @@ export async function restorePageVersion(args: {
     updatedAt: now,
   };
   delete restored["deletedAt"];
+  // byDatabaseAndOrder GSI는 NULL 타입 databaseId를 거부 — upsertPage와 동일하게 정제
+  if (restored.databaseId == null) delete restored.databaseId;
+  normalizePageOrderField(restored);
+  deriveDatabaseRowScopeKeys(restored);
   await args.doc.send(
     new PutCommand({
       TableName: args.tables.Pages,

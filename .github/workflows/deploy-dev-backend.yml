@@ -1,0 +1,50 @@
+name: Dev 백엔드 배포 (CDK)
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "infra/**"
+      - ".github/workflows/deploy-dev-backend.yml"
+
+concurrency:
+  group: cdk-dev-deploy
+  cancel-in-progress: false  # CDK 배포 중 취소 시 리소스 상태 불일치 위험
+
+jobs:
+  deploy-dev:
+    name: dev 스택 CDK 배포
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # GitHub OIDC 토큰 발급
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node.js 설정
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: infra/package-lock.json
+
+      # AWS OIDC 인증 — 장기 자격증명(Access Key) 없이 IAM 역할 임시 위임
+      # 사전 설정 필요:
+      #   1. AWS IAM → Identity providers → token.actions.githubusercontent.com 추가
+      #   2. IAM 역할 생성 (신뢰 정책: repo:zzamjak-cloud/QuickNote:ref:refs/heads/develop)
+      #   3. GitHub Secrets → AWS_CDK_DEPLOY_ROLE_ARN 에 역할 ARN 저장
+      - name: AWS 자격증명 설정 (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CDK_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+
+      - name: infra 패키지 설치
+        run: npm ci --prefix infra
+
+      - name: CDK dev 스택 배포
+        working-directory: infra
+        run: npm run deploy:dev
+        env:
+          DEPLOY_ENV: dev

@@ -9,6 +9,8 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as secrets from "aws-cdk-lib/aws-secretsmanager";
 
 export interface CognitoStackProps extends cdk.StackProps {
+  /** 리소스 이름 접두사. dev 환경은 "dev-", live 환경은 "" */
+  envPrefix: string;
   cognitoDomainPrefix: string;
   webCallbackUrls: string[];
   webLogoutUrls: string[];
@@ -27,7 +29,7 @@ export class CognitoStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: CognitoStackProps) {
     super(scope, id, props);
 
-    const membersTableName = props.membersTableName ?? "quicknote-members";
+    const membersTableName = props.membersTableName ?? `${props.envPrefix}quicknote-members`;
 
     // Members 테이블 GSI(byEmail) 조회로 가입 허용 여부를 검증하는 Lambda.
     const preSignUpFn = new lambdaNode.NodejsFunction(this, "PreSignUpFn", {
@@ -96,7 +98,7 @@ export class CognitoStack extends cdk.Stack {
     );
 
     const userPool = new cognito.UserPool(this, "UserPool", {
-      userPoolName: "quicknote-users",
+      userPoolName: `${props.envPrefix}quicknote-users`,
       selfSignUpEnabled: true, // 페더레이션 진입을 위해 필요. PreSignUp Lambda로 차단.
       signInAliases: { email: true },
       autoVerify: { email: true },
@@ -148,7 +150,7 @@ export class CognitoStack extends cdk.Stack {
     ];
 
     const webClient = userPool.addClient("WebClient", {
-      userPoolClientName: "quicknote-web",
+      userPoolClientName: `${props.envPrefix}quicknote-web`,
       generateSecret: false,
       authFlows: { userSrp: true },
       oAuth: {
@@ -166,7 +168,7 @@ export class CognitoStack extends cdk.Stack {
     webClient.node.addDependency(googleProvider);
 
     const desktopClient = userPool.addClient("DesktopClient", {
-      userPoolClientName: "quicknote-desktop",
+      userPoolClientName: `${props.envPrefix}quicknote-desktop`,
       generateSecret: false,
       authFlows: { userSrp: true },
       oAuth: {
