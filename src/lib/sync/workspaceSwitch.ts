@@ -652,12 +652,15 @@ export function clearWorkspaceScopedStores(nextWorkspaceId: string): void {
   const activeSchedulerPageId =
     nextWorkspaceId === LC_SCHEDULER_WORKSPACE_ID &&
     activePageId &&
-    isProtectedDatabaseId(currentPages[activePageId]?.databaseId)
+    (isProtectedDatabaseId(currentPages[activePageId]?.databaseId) ||
+      currentPages[activePageId]?.workspaceId === LC_SCHEDULER_WORKSPACE_ID)
       ? activePageId
       : null;
   const schedulerPages = Object.fromEntries(
-    Object.entries(currentPages).filter(([, page]) =>
-      isProtectedDatabaseId(page.databaseId),
+    Object.entries(currentPages).filter(
+      ([, page]) =>
+        isProtectedDatabaseId(page.databaseId) ||
+        page.workspaceId === LC_SCHEDULER_WORKSPACE_ID,
     ),
   );
   const schedulerDatabases = Object.fromEntries(
