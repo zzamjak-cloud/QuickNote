@@ -181,6 +181,19 @@ describe("pageStore — DB 행 페이지 가시성", () => {
     expect(Object.keys(usePageStore.getState().pages)).toHaveLength(1);
   });
 
+  it("ensureFullPagePageForDatabase는 LC 보호 DB 홈 페이지를 만들지 않는다", () => {
+    const id = usePageStore
+      .getState()
+      .ensureFullPagePageForDatabase(
+        "lc-scheduler-db:lc-scheduler-global",
+        "LC스케줄러",
+        "table",
+      );
+
+    expect(id).toBeNull();
+    expect(usePageStore.getState().pages).toEqual({});
+  });
+
   it("fullPage 홈 문서 삭제 시 같은 DB 탭을 해제해 즉시 재생성을 막는다", () => {
     const fallbackPageId = usePageStore
       .getState()

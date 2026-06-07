@@ -41,6 +41,7 @@ import {
   restorePageScrollPosition,
 } from "./lib/navigation/pageScrollMemory";
 import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
+import { isProtectedDatabaseId } from "./lib/scheduler/database";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -320,6 +321,7 @@ function App() {
 
   useEffect(() => {
     if (!tabDatabaseId || tabDatabasePageId || tabDatabaseTitle == null) return;
+    if (isProtectedDatabaseId(tabDatabaseId)) return;
     // 부트스트랩(원격 페치~landing) 중에는 복원된 DB 탭으로 홈을 자동 생성하지 않는다.
     // 이 구간에 생성하면 유령 풀페이지 DB 홈이 중복 생성된다. landing 이 곧 탭을
     // 첫 인덱스 페이지로 리셋하므로, 사용자가 직접 연 DB 탭(부트 이후)만 홈을 보장한다.
