@@ -32,9 +32,18 @@ Organization
 - `applyWorkspaceLanding(workspaceId, { forceFirstRoot: true })` (`src/lib/sync/workspaceLanding.ts`)
   - `forceFirstRoot` 시: 활성 탭의 `databaseId`·`lastVisitedPageIdByWorkspaceId` 를 무시하고
     `getFirstRootSidebarPageId` 결과로 탭·activePage 를 덮어쓴다.
+  - 첫 인덱스 후보는 반드시 현재 `workspaceId` 소속 페이지만 사용한다.
+  - 일반 워크스페이스에서는 LC 보호 DB(작업·마일스톤·피처) 페이지/블록을 후보에서 제외한다.
 - Bootstrap 의 모든 데이터 적용 경로에서 `landingForceFirstRoot: true` 로 호출.
+- 앱 최초 마운트에서는 URL 의 `?page=` 를 복원하지 않는다. 새로고침 landing 은 항상 첫 인덱스가 권위이며,
+  stale `?page=...` 는 landing 후 현재 active page URL 로 교정한다.
 
 **이유**: 풀페이지 DB 탭을 복원하면 `ensureFullPagePageForDatabase` 가 메타 상태에서 홈을
 재생성해 ghost(중복 풀페이지 홈)가 생긴다. 진입 화면을 결정적으로 고정해 이 회귀를 차단한다.
 새로고침 레이스 보강으로 `uiStore.workspaceBootstrapping` 구간에는 자동 홈 생성을 막는다.
 상세: [ghost-page-prevention.md](../pages/ghost-page-prevention.md)
+
+**회귀 테스트**:
+- `src/__tests__/sync/workspaceLanding.test.ts`
+- `src/__tests__/sync/workspaceSwitch.test.ts`
+- `src/store/pageStore/__tests__/selectors.test.ts`

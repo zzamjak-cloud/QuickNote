@@ -597,7 +597,7 @@ async function restoreWorkspaceSnapshot(workspaceId: string): Promise<boolean> {
 //
 function hasLocalWorkspaceCache(): boolean {
   const hasNonSchedulerPages = Object.values(usePageStore.getState().pages).some(
-    (page) => !isProtectedDatabaseId(page.databaseId),
+    (page) => page.workspaceId !== LC_SCHEDULER_WORKSPACE_ID && !isProtectedDatabaseId(page.databaseId),
   );
   const hasNonSchedulerDatabases = Object.keys(useDatabaseStore.getState().databases).some(
     (databaseId) => !isProtectedDatabaseId(databaseId),
@@ -610,7 +610,7 @@ function hasLocalWorkspaceCache(): boolean {
 
 export function cacheBelongsToWorkspace(workspaceId: string): boolean {
   const hasPageCache = Object.values(usePageStore.getState().pages).some(
-    (page) => !isProtectedDatabaseId(page.databaseId),
+    (page) => page.workspaceId !== LC_SCHEDULER_WORKSPACE_ID && !isProtectedDatabaseId(page.databaseId),
   );
   const hasDatabaseCache = Object.keys(useDatabaseStore.getState().databases).some(
     (databaseId) => !isProtectedDatabaseId(databaseId),

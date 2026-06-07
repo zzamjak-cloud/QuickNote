@@ -64,6 +64,7 @@ persist 된 탭이 { databaseId: X } (풀페이지 DB 탭)
    Bootstrap 의 모든 워크스페이스 데이터 적용에서 `landingForceFirstRoot: true` 로 호출 →
    전환·새로고침·강제 새로고침 진입 시 직전 DB 탭/마지막 방문 페이지를 복원하지 않고
    항상 첫 인덱스 페이지로 결정적 리셋한다. DB 탭이 비워지므로 ensure 트리거 자체가 사라진다.
+   일반 워크스페이스 landing 후보에서는 다른 워크스페이스 페이지와 LC 보호 DB 페이지/블록을 제외한다.
    (`src/lib/sync/workspaceLanding.ts`, `src/Bootstrap.tsx`)
 
 2. **부트 구간 자동 생성 차단** — `uiStore.workspaceBootstrapping`.
@@ -82,6 +83,7 @@ persist 된 탭이 { databaseId: X } (풀페이지 DB 탭)
 - **수동 제거된 ghost**: localStorage 캐시에 `fullPageDatabaseId` 없이 저장된 기존 ghost는 재동기화 전까지 표시될 수 있다. F5(재동기화)로 해결.
 - **reconcileWorkspaceFullSnapshot**: ghost 제거(prune)는 전체 스냅샷에서만 실행된다. 델타 동기화 중에는 실행되지 않는다.
 - **landing 진입 리셋을 끄지 말 것**: `landingForceFirstRoot` 를 false 로 되돌리면 복원된 DB 탭이 다시 ghost 를 만든다. 진입 화면 고정은 UX 선택이자 ghost 방지책이다.
+- **초기 `?page=` 복원 금지**: 새로고침/콜드 부트에서 URL 의 stale `?page` 를 먼저 열면 landing 결과를 다시 덮는다. 최초 마운트는 landing 을 권위로 두고, URL 은 active page 확정 후 교정한다.
 
 ## 관련 파일
 

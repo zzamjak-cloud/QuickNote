@@ -1091,6 +1091,7 @@ export {
   createFilterPageTreeSelector,
   filterPageTree,
   isFullPageDatabaseHomePage,
+  isProtectedDatabaseBlockPage,
   selectFirstSidebarRootId,
   selectPageTree,
   selectSortedPages,

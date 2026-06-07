@@ -14,7 +14,11 @@ import { WorkspaceSyncBanner } from "./components/sync/WorkspaceSyncBanner";
 import { SearchCommandPalette } from "./components/search/SearchCommandPalette";
 import { AuthGate } from "./components/auth/AuthGate";
 import { useSettingsStore } from "./store/settingsStore";
-import { usePageStore, selectFirstSidebarRootId } from "./store/pageStore";
+import {
+  usePageStore,
+  selectFirstSidebarRootId,
+  isProtectedDatabaseBlockPage,
+} from "./store/pageStore";
 import { useDatabaseStore } from "./store/databaseStore";
 import { useUiStore } from "./store/uiStore";
 import { useWorkspaceStore } from "./store/workspaceStore";
@@ -36,6 +40,7 @@ import {
   installPageScrollCapture,
   restorePageScrollPosition,
 } from "./lib/navigation/pageScrollMemory";
+import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -209,7 +214,21 @@ function App() {
 
     // 페이지를 연다. 스토어에 아직 없으면 false(콜드 부트 비동기 하이드레이션/원격 페치 대기용).
     const openLinkTarget = (target: QuickNoteLinkTarget): boolean => {
-      if (!usePageStore.getState().pages[target.pageId]) return false;
+      const page = usePageStore.getState().pages[target.pageId];
+      if (!page) return false;
+      if (
+        currentWorkspaceId &&
+        page.workspaceId &&
+        page.workspaceId !== currentWorkspaceId
+      ) {
+        return true;
+      }
+      if (
+        currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
+        isProtectedDatabaseBlockPage(page)
+      ) {
+        return true;
+      }
       setActivePage(target.pageId);
       setCurrentTabPage(target.pageId);
       scrollToLinkTarget(target);
@@ -222,25 +241,11 @@ function App() {
       openLinkTarget(target);
     };
 
-    // 콜드 부트: 영속 스토어가 비동기로 하이드레이션되고, DB 행 등 일부 페이지는 원격 페치
-    // 이후에야 스토어에 들어온다. 마운트 시점에 대상이 없으면 곧장 포기하지 말고, 대상 페이지가
-    // 스토어에 들어올 때까지 구독하며 기다렸다가 연다(타임아웃 후 해제).
-    let unsubscribe: (() => void) | undefined;
-    let waitTimeoutId: number | undefined;
     const initialTarget = parseQuickNoteLink(window.location.href);
-    if (initialTarget && !openLinkTarget(initialTarget)) {
-      unsubscribe = usePageStore.subscribe((state) => {
-        if (!state.pages[initialTarget.pageId]) return;
-        unsubscribe?.();
-        unsubscribe = undefined;
-        if (waitTimeoutId) window.clearTimeout(waitTimeoutId);
-        openLinkTarget(initialTarget);
-      });
-      waitTimeoutId = window.setTimeout(() => {
-        unsubscribe?.();
-        unsubscribe = undefined;
-      }, 20000);
-    } else if (!initialTarget) {
+    if (initialTarget) {
+      // 새로고침/콜드 부트에서는 URL page 파라미터를 복원하지 않는다.
+      // 워크스페이스 landing 이 항상 첫 인덱스 페이지를 결정하게 둔다.
+    } else {
       // URL 에 ?page 가 없으면 현재 활성 페이지를 초기 히스토리 엔트리로 기록한다.
       // 이후 내부 이동마다 pushState 가 쌓이므로 뒤로가기가 시작 페이지까지
       // 앱 내부를 순회하고, 앱 자체를 벗어나지 않는다.
@@ -261,12 +266,25 @@ function App() {
     window.addEventListener("popstate", applyLocationLink);
     window.addEventListener("hashchange", applyLocationLink);
     return () => {
-      unsubscribe?.();
-      if (waitTimeoutId) window.clearTimeout(waitTimeoutId);
       window.removeEventListener("popstate", applyLocationLink);
       window.removeEventListener("hashchange", applyLocationLink);
     };
-  }, [setActivePage, setCurrentTabPage]);
+  }, [currentWorkspaceId, setActivePage, setCurrentTabPage]);
+
+  useEffect(() => {
+    if (!activePageId) return;
+    const target = parseQuickNoteLink(window.location.href);
+    if (!target || target.pageId === activePageId) return;
+    try {
+      window.history.replaceState(
+        { qnPage: activePageId },
+        "",
+        buildQuickNotePageUrl({ pageId: activePageId }),
+      );
+    } catch {
+      /* noop */
+    }
+  }, [activePageId]);
 
   // 마운트 시: 탭은 비어 있는데 페이지 스토어에 활성 페이지만 있는 경우(영속 불일치) 탭만 맞춤.
   useLayoutEffect(() => {
