@@ -14,6 +14,7 @@ import {
   toggleSelectedMediaCaption,
   type CaptionAlign,
 } from "./mediaCaption";
+import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 
 function shallowImageAttrsEqual(
   prev: NodeViewProps,
@@ -50,20 +51,29 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
     caption?: string | null;
     captionAlign?: CaptionAlign | null;
   };
-  const { url, error } = useImageUrl(attrs.src ?? null);
   const align = attrs.align ?? "left";
   const hasCaption = typeof attrs.caption === "string";
   const captionAlign = attrs.captionAlign ?? "left";
   const captionMaxWidth = attrs.width ? `${attrs.width}px` : "100%";
   const [previewOpen, setPreviewOpen] = useState(false);
+  const activation = useLazyNodeViewActivation<HTMLDivElement>({
+    selected: props.selected,
+    forceActive: previewOpen,
+  });
+  const { url, error } = useImageUrl(
+    activation.active ? attrs.src ?? null : null,
+  );
 
   return (
     <NodeViewWrapper
       as="div"
+      ref={activation.ref}
       // 블록 컨테이너 내 가로 정렬 — flex + justify 로 좌/중앙/우 배치.
       className="qn-image-shell flex max-w-full flex-col leading-none"
       style={{ alignItems: ALIGN_TO_FLEX[align] ?? "flex-start" }}
       draggable={false}
+      onPointerDown={activation.activate}
+      onFocusCapture={activation.activate}
     >
       {error ? (
         <span className="text-xs text-red-500">[image error]</span>

@@ -7,6 +7,7 @@ import {
   fallbackBookmarkMetadata,
   fetchBookmarkMetadata,
 } from "../bookmarks/metadata";
+import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 
 type BookmarkBlockAttrs = {
   href: string;
@@ -25,13 +26,17 @@ function openBookmarkUrl(href: string) {
 
 function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const attrs = node.attrs as BookmarkBlockAttrs;
+  const activation = useLazyNodeViewActivation<HTMLDivElement>({
+    selected,
+  });
   const fallback = fallbackBookmarkMetadata(attrs.href);
   const title = attrs.title || fallback.title;
   const description = attrs.description || fallback.description;
   const siteName = attrs.siteName || fallback.siteName;
+  const metadataLoading = attrs.status === "loading" && activation.active;
 
   useEffect(() => {
-    if (attrs.status !== "loading" || !attrs.href) return;
+    if (attrs.status !== "loading" || !attrs.href || !activation.active) return;
     const controller = new AbortController();
     void fetchBookmarkMetadata(attrs.href, controller.signal).then((meta) => {
       if (controller.signal.aborted) return;
@@ -45,13 +50,16 @@ function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) 
       });
     });
     return () => controller.abort();
-  }, [attrs.href, attrs.status, attrs.title, attrs.description, attrs.siteName, attrs.imageUrl, updateAttributes]);
+  }, [activation.active, attrs.href, attrs.status, attrs.title, attrs.description, attrs.siteName, attrs.imageUrl, updateAttributes]);
 
   return (
     <NodeViewWrapper
       as="div"
+      ref={activation.ref}
       data-bookmark-block=""
       className="qn-bookmark-shell my-1.5"
+      onPointerDown={activation.activate}
+      onFocusCapture={activation.activate}
     >
       <button
         type="button"
@@ -65,7 +73,7 @@ function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) 
       >
         <span className="flex min-w-0 flex-1 flex-col gap-1 px-3 py-2.5">
           <span className="line-clamp-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-            {attrs.status === "loading" ? "북마크를 불러오는 중..." : title}
+            {metadataLoading ? "북마크를 불러오는 중..." : title}
           </span>
           <span className="line-clamp-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
             {description}
@@ -76,7 +84,7 @@ function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) 
             <ExternalLink size={11} className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
           </span>
         </span>
-        {attrs.imageUrl ? (
+        {attrs.imageUrl && activation.active ? (
           <span className="hidden w-32 shrink-0 border-l border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 sm:block">
             <img
               src={attrs.imageUrl}

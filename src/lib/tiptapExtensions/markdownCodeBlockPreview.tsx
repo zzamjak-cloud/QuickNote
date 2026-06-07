@@ -6,6 +6,7 @@ import CodeBlock from "@tiptap/extension-code-block";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlockLowlightStable } from "./codeBlockLowlightStable";
+import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 
 /** codeBlockCopy 와 동일 복사 아이콘(버튼 스타일 일관) */
 function MarkdownCodeCopyIcon() {
@@ -49,6 +50,9 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
   const { node } = props;
   const isMd = isMarkdownLanguage(node.attrs.language);
   const [tab, setTab] = useState<"preview" | "source">("preview");
+  const activation = useLazyNodeViewActivation<HTMLDivElement>({
+    selected: props.selected,
+  });
 
   if (!isMd) {
     return (
@@ -72,9 +76,15 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
 
   const text = node.textContent;
   const previewActive = tab === "preview";
+  const previewRenderable = previewActive && activation.active;
 
   return (
-    <NodeViewWrapper className="qn-markdown-code-block my-4 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950">
+    <NodeViewWrapper
+      ref={activation.ref}
+      className="qn-markdown-code-block my-4 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950"
+      onPointerDown={activation.activate}
+      onFocusCapture={activation.activate}
+    >
       <div
         className="flex gap-0.5 border-b border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-900"
         role="tablist"
@@ -135,7 +145,11 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
           }`}
           style={{ fontSize: MARKDOWN_PREVIEW_FONT_SIZE }}
         >
-          {text.trim() ? (
+          {!previewRenderable ? (
+            <p className="my-0 text-sm text-zinc-500 dark:text-zinc-400">
+              미리보기 준비 중...
+            </p>
+          ) : text.trim() ? (
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
           ) : (
             <p className="my-0 text-sm text-zinc-500 dark:text-zinc-400">

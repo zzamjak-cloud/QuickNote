@@ -14,6 +14,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import { mergeAttributes } from "@tiptap/core";
+import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 
 function embedInputFromAttrs(
   attrs: { src?: unknown; start?: unknown },
@@ -68,12 +69,16 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
     width?: number;
     height?: number;
   };
+  const activation = useLazyNodeViewActivation<HTMLDivElement>({
+    selected: props.selected,
+  });
 
   const embedUrl = useMemo(() => {
+    if (!activation.active) return null;
     const input = embedInputFromAttrs({ src, start }, opts);
     if (!input) return null;
     return getEmbedUrlFromYoutubeUrl(input);
-  }, [src, start, opts]);
+  }, [activation.active, src, start, opts]);
 
   const w = typeof width === "number" && width > 0 ? width : opts.width;
   const h = typeof height === "number" && height > 0 ? height : opts.height;
@@ -93,8 +98,11 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
   return (
     <NodeViewWrapper
       as="div"
+      ref={activation.ref}
       className={className}
       {...restAttrs}
+      onPointerDown={activation.activate}
+      onFocusCapture={activation.activate}
     >
       {embedUrl ? (
         <iframe
@@ -112,6 +120,13 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
           }
           className="max-w-full rounded-lg border border-zinc-200 dark:border-zinc-700"
         />
+      ) : !activation.active ? (
+        <div
+          className="flex items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-xs text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-500"
+          style={{ width: w, height: h, maxWidth: "100%" }}
+        >
+          YouTube
+        </div>
       ) : (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-8 text-center text-xs text-zinc-500 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           유효한 YouTube 주소가 아닙니다.

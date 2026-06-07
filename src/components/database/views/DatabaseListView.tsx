@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Plus } from "lucide-react";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import type { DatabasePanelState, DatabaseRowView } from "../../../types/database";
@@ -43,18 +44,25 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
     enabled: !groups && visibleRowLimit == null && rows.length > 160,
     overscan: 12,
   });
-  const renderedRows = virtualRows.enabled
-    ? rows.slice(virtualRows.start, virtualRows.end)
-    : rows;
-
-  if (!bundle) return null;
-
+  const renderedRows = useMemo(
+    () =>
+      virtualRows.enabled
+        ? rows.slice(virtualRows.start, virtualRows.end)
+        : rows,
+    [rows, virtualRows.enabled, virtualRows.end, virtualRows.start],
+  );
   const titleCol = columns.find((c) => c.type === "title");
 
   // 모든 뷰 공통 규칙 — getVisibleOrderedColumns 결과(설정 없으면 전체 표시)에서 제목만 분리.
-  const extraCols = getVisibleOrderedColumns(columns, "list", panelState.viewConfigs).filter(
-    (c) => c.id !== titleCol?.id,
+  const extraCols = useMemo(
+    () =>
+      getVisibleOrderedColumns(columns, "list", panelState.viewConfigs).filter(
+        (c) => c.id !== titleCol?.id,
+      ),
+    [columns, panelState.viewConfigs, titleCol?.id],
   );
+
+  if (!bundle) return null;
 
   const renderRow = (row: DatabaseRowView) => {
     const title = row.title || "제목 없음";

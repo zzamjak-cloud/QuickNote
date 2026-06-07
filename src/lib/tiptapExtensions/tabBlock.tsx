@@ -35,6 +35,7 @@ import { useUiStore } from "../../store/uiStore";
 import { usePageStore } from "../../store/pageStore";
 import { buildQuickNotePageUrl } from "../navigation/quicknoteLinks";
 import { encodeLucidePageIcon } from "../pageIcon";
+import { isEditorLazyInactiveTabPanelsEnabled } from "./editorRenderingFeatureFlags";
 import { pickTabPanelShells } from "./tabPanelDom";
 
 type TabPlacement = "top" | "bottom" | "left" | "right";
@@ -177,6 +178,7 @@ const TabBlockView = memo(function TabBlockView({
   const iconPickerRef = useRef<HTMLDivElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const tabButtonRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+  const lazyInactivePanels = isEditorLazyInactiveTabPanelsEnabled();
   /** Editor 가 shouldRerenderOnTransaction: false 일 때도 트랜잭션마다 활성 탭을 문서에서 직접 구독 */
   const activeIndex = useEditorState({
     editor,
@@ -265,6 +267,8 @@ const TabBlockView = memo(function TabBlockView({
         "pointer-events",
         "z-index",
         "user-select",
+        "content-visibility",
+        "contain-intrinsic-size",
       ] satisfies string[];
       panels.forEach((el, i) => {
         const show = i === clampedActive;
@@ -287,6 +291,10 @@ const TabBlockView = memo(function TabBlockView({
         el.style.setProperty("pointer-events", "none", "important");
         el.style.setProperty("z-index", "0", "important");
         el.style.setProperty("user-select", "none", "important");
+        if (lazyInactivePanels) {
+          el.style.setProperty("content-visibility", "hidden", "important");
+          el.style.setProperty("contain-intrinsic-size", "0 160px", "important");
+        }
         el.setAttribute("aria-hidden", "true");
       });
 
@@ -307,7 +315,7 @@ const TabBlockView = memo(function TabBlockView({
         );
       }
     },
-    [editor],
+    [editor, lazyInactivePanels],
   );
   applyPanelsVisibilityRef.current = applyPanelsVisibility;
 
@@ -767,6 +775,7 @@ const TabBlockView = memo(function TabBlockView({
       data-tab-block=""
       data-tab-placement={placement}
       data-active-index={activeIndex}
+      data-lazy-inactive-panels={lazyInactivePanels ? "true" : "false"}
       className={[
         "qn-tab-block my-2 overflow-hidden rounded-[10px] border border-zinc-300/40 bg-zinc-50/40",
         "dark:border-zinc-700/70 dark:bg-zinc-900/30",
