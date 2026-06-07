@@ -180,7 +180,7 @@ export const realGqlBridge: GqlBridge = {
       "templates" in normalizedInput
     ) {
       const record = normalizedInput as Record<string, unknown>;
-      console.info("[QN_TEMPLATE_SYNC] graphql upsertDatabase:start", {
+      console.warn("[QN_TEMPLATE_SYNC] graphql upsertDatabase:start", {
         databaseId: record.id,
         workspaceId: record.workspaceId,
         updatedAt: record.updatedAt,
@@ -197,7 +197,7 @@ export const realGqlBridge: GqlBridge = {
       "templates" in normalizedInput
     ) {
       const record = normalizedInput as Record<string, unknown>;
-      console.info("[QN_TEMPLATE_SYNC] graphql upsertDatabase:ok", {
+      console.warn("[QN_TEMPLATE_SYNC] graphql upsertDatabase:ok", {
         databaseId: record.id,
       });
     }

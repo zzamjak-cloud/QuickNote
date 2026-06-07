@@ -1137,7 +1137,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         const templatesAfter = get().dbTemplates[databaseId] ?? [];
-        console.info("[QN_TEMPLATE_SYNC] addTemplate", {
+        console.warn("[QN_TEMPLATE_SYNC] addTemplate", {
           databaseId,
           templateId: id,
           pageId,
@@ -1173,7 +1173,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         const templatesAfter = get().dbTemplates[databaseId] ?? [];
-        console.info("[QN_TEMPLATE_SYNC] updateTemplate", {
+        console.warn("[QN_TEMPLATE_SYNC] updateTemplate", {
           databaseId,
           templateId,
           templateCount: templatesAfter.length,
@@ -1210,7 +1210,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         const templatesAfter = get().dbTemplates[databaseId] ?? [];
-        console.info("[QN_TEMPLATE_SYNC] deleteTemplate", {
+        console.warn("[QN_TEMPLATE_SYNC] deleteTemplate", {
           databaseId,
           templateId,
           templateCount: templatesAfter.length,
@@ -1373,4 +1373,35 @@ export function defaultColumnForType(type: ColumnType, name: string): Omit<Colum
   }
   if (type === "date") return { ...base, config: { dateShowEnd: true } };
   return base;
+}
+
+if (typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).__QN_templateSyncDebug = async () => {
+    const state = useDatabaseStore.getState();
+    const outboxSnapshotFn = (window as unknown as Record<string, unknown>).__QN_outboxSnapshot;
+    const outboxSnapshot =
+      typeof outboxSnapshotFn === "function"
+        ? await (outboxSnapshotFn as () => Promise<unknown>)()
+        : null;
+    return {
+      cacheWorkspaceId: state.cacheWorkspaceId,
+      templatesByDatabase: Object.fromEntries(
+        Object.entries(state.dbTemplates).map(([databaseId, templates]) => [
+          databaseId,
+          templates.map((template) => ({
+            id: template.id,
+            title: template.title,
+            pageId: template.pageId ?? null,
+          })),
+        ]),
+      ),
+      databaseUpdatedAt: Object.fromEntries(
+        Object.entries(state.databases).map(([databaseId, bundle]) => [
+          databaseId,
+          bundle.meta.updatedAt,
+        ]),
+      ),
+      outboxSnapshot,
+    };
+  };
 }

@@ -535,7 +535,7 @@ export class SyncEngine {
         return this.gql.upsertPage(p);
       case "upsertDatabase":
         if ("templates" in (p as Record<string, unknown>)) {
-          console.info("[QN_TEMPLATE_SYNC] outboxFlush upsertDatabase", {
+          console.warn("[QN_TEMPLATE_SYNC] outboxFlush upsertDatabase", {
             databaseId: p.id,
             workspaceId: p.workspaceId ?? null,
             updatedAt: p.updatedAt ?? null,

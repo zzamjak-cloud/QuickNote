@@ -1276,7 +1276,7 @@ export async function upsertDatabase(args: {
   }
   normalizeDatabaseAwsJsonFields(args.input);
   if ("templates" in args.input) {
-    console.info("[QN_TEMPLATE_SYNC] lambda upsertDatabase:input", {
+    console.warn("[QN_TEMPLATE_SYNC] lambda upsertDatabase:input", {
       databaseId: id,
       workspaceId,
       updatedAt: args.input.updatedAt,
@@ -1351,7 +1351,7 @@ export async function upsertDatabase(args: {
     }
     const templatesMerge = mergeStaleDatabaseTemplates(args.input, existingItem);
     if (templatesMerge) {
-      console.info("[QN_TEMPLATE_SYNC] lambda upsertDatabase:staleTemplatesMerge", {
+      console.warn("[QN_TEMPLATE_SYNC] lambda upsertDatabase:staleTemplatesMerge", {
         databaseId: id,
         workspaceId,
         incomingUpdatedAt,
@@ -1405,7 +1405,7 @@ export async function upsertDatabase(args: {
       args.caller.memberId,
   };
   if ("templates" in args.input) {
-    console.info("[QN_TEMPLATE_SYNC] lambda upsertDatabase:put", {
+    console.warn("[QN_TEMPLATE_SYNC] lambda upsertDatabase:put", {
       databaseId: id,
       workspaceId,
       incomingUpdatedAt,

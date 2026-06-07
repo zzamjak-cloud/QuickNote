@@ -738,7 +738,7 @@ function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefi
       ...(typeof record.pageId === "string" ? { pageId: record.pageId } : {}),
     });
   }
-  console.info("[QN_TEMPLATE_SYNC] remote templates parsed", {
+  console.warn("[QN_TEMPLATE_SYNC] remote templates parsed", {
     templateCount: templates.length,
   });
   return templates;
@@ -922,7 +922,7 @@ export function applyRemoteDatabaseToStore(
     cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
   if (templates !== undefined) {
-    console.info("[QN_TEMPLATE_SYNC] applyRemoteDatabaseToStore", {
+    console.warn("[QN_TEMPLATE_SYNC] applyRemoteDatabaseToStore", {
       databaseId: db.id,
       workspaceId: db.workspaceId,
       templateCount: templates.length,
@@ -1118,7 +1118,7 @@ export function applyRemoteDatabasesToStore(
       if (templates !== undefined) {
         ensureTemplatesCopy();
         dbTemplates[db.id] = templates;
-        console.info("[QN_TEMPLATE_SYNC] applyRemoteDatabasesToStore", {
+        console.warn("[QN_TEMPLATE_SYNC] applyRemoteDatabasesToStore", {
           databaseId: db.id,
           workspaceId: db.workspaceId,
           templateCount: templates.length,
