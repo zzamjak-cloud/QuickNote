@@ -272,6 +272,8 @@ export class SyncEngine {
       entityType: e.entityType,
       entityId: e.entityId,
       baseVersion: e.baseVersion,
+      payloadKeys: Object.keys(e.payload as Record<string, unknown>).sort(),
+      templatesType: typeof (e.payload as Record<string, unknown>).templates,
       docType: typeof (e.payload as Record<string, unknown>).doc,
       enqueuedAt: new Date(e.enqueuedAt).toISOString(),
     }));
