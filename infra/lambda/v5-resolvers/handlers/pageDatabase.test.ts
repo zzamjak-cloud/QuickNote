@@ -780,6 +780,58 @@ describe("page/database handlers", () => {
     expect(sendMock.mock.calls).toHaveLength(3); // memberTeams, workspaceAccess, get (put 없음)
   });
 
+  it("upsertDatabase: stale payload라도 templates는 기존값과 병합한다", async () => {
+    const existingItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      presets: "[]",
+      templates: JSON.stringify([
+        { id: "template-old", title: "기존 템플릿", cells: {}, pageId: "page-old" },
+      ]),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-02T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      { Item: existingItem },
+      {},
+      {},
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D",
+        columns: "[]",
+        presets: "[]",
+        templates: JSON.stringify([
+          { id: "template-new", title: "새 템플릿", cells: {}, pageId: "page-new" },
+        ]),
+        createdByMemberId: "m1",
+      },
+    });
+
+    expect(JSON.parse(result.templates as string)).toEqual([
+      { id: "template-old", title: "기존 템플릿", cells: {}, pageId: "page-old" },
+      { id: "template-new", title: "새 템플릿", cells: {}, pageId: "page-new" },
+    ]);
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls.find((call) => call[0] instanceof PutCommand)?.[0] as
+      | { input?: { Item?: Record<string, unknown> } }
+      | undefined;
+    expect(putCommand?.input?.Item?.templates).toBe(result.templates);
+  });
+
   it("upsertDatabase: LC 작업 DB 구성원 순서는 DB updatedAt 이 stale 이어도 field timestamp 가 최신이면 병합한다", async () => {
     const existingItem = {
       id: "lc-scheduler-db:lc-scheduler-global",

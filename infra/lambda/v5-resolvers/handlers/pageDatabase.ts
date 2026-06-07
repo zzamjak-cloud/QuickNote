@@ -1051,6 +1051,66 @@ function sanitizeSyncedStringArray(raw: unknown): string[] | null {
   return result;
 }
 
+function parseJsonArray(raw: unknown): unknown[] | null {
+  if (raw == null || raw === "") return null;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== "string") return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function templateIdOf(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const id = (value as Record<string, unknown>).id;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+function mergeTemplateArrayById(existingRaw: unknown, incomingRaw: unknown): string | null {
+  const incoming = parseJsonArray(incomingRaw);
+  if (!incoming) return null;
+  const existing = parseJsonArray(existingRaw) ?? [];
+  const merged = [...existing];
+  const indexById = new Map<string, number>();
+  for (let index = 0; index < merged.length; index += 1) {
+    const id = templateIdOf(merged[index]);
+    if (id) indexById.set(id, index);
+  }
+  let changed = false;
+  for (const template of incoming) {
+    const id = templateIdOf(template);
+    if (!id) continue;
+    const existingIndex = indexById.get(id);
+    if (existingIndex == null) {
+      indexById.set(id, merged.length);
+      merged.push(template);
+      changed = true;
+      continue;
+    }
+    if (!jsonEqual(merged[existingIndex], template)) {
+      merged[existingIndex] = template;
+      changed = true;
+    }
+  }
+  return changed ? JSON.stringify(merged) : null;
+}
+
+function mergeStaleDatabaseTemplates(
+  input: Record<string, unknown>,
+  existingItem: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (!("templates" in input)) return null;
+  const templates = mergeTemplateArrayById(existingItem.templates, input.templates);
+  if (!templates) return null;
+  return {
+    ...existingItem,
+    templates,
+  };
+}
+
 function mergeStaleSchedulerMemberOrderPanelState(
   databaseId: string,
   input: Record<string, unknown>,
@@ -1269,6 +1329,40 @@ export async function upsertDatabase(args: {
           console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
         }
         return schedulerOrderMerge;
+      } catch (err) {
+        if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
+          const latest = await args.doc.send(
+            new GetCommand({ TableName: tableName, Key: { id } }),
+          );
+          return (latest.Item ?? existingItem) as Record<string, unknown>;
+        }
+        throw err;
+      }
+    }
+    const templatesMerge = mergeStaleDatabaseTemplates(args.input, existingItem);
+    if (templatesMerge) {
+      try {
+        await args.doc.send(
+          new PutCommand({
+            TableName: tableName,
+            Item: templatesMerge,
+            ConditionExpression: "updatedAt = :existingUpdatedAt",
+            ExpressionAttributeValues: { ":existingUpdatedAt": existingUpdatedAt },
+          }),
+        );
+        try {
+          await recordDatabaseHistory({
+            doc: args.doc,
+            tables: args.tables,
+            caller: args.caller,
+            before: existingItem,
+            after: templatesMerge,
+            kind: "database.update",
+          });
+        } catch (err) {
+          console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
+        }
+        return templatesMerge;
       } catch (err) {
         if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
           const latest = await args.doc.send(
