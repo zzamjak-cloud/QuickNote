@@ -8,7 +8,18 @@ import type { PageStore } from "../pageStore";
 
 /** 사이드바/트리에서 숨기는 DB 전용 풀페이지 홈 — 랜딩 기본값 계산에도 동일 규칙 적용 */
 export function isFullPageDatabaseHomePage(page: Page): boolean {
-  return Boolean(page.fullPageDatabaseId);
+  // 메타데이터 필드 우선 확인 — doc 로드 전에도 식별 가능
+  if (page.fullPageDatabaseId) return true;
+  // 레거시·마이그레이션 페이지: doc content 로 폴백
+  const first = page.doc?.content?.[0] as
+    | { type?: string; attrs?: Record<string, unknown> }
+    | undefined;
+  return (
+    !!first &&
+    first.type === "databaseBlock" &&
+    first.attrs?.layout === "fullPage" &&
+    typeof first.attrs?.databaseId === "string"
+  );
 }
 
 function getFirstDatabaseBlockId(page: Page): string | null {
