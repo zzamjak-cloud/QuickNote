@@ -111,6 +111,24 @@ describe("applyRemoteDatabaseToStore", () => {
     ]);
   });
 
+  it("remote templates가 AWSJSON double-encoded 문자열이어도 복원한다", () => {
+    const templates = [
+      {
+        id: "template-1",
+        title: "QA 템플릿",
+        cells: { status: "todo" },
+        pageId: "template-page-1",
+      },
+    ];
+
+    applyRemoteDatabaseToStore({
+      ...remoteDatabase(),
+      templates: JSON.stringify(JSON.stringify(templates)),
+    });
+
+    expect(useDatabaseStore.getState().dbTemplates["db-1"]).toEqual(templates);
+  });
+
   it("remote panelState의 원본 DB 필터 프리셋 탭을 복원한다", () => {
     applyRemoteDatabaseToStore({
       ...remoteDatabase(),

@@ -705,13 +705,15 @@ function parseRemoteDatabaseSchema(
 function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefined {
   if (raw == null || raw === "") return undefined;
   let parsed: unknown = raw;
-  if (typeof raw === "string") {
+  for (let depth = 0; depth < 2 && typeof parsed === "string"; depth += 1) {
+    if (parsed === "") return undefined;
     try {
-      parsed = JSON.parse(raw);
+      parsed = JSON.parse(parsed);
     } catch {
       console.warn("[QN_TEMPLATE_SYNC] remote templates parse failed", {
         rawType: typeof raw,
-        rawLength: raw.length,
+        rawLength: typeof raw === "string" ? raw.length : null,
+        depth,
       });
       return undefined;
     }
