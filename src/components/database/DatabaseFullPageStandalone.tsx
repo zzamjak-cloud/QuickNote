@@ -6,11 +6,21 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useDatabaseViewPrefsStore } from "../../store/databaseViewPrefsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
-import { ensureDatabaseRowsLoaded } from "../../lib/sync/externalProtectedDatabaseLoad";
+import {
+  ensureDatabaseRowsLoaded,
+  loadMoreDatabaseRows,
+  resolveDatabaseRowRemoteKey,
+} from "../../lib/sync/externalProtectedDatabaseLoad";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
+import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
+import {
+  DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
+  resolveDatabaseInitialRowLimit,
+  resolveDatabaseVisibleRowLimit,
+} from "./databaseRowLimit";
 
-const DEFAULT_VISIBLE_ROW_LIMIT = 100;
+const DEFAULT_VISIBLE_ROW_LIMIT = DEFAULT_DATABASE_VISIBLE_ROW_LIMIT;
 
 const DatabaseTableView = lazy(() =>
   import("./views/DatabaseTableView").then((m) => ({ default: m.DatabaseTableView })),
@@ -65,8 +75,16 @@ export function DatabaseFullPageStandalone({
   const updateDoc = usePageStore((s) => s.updateDoc);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const databasePanelState = useDatabaseStore((s) => s.databases[databaseId]?.panelState);
+  const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const rowPageOrderKey = useDatabaseStore(
     (s) => s.databases[databaseId]?.rowPageOrder.join("|") ?? "",
+  );
+  const remoteRowKey = resolveDatabaseRowRemoteKey(databaseId, currentWorkspaceId);
+  const remoteRowNextToken = useDatabaseRowRemoteStore(
+    (s) => (remoteRowKey ? s.nextTokenByDatabaseId[remoteRowKey] : null) ?? null,
+  );
+  const remoteRowsLoading = useDatabaseRowRemoteStore(
+    (s) => (remoteRowKey ? s.loadingByDatabaseId[remoteRowKey] : false) ?? false,
   );
   const patchDatabasePanelState = useDatabaseStore((s) => s.patchDatabasePanelState);
   const getPanelState = useDatabaseViewPrefsStore((s) => s.getPanelState);
@@ -87,6 +105,7 @@ export function DatabaseFullPageStandalone({
     [directPanelState, pageId, panelStateRaw],
   );
   const activeViewKind = pageId ? view : directView;
+  const [extraRows, setExtraRows] = useState(0);
   const panelStateRef = useRef<DatabasePanelState>(panelState);
   panelStateRef.current = panelState;
 
@@ -103,7 +122,7 @@ export function DatabaseFullPageStandalone({
       databaseId,
       currentWorkspaceId,
       cancelled: () => cancelled,
-      rowLimit: panelState.itemLimit ?? DEFAULT_VISIBLE_ROW_LIMIT,
+      rowLimit: resolveDatabaseInitialRowLimit("fullPage", panelState.itemLimit),
       source: pageId ? "database-fullpage-editor" : "database-fullpage-direct",
     });
     return () => {
@@ -152,6 +171,15 @@ export function DatabaseFullPageStandalone({
     [databaseId, pageId, setStoredView, updateBlockAttrs],
   );
 
+  const totalRowsForLimit = bundle?.rowPageOrder.length ?? 0;
+  const remoteRowsHasMore = Boolean(currentWorkspaceId) && Boolean(remoteRowNextToken);
+  const visibleRowLimit = resolveDatabaseVisibleRowLimit({
+    layout: "fullPage",
+    itemLimit: panelState.itemLimit,
+    totalRows: totalRowsForLimit,
+    extraRows,
+  });
+
   const activeView = useMemo(() => {
     switch (activeViewKind) {
       case "table":
@@ -160,6 +188,7 @@ export function DatabaseFullPageStandalone({
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       case "list":
@@ -168,6 +197,7 @@ export function DatabaseFullPageStandalone({
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       case "kanban":
@@ -176,6 +206,7 @@ export function DatabaseFullPageStandalone({
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       case "gallery":
@@ -184,6 +215,7 @@ export function DatabaseFullPageStandalone({
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       case "timeline":
@@ -192,12 +224,13 @@ export function DatabaseFullPageStandalone({
             databaseId={databaseId}
             panelState={panelState}
             setPanelState={setPanelState}
+            visibleRowLimit={visibleRowLimit}
           />
         );
       default:
         return null;
     }
-  }, [activeViewKind, databaseId, panelState, setPanelState]);
+  }, [activeViewKind, databaseId, panelState, setPanelState, visibleRowLimit]);
 
   return (
     <div className="qn-database-block">
@@ -213,6 +246,37 @@ export function DatabaseFullPageStandalone({
       <DatabaseBlockDataArea bundleGone={false}>
         <Suspense fallback={null}>{activeView}</Suspense>
       </DatabaseBlockDataArea>
+      {bundle && (visibleRowLimit != null || remoteRowsHasMore) && (() => {
+        const limit = visibleRowLimit ?? totalRowsForLimit;
+        const localRemaining = Math.max(0, bundle.rowPageOrder.length - limit);
+        if (localRemaining <= 0 && !remoteRowsHasMore) return null;
+        const localStep = Math.min(10, localRemaining);
+        const remoteStep = DEFAULT_VISIBLE_ROW_LIMIT;
+        const step = localStep > 0 ? localStep : remoteStep;
+        return (
+          <button
+            type="button"
+            disabled={remoteRowsLoading}
+            onClick={async () => {
+              if (localStep > 0) {
+                setExtraRows((prev) => prev + localStep);
+                return;
+              }
+              if (!remoteRowsHasMore) return;
+              const loaded = await loadMoreDatabaseRows({
+                databaseId,
+                currentWorkspaceId,
+                rowLimit: remoteStep,
+                source: pageId ? "database-fullpage-editor-more" : "database-fullpage-direct-more",
+              });
+              if (loaded) setExtraRows((prev) => prev + remoteStep);
+            }}
+            className="mt-2 ml-auto block rounded-md border-transparent bg-transparent px-2 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {remoteRowsLoading ? "불러오는 중" : `+ ${step}개 더보기`}
+          </button>
+        );
+      })()}
     </div>
   );
 }

@@ -62,8 +62,13 @@ import {
   useDatabaseInlineUiPrefsStore,
 } from "../../store/databaseInlineUiPrefsStore";
 import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
+import {
+  DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
+  resolveDatabaseInitialRowLimit,
+  resolveDatabaseVisibleRowLimit,
+} from "./databaseRowLimit";
 
-const DEFAULT_VISIBLE_ROW_LIMIT = 100;
+const DEFAULT_VISIBLE_ROW_LIMIT = DEFAULT_DATABASE_VISIBLE_ROW_LIMIT;
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
@@ -187,13 +192,13 @@ export function DatabaseBlockView(props: NodeViewProps) {
       databaseId,
       currentWorkspaceId,
       cancelled: () => cancelled,
-      rowLimit: panelState.itemLimit ?? DEFAULT_VISIBLE_ROW_LIMIT,
+      rowLimit: resolveDatabaseInitialRowLimit(layout, panelState.itemLimit),
       source: "database-block",
     });
     return () => {
       cancelled = true;
     };
-  }, [currentWorkspaceId, databaseId, hasDatabaseId, panelState.itemLimit, rowPageOrder]);
+  }, [currentWorkspaceId, databaseId, hasDatabaseId, layout, panelState.itemLimit, rowPageOrder]);
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
@@ -417,25 +422,26 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const shellClass =
     layout === "fullPage"
-      ? "my-4 max-w-full"
+      ? "my-4 max-w-full pb-28"
       : "my-4";
 
   // 강제 클리핑은 100개 이상에서만 동작.
-  // - inline / fullPage 모두 기본 limit = 100.
+  // - inline 은 itemLimit 를 따르고, fullPage 는 인라인 표시 개수와 독립적으로 기본 100을 사용한다.
   // - DB 의 행 수가 100 미만이면 limit 을 적용하지 않고 전체 노출 (시각적 마스킹 어색함 제거).
   // - 사용자가 표시 설정 팝업에서 10/30/50/100 으로 명시 지정한 경우에만 그 값을 그대로 적용.
   // - extraRows 는 컴포넌트 state 이므로 페이지 재진입 시 자동으로 초기화됨.
   const defaultLimit = DEFAULT_VISIBLE_ROW_LIMIT;
-  const explicitLimit = panelState.itemLimit ?? null;
+  const explicitLimit = layout === "inline" ? panelState.itemLimit ?? null : null;
   const totalRowsForLimit = bundle?.rowPageOrder.length ?? 0;
   const remoteRowsHasMore =
     Boolean(currentWorkspaceId) &&
     Boolean(remoteRowNextToken);
-  const visibleRowLimit = (() => {
-    if (explicitLimit != null) return explicitLimit + extraRows;
-    if (totalRowsForLimit < defaultLimit) return undefined; // 100 미만 → 클리핑 없음
-    return defaultLimit + extraRows;
-  })();
+  const visibleRowLimit = resolveDatabaseVisibleRowLimit({
+    layout,
+    itemLimit: panelState.itemLimit,
+    totalRows: totalRowsForLimit,
+    extraRows,
+  });
 
   const activeViewComponent = useMemo(() => {
     if (!bundle) return null;

@@ -115,7 +115,7 @@ export function DatabaseDirectPage({ databaseId, pageId }: Props) {
     <div className="flex-1 overflow-y-auto bg-white dark:bg-[#111111]">
       <div
         data-testid="database-direct-page-shell"
-        className="mx-auto flex w-full max-w-none flex-col px-4 py-8"
+        className="mx-auto flex w-full max-w-none flex-col px-4 pt-8 pb-28"
       >
         <div className="mb-4 flex min-w-0 items-center gap-3 px-2">
           <Database size={40} className="shrink-0 text-zinc-400" />
