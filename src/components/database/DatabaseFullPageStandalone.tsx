@@ -15,12 +15,9 @@ import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
 import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
 import {
-  DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
   resolveDatabaseInitialRowLimit,
   resolveDatabaseVisibleRowLimit,
 } from "./databaseRowLimit";
-
-const DEFAULT_VISIBLE_ROW_LIMIT = DEFAULT_DATABASE_VISIBLE_ROW_LIMIT;
 
 const DatabaseTableView = lazy(() =>
   import("./views/DatabaseTableView").then((m) => ({ default: m.DatabaseTableView })),
@@ -250,8 +247,8 @@ export function DatabaseFullPageStandalone({
         const limit = visibleRowLimit ?? totalRowsForLimit;
         const localRemaining = Math.max(0, bundle.rowPageOrder.length - limit);
         if (localRemaining <= 0 && !remoteRowsHasMore) return null;
-        const localStep = Math.min(10, localRemaining);
-        const remoteStep = DEFAULT_VISIBLE_ROW_LIMIT;
+        const remoteStep = resolveDatabaseInitialRowLimit("fullPage", panelState.itemLimit);
+        const localStep = Math.min(remoteStep, localRemaining);
         const step = localStep > 0 ? localStep : remoteStep;
         return (
           <button

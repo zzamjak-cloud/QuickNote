@@ -584,16 +584,15 @@ export function DatabaseBlockView(props: NodeViewProps) {
               </Suspense>
             </DatabaseBlockDataArea>
 
-            {/* 더보기 버튼 — visibleRowLimit 이 적용되어 일부가 잘릴 때만 노출.
-                클릭 시 10개씩 추가 (잔여 < 10 이면 그만큼만), 추가된 분량만큼 자동 스크롤로 보여줌. */}
+            {/* 더보기 버튼 — 표시 설정의 항목 수만큼 추가 노출한다. */}
             {bundle && (visibleRowLimit != null || remoteRowsHasMore) && (() => {
               const limit = visibleRowLimit ?? totalRowsForLimit;
               const totalRows = bundle.rowPageOrder.length;
               const localRemaining = Math.max(0, totalRows - limit);
               if (localRemaining <= 0 && !remoteRowsHasMore) return null;
               const remaining = totalRows - limit;
-              const localStep = Math.min(10, Math.max(0, remaining));
               const remoteStep = explicitLimit ?? defaultLimit;
+              const localStep = Math.min(remoteStep, Math.max(0, remaining));
               const step = localStep > 0 ? localStep : remoteStep;
               return (
                 <button
