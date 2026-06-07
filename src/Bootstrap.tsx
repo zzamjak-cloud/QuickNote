@@ -56,6 +56,20 @@ import { useSchedulerProjectsStore } from "./store/schedulerProjectsStore";
 import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 
+const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-07-sidebar-cache-repair";
+const workspaceCacheRepairKey = (workspaceId: string): string =>
+  `quicknote.workspace.cacheRepair.${WORKSPACE_CACHE_REPAIR_REVISION}:${workspaceId}`;
+
+function needsWorkspaceCacheRepair(workspaceId: string): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(workspaceCacheRepairKey(workspaceId)) !== "1";
+}
+
+function markWorkspaceCacheRepaired(workspaceId: string): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(workspaceCacheRepairKey(workspaceId), "1");
+}
+
 // 인증 상태가 authenticated 로 전환될 때 1) 전체 페이지/DB/연락처를 페치해 LWW 적용,
 // 2) 변경 푸시 구독 시작, 3) outbox flush. cleanup 시 구독 해제.
 function useSyncBootstrap(): void {
@@ -229,13 +243,21 @@ function useSyncBootstrap(): void {
                 : "snapshot",
           });
         }
-        const fetchApply = async (forceFull = false): Promise<void> => {
-          const updatedAfter = forceFull ? undefined : fetchMode.updatedAfter;
+        const fetchApply = async (
+          options: { forceFull?: boolean; forceMetaBaseline?: boolean } = {},
+        ): Promise<void> => {
+          const { forceFull = false, forceMetaBaseline = false } = options;
+          const updatedAfter = forceFull || forceMetaBaseline
+            ? undefined
+            : fetchMode.updatedAfter;
           const useMetaBaseline =
-            !forceFull &&
-            !updatedAfter &&
-            fetchMode.kind === "full" &&
-            fetchMode.reason === "no-cache";
+            forceMetaBaseline ||
+            (
+              !forceFull &&
+              !updatedAfter &&
+              fetchMode.kind === "full" &&
+              fetchMode.reason === "no-cache"
+            );
           await migrateLegacyBlockCommentsToPagesOnce();
           const applyRemote = async (
             nextUpdatedAfter: string | undefined,
@@ -248,7 +270,8 @@ function useSyncBootstrap(): void {
               workspaceId: currentWorkspaceId,
               cancelled: () => cancelled,
               clearWorkspaceBeforeApply:
-                !nextUpdatedAfter && switchResult.reason === "deferred-switch",
+                forceMetaBaseline ||
+                (!nextUpdatedAfter && switchResult.reason === "deferred-switch"),
               clearBlockCommentsBeforeApply: true,
               applyLandingAfterApply: true,
               // 워크스페이스 진입(전환·새로고침·강제 새로고침 모두)에서 직전에 보던 페이지/
@@ -304,7 +327,7 @@ function useSyncBootstrap(): void {
           if (cancelled) return;
           migratePageBlockCommentsToServerOnce(currentWorkspaceId);
         };
-        const fetchApplyFull = async (): Promise<void> => fetchApply(true);
+        const fetchApplyFull = async (): Promise<void> => fetchApply({ forceFull: true });
         const setHold = useUiStore.getState().setOutboxWorkspaceSwitchHold;
         if (switchResult.reason === "pending-outbox") {
           setHold({
@@ -334,7 +357,11 @@ function useSyncBootstrap(): void {
         } else {
           setHold(null);
         }
-        await fetchApply();
+        const repairWorkspaceCache = needsWorkspaceCacheRepair(currentWorkspaceId);
+        await fetchApply({ forceMetaBaseline: repairWorkspaceCache });
+        if (!cancelled && repairWorkspaceCache) {
+          markWorkspaceCacheRepaired(currentWorkspaceId);
+        }
         // LC 스케줄러 워크스페이스 데이터는 CAT 등 다른 워크스페이스 진입 시 미리 끌어오지 않는다.
         // 외부 DB/row page 는 사용자가 실제로 열 때 캐시 결손만 보정해야 한다.
 
