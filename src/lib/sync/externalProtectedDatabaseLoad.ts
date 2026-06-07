@@ -444,8 +444,12 @@ export async function loadMoreDatabaseRows(args: {
 }
 
 export function __resetExternalProtectedDatabaseLoadForTests(): void {
+  resetDatabaseRowLoadSessionState();
+  useDatabaseRowRemoteStore.getState().clear();
+}
+
+export function resetDatabaseRowLoadSessionState(): void {
   inFlightByDatabaseId.clear();
   inFlightMoreByDatabaseId.clear();
   completedLoadDatabaseIds.clear();
-  useDatabaseRowRemoteStore.getState().clear();
 }

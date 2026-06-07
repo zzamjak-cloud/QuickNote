@@ -51,12 +51,15 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
 import {
   isLCSchedulerDatabaseId,
 } from "./lib/scheduler/database";
+import { resetDatabaseRowLoadSessionState } from "./lib/sync/externalProtectedDatabaseLoad";
 import { useSchedulerStore } from "./store/schedulerStore";
 import { useSchedulerProjectsStore } from "./store/schedulerProjectsStore";
+import { useDatabaseRowRemoteStore } from "./store/databaseRowRemoteStore";
+import { usePageContentLoadStore } from "./store/pageContentLoadStore";
 import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 
-const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-07-sidebar-cache-repair";
+const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-07-sidebar-db-row-cache-repair";
 const workspaceCacheRepairKey = (workspaceId: string): string =>
   `quicknote.workspace.cacheRepair.${WORKSPACE_CACHE_REPAIR_REVISION}:${workspaceId}`;
 
@@ -270,8 +273,7 @@ function useSyncBootstrap(): void {
               workspaceId: currentWorkspaceId,
               cancelled: () => cancelled,
               clearWorkspaceBeforeApply:
-                forceMetaBaseline ||
-                (!nextUpdatedAfter && switchResult.reason === "deferred-switch"),
+                !nextUpdatedAfter && switchResult.reason === "deferred-switch",
               clearBlockCommentsBeforeApply: true,
               applyLandingAfterApply: true,
               // 워크스페이스 진입(전환·새로고침·강제 새로고침 모두)에서 직전에 보던 페이지/
@@ -358,6 +360,11 @@ function useSyncBootstrap(): void {
           setHold(null);
         }
         const repairWorkspaceCache = needsWorkspaceCacheRepair(currentWorkspaceId);
+        if (repairWorkspaceCache) {
+          resetDatabaseRowLoadSessionState();
+          useDatabaseRowRemoteStore.getState().clear();
+          usePageContentLoadStore.getState().clear();
+        }
         await fetchApply({ forceMetaBaseline: repairWorkspaceCache });
         if (!cancelled && repairWorkspaceCache) {
           markWorkspaceCacheRepaired(currentWorkspaceId);
