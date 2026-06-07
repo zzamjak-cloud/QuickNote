@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   applyWorkspaceSwitch,
+  cacheBelongsToWorkspace,
   clearWorkspaceScopedStores,
   refreshWorkspaceSnapshot,
   workspaceCacheNeedsPrepaintClear,
@@ -404,6 +405,29 @@ describe("applyWorkspaceSwitch", () => {
     });
 
     expect(workspaceCacheNeedsPrepaintClear("ws-1")).toBe(false);
+  });
+
+  it("LC 스케줄러 루트 페이지만 남아 있으면 일반 워크스페이스 구조 캐시로 보지 않는다", () => {
+    usePageStore.setState({
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      pages: {
+        "lc-root": {
+          id: "lc-root",
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          title: "마일스톤",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          parentId: null,
+          order: 0,
+          createdAt: 0,
+          updatedAt: 0,
+          contentLoaded: false,
+        },
+      },
+    });
+
+    expect(cacheBelongsToWorkspace("cat-workspace")).toBe(false);
+    expect(workspaceCacheNeedsPrepaintClear("cat-workspace")).toBe(false);
   });
 
   it("LC 스케줄러 공용 outbox 만 있으면 캐시 클리어 보류 사유에서 제외한다", async () => {

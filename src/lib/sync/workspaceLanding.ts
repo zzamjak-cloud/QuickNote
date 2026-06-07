@@ -1,15 +1,39 @@
-import { usePageStore, isFullPageDatabaseHomePage } from "../../store/pageStore";
+import {
+  usePageStore,
+  isFullPageDatabaseHomePage,
+  isProtectedDatabaseBlockPage,
+} from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import type { PageMap } from "../../types/page";
 
 /**
  * 사이드바 루트 목록에서 첫 번째( order 기준 ) 일반 페이지 id.
  * DB 행 페이지·DB 풀페이지 전용 홈은 제외.
  */
-export function getFirstRootSidebarPageId(pages: PageMap): string | null {
+function pageBelongsToWorkspace(
+  page: PageMap[string] | undefined,
+  workspaceId: string,
+): boolean {
+  if (!page) return false;
+  if (page.workspaceId && page.workspaceId !== workspaceId) return false;
+  if (
+    workspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
+    isProtectedDatabaseBlockPage(page)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function getFirstRootSidebarPageId(
+  pages: PageMap,
+  workspaceId: string,
+): string | null {
   const roots = Object.values(pages)
     .filter(
       (p) =>
+        pageBelongsToWorkspace(p, workspaceId) &&
         p.parentId === null &&
         p.databaseId == null &&
         !isFullPageDatabaseHomePage(p),
@@ -36,7 +60,7 @@ export function applyWorkspaceLanding(
   // ensureFullPagePageForDatabase 가 메타 상태에서 홈을 재생성해 데이터가 꼬이므로,
   // 진입 화면을 결정적으로 고정해 회귀를 차단한다.
   if (options.forceFirstRoot) {
-    const target = getFirstRootSidebarPageId(pages);
+    const target = getFirstRootSidebarPageId(pages, workspaceId);
     settings.replaceCurrentTabPage(target);
     setActivePage(target);
     if (target) settings.setLastVisitedPageForWorkspace(workspaceId, target);
@@ -50,15 +74,17 @@ export function applyWorkspaceLanding(
     return;
   }
   const tabPageId = activeTab?.pageId ?? null;
-  if (tabPageId && pages[tabPageId]) {
+  if (tabPageId && pageBelongsToWorkspace(pages[tabPageId], workspaceId)) {
     settings.setLastVisitedPageForWorkspace(workspaceId, tabPageId);
     return;
   }
   const remembered =
     settings.lastVisitedPageIdByWorkspaceId[workspaceId] ?? null;
   let target: string | null =
-    remembered && pages[remembered] ? remembered : null;
-  if (!target) target = getFirstRootSidebarPageId(pages);
+    remembered && pageBelongsToWorkspace(pages[remembered], workspaceId)
+      ? remembered
+      : null;
+  if (!target) target = getFirstRootSidebarPageId(pages, workspaceId);
   settings.replaceCurrentTabPage(target);
   setActivePage(target);
 }

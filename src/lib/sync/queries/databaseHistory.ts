@@ -1,5 +1,5 @@
 const DATABASE_FIELDS = `
-  id workspaceId createdByMemberId title columns presets panelState createdAt updatedAt deletedAt
+  id workspaceId createdByMemberId title columns presets panelState templates createdAt updatedAt deletedAt
 `;
 
 const DATABASE_HISTORY_FIELDS = `
