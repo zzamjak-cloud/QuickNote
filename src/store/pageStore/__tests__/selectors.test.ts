@@ -44,7 +44,14 @@ function makeStore(pages: Page[]): PageStore {
 
 describe("pageStore/selectors", () => {
   describe("isFullPageDatabaseHomePage", () => {
-    it("databaseBlock fullPage 노드면 true", () => {
+    it("fullPageDatabaseId 메타가 있으면 true", () => {
+      const p = makePage("a", "DB", null, 0, {
+        fullPageDatabaseId: "db1",
+      });
+      expect(isFullPageDatabaseHomePage(p)).toBe(true);
+    });
+
+    it("databaseBlock fullPage 노드만으로는 false", () => {
       const p = makePage("a", "DB", null, 0, {
         doc: {
           type: "doc",
@@ -56,7 +63,7 @@ describe("pageStore/selectors", () => {
           ],
         },
       });
-      expect(isFullPageDatabaseHomePage(p)).toBe(true);
+      expect(isFullPageDatabaseHomePage(p)).toBe(false);
     });
 
     it("inline 레이아웃이면 false", () => {

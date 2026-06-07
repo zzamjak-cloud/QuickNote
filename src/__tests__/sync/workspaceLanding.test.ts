@@ -103,7 +103,12 @@ describe("applyWorkspaceLanding — forceFirstRoot", () => {
   beforeEach(() => {
     usePageStore.setState({
       pages: {
-        home: makePage({ id: "home", order: 0, doc: fullPageHomeDoc }),
+        home: makePage({
+          id: "home",
+          order: 0,
+          doc: fullPageHomeDoc,
+          fullPageDatabaseId: "db1",
+        }),
         idx: makePage({ id: "idx", order: 1, title: "첫 인덱스" }),
       },
       activePageId: null,
