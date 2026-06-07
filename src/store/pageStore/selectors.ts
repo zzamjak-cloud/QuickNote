@@ -2,6 +2,8 @@
 // pageStore.ts 에서 분리 — 동작 변경 없음.
 
 import type { Page } from "../../types/page";
+import { isProtectedDatabaseId } from "../../lib/scheduler/database";
+import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import type { PageStore } from "../pageStore";
 
 /** 사이드바/트리에서 숨기는 DB 전용 풀페이지 홈 — 랜딩 기본값 계산에도 동일 규칙 적용 */
@@ -20,6 +22,19 @@ export function isFullPageDatabaseHomePage(page: Page): boolean {
   );
 }
 
+function getFirstDatabaseBlockId(page: Page): string | null {
+  const first = page.doc?.content?.[0] as
+    | { type?: string; attrs?: Record<string, unknown> }
+    | undefined;
+  if (first?.type !== "databaseBlock") return null;
+  const databaseId = first.attrs?.databaseId;
+  return typeof databaseId === "string" ? databaseId : null;
+}
+
+export function isProtectedDatabaseBlockPage(page: Page): boolean {
+  return isProtectedDatabaseId(page.databaseId ?? getFirstDatabaseBlockId(page));
+}
+
 /**
  * 페이지 자체 또는 조상 중 하나라도 사이드바에서 숨기는 페이지(DB 행 페이지, DB 전용 홈 페이지)
  * 가 있는지 검사. DB 항목 내부에서 생성한 자식 페이지를 사이드바·트리·검색에서 모두 숨기기 위함.
@@ -36,6 +51,12 @@ function isHiddenInSidebar(
     currentWorkspaceId != null &&
     page.workspaceId != null &&
     page.workspaceId !== currentWorkspaceId
+  ) {
+    return true;
+  }
+  if (
+    currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
+    isProtectedDatabaseBlockPage(page)
   ) {
     return true;
   }
@@ -138,6 +159,12 @@ function isHiddenFromSearch(
     currentWorkspaceId != null &&
     page.workspaceId != null &&
     page.workspaceId !== currentWorkspaceId
+  ) {
+    return true;
+  }
+  if (
+    currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
+    isProtectedDatabaseBlockPage(page)
   ) {
     return true;
   }

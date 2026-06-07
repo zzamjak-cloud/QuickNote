@@ -7,6 +7,7 @@ import {
 } from "../../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 import { useDatabaseRowRemoteStore } from "../../../store/databaseRowRemoteStore";
+import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import {
   fetchDatabaseById,
   fetchDatabaseRowsBatch,
@@ -19,6 +20,7 @@ import {
   ensureExternalProtectedDatabaseLoaded,
   loadMoreExternalProtectedDatabaseRows,
   protectedDatabaseRowsAreCached,
+  resolveDatabaseRowRemoteKey,
   resolveExternalProtectedDatabaseId,
 } from "../externalProtectedDatabaseLoad";
 
@@ -42,6 +44,7 @@ beforeEach(() => {
   fetchPagesByWorkspaceMock.mockReset();
   useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
   usePageStore.setState({ pages: {}, activePageId: null, cacheWorkspaceId: null });
+  useSchedulerViewStore.setState({ selectedProjectId: null, selectedMemberId: null });
 });
 
 describe("externalProtectedDatabaseLoad", () => {
@@ -70,6 +73,19 @@ describe("externalProtectedDatabaseLoad", () => {
     });
 
     expect(protectedDatabaseRowsAreCached(LC_SCHEDULER_DATABASE_ID)).toBe(false);
+  });
+
+  it("row remote key는 일반 DB와 scoped protected DB를 로더와 동일하게 계산한다", () => {
+    expect(resolveDatabaseRowRemoteKey("normal-db", "cat-workspace")).toBe("normal-db");
+
+    useSchedulerViewStore.setState({
+      selectedProjectId: "proj:project-1",
+      selectedMemberId: "member-1",
+    });
+
+    expect(resolveDatabaseRowRemoteKey(LC_SCHEDULER_DATABASE_ID, "cat-workspace")).toBe(
+      `${LC_SCHEDULER_DATABASE_ID}|p:project-1|m:member-1`,
+    );
   });
 
   it("row order의 page가 page store에 모두 있어야 캐시 완료로 본다", () => {
@@ -408,5 +424,86 @@ describe("externalProtectedDatabaseLoad", () => {
     });
     expect(usePageStore.getState().pages["row-2"]).toBeDefined();
     expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId[LC_SCHEDULER_DATABASE_ID]).toBeNull();
+  });
+
+  it("로컬 row 캐시가 있어도 pagination 상태가 없으면 nextToken 확인을 위해 첫 batch를 조회한다", async () => {
+    const updatedAt = "2026-06-04T00:00:00.000Z";
+    useDatabaseStore.setState({
+      databases: {
+        "normal-db": {
+          meta: {
+            id: "normal-db",
+            workspaceId: "cat-workspace",
+            title: "CAT DB",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [],
+          rowPageOrder: ["row-1"],
+        },
+      },
+      cacheWorkspaceId: "cat-workspace",
+    });
+    usePageStore.setState({
+      pages: {
+        "row-1": {
+          id: "row-1",
+          workspaceId: "cat-workspace",
+          title: "작업 1",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          databaseId: "normal-db",
+          contentLoaded: true,
+        },
+      },
+      cacheWorkspaceId: "cat-workspace",
+    });
+    fetchDatabaseByIdMock.mockResolvedValueOnce({
+      id: "normal-db",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "CAT DB",
+      columns: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "row-1",
+          workspaceId: "cat-workspace",
+          createdByMemberId: "member-1",
+          title: "작업 1",
+          parentId: null,
+          order: "1",
+          databaseId: "normal-db",
+          doc: { type: "doc", content: [] },
+          dbCells: {},
+          blockComments: null,
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: "next-1",
+    });
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        source: "test",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledWith({
+      workspaceId: "cat-workspace",
+      databaseId: "normal-db",
+      limit: 100,
+    });
+    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBe("next-1");
   });
 });

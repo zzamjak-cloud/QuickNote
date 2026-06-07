@@ -14,7 +14,7 @@ import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { Page } from "../../types/page";
-import type { DatabaseBundle, DatabasePanelState } from "../../types/database";
+import type { CellValue, DatabaseBundle, DatabasePanelState, DatabaseTemplate } from "../../types/database";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { repairDbHistoryBaselineIfNeeded } from "../../store/historyStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
@@ -672,10 +672,13 @@ export function applyRemoteCommentsToStore(
 
 function parseRemoteDatabaseSchema(
   db: GqlDatabase,
-): Pick<DatabaseBundle, "columns" | "presets" | "panelState"> | null {
+): (Pick<DatabaseBundle, "columns" | "presets" | "panelState"> & {
+  templates?: DatabaseTemplate[];
+}) | null {
   const columns = tryParseSerializedColumns(db.columns);
   const presets = tryParseSerializedPresets(db.presets);
   const panelState = tryParseSerializedPanelState(db.panelState);
+  const templates = parseRemoteDatabaseTemplates(db.templates);
   if (!columns || !presets) {
     console.warn("[sync] storeApply: invalid database schema ignored", {
       databaseId: db.id,
@@ -691,7 +694,56 @@ function parseRemoteDatabaseSchema(
       databaseId: db.id,
     });
   }
-  return { columns, presets, ...(panelState ? { panelState } : {}) };
+  return {
+    columns,
+    presets,
+    ...(panelState ? { panelState } : {}),
+    ...(templates !== undefined ? { templates } : {}),
+  };
+}
+
+function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefined {
+  if (raw == null || raw === "") return undefined;
+  let parsed: unknown = raw;
+  for (let depth = 0; depth < 2 && typeof parsed === "string"; depth += 1) {
+    if (parsed === "") return undefined;
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      console.warn("[QN_TEMPLATE_SYNC] remote templates parse failed", {
+        rawType: typeof raw,
+        rawLength: typeof raw === "string" ? raw.length : null,
+        depth,
+      });
+      return undefined;
+    }
+  }
+  if (!Array.isArray(parsed)) {
+    console.warn("[QN_TEMPLATE_SYNC] remote templates ignored: not array", {
+      rawType: typeof raw,
+    });
+    return undefined;
+  }
+  const templates: DatabaseTemplate[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    if (typeof record.id !== "string" || typeof record.title !== "string") continue;
+    const cells =
+      record.cells && typeof record.cells === "object" && !Array.isArray(record.cells)
+        ? (record.cells as Record<string, CellValue>)
+        : {};
+    templates.push({
+      id: record.id,
+      title: record.title,
+      cells,
+      ...(typeof record.pageId === "string" ? { pageId: record.pageId } : {}),
+    });
+  }
+  console.warn("[QN_TEMPLATE_SYNC] remote templates parsed", {
+    templateCount: templates.length,
+  });
+  return templates;
 }
 
 function mergeRemoteSchedulerMemberOrder(
@@ -792,6 +844,7 @@ export function applyRemoteDatabaseToStore(
         columns: normalizedDatabase.columns,
         presets: normalizedDatabase.presets,
         panelState: normalizedDatabase.panelState,
+        templates: normalizedDatabase.templates,
         createdAt: normalizedDatabase.createdAt,
         updatedAt: normalizedDatabase.updatedAt,
       });
@@ -821,8 +874,10 @@ export function applyRemoteDatabaseToStore(
       const bundle = s.databases[db.id];
       if (!bundle) return s;
       const rest = { ...s.databases };
+      const nextTemplates = { ...s.dbTemplates };
       delete rest[db.id];
-      return { ...s, databases: rest, cacheWorkspaceId: db.workspaceId };
+      delete nextTemplates[db.id];
+      return { ...s, databases: rest, dbTemplates: nextTemplates, cacheWorkspaceId: db.workspaceId };
     });
     return;
   }
@@ -840,7 +895,7 @@ export function applyRemoteDatabaseToStore(
     return;
   }
 
-  const { columns, presets, panelState } = schema;
+  const { columns, presets, panelState, templates } = schema;
   const derivedRowOrder = collectRowPageIdsForDatabase(db.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
   const resolvedPanelState = resolvePanelStateWithLocalFallback(local?.panelState, panelState);
@@ -862,8 +917,20 @@ export function applyRemoteDatabaseToStore(
   useDatabaseStore.setState((s) => ({
     ...s,
     databases: { ...s.databases, [db.id]: bundle },
+    dbTemplates:
+      templates !== undefined
+        ? { ...s.dbTemplates, [db.id]: templates }
+        : s.dbTemplates,
     cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
+  if (templates !== undefined) {
+    console.warn("[QN_TEMPLATE_SYNC] applyRemoteDatabaseToStore", {
+      databaseId: db.id,
+      workspaceId: db.workspaceId,
+      templateCount: templates.length,
+      remoteUpdatedAt: db.updatedAt,
+    });
+  }
 
   repairDbHistoryBaselineIfNeeded(db.id, structuredClone(bundle));
 }
@@ -902,6 +969,7 @@ export function applyRemoteDatabasesToStore(
           title: normalizedDatabase.title,
           columns: normalizedDatabase.columns,
           presets: normalizedDatabase.presets,
+          templates: normalizedDatabase.templates,
           createdAt: normalizedDatabase.createdAt,
           updatedAt: normalizedDatabase.updatedAt,
         });
@@ -940,17 +1008,23 @@ export function applyRemoteDatabasesToStore(
 
   useDatabaseStore.setState((s) => {
     let databases = s.databases;
+    let dbTemplates = s.dbTemplates;
     let nextCacheWorkspaceId = s.cacheWorkspaceId;
     let changed = false;
 
     const ensureDatabasesCopy = () => {
       if (databases === s.databases) databases = { ...s.databases };
     };
+    const ensureTemplatesCopy = () => {
+      if (dbTemplates === s.dbTemplates) dbTemplates = { ...s.dbTemplates };
+    };
 
     for (const id of legacyDeleteIds) {
       if (!databases[id]) continue;
       ensureDatabasesCopy();
+      ensureTemplatesCopy();
       delete databases[id];
+      delete dbTemplates[id];
       databaseDebugRows.push({ databaseId: id, action: "legacy-delete" });
       changed = true;
     }
@@ -968,7 +1042,9 @@ export function applyRemoteDatabasesToStore(
           continue;
         }
         ensureDatabasesCopy();
+        ensureTemplatesCopy();
         delete databases[db.id];
+        delete dbTemplates[db.id];
         databaseDebugRows.push({ databaseId: db.id, action: "delete" });
         changed = true;
         continue;
@@ -1019,7 +1095,7 @@ export function applyRemoteDatabasesToStore(
         continue;
       }
 
-      const { columns, presets, panelState } = schema;
+      const { columns, presets, panelState, templates } = schema;
       const derivedRowOrder = derivedByDbId.get(db.id) ?? [];
       const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
       // 단건 경로(applyRemoteDatabaseToStore)와 동일하게 panelState 를 반영해야 한다.
@@ -1041,6 +1117,16 @@ export function applyRemoteDatabasesToStore(
 
       ensureDatabasesCopy();
       databases[db.id] = bundle;
+      if (templates !== undefined) {
+        ensureTemplatesCopy();
+        dbTemplates[db.id] = templates;
+        console.warn("[QN_TEMPLATE_SYNC] applyRemoteDatabasesToStore", {
+          databaseId: db.id,
+          workspaceId: db.workspaceId,
+          templateCount: templates.length,
+          remoteUpdatedAt: db.updatedAt,
+        });
+      }
       repairedBundles.push(bundle);
       databaseDebugRows.push({
         databaseId: db.id,
@@ -1059,6 +1145,7 @@ export function applyRemoteDatabasesToStore(
     return {
       ...s,
       databases,
+      dbTemplates,
       cacheWorkspaceId: nextCacheWorkspaceId,
     };
   });

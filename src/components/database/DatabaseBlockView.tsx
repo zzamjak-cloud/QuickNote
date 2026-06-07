@@ -50,6 +50,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import {
   ensureDatabaseRowsLoaded,
   loadMoreDatabaseRows,
+  resolveDatabaseRowRemoteKey,
   resolveExternalProtectedDatabaseId,
 } from "../../lib/sync/externalProtectedDatabaseLoad";
 import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
@@ -61,9 +62,13 @@ import {
   useDatabaseInlineUiPrefsStore,
 } from "../../store/databaseInlineUiPrefsStore";
 import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
-import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import {
+  DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
+  resolveDatabaseInitialRowLimit,
+  resolveDatabaseVisibleRowLimit,
+} from "./databaseRowLimit";
 
-const DEFAULT_VISIBLE_ROW_LIMIT = 100;
+const DEFAULT_VISIBLE_ROW_LIMIT = DEFAULT_DATABASE_VISIBLE_ROW_LIMIT;
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
@@ -89,11 +94,12 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const bundleGone = hasDatabaseId && !bundle;
   const isProtectedDatabase = isProtectedDatabaseId(databaseId);
   const rowPageOrder = bundle?.rowPageOrder;
+  const remoteRowKey = resolveDatabaseRowRemoteKey(databaseId, currentWorkspaceId);
   const remoteRowNextToken = useDatabaseRowRemoteStore(
-    (s) => s.nextTokenByDatabaseId[viewDatabaseId] ?? null,
+    (s) => (remoteRowKey ? s.nextTokenByDatabaseId[remoteRowKey] : null) ?? null,
   );
   const remoteRowsLoading = useDatabaseRowRemoteStore(
-    (s) => s.loadingByDatabaseId[viewDatabaseId] ?? false,
+    (s) => (remoteRowKey ? s.loadingByDatabaseId[remoteRowKey] : false) ?? false,
   );
 
   const setDatabaseTitle = useDatabaseStore((s) => s.setDatabaseTitle);
@@ -186,13 +192,13 @@ export function DatabaseBlockView(props: NodeViewProps) {
       databaseId,
       currentWorkspaceId,
       cancelled: () => cancelled,
-      rowLimit: panelState.itemLimit ?? DEFAULT_VISIBLE_ROW_LIMIT,
+      rowLimit: resolveDatabaseInitialRowLimit(layout, panelState.itemLimit),
       source: "database-block",
     });
     return () => {
       cancelled = true;
     };
-  }, [currentWorkspaceId, databaseId, hasDatabaseId, panelState.itemLimit, rowPageOrder]);
+  }, [currentWorkspaceId, databaseId, hasDatabaseId, layout, panelState.itemLimit, rowPageOrder]);
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
@@ -416,27 +422,26 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const shellClass =
     layout === "fullPage"
-      ? "my-4 max-w-full"
+      ? "my-4 max-w-full pb-28"
       : "my-4";
 
   // 강제 클리핑은 100개 이상에서만 동작.
-  // - inline / fullPage 모두 기본 limit = 100.
+  // - inline 은 itemLimit 를 따르고, fullPage 는 인라인 표시 개수와 독립적으로 기본 100을 사용한다.
   // - DB 의 행 수가 100 미만이면 limit 을 적용하지 않고 전체 노출 (시각적 마스킹 어색함 제거).
   // - 사용자가 표시 설정 팝업에서 10/30/50/100 으로 명시 지정한 경우에만 그 값을 그대로 적용.
   // - extraRows 는 컴포넌트 state 이므로 페이지 재진입 시 자동으로 초기화됨.
   const defaultLimit = DEFAULT_VISIBLE_ROW_LIMIT;
-  const explicitLimit = panelState.itemLimit ?? null;
+  const explicitLimit = layout === "inline" ? panelState.itemLimit ?? null : null;
   const totalRowsForLimit = bundle?.rowPageOrder.length ?? 0;
   const remoteRowsHasMore =
-    isProtectedDatabase &&
     Boolean(currentWorkspaceId) &&
-    currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
     Boolean(remoteRowNextToken);
-  const visibleRowLimit = (() => {
-    if (explicitLimit != null) return explicitLimit + extraRows;
-    if (totalRowsForLimit < defaultLimit) return undefined; // 100 미만 → 클리핑 없음
-    return defaultLimit + extraRows;
-  })();
+  const visibleRowLimit = resolveDatabaseVisibleRowLimit({
+    layout,
+    itemLimit: panelState.itemLimit,
+    totalRows: totalRowsForLimit,
+    extraRows,
+  });
 
   const activeViewComponent = useMemo(() => {
     if (!bundle) return null;
@@ -579,16 +584,15 @@ export function DatabaseBlockView(props: NodeViewProps) {
               </Suspense>
             </DatabaseBlockDataArea>
 
-            {/* 더보기 버튼 — visibleRowLimit 이 적용되어 일부가 잘릴 때만 노출.
-                클릭 시 10개씩 추가 (잔여 < 10 이면 그만큼만), 추가된 분량만큼 자동 스크롤로 보여줌. */}
+            {/* 더보기 버튼 — 표시 설정의 항목 수만큼 추가 노출한다. */}
             {bundle && (visibleRowLimit != null || remoteRowsHasMore) && (() => {
               const limit = visibleRowLimit ?? totalRowsForLimit;
               const totalRows = bundle.rowPageOrder.length;
               const localRemaining = Math.max(0, totalRows - limit);
               if (localRemaining <= 0 && !remoteRowsHasMore) return null;
               const remaining = totalRows - limit;
-              const localStep = Math.min(10, Math.max(0, remaining));
               const remoteStep = explicitLimit ?? defaultLimit;
+              const localStep = Math.min(remoteStep, Math.max(0, remaining));
               const step = localStep > 0 ? localStep : remoteStep;
               return (
                 <button

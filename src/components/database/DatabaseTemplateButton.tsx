@@ -62,6 +62,7 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
 
   const handleAdd = () => {
     // 템플릿 페이지 생성 후 즉시 이동해서 편집.
+    console.warn("[QN_TEMPLATE_SYNC] templateButton handleAdd", { databaseId });
     const pageId = addTemplate(databaseId);
     if (pageId) navigateToPage(pageId);
   };

@@ -16,7 +16,10 @@ import { markLocallyDeletedEntity } from "../lib/sync/localDeleteGuards";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
-import { isLCSchedulerDatabaseId } from "../lib/scheduler/database";
+import {
+  isLCSchedulerDatabaseId,
+  isProtectedDatabaseId,
+} from "../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../lib/scheduler/scope";
 import {
   EMPTY_DOC,
@@ -964,6 +967,7 @@ export const usePageStore = create<PageStore>()(
       ensureFullPagePageForDatabase: (databaseId, title = "데이터베이스", view = "table") => {
         const idWant = databaseId.trim();
         if (!idWant) return null;
+        if (isProtectedDatabaseId(idWant)) return null;
         const existing = get().findFullPagePageIdForDatabase(idWant);
         if (existing) {
           if (import.meta.env.DEV) {
@@ -1091,6 +1095,7 @@ export {
   createFilterPageTreeSelector,
   filterPageTree,
   isFullPageDatabaseHomePage,
+  isProtectedDatabaseBlockPage,
   selectFirstSidebarRootId,
   selectPageTree,
   selectSortedPages,

@@ -25,9 +25,10 @@
 | DB 그룹화(표시설정) | `wiki/database/grouping.md` |
 | 자산 관리 탭·캐싱 | `wiki/settings/assets.md` |
 | 동기화 버그 | `wiki/sync/architecture.md` |
-| Ghost 페이지(풀페이지 DB 사이드바 중복) | `wiki/pages/ghost-page-prevention.md` |
+| Ghost 페이지(풀페이지 DB 사이드바 중복)·진입 시 재생성 | `wiki/pages/ghost-page-prevention.md` |
+| 워크스페이스 진입 화면/첫 인덱스 리셋 | `wiki/workspace/overview.md` |
 | 버전 히스토리(페이지/DB·복원·삭제) | `wiki/history/overview.md` |
-| Zustand persist 버전 bump | `wiki/store/schema-versioning.md` |
+| Zustand persist 버전 bump·워크스페이스 스냅샷 키 | `wiki/store/schema-versioning.md` |
 | 배포 절차 | `wiki/infra/deploy.md` |
 | 버전 bump | `wiki/infra/version-sync.md` |
 | 전체 인덱스 | `wiki/README.md` |

@@ -125,6 +125,14 @@ function resolveDatabaseRowLoadTarget(
   };
 }
 
+export function resolveDatabaseRowRemoteKey(
+  databaseId: string | null | undefined,
+  currentWorkspaceId: string | null,
+): string | null {
+  const target = resolveDatabaseRowLoadTarget(databaseId, currentWorkspaceId);
+  return target ? compositeKey(target.resolvedDatabaseId, target.scope) : null;
+}
+
 export function databaseRowsAreCached(databaseId: string | null | undefined): boolean {
   const resolvedDatabaseId = resolveExternalProtectedDatabaseId(databaseId) ?? databaseId;
   if (!resolvedDatabaseId) return false;
@@ -245,10 +253,16 @@ export async function ensureDatabaseRowsLoaded({
   const { resolvedDatabaseId, workspaceId, scope, protectedDatabase } = target;
   const scoped = hasScope(scope);
   const loadKey = compositeKey(resolvedDatabaseId, scope);
+  const rowRemoteState = useDatabaseRowRemoteStore.getState();
+  const rowPaginationKnown = Object.prototype.hasOwnProperty.call(
+    rowRemoteState.nextTokenByDatabaseId,
+    loadKey,
+  );
 
   // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
+  // 단, row pagination 상태가 아직 없으면 서버 nextToken 확인 전이므로 한 번은 조회한다.
   // scope 지정 시 캐시 완료 판정이 과복잡하므로 "scope 1회 로드"(session 가드)로 단순화해 무한로드를 막는다.
-  if (!scoped && databaseRowsAreCached(resolvedDatabaseId)) {
+  if (!scoped && rowPaginationKnown && databaseRowsAreCached(resolvedDatabaseId)) {
     devLog("skip", {
       databaseId,
       resolvedDatabaseId,
@@ -444,8 +458,12 @@ export async function loadMoreDatabaseRows(args: {
 }
 
 export function __resetExternalProtectedDatabaseLoadForTests(): void {
+  resetDatabaseRowLoadSessionState();
+  useDatabaseRowRemoteStore.getState().clear();
+}
+
+export function resetDatabaseRowLoadSessionState(): void {
   inFlightByDatabaseId.clear();
   inFlightMoreByDatabaseId.clear();
   completedLoadDatabaseIds.clear();
-  useDatabaseRowRemoteStore.getState().clear();
 }

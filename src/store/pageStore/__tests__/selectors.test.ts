@@ -106,6 +106,31 @@ describe("pageStore/selectors", () => {
       const list = selectSortedPages(store);
       expect(list.map((p) => p.id)).toEqual(["a", "b", "c"]);
     });
+
+    it("일반 워크스페이스에서는 workspaceId 없는 LC 보호 DB 루트 페이지를 제외한다", () => {
+      const store = makeStore([
+        makePage("lc", "LC스케줄러", null, 0, {
+          doc: {
+            type: "doc",
+            content: [
+              {
+                type: "databaseBlock",
+                attrs: {
+                  layout: "inline",
+                  databaseId: "lc-scheduler-db:lc-scheduler-global",
+                },
+              },
+            ],
+          },
+        }),
+        makePage("cat", "CAT 인덱스", null, 1, {
+          workspaceId: "cat-workspace",
+        }),
+      ]);
+      store.cacheWorkspaceId = "cat-workspace";
+
+      expect(selectSortedPages(store).map((p) => p.id)).toEqual(["cat"]);
+    });
   });
 
   describe("selectPageTree", () => {
