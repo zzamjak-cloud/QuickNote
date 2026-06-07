@@ -534,6 +534,14 @@ export class SyncEngine {
       case "upsertPage":
         return this.gql.upsertPage(p);
       case "upsertDatabase":
+        if ("templates" in (p as Record<string, unknown>)) {
+          console.info("[QN_TEMPLATE_SYNC] outboxFlush upsertDatabase", {
+            databaseId: p.id,
+            workspaceId: p.workspaceId ?? null,
+            updatedAt: p.updatedAt ?? null,
+            templatesType: typeof (p as Record<string, unknown>).templates,
+          });
+        }
         return this.gql.upsertDatabase(p);
       case "softDeletePage":
         return this.gql.softDeletePage(p.id, p.workspaceId ?? "", p.updatedAt ?? "");

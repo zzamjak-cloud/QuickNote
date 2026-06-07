@@ -709,10 +709,19 @@ function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefi
     try {
       parsed = JSON.parse(raw);
     } catch {
+      console.warn("[QN_TEMPLATE_SYNC] remote templates parse failed", {
+        rawType: typeof raw,
+        rawLength: raw.length,
+      });
       return undefined;
     }
   }
-  if (!Array.isArray(parsed)) return undefined;
+  if (!Array.isArray(parsed)) {
+    console.warn("[QN_TEMPLATE_SYNC] remote templates ignored: not array", {
+      rawType: typeof raw,
+    });
+    return undefined;
+  }
   const templates: DatabaseTemplate[] = [];
   for (const item of parsed) {
     if (!item || typeof item !== "object") continue;
@@ -729,6 +738,9 @@ function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefi
       ...(typeof record.pageId === "string" ? { pageId: record.pageId } : {}),
     });
   }
+  console.info("[QN_TEMPLATE_SYNC] remote templates parsed", {
+    templateCount: templates.length,
+  });
   return templates;
 }
 
@@ -909,6 +921,14 @@ export function applyRemoteDatabaseToStore(
         : s.dbTemplates,
     cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
+  if (templates !== undefined) {
+    console.info("[QN_TEMPLATE_SYNC] applyRemoteDatabaseToStore", {
+      databaseId: db.id,
+      workspaceId: db.workspaceId,
+      templateCount: templates.length,
+      remoteUpdatedAt: db.updatedAt,
+    });
+  }
 
   repairDbHistoryBaselineIfNeeded(db.id, structuredClone(bundle));
 }
@@ -1098,6 +1118,12 @@ export function applyRemoteDatabasesToStore(
       if (templates !== undefined) {
         ensureTemplatesCopy();
         dbTemplates[db.id] = templates;
+        console.info("[QN_TEMPLATE_SYNC] applyRemoteDatabasesToStore", {
+          databaseId: db.id,
+          workspaceId: db.workspaceId,
+          templateCount: templates.length,
+          remoteUpdatedAt: db.updatedAt,
+        });
       }
       repairedBundles.push(bundle);
       databaseDebugRows.push({
