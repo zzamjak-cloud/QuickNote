@@ -88,6 +88,29 @@ describe("applyRemoteDatabaseToStore", () => {
     });
   });
 
+  it("remote templates를 dbTemplates에 복원한다", () => {
+    applyRemoteDatabaseToStore({
+      ...remoteDatabase(),
+      templates: JSON.stringify([
+        {
+          id: "template-1",
+          title: "QA 템플릿",
+          cells: { status: "todo" },
+          pageId: "template-page-1",
+        },
+      ]),
+    });
+
+    expect(useDatabaseStore.getState().dbTemplates["db-1"]).toEqual([
+      {
+        id: "template-1",
+        title: "QA 템플릿",
+        cells: { status: "todo" },
+        pageId: "template-page-1",
+      },
+    ]);
+  });
+
   it("remote panelState의 원본 DB 필터 프리셋 탭을 복원한다", () => {
     applyRemoteDatabaseToStore({
       ...remoteDatabase(),

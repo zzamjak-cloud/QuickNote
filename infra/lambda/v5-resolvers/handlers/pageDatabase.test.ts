@@ -692,6 +692,14 @@ describe("page/database handlers", () => {
         updatedAt: 2,
       },
     ];
+    const templates = [
+      {
+        id: "template-1",
+        title: "QA 템플릿",
+        cells: { status: "todo" },
+        pageId: "template-page-1",
+      },
+    ];
     const doc = mockDoc(
       { Items: [] }, // memberTeams
       { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
@@ -711,22 +719,27 @@ describe("page/database handlers", () => {
         title: "D",
         columns,
         presets,
+        templates,
         createdByMemberId: "m1",
       },
     });
 
     expect(typeof result.columns).toBe("string");
     expect(typeof result.presets).toBe("string");
+    expect(typeof result.templates).toBe("string");
     expect(JSON.parse(result.columns as string)).toEqual(columns);
     expect(JSON.parse(result.presets as string)).toEqual(presets);
+    expect(JSON.parse(result.templates as string)).toEqual(templates);
     const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
     const putCommand = sendMock.mock.calls.at(-1)?.[0] as { input?: { Item?: Record<string, unknown> } };
     expect(typeof putCommand.input?.Item?.columns).toBe("string");
     expect(typeof putCommand.input?.Item?.presets).toBe("string");
+    expect(typeof putCommand.input?.Item?.templates).toBe("string");
     expect(putCommand.input?.Item?.columns).toContain('"automation":true');
     expect(putCommand.input?.Item?.columns).toContain('"itemFetchSourceDatabaseId":"feature-db"');
     expect(putCommand.input?.Item?.columns).toContain('"timelineCard"');
     expect(putCommand.input?.Item?.columns).toContain('"title":"QA 일정"');
+    expect(putCommand.input?.Item?.templates).toContain('"QA 템플릿"');
   });
 
   it("upsertDatabase: LWW — 더 오래된 updatedAt 은 서버 최신값을 덮지 않는다", async () => {

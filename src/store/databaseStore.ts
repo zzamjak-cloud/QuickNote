@@ -1095,66 +1095,107 @@ export const useDatabaseStore = create<DatabaseStore>()(
       },
 
       addTemplate: (databaseId) => {
-      const id = newId();
-      // 템플릿 전용 페이지 생성 — dbCells에 마커를 심어 행과 구분한다.
-      const pageId = createRowPage(databaseId, "새 템플릿");
-      const t = Date.now();
-      usePageStore.setState((s) => {
-        const page = s.pages[pageId];
-        if (!page) return s;
-        return {
-          pages: {
-            ...s.pages,
-            [pageId]: {
-              ...page,
-              dbCells: { ...(page.dbCells ?? {}), _qn_isTemplate: "1" },
-              updatedAt: t,
+        const id = newId();
+        // 템플릿 전용 페이지 생성 — dbCells에 마커를 심어 행과 구분한다.
+        const pageId = createRowPage(databaseId, "새 템플릿");
+        const t = Date.now();
+        usePageStore.setState((s) => {
+          const page = s.pages[pageId];
+          if (!page) return s;
+          return {
+            pages: {
+              ...s.pages,
+              [pageId]: {
+                ...page,
+                dbCells: { ...(page.dbCells ?? {}), _qn_isTemplate: "1" },
+                updatedAt: t,
+              },
             },
-          },
-        };
-      });
-      const page = usePageStore.getState().pages[pageId];
-      if (page) enqueueUpsertPageRaw(page);
-      const tmpl: DatabaseTemplate = { id, title: "새 템플릿", cells: {}, pageId };
-      set((state) => ({
-        dbTemplates: {
-          ...state.dbTemplates,
-          [databaseId]: [...(state.dbTemplates[databaseId] ?? []), tmpl],
-        },
-      }));
-      return pageId;
-    },
+          };
+        });
+        const page = usePageStore.getState().pages[pageId];
+        if (page) enqueueUpsertPageRaw(page);
+        const tmpl: DatabaseTemplate = { id, title: "새 템플릿", cells: {}, pageId };
+        set((state) => {
+          const bundle = state.databases[databaseId];
+          const templates = [...(state.dbTemplates[databaseId] ?? []), tmpl];
+          return {
+            databases: bundle
+              ? {
+                  ...state.databases,
+                  [databaseId]: {
+                    ...bundle,
+                    meta: { ...bundle.meta, updatedAt: t },
+                  },
+                }
+              : state.databases,
+            dbTemplates: {
+              ...state.dbTemplates,
+              [databaseId]: templates,
+            },
+          };
+        });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter, get().dbTemplates[databaseId] ?? []);
+        return pageId;
+      },
 
-    updateTemplate: (databaseId, templateId, patch) => {
-      set((state) => {
-        const list = state.dbTemplates[databaseId] ?? [];
-        return {
-          dbTemplates: {
-            ...state.dbTemplates,
-            [databaseId]: list.map((t) =>
-              t.id === templateId ? { ...t, ...patch } : t,
-            ),
-          },
-        };
-      });
-    },
+      updateTemplate: (databaseId, templateId, patch) => {
+        const t = Date.now();
+        set((state) => {
+          const list = state.dbTemplates[databaseId] ?? [];
+          const bundle = state.databases[databaseId];
+          return {
+            databases: bundle
+              ? {
+                  ...state.databases,
+                  [databaseId]: {
+                    ...bundle,
+                    meta: { ...bundle.meta, updatedAt: t },
+                  },
+                }
+              : state.databases,
+            dbTemplates: {
+              ...state.dbTemplates,
+              [databaseId]: list.map((template) =>
+                template.id === templateId ? { ...template, ...patch } : template,
+              ),
+            },
+          };
+        });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter, get().dbTemplates[databaseId] ?? []);
+      },
 
-    deleteTemplate: (databaseId, templateId) => {
-      const tmpl = (get().dbTemplates[databaseId] ?? []).find((t) => t.id === templateId);
-      // 연결된 템플릿 페이지도 함께 삭제.
-      if (tmpl?.pageId) {
-        usePageStore.getState().deletePage(tmpl.pageId);
-      }
-      set((state) => {
-        const list = state.dbTemplates[databaseId] ?? [];
-        return {
-          dbTemplates: {
-            ...state.dbTemplates,
-            [databaseId]: list.filter((t) => t.id !== templateId),
-          },
-        };
-      });
-    },
+      deleteTemplate: (databaseId, templateId) => {
+        const tmpl = (get().dbTemplates[databaseId] ?? []).find((t) => t.id === templateId);
+        // 연결된 템플릿 페이지도 함께 삭제.
+        if (tmpl?.pageId) {
+          usePageStore.getState().deletePage(tmpl.pageId);
+        }
+        const t = Date.now();
+        set((state) => {
+          const list = state.dbTemplates[databaseId] ?? [];
+          const bundle = state.databases[databaseId];
+          return {
+            databases: bundle
+              ? {
+                  ...state.databases,
+                  [databaseId]: {
+                    ...bundle,
+                    meta: { ...bundle.meta, updatedAt: t },
+                  },
+                }
+              : state.databases,
+            dbTemplates: {
+              ...state.dbTemplates,
+              [databaseId]: list.filter((template) => template.id !== templateId),
+            },
+          };
+        });
+        const bundleAfter = get().databases[databaseId];
+        if (bundleAfter) enqueueUpsertDatabase(bundleAfter, get().dbTemplates[databaseId] ?? []);
+      },
 
     applyTemplate: (databaseId, templateId) => {
       const bundle = get().databases[databaseId];
