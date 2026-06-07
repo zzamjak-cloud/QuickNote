@@ -1275,6 +1275,16 @@ export async function upsertDatabase(args: {
     badRequest("LC스케줄러 DB ID와 워크스페이스가 일치하지 않습니다");
   }
   normalizeDatabaseAwsJsonFields(args.input);
+  if ("templates" in args.input) {
+    console.info("[QN_TEMPLATE_SYNC] lambda upsertDatabase:input", {
+      databaseId: id,
+      workspaceId,
+      updatedAt: args.input.updatedAt,
+      templatesType: typeof args.input.templates,
+      templatesLength:
+        typeof args.input.templates === "string" ? args.input.templates.length : null,
+    });
+  }
 
   await requireWorkspaceAccess({
     doc: args.doc,
@@ -1341,6 +1351,12 @@ export async function upsertDatabase(args: {
     }
     const templatesMerge = mergeStaleDatabaseTemplates(args.input, existingItem);
     if (templatesMerge) {
+      console.info("[QN_TEMPLATE_SYNC] lambda upsertDatabase:staleTemplatesMerge", {
+        databaseId: id,
+        workspaceId,
+        incomingUpdatedAt,
+        existingUpdatedAt,
+      });
       try {
         await args.doc.send(
           new PutCommand({
@@ -1388,6 +1404,16 @@ export async function upsertDatabase(args: {
       (args.input.createdByMemberId as string | undefined) ||
       args.caller.memberId,
   };
+  if ("templates" in args.input) {
+    console.info("[QN_TEMPLATE_SYNC] lambda upsertDatabase:put", {
+      databaseId: id,
+      workspaceId,
+      incomingUpdatedAt,
+      existingUpdatedAt: existingUpdatedAt || null,
+      templatesType: typeof merged.templates,
+      templatesLength: typeof merged.templates === "string" ? merged.templates.length : null,
+    });
+  }
 
   try {
     await args.doc.send(
