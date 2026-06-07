@@ -125,6 +125,14 @@ function resolveDatabaseRowLoadTarget(
   };
 }
 
+export function resolveDatabaseRowRemoteKey(
+  databaseId: string | null | undefined,
+  currentWorkspaceId: string | null,
+): string | null {
+  const target = resolveDatabaseRowLoadTarget(databaseId, currentWorkspaceId);
+  return target ? compositeKey(target.resolvedDatabaseId, target.scope) : null;
+}
+
 export function databaseRowsAreCached(databaseId: string | null | undefined): boolean {
   const resolvedDatabaseId = resolveExternalProtectedDatabaseId(databaseId) ?? databaseId;
   if (!resolvedDatabaseId) return false;

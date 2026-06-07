@@ -7,6 +7,7 @@ import {
 } from "../../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 import { useDatabaseRowRemoteStore } from "../../../store/databaseRowRemoteStore";
+import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import {
   fetchDatabaseById,
   fetchDatabaseRowsBatch,
@@ -19,6 +20,7 @@ import {
   ensureExternalProtectedDatabaseLoaded,
   loadMoreExternalProtectedDatabaseRows,
   protectedDatabaseRowsAreCached,
+  resolveDatabaseRowRemoteKey,
   resolveExternalProtectedDatabaseId,
 } from "../externalProtectedDatabaseLoad";
 
@@ -42,6 +44,7 @@ beforeEach(() => {
   fetchPagesByWorkspaceMock.mockReset();
   useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
   usePageStore.setState({ pages: {}, activePageId: null, cacheWorkspaceId: null });
+  useSchedulerViewStore.setState({ selectedProjectId: null, selectedMemberId: null });
 });
 
 describe("externalProtectedDatabaseLoad", () => {
@@ -70,6 +73,19 @@ describe("externalProtectedDatabaseLoad", () => {
     });
 
     expect(protectedDatabaseRowsAreCached(LC_SCHEDULER_DATABASE_ID)).toBe(false);
+  });
+
+  it("row remote key는 일반 DB와 scoped protected DB를 로더와 동일하게 계산한다", () => {
+    expect(resolveDatabaseRowRemoteKey("normal-db", "cat-workspace")).toBe("normal-db");
+
+    useSchedulerViewStore.setState({
+      selectedProjectId: "proj:project-1",
+      selectedMemberId: "member-1",
+    });
+
+    expect(resolveDatabaseRowRemoteKey(LC_SCHEDULER_DATABASE_ID, "cat-workspace")).toBe(
+      `${LC_SCHEDULER_DATABASE_ID}|p:project-1|m:member-1`,
+    );
   });
 
   it("row order의 page가 page store에 모두 있어야 캐시 완료로 본다", () => {

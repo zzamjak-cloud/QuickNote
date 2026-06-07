@@ -50,6 +50,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import {
   ensureDatabaseRowsLoaded,
   loadMoreDatabaseRows,
+  resolveDatabaseRowRemoteKey,
   resolveExternalProtectedDatabaseId,
 } from "../../lib/sync/externalProtectedDatabaseLoad";
 import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
@@ -61,7 +62,6 @@ import {
   useDatabaseInlineUiPrefsStore,
 } from "../../store/databaseInlineUiPrefsStore";
 import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
-import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 
 const DEFAULT_VISIBLE_ROW_LIMIT = 100;
 
@@ -89,11 +89,12 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const bundleGone = hasDatabaseId && !bundle;
   const isProtectedDatabase = isProtectedDatabaseId(databaseId);
   const rowPageOrder = bundle?.rowPageOrder;
+  const remoteRowKey = resolveDatabaseRowRemoteKey(databaseId, currentWorkspaceId);
   const remoteRowNextToken = useDatabaseRowRemoteStore(
-    (s) => s.nextTokenByDatabaseId[viewDatabaseId] ?? null,
+    (s) => (remoteRowKey ? s.nextTokenByDatabaseId[remoteRowKey] : null) ?? null,
   );
   const remoteRowsLoading = useDatabaseRowRemoteStore(
-    (s) => s.loadingByDatabaseId[viewDatabaseId] ?? false,
+    (s) => (remoteRowKey ? s.loadingByDatabaseId[remoteRowKey] : false) ?? false,
   );
 
   const setDatabaseTitle = useDatabaseStore((s) => s.setDatabaseTitle);
@@ -428,9 +429,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const explicitLimit = panelState.itemLimit ?? null;
   const totalRowsForLimit = bundle?.rowPageOrder.length ?? 0;
   const remoteRowsHasMore =
-    isProtectedDatabase &&
     Boolean(currentWorkspaceId) &&
-    currentWorkspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
     Boolean(remoteRowNextToken);
   const visibleRowLimit = (() => {
     if (explicitLimit != null) return explicitLimit + extraRows;
