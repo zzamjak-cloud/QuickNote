@@ -22,7 +22,6 @@ import {
   ArrowUpDown,
   Funnel,
   Plus,
-  RefreshCw,
 } from "lucide-react";
 import { newId } from "../../lib/id";
 import { FILTER_OPERATORS, cellToSearchString } from "../../lib/databaseQuery";
@@ -68,8 +67,6 @@ type Props = {
   setPanelState: (p: Partial<DatabasePanelState>) => void;
   /** 인라인/전체페이지 레이아웃 구분 — 설정 팝업 항목 표시 섹션에서 사용. */
   layout?: "inline" | "fullPage";
-  onRefreshRows?: () => void;
-  refreshRowsLoading?: boolean;
 };
 
 type SortablePresetTabProps = {
@@ -174,8 +171,6 @@ export function DatabaseToolbarControls({
   panelState,
   setPanelState,
   layout,
-  onRefreshRows,
-  refreshRowsLoading = false,
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const pages = usePageStore((s) => s.pages);
@@ -730,18 +725,6 @@ export function DatabaseToolbarControls({
         </button>
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1">
-          {onRefreshRows && (
-            <button
-              type="button"
-              onClick={onRefreshRows}
-              disabled={refreshRowsLoading}
-              title={refreshRowsLoading ? "서버 데이터 갱신 중" : "서버 데이터 다시 불러오기"}
-              aria-label="서버 데이터 다시 불러오기"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-wait disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-            >
-              <RefreshCw size={13} className={refreshRowsLoading ? "animate-spin" : undefined} />
-            </button>
-          )}
           {/* 갤러리 열 수 선택 */}
           {view === "gallery" && (
             <AppSelect

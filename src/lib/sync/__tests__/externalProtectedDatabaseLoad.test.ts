@@ -10,52 +10,42 @@ import { useDatabaseRowRemoteStore } from "../../../store/databaseRowRemoteStore
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import {
   fetchDatabaseById,
+  fetchDatabaseRowIndexBatch,
   fetchDatabaseRowsBatch,
   fetchDatabasesByWorkspace,
   fetchPagesByWorkspace,
 } from "../bootstrap";
-import { getSyncEngine } from "../runtime";
 import {
   __resetExternalProtectedDatabaseLoadForTests,
   ensureDatabaseRowsLoaded,
   ensureExternalProtectedDatabaseLoaded,
   loadMoreExternalProtectedDatabaseRows,
   protectedDatabaseRowsAreCached,
-  refreshDatabaseRowsFromServer,
   resolveDatabaseRowRemoteKey,
   resolveExternalProtectedDatabaseId,
 } from "../externalProtectedDatabaseLoad";
 
 vi.mock("../bootstrap", () => ({
   fetchDatabaseById: vi.fn(),
+  fetchDatabaseRowIndexBatch: vi.fn(),
   fetchDatabaseRowsBatch: vi.fn(),
   fetchDatabasesByWorkspace: vi.fn(),
   fetchPagesByWorkspace: vi.fn(),
 }));
 
-vi.mock("../runtime", () => ({
-  getSyncEngine: vi.fn(),
-}));
-
 const fetchDatabaseByIdMock = vi.mocked(fetchDatabaseById);
+const fetchDatabaseRowIndexBatchMock = vi.mocked(fetchDatabaseRowIndexBatch);
 const fetchDatabaseRowsBatchMock = vi.mocked(fetchDatabaseRowsBatch);
 const fetchDatabasesByWorkspaceMock = vi.mocked(fetchDatabasesByWorkspace);
 const fetchPagesByWorkspaceMock = vi.mocked(fetchPagesByWorkspace);
-const getSyncEngineMock = vi.mocked(getSyncEngine);
 
 beforeEach(() => {
   __resetExternalProtectedDatabaseLoadForTests();
   fetchDatabaseByIdMock.mockReset();
+  fetchDatabaseRowIndexBatchMock.mockReset();
   fetchDatabaseRowsBatchMock.mockReset();
   fetchDatabasesByWorkspaceMock.mockReset();
   fetchPagesByWorkspaceMock.mockReset();
-  getSyncEngineMock.mockReset();
-  getSyncEngineMock.mockResolvedValue({
-    getPendingUpsertEntityIds: vi.fn().mockResolvedValue({
-      pages: new Set<string>(),
-      databases: new Set<string>(),
-    }),
-  } as never);
   useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
   usePageStore.setState({ pages: {}, activePageId: null, cacheWorkspaceId: null });
   useSchedulerViewStore.setState({ selectedProjectId: null, selectedMemberId: null });
@@ -312,6 +302,22 @@ describe("externalProtectedDatabaseLoad", () => {
       ],
       nextToken: "next-1",
     });
+    fetchDatabaseRowIndexBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "row-2",
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          title: "작업 2",
+          icon: null,
+          order: "2",
+          databaseId: LC_SCHEDULER_DATABASE_ID,
+          dbCells: {},
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: null,
+    });
 
     await expect(
       ensureExternalProtectedDatabaseLoaded({
@@ -331,7 +337,7 @@ describe("externalProtectedDatabaseLoad", () => {
       "row-1",
     ]);
     expect(usePageStore.getState().pages["row-1"]).toBeDefined();
-    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId[LC_SCHEDULER_DATABASE_ID]).toBe("next-1");
+    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId[LC_SCHEDULER_DATABASE_ID]).toBeNull();
 
     fetchDatabaseByIdMock.mockClear();
     fetchDatabaseRowsBatchMock.mockClear();
@@ -504,6 +510,22 @@ describe("externalProtectedDatabaseLoad", () => {
       ],
       nextToken: "next-1",
     });
+    fetchDatabaseRowIndexBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "row-2",
+          workspaceId: "cat-workspace",
+          title: "작업 2",
+          icon: null,
+          order: "2",
+          databaseId: "normal-db",
+          dbCells: {},
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: null,
+    });
 
     await expect(
       ensureDatabaseRowsLoaded({
@@ -518,7 +540,7 @@ describe("externalProtectedDatabaseLoad", () => {
       databaseId: "normal-db",
       limit: 100,
     });
-    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBe("next-1");
+    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBeNull();
   });
 
   it("부분 row 캐시가 더 큰 rowLimit 요청을 막지 않는다", async () => {
@@ -590,6 +612,25 @@ describe("externalProtectedDatabaseLoad", () => {
       ],
       nextToken: "next-2",
     });
+    fetchDatabaseRowIndexBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "row-12",
+          workspaceId: "cat-workspace",
+          createdByMemberId: "member-1",
+          title: "row 12",
+          parentId: null,
+          order: "12",
+          databaseId: "normal-db",
+          doc: { type: "doc", content: [] },
+          dbCells: {},
+          blockComments: null,
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: null,
+    });
 
     await expect(
       ensureDatabaseRowsLoaded({
@@ -606,147 +647,7 @@ describe("externalProtectedDatabaseLoad", () => {
       limit: 100,
     });
     expect(useDatabaseStore.getState().databases["normal-db"]?.rowPageOrder).toContain("row-11");
-    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBe("next-2");
+    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBeNull();
   });
 
-  it("강제 refresh는 pagination 이 완료로 저장된 부분 캐시도 첫 batch만 서버와 맞추고 nextToken을 남긴다", async () => {
-    const updatedAt = "2026-06-04T00:00:00.000Z";
-    useDatabaseStore.setState({
-      databases: {
-        "normal-db": {
-          meta: {
-            id: "normal-db",
-            workspaceId: "cat-workspace",
-            title: "CAT DB",
-            createdAt: 1,
-            updatedAt: 1,
-          },
-          columns: [],
-          rowPageOrder: ["row-1", "stale-row", "pending-row"],
-        },
-      },
-      cacheWorkspaceId: "cat-workspace",
-    });
-    usePageStore.setState({
-      pages: {
-        "row-1": {
-          id: "row-1",
-          workspaceId: "cat-workspace",
-          title: "row 1",
-          icon: null,
-          doc: { type: "doc", content: [] },
-          parentId: null,
-          order: 1,
-          createdAt: 1,
-          updatedAt: 1,
-          databaseId: "normal-db",
-          contentLoaded: true,
-        },
-        "stale-row": {
-          id: "stale-row",
-          workspaceId: "cat-workspace",
-          title: "stale row",
-          icon: null,
-          doc: { type: "doc", content: [] },
-          parentId: null,
-          order: 99,
-          createdAt: 1,
-          updatedAt: 1,
-          databaseId: "normal-db",
-          contentLoaded: true,
-        },
-        "pending-row": {
-          id: "pending-row",
-          workspaceId: "cat-workspace",
-          title: "pending row",
-          icon: null,
-          doc: { type: "doc", content: [] },
-          parentId: null,
-          order: 100,
-          createdAt: 1,
-          updatedAt: Date.now(),
-          databaseId: "normal-db",
-          contentLoaded: true,
-        },
-      },
-      cacheWorkspaceId: "cat-workspace",
-    });
-    getSyncEngineMock.mockResolvedValueOnce({
-      getPendingUpsertEntityIds: vi.fn().mockResolvedValue({
-        pages: new Set<string>(["pending-row"]),
-        databases: new Set<string>(),
-      }),
-    } as never);
-    useDatabaseRowRemoteStore.getState().setNextToken("normal-db", null);
-    fetchDatabaseByIdMock.mockResolvedValueOnce({
-      id: "normal-db",
-      workspaceId: "cat-workspace",
-      createdByMemberId: "member-1",
-      title: "CAT DB",
-      columns: [],
-      createdAt: updatedAt,
-      updatedAt,
-    });
-    fetchDatabaseRowsBatchMock
-      .mockResolvedValueOnce({
-        items: [
-          {
-            id: "row-1",
-            workspaceId: "cat-workspace",
-            createdByMemberId: "member-1",
-            title: "row 1",
-            parentId: null,
-            order: "1",
-            databaseId: "normal-db",
-            doc: { type: "doc", content: [] },
-            dbCells: {},
-            blockComments: null,
-            createdAt: updatedAt,
-            updatedAt,
-          },
-        ],
-        nextToken: "next-1",
-      })
-      .mockResolvedValueOnce({
-        items: [
-          {
-            id: "row-2",
-            workspaceId: "cat-workspace",
-            createdByMemberId: "member-1",
-            title: "row 2",
-            parentId: null,
-            order: "2",
-            databaseId: "normal-db",
-            doc: { type: "doc", content: [] },
-            dbCells: {},
-            blockComments: null,
-            createdAt: updatedAt,
-            updatedAt,
-          },
-        ],
-        nextToken: null,
-      });
-
-    await expect(
-      refreshDatabaseRowsFromServer({
-        databaseId: "normal-db",
-        currentWorkspaceId: "cat-workspace",
-        rowLimit: 100,
-        source: "test-refresh",
-      }),
-    ).resolves.toBe(true);
-
-    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledTimes(1);
-    expect(fetchDatabaseRowsBatchMock).toHaveBeenNthCalledWith(1, {
-      workspaceId: "cat-workspace",
-      databaseId: "normal-db",
-      limit: 100,
-      nextToken: null,
-    });
-    expect(useDatabaseStore.getState().databases["normal-db"]?.rowPageOrder).toEqual([
-      "row-1",
-      "pending-row",
-    ]);
-    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBe("next-1");
-  });
 });

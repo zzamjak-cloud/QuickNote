@@ -22,6 +22,7 @@ export {
 } from "../queries/workspaceMeta";
 export {
   GET_PAGE,
+  LIST_DATABASE_ROW_INDEX,
   LIST_DATABASE_ROWS,
   LIST_PAGE_METAS,
   LIST_PAGES,
@@ -31,6 +32,7 @@ export {
   SOFT_DELETE_PAGE,
   UPSERT_PAGE,
   type GqlPage,
+  type GqlDatabaseRowIndexPage,
   type GqlPageMeta,
 } from "../queries/page";
 export {

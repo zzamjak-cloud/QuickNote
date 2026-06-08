@@ -41,4 +41,50 @@ describe("database row sources selector", () => {
     expect(second).not.toBe(first);
     expect(second[0]?.title).toBe("A2");
   });
+
+  it("pageStore에 없는 행은 row index fallback으로 만든다", () => {
+    const selector = createDatabaseRowSourcesSelector(["a"], [
+      {
+        pageId: "a",
+        workspaceId: "ws",
+        databaseId: "db",
+        title: "캐시 행",
+        icon: "emoji:📌",
+        order: 1,
+        dbCells: { col: "value" },
+        updatedAt: 1,
+      },
+    ]);
+
+    expect(selector(state({}))).toEqual([
+      {
+        pageId: "a",
+        databaseId: "db",
+        title: "캐시 행",
+        icon: "emoji:📌",
+        dbCells: { col: "value" },
+      },
+    ]);
+  });
+
+  it("pageStore 행이 있으면 row index fallback보다 우선한다", () => {
+    const selector = createDatabaseRowSourcesSelector(["a"], [
+      {
+        pageId: "a",
+        workspaceId: "ws",
+        databaseId: "db",
+        title: "캐시 행",
+        icon: null,
+        order: 1,
+        dbCells: { col: "cached" },
+        updatedAt: 1,
+      },
+    ]);
+
+    const rows = selector(state({
+      a: page("a", { title: "로컬 행", dbCells: { col: "local" } }),
+    }));
+    expect(rows[0]?.title).toBe("로컬 행");
+    expect(rows[0]?.dbCells).toEqual({ col: "local" });
+  });
 });

@@ -22,7 +22,7 @@ import { imageUrlCache } from "../../../lib/images/registry";
 import { useImageUrl } from "../../../lib/images/hooks";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
-import { useUiStore } from "../../../store/uiStore";
+import { useOpenDatabaseRow } from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -210,7 +210,7 @@ const GalleryCard = memo(function GalleryCard({
     (c) => c.id !== titleCol?.id && c.id !== coverColumn?.id,
   );
   const setIcon = usePageStore((s) => s.setIcon);
-  const openPeek = useUiStore((s) => s.openPeek);
+  const openRow = useOpenDatabaseRow(databaseId);
   const pageDoc = usePageStore((s) => s.pages[row.pageId]?.doc);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerBtnRef = useRef<HTMLButtonElement>(null);
@@ -221,8 +221,10 @@ const GalleryCard = memo(function GalleryCard({
     <div
       role="button"
       tabIndex={0}
-      onClick={() => openPeek(row.pageId)}
-      onKeyDown={(e) => e.key === "Enter" && openPeek(row.pageId)}
+      onClick={() => void openRow(row.pageId, { source: "database-gallery-row-open" })}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") void openRow(row.pageId, { source: "database-gallery-row-open" });
+      }}
       style={{ contentVisibility: "auto", containIntrinsicSize: "220px" }}
       className="group w-full cursor-pointer overflow-hidden rounded-xl border border-zinc-200 bg-white text-left shadow-sm transition-shadow hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900"
     >

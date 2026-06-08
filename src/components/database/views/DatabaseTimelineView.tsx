@@ -24,7 +24,6 @@ import { getVisibleOrderedColumns, resolveViewColumnOrderState } from "../../../
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
-import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import {
   DAY_MS,
@@ -56,6 +55,7 @@ import {
   resolveTimelineCardColor,
   TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID,
 } from "../../../lib/database/timelineCardColor";
+import { useOpenDatabaseRow } from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -298,7 +298,7 @@ export function DatabaseTimelineView({
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const updateCell = useDatabaseStore((s) => s.updateCell);
-  const openPeek = useUiStore((s) => s.openPeek);
+  const openRow = useOpenDatabaseRow(databaseId);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   // 진행 중인 포커싱 스크롤 애니메이션 핸들 — 새 포커싱/언마운트 시 중단한다.
@@ -983,8 +983,8 @@ export function DatabaseTimelineView({
 
   const openPageFromKeyboard = useCallback(() => {
     if (!selectedPageId) return;
-    openPeek(selectedPageId);
-  }, [openPeek, selectedPageId]);
+    void openRow(selectedPageId, { source: "database-timeline-keyboard-open" });
+  }, [openRow, selectedPageId]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -1484,7 +1484,7 @@ export function DatabaseTimelineView({
                     row={row}
                     isSelected={selectedPageId === row.pageId || selectedMultiPageIds.has(row.pageId)}
                     onFocus={focusTimelineCard}
-                    openPeek={openPeek}
+                    openPeek={(pageId) => void openRow(pageId, { source: "database-timeline-label-open" })}
                   />
                 ))}
                 {virtualRows.bottomPadding > 0 && (
@@ -1590,7 +1590,7 @@ export function DatabaseTimelineView({
                         : null
                     }
                     onSelect={selectCard}
-                    onOpenPeek={openPeek}
+                    onOpenPeek={(pageId) => void openRow(pageId, { source: "database-timeline-card-open" })}
                     onMove={(targetCard, deltaDays) => moveCardsByDays([targetCard.id], deltaDays)}
                     onResize={(targetCard, start, end) => commitRange(targetCard, start, end)}
                     onColorChange={updateTimelineCardColor}

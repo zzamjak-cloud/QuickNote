@@ -43,6 +43,19 @@ export const LIST_DATABASE_ROWS = `
   }
 `;
 
+const DATABASE_ROW_INDEX_FIELDS = `
+  id workspaceId title icon order databaseId dbCells createdAt updatedAt deletedAt
+`;
+
+export const LIST_DATABASE_ROW_INDEX = `
+  query ListDatabaseRowIndex($databaseId: ID!, $workspaceId: ID!, $organizationId: ID, $teamId: ID, $projectId: ID, $assigneeId: ID, $limit: Int, $nextToken: String) {
+    listDatabaseRows(databaseId: $databaseId, workspaceId: $workspaceId, organizationId: $organizationId, teamId: $teamId, projectId: $projectId, assigneeId: $assigneeId, limit: $limit, nextToken: $nextToken) {
+      items { ${DATABASE_ROW_INDEX_FIELDS} }
+      nextToken
+    }
+  }
+`;
+
 export const UPSERT_PAGE = `
   mutation UpsertPage($input: PageInput!) {
     upsertPage(input: $input) { ${PAGE_FIELDS} }
@@ -128,3 +141,17 @@ export type GqlPage = {
 };
 
 export type GqlPageMeta = Omit<GqlPage, "doc" | "dbCells" | "blockComments">;
+
+export type GqlDatabaseRowIndexPage = Pick<
+  GqlPage,
+  | "id"
+  | "workspaceId"
+  | "title"
+  | "icon"
+  | "order"
+  | "databaseId"
+  | "dbCells"
+  | "createdAt"
+  | "updatedAt"
+  | "deletedAt"
+>;

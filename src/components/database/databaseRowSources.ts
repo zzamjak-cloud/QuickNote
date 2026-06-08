@@ -1,5 +1,6 @@
 import type { CellValue } from "../../types/database";
 import type { PageStore } from "../../store/pageStore";
+import type { DatabaseRowIndexEntry } from "../../lib/database/databaseRowIndexCache";
 
 export type DatabaseRowSource = {
   pageId: string;
@@ -33,9 +34,13 @@ function sameRowSource(
   );
 }
 
-export function createDatabaseRowSourcesSelector(rowPageOrder: readonly string[]) {
+export function createDatabaseRowSourcesSelector(
+  rowPageOrder: readonly string[],
+  fallbackRows: readonly DatabaseRowIndexEntry[] = [],
+) {
   let cachedById = new Map<string, CachedRowSource>();
   let lastOutput: DatabaseRowSource[] = [];
+  const fallbackById = new Map(fallbackRows.map((row) => [row.pageId, row]));
 
   return (state: PageStore): DatabaseRowSource[] => {
     const nextOutput: DatabaseRowSource[] = [];
@@ -45,7 +50,36 @@ export function createDatabaseRowSourcesSelector(rowPageOrder: readonly string[]
     for (const pageId of rowPageOrder) {
       const page = state.pages[pageId];
       if (!page) {
-        changed = true;
+        const fallback = fallbackById.get(pageId);
+        if (!fallback) {
+          changed = true;
+          continue;
+        }
+        const cached = cachedById.get(pageId);
+        const source = sameRowSource(
+          cached,
+          fallback.databaseId,
+          fallback.title,
+          fallback.icon,
+          fallback.dbCells,
+        )
+          ? cached.source
+          : {
+              pageId,
+              databaseId: fallback.databaseId,
+              title: fallback.title,
+              icon: fallback.icon,
+              dbCells: fallback.dbCells,
+            };
+        nextCache.set(pageId, {
+          databaseId: fallback.databaseId,
+          title: fallback.title,
+          icon: fallback.icon,
+          dbCells: fallback.dbCells,
+          source,
+        });
+        if (lastOutput[nextOutput.length] !== source) changed = true;
+        nextOutput.push(source);
         continue;
       }
 

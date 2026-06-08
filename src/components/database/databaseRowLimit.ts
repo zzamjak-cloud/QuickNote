@@ -16,13 +16,6 @@ export function resolveDatabaseInitialRowLimit(
   return normalizeInlineItemLimit(itemLimit) ?? DEFAULT_DATABASE_VISIBLE_ROW_LIMIT;
 }
 
-export function resolveDatabaseRefreshRowLimit(
-  _layout: DatabaseLayout,
-  _itemLimit: number | undefined,
-): number {
-  return DEFAULT_DATABASE_VISIBLE_ROW_LIMIT;
-}
-
 export function resolveDatabaseVisibleRowLimit(args: {
   layout: DatabaseLayout;
   itemLimit: number | undefined;

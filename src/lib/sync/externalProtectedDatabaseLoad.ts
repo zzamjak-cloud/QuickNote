@@ -14,15 +14,19 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import {
   fetchDatabaseById,
+  fetchDatabaseRowIndexBatch,
   fetchDatabaseRowsBatch,
   fetchDatabasesByWorkspace,
   fetchPagesByWorkspace,
 } from "./bootstrap";
+import type { GqlDatabaseRowIndexPage, GqlPage } from "./graphql/operations";
 import { applyRemoteDatabasesToStore, applyRemotePagesToStore } from "./storeApply";
-import { getSyncEngine } from "./runtime";
 import { refreshWorkspaceSnapshot } from "./workspaceSwitch";
+import { gqlPageToDatabaseRowIndexEntry } from "../database/databaseRowIndexCache";
+import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
 
 const DEFAULT_ROW_BATCH_LIMIT = 100;
+const BACKGROUND_ROW_INDEX_BATCH_LIMIT = 200;
 
 /** schedulerViewStore 선택값 → listDatabaseRows scope 인자(org/team/project/assignee). */
 type DatabaseRowScope = {
@@ -93,7 +97,7 @@ type DatabaseRowLoadTarget = {
 
 const inFlightByDatabaseId = new Map<string, Promise<boolean>>();
 const inFlightMoreByDatabaseId = new Map<string, Promise<boolean>>();
-const inFlightRefreshByDatabaseId = new Map<string, Promise<boolean>>();
+const inFlightWarmIndexByDatabaseId = new Map<string, Promise<void>>();
 const completedLoadDatabaseIds = new Set<string>();
 const completedLoadLimitsByDatabaseId = new Map<string, number>();
 
@@ -189,6 +193,103 @@ function isSchemaUnavailableError(error: unknown): boolean {
     schemaValidationError &&
     (text.includes("getDatabase") || text.includes("listDatabaseRows"))
   );
+}
+
+function toRowIndexEntries(
+  rows: readonly (GqlPage | GqlDatabaseRowIndexPage)[],
+  resolvedDatabaseId: string,
+) {
+  return rows
+    .map((row) => gqlPageToDatabaseRowIndexEntry(row, resolvedDatabaseId))
+    .filter((row): row is NonNullable<typeof row> => Boolean(row));
+}
+
+function upsertRowIndexRows(args: {
+  loadKey: string;
+  resolvedDatabaseId: string;
+  rows: readonly (GqlPage | GqlDatabaseRowIndexPage)[];
+  complete: boolean;
+  reset?: boolean;
+}): void {
+  const entries = toRowIndexEntries(args.rows, args.resolvedDatabaseId);
+  if (entries.length === 0 && !args.reset) return;
+  void useDatabaseRowIndexStore.getState().upsertRows(
+    args.loadKey,
+    args.resolvedDatabaseId,
+    entries,
+    { complete: args.complete, reset: args.reset },
+  );
+}
+
+function warmDatabaseRowIndexInBackground(args: {
+  loadKey: string;
+  resolvedDatabaseId: string;
+  workspaceId: string;
+  scope: DatabaseRowScope;
+  firstRows: readonly GqlPage[];
+  firstNextToken: string | null;
+  source: string;
+}): void {
+  if (hasScope(args.scope) || !args.firstNextToken) return;
+  if (inFlightWarmIndexByDatabaseId.has(args.loadKey)) return;
+
+  const task = (async () => {
+    const allRows: Array<GqlPage | GqlDatabaseRowIndexPage> = [...args.firstRows];
+    let nextToken: string | null = args.firstNextToken;
+    const seenTokens = new Set<string>();
+    let repeatedToken = false;
+    while (nextToken) {
+      if (seenTokens.has(nextToken)) {
+        repeatedToken = true;
+        break;
+      }
+      seenTokens.add(nextToken);
+      const batch = await fetchDatabaseRowIndexBatch({
+        workspaceId: args.workspaceId,
+        databaseId: args.resolvedDatabaseId,
+        limit: BACKGROUND_ROW_INDEX_BATCH_LIMIT,
+        nextToken,
+      });
+      allRows.push(...batch.items);
+      nextToken = batch.nextToken ?? null;
+      useDatabaseRowRemoteStore.getState().setNextToken(args.loadKey, nextToken);
+      upsertRowIndexRows({
+        loadKey: args.loadKey,
+        resolvedDatabaseId: args.resolvedDatabaseId,
+        rows: batch.items,
+        complete: !nextToken,
+      });
+      devLog("row-index-warm-batch", {
+        databaseId: args.resolvedDatabaseId,
+        loadKey: args.loadKey,
+        rowCount: batch.items.length,
+        nextTokenAvailable: Boolean(nextToken),
+        source: args.source,
+      });
+    }
+    upsertRowIndexRows({
+      loadKey: args.loadKey,
+      resolvedDatabaseId: args.resolvedDatabaseId,
+      rows: allRows,
+      complete: !nextToken && !repeatedToken,
+      reset: true,
+    });
+    if (!nextToken && !repeatedToken) {
+      completedLoadDatabaseIds.add(args.loadKey);
+      completedLoadLimitsByDatabaseId.set(args.loadKey, allRows.length);
+    }
+  })().catch((error) => {
+    console.warn("[QN_EXTERNAL_DB] row-index-warm-failed", {
+      databaseId: args.resolvedDatabaseId,
+      loadKey: args.loadKey,
+      source: args.source,
+      error,
+    });
+  }).finally(() => {
+    inFlightWarmIndexByDatabaseId.delete(args.loadKey);
+  });
+
+  inFlightWarmIndexByDatabaseId.set(args.loadKey, task);
 }
 
 async function loadLegacyFullProtectedDatabaseSnapshot(args: {
@@ -357,6 +458,21 @@ export async function ensureDatabaseRowsLoaded({
     applyRemotePagesToStore(rows.items);
     applyRemoteDatabasesToStore([database]);
     useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
+    upsertRowIndexRows({
+      loadKey,
+      resolvedDatabaseId,
+      rows: rows.items,
+      complete: !rows.nextToken,
+    });
+    warmDatabaseRowIndexInBackground({
+      loadKey,
+      resolvedDatabaseId,
+      workspaceId,
+      scope,
+      firstRows: rows.items,
+      firstNextToken: rows.nextToken ?? null,
+      source,
+    });
     refreshWorkspaceSnapshot(workspaceId);
 
     const resolved = scoped ? true : databaseRowsAreCached(resolvedDatabaseId);
@@ -453,6 +569,12 @@ export async function loadMoreDatabaseRows(args: {
     });
     applyRemotePagesToStore(rows.items);
     useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
+    upsertRowIndexRows({
+      loadKey,
+      resolvedDatabaseId,
+      rows: rows.items,
+      complete: !rows.nextToken,
+    });
     refreshWorkspaceSnapshot(workspaceId);
     devLog("load-more-applied", {
       databaseId: args.databaseId,
@@ -486,184 +608,20 @@ export async function loadMoreDatabaseRows(args: {
   return task;
 }
 
-function replaceDatabaseRowOrderWithServerRows(
-  resolvedDatabaseId: string,
-  serverRowPageIds: string[],
-  pendingUpsertPageIds: ReadonlySet<string> = new Set<string>(),
-): void {
-  const uniqueServerIds = [...new Set(serverRowPageIds)];
-  useDatabaseStore.setState((state) => {
-    const bundle = state.databases[resolvedDatabaseId];
-    if (!bundle) return state;
-
-    const pages = usePageStore.getState().pages;
-    const serverRows = uniqueServerIds.filter((pageId) => {
-      const page = pages[pageId];
-      return (
-        page?.databaseId === resolvedDatabaseId &&
-        page.dbCells?.["_qn_isTemplate"] !== "1"
-      );
-    });
-    const serverRowSet = new Set(serverRows);
-    // 서버에 아직 도달하지 않은 pending row 만 사용자가 잃어버리지 않도록 뒤에 보존한다.
-    const pendingLocalRows = bundle.rowPageOrder.filter((pageId) => {
-      if (serverRowSet.has(pageId)) return false;
-      if (!pendingUpsertPageIds.has(pageId)) return false;
-      const page = pages[pageId];
-      return (
-        page?.databaseId === resolvedDatabaseId &&
-        page.contentLoaded !== false &&
-        page.dbCells?.["_qn_isTemplate"] !== "1"
-      );
-    });
-    const rowPageOrder = [...serverRows, ...pendingLocalRows];
-    if (
-      bundle.rowPageOrder.length === rowPageOrder.length &&
-      bundle.rowPageOrder.every((pageId, index) => pageId === rowPageOrder[index])
-    ) {
-      return state;
-    }
-    return {
-      ...state,
-      databases: {
-        ...state.databases,
-        [resolvedDatabaseId]: {
-          ...bundle,
-          rowPageOrder,
-        },
-      },
-    };
-  });
-}
-
-async function resolvePendingUpsertPageIds(): Promise<Set<string>> {
-  try {
-    const engine = await getSyncEngine();
-    return (await engine.getPendingUpsertEntityIds()).pages;
-  } catch (error) {
-    console.warn("[QN_EXTERNAL_DB] pending-upsert-check-failed", { error });
-    return new Set<string>();
-  }
-}
-
-export async function refreshDatabaseRowsFromServer(args: {
-  databaseId: string;
-  currentWorkspaceId: string | null;
-  cancelled?: () => boolean;
-  rowLimit?: number;
-  source?: string;
-}): Promise<boolean> {
-  const target = resolveDatabaseRowLoadTarget(args.databaseId, args.currentWorkspaceId);
-  if (!target) return false;
-  const { resolvedDatabaseId, workspaceId, scope, protectedDatabase } = target;
-  const loadKey = compositeKey(resolvedDatabaseId, scope);
-  const existing = inFlightRefreshByDatabaseId.get(loadKey);
-  if (existing) return existing;
-
-  const rowLimit = args.rowLimit ?? DEFAULT_ROW_BATCH_LIMIT;
-  const task = (async () => {
-    useDatabaseRowRemoteStore.getState().setLoading(loadKey, true);
-    completedLoadDatabaseIds.delete(loadKey);
-    completedLoadLimitsByDatabaseId.delete(loadKey);
-    devLog("refresh-start", {
-      databaseId: args.databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId: args.currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      rowLimit,
-      source: args.source ?? "unknown",
-    });
-
-    const database = await fetchDatabaseById(workspaceId, resolvedDatabaseId);
-    if (args.cancelled?.()) return false;
-    if (!database) {
-      useDatabaseRowRemoteStore.getState().clearDatabase(loadKey);
-      return false;
-    }
-
-    applyRemoteDatabasesToStore([database]);
-
-    const rows = await fetchDatabaseRowsBatch({
-      workspaceId,
-      databaseId: resolvedDatabaseId,
-      ...scope,
-      limit: rowLimit,
-      nextToken: null,
-    });
-    if (args.cancelled?.()) return false;
-
-    applyRemotePagesToStore(rows.items);
-    const serverRowPageIds = rows.items
-      .map((row) => row?.id)
-      .filter((id): id is string => Boolean(id));
-    useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
-
-    const pendingUpsertPageIds = await resolvePendingUpsertPageIds();
-    if (args.cancelled?.()) return false;
-
-    replaceDatabaseRowOrderWithServerRows(
-      resolvedDatabaseId,
-      serverRowPageIds,
-      pendingUpsertPageIds,
-    );
-    completedLoadDatabaseIds.add(loadKey);
-    completedLoadLimitsByDatabaseId.set(loadKey, rowLimit);
-    refreshWorkspaceSnapshot(workspaceId);
-    devLog("refresh-applied", {
-      databaseId: args.databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      workspaceId,
-      protectedDatabase,
-      batchCount: 1,
-      rowCount: rows.items.length,
-      nextTokenAvailable: Boolean(rows.nextToken),
-      source: args.source ?? "unknown",
-    });
-    return true;
-  })().catch(async (error) => {
-    if (isSchemaUnavailableError(error)) {
-      return await loadLegacyFullProtectedDatabaseSnapshot({
-        databaseId: args.databaseId,
-        resolvedDatabaseId,
-        currentWorkspaceId: args.currentWorkspaceId,
-        workspaceId,
-        protectedDatabase,
-        cancelled: args.cancelled,
-        source: args.source ?? "unknown",
-      });
-    }
-    console.warn("[QN_EXTERNAL_DB] refresh-failed", {
-      databaseId: args.databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId: args.currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      source: args.source ?? "unknown",
-      error,
-    });
-    return false;
-  }).finally(() => {
-    useDatabaseRowRemoteStore.getState().setLoading(loadKey, false);
-    inFlightRefreshByDatabaseId.delete(loadKey);
-  });
-
-  inFlightRefreshByDatabaseId.set(loadKey, task);
-  return task;
-}
-
 export function __resetExternalProtectedDatabaseLoadForTests(): void {
   resetDatabaseRowLoadSessionState();
   useDatabaseRowRemoteStore.getState().clear();
+  useDatabaseRowIndexStore.setState({
+    snapshotsByKey: {},
+    hydratedByKey: {},
+    loadingByKey: {},
+  });
 }
 
 export function resetDatabaseRowLoadSessionState(): void {
   inFlightByDatabaseId.clear();
   inFlightMoreByDatabaseId.clear();
-  inFlightRefreshByDatabaseId.clear();
+  inFlightWarmIndexByDatabaseId.clear();
   completedLoadDatabaseIds.clear();
   completedLoadLimitsByDatabaseId.clear();
 }

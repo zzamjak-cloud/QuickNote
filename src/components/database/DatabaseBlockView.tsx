@@ -50,7 +50,6 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import {
   ensureDatabaseRowsLoaded,
   loadMoreDatabaseRows,
-  refreshDatabaseRowsFromServer,
   resolveDatabaseRowRemoteKey,
   resolveExternalProtectedDatabaseId,
 } from "../../lib/sync/externalProtectedDatabaseLoad";
@@ -63,10 +62,10 @@ import {
   useDatabaseInlineUiPrefsStore,
 } from "../../store/databaseInlineUiPrefsStore";
 import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
+import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
 import {
   DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
   resolveDatabaseInitialRowLimit,
-  resolveDatabaseRefreshRowLimit,
   resolveDatabaseVisibleRowLimit,
 } from "./databaseRowLimit";
 
@@ -103,6 +102,9 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const remoteRowsLoading = useDatabaseRowRemoteStore(
     (s) => (remoteRowKey ? s.loadingByDatabaseId[remoteRowKey] : false) ?? false,
   );
+  const rowIndexRowCount = useDatabaseRowIndexStore(
+    (s) => (remoteRowKey ? s.snapshotsByKey[remoteRowKey]?.rows.length ?? 0 : 0),
+  );
 
   const setDatabaseTitle = useDatabaseStore((s) => s.setDatabaseTitle);
   const deleteDatabaseFromStore = useDatabaseStore((s) => s.deleteDatabase);
@@ -127,7 +129,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   // 더보기 — 추가로 표시할 행 수.
   const [extraRows, setExtraRows] = useState(0);
-  const [rowsRefreshing, setRowsRefreshing] = useState(false);
 
   const displayDbTitle = bundle?.meta.title ?? "데이터베이스";
   const deleteConfirmPhrase = useMemo(() => {
@@ -202,25 +203,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
       cancelled = true;
     };
   }, [currentWorkspaceId, databaseId, hasDatabaseId, layout, panelState.itemLimit, rowPageOrder]);
-
-  const refreshRowsFromServer = useCallback(async () => {
-    if (!hasDatabaseId || !currentWorkspaceId || rowsRefreshing) return;
-    setRowsRefreshing(true);
-    try {
-      const refreshed = await refreshDatabaseRowsFromServer({
-        databaseId,
-        currentWorkspaceId,
-        rowLimit: resolveDatabaseRefreshRowLimit(
-          layout,
-          panelStateRef.current.itemLimit,
-        ),
-        source: "database-block-refresh",
-      });
-      if (refreshed) setExtraRows(0);
-    } finally {
-      setRowsRefreshing(false);
-    }
-  }, [currentWorkspaceId, databaseId, hasDatabaseId, layout, rowsRefreshing]);
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
@@ -454,7 +436,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   // - extraRows 는 컴포넌트 state 이므로 페이지 재진입 시 자동으로 초기화됨.
   const defaultLimit = DEFAULT_VISIBLE_ROW_LIMIT;
   const explicitLimit = layout === "inline" ? panelState.itemLimit ?? null : null;
-  const totalRowsForLimit = bundle?.rowPageOrder.length ?? 0;
+  const totalRowsForLimit = Math.max(bundle?.rowPageOrder.length ?? 0, rowIndexRowCount);
   const remoteRowsHasMore =
     Boolean(currentWorkspaceId) &&
     Boolean(remoteRowNextToken);
@@ -597,8 +579,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 panelState={panelState}
                 setPanelState={setPanelState}
                 layout={layout}
-                onRefreshRows={refreshRowsFromServer}
-                refreshRowsLoading={remoteRowsLoading || rowsRefreshing}
               />
             ) : null}
 
@@ -611,7 +591,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
             {/* 더보기 버튼 — 표시 설정의 항목 수만큼 추가 노출한다. */}
             {bundle && (visibleRowLimit != null || remoteRowsHasMore) && (() => {
               const limit = visibleRowLimit ?? totalRowsForLimit;
-              const totalRows = bundle.rowPageOrder.length;
+              const totalRows = totalRowsForLimit;
               const localRemaining = Math.max(0, totalRows - limit);
               if (localRemaining <= 0 && !remoteRowsHasMore) return null;
               const remaining = totalRows - limit;

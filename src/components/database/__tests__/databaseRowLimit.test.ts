@@ -3,7 +3,6 @@ import {
   DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
   MIN_DATABASE_INLINE_ROW_LIMIT,
   resolveDatabaseInitialRowLimit,
-  resolveDatabaseRefreshRowLimit,
   resolveDatabaseVisibleRowLimit,
 } from "../databaseRowLimit";
 
@@ -40,15 +39,6 @@ describe("databaseRowLimit", () => {
         extraRows: 0,
       }),
     ).toBe(DEFAULT_DATABASE_VISIBLE_ROW_LIMIT);
-  });
-
-  it("refresh는 inline 최소 표시 개수와 독립적으로 기본 batch limit를 사용한다", () => {
-    expect(resolveDatabaseRefreshRowLimit("inline", MIN_DATABASE_INLINE_ROW_LIMIT)).toBe(
-      DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
-    );
-    expect(resolveDatabaseRefreshRowLimit("fullPage", MIN_DATABASE_INLINE_ROW_LIMIT)).toBe(
-      DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
-    );
   });
 
   it("itemLimit가 없고 100개 미만이면 강제 클리핑하지 않는다", () => {

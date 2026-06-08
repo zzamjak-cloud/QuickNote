@@ -2,11 +2,13 @@ import { appsyncClient } from "./graphql/client";
 import {
   GET_DATABASE,
   GET_PAGE,
+  LIST_DATABASE_ROW_INDEX,
   LIST_DATABASE_ROWS,
   LIST_PAGE_METAS,
   LIST_PAGES,
   LIST_DATABASES,
   type GqlPage,
+  type GqlDatabaseRowIndexPage,
   type GqlPageMeta,
   type GqlDatabase,
 } from "./graphql/operations";
@@ -128,6 +130,32 @@ export async function fetchDatabaseRowsBatch(args: {
       nextToken: args.nextToken ?? null,
     },
   })) as { data: { listDatabaseRows: GqlConnection<GqlPage> } };
+  return r.data.listDatabaseRows;
+}
+
+export async function fetchDatabaseRowIndexBatch(args: {
+  workspaceId: string;
+  databaseId: string;
+  organizationId?: string;
+  teamId?: string;
+  projectId?: string;
+  assigneeId?: string;
+  limit?: number;
+  nextToken?: string | null;
+}): Promise<GqlConnection<GqlDatabaseRowIndexPage>> {
+  const r = (await appsyncClient().graphql({
+    query: LIST_DATABASE_ROW_INDEX,
+    variables: {
+      workspaceId: args.workspaceId,
+      databaseId: args.databaseId,
+      organizationId: args.organizationId ?? null,
+      teamId: args.teamId ?? null,
+      projectId: args.projectId ?? null,
+      assigneeId: args.assigneeId ?? null,
+      limit: args.limit ?? PAGE_LIMIT,
+      nextToken: args.nextToken ?? null,
+    },
+  })) as { data: { listDatabaseRows: GqlConnection<GqlDatabaseRowIndexPage> } };
   return r.data.listDatabaseRows;
 }
 

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { applyFilterSortSearch, resolveActiveFilterRules } from "../../lib/databaseQuery";
 import type { CellValue, DatabasePanelState, DatabaseRowView } from "../../types/database";
@@ -8,7 +8,11 @@ import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { useMemberStore } from "../../store/memberStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
+import type { DatabaseRowIndexEntry } from "../../lib/database/databaseRowIndexCache";
 import { isCellValueDerived, resolveDerivedCellValue } from "../../lib/database/columnSource";
+import { resolveDatabaseRowRemoteKey } from "../../lib/sync/externalProtectedDatabaseLoad";
 import {
   resolveFilterableCellValue,
   withFilterDisplayOptions,
@@ -24,6 +28,7 @@ import {
 } from "./renderScopeSelectors";
 
 const EMPTY_ROW_PAGE_ORDER: readonly string[] = [];
+const EMPTY_ROW_INDEX_ROWS: readonly DatabaseRowIndexEntry[] = [];
 
 export function useProcessedRows(
   databaseId: string,
@@ -34,10 +39,42 @@ export function useProcessedRows(
   const teams = useTeamStore((s) => s.teams);
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const members = useMemberStore((s) => s.members);
-  const rowPageOrder = bundle?.rowPageOrder ?? EMPTY_ROW_PAGE_ORDER;
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const rowIndexKey = useMemo(
+    () => resolveDatabaseRowRemoteKey(databaseId, currentWorkspaceId),
+    [currentWorkspaceId, databaseId],
+  );
+  const hydrateRowIndex = useDatabaseRowIndexStore((s) => s.hydrateIndex);
+  useEffect(() => {
+    if (!rowIndexKey) return;
+    void hydrateRowIndex(rowIndexKey);
+  }, [hydrateRowIndex, rowIndexKey]);
+  const rowIndexRows = useDatabaseRowIndexStore(
+    (s) =>
+      rowIndexKey
+        ? (s.snapshotsByKey[rowIndexKey]?.rows ?? EMPTY_ROW_INDEX_ROWS)
+        : EMPTY_ROW_INDEX_ROWS,
+  );
+  const bundleRowPageOrder = bundle?.rowPageOrder ?? EMPTY_ROW_PAGE_ORDER;
+  const rowPageOrder = useMemo(() => {
+    if (rowIndexRows.length === 0) return bundleRowPageOrder;
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const row of rowIndexRows) {
+      if (seen.has(row.pageId)) continue;
+      seen.add(row.pageId);
+      ids.push(row.pageId);
+    }
+    for (const pageId of bundleRowPageOrder) {
+      if (seen.has(pageId)) continue;
+      seen.add(pageId);
+      ids.push(pageId);
+    }
+    return ids;
+  }, [bundleRowPageOrder, rowIndexRows]);
   const rowSourcesSelector = useMemo(
-    () => createDatabaseRowSourcesSelector(rowPageOrder),
-    [rowPageOrder],
+    () => createDatabaseRowSourcesSelector(rowPageOrder, rowIndexRows),
+    [rowIndexRows, rowPageOrder],
   );
   const rowSources = usePageStore(rowSourcesSelector);
   const databaseDependencyIds = useMemo(

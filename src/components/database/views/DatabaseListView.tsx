@@ -4,7 +4,6 @@ import { getVisibleOrderedColumns } from "../../../types/database";
 import type { DatabasePanelState, DatabaseRowView } from "../../../types/database";
 import { useProcessedRows } from "../useProcessedRows";
 import { usePageStore } from "../../../store/pageStore";
-import { useUiStore } from "../../../store/uiStore";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useDatabaseGroupCollapseStore } from "../../../store/databaseGroupCollapseStore";
 import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
@@ -19,6 +18,7 @@ import {
   databaseCellHasDisplayValue,
   databaseColumnMayHaveDerivedDisplayValue,
 } from "../databaseCellDisplayUtils";
+import { useOpenDatabaseRow } from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -32,7 +32,7 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
   const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
 
   const setIcon = usePageStore((s) => s.setIcon);
-  const openPeek = useUiStore((s) => s.openPeek);
+  const openRow = useOpenDatabaseRow(databaseId);
   const addRow = useDatabaseStore((s) => s.addRow);
   const groups = useRowGroups(rows, columns, panelState.groupByColumnId);
   const isCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
@@ -69,7 +69,7 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
     return (
       <div
         key={row.pageId}
-        onClick={() => openPeek(row.pageId)}
+        onClick={() => void openRow(row.pageId, { source: "database-list-row-open" })}
         className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
       >
         <span

@@ -15,8 +15,8 @@ import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
 import { AppSelect } from "../../common/AppSelect";
 import { useSettingsStore } from "../../../store/settingsStore";
-import { useUiStore } from "../../../store/uiStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
+import { useEnsureDatabaseRowContent, useOpenDatabaseRow } from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -57,7 +57,8 @@ export function DatabaseKanbanView({
   const setIcon = usePageStore((s) => s.setIcon);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
-  const openPeek = useUiStore((s) => s.openPeek);
+  const ensureRowContent = useEnsureDatabaseRowContent(databaseId);
+  const openRow = useOpenDatabaseRow(databaseId);
 
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
@@ -109,7 +110,9 @@ export function DatabaseKanbanView({
 
   if (!bundle) return null;
 
-  const openFull = (pageId: string) => {
+  const openFull = async (pageId: string) => {
+    const loaded = await ensureRowContent(pageId, { source: "database-kanban-full-open" });
+    if (!loaded) return;
     setActivePage(pageId);
     setCurrentTabPage(pageId);
   };
@@ -208,7 +211,7 @@ export function DatabaseKanbanView({
                       pageIcon={row.icon ?? null}
                       onIconChange={(icon) => setIcon(row.pageId, icon)}
                       onOpenFull={() => openFull(row.pageId)}
-                      onOpenPeek={() => openPeek(row.pageId)}
+                      onOpenPeek={() => void openRow(row.pageId, { source: "database-kanban-row-open" })}
                       onDelete={() => setRowDeletePageId(row.pageId)}
                     />
                   ))}
