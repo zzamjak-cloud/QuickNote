@@ -21,8 +21,27 @@ type Props = {
   onClose: () => void;
 };
 
+function collectReferencedDatabaseIds(value: unknown, out: Set<string>): void {
+  if (!value || typeof value !== "object") return;
+  const node = value as Record<string, unknown>;
+  const attrs = node.attrs as Record<string, unknown> | undefined;
+  const type = typeof node.type === "string" ? node.type : "";
+  const databaseId = String(attrs?.databaseId ?? "");
+  if (
+    (type === "databaseBlock" || type === "buttonBlock") &&
+    databaseId
+  ) {
+    out.add(databaseId);
+  }
+  const content = node.content;
+  if (!Array.isArray(content)) return;
+  for (const child of content) collectReferencedDatabaseIds(child, out);
+}
+
 export function DatabaseManagerDialog({ open, onClose }: Props) {
   const dbList = useDatabaseStore(listDatabases);
+  const databases = useDatabaseStore((s) => s.databases);
+  const dbTemplates = useDatabaseStore((s) => s.dbTemplates);
   const pages = usePageStore((s) => s.pages);
   const findFullPagePageIdForDatabase = usePageStore(
     (s) => s.findFullPagePageIdForDatabase,
@@ -79,9 +98,29 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   // 보호 DB(작업·마일스톤·피처) 는 LC 워크스페이스 DB 관리 화면에서만 표시.
   // (인라인 DB 블록 연결 등 다른 경로에서는 어디서나 사용 가능)
   const inLCWorkspace = currentWorkspaceId === LC_SCHEDULER_WORKSPACE_ID;
+  const referencedDatabaseIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const page of Object.values(pages)) {
+      if (page.databaseId) ids.add(page.databaseId);
+      if (page.fullPageDatabaseId) ids.add(page.fullPageDatabaseId);
+      collectReferencedDatabaseIds(page.doc, ids);
+    }
+    return ids;
+  }, [pages]);
   const visibleActive = dbList
     .filter((d) => {
       if (isProtectedDatabaseId(d.id) && !inLCWorkspace) return false;
+      const bundle = databases[d.id];
+      const templateCount = dbTemplates[d.id]?.length ?? 0;
+      if (
+        bundle &&
+        !isProtectedDatabaseId(d.id) &&
+        bundle.rowPageOrder.length === 0 &&
+        templateCount === 0 &&
+        !referencedDatabaseIds.has(d.id)
+      ) {
+        return false;
+      }
       return d.meta.title.toLowerCase().includes(q);
     })
     .sort((a, b) => {

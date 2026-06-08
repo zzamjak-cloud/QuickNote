@@ -167,6 +167,15 @@ function databaseBundleIsEmpty(databaseId: string): boolean {
   return Boolean(bundle && bundle.rowPageOrder.length === 0);
 }
 
+function databaseRowIndexConfirmsEmpty(loadKey: string): boolean {
+  const snapshot = useDatabaseRowIndexStore.getState().snapshotsByKey[loadKey];
+  return Boolean(snapshot?.complete && snapshot.rows.length === 0);
+}
+
+function databaseBundleIsConfirmedEmpty(databaseId: string, loadKey: string): boolean {
+  return databaseBundleIsEmpty(databaseId) && databaseRowIndexConfirmsEmpty(loadKey);
+}
+
 function devLog(event: string, payload: Record<string, unknown>): void {
   if (!import.meta.env.DEV) return;
   console.info(`[QN_EXTERNAL_DB] ${event}`, payload);
@@ -292,6 +301,47 @@ function warmDatabaseRowIndexInBackground(args: {
   inFlightWarmIndexByDatabaseId.set(args.loadKey, task);
 }
 
+async function loadDatabaseRowIndexFallback(args: {
+  loadKey: string;
+  resolvedDatabaseId: string;
+  workspaceId: string;
+  scope: DatabaseRowScope;
+  source: string;
+}): Promise<boolean> {
+  try {
+    const rows = await fetchDatabaseRowIndexBatch({
+      workspaceId: args.workspaceId,
+      databaseId: args.resolvedDatabaseId,
+      ...args.scope,
+      limit: BACKGROUND_ROW_INDEX_BATCH_LIMIT,
+    });
+    useDatabaseRowRemoteStore.getState().setNextToken(args.loadKey, rows.nextToken ?? null);
+    upsertRowIndexRows({
+      loadKey: args.loadKey,
+      resolvedDatabaseId: args.resolvedDatabaseId,
+      rows: rows.items,
+      complete: !rows.nextToken,
+      reset: true,
+    });
+    devLog("row-index-fallback-applied", {
+      databaseId: args.resolvedDatabaseId,
+      loadKey: args.loadKey,
+      rowCount: rows.items.length,
+      nextTokenAvailable: Boolean(rows.nextToken),
+      source: args.source,
+    });
+    return rows.items.length > 0;
+  } catch (error) {
+    console.warn("[QN_EXTERNAL_DB] row-index-fallback-failed", {
+      databaseId: args.resolvedDatabaseId,
+      loadKey: args.loadKey,
+      source: args.source,
+      error,
+    });
+    return false;
+  }
+}
+
 async function loadLegacyFullProtectedDatabaseSnapshot(args: {
   databaseId: string;
   resolvedDatabaseId: string;
@@ -401,7 +451,11 @@ export async function ensureDatabaseRowsLoaded({
   if (
     completedLoadDatabaseIds.has(loadKey) &&
     completedLoadLimit >= rowLimit &&
-    (scoped || databaseRowsAreCached(resolvedDatabaseId) || databaseBundleIsEmpty(resolvedDatabaseId))
+    (
+      scoped ||
+      databaseRowsAreCached(resolvedDatabaseId) ||
+      databaseBundleIsConfirmedEmpty(resolvedDatabaseId, loadKey)
+    )
   ) {
     devLog("skip", {
       databaseId,
@@ -464,6 +518,16 @@ export async function ensureDatabaseRowsLoaded({
       rows: rows.items,
       complete: !rows.nextToken,
     });
+    const rowIndexFallbackResolved =
+      rows.items.length === 0 && !rows.nextToken
+        ? await loadDatabaseRowIndexFallback({
+            loadKey,
+            resolvedDatabaseId,
+            workspaceId,
+            scope,
+            source,
+          })
+        : false;
     warmDatabaseRowIndexInBackground({
       loadKey,
       resolvedDatabaseId,
@@ -475,7 +539,8 @@ export async function ensureDatabaseRowsLoaded({
     });
     refreshWorkspaceSnapshot(workspaceId);
 
-    const resolved = scoped ? true : databaseRowsAreCached(resolvedDatabaseId);
+    const resolved =
+      scoped || databaseRowsAreCached(resolvedDatabaseId) || rowIndexFallbackResolved;
     completedLoadDatabaseIds.add(loadKey);
     completedLoadLimitsByDatabaseId.set(loadKey, rowLimit);
     devLog("load-applied", {

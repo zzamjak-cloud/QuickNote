@@ -7,6 +7,7 @@ import {
 } from "../../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 import { useDatabaseRowRemoteStore } from "../../../store/databaseRowRemoteStore";
+import { useDatabaseRowIndexStore } from "../../../store/databaseRowIndexStore";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import {
   fetchDatabaseById,
@@ -268,6 +269,59 @@ describe("externalProtectedDatabaseLoad", () => {
       "cat-row-1",
     ]);
     expect(usePageStore.getState().pages["cat-row-1"]).toBeDefined();
+  });
+
+  it("인라인 진입에서 row batch가 비어도 row index fallback으로 후보군을 적재한다", async () => {
+    const updatedAt = "2026-06-04T00:00:00.000Z";
+    fetchDatabaseByIdMock.mockResolvedValue({
+      id: "normal-db",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "CAT DB",
+      columns: [],
+      presets: [],
+      panelState: null,
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({
+      items: [],
+      nextToken: null,
+    });
+    fetchDatabaseRowIndexBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "cat-row-1",
+          workspaceId: "cat-workspace",
+          title: "항목 1",
+          icon: null,
+          order: "1",
+          databaseId: "normal-db",
+          dbCells: {},
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: null,
+    });
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        source: "database-block",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchDatabaseRowIndexBatchMock).toHaveBeenCalledWith({
+      workspaceId: "cat-workspace",
+      databaseId: "normal-db",
+      limit: 200,
+    });
+    expect(useDatabaseStore.getState().databases["normal-db"]?.rowPageOrder).toEqual([]);
+    expect(useDatabaseRowIndexStore.getState().snapshotsByKey["normal-db"]?.rows).toMatchObject([
+      { pageId: "cat-row-1", databaseId: "normal-db", title: "항목 1" },
+    ]);
   });
 
   it("캐시가 없을 때만 보이는 protected DB에서 LC 스케줄러 스냅샷을 지연 로드한다", async () => {
