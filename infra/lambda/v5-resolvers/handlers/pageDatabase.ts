@@ -58,6 +58,7 @@ import {
   removeLCDatabaseRowMemberIndexForPage,
   syncLCDatabaseRowMemberIndexForPage,
 } from "./lcDatabaseRowMemberIndex";
+import { reconcileTemplateAutomationSchedules } from "./templateAutomationScheduler";
 
 const PAGE_HISTORY_ANCHOR_INTERVAL = 20;
 const DATABASE_HISTORY_ANCHOR_INTERVAL = 20;
@@ -1454,6 +1455,10 @@ export async function upsertDatabase(args: {
         } catch (err) {
           console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
         }
+        await reconcileTemplateAutomationSchedules({
+          before: existingItem,
+          after: templatesMerge,
+        });
         return templatesMerge;
       } catch (err) {
         if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
@@ -1464,6 +1469,12 @@ export async function upsertDatabase(args: {
         }
         throw err;
       }
+    }
+    if ("templates" in args.input) {
+      await reconcileTemplateAutomationSchedules({
+        before: existingItem,
+        after: existingItem,
+      });
     }
     return existingItem;
   }
@@ -1523,6 +1534,10 @@ export async function upsertDatabase(args: {
   } catch (err) {
     console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
   }
+  await reconcileTemplateAutomationSchedules({
+    before: existingItem ?? null,
+    after: merged,
+  });
   return merged;
 }
 

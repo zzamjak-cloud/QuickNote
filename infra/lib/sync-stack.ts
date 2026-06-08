@@ -10,6 +10,8 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as eventScheduler from "aws-cdk-lib/aws-scheduler";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 
@@ -529,6 +531,41 @@ export class QuicknoteSyncStack extends cdk.Stack {
       value: databaseRowMembersTable.tableName,
     });
 
+    const templateAutomationRunsTable = new dynamodb.Table(this, "TemplateAutomationRunsTable", {
+      tableName: `${envPrefix}quicknote-template-automation-runs`,
+      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    templateAutomationRunsTable.addGlobalSecondaryIndex({
+      indexName: "byAutomationAndScheduledTime",
+      partitionKey: { name: "automationId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "scheduledTime", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    new cdk.CfnOutput(this, "TemplateAutomationRunsTableName", {
+      value: templateAutomationRunsTable.tableName,
+    });
+
+    const templateAutomationScheduleGroupName = `${envPrefix}quicknote-template-automation`;
+    const templateAutomationScheduleGroup = new eventScheduler.CfnScheduleGroup(
+      this,
+      "TemplateAutomationScheduleGroup",
+      { name: templateAutomationScheduleGroupName },
+    );
+    new cdk.CfnOutput(this, "TemplateAutomationScheduleGroupName", {
+      value: templateAutomationScheduleGroupName,
+    });
+    const templateAutomationSchedulerRole = new iam.Role(
+      this,
+      "TemplateAutomationSchedulerRole",
+      {
+        assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      },
+    );
+
     new cdk.CfnOutput(this, "MembersTableName", { value: membersTable.tableName });
     new cdk.CfnOutput(this, "TeamsTableName", { value: teamsTable.tableName });
     new cdk.CfnOutput(this, "MemberTeamsTableName", { value: memberTeamsTable.tableName });
@@ -739,6 +776,64 @@ export function response(ctx) {
     // v5-resolvers Lambda — 모든 v5 admin/workspace mutation/query 라우터
     // 타임아웃은 AppSync resolver 의 기본 한도(~30s) 에 맞춰 28s.
     // migrateAssetUsage 처럼 Scan 기반 무거운 mutation 도 단일 호출에서 처리 가능.
+    const templateAutomationRunnerFn = new lambdaNode.NodejsFunction(
+      this,
+      "TemplateAutomationRunnerFn",
+      {
+        entry: path.join(__dirname, "..", "lambda", "template-automation", "runner.ts"),
+        runtime: lambda.Runtime.NODEJS_22_X,
+        handler: "handler",
+        memorySize: 512,
+        timeout: cdk.Duration.seconds(60),
+        logRetention: logs.RetentionDays.ONE_MONTH,
+        environment: {
+          MEMBERS_TABLE_NAME: this.membersTable.tableName,
+          TEAMS_TABLE_NAME: this.teamsTable.tableName,
+          MEMBER_TEAMS_TABLE_NAME: this.memberTeamsTable.tableName,
+          WORKSPACES_TABLE_NAME: this.workspacesTable.tableName,
+          WORKSPACE_ACCESS_TABLE_NAME: this.workspaceAccessTable.tableName,
+          PAGES_TABLE_NAME: this.pageTable.table.tableName,
+          DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
+          COMMENTS_TABLE_NAME: this.commentTable.table.tableName,
+          SCHEDULES_TABLE_NAME: schedulesTable.tableName,
+          IMAGE_ASSETS_TABLE_NAME: this.imageAssetTable.table.tableName,
+          ASSET_USAGE_TABLE_NAME: assetUsageTable.tableName,
+          PAGE_HISTORY_TABLE_NAME: pageHistoryTable.tableName,
+          DATABASE_HISTORY_TABLE_NAME: databaseHistoryTable.tableName,
+          DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
+          IMAGES_BUCKET_NAME: imagesBucket.bucketName,
+          TEMPLATE_AUTOMATION_RUNS_TABLE_NAME: templateAutomationRunsTable.tableName,
+        },
+        bundling: {
+          minify: true,
+          target: "node20",
+          sourceMap: false,
+          externalModules: ["@aws-sdk/*"],
+        },
+      },
+    );
+    templateAutomationRunsTable.grantReadWriteData(templateAutomationRunnerFn);
+    this.membersTable.grantReadData(templateAutomationRunnerFn);
+    this.teamsTable.grantReadData(templateAutomationRunnerFn);
+    this.memberTeamsTable.grantReadData(templateAutomationRunnerFn);
+    this.workspacesTable.grantReadData(templateAutomationRunnerFn);
+    this.workspaceAccessTable.grantReadData(templateAutomationRunnerFn);
+    this.pageTable.table.grantReadWriteData(templateAutomationRunnerFn);
+    this.databaseTable.table.grantReadData(templateAutomationRunnerFn);
+    this.commentTable.table.grantReadWriteData(templateAutomationRunnerFn);
+    schedulesTable.grantReadWriteData(templateAutomationRunnerFn);
+    this.imageAssetTable.table.grantReadWriteData(templateAutomationRunnerFn);
+    assetUsageTable.grantReadWriteData(templateAutomationRunnerFn);
+    pageHistoryTable.grantReadWriteData(templateAutomationRunnerFn);
+    databaseHistoryTable.grantReadWriteData(templateAutomationRunnerFn);
+    databaseRowMembersTable.grantReadWriteData(templateAutomationRunnerFn);
+    imagesBucket.grantReadWrite(templateAutomationRunnerFn);
+    templateAutomationRunnerFn.grantInvoke(templateAutomationSchedulerRole);
+    templateAutomationRunnerFn.node.addDependency(templateAutomationScheduleGroup);
+    new cdk.CfnOutput(this, "TemplateAutomationRunnerFunctionName", {
+      value: templateAutomationRunnerFn.functionName,
+    });
+
     const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -769,6 +864,9 @@ export function response(ctx) {
         DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
         IMAGES_BUCKET_NAME: imagesBucket.bucketName,
         CUSTOM_ICONS_TABLE_NAME: customIconsTable.tableName,
+        TEMPLATE_AUTOMATION_SCHEDULE_GROUP_NAME: templateAutomationScheduleGroupName,
+        TEMPLATE_AUTOMATION_RUNNER_ARN: templateAutomationRunnerFn.functionArn,
+        TEMPLATE_AUTOMATION_SCHEDULER_ROLE_ARN: templateAutomationSchedulerRole.roleArn,
       },
       bundling: {
         minify: true,
@@ -801,6 +899,24 @@ export function response(ctx) {
     databaseRowMembersTable.grantReadWriteData(v5ResolversFn);
     imagesBucket.grantReadWrite(v5ResolversFn);
     customIconsTable.grantReadWriteData(v5ResolversFn);
+    v5ResolversFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "scheduler:CreateSchedule",
+          "scheduler:UpdateSchedule",
+          "scheduler:DeleteSchedule",
+        ],
+        resources: [
+          `arn:${cdk.Aws.PARTITION}:scheduler:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:schedule/${templateAutomationScheduleGroupName}/*`,
+        ],
+      }),
+    );
+    v5ResolversFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["iam:PassRole"],
+        resources: [templateAutomationSchedulerRole.roleArn],
+      }),
+    );
 
     // AppSync Lambda DataSource
     const v5Ds = api.addLambdaDataSource("V5ResolversDs", v5ResolversFn);
