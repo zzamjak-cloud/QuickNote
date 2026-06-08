@@ -270,6 +270,10 @@ function normalizeMmEntryForGql(entry: Record<string, unknown>) {
 
 export async function handler(event: AppsyncEvent): Promise<unknown> {
   try {
+    if (event.info.fieldName === "publishPageChanged") {
+      return event.arguments.input as Record<string, unknown>;
+    }
+
     const caller = await getCallerMember(doc, tables.Members, event.identity?.sub);
     const base = { doc, tables, caller };
 

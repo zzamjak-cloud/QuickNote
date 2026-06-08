@@ -1,3 +1,4 @@
+import { createHash, createHmac } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
@@ -27,12 +28,38 @@ type TemplateAutomationEvent = {
 };
 
 type RunnerTables = Tables & {
+  Members: string;
+  Pages: string;
+  Databases: string;
   TemplateAutomationRuns: string;
 };
 
 type UpsertPageFn = typeof upsertPage;
+type PublishPageChangedFn = (page: Record<string, unknown>) => Promise<void>;
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+
+const PUBLISH_PAGE_CHANGED_MUTATION = `
+mutation PublishPageChanged($input: PageInput!) {
+  publishPageChanged(input: $input) {
+    id
+    workspaceId
+    createdByMemberId
+    title
+    icon
+    coverImage
+    parentId
+    order
+    databaseId
+    fullPageDatabaseId
+    doc
+    dbCells
+    blockComments
+    createdAt
+    updatedAt
+    deletedAt
+  }
+}`;
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -59,6 +86,129 @@ function readTablesFromEnv(): RunnerTables {
     ImagesBucketName: process.env.IMAGES_BUCKET_NAME,
     TemplateAutomationRuns: requireEnv("TEMPLATE_AUTOMATION_RUNS_TABLE_NAME"),
   };
+}
+
+function toAwsJsonInput(value: unknown): string | null {
+  if (value == null) return null;
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+export function toPublishPageChangedInput(page: Record<string, unknown>): Record<string, unknown> {
+  const input: Record<string, unknown> = {
+    id: page.id,
+    workspaceId: page.workspaceId,
+    createdByMemberId: page.createdByMemberId,
+    title: page.title,
+    order: page.order,
+    databaseId: page.databaseId ?? null,
+    fullPageDatabaseId: page.fullPageDatabaseId ?? null,
+    doc: toAwsJsonInput(page.doc) ?? JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] }),
+    dbCells: toAwsJsonInput(page.dbCells),
+    blockComments: toAwsJsonInput(page.blockComments),
+    createdAt: page.createdAt,
+    updatedAt: page.updatedAt,
+  };
+  for (const key of ["icon", "coverImage", "parentId"]) {
+    if (page[key] != null) input[key] = page[key];
+  }
+  return input;
+}
+
+function amzDateParts(now = new Date()) {
+  const iso = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  return {
+    amzDate: iso,
+    dateStamp: iso.slice(0, 8),
+  };
+}
+
+function hashHex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function hmac(key: Buffer | string, value: string): Buffer {
+  return createHmac("sha256", key).update(value, "utf8").digest();
+}
+
+function signingKey(secretAccessKey: string, dateStamp: string, region: string): Buffer {
+  const kDate = hmac(`AWS4${secretAccessKey}`, dateStamp);
+  const kRegion = hmac(kDate, region);
+  const kService = hmac(kRegion, "appsync");
+  return hmac(kService, "aws4_request");
+}
+
+function signedAppSyncHeaders(args: {
+  endpoint: string;
+  body: string;
+  now?: Date;
+  env?: NodeJS.ProcessEnv;
+}): Record<string, string> {
+  const env = args.env ?? process.env;
+  const accessKeyId = env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = env.AWS_SECRET_ACCESS_KEY;
+  const sessionToken = env.AWS_SESSION_TOKEN;
+  const region = env.AWS_REGION ?? env.AWS_DEFAULT_REGION ?? "ap-northeast-2";
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("AWS credentials are required to publish AppSync page change");
+  }
+  const url = new URL(args.endpoint);
+  const { amzDate, dateStamp } = amzDateParts(args.now);
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    host: url.host,
+    "x-amz-date": amzDate,
+  };
+  if (sessionToken) headers["x-amz-security-token"] = sessionToken;
+  const signedHeaderNames = Object.keys(headers).sort();
+  const canonicalHeaders = signedHeaderNames
+    .map((name) => `${name}:${headers[name]}`)
+    .join("\n") + "\n";
+  const signedHeaders = signedHeaderNames.join(";");
+  const canonicalRequest = [
+    "POST",
+    url.pathname || "/graphql",
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    hashHex(args.body),
+  ].join("\n");
+  const credentialScope = `${dateStamp}/${region}/appsync/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    hashHex(canonicalRequest),
+  ].join("\n");
+  const signature = createHmac("sha256", signingKey(secretAccessKey, dateStamp, region))
+    .update(stringToSign, "utf8")
+    .digest("hex");
+  return {
+    ...headers,
+    authorization:
+      `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, ` +
+      `SignedHeaders=${signedHeaders}, Signature=${signature}`,
+  };
+}
+
+export async function publishPageChangedToAppSync(page: Record<string, unknown>): Promise<void> {
+  const endpoint = requireEnv("APPSYNC_GRAPHQL_URL");
+  const body = JSON.stringify({
+    query: PUBLISH_PAGE_CHANGED_MUTATION,
+    variables: { input: toPublishPageChangedInput(page) },
+  });
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: signedAppSyncHeaders({ endpoint, body }),
+    body,
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`publishPageChanged HTTP ${response.status}: ${text}`);
+  }
+  const parsed = text ? JSON.parse(text) as { errors?: Array<{ message?: string }> } : {};
+  if (parsed.errors?.length) {
+    throw new Error(`publishPageChanged failed: ${parsed.errors.map((error) => error.message).join("; ")}`);
+  }
 }
 
 function assertEvent(event: TemplateAutomationEvent): asserts event is Required<
@@ -114,12 +264,39 @@ async function getAutomationOwnerMember(args: {
   return member;
 }
 
+async function collectExistingDatabaseTitles(args: {
+  doc: DynamoDBDocumentClientType;
+  tableName: string;
+  databaseId: string;
+}): Promise<string[]> {
+  const titles: string[] = [];
+  let nextKey: Record<string, unknown> | undefined;
+  do {
+    const result = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tableName,
+        IndexName: "byDatabaseAndOrder",
+        KeyConditionExpression: "databaseId = :databaseId",
+        ExpressionAttributeValues: { ":databaseId": args.databaseId },
+        ProjectionExpression: "title",
+        ExclusiveStartKey: nextKey,
+      }),
+    );
+    for (const item of result.Items ?? []) {
+      if (typeof item.title === "string") titles.push(item.title);
+    }
+    nextKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (nextKey);
+  return titles;
+}
+
 export async function runTemplateAutomation(args: {
   doc: DynamoDBDocumentClientType;
   tables: RunnerTables;
   event: TemplateAutomationEvent;
   now?: () => Date;
   upsertPageFn?: UpsertPageFn;
+  publishPageChangedFn?: PublishPageChangedFn;
 }) {
   assertEvent(args.event);
   const now = args.now?.() ?? new Date();
@@ -235,6 +412,9 @@ export async function runTemplateAutomation(args: {
       }),
     );
     if (existingPage.Item) {
+      await (args.publishPageChangedFn ?? publishPageChangedToAppSync)(
+        existingPage.Item as Record<string, unknown>,
+      );
       await putRun({
         doc: args.doc,
         tableName: args.tables.TemplateAutomationRuns,
@@ -264,6 +444,11 @@ export async function runTemplateAutomation(args: {
       database,
       template: target.template,
       templatePage,
+      existingTitles: await collectExistingDatabaseTitles({
+        doc: args.doc,
+        tableName: args.tables.Pages,
+        databaseId: args.event.databaseId,
+      }),
       scheduledTime,
       pageId,
       nowIso,
@@ -274,6 +459,7 @@ export async function runTemplateAutomation(args: {
       caller,
       input: pageInput,
     });
+    await (args.publishPageChangedFn ?? publishPageChangedToAppSync)(pageInput);
     await putRun({
       doc: args.doc,
       tableName: args.tables.TemplateAutomationRuns,

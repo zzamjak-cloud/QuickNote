@@ -115,4 +115,66 @@ describe("template automation common", () => {
     });
     expect(page.dbCells).not.toHaveProperty("_qn_isTemplate");
   });
+
+  it("normalizes an empty object doc to an empty editor document", () => {
+    const page = buildGeneratedTemplatePage({
+      database: {
+        id: "db-1",
+        workspaceId: "ws-1",
+        createdByMemberId: "member-1",
+        columns: "[]",
+      },
+      template: {
+        id: "template-1",
+        title: "QA",
+        cells: {},
+        automation: {
+          id: "automation-1",
+          enabled: true,
+          weekdays: [1],
+          time: "09:30",
+          timezone: "Asia/Seoul",
+        },
+      },
+      templatePage: {
+        title: "QA Template",
+        doc: "{}",
+      },
+      pageId: "page-1",
+      scheduledTime: "2026-06-08T00:30:00.000Z",
+      nowIso: "2026-06-08T00:31:00.000Z",
+    });
+
+    expect(page.doc).toBe(JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] }));
+  });
+
+  it("adds numeric suffix when generated title already exists in the database", () => {
+    const page = buildGeneratedTemplatePage({
+      database: {
+        id: "db-1",
+        workspaceId: "ws-1",
+        createdByMemberId: "member-1",
+        columns: "[]",
+      },
+      template: {
+        id: "template-1",
+        title: "QA",
+        cells: {},
+        automation: {
+          id: "automation-1",
+          enabled: true,
+          weekdays: [1],
+          time: "09:30",
+          timezone: "Asia/Seoul",
+          titlePrefix: "QA",
+        },
+      },
+      existingTitles: ["QA 26/06/08", "QA 26/06/08 (1)"],
+      pageId: "page-1",
+      scheduledTime: "2026-06-08T00:30:00.000Z",
+      nowIso: "2026-06-08T00:31:00.000Z",
+    });
+
+    expect(page.title).toBe("QA 26/06/08 (2)");
+  });
 });

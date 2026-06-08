@@ -1,6 +1,6 @@
 import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it, vi } from "vitest";
-import { runTemplateAutomation } from "./runner";
+import { runTemplateAutomation, toPublishPageChangedInput } from "./runner";
 
 const tables = {
   Members: "Members",
@@ -46,6 +46,7 @@ function mockDoc(
     existingRun?: Record<string, unknown>;
     memberGetMiss?: boolean;
     databaseCreatedByMemberId?: string;
+    existingDatabasePageTitles?: string[];
   } = {},
 ) {
   const send = vi.fn(async (command: unknown) => {
@@ -106,6 +107,14 @@ function mockDoc(
           ],
         };
       }
+      if (command.input.TableName === "Pages" && command.input.IndexName === "byDatabaseAndOrder") {
+        return {
+          Items: (overrides.existingDatabasePageTitles ?? []).map((title, index) => ({
+            id: `existing-${index}`,
+            title,
+          })),
+        };
+      }
     }
     if (command instanceof PutCommand) return {};
     throw new Error("unexpected command");
@@ -117,6 +126,7 @@ describe("template automation runner", () => {
   it("creates a deterministic page and records success", async () => {
     const doc = mockDoc();
     const upsertPageFn = vi.fn(async (args: { input: Record<string, unknown> }) => args.input);
+    const publishPageChangedFn = vi.fn(async () => undefined);
 
     const result = await runTemplateAutomation({
       doc,
@@ -130,6 +140,7 @@ describe("template automation runner", () => {
       },
       now: () => new Date("2026-06-08T00:31:00.000Z"),
       upsertPageFn,
+      publishPageChangedFn,
     });
 
     expect(result.status).toBe("succeeded");
@@ -145,11 +156,13 @@ describe("template automation runner", () => {
       },
     });
     expect(upsertPageFn.mock.calls[0]?.[0].input.dbCells).not.toHaveProperty("_qn_isTemplate");
+    expect(publishPageChangedFn).toHaveBeenCalledWith(upsertPageFn.mock.calls[0]?.[0].input);
   });
 
   it("marks failed without creating a page after max attempts", async () => {
     const doc = mockDoc({ existingRun: { id: "run-1", attempts: 2, status: "failed" } });
     const upsertPageFn = vi.fn(async (args: { input: Record<string, unknown> }) => args.input);
+    const publishPageChangedFn = vi.fn(async () => undefined);
 
     const result = await runTemplateAutomation({
       doc,
@@ -163,10 +176,12 @@ describe("template automation runner", () => {
       },
       now: () => new Date("2026-06-08T00:31:00.000Z"),
       upsertPageFn,
+      publishPageChangedFn,
     });
 
     expect(result.status).toBe("failed");
     expect(upsertPageFn).not.toHaveBeenCalled();
+    expect(publishPageChangedFn).not.toHaveBeenCalled();
   });
 
   it("resolves automation owner by cognitoSub when createdByMemberId is not a memberId", async () => {
@@ -175,6 +190,7 @@ describe("template automation runner", () => {
       databaseCreatedByMemberId: "b4484dec-1001-70c5-ad14-dcac460b6510",
     });
     const upsertPageFn = vi.fn(async (args: { input: Record<string, unknown> }) => args.input);
+    const publishPageChangedFn = vi.fn(async () => undefined);
 
     const result = await runTemplateAutomation({
       doc,
@@ -188,9 +204,67 @@ describe("template automation runner", () => {
       },
       now: () => new Date("2026-06-08T00:31:00.000Z"),
       upsertPageFn,
+      publishPageChangedFn,
     });
 
     expect(result.status).toBe("succeeded");
     expect(upsertPageFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds suffix when generated row title already exists", async () => {
+    const doc = mockDoc({
+      existingDatabasePageTitles: ["QA 26/06/08", "QA 26/06/08 (1)"],
+    });
+    const upsertPageFn = vi.fn(async (args: { input: Record<string, unknown> }) => args.input);
+    const publishPageChangedFn = vi.fn(async () => undefined);
+
+    await runTemplateAutomation({
+      doc,
+      tables,
+      event: {
+        type: "databaseTemplateAutomation",
+        databaseId: "db-1",
+        templateId: "template-1",
+        automationId: "automation-1",
+        scheduledTime: "2026-06-08T00:30:00.000Z",
+      },
+      now: () => new Date("2026-06-08T00:31:00.000Z"),
+      upsertPageFn,
+      publishPageChangedFn,
+    });
+
+    expect(upsertPageFn.mock.calls[0]?.[0].input.title).toBe("QA 26/06/08 (2)");
+  });
+
+  it("serializes AppSync publish input AWSJSON fields", () => {
+    const input = toPublishPageChangedInput({
+      id: "page-1",
+      workspaceId: "ws-1",
+      createdByMemberId: "member-1",
+      title: "QA",
+      order: "1",
+      databaseId: "db-1",
+      doc: { type: "doc", content: [{ type: "paragraph" }] },
+      dbCells: { status: "todo" },
+      blockComments: { messages: [] },
+      deletedAt: "2026-06-08T00:00:00.000Z",
+      createdAt: "2026-06-08T00:00:00.000Z",
+      updatedAt: "2026-06-08T00:00:00.000Z",
+    });
+
+    expect(input).toMatchObject({
+      id: "page-1",
+      workspaceId: "ws-1",
+      createdByMemberId: "member-1",
+      title: "QA",
+      databaseId: "db-1",
+      fullPageDatabaseId: null,
+      doc: "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}",
+      dbCells: "{\"status\":\"todo\"}",
+      blockComments: "{\"messages\":[]}",
+      createdAt: "2026-06-08T00:00:00.000Z",
+      updatedAt: "2026-06-08T00:00:00.000Z",
+    });
+    expect(input).not.toHaveProperty("deletedAt");
   });
 });

@@ -110,7 +110,7 @@ type WorkspaceAccessEntry {
   level: AccessLevel!
 }
 
-type Page {
+type Page @aws_cognito_user_pools @aws_iam {
   id: ID!
   workspaceId: ID!
   createdByMemberId: ID!
@@ -543,6 +543,7 @@ type Mutation {
   softDeleteComment(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Comment!
 
   upsertPage(input: PageInput!): Page!
+  publishPageChanged(input: PageInput!): Page! @aws_iam
   softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Page!
   """휴지통 페이지 복원(deletedAt 제거)"""
   restorePage(id: ID!, workspaceId: ID!): Page!
@@ -603,7 +604,7 @@ type Subscription {
   onCommentChanged(workspaceId: ID!): Comment
     @aws_subscribe(mutations: ["upsertComment", "softDeleteComment"])
   onPageChanged(workspaceId: ID!): Page
-    @aws_subscribe(mutations: ["upsertPage", "softDeletePage", "restorePage"])
+    @aws_subscribe(mutations: ["upsertPage", "publishPageChanged", "softDeletePage", "restorePage"])
   onDatabaseChanged(workspaceId: ID!): Database
     @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase", "restoreDatabase"])
   onScheduleChanged(workspaceId: ID!): Schedule

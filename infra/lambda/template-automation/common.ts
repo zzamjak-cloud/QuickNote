@@ -60,6 +60,7 @@ export const TEMPLATE_AUTOMATION_MAX_EVENT_AGE_SECONDS = 3600;
 const TEMPLATE_MARKER_CELL_ID = "_qn_isTemplate";
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const EMPTY_EDITOR_DOC_JSON = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
 const EVENTBRIDGE_WEEKDAY_NAMES: Record<TemplateAutomationWeekday, string> = {
   0: "SUN",
   1: "MON",
@@ -277,10 +278,35 @@ function formatDatePartsInTimeZone(value: string, timezone: string) {
   };
 }
 
+function normalizeTemplatePageDoc(raw: unknown): string {
+  if (typeof raw !== "string") return EMPTY_EDITOR_DOC_JSON;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed === "{}") return EMPTY_EDITOR_DOC_JSON;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isPlainObject(parsed) && parsed.type === "doc") return trimmed;
+  } catch {
+    return EMPTY_EDITOR_DOC_JSON;
+  }
+  return EMPTY_EDITOR_DOC_JSON;
+}
+
+export function allocateUniqueTemplateAutomationTitle(
+  baseTitle: string,
+  existingTitles: readonly string[] = [],
+): string {
+  const used = new Set(existingTitles.filter((title) => title.trim()));
+  if (!used.has(baseTitle)) return baseTitle;
+  let suffix = 1;
+  while (used.has(`${baseTitle} (${suffix})`)) suffix += 1;
+  return `${baseTitle} (${suffix})`;
+}
+
 export function buildGeneratedTemplatePage(args: {
   database: Record<string, unknown>;
   template: DatabaseTemplateSnapshot;
   templatePage?: Record<string, unknown> | null;
+  existingTitles?: readonly string[];
   scheduledTime: string;
   pageId: string;
   nowIso: string;
@@ -314,8 +340,11 @@ export function buildGeneratedTemplatePage(args: {
     id: args.pageId,
     workspaceId: String(args.database.workspaceId ?? ""),
     databaseId: String(args.database.id ?? ""),
-    title: `${titlePrefix} ${dateParts.short}`,
-    doc: typeof args.templatePage?.doc === "string" ? args.templatePage.doc : "{}",
+    title: allocateUniqueTemplateAutomationTitle(
+      `${titlePrefix} ${dateParts.short}`,
+      args.existingTitles,
+    ),
+    doc: normalizeTemplatePageDoc(args.templatePage?.doc),
     order: String(Date.parse(args.nowIso)),
     createdAt: args.nowIso,
     updatedAt: args.nowIso,

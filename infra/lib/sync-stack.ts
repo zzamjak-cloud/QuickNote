@@ -629,6 +629,11 @@ export class QuicknoteSyncStack extends cdk.Stack {
             defaultAction: appsync.UserPoolDefaultAction.ALLOW,
           },
         },
+        additionalAuthorizationModes: [
+          {
+            authorizationType: appsync.AuthorizationType.IAM,
+          },
+        ],
       },
       logConfig: {
         fieldLogLevel: appsync.FieldLogLevel.ERROR,
@@ -803,6 +808,7 @@ export function response(ctx) {
           DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
           IMAGES_BUCKET_NAME: imagesBucket.bucketName,
           TEMPLATE_AUTOMATION_RUNS_TABLE_NAME: templateAutomationRunsTable.tableName,
+          APPSYNC_GRAPHQL_URL: api.graphqlUrl,
         },
         bundling: {
           minify: true,
@@ -828,6 +834,14 @@ export function response(ctx) {
     databaseHistoryTable.grantReadWriteData(templateAutomationRunnerFn);
     databaseRowMembersTable.grantReadWriteData(templateAutomationRunnerFn);
     imagesBucket.grantReadWrite(templateAutomationRunnerFn);
+    templateAutomationRunnerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["appsync:GraphQL"],
+        resources: [
+          `arn:${cdk.Aws.PARTITION}:appsync:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:apis/${api.apiId}/types/Mutation/fields/publishPageChanged`,
+        ],
+      }),
+    );
     templateAutomationRunnerFn.grantInvoke(templateAutomationSchedulerRole);
     templateAutomationRunnerFn.node.addDependency(templateAutomationScheduleGroup);
     new cdk.CfnOutput(this, "TemplateAutomationRunnerFunctionName", {
@@ -1036,6 +1050,11 @@ export function response(ctx) {
       fieldName: "upsertPage",
     });
     (upsertPageResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationupsertPage70CE2413");
+
+    v5Ds.createResolver("MutationpublishPageChanged", {
+      typeName: "Mutation",
+      fieldName: "publishPageChanged",
+    });
 
     const softDeletePageResolver = v5Ds.createResolver("MutationsoftDeletePage", {
       typeName: "Mutation",
