@@ -16,6 +16,7 @@ import {
   toggleSelectedMediaCaption,
   type CaptionAlign,
 } from "./mediaCaption";
+import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 
 type FileAttrs = {
   id?: string | null;
@@ -142,10 +143,6 @@ function MediaCaptionInput({
 
 const FileView = memo(function FileView(props: NodeViewProps) {
   const attrs = props.node.attrs as FileAttrs;
-  const { url, error } = useFileUrl(attrs.src ?? null, {
-    sizeBytes: typeof attrs.size === "number" ? attrs.size : undefined,
-    mime: attrs.mime ?? attrs.mimeType ?? attrs.contentType ?? undefined,
-  });
   const [zoom, setZoom] = useState(false);
   const inlineVideoRef = useRef<HTMLVideoElement | null>(null);
   const align = attrs.align ?? "left";
@@ -164,6 +161,16 @@ const FileView = memo(function FileView(props: NodeViewProps) {
   }
   const isUploading = !!attrs.uploading;
   const hasUploadError = !!attrs.uploadError;
+  const activation = useLazyNodeViewActivation<HTMLDivElement>({
+    selected: props.selected,
+    forceActive: zoom || isUploading || hasUploadError,
+  });
+  const shouldResolveFile =
+    !isUploading && !hasUploadError && activation.active;
+  const { url, error } = useFileUrl(shouldResolveFile ? attrs.src ?? null : null, {
+    sizeBytes: typeof attrs.size === "number" ? attrs.size : undefined,
+    mime,
+  });
 
   useEffect(() => {
     const videoEl = inlineVideoRef.current;
@@ -187,8 +194,11 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     return (
       <NodeViewWrapper
         as="div"
+        ref={activation.ref}
         className="qn-file-shell my-2"
         data-drag-handle
+        onPointerDown={activation.activate}
+        onFocusCapture={activation.activate}
       >
         <div className="flex items-center gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
           {renderIcon(mime, 18, "shrink-0 text-zinc-500 dark:text-zinc-400")}
@@ -205,8 +215,11 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     return (
       <NodeViewWrapper
         as="div"
+        ref={activation.ref}
         className="qn-file-shell my-2"
         data-drag-handle
+        onPointerDown={activation.activate}
+        onFocusCapture={activation.activate}
       >
         <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900/60 dark:bg-red-950/40">
           파일을 불러오지 못했습니다
@@ -223,9 +236,12 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     return (
       <NodeViewWrapper
         as="div"
+        ref={activation.ref}
         className="qn-file-shell flex flex-col leading-none"
         style={{ alignItems }}
         data-drag-handle
+        onPointerDown={activation.activate}
+        onFocusCapture={activation.activate}
         onDoubleClickCapture={(e: MouseEvent<HTMLDivElement>) => {
           const target = e.target as HTMLElement | null;
           if (!target?.closest("video")) return;
@@ -295,9 +311,12 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     return (
       <NodeViewWrapper
         as="div"
+        ref={activation.ref}
         className="qn-file-shell flex flex-col leading-none"
         style={{ alignItems }}
         data-drag-handle
+        onPointerDown={activation.activate}
+        onFocusCapture={activation.activate}
       >
         {url ? (
           <img
@@ -350,8 +369,11 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     return (
       <NodeViewWrapper
         as="div"
+        ref={activation.ref}
         className="qn-file-shell my-2"
         data-drag-handle
+        onPointerDown={activation.activate}
+        onFocusCapture={activation.activate}
       >
         <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
           <div className="mb-1 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
@@ -375,8 +397,11 @@ const FileView = memo(function FileView(props: NodeViewProps) {
   return (
     <NodeViewWrapper
       as="div"
+      ref={activation.ref}
       className="qn-file-shell my-2"
       data-drag-handle
+      onPointerDown={activation.activate}
+      onFocusCapture={activation.activate}
     >
       <a
         href={url ?? "#"}

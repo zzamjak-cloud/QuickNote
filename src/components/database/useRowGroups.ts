@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import type { ColumnDef, DatabaseRowView } from "../../types/database";
 import { buildRowGroups, isGroupableColumn, type RowGroup } from "../../lib/database/grouping";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -7,6 +8,16 @@ import { useMemberStore } from "../../store/memberStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
+import {
+  collectDatabaseDependencyIds,
+  collectPageDependencyIds,
+} from "./databaseQueryDependencies";
+import {
+  createDatabaseDependencyMapSelector,
+  createPageDependencyMapSelector,
+} from "./renderScopeSelectors";
+
+const EMPTY_GROUP_COLUMNS: readonly ColumnDef[] = [];
 
 /**
  * 그룹화 설정에 따라 행을 그룹으로 분할한다.
@@ -18,8 +29,6 @@ export function useRowGroups(
   columns: ColumnDef[],
   groupByColumnId: string | null | undefined,
 ): RowGroup[] | null {
-  const databases = useDatabaseStore((s) => s.databases);
-  const pages = usePageStore((s) => s.pages);
   const members = useMemberStore((s) => s.members);
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
@@ -30,6 +39,31 @@ export function useRowGroups(
     const col = columns.find((c) => c.id === groupByColumnId);
     return col && isGroupableColumn(col) ? col : null;
   }, [columns, groupByColumnId]);
+  const dependencyColumns = useMemo(
+    () => (groupCol ? [groupCol] : EMPTY_GROUP_COLUMNS),
+    [groupCol],
+  );
+  const databaseDependencyIds = useMemo(
+    () => collectDatabaseDependencyIds(null, dependencyColumns, rows),
+    [dependencyColumns, rows],
+  );
+  const databaseDependenciesSelector = useMemo(
+    () => createDatabaseDependencyMapSelector(databaseDependencyIds),
+    [databaseDependencyIds],
+  );
+  const databases = useDatabaseStore(useShallow(databaseDependenciesSelector));
+  const pageDependencyIds = useMemo(
+    () =>
+      groupCol
+        ? collectPageDependencyIds(rows, dependencyColumns, databases)
+        : [],
+    [groupCol, rows, dependencyColumns, databases],
+  );
+  const pageDependenciesSelector = useMemo(
+    () => createPageDependencyMapSelector(pageDependencyIds),
+    [pageDependencyIds],
+  );
+  const pages = usePageStore(useShallow(pageDependenciesSelector));
 
   return useMemo(() => {
     if (!groupCol) return null;

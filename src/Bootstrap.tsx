@@ -56,12 +56,15 @@ import { useSchedulerStore } from "./store/schedulerStore";
 import { useSchedulerProjectsStore } from "./store/schedulerProjectsStore";
 import { useDatabaseRowRemoteStore } from "./store/databaseRowRemoteStore";
 import { usePageContentLoadStore } from "./store/pageContentLoadStore";
+import { usePageMetaRemoteStore } from "./store/pageMetaRemoteStore";
 import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
+import { createLCSchedulerRootPageRepairGate } from "./lib/sync/lcSchedulerWorkspaceRepair";
 
 const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-07-sidebar-db-row-cache-repair";
 const workspaceCacheRepairKey = (workspaceId: string): string =>
   `quicknote.workspace.cacheRepair.${WORKSPACE_CACHE_REPAIR_REVISION}:${workspaceId}`;
+const lcSchedulerRootPageRepairGate = createLCSchedulerRootPageRepairGate();
 
 function needsWorkspaceCacheRepair(workspaceId: string): boolean {
   if (typeof window === "undefined") return false;
@@ -359,14 +362,21 @@ function useSyncBootstrap(): void {
         } else {
           setHold(null);
         }
-        const repairWorkspaceCache = needsWorkspaceCacheRepair(currentWorkspaceId);
+        const oneTimeWorkspaceCacheRepair = needsWorkspaceCacheRepair(currentWorkspaceId);
+        const rootPageCacheRepair = lcSchedulerRootPageRepairGate.shouldAttempt(
+          currentWorkspaceId,
+          usePageStore.getState().pages,
+        );
+        const repairWorkspaceCache = oneTimeWorkspaceCacheRepair || rootPageCacheRepair;
         if (repairWorkspaceCache) {
           resetDatabaseRowLoadSessionState();
           useDatabaseRowRemoteStore.getState().clear();
           usePageContentLoadStore.getState().clear();
+          usePageMetaRemoteStore.getState().clearWorkspace(currentWorkspaceId);
+          useSyncWatermarkStore.getState().reset(currentWorkspaceId);
         }
         await fetchApply({ forceMetaBaseline: repairWorkspaceCache });
-        if (!cancelled && repairWorkspaceCache) {
+        if (!cancelled && oneTimeWorkspaceCacheRepair) {
           markWorkspaceCacheRepaired(currentWorkspaceId);
         }
         // LC 스케줄러 워크스페이스 데이터는 CAT 등 다른 워크스페이스 진입 시 미리 끌어오지 않는다.

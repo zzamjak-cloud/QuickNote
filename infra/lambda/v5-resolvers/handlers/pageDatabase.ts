@@ -139,6 +139,81 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+function parseJsonLike(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function isEmptyParagraphNode(node: unknown): boolean {
+  if (!isPlainObject(node)) return false;
+  if (node.type !== "paragraph") return false;
+  const content = node.content;
+  return !Array.isArray(content) || content.length === 0;
+}
+
+function isPlaceholderPageDoc(value: unknown): boolean {
+  const doc = parseJsonLike(value);
+  if (!isPlainObject(doc) || doc.type !== "doc") return false;
+  const content = doc.content;
+  if (!Array.isArray(content)) return true;
+  if (content.length === 0) return true;
+  return content.every(isEmptyParagraphNode);
+}
+
+function hasMeaningfulPageDocNode(node: unknown): boolean {
+  if (!isPlainObject(node)) return false;
+  if (node.type === "text") {
+    return typeof node.text === "string" && node.text.length > 0;
+  }
+  if (node.type !== "paragraph") return true;
+  const content = node.content;
+  return Array.isArray(content) && content.some(hasMeaningfulPageDocNode);
+}
+
+function hasMeaningfulPageDocContent(value: unknown): boolean {
+  const doc = parseJsonLike(value);
+  if (!isPlainObject(doc) || doc.type !== "doc") return false;
+  const content = doc.content;
+  return Array.isArray(content) && content.some(hasMeaningfulPageDocNode);
+}
+
+function isOnlyUpdatedAtPageChange(
+  input: Record<string, unknown>,
+  existingPage: Record<string, unknown>,
+): boolean {
+  const incomingSnap = normalizePageSnapshot(input);
+  const existingSnap = normalizePageSnapshot(existingPage);
+  for (const key of PAGE_HISTORY_FIELDS) {
+    if (key === "updatedAt") continue;
+    const incomingHas = key in incomingSnap;
+    const existingHas = key in existingSnap;
+    if (!incomingHas && !existingHas) continue;
+    if (incomingHas !== existingHas) return false;
+    if (!jsonEqual(incomingSnap[key], existingSnap[key])) return false;
+  }
+  return true;
+}
+
+function preserveExistingDocForPlaceholderInput(
+  input: Record<string, unknown>,
+  existingPage: Record<string, unknown> | null,
+): void {
+  if (!existingPage) return;
+  if (!isPlaceholderPageDoc(input.doc)) return;
+  if (!hasMeaningfulPageDocContent(existingPage.doc)) return;
+
+  input.doc = existingPage.doc;
+  // 메타 baseline/본문 지연 로드 중 빈 placeholder만 재전송된 경우에는
+  // updatedAt 차이만으로 "페이지 수정" 히스토리가 생기지 않도록 기존 시각을 유지한다.
+  if (isOnlyUpdatedAtPageChange(input, existingPage)) {
+    input.updatedAt = existingPage.updatedAt;
+  }
+}
+
 function diffValue(before: unknown, after: unknown, path: Array<string | number>, out: PagePatchOp[]): void {
   if (jsonEqual(before, after)) return;
   if (isPlainObject(before) && isPlainObject(after)) {
@@ -1201,6 +1276,7 @@ export async function upsertPage(args: {
   normalizePageOrderField(input);
   // 보호 DB row 의 org/팀/프로젝트 scope 키를 비정규화해 sparse GSI 색인 대상으로 만든다.
   deriveDatabaseRowScopeKeys(input);
+  preserveExistingDocForPlaceholderInput(input, existingPage);
   const saved = await upsertRecord({ ...args, tableName: args.tables.Pages, input });
   try {
     await recordPageHistory({

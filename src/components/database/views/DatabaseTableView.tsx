@@ -378,9 +378,13 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     enabled: !groups && visibleRowLimit == null && rows.length > 120,
     overscan: 10,
   });
-  const renderedRows = virtualRows.enabled
-    ? rows.slice(virtualRows.start, virtualRows.end)
-    : rows;
+  const renderedRows = useMemo(
+    () =>
+      virtualRows.enabled
+        ? rows.slice(virtualRows.start, virtualRows.end)
+        : rows,
+    [rows, virtualRows.enabled, virtualRows.end, virtualRows.start],
+  );
 
   const onColDrop = () => {
     if (colDragFrom != null && colDragOver != null && colDragFrom !== colDragOver) {

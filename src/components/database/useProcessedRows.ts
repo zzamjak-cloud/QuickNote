@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { applyFilterSortSearch, resolveActiveFilterRules } from "../../lib/databaseQuery";
 import type { CellValue, DatabasePanelState, DatabaseRowView } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -13,6 +14,14 @@ import {
   withFilterDisplayOptions,
 } from "../../lib/database/filterValueLabels";
 import { createDatabaseRowSourcesSelector } from "./databaseRowSources";
+import {
+  collectDatabaseDependencyIds,
+  collectPageDependencyIds,
+} from "./databaseQueryDependencies";
+import {
+  createDatabaseDependencyMapSelector,
+  createPageDependencyMapSelector,
+} from "./renderScopeSelectors";
 
 const EMPTY_ROW_PAGE_ORDER: readonly string[] = [];
 
@@ -21,7 +30,6 @@ export function useProcessedRows(
   panelState: DatabasePanelState,
 ) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
-  const databases = useDatabaseStore((s) => s.databases);
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
   const projects = useSchedulerProjectsStore((s) => s.projects);
@@ -32,7 +40,52 @@ export function useProcessedRows(
     [rowPageOrder],
   );
   const rowSources = usePageStore(rowSourcesSelector);
-  const pages = usePageStore((s) => s.pages);
+  const databaseDependencyIds = useMemo(
+    () => collectDatabaseDependencyIds(databaseId, bundle?.columns ?? [], rowSources),
+    [databaseId, bundle?.columns, rowSources],
+  );
+  const databaseDependenciesSelector = useMemo(
+    () => createDatabaseDependencyMapSelector(databaseDependencyIds),
+    [databaseDependencyIds],
+  );
+  const databases = useDatabaseStore(useShallow(databaseDependenciesSelector));
+  const pageDependencyIds = useMemo(
+    () => collectPageDependencyIds(rowSources, bundle?.columns ?? [], databases),
+    [rowSources, bundle?.columns, databases],
+  );
+  const pageDependenciesSelector = useMemo(
+    () => createPageDependencyMapSelector(pageDependencyIds),
+    [pageDependencyIds],
+  );
+  const pages = usePageStore(useShallow(pageDependenciesSelector));
+  const queryState = useMemo(() => {
+    const activePreset =
+      (panelState.filterPresets ?? []).find(
+        (preset) => preset.id === panelState.activePresetId,
+      ) ?? null;
+    const effectiveFilterRules = resolveActiveFilterRules(panelState);
+    const effectiveSortRules =
+      activePreset?.sortRules && activePreset.sortRules.length > 0
+        ? activePreset.sortRules
+        : panelState.sortRules && panelState.sortRules.length > 0
+          ? panelState.sortRules
+          : panelState.sortColumnId
+            ? [{ columnId: panelState.sortColumnId, dir: panelState.sortDir }]
+            : [];
+    return {
+      searchQuery: panelState.searchQuery,
+      filterRules: effectiveFilterRules,
+      sortRules: effectiveSortRules,
+    };
+  }, [
+    panelState.activePresetId,
+    panelState.filterPresets,
+    panelState.filterRules,
+    panelState.searchQuery,
+    panelState.sortColumnId,
+    panelState.sortDir,
+    panelState.sortRules,
+  ]);
 
   const processed = useMemo(() => {
     if (
@@ -81,27 +134,15 @@ export function useProcessedRows(
       members,
       scopeCtx: { organizations, teams, projects },
     });
-    const activePreset =
-      (panelState.filterPresets ?? []).find((preset) => preset.id === panelState.activePresetId) ?? null;
-    const effectiveFilterRules = resolveActiveFilterRules(panelState);
-    // 구버전(sortRules 미존재 + sortColumnId 있음)은 첫 규칙으로 자동 마이그레이션.
-    const effectiveSortRules =
-      activePreset?.sortRules && activePreset.sortRules.length > 0
-        ? activePreset.sortRules
-        : panelState.sortRules && panelState.sortRules.length > 0
-          ? panelState.sortRules
-        : panelState.sortColumnId
-          ? [{ columnId: panelState.sortColumnId, dir: panelState.sortDir }]
-          : [];
     const rows = applyFilterSortSearch(
       ordered,
       queryColumns,
-      panelState.searchQuery,
-      effectiveFilterRules,
-      effectiveSortRules,
+      queryState.searchQuery,
+      queryState.filterRules,
+      queryState.sortRules,
     );
     return { rows, columns: bundle.columns };
-  }, [bundle, databases, rowSources, databaseId, members, organizations, pages, panelState, projects, teams]);
+  }, [bundle, databases, rowSources, databaseId, members, organizations, pages, queryState, projects, teams]);
 
   return { bundle, rows: processed.rows, columns: processed.columns };
 }

@@ -35,6 +35,23 @@ localStorage    ←  빠른 첫 렌더용 캐시 (원격 스냅샷)
 
 **예외(전체 스냅샷 경로):**
 - `no-cache` 상태이면서 `listPageMetas` API가 응답 후 캐시가 여전히 비어 있는 경우 → `fetchApplyWorkspaceRemoteSnapshot`(전체) fallback 자동 실행
+- LC 스케줄러 워크스페이스에서 `마일스톤 DB`, `피처 DB`, `작업 DB` 루트 페이지가 빠진 캐시가 감지되면 → page meta token/watermark 를 초기화하고 `forceMetaBaseline` 으로 재조회
+
+### LC 스케줄러 루트 DB 페이지 결손 복구
+
+개발/라이브 origin 별 IndexedDB 캐시가 갈라진 상태에서 LC 보호 DB 정의와 row cache 는 남아 있는데
+사이드바 루트 페이지(`마일스톤 DB`, `피처 DB`, `작업 DB`)만 빠질 수 있다. 이 상태에서 watermark 가
+해당 루트 페이지의 `updatedAt` 보다 최신이면 delta 모드는 오래된 루트 페이지를 다시 받지 못한다.
+
+복구 경로:
+1. `src/lib/sync/lcSchedulerWorkspaceRepair.ts` 가 LC 워크스페이스 루트 페이지 3개 존재 여부를 검사한다.
+   - meta-only 페이지는 제목으로 인정한다.
+   - 사용자가 제목을 바꾼 경우 첫 `databaseBlock` 의 protected DB id 로도 인정한다.
+2. `src/Bootstrap.tsx` 는 결손 감지 시 `databaseRowRemote`, `pageContentLoad`, `pageMetaRemote`, `syncWatermark` 를 초기화한다.
+3. 이어서 `fetchApply({ forceMetaBaseline: true })` 로 서버 메타를 baseline 재조회한다.
+4. `createLCSchedulerRootPageRepairGate()` 는 같은 앱 실행 세션에서 동일 워크스페이스 repair 를 1회만 허용한다. 루트 페이지가 복구되면 gate 는 다시 열린다.
+
+상세 판정 기준과 회귀 체크는 [lc-scheduler-workspace-repair.md](lc-scheduler-workspace-repair.md)를 참조한다.
 
 ## Ghost 페이지 방지 (풀페이지 DB 홈 페이지)
 
@@ -99,6 +116,7 @@ window 'online' 이벤트
 | `src/lib/sync/storeApply.ts` | LWW 충돌 해결 |
 | `src/lib/sync/workspaceFetchMode.ts` | delta/full 모드 결정 로직 |
 | `src/lib/sync/workspaceSnapshotBootstrap.ts` | 메타·전체 스냅샷 페치 및 적용 |
+| `src/lib/sync/lcSchedulerWorkspaceRepair.ts` | LC 스케줄러 루트 DB 페이지 결손 감지 및 repair gate |
 | `src/lib/sync/pageContentLoad.ts` | 페이지 본문 지연 로드 |
 | `src/lib/sync/externalProtectedDatabaseLoad.ts` | 외부 보호 DB 행 배치·페이지네이션 로드 |
 | `src/store/pageContentLoadStore.ts` | metaOnly 상태 추적 (persist) |
@@ -107,6 +125,7 @@ window 'online' 이벤트
 
 ## 관련 위키
 - [incremental-sync.md](incremental-sync.md) — delta/watermark 상세
+- [lc-scheduler-workspace-repair.md](lc-scheduler-workspace-repair.md) — LC 스케줄러 루트 DB 페이지 결손 복구
 - [page-content-load.md](page-content-load.md) — 페이지 본문 지연 로드
 - [external-protected-database-load.md](external-protected-database-load.md) — 외부 DB 행 배치 로드
 - [outbox.md](outbox.md)
