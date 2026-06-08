@@ -7,6 +7,7 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import {
   getVisibleOrderedColumns,
   isInternalHiddenColumnId,
+  type CellValue,
   type ViewConfigsMap,
 } from "../../types/database";
 import { DatabaseCellDisplay } from "./DatabaseCellDisplay";
@@ -27,6 +28,8 @@ type Props = {
   /** 표시 설정 출처. 미지정 시 DB 번들의 panelState.viewConfigs 를 사용한다.
    *  (일반 DB 타임라인은 prop 으로 받은 panelState 가 진실이므로 명시 전달) */
   viewConfigs?: ViewConfigsMap;
+  /** pageStore에 아직 없는 cached-only row 표시용 셀 fallback */
+  fallbackDbCells?: Record<string, CellValue>;
   /** 라벨 묶음 wrapper 클래스 (색상·폰트 크기 등) */
   className?: string;
   /** 라벨 묶음 wrapper 인라인 스타일 (예: 카드 텍스트 색) */
@@ -48,6 +51,7 @@ export function TimelineCardPropertyLabels({
   style,
   textClassName = "",
   viewConfigs,
+  fallbackDbCells,
 }: Props) {
   const page = usePageStore((s) => (pageId ? s.pages[pageId] : undefined));
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
@@ -65,7 +69,7 @@ export function TimelineCardPropertyLabels({
     );
   }, [bundle, effectiveViewConfigs, exclude, excludeDateColumns]);
 
-  const cells = page?.dbCells ?? {};
+  const cells = page?.dbCells ?? fallbackDbCells ?? {};
   const visibleCols = labelCols.filter(
     (column) =>
       databaseCellHasDisplayValue(cells[column.id], column) ||

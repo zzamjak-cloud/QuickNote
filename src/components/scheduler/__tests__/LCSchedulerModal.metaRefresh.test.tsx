@@ -2,6 +2,9 @@ import { act, render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
+import { makeLCSchedulerDatabaseId } from "../../../lib/scheduler/database";
+import { makeLCFeatureDatabaseId } from "../../../lib/scheduler/featureDatabase";
+import { makeLCMilestoneDatabaseId } from "../../../lib/scheduler/milestoneDatabase";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useOrganizationStore } from "../../../store/organizationStore";
 import { useSchedulerHolidaysStore } from "../../../store/schedulerHolidaysStore";
@@ -13,10 +16,15 @@ import { LCSchedulerModal } from "../LCSchedulerModal";
 
 const apiMocks = vi.hoisted(() => ({
   refreshWorkspaceMeta: vi.fn(() => Promise.resolve(true)),
+  ensureDatabaseRowsLoaded: vi.fn(() => Promise.resolve(true)),
 }));
 
 vi.mock("../../../lib/sync/workspaceMetaCache", () => ({
   refreshWorkspaceMeta: apiMocks.refreshWorkspaceMeta,
+}));
+
+vi.mock("../../../lib/sync/externalProtectedDatabaseLoad", () => ({
+  ensureDatabaseRowsLoaded: apiMocks.ensureDatabaseRowsLoaded,
 }));
 
 vi.mock("../SchedulerHeader", () => ({
@@ -71,6 +79,8 @@ describe("LCSchedulerModal metadata refresh", () => {
 
     apiMocks.refreshWorkspaceMeta.mockClear();
     apiMocks.refreshWorkspaceMeta.mockResolvedValue(true);
+    apiMocks.ensureDatabaseRowsLoaded.mockClear();
+    apiMocks.ensureDatabaseRowsLoaded.mockResolvedValue(true);
 
     useSchedulerStore.setState({
       fetchSchedules: vi.fn(() => Promise.resolve()),
@@ -111,5 +121,35 @@ describe("LCSchedulerModal metadata refresh", () => {
 
     expect(apiMocks.refreshWorkspaceMeta).toHaveBeenCalledTimes(1);
     expect(apiMocks.refreshWorkspaceMeta).toHaveBeenCalledWith(LC_SCHEDULER_WORKSPACE_ID);
+  });
+
+  it("loads task, milestone, and feature database rows when the modal opens", async () => {
+    render(<LCSchedulerModal onClose={vi.fn()} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(apiMocks.ensureDatabaseRowsLoaded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID),
+        currentWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+        source: "lc-scheduler-modal",
+      }),
+    );
+    expect(apiMocks.ensureDatabaseRowsLoaded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: makeLCMilestoneDatabaseId(LC_SCHEDULER_WORKSPACE_ID),
+        currentWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+        source: "lc-scheduler-modal",
+      }),
+    );
+    expect(apiMocks.ensureDatabaseRowsLoaded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID),
+        currentWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+        source: "lc-scheduler-modal",
+      }),
+    );
   });
 });

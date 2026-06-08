@@ -6,6 +6,7 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import {
   getVisibleOrderedColumns,
   isInternalHiddenColumnId,
+  type CellValue,
   type ViewConfigsMap,
 } from "../../types/database";
 import { DatabaseCellDisplay } from "./DatabaseCellDisplay";
@@ -23,6 +24,8 @@ type Props = {
   excludeDateColumns?: boolean;
   /** 표시 설정 출처. 미지정 시 DB 번들의 panelState.viewConfigs 를 사용. */
   viewConfigs?: ViewConfigsMap;
+  /** pageStore에 아직 없는 cached-only row 표시용 셀 fallback */
+  fallbackDbCells?: Record<string, CellValue>;
 };
 
 /**
@@ -35,6 +38,7 @@ export function ScheduleCardDetailRows({
   excludeColumnIds,
   excludeDateColumns = false,
   viewConfigs,
+  fallbackDbCells,
 }: Props) {
   const page = usePageStore((s) => (pageId ? s.pages[pageId] : undefined));
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
@@ -52,7 +56,7 @@ export function ScheduleCardDetailRows({
     );
   }, [bundle, effectiveViewConfigs, exclude, excludeDateColumns]);
 
-  const cells = page?.dbCells ?? {};
+  const cells = page?.dbCells ?? fallbackDbCells ?? {};
   const visibleCols = cols.filter(
     (column) =>
       databaseCellHasDisplayValue(cells[column.id], column) ||

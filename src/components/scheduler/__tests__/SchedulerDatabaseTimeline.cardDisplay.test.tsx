@@ -1,15 +1,25 @@
-import { createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { emptyPanelState, type DatabasePanelState } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
+import { useDatabaseRowIndexStore } from "../../../store/databaseRowIndexStore";
 import { usePageStore } from "../../../store/pageStore";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
+import { useUiStore } from "../../../store/uiStore";
 import { LC_FEATURE_COLUMN_IDS, makeLCFeatureDatabaseId } from "../../../lib/scheduler/featureDatabase";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 import { COLOR_PRESETS } from "../../../lib/scheduler/colors";
 import { TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID } from "../../../lib/database/timelineCardColor";
 import { SchedulerDatabaseTimeline } from "../SchedulerDatabaseTimeline";
+
+const pageContentMocks = vi.hoisted(() => ({
+  ensurePageContentLoaded: vi.fn(() => Promise.resolve(true)),
+}));
+
+vi.mock("../../../lib/sync/pageContentLoad", () => ({
+  ensurePageContentLoaded: pageContentMocks.ensurePageContentLoaded,
+}));
 
 class ResizeObserverStub {
   observe() {}
@@ -112,7 +122,15 @@ describe("SchedulerDatabaseTimeline card display properties", () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);
     localStorage.clear();
     useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
+    useDatabaseRowIndexStore.setState({
+      snapshotsByKey: {},
+      hydratedByKey: {},
+      loadingByKey: {},
+    });
     usePageStore.setState({ pages: {}, activePageId: null, cacheWorkspaceId: null });
+    useUiStore.setState({ peekPageId: null, peekHistory: [], toasts: [] });
+    pageContentMocks.ensurePageContentLoaded.mockClear();
+    pageContentMocks.ensurePageContentLoaded.mockResolvedValue(true);
     useSchedulerViewStore.setState({
       viewMode: "year",
       currentYear: 2026,
@@ -154,7 +172,7 @@ describe("SchedulerDatabaseTimeline card display properties", () => {
     expect(screen.queryByText("Member 1")).not.toBeNull();
   });
 
-  it("changes only the selected timeline card color from the context menu", () => {
+  it("changes only the selected timeline card color from the context menu", async () => {
     const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
     seedFeatureTimeline(
       {
@@ -195,15 +213,215 @@ describe("SchedulerDatabaseTimeline card display properties", () => {
     const nextColor = COLOR_PRESETS[0];
     fireEvent.click(screen.getByTitle(nextColor));
 
-    const pages = usePageStore.getState().pages;
-    expect(pages["feature-1"]?.dbCells?.[TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID]).toEqual({
-      [LC_FEATURE_COLUMN_IDS.workStart]: nextColor,
+    await waitFor(() => {
+      const pages = usePageStore.getState().pages;
+      expect(pages["feature-1"]?.dbCells?.[TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID]).toEqual({
+        [LC_FEATURE_COLUMN_IDS.workStart]: nextColor,
+      });
+      expect(pages["feature-2"]?.dbCells?.[TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID]).toBeUndefined();
     });
-    expect(pages["feature-2"]?.dbCells?.[TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID]).toBeUndefined();
     const column = useDatabaseStore
       .getState()
       .databases[databaseId]
       ?.columns.find((candidate) => candidate.id === LC_FEATURE_COLUMN_IDS.workStart);
     expect(column?.config?.timelineCard?.color).toBeUndefined();
+  });
+
+  it("renders cached row index entries before row pages are loaded", () => {
+    const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    useDatabaseStore.setState({
+      databases: {
+        [databaseId]: {
+          meta: {
+            id: databaseId,
+            workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+            title: "Features",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [
+            { id: LC_FEATURE_COLUMN_IDS.title, name: "Feature", type: "title" },
+            { id: LC_FEATURE_COLUMN_IDS.workStart, name: "Work period", type: "date" },
+            { id: "owner", name: "Owner", type: "text" },
+          ],
+          panelState: {
+            ...emptyPanelState(),
+            viewConfigs: {
+              timeline: {
+                visibleColumnIds: [LC_FEATURE_COLUMN_IDS.title, LC_FEATURE_COLUMN_IDS.workStart, "owner"],
+              },
+            },
+          },
+          rowPageOrder: [],
+        },
+      },
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    });
+    useDatabaseRowIndexStore.setState({
+      snapshotsByKey: {
+        [databaseId]: {
+          v: 1,
+          indexKey: databaseId,
+          databaseId,
+          complete: true,
+          updatedAt: 1,
+          rows: [
+            {
+              pageId: "feature-index-row",
+              workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+              databaseId,
+              title: "Feature card",
+              icon: null,
+              order: 1,
+              dbCells: {
+                [LC_FEATURE_COLUMN_IDS.workStart]: { start: "2026-05-07", end: "2026-05-11" },
+                owner: "Member 1",
+              },
+              updatedAt: 1,
+            },
+          ],
+        },
+      },
+      hydratedByKey: { [databaseId]: true },
+      loadingByKey: {},
+    });
+
+    render(<SchedulerDatabaseTimeline mode="feature" workspaceId={LC_SCHEDULER_WORKSPACE_ID} />);
+
+    expect(screen.getAllByText("Feature card").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Member 1")).not.toBeNull();
+  });
+
+  it("loads cached-only row content before opening a timeline card", async () => {
+    const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    useDatabaseStore.setState({
+      databases: {
+        [databaseId]: {
+          meta: {
+            id: databaseId,
+            workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+            title: "Features",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [
+            { id: LC_FEATURE_COLUMN_IDS.title, name: "Feature", type: "title" },
+            { id: LC_FEATURE_COLUMN_IDS.workStart, name: "Work period", type: "date" },
+          ],
+          panelState: emptyPanelState(),
+          rowPageOrder: [],
+        },
+      },
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    });
+    useDatabaseRowIndexStore.setState({
+      snapshotsByKey: {
+        [databaseId]: {
+          v: 1,
+          indexKey: databaseId,
+          databaseId,
+          complete: true,
+          updatedAt: 1,
+          rows: [
+            {
+              pageId: "feature-index-row",
+              workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+              databaseId,
+              title: "Feature card",
+              icon: null,
+              order: 1,
+              dbCells: {
+                [LC_FEATURE_COLUMN_IDS.workStart]: { start: "2026-05-07", end: "2026-05-11" },
+              },
+              updatedAt: 1,
+            },
+          ],
+        },
+      },
+      hydratedByKey: { [databaseId]: true },
+      loadingByKey: {},
+    });
+
+    render(<SchedulerDatabaseTimeline mode="feature" workspaceId={LC_SCHEDULER_WORKSPACE_ID} />);
+
+    const cardTitle = screen
+      .getAllByText("Feature card")
+      .find((element) => element.closest(".cursor-grab"));
+    expect(cardTitle).toBeDefined();
+    fireEvent.doubleClick(cardTitle!.closest(".cursor-grab") as HTMLElement);
+
+    await waitFor(() => {
+      expect(pageContentMocks.ensurePageContentLoaded).toHaveBeenCalledWith({
+        pageId: "feature-index-row",
+        workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+        source: "lc-scheduler-timeline-open",
+      });
+      expect(useUiStore.getState().peekPageId).toBe("feature-index-row");
+    });
+  });
+
+  it("keeps cached-only row closed when content loading fails", async () => {
+    const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    pageContentMocks.ensurePageContentLoaded.mockResolvedValueOnce(false);
+    useDatabaseStore.setState({
+      databases: {
+        [databaseId]: {
+          meta: {
+            id: databaseId,
+            workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+            title: "Features",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [
+            { id: LC_FEATURE_COLUMN_IDS.title, name: "Feature", type: "title" },
+            { id: LC_FEATURE_COLUMN_IDS.workStart, name: "Work period", type: "date" },
+          ],
+          panelState: emptyPanelState(),
+          rowPageOrder: [],
+        },
+      },
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    });
+    useDatabaseRowIndexStore.setState({
+      snapshotsByKey: {
+        [databaseId]: {
+          v: 1,
+          indexKey: databaseId,
+          databaseId,
+          complete: true,
+          updatedAt: 1,
+          rows: [
+            {
+              pageId: "feature-index-row",
+              workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+              databaseId,
+              title: "Feature card",
+              icon: null,
+              order: 1,
+              dbCells: {
+                [LC_FEATURE_COLUMN_IDS.workStart]: { start: "2026-05-07", end: "2026-05-11" },
+              },
+              updatedAt: 1,
+            },
+          ],
+        },
+      },
+      hydratedByKey: { [databaseId]: true },
+      loadingByKey: {},
+    });
+
+    render(<SchedulerDatabaseTimeline mode="feature" workspaceId={LC_SCHEDULER_WORKSPACE_ID} />);
+
+    const cardTitle = screen
+      .getAllByText("Feature card")
+      .find((element) => element.closest(".cursor-grab"));
+    expect(cardTitle).toBeDefined();
+    fireEvent.doubleClick(cardTitle!.closest(".cursor-grab") as HTMLElement);
+
+    await waitFor(() => {
+      expect(useUiStore.getState().peekPageId).toBeNull();
+      expect(useUiStore.getState().toasts.some((toast) => toast.kind === "error")).toBe(true);
+    });
   });
 });

@@ -13,11 +13,14 @@ import type { SelectOption } from "../../types/database";
 import { getSchedulerFetchWindow } from "../../lib/scheduler/rangeWindow";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { LC_SCHEDULER_COLUMN_IDS, makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
+import { makeLCMilestoneDatabaseId } from "../../lib/scheduler/milestoneDatabase";
+import { makeLCFeatureDatabaseId } from "../../lib/scheduler/featureDatabase";
 import { SchedulerHeader } from "./SchedulerHeader";
 import { SchedulerTeamTabs } from "./SchedulerTeamTabs";
 import { SchedulerToolbar } from "./SchedulerToolbar";
 import { WeeklyMmPanel } from "./mm/WeeklyMmPanel";
 import { refreshWorkspaceMeta } from "../../lib/sync/workspaceMetaCache";
+import { ensureDatabaseRowsLoaded } from "../../lib/sync/externalProtectedDatabaseLoad";
 
 const ScheduleGrid = lazy(() =>
   import("./ScheduleGrid").then((m) => ({ default: m.ScheduleGrid })),
@@ -51,11 +54,15 @@ export function LCSchedulerModal({ onClose }: Props) {
   const setMultiSelected = useSchedulerViewStore((s) => s.setMultiSelected);
   const schedulerWorkspaceId = LC_SCHEDULER_WORKSPACE_ID;
   const schedulerDatabaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
+  const milestoneDatabaseId = makeLCMilestoneDatabaseId(schedulerWorkspaceId);
+  const featureDatabaseId = makeLCFeatureDatabaseId(schedulerWorkspaceId);
   const schedulerDbUpdatedAt = useDatabaseStore(
     (s) => s.databases[schedulerDatabaseId]?.meta.updatedAt ?? 0,
   );
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const schedulerColumns = useDatabaseStore((s) => s.databases[schedulerDatabaseId]?.columns ?? []);
+  const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
+  const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
   const [bodyReady, setBodyReady] = useState(false);
 
   useEffect(() => {
@@ -68,6 +75,33 @@ export function LCSchedulerModal({ onClose }: Props) {
     selectMember(null);
     setMultiSelected([]);
   }, [selectMember, setMultiSelected]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const databaseIds = [schedulerDatabaseId, milestoneDatabaseId, featureDatabaseId];
+    void Promise.all(
+      databaseIds.map((databaseId) =>
+        ensureDatabaseRowsLoaded({
+          databaseId,
+          currentWorkspaceId: schedulerWorkspaceId,
+          cancelled: () => cancelled,
+          source: "lc-scheduler-modal",
+        }),
+      ),
+    ).catch((error) => {
+      console.warn("[LCSchedulerModal] 보호 DB row 로드 실패", error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    featureDatabaseId,
+    milestoneDatabaseId,
+    schedulerDatabaseId,
+    schedulerWorkspaceId,
+    selectedMemberId,
+    selectedProjectId,
+  ]);
 
   // 마운트 시 + 연도 변경 시 사용자가 보는 주변 월만 먼저 가져온다.
   useEffect(() => {

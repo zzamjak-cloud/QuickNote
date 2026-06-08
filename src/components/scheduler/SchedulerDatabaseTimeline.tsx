@@ -28,10 +28,14 @@ import { ChevronLeft, ChevronRight, Database, GripVertical, Layers, PanelRight, 
 import { Rnd } from "react-rnd";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
 import { useSchedulerViewStore, type SchedulerEntityMode } from "../../store/schedulerViewStore";
 import { useUiStore } from "../../store/uiStore";
 import { emptyPanelState, getVisibleOrderedColumns, resolveViewColumnOrderState, type CellValue, type ColumnDef } from "../../types/database";
 import type { Page } from "../../types/page";
+import type { DatabaseRowIndexEntry } from "../../lib/database/databaseRowIndexCache";
+import { resolveDatabaseRowRemoteKey } from "../../lib/sync/externalProtectedDatabaseLoad";
+import { ensurePageContentLoaded } from "../../lib/sync/pageContentLoad";
 import { pickTextColor } from "../../lib/scheduler/colors";
 import {
   addDays,
@@ -248,6 +252,43 @@ function defaultTimelineColor(index: number): string {
   return TIMELINE_CARD_COLORS[index % TIMELINE_CARD_COLORS.length] ?? "#16a34a";
 }
 
+function mergeRowPageOrderWithIndex(
+  rowPageOrder: readonly string[],
+  rowIndexRows: readonly DatabaseRowIndexEntry[],
+): string[] {
+  if (rowIndexRows.length === 0) return [...rowPageOrder];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rowIndexRows) {
+    if (seen.has(row.pageId)) continue;
+    seen.add(row.pageId);
+    ids.push(row.pageId);
+  }
+  for (const pageId of rowPageOrder) {
+    if (seen.has(pageId)) continue;
+    seen.add(pageId);
+    ids.push(pageId);
+  }
+  return ids;
+}
+
+function rowIndexEntryToPage(row: DatabaseRowIndexEntry): Page {
+  return {
+    id: row.pageId,
+    workspaceId: row.workspaceId,
+    title: row.title,
+    icon: row.icon,
+    doc: { type: "doc", content: [] },
+    parentId: null,
+    order: row.order,
+    createdAt: row.updatedAt,
+    updatedAt: row.updatedAt,
+    databaseId: row.databaseId,
+    dbCells: row.dbCells,
+    contentLoaded: false,
+  };
+}
+
 function resolveCardTitle(
   page: Page,
   column: ColumnDef | undefined,
@@ -337,6 +378,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     null;
   const pages = usePageStore((s) => s.pages);
   const openPeek = useUiStore((s) => s.openPeek);
+  const showToast = useUiStore((s) => s.showToast);
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
   const zoomLevel = useSchedulerViewStore((s) => s.zoomLevel);
   const columnWidthScale = useSchedulerViewStore((s) => s.columnWidthScale);
@@ -349,8 +391,25 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
   const setCurrentYear = useSchedulerViewStore((s) => s.setCurrentYear);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
+  const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
   const weekendColor = useSchedulerViewStore((s) => s.weekendColor);
   const storeHolidays = useSchedulerHolidaysStore((s) => s.holidays);
+  const rowIndexKey = resolveDatabaseRowRemoteKey(databaseId, workspaceId);
+  const milestoneRowIndexKey = resolveDatabaseRowRemoteKey(milestoneDatabaseId, workspaceId);
+  const rowIndexScopeSignature = `${selectedProjectId ?? ""}:${selectedMemberId ?? ""}`;
+  const hydrateRowIndex = useDatabaseRowIndexStore((s) => s.hydrateIndex);
+  useEffect(() => {
+    if (rowIndexKey) void hydrateRowIndex(rowIndexKey);
+    if (milestoneRowIndexKey && milestoneRowIndexKey !== rowIndexKey) {
+      void hydrateRowIndex(milestoneRowIndexKey);
+    }
+  }, [hydrateRowIndex, milestoneRowIndexKey, rowIndexKey, rowIndexScopeSignature]);
+  const rowIndexRows = useDatabaseRowIndexStore(
+    (s) => (rowIndexKey ? s.snapshotsByKey[rowIndexKey]?.rows ?? [] : []),
+  );
+  const milestoneRowIndexRows = useDatabaseRowIndexStore(
+    (s) => (milestoneRowIndexKey ? s.snapshotsByKey[milestoneRowIndexKey]?.rows ?? [] : []),
+  );
   const [rangeTimelineWidth, setRangeTimelineWidth] = useState(900);
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthIndex, setMonthIndex] = useState(() => new Date().getMonth());
@@ -453,6 +512,48 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     () => [...activeDateColumnIds],
     [activeDateColumnIds],
   );
+  const rowPageOrder = useMemo(
+    () => mergeRowPageOrderWithIndex(bundle?.rowPageOrder ?? [], rowIndexRows),
+    [bundle?.rowPageOrder, rowIndexRows],
+  );
+  const milestoneRowPageOrder = useMemo(
+    () => mergeRowPageOrderWithIndex(milestoneDb?.rowPageOrder ?? [], milestoneRowIndexRows),
+    [milestoneDb?.rowPageOrder, milestoneRowIndexRows],
+  );
+  const schedulerPages = useMemo(() => {
+    const next: Record<string, Page> = { ...pages };
+    for (const row of milestoneRowIndexRows) {
+      if (!next[row.pageId]) next[row.pageId] = rowIndexEntryToPage(row);
+    }
+    for (const row of rowIndexRows) {
+      if (!next[row.pageId]) next[row.pageId] = rowIndexEntryToPage(row);
+    }
+    return next;
+  }, [milestoneRowIndexRows, pages, rowIndexRows]);
+  const openTimelineRow = useCallback(
+    async (pageId: string, source = "lc-scheduler-timeline-open") => {
+      const page = schedulerPages[pageId];
+      const loaded = await ensurePageContentLoaded({
+        pageId,
+        workspaceId: page?.workspaceId ?? workspaceId,
+        source,
+      });
+      if (!loaded) {
+        showToast("항목 페이지를 불러오지 못했습니다.", { kind: "error" });
+        return false;
+      }
+      return true;
+    },
+    [schedulerPages, showToast, workspaceId],
+  );
+  const openTimelineRowPeek = useCallback(
+    async (pageId: string) => {
+      const loaded = await openTimelineRow(pageId);
+      if (!loaded) return;
+      openPeek(pageId);
+    },
+    [openPeek, openTimelineRow],
+  );
 
   // 항목(마일스톤/피처) 추가 — DB에 행을 추가하고, 현재 스코프 선택을 기본값으로 적용한 뒤
   // 신규 페이지를 사이드 피커뷰로 띄운다. (DB에서 직접 추가해도 동일 DB라 자동 동기화)
@@ -473,14 +574,14 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
       }
     }
     openPeek(newPageId);
-  }, [addRow, databaseId, mode, selectedProjectId, updateCell, openPeek]);
+  }, [addRow, bundle, databaseId, mode, selectedProjectId, updateCell, openPeek]);
 
   const rows = useMemo<TimelineRow[]>(() => {
     if (!bundle) return [];
     const columnsById = new Map(bundle.columns.map((column) => [column.id, column]));
     const scopedMilestoneIds =
       mode === "feature" && selectedProjectId && milestoneDb
-        ? getScopedMilestoneIds(milestoneDb.rowPageOrder, pages, selectedProjectId)
+        ? getScopedMilestoneIds(milestoneRowPageOrder, schedulerPages, selectedProjectId)
         : null;
     const visibleMilestoneFilterIds =
       selectedFeatureMilestoneIds === null
@@ -494,10 +595,10 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
             ? new Set(visibleMilestoneFilterIds)
             : null
         : null;
-    return bundle.rowPageOrder
-      .map((pageId) => pages[pageId])
+    return rowPageOrder
+      .map((pageId) => schedulerPages[pageId])
       .filter((page): page is Page => Boolean(page && page.dbCells?._qn_isTemplate !== "1"))
-      .filter((page) => matchesSchedulerScope(page, mode, selectedProjectId, pages))
+      .filter((page) => matchesSchedulerScope(page, mode, selectedProjectId, schedulerPages))
       .filter((page) => {
         if (mode !== "feature" || !milestoneFilterSet) return true;
         return schedulerPageLinkIncludes(page.dbCells?.[LC_FEATURE_COLUMN_IDS.milestone], milestoneFilterSet);
@@ -514,7 +615,18 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
           })),
         };
       });
-  }, [bundle, milestoneDb, mode, pages, selectedFeatureMilestoneIds, selectedProjectId, timelineDateEntries, visibleTimelineColumnIdSet]);
+  }, [
+    bundle,
+    milestoneDb,
+    milestoneRowPageOrder,
+    mode,
+    rowPageOrder,
+    schedulerPages,
+    selectedFeatureMilestoneIds,
+    selectedProjectId,
+    timelineDateEntries,
+    visibleTimelineColumnIdSet,
+  ]);
   const rowIds = useMemo(() => rows.map((row) => row.page.id), [rows]);
 
   const { slots, weekBlocks, mondays, slotCount } = useMemo(() => {
@@ -599,7 +711,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
 
   // 날짜 미등록 카드를 드롭한 x 위치 → 기본 날짜 컬럼에 시작=종료 날짜로 기록 (드래그로 일정 확정).
   const commitUnscheduledDate = useCallback(
-    (pageId: string, dropX: number) => {
+    async (pageId: string, dropX: number) => {
       if (!primaryDateCol) return;
       let date: Date;
       if (isAnnualView) {
@@ -612,15 +724,27 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
         date = startOfDay(slots[idx]!.date);
       }
       const iso = toDateCellIso(date);
+      const loaded = await openTimelineRow(pageId, "lc-scheduler-timeline-date");
+      if (!loaded) return;
       updateCell(databaseId, pageId, primaryDateCol.id, { start: iso, end: iso });
     },
-    [primaryDateCol, isAnnualView, currentYear, annualCellWidth, slots, activeCellWidth, updateCell, databaseId],
+    [
+      primaryDateCol,
+      isAnnualView,
+      currentYear,
+      annualCellWidth,
+      slots,
+      activeCellWidth,
+      openTimelineRow,
+      updateCell,
+      databaseId,
+    ],
   );
 
   // 일정 카드 드래그/리사이즈 → 새 left·width(px) 를 날짜 범위로 변환해 해당 날짜 컬럼에 기록.
   // 작업 일정 카드와 동일하게 가로 드래그(이동)·좌우 핸들(기간 조절)을 지원한다.
   const commitCardRange = useCallback(
-    (card: TimelineCard, leftPx: number, widthPx: number) => {
+    async (card: TimelineCard, leftPx: number, widthPx: number) => {
       const cellW = isAnnualView ? annualCellWidth : activeCellWidth;
       if (cellW <= 0) return;
       const span = Math.max(1, Math.round((widthPx + CARD_MARGIN * 2) / cellW));
@@ -640,9 +764,11 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
         start = startOfDay(slots[startSlot]!.date);
         end = startOfDay(slots[endSlot]!.date);
       }
+      const loaded = await openTimelineRow(card.pageId, "lc-scheduler-timeline-range");
+      if (!loaded) return;
       updateCell(databaseId, card.pageId, card.columnId, { start: toDateCellIso(start), end: toDateCellIso(end) });
     },
-    [isAnnualView, annualCellWidth, activeCellWidth, currentYear, slots, updateCell, databaseId],
+    [isAnnualView, annualCellWidth, activeCellWidth, currentYear, slots, openTimelineRow, updateCell, databaseId],
   );
 
   const openCardColorMenu = useCallback((event: ContextPointerEvent, card: TimelineCard) => {
@@ -660,9 +786,13 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   }, []);
 
   const handleTimelineCardColorChange = useCallback(
-    (color: string) => {
+    async (color: string) => {
       if (!cardColorMenu || !bundle) return;
-      const cells = pages[cardColorMenu.pageId]?.dbCells;
+      const loaded = await openTimelineRow(cardColorMenu.pageId, "lc-scheduler-timeline-color");
+      if (!loaded) return;
+      const cells =
+        usePageStore.getState().pages[cardColorMenu.pageId]?.dbCells ??
+        schedulerPages[cardColorMenu.pageId]?.dbCells;
       updateCell(
         databaseId,
         cardColorMenu.pageId,
@@ -670,7 +800,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
         makeTimelineCardColorOverrides(cells, cardColorMenu.columnId, color),
       );
     },
-    [bundle, cardColorMenu, databaseId, pages, updateCell],
+    [bundle, cardColorMenu, databaseId, openTimelineRow, schedulerPages, updateCell],
   );
 
   useEffect(() => {
@@ -927,7 +1057,9 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                   row={row}
                   rowHeight={rowHeight}
                   onFocus={handleRowFocus}
-                  onOpenPeek={openPeek}
+                  onOpenPeek={(pageId) => {
+                    void openTimelineRowPeek(pageId);
+                  }}
                 />
               ))}
             </SortableContext>
@@ -1174,9 +1306,11 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                         right: { cursor: "ew-resize", width: 8, right: 0 },
                       }}
                       minWidth={Math.max(16, cellW - CARD_MARGIN * 2)}
-                      onDragStop={(_event, data) => commitCardRange(card, data.x, width)}
+                      onDragStop={(_event, data) => {
+                        void commitCardRange(card, data.x, width);
+                      }}
                       onResizeStop={(_event, _dir, ref, _delta, position) =>
-                        commitCardRange(card, position.x, ref.offsetWidth)
+                        void commitCardRange(card, position.x, ref.offsetWidth)
                       }
                       onMouseDown={(event: MouseEvent) => {
                         if (event.button === 2) {
@@ -1187,7 +1321,9 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                       className="z-[3]"
                     >
                       <div
-                        onDoubleClick={() => openPeek(card.pageId)}
+                        onDoubleClick={() => {
+                          void openTimelineRowPeek(card.pageId);
+                        }}
                         onMouseDown={(event) => {
                           if (event.button === 2) {
                             openCardColorMenu(event, card);
@@ -1227,6 +1363,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                             databaseId={databaseId}
                             pageId={row.page.id}
                             excludeColumnIds={activeDateColumnIdList}
+                            fallbackDbCells={row.page.dbCells}
                             className="font-normal"
                             style={{ color: labelTextColor }}
                           />
@@ -1244,12 +1381,16 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                     bounds="parent"
                     position={{ x: trackScrollLeft + CARD_MARGIN, y: cardTop }}
                     size={{ width: 168, height: cardHeight }}
-                    onDragStop={(_event, data) => commitUnscheduledDate(row.page.id, data.x)}
+                    onDragStop={(_event, data) => {
+                      void commitUnscheduledDate(row.page.id, data.x);
+                    }}
                     className="z-[2]"
                   >
                     <button
                       type="button"
-                      onDoubleClick={() => openPeek(row.page.id)}
+                      onDoubleClick={() => {
+                        void openTimelineRowPeek(row.page.id);
+                      }}
                       title="드래그하여 날짜를 지정하세요"
                       className="flex h-full w-full cursor-grab items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border border-dashed border-zinc-300 bg-white px-2 text-left text-xs font-semibold text-zinc-700 shadow-sm active:cursor-grabbing dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
                     >
@@ -1261,6 +1402,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                         databaseId={databaseId}
                         pageId={row.page.id}
                         excludeColumnIds={activeDateColumnIdList}
+                        fallbackDbCells={row.page.dbCells}
                         className="font-normal text-zinc-500 dark:text-zinc-400"
                       />
                     </button>
@@ -1292,6 +1434,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
             databaseId={databaseId}
             pageId={hoveredCard.pageId}
             excludeColumnIds={activeDateColumnIdList}
+            fallbackDbCells={schedulerPages[hoveredCard.pageId]?.dbCells}
           />
         </div>,
         document.body,
@@ -1302,7 +1445,9 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
           x={cardColorMenu.left}
           y={cardColorMenu.top}
           currentColor={cardColorMenu.currentColor}
-          onColorChange={handleTimelineCardColorChange}
+          onColorChange={(color) => {
+            void handleTimelineCardColorChange(color);
+          }}
           onClose={() => setCardColorMenu(null)}
         />,
         document.body,
