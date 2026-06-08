@@ -146,6 +146,29 @@ describe("pageStore/selectors", () => {
       expect(tree[0]!.children.map((c) => c.id)).toEqual(["c1", "c2"]);
     });
 
+    it("현재 워크스페이스의 inline 보호 DB 링크 페이지는 숨기지 않는다", () => {
+      const store = makeStore([
+        makePage("cat-task-view", "CAT 작업 보기", null, 0, {
+          workspaceId: "cat-workspace",
+          doc: {
+            type: "doc",
+            content: [
+              {
+                type: "databaseBlock",
+                attrs: {
+                  layout: "inline",
+                  databaseId: "lc-scheduler-db:lc-scheduler-global",
+                },
+              },
+            ],
+          },
+        }),
+      ]);
+      store.cacheWorkspaceId = "cat-workspace";
+
+      expect(selectPageTree(store).map((p) => p.id)).toEqual(["cat-task-view"]);
+    });
+
     it("순환 참조여도 무한루프 없이 종료", () => {
       const store = makeStore([
         makePage("a", "A", "b", 0),

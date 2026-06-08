@@ -32,7 +32,11 @@ function getFirstDatabaseBlockId(page: Page): string | null {
 }
 
 export function isProtectedDatabaseBlockPage(page: Page): boolean {
-  return isProtectedDatabaseId(page.databaseId ?? getFirstDatabaseBlockId(page));
+  if (isProtectedDatabaseId(page.databaseId)) return true;
+  // workspaceId 없는 레거시 LC 루트 페이지는 현재 워크스페이스 판별만으로 거를 수 없다.
+  // 현재 워크스페이스에 속한 일반 페이지의 inline 보호 DB 링크는 사이드바에 남겨야 한다.
+  if (page.workspaceId != null) return false;
+  return isProtectedDatabaseId(getFirstDatabaseBlockId(page));
 }
 
 /**
