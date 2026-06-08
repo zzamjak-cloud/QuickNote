@@ -9,6 +9,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import {
   ensureDatabaseRowsLoaded,
   loadMoreDatabaseRows,
+  refreshDatabaseRowsFromServer,
   resolveDatabaseRowRemoteKey,
 } from "../../lib/sync/externalProtectedDatabaseLoad";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
@@ -103,6 +104,7 @@ export function DatabaseFullPageStandalone({
   );
   const activeViewKind = pageId ? view : directView;
   const [extraRows, setExtraRows] = useState(0);
+  const [rowsRefreshing, setRowsRefreshing] = useState(false);
   const panelStateRef = useRef<DatabasePanelState>(panelState);
   panelStateRef.current = panelState;
 
@@ -167,6 +169,25 @@ export function DatabaseFullPageStandalone({
     },
     [databaseId, pageId, setStoredView, updateBlockAttrs],
   );
+
+  const refreshRowsFromServer = useCallback(async () => {
+    if (!currentWorkspaceId || rowsRefreshing) return;
+    setRowsRefreshing(true);
+    try {
+      const refreshed = await refreshDatabaseRowsFromServer({
+        databaseId,
+        currentWorkspaceId,
+        rowLimit: resolveDatabaseInitialRowLimit(
+          "fullPage",
+          panelStateRef.current.itemLimit,
+        ),
+        source: pageId ? "database-fullpage-editor-refresh" : "database-fullpage-direct-refresh",
+      });
+      if (refreshed) setExtraRows(0);
+    } finally {
+      setRowsRefreshing(false);
+    }
+  }, [currentWorkspaceId, databaseId, pageId, rowsRefreshing]);
 
   const totalRowsForLimit = bundle?.rowPageOrder.length ?? 0;
   const remoteRowsHasMore = Boolean(currentWorkspaceId) && Boolean(remoteRowNextToken);
@@ -239,6 +260,8 @@ export function DatabaseFullPageStandalone({
         panelState={panelState}
         setPanelState={setPanelState}
         layout="fullPage"
+        onRefreshRows={refreshRowsFromServer}
+        refreshRowsLoading={remoteRowsLoading || rowsRefreshing}
       />
       <DatabaseBlockDataArea bundleGone={false}>
         <Suspense fallback={null}>{activeView}</Suspense>

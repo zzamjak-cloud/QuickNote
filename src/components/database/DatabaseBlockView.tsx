@@ -50,6 +50,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import {
   ensureDatabaseRowsLoaded,
   loadMoreDatabaseRows,
+  refreshDatabaseRowsFromServer,
   resolveDatabaseRowRemoteKey,
   resolveExternalProtectedDatabaseId,
 } from "../../lib/sync/externalProtectedDatabaseLoad";
@@ -125,6 +126,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   // 더보기 — 추가로 표시할 행 수.
   const [extraRows, setExtraRows] = useState(0);
+  const [rowsRefreshing, setRowsRefreshing] = useState(false);
 
   const displayDbTitle = bundle?.meta.title ?? "데이터베이스";
   const deleteConfirmPhrase = useMemo(() => {
@@ -199,6 +201,25 @@ export function DatabaseBlockView(props: NodeViewProps) {
       cancelled = true;
     };
   }, [currentWorkspaceId, databaseId, hasDatabaseId, layout, panelState.itemLimit, rowPageOrder]);
+
+  const refreshRowsFromServer = useCallback(async () => {
+    if (!hasDatabaseId || !currentWorkspaceId || rowsRefreshing) return;
+    setRowsRefreshing(true);
+    try {
+      const refreshed = await refreshDatabaseRowsFromServer({
+        databaseId,
+        currentWorkspaceId,
+        rowLimit: resolveDatabaseInitialRowLimit(
+          layout,
+          panelStateRef.current.itemLimit,
+        ),
+        source: "database-block-refresh",
+      });
+      if (refreshed) setExtraRows(0);
+    } finally {
+      setRowsRefreshing(false);
+    }
+  }, [currentWorkspaceId, databaseId, hasDatabaseId, layout, rowsRefreshing]);
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
@@ -575,6 +596,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 panelState={panelState}
                 setPanelState={setPanelState}
                 layout={layout}
+                onRefreshRows={refreshRowsFromServer}
+                refreshRowsLoading={remoteRowsLoading || rowsRefreshing}
               />
             ) : null}
 
