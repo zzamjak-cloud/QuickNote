@@ -6,25 +6,42 @@
 ## 전체 순서
 
 ```
+git branch --show-current → develop 확인
+  ↓
 git status → clean?
   ↓
 버전 bump (package.json + tauri.conf.json 동시)
   ↓
 infra/ 변경 있음? → CDK deploy → 완료 확인
   ↓
-git tag v{version}
-git push origin main && git push origin v{version}
+로컬 테스트 + build 통과
   ↓
-vercel ls → ● Ready 확인
+git push origin develop
+  ↓
+dev 빌드에서 재현·검증
+  ↓
+사용자 명시 승인 후에만 main/live promote, tag, live 배포
 ```
 
-## STEP 0 — 미커밋 파일 확인
+## STEP 0 — 브랜치·라이브 보호 게이트
+```bash
+git branch --show-current
+# 반드시 develop 에서 작업 시작
+```
+
+- `main`은 live/프로덕션 브랜치다. 사용자의 현재 턴 명시 승인 없이 checkout, commit, merge, rebase, tag, push, 배포를 하지 않는다.
+- 라이브 빌드 문제라도 수정은 먼저 `develop`에서 진행하고 dev 빌드에서 재현·검증한다.
+- dev 검증 없이 `main` 또는 live 환경을 건드리지 않는다.
+- `develop`을 거치지 않은 `main` 직접 push는 금지한다.
+- `main`이 `develop`보다 앞서 있거나 브랜치 상태가 꼬여 있으면 임의로 맞추지 말고 상태를 보고하고 사용자 확인을 받는다.
+
+## STEP 1 — 미커밋 파일 확인
 ```bash
 git status
 # 수정 파일 있으면 먼저 커밋
 ```
 
-## STEP 1 — 버전 bump
+## STEP 2 — 버전 bump
 ```bash
 # package.json + src-tauri/tauri.conf.json 동시 수정
 grep '"version"' package.json src-tauri/tauri.conf.json  # 일치 확인
@@ -32,24 +49,46 @@ git add package.json src-tauri/tauri.conf.json
 git commit -m "chore: 버전 X.Y.Z bump"
 ```
 
-## STEP 2 — CDK 배포 (infra/ 변경 시만)
+## STEP 3 — CDK 배포 (infra/ 변경 시만)
 ```bash
 cd infra && npx cdk deploy --all
 ```
 CDK 완료 전 프론트 push 하면 AppSync 뮤테이션 실패 → 데이터 손실 위험
 
-## STEP 3 — 태그 생성 및 push
+## STEP 4 — 로컬 검증
 ```bash
-git tag v{version}
-git push origin main
-git push origin v{version}
+npm run test:run
+npm run typecheck
+npm run build
 ```
 
-## STEP 4 — Vercel 배포 확인
+변경 범위가 작아 전체 테스트 대신 targeted test 를 먼저 돌렸더라도, release/promote 전에는 전체 검증 필요 여부를 사용자에게 명확히 보고한다.
+
+## STEP 5 — develop push 및 dev 빌드 검증
 ```bash
-vercel ls   # ● Ready 확인
+git push origin develop
+```
+
+- develop push 후 dev 빌드에서 문제 재현 경로를 다시 확인한다.
+- 라이브 이슈였더라도 dev 빌드에서 먼저 수정 효과를 확인하기 전에는 main/live 로 진행하지 않는다.
+
+## STEP 6 — 사용자 승인 후 live promote/tag
+```bash
+# dev 빌드 검증 완료 + 사용자 명시 승인 후에만 실행:
+# git checkout main
+# git merge develop
+# git tag v{version}
+# git push origin main
+# git push origin v{version}
+```
+
+## STEP 7 — dev/live 배포 확인
+```bash
+vercel ls   # dev 배포 ● Ready 확인
 # 에러 시: vercel inspect <url> --logs
 ```
+
+live 배포 확인은 사용자가 main/live promote 를 명시 승인한 뒤에만 진행한다.
 
 ## 실패 시 체인 리액션
 CDK 미배포 → 뮤테이션 실패 → 데이터 로컬에만 쌓임 → localStorage 마이그레이션 → **데이터 영구 손실**
