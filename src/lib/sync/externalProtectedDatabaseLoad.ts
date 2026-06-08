@@ -95,6 +95,7 @@ const inFlightByDatabaseId = new Map<string, Promise<boolean>>();
 const inFlightMoreByDatabaseId = new Map<string, Promise<boolean>>();
 const inFlightRefreshByDatabaseId = new Map<string, Promise<boolean>>();
 const completedLoadDatabaseIds = new Set<string>();
+const completedLoadLimitsByDatabaseId = new Map<string, number>();
 
 export function resolveExternalProtectedDatabaseId(databaseId: string | null | undefined): string | null {
   if (!isProtectedDatabaseId(databaseId)) return null;
@@ -145,6 +146,11 @@ export function databaseRowsAreCached(databaseId: string | null | undefined): bo
     const page = pages[pageId];
     return Boolean(page) && page!.contentLoaded !== false;
   });
+}
+
+function databaseRowsMeetRequestedLimit(databaseId: string, rowLimit: number): boolean {
+  const bundle = useDatabaseStore.getState().databases[databaseId];
+  return Boolean(bundle && bundle.rowPageOrder.length >= rowLimit);
 }
 
 export function protectedDatabaseRowsAreCached(databaseId: string | null | undefined): boolean {
@@ -260,11 +266,22 @@ export async function ensureDatabaseRowsLoaded({
     rowRemoteState.nextTokenByDatabaseId,
     loadKey,
   );
+  const cachedNextToken = rowRemoteState.nextTokenByDatabaseId[loadKey] ?? null;
+  const cachedRowsMeetRequestedLimit = databaseRowsMeetRequestedLimit(
+    resolvedDatabaseId,
+    rowLimit,
+  );
+  const completedLoadLimit = completedLoadLimitsByDatabaseId.get(loadKey) ?? 0;
 
   // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
   // 단, row pagination 상태가 아직 없으면 서버 nextToken 확인 전이므로 한 번은 조회한다.
   // scope 지정 시 캐시 완료 판정이 과복잡하므로 "scope 1회 로드"(session 가드)로 단순화해 무한로드를 막는다.
-  if (!scoped && rowPaginationKnown && databaseRowsAreCached(resolvedDatabaseId)) {
+  if (
+    !scoped &&
+    rowPaginationKnown &&
+    databaseRowsAreCached(resolvedDatabaseId) &&
+    (cachedNextToken === null || cachedRowsMeetRequestedLimit)
+  ) {
     devLog("skip", {
       databaseId,
       resolvedDatabaseId,
@@ -273,11 +290,18 @@ export async function ensureDatabaseRowsLoaded({
       workspaceId,
       protectedDatabase,
       reason: "local-cache-complete",
+      cachedNextTokenAvailable: Boolean(cachedNextToken),
+      cachedRowsMeetRequestedLimit,
+      rowLimit,
       source,
     });
     return false;
   }
-  if (completedLoadDatabaseIds.has(loadKey) && (scoped || databaseBundleIsEmpty(resolvedDatabaseId))) {
+  if (
+    completedLoadDatabaseIds.has(loadKey) &&
+    completedLoadLimit >= rowLimit &&
+    (scoped || databaseRowsAreCached(resolvedDatabaseId) || databaseBundleIsEmpty(resolvedDatabaseId))
+  ) {
     devLog("skip", {
       databaseId,
       resolvedDatabaseId,
@@ -286,6 +310,8 @@ export async function ensureDatabaseRowsLoaded({
       workspaceId,
       protectedDatabase,
       reason: "session-load-complete",
+      completedLoadLimit,
+      rowLimit,
       source,
     });
     return false;
@@ -335,6 +361,7 @@ export async function ensureDatabaseRowsLoaded({
 
     const resolved = scoped ? true : databaseRowsAreCached(resolvedDatabaseId);
     completedLoadDatabaseIds.add(loadKey);
+    completedLoadLimitsByDatabaseId.set(loadKey, rowLimit);
     devLog("load-applied", {
       databaseId,
       resolvedDatabaseId,
@@ -537,6 +564,7 @@ export async function refreshDatabaseRowsFromServer(args: {
   const task = (async () => {
     useDatabaseRowRemoteStore.getState().setLoading(loadKey, true);
     completedLoadDatabaseIds.delete(loadKey);
+    completedLoadLimitsByDatabaseId.delete(loadKey);
     devLog("refresh-start", {
       databaseId: args.databaseId,
       resolvedDatabaseId,
@@ -581,6 +609,7 @@ export async function refreshDatabaseRowsFromServer(args: {
       pendingUpsertPageIds,
     );
     completedLoadDatabaseIds.add(loadKey);
+    completedLoadLimitsByDatabaseId.set(loadKey, rowLimit);
     refreshWorkspaceSnapshot(workspaceId);
     devLog("refresh-applied", {
       databaseId: args.databaseId,
@@ -636,4 +665,5 @@ export function resetDatabaseRowLoadSessionState(): void {
   inFlightMoreByDatabaseId.clear();
   inFlightRefreshByDatabaseId.clear();
   completedLoadDatabaseIds.clear();
+  completedLoadLimitsByDatabaseId.clear();
 }

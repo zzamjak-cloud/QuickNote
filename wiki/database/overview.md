@@ -10,6 +10,7 @@
 | `src/components/database/DatabaseTableView.tsx` | 테이블 뷰 |
 | `src/components/database/DatabaseTimelineView.tsx` | 타임라인 뷰 |
 | `src/lib/database/` | 스키마·셀 로직·필터 쿼리 |
+| `infra/lambda/template-automation/` | DB 템플릿 자동 생성 runner |
 
 ## 데이터 구조
 ```
@@ -31,3 +32,4 @@ Text, Number, Select, MultiSelect, Date, Checkbox, Person, Relation 등 → [cel
 - [views.md](views.md)
 - [cells.md](cells.md)
 - [filters-sort.md](filters-sort.md)
+- [template-automation.md](template-automation.md)

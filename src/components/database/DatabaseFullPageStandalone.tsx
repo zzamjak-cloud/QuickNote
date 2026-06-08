@@ -17,6 +17,7 @@ import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
 import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
 import {
   resolveDatabaseInitialRowLimit,
+  resolveDatabaseRefreshRowLimit,
   resolveDatabaseVisibleRowLimit,
 } from "./databaseRowLimit";
 
@@ -177,7 +178,7 @@ export function DatabaseFullPageStandalone({
       const refreshed = await refreshDatabaseRowsFromServer({
         databaseId,
         currentWorkspaceId,
-        rowLimit: resolveDatabaseInitialRowLimit(
+        rowLimit: resolveDatabaseRefreshRowLimit(
           "fullPage",
           panelStateRef.current.itemLimit,
         ),

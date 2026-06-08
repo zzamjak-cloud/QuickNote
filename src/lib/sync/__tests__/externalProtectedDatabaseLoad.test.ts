@@ -521,6 +521,94 @@ describe("externalProtectedDatabaseLoad", () => {
     expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBe("next-1");
   });
 
+  it("부분 row 캐시가 더 큰 rowLimit 요청을 막지 않는다", async () => {
+    const updatedAt = "2026-06-04T00:00:00.000Z";
+    const cachedRowIds = Array.from({ length: 10 }, (_, index) => `row-${index + 1}`);
+    useDatabaseStore.setState({
+      databases: {
+        "normal-db": {
+          meta: {
+            id: "normal-db",
+            workspaceId: "cat-workspace",
+            title: "CAT DB",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [],
+          rowPageOrder: cachedRowIds,
+        },
+      },
+      cacheWorkspaceId: "cat-workspace",
+    });
+    usePageStore.setState({
+      pages: Object.fromEntries(
+        cachedRowIds.map((id, index) => [
+          id,
+          {
+            id,
+            workspaceId: "cat-workspace",
+            title: id,
+            icon: null,
+            doc: { type: "doc", content: [] },
+            parentId: null,
+            order: index + 1,
+            createdAt: 1,
+            updatedAt: 1,
+            databaseId: "normal-db",
+            contentLoaded: true,
+          },
+        ]),
+      ),
+      cacheWorkspaceId: "cat-workspace",
+    });
+    useDatabaseRowRemoteStore.getState().setNextToken("normal-db", "next-1");
+    fetchDatabaseByIdMock.mockResolvedValueOnce({
+      id: "normal-db",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "CAT DB",
+      columns: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "row-11",
+          workspaceId: "cat-workspace",
+          createdByMemberId: "member-1",
+          title: "row 11",
+          parentId: null,
+          order: "11",
+          databaseId: "normal-db",
+          doc: { type: "doc", content: [] },
+          dbCells: {},
+          blockComments: null,
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: "next-2",
+    });
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        rowLimit: 100,
+        source: "test-fullpage",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledWith({
+      workspaceId: "cat-workspace",
+      databaseId: "normal-db",
+      limit: 100,
+    });
+    expect(useDatabaseStore.getState().databases["normal-db"]?.rowPageOrder).toContain("row-11");
+    expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBe("next-2");
+  });
+
   it("강제 refresh는 pagination 이 완료로 저장된 부분 캐시도 첫 batch만 서버와 맞추고 nextToken을 남긴다", async () => {
     const updatedAt = "2026-06-04T00:00:00.000Z";
     useDatabaseStore.setState({

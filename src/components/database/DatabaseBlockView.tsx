@@ -66,6 +66,7 @@ import { useDatabaseRowRemoteStore } from "../../store/databaseRowRemoteStore";
 import {
   DEFAULT_DATABASE_VISIBLE_ROW_LIMIT,
   resolveDatabaseInitialRowLimit,
+  resolveDatabaseRefreshRowLimit,
   resolveDatabaseVisibleRowLimit,
 } from "./databaseRowLimit";
 
@@ -209,7 +210,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
       const refreshed = await refreshDatabaseRowsFromServer({
         databaseId,
         currentWorkspaceId,
-        rowLimit: resolveDatabaseInitialRowLimit(
+        rowLimit: resolveDatabaseRefreshRowLimit(
           layout,
           panelStateRef.current.itemLimit,
         ),
