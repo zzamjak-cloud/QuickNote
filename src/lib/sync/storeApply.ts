@@ -36,6 +36,7 @@ import {
   tryParseSerializedPanelState,
   tryParseSerializedPresets,
 } from "../database/schema/normalizeDatabase";
+import { normalizeTemplateAutomationConfig } from "../database/templateAutomation";
 import { isDeletedSchedulePage } from "../scheduler/deletedSchedulePages";
 
 /**
@@ -733,11 +734,13 @@ function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefi
       record.cells && typeof record.cells === "object" && !Array.isArray(record.cells)
         ? (record.cells as Record<string, CellValue>)
         : {};
+    const automation = normalizeTemplateAutomationConfig(record.automation, `${record.id}:automation`);
     templates.push({
       id: record.id,
       title: record.title,
       cells,
       ...(typeof record.pageId === "string" ? { pageId: record.pageId } : {}),
+      ...(automation ? { automation } : {}),
     });
   }
   console.warn("[QN_TEMPLATE_SYNC] remote templates parsed", {

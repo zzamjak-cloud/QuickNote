@@ -4,6 +4,7 @@ import type {
   ColumnDef,
   DatabaseMeta,
   DatabasePanelState,
+  DatabaseTemplate,
   DatabaseRowPreset,
 } from "../../../types/database";
 
@@ -158,5 +159,46 @@ describe("databaseStore GraphQL serialization", () => {
     expect(parsedPanelState.filterPresets?.[0]?.filterRules).toEqual([
       { id: "rule-1", columnId: "status", operator: "equals", value: "review" },
     ]);
+  });
+
+  it("template automation config is serialized inside templates AWSJSON", () => {
+    const meta: DatabaseMeta = {
+      id: "db-1",
+      workspaceId: "ws-1",
+      title: "DB",
+      createdAt: Date.parse("2026-01-01T00:00:00.000Z"),
+      updatedAt: Date.parse("2026-01-01T00:00:01.000Z"),
+    };
+    const templates: DatabaseTemplate[] = [
+      {
+        id: "template-1",
+        title: "QA",
+        cells: { status: "todo" },
+        pageId: "template-page-1",
+        automation: {
+          id: "automation-1",
+          enabled: true,
+          weekdays: [1],
+          time: "09:30",
+          timezone: "Asia/Seoul",
+          titlePrefix: "QA",
+          maxAttempts: 3,
+          updatedAt: 1,
+        },
+      },
+    ];
+
+    const payload = toGqlDatabase(
+      meta,
+      [{ id: "title", name: "Name", type: "title" }],
+      "member-1",
+      [],
+      undefined,
+      templates,
+    );
+
+    expect(payload.templates).toEqual(expect.any(String));
+    const parsedTemplates = JSON.parse(payload.templates as string) as DatabaseTemplate[];
+    expect(parsedTemplates[0]?.automation).toEqual(templates[0]?.automation);
   });
 });

@@ -178,6 +178,31 @@ export type DateRangeValue = {
   end?: string;
 };
 
+export type TemplateAutomationWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+export type DatabaseTemplateAutomationConfig = {
+  /** 자동화별 고정 ID. 서버 EventBridge Scheduler 이름과 실행 원장 키의 기준값이다. */
+  id: string;
+  /** false 이면 서버 스케줄러 대상에서 제거된다. */
+  enabled: boolean;
+  /** 0=일요일, 6=토요일. EventBridge Scheduler cron 요일로 변환해 사용한다. */
+  weekdays: TemplateAutomationWeekday[];
+  /** HH:mm, 자동 생성 시각. 초 단위 정밀도는 지원하지 않는다. */
+  time: string;
+  /** IANA timezone. 예: Asia/Seoul */
+  timezone: string;
+  /** 비어 있으면 템플릿 제목을 사용한다. */
+  titlePrefix?: string;
+  /** 날짜 컬럼 수동 지정. 없으면 타임라인 날짜 컬럼, 그 다음 첫 date 컬럼을 사용한다. */
+  dateColumnId?: string | null;
+  /** 서버/스케줄러가 허용할 최대 재시도 횟수. */
+  maxAttempts?: number;
+  /** 이 날짜 이후에는 스케줄을 만들지 않는다. YYYY-MM-DD */
+  endDate?: string | null;
+  /** UI/서버 충돌 해소와 스케줄 갱신 감지를 위한 갱신 시각(epoch ms). */
+  updatedAt?: number;
+};
+
 export type FileCellItem = {
   fileId: string;
   /** S3 첨부 ref. 없으면 legacy IndexedDB 파일로 해석한다. */
@@ -308,6 +333,8 @@ export type DatabaseTemplate = {
   cells: Record<string, CellValue>;
   /** 템플릿 전용 페이지 ID — 페이지로 이동해 속성·내용을 편집. */
   pageId?: string;
+  /** 이 템플릿으로 행을 자동 생성하는 EventBridge Scheduler 설정. */
+  automation?: DatabaseTemplateAutomationConfig;
 };
 
 export type DatabaseRowPreset = {

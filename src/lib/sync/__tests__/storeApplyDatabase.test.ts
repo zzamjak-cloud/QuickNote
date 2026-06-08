@@ -97,6 +97,16 @@ describe("applyRemoteDatabaseToStore", () => {
           title: "QA 템플릿",
           cells: { status: "todo" },
           pageId: "template-page-1",
+          automation: {
+            id: "automation-1",
+            enabled: true,
+            weekdays: [1],
+            time: "09:30",
+            timezone: "Asia/Seoul",
+            titlePrefix: "QA",
+            maxAttempts: 3,
+            updatedAt: 1,
+          },
         },
       ]),
     });
@@ -107,6 +117,16 @@ describe("applyRemoteDatabaseToStore", () => {
         title: "QA 템플릿",
         cells: { status: "todo" },
         pageId: "template-page-1",
+        automation: {
+          id: "automation-1",
+          enabled: true,
+          weekdays: [1],
+          time: "09:30",
+          timezone: "Asia/Seoul",
+          titlePrefix: "QA",
+          maxAttempts: 3,
+          updatedAt: 1,
+        },
       },
     ]);
   });
