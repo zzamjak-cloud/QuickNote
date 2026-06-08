@@ -3,6 +3,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  QueryCommand,
   type DynamoDBDocumentClient as DynamoDBDocumentClientType,
 } from "@aws-sdk/lib-dynamodb";
 import type { Member, Tables } from "../v5-resolvers/handlers/member";
@@ -83,20 +84,32 @@ async function putRun(args: {
   );
 }
 
-async function getMemberById(args: {
+async function getAutomationOwnerMember(args: {
   doc: DynamoDBDocumentClientType;
   tableName: string;
-  memberId: string;
+  memberIdOrCognitoSub: string;
 }): Promise<Member> {
   const result = await args.doc.send(
     new GetCommand({
       TableName: args.tableName,
-      Key: { memberId: args.memberId },
+      Key: { memberId: args.memberIdOrCognitoSub },
     }),
   );
-  const member = result.Item as Member | undefined;
+  let member = result.Item as Member | undefined;
+  if (!member) {
+    const byCognitoSub = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tableName,
+        IndexName: "byCognitoSub",
+        KeyConditionExpression: "cognitoSub = :s",
+        ExpressionAttributeValues: { ":s": args.memberIdOrCognitoSub },
+        Limit: 1,
+      }),
+    );
+    member = byCognitoSub.Items?.[0] as Member | undefined;
+  }
   if (!member || member.status !== "active") {
-    throw new Error(`Automation owner member is not active: ${args.memberId}`);
+    throw new Error(`Automation owner member is not active: ${args.memberIdOrCognitoSub}`);
   }
   return member;
 }
@@ -242,10 +255,10 @@ export async function runTemplateAutomation(args: {
       return { status: "succeeded", runId, pageId };
     }
 
-    const caller = await getMemberById({
+    const caller = await getAutomationOwnerMember({
       doc: args.doc,
       tableName: args.tables.Members,
-      memberId: String(database.createdByMemberId ?? ""),
+      memberIdOrCognitoSub: String(database.createdByMemberId ?? ""),
     });
     const pageInput = buildGeneratedTemplatePage({
       database,

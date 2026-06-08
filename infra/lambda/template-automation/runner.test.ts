@@ -1,4 +1,4 @@
-import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it, vi } from "vitest";
 import { runTemplateAutomation } from "./runner";
 
@@ -41,12 +41,25 @@ const database = {
   ]),
 };
 
-function mockDoc(overrides: { existingRun?: Record<string, unknown> } = {}) {
+function mockDoc(
+  overrides: {
+    existingRun?: Record<string, unknown>;
+    memberGetMiss?: boolean;
+    databaseCreatedByMemberId?: string;
+  } = {},
+) {
   const send = vi.fn(async (command: unknown) => {
     if (command instanceof GetCommand) {
       const input = command.input;
       if (input.TableName === "TemplateAutomationRuns") return { Item: overrides.existingRun };
-      if (input.TableName === "Databases") return { Item: database };
+      if (input.TableName === "Databases") {
+        return {
+          Item: {
+            ...database,
+            createdByMemberId: overrides.databaseCreatedByMemberId ?? database.createdByMemberId,
+          },
+        };
+      }
       if (input.TableName === "Pages" && input.Key?.id === "template-page-1") {
         return {
           Item: {
@@ -59,6 +72,7 @@ function mockDoc(overrides: { existingRun?: Record<string, unknown> } = {}) {
       }
       if (input.TableName === "Pages") return { Item: undefined };
       if (input.TableName === "Members") {
+        if (overrides.memberGetMiss) return { Item: undefined };
         return {
           Item: {
             memberId: "member-1",
@@ -71,6 +85,25 @@ function mockDoc(overrides: { existingRun?: Record<string, unknown> } = {}) {
             cognitoSub: "sub-1",
             createdAt: "2026-01-01T00:00:00.000Z",
           },
+        };
+      }
+    }
+    if (command instanceof QueryCommand) {
+      if (command.input.TableName === "Members" && command.input.IndexName === "byCognitoSub") {
+        return {
+          Items: [
+            {
+              memberId: "member-1",
+              email: "member@example.com",
+              name: "Member",
+              jobRole: "PM",
+              workspaceRole: "owner",
+              status: "active",
+              personalWorkspaceId: "ws-1",
+              cognitoSub: "b4484dec-1001-70c5-ad14-dcac460b6510",
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
         };
       }
     }
@@ -134,5 +167,30 @@ describe("template automation runner", () => {
 
     expect(result.status).toBe("failed");
     expect(upsertPageFn).not.toHaveBeenCalled();
+  });
+
+  it("resolves automation owner by cognitoSub when createdByMemberId is not a memberId", async () => {
+    const doc = mockDoc({
+      memberGetMiss: true,
+      databaseCreatedByMemberId: "b4484dec-1001-70c5-ad14-dcac460b6510",
+    });
+    const upsertPageFn = vi.fn(async (args: { input: Record<string, unknown> }) => args.input);
+
+    const result = await runTemplateAutomation({
+      doc,
+      tables,
+      event: {
+        type: "databaseTemplateAutomation",
+        databaseId: "db-1",
+        templateId: "template-1",
+        automationId: "automation-1",
+        scheduledTime: "2026-06-08T00:30:00.000Z",
+      },
+      now: () => new Date("2026-06-08T00:31:00.000Z"),
+      upsertPageFn,
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(upsertPageFn).toHaveBeenCalledTimes(1);
   });
 });
