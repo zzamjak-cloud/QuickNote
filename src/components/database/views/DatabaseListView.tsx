@@ -4,7 +4,6 @@ import { getVisibleOrderedColumns } from "../../../types/database";
 import type { DatabasePanelState, DatabaseRowView } from "../../../types/database";
 import { useProcessedRows } from "../useProcessedRows";
 import { usePageStore } from "../../../store/pageStore";
-import { useDatabaseStore } from "../../../store/databaseStore";
 import { useDatabaseGroupCollapseStore } from "../../../store/databaseGroupCollapseStore";
 import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { IconPicker } from "../../common/IconPicker";
@@ -18,7 +17,7 @@ import {
   databaseCellHasDisplayValue,
   databaseColumnMayHaveDerivedDisplayValue,
 } from "../databaseCellDisplayUtils";
-import { useOpenDatabaseRow } from "../useOpenDatabaseRow";
+import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -33,7 +32,7 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
 
   const setIcon = usePageStore((s) => s.setIcon);
   const openRow = useOpenDatabaseRow(databaseId);
-  const addRow = useDatabaseStore((s) => s.addRow);
+  const addRowAndOpen = useAddDatabaseRowAndOpen(databaseId);
   const groups = useRowGroups(rows, columns, panelState.groupByColumnId);
   const isCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
   const toggleCollapsed = useDatabaseGroupCollapseStore((s) => s.toggle);
@@ -101,7 +100,11 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
   const addRowButton = (
     <button
       type="button"
-      onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+      onClick={() =>
+        void addRowAndOpen(resolveActiveFilterRules(panelState), {
+          source: "database-list-add-row-open",
+        })
+      }
       className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
     >
       <Plus size={14} /> 새 항목
@@ -136,7 +139,11 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
         <p className="py-6 text-center text-xs text-zinc-400">항목이 없습니다.</p>
         <button
           type="button"
-          onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+          onClick={() =>
+            void addRowAndOpen(resolveActiveFilterRules(panelState), {
+              source: "database-list-add-row-open",
+            })
+          }
           className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >
           <Plus size={14} /> 새 항목

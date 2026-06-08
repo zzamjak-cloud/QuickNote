@@ -26,6 +26,7 @@ import {
   normalizeTemplateAutomationConfig,
   resolveTemplateAutomationDateColumnId,
 } from "../../lib/database/templateAutomation";
+import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "./useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -51,7 +52,8 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
   const updateTemplate = useDatabaseStore((s) => s.updateTemplate);
   const deleteTemplate = useDatabaseStore((s) => s.deleteTemplate);
   const applyTemplate = useDatabaseStore((s) => s.applyTemplate);
-  const addRow = useDatabaseStore((s) => s.addRow);
+  const addRowAndOpen = useAddDatabaseRowAndOpen(databaseId);
+  const openRow = useOpenDatabaseRow(databaseId);
 
   const pages = usePageStore((s) => s.pages);
   const setActivePage = usePageStore((s) => s.setActivePage);
@@ -89,15 +91,16 @@ export function DatabaseTemplateButton({ databaseId }: Props) {
   };
 
   const handleApply = (id: string) => {
-    applyTemplate(databaseId, id);
     close();
     setEditingTemplateId(null);
+    const pageId = applyTemplate(databaseId, id);
+    if (pageId) void openRow(pageId, { source: "database-template-apply-open" });
   };
 
   const handleAddEmptyRow = () => {
-    addRow(databaseId);
     close();
     setEditingTemplateId(null);
+    addRowAndOpen(undefined, { source: "database-template-empty-row-open" });
   };
 
   const handleSaveAutomation = (

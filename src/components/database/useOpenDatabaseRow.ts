@@ -1,12 +1,14 @@
 import { useCallback, useMemo } from "react";
+import { useDatabaseStore } from "../../store/databaseStore";
 import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { ensurePageContentLoaded } from "../../lib/sync/pageContentLoad";
 import { resolveDatabaseRowRemoteKey } from "../../lib/sync/externalProtectedDatabaseLoad";
+import type { FilterRule } from "../../types/database";
 
-type OpenDatabaseRowOptions = {
+export type OpenDatabaseRowOptions = {
   navigateInPeek?: boolean;
   source?: string;
 };
@@ -60,5 +62,20 @@ export function useOpenDatabaseRow(databaseId: string) {
       else openPeek(pageId);
     },
     [ensureRowContent, openPeek, peekNavigate, showToast],
+  );
+}
+
+export function useAddDatabaseRowAndOpen(databaseId: string) {
+  const addRow = useDatabaseStore((s) => s.addRow);
+  const openRow = useOpenDatabaseRow(databaseId);
+
+  return useCallback(
+    (seedFilters?: FilterRule[], options?: OpenDatabaseRowOptions) => {
+      const pageId = addRow(databaseId, seedFilters);
+      if (!pageId) return "";
+      void openRow(pageId, options);
+      return pageId;
+    },
+    [addRow, databaseId, openRow],
   );
 }

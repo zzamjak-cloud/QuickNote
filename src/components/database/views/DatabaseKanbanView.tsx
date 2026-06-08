@@ -16,7 +16,11 @@ import { IconPicker } from "../../common/IconPicker";
 import { AppSelect } from "../../common/AppSelect";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
-import { useEnsureDatabaseRowContent, useOpenDatabaseRow } from "../useOpenDatabaseRow";
+import {
+  useAddDatabaseRowAndOpen,
+  useEnsureDatabaseRowContent,
+  useOpenDatabaseRow,
+} from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -51,7 +55,6 @@ export function DatabaseKanbanView({
   const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
-  const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const setIcon = usePageStore((s) => s.setIcon);
@@ -59,6 +62,7 @@ export function DatabaseKanbanView({
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const ensureRowContent = useEnsureDatabaseRowContent(databaseId);
   const openRow = useOpenDatabaseRow(databaseId);
+  const addRowAndOpen = useAddDatabaseRowAndOpen(databaseId);
 
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [rowDeletePageId, setRowDeletePageId] = useState<string | null>(null);
@@ -228,7 +232,11 @@ export function DatabaseKanbanView({
       )}
       <button
         type="button"
-        onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+        onClick={() =>
+          void addRowAndOpen(resolveActiveFilterRules(panelState), {
+            source: "database-kanban-add-row-open",
+          })
+        }
         className="mt-2 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
       >
         <Plus size={14} /> 새 항목

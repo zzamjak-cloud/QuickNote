@@ -8,7 +8,6 @@ import type {
   ColumnDef,
   FileCellItem,
 } from "../../../types/database";
-import { useDatabaseStore } from "../../../store/databaseStore";
 import { useDatabaseGroupCollapseStore } from "../../../store/databaseGroupCollapseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { useRowGroups } from "../useRowGroups";
@@ -22,7 +21,7 @@ import { imageUrlCache } from "../../../lib/images/registry";
 import { useImageUrl } from "../../../lib/images/hooks";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
-import { useOpenDatabaseRow } from "../useOpenDatabaseRow";
+import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -86,7 +85,7 @@ export function DatabaseGalleryView({
   const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
-  const addRow = useDatabaseStore((s) => s.addRow);
+  const addRowAndOpen = useAddDatabaseRowAndOpen(databaseId);
   const groups = useRowGroups(rows, columns, panelState.groupByColumnId);
   const isCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
   const toggleCollapsed = useDatabaseGroupCollapseStore((s) => s.toggle);
@@ -142,7 +141,11 @@ export function DatabaseGalleryView({
   const addRowButton = (
     <button
       type="button"
-      onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+      onClick={() =>
+        void addRowAndOpen(resolveActiveFilterRules(panelState), {
+          source: "database-gallery-add-row-open",
+        })
+      }
       className="mt-3 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
     >
       + 새 항목

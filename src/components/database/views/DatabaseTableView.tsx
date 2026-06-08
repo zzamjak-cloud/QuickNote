@@ -28,7 +28,7 @@ import { useTableRowSelection } from "./useTableRowSelection";
 import { useHistoryStore } from "../../../store/historyStore";
 import { useWindowedRows } from "./useWindowedRows";
 import { cellToSearchString, resolveActiveFilterRules } from "../../../lib/databaseQuery";
-import { useOpenDatabaseRow } from "../useOpenDatabaseRow";
+import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -241,11 +241,11 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     () => (groups ? groups.flatMap((g) => g.rows) : rows),
     [groups, rows],
   );
-  const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const setIcon = usePageStore((s) => s.setIcon);
   const openRow = useOpenDatabaseRow(databaseId);
+  const addRowAndOpen = useAddDatabaseRowAndOpen(databaseId);
   const restoreDeletedRowFromHistory = useDatabaseStore(
     (s) => s.restoreDeletedRowFromHistory,
   );
@@ -652,7 +652,11 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
       <div className="mt-2 flex items-center justify-between gap-2">
         <button
           type="button"
-          onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+          onClick={() =>
+            void addRowAndOpen(resolveActiveFilterRules(panelState), {
+              source: "database-table-add-row-open",
+            })
+          }
           className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
         >
           <Plus size={14} /> 새 항목

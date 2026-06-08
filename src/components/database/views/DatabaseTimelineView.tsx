@@ -55,7 +55,7 @@ import {
   resolveTimelineCardColor,
   TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID,
 } from "../../../lib/database/timelineCardColor";
-import { useOpenDatabaseRow } from "../useOpenDatabaseRow";
+import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -294,11 +294,11 @@ export function DatabaseTimelineView({
     [rows, virtualRows.enabled, virtualRows.end, virtualRows.start],
   );
   const totalRowsHeight = rows.length * (ROW_HEIGHT + ROW_GAP);
-  const addRow = useDatabaseStore((s) => s.addRow);
   const deleteRow = useDatabaseStore((s) => s.deleteRow);
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const openRow = useOpenDatabaseRow(databaseId);
+  const addRowAndOpen = useAddDatabaseRowAndOpen(databaseId);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   // 진행 중인 포커싱 스크롤 애니메이션 핸들 — 새 포커싱/언마운트 시 중단한다.
@@ -1627,7 +1627,11 @@ export function DatabaseTimelineView({
       )}
       <button
         type="button"
-        onClick={() => addRow(databaseId, resolveActiveFilterRules(panelState))}
+        onClick={() =>
+          void addRowAndOpen(resolveActiveFilterRules(panelState), {
+            source: "database-timeline-add-row-open",
+          })
+        }
         className="mt-3 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
       >
         <Plus size={14} /> 새 항목
