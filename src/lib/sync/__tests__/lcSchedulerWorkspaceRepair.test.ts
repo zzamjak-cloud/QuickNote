@@ -7,6 +7,7 @@ import {
 } from "../../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 import {
+  createLCSchedulerRootPageRepairGate,
   getLCSchedulerRootPageStatus,
   lcSchedulerRootPagesNeedRepair,
 } from "../lcSchedulerWorkspaceRepair";
@@ -82,5 +83,26 @@ describe("lcSchedulerWorkspaceRepair", () => {
 
   it("LC 스케줄러 워크스페이스가 아니면 repair 대상으로 보지 않는다", () => {
     expect(lcSchedulerRootPagesNeedRepair("normal-workspace", {})).toBe(false);
+  });
+
+  it("repair gate는 누락 상태에서 세션당 한 번만 repair를 허용하고 복구 후 다시 초기화된다", () => {
+    const gate = createLCSchedulerRootPageRepairGate();
+    const missingPages: Record<string, Page> = {
+      "task-row": makePage({
+        id: "task-row",
+        title: "작업 row",
+        databaseId: LC_SCHEDULER_DATABASE_ID,
+      }),
+    };
+    const completePages: Record<string, Page> = {
+      milestone: makePage({ id: "milestone", title: "마일스톤 DB" }),
+      feature: makePage({ id: "feature", title: "피처 DB" }),
+      task: makePage({ id: "task", title: "작업 DB" }),
+    };
+
+    expect(gate.shouldAttempt(LC_SCHEDULER_WORKSPACE_ID, missingPages)).toBe(true);
+    expect(gate.shouldAttempt(LC_SCHEDULER_WORKSPACE_ID, missingPages)).toBe(false);
+    expect(gate.shouldAttempt(LC_SCHEDULER_WORKSPACE_ID, completePages)).toBe(false);
+    expect(gate.shouldAttempt(LC_SCHEDULER_WORKSPACE_ID, missingPages)).toBe(true);
   });
 });

@@ -29,6 +29,13 @@ export type LCSchedulerRootPageStatus = {
   complete: boolean;
 };
 
+export type LCSchedulerRootPageRepairGate = {
+  shouldAttempt: (
+    workspaceId: string | null | undefined,
+    pages: Record<string, Page>,
+  ) => boolean;
+};
+
 function getFirstDatabaseBlockInfo(page: Page): DatabaseBlockInfo | null {
   const first = (page.doc as { content?: unknown[] } | undefined)?.content?.[0] as
     | { type?: unknown; attrs?: Record<string, unknown> }
@@ -105,4 +112,22 @@ export function lcSchedulerRootPagesNeedRepair(
 ): boolean {
   if (workspaceId !== LC_SCHEDULER_WORKSPACE_ID) return false;
   return !getLCSchedulerRootPageStatus(pages).complete;
+}
+
+export function createLCSchedulerRootPageRepairGate(): LCSchedulerRootPageRepairGate {
+  const attemptedWorkspaceIds = new Set<string>();
+
+  return {
+    shouldAttempt: (workspaceId, pages) => {
+      if (workspaceId !== LC_SCHEDULER_WORKSPACE_ID) return false;
+      const needsRepair = lcSchedulerRootPagesNeedRepair(workspaceId, pages);
+      if (!needsRepair) {
+        attemptedWorkspaceIds.delete(workspaceId);
+        return false;
+      }
+      if (attemptedWorkspaceIds.has(workspaceId)) return false;
+      attemptedWorkspaceIds.add(workspaceId);
+      return true;
+    },
+  };
 }

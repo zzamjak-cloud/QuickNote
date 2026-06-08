@@ -59,11 +59,12 @@ import { usePageContentLoadStore } from "./store/pageContentLoadStore";
 import { usePageMetaRemoteStore } from "./store/pageMetaRemoteStore";
 import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
-import { lcSchedulerRootPagesNeedRepair } from "./lib/sync/lcSchedulerWorkspaceRepair";
+import { createLCSchedulerRootPageRepairGate } from "./lib/sync/lcSchedulerWorkspaceRepair";
 
 const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-07-sidebar-db-row-cache-repair";
 const workspaceCacheRepairKey = (workspaceId: string): string =>
   `quicknote.workspace.cacheRepair.${WORKSPACE_CACHE_REPAIR_REVISION}:${workspaceId}`;
+const lcSchedulerRootPageRepairGate = createLCSchedulerRootPageRepairGate();
 
 function needsWorkspaceCacheRepair(workspaceId: string): boolean {
   if (typeof window === "undefined") return false;
@@ -362,7 +363,7 @@ function useSyncBootstrap(): void {
           setHold(null);
         }
         const oneTimeWorkspaceCacheRepair = needsWorkspaceCacheRepair(currentWorkspaceId);
-        const rootPageCacheRepair = lcSchedulerRootPagesNeedRepair(
+        const rootPageCacheRepair = lcSchedulerRootPageRepairGate.shouldAttempt(
           currentWorkspaceId,
           usePageStore.getState().pages,
         );

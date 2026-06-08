@@ -37,11 +37,17 @@
    - delta 모드: `fetchApplyWorkspaceRemoteSnapshot({ updatedAfter })` → 캐시 비어 있으면 전체 fallback
    - full 모드: `fetchApplyWorkspaceRemoteSnapshot()`
    - `migrateLegacyBlockCommentsToPagesOnce()` / `migratePageBlockCommentsToServerOnce()`
-4. `startSubscriptions(currentWorkspaceId, handlers)` — 실시간 구독 시작
+4. LC 스케줄러 루트 DB 페이지 캐시 복구 검사
+   - 대상: `currentWorkspaceId === LC_SCHEDULER_WORKSPACE_ID`
+   - 결손 조건: `마일스톤 DB`, `피처 DB`, `작업 DB` 루트 페이지가 page store 에 없지만 row/DB 캐시는 남아 있는 상태
+   - 복구: `databaseRowRemote`, `pageContentLoad`, `pageMetaRemote`, `syncWatermark` 를 지우고 `fetchApply({ forceMetaBaseline: true })`
+   - 안전장치: `createLCSchedulerRootPageRepairGate()` 로 앱 실행 세션당 워크스페이스 1회만 강제 baseline 시도. 복구되어 루트 페이지가 확인되면 gate 는 다시 초기화된다.
+   - 상세 판정 규칙: [lc-scheduler-workspace-repair.md](lc-scheduler-workspace-repair.md)
+5. `startSubscriptions(currentWorkspaceId, handlers)` — 실시간 구독 시작
    - LC 스케줄러는 항상 별도 구독 유지 (`unsubLcScheduler`)
-5. `engine.flush()` — 오프라인 중 쌓인 outbox 전송
-6. `reconcileWorkspaceCacheAfterFlush()` — flush 후 캐시 정합성 검증 (전체 모드 `fetchApplyFull` 사용)
-7. cleanup: `unsub()`, `unsubLcScheduler()`, `shutdownSyncEngine()`
+6. `engine.flush()` — 오프라인 중 쌓인 outbox 전송
+7. `reconcileWorkspaceCacheAfterFlush()` — flush 후 캐시 정합성 검증 (전체 모드 `fetchApplyFull` 사용)
+8. cleanup: `unsub()`, `unsubLcScheduler()`, `shutdownSyncEngine()`
 
 ### 온라인 복귀 핸들러
 - `window 'online'` 이벤트 → fetchMode 결정 후 delta 또는 full 재페치
@@ -56,6 +62,8 @@
 - `startSubscriptions` (`src/lib/sync`)
 - `applyRemotePageToStore`, `applyRemoteDatabaseToStore`, `applyRemoteCommentToStore`
 - `applyWorkspaceSwitch`, `reconcileWorkspaceCacheAfterFlush`
+- `createLCSchedulerRootPageRepairGate`
+- `getLCSchedulerRootPageStatus`, `lcSchedulerRootPagesNeedRepair`
 - `getSyncEngine`, `shutdownSyncEngine` (`src/lib/sync/runtime`)
 - `fetchApplyWorkspaceRemoteSnapshot`
 - `useSchedulerStore`, `useSchedulerProjectsStore`
@@ -64,5 +72,6 @@
 - 초기 마운트(`startedForRef.current === null`)에서는 persist 복원 캐시를 유지해 첫 렌더 빈 화면 방지
 - 워크스페이스 전환 시 160ms 디바운스 후 로딩 UI 표시 (`startWorkspaceLoadingTimer`)
 - LC 스케줄러 워크스페이스는 부트스트랩에서 미리 페치하지 않음 — 사이드바 누수 및 지연 방지
+- LC 스케줄러 루트 DB 페이지 결손 복구는 `localStorage` 완료 플래그를 쓰지 않는다. 실패가 지속되면 같은 세션에서는 반복하지 않고, 새로고침 후 다시 1회 시도한다.
 - `tryRecoverQuarantine` 호출로 격리된 데이터 복구 시도
 - `cancelled` 플래그로 마운트 해제 후 비동기 콜백 실행 방지
