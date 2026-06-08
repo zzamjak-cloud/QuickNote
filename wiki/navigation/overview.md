@@ -30,6 +30,7 @@
 - `openPageInCurrentTab(pageId)` (`internalNavigation.ts`) 가 `pushPageBrowserHistory` 로 `history.pushState(?page=<id>)` 를 호출.
 - 복원: `App.tsx` 의 `popstate`/`hashchange` 리스너 `applyLocationLink` 가 URL 의 `?page` 를 읽어 `setActivePage` + `setCurrentTabPage` **직접 호출**(헬퍼 미사용 → 재push 없음).
 - 마운트 시 URL 에 `?page` 가 없으면 현재 활성 페이지를 `replaceState` 로 초기 히스토리 엔트리에 기록 → 첫 뒤로가기가 시작 페이지로 정확히 복귀.
+- LC 스케줄러 모달(`TabBar.tsx`)은 열릴 때 현재 URL 위에 `qnLCSchedulerModal` history entry 를 하나 쌓는다. 브라우저 뒤로가기는 이 entry 를 소비해 모달만 닫고 앱 밖으로 나가지 않는다.
 
 > **회귀 주의**
 > - popstate 복원 경로는 `openPageInCurrentTab` 을 **쓰지 말 것**(직접 setter 사용). 안 그러면 pushState 재진입 루프.

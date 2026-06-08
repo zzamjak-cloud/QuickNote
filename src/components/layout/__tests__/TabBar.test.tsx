@@ -1,13 +1,25 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../../lib/scheduler/scope";
 import { usePageStore } from "../../../store/pageStore";
+import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { useSettingsStore } from "../../../store/settingsStore";
 import { useWorkspaceStore } from "../../../store/workspaceStore";
 import { TabBar } from "../TabBar";
 
+vi.mock("../../scheduler/LCSchedulerModal", () => ({
+  LCSchedulerModal: ({ onClose }: { onClose: () => void }) => (
+    <div data-lc-scheduler-modal="true">
+      <button type="button" onClick={onClose}>
+        닫기
+      </button>
+    </div>
+  ),
+}));
+
 describe("TabBar", () => {
   beforeEach(() => {
+    window.history.replaceState({ qnPage: "initial-page" }, "", "/?page=initial-page");
     useSettingsStore.setState({
       tabs: [{ pageId: null }],
       activeTabIndex: 0,
@@ -29,6 +41,7 @@ describe("TabBar", () => {
         },
       ],
     });
+    useSchedulerViewStore.setState({ schedulerOpen: false });
   });
 
   it("스케줄러 모달이 닫혀 있으면 닫기 이벤트로 워크스페이스를 변경하지 않는다", () => {
@@ -42,6 +55,27 @@ describe("TabBar", () => {
 
     expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-personal");
     expect(useWorkspaceStore.getState().currentWorkspaceId).not.toBe(LC_SCHEDULER_WORKSPACE_ID);
+  });
+
+  it("LC 스케줄러 모달이 열려 있으면 브라우저 뒤로가기로 앱을 벗어나지 않고 모달만 닫는다", async () => {
+    useSchedulerViewStore.setState({ schedulerOpen: true });
+
+    render(<TabBar />);
+
+    await waitFor(() => {
+      expect(window.history.state).toMatchObject({ qnLCSchedulerModal: true });
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new PopStateEvent("popstate", {
+          state: { qnPage: "initial-page" },
+        }),
+      );
+    });
+
+    expect(useSchedulerViewStore.getState().schedulerOpen).toBe(false);
+    expect(window.location.search).toBe("?page=initial-page");
   });
 
   it("탭 클릭 영역은 포인터와 press scale 피드백을 사용한다", () => {

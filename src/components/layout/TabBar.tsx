@@ -25,6 +25,7 @@ import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 
 const CLOSE_LC_SCHEDULER_EVENT = "quicknote:close-lc-scheduler";
+const LC_SCHEDULER_HISTORY_FLAG = "qnLCSchedulerModal";
 const TAB_CONTEXT_MENU_WIDTH = 224;
 const TAB_CONTEXT_MENU_HEIGHT = 224;
 const CONTEXT_MENU_PADDING = 8;
@@ -57,6 +58,28 @@ let lcSchedulerModalPromise: Promise<LCSchedulerModalModule> | null = null;
 function preloadLCSchedulerModal(): Promise<LCSchedulerModalModule> {
   lcSchedulerModalPromise ??= import("../scheduler/LCSchedulerModal");
   return lcSchedulerModalPromise;
+}
+
+function getHistoryStateRecord(): Record<string, unknown> {
+  const state = window.history.state;
+  return state && typeof state === "object" ? { ...(state as Record<string, unknown>) } : {};
+}
+
+function currentHistoryEntryIsLCScheduler(): boolean {
+  return Boolean(getHistoryStateRecord()[LC_SCHEDULER_HISTORY_FLAG]);
+}
+
+function pushLCSchedulerHistoryEntry(): void {
+  if (currentHistoryEntryIsLCScheduler()) return;
+  try {
+    window.history.pushState(
+      { ...getHistoryStateRecord(), [LC_SCHEDULER_HISTORY_FLAG]: true },
+      "",
+      window.location.href,
+    );
+  } catch {
+    /* noop */
+  }
 }
 
 const LCSchedulerModal = lazy(() =>
@@ -170,6 +193,17 @@ export function TabBar() {
       return;
     }
   }, [currentWorkspaceId, schedulerOpen, setCurrentWorkspaceId, setSchedulerOpen]);
+
+  useEffect(() => {
+    if (!schedulerOpen) return;
+    pushLCSchedulerHistoryEntry();
+    const handleBrowserBack = () => {
+      if (!useSchedulerViewStore.getState().schedulerOpen) return;
+      setSchedulerOpen(false);
+    };
+    window.addEventListener("popstate", handleBrowserBack);
+    return () => window.removeEventListener("popstate", handleBrowserBack);
+  }, [schedulerOpen, setSchedulerOpen]);
 
   useEffect(() => {
     const handleCloseScheduler = (event: Event) => {
