@@ -6,9 +6,11 @@
 |------|------|
 | `src/store/databaseStore.ts` | 행·열·뷰 상태 |
 | `src/store/databaseViewPrefsStore.ts` | 필터·정렬·패널 상태 |
+| `src/store/databaseRowIndexStore.ts` | DB별 row index snapshot + 로컬 캐시 |
 | `src/components/database/DatabaseBlockView.tsx` | DB 블록 진입점 |
 | `src/components/database/DatabaseTableView.tsx` | 테이블 뷰 |
 | `src/components/database/DatabaseTimelineView.tsx` | 타임라인 뷰 |
+| `src/components/database/useOpenDatabaseRow.ts` | cached-only row 클릭 시 본문 로드 보장 |
 | `src/lib/database/` | 스키마·셀 로직·필터 쿼리 |
 | `infra/lambda/template-automation/` | DB 템플릿 자동 생성 runner |
 
@@ -32,4 +34,5 @@ Text, Number, Select, MultiSelect, Date, Checkbox, Person, Relation 등 → [cel
 - [views.md](views.md)
 - [cells.md](cells.md)
 - [filters-sort.md](filters-sort.md)
+- [row-index-cache.md](row-index-cache.md)
 - [template-automation.md](template-automation.md)

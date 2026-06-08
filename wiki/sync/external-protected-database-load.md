@@ -6,9 +6,11 @@ LC 스케줄러 워크스페이스에 속한 보호 DB(작업·마일스톤·피
 
 | 파일 | 역할 |
 |------|------|
-| `src/lib/sync/externalProtectedDatabaseLoad.ts` | `ensureExternalProtectedDatabaseLoaded`, `loadMoreExternalProtectedDatabaseRows`, scope 변환 유틸 |
+| `src/lib/sync/externalProtectedDatabaseLoad.ts` | `ensureExternalProtectedDatabaseLoaded`, `loadMoreExternalProtectedDatabaseRows`, row index warm-up, scope 변환 유틸 |
 | `src/store/databaseRowRemoteStore.ts` | nextToken·로딩 상태. persist 키 `quicknote.database-row-remote.v1` |
-| `src/lib/sync/bootstrap.ts` | `fetchDatabaseRowsBatch({ databaseId, workspaceId, organizationId?, teamId?, projectId?, assigneeId?, limit?, nextToken? })` |
+| `src/store/databaseRowIndexStore.ts` | DB별 row index snapshot + 로컬 캐시 |
+| `src/lib/database/databaseRowIndexCache.ts` | row index entry 정규화와 캐시 저장 |
+| `src/lib/sync/bootstrap.ts` | `fetchDatabaseRowsBatch(...)`, `fetchDatabaseRowIndexBatch(...)` |
 | `infra/.../handlers/pageDatabase.ts` | `listDatabaseRows` 서버 핸들러 (scope 라우팅) |
 | `infra/.../handlers/lcDatabaseRowMemberIndex.ts` | 구성원 색인 sync/remove (작업 DB 전용) |
 
@@ -46,7 +48,18 @@ loadingByDatabaseId:   Record<string, boolean>
    (scope 지정 시엔 "1회 로드" 세션 가드로 단순화, 무한로드 방지)
 4. fetchDatabaseById + fetchDatabaseRowsBatch({ ...scope, limit: 100 })
 5. applyRemotePagesToStore / applyRemoteDatabasesToStore / setNextToken(복합키)
+6. nextToken 이 있으면 fetchDatabaseRowIndexBatch 로 남은 row index 를 백그라운드 순차 로드
+7. useDatabaseRowIndexStore.upsertRows 로 로컬 row index 캐시 갱신
 ```
+
+### Row index 캐시
+
+첫 화면에는 row 본문 100개만 적용하되, 필터·정렬·검색 후보군은 row index 전체를 기준으로 계산한다. row index는 `id/workspaceId/title/icon/order/databaseId/dbCells/updatedAt` 수준의 가벼운 데이터만 저장한다.
+
+- 캐시 키: `quicknote.database-row-index.cache.${encodeURIComponent(indexKey)}.v1`
+- `indexKey`: `resolveDatabaseRowRemoteKey(databaseId, currentWorkspaceId)`
+- 소비 지점: `useProcessedRows()` + `databaseRowSources.ts`
+- 상세: [../database/row-index-cache.md](../database/row-index-cache.md)
 
 ### Schema 미지원 서버 fallback
 `getDatabase`/`listDatabaseRows` 필드 없을 때 → `loadLegacyFullProtectedDatabaseSnapshot()` 전체 로드(하위호환).
@@ -56,6 +69,8 @@ loadingByDatabaseId:   Record<string, boolean>
 - `protectedDatabaseRowsAreCached()` 는 페이지 존재뿐 아니라 **콘텐츠 적재(`contentLoaded !== false`)까지** 요구한다. 메타 baseline 은 row 를 dbCells 없이(`contentLoaded=false`) 적재하므로, 존재만으로 "완료"로 보면 셀이 빈 row 가 표시된다.
 - 홈 워크스페이스(LC 스케줄러) 내부에서도 로드한다(과거엔 skip 했음). 메타 baseline 이 row 콘텐츠를 안 내려주기 때문.
 - scope 하 "더 보기" 페이지네이션은 `DatabaseBlockView` 가 databaseId 키로만 nextToken 을 읽어 제한적 — scope 지정 시 1회 로드로 단순화. (후속 개선 여지)
+- toolbar 에 서버 데이터 강제 refresh 버튼을 두지 않는다. row index 전체 캐시 이후에는 실수로 전체 row를 다시 받는 UI가 비용·성능 리스크가 된다.
+- cached-only row 를 열 때는 `useOpenDatabaseRow`/`useEnsureDatabaseRowContent`가 `ensurePageContentLoaded`를 먼저 호출해야 한다. 실패 시 placeholder row가 있어도 피커뷰를 열지 않는다.
 
 ## 인프라 배포 (GSI 단계 추가 필수)
 
@@ -73,4 +88,5 @@ cdk deploy -c pageTableGsiDeployStage=scope-project # (기본값)
 ## 관련 위키
 - [architecture.md](architecture.md) — 분할 로드 전략 전체 그림
 - [storeApply.md](storeApply.md) — reconcileLCSchedulerRemoteSnapshot
+- [../database/row-index-cache.md](../database/row-index-cache.md) — row index 로컬 캐시와 클릭 안전장치
 - [../store/schedulerStore.md](../store/schedulerStore.md) — 스케줄러 데이터/캐시
