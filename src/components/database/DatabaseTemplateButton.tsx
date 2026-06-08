@@ -21,10 +21,7 @@ import type {
 } from "../../types/database";
 import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
 import {
-  TEMPLATE_AUTOMATION_DEFAULT_ATTEMPTS,
   TEMPLATE_AUTOMATION_DEFAULT_TIMEZONE,
-  TEMPLATE_AUTOMATION_MAX_ATTEMPTS,
-  TEMPLATE_AUTOMATION_MIN_ATTEMPTS,
   TEMPLATE_AUTOMATION_WEEKDAY_LABELS,
   normalizeTemplateAutomationConfig,
   resolveTemplateAutomationDateColumnId,
@@ -242,29 +239,29 @@ function TemplateListPanel({
                   title={automationEnabled ? "자동화 설정됨" : "자동화 설정"}
                   onClick={() => onEditAutomation(template.id)}
                   className={[
-                    "shrink-0 rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700",
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-zinc-200 dark:hover:bg-zinc-700",
                     automationEnabled ? "text-blue-600 dark:text-blue-400" : "text-zinc-400",
                   ].join(" ")}
                 >
-                  <CalendarClock size={12} />
+                  <CalendarClock size={16} />
                 </button>
                 {template.pageId && (
                   <button
                     type="button"
                     title="템플릿 페이지 편집"
                     onClick={() => onEditPage(template.pageId!)}
-                    className="shrink-0 rounded p-0.5 text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
                   >
-                    <Pencil size={11} />
+                    <Pencil size={16} />
                   </button>
                 )}
                 <button
                   type="button"
                   title="템플릿 삭제"
                   onClick={() => onDelete(template.id, pageTitle)}
-                  className="shrink-0 rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
                 >
-                  <X size={11} />
+                  <X size={16} />
                 </button>
               </li>
             );
@@ -302,7 +299,7 @@ function TemplateAutomationPanel({
   const [dateColumnId, setDateColumnId] = useState<string>(
     existing?.dateColumnId ?? "",
   );
-  const [maxAttempts, setMaxAttempts] = useState(existing?.maxAttempts ?? TEMPLATE_AUTOMATION_DEFAULT_ATTEMPTS);
+  const [endDate, setEndDate] = useState(existing?.endDate ?? "");
 
   const dateColumns = columns.filter((column) => column.type === "date");
   const resolvedDateColumnId = resolveTemplateAutomationDateColumnId(
@@ -333,7 +330,8 @@ function TemplateAutomationPanel({
         timezone,
         titlePrefix,
         dateColumnId: dateColumnId || undefined,
-        maxAttempts,
+        maxAttempts: existing?.maxAttempts,
+        endDate: endDate || null,
         updatedAt: Date.now(),
       },
       `${template.id}:weekly`,
@@ -355,7 +353,8 @@ function TemplateAutomationPanel({
         timezone,
         titlePrefix,
         dateColumnId: dateColumnId || undefined,
-        maxAttempts,
+        maxAttempts: existing?.maxAttempts,
+        endDate: endDate || null,
         updatedAt: Date.now(),
       },
       `${template.id}:weekly`,
@@ -430,16 +429,28 @@ function TemplateAutomationPanel({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              재시도
+              종료 날짜
             </span>
-            <input
-              type="number"
-              min={TEMPLATE_AUTOMATION_MIN_ATTEMPTS}
-              max={TEMPLATE_AUTOMATION_MAX_ATTEMPTS}
-              value={maxAttempts}
-              onChange={(event) => setMaxAttempts(Number(event.target.value))}
-              className="h-8 w-full rounded border border-zinc-200 bg-white px-2 text-sm text-zinc-800 outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-            />
+            <div className="flex gap-1">
+              <input
+                type="date"
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
+                aria-label={endDate ? "종료 날짜" : "종료일 없음"}
+                className="h-8 min-w-0 flex-1 rounded border border-zinc-200 bg-white px-2 text-sm text-zinc-800 outline-none focus:border-blue-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              />
+              <button
+                type="button"
+                onClick={() => setEndDate("")}
+                disabled={!endDate}
+                className="h-8 rounded border border-zinc-200 px-2 text-xs text-zinc-500 hover:bg-zinc-50 disabled:cursor-default disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              >
+                없음
+              </button>
+            </div>
+            {!endDate ? (
+              <span className="mt-1 block text-[11px] text-zinc-400">종료일 없음</span>
+            ) : null}
           </label>
         </div>
 

@@ -50,6 +50,7 @@ describe("templateAutomation", () => {
           timezone: "Asia/Seoul",
           titlePrefix: "QA",
           maxAttempts: 20,
+          endDate: "2026-06-30",
         },
         "fallback",
       ),
@@ -61,6 +62,7 @@ describe("templateAutomation", () => {
       timezone: "Asia/Seoul",
       titlePrefix: "QA",
       maxAttempts: 5,
+      endDate: "2026-06-30",
       updatedAt: undefined,
     });
   });
