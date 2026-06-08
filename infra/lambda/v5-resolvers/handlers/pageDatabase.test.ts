@@ -416,6 +416,130 @@ describe("page/database handlers", () => {
     expect(JSON.parse(result.blockComments as string).messages[0].bodyText).toBe("유지");
   });
 
+  it("upsertPage: 본문 로드 전 placeholder doc 이 기존 본문을 덮어쓰지 않는다", async () => {
+    const existingDoc = JSON.stringify({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "살아있는 본문" }],
+        },
+      ],
+    });
+    const placeholderDoc = JSON.stringify({
+      type: "doc",
+      content: [{ type: "paragraph" }],
+    });
+    const doc = mockDoc(
+      {
+        Item: {
+          id: "p1",
+          workspaceId: "ws-1",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          title: "기존 제목",
+          doc: existingDoc,
+          order: "1",
+          createdByMemberId: "m1",
+        },
+      },
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {},
+    );
+
+    await upsertPage({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "p1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "수정된 제목",
+        doc: placeholderDoc,
+        order: "1",
+        createdByMemberId: "m1",
+      },
+    });
+
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand) as PutCommand | undefined;
+    const item = putCommand?.input.Item ?? {};
+    expect(item.title).toBe("수정된 제목");
+    expect(item.doc).toBe(existingDoc);
+  });
+
+  it("upsertPage: placeholder doc 과 updatedAt 만 들어온 로드성 update 는 히스토리를 남기지 않는다", async () => {
+    const tablesWithHistory: Tables = { ...tables, PageHistory: "PH" };
+    const existingDoc = JSON.stringify({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: "살아있는 본문" }],
+        },
+      ],
+    });
+    const placeholderDoc = JSON.stringify({
+      type: "doc",
+      content: [{ type: "paragraph" }],
+    });
+    const existingPage = {
+      id: "p1",
+      workspaceId: "ws-1",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      title: "기존 제목",
+      icon: null,
+      parentId: null,
+      doc: existingDoc,
+      order: "1",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Item: existingPage },
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {},
+      {
+        Items: [
+          {
+            pageId: "p1",
+            historyId: "h1",
+            workspaceId: "ws-1",
+            kind: "page.create",
+          },
+        ],
+      },
+    );
+
+    await upsertPage({
+      doc,
+      tables: tablesWithHistory,
+      caller,
+      input: {
+        ...existingPage,
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        doc: placeholderDoc,
+      },
+    });
+
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const pagePut = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand && command.input.TableName === "P") as PutCommand | undefined;
+    expect(pagePut?.input.Item?.doc).toBe(existingDoc);
+    expect(pagePut?.input.Item?.updatedAt).toBe(existingPage.updatedAt);
+    const historyPut = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand && command.input.TableName === "PH");
+    expect(historyPut).toBeUndefined();
+  });
+
   it("upsertPage: coverImage 가 너무 크면 거부", async () => {
     const doc = mockDoc(
       { Item: undefined }, // blockComments 키 없을 때 선행 Get

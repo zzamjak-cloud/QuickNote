@@ -496,7 +496,7 @@ export function Editor({
       !tipTapJsonDocEquals(editor.schema, safePageDoc, pageDoc)
     ) {
       lastNormalizedDocRef.current = pageDoc;
-      updateDoc(effectivePageId, safePageDoc, { skipHistory: true });
+      updateDoc(effectivePageId, safePageDoc, { skipHistory: true, deferSync: true });
       return;
     }
     if (isFullPageDatabase) {

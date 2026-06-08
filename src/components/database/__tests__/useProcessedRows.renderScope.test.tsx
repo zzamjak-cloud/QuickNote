@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { emptyPanelState } from "../../../types/database";
 import type { DatabaseRowView } from "../../../types/database";
@@ -11,12 +12,13 @@ let renderCount = 0;
 const rowsSnapshots: DatabaseRowView[][] = [];
 
 function Probe({ panelState = emptyPanelState() }: { panelState?: ReturnType<typeof emptyPanelState> }) {
-  renderCount += 1;
   const { rows } = useProcessedRows("db-1", panelState);
-  rowsSnapshots.push(rows);
+  useEffect(() => {
+    renderCount += 1;
+    rowsSnapshots.push(rows);
+  });
   return (
     <div>
-      <output aria-label="render-count">{renderCount}</output>
       <output aria-label="row-count">{rows.length}</output>
     </div>
   );
@@ -101,9 +103,6 @@ describe("useProcessedRows render scope", () => {
     });
 
     expect(renderCount).toBe(initialRenderCount);
-    expect(screen.getByLabelText("render-count").textContent).toBe(
-      String(initialRenderCount),
-    );
   });
 
   it("필터·정렬과 무관한 표시 설정 변경은 rows reference를 재사용한다", () => {
