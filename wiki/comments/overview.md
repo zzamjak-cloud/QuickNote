@@ -17,6 +17,15 @@
 - 댓글 스레드는 `blockCommentStore` 에서 관리
 - 같은 행 댓글 미리보기 카드 겹침 방지: 실측 높이 기반 세로 나열 (commit `cb574c2`)
 
+## 댓글 추가 버튼 위치
+
+"+ 댓글 추가" 버튼은 페이지 제목 표시줄(`PageTitleBar`) 오른쪽 끝 즐겨찾기(Star) 버튼 왼쪽에 위치한다.
+
+- `PageTitleBar`에 `onAddComment?: () => void` prop 추가. 값이 있을 때만 `MessageSquarePlus` 아이콘 버튼 렌더.
+- 버튼 클릭 시 부모(`Editor.tsx`, `DatabaseRowPage.tsx`, `DatabaseRowPeek.tsx`)의 `addCommentSignal` 카운터를 +1.
+- `PageCommentBar`의 `openComposerSignal?: number` prop이 변경되면 `useEffect`로 작성기(composer)를 열음.
+- 댓글 없고 작성기도 닫혀 있으면 `PageCommentBar`는 `null`을 반환(빈 줄 제거).
+
 ## AppSync 연동
 - 댓글 생성/수정/삭제 → AppSync 뮤테이션
 - 실시간 댓글 수신 → AppSync 구독

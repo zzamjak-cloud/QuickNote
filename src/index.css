@@ -971,6 +971,19 @@ html.dark .qn-database-subtle-scrollbar:hover::-webkit-scrollbar-thumb {
   background: rgba(39, 39, 42, 0.15);
 }
 
+/* "None" 프리셋: 외곽 아웃라인·컬럼 구분선 모두 숨김 */
+.ProseMirror [data-column-layout][data-preset="none"],
+.dark .ProseMirror [data-column-layout][data-preset="none"] {
+  border: none;
+  background: transparent;
+}
+
+.ProseMirror
+  [data-column-layout][data-preset="none"]
+  > [data-column]:not(:last-child)::after {
+  display: none;
+}
+
 .ProseMirror [data-column-layout] > [data-column] {
   position: relative;
   padding: 2px 10px;

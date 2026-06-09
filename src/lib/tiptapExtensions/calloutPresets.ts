@@ -1,5 +1,6 @@
 /** 콜아웃 프리셋 — 의미·아이콘·색 매핑 */
 export type CalloutPresetId =
+  | "none"
   | "empty"
   | "info"
   | "warning"
@@ -7,7 +8,15 @@ export type CalloutPresetId =
   | "idea"
   | "success"
   | "note"
-  | "tip";
+  | "tip"
+  // 아이콘 없이 배경색만 적용하는 컬러칩 전용 변형
+  | "info-plain"
+  | "warning-plain"
+  | "danger-plain"
+  | "idea-plain"
+  | "success-plain"
+  | "note-plain"
+  | "tip-plain";
 
 export type CalloutPresetDef = {
   id: CalloutPresetId;
@@ -22,7 +31,7 @@ export type CalloutPresetDef = {
 export const CALLOUT_PRESETS: CalloutPresetDef[] = [
   {
     id: "empty",
-    label: "Empty",
+    label: "프레임",
     hint: "아이콘·배경 없음, 회색 테두리만",
     emoji: "",
     color: null,
@@ -73,7 +82,7 @@ export const CALLOUT_PRESETS: CalloutPresetDef[] = [
     id: "note",
     label: "노트",
     hint: "메모·기록",
-    emoji: "📝",
+    emoji: "📓",
     color: "#eeeaf9",
     frameClass: "border bg-[#eeeaf9] shadow-none ring-0",
   },
@@ -87,9 +96,44 @@ export const CALLOUT_PRESETS: CalloutPresetDef[] = [
   },
 ];
 
+/** 아이콘 없이 배경색만 적용하는 컬러칩 전용 프리셋 */
+const COLOR_ONLY_BASES = [
+  { id: "info-plain" as const,    src: "info" as const },
+  { id: "warning-plain" as const, src: "warning" as const },
+  { id: "danger-plain" as const,  src: "danger" as const },
+  { id: "idea-plain" as const,    src: "idea" as const },
+  { id: "success-plain" as const, src: "success" as const },
+  { id: "note-plain" as const,    src: "note" as const },
+  { id: "tip-plain" as const,     src: "tip" as const },
+];
+
+export const CALLOUT_COLOR_CHIP_PRESETS: CalloutPresetDef[] = COLOR_ONLY_BASES.map(
+  ({ id, src }) => {
+    const base = CALLOUT_PRESETS.find((p) => p.id === src)!;
+    return { ...base, id, emoji: "" };
+  },
+);
+
 export const CALLOUT_PRESET_MAP = Object.fromEntries(
-  CALLOUT_PRESETS.map((p) => [p.id, p]),
+  [...CALLOUT_PRESETS, ...CALLOUT_COLOR_CHIP_PRESETS].map((p) => [p.id, p]),
 ) as Record<CalloutPresetId, CalloutPresetDef>;
+
+/**
+ * 컬럼 레이아웃 전용 프리셋 목록.
+ * - 최상단 "None": 아웃라인까지 완전히 숨김 (CSS [data-preset="none"] 처리)
+ * - "empty"는 컬럼에서 아웃라인만 남기므로 라벨을 "프레임"으로 노출
+ */
+export const COLUMN_LAYOUT_PRESETS: CalloutPresetDef[] = [
+  {
+    id: "none",
+    label: "None",
+    hint: "아웃라인 숨김",
+    emoji: "",
+    color: null,
+    frameClass: "border-none bg-transparent shadow-none ring-0",
+  },
+  ...CALLOUT_PRESETS,
+];
 
 const LEGACY_EMOJI_TO_PRESET: Record<string, CalloutPresetId> = {
   "💡": "idea",
@@ -97,7 +141,7 @@ const LEGACY_EMOJI_TO_PRESET: Record<string, CalloutPresetId> = {
   "⚠️": "warning",
   "⛔": "danger",
   "✅": "success",
-  "📝": "note",
+  "📓": "note",
   "💬": "tip",
 };
 

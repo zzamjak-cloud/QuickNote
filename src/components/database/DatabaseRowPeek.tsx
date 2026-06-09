@@ -169,6 +169,7 @@ export function DatabaseRowPeek() {
   const titleDraftRef = useRef(titleDraft);
   const [width, setWidth] = useState<number>(() => loadPeekWidth());
   const [menuOpen, setMenuOpen] = useState(false);
+  const [addCommentSignal, setAddCommentSignal] = useState(0);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -670,13 +671,14 @@ export function DatabaseRowPeek() {
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                   }}
                   onIconChange={(icon) => setIcon(peekPageId, icon)}
+                  onAddComment={() => setAddCommentSignal((n) => n + 1)}
                   defaultIcon={<FileText size={56} className="text-zinc-400" />}
                 />
               </div>
               {isDbRow && databaseId && (
                 <DbPropertySection databaseId={databaseId} pageId={peekPageId} />
               )}
-              <PageCommentBar pageId={peekPageId} />
+              <PageCommentBar pageId={peekPageId} openComposerSignal={addCommentSignal} />
             </div>
           </div>
         </div>

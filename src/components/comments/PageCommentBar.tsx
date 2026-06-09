@@ -14,6 +14,8 @@ export const PAGE_COMMENT_SENTINEL = "__page__";
 
 type Props = {
   pageId: string;
+  /** 외부(제목 표시줄의 "댓글 추가" 버튼)에서 입력창을 열기 위한 신호. 값이 증가하면 입력창을 연다. */
+  openComposerSignal?: number;
 };
 
 function formatTime(ms: number): string {
@@ -25,7 +27,7 @@ function formatTime(ms: number): string {
   });
 }
 
-export function PageCommentBar({ pageId }: Props) {
+export function PageCommentBar({ pageId, openComposerSignal }: Props) {
   const addMessage = useBlockCommentStore((s) => s.addMessage);
   const updateMessage = useBlockCommentStore((s) => s.updateMessage);
   const deleteMessage = useBlockCommentStore((s) => s.deleteMessage);
@@ -53,6 +55,14 @@ export function PageCommentBar({ pageId }: Props) {
   // 입력창 표시 토글 — 접혀 있을 때 클릭하면 펼치고 입력창 포커스
   const [composerVisible, setComposerVisible] = useState(false);
 
+  // 제목 표시줄의 "댓글 추가" 버튼 신호 — 값이 바뀌면 입력창을 연다.
+  useEffect(() => {
+    if (openComposerSignal && openComposerSignal > 0) {
+      setComposerVisible(true);
+      setExpanded(true);
+    }
+  }, [openComposerSignal]);
+
   const memberName = (id: string) =>
     members.find((m) => m.memberId === id)?.name ?? "구성원";
 
@@ -72,44 +82,40 @@ export function PageCommentBar({ pageId }: Props) {
 
   const hasComments = messages.length > 0;
 
+  // 댓글도 없고 입력창도 닫혀 있으면 아무것도 렌더하지 않는다.
+  // (추가 진입점은 제목 표시줄의 "댓글 추가" 버튼으로 일원화 — 불필요한 라인 제거)
+  if (!hasComments && !composerVisible) return null;
+
   return (
     <div data-qn-page-comment className="mt-2 mb-1 border-t border-zinc-100 pt-2 dark:border-zinc-800">
-      {/* 댓글 헤더 행 */}
-      <div className="flex items-center gap-2">
-        <MessageSquare size={15} className="shrink-0 text-zinc-400" />
-        {hasComments && !expanded && (
-          <button
-            type="button"
-            onClick={() => setExpanded(true)}
-            className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-          >
-            {messages.length}개 보기
-          </button>
-        )}
-        {expanded && hasComments && (
-          <button
-            type="button"
-            onClick={() => { userCollapsedRef.current = true; setExpanded(false); }}
-            className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-          >
-            접기
-          </button>
-        )}
-        {/* 댓글 추가 버튼 — 컴포저가 닫혀 있을 때만 표시 */}
-        {!composerVisible && (
-          <button
-            type="button"
-            onClick={() => { setComposerVisible(true); if (hasComments) setExpanded(true); }}
-            className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-          >
-            + 댓글 추가
-          </button>
-        )}
-      </div>
+      {/* 댓글 헤더 행 — 댓글이 있을 때만 (보기/접기) */}
+      {hasComments && (
+        <div className="flex items-center gap-2">
+          <MessageSquare size={15} className="shrink-0 text-zinc-400" />
+          {!expanded && (
+            <button
+              type="button"
+              onClick={() => setExpanded(true)}
+              className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            >
+              {messages.length}개 보기
+            </button>
+          )}
+          {expanded && (
+            <button
+              type="button"
+              onClick={() => { userCollapsedRef.current = true; setExpanded(false); }}
+              className="text-sm text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+            >
+              접기
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 댓글 입력 컴포저 — @ 멘션 지원 */}
       {composerVisible && (
-        <div className="mt-2">
+        <div className={hasComments ? "mt-2" : ""}>
           <CommentComposer
             autoFocus
             placeholder="댓글 입력 (@ 로 멘션 검색) — Enter 전송, Shift+Enter 줄바꿈"

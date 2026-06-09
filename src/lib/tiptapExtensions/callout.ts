@@ -1,9 +1,11 @@
 import { Node, mergeAttributes } from "@tiptap/core";
+import { ReactNodeViewRenderer } from "@tiptap/react";
 import {
   type CalloutPresetId,
   CALLOUT_PRESET_MAP,
   presetFromLegacyEmoji,
 } from "./calloutPresets";
+import { CalloutNodeView } from "./CalloutNodeView";
 
 export const Callout = Node.create({
   name: "callout",
@@ -29,6 +31,14 @@ export const Callout = Node.create({
           "data-preset": String(attrs.preset ?? "idea"),
         }),
       },
+      // 사용자가 직접 지정한 아이콘 — null 이면 프리셋 기본 이모지 사용
+      emoji: {
+        default: null,
+        parseHTML: (el) =>
+          (el as HTMLElement).getAttribute("data-emoji-override") ?? null,
+        renderHTML: (attrs) =>
+          attrs.emoji ? { "data-emoji-override": String(attrs.emoji) } : {},
+      },
     };
   },
 
@@ -49,6 +59,8 @@ export const Callout = Node.create({
   renderHTML({ HTMLAttributes, node }) {
     const presetId = (node.attrs.preset as CalloutPresetId) ?? "idea";
     const def = CALLOUT_PRESET_MAP[presetId] ?? CALLOUT_PRESET_MAP.idea;
+    // 사용자 지정 아이콘 우선, 없으면 프리셋 기본 이모지
+    const displayEmoji = (node.attrs.emoji as string | null) || def.emoji;
 
     const rootAttrs = mergeAttributes(HTMLAttributes, {
       "data-callout": "",
@@ -66,7 +78,7 @@ export const Callout = Node.create({
             ].join(" "),
     });
 
-    if (presetId === "empty") {
+    if (!displayEmoji) {
       return [
         "div",
         rootAttrs,
@@ -84,7 +96,7 @@ export const Callout = Node.create({
         contenteditable: "false",
         class: "callout-emoji shrink-0 select-none text-xl leading-7",
       },
-      def.emoji,
+      displayEmoji,
     ];
 
     return [
@@ -99,6 +111,10 @@ export const Callout = Node.create({
     ];
   },
 
+  addNodeView() {
+    return ReactNodeViewRenderer(CalloutNodeView);
+  },
+
   addCommands() {
     return {
       setCallout:
@@ -111,8 +127,16 @@ export const Callout = Node.create({
           }),
       updateCalloutPreset:
         (preset: CalloutPresetId) =>
+        ({ commands }) => {
+          // plain 컬러칩 변형은 색만 바꾸고 이모지 유지, 일반 프리셋은 이모지 초기화
+          const attrs: Record<string, unknown> = { preset };
+          if (!preset.endsWith("-plain")) attrs.emoji = null;
+          return commands.updateAttributes(this.name, attrs);
+        },
+      updateCalloutEmoji:
+        (emoji: string | null) =>
         ({ commands }) =>
-          commands.updateAttributes(this.name, { preset }),
+          commands.updateAttributes(this.name, { emoji }),
     };
   },
 });
@@ -122,6 +146,7 @@ declare module "@tiptap/core" {
     callout: {
       setCallout: (preset?: CalloutPresetId) => ReturnType;
       updateCalloutPreset: (preset: CalloutPresetId) => ReturnType;
+      updateCalloutEmoji: (emoji: string | null) => ReturnType;
     };
   }
 }

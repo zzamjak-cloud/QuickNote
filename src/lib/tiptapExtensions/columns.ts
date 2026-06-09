@@ -78,18 +78,19 @@ export const ColumnLayout = Node.create({
     const count = Math.min(4, Math.max(2, n));
     const presetId = (node.attrs.preset as CalloutPresetId) ?? "empty";
     const preset = CALLOUT_PRESET_MAP[presetId] ?? CALLOUT_PRESET_MAP.empty;
-    // 컬럼 블럭 기본 외곽은 매우 연한 라운드 아웃라인을 유지한다.
-    const frameClass =
-      presetId === "empty"
-        ? "bg-transparent shadow-none ring-0"
-        : preset.frameClass;
+    // empty=연한 아웃라인만 유지, none=아웃라인까지 숨김(CSS [data-preset="none"]).
+    // 둘 다 배경색·그림자는 없다.
+    const isPlain = presetId === "empty" || presetId === "none";
+    const frameClass = isPlain
+      ? "bg-transparent shadow-none ring-0"
+      : preset.frameClass;
     return [
       "div",
       mergeAttributes(HTMLAttributes, {
         "data-column-layout": "",
         "data-columns": String(count),
         style:
-          presetId !== "empty" && preset.color
+          !isPlain && preset.color
             ? `background: ${preset.color}; border-color: ${preset.color};`
             : "",
         class: [
@@ -118,8 +119,23 @@ export const ColumnLayout = Node.create({
         },
       updateColumnLayoutPreset:
         (preset: CalloutPresetId) =>
-        ({ commands }) =>
-          commands.updateAttributes(this.name, { preset }),
+        ({ state, dispatch }) => {
+          // 선택된 단일 컬럼 레이아웃에만 적용한다.
+          // updateAttributes 는 NodeSelection 범위 내 모든 columnLayout(중첩 포함)을
+          // 갱신하므로, 중첩 컬럼의 프리셋이 함께 바뀌는 문제를 피한다.
+          const pos = state.selection.from;
+          const node = state.doc.nodeAt(pos);
+          if (!node || node.type.name !== this.name) return false;
+          if (dispatch) {
+            dispatch(
+              state.tr.setNodeMarkup(pos, undefined, {
+                ...node.attrs,
+                preset,
+              }),
+            );
+          }
+          return true;
+        },
     };
   },
 

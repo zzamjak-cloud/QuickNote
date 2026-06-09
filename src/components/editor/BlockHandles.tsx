@@ -26,7 +26,9 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  CALLOUT_COLOR_CHIP_PRESETS,
   CALLOUT_PRESETS,
+  COLUMN_LAYOUT_PRESETS,
   type CalloutPresetId,
 } from "../../lib/tiptapExtensions/calloutPresets";
 import {
@@ -198,6 +200,27 @@ export function BlockHandles({
   const textColorSubmenuRef = useRef<HTMLDivElement | null>(null);
   const bgSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
   const bgSubmenuRef = useRef<HTMLDivElement | null>(null);
+  // 하위 메뉴 hover-intent — 트리거와 서브메뉴 사이의 간격(SUBMENU_GAP_PX·세로 오프셋)을
+  // 지날 때 mouseleave 로 즉시 닫혀 버려 항목을 고를 수 없는 문제를 막는다.
+  // 닫힘을 약간 지연시키고, 서브메뉴에 재진입하면 취소한다.
+  const submenuCloseTimers = useRef<Map<(v: boolean) => void, number>>(new Map());
+  const openSubmenu = useCallback((setOpen: (v: boolean) => void) => {
+    const existing = submenuCloseTimers.current.get(setOpen);
+    if (existing != null) {
+      window.clearTimeout(existing);
+      submenuCloseTimers.current.delete(setOpen);
+    }
+    setOpen(true);
+  }, []);
+  const closeSubmenuSoon = useCallback((setOpen: (v: boolean) => void) => {
+    const existing = submenuCloseTimers.current.get(setOpen);
+    if (existing != null) window.clearTimeout(existing);
+    const id = window.setTimeout(() => {
+      setOpen(false);
+      submenuCloseTimers.current.delete(setOpen);
+    }, 160);
+    submenuCloseTimers.current.set(setOpen, id);
+  }, []);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
   const globalActivePageId = usePageStore((s) => s.activePageId);
   // pageId prop 우선 — 피크 뷰처럼 활성 페이지와 다른 페이지를 편집할 때 정확한 페이지 ID 사용
@@ -408,6 +431,8 @@ export function BlockHandles({
 
   useLayoutEffect(() => {
     if (!menuOpen) {
+      submenuCloseTimers.current.forEach((id) => window.clearTimeout(id));
+      submenuCloseTimers.current.clear();
       setSubmenuStyles({});
       setPresetOpen(false);
       setTypeMenuOpen(false);
@@ -1137,8 +1162,8 @@ export function BlockHandles({
                   >
                     <button
                       type="button"
-                      onMouseEnter={() => setTypeMenuOpen(true)}
-                      onMouseLeave={() => setTypeMenuOpen(false)}
+                      onMouseEnter={() => openSubmenu(setTypeMenuOpen)}
+                      onMouseLeave={() => closeSubmenuSoon(setTypeMenuOpen)}
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <span className="flex items-center gap-2">
@@ -1152,8 +1177,8 @@ export function BlockHandles({
                         ref={typeSubmenuRef}
                         className="absolute left-full top-0 z-50 w-44 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                         style={submenuStyles.type}
-                        onMouseEnter={() => setTypeMenuOpen(true)}
-                        onMouseLeave={() => setTypeMenuOpen(false)}
+                        onMouseEnter={() => openSubmenu(setTypeMenuOpen)}
+                        onMouseLeave={() => closeSubmenuSoon(setTypeMenuOpen)}
                       >
                         {isToggleBlock ? (
                           <>
@@ -1231,8 +1256,8 @@ export function BlockHandles({
                   <div ref={presetSubmenuAnchorRef} className="relative">
                     <button
                       type="button"
-                      onMouseEnter={() => setPresetOpen(true)}
-                      onMouseLeave={() => setPresetOpen(false)}
+                      onMouseEnter={() => openSubmenu(setPresetOpen)}
+                      onMouseLeave={() => closeSubmenuSoon(setPresetOpen)}
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <span className="flex items-center gap-2">
@@ -1246,9 +1271,10 @@ export function BlockHandles({
                         ref={presetSubmenuRef}
                         className="absolute left-full top-0 z-50 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                         style={submenuStyles.preset}
-                        onMouseEnter={() => setPresetOpen(true)}
-                        onMouseLeave={() => setPresetOpen(false)}
+                        onMouseEnter={() => openSubmenu(setPresetOpen)}
+                        onMouseLeave={() => closeSubmenuSoon(setPresetOpen)}
                       >
+                        {/* 전체 프리셋 목록 — 아이콘+라벨 행 */}
                         {CALLOUT_PRESETS.map((p) => (
                           <button
                             key={p.id}
@@ -1266,6 +1292,20 @@ export function BlockHandles({
                             </span>
                           </button>
                         ))}
+                        {/* 컬러칩 — 아이콘 없이 배경색만 적용 */}
+                        <div className="flex flex-wrap gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
+                          {CALLOUT_COLOR_CHIP_PRESETS.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => applyCalloutPreset(p.id)}
+                              title={p.label}
+                              aria-label={p.label}
+                              className="h-5 w-5 shrink-0 rounded-full border border-zinc-300 transition hover:scale-110 dark:border-zinc-600"
+                              style={{ backgroundColor: p.color ?? undefined }}
+                            />
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1276,8 +1316,8 @@ export function BlockHandles({
                   <div ref={presetSubmenuAnchorRef} className="relative">
                     <button
                       type="button"
-                      onMouseEnter={() => setPresetOpen(true)}
-                      onMouseLeave={() => setPresetOpen(false)}
+                      onMouseEnter={() => openSubmenu(setPresetOpen)}
+                      onMouseLeave={() => closeSubmenuSoon(setPresetOpen)}
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <span className="flex items-center gap-2">
@@ -1291,26 +1331,36 @@ export function BlockHandles({
                         ref={presetSubmenuRef}
                         className="absolute left-full top-0 z-50 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                         style={submenuStyles.preset}
-                        onMouseEnter={() => setPresetOpen(true)}
-                        onMouseLeave={() => setPresetOpen(false)}
+                        onMouseEnter={() => openSubmenu(setPresetOpen)}
+                        onMouseLeave={() => closeSubmenuSoon(setPresetOpen)}
                       >
-                        {CALLOUT_PRESETS.map((p) => (
+                        {/* None·프레임 텍스트 행 (색 없는 옵션) */}
+                        {COLUMN_LAYOUT_PRESETS.filter((p) => p.color == null).map((p) => (
                           <button
                             key={p.id}
                             type="button"
                             onClick={() => applyColumnLayoutPreset(p.id)}
-                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            className="flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                           >
-                            <span className="w-6 shrink-0 text-center text-base leading-6">
-                              {p.emoji || "·"}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="font-medium text-zinc-800 dark:text-zinc-100">
-                                {p.label}
-                              </span>
+                            <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                              {p.label}
                             </span>
                           </button>
                         ))}
+                        {/* 컬러칩 — 아이콘 없이 배경색만 적용 */}
+                        <div className="flex flex-wrap gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
+                          {COLUMN_LAYOUT_PRESETS.filter((p) => p.color != null).map((p) => (
+                            <button
+                              key={`chip-${p.id}`}
+                              type="button"
+                              onClick={() => applyColumnLayoutPreset(p.id)}
+                              title={p.label}
+                              aria-label={p.label}
+                              className="h-5 w-5 shrink-0 rounded-full border border-zinc-300 transition hover:scale-110 dark:border-zinc-600"
+                              style={{ backgroundColor: p.color ?? undefined }}
+                            />
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1381,8 +1431,8 @@ export function BlockHandles({
                   <div ref={textColorSubmenuAnchorRef} className="relative">
                     <button
                       type="button"
-                      onMouseEnter={() => setTextColorOpen(true)}
-                      onMouseLeave={() => setTextColorOpen(false)}
+                      onMouseEnter={() => openSubmenu(setTextColorOpen)}
+                      onMouseLeave={() => closeSubmenuSoon(setTextColorOpen)}
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <span className="flex items-center gap-2">
@@ -1396,8 +1446,8 @@ export function BlockHandles({
                         ref={textColorSubmenuRef}
                         className="absolute left-full top-0 z-50 w-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                         style={submenuStyles.textColor}
-                        onMouseEnter={() => setTextColorOpen(true)}
-                        onMouseLeave={() => setTextColorOpen(false)}
+                        onMouseEnter={() => openSubmenu(setTextColorOpen)}
+                        onMouseLeave={() => closeSubmenuSoon(setTextColorOpen)}
                       >
                         <button
                           type="button"
@@ -1432,8 +1482,8 @@ export function BlockHandles({
                   <div ref={bgSubmenuAnchorRef} className="relative">
                     <button
                       type="button"
-                      onMouseEnter={() => setBgOpen(true)}
-                      onMouseLeave={() => setBgOpen(false)}
+                      onMouseEnter={() => openSubmenu(setBgOpen)}
+                      onMouseLeave={() => closeSubmenuSoon(setBgOpen)}
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <span className="flex items-center gap-2">
@@ -1447,8 +1497,8 @@ export function BlockHandles({
                         ref={bgSubmenuRef}
                         className="absolute left-full top-0 z-50 w-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                         style={submenuStyles.background}
-                        onMouseEnter={() => setBgOpen(true)}
-                        onMouseLeave={() => setBgOpen(false)}
+                        onMouseEnter={() => openSubmenu(setBgOpen)}
+                        onMouseLeave={() => closeSubmenuSoon(setBgOpen)}
                       >
                         <button
                           type="button"

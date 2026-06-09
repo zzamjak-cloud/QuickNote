@@ -82,7 +82,7 @@ export function PageCoverImage({
   // 커버 이미지가 있을 때: S3 ref · 레거시 data URL 모두 표시
   return (
     <div
-      className="relative h-40 w-full overflow-hidden"
+      className="relative h-60 w-full overflow-hidden"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();

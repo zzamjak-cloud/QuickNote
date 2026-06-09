@@ -187,6 +187,8 @@ export function Editor({
   const dbTitleBaselineRef = useRef("");
   const debounceRef = useRef<number | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
+  // 제목 표시줄 "댓글 추가" 버튼 → PageCommentBar 입력창 열기 신호
+  const [addCommentSignal, setAddCommentSignal] = useState(0);
   const titleDraftRef = useRef("");
   const setTitleDraftValue = useCallback((next: string) => {
     titleDraftRef.current = next;
@@ -987,6 +989,7 @@ export function Editor({
                 }}
                 onIconChange={(icon) => setIcon(effectivePageId, icon)}
                 onIconUploadMessage={(msg) => setSimpleAlert(msg)}
+                onAddComment={() => setAddCommentSignal((n) => n + 1)}
                 defaultIcon={
                   isFullPageDatabase
                     ? <Database size={56} className="text-zinc-400" />
@@ -996,7 +999,10 @@ export function Editor({
             </div>
             {/* 페이지 레벨 댓글 — 제목 바로 아래 */}
             <div className="px-12">
-              <PageCommentBar pageId={effectivePageId ?? pageId ?? ""} />
+              <PageCommentBar
+                pageId={effectivePageId ?? pageId ?? ""}
+                openComposerSignal={addCommentSignal}
+              />
             </div>
           </>
         )}

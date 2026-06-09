@@ -69,7 +69,7 @@
 | `bookmark` | bookmarkBlock | embed | leaf | media | — |
 | `callout` | callout | text | container | container | flattenBeforeTypeChange |
 | `toggle` | toggle, toggleHeader, toggleContent | text | container | container | flattenBeforeTypeChange |
-| `columns` | columnLayout, column | layout | container (allowInsideColumns: false) | container | suppressBlockHandle |
+| `columns` | columnLayout, column | layout | container (allowInsideColumns: true) | container | suppressBlockHandle |
 | `tabs` | tabBlock, tabPanel | layout | container | container | suppressBlockHandle |
 | `youtube` | youtube | embed | leaf | media | excludeFromUniqueId |
 | `emoji` | emoji, lucideInlineIcon | interactive | leaf | none | excludeFromUniqueId |
@@ -89,5 +89,5 @@ getSlashMenuEntries()                   // 슬래시 메뉴 전체 항목 반환
 ## 주의사항
 
 - `nodeTypes` 배열에 나열된 모든 노드 이름은 `blockDefinitionByNodeType` 맵에 등록된다. 여러 노드 타입이 같은 `BlockDefinition`을 공유한다 (예: list).
-- `columns` 블록의 `allowInsideColumns: false`는 컬럼 안에 컬럼을 중첩하는 것을 금지하는 유일한 예외다.
+- `columns` 블록의 `allowInsideColumns: true` — 컬럼 안에 컬럼 중첩이 허용된다. (이전에는 false로 금지했으나, 중첩 지원으로 변경)
 - `slashTitles` 필드는 deprecated. `command.slashTitles`를 사용한다.

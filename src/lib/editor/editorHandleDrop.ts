@@ -281,10 +281,6 @@ function moveSelectedBlockIntoColumn(
   if (!isDropInsideColumn(event)) return false;
   const sel = view.state.selection;
   if (!(sel instanceof NodeSelection)) return false;
-  if (sel.node.type.name === "columnLayout") {
-    event.preventDefault();
-    return true;
-  }
   const shape = draggedBlockShape(view, sel.from, sel.node);
   if (!shape) return false;
 
@@ -334,10 +330,6 @@ function moveSingleQuickNoteBlockFromDrop(
 ): boolean {
   const node = view.state.doc.nodeAt(start);
   if (!node || !node.isBlock) return false;
-  if (isDropInsideColumn(event) && node.type.name === "columnLayout") {
-    event.preventDefault();
-    return true;
-  }
   const shape = draggedBlockShape(view, start, node);
   if (!shape) return false;
   const listInsertAt = listItemInsertionPosFromDrop(view, event, shape);
@@ -462,13 +454,6 @@ function moveQuickNoteBlocksFromDrop(
 
   if (blocks.length === 0) {
     return false;
-  }
-  if (
-    isDropInsideColumn(event) &&
-    blocks.some((block) => block.node.type.name === "columnLayout")
-  ) {
-    event.preventDefault();
-    return true;
   }
   const insertAt = topLevelInsertionPosFromDrop(
     view,

@@ -3,7 +3,7 @@
 import { isGifFile } from "../files/videoCompress";
 
 /**
- * 페이지 커버 배너(에디터 상단 `h-40` 스트립, `object-cover`)에 맞춘 가로형 비율.
+ * 페이지 커버 배너(에디터 상단 `h-60` 스트립, `object-cover`)에 맞춘 가로형 비율.
  * 일반 본문 이미지(1920×3840 박스)와 다르게 좁은 띠만 쓰이므로 세로 해상도를 줄여 용량을 아낀다.
  */
 const COVER_BANNER_ASPECT_W_PER_H = 4;

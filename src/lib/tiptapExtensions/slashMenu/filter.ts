@@ -13,8 +13,8 @@ const CONTEXT_BLOCK_RULES: Record<string, string[]> = {
   tableHeader: ["tabBlock", "columnLayout", "table", "youtube", "image", "dbInline", "dbFullPage", "callout", "toggle", "headingToggle1", "headingToggle2", "headingToggle3", "codeBlock"],
   // 탭 패널 안: 탭·DB 차단 (중첩 탭 및 너비 충돌)
   tabPanel: ["tabBlock", "dbInline", "dbFullPage"],
-  // 컬럼 안: 컬럼·표·탭 차단 (중첩·너비 충돌)
-  column: ["columnLayout", "table", "tabBlock"],
+  // 컬럼 안: 표·탭 차단 (너비 충돌). 컬럼 중첩은 허용.
+  column: ["table", "tabBlock"],
 };
 
 function getBlockedIds(editor: Editor): Set<string> {

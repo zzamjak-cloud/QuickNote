@@ -7,8 +7,8 @@ describe("block dnd policy", () => {
     expect(canDropNodeTypeInContainers("fileBlock", ["tabPanel"])).toBe(true);
   });
 
-  it("blocks column layouts from being dropped inside columns", () => {
-    expect(canDropNodeTypeInContainers("columnLayout", ["column"])).toBe(false);
+  it("allows column layouts to be dropped inside columns (중첩 허용)", () => {
+    expect(canDropNodeTypeInContainers("columnLayout", ["column"])).toBe(true);
   });
 
   it("allows column layouts at document level and inside tabs", () => {

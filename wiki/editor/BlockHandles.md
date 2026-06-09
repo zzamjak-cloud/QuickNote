@@ -85,6 +85,42 @@
 ### 이 파일을 사용하는 컴포넌트
 - `Editor.tsx` — 에디터 내부에서 렌더
 
+## 서브메뉴 hover-intent (깜빡임 방지)
+
+트리거 요소와 서브메뉴 사이에 약간의 공백이 있어, 마우스가 공백을 지나는 순간 `onMouseLeave`가 발생하고 서브메뉴가 사라지는 현상이 있었다.
+
+**해결**: 160ms 지연 닫기 + 재진입 시 타이머 취소 패턴으로 처리.
+
+```ts
+const submenuCloseTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+function openSubmenu(key: string, setter: (v: boolean) => void) {
+  clearTimeout(submenuCloseTimers.current[key]);
+  setter(true);
+}
+function closeSubmenuSoon(key: string, setter: (v: boolean) => void) {
+  submenuCloseTimers.current[key] = setTimeout(() => setter(false), 160);
+}
+```
+
+모든 서브메뉴(`preset`, `bgColor`, `textColor`, `widthRatio`, `columnPreset`, `calloutPreset`, `calloutChip`, `columnChip`)의 `onMouseEnter`/`onMouseLeave`에 이 패턴을 적용한다.
+
+## 컬럼 블럭 프리셋 서브메뉴
+
+`columnLayout` 블럭 컨텍스트 메뉴의 "프리셋" 항목에서 접근하는 서브메뉴:
+
+- **None / 프레임 행**: `COLUMN_LAYOUT_PRESETS`에서 `none`(아웃라인 숨김)과 `empty`(회색 테두리) 2개를 텍스트 행으로 표시.
+- **컬러칩 그리드**: `CALLOUT_COLOR_CHIP_PRESETS` 7개를 원형 컬러칩으로 표시. 클릭 시 아이콘 없이 배경색만 적용.
+- 프리셋 적용 커맨드: `editor.commands.updateColumnLayoutPreset(presetId)` — `setNodeMarkup`으로 선택된 노드만 대상(중첩 컬럼 격리).
+
+## 콜아웃 블럭 프리셋 서브메뉴
+
+`callout` 블럭 컨텍스트 메뉴의 "프리셋" 항목에서 접근하는 서브메뉴:
+
+- **아이콘+라벨 행**: `CALLOUT_PRESETS` 전체(empty/"프레임" 포함)를 이모지+이름 행으로 표시.
+- **컬러칩 그리드**: `CALLOUT_COLOR_CHIP_PRESETS` 7개를 원형 컬러칩으로 표시. 클릭 시 아이콘 없이 배경색만 적용(`-plain` 접미사 presetId).
+- 프리셋 적용 커맨드: `editor.commands.updateCalloutPreset(presetId)` — `-plain` 계열은 emoji 유지, 일반 계열은 `emoji: null` 리셋.
+
 ## 주의사항
 - **`pageId` prop 우선**: 피크 뷰처럼 `activePageId`와 다른 페이지를 편집할 때 `pageId` prop을 명시적으로 전달해야 올바른 페이지 ID를 사용한다.
 - **`dragCommittedRef`**: 드래그와 클릭을 구분하는 ref. `pointerdown` 후 일정 거리 이상 이동 시 `true`로 전환되어 `pointerup` 시 클릭 이벤트를 차단한다.

@@ -174,3 +174,73 @@ TipTap 확장 기반 블록 타입 설명. 각 항목은 `src/lib/tiptapExtensio
 
 `@tiptap/extension-code-block-lowlight` 기반. 별도 커스텀 파일 없음.
 - registry id: `codeBlock`, nodeType: `codeBlock`, toolbar: `text`, dnd: leaf.
+
+---
+
+## callout (callout.ts + CalloutNodeView.tsx)
+
+- TipTap name: `callout`
+- group: `block`, content: `block+`, isolating: true, defining: true
+- registry id: `callout`, toolbar: `container`, flattenBeforeTypeChange: true
+- 렌더: `ReactNodeViewRenderer(CalloutNodeView)`
+
+### addAttributes
+
+| 속성 | 기본값 | HTML 속성 | 설명 |
+|------|--------|-----------|------|
+| `preset` | `"idea"` | `data-preset` | `CalloutPresetId` — 프리셋 종류 |
+| `emoji` | `null` | `data-emoji-override` | 사용자가 직접 지정한 아이콘. null이면 프리셋 기본 이모지 사용 |
+
+### CalloutPresetId 목록
+
+`none` · `empty`(프레임) · `info` · `warning` · `danger` · `idea` · `success` · `note` · `tip`
+
+컬러칩 전용 plain 변형(아이콘 없음): `info-plain` · `warning-plain` · `danger-plain` · `idea-plain` · `success-plain` · `note-plain` · `tip-plain`
+
+### 아이콘 레이아웃 (CalloutNodeView)
+
+- 아이콘을 박스 내부 좌측 상단(`flex items-start gap-3`)에 배치. 크기 `1.8rem`, `drop-shadow-md`로 가독성 보조.
+- 아이콘이 없는 프리셋(`empty`, `-plain` 계열)은 아이콘 버튼 자체를 렌더하지 않음.
+- 아이콘 클릭 → `IconPickerPanel` 팝업 열림. 이모지 또는 Lucide 아이콘 선택 가능.
+- 선택된 아이콘은 `emoji` 속성에 저장(`updateAttributes({ emoji })`). Lucide는 `encodeLucidePageIcon(name, color)` 형식.
+
+### 커맨드
+
+| 커맨드 | 동작 |
+|--------|------|
+| `setCallout(preset?)` | 새 콜아웃 삽입 |
+| `updateCalloutPreset(preset)` | 프리셋 변경. `-plain` 계열은 emoji 유지, 일반 계열은 `emoji: null` 리셋 |
+| `updateCalloutEmoji(emoji\|null)` | 아이콘만 교체 |
+
+### 주의사항
+
+- `preset`이 `-plain`으로 끝나면 배경색만 변경, 기존 아이콘 유지.
+- `CALLOUT_PRESET_MAP`은 `CALLOUT_PRESETS + CALLOUT_COLOR_CHIP_PRESETS` 합집합으로 구성.
+- `presetFromLegacyEmoji(emoji)` — 구 버전 data-emoji 속성으로 저장된 콜아웃을 preset ID로 마이그레이션.
+
+---
+
+## columnLayout / column (columns.ts)
+
+- TipTap name: `columnLayout` (컨테이너), `column` (개별 열)
+- group: `block`, content: `column+` / `block+`
+- registry id: `columns`, toolbar: `container`, suppressBlockHandle: true
+- **컬럼 중첩 허용**: `allowInsideColumns: true` (슬래시 메뉴, DnD, 드래그 가드 모두 허용)
+
+### columnLayout attributes
+
+| 속성 | 기본값 | 설명 |
+|------|--------|------|
+| `preset` | `"empty"` | `CalloutPresetId` — None/프레임/컬러칩 포함 |
+
+### COLUMN_LAYOUT_PRESETS
+
+`none`(아웃라인 숨김, `[data-preset="none"]` CSS로 border/divider 숨김) + `CALLOUT_PRESETS` 전체.
+
+### updateColumnLayoutPreset 커맨드
+
+`setNodeMarkup(selection.from)` 사용 — `updateAttributes`와 달리 NodeSelection에 포함된 자식 컬럼까지 일괄 적용되는 문제를 방지. 선택된 노드 한 개만 정확히 대상.
+
+### 컬럼 중첩 허용 변경 내역
+
+슬래시 메뉴(`slashMenu/filter.ts`)의 `column` 블록 필터에서 `columnLayout` 제거, `registry.ts`에서 `allowInsideColumns: true`, `editorHandleDrop.ts` columnLayout 드롭 가드 제거.

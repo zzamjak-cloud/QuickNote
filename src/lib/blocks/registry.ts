@@ -222,7 +222,7 @@ export const blockDefinitions: BlockDefinition[] = [
     nodeTypes: ["columnLayout", "column"],
     group: "layout",
     dnd: {
-      allowInsideColumns: false,
+      allowInsideColumns: true,
       allowInsideTabs: true,
       acceptsChildren: true,
     },

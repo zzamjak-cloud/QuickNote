@@ -37,6 +37,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const titleDraftRef = useRef(titleDraft);
   const [iconAlert, setIconAlert] = useState<string | null>(null);
+  const [addCommentSignal, setAddCommentSignal] = useState(0);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
   const tailSpacerPxRef = useRef(tailSpacerPx);
 
@@ -110,12 +111,13 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
               }}
               onIconChange={(icon) => setIcon(pageId, icon)}
               onIconUploadMessage={(msg) => setIconAlert(msg)}
+              onAddComment={() => setAddCommentSignal((n) => n + 1)}
               defaultIcon={<FileText size={56} className="text-zinc-400" />}
             />
           </div>
 
           <DbPropertySection databaseId={databaseId} pageId={pageId} className="mt-3" />
-          <PageCommentBar pageId={pageId} />
+          <PageCommentBar pageId={pageId} openComposerSignal={addCommentSignal} />
         </div>
       </div>
       <Editor
