@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.29] - 2026-06-09
+
+### Changed
+
+- 데이터베이스 컬럼 타입 메뉴에 아이콘을 추가하고 JSON 타입을 선택 목록에서 숨김.
+- 페이지 연결 참조 자동화에서 값 복사·역방향 쓰기 설정을 제거하고 실효값 해석으로 동기화.
+
+### Fixed
+
+- 선택 자동화 결과가 비어 있을 때 수동 선택값을 유지하고, 참조값이 채워지면 자동화 값으로 다시 반영.
+- LC Scheduler/Feature 참조 컬럼을 sourceFromDb/itemFetch 기반으로 보정.
+
 ## [5.4.23] - 2026-06-02
 
 ### Fixed

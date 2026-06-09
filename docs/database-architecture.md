@@ -42,9 +42,6 @@ QuickNote에는 DB를 보여주는 방식이 두 가지다.
 - `progressSource`: 다른 DB row 상태를 기준으로 진행률을 계산한다. `databaseId`, `columnId`, `completedValue`, `scope`를 보존한다.
 - `pageLinkScopeDatabaseId`: page link 검색 범위를 특정 DB로 제한한다.
 - `pageLinkMirrorColumnId`: 연결 페이지에서 표시할 mirror column.
-- `pageLinkAutoReverse`: 역방향 page link 자동 생성 여부.
-- `pageLinkReverseColumnName`: 역방향 column 생성 시 이름.
-- `pageLinkAutoFill`: page link 생성 시 source column 값을 target column에 자동 채운다.
 - `searchFilters`: page link 검색 popup에서 적용할 추가 필터.
 - `itemFetchSourceDatabaseId`, `itemFetchMatchColumnId`: 현재 row title과 source DB의 match column을 비교해 관련 page를 가져온다.
 
