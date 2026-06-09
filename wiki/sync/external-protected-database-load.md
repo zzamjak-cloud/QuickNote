@@ -44,7 +44,7 @@ loadingByDatabaseId:   Record<string, boolean>
 ```
 1. resolveExternalProtectedDatabaseId → null이면 skip
 2. currentWorkspaceId 없으면 skip (홈 워크스페이스 내부에서도 로드함 — 메타 baseline 은 dbCells 를 안 줌)
-3. scope 미지정 + protectedDatabaseRowsAreCached() 완전 → skip
+3. scope 미지정 + row 캐시 완성 + nextToken 없음 → skip
    (scope 지정 시엔 "1회 로드" 세션 가드로 단순화, 무한로드 방지)
 4. fetchDatabaseById + fetchDatabaseRowsBatch({ ...scope, limit: 100 })
 5. applyRemotePagesToStore / applyRemoteDatabasesToStore / setNextToken(복합키)
@@ -59,6 +59,7 @@ loadingByDatabaseId:   Record<string, boolean>
 - 캐시 키: `quicknote.database-row-index.cache.${encodeURIComponent(indexKey)}.v1`
 - `indexKey`: `resolveDatabaseRowRemoteKey(databaseId, currentWorkspaceId)`
 - 소비 지점: `useProcessedRows()` + `databaseRowSources.ts`
+- 인라인 DB 가 `itemLimit=10`처럼 표시 개수만 충족해도 nextToken 이 남아 있으면 완료로 보지 않는다. 첫 인덱스 페이지 진입 시에도 연결된 원본 DB 의 남은 row index 를 백그라운드 warm-up 해야 날짜 정렬/필터/검색 후보군이 최신화된다.
 - 상세: [../database/row-index-cache.md](../database/row-index-cache.md)
 
 ### Schema 미지원 서버 fallback
@@ -67,6 +68,7 @@ loadingByDatabaseId:   Record<string, boolean>
 ## CRITICAL 주의사항
 
 - `protectedDatabaseRowsAreCached()` 는 페이지 존재뿐 아니라 **콘텐츠 적재(`contentLoaded !== false`)까지** 요구한다. 메타 baseline 은 row 를 dbCells 없이(`contentLoaded=false`) 적재하므로, 존재만으로 "완료"로 보면 셀이 빈 row 가 표시된다.
+- `databaseRowsAreCached()` 가 true 여도 `databaseRowRemoteStore.nextTokenByDatabaseId[indexKey]` 가 남아 있으면 전체 row 후보군은 미완성이다. 부분 캐시가 표시 설정 수량을 채웠다는 이유로 `ensureDatabaseRowsLoaded()` 를 skip 하지 않는다.
 - 홈 워크스페이스(LC 스케줄러) 내부에서도 로드한다(과거엔 skip 했음). 메타 baseline 이 row 콘텐츠를 안 내려주기 때문.
 - scope 하 "더 보기" 페이지네이션은 `DatabaseBlockView` 가 databaseId 키로만 nextToken 을 읽어 제한적 — scope 지정 시 1회 로드로 단순화. (후속 개선 여지)
 - toolbar 에 서버 데이터 강제 refresh 버튼을 두지 않는다. row index 전체 캐시 이후에는 실수로 전체 row를 다시 받는 UI가 비용·성능 리스크가 된다.
