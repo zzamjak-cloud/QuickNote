@@ -20,6 +20,7 @@ import {
   isProtectedDatabaseBlockPage,
 } from "./store/pageStore";
 import { useDatabaseStore } from "./store/databaseStore";
+import { usePageMetaRemoteStore } from "./store/pageMetaRemoteStore";
 import { useUiStore } from "./store/uiStore";
 import { useWorkspaceStore } from "./store/workspaceStore";
 import { useNavigationHistoryStore } from "./store/navigationHistoryStore";
@@ -34,6 +35,7 @@ import {
   shouldOpenInternalLinkInNewTab,
 } from "./lib/navigation/internalNavigation";
 import { navigateToBlockLink } from "./lib/editor/editorNavigationBridge";
+import { shouldAutoEnsureFullPageDatabaseHome } from "./lib/database/shouldAutoEnsureFullPageDatabaseHome";
 import {
   bindPageScrollMemory,
   flushPageScrollMemory,
@@ -86,6 +88,14 @@ function App() {
     tabDatabaseId ? (s.databases[tabDatabaseId]?.meta.title ?? null) : null,
   );
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const pageMetaNextToken = usePageMetaRemoteStore((s) =>
+    currentWorkspaceId
+      ? (s.nextTokenByWorkspaceId[currentWorkspaceId] ?? undefined)
+      : undefined,
+  );
+  const pageMetaLoading = usePageMetaRemoteStore((s) =>
+    currentWorkspaceId ? s.loadingByWorkspaceId[currentWorkspaceId] === true : false,
+  );
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const openTab = useSettingsStore((s) => s.openTab);
   const prevTab = useSettingsStore((s) => s.prevTab);
@@ -320,35 +330,50 @@ function App() {
   }, [tabDatabaseId, tabPageId, activeTabIndex, setActivePage]);
 
   useEffect(() => {
-    if (!tabDatabaseId || tabDatabasePageId || tabDatabaseTitle == null) return;
-    if (isProtectedDatabaseId(tabDatabaseId)) return;
+    if (!shouldAutoEnsureFullPageDatabaseHome({
+      currentWorkspaceId,
+      pageMetaLoading,
+      pageMetaNextToken,
+      tabDatabaseId,
+      tabDatabasePageId,
+      tabDatabaseTitle,
+      workspaceBootstrapping: useUiStore.getState().workspaceBootstrapping,
+      isProtectedDatabase: !!tabDatabaseId && isProtectedDatabaseId(tabDatabaseId),
+    })) return;
+    const databaseId = tabDatabaseId;
+    const databaseTitle = tabDatabaseTitle;
+    if (!databaseId || databaseTitle == null) return;
     // 부트스트랩(원격 페치~landing) 중에는 복원된 DB 탭으로 홈을 자동 생성하지 않는다.
     // 이 구간에 생성하면 유령 풀페이지 DB 홈이 중복 생성된다. landing 이 곧 탭을
     // 첫 인덱스 페이지로 리셋하므로, 사용자가 직접 연 DB 탭(부트 이후)만 홈을 보장한다.
-    if (useUiStore.getState().workspaceBootstrapping) return;
+    // 페이지 메타 구조 캐시가 완료되기 전에는 기존 fullPage 홈 메타를 아직 못 본 상태일 수 있다.
+    // 이 타이밍의 ensure 는 중복 홈을 만들고, 기존 메타 전용 페이지를 sidebar ghost 로 남긴다.
     if (import.meta.env.DEV) {
       const pageState = usePageStore.getState();
       const dbState = useDatabaseStore.getState();
       console.warn("[QN_FULLPAGE_DB] app-ensure-missing-tab-page", {
-        tabDatabaseId,
-        tabDatabaseTitle,
+        tabDatabaseId: databaseId,
+        tabDatabaseTitle: databaseTitle,
         activeTabIndex,
         tabDatabasePageId,
         pageCount: Object.keys(pageState.pages).length,
-        databaseRowCount: dbState.databases[tabDatabaseId]?.rowPageOrder.length ?? null,
-        existingByDoc: pageState.findFullPagePageIdForDatabase(tabDatabaseId),
+        databaseRowCount: dbState.databases[databaseId]?.rowPageOrder.length ?? null,
+        existingByDoc: pageState.findFullPagePageIdForDatabase(databaseId),
       });
     }
-    const ensuredPageId = ensureFullPagePageForDatabase(tabDatabaseId, tabDatabaseTitle);
+    const ensuredPageId = ensureFullPagePageForDatabase(databaseId, databaseTitle);
     if (import.meta.env.DEV) {
       console.warn("[QN_FULLPAGE_DB] app-ensure-result", {
-        tabDatabaseId,
+        tabDatabaseId: databaseId,
         ensuredPageId,
       });
     }
   }, [
     activeTabIndex,
+    currentWorkspaceId,
     ensureFullPagePageForDatabase,
+    pageMetaLoading,
+    pageMetaNextToken,
     tabDatabaseId,
     tabDatabasePageId,
     tabDatabaseTitle,

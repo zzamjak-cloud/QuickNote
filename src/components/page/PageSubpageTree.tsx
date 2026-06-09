@@ -3,8 +3,14 @@ import { FileText } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useUiStore } from "../../store/uiStore";
 import type { Page } from "../../types/page";
-import { findPageTreeRootId } from "./pageSubpageTreeUtils";
+import {
+  buildPageTreeRows,
+  countPageDescendants,
+  findPageTreeDatabaseContext,
+  findPageTreeRootId,
+} from "./pageSubpageTreeUtils";
 
 type TreeRow = {
   page: Page;
@@ -38,44 +44,32 @@ export function PageSubpageTree({
   const pages = usePageStore(useShallow((s) => s.pages));
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
+  const requestDatabaseTreeFocus = useUiStore((s) => s.requestDatabaseTreeFocus);
 
   const { rootId, rows, descendantCount } = useMemo(() => {
     const resolvedRootId = rootPageId ?? findPageTreeRootId(currentPageId, pages);
     if (!resolvedRootId || !pages[resolvedRootId]) {
       return { rootId: null, rows: [] as TreeRow[], descendantCount: 0 };
     }
-
-    const childrenByParent = new Map<string, Page[]>();
-    for (const page of Object.values(pages)) {
-      if (!page.parentId) continue;
-      const list = childrenByParent.get(page.parentId) ?? [];
-      list.push(page);
-      childrenByParent.set(page.parentId, list);
-    }
-    for (const list of childrenByParent.values()) {
-      list.sort((a, b) => a.order - b.order || a.title.localeCompare(b.title));
-    }
-
-    const nextRows: TreeRow[] = [];
-    let count = 0;
-    const visit = (pageId: string, depth: number): void => {
-      const page = pages[pageId];
-      if (!page) return;
-      nextRows.push({ page, depth });
-      const children = childrenByParent.get(pageId) ?? [];
-      for (const child of children) {
-        count += 1;
-        visit(child.id, depth + 1);
-      }
+    const nextRows = buildPageTreeRows(resolvedRootId, pages).map((row) => ({
+      page: row.page,
+      depth: row.depth,
+    }));
+    return {
+      rootId: resolvedRootId,
+      rows: nextRows,
+      descendantCount: countPageDescendants(resolvedRootId, pages),
     };
-    visit(resolvedRootId, 0);
-    return { rootId: resolvedRootId, rows: nextRows, descendantCount: count };
   }, [currentPageId, pages, rootPageId]);
 
   const hasContext = !!currentPageId && !!rootId && currentPageId !== rootId;
   if (!rootId || (descendantCount === 0 && !hasContext)) return null;
 
   const navigate = (pageId: string): void => {
+    const databaseContext = findPageTreeDatabaseContext(pageId, pages);
+    if (databaseContext) {
+      requestDatabaseTreeFocus(databaseContext.databaseId, pageId);
+    }
     if (onNavigate) {
       onNavigate(pageId);
       return;

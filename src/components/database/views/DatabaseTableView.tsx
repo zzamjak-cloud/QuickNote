@@ -5,6 +5,8 @@ import {
   Minus,
   MoreHorizontal,
   Trash2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import type { DatabasePanelState, ColumnDef, DatabaseRowView, CellValue } from "../../../types/database";
 import {
@@ -15,6 +17,11 @@ import {
 } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useDatabaseGroupCollapseStore } from "../../../store/databaseGroupCollapseStore";
+import {
+  databasePageTreeCollapseKey,
+  useDatabasePageTreeCollapseStore,
+} from "../../../store/databasePageTreeCollapseStore";
+import { useUiStore } from "../../../store/uiStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { useRowGroups } from "../useRowGroups";
 import { GroupSectionHeader } from "../GroupSectionHeader";
@@ -29,6 +36,12 @@ import { useHistoryStore } from "../../../store/historyStore";
 import { useWindowedRows } from "./useWindowedRows";
 import { cellToSearchString, resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "../useOpenDatabaseRow";
+import { DatabasePageSubtree } from "../DatabasePageSubtree";
+import {
+  collectPageTreePath,
+  countPageDescendants,
+} from "../../page/pageSubpageTreeUtils";
+import { useOpenPageInPeek } from "../../page/useOpenPageInPeek";
 
 type Props = {
   databaseId: string;
@@ -76,12 +89,42 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   setIcon: (pageId: string, icon: string | null) => void;
   setFillDrag: (v: FillDragState | null) => void;
 }) {
+  const pages = usePageStore((s) => s.pages);
+  const pageDescendantCount = usePageStore((s) => countPageDescendants(row.pageId, s.pages));
+  const createPage = usePageStore((s) => s.createPage);
+  const rootTreeCollapsed = useDatabasePageTreeCollapseStore((s) =>
+    pageDescendantCount > 0
+      ? s.collapsedByKey[databasePageTreeCollapseKey(databaseId, row.pageId)] !== false
+      : false,
+  );
+  const setTreeCollapsed = useDatabasePageTreeCollapseStore((s) => s.setCollapsed);
+  const toggleTreeCollapsed = useDatabasePageTreeCollapseStore((s) => s.toggle);
+  const focusRequest = useUiStore((s) => s.databaseTreeFocusRequest);
+  const requestDatabaseTreeFocus = useUiStore((s) => s.requestDatabaseTreeFocus);
+  const openPageInPeek = useOpenPageInPeek();
   const fillRangeStart = fillDrag && fillHoverRowIndex != null
     ? Math.min(fillDrag.sourceRowIndex, fillHoverRowIndex)
     : null;
   const fillRangeEnd = fillDrag && fillHoverRowIndex != null
     ? Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex)
     : null;
+  const hasPageTree = pageDescendantCount > 0;
+
+  const createChildPage = (target: HTMLElement) => {
+    const newPageId = createPage("새 페이지", row.pageId, { activate: false });
+    requestDatabaseTreeFocus(databaseId, newPageId);
+    setTreeCollapsed(databaseId, row.pageId, false);
+    void openPageInPeek(newPageId, {
+      navigateInPeek: Boolean(target.closest("[data-qn-peek-editor='true']")),
+      source: "database-table-create-child-page",
+    });
+  };
+
+  useEffect(() => {
+    if (!focusRequest || focusRequest.databaseId !== databaseId) return;
+    if (collectPageTreePath(focusRequest.pageId, pages, row.pageId).length === 0) return;
+    setTreeCollapsed(databaseId, row.pageId, false);
+  }, [databaseId, focusRequest, pages, row.pageId, setTreeCollapsed]);
 
   return (
     <tr
@@ -149,37 +192,77 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
             <div
               className={[
                 "relative min-w-0 max-w-full",
-                wrapText
+                col.type === "title" && hasPageTree
+                  ? "whitespace-normal"
+                  : wrapText
                   ? "whitespace-normal break-words"
                   : "max-h-[24px] overflow-hidden whitespace-nowrap",
               ].join(" ")}
             >
               {col.type === "title" ? (
-                <div className="flex min-w-0 items-center gap-1">
-                  <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
-                    <IconPicker
-                      current={row.icon ?? null}
-                      size="sm"
-                      onChange={(icon) => setIcon(row.pageId, icon)}
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="group/tree flex min-w-0 items-center gap-1">
+                    {hasPageTree ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleTreeCollapsed(databaseId, row.pageId);
+                        }}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        aria-label={rootTreeCollapsed ? "하위 페이지 펼치기" : "하위 페이지 접기"}
+                      >
+                        {rootTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    ) : (
+                      <span className="block h-5 w-5 shrink-0" aria-hidden />
+                    )}
+                    <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+                      <IconPicker
+                        current={row.icon ?? null}
+                        size="sm"
+                        onChange={(icon) => setIcon(row.pageId, icon)}
+                      />
+                    </span>
+                    <button
+                      type="button"
+                      data-qn-page-tree-node={row.pageId}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const inPeek = Boolean(
+                          (e.currentTarget as HTMLElement).closest("[data-qn-peek-editor='true']"),
+                        );
+                        openRow(row.pageId, { navigateInPeek: inPeek });
+                      }}
+                      className={[
+                        "min-w-0 flex-1 rounded px-1 py-0.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800",
+                        wrapText || hasPageTree ? "whitespace-normal break-words" : "truncate",
+                      ].join(" ")}
+                      title="사이드 피크 열기"
+                    >
+                      {row.title || "제목 없음"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        createChildPage(event.currentTarget);
+                      }}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 opacity-0 transition hover:bg-zinc-100 hover:text-zinc-700 group-hover/tree:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                      aria-label="하위 페이지 추가"
+                      title="하위 페이지 추가"
+                    >
+                      <Plus size={13} />
+                    </button>
+                  </div>
+                  {hasPageTree && !rootTreeCollapsed && (
+                    <DatabasePageSubtree
+                      databaseId={databaseId}
+                      rootPageId={row.pageId}
+                      className="pb-1"
+                      compact
                     />
-                  </span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const inPeek = Boolean(
-                        (e.currentTarget as HTMLElement).closest("[data-qn-peek-editor='true']"),
-                      );
-                      openRow(row.pageId, { navigateInPeek: inPeek });
-                    }}
-                    className={[
-                      "min-w-0 flex-1 rounded px-1 py-0.5 text-left text-sm text-zinc-900 hover:bg-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800",
-                      wrapText ? "whitespace-normal break-words" : "truncate",
-                    ].join(" ")}
-                    title="사이드 피크 열기"
-                  >
-                    {row.title || "제목 없음"}
-                  </button>
+                  )}
                 </div>
               ) : (
                 <DatabaseCell
@@ -229,6 +312,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
 
 export function DatabaseTableView({ databaseId, panelState, setPanelState, visibleRowLimit }: Props) {
   const { bundle, rows: allRows } = useProcessedRows(databaseId, panelState);
+  const pages = usePageStore((s) => s.pages);
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? (allRows ?? []).slice(0, visibleRowLimit) : allRows;
   const autoFitRows = allRows ?? rows;
@@ -364,14 +448,18 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     () => visibleCols.map((col) => col.width ?? defaultMinWidthForType(col.type)),
     [visibleCols],
   );
+  const hasPageTreeRows = useMemo(
+    () => rows.some((row) => countPageDescendants(row.pageId, pages) > 0),
+    [pages, rows],
+  );
   const CHECKBOX_COL = 28;
   const tableWidthPx =
     CHECKBOX_COL + resolvedColWidths.reduce((acc, w) => acc + w, 0);
   const virtualRows = useWindowedRows({
     count: rows.length,
     estimateSize: 32,
-    // 그룹화 활성 시 가상화 비활성(그룹별 tbody 분할과 평면 윈도잉이 충돌).
-    enabled: !groups && visibleRowLimit == null && rows.length > 120,
+    // 그룹화/하위 페이지 트리 활성 시 가상화 비활성(가변 높이 row와 평면 윈도잉이 충돌).
+    enabled: !groups && !hasPageTreeRows && visibleRowLimit == null && rows.length > 120,
     overscan: 10,
   });
   const renderedRows = useMemo(

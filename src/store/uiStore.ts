@@ -28,6 +28,12 @@ export type WorkspaceLoadingState = {
   workspaceName: string;
 };
 
+export type DatabaseTreeFocusRequest = {
+  databaseId: string;
+  pageId: string;
+  requestedAt: number;
+};
+
 /** 미전송 outbox 때문에 워크스페이스 전환 시 로컬 캐시 비우기가 한 번 막힌 상태(세션용, persist 제외) */
 export type OutboxWorkspaceSwitchHold = {
   pending: number;
@@ -63,6 +69,7 @@ type UiStoreState = {
   openColumnMenuId: string | null;
   textPrompt: TextPromptRequest | null;
   rowBackTargetByPageId: Record<string, string>;
+  databaseTreeFocusRequest: DatabaseTreeFocusRequest | null;
   toasts: ToastMessage[];
   pendingFavoriteNavigation: FavoriteNavigationRequest | null;
   outboxWorkspaceSwitchHold: OutboxWorkspaceSwitchHold | null;
@@ -103,6 +110,8 @@ type UiStoreActions = {
   setRowBackTarget: (rowPageId: string, pageId: string) => void;
   getRowBackTarget: (rowPageId: string) => string | null;
   clearRowBackTarget: (rowPageId: string) => void;
+  requestDatabaseTreeFocus: (databaseId: string, pageId: string) => void;
+  clearDatabaseTreeFocus: () => void;
   showToast: (message: string, opts?: { kind?: ToastKind }) => void;
   dismissToast: (id: string) => void;
   requestFavoriteNavigation: (payload: {
@@ -132,6 +141,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   openColumnMenuId: null,
   textPrompt: null,
   rowBackTargetByPageId: {},
+  databaseTreeFocusRequest: null,
   toasts: [],
   pendingFavoriteNavigation: null,
   outboxWorkspaceSwitchHold: null,
@@ -214,6 +224,15 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
       delete next[rowPageId];
       return { rowBackTargetByPageId: next };
     }),
+  requestDatabaseTreeFocus: (databaseId, pageId) =>
+    set({
+      databaseTreeFocusRequest: {
+        databaseId,
+        pageId,
+        requestedAt: Date.now(),
+      },
+    }),
+  clearDatabaseTreeFocus: () => set({ databaseTreeFocusRequest: null }),
   showToast: (message, opts) => {
     const id = newToastId();
     const kind = opts?.kind ?? "info";
