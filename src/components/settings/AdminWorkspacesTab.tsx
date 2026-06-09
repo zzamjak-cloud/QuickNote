@@ -10,6 +10,7 @@ import {
   createWorkspaceApi,
   deleteWorkspaceApi,
   getWorkspaceApi,
+  listMyWorkspacesApi,
   restoreWorkspaceApi,
   setWorkspaceAccessApi,
   updateWorkspaceApi,
@@ -25,6 +26,7 @@ type TabType = "active" | "archived";
 export function AdminWorkspacesTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const upsertWorkspace = useWorkspaceStore((s) => s.upsertWorkspace);
+  const setWorkspaces = useWorkspaceStore((s) => s.setWorkspaces);
   const showToast = useUiStore((s) => s.showToast);
   const entityIcons = useSettingsStore((s) => s.entityIcons);
   const entityDescriptions = useSettingsStore((s) => s.entityDescriptions);
@@ -223,8 +225,31 @@ export function AdminWorkspacesTab() {
         open={openCreate}
         onClose={() => setOpenCreate(false)}
         onCreate={async (input) => {
-          const created = await createWorkspaceApi(input);
-          upsertWorkspace(created);
+          const beforeWorkspaceIds = new Set(
+            useWorkspaceStore.getState().workspaces.map((w) => w.workspaceId),
+          );
+          try {
+            const created = await createWorkspaceApi(input);
+            upsertWorkspace(created);
+          } catch (error) {
+            let latestWorkspaces;
+            try {
+              latestWorkspaces = await listMyWorkspacesApi();
+            } catch {
+              throw error;
+            }
+            const recovered = latestWorkspaces
+              .filter(
+                (w) =>
+                  w.type === "shared" &&
+                  !w.removedAt &&
+                  w.name === input.name &&
+                  !beforeWorkspaceIds.has(w.workspaceId),
+              )
+              .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""))[0];
+            if (!recovered) throw error;
+            setWorkspaces(latestWorkspaces);
+          }
         }}
       />
 

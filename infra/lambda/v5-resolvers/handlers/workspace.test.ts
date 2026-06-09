@@ -51,6 +51,7 @@ describe("workspace handlers", () => {
     });
     expect(ws.name).toBe("Shared");
     expect(ws.myEffectiveLevel).toBe("edit");
+    expect(ws.options).toEqual({ jobFunctions: [], jobTitles: [] });
   });
 
   it("updateWorkspace: 없으면 실패", async () => {

@@ -48,7 +48,7 @@ type WorkspaceRow = {
 export type Workspace = WorkspaceRow & {
   access: WorkspaceAccessEntry[];
   myEffectiveLevel: AccessLevel;
-  options?: {
+  options: {
     jobFunctions: string[];
     jobTitles: string[];
   };
@@ -243,6 +243,10 @@ export async function createWorkspace(args: {
     createdAt,
     access: normalizedAccess,
     myEffectiveLevel: "edit",
+    options: {
+      jobFunctions: [],
+      jobTitles: [],
+    },
   };
 }
 

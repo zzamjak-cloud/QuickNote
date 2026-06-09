@@ -12,6 +12,7 @@ const setWorkspaceAccessApiMock = vi.fn();
 const deleteWorkspaceApiMock = vi.fn();
 const getWorkspaceApiMock = vi.fn();
 const archiveWorkspaceApiMock = vi.fn();
+const listMyWorkspacesApiMock = vi.fn();
 
 vi.mock("../../../lib/sync/workspaceApi", () => ({
   createWorkspaceApi: (...args: unknown[]) => createWorkspaceApiMock(...args),
@@ -20,6 +21,7 @@ vi.mock("../../../lib/sync/workspaceApi", () => ({
   deleteWorkspaceApi: (...args: unknown[]) => deleteWorkspaceApiMock(...args),
   getWorkspaceApi: (...args: unknown[]) => getWorkspaceApiMock(...args),
   archiveWorkspaceApi: (...args: unknown[]) => archiveWorkspaceApiMock(...args),
+  listMyWorkspacesApi: (...args: unknown[]) => listMyWorkspacesApiMock(...args),
 }));
 
 describe("AdminWorkspacesTab", () => {
@@ -30,6 +32,7 @@ describe("AdminWorkspacesTab", () => {
     deleteWorkspaceApiMock.mockReset();
     getWorkspaceApiMock.mockReset();
     archiveWorkspaceApiMock.mockReset();
+    listMyWorkspacesApiMock.mockReset();
     // 워크스페이스 접근 캐시는 모듈 상태이므로 테스트 간 누수 방지를 위해 초기화
     useWorkspaceAccessCacheStore.setState({ cache: {} });
     useWorkspaceStore.setState({
@@ -133,6 +136,39 @@ describe("AdminWorkspacesTab", () => {
       name: "New WS",
       access: [],
     });
+  });
+
+  it("생성 응답이 실패해도 재조회에서 새 워크스페이스가 확인되면 성공 처리한다", async () => {
+    const existingWorkspaces = useWorkspaceStore.getState().workspaces;
+    createWorkspaceApiMock.mockRejectedValue(new Error("저장에 실패했습니다."));
+    listMyWorkspacesApiMock.mockResolvedValue([
+      ...existingWorkspaces,
+      {
+        workspaceId: "ws-9",
+        name: "Recovered WS",
+        type: "shared",
+        ownerMemberId: "m-owner",
+        myEffectiveLevel: "edit",
+        createdAt: "2026-06-09T00:00:00.000Z",
+      },
+    ]);
+
+    render(<AdminWorkspacesTab />);
+
+    fireEvent.click(screen.getByText("워크스페이스 생성"));
+    fireEvent.change(screen.getByPlaceholderText("워크스페이스 이름"), {
+      target: { value: "Recovered WS" },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("저장"));
+    });
+
+    await vi.waitFor(() => {
+      expect(listMyWorkspacesApiMock).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByLabelText("Recovered WS 설정 편집")).toBeTruthy();
+    expect(screen.queryByText("저장에 실패했습니다.")).toBeNull();
   });
 
   it("설정 편집 저장 시 update/setAccess를 순서대로 호출한다", async () => {
