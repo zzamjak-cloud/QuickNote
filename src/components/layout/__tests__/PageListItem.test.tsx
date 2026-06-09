@@ -66,6 +66,27 @@ describe("PageListItem", () => {
     });
   });
 
+  it("하위 페이지가 있는 항목은 접기 버튼을 고정 노출한다", () => {
+    const node = makeNode("page-1", "문서 1");
+    node.children = [{ ...makeNode("page-2", "하위 문서"), parentId: "page-1" }];
+
+    render(
+      <PageListItem
+        node={node}
+        depth={0}
+        draggable={false}
+        onMove={() => {}}
+        dropTarget={null}
+      />,
+    );
+
+    const toggleButton = screen.getByRole("button", { name: "펼치기" });
+
+    expect(toggleButton.className).not.toContain("opacity-0");
+    expect(toggleButton.className).not.toContain("group-hover:opacity-100");
+    expect(toggleButton.parentElement?.className).toContain("w-5");
+  });
+
   it("우클릭 메뉴에서 이름 변경과 하위 페이지 추가를 숨기고 페이지 복제를 제공한다", () => {
     render(
       <PageListItem

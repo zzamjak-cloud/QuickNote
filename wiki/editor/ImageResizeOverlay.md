@@ -67,6 +67,7 @@ DragState: {
 | `ne` / `sw` | 대각선 방향 비율 유지 |
 - 최솟값: `MIN_PX = 48px`
 - 최댓값: 에디터 뷰 DOM 너비(`editor.view.dom.getBoundingClientRect().width`)로 clamp
+- **50px 스냅**: `onMove`에서 새 너비를 `Math.round(newW / 50) * 50`로 스냅한 뒤 비율로 높이를 재계산한다(여러 블록에 이미지 나열 시 시각적 균일성 확보). 스냅 후 `MIN_PX`/최댓값 clamp 적용.
 
 ## 이벤트 구독
 `useEffect`에서 다음을 구독하고 cleanup에서 해제:

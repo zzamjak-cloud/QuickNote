@@ -251,6 +251,11 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
           newW = newH * rw;
         }
 
+        // 50px 단위 스냅
+        newW = Math.round(newW / 50) * 50;
+        newW = Math.max(MIN_PX, newW);
+        newH = newW / rw;
+
         const maxPx = editor.view.dom.getBoundingClientRect().width;
         if (Number.isFinite(maxPx) && maxPx > MIN_PX) {
           newW = Math.min(maxPx, newW);

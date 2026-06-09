@@ -61,6 +61,6 @@
 ## 사용처 (주요 컴포넌트)
 
 - `src/Bootstrap.tsx` — 초기 페치 후 스토어에 pages 주입
-- `src/components/Sidebar.tsx` — 페이지 트리 렌더링
+- `src/components/layout/Sidebar.tsx`, `PageListGroup.tsx`, `PageListItem.tsx` — 페이지 트리 렌더링
 - `src/components/Editor.tsx` — 활성 페이지 본문 편집
 - `src/store/pageStore/selectors.ts` — `selectPageTree`, `selectSortedPages`, `createFilterPageTreeSelector` 등 트리 셀렉터

@@ -2,13 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { Fragment, type Node as PMNode } from "@tiptap/pm/model";
-import { Palette, Plus, Trash2, Columns3 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { HandleLayerBase } from "./handles/HandleLayerBase";
 import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
-import {
-  CALLOUT_PRESETS,
-  type CalloutPresetId,
-} from "../../lib/tiptapExtensions/calloutPresets";
 
 type Props = {
   editor: Editor | null;
@@ -99,7 +95,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
     clientY: number;
     deleteArmed: boolean;
   } | null>(null);
-  const [menuPresetOpen, setMenuPresetOpen] = useState(false);
   /** 핸들 클릭(메뉴) vs 드래그 구분 — pointerdown~click 동안 이동 여부 추적 */
   const handleSessionRef = useRef<{ moved: boolean } | null>(null);
   const [boxSelecting, setBoxSelecting] = useState(false);
@@ -364,38 +359,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
     [editor, refresh],
   );
 
-  /** 컬럼 레이아웃 노드 전체 삭제 */
-  const removeColumnLayout = useCallback(
-    (layoutStart: number) => {
-      if (!editor || editor.isDestroyed) return false;
-      const layout = editor.state.doc.nodeAt(layoutStart);
-      if (!layout || layout.type.name !== "columnLayout") return false;
-      const tr = editor.state.tr.delete(layoutStart, layoutStart + layout.nodeSize);
-      editor.view.dispatch(tr.scrollIntoView());
-      editor.view.focus();
-      requestAnimationFrame(refresh);
-      return true;
-    },
-    [editor, refresh],
-  );
-
-  const applyColumnLayoutPreset = useCallback(
-    (layoutStart: number, preset: CalloutPresetId) => {
-      if (!editor || editor.isDestroyed) return false;
-      editor
-        .chain()
-        .focus()
-        .setNodeSelection(layoutStart)
-        .updateColumnLayoutPreset(preset)
-        .run();
-      setMenuPresetOpen(false);
-      setMenu(null);
-      requestAnimationFrame(refresh);
-      return true;
-    },
-    [editor, refresh],
-  );
-
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const onAny = () => requestAnimationFrame(refresh);
@@ -601,10 +564,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       document.removeEventListener("keydown", onKey, true);
       window.removeEventListener("scroll", close, true);
     };
-  }, [menu]);
-
-  useEffect(() => {
-    if (!menu) setMenuPresetOpen(false);
   }, [menu]);
 
   const hasRealHandles = !!handles && handles.items.length > 0;
@@ -824,7 +783,8 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
               className="pointer-events-auto fixed z-[120] min-w-[11rem] overflow-visible rounded-lg border border-zinc-200 bg-white py-1 text-sm shadow-lg dark:border-zinc-600 dark:bg-zinc-900"
               style={{
                 left: Math.min(
-                  Math.max(8, menu.clientX - 8),
+                  // 그립 핸들을 가리지 않도록 클릭 지점 오른쪽으로 띄운다.
+                  Math.max(8, menu.clientX + 18),
                   typeof window !== "undefined" ? window.innerWidth - 8 - 208 : menu.clientX,
                 ),
                 top: Math.min(
@@ -834,48 +794,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
               }}
             >
               <div className="px-1 py-1">
-                {!menu.deleteArmed && (
-                  <div className="relative">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onMouseEnter={() => setMenuPresetOpen(true)}
-                      onMouseLeave={() => setMenuPresetOpen(false)}
-                      className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Palette size={14} />
-                        컬러 프리셋
-                      </span>
-                      <span className="text-zinc-400">›</span>
-                    </button>
-                    {menuPresetOpen && (
-                      <div
-                        className="absolute left-full top-0 z-50 max-h-64 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                        onMouseEnter={() => setMenuPresetOpen(true)}
-                        onMouseLeave={() => setMenuPresetOpen(false)}
-                      >
-                        {CALLOUT_PRESETS.map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => applyColumnLayoutPreset(menu.layoutStart, p.id)}
-                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                          >
-                            <span className="w-6 shrink-0 text-center text-base leading-6">
-                              {p.emoji || "·"}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="font-medium text-zinc-800 dark:text-zinc-100">
-                                {p.label}
-                              </span>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
                 <button
                   type="button"
                   role="menuitem"
@@ -896,22 +814,6 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
                   <Trash2 size={14} />
                   {menu.deleteArmed ? "삭제확인" : "열 삭제"}
                 </button>
-                {!menu.deleteArmed && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                    onClick={() => {
-                      const ok = window.confirm("컬럼 전체를 삭제하시겠습니까?");
-                      if (!ok) return;
-                      removeColumnLayout(menu.layoutStart);
-                      setMenu(null);
-                    }}
-                  >
-                    <Columns3 size={14} />
-                    컬럼 전체 삭제
-                  </button>
-                )}
               </div>
             </div>,
             document.body,

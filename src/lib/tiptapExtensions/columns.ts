@@ -11,6 +11,27 @@ export const Column = Node.create({
   content: "block+",
   isolating: true,
   defining: true,
+  addAttributes() {
+    return {
+      // 컬럼 너비 비율(flex-grow 값). null 이면 기본 균등(flex-1).
+      // PM 이 직접 inline style 로 렌더하므로 비율 적용이 누락되지 않는다.
+      width: {
+        default: null,
+        parseHTML: (el) => {
+          const v = (el as HTMLElement).getAttribute("data-col-width");
+          const n = v ? Number(v) : NaN;
+          return Number.isFinite(n) && n > 0 ? n : null;
+        },
+        renderHTML: (attrs) =>
+          attrs.width != null && attrs.width > 0
+            ? {
+                "data-col-width": String(attrs.width),
+                style: `flex: ${attrs.width} 1 0%`,
+              }
+            : {},
+      },
+    };
+  },
   parseHTML() {
     return [{ tag: "div[data-column]" }];
   },

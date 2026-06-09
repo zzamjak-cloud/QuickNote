@@ -13,7 +13,7 @@
 | Select | SelectCell / OptionCells | 단일 선택, 옵션 팝업, sourceFromDb 자동화 가능 |
 | MultiSelect | MultiSelectCell | 복수 선택 |
 | Status | SelectCell / OptionCells | 상태 선택 |
-| Date | DateCell | 날짜 피커 |
+| Date | DateCell | 날짜 피커. 표시 형식은 2자리 연도(`YY. MM. DD`, 예: `26. 01. 01`) |
 | Checkbox | CheckboxCell | true/false |
 | Person | PersonCell | 멤버 선택 |
 | File | FileCell | 파일 첨부 |
@@ -33,6 +33,12 @@
 ## 속성 타입 메뉴
 - 컬럼 추가 메뉴, 컬럼 메뉴, 속성 패널의 타입 드롭다운은 타입명 왼쪽에 `defaultColumnIcon` 기반 아이콘을 표시한다.
 - `JSON` 타입은 내부 파서/정규화 유틸은 유지하지만 타입 선택 목록에는 노출하지 않는다.
+
+## 날짜 표시 형식 (2자리 연도)
+날짜 표기는 `YY. MM. DD`(2자리 연도)로 통일한다. 포맷 함수가 **여러 곳에 분산**되어 있으므로 형식 변경 시 모두 함께 수정해야 한다(회귀 주의):
+- `src/components/database/cells/utils.ts` `formatDate` — DateCell 등 셀 직접 표시
+- `src/components/database/databaseCellDisplayUtils.ts` `formatYmdDisplay` — **리스트/카드 등 표시설정 뷰**의 날짜 텍스트
+- `src/lib/tiptapExtensions/dateInline.ts` `formatDateLabel` — 에디터 인라인 날짜 노드
 
 ## 팝업 처리
 - `OptionCells` 등은 `CellEditorBase` 프리미티브 사용 (`src/lib/ui-primitives/CellEditorBase.tsx`)

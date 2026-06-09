@@ -6,7 +6,7 @@
 |------|------|
 | `src/store/pageStore.ts` | 페이지 CRUD, 제목/아이콘 (persist) |
 | `src/components/page/` | 페이지 레이아웃, 템플릿 |
-| `src/components/sidebar/` | 사이드바 네비게이션 |
+| `src/components/layout/Sidebar.tsx`, `PageListGroup.tsx`, `PageListItem.tsx` | 사이드바 페이지 트리 렌더링 |
 | `src/Bootstrap.tsx` | 초기 페이지 fetch |
 
 ## 페이지 데이터 구조
@@ -33,7 +33,13 @@ localStorage 키: `quicknote.pages.v1`
 버전 관리: [store/schema-versioning.md](../store/schema-versioning.md)
 
 ## 중첩 페이지
-`parentId` 로 트리 구조. 사이드바에서 중첩 렌더.
+`parentId` 로 트리 구조. `createFilterPageTreeSelector` 로 사이드바 트리를 만들고
+`Sidebar` → `PageListGroup` → `PageListItem` 순서로 렌더.
+
+- 펼침 상태는 `settingsStore.expandedIds` 에 저장.
+- 하위 페이지가 있는 항목은 접기/펼치기 버튼을 페이지 리스트 왼쪽 고정 슬롯에 항상 표시.
+- 자식 없는 항목도 같은 폭의 빈 슬롯을 유지해 아이콘·제목 정렬이 깊이별로 흔들리지 않게 한다.
+- 접기/펼치기 버튼은 자식 존재 여부를 알려주는 시각 신호이므로 `opacity-0`/`group-hover:opacity-100` 같은 호버 전용 숨김 처리 금지.
 
 ## 템플릿
 `src/components/page/` 내 템플릿 정의. 새 페이지 생성 시 선택 가능.

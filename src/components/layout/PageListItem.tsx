@@ -229,24 +229,26 @@ const PageListItemInner = function PageListItem({
           setMenuPosition({ x: e.clientX, y: e.clientY });
         }}
       >
-        {hasChildren ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleExpanded(node.id);
-            }}
-            className="absolute flex h-5 w-5 shrink-0 items-center justify-center rounded bg-white/90 text-zinc-500 opacity-0 transition hover:bg-zinc-200 group-hover:opacity-100 dark:bg-zinc-900/90 dark:hover:bg-zinc-700"
-            style={{ left: rowPadLeft, cursor: "inherit" }}
-            aria-label={expanded ? "접기" : "펼치기"}
-          >
-            {expanded ? (
-              <ChevronDown size={14} />
-            ) : (
-              <ChevronRight size={14} />
-            )}
-          </button>
-        ) : null}
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleExpanded(node.id);
+              }}
+              className="flex h-5 w-5 items-center justify-center rounded text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+              style={{ cursor: "inherit" }}
+              aria-label={expanded ? "접기" : "펼치기"}
+            >
+              {expanded ? (
+                <ChevronDown size={14} />
+              ) : (
+                <ChevronRight size={14} />
+              )}
+            </button>
+          ) : null}
+        </span>
         <span className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden text-center text-base leading-5">
           <PageIconDisplay icon={node.icon} size="sm" />
         </span>

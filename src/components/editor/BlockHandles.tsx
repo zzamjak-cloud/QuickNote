@@ -429,7 +429,7 @@ export function BlockHandles({
         next.preset = computeViewportAwareSubmenuStyle(
           presetSubmenuAnchorRef.current,
           presetSubmenuRef.current,
-          256,
+          600,
         );
       }
       if (
@@ -440,14 +440,14 @@ export function BlockHandles({
         next.textColor = computeViewportAwareSubmenuStyle(
           textColorSubmenuAnchorRef.current,
           textColorSubmenuRef.current,
-          320,
+          600,
         );
       }
       if (bgOpen && bgSubmenuAnchorRef.current && bgSubmenuRef.current) {
         next.background = computeViewportAwareSubmenuStyle(
           bgSubmenuAnchorRef.current,
           bgSubmenuRef.current,
-          320,
+          600,
         );
       }
       setSubmenuStyles(next);
@@ -848,6 +848,27 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
+  // 2컬럼 너비 비율 프리셋 — 각 컬럼 노드의 width(flex-grow) attr 을 PM 트랜잭션으로 설정.
+  const applyColumnRatio = (ratios: number[]) => {
+    if (!editor || !hover) return;
+    try {
+      const { state } = editor.view;
+      const layoutStart = hover.blockStart;
+      const layoutNode = state.doc.nodeAt(layoutStart);
+      if (!layoutNode || layoutNode.type.name !== "columnLayout") return;
+      let tr = state.tr;
+      // attr 변경은 nodeSize 를 바꾸지 않으므로 offset 은 루프 내내 유효하다.
+      layoutNode.forEach((col, offset, index) => {
+        tr = tr.setNodeMarkup(layoutStart + 1 + offset, undefined, {
+          ...col.attrs,
+          width: ratios[index] ?? null,
+        });
+      });
+      editor.view.dispatch(tr);
+    } catch { /* noop */ }
+    setMenuOpen(false);
+  };
+
   const applyBlockBackground = (color: BlockBgColor) => {
     if (!editor || !hover) return;
     editor
@@ -919,6 +940,8 @@ export function BlockHandles({
   const isDatabaseInlineBlock = hover?.node.type.name === "databaseBlock" && hover?.node.attrs.layout !== "fullPage";
   const isCallout = hover ? isCalloutBlockNodeType(hover.node.type.name) : false;
   const isColumnLayout = hover?.node.type.name === "columnLayout";
+  // 비율 프리셋은 정확히 2컬럼일 때만 노출
+  const isTwoColumnLayout = isColumnLayout && hover?.node.childCount === 2;
   const isToggleBlock = hover?.node.type.name === "toggle";
   const isTable = hover?.node.type.name === "table";
   // 표 헤더 상태는 토글 직후 hover.node 가 갱신되기 전일 수 있어 live doc 에서 조회.
@@ -1290,6 +1313,33 @@ export function BlockHandles({
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* 컬럼 너비 비율 (2컬럼 전용) */}
+                {isTwoColumnLayout && (
+                  <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                    <div className="mb-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      너비 비율
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {([
+                        [2, 8],
+                        [3, 7],
+                        [5, 5],
+                        [7, 3],
+                        [8, 2],
+                      ] as const).map(([l, r]) => (
+                        <button
+                          key={`${l}:${r}`}
+                          type="button"
+                          onClick={() => applyColumnRatio([l, r])}
+                          className="flex-1 rounded border border-zinc-200 px-1 py-1 text-center text-[11px] font-medium text-zinc-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-blue-500 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
+                        >
+                          {l}:{r}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 

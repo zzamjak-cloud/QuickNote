@@ -1,7 +1,7 @@
 # BlockHandles
 
 ## 역할
-에디터 좌측 거터 영역에 오버레이되는 블록 핸들 레이어. 마우스가 블록 위에 올라가면 드래그 핸들(⠿)과 댓글 추가 버튼을 표시하고, 핸들 클릭 시 블록 타입 변경·배경색·텍스트 색상·복사·삭제·링크 복사 등 컨텍스트 메뉴를 제공한다. 드래그로 블록 순서를 변경하거나 박스 선택된 블록들을 일괄 이동할 수 있다.
+에디터 좌측 거터 영역에 오버레이되는 블록 핸들 레이어. 마우스가 블록 위에 올라가면 드래그 핸들(⠿)과 댓글 추가 버튼을 표시하고, 핸들 클릭 시 블록 타입 변경·배경색·텍스트 색상·복사·삭제·링크 복사 등 컨텍스트 메뉴를 제공한다. 드래그로 블록 순서를 변경하거나 박스 선택된 블록들을 일괄 이동할 수 있다. `columnLayout` 블록에서는 컬러 변경과 **너비 비율 프리셋(정확히 2컬럼일 때만)** 을 제공한다.
 
 ## 위치
 `src/components/editor/BlockHandles.tsx`
@@ -25,7 +25,7 @@
 |------|------|------|
 | `hover` | `HoverInfo \| null` | 현재 마우스가 올라간 블록 정보 |
 | `menuOpen` | `boolean` | 블록 컨텍스트 메뉴 열림 여부 |
-| `presetOpen` | `boolean` | 콜아웃 프리셋 메뉴 열림 여부 |
+| `presetOpen` | `boolean` | 콜아웃/컬럼 레이아웃 프리셋(컬러 변경) 메뉴 열림 여부 |
 | `bgOpen` | `boolean` | 배경색 선택 메뉴 열림 여부 |
 | `textColorOpen` | `boolean` | 텍스트 색상 메뉴 열림 여부 |
 | `typeMenuOpen` | `boolean` | 블록 타입 변경 메뉴 열림 여부 |
@@ -38,6 +38,12 @@
 | `computeHover` | `blockAtPoint(editor, x, y)` 호출로 현재 마우스 위치의 블록 정보 계산 |
 | `flushHover` | rAF 기반 hover 갱신. 그립 존·댓글 버튼 존·리스트 보존 존 등 hysteresis 로직 포함 |
 | `onPointerDown` (핸들) | 드래그 vs 클릭 판별. `MARQUEE_ACTIVATE_PX` 이상 이동 시 드래그 커밋 |
+| `applyColumnRatio` | 2컬럼 레이아웃의 각 `column` 노드 `width`(flex-grow) attr 을 PM 트랜잭션으로 설정. `hover.blockStart`로 `columnLayout` 노드를 찾아 자식 컬럼 순서대로 비율 적용 |
+
+## 컬럼 너비 비율 프리셋
+- `isTwoColumnLayout`(`columnLayout` && `childCount === 2`)일 때만 컬러 변경 아래에 "너비 비율" 행 노출.
+- 버튼: `2:8 / 3:7 / 5:5 / 7:3 / 8:2`. 클릭 시 `applyColumnRatio([l, r])`로 두 컬럼의 `width` attr 설정.
+- 적용은 `column` 노드의 `width` attr → `columns.ts` Column `renderHTML`이 inline `flex: <w> 1 0%`로 직접 렌더(=PM 권위). 사후 JS 스타일 적용 방식은 일부 환경에서 무력화되어 폐기됨.
 
 ## Hover 보존 로직 (hysteresis)
 마우스가 블록에서 인접 영역으로 이동할 때 핸들이 깜빡이지 않도록 아래 경우에 이전 `hover`를 유지한다:
@@ -85,3 +91,4 @@
 - **`clickTimerRef`**: 싱글 클릭과 더블 클릭 구분용 타이머 ref.
 - **hover ref 패턴**: `menuOpenRef`, `boxSelectionActiveRef`는 state의 최신값을 ref로 미러링. mousemove 핸들러 deps 배열에서 제거하여 리스너 재등록을 방지한다.
 - **`compactComments` 모드**: 피크 뷰 등 좁은 패널에서는 댓글 버튼이 컴팩트 배지 형태로 표시된다.
+- **서브메뉴 높이(스크롤바 방지)**: `computeViewportAwareSubmenuStyle(anchor, submenu, preferredMaxHeight)`의 `preferredMaxHeight`로 서브메뉴 최대 높이를 정한다. 프리셋·텍스트 컬러·배경 서브메뉴는 항목 수 대비 스크롤바가 생기지 않도록 `600`을 사용한다(과거 256/320에서 상향).

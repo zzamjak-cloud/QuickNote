@@ -64,7 +64,7 @@ UI 전역 설정(다크모드, 사이드바, 탭, 즐겨찾기, 전체너비 등
 
 ## 사용처 (주요 컴포넌트)
 
-- `src/components/Sidebar.tsx` — `sidebarWidth`, `sidebarCollapsed`, `expandedIds`, `favoritePageIds`
+- `src/components/layout/Sidebar.tsx`, `PageListItem.tsx` — `sidebarWidth`, `sidebarCollapsed`, `expandedIds`, `favoritePageIds`
 - `src/components/TabBar.tsx` — `tabs`, `activeTabIndex`, `openTab`, `closeTab`
 - `src/components/Editor.tsx` — `fullWidth`, `pageFullWidthById`
 - `src/Bootstrap.tsx` — clientPrefs 서버 동기화 후 `favoritePageIds`, `fullWidth` 적용
