@@ -4,6 +4,11 @@ import "@testing-library/jest-dom";
 // fake-indexeddb 로 정상 IDB 경로를 태워 에러 폭주를 제거한다.
 import "fake-indexeddb/auto";
 
+// jsdom에는 scrollIntoView가 없어 포커스/스크롤 보정 코드가 테스트에서만 예외를 낸다.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 // jsdom의 localStorage가 일부 환경에서 노출되지 않을 때 대비한 인메모리 폴리필.
 // 일부 환경에서 jsdom의 localStorage 메서드가 누락되는 경우가 있어
 // 항상 신뢰 가능한 인메모리 구현을 강제로 주입한다.
