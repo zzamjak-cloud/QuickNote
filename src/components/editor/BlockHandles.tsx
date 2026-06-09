@@ -5,7 +5,7 @@ import {
   useState,
   useCallback,
 } from "react";
-import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import { HandleLayerBase } from "./handles/HandleLayerBase";
 import type { Editor } from "@tiptap/react";
 import type { Node as PMNode } from "@tiptap/pm/model";
@@ -81,6 +81,7 @@ import {
   resolveHandleLeft,
   visualElementForBlockNode,
 } from "./blockHandles/helpers";
+import { HoverMenuGroup, HoverMenuRow } from "./blockHandles/HoverMenuRow";
 
 
 type Props = {
@@ -111,56 +112,6 @@ type DownloadNotice = {
   message: string;
 } | null;
 
-type SubmenuKey = "type" | "preset" | "textColor" | "background";
-type SubmenuStyles = Partial<Record<SubmenuKey, CSSProperties>>;
-
-const SUBMENU_GAP_PX = 4;
-const SUBMENU_VIEWPORT_PAD_PX = 8;
-const SUBMENU_MIN_HEIGHT_PX = 144;
-
-function computeViewportAwareSubmenuStyle(
-  anchor: HTMLElement,
-  submenu: HTMLElement,
-  preferredMaxHeight: number,
-): CSSProperties {
-  const anchorRect = anchor.getBoundingClientRect();
-  const submenuRect = submenu.getBoundingClientRect();
-  const width = submenuRect.width || anchorRect.width;
-  const measuredHeight = submenuRect.height || preferredMaxHeight;
-  const canOpenRight =
-    anchorRect.right + SUBMENU_GAP_PX + width <=
-    window.innerWidth - SUBMENU_VIEWPORT_PAD_PX;
-  const canOpenLeft =
-    anchorRect.left - SUBMENU_GAP_PX - width >= SUBMENU_VIEWPORT_PAD_PX;
-  const openLeft = !canOpenRight && canOpenLeft;
-
-  const availableBelow =
-    window.innerHeight - SUBMENU_VIEWPORT_PAD_PX - anchorRect.top;
-  const availableAbove = anchorRect.bottom - SUBMENU_VIEWPORT_PAD_PX;
-  const availableHeight = Math.max(availableBelow, availableAbove);
-  const maxHeight = Math.max(
-    SUBMENU_MIN_HEIGHT_PX,
-    Math.min(preferredMaxHeight, availableHeight),
-  );
-  const effectiveHeight = Math.min(measuredHeight, maxHeight);
-  let top = 0;
-  const bottomOverflow =
-    anchorRect.top + effectiveHeight - (window.innerHeight - SUBMENU_VIEWPORT_PAD_PX);
-  if (bottomOverflow > 0) {
-    top = -bottomOverflow;
-  }
-  if (anchorRect.top + top < SUBMENU_VIEWPORT_PAD_PX) {
-    top = SUBMENU_VIEWPORT_PAD_PX - anchorRect.top;
-  }
-
-  return {
-    left: openLeft ? "auto" : `calc(100% + ${SUBMENU_GAP_PX}px)`,
-    right: openLeft ? `calc(100% + ${SUBMENU_GAP_PX}px)` : "auto",
-    top,
-    maxHeight,
-    overflowY: "auto",
-  };
-}
 
 function getEditorViewDom(editor: Editor | null | undefined): Element | null {
   if (!editor || editor.isDestroyed) return null;
@@ -187,40 +138,6 @@ export function BlockHandles({
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [presetOpen, setPresetOpen] = useState(false);
-  const [bgOpen, setBgOpen] = useState(false);
-  const [textColorOpen, setTextColorOpen] = useState(false);
-  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
-  const [submenuStyles, setSubmenuStyles] = useState<SubmenuStyles>({});
-  const typeSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
-  const typeSubmenuRef = useRef<HTMLDivElement | null>(null);
-  const presetSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
-  const presetSubmenuRef = useRef<HTMLDivElement | null>(null);
-  const textColorSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
-  const textColorSubmenuRef = useRef<HTMLDivElement | null>(null);
-  const bgSubmenuAnchorRef = useRef<HTMLDivElement | null>(null);
-  const bgSubmenuRef = useRef<HTMLDivElement | null>(null);
-  // 하위 메뉴 hover-intent — 트리거와 서브메뉴 사이의 간격(SUBMENU_GAP_PX·세로 오프셋)을
-  // 지날 때 mouseleave 로 즉시 닫혀 버려 항목을 고를 수 없는 문제를 막는다.
-  // 닫힘을 약간 지연시키고, 서브메뉴에 재진입하면 취소한다.
-  const submenuCloseTimers = useRef<Map<(v: boolean) => void, number>>(new Map());
-  const openSubmenu = useCallback((setOpen: (v: boolean) => void) => {
-    const existing = submenuCloseTimers.current.get(setOpen);
-    if (existing != null) {
-      window.clearTimeout(existing);
-      submenuCloseTimers.current.delete(setOpen);
-    }
-    setOpen(true);
-  }, []);
-  const closeSubmenuSoon = useCallback((setOpen: (v: boolean) => void) => {
-    const existing = submenuCloseTimers.current.get(setOpen);
-    if (existing != null) window.clearTimeout(existing);
-    const id = window.setTimeout(() => {
-      setOpen(false);
-      submenuCloseTimers.current.delete(setOpen);
-    }, 160);
-    submenuCloseTimers.current.set(setOpen, id);
-  }, []);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
   const globalActivePageId = usePageStore((s) => s.activePageId);
   // pageId prop 우선 — 피크 뷰처럼 활성 페이지와 다른 페이지를 편집할 때 정확한 페이지 ID 사용
@@ -419,74 +336,11 @@ export function BlockHandles({
       if (!menuRef.current?.contains(e.target as Node) &&
           !containerRef.current?.contains(e.target as Node)) {
         setMenuOpen(false);
-        setPresetOpen(false);
-        setTypeMenuOpen(false);
-        setTextColorOpen(false);
-        setBgOpen(false);
       }
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
-
-  useLayoutEffect(() => {
-    if (!menuOpen) {
-      submenuCloseTimers.current.forEach((id) => window.clearTimeout(id));
-      submenuCloseTimers.current.clear();
-      setSubmenuStyles({});
-      setPresetOpen(false);
-      setTypeMenuOpen(false);
-      setTextColorOpen(false);
-      setBgOpen(false);
-      return;
-    }
-
-    const update = () => {
-      const next: SubmenuStyles = {};
-      if (typeMenuOpen && typeSubmenuAnchorRef.current && typeSubmenuRef.current) {
-        next.type = computeViewportAwareSubmenuStyle(
-          typeSubmenuAnchorRef.current,
-          typeSubmenuRef.current,
-          320,
-        );
-      }
-      if (presetOpen && presetSubmenuAnchorRef.current && presetSubmenuRef.current) {
-        next.preset = computeViewportAwareSubmenuStyle(
-          presetSubmenuAnchorRef.current,
-          presetSubmenuRef.current,
-          600,
-        );
-      }
-      if (
-        textColorOpen &&
-        textColorSubmenuAnchorRef.current &&
-        textColorSubmenuRef.current
-      ) {
-        next.textColor = computeViewportAwareSubmenuStyle(
-          textColorSubmenuAnchorRef.current,
-          textColorSubmenuRef.current,
-          600,
-        );
-      }
-      if (bgOpen && bgSubmenuAnchorRef.current && bgSubmenuRef.current) {
-        next.background = computeViewportAwareSubmenuStyle(
-          bgSubmenuAnchorRef.current,
-          bgSubmenuRef.current,
-          600,
-        );
-      }
-      setSubmenuStyles(next);
-    };
-
-    const rafId = window.requestAnimationFrame(update);
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    return () => {
-      window.cancelAnimationFrame(rafId);
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-    };
-  }, [menuOpen, typeMenuOpen, presetOpen, textColorOpen, bgOpen]);
 
   // 팝업 열림 상태에서 단축키(삭제·복제)
   const deleteBlockRef = useRef<() => void>(() => {});
@@ -780,8 +634,6 @@ export function BlockHandles({
     e.stopPropagation();
     if (!dragCommittedRef.current) {
       setMenuOpen((v) => !v);
-      setPresetOpen(false);
-      setTypeMenuOpen(false);
     }
   };
 
@@ -856,7 +708,6 @@ export function BlockHandles({
       .setNodeSelection(hover.blockStart)
       .updateCalloutPreset(preset)
       .run();
-    setPresetOpen(false);
     setMenuOpen(false);
   };
 
@@ -869,7 +720,6 @@ export function BlockHandles({
       .setNodeSelection(hover.blockStart)
       .updateColumnLayoutPreset(preset)
       .run();
-    setPresetOpen(false);
     setMenuOpen(false);
   };
 
@@ -902,7 +752,6 @@ export function BlockHandles({
       .setNodeSelection(hover.blockStart)
       .updateAttributes(hover.node.type.name, { backgroundColor: color })
       .run();
-    setBgOpen(false);
     setMenuOpen(false);
   };
 
@@ -914,7 +763,6 @@ export function BlockHandles({
       .setNodeSelection(hover.blockStart)
       .updateAttributes(hover.node.type.name, { blockTextColor: color })
       .run();
-    setTextColorOpen(false);
     setMenuOpen(false);
   };
 
@@ -1128,6 +976,7 @@ export function BlockHandles({
                   bottom: menuFlipUp ? 0 : undefined,
                 }}
               >
+                <HoverMenuGroup>
                 {hover && canBlockHaveComment(hover.node.type.name) ? (
                   <button
                     type="button"
@@ -1136,8 +985,6 @@ export function BlockHandles({
                       e.stopPropagation();
                       openBlockComment(e);
                       setMenuOpen(false);
-                      setPresetOpen(false);
-                      setTypeMenuOpen(false);
                     }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
                   >
@@ -1156,89 +1003,17 @@ export function BlockHandles({
                     다운로드
                   </button>
                 ) : shouldShowTypeChange ? (
-                  <div
-                    ref={typeSubmenuAnchorRef}
-                    className="relative border-t border-zinc-200 dark:border-zinc-700"
-                  >
-                    <button
-                      type="button"
-                      onMouseEnter={() => openSubmenu(setTypeMenuOpen)}
-                      onMouseLeave={() => closeSubmenuSoon(setTypeMenuOpen)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    >
-                      <span className="flex items-center gap-2">
-                        <Pilcrow size={14} />
-                        타입 변경
-                      </span>
-                      <span className="text-zinc-400">›</span>
-                    </button>
-                    {typeMenuOpen && (
-                      <div
-                        ref={typeSubmenuRef}
-                        className="absolute left-full top-0 z-50 w-44 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                        style={submenuStyles.type}
-                        onMouseEnter={() => openSubmenu(setTypeMenuOpen)}
-                        onMouseLeave={() => closeSubmenuSoon(setTypeMenuOpen)}
-                      >
-                        {isToggleBlock ? (
-                          <>
-                            {TOGGLE_VARIANT_MENU_ITEMS.map((item) => (
-                              <button
-                                key={item.label}
-                                type="button"
-                                onClick={() => {
-                                  if (!editor || !hover) return;
-                                  applyToggleTitleLevel(
-                                    editor,
-                                    hover.blockStart,
-                                    item.level,
-                                  );
-                                  setMenuOpen(false);
-                                  setTypeMenuOpen(false);
-                                }}
-                                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                              >
-                                <item.icon size={14} />
-                                {item.label}
-                              </button>
-                            ))}
-                            <div className="my-1 border-t border-zinc-200 dark:border-zinc-700" />
-                          </>
-                        ) : null}
-                        {TYPE_MENU_ITEMS.filter(
-                          (item) => !(isToggleBlock && item.label === "토글"),
-                        ).map((item) => (
+                  <HoverMenuRow icon={<Pilcrow size={14} />} label="타입 변경" topSeparator panelWidth="w-44" preferredMaxHeight={320}>
+                    {isToggleBlock ? (
+                      <>
+                        {TOGGLE_VARIANT_MENU_ITEMS.map((item) => (
                           <button
                             key={item.label}
                             type="button"
                             onClick={() => {
-                              if (!editor) return;
-                              if (hover) {
-                                // wrapper(콜아웃·토글·인용) → 새 타입 적용 시 wrapper를 먼저 unwrap 하여
-                                // 내부 블록을 버리지 않고 바깥으로 꺼낸다(이미지·리스트 등 보존).
-                                // 중첩(예: 콜아웃 안의 헤딩)도 방지된다.
-                                const flattened = unwrapWrapperBlock(
-                                  editor,
-                                  hover.blockStart,
-                                );
-                                if (flattened) {
-                                  // unwrap 된 첫 블록 안으로 selection 이동
-                                  editor
-                                    .chain()
-                                    .focus()
-                                    .setTextSelection(hover.blockStart + 1)
-                                    .run();
-                                } else {
-                                  editor
-                                    .chain()
-                                    .focus()
-                                    .setNodeSelection(hover.blockStart)
-                                    .run();
-                                }
-                              }
-                              item.cmd(editor);
+                              if (!editor || !hover) return;
+                              applyToggleTitleLevel(editor, hover.blockStart, item.level);
                               setMenuOpen(false);
-                              setTypeMenuOpen(false);
                             }}
                             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                           >
@@ -1246,124 +1021,110 @@ export function BlockHandles({
                             {item.label}
                           </button>
                         ))}
-                      </div>
-                    )}
-                  </div>
+                        <div className="my-1 border-t border-zinc-200 dark:border-zinc-700" />
+                      </>
+                    ) : null}
+                    {TYPE_MENU_ITEMS.filter(
+                      (item) => !(isToggleBlock && item.label === "토글"),
+                    ).map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={() => {
+                          if (!editor) return;
+                          if (hover) {
+                            // wrapper(콜아웃·토글·인용) → 새 타입 적용 시 wrapper를 먼저 unwrap 하여
+                            // 내부 블록을 버리지 않고 바깥으로 꺼낸다(이미지·리스트 등 보존).
+                            // 중첩(예: 콜아웃 안의 헤딩)도 방지된다.
+                            const flattened = unwrapWrapperBlock(editor, hover.blockStart);
+                            if (flattened) {
+                              // unwrap 된 첫 블록 안으로 selection 이동
+                              editor.chain().focus().setTextSelection(hover.blockStart + 1).run();
+                            } else {
+                              editor.chain().focus().setNodeSelection(hover.blockStart).run();
+                            }
+                          }
+                          item.cmd(editor);
+                          setMenuOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      >
+                        <item.icon size={14} />
+                        {item.label}
+                      </button>
+                    ))}
+                  </HoverMenuRow>
                 ) : null}
 
                 {/* 콜아웃 프리셋 (콜아웃 블럭일 때만) */}
                 {isCallout && (
-                  <div ref={presetSubmenuAnchorRef} className="relative">
-                    <button
-                      type="button"
-                      onMouseEnter={() => openSubmenu(setPresetOpen)}
-                      onMouseLeave={() => closeSubmenuSoon(setPresetOpen)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    >
-                      <span className="flex items-center gap-2">
-                        <LayoutTemplate size={14} />
-                        프리셋
-                      </span>
-                      <span className="text-zinc-400">›</span>
-                    </button>
-                    {presetOpen && (
-                      <div
-                        ref={presetSubmenuRef}
-                        className="absolute left-full top-0 z-50 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                        style={submenuStyles.preset}
-                        onMouseEnter={() => openSubmenu(setPresetOpen)}
-                        onMouseLeave={() => closeSubmenuSoon(setPresetOpen)}
+                  <HoverMenuRow icon={<LayoutTemplate size={14} />} label="프리셋" panelWidth="w-56">
+                    {/* 전체 프리셋 목록 — 아이콘+라벨 행 */}
+                    {CALLOUT_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyCalloutPreset(p.id)}
+                        className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                       >
-                        {/* 전체 프리셋 목록 — 아이콘+라벨 행 */}
-                        {CALLOUT_PRESETS.map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => applyCalloutPreset(p.id)}
-                            className="flex w-full items-start gap-2 px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                          >
-                            <span className="w-6 shrink-0 text-center text-base leading-6">
-                              {p.emoji || "·"}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="font-medium text-zinc-800 dark:text-zinc-100">
-                                {p.label}
-                              </span>
-                            </span>
-                          </button>
-                        ))}
-                        {/* 컬러칩 — 아이콘 없이 배경색만 적용 */}
-                        <div className="flex flex-wrap gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
-                          {CALLOUT_COLOR_CHIP_PRESETS.map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => applyCalloutPreset(p.id)}
-                              title={p.label}
-                              aria-label={p.label}
-                              className="h-5 w-5 shrink-0 rounded-full border border-zinc-300 transition hover:scale-110 dark:border-zinc-600"
-                              style={{ backgroundColor: p.color ?? undefined }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                        <span className="w-6 shrink-0 text-center text-base leading-6">
+                          {p.emoji || "·"}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                            {p.label}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                    {/* 컬러칩 — 아이콘 없이 배경색만 적용 */}
+                    <div className="flex flex-wrap gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
+                      {CALLOUT_COLOR_CHIP_PRESETS.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => applyCalloutPreset(p.id)}
+                          title={p.label}
+                          aria-label={p.label}
+                          className="h-5 w-5 shrink-0 rounded-full border border-zinc-300 transition hover:scale-110 dark:border-zinc-600"
+                          style={{ backgroundColor: p.color ?? undefined }}
+                        />
+                      ))}
+                    </div>
+                  </HoverMenuRow>
                 )}
 
                 {/* 컬럼 레이아웃 컬러 변경 (컬럼 블록일 때만) */}
                 {isColumnLayout && (
-                  <div ref={presetSubmenuAnchorRef} className="relative">
-                    <button
-                      type="button"
-                      onMouseEnter={() => openSubmenu(setPresetOpen)}
-                      onMouseLeave={() => closeSubmenuSoon(setPresetOpen)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    >
-                      <span className="flex items-center gap-2">
-                        <LayoutTemplate size={14} />
-                        컬러 변경
-                      </span>
-                      <span className="text-zinc-400">›</span>
-                    </button>
-                    {presetOpen && (
-                      <div
-                        ref={presetSubmenuRef}
-                        className="absolute left-full top-0 z-50 w-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                        style={submenuStyles.preset}
-                        onMouseEnter={() => openSubmenu(setPresetOpen)}
-                        onMouseLeave={() => closeSubmenuSoon(setPresetOpen)}
+                  <HoverMenuRow icon={<LayoutTemplate size={14} />} label="컬러 변경" panelWidth="w-56">
+                    {/* None·프레임 텍스트 행 (색 없는 옵션) */}
+                    {COLUMN_LAYOUT_PRESETS.filter((p) => p.color == null).map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyColumnLayoutPreset(p.id)}
+                        className="flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                       >
-                        {/* None·프레임 텍스트 행 (색 없는 옵션) */}
-                        {COLUMN_LAYOUT_PRESETS.filter((p) => p.color == null).map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => applyColumnLayoutPreset(p.id)}
-                            className="flex w-full items-center px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                          >
-                            <span className="font-medium text-zinc-800 dark:text-zinc-100">
-                              {p.label}
-                            </span>
-                          </button>
-                        ))}
-                        {/* 컬러칩 — 아이콘 없이 배경색만 적용 */}
-                        <div className="flex flex-wrap gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
-                          {COLUMN_LAYOUT_PRESETS.filter((p) => p.color != null).map((p) => (
-                            <button
-                              key={`chip-${p.id}`}
-                              type="button"
-                              onClick={() => applyColumnLayoutPreset(p.id)}
-                              title={p.label}
-                              aria-label={p.label}
-                              className="h-5 w-5 shrink-0 rounded-full border border-zinc-300 transition hover:scale-110 dark:border-zinc-600"
-                              style={{ backgroundColor: p.color ?? undefined }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                        <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                          {p.label}
+                        </span>
+                      </button>
+                    ))}
+                    {/* 컬러칩 — 아이콘 없이 배경색만 적용 */}
+                    <div className="flex flex-wrap gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
+                      {COLUMN_LAYOUT_PRESETS.filter((p) => p.color != null).map((p) => (
+                        <button
+                          key={`chip-${p.id}`}
+                          type="button"
+                          onClick={() => applyColumnLayoutPreset(p.id)}
+                          title={p.label}
+                          aria-label={p.label}
+                          className="h-5 w-5 shrink-0 rounded-full border border-zinc-300 transition hover:scale-110 dark:border-zinc-600"
+                          style={{ backgroundColor: p.color ?? undefined }}
+                        />
+                      ))}
+                    </div>
+                  </HoverMenuRow>
                 )}
 
                 {/* 컬럼 너비 비율 (2컬럼 전용) */}
@@ -1426,106 +1187,62 @@ export function BlockHandles({
                   </div>
                 )}
 
-                {/* 텍스트 블록 배경색 */}
+                {/* 텍스트 컬러 */}
                 {isTextBlock && (
-                  <div ref={textColorSubmenuAnchorRef} className="relative">
+                  <HoverMenuRow icon={<Baseline size={14} />} label="텍스트 컬러" panelWidth="w-52">
                     <button
                       type="button"
-                      onMouseEnter={() => openSubmenu(setTextColorOpen)}
-                      onMouseLeave={() => closeSubmenuSoon(setTextColorOpen)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      onClick={() => applyBlockTextColor(null)}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
-                      <span className="flex items-center gap-2">
-                        <Baseline size={14} />
-                        텍스트 컬러
-                      </span>
-                      <span className="text-zinc-400">›</span>
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-red-300 text-[10px] text-red-500 dark:border-red-500/60 dark:text-red-400">✕</span>
+                      <span className="text-red-600 dark:text-red-400">텍스트 컬러 제거</span>
                     </button>
-                    {textColorOpen && (
-                      <div
-                        ref={textColorSubmenuRef}
-                        className="absolute left-full top-0 z-50 w-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                        style={submenuStyles.textColor}
-                        onMouseEnter={() => openSubmenu(setTextColorOpen)}
-                        onMouseLeave={() => closeSubmenuSoon(setTextColorOpen)}
+                    <div className="mx-3 my-1 border-t border-zinc-100 dark:border-zinc-800" />
+                    {BLOCK_TEXT_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyBlockTextColor(p.id)}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                       >
-                        <button
-                          type="button"
-                          onClick={() => applyBlockTextColor(null)}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                        >
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-red-300 text-[10px] text-red-500 dark:border-red-500/60 dark:text-red-400">✕</span>
-                          <span className="text-red-600 dark:text-red-400">텍스트 컬러 제거</span>
-                        </button>
-                        <div className="mx-3 my-1 border-t border-zinc-100 dark:border-zinc-800" />
-                        {BLOCK_TEXT_PRESETS.map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => applyBlockTextColor(p.id)}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                          >
-                            <span
-                              className="inline-block h-4 w-4 shrink-0 rounded-sm border border-zinc-200 dark:border-zinc-700"
-                              style={{ backgroundColor: p.dot }}
-                            />
-                            <span className="text-zinc-700 dark:text-zinc-300">{p.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                        <span
+                          className="inline-block h-4 w-4 shrink-0 rounded-sm border border-zinc-200 dark:border-zinc-700"
+                          style={{ backgroundColor: p.dot }}
+                        />
+                        <span className="text-zinc-700 dark:text-zinc-300">{p.label}</span>
+                      </button>
+                    ))}
+                  </HoverMenuRow>
                 )}
 
-                {/* 텍스트 블록 배경색 */}
+                {/* 배경 컬러 */}
                 {isTextBlock && (
-                  <div ref={bgSubmenuAnchorRef} className="relative">
+                  <HoverMenuRow icon={<PaintBucket size={14} />} label="배경 컬러" panelWidth="w-52">
                     <button
                       type="button"
-                      onMouseEnter={() => openSubmenu(setBgOpen)}
-                      onMouseLeave={() => closeSubmenuSoon(setBgOpen)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      onClick={() => applyBlockBackground(null)}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
-                      <span className="flex items-center gap-2">
-                        <PaintBucket size={14} />
-                        배경 컬러
-                      </span>
-                      <span className="text-zinc-400">›</span>
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-red-300 text-[10px] text-red-500 dark:border-red-500/60 dark:text-red-400">✕</span>
+                      <span className="text-red-600 dark:text-red-400">배경 컬러 제거</span>
                     </button>
-                    {bgOpen && (
-                      <div
-                        ref={bgSubmenuRef}
-                        className="absolute left-full top-0 z-50 w-52 overflow-y-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                        style={submenuStyles.background}
-                        onMouseEnter={() => openSubmenu(setBgOpen)}
-                        onMouseLeave={() => closeSubmenuSoon(setBgOpen)}
+                    <div className="mx-3 my-1 border-t border-zinc-100 dark:border-zinc-800" />
+                    {BLOCK_BG_PRESETS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => applyBlockBackground(p.id)}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                       >
-                        <button
-                          type="button"
-                          onClick={() => applyBlockBackground(null)}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                        >
-                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm border border-red-300 text-[10px] text-red-500 dark:border-red-500/60 dark:text-red-400">✕</span>
-                          <span className="text-red-600 dark:text-red-400">배경 컬러 제거</span>
-                        </button>
-                        <div className="mx-3 my-1 border-t border-zinc-100 dark:border-zinc-800" />
-                        {BLOCK_BG_PRESETS.map((p) => (
-                          <button
-                            key={p.id}
-                            type="button"
-                            onClick={() => applyBlockBackground(p.id)}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                          >
-                            <span
-                              className="inline-block h-4 w-4 shrink-0 rounded-sm border border-zinc-200 dark:border-zinc-700"
-                              style={{ backgroundColor: p.dot }}
-                            />
-                            <span className="text-zinc-700 dark:text-zinc-300">{p.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                        <span
+                          className="inline-block h-4 w-4 shrink-0 rounded-sm border border-zinc-200 dark:border-zinc-700"
+                          style={{ backgroundColor: p.dot }}
+                        />
+                        <span className="text-zinc-700 dark:text-zinc-300">{p.label}</span>
+                      </button>
+                    ))}
+                  </HoverMenuRow>
                 )}
 
                 {/* 표 헤더행/헤더열 토글 (표 블록일 때만) */}
@@ -1673,6 +1390,7 @@ export function BlockHandles({
                   <Trash2 size={14} />
                   삭제
                 </button>
+                </HoverMenuGroup>
               </div>
             )}
           </div>

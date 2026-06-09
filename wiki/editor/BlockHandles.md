@@ -25,10 +25,6 @@
 |------|------|------|
 | `hover` | `HoverInfo \| null` | 현재 마우스가 올라간 블록 정보 |
 | `menuOpen` | `boolean` | 블록 컨텍스트 메뉴 열림 여부 |
-| `presetOpen` | `boolean` | 콜아웃/컬럼 레이아웃 프리셋(컬러 변경) 메뉴 열림 여부 |
-| `bgOpen` | `boolean` | 배경색 선택 메뉴 열림 여부 |
-| `textColorOpen` | `boolean` | 텍스트 색상 메뉴 열림 여부 |
-| `typeMenuOpen` | `boolean` | 블록 타입 변경 메뉴 열림 여부 |
 | `boxSelecting` | `boolean` | 현재 박스 선택 드래그 진행 중 여부 |
 | `isDownloading` | `boolean` | 파일 다운로드 진행 중 여부 |
 
@@ -85,25 +81,45 @@
 ### 이 파일을 사용하는 컴포넌트
 - `Editor.tsx` — 에디터 내부에서 렌더
 
-## 서브메뉴 hover-intent (깜빡임 방지)
+## 서브메뉴 공통 컴포넌트: HoverMenuRow / HoverMenuGroup
 
-트리거 요소와 서브메뉴 사이에 약간의 공백이 있어, 마우스가 공백을 지나는 순간 `onMouseLeave`가 발생하고 서브메뉴가 사라지는 현상이 있었다.
+`src/components/editor/blockHandles/HoverMenuRow.tsx`
 
-**해결**: 160ms 지연 닫기 + 재진입 시 타이머 취소 패턴으로 처리.
+### 왜 만들었나
 
-```ts
-const submenuCloseTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+이전 구현은 `onMouseEnter`/`onMouseLeave`를 트리거 `<button>`에 걸었다. 버튼을 벗어나는 순간 타이머가 시작되므로:
+- **gap 문제**: 버튼 → gap(4px) → 패널 이동 시 타이머가 시작되고, 패널에 도달하기 전에 만료되면 메뉴가 닫혔다.
+- **겹침 문제**: 각 서브메뉴가 독립 타이머를 가져서 다른 메뉴 행으로 이동해도 이전 패널이 200ms 동안 남았다.
 
-function openSubmenu(key: string, setter: (v: boolean) => void) {
-  clearTimeout(submenuCloseTimers.current[key]);
-  setter(true);
-}
-function closeSubmenuSoon(key: string, setter: (v: boolean) => void) {
-  submenuCloseTimers.current[key] = setTimeout(() => setter(false), 160);
-}
+### 해결 방식
+
+**gap 문제** — `onMouseEnter`/`onMouseLeave`를 wrapper `<div>`에 걸었다. 패널이 wrapper의 DOM 자식이므로 버튼 → 패널 이동 시 wrapper의 `mouseleave`가 발화하지 않는다. gap을 지나는 동안만 200ms 타이머가 돌고, 패널 진입 시 wrapper의 `mouseenter`가 재발화해 타이머를 취소한다.
+
+**겹침 문제** — `HoverMenuGroup` 컨텍스트: 같은 그룹 내에서 한 행이 열리면 (`notifyOpen`) 다른 행들이 즉시 닫힌다 (`closeNow`).
+
+### API
+
+```tsx
+// BlockHandles 메뉴 패널 전체를 HoverMenuGroup으로 감싼다
+<HoverMenuGroup>
+  <HoverMenuRow
+    icon={<Baseline size={14} />}
+    label="텍스트 컬러"
+    panelWidth="w-52"         // 패널 너비 Tailwind 클래스 (기본: "w-44")
+    preferredMaxHeight={600}  // viewport-aware 최대 높이 힌트
+    topSeparator              // wrapper 상단 구분선
+  >
+    {/* 패널 내용 — children */}
+  </HoverMenuRow>
+</HoverMenuGroup>
 ```
 
-모든 서브메뉴(`preset`, `bgColor`, `textColor`, `widthRatio`, `columnPreset`, `calloutPreset`, `calloutChip`, `columnChip`)의 `onMouseEnter`/`onMouseLeave`에 이 패턴을 적용한다.
+### BlockHandles에서 제거된 것
+- `presetOpen`, `bgOpen`, `textColorOpen`, `typeMenuOpen` state
+- 8개 anchor/submenu ref 쌍
+- `submenuCloseTimers`, `openSubmenu`, `closeSubmenuSoon`
+- `SubmenuStyles` 타입 및 `computeViewportAwareSubmenuStyle` 함수
+- 서브메뉴 위치 계산 `useLayoutEffect`
 
 ## 컬럼 블럭 프리셋 서브메뉴
 
@@ -127,4 +143,4 @@ function closeSubmenuSoon(key: string, setter: (v: boolean) => void) {
 - **`clickTimerRef`**: 싱글 클릭과 더블 클릭 구분용 타이머 ref.
 - **hover ref 패턴**: `menuOpenRef`, `boxSelectionActiveRef`는 state의 최신값을 ref로 미러링. mousemove 핸들러 deps 배열에서 제거하여 리스너 재등록을 방지한다.
 - **`compactComments` 모드**: 피크 뷰 등 좁은 패널에서는 댓글 버튼이 컴팩트 배지 형태로 표시된다.
-- **서브메뉴 높이(스크롤바 방지)**: `computeViewportAwareSubmenuStyle(anchor, submenu, preferredMaxHeight)`의 `preferredMaxHeight`로 서브메뉴 최대 높이를 정한다. 프리셋·텍스트 컬러·배경 서브메뉴는 항목 수 대비 스크롤바가 생기지 않도록 `600`을 사용한다(과거 256/320에서 상향).
+- **서브메뉴 높이(스크롤바 방지)**: `HoverMenuRow`의 `preferredMaxHeight` prop으로 최대 높이를 정한다. 프리셋·텍스트 컬러·배경 서브메뉴는 항목 수 대비 스크롤바가 생기지 않도록 `600`을 사용한다(과거 256/320에서 상향).
