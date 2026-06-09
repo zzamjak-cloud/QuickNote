@@ -16,6 +16,7 @@ import {
 // 첫 로그인 시 모든 페이지·DB·연락처를 페치. updatedAfter 로 증분 동기화.
 
 const PAGE_LIMIT = 100;
+const PAGE_META_LIMIT = 1000;
 
 export type GqlConnection<T> = {
   items: T[];
@@ -48,7 +49,7 @@ export async function fetchPageMetasBatch(args: {
     variables: {
       workspaceId: args.workspaceId,
       updatedAfter: args.updatedAfter,
-      limit: args.limit ?? PAGE_LIMIT,
+      limit: args.limit ?? PAGE_META_LIMIT,
       nextToken: args.nextToken ?? null,
     },
   })) as { data: { listPageMetas: GqlConnection<GqlPageMeta> } };

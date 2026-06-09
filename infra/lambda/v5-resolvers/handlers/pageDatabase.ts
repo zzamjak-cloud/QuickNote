@@ -15,6 +15,7 @@ import { v4 as uuid } from "uuid";
 export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const TRASH_PAGE_MAX = 50;
+const PAGE_META_INTERNAL_QUERY_MAX = 50;
 
 /** DynamoDB Query 연속 조회 커서(EK + 동일 페이지 배열 내 skip) */
 type TrashListCursor = {
@@ -585,31 +586,48 @@ export async function listPageMetas(args: {
   });
   const expressionValues: Record<string, unknown> = {
     ":w": args.workspaceId,
-    ":empty": "",
-    ":nullType": "NULL",
   };
   let keyCondition = "workspaceId = :w";
   if (args.updatedAfter) {
     keyCondition += " AND updatedAt > :u";
     expressionValues[":u"] = args.updatedAfter;
   }
-  const r = await args.doc.send(
-    new QueryCommand({
-      TableName: args.tables.Pages,
-      IndexName: "byWorkspaceAndUpdatedAt",
-      KeyConditionExpression: keyCondition,
-      FilterExpression: "attribute_not_exists(databaseId) OR attribute_type(databaseId, :nullType) OR databaseId = :empty",
-      ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt, fullPageDatabaseId",
-      ExpressionAttributeNames: { "#order": "order" },
-      ExpressionAttributeValues: expressionValues,
-      Limit: args.limit ?? 100,
-      ExclusiveStartKey: args.nextToken ? JSON.parse(args.nextToken) : undefined,
-      ScanIndexForward: false,
-    }),
+  const limit = Math.max(1, args.limit ?? 100);
+  const items: Record<string, unknown>[] = [];
+  let exclusiveStartKey = args.nextToken ? JSON.parse(args.nextToken) as Record<string, unknown> : undefined;
+  let queryCount = 0;
+  let lastEvaluatedKey: Record<string, unknown> | undefined;
+
+  do {
+    const r = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tables.Pages,
+        IndexName: "byWorkspaceAndUpdatedAt",
+        KeyConditionExpression: keyCondition,
+        ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt, fullPageDatabaseId",
+        ExpressionAttributeNames: { "#order": "order" },
+        ExpressionAttributeValues: expressionValues,
+        Limit: limit - items.length,
+        ExclusiveStartKey: exclusiveStartKey,
+        ScanIndexForward: false,
+      }),
+    );
+    for (const item of r.Items ?? []) {
+      const databaseId = item.databaseId;
+      if (databaseId == null || databaseId === "") items.push(item as Record<string, unknown>);
+    }
+    lastEvaluatedKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+    exclusiveStartKey = lastEvaluatedKey;
+    queryCount += 1;
+  } while (
+    items.length < limit &&
+    exclusiveStartKey &&
+    queryCount < PAGE_META_INTERNAL_QUERY_MAX
   );
+
   return {
-    items: (r.Items ?? []) as Record<string, unknown>[],
-    nextToken: r.LastEvaluatedKey ? JSON.stringify(r.LastEvaluatedKey) : null,
+    items,
+    nextToken: lastEvaluatedKey ? JSON.stringify(lastEvaluatedKey) : null,
   };
 }
 

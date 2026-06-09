@@ -16,6 +16,7 @@ localStorage    ←  빠른 첫 렌더용 캐시 (원격 스냅샷)
   ├─ listPageMetas (제목·아이콘·parentId·fullPageDatabaseId 등 메타만, doc 제외)
   │   └─ GSI: byWorkspaceAndUpdatedAt (ALL 프로젝션) — 페이지 수 무제한
   │       nextToken 자동 루프 → 100개 초과 워크스페이스도 전부 로드
+  │       DB row가 앞에 몰린 워크스페이스(CAT 등)는 resolver가 필터 후 메타 limit를 채운다
   ├─ listDatabases
   └─ listComments
   → 사이드바·트리 즉시 렌더 가능

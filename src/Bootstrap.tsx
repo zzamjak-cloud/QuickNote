@@ -60,7 +60,7 @@ import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 import { createLCSchedulerRootPageRepairGate } from "./lib/sync/lcSchedulerWorkspaceRepair";
 
-const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-07-sidebar-db-row-cache-repair";
+const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-09-cat-page-meta-baseline-repair";
 const workspaceCacheRepairKey = (workspaceId: string): string =>
   `quicknote.workspace.cacheRepair.${WORKSPACE_CACHE_REPAIR_REVISION}:${workspaceId}`;
 const lcSchedulerRootPageRepairGate = createLCSchedulerRootPageRepairGate();

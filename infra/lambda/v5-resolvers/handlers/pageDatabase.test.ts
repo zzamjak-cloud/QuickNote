@@ -642,8 +642,42 @@ describe("page/database handlers", () => {
     const queryArg = sendMock.mock.calls[2]?.[0].input;
     expect(queryArg.IndexName).toBe("byWorkspaceAndUpdatedAt");
     expect(queryArg.ProjectionExpression).not.toContain("doc");
-    expect(queryArg.FilterExpression).toContain("attribute_not_exists(databaseId)");
     expect(queryArg.Limit).toBe(25);
+  });
+
+  it("listPageMetas: DB row가 앞에 몰려 있어도 기준선 메타를 채운다", async () => {
+    const lastKey = { workspaceId: "ws-1", updatedAt: "2026-06-09T00:00:00.000Z", id: "row-1" };
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "everyone", subjectId: null, level: "view" }] },
+      {
+        Items: [
+          { id: "row-1", workspaceId: "ws-1", title: "Row", databaseId: "db-1" },
+        ],
+        LastEvaluatedKey: lastKey,
+      },
+      {
+        Items: [
+          { id: "p1", workspaceId: "ws-1", title: "P1", order: "a" },
+        ],
+      },
+    );
+
+    const result = await listPageMetas({
+      doc,
+      tables,
+      caller,
+      workspaceId: "ws-1",
+      limit: 1,
+    });
+
+    expect(result.items.map((page) => page.id)).toEqual(["p1"]);
+    expect(result.nextToken).toBeNull();
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const firstQuery = sendMock.mock.calls[2]?.[0].input;
+    const secondQuery = sendMock.mock.calls[3]?.[0].input;
+    expect(firstQuery.Limit).toBe(1);
+    expect(secondQuery.ExclusiveStartKey).toEqual(lastKey);
   });
 
   it("listDatabaseRows: DB row GSI로 화면 단위 row와 nextToken을 조회한다", async () => {
