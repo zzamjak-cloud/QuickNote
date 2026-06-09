@@ -145,6 +145,7 @@ type NotionCsvFolderSectionProps = {
 export function NotionCsvFolderSection({ compact = false, sharedSource = null }: NotionCsvFolderSectionProps) {
   const createPage = usePageStore((s) => s.createPage);
   const updateDoc = usePageStore((s) => s.updateDoc);
+  const markFullPageDatabaseHome = usePageStore((s) => s.markFullPageDatabaseHome);
   const setIcon = usePageStore((s) => s.setIcon);
 
   const createDatabase = useDatabaseStore((s) => s.createDatabase);
@@ -520,8 +521,10 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
         dbPageIdByFolderPath.set(pair.folderPath, dbPageId);
         updateDoc(dbPageId, {
           type: "doc",
-          content: [{ type: "databaseBlock", attrs: { databaseId: dbId } }],
+          content: [{ type: "databaseBlock", attrs: { databaseId: dbId, layout: "fullPage" } }],
         });
+        // 풀페이지 DB 홈으로 태깅 — 누락 시 메타 베이스라인에서 사이드바에 유령으로 노출된다.
+        markFullPageDatabaseHome(dbPageId, dbId);
 
         // 아이콘 자산을 업로드해 image/file ref 로 변환 (실패시 null).
         // PNG/JPEG/WEBP 는 압축 경로(uploadImage)로 → quicknote-image:// ref.

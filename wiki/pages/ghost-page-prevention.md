@@ -77,6 +77,20 @@ persist 된 탭이 { databaseId: X } (풀페이지 DB 탭)
 > `quicknote-page` 의 `byWorkspaceAndUpdatedAt` GSI 로 `databaseId=null` 루트를 조회해
 > 정식 페이지만 남기고 중복을 삭제(`deletedAt`/`updatedAt` 전진 + `purgeAt` epoch초)하면 delta 동기화로 전파된다.
 
+## 임포트가 만든 미태깅 홈 (재발 경로, 2026-06-09)
+
+라이브에서 같은 DB("아트 직군 살롱 지식 DB", `c5ce2a99`)의 풀페이지 홈이 날짜별로 미태깅 중복 생성되어 유령으로 반복 노출됐다.
+
+원인: **Notion CSV 폴더 임포트**(`src/components/settings/NotionCsvFolderSection.tsx`)가 DB 홈 페이지를 `createPage` + `updateDoc(databaseBlock)` 로 만들면서 페이지 레벨 `fullPageDatabaseId`(및 명시 `layout: "fullPage"`)를 설정하지 않았다. 서버 `upsertPage` 는 input 을 그대로 저장하므로(필드를 버리지 않음) 클라이언트가 안 보낸 것이 원인. 미태깅 홈은 메타 베이스라인에서 doc 폴백이 안 돼 사이드바에 노출되고, 델타 부트라 prune(`reconcileWorkspaceFullSnapshot`)도 안 돼 삭제해도 재동기화로 부활한다.
+
+수정:
+- 임포트가 홈 생성 시 `layout: "fullPage"` 를 명시하고 `pageStore.markFullPageDatabaseHome(pageId, dbId)` 로 태깅한다.
+- `pageStore.markFullPageDatabaseHome` 액션 신설(태깅 + `enqueueUpsertPage`, idempotent).
+- `ensureFullPagePageForDatabase` 가 기존 홈을 찾으면 태그 누락 시 자동 보강(자기 치유, doc 로드된 경우 한정).
+- 기존 서버 미태깅 홈은 코드로 못 잡으므로 `quicknote-page` 에서 중복 홈을 softDelete 로 정리한다(`deletedAt`/`updatedAt`/`purgeAt`+30일, `attribute_not_exists(fullPageDatabaseId) AND attribute_not_exists(deletedAt)` 조건). 정식 태깅 홈만 남긴다.
+
+> 점검 쿼리: `quicknote-page` 전체 스캔에서 `미삭제 AND 미태깅 AND 루트(databaseId 없음)` 후보 중 `doc.content[0]` 이 `databaseBlock` + `layout==="fullPage"` 인 것이 유령. 정상 워크스페이스는 0건이어야 한다.
+
 ## CRITICAL 회귀 주의
 
 - **ghost 재발 조건**: `upsertPage` 호출 시 `fullPageDatabaseId`를 빠뜨리면 레거시 폴백에만 의존하게 된다. 폴백은 doc 본문이 로드된 후에만 동작하므로 메타 베이스라인 경로에서 사이드바에 순간 노출될 수 있다.

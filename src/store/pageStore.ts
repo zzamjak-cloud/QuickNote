@@ -247,6 +247,8 @@ type PageStoreActions = {
     title?: string,
     view?: ViewKind,
   ) => string | null;
+  /** 임포트 등으로 만든 fullPage DB 홈 페이지에 fullPageDatabaseId 태그를 보강한다(유령 방지) */
+  markFullPageDatabaseHome: (pageId: string, databaseId: string) => void;
   // 페이지를 다른 부모/위치로 이동. parentId=null 이면 루트.
   movePage: (id: string, parentId: string | null, index: number) => void;
   // 키보드 단축키용 상대 이동 (같은 부모 내 위/아래, 들여쓰기/내어쓰기)
@@ -970,6 +972,8 @@ export const usePageStore = create<PageStore>()(
         if (isProtectedDatabaseId(idWant)) return null;
         const existing = get().findFullPagePageIdForDatabase(idWant);
         if (existing) {
+          // 레거시·임포트 등으로 태그가 빠진 홈을 발견하면 보강한다(유령 방지, idempotent).
+          get().markFullPageDatabaseHome(existing, idWant);
           return existing;
         }
 
@@ -1020,6 +1024,20 @@ export const usePageStore = create<PageStore>()(
         });
 
         return id;
+      },
+
+      markFullPageDatabaseHome: (pageId, databaseId) => {
+        const idWant = databaseId.trim();
+        if (!idWant) return;
+        const existing = get().pages[pageId];
+        if (!existing || existing.fullPageDatabaseId === idWant) return;
+        const updated: Page = {
+          ...existing,
+          fullPageDatabaseId: idWant,
+          updatedAt: Date.now(),
+        };
+        set((s) => ({ pages: { ...s.pages, [pageId]: updated } }));
+        enqueueUpsertPage(updated);
       },
     }),
     {
