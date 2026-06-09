@@ -38,6 +38,24 @@ localStorage    ←  빠른 첫 렌더용 캐시 (원격 스냅샷)
 - `no-cache` 상태이면서 `listPageMetas` API가 응답 후 캐시가 여전히 비어 있는 경우 → `fetchApplyWorkspaceRemoteSnapshot`(전체) fallback 자동 실행
 - LC 스케줄러 워크스페이스에서 `마일스톤 DB`, `피처 DB`, `작업 DB` 루트 페이지가 빠진 캐시가 감지되면 → page meta token/watermark 를 초기화하고 `forceMetaBaseline` 으로 재조회
 
+### CAT 워크스페이스 사이드바 페이지 결손 회귀
+
+CAT(공용아트팀)처럼 DB row 페이지가 많은 워크스페이스에서는 개발 빌드 진입 후 사이드바 페이지가 대부분 사라져 보일 수 있다.
+
+원인은 `listPageMetas`가 DynamoDB Query의 `Limit`을 먼저 적용한 뒤 DB row(`databaseId` 존재)를 필터링한 것이다. 최신순 앞쪽에 DB row가 몰려 있으면 첫 배치 대부분이 필터링되고, 클라이언트는 적은 메타만 받은 상태에서 page meta baseline 을 완료한 것으로 판단한다. 이후 watermark 가 전진하면 누락된 오래된 일반 페이지는 delta 로 다시 내려오지 않는다.
+
+방지 규칙:
+- `infra/lambda/v5-resolvers/handlers/pageDatabase.ts`의 `listPageMetas`는 DB row 필터링 후 일반 페이지 메타가 `limit`만큼 찰 때까지 내부 페이지네이션을 계속해야 한다.
+- `src/lib/sync/bootstrap.ts`의 `PAGE_META_LIMIT`은 큰 워크스페이스 초기 사이드바 기준선을 담을 수 있을 만큼 유지한다.
+- 이 문제가 배포된 적이 있으면 `src/Bootstrap.tsx`의 `WORKSPACE_CACHE_REPAIR_REVISION`을 올려 `pageMetaRemote`/`syncWatermark`를 초기화하고 `forceMetaBaseline`을 다시 실행시킨다.
+
+회귀 체크:
+- DB row가 많은 워크스페이스에서 첫 진입 직후 사이드바 일반 페이지 수가 줄지 않아야 한다.
+- `listPageMetas` 응답이 DB row를 제외한 일반 페이지 메타 기준으로 limit를 채워야 한다.
+- dev/live origin 별 IndexedDB 캐시가 분리되어 있으므로, 한쪽에서만 재현되면 해당 origin의 page meta baseline/watermark 상태를 먼저 확인한다.
+
+관련 구현: `pageDatabase.ts`의 `listPageMetas`, `bootstrap.ts`의 `fetchPageMetasByWorkspace`, `Bootstrap.tsx`의 one-time workspace cache repair.
+
 ### LC 스케줄러 루트 DB 페이지 결손 복구
 
 개발/라이브 origin 별 IndexedDB 캐시가 갈라진 상태에서 LC 보호 DB 정의와 row cache 는 남아 있는데

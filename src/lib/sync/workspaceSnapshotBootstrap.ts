@@ -101,7 +101,9 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
     Promise.allSettled([
       fetchPagesByWorkspace(workspaceId, updatedAfter),
       fetchDatabasesByWorkspace(workspaceId, updatedAfter),
-      fetchCommentsByWorkspace(workspaceId, updatedAfter),
+      // 댓글은 로컬 persist 안 됨(messages 미저장) → 콜드로드마다 빈 상태로 시작.
+      // 공유 워터마크로 증분 조회하면 워터마크 이전 댓글을 영영 못 받으므로 항상 전체 조회.
+      fetchCommentsByWorkspace(workspaceId),
     ]),
     engine.getPendingUpsertEntityIds(),
   ]);
@@ -196,7 +198,9 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
   const [pageMetasBatchResult, dbsResult, commentsResult] = await Promise.allSettled([
     fetchPageMetasBatch({ workspaceId, updatedAfter }),
     fetchDatabasesByWorkspace(workspaceId, updatedAfter),
-    fetchCommentsByWorkspace(workspaceId, updatedAfter),
+    // 댓글은 로컬 persist 안 됨(messages 미저장) → 콜드로드마다 빈 상태로 시작.
+    // 공유 워터마크로 증분 조회하면 워터마크 이전 댓글을 영영 못 받으므로 항상 전체 조회.
+    fetchCommentsByWorkspace(workspaceId),
   ]);
   if (cancelled?.()) return;
 
