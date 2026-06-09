@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.30] - 2026-06-09
+
+### Fixed
+
+- CAT 워크스페이스처럼 DB row가 많은 경우 사이드바 페이지 메타 기준선이 일부만 로드되던 문제 수정.
+- 사이드바 자식 페이지 접기 버튼을 항상 표시하고 간격을 보정.
+- GitHub Actions jsdom 테스트 환경의 `scrollIntoView` 누락 보강.
+
 ## [5.4.29] - 2026-06-09
 
 ### Changed
