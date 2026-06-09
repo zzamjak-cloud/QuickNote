@@ -6,11 +6,18 @@ import { useMemberStore } from "../../../store/memberStore";
 import { usePageStore } from "../../../store/pageStore";
 import { useProcessedRows } from "../useProcessedRows";
 
-function RowsProbe({ panelState }: { panelState: DatabasePanelState }) {
+function RowsProbe({ panelState, cellId }: { panelState: DatabasePanelState; cellId?: string }) {
   const { rows } = useProcessedRows("db-1", panelState);
   return (
     <div>
       <output aria-label="row-count">{rows.length}</output>
+      {cellId
+        ? rows.map((row) => (
+            <output key={`${row.pageId}:${cellId}`} aria-label={`cell-${row.pageId}`}>
+              {String(row.cells[cellId] ?? "")}
+            </output>
+          ))
+        : null}
       <ul>
         {rows.map((row) => (
           <li key={row.pageId}>{row.title}</li>
@@ -352,5 +359,100 @@ describe("useProcessedRows", () => {
     expect(screen.getByLabelText("row-count").textContent).toBe("1");
     expect(screen.queryByText("업무 1")).not.toBeNull();
     expect(screen.queryByText("업무 2")).toBeNull();
+  });
+
+  it("sourceFromDb 자동화 결과가 비어 있으면 수동 선택값을 row 값으로 유지한다", () => {
+    useDatabaseStore.setState({
+      databases: {
+        "db-1": {
+          meta: {
+            id: "db-1",
+            title: "작업 DB",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [
+            { id: "title", name: "이름", type: "title" },
+            {
+              id: "feature",
+              name: "피처",
+              type: "pageLink",
+              config: { pageLinkScopeDatabaseId: "feature-db" },
+            },
+            {
+              id: "priority",
+              name: "우선순위",
+              type: "select",
+              config: {
+                sourceFromDb: {
+                  databaseId: "feature-db",
+                  columnId: "source-priority",
+                  automation: true,
+                },
+              },
+            },
+          ],
+          rowPageOrder: ["task-1"],
+        },
+        "feature-db": {
+          meta: {
+            id: "feature-db",
+            title: "피처 DB",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [
+            { id: "title", name: "이름", type: "title" },
+            {
+              id: "source-priority",
+              name: "우선순위",
+              type: "select",
+              config: {
+                options: [
+                  { id: "manual-option", label: "수동 선택" },
+                  { id: "auto-option", label: "자동 선택" },
+                ],
+              },
+            },
+          ],
+          rowPageOrder: ["feature-1"],
+        },
+      },
+    });
+    usePageStore.setState({
+      pages: {
+        "task-1": {
+          id: "task-1",
+          workspaceId: "ws-1",
+          title: "작업 1",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          databaseId: "db-1",
+          dbCells: { feature: ["feature-1"], priority: "manual-option" },
+        },
+        "feature-1": {
+          id: "feature-1",
+          workspaceId: "ws-1",
+          title: "피처 1",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 2,
+          createdAt: 1,
+          updatedAt: 1,
+          databaseId: "feature-db",
+          dbCells: { "source-priority": "" },
+        },
+      },
+      activePageId: null,
+    });
+
+    render(<RowsProbe panelState={emptyPanelState()} cellId="priority" />);
+
+    expect(screen.getByLabelText("cell-task-1").textContent).toBe("manual-option");
   });
 });

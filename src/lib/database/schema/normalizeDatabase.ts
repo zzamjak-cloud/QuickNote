@@ -18,9 +18,6 @@ type MutableColumnConfig = ColumnConfig & Record<string, unknown>;
 const PAGE_LINK_CONFIG_KEYS = [
   "pageLinkScopeDatabaseId",
   "pageLinkMirrorColumnId",
-  "pageLinkAutoReverse",
-  "pageLinkReverseColumnName",
-  "pageLinkAutoFill",
 ] as const;
 
 const ITEM_FETCH_CONFIG_KEYS = [
@@ -237,10 +234,13 @@ function normalizeColumnConfig(value: unknown): ColumnConfig | undefined {
   const progressSource = normalizeProgressSource(value.progressSource);
   if (progressSource) config.progressSource = progressSource;
 
+  delete config.pageLinkAutoReverse;
+  delete config.pageLinkReverseColumnName;
+  delete config.pageLinkAutoFill;
+
   for (const key of [
     "pageLinkScopeDatabaseId",
     "pageLinkMirrorColumnId",
-    "pageLinkReverseColumnName",
     "itemFetchSourceDatabaseId",
     "itemFetchMatchColumnId",
   ] as const) {
@@ -248,25 +248,9 @@ function normalizeColumnConfig(value: unknown): ColumnConfig | undefined {
     if (typeof value[key] === "string") config[key] = value[key];
   }
 
-  delete config.pageLinkAutoReverse;
-  if (typeof value.pageLinkAutoReverse === "boolean") {
-    config.pageLinkAutoReverse = value.pageLinkAutoReverse;
-  }
-
   delete config.searchFilters;
   const searchFilters = normalizeSearchFilters(value.searchFilters);
   if (searchFilters) config.searchFilters = searchFilters;
-
-  delete config.pageLinkAutoFill;
-  if (Array.isArray(value.pageLinkAutoFill)) {
-    const autoFill = value.pageLinkAutoFill.filter(
-      (item): item is { targetColumnId: string; sourceColumnId: string } =>
-        isPlainObject(item) &&
-        typeof item.targetColumnId === "string" &&
-        typeof item.sourceColumnId === "string",
-    );
-    config.pageLinkAutoFill = autoFill;
-  }
 
   delete config.linkedScope;
   if (

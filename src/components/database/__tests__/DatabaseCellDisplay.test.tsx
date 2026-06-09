@@ -1,16 +1,146 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
-import type { ColumnDef } from "../../../types/database";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { emptyPanelState, type ColumnDef } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useMemberStore } from "../../../store/memberStore";
 import { usePageStore } from "../../../store/pageStore";
+import { DatabaseCell } from "../DatabaseCell";
 import { DatabaseCellDisplay } from "../DatabaseCellDisplay";
+import { useProcessedRows } from "../useProcessedRows";
+
+const originalUpdateCell = useDatabaseStore.getState().updateCell;
+
+class ResizeObserverStub {
+  observe() {}
+  disconnect() {}
+}
+
+const automatedSelectColumn: ColumnDef = {
+  id: "priority",
+  name: "우선순위",
+  type: "select",
+  config: {
+    sourceFromDb: {
+      databaseId: "source-db",
+      columnId: "source-priority",
+      automation: true,
+    },
+  },
+};
+
+function setupAutomatedSelectFixture(
+  sourceValue: string | string[] | null,
+  updateCell = originalUpdateCell,
+  options: {
+    includeSourceRow?: boolean;
+    manualValue?: string | string[] | null;
+    sourceLinkValue?: string[];
+  } = {},
+) {
+  const includeSourceRow = options.includeSourceRow ?? true;
+  const manualValue = options.manualValue === undefined ? "manual-option" : options.manualValue;
+  const sourceLinkValue = options.sourceLinkValue ?? ["source-row"];
+  useDatabaseStore.setState({
+    updateCell,
+    databases: {
+      "current-db": {
+        meta: { id: "current-db", title: "현재 DB", createdAt: 1, updatedAt: 1 },
+        columns: [
+          { id: "title", name: "이름", type: "title" },
+          {
+            id: "source-link",
+            name: "소스",
+            type: "pageLink",
+            config: { pageLinkScopeDatabaseId: "source-db" },
+          },
+          automatedSelectColumn,
+        ],
+        rowPageOrder: ["current-row"],
+      },
+      "source-db": {
+        meta: { id: "source-db", title: "소스 DB", createdAt: 1, updatedAt: 1 },
+        columns: [
+          { id: "title", name: "이름", type: "title" },
+          {
+            id: "source-priority",
+            name: "우선순위",
+            type: "select",
+            config: {
+              options: [
+                { id: "manual-option", label: "수동 선택" },
+                { id: "auto-option", label: "자동 선택" },
+              ],
+            },
+          },
+        ],
+        rowPageOrder: includeSourceRow ? ["source-row"] : [],
+      },
+    },
+    cacheWorkspaceId: "ws-1",
+  });
+  usePageStore.setState({
+    pages: {
+      "current-row": {
+        id: "current-row",
+        workspaceId: "ws-1",
+        title: "현재 행",
+        icon: null,
+        doc: { type: "doc", content: [] },
+        parentId: null,
+        order: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        databaseId: "current-db",
+        dbCells: {
+          "source-link": sourceLinkValue,
+          priority: manualValue,
+        },
+      },
+      ...(includeSourceRow
+        ? {
+            "source-row": {
+              id: "source-row",
+              workspaceId: "ws-1",
+              title: "소스 행",
+              icon: null,
+              doc: { type: "doc", content: [] },
+              parentId: null,
+              order: 2,
+              createdAt: 1,
+              updatedAt: 1,
+              databaseId: "source-db",
+              dbCells: { "source-priority": sourceValue },
+            },
+          }
+        : {}),
+    },
+    activePageId: null,
+  });
+}
+
+const processedPanelState = emptyPanelState();
+
+function ProcessedSelectCellProbe() {
+  const { rows } = useProcessedRows("current-db", processedPanelState);
+  const row = rows[0];
+  if (!row) return null;
+  return (
+    <DatabaseCell
+      databaseId="current-db"
+      rowId="current-row"
+      column={automatedSelectColumn}
+      value={row.cells.priority ?? null}
+    />
+  );
+}
 
 describe("DatabaseCellDisplay", () => {
   beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
     useDatabaseStore.setState({
       databases: {},
       cacheWorkspaceId: null,
+      updateCell: originalUpdateCell,
     });
     usePageStore.setState({
       pages: {},
@@ -255,5 +385,112 @@ describe("DatabaseCellDisplay", () => {
 
     expect(screen.queryByText("홍길동")).not.toBeNull();
     expect(screen.queryByText(memberId)).toBeNull();
+  });
+
+  it("sourceFromDb 자동화 결과가 비어 있으면 저장된 선택값을 표시한다", () => {
+    setupAutomatedSelectFixture("");
+
+    render(
+      <DatabaseCellDisplay
+        column={automatedSelectColumn}
+        value="manual-option"
+        rowId="current-row"
+      />,
+    );
+
+    expect(screen.queryByText("수동 선택")).not.toBeNull();
+  });
+
+  it("sourceFromDb 자동화 원본 행을 찾지 못하면 저장된 선택값을 표시한다", () => {
+    setupAutomatedSelectFixture("", originalUpdateCell, {
+      includeSourceRow: false,
+      sourceLinkValue: [],
+    });
+
+    render(
+      <DatabaseCellDisplay
+        column={automatedSelectColumn}
+        value="manual-option"
+        rowId="current-row"
+      />,
+    );
+
+    expect(screen.queryByText("수동 선택")).not.toBeNull();
+  });
+
+  it("sourceFromDb 자동화 결과가 나중에 생기면 저장된 선택값보다 자동화 값을 표시한다", async () => {
+    setupAutomatedSelectFixture("");
+
+    render(
+      <DatabaseCellDisplay
+        column={automatedSelectColumn}
+        value="manual-option"
+        rowId="current-row"
+      />,
+    );
+
+    expect(screen.queryByText("수동 선택")).not.toBeNull();
+
+    act(() => {
+      usePageStore.setState((state) => {
+        const sourceRow = state.pages["source-row"];
+        if (!sourceRow) return { pages: state.pages };
+        return {
+          pages: {
+            ...state.pages,
+            "source-row": {
+              ...sourceRow,
+              dbCells: {
+                ...sourceRow.dbCells,
+                "source-priority": "auto-option",
+              },
+            },
+          },
+        };
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("자동 선택")).not.toBeNull();
+      expect(screen.queryByText("수동 선택")).toBeNull();
+    });
+  });
+
+  it("sourceFromDb 자동화 결과가 비어 있으면 선택 셀을 직접 저장할 수 있다", () => {
+    const updateCell = vi.fn();
+    setupAutomatedSelectFixture([], updateCell);
+
+    render(
+      <DatabaseCell
+        databaseId="current-db"
+        rowId="current-row"
+        column={automatedSelectColumn}
+        value="manual-option"
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle("옵션 선택"));
+    fireEvent.click(screen.getByText("자동 선택"));
+
+    expect(updateCell).toHaveBeenCalledWith(
+      "current-db",
+      "current-row",
+      "priority",
+      "auto-option",
+    );
+  });
+
+  it("sourceFromDb 자동화 결과가 비어 있으면 처리 행 rerender 뒤에도 직접 선택값을 유지한다", async () => {
+    setupAutomatedSelectFixture("", originalUpdateCell, { manualValue: null });
+
+    render(<ProcessedSelectCellProbe />);
+
+    fireEvent.click(screen.getByTitle("옵션 선택"));
+    fireEvent.click(screen.getByText("자동 선택"));
+
+    await waitFor(() => {
+      expect(screen.getByTitle("옵션 선택").textContent).toContain("자동 선택");
+    });
+    expect(usePageStore.getState().pages["current-row"]?.dbCells?.priority).toBe("auto-option");
   });
 });

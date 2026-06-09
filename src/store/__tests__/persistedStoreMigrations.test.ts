@@ -4,7 +4,16 @@ import { migrateDatabaseStore } from "../databaseStore";
 import { migrateNotificationStore } from "../notificationStore";
 import { migratePageStore } from "../pageStore";
 import { migrateSettingsStore } from "../settingsStore";
-import { LC_SCHEDULER_DATABASE_ID } from "../../lib/scheduler/database";
+import {
+  LC_MILESTONE_DATABASE_ID,
+  LC_SCHEDULER_COLUMN_IDS,
+  LC_SCHEDULER_DATABASE_ID,
+} from "../../lib/scheduler/database";
+import {
+  LC_FEATURE_COLUMN_IDS,
+  LC_FEATURE_DATABASE_ID,
+} from "../../lib/scheduler/featureDatabase";
+import { LC_MILESTONE_COLUMN_IDS } from "../../lib/scheduler/milestoneDatabase";
 import {
   PAGE_STORE_DATA_KEYS,
   PAGE_STORE_PERSIST_VERSION,
@@ -244,9 +253,8 @@ describe("persisted store migrations", () => {
     });
     expect(db.columns.find((column) => column.id === "item-fetch")?.type).toBe("itemFetch");
     expect(db.columns.find((column) => column.id === "page-link")?.type).toBe("pageLink");
-    expect(db.columns.find((column) => column.id === "page-link")?.config?.pageLinkAutoFill).toEqual([
-      { targetColumnId: "team", sourceColumnId: "team" },
-    ]);
+    expect(db.columns.find((column) => column.id === "page-link")?.config).not.toHaveProperty("pageLinkAutoReverse");
+    expect(db.columns.find((column) => column.id === "page-link")?.config).not.toHaveProperty("pageLinkAutoFill");
     expect(db.columns.find((column) => column.id === "page-link")?.config?.searchFilters).toEqual([
       { id: "filter-1", kind: "database", value: "task-db" },
     ]);
@@ -274,6 +282,71 @@ describe("persisted store migrations", () => {
     expect(Object.keys(migrated.databases as Record<string, unknown>)).toEqual([
       LC_SCHEDULER_DATABASE_ID,
     ]);
+  });
+
+  it("databaseStore v5 migration converts LC reference columns to sourceFromDb/itemFetch", () => {
+    const migrated = migrateDatabaseStore(
+      {
+        databases: {
+          [LC_MILESTONE_DATABASE_ID]: {
+            meta: { id: LC_MILESTONE_DATABASE_ID, title: "마일스톤", createdAt: 1, updatedAt: 2 },
+            columns: [
+              { id: LC_MILESTONE_COLUMN_IDS.title, name: "마일스톤", type: "title" },
+              { id: LC_MILESTONE_COLUMN_IDS.organization, name: "조직", type: "select", config: { linkedScope: "organization" } },
+            ],
+            rowPageOrder: [],
+          },
+          [LC_FEATURE_DATABASE_ID]: {
+            meta: { id: LC_FEATURE_DATABASE_ID, title: "피처", createdAt: 1, updatedAt: 2 },
+            columns: [
+              { id: LC_FEATURE_COLUMN_IDS.title, name: "피처", type: "title" },
+              { id: LC_FEATURE_COLUMN_IDS.milestone, name: "마일스톤", type: "pageLink" },
+              { id: LC_FEATURE_COLUMN_IDS.organization, name: "조직", type: "select", config: { linkedScope: "organization" } },
+              {
+                id: LC_FEATURE_COLUMN_IDS.task,
+                name: "작업",
+                type: "pageLink",
+                config: { pageLinkScopeDatabaseId: LC_SCHEDULER_DATABASE_ID },
+              },
+            ],
+            rowPageOrder: [],
+          },
+          [LC_SCHEDULER_DATABASE_ID]: {
+            meta: { id: LC_SCHEDULER_DATABASE_ID, title: "작업", createdAt: 1, updatedAt: 2 },
+            columns: [
+              { id: LC_SCHEDULER_COLUMN_IDS.title, name: "작업", type: "title" },
+              { id: LC_SCHEDULER_COLUMN_IDS.feature, name: "피처", type: "pageLink" },
+              { id: LC_SCHEDULER_COLUMN_IDS.organization, name: "조직", type: "select", config: { linkedScope: "organization" } },
+            ],
+            rowPageOrder: [],
+          },
+        },
+      },
+      4,
+    );
+
+    const databases = migrated.databases as Record<string, { columns: Array<{ id: string; type: string; config?: Record<string, unknown> }> }>;
+    expect(databases[LC_FEATURE_DATABASE_ID]?.columns.find((column) => column.id === LC_FEATURE_COLUMN_IDS.task)).toEqual(
+      expect.objectContaining({
+        type: "itemFetch",
+        config: expect.objectContaining({
+          itemFetchSourceDatabaseId: LC_SCHEDULER_DATABASE_ID,
+          itemFetchMatchColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+        }),
+      }),
+    );
+    expect(databases[LC_FEATURE_DATABASE_ID]?.columns.find((column) => column.id === LC_FEATURE_COLUMN_IDS.organization)?.config?.sourceFromDb).toEqual({
+      databaseId: LC_MILESTONE_DATABASE_ID,
+      columnId: LC_MILESTONE_COLUMN_IDS.organization,
+      automation: true,
+      viaPageLinkColumnId: LC_FEATURE_COLUMN_IDS.milestone,
+    });
+    expect(databases[LC_SCHEDULER_DATABASE_ID]?.columns.find((column) => column.id === LC_SCHEDULER_COLUMN_IDS.organization)?.config?.sourceFromDb).toEqual({
+      databaseId: LC_FEATURE_DATABASE_ID,
+      columnId: LC_FEATURE_COLUMN_IDS.organization,
+      automation: true,
+      viaPageLinkColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+    });
   });
 
   it("pageStore migration removes pages linked to legacy LC scheduler databases", () => {
@@ -343,7 +416,7 @@ describe("persisted store migrations", () => {
     },
   );
 
-  it.each([0, 1, 2, 3])(
+  it.each([0, 1, 2, 3, 4])(
     "databaseStore migration fromVersion=%s 도 유효한 최신 상태로 정상 변환",
     (fromVersion) => {
       const migrated = migrateDatabaseStore(
@@ -380,7 +453,7 @@ describe("persisted store migrations", () => {
       version: DATABASE_STORE_PERSIST_VERSION,
       keys: [...DATABASE_STORE_DATA_KEYS],
     }).toEqual({
-      version: 4,
+      version: 5,
       keys: ["databases", "cacheWorkspaceId", "migrationQuarantine", "dbTemplates"],
     });
   });

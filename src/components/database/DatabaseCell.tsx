@@ -16,7 +16,11 @@ import { PageLinkCell } from "./cells/PageLinkCell";
 import { ProgressCell } from "./cells/ProgressCell";
 import { ItemFetchCell } from "./cells/ItemFetchCell";
 import { usePageStore } from "../../store/pageStore";
-import { resolveDerivedCellValue, isCellValueDerived } from "../../lib/database/columnSource";
+import {
+  isCellValueDerived,
+  resolveDerivedCellValue,
+  shouldUseManualCellValueForAutomation,
+} from "../../lib/database/columnSource";
 import { resolvePageLinkMirrorValue } from "../../lib/database/pageLinkMirror";
 
 type Props = {
@@ -194,10 +198,11 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
     column,
   });
   const isDerived = isCellValueDerived(column);
-  const effectiveValue: CellValue = isDerived ? ((derived as CellValue) ?? null) : value;
+  const usesManualAutomationValue = shouldUseManualCellValueForAutomation(column, derived);
+  const effectiveValue: CellValue = isDerived && !usesManualAutomationValue ? ((derived as CellValue) ?? null) : value;
 
   const setVal = (v: CellValue) => {
-    if (isDerived) return; // 미러 컬럼은 직접 편집 차단
+    if (isDerived && !usesManualAutomationValue) return; // 미러 컬럼은 직접 편집 차단
     updateCell(databaseId, rowId, column.id, v);
   };
 
@@ -337,11 +342,11 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
           columnId={column.id}
           value={
             pageLinkMirror ??
-            (Array.isArray(value) && value.every((x) => typeof x === "string")
-              ? (value as string[])
+            (Array.isArray(effectiveValue) && effectiveValue.every((x) => typeof x === "string")
+              ? (effectiveValue as string[])
               : [])
           }
-          readOnly={pageLinkMirror !== undefined}
+          readOnly={pageLinkMirror !== undefined || (isDerived && !usesManualAutomationValue)}
         />
       );
     case "progress":

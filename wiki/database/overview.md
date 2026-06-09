@@ -28,7 +28,7 @@ Database
 - (추가 뷰는 [views.md](views.md) 참조)
 
 ## 셀 타입
-Text, Number, Select, MultiSelect, Date, Checkbox, Person, Relation 등 → [cells.md](cells.md)
+Text, Number, Select, MultiSelect, Status, Date, Checkbox, Person, File, URL/Phone/Email, DB Link, Page Link, Progress, Item Fetch 등 → [cells.md](cells.md)
 
 ## 관련 위키
 - [views.md](views.md)

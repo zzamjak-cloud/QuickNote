@@ -1,6 +1,5 @@
 import type { StoreApi } from "zustand";
 import type { ColumnDef } from "../../../types/database";
-import type { DbMap } from "../migrations";
 import type { DatabaseStore } from "../../databaseStore";
 import { newId } from "../../../lib/id";
 import { normalizeColumnDef } from "../../../lib/database/schema/normalizeDatabase";
@@ -24,78 +23,6 @@ type ColumnActions = Pick<
 function now(): number {
   return Date.now();
 }
-
-function syncPageLinkMirrorColumn(
-  databases: DbMap,
-  sourceDatabaseId: string,
-  sourceColumnId: string,
-): string[] {
-  const sourceBundle = databases[sourceDatabaseId];
-  if (!sourceBundle) return [];
-  const sourceColumn = sourceBundle.columns.find((c) => c.id === sourceColumnId);
-  if (!sourceColumn || sourceColumn.type !== "pageLink") return [];
-  const targetDatabaseId = sourceColumn.config?.pageLinkScopeDatabaseId;
-  if (!targetDatabaseId) return [];
-  const targetBundle = databases[targetDatabaseId];
-  if (!targetBundle) return [];
-  const targetColumnName = sourceColumn.config?.pageLinkReverseColumnName ?? sourceColumn.name;
-  if (!targetColumnName) return [];
-  const targetColumn = targetBundle.columns.find(
-    (c) => c.type === "pageLink" && c.name === targetColumnName,
-  );
-  if (!targetColumn) return [];
-
-  const pageStore = usePageStore.getState();
-  const sourceRowSet = new Set(sourceBundle.rowPageOrder);
-  const linksByTargetPageId = new Map<string, string[]>();
-  for (const sourcePageId of sourceBundle.rowPageOrder) {
-    const raw = pageStore.pages[sourcePageId]?.dbCells?.[sourceColumnId];
-    if (!Array.isArray(raw)) continue;
-    for (const targetPageId of raw) {
-      if (typeof targetPageId !== "string") continue;
-      const targetPage = pageStore.pages[targetPageId];
-      if (targetPage?.databaseId !== targetDatabaseId) continue;
-      const prev = linksByTargetPageId.get(targetPageId) ?? [];
-      prev.push(sourcePageId);
-      linksByTargetPageId.set(targetPageId, prev);
-    }
-  }
-
-  const touchedPageIds: string[] = [];
-  const t = Date.now();
-  usePageStore.setState((state) => {
-    let changed = false;
-    const nextPages = { ...state.pages };
-    for (const targetPageId of targetBundle.rowPageOrder) {
-      const page = nextPages[targetPageId];
-      if (!page) continue;
-      const existingRaw = page.dbCells?.[targetColumn.id];
-      const existingIds: string[] = Array.isArray(existingRaw)
-        ? (existingRaw.filter((v) => typeof v === "string") as string[])
-        : [];
-      const manualIds = existingIds.filter((id) => !sourceRowSet.has(id));
-      const syncedIds = linksByTargetPageId.get(targetPageId) ?? [];
-      const nextIds = Array.from(new Set([...manualIds, ...syncedIds]));
-      if (
-        existingIds.length === nextIds.length &&
-        existingIds.every((id, idx) => id === nextIds[idx])
-      ) {
-        continue;
-      }
-      changed = true;
-      touchedPageIds.push(targetPageId);
-      nextPages[targetPageId] = {
-        ...page,
-        dbCells: { ...(page.dbCells ?? {}), [targetColumn.id]: nextIds },
-        updatedAt: t,
-      };
-    }
-    return changed ? { pages: nextPages } : state;
-  });
-
-  return touchedPageIds;
-}
-
 
 export function createColumnActions(
   set: DatabaseStoreSet,
@@ -176,7 +103,6 @@ export function createColumnActions(
 
     updateColumn: (databaseId, columnId, patch) => {
       const patchForColumn = patch;
-      const beforeColumn = get().databases[databaseId]?.columns.find((c) => c.id === columnId);
       set((state) => {
         const bundle = state.databases[databaseId];
         if (!bundle) return state;
@@ -209,21 +135,8 @@ export function createColumnActions(
           shouldWriteAnchor(events.length + 1)
             ? toDatabaseSnapshot(bundleAfter)
             : undefined,
-        );
+          );
         enqueueUpsertDatabase(bundleAfter);
-      }
-      const afterColumn = bundleAfter?.columns.find((c) => c.id === columnId);
-      const shouldSyncMirror =
-        afterColumn?.type === "pageLink" &&
-        (beforeColumn?.config?.pageLinkScopeDatabaseId !== afterColumn.config?.pageLinkScopeDatabaseId ||
-          beforeColumn?.config?.pageLinkReverseColumnName !== afterColumn.config?.pageLinkReverseColumnName);
-      if (shouldSyncMirror) {
-        const touchedPageIds = syncPageLinkMirrorColumn(get().databases, databaseId, columnId);
-        const pages = usePageStore.getState().pages;
-        for (const pageId of touchedPageIds) {
-          const page = pages[pageId];
-          if (page) enqueueUpsertPageRaw(page);
-        }
       }
     },
 

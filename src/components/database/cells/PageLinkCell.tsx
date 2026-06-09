@@ -27,9 +27,7 @@ export function PageLinkCell({ databaseId, rowId, columnId, value, readOnly = fa
   );
   const scopeDatabaseId = column?.config?.pageLinkScopeDatabaseId;
   const searchFilters = column?.config?.searchFilters;
-  // 자동 미러 컬럼은 사용자가 직접 수정 불가 — 검색/추가 버튼 숨김
-  const isAutoReverse = column?.config?.pageLinkAutoReverse === true;
-  const isReadOnly = readOnly || isAutoReverse;
+  const isReadOnly = readOnly;
 
   function handleToggle(pageId: string) {
     const next = value.includes(pageId)
@@ -78,7 +76,7 @@ export function PageLinkCell({ databaseId, rowId, columnId, value, readOnly = fa
         <span className="text-xs text-zinc-400">연결 없음</span>
       )}
 
-      {/* 자동 미러 컬럼은 검색 버튼 미표시 */}
+      {/* 미러 컬럼은 검색 버튼 미표시 */}
       {!isReadOnly && (
         <button
           ref={searchBtnRef}

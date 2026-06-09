@@ -15,24 +15,25 @@ import {
   ItemFetchEditor,
 } from "./columnEditors/ColumnSourceEditors";
 
-const TYPE_LABELS: { id: ColumnType; label: string }[] = [
-  { id: "text", label: "텍스트" },
-  { id: "json", label: "JSON" },
-  { id: "number", label: "숫자" },
-  { id: "select", label: "선택" },
-  { id: "multiSelect", label: "다중 선택" },
-  { id: "status", label: "상태" },
-  { id: "date", label: "날짜" },
-  { id: "person", label: "사람" },
-  { id: "file", label: "파일" },
-  { id: "checkbox", label: "체크박스" },
-  { id: "url", label: "URL" },
-  { id: "phone", label: "연락처" },
-  { id: "email", label: "이메일" },
-  { id: "dbLink", label: "DB 연결" },
-  { id: "pageLink", label: "페이지 연결" },
-  { id: "progress", label: "진행률" },
-  { id: "itemFetch", label: "페이지 연결 가져오기" },
+type TypeLabel = { id: ColumnType; label: string; icon?: string };
+
+const TYPE_LABELS: TypeLabel[] = [
+  { id: "text", label: "텍스트", icon: defaultColumnIcon("text") },
+  { id: "number", label: "숫자", icon: defaultColumnIcon("number") },
+  { id: "select", label: "선택", icon: defaultColumnIcon("select") },
+  { id: "multiSelect", label: "다중 선택", icon: defaultColumnIcon("multiSelect") },
+  { id: "status", label: "상태", icon: defaultColumnIcon("status") },
+  { id: "date", label: "날짜", icon: defaultColumnIcon("date") },
+  { id: "person", label: "사람", icon: defaultColumnIcon("person") },
+  { id: "file", label: "파일", icon: defaultColumnIcon("file") },
+  { id: "checkbox", label: "체크박스", icon: defaultColumnIcon("checkbox") },
+  { id: "url", label: "URL", icon: defaultColumnIcon("url") },
+  { id: "phone", label: "연락처", icon: defaultColumnIcon("phone") },
+  { id: "email", label: "이메일", icon: defaultColumnIcon("email") },
+  { id: "dbLink", label: "DB 연결", icon: defaultColumnIcon("dbLink") },
+  { id: "pageLink", label: "페이지 연결", icon: defaultColumnIcon("pageLink") },
+  { id: "progress", label: "진행률", icon: defaultColumnIcon("progress") },
+  { id: "itemFetch", label: "페이지 연결 가져오기", icon: defaultColumnIcon("itemFetch") },
 ];
 
 type Props = {
@@ -72,6 +73,17 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose, onHi
   const isSelectKind =
     column.type === "select" || column.type === "multiSelect" || column.type === "status";
   const wrapText = column.config?.wrapText === true;
+  const selectedType = TYPE_LABELS.find((item) => item.id === column.type);
+  const typeOptions = TYPE_LABELS.map((item) => ({
+    value: item.id,
+    label: item.label,
+    icon: item.icon ? <PageIconDisplay icon={item.icon} size="sm" /> : undefined,
+  }));
+  const selectedTypeOption = {
+    value: column.type,
+    label: selectedType?.label ?? (column.type === "json" ? "JSON" : column.type),
+    icon: selectedType?.icon ? <PageIconDisplay icon={selectedType.icon} size="sm" /> : undefined,
+  };
 
   return (
     <AnchoredPanelBase
@@ -114,7 +126,8 @@ export function DatabaseColumnMenu({ databaseId, column, anchorEl, onClose, onHi
               onChange={(nextValue) =>
                 updateColumn(databaseId, column.id, { type: nextValue as ColumnType })
               }
-              options={TYPE_LABELS.map((item) => ({ value: item.id, label: item.label }))}
+              options={typeOptions}
+              selectedOption={selectedTypeOption}
               className="mt-0.5"
               buttonClassName="w-full px-1 py-0.5"
               portal

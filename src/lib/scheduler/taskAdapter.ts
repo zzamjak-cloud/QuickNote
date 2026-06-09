@@ -17,6 +17,7 @@ import {
 } from "./database";
 import { resolveLCSchedulerWorkspaceId } from "./scope";
 import { readRememberedSchedulerPropertyValues } from "./lastPropertyMemory";
+import { resolveEffectiveCellValueById } from "../database/effectiveCellValue";
 import {
   getSchedulerTaskCardColor,
   getSchedulerTaskCardTextColor,
@@ -162,6 +163,7 @@ export function projectLCSchedulerSchedules(
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
   const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const pages = usePageStore.getState().pages;
+  const databases = useDatabaseStore.getState().databases;
   const rows = Object.values(pages)
     .filter((page) => page.databaseId === databaseId)
     .filter((page) => !isDeletedSchedulePage(page.id))
@@ -180,9 +182,9 @@ export function projectLCSchedulerSchedules(
       attendanceValue,
     );
     const color = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.color]);
-    const projectId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.project]);
-    const teamId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.team]);
-    const organizationId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.organization]);
+    const projectId = asString(resolveEffectiveCellValueById({ databaseId, rowPageId: page.id, columnId: LC_SCHEDULER_COLUMN_IDS.project, databases, pages }));
+    const teamId = asString(resolveEffectiveCellValueById({ databaseId, rowPageId: page.id, columnId: LC_SCHEDULER_COLUMN_IDS.team, databases, pages }));
+    const organizationId = asString(resolveEffectiveCellValueById({ databaseId, rowPageId: page.id, columnId: LC_SCHEDULER_COLUMN_IDS.organization, databases, pages }));
     const assigneeIds = normalizeAssignees(
       page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.assignees],
       members,
@@ -205,7 +207,9 @@ export function projectLCSchedulerPageSchedules(
 ): Schedule[] {
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
   const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
-  const page = usePageStore.getState().pages[pageId];
+  const pages = usePageStore.getState().pages;
+  const databases = useDatabaseStore.getState().databases;
+  const page = pages[pageId];
   if (!page || page.databaseId !== databaseId) return [];
   if (isDeletedSchedulePage(page.id)) return [];
   if (page.dbCells?.["_qn_isTemplate"] === "1") return [];
@@ -220,9 +224,9 @@ export function projectLCSchedulerPageSchedules(
     attendanceValue,
   );
   const color = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.color]);
-  const projectId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.project]);
-  const teamId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.team]);
-  const organizationId = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.organization]);
+  const projectId = asString(resolveEffectiveCellValueById({ databaseId, rowPageId: page.id, columnId: LC_SCHEDULER_COLUMN_IDS.project, databases, pages }));
+  const teamId = asString(resolveEffectiveCellValueById({ databaseId, rowPageId: page.id, columnId: LC_SCHEDULER_COLUMN_IDS.team, databases, pages }));
+  const organizationId = asString(resolveEffectiveCellValueById({ databaseId, rowPageId: page.id, columnId: LC_SCHEDULER_COLUMN_IDS.organization, databases, pages }));
   const assigneeIds = normalizeAssignees(
     page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.assignees],
     members,

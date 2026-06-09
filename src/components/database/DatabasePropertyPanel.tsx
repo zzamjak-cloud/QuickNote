@@ -6,9 +6,14 @@ import { useDatabaseStore, defaultColumnForType } from "../../store/databaseStor
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useSchedulerStore } from "../../store/schedulerStore";
+import { useOrganizationStore } from "../../store/organizationStore";
+import { useTeamStore } from "../../store/teamStore";
+import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { DatabaseCell } from "./DatabaseCell";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 import { AppSelect } from "../common/AppSelect";
+import { PageIconDisplay } from "../common/PageIconDisplay";
+import { defaultColumnIcon } from "./columnTypeIcons";
 import {
   isLCSchedulerDatabaseId,
   isLCSchedulerHiddenPropertyColumnId,
@@ -19,24 +24,25 @@ import {
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { rememberSchedulerPropertyValues } from "../../lib/scheduler/lastPropertyMemory";
 import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR } from "../../lib/scheduler/colors";
+import { effectiveOptions } from "../../lib/database/columnSource";
+import { resolveEffectiveCellValueById } from "../../lib/database/effectiveCellValue";
 
-const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
-  { id: "text", label: "텍스트" },
-  { id: "json", label: "JSON" },
-  { id: "number", label: "숫자" },
-  { id: "select", label: "선택" },
-  { id: "multiSelect", label: "다중 선택" },
-  { id: "status", label: "상태" },
-  { id: "date", label: "날짜" },
-  { id: "person", label: "사람" },
-  { id: "file", label: "파일" },
-  { id: "checkbox", label: "체크박스" },
-  { id: "url", label: "URL" },
-  { id: "phone", label: "연락처" },
-  { id: "email", label: "이메일" },
-  { id: "dbLink", label: "DB 연결" },
-  { id: "pageLink", label: "페이지 연결" },
-  { id: "progress", label: "진행률" },
+const COLUMN_TYPES: { id: ColumnType; label: string; icon?: string }[] = [
+  { id: "text", label: "텍스트", icon: defaultColumnIcon("text") },
+  { id: "number", label: "숫자", icon: defaultColumnIcon("number") },
+  { id: "select", label: "선택", icon: defaultColumnIcon("select") },
+  { id: "multiSelect", label: "다중 선택", icon: defaultColumnIcon("multiSelect") },
+  { id: "status", label: "상태", icon: defaultColumnIcon("status") },
+  { id: "date", label: "날짜", icon: defaultColumnIcon("date") },
+  { id: "person", label: "사람", icon: defaultColumnIcon("person") },
+  { id: "file", label: "파일", icon: defaultColumnIcon("file") },
+  { id: "checkbox", label: "체크박스", icon: defaultColumnIcon("checkbox") },
+  { id: "url", label: "URL", icon: defaultColumnIcon("url") },
+  { id: "phone", label: "연락처", icon: defaultColumnIcon("phone") },
+  { id: "email", label: "이메일", icon: defaultColumnIcon("email") },
+  { id: "dbLink", label: "DB 연결", icon: defaultColumnIcon("dbLink") },
+  { id: "pageLink", label: "페이지 연결", icon: defaultColumnIcon("pageLink") },
+  { id: "progress", label: "진행률", icon: defaultColumnIcon("progress") },
 ];
 
 type PresetScope = "workspace" | "organization" | "team" | "project";
@@ -123,8 +129,13 @@ export function DatabasePropertyPanel({
 }) {
   const open = useSettingsStore((s) => s.dbPropertyPanelOpen);
   const setDbPropertyPanelOpen = useSettingsStore((s) => s.setDbPropertyPanelOpen);
-  const bundle = useDatabaseStore((s) => s.databases[databaseId]);
-  const page = usePageStore((s) => s.pages[pageId]);
+  const databases = useDatabaseStore((s) => s.databases);
+  const pages = usePageStore((s) => s.pages);
+  const bundle = databases[databaseId];
+  const page = pages[pageId];
+  const organizations = useOrganizationStore((s) => s.organizations);
+  const teams = useTeamStore((s) => s.teams);
+  const projects = useSchedulerProjectsStore((s) => s.projects);
   const addColumn = useDatabaseStore((s) => s.addColumn);
   const updateCell = useDatabaseStore((s) => s.updateCell);
   const addPreset = useDatabaseStore((s) => s.addPreset);
@@ -153,6 +164,7 @@ export function DatabasePropertyPanel({
 
   const hasData = Boolean(bundle && page);
   const rowCells = useMemo(() => page?.dbCells ?? {}, [page?.dbCells]);
+  const scopeCtx = useMemo(() => ({ organizations, teams, projects }), [organizations, teams, projects]);
 
   const isSchedulerDb = isLCSchedulerDatabaseId(databaseId);
   const propertyPanelMetaCellId = isSchedulerDb
@@ -183,9 +195,24 @@ export function DatabasePropertyPanel({
   const editableColumns = allPropertyColumns.filter((c) => !isLCSchedulerHiddenPropertyColumnId(c.id));
   const presets = useMemo(() => bundle?.presets ?? [], [bundle?.presets]);
 
-  const rowProjectId = readRowStringCell(rowCells, LC_SCHEDULER_COLUMN_IDS.project);
-  const rowOrganizationId = readRowStringCell(rowCells, LC_SCHEDULER_COLUMN_IDS.organization);
-  const rowTeamId = readRowStringCell(rowCells, LC_SCHEDULER_COLUMN_IDS.team);
+  const readEffectiveRowStringCell = (columnId: string): string | null => {
+    if (!hasData) return readRowStringCell(rowCells, columnId);
+    return readRowStringCell(
+      {
+        [columnId]: resolveEffectiveCellValueById({
+          databaseId,
+          rowPageId: pageId,
+          columnId,
+          databases,
+          pages,
+        }),
+      },
+      columnId,
+    );
+  };
+  const rowProjectId = readEffectiveRowStringCell(LC_SCHEDULER_COLUMN_IDS.project);
+  const rowOrganizationId = readEffectiveRowStringCell(LC_SCHEDULER_COLUMN_IDS.organization);
+  const rowTeamId = readEffectiveRowStringCell(LC_SCHEDULER_COLUMN_IDS.team);
   const isSpecialSchedulerCard = isSchedulerDb && !hasAssigneeValue(rowCells[LC_SCHEDULER_COLUMN_IDS.assignees]);
   const rowScopeIdByType = useMemo<Record<PresetScope, string | null>>(
     () => ({
@@ -202,8 +229,8 @@ export function DatabasePropertyPanel({
     const columnId = scopeColumnId(savePresetScope);
     if (!columnId) return [];
     const column = bundle?.columns.find((c) => c.id === columnId);
-    return column?.config?.options ?? [];
-  }, [bundle?.columns, savePresetScope]);
+    return column ? effectiveOptions(column, databases, scopeCtx) : [];
+  }, [bundle?.columns, databases, savePresetScope, scopeCtx]);
 
   const filteredPresets = useMemo(() => {
     if (!isSchedulerDb) return presets;
@@ -679,7 +706,11 @@ export function DatabasePropertyPanel({
               }
               setShowAdd(false);
             }}
-            options={COLUMN_TYPES.map((item) => ({ value: item.id, label: item.label }))}
+            options={COLUMN_TYPES.map((item) => ({
+              value: item.id,
+              label: item.label,
+              icon: item.icon ? <PageIconDisplay icon={item.icon} size="sm" /> : undefined,
+            }))}
             placeholder="선택…"
             className="w-[160px]"
             buttonClassName="px-2 py-1 dark:bg-zinc-900"

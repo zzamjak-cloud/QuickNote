@@ -166,8 +166,14 @@ function lcSchedulerColumns(): ColumnDef[] {
       name: "프로젝트",
       type: "select",
       width: 150,
-      // schedulerProjectsStore와 옵션 자동 미러링
-      config: { linkedScope: "project" },
+      config: {
+        sourceFromDb: {
+          databaseId: LC_FEATURE_DATABASE_ID_CONST,
+          columnId: LC_FEATURE_COL.project,
+          automation: true,
+          viaPageLinkColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+        },
+      },
     },
     {
       id: LC_SCHEDULER_COLUMN_IDS.status,
@@ -192,33 +198,57 @@ function lcSchedulerColumns(): ColumnDef[] {
         options: LC_SCHEDULER_ATTENDANCE_OPTIONS.map(({ id, label, color }) => ({ id, label, color })),
       },
     },
-    // 조직/팀 — organizationStore / teamStore 와 옵션 자동 미러링
-    { id: LC_SCHEDULER_COLUMN_IDS.organization, name: "조직", type: "select", width: 140, config: { linkedScope: "organization" } },
-    { id: LC_SCHEDULER_COLUMN_IDS.team, name: "팀", type: "select", width: 140, config: { linkedScope: "team" } },
+    {
+      id: LC_SCHEDULER_COLUMN_IDS.organization,
+      name: "조직",
+      type: "select",
+      width: 140,
+      config: {
+        sourceFromDb: {
+          databaseId: LC_FEATURE_DATABASE_ID_CONST,
+          columnId: LC_FEATURE_COL.organization,
+          automation: true,
+          viaPageLinkColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+        },
+      },
+    },
+    {
+      id: LC_SCHEDULER_COLUMN_IDS.team,
+      name: "팀",
+      type: "select",
+      width: 140,
+      config: {
+        sourceFromDb: {
+          databaseId: LC_FEATURE_DATABASE_ID_CONST,
+          columnId: LC_FEATURE_COL.team,
+          automation: true,
+          viaPageLinkColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+        },
+      },
+    },
     // 마일스톤 — 마일스톤 DB 페이지로 검색·연결
     {
       id: LC_SCHEDULER_COLUMN_IDS.milestone,
       name: "마일스톤",
       type: "pageLink",
       width: 160,
-      // 마일스톤 DB는 워크스페이스 단위 보호 DB라 id가 고정됨.
-      // 최초 생성 후에는 사용자가 컬럼 설정을 자유롭게 바꿀 수 있다.
+      config: {
+        pageLinkScopeDatabaseId: LC_MILESTONE_DATABASE_ID,
+        sourceFromDb: {
+          databaseId: LC_FEATURE_DATABASE_ID_CONST,
+          columnId: LC_FEATURE_COL.milestone,
+          automation: true,
+          viaPageLinkColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+        },
+      },
     },
     {
       id: LC_SCHEDULER_COLUMN_IDS.feature,
       name: "피쳐",
       type: "pageLink",
       width: 180,
-      // 피처 DB 항목만 선택. 역방향→피처의 "작업" 컬럼. 피처 선택 시 관련 컬럼값 자동 채움.
       config: {
         pageLinkScopeDatabaseId: LC_FEATURE_DATABASE_ID_CONST,
-        pageLinkReverseColumnName: "작업",
-        pageLinkAutoFill: [
-          { targetColumnId: LC_SCHEDULER_COLUMN_IDS.milestone, sourceColumnId: LC_FEATURE_COL.milestone },
-          { targetColumnId: LC_SCHEDULER_COLUMN_IDS.organization, sourceColumnId: LC_FEATURE_COL.organization },
-          { targetColumnId: LC_SCHEDULER_COLUMN_IDS.team, sourceColumnId: LC_FEATURE_COL.team },
-          { targetColumnId: LC_SCHEDULER_COLUMN_IDS.project, sourceColumnId: LC_FEATURE_COL.project },
-        ],
       },
     },
     {
@@ -310,6 +340,75 @@ function defaultPresets(databaseId: string, t: number): DatabaseRowPreset[] {
   ];
 }
 
+function schedulerSourceConfig(columnId: keyof typeof LC_FEATURE_COL) {
+  return {
+    databaseId: LC_FEATURE_DATABASE_ID_CONST,
+    columnId: LC_FEATURE_COL[columnId],
+    automation: true,
+    viaPageLinkColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+  };
+}
+
+function withSourceFromFeature(
+  column: ColumnDef,
+  sourceColumnId: keyof typeof LC_FEATURE_COL,
+  legacyLinkedScope?: "organization" | "team" | "project",
+): ColumnDef {
+  if (legacyLinkedScope && column.config?.sourceFromDb) return column;
+  if (legacyLinkedScope && column.config?.linkedScope !== legacyLinkedScope) return column;
+  const { linkedScope: _linkedScope, ...restConfig } = column.config ?? {};
+  return {
+    ...column,
+    config: {
+      ...restConfig,
+      sourceFromDb: schedulerSourceConfig(sourceColumnId),
+    },
+  };
+}
+
+export function normalizeLCSchedulerReferenceColumns(columns: ColumnDef[]): { columns: ColumnDef[]; changed: boolean } {
+  let changed = false;
+  const nextColumns = columns.map((column) => {
+    let next = column;
+    if (column.id === LC_SCHEDULER_COLUMN_IDS.project && column.type === "select") {
+      next = withSourceFromFeature(column, "project", "project");
+    } else if (column.id === LC_SCHEDULER_COLUMN_IDS.organization && column.type === "select") {
+      next = withSourceFromFeature(column, "organization", "organization");
+    } else if (column.id === LC_SCHEDULER_COLUMN_IDS.team && column.type === "select") {
+      next = withSourceFromFeature(column, "team", "team");
+    } else if (
+      column.id === LC_SCHEDULER_COLUMN_IDS.milestone &&
+      column.type === "pageLink" &&
+      !column.config?.sourceFromDb &&
+      (!column.config?.pageLinkScopeDatabaseId || column.config.pageLinkScopeDatabaseId === LC_MILESTONE_DATABASE_ID)
+    ) {
+      next = {
+        ...column,
+        config: {
+          ...(column.config ?? {}),
+          pageLinkScopeDatabaseId: LC_MILESTONE_DATABASE_ID,
+          sourceFromDb: schedulerSourceConfig("milestone"),
+        },
+      };
+    } else if (
+      column.id === LC_SCHEDULER_COLUMN_IDS.feature &&
+      column.type === "pageLink" &&
+      !column.config?.pageLinkScopeDatabaseId
+    ) {
+      next = {
+        ...column,
+        config: {
+          ...(column.config ?? {}),
+          pageLinkScopeDatabaseId: LC_FEATURE_DATABASE_ID_CONST,
+        },
+      };
+    }
+    if (next !== column) changed = true;
+    return next;
+  });
+  return { columns: nextColumns, changed };
+}
+
 export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<void> {
   const [{ useDatabaseStore }, { enqueueUpsertDatabase }] = await Promise.all([
     import("../../store/databaseStore"),
@@ -320,6 +419,19 @@ export async function ensureLCSchedulerDatabase(workspaceId: string): Promise<vo
   const state = useDatabaseStore.getState();
   const existing = state.databases[databaseId];
   if (existing) {
+    const normalized = normalizeLCSchedulerReferenceColumns(existing.columns);
+    if (normalized.changed) {
+      const next: DatabaseBundle = {
+        ...existing,
+        columns: normalized.columns,
+        meta: { ...existing.meta, updatedAt: Date.now() },
+      };
+      useDatabaseStore.setState((s) => ({
+        ...s,
+        databases: { ...s.databases, [databaseId]: next },
+      }));
+      enqueueUpsertDatabase(next);
+    }
     useDatabaseStore.setState((s) =>
       schedulerWorkspaceId === LC_SCHEDULER_WORKSPACE_ID
         ? s

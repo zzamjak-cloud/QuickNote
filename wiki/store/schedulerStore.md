@@ -48,6 +48,11 @@ LC 스케줄러(일정 캘린더)의 일정 데이터를 관리하는 스토어.
 4. `remoteProjected` = `fetchScheduleRange`(서버 `listSchedules` 인덱스, org/팀/프로젝트/assignee scope FilterExpression).
 5. `schedules` = remoteProjected 가 비어있지 않거나 localProjected 도 빔 → remoteProjected(+pending) merge, 아니면 localProjected 폴백.
 
+## DB 참조값 해석
+
+- `taskAdapter`는 작업 DB의 프로젝트/조직/팀/마일스톤/피처 값을 raw `dbCells`만 보지 않고 `resolveEffectiveCellValueById`로 읽는다.
+- LC Scheduler/Feature의 참조 컬럼은 `sourceFromDb`/`itemFetch` 실효값으로 표시·필터·진행률 계산에 참여한다.
+
 ## CRITICAL 회귀 주의
 
 - **빈 schedules 캐시의 cache-hit 금지**: cache-hit 조건에 `schedules.length > 0` 가 반드시 포함되어야 한다. 과거 망가진 시점에 `schedules: []` 가 persist 되면, page store 에 행이 있어도 빈 배열로 early-return 해 카드가 영구히 안 보였다. "데이터는 있는데 뷰만 빔" 증상은 이 cache 단락을 1순위로 의심.

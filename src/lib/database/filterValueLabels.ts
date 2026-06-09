@@ -11,6 +11,7 @@ import {
   isCellValueDerived,
   resolveDerivedCellValue,
   resolveItemFetchPageIds,
+  shouldUseManualCellValueForAutomation,
   type ScopeOptionsCtx,
 } from "./columnSource";
 import { resolvePageLinkMirrorValue } from "./pageLinkMirror";
@@ -186,10 +187,13 @@ export function resolveFilterableCellValue({
   if (!rowPageId) return rawValue;
   const rowCells = pages[rowPageId]?.dbCells;
   if (isCellValueDerived(column)) {
-    return (resolveDerivedCellValue(column, rowCells, pages, {
+    const derived = resolveDerivedCellValue(column, rowCells, pages, {
       currentRowPageId: rowPageId,
       databases,
-    }) as CellValue | undefined) ?? rawValue;
+    });
+    return shouldUseManualCellValueForAutomation(column, derived)
+      ? rawValue
+      : ((derived as CellValue | undefined) ?? rawValue);
   }
   if (column.type === "pageLink") {
     return (

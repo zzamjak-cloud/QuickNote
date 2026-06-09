@@ -80,6 +80,27 @@ describe("databaseStore — 페이지 기반 행", () => {
     expect(usePageStore.getState().pages[pageId]?.dbCells?.[colId]).toBe("메모값");
   });
 
+  it("updatePageLinkCell은 대상 DB의 같은 이름 컬럼에 역방향 값을 쓰지 않는다", () => {
+    const sourceDbId = useDatabaseStore.getState().createDatabase("작업");
+    const targetDbId = useDatabaseStore.getState().createDatabase("피처");
+    const sourceRowId = useDatabaseStore.getState().databases[sourceDbId]!.rowPageOrder[0]!;
+    const targetRowId = useDatabaseStore.getState().databases[targetDbId]!.rowPageOrder[0]!;
+    const sourceColId = useDatabaseStore.getState().addColumn(sourceDbId, {
+      name: "피처",
+      type: "pageLink",
+      config: { pageLinkScopeDatabaseId: targetDbId },
+    });
+    const targetColId = useDatabaseStore.getState().addColumn(targetDbId, {
+      name: "피처",
+      type: "pageLink",
+    });
+
+    useDatabaseStore.getState().updatePageLinkCell(sourceDbId, sourceRowId, sourceColId, [targetRowId]);
+
+    expect(usePageStore.getState().pages[sourceRowId]?.dbCells?.[sourceColId]).toEqual([targetRowId]);
+    expect(usePageStore.getState().pages[targetRowId]?.dbCells?.[targetColId]).not.toContain(sourceRowId);
+  });
+
   it("moveColumn은 컬럼 배열 순서를 바꾼다", () => {
     const dbId = useDatabaseStore.getState().createDatabase();
     const a = useDatabaseStore.getState().addColumn(dbId, { name: "A", type: "text" });

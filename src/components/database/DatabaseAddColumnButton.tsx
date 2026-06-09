@@ -4,24 +4,25 @@ import { Plus } from "lucide-react";
 import type { ColumnType } from "../../types/database";
 import { defaultColumnForType, useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
+import { PageIconDisplay } from "../common/PageIconDisplay";
+import { defaultColumnIcon } from "./columnTypeIcons";
 
-const COLUMN_TYPES: { id: ColumnType; label: string }[] = [
-  { id: "text", label: "텍스트" },
-  { id: "json", label: "JSON" },
-  { id: "number", label: "숫자" },
-  { id: "select", label: "선택" },
-  { id: "multiSelect", label: "다중 선택" },
-  { id: "status", label: "상태" },
-  { id: "date", label: "날짜" },
-  { id: "person", label: "사람" },
-  { id: "file", label: "파일" },
-  { id: "checkbox", label: "체크박스" },
-  { id: "url", label: "URL" },
-  { id: "phone", label: "연락처" },
-  { id: "email", label: "이메일" },
-  { id: "dbLink", label: "DB 연결" },
-  { id: "pageLink", label: "페이지 연결" },
-  { id: "itemFetch", label: "페이지 연결 가져오기" },
+const COLUMN_TYPES: { id: ColumnType; label: string; icon?: string }[] = [
+  { id: "text", label: "텍스트", icon: defaultColumnIcon("text") },
+  { id: "number", label: "숫자", icon: defaultColumnIcon("number") },
+  { id: "select", label: "선택", icon: defaultColumnIcon("select") },
+  { id: "multiSelect", label: "다중 선택", icon: defaultColumnIcon("multiSelect") },
+  { id: "status", label: "상태", icon: defaultColumnIcon("status") },
+  { id: "date", label: "날짜", icon: defaultColumnIcon("date") },
+  { id: "person", label: "사람", icon: defaultColumnIcon("person") },
+  { id: "file", label: "파일", icon: defaultColumnIcon("file") },
+  { id: "checkbox", label: "체크박스", icon: defaultColumnIcon("checkbox") },
+  { id: "url", label: "URL", icon: defaultColumnIcon("url") },
+  { id: "phone", label: "연락처", icon: defaultColumnIcon("phone") },
+  { id: "email", label: "이메일", icon: defaultColumnIcon("email") },
+  { id: "dbLink", label: "DB 연결", icon: defaultColumnIcon("dbLink") },
+  { id: "pageLink", label: "페이지 연결", icon: defaultColumnIcon("pageLink") },
+  { id: "itemFetch", label: "페이지 연결 가져오기", icon: defaultColumnIcon("itemFetch") },
 ];
 
 export function DatabaseAddColumnButton({
@@ -55,7 +56,7 @@ export function DatabaseAddColumnButton({
   const placeMenu = () => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const width = 192;
+    const width = 216;
     const estimatedHeight = Math.min(420, 32 + COLUMN_TYPES.length * 34);
     const left = Math.min(rect.left, window.innerWidth - width - 8);
     const downTop = rect.bottom + 6;
@@ -102,7 +103,7 @@ export function DatabaseAddColumnButton({
         createPortal(
           <div
             ref={popoverRef}
-            style={{ position: "fixed", top: coords.top, left: coords.left, width: 192 }}
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: 216 }}
             className="z-50 max-h-[60vh] overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-base shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             <div className="px-2 py-1 text-sm uppercase text-zinc-500">속성 타입</div>
@@ -117,8 +118,9 @@ export function DatabaseAddColumnButton({
                   onAfterAdd?.(colId);
                   setOpenColumnMenu(null);
                 }}
-                className="block w-full rounded px-2 py-1 text-left text-base hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-base hover:bg-zinc-100 dark:hover:bg-zinc-800"
               >
+                {t.icon ? <PageIconDisplay icon={t.icon} size="sm" /> : null}
                 {t.label}
               </button>
             ))}

@@ -42,14 +42,8 @@ function lcFeatureColumns(): ColumnDef[] {
       name: "마일스톤",
       type: "pageLink",
       width: 180,
-      // 마일스톤 DB 항목만 검색 대상 + 마일스톤 선택 시 조직·팀·프로젝트 자동 채움.
       config: {
         pageLinkScopeDatabaseId: LC_MILESTONE_DATABASE_ID,
-        pageLinkAutoFill: [
-          { targetColumnId: LC_FEATURE_COLUMN_IDS.organization, sourceColumnId: LC_MILESTONE_COLUMN_IDS.organization },
-          { targetColumnId: LC_FEATURE_COLUMN_IDS.team, sourceColumnId: LC_MILESTONE_COLUMN_IDS.team },
-          { targetColumnId: LC_FEATURE_COLUMN_IDS.project, sourceColumnId: LC_MILESTONE_COLUMN_IDS.project },
-        ],
       },
     },
     {
@@ -57,21 +51,42 @@ function lcFeatureColumns(): ColumnDef[] {
       name: "조직",
       type: "select",
       width: 140,
-      config: { linkedScope: "organization" },
+      config: {
+        sourceFromDb: {
+          databaseId: LC_MILESTONE_DATABASE_ID,
+          columnId: LC_MILESTONE_COLUMN_IDS.organization,
+          automation: true,
+          viaPageLinkColumnId: LC_FEATURE_COLUMN_IDS.milestone,
+        },
+      },
     },
     {
       id: LC_FEATURE_COLUMN_IDS.team,
       name: "팀",
       type: "select",
       width: 140,
-      config: { linkedScope: "team" },
+      config: {
+        sourceFromDb: {
+          databaseId: LC_MILESTONE_DATABASE_ID,
+          columnId: LC_MILESTONE_COLUMN_IDS.team,
+          automation: true,
+          viaPageLinkColumnId: LC_FEATURE_COLUMN_IDS.milestone,
+        },
+      },
     },
     {
       id: LC_FEATURE_COLUMN_IDS.project,
       name: "프로젝트",
       type: "select",
       width: 140,
-      config: { linkedScope: "project" },
+      config: {
+        sourceFromDb: {
+          databaseId: LC_MILESTONE_DATABASE_ID,
+          columnId: LC_MILESTONE_COLUMN_IDS.project,
+          automation: true,
+          viaPageLinkColumnId: LC_FEATURE_COLUMN_IDS.milestone,
+        },
+      },
     },
     {
       id: LC_FEATURE_COLUMN_IDS.status,
@@ -140,19 +155,43 @@ function lcFeatureColumns(): ColumnDef[] {
     {
       id: LC_FEATURE_COLUMN_IDS.task,
       name: "작업",
-      type: "pageLink",
+      type: "itemFetch",
       width: 200,
-      // 작업 DB의 "피쳐" pageLink 컬럼이 변경될 때 자동으로 채워지는 역방향 컬럼.
-      // 사용자가 직접 수정할 수 없도록 pageLinkAutoReverse: true 설정.
       config: {
-        pageLinkScopeDatabaseId: LC_SCHEDULER_DATABASE_ID,
-        pageLinkAutoReverse: true,
+        itemFetchSourceDatabaseId: LC_SCHEDULER_DATABASE_ID,
+        itemFetchMatchColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
       },
     },
   ];
 }
 
-function normalizeFeaturePeriodColumns(columns: ColumnDef[]): { columns: ColumnDef[]; changed: boolean } {
+function featureSourceConfig(columnId: keyof Pick<typeof LC_MILESTONE_COLUMN_IDS, "organization" | "team" | "project">) {
+  return {
+    databaseId: LC_MILESTONE_DATABASE_ID,
+    columnId: LC_MILESTONE_COLUMN_IDS[columnId],
+    automation: true,
+    viaPageLinkColumnId: LC_FEATURE_COLUMN_IDS.milestone,
+  };
+}
+
+function withSourceFromMilestone(
+  column: ColumnDef,
+  sourceColumnId: keyof Pick<typeof LC_MILESTONE_COLUMN_IDS, "organization" | "team" | "project">,
+  legacyLinkedScope: "organization" | "team" | "project",
+): ColumnDef {
+  if (column.config?.sourceFromDb) return column;
+  if (column.config?.linkedScope !== legacyLinkedScope) return column;
+  const { linkedScope: _linkedScope, ...restConfig } = column.config ?? {};
+  return {
+    ...column,
+    config: {
+      ...restConfig,
+      sourceFromDb: featureSourceConfig(sourceColumnId),
+    },
+  };
+}
+
+export function normalizeLCFeatureColumns(columns: ColumnDef[]): { columns: ColumnDef[]; changed: boolean } {
   let changed = false;
   const nextColumns = columns.flatMap((column) => {
     if (column.id === LC_FEATURE_COLUMN_IDS.workEnd) {
@@ -163,7 +202,37 @@ function normalizeFeaturePeriodColumns(columns: ColumnDef[]): { columns: ColumnD
       changed = true;
       return [{ ...column, name: "작업 기간" }];
     }
-    return [column];
+    let next = column;
+    if (
+      column.id === LC_FEATURE_COLUMN_IDS.milestone &&
+      column.type === "pageLink" &&
+      !column.config?.pageLinkScopeDatabaseId
+    ) {
+      next = {
+        ...column,
+        config: {
+          ...(column.config ?? {}),
+          pageLinkScopeDatabaseId: LC_MILESTONE_DATABASE_ID,
+        },
+      };
+    } else if (column.id === LC_FEATURE_COLUMN_IDS.organization && column.type === "select") {
+      next = withSourceFromMilestone(column, "organization", "organization");
+    } else if (column.id === LC_FEATURE_COLUMN_IDS.team && column.type === "select") {
+      next = withSourceFromMilestone(column, "team", "team");
+    } else if (column.id === LC_FEATURE_COLUMN_IDS.project && column.type === "select") {
+      next = withSourceFromMilestone(column, "project", "project");
+    } else if (column.id === LC_FEATURE_COLUMN_IDS.task && column.type === "pageLink") {
+      next = {
+        ...column,
+        type: "itemFetch",
+        config: {
+          itemFetchSourceDatabaseId: LC_SCHEDULER_DATABASE_ID,
+          itemFetchMatchColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+        },
+      };
+    }
+    if (next !== column) changed = true;
+    return [next];
   });
   return { columns: nextColumns, changed };
 }
@@ -177,7 +246,7 @@ export async function ensureLCFeatureDatabase(workspaceId: string): Promise<void
   const databaseId = makeLCFeatureDatabaseId(schedulerWorkspaceId);
   const existing = useDatabaseStore.getState().databases[databaseId];
   if (existing) {
-    const normalized = normalizeFeaturePeriodColumns(existing.columns);
+    const normalized = normalizeLCFeatureColumns(existing.columns);
     if (!normalized.changed) return;
     const next: DatabaseBundle = {
       ...existing,

@@ -1,7 +1,7 @@
 // 컬럼 편집 팝업의 추가 섹션 — sourceFromDb / progressSource / pageLinkScope·검색필터.
 // DatabaseColumnMenu 내부에서 컬럼 type 에 따라 조건부 렌더링.
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { AppSelect } from "../../common/AppSelect";
 import { useDatabaseStore, listDatabases } from "../../../store/databaseStore";
 import type {
@@ -398,26 +398,34 @@ export function ItemFetchEditor({ databaseId, column }: CommonProps) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 4) PageLink 자동화 편집기 — pageLink
-//    연결 DB 표시 + 상대 컬럼 + 자동 채움 규칙 설정.
+//    연결 DB 표시 + 상대 컬럼 설정.
 // ─────────────────────────────────────────────────────────────────────────────
-
-type AutoFillRule = { targetColumnId: string; sourceColumnId: string };
 
 export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const databases = useDatabaseStore((s) => s.databases);
   const allDatabases = useDatabaseStore(listDatabases);
 
-  const scopeDbId = column.config?.pageLinkScopeDatabaseId;
+  const rawScopeDbId = column.config?.pageLinkScopeDatabaseId;
+  const scopeDbId = rawScopeDbId === databaseId ? undefined : rawScopeDbId;
   const mirrorColumnId = column.config?.pageLinkMirrorColumnId ?? "";
-  const isAutoReverse = column.config?.pageLinkAutoReverse === true;
-  const autoFillRules: AutoFillRule[] = useMemo(
-    () => column.config?.pageLinkAutoFill ?? [],
-    [column.config?.pageLinkAutoFill],
-  );
 
   const scopeDb = scopeDbId ? databases[scopeDbId] : null;
-  const currentDb = databases[databaseId];
+  const linkableDatabases = useMemo(
+    () => allDatabases.filter((d) => d.id !== databaseId),
+    [allDatabases, databaseId],
+  );
+
+  useEffect(() => {
+    if (rawScopeDbId !== databaseId) return;
+    updateColumn(databaseId, column.id, {
+      config: {
+        ...(column.config ?? {}),
+        pageLinkScopeDatabaseId: undefined,
+        pageLinkMirrorColumnId: undefined,
+      },
+    });
+  }, [column.config, column.id, databaseId, rawScopeDbId, updateColumn]);
 
   // 연결 대상 DB에서 현재 셀에 표시할 pageLink 컬럼 목록
   const mirrorColumnOptions = useMemo(() => {
@@ -427,29 +435,12 @@ export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
       .map((c) => ({ value: c.id, label: c.name }));
   }, [scopeDb]);
 
-  // 현재 DB의 채울 수 있는 컬럼 (title 제외)
-  const targetColOptions = useMemo(() => {
-    if (!currentDb) return [];
-    return currentDb.columns
-      .filter((c) => c.id !== column.id && c.type !== "title")
-      .map((c) => ({ value: c.id, label: c.name }));
-  }, [currentDb, column.id]);
-
-  // 연결 DB의 읽어올 수 있는 컬럼 (title 제외)
-  const sourceColOptions = useMemo(() => {
-    if (!scopeDb) return [];
-    return scopeDb.columns
-      .filter((c) => c.type !== "title")
-      .map((c) => ({ value: c.id, label: c.name }));
-  }, [scopeDb]);
-
   const setScopeDb = (v: string) => {
     updateColumn(databaseId, column.id, {
       config: {
         ...(column.config ?? {}),
         pageLinkScopeDatabaseId: v || undefined,
         pageLinkMirrorColumnId: undefined,
-        pageLinkAutoFill: undefined,
       },
     });
   };
@@ -459,31 +450,8 @@ export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
       config: {
         ...(column.config ?? {}),
         pageLinkMirrorColumnId: v || undefined,
-        pageLinkReverseColumnName: undefined,
-        pageLinkAutoFill: undefined,
       },
     });
-  };
-
-  const setAutoFillRules = (rules: AutoFillRule[]) => {
-    updateColumn(databaseId, column.id, {
-      config: {
-        ...(column.config ?? {}),
-        pageLinkAutoFill: rules.length > 0 ? rules : undefined,
-      },
-    });
-  };
-
-  const addAutoFillRule = () => {
-    setAutoFillRules([...autoFillRules, { targetColumnId: "", sourceColumnId: "" }]);
-  };
-
-  const updateAutoFillRule = (idx: number, patch: Partial<AutoFillRule>) => {
-    setAutoFillRules(autoFillRules.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
-  };
-
-  const removeAutoFillRule = (idx: number) => {
-    setAutoFillRules(autoFillRules.filter((_, i) => i !== idx));
   };
 
   return (
@@ -496,27 +464,20 @@ export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
         {/* 연결 DB */}
         <div>
           <div className="text-[10px] uppercase text-zinc-400">연결 DB</div>
-          {isAutoReverse ? (
-            <div className="mt-0.5 rounded bg-zinc-100 px-2 py-1 text-xs text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-              {scopeDb?.meta.title ?? scopeDbId ?? "—"}
-              <span className="ml-1 text-[10px] text-emerald-500">(자동 연결)</span>
-            </div>
-          ) : (
-            <AppSelect
-              value={scopeDbId ?? ""}
-              onChange={setScopeDb}
-              options={[
-                { value: "", label: "전체 페이지" },
-                ...allDatabases.map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" })),
-              ]}
-              buttonClassName="w-full px-1.5 py-1 text-xs"
-              portal
-            />
-          )}
+          <AppSelect
+            value={scopeDbId ?? ""}
+            onChange={setScopeDb}
+            options={[
+              { value: "", label: "연결 없음" },
+              ...linkableDatabases.map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" })),
+            ]}
+            buttonClassName="w-full px-1.5 py-1 text-xs"
+            portal
+          />
         </div>
 
         {/* 연결 대상 DB에서 가져올 컬럼 */}
-        {scopeDb && !isAutoReverse && (
+        {scopeDb && (
           <div>
             <div className="text-[10px] uppercase text-zinc-400">가져올 컬럼</div>
             <AppSelect
@@ -532,66 +493,6 @@ export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
               </p>
             )}
           </div>
-        )}
-
-        {/* 자동 채움 규칙 */}
-        {scopeDb && !isAutoReverse && !mirrorColumnId && (
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-[10px] uppercase text-zinc-400">자동 채움</span>
-              <button
-                type="button"
-                onClick={addAutoFillRule}
-                className="text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400"
-              >
-                + 규칙 추가
-              </button>
-            </div>
-            {autoFillRules.length === 0 && (
-              <p className="text-[10px] text-zinc-400">
-                페이지 연결 시 자동으로 채울 컬럼 규칙이 없습니다.
-              </p>
-            )}
-            <div className="space-y-1">
-              {autoFillRules.map((rule, idx) => (
-                <div key={idx} className="flex items-center gap-1">
-                  <AppSelect
-                    value={rule.targetColumnId}
-                    onChange={(v) => updateAutoFillRule(idx, { targetColumnId: v })}
-                    options={[{ value: "", label: "채울 컬럼…" }, ...targetColOptions]}
-                    buttonClassName="flex-1 px-1 py-0.5 text-[11px]"
-                    portal
-                  />
-                  <span className="shrink-0 text-[10px] text-zinc-400">←</span>
-                  <AppSelect
-                    value={rule.sourceColumnId}
-                    onChange={(v) => updateAutoFillRule(idx, { sourceColumnId: v })}
-                    options={[{ value: "", label: "소스 컬럼…" }, ...sourceColOptions]}
-                    buttonClassName="flex-1 px-1 py-0.5 text-[11px]"
-                    portal
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeAutoFillRule(idx)}
-                    className="shrink-0 text-[10px] text-zinc-400 hover:text-red-500"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-            {autoFillRules.length > 0 && (
-              <p className="mt-1 text-[10px] leading-tight text-zinc-400">
-                페이지 연결 시 연결된 첫 번째 페이지의 값을 자동으로 채웁니다. 연결 해제 시 초기화됩니다.
-              </p>
-            )}
-          </div>
-        )}
-
-        {isAutoReverse && (
-          <p className="text-[10px] leading-tight text-zinc-400">
-            이 컬럼은 다른 DB의 페이지 연결에서 자동으로 채워집니다. 직접 수정할 수 없습니다.
-          </p>
         )}
       </div>
     </div>

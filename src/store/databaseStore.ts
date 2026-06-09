@@ -530,25 +530,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const bundle = get().databases[databaseId];
         if (!bundle) return;
 
-        // 현재 컬럼 이름 조회 — 역방향 매칭에 사용
-        const currentCol = bundle.columns.find((c) => c.id === columnId);
-        const colName = currentCol?.name ?? "";
-        // pageLinkReverseColumnName이 지정되면 대상 DB에서 해당 이름의 컬럼을 역방향 매칭에 사용.
-        const reverseColName = currentCol?.config?.pageLinkReverseColumnName ?? colName;
-
-        // 기존 값과 비교해 추가/제거 목록 계산
         const pageStore = usePageStore.getState();
-        const prevRaw = pageStore.pages[rowPageId]?.dbCells?.[columnId];
-        const prevIds: string[] = Array.isArray(prevRaw)
-          ? (prevRaw as string[]).filter((v): v is string => typeof v === "string")
-          : [];
-
-        const prevSet = new Set(prevIds);
-        const nextSet = new Set(nextPageIds);
-        const added = nextPageIds.filter((id) => !prevSet.has(id));
-        const removed = prevIds.filter((id) => !nextSet.has(id));
-
-        // 이쪽 셀 저장
         pageStore.setPageDbCell(rowPageId, columnId, nextPageIds);
         set((state) => {
           const b = state.databases[databaseId];
@@ -560,57 +542,6 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
-
-        // pageLinkAutoFill: 연결된 첫 번째 페이지의 지정 컬럼값을 현재 행에 자동 채움.
-        // 연결이 없으면 대상 컬럼을 null로 초기화.
-        const autoFillRules = currentCol?.config?.pageLinkAutoFill;
-        if (autoFillRules && autoFillRules.length > 0) {
-          const firstPageId = nextPageIds[0] ?? null;
-          const firstPage = firstPageId ? pageStore.pages[firstPageId] : null;
-          for (const rule of autoFillRules) {
-            const sourceValue = firstPage?.dbCells?.[rule.sourceColumnId] ?? null;
-            pageStore.setPageDbCell(rowPageId, rule.targetColumnId, sourceValue);
-          }
-        }
-
-        const databases = get().databases;
-
-        // 추가된 페이지 → 역방향 연결
-        for (const targetPageId of added) {
-          const targetPage = pageStore.pages[targetPageId];
-          if (!targetPage?.databaseId) continue;
-          const targetBundle = databases[targetPage.databaseId];
-          if (!targetBundle) continue;
-          const sameNameCol = targetBundle.columns.find(
-            (c) => c.type === "pageLink" && c.name === reverseColName,
-          );
-          if (!sameNameCol) continue;
-          const existing = targetPage.dbCells?.[sameNameCol.id];
-          const existingIds: string[] = Array.isArray(existing)
-            ? (existing as string[]).filter((v): v is string => typeof v === "string")
-            : [];
-          if (!existingIds.includes(rowPageId)) {
-            pageStore.setPageDbCell(targetPageId, sameNameCol.id, [...existingIds, rowPageId]);
-          }
-        }
-
-        // 제거된 페이지 → 역방향 연결 해제
-        for (const targetPageId of removed) {
-          const targetPage = pageStore.pages[targetPageId];
-          if (!targetPage?.databaseId) continue;
-          const targetBundle = databases[targetPage.databaseId];
-          if (!targetBundle) continue;
-          const sameNameCol = targetBundle.columns.find(
-            (c) => c.type === "pageLink" && c.name === reverseColName,
-          );
-          if (!sameNameCol) continue;
-          const existing = targetPage.dbCells?.[sameNameCol.id];
-          const existingIds: string[] = Array.isArray(existing)
-            ? (existing as string[]).filter((v): v is string => typeof v === "string")
-            : [];
-          const updated = existingIds.filter((id) => id !== rowPageId);
-          pageStore.setPageDbCell(targetPageId, sameNameCol.id, updated);
-        }
       },
 
       setRowOrder: (databaseId, orderedPageIds) => {

@@ -79,7 +79,9 @@ export function resolveDerivedCellValue(
       currentRowPageId: sourcePageId,
       databases,
     });
-    return derived !== undefined ? derived : sourcePage.dbCells?.[src.columnId];
+    return derived !== undefined && !shouldUseManualCellValueForAutomation(sourceColumn, derived)
+      ? derived
+      : sourcePage.dbCells?.[src.columnId];
   };
 
   if (src.automation) {
@@ -170,6 +172,24 @@ export function resolveDerivedCellValue(
 export function isCellValueDerived(column: ColumnDef): boolean {
   const src = column.config?.sourceFromDb;
   return Boolean(src?.viaPageLinkColumnId || src?.automation);
+}
+
+/** 자동화 결과가 실제 선택값으로 보기 어려운 빈 값인지 판정한다. */
+export function isEmptyAutomationCellValue(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) {
+    return value.length === 0 || value.every(isEmptyAutomationCellValue);
+  }
+  return false;
+}
+
+/** sourceFromDb 자동화 결과가 비어 있으면 저장된 수동 셀값을 fallback 으로 쓴다. */
+export function shouldUseManualCellValueForAutomation(
+  column: ColumnDef,
+  derivedValue: unknown,
+): boolean {
+  return Boolean(column.config?.sourceFromDb?.automation) && isEmptyAutomationCellValue(derivedValue);
 }
 
 /**
@@ -308,6 +328,39 @@ export function computeProgressFromSource(
   return Math.min(100, Math.max(0, pct));
 }
 
+function columnMatchesLinkedScope(
+  column: ColumnDef,
+  kind: "organization" | "team" | "project",
+  databases: Record<string, DatabaseBundle>,
+  seen = new Set<string>(),
+): boolean {
+  if (column.config?.linkedScope === kind) return true;
+  const src = column.config?.sourceFromDb;
+  if (!src) return false;
+  const key = `${src.databaseId}:${src.columnId}`;
+  if (seen.has(key)) return false;
+  seen.add(key);
+  const sourceColumn = databases[src.databaseId]?.columns.find((candidate) => candidate.id === src.columnId);
+  return sourceColumn ? columnMatchesLinkedScope(sourceColumn, kind, databases, seen) : false;
+}
+
+function resolveSearchFilterCellValue(
+  page: Page,
+  column: ColumnDef,
+  databases: Record<string, DatabaseBundle>,
+  pages: Record<string, Page>,
+): unknown {
+  const cells = page.dbCells ?? {};
+  if (!isCellValueDerived(column)) return cells[column.id];
+  const derived = resolveDerivedCellValue(column, cells, pages, {
+    currentRowPageId: page.id,
+    databases,
+  });
+  return shouldUseManualCellValueForAutomation(column, derived)
+    ? cells[column.id]
+    : derived ?? cells[column.id];
+}
+
 /** SearchFilterRule 배열을 페이지 후보 목록에 적용한다.
  *  필터는 AND 로 결합되며 value 가 비어있는 규칙은 무시한다. */
 export function applySearchFilters(
@@ -330,34 +383,29 @@ export function applySearchFilters(
         case "milestone":
         case "feature": {
           // 페이지의 dbCells 중 pageLink 컬럼 어느 하나라도 value(=대상 pageId)를 포함하면 통과
-          const cells = p.dbCells ?? {};
           const db = p.databaseId ? databases[p.databaseId] : null;
           if (!db) return false;
           const pageLinkColumnIds = db.columns
             .filter((c) => c.type === "pageLink")
-            .map((c) => c.id);
-          const hit = pageLinkColumnIds.some((cid) => {
-            const v = cells[cid];
+            .map((c) => c);
+          const hit = pageLinkColumnIds.some((column) => {
+            const v = resolveSearchFilterCellValue(p, column, databases, pages);
             return Array.isArray(v) && (v as unknown[]).includes(value);
           });
           if (!hit) return false;
-          // pages 변수는 시그니처 일관성용 — 향후 확장 대비 (예: 전이적 링크 추적)
-          void pages;
           break;
         }
         case "organization":
         case "team":
         case "project": {
-          // 페이지가 속한 DB 의 컬럼 중 config.linkedScope 가 일치하는 컬럼을 찾아 비교.
-          // (작업·마일스톤·피처 DB 모두 동일 패턴으로 동작)
+          const kind = rule.kind;
           const db = p.databaseId ? databases[p.databaseId] : null;
           if (!db) return false;
           const matchedCols = db.columns.filter(
-            (c) => c.config?.linkedScope === rule.kind,
+            (c) => columnMatchesLinkedScope(c, kind, databases),
           );
           if (matchedCols.length === 0) return false;
-          const cells = p.dbCells ?? {};
-          const hit = matchedCols.some((c) => cells[c.id] === value);
+          const hit = matchedCols.some((c) => resolveSearchFilterCellValue(p, c, databases, pages) === value);
           if (!hit) return false;
           break;
         }

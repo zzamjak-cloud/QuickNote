@@ -102,9 +102,14 @@ describe("normalizeDatabase schema", () => {
       title: "QA",
       color: "#2563eb",
     });
-    expect(normalized[5]?.config?.pageLinkAutoFill).toEqual([
-      { targetColumnId: "team", sourceColumnId: "team" },
+    expect(normalized[5]?.config?.pageLinkScopeDatabaseId).toBe("task-db");
+    expect(normalized[5]?.config?.pageLinkMirrorColumnId).toBe("owner");
+    expect(normalized[5]?.config?.searchFilters).toEqual([
+      { id: "filter-1", kind: "database", value: "task-db" },
     ]);
+    expect(normalized[5]?.config).not.toHaveProperty("pageLinkAutoReverse");
+    expect(normalized[5]?.config).not.toHaveProperty("pageLinkReverseColumnName");
+    expect(normalized[5]?.config).not.toHaveProperty("pageLinkAutoFill");
 
     const serialized = serializeColumns(normalized);
     const parsed = parseSerializedColumns(serialized);

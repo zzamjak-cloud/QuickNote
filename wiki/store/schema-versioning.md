@@ -33,6 +33,13 @@ JSON.parse(localStorage.getItem('quicknote.pages.v1') ?? '{}')
 JSON.parse(localStorage.getItem('quicknote.databases.v1') ?? '{}')
 ```
 
+## 최근 databaseStore 변경
+
+### v5
+- `pageLinkAutoFill`, `pageLinkAutoReverse`, `pageLinkReverseColumnName` legacy config 제거.
+- LC Scheduler/Feature 보호 DB의 기존 참조 컬럼을 `sourceFromDb`/`itemFetch` 구조로 보정.
+- pageLink 값 복사·역방향 쓰기 제거 후에도 화면/필터/스케줄러는 실효 셀값 해석으로 기존 참조 표시를 유지.
+
 ## 초기화 (최후 수단)
 ```js
 ["quicknote.pages.v1","quicknote.databases.v1","quicknote.settings.v1"]

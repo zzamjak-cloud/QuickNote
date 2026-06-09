@@ -281,7 +281,7 @@ export function toMmScheduleSource(schedule: Schedule): MmScheduleSource {
         : null,
     attendanceLabel: getLCSchedulerAttendanceLabel(normalizedAttendanceValue),
     projectId: schedule.projectId ?? cellString(cells[LC_SCHEDULER_COLUMN_IDS.project]),
-    teamId: cellString(cells[LC_SCHEDULER_COLUMN_IDS.team]),
-    organizationId: cellString(cells[LC_SCHEDULER_COLUMN_IDS.organization]),
+    teamId: schedule.teamId ?? cellString(cells[LC_SCHEDULER_COLUMN_IDS.team]),
+    organizationId: schedule.organizationId ?? cellString(cells[LC_SCHEDULER_COLUMN_IDS.organization]),
   };
 }

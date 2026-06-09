@@ -10,9 +10,10 @@
 | 파일 | 역할 |
 |------|------|
 | `columnSource.ts` | 컬럼 옵션 소스 해석, 파생 셀값 계산, 진행률 자동 계산 |
+| `effectiveCellValue.ts` | 화면·스케줄러·필터가 공통으로 쓰는 실효 셀값 해석 |
 | `filterValueLabels.ts` | 필터 UI에 표시할 레이블 및 필터 가능 셀값 해석 |
 | `jsonCell.ts` | JSON 타입 셀값 검증·파싱·직렬화·요약 |
-| `pageLinkMirror.ts` | pageLink 컬럼의 미러 값 해석 (역방향 링크 반영) |
+| `pageLinkMirror.ts` | pageLink 컬럼의 미러 값 해석 |
 | `timelineCardColor.ts` | 타임라인 카드 색상 오버라이드 읽기/쓰기 |
 | `timelineGeometry.ts` | 타임라인 날짜 범위·좌표 계산 유틸 |
 | `schema/` | (하위 디렉토리) DB 스키마 관련 유틸 |
@@ -25,18 +26,36 @@
 ### 주요 exports
 | 함수/타입 | 설명 |
 |----------|------|
-| `effectiveOptions(column, databases, scopeCtx?)` | 컬럼의 실효 옵션 반환. linkedScope → sourceFromDb → config.options 우선순위 |
+| `effectiveOptions(column, databases, scopeCtx?)` | 컬럼의 실효 옵션 반환. sourceFromDb → linkedScope → config.options 우선순위 |
 | `resolveSyncedOptions(column, databases, scopeCtx?)` | sourceFromDb 소스 컬럼의 옵션을 재귀 해석 |
 | `isOptionSourceLocked(column)` | 외부 소스에 묶인 컬럼인지 판단 (옵션 직접 편집 잠금용) |
 | `resolveDerivedCellValue(column, currentRowCells, pages, ctx?)` | viaPageLinkColumnId 설정 시 연결 페이지의 소스 셀값 반환 |
 | `isCellValueDerived(column)` | 자동 derivation 모드 컬럼 여부 |
+| `shouldUseManualCellValueForAutomation(column, derivedValue)` | sourceFromDb 자동화 결과가 비었을 때 수동 셀값 fallback 여부 판정 |
 | `resolveItemFetchPageIds(column, rowPageId, databases, pages)` | itemFetch 소스 DB에서 현재 행과 매칭되는 페이지 ID 목록 반환 |
 | `computeProgressFromSource(column, databases, pages, ctx)` | progressSource 설정 시 백분율(0–100) 계산, 없으면 null |
+| `applySearchFilters(candidatePages, filters, databases, pages)` | pageLink 검색 팝업 단계 필터 적용. 파생/자동화 셀값도 해석 |
 | `ScopeOptionsCtx` | organizations/teams/projects 컨텍스트 타입 |
 
 ### 주의사항
-- `effectiveOptions`는 `linkedScope` → `sourceFromDb` 순으로 재귀 해석하므로 순환 참조 시 무한 루프 위험. 실제로는 최대 2단계만 발생하도록 설계됨.
+- `effectiveOptions`는 `sourceFromDb` 를 먼저 재귀 해석하고, 없으면 `linkedScope` 옵션을 사용한다. 순환 참조는 depth/seen guard로 방어한다.
+- sourceFromDb 자동화 결과가 `null`, 빈 문자열, 빈 배열이면 저장된 수동 셀값을 fallback 으로 쓴다. 참조 DB 값이 다시 채워지면 자동화 값이 우선한다.
+- pageLink 자동화는 값을 복사하거나 역방향으로 쓰지 않는다. 참조 표시는 `sourceFromDb`, `itemFetch`, `pageLinkMirror` 해석 결과로 계산한다.
 - `isCellCompleted`는 `"done"/"complete"/"completed"/"완료"` 토큰을 완료로 판정.
+
+---
+
+## effectiveCellValue.ts
+
+### 주요 exports
+| 함수 | 설명 |
+|------|------|
+| `resolveEffectiveCellValue(args)` | 컬럼 타입별 raw 값, sourceFromDb 파생값, pageLink mirror, itemFetch 결과를 하나의 실효 셀값으로 계산 |
+| `resolveEffectiveCellValueById(args)` | databaseId/columnId/rowPageId 기준으로 컬럼을 찾아 실효 셀값 반환 |
+
+### 사용처
+- DB 셀 표시·필터·검색뿐 아니라 LC Scheduler 카드/추천/속성 패널처럼 raw `dbCells`만 보던 경로도 이 유틸을 통해 파생값을 읽는다.
+- 복사형 자동 채움 제거 후에도 스케줄러의 조직·팀·프로젝트·마일스톤 값은 저장 복제가 아니라 실효값으로 해석된다.
 
 ---
 
@@ -51,7 +70,7 @@
 
 ### 주의사항
 - person 타입은 memberStore의 멤버 목록에서 옵션을 생성한다. 멤버가 없으면 빈 배열.
-- pageLink 미러 컬럼은 `resolvePageLinkMirrorValue`로 역방향 링크를 포함한 실효값을 계산한다.
+- pageLink, itemFetch, sourceFromDb 자동화 컬럼은 raw 셀값 대신 실효값을 기준으로 필터링될 수 있다.
 
 ---
 
@@ -73,11 +92,11 @@
 ### 주요 exports
 | 함수 | 설명 |
 |------|------|
-| `resolvePageLinkMirrorValue(args)` | pageLink 컬럼의 `pageLinkMirrorColumnId` 설정에 따라 소스 DB에서 역방향 링크된 페이지 ID 배열 반환 |
+| `resolvePageLinkMirrorValue(args)` | pageLink 컬럼의 `pageLinkMirrorColumnId` 설정에 따라 소스 DB에서 미러 pageLink 값 배열 반환 |
 
 ### 동작 원리
-1. 소스 DB의 `pageLinkScopeDatabaseId`가 현재 DB와 일치하는 컬럼으로 멤버십 확인
-2. 현재 행을 참조하는 소스 페이지들을 찾아 `pageLinkMirrorColumnId` 셀값 수집
+1. 소스 DB의 pageLink 컬럼 또는 현재 행의 직접 연결 값으로 현재 행과 연결된 소스 페이지를 찾음
+2. 연결된 소스 페이지들의 `pageLinkMirrorColumnId` 셀값 수집
 3. 중복 제거 후 반환
 
 ---

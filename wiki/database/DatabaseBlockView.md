@@ -25,6 +25,7 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 |------|------|
 | 뷰 컴포넌트 스위치 | `view` 값에 따라 `DatabaseTableView`, `DatabaseTimelineView`, `DatabaseGalleryView`를 `Suspense` + `lazy`로 렌더 |
 | 더보기 버튼 | `visibleRowLimit` 초과 시 "+ N개 더보기" 버튼 노출. 표시 단위는 `databaseRowLimit.ts` 정책을 따르고, row index count까지 포함해 남은 행을 계산 |
+| 새 항목 생성 UX | 각 뷰의 "+ 새 항목"은 `useAddDatabaseRowAndOpen`으로 row 생성 직후 반환된 pageId를 피크뷰로 연다. 필터/표시설정 때문에 새 row가 리스트 하단이나 현재 화면 밖에 생겨도 사용자에게 생성 성공이 즉시 보여야 한다. |
 | 삭제 확인 | `deleteConfirmPhrase` 문구 직접 입력 후 `executeDeleteDatabasePermanently` 실행 |
 | 보호된 DB | `isProtectedDatabaseId` 판별 후 삭제/수정 차단 |
 | 제목 편집 UX | 제목 hover 시 테두리 표시, 클릭 시 포커스. `inlineTitleLocked`는 `isProtectedDatabase`만 참조 (readOnlyTitle은 더 이상 잠금에 사용 안 함). 외부 클릭 시 blur를 위해 `document.addEventListener("mousedown", ..., true)` 캡처 리스너 사용 (tiptap이 mousedown을 가로채므로). |
@@ -49,4 +50,5 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 - DB가 없는 상태(`bundleGone`)와 아직 바인딩 안 된 상태(`needsBinding`)를 구분하여 다른 UI를 표시한다.
 - `isInsidePeek`는 `editor.view.dom.closest("[data-qn-peek-editor='true']")`로 감지하며, 피크뷰 내부 여부에 따라 다이얼로그 동작이 달라질 수 있다.
 - row index 캐시가 있으면 실제 `pageStore`에 없는 row도 필터·정렬 후보가 될 수 있다. row 열기는 각 뷰에서 `useOpenDatabaseRow`를 통해 `ensurePageContentLoaded`를 먼저 통과해야 한다.
+- 새 row 생성 버튼은 `addRow`만 직접 호출하지 말고 `useAddDatabaseRowAndOpen`을 사용한다. 생성 후 피크뷰를 열지 않으면 필터/정렬/표시 개수에 따라 사용자가 버튼 반응을 못 볼 수 있다.
 - 서버 데이터 강제 refresh 버튼은 제공하지 않는다. row index 전체 캐시 구조에서는 실수로 수천 row를 다시 받는 UI를 만들지 않는다.

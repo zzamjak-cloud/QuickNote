@@ -7,7 +7,12 @@ import {
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useMemberStore } from "../../store/memberStore";
 import { usePageStore } from "../../store/pageStore";
-import { computeProgressFromSource, resolveDerivedCellValue } from "../../lib/database/columnSource";
+import {
+  computeProgressFromSource,
+  isCellValueDerived,
+  resolveDerivedCellValue,
+  shouldUseManualCellValueForAutomation,
+} from "../../lib/database/columnSource";
 import { resolvePageLinkMirrorValue } from "../../lib/database/pageLinkMirror";
 import { normalizePersonValue, personChipColor } from "./cells/utils";
 import { useEffectiveOptions } from "./useEffectiveOptions";
@@ -79,7 +84,8 @@ export function DatabaseCellDisplay({
     currentRowPageId: rowId,
     databases,
   });
-  const effectiveValue: CellValue = column.config?.sourceFromDb
+  const usesManualAutomationValue = shouldUseManualCellValueForAutomation(column, derived);
+  const effectiveValue: CellValue = isCellValueDerived(column) && !usesManualAutomationValue
     ? ((derived as CellValue) ?? null)
     : value;
   // 이후 로직은 effectiveValue 기반
@@ -223,7 +229,7 @@ export function DatabaseCellDisplay({
 
   if (column.type === "progress") {
     // progressSource가 설정되어 있으면 자동 계산값으로 표시
-    const computed = computeProgressFromSource(column, databases, pages, {});
+    const computed = computeProgressFromSource(column, databases, pages, { currentRowPageId: rowId });
     const rawPct =
       computed !== null
         ? computed

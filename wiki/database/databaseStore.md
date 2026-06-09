@@ -34,7 +34,7 @@
 | `importRowsBatch` | `(databaseId, existingSeedPageId, rows) => string[]` | 여러 행 일괄 가져오기 |
 | `deleteRow` | `(databaseId, pageId) => void` | 행 삭제 |
 | `setCellValue` | `(databaseId, pageId, columnId, value) => void` | 셀 값 설정 |
-| `updatePageLinkCell` | `(databaseId, pageId, columnId, linkedPageId) => void` | pageLink 셀 업데이트 |
+| `updatePageLinkCell` | `(databaseId, pageId, columnId, linkedPageId) => void` | 현재 pageLink 셀만 업데이트. 복사/역방향 쓰기 없음 |
 | `orderedPageIds` | `(databaseId) => string[]` | 정렬된 행 ID 목록 반환 |
 | `attachPageAsRow` | `(databaseId, pageId) => void` | 기존 페이지를 DB 행으로 연결 |
 | `detachRowToNormalPage` | `(databaseId, pageId) => void` | DB 행을 일반 페이지로 분리 |
@@ -50,7 +50,7 @@
 |------|-----|
 | storage key | `"quicknote.databases.v1"` |
 | storage | `deferredDatabaseStorage` |
-| version | `DATABASE_STORE_PERSIST_VERSION` |
+| version | `DATABASE_STORE_PERSIST_VERSION = 5` |
 | migrate | `migrateDatabaseStore` |
 | partialize | `databases`, `cacheWorkspaceId`, `migrationQuarantine`, `dbTemplates` |
 | merge | `mergePersistedSubset` (DATABASE_STORE_DATA_KEYS 기준) |
@@ -68,3 +68,5 @@
 - `importRowsBatch`는 단일 `pageStore.setState`로 일괄 반영해 렌더 flicker를 최소화한다.
 - `migrationQuarantine` 배열은 자동 복구 실패 데이터 보존용이므로 절대 삭제하지 않는다.
 - 컬럼 액션(`addColumn`, `deleteColumn`, `updateColumn` 등)은 `createColumnActions`로 별도 분리됨 (`src/store/databaseStore/actions/columnActions.ts`).
+- `pageLinkAutoFill`, `pageLinkAutoReverse`, `pageLinkReverseColumnName`은 제거된 legacy config다. normalize/migration에서 제거하며, pageLink는 참조 해석만 담당한다.
+- LC Scheduler/Feature 보호 DB의 기존 참조 컬럼은 persist v5에서 `sourceFromDb`/`itemFetch` 구조로 보정된다.

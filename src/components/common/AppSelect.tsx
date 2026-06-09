@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
 
 export type AppSelectOption = {
   value: string;
   label: string;
+  icon?: ReactNode;
   disabled?: boolean;
 };
 
@@ -18,6 +20,7 @@ type AppSelectProps = {
   onChange: (value: string) => void;
   options?: AppSelectOption[];
   groups?: AppSelectGroup[];
+  selectedOption?: AppSelectOption;
   placeholder?: string;
   emptyLabel?: string;
   disabled?: boolean;
@@ -45,6 +48,7 @@ export function AppSelect({
   onChange,
   options,
   groups,
+  selectedOption,
   placeholder = "선택",
   emptyLabel = "항목 없음",
   disabled = false,
@@ -65,7 +69,7 @@ export function AppSelect({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(openOnMount);
-  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
 
   const grouped = useMemo<AppSelectGroup[]>(() => {
     if (groups && groups.length > 0) return groups;
@@ -78,8 +82,8 @@ export function AppSelect({
   );
 
   const current = useMemo(
-    () => flatOptions.find((opt) => opt.value === value) ?? null,
-    [flatOptions, value],
+    () => flatOptions.find((opt) => opt.value === value) ?? (selectedOption?.value === value ? selectedOption : null),
+    [flatOptions, selectedOption, value],
   );
 
   const updateOpen = (next: boolean) => {
@@ -157,8 +161,11 @@ export function AppSelect({
           buttonClassName,
         )}
       >
-        <span className={mergeClassNames("truncate text-left", current ? "" : "text-zinc-400 dark:text-zinc-500")}>
-          {current?.label ?? placeholder}
+        <span className="flex min-w-0 items-center gap-2">
+          {current?.icon ? <span className="shrink-0">{current.icon}</span> : null}
+          <span className={mergeClassNames("truncate text-left", current ? "" : "text-zinc-400 dark:text-zinc-500")}>
+            {current?.label ?? placeholder}
+          </span>
         </span>
         <ChevronDown
           size={14}
@@ -221,7 +228,7 @@ export function AppSelect({
                           disabled={option.disabled}
                           onClick={() => handleSelect(option.value, option.disabled)}
                           className={mergeClassNames(
-                            "flex w-full items-center rounded px-2 py-1.5 text-left transition-colors",
+                            "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors",
                             option.disabled
                               ? "cursor-not-allowed text-zinc-300 dark:text-zinc-600"
                               : selected
@@ -230,6 +237,7 @@ export function AppSelect({
                             optionClassName,
                           )}
                         >
+                          {option.icon ? <span className="shrink-0">{option.icon}</span> : null}
                           <span className="truncate">{option.label}</span>
                           {selected && showSelectedCheck ? (
                             <Check size={13} strokeWidth={2.6} className="ml-auto shrink-0" />

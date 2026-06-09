@@ -12,14 +12,18 @@ import {
 import { normalizeDatabaseBundle } from "../../lib/database/schema/normalizeDatabase";
 import {
   isLegacyLCSchedulerDatabaseId,
+  isLCSchedulerDatabaseId,
+  isLCFeatureDatabaseId,
+  normalizeLCSchedulerReferenceColumns,
 } from "../../lib/scheduler/database";
+import { normalizeLCFeatureColumns } from "../../lib/scheduler/featureDatabase";
 
 export type DbMap = Record<string, DatabaseBundle>;
 
 export type DatabaseQuarantine = PersistedQuarantine;
 
 /** zustand persist `version` 과 동일 — 메타 schemaVersion 과 맞춘다 */
-export const DATABASE_STORE_PERSIST_VERSION = 4;
+export const DATABASE_STORE_PERSIST_VERSION = 5;
 
 export const DATABASE_STORE_DATA_KEYS = [
   "databases",
@@ -94,6 +98,29 @@ function cleanupLegacyLCSchedulerDatabases(state: PersistedObject): PersistedObj
   return { ...state, databases };
 }
 
+function normalizeLCReferenceDatabases(state: PersistedObject): PersistedObject {
+  if (!isPlainObject(state.databases)) return state;
+  const databases = { ...(state.databases as DbMap) };
+  let changed = false;
+
+  for (const [databaseId, database] of Object.entries(databases)) {
+    const normalized = isLCSchedulerDatabaseId(databaseId)
+      ? normalizeLCSchedulerReferenceColumns(database.columns)
+      : isLCFeatureDatabaseId(databaseId)
+        ? normalizeLCFeatureColumns(database.columns)
+        : { columns: database.columns, changed: false };
+    if (!normalized.changed) continue;
+    databases[databaseId] = {
+      ...database,
+      columns: normalized.columns,
+      meta: { ...database.meta, updatedAt: Math.max(database.meta.updatedAt, Date.now()) },
+    };
+    changed = true;
+  }
+
+  return changed ? { ...state, databases } : state;
+}
+
 export function migrateDatabaseStore(
   persisted: unknown,
   fromVersion: number,
@@ -121,6 +148,15 @@ export function migrateDatabaseStore(
         migrate: (state) =>
           cleanupLegacyLCSchedulerDatabases(
             normalizeDatabasePersistedState(state, fromVersion),
+          ),
+      },
+      {
+        version: 5,
+        migrate: (state) =>
+          normalizeLCReferenceDatabases(
+            cleanupLegacyLCSchedulerDatabases(
+              normalizeDatabasePersistedState(state, fromVersion),
+            ),
           ),
       },
     ],

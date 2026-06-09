@@ -133,29 +133,6 @@ export type ColumnDef = {
     /** pageLink/dbLink/select(외부소스) 컬럼 — 검색 시 사전 필터 */
     searchFilters?: SearchFilterRule[];
     /**
-     * pageLink 컬럼 — 역방향 자동 연결 전용.
-     * true 이면 이 컬럼은 다른 DB에서 자동으로 채워지는 읽기 전용 역참조 컬럼이므로
-     * 셀 UI에서 검색/추가 버튼을 숨긴다.
-     */
-    pageLinkAutoReverse?: boolean;
-    /**
-     * pageLink 컬럼 — 역방향 연결 시 대상 DB에서 찾을 컬럼 이름.
-     * 미지정 시 자신의 이름(name)과 동일한 컬럼을 찾는 기본 동작.
-     * 예) Task DB "피쳐" 컬럼에 "작업"을 지정 → Feature DB의 "작업" 컬럼을 역방향 업데이트.
-     */
-    pageLinkReverseColumnName?: string;
-    /**
-     * pageLink 컬럼 — 페이지 연결 시 연결된 첫 번째 페이지의 지정 컬럼 값을
-     * 현재 행의 대상 컬럼에 자동으로 복사한다.
-     * 예) 피처의 "마일스톤" 컬럼에 마일스톤 연결 시 → 마일스톤의 조직·팀·프로젝트 값을 피처 행에 자동 채움.
-     */
-    pageLinkAutoFill?: Array<{
-      /** 현재 행에서 값을 채울 컬럼 ID */
-      targetColumnId: string;
-      /** 연결된 페이지에서 읽어올 컬럼 ID */
-      sourceColumnId: string;
-    }>;
-    /**
      * select/multiSelect/status 컬럼 — 옵션을 퀵노트 내부 엔티티 store에서 미러링.
      * - `"organization"` : organizationStore.organizations
      * - `"team"`         : teamStore.teams

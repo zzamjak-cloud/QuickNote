@@ -11,7 +11,11 @@ import { useMemberStore } from "../../store/memberStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
 import type { DatabaseRowIndexEntry } from "../../lib/database/databaseRowIndexCache";
-import { isCellValueDerived, resolveDerivedCellValue } from "../../lib/database/columnSource";
+import {
+  isCellValueDerived,
+  resolveDerivedCellValue,
+  shouldUseManualCellValueForAutomation,
+} from "../../lib/database/columnSource";
 import { resolveDatabaseRowRemoteKey } from "../../lib/sync/externalProtectedDatabaseLoad";
 import {
   resolveFilterableCellValue,
@@ -144,7 +148,9 @@ export function useProcessedRows(
           currentRowPageId: source.pageId,
           databases,
         });
-        cells[column.id] = (derived as CellValue) ?? null;
+        if (!shouldUseManualCellValueForAutomation(column, derived)) {
+          cells[column.id] = (derived as CellValue) ?? null;
+        }
       }
       for (const column of bundle.columns) {
         if (column.type === "title") continue;

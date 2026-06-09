@@ -21,6 +21,7 @@ import {
   makeLCMilestoneDatabaseId,
 } from "../milestoneDatabase";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scope";
+import { computeProgressFromSource } from "../../database/columnSource";
 
 const customPreset: DatabaseRowPreset = {
   id: "custom-preset",
@@ -209,6 +210,35 @@ describe("scheduler protected database column customization", () => {
     expect(after?.columns).toEqual(existing.columns);
   });
 
+  it("기존 피처 DB의 레거시 작업 pageLink 컬럼은 itemFetch로 전환한다", async () => {
+    const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    useDatabaseStore.setState({
+      databases: {
+        [databaseId]: {
+          ...makeFeatureBundle(databaseId),
+          columns: [
+            { id: LC_FEATURE_COLUMN_IDS.title, name: "피처", type: "title" },
+            {
+              id: LC_FEATURE_COLUMN_IDS.task,
+              name: "작업",
+              type: "pageLink",
+              config: { pageLinkScopeDatabaseId: makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID) },
+            },
+          ],
+        },
+      },
+    });
+
+    await ensureLCFeatureDatabase(LC_SCHEDULER_WORKSPACE_ID);
+
+    const taskColumn = useDatabaseStore
+      .getState()
+      .databases[databaseId]?.columns.find((column) => column.id === LC_FEATURE_COLUMN_IDS.task);
+    expect(taskColumn?.type).toBe("itemFetch");
+    expect(taskColumn?.config?.itemFetchSourceDatabaseId).toBe(makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID));
+    expect(taskColumn?.config?.itemFetchMatchColumnId).toBe(LC_SCHEDULER_COLUMN_IDS.feature);
+  });
+
   it("피처 DB 최초 생성 기본 컬럼은 작업 기간만 사용하고 작업 종료 컬럼을 만들지 않는다", async () => {
     const databaseId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
 
@@ -275,5 +305,100 @@ describe("scheduler protected database column customization", () => {
     expect(useDatabaseStore.getState().databases[schedulerId]?.meta.title).toBe(LC_SCHEDULER_DATABASE_TITLE);
     expect(useDatabaseStore.getState().databases[featureId]?.meta.title).toBe(LC_FEATURE_DATABASE_TITLE);
     expect(useDatabaseStore.getState().databases[milestoneId]?.meta.title).toBe(LC_MILESTONE_DATABASE_TITLE);
+    expect(
+      useDatabaseStore.getState().databases[featureId]?.columns.find((column) => column.id === LC_FEATURE_COLUMN_IDS.task)?.type,
+    ).toBe("itemFetch");
+    expect(
+      useDatabaseStore.getState().databases[schedulerId]?.columns.find((column) => column.id === LC_SCHEDULER_COLUMN_IDS.project)?.config?.sourceFromDb,
+    ).toEqual({
+      databaseId: featureId,
+      columnId: LC_FEATURE_COLUMN_IDS.project,
+      automation: true,
+      viaPageLinkColumnId: LC_SCHEDULER_COLUMN_IDS.feature,
+    });
+  });
+
+  it("피처 진행률은 역방향 쓰기 없이 작업 itemFetch로 계산한다", async () => {
+    const schedulerId = makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    const featureId = makeLCFeatureDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    await ensureLCSchedulerDatabase(LC_SCHEDULER_WORKSPACE_ID);
+    await ensureLCFeatureDatabase(LC_SCHEDULER_WORKSPACE_ID);
+
+    useDatabaseStore.setState((state) => ({
+      databases: {
+        ...state.databases,
+        [schedulerId]: {
+          ...state.databases[schedulerId]!,
+          rowPageOrder: ["task-1", "task-2"],
+        },
+        [featureId]: {
+          ...state.databases[featureId]!,
+          rowPageOrder: ["feature-1"],
+        },
+      },
+    }));
+    usePageStore.setState({
+      pages: {
+        "feature-1": {
+          id: "feature-1",
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          title: "피처 A",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          databaseId: featureId,
+          dbCells: {},
+        },
+        "task-1": {
+          id: "task-1",
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          title: "작업 1",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          databaseId: schedulerId,
+          dbCells: {
+            [LC_SCHEDULER_COLUMN_IDS.feature]: ["feature-1"],
+            [LC_SCHEDULER_COLUMN_IDS.status]: "done",
+          },
+        },
+        "task-2": {
+          id: "task-2",
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          title: "작업 2",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 2,
+          createdAt: 1,
+          updatedAt: 1,
+          databaseId: schedulerId,
+          dbCells: {
+            [LC_SCHEDULER_COLUMN_IDS.feature]: ["feature-1"],
+            [LC_SCHEDULER_COLUMN_IDS.status]: "todo",
+          },
+        },
+      },
+      activePageId: null,
+    });
+
+    const progressColumn = useDatabaseStore
+      .getState()
+      .databases[featureId]?.columns.find((column) => column.id === LC_FEATURE_COLUMN_IDS.progress);
+    expect(progressColumn).toBeDefined();
+    expect(
+      computeProgressFromSource(
+        progressColumn!,
+        useDatabaseStore.getState().databases,
+        usePageStore.getState().pages,
+        { currentRowPageId: "feature-1" },
+      ),
+    ).toBe(50);
   });
 });
