@@ -425,13 +425,13 @@ export async function ensureDatabaseRowsLoaded({
   const completedLoadLimit = completedLoadLimitsByDatabaseId.get(loadKey) ?? 0;
 
   // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
-  // 단, row pagination 상태가 아직 없으면 서버 nextToken 확인 전이므로 한 번은 조회한다.
+  // 단, row pagination 상태가 아직 없거나 nextToken 이 남아 있으면 전체 후보군 확인 전이므로 조회한다.
   // scope 지정 시 캐시 완료 판정이 과복잡하므로 "scope 1회 로드"(session 가드)로 단순화해 무한로드를 막는다.
   if (
     !scoped &&
     rowPaginationKnown &&
     databaseRowsAreCached(resolvedDatabaseId) &&
-    (cachedNextToken === null || cachedRowsMeetRequestedLimit)
+    cachedNextToken === null
   ) {
     devLog("skip", {
       databaseId,

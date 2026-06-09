@@ -597,6 +597,118 @@ describe("externalProtectedDatabaseLoad", () => {
     expect(useDatabaseRowRemoteStore.getState().nextTokenByDatabaseId["normal-db"]).toBeNull();
   });
 
+  it("인라인 itemLimit가 충족되어도 nextToken이 있으면 row index warm-up을 시작한다", async () => {
+    const updatedAt = "2026-06-04T00:00:00.000Z";
+    const cachedRowIds = Array.from({ length: 10 }, (_, index) => `row-${index + 1}`);
+    useDatabaseStore.setState({
+      databases: {
+        "normal-db": {
+          meta: {
+            id: "normal-db",
+            workspaceId: "cat-workspace",
+            title: "CAT DB",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [],
+          rowPageOrder: cachedRowIds,
+        },
+      },
+      cacheWorkspaceId: "cat-workspace",
+    });
+    usePageStore.setState({
+      pages: Object.fromEntries(
+        cachedRowIds.map((id, index) => [
+          id,
+          {
+            id,
+            workspaceId: "cat-workspace",
+            title: id,
+            icon: null,
+            doc: { type: "doc", content: [] },
+            parentId: null,
+            order: index + 1,
+            createdAt: 1,
+            updatedAt: 1,
+            databaseId: "normal-db",
+            contentLoaded: true,
+          },
+        ]),
+      ),
+      cacheWorkspaceId: "cat-workspace",
+    });
+    useDatabaseRowRemoteStore.getState().setNextToken("normal-db", "next-1");
+    fetchDatabaseByIdMock.mockResolvedValueOnce({
+      id: "normal-db",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "CAT DB",
+      columns: [],
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "row-1",
+          workspaceId: "cat-workspace",
+          createdByMemberId: "member-1",
+          title: "row 1",
+          parentId: null,
+          order: "1",
+          databaseId: "normal-db",
+          doc: { type: "doc", content: [] },
+          dbCells: {},
+          blockComments: null,
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: "next-2",
+    });
+    fetchDatabaseRowIndexBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "row-11",
+          workspaceId: "cat-workspace",
+          title: "최신 작업",
+          icon: null,
+          order: "11",
+          databaseId: "normal-db",
+          dbCells: { date: { start: "2026-06-09" } },
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: null,
+    });
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        rowLimit: 10,
+        source: "database-block",
+      }),
+    ).resolves.toBe(true);
+    await Promise.resolve();
+
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledWith({
+      workspaceId: "cat-workspace",
+      databaseId: "normal-db",
+      limit: 10,
+    });
+    expect(fetchDatabaseRowIndexBatchMock).toHaveBeenCalledWith({
+      workspaceId: "cat-workspace",
+      databaseId: "normal-db",
+      limit: 200,
+      nextToken: "next-2",
+    });
+    expect(
+      useDatabaseRowIndexStore.getState().snapshotsByKey["normal-db"]?.rows.map((row) => row.pageId),
+    ).toContain("row-11");
+  });
+
   it("부분 row 캐시가 더 큰 rowLimit 요청을 막지 않는다", async () => {
     const updatedAt = "2026-06-04T00:00:00.000Z";
     const cachedRowIds = Array.from({ length: 10 }, (_, index) => `row-${index + 1}`);
