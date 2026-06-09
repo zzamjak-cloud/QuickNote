@@ -12,7 +12,10 @@ function todayValue(): string {
 function formatDateLabel(value: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   if (!m) return value || todayValue();
-  return `${String(parseInt(m[1]) % 100).padStart(2, "0")}. ${m[2]}. ${m[3]}`;
+  const year = m[1] ?? "0000";
+  const month = m[2] ?? "00";
+  const day = m[3] ?? "00";
+  return `${String(parseInt(year, 10) % 100).padStart(2, "0")}. ${month}. ${day}`;
 }
 
 export const DateInline = Node.create({
