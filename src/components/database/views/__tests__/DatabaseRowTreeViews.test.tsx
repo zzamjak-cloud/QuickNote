@@ -21,6 +21,11 @@ vi.mock("../../DatabaseAddColumnButton", () => ({
   DatabaseAddColumnButton: () => null,
 }));
 
+const pageTreePanelState = () => ({
+  ...emptyPanelState(),
+  pageTreeEnabled: true,
+});
+
 describe("database row tree views", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -89,11 +94,39 @@ describe("database row tree views", () => {
     });
   });
 
+  it("기본 OFF 상태에서는 폴딩 버튼과 하위 페이지 추가 버튼을 숨긴다", () => {
+    const { unmount } = render(
+      <DatabaseListView
+        databaseId="db-1"
+        panelState={emptyPanelState()}
+        setPanelState={() => {}}
+      />,
+    );
+
+    expect(screen.queryByLabelText("하위 페이지 펼치기")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("하위 페이지 추가")).not.toBeInTheDocument();
+    expect(screen.queryByText("Child")).not.toBeInTheDocument();
+
+    unmount();
+
+    render(
+      <DatabaseTableView
+        databaseId="db-1"
+        panelState={emptyPanelState()}
+        setPanelState={() => {}}
+      />,
+    );
+
+    expect(screen.queryByLabelText("하위 페이지 펼치기")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("하위 페이지 추가")).not.toBeInTheDocument();
+    expect(screen.queryByText("Child")).not.toBeInTheDocument();
+  });
+
   it("list view는 기본으로 접힌 상태에서 시작하고 단계별로 펼친다", async () => {
     render(
       <DatabaseListView
         databaseId="db-1"
-        panelState={emptyPanelState()}
+        panelState={pageTreePanelState()}
         setPanelState={() => {}}
       />,
     );
@@ -118,7 +151,7 @@ describe("database row tree views", () => {
     render(
       <DatabaseTableView
         databaseId="db-1"
-        panelState={emptyPanelState()}
+        panelState={pageTreePanelState()}
         setPanelState={() => {}}
       />,
     );
@@ -151,7 +184,7 @@ describe("database row tree views", () => {
     render(
       <DatabaseListView
         databaseId="db-1"
-        panelState={emptyPanelState()}
+        panelState={pageTreePanelState()}
         setPanelState={() => {}}
       />,
     );

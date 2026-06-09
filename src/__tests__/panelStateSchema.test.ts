@@ -88,11 +88,13 @@ describe("parseDatabasePanelStateJson", () => {
         table: { visibleColumnIds: ["title", "status"] },
       },
       itemLimit: 50,
+      pageTreeEnabled: true,
     });
     const out = parseDatabasePanelStateJson(raw);
     expect(out.hiddenViewKinds).toEqual(["list"]);
     expect(out.viewConfigs.list?.visibleColumnIds).toEqual(["title"]);
     expect(out.viewConfigs.table?.visibleColumnIds).toEqual(["title", "status"]);
     expect(out.itemLimit).toBe(50);
+    expect(out.pageTreeEnabled).toBe(true);
   });
 });

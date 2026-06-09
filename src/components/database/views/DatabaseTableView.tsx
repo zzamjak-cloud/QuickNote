@@ -75,6 +75,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   openRow,
   setIcon,
   setFillDrag,
+  pageTreeEnabled,
 }: {
   row: DatabaseRowView;
   rIdx: number;
@@ -88,12 +89,13 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   openRow: (pageId: string, opts?: { navigateInPeek?: boolean }) => void;
   setIcon: (pageId: string, icon: string | null) => void;
   setFillDrag: (v: FillDragState | null) => void;
+  pageTreeEnabled: boolean;
 }) {
   const pages = usePageStore((s) => s.pages);
   const pageDescendantCount = usePageStore((s) => countPageDescendants(row.pageId, s.pages));
   const createPage = usePageStore((s) => s.createPage);
   const rootTreeCollapsed = useDatabasePageTreeCollapseStore((s) =>
-    pageDescendantCount > 0
+    pageTreeEnabled && pageDescendantCount > 0
       ? s.collapsedByKey[databasePageTreeCollapseKey(databaseId, row.pageId)] !== false
       : false,
   );
@@ -108,7 +110,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   const fillRangeEnd = fillDrag && fillHoverRowIndex != null
     ? Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex)
     : null;
-  const hasPageTree = pageDescendantCount > 0;
+  const hasPageTree = pageTreeEnabled && pageDescendantCount > 0;
 
   const createChildPage = (target: HTMLElement) => {
     const newPageId = createPage("새 페이지", row.pageId, { activate: false });
@@ -121,10 +123,11 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   };
 
   useEffect(() => {
+    if (!pageTreeEnabled) return;
     if (!focusRequest || focusRequest.databaseId !== databaseId) return;
     if (collectPageTreePath(focusRequest.pageId, pages, row.pageId).length === 0) return;
     setTreeCollapsed(databaseId, row.pageId, false);
-  }, [databaseId, focusRequest, pages, row.pageId, setTreeCollapsed]);
+  }, [databaseId, focusRequest, pageTreeEnabled, pages, row.pageId, setTreeCollapsed]);
 
   return (
     <tr
@@ -202,21 +205,23 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
               {col.type === "title" ? (
                 <div className="flex min-w-0 flex-col gap-1">
                   <div className="group/tree flex min-w-0 items-center gap-1">
-                    {hasPageTree ? (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          toggleTreeCollapsed(databaseId, row.pageId);
-                        }}
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                        aria-label={rootTreeCollapsed ? "하위 페이지 펼치기" : "하위 페이지 접기"}
-                      >
-                        {rootTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                      </button>
-                    ) : (
-                      <span className="block h-5 w-5 shrink-0" aria-hidden />
-                    )}
+                    {pageTreeEnabled ? (
+                      hasPageTree ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleTreeCollapsed(databaseId, row.pageId);
+                          }}
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                          aria-label={rootTreeCollapsed ? "하위 페이지 펼치기" : "하위 페이지 접기"}
+                        >
+                          {rootTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                        </button>
+                      ) : (
+                        <span className="block h-5 w-5 shrink-0" aria-hidden />
+                      )
+                    ) : null}
                     <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
                       <IconPicker
                         current={row.icon ?? null}
@@ -242,18 +247,20 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                     >
                       {row.title || "제목 없음"}
                     </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        createChildPage(event.currentTarget);
-                      }}
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 opacity-0 transition hover:bg-zinc-100 hover:text-zinc-700 group-hover/tree:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-                      aria-label="하위 페이지 추가"
-                      title="하위 페이지 추가"
-                    >
-                      <Plus size={13} />
-                    </button>
+                    {pageTreeEnabled ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          createChildPage(event.currentTarget);
+                        }}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 opacity-0 transition hover:bg-zinc-100 hover:text-zinc-700 group-hover/tree:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                        aria-label="하위 페이지 추가"
+                        title="하위 페이지 추가"
+                      >
+                        <Plus size={13} />
+                      </button>
+                    ) : null}
                   </div>
                   {hasPageTree && !rootTreeCollapsed && (
                     <DatabasePageSubtree
@@ -319,6 +326,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
   const groups = useRowGroups(rows, bundle?.columns ?? [], panelState.groupByColumnId);
   const isGroupCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
   const toggleGroupCollapsed = useDatabaseGroupCollapseStore((s) => s.toggle);
+  const pageTreeEnabled = panelState.pageTreeEnabled === true;
   // fill-drag·렌더 공통 기준 행 목록. 그룹화 시 그룹 순서로 평탄화(person 다중값은 중복 가능).
   // rIdx 는 이 배열의 인덱스이므로 fill 핸들러도 동일 배열을 참조해야 일관된다.
   const effectiveRows = useMemo(
@@ -449,8 +457,8 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     [visibleCols],
   );
   const hasPageTreeRows = useMemo(
-    () => rows.some((row) => countPageDescendants(row.pageId, pages) > 0),
-    [pages, rows],
+    () => pageTreeEnabled && rows.some((row) => countPageDescendants(row.pageId, pages) > 0),
+    [pageTreeEnabled, pages, rows],
   );
   const CHECKBOX_COL = 28;
   const tableWidthPx =
@@ -563,6 +571,7 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
       openRow={openRow}
       setIcon={setIcon}
       setFillDrag={setFillDrag}
+      pageTreeEnabled={pageTreeEnabled}
     />
   );
 

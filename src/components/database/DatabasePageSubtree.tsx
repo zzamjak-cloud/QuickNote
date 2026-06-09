@@ -20,7 +20,8 @@ type Props = {
   compact?: boolean;
 };
 
-const INDENT_PX = 18;
+const BASE_INDENT_PX = 24;
+const INDENT_PX = 22;
 
 export function DatabasePageSubtree({
   databaseId,
@@ -115,10 +116,10 @@ export function DatabasePageSubtree({
         <div
           className={[
             "group/tree flex min-w-0 items-center gap-1 rounded-md pr-1 transition-colors",
-            compact ? "py-0.5 text-xs" : "py-1 text-sm",
+            compact ? "py-0.5 text-sm" : "py-1 text-base",
             "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
           ].join(" ")}
-          style={{ paddingLeft: depth * INDENT_PX }}
+          style={{ paddingLeft: BASE_INDENT_PX + depth * INDENT_PX }}
         >
           {hasChildren ? (
             <button
@@ -148,7 +149,7 @@ export function DatabasePageSubtree({
             className={[
               "min-w-0 flex-1 rounded px-1 py-0.5 text-left text-zinc-600 dark:text-zinc-300",
               "hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
-              compact ? "text-xs" : "text-sm",
+              compact ? "text-sm" : "text-base",
             ].join(" ")}
             title="사이드 피크 열기"
           >

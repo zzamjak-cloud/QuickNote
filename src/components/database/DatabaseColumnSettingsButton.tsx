@@ -152,6 +152,7 @@ export function DatabaseColumnSettingsButton({
   };
 
   const ITEM_LIMITS = [10, 30, 50, 100] as const;
+  const pageTreeEnabled = panelState.pageTreeEnabled === true;
 
   const Btn = (
     <button
@@ -231,31 +232,60 @@ export function DatabaseColumnSettingsButton({
                 // inline/fullPage 통일 — 기본 limit = 100. (DatabaseBlockView 와 동일 규칙)
                 const defaultLimit = 100;
                 return (
-                <div className="flex flex-wrap gap-1 px-1 py-1">
-                  {ITEM_LIMITS.map((val) => {
-                    const active = (panelState.itemLimit ?? defaultLimit) === val;
-                    return (
-                      <button
-                        key={val}
-                        type="button"
-                        onMouseDown={(e) => {
-                          // 일부 브라우저에서 클릭 시작 이벤트가 뒤쪽에 전달되는 케이스 차단
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
-                        onClick={() => setPanelState({ itemLimit: val })}
+                  <div className="space-y-1 px-1 py-1">
+                    <div className="flex flex-wrap gap-1">
+                      {ITEM_LIMITS.map((val) => {
+                        const active = (panelState.itemLimit ?? defaultLimit) === val;
+                        return (
+                          <button
+                            key={val}
+                            type="button"
+                            onMouseDown={(e) => {
+                              // 일부 브라우저에서 클릭 시작 이벤트가 뒤쪽에 전달되는 케이스 차단
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onClick={() => setPanelState({ itemLimit: val })}
+                            className={[
+                              "rounded border px-2 py-0.5 text-sm font-medium",
+                              active
+                                ? "border-blue-600 bg-blue-600 text-white dark:border-blue-500 dark:bg-blue-500 dark:text-white"
+                                : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400 dark:hover:bg-zinc-800",
+                            ].join(" ")}
+                          >
+                            {val}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={pageTreeEnabled}
+                      title={pageTreeEnabled ? "하위 페이지 트리 끄기" : "하위 페이지 트리 켜기"}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onClick={() => setPanelState({ pageTreeEnabled: !pageTreeEnabled })}
+                      className="flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    >
+                      <span className="min-w-0 truncate">하위 페이지 트리 활성화</span>
+                      <span
                         className={[
-                          "rounded border px-2 py-0.5 text-sm font-medium",
-                          active
-                            ? "border-blue-600 bg-blue-600 text-white dark:border-blue-500 dark:bg-blue-500 dark:text-white"
-                            : "border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-400 dark:hover:bg-zinc-800",
+                          "relative h-4 w-7 shrink-0 rounded-full transition-colors",
+                          pageTreeEnabled ? "bg-blue-600 dark:bg-blue-500" : "bg-zinc-300 dark:bg-zinc-700",
                         ].join(" ")}
                       >
-                        {val}
-                      </button>
-                    );
-                  })}
-                </div>
+                        <span
+                          className={[
+                            "absolute top-0.5 h-3 w-3 rounded-full bg-white shadow-sm transition-transform",
+                            pageTreeEnabled ? "translate-x-3.5" : "translate-x-0.5",
+                          ].join(" ")}
+                        />
+                      </span>
+                    </button>
+                  </div>
                 );
               })()}
             </div>

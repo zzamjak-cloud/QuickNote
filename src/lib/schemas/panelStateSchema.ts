@@ -54,6 +54,7 @@ const databasePanelStatePartialSchema = z
     viewConfigs: z.record(viewKindEnum, viewSpecificSchema).optional(),
     hiddenViewKinds: z.array(viewKindEnum).optional(),
     itemLimit: z.number().int().positive().optional(),
+    pageTreeEnabled: z.boolean().optional(),
     galleryColumns: z.number().int().min(1).max(10).optional(),
     filterPresets: z.array(filterPresetSchema).optional(),
     activePresetId: z.string().nullable().optional(),

@@ -285,6 +285,8 @@ export type DatabasePanelState = {
   hiddenViewKinds: ViewKind[];
   /** 인라인 뷰에서 한 번에 표시할 최대 항목 수 (기본 30). fullPage는 무시. */
   itemLimit?: number;
+  /** 데이터베이스 항목의 하위 페이지 트리 UI 활성화 여부. 기본값 false. */
+  pageTreeEnabled?: boolean;
   /** 갤러리 뷰 열 수 (기본 4). node attrs → 서버 동기화. */
   galleryColumns?: number;
   /** 필터 프리셋 탭 목록 */
@@ -347,6 +349,7 @@ export const emptyPanelState = (): DatabasePanelState => ({
   timelineDateColumnId: null,
   viewConfigs: {},
   hiddenViewKinds: [],
+  pageTreeEnabled: false,
   galleryColumns: 4,
 });
 

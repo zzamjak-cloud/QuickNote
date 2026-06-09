@@ -42,18 +42,20 @@ function DatabaseListRow({
   row,
   extraCols,
   openRow,
+  pageTreeEnabled,
 }: {
   databaseId: string;
   row: DatabaseRowView;
   extraCols: ReturnType<typeof getVisibleOrderedColumns>;
   openRow: ReturnType<typeof useOpenDatabaseRow>;
+  pageTreeEnabled: boolean;
 }) {
   const setIcon = usePageStore((s) => s.setIcon);
   const createPage = usePageStore((s) => s.createPage);
   const pages = usePageStore((s) => s.pages);
   const pageDescendantCount = usePageStore((s) => countPageDescendants(row.pageId, s.pages));
   const rootTreeCollapsed = useDatabasePageTreeCollapseStore((s) =>
-    pageDescendantCount > 0
+    pageTreeEnabled && pageDescendantCount > 0
       ? s.collapsedByKey[databasePageTreeCollapseKey(databaseId, row.pageId)] !== false
       : false,
   );
@@ -63,7 +65,7 @@ function DatabaseListRow({
   const requestDatabaseTreeFocus = useUiStore((s) => s.requestDatabaseTreeFocus);
   const openPageInPeek = useOpenPageInPeek();
   const title = row.title || "제목 없음";
-  const hasPageTree = pageDescendantCount > 0;
+  const hasPageTree = pageTreeEnabled && pageDescendantCount > 0;
 
   const createChildPage = (target: HTMLElement) => {
     const newPageId = createPage("새 페이지", row.pageId, { activate: false });
@@ -76,10 +78,11 @@ function DatabaseListRow({
   };
 
   useEffect(() => {
+    if (!pageTreeEnabled) return;
     if (!focusRequest || focusRequest.databaseId !== databaseId) return;
     if (collectPageTreePath(focusRequest.pageId, pages, row.pageId).length === 0) return;
     setTreeCollapsed(databaseId, row.pageId, false);
-  }, [databaseId, focusRequest, pages, row.pageId, setTreeCollapsed]);
+  }, [databaseId, focusRequest, pageTreeEnabled, pages, row.pageId, setTreeCollapsed]);
 
   return (
     <div
@@ -88,21 +91,23 @@ function DatabaseListRow({
       className="cursor-pointer rounded-md px-2 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
     >
       <div className="group/tree flex min-w-0 items-center gap-2">
-        {hasPageTree ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              toggleTreeCollapsed(databaseId, row.pageId);
-            }}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-            aria-label={rootTreeCollapsed ? "하위 페이지 펼치기" : "하위 페이지 접기"}
-          >
-            {rootTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-          </button>
-        ) : (
-          <span className="block h-5 w-5 shrink-0" aria-hidden />
-        )}
+        {pageTreeEnabled ? (
+          hasPageTree ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleTreeCollapsed(databaseId, row.pageId);
+              }}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+              aria-label={rootTreeCollapsed ? "하위 페이지 펼치기" : "하위 페이지 접기"}
+            >
+              {rootTreeCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+            </button>
+          ) : (
+            <span className="block h-5 w-5 shrink-0" aria-hidden />
+          )
+        ) : null}
         <span
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -139,18 +144,20 @@ function DatabaseListRow({
             </span>
           );
         })}
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            createChildPage(event.currentTarget);
-          }}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 opacity-0 transition hover:bg-zinc-100 hover:text-zinc-700 group-hover/tree:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          aria-label="하위 페이지 추가"
-          title="하위 페이지 추가"
-        >
-          <Plus size={13} />
-        </button>
+        {pageTreeEnabled ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              createChildPage(event.currentTarget);
+            }}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 opacity-0 transition hover:bg-zinc-100 hover:text-zinc-700 group-hover/tree:opacity-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            aria-label="하위 페이지 추가"
+            title="하위 페이지 추가"
+          >
+            <Plus size={13} />
+          </button>
+        ) : null}
       </div>
       {hasPageTree && !rootTreeCollapsed && (
         <DatabasePageSubtree
@@ -174,9 +181,10 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
   const groups = useRowGroups(rows, columns, panelState.groupByColumnId);
   const isCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
   const toggleCollapsed = useDatabaseGroupCollapseStore((s) => s.toggle);
+  const pageTreeEnabled = panelState.pageTreeEnabled === true;
   const hasPageTreeRows = useMemo(
-    () => rows.some((row) => countPageDescendants(row.pageId, pages) > 0),
-    [pages, rows],
+    () => pageTreeEnabled && rows.some((row) => countPageDescendants(row.pageId, pages) > 0),
+    [pageTreeEnabled, pages, rows],
   );
   const virtualRows = useWindowedRows({
     count: rows.length,
@@ -212,6 +220,7 @@ export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Pr
       row={row}
       extraCols={extraCols}
       openRow={openRow}
+      pageTreeEnabled={pageTreeEnabled}
     />
   );
 

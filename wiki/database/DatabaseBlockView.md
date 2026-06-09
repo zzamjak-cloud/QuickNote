@@ -25,6 +25,7 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 |------|------|
 | 뷰 컴포넌트 스위치 | `view` 값에 따라 `DatabaseTableView`, `DatabaseTimelineView`, `DatabaseGalleryView`를 `Suspense` + `lazy`로 렌더 |
 | 더보기 버튼 | `visibleRowLimit` 초과 시 "+ N개 더보기" 버튼 노출. 표시 단위는 `databaseRowLimit.ts` 정책을 따르고, row index count까지 포함해 남은 행을 계산 |
+| 표시 설정 | `DatabaseColumnSettingsButton`에서 항목 표시 개수와 `pageTreeEnabled`를 설정한다. `pageTreeEnabled` 기본값은 OFF이며, ON일 때만 리스트/테이블 DB 항목의 하위 페이지 트리 UI가 노출된다. |
 | 새 항목 생성 UX | 각 뷰의 "+ 새 항목"은 `useAddDatabaseRowAndOpen`으로 row 생성 직후 반환된 pageId를 피크뷰로 연다. 필터/표시설정 때문에 새 row가 리스트 하단이나 현재 화면 밖에 생겨도 사용자에게 생성 성공이 즉시 보여야 한다. |
 | 삭제 확인 | `deleteConfirmPhrase` 문구 직접 입력 후 `executeDeleteDatabasePermanently` 실행 |
 | 보호된 DB | `isProtectedDatabaseId` 판별 후 삭제/수정 차단 |
@@ -47,6 +48,7 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 - 제목 편집 input의 외부 클릭 감지는 `onBlur`만으로 불충분하다(tiptap이 mousedown을 소비). `useEffect`에서 `isFocused` 시 `document.addEventListener("mousedown", handler, true)` 캡처 리스너를 등록하고 cleanup에서 제거해야 한다. `onBlur`에서 `setIsHovered(false)`도 함께 호출해야 hover 테두리가 즉시 사라진다.
 - `DatabaseDirectPage`(`src/components/database/DatabaseDirectPage.tsx`)도 동일한 hover/click 편집 UX와 캡처 리스너 패턴을 따른다.
 - `panelState`는 node.attrs에 JSON 문자열로 저장된다. `parseDatabasePanelStateJson`으로 파싱 후 사용.
+- `panelState.pageTreeEnabled`는 기본 OFF다. OFF 상태에서는 DB 항목의 접기/펼치기 버튼과 하위 페이지 추가 버튼을 렌더하지 않는다.
 - DB가 없는 상태(`bundleGone`)와 아직 바인딩 안 된 상태(`needsBinding`)를 구분하여 다른 UI를 표시한다.
 - `isInsidePeek`는 `editor.view.dom.closest("[data-qn-peek-editor='true']")`로 감지하며, 피크뷰 내부 여부에 따라 다이얼로그 동작이 달라질 수 있다.
 - row index 캐시가 있으면 실제 `pageStore`에 없는 row도 필터·정렬 후보가 될 수 있다. row 열기는 각 뷰에서 `useOpenDatabaseRow`를 통해 `ensurePageContentLoaded`를 먼저 통과해야 한다.
