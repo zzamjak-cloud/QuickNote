@@ -75,15 +75,6 @@ export function toGqlDatabase(
   if (templates !== undefined) {
     payload.templates = JSON.stringify(templates);
   }
-  if (templates !== undefined) {
-    console.warn("[QN_TEMPLATE_SYNC] enqueueUpsertDatabase", {
-      databaseId: meta.id,
-      workspaceId,
-      templateCount: templates.length,
-      updatedAt: payload.updatedAt,
-      hasTemplatesPayload: typeof payload.templates === "string",
-    });
-  }
   return payload;
 }
 

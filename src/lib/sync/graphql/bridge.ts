@@ -174,33 +174,10 @@ export const realGqlBridge: GqlBridge = {
   },
   upsertDatabase: async (input) => {
     const normalizedInput = normalizeAwsJsonFields(input);
-    if (
-      normalizedInput &&
-      typeof normalizedInput === "object" &&
-      "templates" in normalizedInput
-    ) {
-      const record = normalizedInput as Record<string, unknown>;
-      console.warn("[QN_TEMPLATE_SYNC] graphql upsertDatabase:start", {
-        databaseId: record.id,
-        workspaceId: record.workspaceId,
-        updatedAt: record.updatedAt,
-        templatesType: typeof record.templates,
-      });
-    }
     await appsyncClient().graphql({
       query: UPSERT_DATABASE,
       variables: { input: normalizedInput },
     });
-    if (
-      normalizedInput &&
-      typeof normalizedInput === "object" &&
-      "templates" in normalizedInput
-    ) {
-      const record = normalizedInput as Record<string, unknown>;
-      console.warn("[QN_TEMPLATE_SYNC] graphql upsertDatabase:ok", {
-        databaseId: record.id,
-      });
-    }
   },
   softDeletePage: async (id, workspaceId, updatedAt) => {
     try {

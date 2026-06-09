@@ -42,39 +42,6 @@ export function shouldLoadPageContent(
   return isLikelyEmptyPlaceholderDoc(page.doc);
 }
 
-function summarizeLoadedPageForLog(page: unknown) {
-  const p = page as
-    | {
-        id?: string;
-        title?: string;
-        workspaceId?: string;
-        databaseId?: string | null;
-        deletedAt?: string | null;
-        updatedAt?: string | null;
-        contentLoaded?: boolean;
-        dbCells?: Record<string, unknown> | null;
-        doc?: { content?: Array<{ type?: string; attrs?: Record<string, unknown> }> };
-      }
-    | undefined;
-  const first = p?.doc?.content?.[0];
-  return {
-    id: p?.id ?? null,
-    title: p?.title ?? null,
-    workspaceId: p?.workspaceId ?? null,
-    databaseId: p?.databaseId ?? null,
-    deletedAt: p?.deletedAt ?? null,
-    updatedAt: p?.updatedAt ?? null,
-    contentLoaded: p?.contentLoaded ?? null,
-    docNodeCount: p?.doc?.content?.length ?? null,
-    firstNodeType: first?.type ?? null,
-    firstNodeDatabaseId:
-      first?.type === "databaseBlock" ? (first.attrs?.databaseId ?? null) : null,
-    firstNodeLayout:
-      first?.type === "databaseBlock" ? (first.attrs?.layout ?? null) : null,
-    dbCellKeys: p?.dbCells ? Object.keys(p.dbCells).slice(0, 20) : null,
-  };
-}
-
 export async function ensurePageContentLoaded(args: {
   pageId: string;
   workspaceId?: string | null;
@@ -97,66 +64,22 @@ export async function ensurePageContentLoaded(args: {
     return true;
   }
   if (!workspaceId) {
-    console.warn("[QN_PAGE_CONTENT] load-skip", {
-      pageId,
-      reason: "missing-workspace",
-      source: args.source,
-    });
     return false;
   }
 
   const promise = (async () => {
     usePageContentLoadStore.getState().setLoading(pageId, true);
-    if (import.meta.env.DEV) {
-      console.info("[QN_PAGE_CONTENT] load-start", {
-        pageId,
-        workspaceId,
-        source: args.source,
-        localBefore: summarizeLoadedPageForLog(page),
-        metaOnlyBefore: Boolean(state.metaOnlyByPageId[pageId]),
-      });
-    }
     try {
       const page = await fetchPageById(workspaceId, pageId);
-      if (import.meta.env.DEV) {
-        console.info("[QN_PAGE_CONTENT] fetch-result", {
-          pageId,
-          workspaceId,
-          source: args.source,
-          remote: summarizeLoadedPageForLog(page),
-        });
-      }
       if (!page) {
-        console.warn("[QN_PAGE_CONTENT] load-missing", {
-          pageId,
-          workspaceId,
-          source: args.source,
-        });
         return false;
       }
       applyRemotePageToStore(page);
       if (workspaceHasStructureCache(workspaceId)) {
         refreshWorkspaceSnapshot(workspaceId);
       }
-      if (import.meta.env.DEV) {
-        console.info("[QN_PAGE_CONTENT] load-applied", {
-          pageId,
-          workspaceId,
-          source: args.source,
-          localAfter: summarizeLoadedPageForLog(usePageStore.getState().pages[pageId]),
-          metaOnlyAfter: Boolean(
-            usePageContentLoadStore.getState().metaOnlyByPageId[pageId],
-          ),
-        });
-      }
       return true;
-    } catch (error) {
-      console.warn("[QN_PAGE_CONTENT] load-failed", {
-        pageId,
-        workspaceId,
-        source: args.source,
-        error,
-      });
+    } catch {
       return false;
     } finally {
       usePageContentLoadStore.getState().setLoading(pageId, false);

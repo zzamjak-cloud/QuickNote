@@ -81,35 +81,6 @@ function isPageMetaSchemaUnavailable(reason: unknown): boolean {
   return schemaValidationError && text.includes("listPageMetas");
 }
 
-function summarizePagesForSyncLog(
-  pages: Array<{ id?: string | null; databaseId?: string | null; deletedAt?: string | null }> | null,
-) {
-  if (!pages) return null;
-  const databaseCounts = new Map<string, number>();
-  let deleted = 0;
-  let withDatabase = 0;
-  for (const page of pages) {
-    if (page?.deletedAt) deleted += 1;
-    const databaseId = page?.databaseId;
-    if (!databaseId) continue;
-    withDatabase += 1;
-    databaseCounts.set(databaseId, (databaseCounts.get(databaseId) ?? 0) + 1);
-  }
-  return {
-    total: pages.length,
-    deleted,
-    withDatabase,
-    databaseCounts: Array.from(databaseCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 20)
-      .map(([databaseId, count]) => ({ databaseId, count })),
-  };
-}
-
-function workspaceSyncDevLog(event: string, payload: Record<string, unknown>): void {
-  if (!import.meta.env.DEV) return;
-  console.info(`[QN_WORKSPACE_SYNC] ${event}`, payload);
-}
 
 /** 워크스페이스 원격 스냅샷을 가져와 부분 실패를 보존하면서 로컬 store에 적용한다. */
 export async function fetchApplyWorkspaceRemoteSnapshot({
@@ -153,25 +124,6 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
     failedDomains.push("comments");
     logFetchFailure("댓글", commentsResult.reason, logPrefix);
   }
-  workspaceSyncDevLog("full-snapshot-result", {
-    workspaceId,
-    updatedAfter: updatedAfter ?? null,
-    logPrefix: logPrefix ?? null,
-    failedDomains,
-    pagesStatus: pagesResult.status,
-    databasesStatus: dbsResult.status,
-    commentsStatus: commentsResult.status,
-    pageSummary: summarizePagesForSyncLog(pages),
-    databaseCount: dbs?.length ?? null,
-    databaseIds: (dbs ?? []).slice(0, 20).map((db) => ({
-      id: db.id,
-      workspaceId: db.workspaceId,
-      title: db.title,
-      deletedAt: db.deletedAt ?? null,
-    })),
-    commentCount: comments?.length ?? null,
-    willReconcileFullSnapshot: !isDelta && Boolean(pages && dbs),
-  });
   useUiStore
     .getState()
     .setSyncPartialFetchFailed(failedDomains.length > 0 ? failedDomains : null);
@@ -272,25 +224,6 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
     failedDomains.push("comments");
     logFetchFailure("댓글", commentsResult.reason, logPrefix);
   }
-  workspaceSyncDevLog("meta-snapshot-result", {
-    workspaceId,
-    updatedAfter: updatedAfter ?? null,
-    logPrefix: logPrefix ?? null,
-    failedDomains,
-    pageMetasStatus: pageMetasBatchResult.status,
-    databasesStatus: dbsResult.status,
-    commentsStatus: commentsResult.status,
-    pageSummary: summarizePagesForSyncLog(pageMetasBatch?.items ?? null),
-    nextPageMetaToken: pageMetasBatch?.nextToken ?? null,
-    databaseCount: dbs?.length ?? null,
-    databaseIds: (dbs ?? []).slice(0, 20).map((db) => ({
-      id: db.id,
-      workspaceId: db.workspaceId,
-      title: db.title,
-      deletedAt: db.deletedAt ?? null,
-    })),
-    commentCount: comments?.length ?? null,
-  });
   useUiStore
     .getState()
     .setSyncPartialFetchFailed(failedDomains.length > 0 ? failedDomains : null);

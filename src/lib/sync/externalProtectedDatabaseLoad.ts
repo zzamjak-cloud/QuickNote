@@ -152,11 +152,6 @@ export function databaseRowsAreCached(databaseId: string | null | undefined): bo
   });
 }
 
-function databaseRowsMeetRequestedLimit(databaseId: string, rowLimit: number): boolean {
-  const bundle = useDatabaseStore.getState().databases[databaseId];
-  return Boolean(bundle && bundle.rowPageOrder.length >= rowLimit);
-}
-
 export function protectedDatabaseRowsAreCached(databaseId: string | null | undefined): boolean {
   if (!resolveExternalProtectedDatabaseId(databaseId)) return false;
   return databaseRowsAreCached(databaseId);
@@ -174,11 +169,6 @@ function databaseRowIndexConfirmsEmpty(loadKey: string): boolean {
 
 function databaseBundleIsConfirmedEmpty(databaseId: string, loadKey: string): boolean {
   return databaseBundleIsEmpty(databaseId) && databaseRowIndexConfirmsEmpty(loadKey);
-}
-
-function devLog(event: string, payload: Record<string, unknown>): void {
-  if (!import.meta.env.DEV) return;
-  console.info(`[QN_EXTERNAL_DB] ${event}`, payload);
 }
 
 function isSchemaUnavailableError(error: unknown): boolean {
@@ -268,13 +258,6 @@ function warmDatabaseRowIndexInBackground(args: {
         rows: batch.items,
         complete: !nextToken,
       });
-      devLog("row-index-warm-batch", {
-        databaseId: args.resolvedDatabaseId,
-        loadKey: args.loadKey,
-        rowCount: batch.items.length,
-        nextTokenAvailable: Boolean(nextToken),
-        source: args.source,
-      });
     }
     upsertRowIndexRows({
       loadKey: args.loadKey,
@@ -287,13 +270,8 @@ function warmDatabaseRowIndexInBackground(args: {
       completedLoadDatabaseIds.add(args.loadKey);
       completedLoadLimitsByDatabaseId.set(args.loadKey, allRows.length);
     }
-  })().catch((error) => {
-    console.warn("[QN_EXTERNAL_DB] row-index-warm-failed", {
-      databaseId: args.resolvedDatabaseId,
-      loadKey: args.loadKey,
-      source: args.source,
-      error,
-    });
+  })().catch((_error) => {
+    // 백그라운드 row-index 워밍 실패 — 무시
   }).finally(() => {
     inFlightWarmIndexByDatabaseId.delete(args.loadKey);
   });
@@ -323,21 +301,8 @@ async function loadDatabaseRowIndexFallback(args: {
       complete: !rows.nextToken,
       reset: true,
     });
-    devLog("row-index-fallback-applied", {
-      databaseId: args.resolvedDatabaseId,
-      loadKey: args.loadKey,
-      rowCount: rows.items.length,
-      nextTokenAvailable: Boolean(rows.nextToken),
-      source: args.source,
-    });
     return rows.items.length > 0;
-  } catch (error) {
-    console.warn("[QN_EXTERNAL_DB] row-index-fallback-failed", {
-      databaseId: args.resolvedDatabaseId,
-      loadKey: args.loadKey,
-      source: args.source,
-      error,
-    });
+  } catch {
     return false;
   }
 }
@@ -351,14 +316,6 @@ async function loadLegacyFullProtectedDatabaseSnapshot(args: {
   cancelled?: () => boolean;
   source: string;
 }): Promise<boolean> {
-  devLog("legacy-full-fallback-start", {
-    databaseId: args.databaseId,
-    resolvedDatabaseId: args.resolvedDatabaseId,
-    currentWorkspaceId: args.currentWorkspaceId,
-    workspaceId: args.workspaceId,
-    protectedDatabase: args.protectedDatabase,
-    source: args.source,
-  });
   const [pages, databases] = await Promise.all([
     fetchPagesByWorkspace(args.workspaceId),
     fetchDatabasesByWorkspace(args.workspaceId),
@@ -371,16 +328,6 @@ async function loadLegacyFullProtectedDatabaseSnapshot(args: {
   useDatabaseRowRemoteStore.getState().setNextToken(args.resolvedDatabaseId, null);
   refreshWorkspaceSnapshot(args.workspaceId);
   const resolved = databaseRowsAreCached(args.resolvedDatabaseId);
-  devLog("legacy-full-fallback-applied", {
-    databaseId: args.databaseId,
-    resolvedDatabaseId: args.resolvedDatabaseId,
-    currentWorkspaceId: args.currentWorkspaceId,
-    workspaceId: args.workspaceId,
-    protectedDatabase: args.protectedDatabase,
-    rowCount: pages.filter((page) => page.databaseId === args.resolvedDatabaseId).length,
-    resolved,
-    source: args.source,
-  });
   return resolved;
 }
 
@@ -418,10 +365,6 @@ export async function ensureDatabaseRowsLoaded({
     loadKey,
   );
   const cachedNextToken = rowRemoteState.nextTokenByDatabaseId[loadKey] ?? null;
-  const cachedRowsMeetRequestedLimit = databaseRowsMeetRequestedLimit(
-    resolvedDatabaseId,
-    rowLimit,
-  );
   const completedLoadLimit = completedLoadLimitsByDatabaseId.get(loadKey) ?? 0;
 
   // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
@@ -433,19 +376,6 @@ export async function ensureDatabaseRowsLoaded({
     databaseRowsAreCached(resolvedDatabaseId) &&
     cachedNextToken === null
   ) {
-    devLog("skip", {
-      databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      reason: "local-cache-complete",
-      cachedNextTokenAvailable: Boolean(cachedNextToken),
-      cachedRowsMeetRequestedLimit,
-      rowLimit,
-      source,
-    });
     return false;
   }
   if (
@@ -457,18 +387,6 @@ export async function ensureDatabaseRowsLoaded({
       databaseBundleIsConfirmedEmpty(resolvedDatabaseId, loadKey)
     )
   ) {
-    devLog("skip", {
-      databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      reason: "session-load-complete",
-      completedLoadLimit,
-      rowLimit,
-      source,
-    });
     return false;
   }
 
@@ -476,16 +394,6 @@ export async function ensureDatabaseRowsLoaded({
   if (existing) return existing;
 
   const task = (async () => {
-    devLog("load-start", {
-      databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      rowLimit,
-      source,
-    });
     const [database, rows] = await Promise.all([
       fetchDatabaseById(workspaceId, resolvedDatabaseId),
       fetchDatabaseRowsBatch({
@@ -497,15 +405,6 @@ export async function ensureDatabaseRowsLoaded({
     ]);
     if (cancelled?.()) return false;
     if (!database) {
-      devLog("load-missing-database", {
-        databaseId,
-        resolvedDatabaseId,
-        scope: scopeKey(scope),
-        currentWorkspaceId,
-        workspaceId,
-        protectedDatabase,
-        source,
-      });
       return false;
     }
 
@@ -543,18 +442,6 @@ export async function ensureDatabaseRowsLoaded({
       scoped || databaseRowsAreCached(resolvedDatabaseId) || rowIndexFallbackResolved;
     completedLoadDatabaseIds.add(loadKey);
     completedLoadLimitsByDatabaseId.set(loadKey, rowLimit);
-    devLog("load-applied", {
-      databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      rowCount: rows.items.length,
-      nextTokenAvailable: Boolean(rows.nextToken),
-      resolved,
-      source,
-    });
     return resolved;
   })().catch(async (error) => {
     if (isSchemaUnavailableError(error)) {
@@ -568,16 +455,6 @@ export async function ensureDatabaseRowsLoaded({
         source,
       });
     }
-    console.warn("[QN_EXTERNAL_DB] load-failed", {
-      databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      source,
-      error,
-    });
     return false;
   }).finally(() => {
     inFlightByDatabaseId.delete(loadKey);
@@ -604,7 +481,7 @@ export async function loadMoreDatabaseRows(args: {
 }): Promise<boolean> {
   const target = resolveDatabaseRowLoadTarget(args.databaseId, args.currentWorkspaceId);
   if (!target) return false;
-  const { resolvedDatabaseId, workspaceId, scope, protectedDatabase } = target;
+  const { resolvedDatabaseId, workspaceId, scope } = target;
   const loadKey = compositeKey(resolvedDatabaseId, scope);
   const store = useDatabaseRowRemoteStore.getState();
   const nextToken = store.nextTokenByDatabaseId[loadKey];
@@ -615,16 +492,6 @@ export async function loadMoreDatabaseRows(args: {
   const rowLimit = args.rowLimit ?? DEFAULT_ROW_BATCH_LIMIT;
   const task = (async () => {
     store.setLoading(loadKey, true);
-    devLog("load-more-start", {
-      databaseId: args.databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId: args.currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      rowLimit,
-      source: args.source ?? "unknown",
-    });
     const rows = await fetchDatabaseRowsBatch({
       workspaceId,
       databaseId: resolvedDatabaseId,
@@ -641,28 +508,8 @@ export async function loadMoreDatabaseRows(args: {
       complete: !rows.nextToken,
     });
     refreshWorkspaceSnapshot(workspaceId);
-    devLog("load-more-applied", {
-      databaseId: args.databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      workspaceId,
-      protectedDatabase,
-      rowCount: rows.items.length,
-      nextTokenAvailable: Boolean(rows.nextToken),
-      source: args.source ?? "unknown",
-    });
     return rows.items.length > 0;
-  })().catch((error) => {
-    console.warn("[QN_EXTERNAL_DB] load-more-failed", {
-      databaseId: args.databaseId,
-      resolvedDatabaseId,
-      scope: scopeKey(scope),
-      currentWorkspaceId: args.currentWorkspaceId,
-      workspaceId,
-      protectedDatabase,
-      source: args.source ?? "unknown",
-      error,
-    });
+  })().catch(() => {
     return false;
   }).finally(() => {
     useDatabaseRowRemoteStore.getState().setLoading(loadKey, false);

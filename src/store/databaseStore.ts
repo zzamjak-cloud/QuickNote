@@ -1068,13 +1068,6 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         const templatesAfter = get().dbTemplates[databaseId] ?? [];
-        console.warn("[QN_TEMPLATE_SYNC] addTemplate", {
-          databaseId,
-          templateId: id,
-          pageId,
-          templateCount: templatesAfter.length,
-          updatedAt: bundleAfter?.meta.updatedAt ?? null,
-        });
         if (bundleAfter) enqueueUpsertDatabase(bundleAfter, templatesAfter);
         return pageId;
       },
@@ -1104,12 +1097,6 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         const templatesAfter = get().dbTemplates[databaseId] ?? [];
-        console.warn("[QN_TEMPLATE_SYNC] updateTemplate", {
-          databaseId,
-          templateId,
-          templateCount: templatesAfter.length,
-          updatedAt: bundleAfter?.meta.updatedAt ?? null,
-        });
         if (bundleAfter) enqueueUpsertDatabase(bundleAfter, templatesAfter);
       },
 
@@ -1141,12 +1128,6 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         const templatesAfter = get().dbTemplates[databaseId] ?? [];
-        console.warn("[QN_TEMPLATE_SYNC] deleteTemplate", {
-          databaseId,
-          templateId,
-          templateCount: templatesAfter.length,
-          updatedAt: bundleAfter?.meta.updatedAt ?? null,
-        });
         if (bundleAfter) enqueueUpsertDatabase(bundleAfter, templatesAfter);
       },
 

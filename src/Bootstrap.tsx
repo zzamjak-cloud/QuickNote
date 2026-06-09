@@ -16,7 +16,6 @@ import {
   applyWorkspaceSwitch,
   cacheBelongsToWorkspace,
   preloadWorkspaceSnapshots,
-  workspaceHasPageContentCache,
   workspaceHasStructureCache,
 } from "./lib/sync/workspaceSwitch";
 import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
@@ -206,8 +205,6 @@ function useSyncBootstrap(): void {
         );
         const isInitialWorkspaceBootstrap = prevWorkspaceId === null;
         const cacheBelongsToCurrentWorkspace = cacheBelongsToWorkspace(currentWorkspaceId);
-        const pageContentCacheAvailable =
-          workspaceHasPageContentCache(currentWorkspaceId);
         const structureCacheAvailable =
           workspaceHasStructureCache(currentWorkspaceId);
         const cacheAvailableForWorkspace =
@@ -232,22 +229,6 @@ function useSyncBootstrap(): void {
             isInitialWorkspaceBootstrap || needsInitialWorkspaceLoading,
             isInitialWorkspaceBootstrap ? 0 : 160,
           );
-        }
-        if (import.meta.env.DEV) {
-          console.info("[QN_WORKSPACE_SYNC] remote-fetch", {
-            workspaceId: currentWorkspaceId,
-            mode: fetchMode.kind,
-            reason: fetchMode.reason,
-            switchReason: switchResult.reason,
-            cacheAvailable: cacheAvailableForWorkspace,
-            cacheBelongsToWorkspace: cacheBelongsToCurrentWorkspace,
-            pageContentCacheAvailable,
-            structureCacheAvailable,
-            baseline:
-              fetchMode.kind === "full" && fetchMode.reason === "no-cache"
-                ? "meta"
-                : "snapshot",
-          });
         }
         const fetchApply = async (
           options: { forceFull?: boolean; forceMetaBaseline?: boolean } = {},
@@ -303,10 +284,6 @@ function useSyncBootstrap(): void {
             !cancelled &&
             !workspaceHasStructureCache(currentWorkspaceId)
           ) {
-            console.warn("[QN_WORKSPACE_SYNC] delta-empty-structure-cache-fallback", {
-              workspaceId: currentWorkspaceId,
-              updatedAfter,
-            });
             await applyRemote(undefined, "워크스페이스 전환(증분 캐시 비어 있음 → 전체)");
           }
           if (
@@ -314,9 +291,6 @@ function useSyncBootstrap(): void {
             !cancelled &&
             !cacheBelongsToWorkspace(currentWorkspaceId)
           ) {
-            console.warn("[QN_WORKSPACE_SYNC] meta-empty-structure-fallback", {
-              workspaceId: currentWorkspaceId,
-            });
             await fetchApplyWorkspaceRemoteSnapshot({
               workspaceId: currentWorkspaceId,
               cancelled: () => cancelled,

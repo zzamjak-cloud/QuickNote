@@ -9,6 +9,7 @@
 | `src/store/organizationStore.ts` | 조직 정보 |
 | `src/components/workspace/` | 권한 관리 UI |
 | `src/components/sidebar/` | 워크스페이스 전환 사이드바 |
+| `infra/lambda/v5-resolvers/handlers/workspace.ts` | 워크스페이스 생성·수정 resolver |
 
 ## 워크스페이스 구조
 ```
@@ -20,6 +21,25 @@ Organization
 ## 멤버 역할
 `memberStore` 에서 멤버 목록 및 역할(Owner/Member/Guest) 관리.
 워크스페이스별 접근 권한은 `workspaceAccessCacheStore` 에 캐시.
+
+## 생성 저장 실패처럼 보이는 경우
+
+증상: 신규 워크스페이스 생성 모달에서 제목과 권한을 입력한 뒤 저장하면 빨간 오류가 뜨지만,
+창을 닫고 새로고침하면 워크스페이스가 실제로 생성되어 있다.
+
+원인 후보: AppSync mutation 이 DynamoDB write 는 완료했지만 GraphQL 응답 직렬화에서 실패한 상태다.
+`Workspace` 스키마의 non-null 필드(`options` 등)를 `createWorkspace` resolver 반환값이 빠뜨리면
+클라이언트는 저장 실패로 처리하고 즉시 `workspaceStore` 에 반영하지 못한다.
+
+회귀 방지:
+- `infra/lambda/v5-resolvers/handlers/workspace.ts` 의 `createWorkspace` 반환값은 `Workspace!`의 모든 non-null 필드를 채운다.
+- resolver 수정 뒤에는 dev backend 배포(`cd infra && npm run deploy:dev`)까지 완료해야 개발 빌드에 반영된다.
+- 프론트 보강은 `src/components/settings/AdminWorkspacesTab.tsx` 에서 생성 mutation 실패 후 `listMyWorkspacesApi` 재조회로
+  저장 전 없던 같은 이름의 새 shared 워크스페이스가 확인될 때만 성공 복구한다.
+
+회귀 테스트:
+- `infra/lambda/v5-resolvers/handlers/workspace.test.ts`
+- `src/components/settings/__tests__/AdminWorkspacesTab.test.tsx`
 
 ## 전환
 사이드바에서 워크스페이스 선택 → `workspaceStore.activeWorkspaceId` 업데이트 → 해당 워크스페이스 페이지 로드

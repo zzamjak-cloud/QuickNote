@@ -65,6 +65,7 @@ export function EntityEditModal({
             <input
               value={name}
               onChange={(e) => onNameChange(e.target.value)}
+              placeholder="프로젝트명 입력"
               className="flex-1 rounded border border-transparent bg-transparent px-2 py-1 text-2xl font-bold text-zinc-900 outline-none hover:border-zinc-200 focus:border-zinc-400 dark:text-zinc-100 dark:hover:border-zinc-700 dark:focus:border-zinc-500"
             />
           </div>

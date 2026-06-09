@@ -348,26 +348,7 @@ function App() {
     // 첫 인덱스 페이지로 리셋하므로, 사용자가 직접 연 DB 탭(부트 이후)만 홈을 보장한다.
     // 페이지 메타 구조 캐시가 완료되기 전에는 기존 fullPage 홈 메타를 아직 못 본 상태일 수 있다.
     // 이 타이밍의 ensure 는 중복 홈을 만들고, 기존 메타 전용 페이지를 sidebar ghost 로 남긴다.
-    if (import.meta.env.DEV) {
-      const pageState = usePageStore.getState();
-      const dbState = useDatabaseStore.getState();
-      console.warn("[QN_FULLPAGE_DB] app-ensure-missing-tab-page", {
-        tabDatabaseId: databaseId,
-        tabDatabaseTitle: databaseTitle,
-        activeTabIndex,
-        tabDatabasePageId,
-        pageCount: Object.keys(pageState.pages).length,
-        databaseRowCount: dbState.databases[databaseId]?.rowPageOrder.length ?? null,
-        existingByDoc: pageState.findFullPagePageIdForDatabase(databaseId),
-      });
-    }
-    const ensuredPageId = ensureFullPagePageForDatabase(databaseId, databaseTitle);
-    if (import.meta.env.DEV) {
-      console.warn("[QN_FULLPAGE_DB] app-ensure-result", {
-        tabDatabaseId: databaseId,
-        ensuredPageId,
-      });
-    }
+    ensureFullPagePageForDatabase(databaseId, databaseTitle);
   }, [
     activeTabIndex,
     currentWorkspaceId,

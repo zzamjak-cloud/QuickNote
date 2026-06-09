@@ -22,8 +22,7 @@ export async function loadMorePageMetas(workspaceId: string): Promise<boolean> {
         refreshWorkspaceSnapshot(workspaceId);
       }
       return batch.items.length > 0;
-    } catch (error) {
-      console.warn("[QN_PAGE_META] load-more-failed", { workspaceId, error });
+    } catch {
       return false;
     } finally {
       usePageMetaRemoteStore.getState().setLoading(workspaceId, false);

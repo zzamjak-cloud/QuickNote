@@ -970,55 +970,12 @@ export const usePageStore = create<PageStore>()(
         if (isProtectedDatabaseId(idWant)) return null;
         const existing = get().findFullPagePageIdForDatabase(idWant);
         if (existing) {
-          if (import.meta.env.DEV) {
-            const existingPage = get().pages[existing];
-            console.info("[QN_FULLPAGE_DB] ensure-existing", {
-              databaseId: idWant,
-              existingPageId: existing,
-              title,
-              view,
-              workspaceId: getCurrentWorkspaceId(),
-              existingTitle: existingPage?.title ?? null,
-              existingContentLoaded: existingPage?.contentLoaded ?? null,
-            });
-          }
           return existing;
         }
 
         const id = newId();
         const now = Date.now();
         const workspaceId = getCurrentWorkspaceId();
-        if (import.meta.env.DEV) {
-          const pages = Object.values(get().pages);
-          console.warn("[QN_FULLPAGE_DB] ensure-create", {
-            databaseId: idWant,
-            newPageId: id,
-            title,
-            view,
-            workspaceId,
-            pageCount: pages.length,
-            placeholderRootPages: pages
-              .filter((page) => {
-                const first = page.doc.content?.[0];
-                return (
-                  !page.databaseId &&
-                  page.parentId == null &&
-                  first?.type !== "databaseBlock" &&
-                  page.contentLoaded === false
-                );
-              })
-              .slice(0, 20)
-              .map((page) => ({
-                id: page.id,
-                title: page.title,
-                workspaceId: page.workspaceId ?? null,
-                updatedAt: page.updatedAt,
-                contentLoaded: page.contentLoaded ?? null,
-                firstNodeType: page.doc.content?.[0]?.type ?? null,
-              })),
-            stack: new Error().stack?.split("\n").slice(1, 7).join("\n"),
-          });
-        }
         const page: Page = {
           id,
           workspaceId: workspaceId || undefined,

@@ -68,34 +68,6 @@ function resolveNextCacheWorkspaceId(
   return remoteWorkspaceId === LC_SCHEDULER_WORKSPACE_ID ? current : remoteWorkspaceId;
 }
 
-function dbSyncDevLog(event: string, payload: Record<string, unknown>): void {
-  if (!import.meta.env.DEV) return;
-  console.info(`[QN_DB_SYNC] ${event}`, payload);
-}
-
-function summarizePagesForDbSyncLog(
-  pages: Array<{ id?: string | null; databaseId?: string | null; deletedAt?: string | null }>,
-) {
-  const databaseCounts = new Map<string, number>();
-  let deleted = 0;
-  let withDatabase = 0;
-  for (const page of pages) {
-    if (page?.deletedAt) deleted += 1;
-    const databaseId = page?.databaseId;
-    if (!databaseId) continue;
-    withDatabase += 1;
-    databaseCounts.set(databaseId, (databaseCounts.get(databaseId) ?? 0) + 1);
-  }
-  return {
-    total: pages.length,
-    deleted,
-    withDatabase,
-    databaseCounts: Array.from(databaseCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 20)
-      .map(([databaseId, count]) => ({ databaseId, count })),
-  };
-}
 
 import {
   isoToMs,
@@ -360,18 +332,9 @@ export function applyRemotePagesToStore(
   const nonNullRemotePages = remotePages.filter(
     (remotePage): remotePage is GqlPage => Boolean(remotePage),
   );
-  const pages = remotePages
-    .filter((remotePage): remotePage is GqlPage => Boolean(remotePage))
+  const pages = nonNullRemotePages
     .map(normalizeLCSchedulerPageWorkspace)
     .filter((p) => shouldApplyRemoteSnapshot(p.workspaceId));
-  dbSyncDevLog("pages-apply-start", {
-    remoteCount: remotePages.length,
-    nonNullRemoteCount: nonNullRemotePages.length,
-    appliedCount: pages.length,
-    ignoredByWorkspaceCount: nonNullRemotePages.length - pages.length,
-    incomingSummary: summarizePagesForDbSyncLog(nonNullRemotePages),
-    appliedSummary: summarizePagesForDbSyncLog(pages),
-  });
   if (pages.length === 0) return;
 
   const affectedDatabaseIds = new Set<string>();
@@ -447,14 +410,6 @@ export function applyRemotePagesToStore(
   });
 
   reconcileDatabaseRowOrders(affectedDatabaseIds);
-  dbSyncDevLog("pages-apply-done", {
-    affectedDatabaseIds: Array.from(affectedDatabaseIds),
-    affectedRowCounts: Array.from(affectedDatabaseIds).map((databaseId) => ({
-      databaseId,
-      rowPageOrderCount:
-        useDatabaseStore.getState().databases[databaseId]?.rowPageOrder.length ?? null,
-    })),
-  });
   usePageContentLoadStore.getState().markLoaded(pages.map((page) => page.id));
 }
 
@@ -465,17 +420,8 @@ export function applyRemotePageMetasToStore(
   const nonNullPageMetas = remotePageMetas.filter(
     (remotePage): remotePage is GqlPageMeta => Boolean(remotePage),
   );
-  const pageMetas = remotePageMetas
-    .filter((remotePage): remotePage is GqlPageMeta => Boolean(remotePage))
+  const pageMetas = nonNullPageMetas
     .filter((p) => shouldApplyRemoteSnapshot(p.workspaceId));
-  dbSyncDevLog("page-metas-apply-start", {
-    remoteCount: remotePageMetas.length,
-    nonNullRemoteCount: nonNullPageMetas.length,
-    appliedCount: pageMetas.length,
-    ignoredByWorkspaceCount: nonNullPageMetas.length - pageMetas.length,
-    incomingSummary: summarizePagesForDbSyncLog(nonNullPageMetas),
-    appliedSummary: summarizePagesForDbSyncLog(pageMetas),
-  });
   if (pageMetas.length === 0) return;
 
   const metaOnlyIds: string[] = [];
@@ -532,16 +478,6 @@ export function applyRemotePageMetasToStore(
   });
 
   reconcileDatabaseRowOrders(affectedDatabaseIds);
-  dbSyncDevLog("page-metas-apply-done", {
-    affectedDatabaseIds: Array.from(affectedDatabaseIds),
-    affectedRowCounts: Array.from(affectedDatabaseIds).map((databaseId) => ({
-      databaseId,
-      rowPageOrderCount:
-        useDatabaseStore.getState().databases[databaseId]?.rowPageOrder.length ?? null,
-    })),
-    metaOnlyIds: metaOnlyIds.slice(0, 20),
-    loadedIds: loadedIds.slice(0, 20),
-  });
   if (loadedIds.length > 0) usePageContentLoadStore.getState().markLoaded(loadedIds);
   if (metaOnlyIds.length > 0) usePageContentLoadStore.getState().markMetaOnly(metaOnlyIds);
 }
@@ -711,18 +647,10 @@ function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefi
     try {
       parsed = JSON.parse(parsed);
     } catch {
-      console.warn("[QN_TEMPLATE_SYNC] remote templates parse failed", {
-        rawType: typeof raw,
-        rawLength: typeof raw === "string" ? raw.length : null,
-        depth,
-      });
       return undefined;
     }
   }
   if (!Array.isArray(parsed)) {
-    console.warn("[QN_TEMPLATE_SYNC] remote templates ignored: not array", {
-      rawType: typeof raw,
-    });
     return undefined;
   }
   const templates: DatabaseTemplate[] = [];
@@ -743,9 +671,6 @@ function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefi
       ...(automation ? { automation } : {}),
     });
   }
-  console.warn("[QN_TEMPLATE_SYNC] remote templates parsed", {
-    templateCount: templates.length,
-  });
   return templates;
 }
 
@@ -926,15 +851,6 @@ export function applyRemoteDatabaseToStore(
         : s.dbTemplates,
     cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
-  if (templates !== undefined) {
-    console.warn("[QN_TEMPLATE_SYNC] applyRemoteDatabaseToStore", {
-      databaseId: db.id,
-      workspaceId: db.workspaceId,
-      templateCount: templates.length,
-      remoteUpdatedAt: db.updatedAt,
-    });
-  }
-
   repairDbHistoryBaselineIfNeeded(db.id, structuredClone(bundle));
 }
 
@@ -942,7 +858,6 @@ export function applyRemoteDatabasesToStore(
   remoteDatabases: Array<GqlDatabase | null | undefined>,
 ): void {
   if (remoteDatabases.length === 0) return;
-  const nonNullRemoteDatabaseCount = remoteDatabases.filter(Boolean).length;
   const normalizedDatabases: GqlDatabase[] = [];
   const legacyDeleteIds = new Set<string>();
   const candidateDatabaseIds = new Set<string>();
@@ -994,14 +909,6 @@ export function applyRemoteDatabasesToStore(
     if (!normalizedDatabase.deletedAt) candidateDatabaseIds.add(normalizedDatabase.id);
   }
 
-  dbSyncDevLog("databases-normalized", {
-    remoteCount: remoteDatabases.length,
-    nonNullRemoteCount: nonNullRemoteDatabaseCount,
-    normalizedCount: normalizedDatabases.length,
-    ignoredOrLegacyCount: nonNullRemoteDatabaseCount - normalizedDatabases.length,
-    legacyDeleteIds: Array.from(legacyDeleteIds),
-    candidateDatabaseIds: Array.from(candidateDatabaseIds),
-  });
 
   if (normalizedDatabases.length === 0 && legacyDeleteIds.size === 0) return;
 
@@ -1123,12 +1030,6 @@ export function applyRemoteDatabasesToStore(
       if (templates !== undefined) {
         ensureTemplatesCopy();
         dbTemplates[db.id] = templates;
-        console.warn("[QN_TEMPLATE_SYNC] applyRemoteDatabasesToStore", {
-          databaseId: db.id,
-          workspaceId: db.workspaceId,
-          templateCount: templates.length,
-          remoteUpdatedAt: db.updatedAt,
-        });
       }
       repairedBundles.push(bundle);
       databaseDebugRows.push({
@@ -1156,16 +1057,6 @@ export function applyRemoteDatabasesToStore(
   for (const bundle of repairedBundles) {
     repairDbHistoryBaselineIfNeeded(bundle.meta.id, structuredClone(bundle));
   }
-  dbSyncDevLog("databases-apply", {
-    remoteCount: remoteDatabases.length,
-    normalizedCount: normalizedDatabases.length,
-    candidateDatabaseIds: Array.from(candidateDatabaseIds),
-    derivedRowCounts: Array.from(derivedByDbId.entries()).map(([databaseId, rows]) => ({
-      databaseId,
-      count: rows.length,
-    })),
-    actions: databaseDebugRows.slice(0, 40),
-  });
 }
 
 /**

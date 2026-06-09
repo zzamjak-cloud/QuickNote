@@ -84,7 +84,7 @@ describe("PageListItem", () => {
 
     expect(toggleButton.className).not.toContain("opacity-0");
     expect(toggleButton.className).not.toContain("group-hover:opacity-100");
-    expect(toggleButton.parentElement?.className).toContain("w-5");
+    expect(toggleButton.parentElement?.className).toContain("w-4");
   });
 
   it("우클릭 메뉴에서 이름 변경과 하위 페이지 추가를 숨기고 페이지 복제를 제공한다", () => {

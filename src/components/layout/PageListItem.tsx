@@ -210,7 +210,7 @@ const PageListItemInner = function PageListItem({
         {...(rowDragEnabled ? attributes : {})}
         {...(rowDragEnabled ? listeners : {})}
         className={[
-          "group relative flex items-center gap-1 rounded-md py-1 pr-1 text-sm transition-transform duration-100",
+          "group relative flex items-center gap-0.5 rounded-md py-1 pr-1 text-sm transition-transform duration-100",
           rowDragEnabled ? `${POINTER_PRESS_FEEDBACK_CLASS} touch-none` : "",
           active
             ? "bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
@@ -229,7 +229,7 @@ const PageListItemInner = function PageListItem({
           setMenuPosition({ x: e.clientX, y: e.clientY });
         }}
       >
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+        <span className="flex h-5 w-4 shrink-0 items-center justify-center">
           {hasChildren ? (
             <button
               type="button"
@@ -237,7 +237,7 @@ const PageListItemInner = function PageListItem({
                 e.stopPropagation();
                 toggleExpanded(node.id);
               }}
-              className="flex h-5 w-5 items-center justify-center rounded text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
+              className="flex h-5 w-4 items-center justify-center rounded text-zinc-500 transition hover:bg-zinc-200 hover:text-zinc-700 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
               style={{ cursor: "inherit" }}
               aria-label={expanded ? "접기" : "펼치기"}
             >
