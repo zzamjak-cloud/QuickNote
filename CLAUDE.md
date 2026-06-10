@@ -36,6 +36,7 @@
 | DB 뷰/셀/필터 수정 | `wiki/database/` |
 | DB 그룹화(표시설정) | `wiki/database/grouping.md` |
 | 자산 관리 탭·캐싱 | `wiki/settings/assets.md` |
+| 노션 가져오기(이미지 누락·인코딩·진행률) | `wiki/settings/notion-import.md` |
 | 동기화 버그 | `wiki/sync/architecture.md` |
 | Ghost 페이지(풀페이지 DB 사이드바 중복)·진입 시 재생성 | `wiki/pages/ghost-page-prevention.md` |
 | 워크스페이스 진입 화면/첫 인덱스 리셋 | `wiki/workspace/overview.md` |
