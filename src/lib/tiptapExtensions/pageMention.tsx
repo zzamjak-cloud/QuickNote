@@ -12,6 +12,7 @@ import {
 } from "react";
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
+import { PageIconDisplay } from "../../components/common/PageIconDisplay";
 import {
   openPageInCurrentTab,
   openPageInNewTab,
@@ -75,9 +76,7 @@ const MentionList = forwardRef<RefHandle, SuggestionProps>(
                 : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60",
             ].join(" ")}
           >
-            <span className="w-5 shrink-0 text-center text-base leading-none">
-              {it.icon ?? "📄"}
-            </span>
+            <PageIconDisplay icon={it.icon} size="sm" />
             <span className="truncate">{it.title || "제목 없음"}</span>
           </button>
         ))}
@@ -96,7 +95,7 @@ function PageMentionView({ node, editor }: NodeViewProps) {
   const page = usePageStore((s) => s.pages[id]);
   const peekPageId = useUiStore((s) => s.peekPageId);
   const peekNavigate = useUiStore((s) => s.peekNavigate);
-  const icon = page?.icon ?? "📄";
+  const icon = page?.icon ?? null;
   const displayTitle = page?.title ?? label ?? "페이지";
 
   return (
@@ -145,7 +144,7 @@ function PageMentionView({ node, editor }: NodeViewProps) {
         <span className="page-mention-at select-none" aria-hidden="true">
           @
         </span>
-        <span className="page-mention-icon">{icon}</span>
+        <PageIconDisplay icon={icon} size="sm" className="page-mention-icon" />
         {" "}
         <span className="truncate">{displayTitle}</span>
       </button>
