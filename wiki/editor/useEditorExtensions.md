@@ -53,7 +53,7 @@ TipTap 에디터에 등록할 extension 배열을 생성하는 훅. `lowlightApi
 | `Toggle` / `ToggleHeader` / `ToggleContent` | `toggle.tsx` | 토글 블록 3종 |
 | `ColumnLayout` / `Column` | `columns.ts` | 컬럼 레이아웃 2종 |
 | `TabBlock` / `TabPanel` | `tabBlock.tsx` | 탭 블록 2종 |
-| `MemberMention` | `memberMention.tsx` | `@멤버` 인라인 멘션 |
+| `MentionExtension` | `mention.tsx` | `@멤버`·`@페이지`·`@DB` 통합 인라인 멘션 (단일 노드) |
 | `createBlockCommentDecorations` | `blockCommentDecorations.ts` | 블록 댓글 데코레이션 (effectivePageId, myMemberId 주입) |
 | `EmojiShortcode` | `emojiShortcode.ts` | `:이모지:` 단축코드 |
 | `DatabaseBlock` | `databaseBlock.ts` | 인라인 데이터베이스 블록 |

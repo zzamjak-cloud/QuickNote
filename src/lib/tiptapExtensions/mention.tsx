@@ -1,7 +1,9 @@
+// 모든 멘션(@) 의 단일 노드 — member / page / database 를 mentionKind 로 분기 처리한다.
+// 페이지 멘션도 여기서 렌더한다. (과거 별도 pageMention.tsx 가 있었으나 미사용 dead code 라 제거함)
+// 멘션 관련 수정은 반드시 이 파일에서 한다.
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes } from "@tiptap/core";
 import { Plugin } from "prosemirror-state";
-import { FileText } from "lucide-react";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -10,6 +12,16 @@ import {
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
+import { PageIconDisplay } from "../../components/common/PageIconDisplay";
+import { isImageLikePageIcon, LUCIDE_PAGE_ICON_PREFIX } from "../pageIcon";
+
+/** 정적 직렬화(renderHTML/renderText)에서 텍스트로 노출해도 되는 아이콘인지 — 이모지만 허용 */
+function isPlainEmojiIcon(icon: string | null | undefined): icon is string {
+  if (!icon) return false;
+  if (isImageLikePageIcon(icon)) return false;
+  if (icon.startsWith(LUCIDE_PAGE_ICON_PREFIX)) return false;
+  return true;
+}
 
 /** 멘션 노드뷰 — 페이지 멘션의 경우 pageStore 를 구독해 페이지 제목 변경을 즉시 반영 */
 function MentionNodeView({ node }: NodeViewProps) {
@@ -50,11 +62,11 @@ function MentionNodeView({ node }: NodeViewProps) {
           </span>
         ) : null}
         {isPage ? (
-          reactivePageIcon ? (
-            <span className="page-mention-icon select-none">{reactivePageIcon}</span>
-          ) : (
-            <FileText size={22} className="page-mention-icon shrink-0" strokeWidth={2} />
-          )
+          <PageIconDisplay
+            icon={reactivePageIcon}
+            size="md"
+            className="page-mention-icon select-none"
+          />
         ) : null}
         {isDatabase ? (
           <span className="select-none text-xs">DB</span>
@@ -153,7 +165,7 @@ function showMemberProfilePopup(memberId: string, anchor: HTMLElement): void {
 }
 
 /** 인라인 @ 제안은 사용하지 않음 — Editor/CommentComposer 에서 @ 키로 검색 모달 연결 */
-const MemberMentionNode = Mention.extend({
+const MentionNode = Mention.extend({
   addNodeView() {
     return ReactNodeViewRenderer(MentionNodeView);
   },
@@ -276,7 +288,7 @@ const MemberMentionNode = Mention.extend({
             "@",
           ]
         : "",
-      isPage && pageIcon
+      isPage && isPlainEmojiIcon(pageIcon)
         ? ["span", { class: "page-mention-icon select-none" }, pageIcon]
         : "",
       isDatabase ? ["span", { class: "select-none text-xs" }, "DB"] : "",
@@ -291,11 +303,11 @@ const MemberMentionNode = Mention.extend({
       const pageId = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
       const page = usePageStore.getState().pages[pageId];
       const title = page?.title ?? label ?? "페이지";
-      return page?.icon ? `${page.icon} ${title}` : title;
+      return isPlainEmojiIcon(page?.icon) ? `${page.icon} ${title}` : title;
     }
     return `@${label}`;
   },
 });
 
 /** 인라인 @ 제안 미등록 — 클릭 네비만 사용. @ 삽입은 MentionSearchModal 로 처리 */
-export const MemberMention = MemberMentionNode.configure({});
+export const MentionExtension = MentionNode.configure({});

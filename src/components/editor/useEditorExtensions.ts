@@ -43,7 +43,7 @@ import {
 } from "../../lib/tiptapExtensions/markdownCodeBlockPreview";
 import { CodeBlockCopy } from "../../lib/tiptapExtensions/codeBlockCopy";
 import { BlockquoteNoInput } from "../../lib/tiptapExtensions/blockquote";
-import { MemberMention } from "../../lib/tiptapExtensions/memberMention";
+import { MentionExtension } from "../../lib/tiptapExtensions/mention";
 import { EmojiShortcode } from "../../lib/tiptapExtensions/emojiShortcode";
 import {
   filterSlashMenuEntries,
@@ -169,7 +169,7 @@ export function useEditorExtensions({
       Toggle,
       ToggleHeader,
       ToggleContent,
-      MemberMention,
+      MentionExtension,
       createBlockCommentDecorations(effectivePageId ?? undefined, myMemberId),
       EmojiShortcode,
       DatabaseBlock,

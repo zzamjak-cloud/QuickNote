@@ -6,7 +6,7 @@ import HardBreak from "@tiptap/extension-hard-break";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { MemberMention } from "../../lib/tiptapExtensions/memberMention";
+import { MentionExtension } from "../../lib/tiptapExtensions/mention";
 import { extractMentionMemberIdsFromDoc } from "../../lib/comments/extractMentions";
 import type { JSONContent } from "@tiptap/react";
 import { MentionSearchModal } from "../editor/MentionSearchModal";
@@ -55,7 +55,7 @@ export function CommentComposer({
       Paragraph,
       Text,
       HardBreak,
-      MemberMention,
+      MentionExtension,
     ],
     content:
       (initialJson ??
