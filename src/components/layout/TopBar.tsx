@@ -50,6 +50,7 @@ import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { NotificationBell } from "../notifications/NotificationBell";
+import { CollabPresenceAvatars } from "../collab/CollabPresenceAvatars";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { PageHistoryPreviewDialog } from "../history/PageHistoryPreviewDialog";
 import { PageIconDisplay } from "../common/PageIconDisplay";
@@ -400,6 +401,7 @@ export function TopBar() {
         </div>
       ) : null}
       <div className="flex items-center gap-1">
+        <CollabPresenceAvatars />
         {activeId && (
           <>
           {showSubpageTree && (
