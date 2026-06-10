@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
+import { Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { QnWsProvider } from "../QnWsProvider";
 import { encodeBytes } from "../wsProtocol";
 
@@ -29,15 +30,17 @@ class FakeSocket {
   }
 }
 
-function makeProvider() {
+function makeProvider(withAwareness = false) {
   const doc = new Y.Doc();
   const socket = new FakeSocket();
+  const awareness = withAwareness ? new Awareness(doc) : undefined;
   const provider = new QnWsProvider({
     doc,
     url: "wss://x/dev?token=t&pageId=p",
     socketFactory: () => socket as unknown as WebSocket,
+    awareness,
   });
-  return { doc, socket, provider };
+  return { doc, socket, provider, awareness };
 }
 
 describe("QnWsProvider", () => {
@@ -101,5 +104,49 @@ describe("QnWsProvider", () => {
     socket.sent.length = 0;
     doc.getText("t").insert(0, "y");
     expect(socket.sent.length).toBe(0);
+  });
+
+  it("로컬 awareness 변경 시 awareness 메시지를 전송한다", () => {
+    const { socket, provider, awareness } = makeProvider(true);
+    provider.connect();
+    socket.open();
+    socket.sent.length = 0;
+    awareness!.setLocalStateField("user", { name: "A", color: "#2563eb" });
+    const aw = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "awareness");
+    expect(aw.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("원격 awareness 수신분은 적용하고 다시 전송하지 않는다", () => {
+    const { socket, provider, awareness } = makeProvider(true);
+    provider.connect();
+    socket.open();
+    socket.sent.length = 0;
+    const otherDoc = new Y.Doc();
+    const other = new Awareness(otherDoc);
+    other.setLocalStateField("user", { name: "B", color: "#059669" });
+    const update = encodeAwarenessUpdate(other, [otherDoc.clientID]);
+    socket.receive(JSON.stringify({ t: "awareness", update: encodeBytes(update) }));
+    expect(awareness!.getStates().has(otherDoc.clientID)).toBe(true);
+    expect(socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "awareness").length).toBe(0);
+  });
+
+  it("연결 open 시 로컬 awareness 상태를 전송한다", () => {
+    const { socket, provider, awareness } = makeProvider(true);
+    awareness!.setLocalStateField("user", { name: "A", color: "#2563eb" });
+    provider.connect();
+    socket.open();
+    const aw = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "awareness");
+    expect(aw.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("destroy 시 self 제거 awareness 를 전송한다", () => {
+    const { socket, provider, awareness } = makeProvider(true);
+    awareness!.setLocalStateField("user", { name: "A", color: "#2563eb" });
+    provider.connect();
+    socket.open();
+    socket.sent.length = 0;
+    provider.destroy();
+    const aw = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "awareness");
+    expect(aw.length).toBeGreaterThanOrEqual(1);
   });
 });

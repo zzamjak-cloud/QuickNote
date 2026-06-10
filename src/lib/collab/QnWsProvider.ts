@@ -2,6 +2,12 @@
 // 서버 프로토콜(infra/lambda/realtime): hello{sv} → sync{update,sv} → sv-reply{update} → update{update}.
 import * as Y from "yjs";
 import {
+  Awareness,
+  encodeAwarenessUpdate,
+  applyAwarenessUpdate,
+  removeAwarenessStates,
+} from "y-protocols/awareness";
+import {
   serializeClientMessage,
   parseServerMessage,
 } from "./wsProtocol";
@@ -18,6 +24,8 @@ export type QnWsProviderOptions = {
   pingIntervalMs?: number;
   /** 최대 재연결 backoff(ms). */
   maxBackoffMs?: number;
+  /** 프레즌스용 awareness(없으면 Phase 1 동작 그대로). */
+  awareness?: Awareness;
 };
 
 // 수신 update 적용 시 사용하는 origin — 로컬 echo 전송 방지에 사용.
@@ -29,6 +37,8 @@ export class QnWsProvider {
   private socketFactory: (url: string) => WebSocket;
   private pingIntervalMs: number;
   private maxBackoffMs: number;
+
+  private awareness: Awareness | null;
 
   private ws: WebSocket | null = null;
   private destroyed = false;
@@ -49,6 +59,14 @@ export class QnWsProvider {
     this.pingIntervalMs = opts.pingIntervalMs ?? 25_000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 15_000;
     this.doc.on("update", this.handleLocalUpdate);
+    this.awareness = opts.awareness ?? null;
+    if (this.awareness) {
+      this.awareness.on("update", this.handleAwarenessUpdate);
+      // 탭 강제 닫기 시 destroy() 가 안 불릴 수 있으므로 beforeunload 로 self 제거를 보장한다.
+      if (typeof window !== "undefined") {
+        window.addEventListener("beforeunload", this.handleBeforeUnload);
+      }
+    }
   }
 
   on(event: ProviderEvent, cb: (arg?: unknown) => void): void {
@@ -75,6 +93,11 @@ export class QnWsProvider {
       this.emit("status", "connected" as StatusValue);
       this.send(serializeClientMessage({ t: "hello", sv: Y.encodeStateVector(this.doc) }));
       this.startPing();
+      // 새/재연결 시 로컬 awareness 를 즉시 피어에 알린다.
+      if (this.awareness) {
+        const u = encodeAwarenessUpdate(this.awareness, [this.doc.clientID]);
+        this.send(serializeClientMessage({ t: "awareness", update: u }));
+      }
     };
     ws.onmessage = (e: MessageEvent) => this.handleMessage(String(e.data));
     ws.onclose = () => this.handleClose();
@@ -106,6 +129,11 @@ export class QnWsProvider {
     }
     if (msg.t === "update") {
       Y.applyUpdate(this.doc, msg.update, REMOTE_ORIGIN);
+      return;
+    }
+    if (msg.t === "awareness") {
+      if (this.awareness) applyAwarenessUpdate(this.awareness, msg.update, REMOTE_ORIGIN);
+      return;
     }
   }
 
@@ -113,6 +141,25 @@ export class QnWsProvider {
     if (this.destroyed) return;
     if (origin === REMOTE_ORIGIN) return;
     this.send(serializeClientMessage({ t: "update", update }));
+  };
+
+  private handleAwarenessUpdate = (
+    changes: { added: number[]; updated: number[]; removed: number[] },
+    origin: unknown,
+  ): void => {
+    if (this.destroyed) return;
+    if (origin === REMOTE_ORIGIN) return; // 원격 적용분 echo 방지
+    if (!this.awareness) return;
+    const changed = [...changes.added, ...changes.updated, ...changes.removed];
+    const u = encodeAwarenessUpdate(this.awareness, changed);
+    this.send(serializeClientMessage({ t: "awareness", update: u }));
+  };
+
+  // 탭 닫기/새로고침 직전 — self awareness 제거(handleAwarenessUpdate 가 동기 전송).
+  private handleBeforeUnload = (): void => {
+    if (this.awareness) {
+      removeAwarenessStates(this.awareness, [this.doc.clientID], "window-unload");
+    }
   };
 
   private startPing(): void {
@@ -140,6 +187,14 @@ export class QnWsProvider {
   }
 
   destroy(): void {
+    // 정상 이탈: self awareness 제거를 피어에 알린다(handleAwarenessUpdate 가 전송).
+    if (this.awareness) {
+      removeAwarenessStates(this.awareness, [this.doc.clientID], "local");
+      this.awareness.off("update", this.handleAwarenessUpdate);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("beforeunload", this.handleBeforeUnload);
+      }
+    }
     this.destroyed = true;
     this.doc.off("update", this.handleLocalUpdate);
     this.stopPing();
