@@ -4,11 +4,14 @@
 //            Y.Doc 변경을 디바운스로 Pages.doc(JSON) 에 materialize.
 import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
+import { Awareness } from "y-protocols/awareness";
 import { isCollabEnabledForPage, buildCollabWsUrl } from "./collabConfig";
 import { QnWsProvider } from "./QnWsProvider";
 import { yDocToJson } from "./yjsDoc";
 import { readStoredTokens } from "../auth/tokenStore";
 import { usePageStore } from "../../store/pageStore";
+import { collabColor } from "./collabColor";
+import { useMemberStore } from "../../store/memberStore";
 
 const MATERIALIZE_DEBOUNCE_MS = 1800;
 
@@ -17,6 +20,7 @@ export type CollabSession =
   | {
       enabled: true;
       doc: Y.Doc;
+      awareness: Awareness;
       /** 서버 초기 sync 완료 여부. true 가 되기 전에는 에디터를 read-only 로 둔다. */
       synced: boolean;
     };
@@ -30,11 +34,30 @@ export function useCollabSession(
   const enabled = isCollabEnabledForPage(pageId);
   const [synced, setSynced] = useState(false);
   const docRef = useRef<Y.Doc | null>(null);
+  const awarenessRef = useRef<Awareness | null>(null);
+  const me = useMemberStore((s) => s.me);
 
   // pageId 별로 새 Y.Doc 을 만든다. enabled 가 false 면 아무것도 만들지 않는다.
   if (enabled && pageId && !docRef.current) {
     docRef.current = new Y.Doc();
   }
+
+  // doc 이 생성된 직후 awareness 도 생성한다.
+  if (enabled && pageId && docRef.current && !awarenessRef.current) {
+    awarenessRef.current = new Awareness(docRef.current);
+  }
+
+  // me 가 변경될 때마다 awareness local user 필드를 갱신한다.
+  useEffect(() => {
+    const awareness = awarenessRef.current;
+    if (!enabled || !awareness || !me) return;
+    awareness.setLocalStateField("user", {
+      memberId: me.memberId,
+      name: me.name,
+      color: collabColor(me.memberId),
+      avatarUrl: me.avatarUrl ?? null,
+    });
+  }, [enabled, me]);
 
   useEffect(() => {
     if (!enabled || !pageId) return undefined;
@@ -68,6 +91,7 @@ export function useCollabSession(
       provider = new QnWsProvider({
         doc,
         url: buildCollabWsUrl(pageId, tokens.idToken),
+        awareness: awarenessRef.current ?? undefined,
       });
       provider.on("synced", () => {
         if (!cancelled) setSynced(true);
@@ -83,9 +107,11 @@ export function useCollabSession(
       // 페이지 전환 시 Y.Doc 폐기(다음 페이지는 새 doc).
       doc.destroy();
       docRef.current = null;
+      awarenessRef.current?.destroy();
+      awarenessRef.current = null;
     };
   }, [enabled, pageId]);
 
-  if (!enabled || !pageId || !docRef.current) return { enabled: false };
-  return { enabled: true, doc: docRef.current, synced };
+  if (!enabled || !pageId || !docRef.current || !awarenessRef.current) return { enabled: false };
+  return { enabled: true, doc: docRef.current, awareness: awarenessRef.current, synced };
 }
