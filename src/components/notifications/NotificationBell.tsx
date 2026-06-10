@@ -58,6 +58,7 @@ export function NotificationBell() {
   const markRead = useNotificationStore((s) => s.markRead);
   const removeNotification = useNotificationStore((s) => s.removeNotification);
   const markAllReadForMember = useNotificationStore((s) => s.markAllReadForMember);
+  const clearAllForMember = useNotificationStore((s) => s.clearAllForMember);
 
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
@@ -146,11 +147,6 @@ export function NotificationBell() {
   const nameOf = (id: string) => members.find((m) => m.memberId === id)?.name ?? "구성원";
   const notificationWorkspaceLabel = (n: (typeof items)[number]) =>
     n.workspaceName ? `(${n.workspaceName})` : "";
-  const metaLabelOf = (n: (typeof items)[number]) => {
-    if (n.kind === "thread_reply") return "답글";
-    if (n.source === "page") return "페이지 멘션";
-    return "댓글 멘션";
-  };
   const pageTitleOf = (n: (typeof items)[number]) =>
     n.pageTitle ||
     usePageStore.getState().pages[n.pageId]?.title ||
@@ -167,6 +163,12 @@ export function NotificationBell() {
     if (!el) return undefined;
     const r = el.getBoundingClientRect();
     return { top: r.top, left: r.left, right: r.right, bottom: r.bottom };
+  };
+
+  const onClearAll = (): void => {
+    const ids = items.map((n) => n.id);
+    clearAllForMember(memberId);
+    ids.forEach((id) => deleteMyNotificationApi(id).catch(() => {}));
   };
 
   const onNavigate = (id: string): void => {
@@ -250,15 +252,26 @@ export function NotificationBell() {
             <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
               알림
             </span>
-            {unread > 0 ? (
-              <button
-                type="button"
-                className="text-xs text-emerald-600 hover:underline dark:text-emerald-400"
-                onClick={() => markAllReadForMember(memberId)}
-              >
-                모두 읽음
-              </button>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {items.length > 0 ? (
+                <button
+                  type="button"
+                  className="text-xs text-zinc-500 hover:underline dark:text-zinc-400"
+                  onClick={onClearAll}
+                >
+                  모두 제거
+                </button>
+              ) : null}
+              {unread > 0 ? (
+                <button
+                  type="button"
+                  className="text-xs text-emerald-600 hover:underline dark:text-emerald-400"
+                  onClick={() => markAllReadForMember(memberId)}
+                >
+                  모두 읽음
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="max-h-72 overflow-y-auto">
             {items.length === 0 ? (
@@ -270,13 +283,13 @@ export function NotificationBell() {
                 <div
                   key={n.id}
                   className={[
-                    "group flex gap-2 border-b border-zinc-100 px-2 py-2 last:border-0 dark:border-zinc-800",
+                    "group flex flex-col border-b border-zinc-100 px-2 py-2 last:border-0 dark:border-zinc-800",
                     n.read ? "bg-white dark:bg-zinc-900" : "bg-emerald-50/80 dark:bg-emerald-950/30",
                   ].join(" ")}
                 >
                   <button
                     type="button"
-                    className="min-w-0 flex-1 text-left"
+                    className="min-w-0 text-left"
                     onPointerDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -285,17 +298,10 @@ export function NotificationBell() {
                     onClick={(e) => e.preventDefault()}
                   >
                     <div className="flex min-w-0 items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                      <span
-                        className={[
-                          "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
-                          n.read ? "bg-zinc-300 dark:bg-zinc-600" : "bg-emerald-500",
-                        ].join(" ")}
-                        aria-hidden
-                      />
-                      <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                      <span className="font-bold text-zinc-700 dark:text-zinc-200">
                         {nameOf(n.fromMemberId)}
                       </span>
-                      <span className="min-w-0 truncate text-zinc-500">
+                      <span className="ml-auto min-w-0 truncate text-zinc-500">
                         {pageTitleOf(n)}
                       </span>
                       {notificationWorkspaceLabel(n) ? (
@@ -304,16 +310,13 @@ export function NotificationBell() {
                         </span>
                       ) : null}
                     </div>
-                    <div className="mt-0.5 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                      {metaLabelOf(n)}
-                    </div>
                     <p className="mt-0.5 line-clamp-2 text-sm text-zinc-800 dark:text-zinc-100">
                       {n.previewBody}
                     </p>
                   </button>
                   <button
                     type="button"
-                    className="shrink-0 self-start rounded p-1 text-zinc-400 opacity-0 hover:bg-zinc-100 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-zinc-800"
+                    className="mt-1 self-end shrink-0 rounded p-1 text-zinc-400 opacity-0 hover:bg-zinc-100 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-zinc-800"
                     aria-label="알림 삭제"
                     title="삭제"
                     onPointerDown={(e) => {
