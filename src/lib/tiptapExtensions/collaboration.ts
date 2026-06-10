@@ -30,7 +30,7 @@ export const Collaboration = Extension.create<CollaborationOptions>({
     return [ySyncPlugin(fragment), yUndoPlugin()];
   },
 
-  addKeyboardShortcuts() {
+  addKeyboardShortcuts(): Record<string, () => boolean> {
     if (!this.options.doc) return {};
     return {
       "Mod-z": () => undo(this.editor.state),

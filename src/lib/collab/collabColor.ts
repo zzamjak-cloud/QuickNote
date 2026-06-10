@@ -20,5 +20,6 @@ function hashString(s: string): number {
 
 /** seed 를 팔레트의 한 색(#RRGGBB)으로 결정적 매핑한다. */
 export function collabColor(seed: string): string {
-  return PALETTE[hashString(seed) % PALETTE.length];
+  // 모듈로 결과는 항상 유효 인덱스이므로 non-null 단언(noUncheckedIndexedAccess 대응).
+  return PALETTE[hashString(seed) % PALETTE.length]!;
 }

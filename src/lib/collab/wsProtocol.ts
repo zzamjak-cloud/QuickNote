@@ -15,7 +15,7 @@ export type ServerMessage =
 // Uint8Array → base64 문자열 (서버 Buffer.toString("base64") 와 바이트 동일)
 export function encodeBytes(bytes: Uint8Array): string {
   let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
   return btoa(bin);
 }
 

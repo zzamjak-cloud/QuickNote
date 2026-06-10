@@ -814,7 +814,7 @@ export function Editor({
       }
       if (!editor.isDestroyed && editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
     }
-  }, [editor, isFullPageDatabase, collab.enabled, collab.synced]);
+  }, [editor, isFullPageDatabase, collab.enabled, collab.enabled && collab.synced]);
 
   // 슬래시 "페이지 링크" 명령이 발행하는 커스텀 이벤트를 수신 → mention search modal 열기
   useEffect(() => {
