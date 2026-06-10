@@ -64,14 +64,31 @@ function mergeMarks(base: NonNullable<JSONContent["marks"]>, extra: NonNullable<
   return out;
 }
 
+// Notion 은 이미지 캡션을 <figure class="image"><img/><figcaption>캡션</figcaption></figure>
+// 로 내보낸다. 이미지를 감싸는 figure 의 figcaption 텍스트를 추출한다.
+function figcaptionTextForImage(img: HTMLElement): string | null {
+  const figure = img.closest("figure");
+  if (!figure) return null;
+  const caption = figure.querySelector(":scope > figcaption");
+  const text = (caption?.textContent ?? "").trim();
+  return text.length > 0 ? text : null;
+}
+
+// 캡션 텍스트를 image/video 노드 attrs 에 병합. fileBlock 등은 캡션 미지원이라 그대로 둔다.
+function withCaption(node: JSONContent, caption: string | null): JSONContent {
+  if (!caption || (node.type !== "image" && node.type !== "video")) return node;
+  return { ...node, attrs: { ...(node.attrs ?? {}), caption } };
+}
+
 function imageNodeFromElement(
   img: HTMLElement,
   options?: HtmlToDocOptions,
 ): JSONContent | null {
   const rawSrc = img.getAttribute("src") ?? "";
   if (!rawSrc) return null;
+  const caption = figcaptionTextForImage(img);
   const custom = options?.resolveMediaNode?.(rawSrc, img) ?? options?.resolveImageNode?.(rawSrc, img);
-  if (custom) return custom;
+  if (custom) return withCaption(custom, caption);
   const resolved = options?.resolveImageSrc?.(rawSrc) ?? rawSrc;
   if (!resolved) return null;
   return {
@@ -79,6 +96,7 @@ function imageNodeFromElement(
     attrs: {
       src: resolved,
       alt: img.getAttribute("alt") ?? "",
+      ...(caption ? { caption } : {}),
     },
   };
 }
@@ -478,6 +496,12 @@ function blocksFromContainerChildren(
         out.push(listNodeFromElement(node, blockColor, blockToken, options));
         return;
       }
+      // 토글/콜아웃 등 컨테이너 내부의 컬럼 레이아웃 — div 평탄화보다 먼저 처리해야
+      // columnLayout 구조가 보존된다. (이전에는 div 브랜치에서 컬럼이 평탄화돼 사라짐)
+      if (isColumnListElement(node)) {
+        out.push(...columnLayoutBlocksFromColumnList(node, options));
+        return;
+      }
       if (tag === "div" || tag === "section" || tag === "article") {
         for (const child of Array.from(node.childNodes)) {
           appendFromNode(child, blockColor, blockToken);
@@ -686,6 +710,55 @@ function togglesFromToggleList(
     out.push(toggleNode);
   }
   return out;
+}
+
+// Notion 컬럼 레이아웃(div.column-list > div.column …) → 퀵노트 columnLayout 변환.
+// 퀵노트 스키마는 column{2,4} 라 2~4 개일 때만 columnLayout, 그 외엔 자식 블록 평탄화.
+// top-level 순회와 토글/콜아웃 등 컨테이너 내부(blocksFromContainerChildren) 양쪽에서 재사용한다.
+function columnLayoutBlocksFromColumnList(
+  el: HTMLElement,
+  options?: HtmlToDocOptions,
+): JSONContent[] {
+  let columnEls = Array.from(el.children).filter(
+    (c): c is HTMLElement => c instanceof HTMLElement && c.classList.contains("column"),
+  );
+  if (columnEls.length === 0) {
+    columnEls = Array.from(el.children).filter(
+      (c): c is HTMLElement => c instanceof HTMLElement && /(^|\s)column(\s|$|-)/i.test(c.className),
+    );
+  }
+  if (columnEls.length === 0) {
+    // class 가 다르거나 없는 경우 — 직속 div 자식을 컬럼으로 간주.
+    columnEls = Array.from(el.children).filter(
+      (c): c is HTMLElement => c instanceof HTMLElement && c.tagName.toLowerCase() === "div",
+    );
+  }
+  const inColumnRange = columnEls.length >= 2 && columnEls.length <= 4;
+  const childNodesPerColumn = columnEls.map((columnEl) => {
+    // 각 컬럼의 innerHTML 을 한 article.page 로 감싸 재귀 변환 → 내부 블록 JSON 추출.
+    const wrapped = `<article class="page">${columnEl.innerHTML}</article>`;
+    const innerDoc = notionHtmlToDocInternal(wrapped, options);
+    const innerContent = Array.isArray(innerDoc.content) ? (innerDoc.content as JSONContent[]) : [];
+    return innerContent.length > 0 ? innerContent : [{ type: "paragraph" }];
+  });
+  if (inColumnRange) {
+    return [{
+      type: "columnLayout",
+      content: childNodesPerColumn.map((blocksInCol) => ({
+        type: "column",
+        content: blocksInCol,
+      })),
+    }];
+  }
+  // 컬럼 개수가 스키마를 벗어나면 그대로 펼친다.
+  return childNodesPerColumn.flat();
+}
+
+function isColumnListElement(node: HTMLElement): boolean {
+  return (
+    node.tagName.toLowerCase() === "div" &&
+    (node.classList.contains("column-list") || /column[-_]list/i.test(node.className))
+  );
 }
 
 function tableFromElement(table: HTMLElement): JSONContent {
@@ -1252,51 +1325,8 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
       blocks.push(toggleFromDetails(el, options, blockColor, blockToken));
       continue;
     }
-    if (
-      tag === "div" &&
-      (el.classList.contains("column-list") ||
-        /column[-_]list/i.test(el.className))
-    ) {
-      // Notion 의 컬럼 레이아웃: <div class="column-list"><div class="column">...</div>...</div>
-      // 퀵노트 columnLayout 스키마는 column{2,4} 이라 컬럼 2~4 개 일 때만 변환,
-      // 그 외(1개 또는 5개 이상)는 자식 블록을 평탄화해서 그대로 삽입.
-      // 일부 export 는 "column" 대신 다른 클래스를 쓸 수 있어, "column" 매칭 + 클래스 부분일치 + 직속 div 폴백 순으로 탐색.
-      let columnEls = Array.from(el.children).filter(
-        (c): c is HTMLElement => c instanceof HTMLElement && c.classList.contains("column"),
-      );
-      if (columnEls.length === 0) {
-        columnEls = Array.from(el.children).filter(
-          (c): c is HTMLElement => c instanceof HTMLElement && /(^|\s)column(\s|$|-)/i.test(c.className),
-        );
-      }
-      if (columnEls.length === 0) {
-        // class 가 다르거나 없는 경우 — 직속 div 자식을 컬럼으로 간주.
-        columnEls = Array.from(el.children).filter(
-          (c): c is HTMLElement => c instanceof HTMLElement && c.tagName.toLowerCase() === "div",
-        );
-      }
-      const inColumnRange = columnEls.length >= 2 && columnEls.length <= 4;
-      const childNodesPerColumn = columnEls.map((columnEl) => {
-        // 각 컬럼의 innerHTML 을 한 article.page 로 감싸 재귀 변환 → 내부 블록 JSON 추출.
-        const wrapped = `<article class="page">${columnEl.innerHTML}</article>`;
-        const innerDoc = notionHtmlToDocInternal(wrapped, options);
-        const innerContent = Array.isArray(innerDoc.content) ? (innerDoc.content as JSONContent[]) : [];
-        return innerContent.length > 0 ? innerContent : [{ type: "paragraph" }];
-      });
-      if (inColumnRange) {
-        blocks.push({
-          type: "columnLayout",
-          content: childNodesPerColumn.map((blocksInCol) => ({
-            type: "column",
-            content: blocksInCol,
-          })),
-        });
-      } else {
-        // 컬럼 개수가 스키마를 벗어나면 그대로 펼쳐 본문에 추가.
-        for (const colBlocks of childNodesPerColumn) {
-          for (const b of colBlocks) blocks.push(b);
-        }
-      }
+    if (isColumnListElement(el)) {
+      blocks.push(...columnLayoutBlocksFromColumnList(el, options));
       continue;
     }
     if (tag === "table") {

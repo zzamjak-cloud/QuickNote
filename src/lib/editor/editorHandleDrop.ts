@@ -544,14 +544,13 @@ export function createEditorHandleDrop(options: {
     const dt = event.dataTransfer;
     const files = dt?.files;
     if (!files || files.length === 0) return false;
-    const coord = view.posAtCoords({
-      left: event.clientX,
-      top: event.clientY,
-    });
+    // 컬럼·콜아웃·토글·탭 등 컨테이너 내부 좌표를 정확히 해석하기 위해
+    // 블록 이동과 동일한 위치 계산을 사용한다. (posAtCoords 직접 사용은 컨테이너를
+    // 인식하지 못해 파일 드롭이 컬럼 내부로 들어가지 않던 회귀의 원인)
     // 모든 dropped file 을 순회:
     // 1) 즉시 임시 fileBlock(업로드중) 삽입으로 시각 피드백 제공
     // 2) 업로드 완료 시 image/file 실제 노드로 교체
-    const basePos = coord?.pos ?? view.state.selection.from;
+    const basePos = topLevelInsertionPosFromDrop(view, event.clientX, event.clientY);
     let insertPos = basePos;
     for (const f of Array.from(files)) {
       // 마크다운 파일은 코드 블럭으로 변환해 삽입한다.

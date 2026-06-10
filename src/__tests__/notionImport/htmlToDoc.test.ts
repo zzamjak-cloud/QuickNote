@@ -23,6 +23,41 @@ describe("notionHtmlToDoc", () => {
     );
   });
 
+  it("figure.image 의 figcaption 을 image 노드 caption 으로 변환한다", () => {
+    const html = [
+      "<html><body><article class=\"page\">",
+      "<figure class=\"image\"><a href=\"a.png\"><img src=\"a.png\"/></a>",
+      "<figcaption>기본 로고</figcaption></figure>",
+      "</article></body></html>",
+    ].join("");
+    const doc = notionHtmlToDoc(html);
+    const image = doc.content?.find((n) => n.type === "image");
+    expect(image).toBeTruthy();
+    expect(image?.attrs?.caption).toBe("기본 로고");
+  });
+
+  it("토글 내부의 컬럼 레이아웃을 columnLayout으로 보존한다", () => {
+    const html = [
+      "<html><body><article class=\"page\">",
+      "<details open=\"\"><summary>토글 제목</summary>",
+      "<div class=\"indented\"><div class=\"column-list\">",
+      "<div class=\"column\" style=\"width:50%\"><figure class=\"image\"><img src=\"a.png\"/></figure></div>",
+      "<div class=\"column\" style=\"width:50%\"><p>오른쪽 칸</p></div>",
+      "</div></div>",
+      "</details>",
+      "</article></body></html>",
+    ].join("");
+    const doc = notionHtmlToDoc(html);
+    expect(doc.content?.[0]?.type).toBe("toggle");
+    const toggleContent = doc.content?.[0]?.content?.find((n) => n.type === "toggleContent");
+    const layout = toggleContent?.content?.find((n) => n.type === "columnLayout");
+    expect(layout).toBeTruthy();
+    expect(layout?.content?.length).toBe(2);
+    expect(layout?.content?.[0]?.content?.[0]?.type).toBe("image");
+    const rightCol = layout?.content?.[1]?.content ?? [];
+    expect(rightCol.some((b) => b.type === "paragraph")).toBe(true);
+  });
+
   it("figure.callout 구조를 callout 노드로 변환한다", () => {
     const html = [
       "<html><body><article class=\"page\">",
