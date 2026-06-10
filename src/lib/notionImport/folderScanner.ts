@@ -133,11 +133,20 @@ export async function scanNotionFolder(dir: FileSystemDirectoryHandle): Promise<
   for (const f of assetFiles) {
     const mime = assetMimeFromName(f.name);
     if (!mime) continue;
+    // FileSystemFileHandle 은 스캔 시점에 크기를 알 수 없어 실제 size 를 getFile() 로 채운다.
+    // size 를 0 으로 두면 업로드 단계의 "빈 파일" 사전 차단(uploadNotionAsset)에 걸려
+    // 폴더 가져오기에서 모든 에셋이 누락된다. (getFile 의 .size 는 메타데이터라 본문을 읽지 않음)
+    let size = 0;
+    try {
+      size = (await f.handle.getFile()).size;
+    } catch {
+      size = 0;
+    }
     assets.push({
       path: f.path,
       name: f.name,
       mimeType: mime,
-      size: 0,
+      size,
       readAsFile: async () => {
         const file = await f.handle.getFile();
         return new File([file], f.name, { type: mime });
