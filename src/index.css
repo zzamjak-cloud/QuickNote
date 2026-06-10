@@ -1384,3 +1384,31 @@ li [data-indent] { margin-left: 0; }
 .EmojiPickerReact.epr-dark-theme .epr-emoji-category-label {
   color: #71717a !important;
 }
+
+/* 실시간 협업 원격 커서(yCursorPlugin cursorBuilder 와 매칭) */
+.qn-collab-cursor {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 2px solid;
+  border-right: none;
+  word-break: normal;
+  pointer-events: none;
+}
+.qn-collab-cursor-label {
+  position: absolute;
+  top: -1.4em;
+  left: -2px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+  white-space: nowrap;
+  padding: 2px 4px;
+  border-radius: 4px 4px 4px 0;
+  user-select: none;
+  pointer-events: none;
+}
+.qn-collab-selection {
+  border-radius: 2px;
+}
