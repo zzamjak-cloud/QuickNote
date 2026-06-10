@@ -50,4 +50,19 @@ describe("wsProtocol", () => {
     expect(parseServerMessage("not json")).toBeNull();
     expect(parseServerMessage(JSON.stringify({ t: "nope" }))).toBeNull();
   });
+
+  it("awareness 클라이언트 메시지를 직렬화한다", () => {
+    const bytes = new Uint8Array([5, 6, 7]);
+    const raw = serializeClientMessage({ t: "awareness", update: bytes });
+    const obj = JSON.parse(raw);
+    expect(obj.t).toBe("awareness");
+    expect(decodeBytes(obj.update)).toEqual(bytes);
+  });
+
+  it("awareness 서버 메시지를 파싱한다", () => {
+    const bytes = new Uint8Array([9, 8]);
+    const raw = JSON.stringify({ t: "awareness", update: encodeBytes(bytes) });
+    const msg = parseServerMessage(raw);
+    expect(msg).toEqual({ t: "awareness", update: bytes });
+  });
 });

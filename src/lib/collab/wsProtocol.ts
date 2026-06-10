@@ -4,11 +4,13 @@
 export type ClientMessage =
   | { t: "hello"; sv: Uint8Array }
   | { t: "update"; update: Uint8Array }
-  | { t: "sv-reply"; update: Uint8Array };
+  | { t: "sv-reply"; update: Uint8Array }
+  | { t: "awareness"; update: Uint8Array };
 
 export type ServerMessage =
   | { t: "sync"; update: Uint8Array; sv: Uint8Array }
-  | { t: "update"; update: Uint8Array };
+  | { t: "update"; update: Uint8Array }
+  | { t: "awareness"; update: Uint8Array };
 
 // Uint8Array → base64 문자열 (서버 Buffer.toString("base64") 와 바이트 동일)
 export function encodeBytes(bytes: Uint8Array): string {
@@ -46,6 +48,9 @@ export function parseServerMessage(raw: string): ServerMessage | null {
   }
   if (o.t === "update" && typeof o.update === "string") {
     return { t: "update", update: decodeBytes(o.update) };
+  }
+  if (o.t === "awareness" && typeof o.update === "string") {
+    return { t: "awareness", update: decodeBytes(o.update) };
   }
   return null;
 }
