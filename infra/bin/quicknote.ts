@@ -80,13 +80,15 @@ const syncStack = new QuicknoteSyncStack(app, `${stackPrefix}QuicknoteSyncStack`
 });
 
 // 실시간 협업 스택 — WS API + Yjs 테이블 + Lambda.
-// userPoolId·webClientId 는 Cognito 스택에서, Pages 테이블 이름/ARN 은 Sync 스택에서 주입.
+// 기본은 Cognito/Sync 스택에서 교차참조로 주입한다(live·전체 배포 시).
+// 단, 단일 스택만 격리 배포할 때는 교차참조(Fn::ImportValue)가 생기면 생산 스택까지
+// 함께 갱신해야 하므로, COLLAB_* 환경변수가 주어지면 그 리터럴 값을 사용해 교차참조를 끊는다.
 new QuicknoteRealtimeCollabStack(app, `${stackPrefix}QuicknoteRealtimeCollabStack`, {
   env,
   envPrefix,
   description: `QuickNote [${deployEnv}] 실시간 협업 스택 (WS API + DDB + Lambda)`,
-  userPoolId: cognitoStack.userPoolId,
-  userPoolClientId: cognitoStack.webClientId,
-  pageTableName: syncStack.pageTable.table.tableName,
-  pageTableArn: syncStack.pageTable.table.tableArn,
+  userPoolId: process.env.COLLAB_USER_POOL_ID ?? cognitoStack.userPoolId,
+  userPoolClientId: process.env.COLLAB_WEB_CLIENT_ID ?? cognitoStack.webClientId,
+  pageTableName: process.env.COLLAB_PAGE_TABLE_NAME ?? syncStack.pageTable.table.tableName,
+  pageTableArn: process.env.COLLAB_PAGE_TABLE_ARN ?? syncStack.pageTable.table.tableArn,
 });
