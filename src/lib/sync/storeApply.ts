@@ -153,6 +153,8 @@ function gqlPageMetaToLocalPage(p: GqlPageMeta, local?: Page): Page {
     fullPageDatabaseId: p.fullPageDatabaseId ?? undefined,
     dbCells: local?.dbCells,
     createdByMemberId: p.createdByMemberId ?? undefined,
+    lastEditedByMemberId: p.lastEditedByMemberId ?? local?.lastEditedByMemberId,
+    lastEditedByName: p.lastEditedByName ?? local?.lastEditedByName,
     createdAt: isoToMs(p.createdAt) || Date.now(),
     updatedAt: isoToMs(p.updatedAt) || Date.now(),
     contentLoaded: local?.contentLoaded === true ? true : false,

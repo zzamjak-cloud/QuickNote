@@ -2,7 +2,7 @@
 // 빌드 시 env 로 빼면 한 클라이언트만 댓글을 못 읽거나 Put 시 필드가 사라져 동기화가 깨진다.
 const PAGE_FIELDS = `
   id workspaceId createdByMemberId title icon coverImage parentId order databaseId fullPageDatabaseId
-  doc dbCells blockComments createdAt updatedAt deletedAt
+  doc dbCells blockComments lastEditedByMemberId lastEditedByName createdAt updatedAt deletedAt
 `;
 
 export const LIST_PAGES = `
@@ -16,7 +16,7 @@ export const LIST_PAGES = `
 
 const PAGE_META_FIELDS = `
   id workspaceId createdByMemberId title icon coverImage parentId order databaseId fullPageDatabaseId
-  createdAt updatedAt deletedAt
+  lastEditedByMemberId lastEditedByName createdAt updatedAt deletedAt
 `;
 
 export const LIST_PAGE_METAS = `
@@ -135,6 +135,8 @@ export type GqlPage = {
   doc: unknown;
   dbCells?: unknown | null;
   blockComments?: unknown | null;
+  lastEditedByMemberId?: string | null;
+  lastEditedByName?: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;

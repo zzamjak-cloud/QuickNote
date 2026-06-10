@@ -24,6 +24,10 @@ export type Page = {
   blockComments?: PageBlockCommentsSnapshot;
   /** 페이지를 생성한 멤버 id — 댓글 알림 수신 대상 판별에 사용 */
   createdByMemberId?: string;
+  /** 마지막으로 본문/메타를 편집한 멤버 id — 서버 upsert 시 caller 로 스탬프. 미보유 시 createdByMemberId 폴백 */
+  lastEditedByMemberId?: string;
+  /** 마지막 편집자 표시 이름(스탬프 시점 스냅샷) */
+  lastEditedByName?: string;
   /** 원격 메타만 로드된 상태면 false. 실제 doc fetch 후 true/undefined 로 전환한다. */
   contentLoaded?: boolean;
 };

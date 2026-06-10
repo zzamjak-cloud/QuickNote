@@ -1296,6 +1296,10 @@ export async function upsertPage(args: {
   // 보호 DB row 의 org/팀/프로젝트 scope 키를 비정규화해 sparse GSI 색인 대상으로 만든다.
   deriveDatabaseRowScopeKeys(input);
   preserveExistingDocForPlaceholderInput(input, existingPage);
+  // 마지막 편집자 스탬프(§9.1) — 변경별 귀속이 아니라 페이지당 최종 편집자 1명.
+  // 협업 모드의 materialize 도 이 upsertPage 경로를 타므로 caller 가 곧 편집 유발자.
+  input.lastEditedByMemberId = args.caller.memberId;
+  input.lastEditedByName = args.caller.name;
   const saved = await upsertRecord({ ...args, tableName: args.tables.Pages, input });
   try {
     await recordPageHistory({

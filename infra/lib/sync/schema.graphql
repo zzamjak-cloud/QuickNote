@@ -128,6 +128,10 @@ type Page @aws_cognito_user_pools @aws_iam {
   dbCells: AWSJSON
   """블록 댓글 스레드·읽음 상태 JSON(`{ messages, threadVisitedAt }`)."""
   blockComments: AWSJSON
+  """마지막으로 편집한 멤버 id. upsertPage 가 caller 로 권위적 스탬프(없으면 createdByMemberId 폴백)."""
+  lastEditedByMemberId: ID
+  """마지막 편집자 표시 이름(스탬프 시점 스냅샷)."""
+  lastEditedByName: String
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
   deletedAt: AWSDateTime

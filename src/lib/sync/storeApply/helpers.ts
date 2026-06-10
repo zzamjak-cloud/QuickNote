@@ -139,6 +139,8 @@ export function gqlPageToLocalPage(p: GqlPage): Page {
     databaseId: p.databaseId ?? undefined,
     dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
     createdByMemberId: p.createdByMemberId ?? undefined,
+    lastEditedByMemberId: p.lastEditedByMemberId ?? undefined,
+    lastEditedByName: p.lastEditedByName ?? undefined,
     createdAt: isoToMs(p.createdAt) || Date.now(),
     updatedAt: isoToMs(p.updatedAt) || Date.now(),
     contentLoaded: true,
