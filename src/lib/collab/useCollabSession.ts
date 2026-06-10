@@ -47,7 +47,8 @@ export function useCollabSession(
     awarenessRef.current = new Awareness(docRef.current);
   }
 
-  // me 가 변경될 때마다 awareness local user 필드를 갱신한다.
+  // me 변경 시, 그리고 pageId 전환으로 새 awareness 가 만들어진 직후 local user 필드를 갱신한다.
+  // (pageId 를 deps 에서 빼면 새 페이지의 새 Awareness 에 user 가 안 실려 피어가 이름·색을 못 본다.)
   useEffect(() => {
     const awareness = awarenessRef.current;
     if (!enabled || !awareness || !me) return;
@@ -57,7 +58,7 @@ export function useCollabSession(
       color: collabColor(me.memberId),
       avatarUrl: me.avatarUrl ?? null,
     });
-  }, [enabled, me]);
+  }, [enabled, pageId, me]);
 
   useEffect(() => {
     if (!enabled || !pageId) return undefined;
