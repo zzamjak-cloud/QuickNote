@@ -103,6 +103,7 @@ import {
   trySyncFullPageDatabaseTitle,
 } from "./editorHelpers";
 import { useEditorExtensions } from "./useEditorExtensions";
+import { useCollabSession } from "../../lib/collab/useCollabSession";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
@@ -300,11 +301,16 @@ export function Editor({
     };
   }, []);
 
+  // 협업 세션 — flag OFF 면 enabled:false(현행 경로). ON 이면 Y.Doc·provider 생성·sync 상태 추적.
+  const collab = useCollabSession(effectivePageId);
+  const collabDoc = collab.enabled ? collab.doc : null;
+
   const extensions = useEditorExtensions({
     lowlightApi,
     isFullPageDatabase,
     effectivePageId,
     myMemberId,
+    collabDoc,
   });
 
   const editorProps = useEditorProps({
@@ -337,7 +343,7 @@ export function Editor({
         setUniqueIdFilterHostEditor(null);
       },
     },
-    [lowlightApi, isFullPageDatabase],
+    [lowlightApi, isFullPageDatabase, collabDoc],
   );
 
   // PageContext storage 동기화 — 슬래시 명령(/페이지 등) 이 현재 호스트 페이지를 식별하기 위함.
@@ -445,6 +451,8 @@ export function Editor({
   const lastNormalizedDocRef = useRef<unknown>(null);
   useEffect(() => {
     if (!editor || !pageDoc || !safePageDoc || !effectivePageId) return;
+    // 협업 ON 페이지: 본문 권위는 Y.Doc. 원격/스토어 JSON 을 에디터로 역주입하지 않는다.
+    if (collab.enabled) return;
     if (
       lastNormalizedDocRef.current !== pageDoc &&
       !tipTapJsonDocEquals(editor.schema, safePageDoc, pageDoc)
@@ -506,6 +514,7 @@ export function Editor({
     safePageDoc,
     isFullPageDatabase,
     updateDoc,
+    collab.enabled,
   ]);
 
   // 검색 결과 클릭으로 들어온 대기 중 이동 요청 소비.
@@ -567,6 +576,7 @@ export function Editor({
   useEffect(() => {
     if (!editor) return;
     const handler = () => {
+      if (collab.enabled) return; // 협업 모드: materialize 가 단방향 저장 담당
       if (!effectivePageId) return;
       if (!storeDocHydratedRef.current) return;
       // selection 변경 등 doc 내용이 바뀌지 않은 경우 타이머 스케줄 자체를 생략
@@ -611,7 +621,7 @@ export function Editor({
         docSyncTimerRef.current = null;
       }
     };
-  }, [editor, effectivePageId, flushDocSync, scheduleDocSync, updateDoc]);
+  }, [editor, effectivePageId, flushDocSync, scheduleDocSync, updateDoc, collab.enabled]);
 
   useEffect(() => {
     if (!editor) return;
@@ -791,7 +801,9 @@ export function Editor({
   // DB 블록의 React NodeView 내부 input/button 은 contenteditable 영향 밖이라 정상 동작.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    editor.setEditable(!isFullPageDatabase);
+    // 협업 ON 페이지: 서버 초기 sync 완료 전에는 read-only(초기 콘텐츠 중복 삽입 방지).
+    const collabBlocking = collab.enabled && !collab.synced;
+    editor.setEditable(!isFullPageDatabase && !collabBlocking);
     if (isFullPageDatabase) {
       // PM 이 atom 단독 doc 에 자동으로 NodeSelection 을 만들어 .ProseMirror-selectednode 가
       // 보이는 현상 + BubbleToolbar 가 뜨는 현상을 막기 위해 선택을 점선택으로 접고 포커스 해제.
@@ -802,7 +814,7 @@ export function Editor({
       }
       if (!editor.isDestroyed && editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
     }
-  }, [editor, isFullPageDatabase]);
+  }, [editor, isFullPageDatabase, collab.enabled, collab.synced]);
 
   // 슬래시 "페이지 링크" 명령이 발행하는 커스텀 이벤트를 수신 → mention search modal 열기
   useEffect(() => {

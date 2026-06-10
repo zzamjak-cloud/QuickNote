@@ -69,6 +69,7 @@ import {
 } from "../../lib/safeUrl";
 import { createSlashRenderer } from "./slashRenderer";
 import { editorUniqueIdFilterTransaction } from "./editorUniqueIdFilter";
+import { Collaboration } from "../../lib/tiptapExtensions/collaboration";
 
 type LowlightApi = ReturnType<typeof createLowlight>;
 
@@ -77,6 +78,8 @@ type UseEditorExtensionsParams = {
   isFullPageDatabase: boolean;
   effectivePageId: string | null | undefined;
   myMemberId: string | undefined;
+  /** 협업 모드일 때 바인딩할 Y.Doc. null 이면 비협업(현행). */
+  collabDoc: import("yjs").Doc | null;
 };
 
 /**
@@ -88,6 +91,7 @@ export function useEditorExtensions({
   isFullPageDatabase,
   effectivePageId,
   myMemberId,
+  collabDoc,
 }: UseEditorExtensionsParams) {
   const extensions = useMemo(
     () => [
@@ -104,6 +108,8 @@ export function useEditorExtensions({
         // 아래는 동일 이름으로 별도 등록하므로 StarterKit 쪽은 끈다.
         link: false,
         horizontalRule: false,
+        // 협업 모드에서는 네이티브 undo/redo 를 끄고 Collaboration(Yjs) 히스토리로 일원화한다.
+        undoRedo: collabDoc ? false : undefined,
         dropcursor: {
           color: false,
           width: 2,
@@ -211,8 +217,10 @@ export function useEditorExtensions({
         /** 짧은 텍스트 입력마다 appendTransaction 생략 → youtube·임베드 불필요 갱신 방지 */
         filterTransaction: editorUniqueIdFilterTransaction,
       }),
+      // 협업 ON 일 때만 Y.Doc 에 바인딩되는 Collaboration extension 주입.
+      ...(collabDoc ? [Collaboration.configure({ doc: collabDoc })] : []),
     ],
-    [lowlightApi, isFullPageDatabase, effectivePageId, myMemberId],
+    [lowlightApi, isFullPageDatabase, effectivePageId, myMemberId, collabDoc],
   );
 
   return extensions;
