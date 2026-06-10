@@ -2,6 +2,7 @@
 import * as cdk from "aws-cdk-lib";
 import { CognitoStack } from "../lib/cognito-stack";
 import { QuicknoteSyncStack } from "../lib/sync-stack";
+import { QuicknoteRealtimeCollabStack } from "../lib/realtime-collab-stack";
 
 const app = new cdk.App();
 
@@ -56,7 +57,7 @@ const imagesBucketName =
   (app.node.tryGetContext("imagesBucketName") as string | undefined) ??
   `${envPrefix}quicknote-images-${env.account ?? "unknown"}-${env.region}`;
 
-new QuicknoteSyncStack(app, `${stackPrefix}QuicknoteSyncStack`, {
+const syncStack = new QuicknoteSyncStack(app, `${stackPrefix}QuicknoteSyncStack`, {
   env,
   envPrefix,
   description: `QuickNote [${deployEnv}] 동기화 스택 (AppSync + DDB + S3 + Lambda)`,
@@ -76,4 +77,16 @@ new QuicknoteSyncStack(app, `${stackPrefix}QuicknoteSyncStack`, {
   workspaceAccessTableName: isDev
     ? `${envPrefix}quicknote-workspace-access-v6`
     : (app.node.tryGetContext("workspaceAccessTableName") as string | undefined),
+});
+
+// 실시간 협업 스택 — WS API + Yjs 테이블 + Lambda.
+// userPoolId·webClientId 는 Cognito 스택에서, Pages 테이블 이름/ARN 은 Sync 스택에서 주입.
+new QuicknoteRealtimeCollabStack(app, `${stackPrefix}QuicknoteRealtimeCollabStack`, {
+  env,
+  envPrefix,
+  description: `QuickNote [${deployEnv}] 실시간 협업 스택 (WS API + DDB + Lambda)`,
+  userPoolId: cognitoStack.userPoolId,
+  userPoolClientId: cognitoStack.webClientId,
+  pageTableName: syncStack.pageTable.table.tableName,
+  pageTableArn: syncStack.pageTable.table.tableArn,
 });

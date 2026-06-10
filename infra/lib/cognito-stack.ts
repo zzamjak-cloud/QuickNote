@@ -25,6 +25,8 @@ export class CognitoStack extends cdk.Stack {
   // 다른 스택에서 cross-stack reference 로 참조하기 위한 공개 getter.
   public readonly userPoolId: string;
   public readonly userPoolArn: string;
+  // 웹 클라이언트 ID — 실시간 협업 스택의 WS 인증(ID 토큰 검증)에서 사용한다.
+  public readonly webClientId: string;
 
   constructor(scope: Construct, id: string, props: CognitoStackProps) {
     super(scope, id, props);
@@ -199,5 +201,6 @@ export class CognitoStack extends cdk.Stack {
 
     this.userPoolId = userPool.userPoolId;
     this.userPoolArn = userPool.userPoolArn;
+    this.webClientId = webClient.userPoolClientId;
   }
 }
