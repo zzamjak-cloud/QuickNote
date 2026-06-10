@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { QnWsProvider } from "../QnWsProvider";
-import { serializeClientMessage, parseServerMessage, encodeBytes } from "../wsProtocol";
+import { encodeBytes } from "../wsProtocol";
 
 // 최소 가짜 WebSocket — provider 가 기대하는 인터페이스만 구현.
 class FakeSocket {
@@ -79,7 +79,7 @@ describe("QnWsProvider", () => {
   });
 
   it("서버 update 수신분은 다시 서버로 echo 하지 않는다", () => {
-    const { socket, provider, doc } = makeProvider();
+    const { socket, provider } = makeProvider();
     provider.connect();
     socket.open();
     socket.sent.length = 0;
