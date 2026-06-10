@@ -42,6 +42,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   const dbList = useDatabaseStore(listDatabases);
   const databases = useDatabaseStore((s) => s.databases);
   const dbTemplates = useDatabaseStore((s) => s.dbTemplates);
+  const deleteDatabase = useDatabaseStore((s) => s.deleteDatabase);
   const pages = usePageStore((s) => s.pages);
   const findFullPagePageIdForDatabase = usePageStore(
     (s) => s.findFullPagePageIdForDatabase,
@@ -70,6 +71,25 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   const [pendingBulkPurge, setPendingBulkPurge] = useState(false);
   /** 일괄 영구삭제 진행률 — null=비실행, { done, total } */
   const [bulkPurgeProgress, setBulkPurgeProgress] = useState<{ done: number; total: number } | null>(null);
+  // ── 숨겨진 빠른 삭제 기능 (활성 DB 일괄 삭제) ──
+  // 제목 왼쪽 DB 아이콘 더블클릭으로 활성화되는 테스트용 단축 기능.
+  /** 활성 DB 리스트에 체크박스를 노출하는 모드 여부 */
+  const [activeCheckboxMode, setActiveCheckboxMode] = useState(false);
+  /** 체크박스 활성화 확인 팝업 표시 여부 */
+  const [pendingEnableCheckbox, setPendingEnableCheckbox] = useState(false);
+  /** 체크된 활성 DB id 집합 */
+  const [selectedActiveIds, setSelectedActiveIds] = useState<Set<string>>(new Set());
+  /** 활성 DB 일괄 삭제 확인 팝업 표시 여부 */
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
+
+  // 다이얼로그가 닫히면 숨겨진 삭제 모드 상태를 초기화한다.
+  useEffect(() => {
+    if (open) return;
+    setActiveCheckboxMode(false);
+    setPendingEnableCheckbox(false);
+    setSelectedActiveIds(new Set());
+    setPendingBulkDelete(false);
+  }, [open]);
 
   // DB Manager 열릴 때 보호 DB(작업·마일스톤·피처) 자동 시드 — 한번도 진입한 적 없는 워크스페이스 대응
   useEffect(() => {
@@ -259,6 +279,22 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
     }
   };
 
+  // 체크된 활성 DB 를 일괄 삭제(휴지통으로 이동)한다. 보호 DB 는 store 에서 자동 제외.
+  const confirmBulkDelete = () => {
+    setPendingBulkDelete(false);
+    const ids = Array.from(selectedActiveIds);
+    if (ids.length === 0) return;
+    let deleted = 0;
+    for (const id of ids) {
+      if (isProtectedDatabaseId(id)) continue;
+      deleteDatabase(id);
+      deleted += 1;
+    }
+    setSelectedActiveIds(new Set());
+    setActiveCheckboxMode(false);
+    showToast(`${deleted}개 데이터베이스를 삭제했습니다.`, { kind: "success" });
+  };
+
   const openDatabase = (databaseId: string) => {
     setActivePage(null);
     setCurrentTabDatabase(databaseId);
@@ -286,10 +322,27 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
             id="qn-db-manager-title"
             className="flex items-center gap-2 text-xl font-bold text-zinc-900 dark:text-zinc-100"
           >
-            <Database size={20} />
+            {/* 숨겨진 단축: DB 아이콘 더블클릭 → 체크박스 활성화 확인 팝업 */}
+            <span
+              onDoubleClick={() => setPendingEnableCheckbox(true)}
+              className="inline-flex cursor-default select-none"
+              title=""
+            >
+              <Database size={20} />
+            </span>
             데이터베이스 관리
           </h2>
           <div className="flex items-center gap-2">
+            {activeCheckboxMode && (
+              <button
+                type="button"
+                onClick={() => setPendingBulkDelete(true)}
+                disabled={selectedActiveIds.size === 0}
+                className="rounded border border-red-300 px-2.5 py-1 text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+              >
+                {selectedActiveIds.size}개 모두 삭제
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowDeleted(true)}
@@ -336,6 +389,21 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
                 key={d.id}
                 className="flex items-center justify-between gap-3 border-b border-zinc-100 px-3 py-2.5 text-lg last:border-b-0 dark:border-zinc-800"
               >
+                {activeCheckboxMode && !isProtectedDatabaseId(d.id) && (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 shrink-0 rounded"
+                    checked={selectedActiveIds.has(d.id)}
+                    onChange={(e) => {
+                      setSelectedActiveIds((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(d.id);
+                        else next.delete(d.id);
+                        return next;
+                      });
+                    }}
+                  />
+                )}
                 <span className="flex min-w-0 flex-1 items-center gap-2">
                   <span className="truncate font-medium text-zinc-800 dark:text-zinc-100">
                     {d.meta.title}
@@ -514,6 +582,33 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
         zIndex={560}
         onCancel={() => setPendingBulkPurge(false)}
         onConfirm={() => void confirmBulkPurge()}
+      />
+      {/* 숨겨진 단축: 체크박스 활성화 확인 */}
+      <SimpleConfirmDialog
+        open={pendingEnableCheckbox}
+        title="DB 관리 체크박스"
+        message="DB 관리를 위한 체크박스를 활성화하시겠습니까?"
+        confirmLabel="활성화"
+        cancelLabel="취소"
+        zIndex={560}
+        onCancel={() => setPendingEnableCheckbox(false)}
+        onConfirm={() => {
+          setActiveCheckboxMode(true);
+          setSelectedActiveIds(new Set());
+          setPendingEnableCheckbox(false);
+        }}
+      />
+      {/* 숨겨진 단축: 활성 DB 일괄 삭제 확인 */}
+      <SimpleConfirmDialog
+        open={pendingBulkDelete}
+        title="데이터베이스 삭제"
+        message={`${selectedActiveIds.size}개의 DB를 모두 삭제하시겠습니까?`}
+        confirmLabel="모두 삭제"
+        cancelLabel="취소"
+        danger
+        zIndex={560}
+        onCancel={() => setPendingBulkDelete(false)}
+        onConfirm={() => confirmBulkDelete()}
       />
     </div>
   );

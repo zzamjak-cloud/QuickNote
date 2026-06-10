@@ -105,38 +105,36 @@ function cacheKey(workspaceId: string, pageId: string, historyId: string): strin
   return `${workspaceId}::${pageId}::${historyId}`;
 }
 
-function readCache(): CachedSnapshot[] {
-  if (typeof localStorage === "undefined") return [];
+// 캐시는 빌드당 1회만 읽고(parse) 1회만 쓴다(stringify).
+// 과거에는 엔트리마다 readCache/writeCache 를 호출해 O(N×캐시크기) 의 JSON 직렬화가
+// 메인 스레드에서 발생, 버전 히스토리 팝업이 심하게 렉이 걸렸다.
+function readCacheMap(): Map<string, CachedSnapshot> {
+  const map = new Map<string, CachedSnapshot>();
+  if (typeof localStorage === "undefined") return map;
   try {
     const raw = localStorage.getItem(CACHE_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    if (Array.isArray(parsed)) {
+      for (const item of parsed as CachedSnapshot[]) {
+        if (item && typeof item.key === "string") map.set(item.key, item);
+      }
+    }
   } catch {
-    return [];
+    /* 캐시 파싱 실패는 무시(빈 캐시로 진행). */
   }
+  return map;
 }
 
-function writeCache(items: CachedSnapshot[]): void {
+function writeCacheMap(map: Map<string, CachedSnapshot>): void {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify(items.slice(-CACHE_MAX)),
-    );
+    const items = Array.from(map.values())
+      .sort((a, b) => a.ts - b.ts)
+      .slice(-CACHE_MAX);
+    localStorage.setItem(CACHE_KEY, JSON.stringify(items));
   } catch {
     /* 캐시는 실패해도 기능에 영향이 없어야 한다. */
   }
-}
-
-function getCachedSnapshot(key: string): PageSnapshot | null {
-  const hit = readCache().find((item) => item.key === key);
-  return hit ? cloneJson(hit.snapshot) : null;
-}
-
-function putCachedSnapshot(key: string, snapshot: PageSnapshot): void {
-  const items = readCache().filter((item) => item.key !== key);
-  items.push({ key, ts: Date.now(), snapshot: cloneJson(snapshot) });
-  writeCache(items.sort((a, b) => a.ts - b.ts));
 }
 
 function sortHistoryAsc(entries: GqlPageHistoryEntry[]): GqlPageHistoryEntry[] {
@@ -154,14 +152,18 @@ export function buildPageHistorySnapshotMap(
   workspaceId: string,
 ): Map<string, PageSnapshot> {
   const out = new Map<string, PageSnapshot>();
+  const cache = readCacheMap();
   let snapshot: PageSnapshot | null = null;
+  let dirty = false;
   for (const entry of sortHistoryAsc(entries)) {
     if (entry.workspaceId !== workspaceId) continue;
     const key = cacheKey(workspaceId, pageId, entry.historyId);
-    const cached = getCachedSnapshot(key);
+    const cached = cache.get(key);
     if (cached) {
-      snapshot = cached;
-      out.set(entry.historyId, cached);
+      // 캐시된 스냅샷은 다운스트림에서 읽기 전용으로만 쓰이고,
+      // 다음 패치는 applyPagePatch 가 base 를 cloneJson 한 뒤 적용하므로 공유해도 안전하다.
+      snapshot = cached.snapshot;
+      out.set(entry.historyId, snapshot);
       continue;
     }
     const anchor = parseAwsJson(entry.anchor);
@@ -169,9 +171,11 @@ export function buildPageHistorySnapshotMap(
     snapshot = applyPagePatch(snapshot, entry.patch);
     if (snapshot) {
       out.set(entry.historyId, snapshot);
-      putCachedSnapshot(key, snapshot);
+      cache.set(key, { key, ts: Date.now(), snapshot });
+      dirty = true;
     }
   }
+  if (dirty) writeCacheMap(cache);
   return out;
 }
 

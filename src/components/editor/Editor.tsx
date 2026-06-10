@@ -53,10 +53,11 @@ import { BlockHandles } from "./BlockHandles";
 import { ColumnReorderHandles } from "./ColumnReorderHandles";
 import { TableBlockControls } from "./TableBlockControls";
 import { stripStaleBlobImages } from "../../lib/sanitizeDocImages";
+import { isTrustedYoutubeInput } from "../../lib/safeUrl";
 import {
-  isTrustedYoutubeInput,
-  sanitizeWebLinkHref,
-} from "../../lib/safeUrl";
+  applyLinkBlockChoice,
+  type LinkBlockMode,
+} from "../../lib/editor/linkBlockConvert";
 import { useBoxSelect } from "../../hooks/useBoxSelect";
 import { tipTapJsonDocEquals } from "../../lib/pm/jsonDocEquals";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
@@ -351,59 +352,10 @@ export function Editor({
   }, [editor, effectivePageId]);
 
   const applyPasteUrlChoice = useCallback(
-    (mode: "mention" | "url" | "bookmark" | "embed") => {
+    (mode: LinkBlockMode) => {
       if (!editor || !pasteUrlChoice) return;
       const { url, range } = pasteUrlChoice;
-      const normalizedUrl = sanitizeWebLinkHref(url) ?? url;
-      const chain = editor.chain().focus().deleteRange(range);
-      if (mode === "embed" && isTrustedYoutubeInput(normalizedUrl)) {
-        chain.setYoutubeVideo({ src: normalizedUrl }).run();
-      } else if (mode === "url") {
-        chain
-          .insertContent({
-            type: "text",
-            text: normalizedUrl,
-            marks: [{ type: "link", attrs: { href: normalizedUrl } }],
-          })
-          .run();
-      } else if (mode === "bookmark") {
-        const fallbackHost = (() => {
-          try {
-            return new URL(normalizedUrl).hostname.replace(/^www\./, "");
-          } catch {
-            return "웹 페이지";
-          }
-        })();
-        chain
-          .insertContent({
-            type: "bookmarkBlock",
-            attrs: {
-              href: normalizedUrl,
-              title: fallbackHost,
-              description: normalizedUrl,
-              siteName: fallbackHost,
-              status: "loading",
-            },
-          })
-          .run();
-      } else {
-        const host = (() => {
-          try {
-            return new URL(normalizedUrl).hostname.replace(/^www\./, "");
-          } catch {
-            return "링크";
-          }
-        })();
-        chain
-          .insertContent({
-            type: "buttonBlock",
-            attrs: {
-              label: mode === "mention" ? host : `북마크 · ${host}`,
-              href: normalizedUrl,
-            },
-          })
-          .run();
-      }
+      applyLinkBlockChoice(editor, { url, range, mode });
       setPasteUrlChoice(null);
     },
     [editor, pasteUrlChoice],

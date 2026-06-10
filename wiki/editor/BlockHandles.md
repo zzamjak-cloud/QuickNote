@@ -137,6 +137,17 @@
 - **컬러칩 그리드**: `CALLOUT_COLOR_CHIP_PRESETS` 7개를 원형 컬러칩으로 표시. 클릭 시 아이콘 없이 배경색만 적용(`-plain` 접미사 presetId).
 - 프리셋 적용 커맨드: `editor.commands.updateCalloutPreset(presetId)` — `-plain` 계열은 emoji 유지, 일반 계열은 `emoji: null` 리셋.
 
+## 링크 형식 변환 메뉴 (멘션/URL/북마크/버튼)
+
+붙여넣기 링크 선택지(`Editor` 의 `pasteUrlChoice` → 멘션/URL/북마크/버튼·임베드)로 만든 링크를 사후에 서로 변환하는 컨텍스트 메뉴 행("링크 형식 변환").
+
+- 공용 로직: `src/lib/editor/linkBlockConvert.ts`
+  - `applyLinkBlockChoice(editor, {url, range, mode})` — 붙여넣기 선택지와 변환 메뉴가 공유. **`insertContentAt(range, content)`** 단일 트랜잭션으로 교체한다(과거 `deleteRange`+`insertContent` 는 stale selection 때문에 드래그핸들 호출 시 문서 끝에 삽입되고 undo 가 깨졌다).
+  - `getConvertibleLinkHref(node)` — 변환 가능한 노드면 href 반환, 아니면 null.
+- BlockHandles 에서 `linkBlockHref = getConvertibleLinkHref(hover.node)` 가 non-null 일 때만 행을 노출한다.
+
+> **CRITICAL — 노드 종류 차이**: `bookmarkBlock`·`youtube` 는 진짜 블록이라 `hover.node` 가 곧 그 블록이지만, **`buttonBlock`(멘션/버튼)은 `group:"inline" atom`** 이고 `URL` 모드는 인라인 link 마크 텍스트라, 둘 다 드래그핸들 hover 는 이를 감싼 **`paragraph`** 를 잡는다. 따라서 `getConvertibleLinkHref` 는 문단도 검사한다(`pureLinkParagraphHref`): ①인라인 `buttonBlock` 아톰 1개만 있는 문단 → 그 `attrs.href`, ②전체가 동일 link 마크 텍스트인 문단 → 그 href. 링크 외 콘텐츠가 섞이면 변환 대상 아님(문단 통째 교체 사고 방지). **`buttonBlock` 아톰은 `textContent` 에 기여하지 않으므로 `textContent` 빈값으로 조기 제외하면 안 된다.** 내부 페이지 링크(`quicknote://`)·DB 버튼은 `externalWebHref` 가 제외. 회귀 테스트: `src/lib/editor/__tests__/linkBlockConvert.test.ts`.
+
 ## 주의사항
 - **`pageId` prop 우선**: 피크 뷰처럼 `activePageId`와 다른 페이지를 편집할 때 `pageId` prop을 명시적으로 전달해야 올바른 페이지 ID를 사용한다.
 - **`dragCommittedRef`**: 드래그와 클릭을 구분하는 ref. `pointerdown` 후 일정 거리 이상 이동 시 `true`로 전환되어 `pointerup` 시 클릭 이벤트를 차단한다.

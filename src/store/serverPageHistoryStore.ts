@@ -54,6 +54,12 @@ function formatError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// 원본 엔트리 배열을 타임라인으로 변환. 컴포넌트에서 useMemo 로 감싸 호출하면
+// 셀렉터가 매 호출마다 새 배열을 반환하는 문제(불필요한 리렌더)를 피할 수 있다.
+export function buildPageTimeline(entries: GqlPageHistoryEntry[]): HistoryTimelineEntry[] {
+  return entries.map(toTimelineEntry);
+}
+
 export const useServerPageHistoryStore = create<State & Actions>()((set, get) => ({
   byPageId: {},
   loading: {},

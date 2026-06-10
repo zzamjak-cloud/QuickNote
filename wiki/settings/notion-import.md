@@ -15,6 +15,19 @@ Notion export(HTML/Markdown + CSV + 첨부 에셋)를 QuickNote 페이지·DB로
 | `src/lib/notionImport/assetUpload.ts` | 에셋 경로 매칭 리졸버 + S3 업로드 + 문서 노드 변환 |
 | `src/lib/notionImport/htmlToDoc.ts` | HTML → TipTap JSONContent 변환 |
 | `src/lib/notionImport/csvFolderImporter.ts` | CSV-HTML 쌍 감지·DB 생성·행/셀 채우기 |
+| `src/lib/notionImport/columnInference.ts` | CSV 컬럼 타입 추론(text/number/date/select/status/person 등) |
+| `src/lib/notionImport/personName.ts` | 사람 이름 정규화·토큰화·워크스페이스 구성원 매칭 |
+
+## 컬럼 타입 추론 — 사람(person) 감지
+
+`inferNotionColumnType`(`columnInference.ts`)이 헤더 키워드 + 값 패턴 + (HTML 경로면) `cellMeta`로 컬럼 타입을 정한다. person 으로 판정되면 다운스트림(`NotionCsvFolderSection`)에서 `splitPersonTokens` → `resolveImportedPersonMemberId`로 워크스페이스 구성원 memberId 배열로 저장돼 **구성원 멘션**으로 렌더된다.
+
+person 감지 신호(강→약):
+1. **강한 헤더 키워드**(`headerSuggestsPerson`): `담당`/`담당자`/`작성자`/`멘토`/`person`/`owner` → 즉시 person.
+2. **대괄호 이름 패턴**(`looksLikeBracketedPersonValue`): 값이 `최진평 [CAT]` / `이다은[BK]` 처럼 `이름 [태그]` 꼴(쉼표 다중도 허용)이 60% 이상이면 **헤더 키워드와 무관하게** person. Notion 이 사람 속성을 텍스트로 내보낼 때 흔한 강한 신호.
+3. **약한 헤더 키워드 + 토큰 비율**(`headerWeaklySuggestsPerson`): `이름`/`name`/`구성원`/`멤버`/`member`/`assignee` 헤더에서 값이 사람 토큰으로 80% 이상 분해되면 person.
+
+> **주의 — 약한 키워드는 단독 판정 금지**: `이름` 같은 헤더는 일반 텍스트 컬럼일 수도 있으므로(예: 제품명) 값 패턴 확인 없이 person 으로 단정하지 않는다. 대괄호 태그만 있고 이름이 없는 값(`[긴급]` 등)은 person 패턴이 아니다. 회귀 테스트: `src/__tests__/notionImport/columnInference.test.ts`.
 
 ## 입력 경로 3가지 (스캐너 분기)
 

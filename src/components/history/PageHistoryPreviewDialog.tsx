@@ -3,14 +3,11 @@ import { createPortal } from "react-dom";
 import { Check, Minus, RotateCcw, Trash2, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useMemberStore } from "../../store/memberStore";
-import { useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
+import { buildPageTimeline, useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
 import { useHistorySelection } from "./useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
-import {
-  buildPageHistorySnapshotMap,
-  getPreviousPageHistorySnapshot,
-} from "../../lib/history/pageHistoryPatch";
+import { buildPageHistorySnapshotMap } from "../../lib/history/pageHistoryPatch";
 import { buildPagePreviewChanges, summarizePreviewChanges } from "../../lib/history/historyPreviewDiff";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
@@ -36,11 +33,13 @@ export function PageHistoryPreviewDialog({
   const { members, me } = useMemberStore(
     useShallow((s) => ({ members: s.members, me: s.me })),
   );
-  const pageHistoryTimeline = useServerPageHistoryStore((s) =>
-    open && pageId ? s.getPageTimeline(pageId) : [],
-  );
   const historyEntries = useServerPageHistoryStore(
     (s) => (pageId ? s.byPageId[pageId] ?? EMPTY_ENTRIES : EMPTY_ENTRIES),
+  );
+  // 셀렉터가 매번 새 배열을 반환하지 않도록, 안정적인 원본 배열을 받아 useMemo 로 변환한다.
+  const pageHistoryTimeline = useMemo(
+    () => (open && pageId ? buildPageTimeline(historyEntries) : []),
+    [open, pageId, historyEntries],
   );
   const loading = useServerPageHistoryStore((s) => Boolean(pageId && s.loading[pageId]));
   const error = useServerPageHistoryStore((s) => (pageId ? s.error[pageId] ?? null : null));
@@ -92,9 +91,22 @@ export function PageHistoryPreviewDialog({
     [historyEntries, pageId, workspaceId],
   );
   const selectedAfter = selectedHistoryId ? snapshotMap.get(selectedHistoryId) ?? null : null;
-  const selectedBefore = selectedHistoryId && pageId && workspaceId
-    ? getPreviousPageHistorySnapshot(historyEntries, pageId, workspaceId, selectedHistoryId)
-    : null;
+  // 이전 스냅샷은 이미 만든 snapshotMap 에서 조회한다(과거엔 getPreviousPageHistorySnapshot 이
+  // 매 렌더마다 스냅샷 맵을 통째로 다시 빌드해 심한 렉을 유발했다).
+  const selectedBefore = useMemo(() => {
+    if (!selectedHistoryId || !workspaceId) return null;
+    const sorted = [...historyEntries]
+      .filter((e) => e.workspaceId === workspaceId)
+      .sort(
+        (a, b) =>
+          (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0) ||
+          a.historyId.localeCompare(b.historyId),
+      );
+    const idx = sorted.findIndex((e) => e.historyId === selectedHistoryId);
+    if (idx <= 0) return null;
+    const prevId = sorted[idx - 1]?.historyId;
+    return prevId ? snapshotMap.get(prevId) ?? null : null;
+  }, [historyEntries, snapshotMap, selectedHistoryId, workspaceId]);
 
   const previewContext = useMemo(() => {
     const dbId = selectedAfter?.databaseId ?? selectedBefore?.databaseId;

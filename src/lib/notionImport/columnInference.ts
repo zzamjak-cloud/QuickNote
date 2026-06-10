@@ -55,6 +55,33 @@ function headerSuggestsPerson(headerLower: string): boolean {
   );
 }
 
+// 약한 person 헤더 힌트 — 단독으로는 person 으로 단정하지 않고
+// 값이 사람 이름 패턴을 가질 때만 person 으로 본다("이름" 컬럼이 일반 텍스트인 경우 보호).
+function headerWeaklySuggestsPerson(headerLower: string): boolean {
+  return (
+    headerLower.includes("이름") ||
+    headerLower.includes("name") ||
+    headerLower.includes("구성원") ||
+    headerLower.includes("멤버") ||
+    headerLower.includes("member") ||
+    headerLower.includes("assignee")
+  );
+}
+
+// "최진평 [CAT]" / "이다은[BK]" 처럼 이름 뒤에 대괄호 태그가 붙은 토큰 패턴.
+// 노션에서 사람 속성을 텍스트로 내보낼 때 흔히 나타나는 강한 person 신호.
+const PERSON_BRACKET_TOKEN = /^[\p{L}][\p{L}\s.]*\[[^\]]+\]$/u;
+
+// 값의 모든 구분자 분할 조각이 "이름 [태그]" 패턴이면 사람 값으로 본다.
+function looksLikeBracketedPersonValue(raw: string): boolean {
+  const parts = raw
+    .split(/[;,/|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return false;
+  return parts.every((p) => PERSON_BRACKET_TOKEN.test(p));
+}
+
 function headerSuggestsDate(headerLower: string): boolean {
   return (
     headerLower.includes("날짜") ||
@@ -89,8 +116,18 @@ export function inferNotionColumnType(input: InferColumnInput): ColumnType {
   const dateCount = nonEmpty.filter((v) => parseDateLike(v) != null).length;
   if (dateCount / nonEmpty.length >= 0.7) return "date";
 
+  // 헤더 키워드 없이도 "이름 [태그]" 패턴이 다수면 person 으로 판정 (강한 신호).
+  const bracketPersonCount = nonEmpty.filter((v) => looksLikeBracketedPersonValue(v)).length;
+  if (bracketPersonCount / nonEmpty.length >= 0.6) return "person";
+
+  // 값이 사람 이름 토큰으로 잘 분해되고, 헤더가 강/약 person 힌트를 가지면 person.
   const personTokenCount = nonEmpty.filter((v) => splitPersonTokens(v).length > 0).length;
-  if (personTokenCount / nonEmpty.length >= 0.8 && headerSuggestsPerson(headerLower)) return "person";
+  if (
+    personTokenCount / nonEmpty.length >= 0.8 &&
+    (headerSuggestsPerson(headerLower) || headerWeaklySuggestsPerson(headerLower))
+  ) {
+    return "person";
+  }
 
   const multiRows = nonEmpty.filter((v) => splitMultiSelectTokens(v).length >= 2).length;
   if (multiRows / nonEmpty.length >= 0.5) return "multiSelect";

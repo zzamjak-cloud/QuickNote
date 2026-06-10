@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
@@ -20,7 +20,8 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
-import { useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
+import { buildPageTimeline, useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
+import type { GqlPageHistoryEntry } from "../../lib/sync/graphql/operations";
 import { useHistorySelection } from "../history/useHistorySelection";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
@@ -37,6 +38,9 @@ type Props = {
 };
 
 type ContextMenuPosition = { x: number; y: number };
+
+// 셀렉터에서 안정적인 빈 배열 참조를 쓰기 위한 모듈 상수.
+const EMPTY_HISTORY_ENTRIES: GqlPageHistoryEntry[] = [];
 
 const PAGE_CONTEXT_MENU_WIDTH = 208;
 const PAGE_CONTEXT_MENU_HEIGHT = 280;
@@ -498,7 +502,9 @@ function PageHistoryMenu({
   workspaceId: string;
   onClose: () => void;
 }) {
-  const pageHistoryTimeline = useServerPageHistoryStore((s) => s.getPageTimeline(pageId));
+  // 셀렉터가 매번 새 배열을 반환하지 않도록 원본 배열을 받아 useMemo 로 변환한다.
+  const historyEntries = useServerPageHistoryStore((s) => s.byPageId[pageId] ?? EMPTY_HISTORY_ENTRIES);
+  const pageHistoryTimeline = useMemo(() => buildPageTimeline(historyEntries), [historyEntries]);
   const fetchPageHistory = useServerPageHistoryStore((s) => s.fetchPageHistory);
   const restorePageHistoryEvent = useServerPageHistoryStore((s) => s.restorePageHistoryEvent);
   const deletePageHistoryEvents = useServerPageHistoryStore((s) => s.deletePageHistoryEvents);

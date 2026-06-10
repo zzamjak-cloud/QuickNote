@@ -82,6 +82,12 @@ import {
   visualElementForBlockNode,
 } from "./blockHandles/helpers";
 import { HoverMenuGroup, HoverMenuRow } from "./blockHandles/HoverMenuRow";
+import {
+  applyLinkBlockChoice,
+  getConvertibleLinkHref,
+  type LinkBlockMode,
+} from "../../lib/editor/linkBlockConvert";
+import { isTrustedYoutubeInput } from "../../lib/safeUrl";
 
 
 type Props = {
@@ -843,6 +849,8 @@ export function BlockHandles({
     : false;
   const isAttachmentBlock =
     hover ? isAttachmentBlockNodeType(hover.node.type.name) : false;
+  // 붙여넣기 링크 선택지로 만든 블록(버튼·북마크·유튜브)이면 형식 변환 메뉴를 노출한다.
+  const linkBlockHref = hover ? getConvertibleLinkHref(hover.node) : null;
   const shouldShowTypeChange =
     hover != null &&
     !["columnLayout", "column", "tabBlock", "tabPanel", "table"].includes(
@@ -1055,6 +1063,40 @@ export function BlockHandles({
                     ))}
                   </HoverMenuRow>
                 ) : null}
+
+                {/* 링크 형식 변환 (붙여넣기 링크 선택지로 만든 블록일 때만) */}
+                {linkBlockHref && (
+                  <HoverMenuRow icon={<Link2 size={14} />} label="링크 형식 변환" panelWidth="w-44" preferredMaxHeight={320}>
+                    {(
+                      [
+                        ["mention", "멘션"],
+                        ["url", "URL"],
+                        ["bookmark", "북마크"],
+                        ["embed", isTrustedYoutubeInput(linkBlockHref) ? "임베드" : "버튼"],
+                      ] as Array<[LinkBlockMode, string]>
+                    ).map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => {
+                          if (!editor || !hover) return;
+                          applyLinkBlockChoice(editor, {
+                            url: linkBlockHref,
+                            range: {
+                              from: hover.blockStart,
+                              to: hover.blockStart + hover.node.nodeSize,
+                            },
+                            mode,
+                          });
+                          setMenuOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </HoverMenuRow>
+                )}
 
                 {/* 콜아웃 프리셋 (콜아웃 블럭일 때만) */}
                 {isCallout && (

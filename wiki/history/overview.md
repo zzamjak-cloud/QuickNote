@@ -77,6 +77,16 @@ DB 히스토리는 한 화면에서 두 탭으로 본다 (`DatabaseBlockHistoryD
 | `src/lib/history/pageHistoryPatch.ts`, `databaseHistoryPatch.ts` | 서버 patch/anchor → 스냅샷 재구성(localStorage 캐시) |
 | `src/lib/sync/pageHistoryApi.ts`, `databaseHistoryApi.ts`, `trashApi.ts` | GraphQL 호출 래퍼 |
 
+## 성능 — 스냅샷 재구성·렌더 (회귀 주의)
+
+페이지/DB 히스토리 팝업은 patch/anchor 로 스냅샷을 재구성한다. 과거 다음 3가지가 겹쳐 팝업이 심하게 렉이 걸렸다(서버 통신 빈도 문제가 아니라 메인 스레드 동기 처리 폭주):
+
+1. **`buildPageHistorySnapshotMap` localStorage 캐시 thrashing** — 엔트리마다 캐시 전체(최대 300개)를 `JSON.parse`(read)하고 미스 시 `.sort()` 후 전체를 `JSON.stringify`(write)했다 → O(엔트리×캐시) 대용량 직렬화. **빌드당 read 1회 / write 1회**로 변경(`pageHistoryPatch.ts` `readCacheMap`/`writeCacheMap`). 캐시 히트 스냅샷은 읽기 전용으로 공유하고, 다음 패치는 `applyPagePatch` 가 base 를 clone 한 뒤 적용하므로 오염되지 않는다(테스트: `src/lib/history/__tests__/pageHistoryPatch.test.ts`).
+2. **렌더마다 맵 통째 재빌드** — `selectedBefore` 가 `getPreviousPageHistorySnapshot`(내부에서 맵 전체 재빌드)을 useMemo 없이 호출 → 매 렌더 재빌드. 이미 만든 `snapshotMap` 에서 이전 버전 id 를 조회하도록 useMemo 화(`PageHistoryPreviewDialog.tsx`).
+3. **셀렉터가 매 호출 새 배열 반환** — `useServerPageHistoryStore((s) => s.getPageTimeline(pageId))` 는 `.map()` 으로 매번 새 배열을 만들어 zustand 스냅샷이 불안정 → 잦은 리렌더(→ 위 2 반복). 원본 배열을 셀렉터로 받아 `buildPageTimeline`(store export)을 `useMemo` 로 감싸도록 변경(`PageHistoryPreviewDialog.tsx`, `PageListItem.tsx`).
+
+> 캐시 수정(#1)은 `DatabaseBlockHistoryDialog`(DB 히스토리)에도 동일 적용된다.
+
 ## 로컬 historyStore (`src/store/historyStore.ts`)
 
 서버 일원화로 거의 사용하지 않는다.
