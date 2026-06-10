@@ -104,6 +104,7 @@ import {
 } from "./editorHelpers";
 import { useEditorExtensions } from "./useEditorExtensions";
 import { useCollabSession } from "../../lib/collab/useCollabSession";
+import { useCollabPresence } from "../../lib/collab/useCollabPresence";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
@@ -304,6 +305,9 @@ export function Editor({
   // 협업 세션 — flag OFF 면 enabled:false(현행 경로). ON 이면 Y.Doc·provider 생성·sync 상태 추적.
   const collab = useCollabSession(effectivePageId);
   const collabDoc = collab.enabled ? collab.doc : null;
+  const collabAwareness = collab.enabled ? collab.awareness : null;
+  // presence 훅 — awareness 가 null 이면 내부에서 store 를 비운다 (React hook 규칙: 무조건 최상위 호출)
+  useCollabPresence(collabAwareness);
 
   const extensions = useEditorExtensions({
     lowlightApi,
@@ -311,6 +315,7 @@ export function Editor({
     effectivePageId,
     myMemberId,
     collabDoc,
+    collabAwareness,
   });
 
   const editorProps = useEditorProps({
@@ -343,7 +348,7 @@ export function Editor({
         setUniqueIdFilterHostEditor(null);
       },
     },
-    [lowlightApi, isFullPageDatabase, collabDoc],
+    [lowlightApi, isFullPageDatabase, collabDoc, collabAwareness],
   );
 
   // PageContext storage 동기화 — 슬래시 명령(/페이지 등) 이 현재 호스트 페이지를 식별하기 위함.

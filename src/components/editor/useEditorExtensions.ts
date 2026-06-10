@@ -80,6 +80,8 @@ type UseEditorExtensionsParams = {
   myMemberId: string | undefined;
   /** 협업 모드일 때 바인딩할 Y.Doc. null 이면 비협업(현행). */
   collabDoc: import("yjs").Doc | null;
+  /** 협업 모드일 때 presence 를 공유할 Awareness. null 이면 비협업(현행). */
+  collabAwareness: import("y-protocols/awareness").Awareness | null;
 };
 
 /**
@@ -92,6 +94,7 @@ export function useEditorExtensions({
   effectivePageId,
   myMemberId,
   collabDoc,
+  collabAwareness,
 }: UseEditorExtensionsParams) {
   const extensions = useMemo(
     () => [
@@ -218,9 +221,9 @@ export function useEditorExtensions({
         filterTransaction: editorUniqueIdFilterTransaction,
       }),
       // 협업 ON 일 때만 Y.Doc 에 바인딩되는 Collaboration extension 주입.
-      ...(collabDoc ? [Collaboration.configure({ doc: collabDoc })] : []),
+      ...(collabDoc ? [Collaboration.configure({ doc: collabDoc, awareness: collabAwareness })] : []),
     ],
-    [lowlightApi, isFullPageDatabase, effectivePageId, myMemberId, collabDoc],
+    [lowlightApi, isFullPageDatabase, effectivePageId, myMemberId, collabDoc, collabAwareness],
   );
 
   return extensions;
