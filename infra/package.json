@@ -32,12 +32,14 @@
     "@types/aws-lambda": "^8.10.145",
     "@types/node": "^20.14.10",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "aws-cdk": "^2.170.0",
     "esbuild": "^0.24.0",
     "ts-node": "^10.9.2",
     "typescript": "~5.5.4",
     "uuid": "^10.0.0",
-    "vitest": "^2.0.0"
+    "vitest": "^2.0.0",
+    "ws": "^8.21.0"
   },
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "^3.1065.0",
