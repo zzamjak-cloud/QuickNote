@@ -53,18 +53,13 @@ function MentionNodeView({ node }: NodeViewProps) {
           reactivePageIcon ? (
             <span className="page-mention-icon select-none">{reactivePageIcon}</span>
           ) : (
-            <FileText size={16} className="page-mention-icon shrink-0" strokeWidth={2} />
+            <FileText size={22} className="page-mention-icon shrink-0" strokeWidth={2} />
           )
         ) : null}
         {isDatabase ? (
           <span className="select-none text-xs">DB</span>
         ) : null}
         <span className="truncate">{label}</span>
-        {isPage ? (
-          <span className="page-mention-chevron" aria-hidden="true">
-            {">"}
-          </span>
-        ) : null}
       </span>
     </NodeViewWrapper>
   );
@@ -286,9 +281,6 @@ const MemberMentionNode = Mention.extend({
         : "",
       isDatabase ? ["span", { class: "select-none text-xs" }, "DB"] : "",
       ["span", { class: "truncate" }, label],
-      isPage
-        ? ["span", { class: "page-mention-chevron", "aria-hidden": "true" }, ">"]
-        : "",
     ];
   },
   renderText({ node }) {

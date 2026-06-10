@@ -64,15 +64,19 @@
 
 ## 페이지 멘션 칩 스타일 (`index.css`)
 
-`.page-mention` 은 블록 링크 버튼(`buttonBlock` 기본 프리셋)과 **동일한 회색 배경 + 아웃라인**으로 통일:
+`.page-mention` 은 **웹 링크 스타일** — 버튼 테두리·배경·패딩·`rounded` 없이 본문에 녹는 인라인 텍스트:
 
 | | 라이트 | 다크 |
 |---|---|---|
-| 테두리 | zinc-300 `#d4d4d8` | zinc-600 `#52525b` |
-| 배경 | zinc-50 `#fafafa` | zinc-800 `#27272a` |
-| 글자 | zinc-700 `#3f3f46` | zinc-200 `#e4e4e7` |
+| 글자 | zinc-950 `#18181b` | zinc-50 `#fafafa` |
+| 제목 밑줄(`.truncate`) | zinc-200 `#e4e4e7` | zinc-700 `#3f3f46` |
 
-`rounded-lg`, `font-medium`. 내부 요소(@·아이콘·chevron)는 `color: inherit`/`currentColor`. 구형 저장 HTML 폴백(`.member-mention[data-mention-kind="page"]`, `span.member-mention[data-id^="p:"]`)도 동일 스타일.
+- 글자 크기는 부모 본문 텍스트 상속(`font-size` 미지정), hover 시 `opacity: 0.7`.
+- 제목(`.truncate`)에만 `text-decoration: underline` + 연한 밑줄색(컬럼 구분선 톤). `text-underline-offset: 2px`.
+- 아이콘(`.page-mention-icon`) `font-size: 1.6rem` 으로 확대, `inline-flex`+`align-items:center` 로 텍스트와 수직 중앙정렬. 이모지 없을 땐 `FileText size={22}` 폴백.
+- **chevron(`>`) 제거됨** — `memberMention.tsx` 의 React 노드뷰·`renderHTML` 양쪽에서 삭제.
+
+구형 저장 HTML 폴백(`.member-mention[data-mention-kind="page"]`, `span.member-mention[data-id^="p:"]`)은 별도 규칙으로 남아있다(레거시 회색 칩).
 
 ---
 

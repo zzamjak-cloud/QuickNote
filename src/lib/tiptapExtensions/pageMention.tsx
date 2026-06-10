@@ -148,9 +148,6 @@ function PageMentionView({ node, editor }: NodeViewProps) {
         <span className="page-mention-icon">{icon}</span>
         {" "}
         <span className="truncate">{displayTitle}</span>
-        <span className="page-mention-chevron" aria-hidden="true">
-          {">"}
-        </span>
       </button>
     </NodeViewWrapper>
   );
@@ -230,7 +227,6 @@ const PageMentionNode = Mention.extend({
       ["span", { class: "page-mention-icon" }, icon],
       " ",
       ["span", { class: "truncate" }, displayTitle],
-      ["span", { class: "page-mention-chevron", "aria-hidden": "true" }, ">"],
     ];
   },
   renderText({ node }) {
