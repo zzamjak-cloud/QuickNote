@@ -6,9 +6,15 @@ import {
 } from "@aws-sdk/client-apigatewaymanagementapi";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import type { ClientMessage } from "./protocol";
 import { parseClientMessage, serializeServerMessage } from "./protocol";
 import { loadPageState, appendPageUpdate, diffForClient, stateVectorOf } from "./yjsStore";
 import { roomConnections, leaveRoom } from "./connections";
+
+/** awareness 메시지인지 — true 면 영속하지 않고 룸 fan-out 만 한다. */
+export function isAwarenessMessage(msg: ClientMessage): boolean {
+  return msg.t === "awareness";
+}
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE!;
@@ -59,6 +65,14 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     });
     await post(connectionId, reply);
     return { statusCode: 200, body: "synced" };
+  }
+
+  if (isAwarenessMessage(msg)) {
+    // 휘발성: 영속 없이 같은 룸 피어로 릴레이만 한다.
+    const targets = (await roomConnections(pageId)).filter((id) => id !== connectionId);
+    const frame = serializeServerMessage({ t: "awareness", update: (msg as { update: Uint8Array }).update });
+    await Promise.all(targets.map((id) => post(id, frame)));
+    return { statusCode: 200, body: "awareness" };
   }
 
   // update 메시지: DynamoDB 에 append 후 동일 룸의 다른 커넥션에 브로드캐스트
