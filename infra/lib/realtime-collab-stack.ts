@@ -18,6 +18,13 @@ export interface RealtimeCollabStackProps extends cdk.StackProps {
   userPoolClientId: string;
   pageTableName: string;
   pageTableArn: string;
+  // $connect 멤버십 인가에 필요한 테이블(이름 + ARN). members 는 byCognitoSub GSI 조회 필요.
+  membersTableName: string;
+  membersTableArn: string;
+  memberTeamsTableName: string;
+  memberTeamsTableArn: string;
+  workspaceAccessTableName: string;
+  workspaceAccessTableArn: string;
 }
 
 /**
@@ -71,6 +78,9 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
       YDOC_TABLE: ydoc.tableName,
       YDOC_UPDATES_TABLE: ydocUpdates.tableName,
       PAGE_TABLE: props.pageTableName,
+      MEMBERS_TABLE: props.membersTableName,
+      MEMBER_TEAMS_TABLE: props.memberTeamsTableName,
+      WORKSPACE_ACCESS_TABLE: props.workspaceAccessTableName,
       USER_POOL_ID: props.userPoolId,
       USER_POOL_CLIENT_ID: props.userPoolClientId,
     };
@@ -100,15 +110,29 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
     [connectFn, disconnectFn, syncFn].forEach((f) => connections.grantReadWriteData(f));
     ydoc.grantReadWriteData(syncFn);
     ydocUpdates.grantReadWriteData(syncFn);
-    // connect 핸들러는 페이지 존재/워크스페이스 귀속 확인을 위해 Pages 테이블 GetItem 만 필요.
+    // connect 핸들러는 페이지 존재/워크스페이스 귀속 확인을 위해 Pages 테이블 GetItem 필요.
     connectFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["dynamodb:GetItem"],
         resources: [props.pageTableArn],
       }),
     );
+    // 멤버십 인가: members(byCognitoSub GSI), memberTeams, workspaceAccess 를 Query/GetItem.
+    connectFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Query", "dynamodb:GetItem"],
+        resources: [
+          props.membersTableArn,
+          `${props.membersTableArn}/index/*`,
+          props.memberTeamsTableArn,
+          props.workspaceAccessTableArn,
+        ],
+      }),
+    );
 
-    // WebSocket API — $connect/$disconnect 는 라우트 옵션, sync 는 커스텀 라우트.
+    // WebSocket API — $connect/$disconnect 는 라우트 옵션.
+    // 데이터 메시지(hello/update/sv-reply)는 action 필드를 쓰지 않으므로 $default 라우트로 받는다.
+    // (커스텀 "sync" 라우트로 두면 route selection($request.body.action)에 매칭되지 않아 드롭된다.)
     const api = new apigw.WebSocketApi(this, "CollabWsApi", {
       apiName: `${envPrefix}quicknote-rt-collab`,
       connectRouteOptions: {
@@ -117,9 +141,9 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
       disconnectRouteOptions: {
         integration: new integ.WebSocketLambdaIntegration("DisconnectInteg", disconnectFn),
       },
-    });
-    api.addRoute("sync", {
-      integration: new integ.WebSocketLambdaIntegration("SyncInteg", syncFn),
+      defaultRouteOptions: {
+        integration: new integ.WebSocketLambdaIntegration("SyncInteg", syncFn),
+      },
     });
 
     const stage = new apigw.WebSocketStage(this, "CollabWsStage", {

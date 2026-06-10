@@ -91,4 +91,12 @@ new QuicknoteRealtimeCollabStack(app, `${stackPrefix}QuicknoteRealtimeCollabStac
   userPoolClientId: process.env.COLLAB_WEB_CLIENT_ID ?? cognitoStack.webClientId,
   pageTableName: process.env.COLLAB_PAGE_TABLE_NAME ?? syncStack.pageTable.table.tableName,
   pageTableArn: process.env.COLLAB_PAGE_TABLE_ARN ?? syncStack.pageTable.table.tableArn,
+  membersTableName: process.env.COLLAB_MEMBERS_TABLE_NAME ?? syncStack.membersTable.tableName,
+  membersTableArn: process.env.COLLAB_MEMBERS_TABLE_ARN ?? syncStack.membersTable.tableArn,
+  memberTeamsTableName: process.env.COLLAB_MEMBER_TEAMS_TABLE_NAME ?? syncStack.memberTeamsTable.tableName,
+  memberTeamsTableArn: process.env.COLLAB_MEMBER_TEAMS_TABLE_ARN ?? syncStack.memberTeamsTable.tableArn,
+  workspaceAccessTableName:
+    process.env.COLLAB_WORKSPACE_ACCESS_TABLE_NAME ?? syncStack.workspaceAccessTable.tableName,
+  workspaceAccessTableArn:
+    process.env.COLLAB_WORKSPACE_ACCESS_TABLE_ARN ?? syncStack.workspaceAccessTable.tableArn,
 });
