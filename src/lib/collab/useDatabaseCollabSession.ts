@@ -13,7 +13,7 @@ import { useCollabConnectionStore } from "../../store/collabConnectionStore";
 import { toBadgeStatus, type ProviderStatus } from "./collabConnectionStatus";
 
 const MATERIALIZE_DEBOUNCE_MS = 1500;
-const EMPTY_STRUCTURE: DbStructure = { columns: [], presets: [], panelState: {}, rowPageOrder: [] };
+const EMPTY_STRUCTURE: DbStructure = { columns: [], presets: [], panelState: {}, rowPageOrder: [], rows: {} };
 
 export type DbCollabSession =
   | { enabled: false }
@@ -22,6 +22,7 @@ export type DbCollabSession =
 export function useDatabaseCollabSession(
   databaseId: string | null | undefined,
   onMaterialize: (structure: DbStructure) => void,
+  onSynced?: () => void,
 ): DbCollabSession {
   const enabled = isCollabEnabledForDatabase(databaseId);
   const [synced, setSynced] = useState(false);
@@ -30,6 +31,8 @@ export function useDatabaseCollabSession(
   const setConnStatus = useCollabConnectionStore((s) => s.setStatus);
   const onMaterializeRef = useRef(onMaterialize);
   onMaterializeRef.current = onMaterialize;
+  const onSyncedRef = useRef(onSynced);
+  onSyncedRef.current = onSynced;
 
   // enabled 가 true 이고 databaseId 가 있을 때 Y.Doc 을 미리 생성해 둔다.
   if (enabled && databaseId && !docRef.current) docRef.current = new Y.Doc();
@@ -69,7 +72,13 @@ export function useDatabaseCollabSession(
       if (cancelled || !tokens) return;
       provider = new QnWsProvider({ doc, url: buildDbCollabWsUrl(databaseId, tokens.idToken) });
       provider.on("status", (s) => { if (!cancelled) setConnStatus(toBadgeStatus(s as ProviderStatus, provider!.isSynced)); });
-      provider.on("synced", () => { if (!cancelled) { setSynced(true); setConnStatus(toBadgeStatus("connected", true)); } });
+      provider.on("synced", () => {
+        if (!cancelled) {
+          setSynced(true);
+          setConnStatus(toBadgeStatus("connected", true));
+          try { onSyncedRef.current?.(); } catch { /* 시드 폴백 실패는 무시 */ }
+        }
+      });
       provider.connect();
     })();
 

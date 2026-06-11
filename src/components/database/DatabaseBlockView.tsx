@@ -92,9 +92,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const bundle = useDatabaseStore((s) => s.databases[viewDatabaseId]);
 
-  // DB 구조 실시간 협업(Phase 4 slice A) — flag ON 인 DB 만 활성. materialize 시 store 에 구조 투영.
-  useDatabaseCollabSession(viewDatabaseId, (structure) =>
-    useDatabaseStore.getState().applyCollabDbStructure(viewDatabaseId, structure),
+  // DB 구조·셀 실시간 협업(Phase 4) — flag ON 인 DB 만 활성. materialize 시 store 에 투영, 첫 sync 시 행 셀 시드 폴백.
+  useDatabaseCollabSession(
+    viewDatabaseId,
+    (structure) => useDatabaseStore.getState().applyCollabDbStructure(viewDatabaseId, structure),
+    () => useDatabaseStore.getState().seedCollabRowsFromStore(viewDatabaseId),
   );
 
   const hasDatabaseId = databaseId.length > 0;

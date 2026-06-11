@@ -57,6 +57,8 @@ import {
 } from "./databaseStore/helpers";
 import { createColumnActions } from "./databaseStore/actions/columnActions";
 import { getDbCollab } from "../lib/collab/dbCollabRegistry";
+import { readDbStructure } from "../lib/collab/dbBundleYjs";
+import { writeCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
 import type { Page } from "../types/page";
 import { EMPTY_DOC, nextOrderForParent } from "./pageStore/helpers";
 
@@ -147,6 +149,8 @@ type DatabaseStoreActions = {
     databaseId: string,
     structure: import("../lib/collab/dbBundleYjs").DbStructure,
   ) => void;
+  /** 서버 시드 누락/캡 대비: Y rows 가 비어 있을 때만 로컬 행 셀로 보충(map-keyed → 동시 시드 수렴). */
+  seedCollabRowsFromStore: (databaseId: string) => void;
 };
 
 export type DatabaseStore = DatabaseStoreState & DatabaseStoreActions;
@@ -267,6 +271,24 @@ export const useDatabaseStore = create<DatabaseStore>()(
           return dirty ? { pages: nextPages } : s;
         });
         for (const p of changed) enqueueUpsertPageRaw(p, { includeCells: true });
+      },
+
+      // 서버 시드 누락/캡 대비: Y rows 가 비어 있을 때만 로컬 행 셀로 보충.
+      // rows 는 map-keyed 라 동시 시드도 LWW 수렴(중복 없음).
+      seedCollabRowsFromStore: (databaseId) => {
+        const handle = getDbCollab(databaseId);
+        if (!handle) return;
+        const existingRows = readDbStructure(handle.doc).rows;
+        if (Object.keys(existingRows).length > 0) return; // 서버 시드 우선
+        const bundle = get().databases[databaseId];
+        if (!bundle) return;
+        const pages = usePageStore.getState().pages;
+        for (const rowPageId of bundle.rowPageOrder) {
+          const cells = pages[rowPageId]?.dbCells;
+          if (cells && Object.keys(cells).length > 0) {
+            writeCellsToCollabDoc(databaseId, rowPageId, cells);
+          }
+        }
       },
 
       setDatabaseTitle: (id, title) => {

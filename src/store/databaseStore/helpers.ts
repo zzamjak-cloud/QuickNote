@@ -94,6 +94,7 @@ export function enqueueUpsertDatabase(
         presets: bundle.presets ?? [],
         panelState: bundle.panelState ?? {},
         rowPageOrder: bundle.rowPageOrder,
+        rows: {},
       }, collab.baseline);
       return;
     }
