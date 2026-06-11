@@ -8,7 +8,7 @@ import { Awareness } from "y-protocols/awareness";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { isCollabEnabledForPage, buildCollabWsUrl } from "./collabConfig";
 import { QnWsProvider } from "./QnWsProvider";
-import { yDocToJson, YJS_XML_FRAGMENT } from "./yjsDoc";
+import { yDocToJson, YJS_XML_FRAGMENT, isCollabDocBodyEmpty } from "./yjsDoc";
 import { readStoredTokens } from "../auth/tokenStore";
 import { usePageStore } from "../../store/pageStore";
 import { collabColor } from "./collabColor";
@@ -89,6 +89,9 @@ export function useCollabSession(
       if (materializeTimer !== null) window.clearTimeout(materializeTimer);
       materializeTimer = window.setTimeout(() => {
         materializeTimer = null;
+        // 시드·sync 전 빈 Y.Doc 을 page.doc 으로 materialize 하면 기존 본문을 덮어쓴다(데이터 유실).
+        // 미시드(빈 본문)면 저장 생략. 의도적 비우기는 빈 문단(length≥1)이라 통과한다.
+        if (isCollabDocBodyEmpty(doc)) return;
         try {
           const json = yDocToJson(doc);
           // 단방향(Y→JSON). deferSync 로 기존 sync 큐에 실어 보낸다.

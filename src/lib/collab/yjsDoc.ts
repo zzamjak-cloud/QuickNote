@@ -43,6 +43,15 @@ export function buildSeedUpdate(schema: Schema, json: JSONContent): Uint8Array {
 }
 
 /**
+ * 협업 Y.Doc 본문이 비어 있는지(미시드/미동기 상태) 판정.
+ * length 0 = 아직 시드·sync 안 됨. 이 상태를 page.doc 으로 materialize 하면 기존 본문을 덮어쓴다(데이터 유실).
+ * 의도적으로 비운 페이지는 빈 문단(length≥1)이라 false → 정상 저장 허용(미시드와 구분).
+ */
+export function isCollabDocBodyEmpty(doc: Y.Doc): boolean {
+  return doc.getXmlFragment(YJS_XML_FRAGMENT).length === 0;
+}
+
+/**
  * 협업 Y.Doc 이 비어 있으면 기존 JSON 콘텐츠로 1회 시드한다.
  * 서버 sync 완료(=서버에 콘텐츠 없음 확인) 후 호출해야 안전하다. 결정적 update 라 동시 시드도 중복이 없다.
  * @returns 시드했으면 true, 이미 콘텐츠가 있어 건너뛰면 false.
