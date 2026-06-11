@@ -8,7 +8,12 @@ import { Awareness } from "y-protocols/awareness";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { isCollabEnabledForPage, buildCollabWsUrl, collabRoomEpoch } from "./collabConfig";
 import { QnWsProvider } from "./QnWsProvider";
-import { yDocToJson, YJS_XML_FRAGMENT, isCollabDocBodyEmpty } from "./yjsDoc";
+import {
+  yDocToJson,
+  YJS_XML_FRAGMENT,
+  isCollabDocBodyEmpty,
+  isPlaceholderBodyJson,
+} from "./yjsDoc";
 import { readStoredTokens } from "../auth/tokenStore";
 import { usePageStore } from "../../store/pageStore";
 import { collabColor } from "./collabColor";
@@ -98,6 +103,13 @@ export function useCollabSession(
         if (isCollabDocBodyEmpty(doc)) return;
         try {
           const json = yDocToJson(doc);
+          // 빈 문단뿐인 Y 상태(과거 오염 룸·시드 누락)가 의미 있는 기존 본문을 덮지 못하게 차단.
+          // 서버 placeholder 보존 가드(preserveExistingDocForPlaceholderInput)와 동일 의미의 클라 방어선.
+          const current = usePageStore.getState().pages[pageId];
+          if (current?.doc && isPlaceholderBodyJson(json) && !isPlaceholderBodyJson(current.doc)) {
+            console.warn("[collab] placeholder Y 상태 materialize 차단", { pageId });
+            return;
+          }
           // 단방향(Y→JSON). deferSync 로 기존 sync 큐에 실어 보낸다.
           usePageStore.getState().updateDoc(pageId, json, { deferSync: true });
         } catch {

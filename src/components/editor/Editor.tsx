@@ -105,7 +105,6 @@ import {
 import { useEditorExtensions } from "./useEditorExtensions";
 import { useCollabSession } from "../../lib/collab/useCollabSession";
 import { useCollabPresence } from "../../lib/collab/useCollabPresence";
-import { canEditCollab } from "../../lib/collab/collabGating";
 import { seedCollabDocIfEmpty } from "../../lib/collab/yjsDoc";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
@@ -313,8 +312,10 @@ export function Editor({
   // 협업 게이팅 입력 — union 타입 안전 접근(비활성 시 false). 변수로 추출해 effect deps 정적 검사 통과.
   const collabEnabled = collab.enabled;
   const collabSynced = collab.enabled && collab.synced;
-  const collabIdbLoaded = collab.enabled && collab.idbLoaded;
-  const collabDocNotEmpty = collab.enabled && collab.docNotEmpty;
+  // 시드 완료 후에만 에디터에 바인딩되는 Y.Doc. 빈 fragment 에 ySyncPlugin 이 먼저 붙으면
+  // 빈 문단을 주입해 seedCollabDocIfEmpty 가 "콘텐츠 있음"으로 오판 → 본문 시드가 영구
+  // 차단된다(2026-06-11 dev 전 페이지 빈 화면 사고). 시드 → 바인딩 순서를 강제하는 게이트.
+  const [collabBoundDoc, setCollabBoundDoc] = useState<typeof collabDoc>(null);
   // presence 훅 — awareness 가 null 이면 내부에서 store 를 비운다 (React hook 규칙: 무조건 최상위 호출)
   useCollabPresence(collabAwareness);
 
@@ -323,8 +324,9 @@ export function Editor({
     isFullPageDatabase,
     effectivePageId,
     myMemberId,
-    collabDoc,
-    collabAwareness,
+    // 시드가 끝난 doc 만 바인딩한다(위 collabBoundDoc 주석 참고).
+    collabDoc: collabBoundDoc,
+    collabAwareness: collabBoundDoc ? collabAwareness : null,
   });
 
   const editorProps = useEditorProps({
@@ -358,7 +360,7 @@ export function Editor({
         setUniqueIdFilterHostEditor(null);
       },
     },
-    [lowlightApi, isFullPageDatabase, collabDoc, collabAwareness],
+    [lowlightApi, isFullPageDatabase, collabBoundDoc, collabAwareness],
   );
 
   useEffect(() => {
@@ -470,27 +472,39 @@ export function Editor({
   const collabSeededPageRef = useRef<string | null>(null);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    // 서버 sync 완료 후에만(=서버에 콘텐츠 없음을 확인한 뒤) 시드해야 안전하다.
-    if (!collabEnabled || !collabSynced || !collabDoc) return;
-    if (!effectivePageId || !safePageDoc) return;
-    // 콘텐츠 미로드(meta-only) 상태에서 시드하면 빈 placeholder 를 권위로 박아 실제 본문이 영영 시드 안 된다.
-    if (pageContentMissing) return;
-    if (collabSeededPageRef.current === effectivePageId) return;
-    collabSeededPageRef.current = effectivePageId;
-    // Y.Doc 이 비어 있으면(서버·피어에 콘텐츠 없음) 기존 본문으로 결정적 시드(동시 시드도 중복 없음).
-    try {
-      seedCollabDocIfEmpty(collabDoc, editor.schema, safePageDoc);
-    } catch (err) {
-      reportNonFatal(err, "collab.seedFromStore");
+    // 준비 전(세션 없음·서버 sync 전·본문 미로드)에는 바인딩을 풀어 둔다 —
+    // 빈 Y.Doc 에 ySyncPlugin 이 붙어 빈 문단을 주입하는 경로 자체를 차단.
+    if (
+      !collabEnabled ||
+      !collabSynced ||
+      !collabDoc ||
+      !effectivePageId ||
+      !safePageDoc ||
+      pageContentMissing
+    ) {
+      setCollabBoundDoc(null);
+      return;
     }
+    // Y.Doc 이 비어 있으면(서버·피어에 콘텐츠 없음) 기존 본문으로 결정적 시드(동시 시드도 중복 없음).
+    // 시드는 반드시 바인딩(setCollabBoundDoc)보다 먼저 끝나야 한다.
+    if (collabSeededPageRef.current !== effectivePageId) {
+      collabSeededPageRef.current = effectivePageId;
+      try {
+        seedCollabDocIfEmpty(collabDoc, editor.schema, safePageDoc);
+      } catch (err) {
+        reportNonFatal(err, "collab.seedFromStore");
+      }
+    }
+    setCollabBoundDoc(collabDoc);
   }, [editor, collabEnabled, collabSynced, collabDoc, effectivePageId, safePageDoc, pageContentMissing]);
 
   // 동일 pageDoc 참조에 대해 정규화 updateDoc 을 한 번만 실행하기 위한 가드
   const lastNormalizedDocRef = useRef<unknown>(null);
   useEffect(() => {
     if (!editor || !pageDoc || !safePageDoc || !effectivePageId) return;
-    // 협업 ON 페이지: 본문 권위는 Y.Doc. 원격/스토어 JSON 을 에디터로 역주입하지 않는다.
-    if (collab.enabled) return;
+    // 협업 바인딩 후에는 본문 권위가 Y.Doc — 원격/스토어 JSON 을 에디터로 역주입하지 않는다.
+    // 바인딩 전(시드 대기)에는 일반 경로로 주입해 본문을 즉시 표시한다(이때 에디터는 read-only).
+    if (collabBoundDoc) return;
     if (
       lastNormalizedDocRef.current !== pageDoc &&
       !tipTapJsonDocEquals(editor.schema, safePageDoc, pageDoc)
@@ -552,7 +566,7 @@ export function Editor({
     safePageDoc,
     isFullPageDatabase,
     updateDoc,
-    collab.enabled,
+    collabBoundDoc,
   ]);
 
   // 검색 결과 클릭으로 들어온 대기 중 이동 요청 소비.
@@ -839,17 +853,10 @@ export function Editor({
   // DB 블록의 React NodeView 내부 input/button 은 contenteditable 영향 밖이라 정상 동작.
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    // 협업 ON 페이지: 서버 초기 sync 완료 전에는 read-only(초기 콘텐츠 중복 삽입 방지).
-    // 본문 미로드(pageContentMissing) 상태도 차단 — 이때 빈 Y.Doc 에 입력하면 시드가 영구
-    // 보류된 채 그 입력만 남아 materialize 시 기존 본문을 대체한다.
+    // 협업 ON 페이지: 시드·바인딩 완료 전에는 read-only.
+    // 바인딩 전에 입력을 허용하면 빈 Y.Doc 오편집(시드 영구 차단 + 입력이 본문 대체)이 생긴다.
     const collabBlocking =
-      collabEnabled &&
-      (pageContentMissing ||
-        !canEditCollab({
-          synced: collabSynced,
-          idbLoaded: collabIdbLoaded,
-          docNotEmpty: collabDocNotEmpty,
-        }));
+      collabEnabled && (pageContentMissing || !collabBoundDoc);
     editor.setEditable(!isFullPageDatabase && !collabBlocking);
     if (isFullPageDatabase) {
       // PM 이 atom 단독 doc 에 자동으로 NodeSelection 을 만들어 .ProseMirror-selectednode 가
@@ -865,9 +872,7 @@ export function Editor({
     editor,
     isFullPageDatabase,
     collabEnabled,
-    collabSynced,
-    collabIdbLoaded,
-    collabDocNotEmpty,
+    collabBoundDoc,
     pageContentMissing,
   ]);
 

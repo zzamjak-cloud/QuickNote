@@ -52,6 +52,19 @@ export function isCollabDocBodyEmpty(doc: Y.Doc): boolean {
 }
 
 /**
+ * 본문 JSON 이 placeholder(블록이 없거나 전부 빈 문단)인지 판정.
+ * 서버 upsertPage 의 placeholder 보존 가드와 동일 의미 — 빈 문단만 든 Y 상태(과거 오염 룸·
+ * 시드 누락)가 의미 있는 기존 본문을 materialize 로 덮지 못하게 클라이언트에서도 차단한다.
+ */
+export function isPlaceholderBodyJson(json: JSONContent | null | undefined): boolean {
+  const content = json?.content;
+  if (!content || content.length === 0) return true;
+  return content.every(
+    (node) => node.type === "paragraph" && (!node.content || node.content.length === 0),
+  );
+}
+
+/**
  * 협업 Y.Doc 이 비어 있으면 기존 JSON 콘텐츠로 1회 시드한다.
  * 서버 sync 완료(=서버에 콘텐츠 없음 확인) 후 호출해야 안전하다. 결정적 update 라 동시 시드도 중복이 없다.
  * @returns 시드했으면 true, 이미 콘텐츠가 있어 건너뛰면 false.

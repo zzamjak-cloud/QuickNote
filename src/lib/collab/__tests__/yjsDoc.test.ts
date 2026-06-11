@@ -9,6 +9,7 @@ import {
   buildSeedUpdate,
   seedCollabDocIfEmpty,
   isCollabDocBodyEmpty,
+  isPlaceholderBodyJson,
 } from "../yjsDoc";
 
 // 라운드트립 검증용 최소 schema (StarterKit 기반).
@@ -100,5 +101,27 @@ describe("yjsDoc", () => {
     });
     expect(reseeded).toBe(false);
     expect(JSON.stringify(yDocToJson(doc))).toContain("시드 본문");
+  });
+
+  it("isPlaceholderBodyJson: 블록 없음·빈 문단만은 placeholder, 텍스트·비문단 블록은 아님", () => {
+    expect(isPlaceholderBodyJson(null)).toBe(true);
+    expect(isPlaceholderBodyJson({ type: "doc" })).toBe(true);
+    expect(isPlaceholderBodyJson({ type: "doc", content: [] })).toBe(true);
+    // 과거 오염 룸의 실제 형태 — 빈 문단 N개
+    expect(
+      isPlaceholderBodyJson({
+        type: "doc",
+        content: [{ type: "paragraph" }, { type: "paragraph" }, { type: "paragraph" }],
+      }),
+    ).toBe(true);
+    expect(
+      isPlaceholderBodyJson({
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "내용" }] }],
+      }),
+    ).toBe(false);
+    expect(
+      isPlaceholderBodyJson({ type: "doc", content: [{ type: "heading" }] }),
+    ).toBe(false);
   });
 });
