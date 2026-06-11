@@ -105,6 +105,7 @@ import {
 import { useEditorExtensions } from "./useEditorExtensions";
 import { useCollabSession } from "../../lib/collab/useCollabSession";
 import { useCollabPresence } from "../../lib/collab/useCollabPresence";
+import { canEditCollab } from "../../lib/collab/collabGating";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
@@ -807,7 +808,13 @@ export function Editor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     // 협업 ON 페이지: 서버 초기 sync 완료 전에는 read-only(초기 콘텐츠 중복 삽입 방지).
-    const collabBlocking = collab.enabled && !collab.synced;
+    const collabBlocking =
+      collab.enabled &&
+      !canEditCollab({
+        synced: collab.synced,
+        idbLoaded: collab.idbLoaded,
+        docNotEmpty: collab.docNotEmpty,
+      });
     editor.setEditable(!isFullPageDatabase && !collabBlocking);
     if (isFullPageDatabase) {
       // PM 이 atom 단독 doc 에 자동으로 NodeSelection 을 만들어 .ProseMirror-selectednode 가
@@ -819,7 +826,14 @@ export function Editor({
       }
       if (!editor.isDestroyed && editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
     }
-  }, [editor, isFullPageDatabase, collab.enabled, collab.enabled && collab.synced]);
+  }, [
+    editor,
+    isFullPageDatabase,
+    collab.enabled,
+    collab.enabled && collab.synced,
+    collab.enabled && collab.idbLoaded,
+    collab.enabled && collab.docNotEmpty,
+  ]);
 
   // 슬래시 "페이지 링크" 명령이 발행하는 커스텀 이벤트를 수신 → mention search modal 열기
   useEffect(() => {
