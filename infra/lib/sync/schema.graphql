@@ -115,6 +115,8 @@ type Page @aws_cognito_user_pools @aws_iam {
   workspaceId: ID!
   createdByMemberId: ID!
   title: String!
+  """페이지 제목 텍스트 색(hex)."""
+  titleColor: String
   icon: String
   """페이지 상단 커버. `quicknote-image://{imageId}` S3 자산 참조 권장(레거시 data URL 가능)."""
   coverImage: String
@@ -142,6 +144,8 @@ type PageMeta {
   workspaceId: ID!
   createdByMemberId: ID!
   title: String!
+  """페이지 제목 텍스트 색(hex)."""
+  titleColor: String
   icon: String
   """페이지 상단 커버. `quicknote-image://{imageId}` S3 자산 참조 권장(레거시 data URL 가능)."""
   coverImage: String
@@ -327,6 +331,7 @@ input PageInput {
   # 누락 시 AppSync 가 'Field not defined' 검증 오류로 mutation 을 거부한다.
   createdByMemberId: ID
   title: String!
+  titleColor: String
   icon: String
   coverImage: String
   parentId: ID

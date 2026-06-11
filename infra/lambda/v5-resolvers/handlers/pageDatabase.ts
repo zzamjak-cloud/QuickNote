@@ -80,6 +80,7 @@ const PAGE_HISTORY_FIELDS = [
   "workspaceId",
   "createdByMemberId",
   "title",
+  "titleColor",
   "icon",
   "coverImage",
   "parentId",
