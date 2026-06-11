@@ -209,11 +209,14 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
   const comments = commentsResult.status === "fulfilled" ? commentsResult.value : null;
 
   const failedDomains: string[] = [];
+  let pageMetaSchemaUnavailable = false;
   if (pageMetasBatchResult.status === "rejected") {
     if (isPageMetaSchemaUnavailable(pageMetasBatchResult.reason)) {
-      console.warn("[sync] 페이지 메타 API 미배포, 전체 스냅샷 fallback 대기", {
+      pageMetaSchemaUnavailable = true;
+      console.warn("[sync] 페이지 메타 API 미배포(스키마 검증 거부), 전체 스냅샷 fallback 대기", {
         workspaceId,
         logPrefix,
+        reason: errorText(pageMetasBatchResult.reason).slice(0, 500),
       });
     } else {
       failedDomains.push("pageMetas");
@@ -254,7 +257,9 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
     apply();
   }
 
-  if (failedDomains.length === 0) {
+  // 페이지 메타가 스키마 거부로 한 건도 안 들어온 상태에서 dbs/comments 기준으로 워터마크를
+  // 전진시키면, 이후 증분(delta) 모드가 그 이전 페이지를 영영 못 받는다 → 전진 보류.
+  if (failedDomains.length === 0 && !pageMetaSchemaUnavailable) {
     const mx = maxUpdatedAt(pageMetasBatch?.items ?? [], dbs, comments);
     if (mx) useSyncWatermarkStore.getState().advance(workspaceId, mx);
   }

@@ -605,7 +605,7 @@ export async function listPageMetas(args: {
         TableName: args.tables.Pages,
         IndexName: "byWorkspaceAndUpdatedAt",
         KeyConditionExpression: keyCondition,
-        ProjectionExpression: "id, workspaceId, createdByMemberId, title, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt, fullPageDatabaseId",
+        ProjectionExpression: "id, workspaceId, createdByMemberId, title, titleColor, icon, coverImage, parentId, #order, databaseId, createdAt, updatedAt, deletedAt, fullPageDatabaseId, lastEditedByMemberId, lastEditedByName",
         ExpressionAttributeNames: { "#order": "order" },
         ExpressionAttributeValues: expressionValues,
         Limit: limit - items.length,

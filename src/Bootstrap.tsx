@@ -60,7 +60,9 @@ import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 import { createLCSchedulerRootPageRepairGate } from "./lib/sync/lcSchedulerWorkspaceRepair";
 
-const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-09-cat-page-meta-baseline-repair";
+// 2026-06-11: PageMeta 스키마 필드 누락으로 listPageMetas 가 전량 실패하던 빌드에서
+// 워터마크만 전진해 페이지 누락이 고착된 캐시를 일괄 재기준선한다.
+const WORKSPACE_CACHE_REPAIR_REVISION = "2026-06-11-pagemeta-lasteditedby-schema-repair";
 const workspaceCacheRepairKey = (workspaceId: string): string =>
   `quicknote.workspace.cacheRepair.${WORKSPACE_CACHE_REPAIR_REVISION}:${workspaceId}`;
 const lcSchedulerRootPageRepairGate = createLCSchedulerRootPageRepairGate();

@@ -643,6 +643,10 @@ describe("page/database handlers", () => {
     expect(queryArg.IndexName).toBe("byWorkspaceAndUpdatedAt");
     expect(queryArg.ProjectionExpression).not.toContain("doc");
     expect(queryArg.Limit).toBe(25);
+    // 클라이언트 PAGE_META_FIELDS 가 요청하는 필드가 projection 에서 빠지면 메타가 null 로 내려간다
+    expect(queryArg.ProjectionExpression).toContain("titleColor");
+    expect(queryArg.ProjectionExpression).toContain("lastEditedByMemberId");
+    expect(queryArg.ProjectionExpression).toContain("lastEditedByName");
   });
 
   it("listPageMetas: DB row가 앞에 몰려 있어도 기준선 메타를 채운다", async () => {

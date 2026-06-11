@@ -155,6 +155,10 @@ type PageMeta {
   databaseId: ID
   """fullPage 레이아웃 DB 홈 페이지면 연결된 databaseId — doc 없이 메타만으로 식별."""
   fullPageDatabaseId: ID
+  """마지막으로 편집한 멤버 id. Page 와 동일 필드 — 메타 쿼리(listPageMetas) 응답에도 노출."""
+  lastEditedByMemberId: ID
+  """마지막 편집자 표시 이름(스탬프 시점 스냅샷)."""
+  lastEditedByName: String
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
   deletedAt: AWSDateTime
