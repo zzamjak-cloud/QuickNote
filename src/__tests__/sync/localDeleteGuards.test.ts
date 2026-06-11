@@ -102,16 +102,25 @@ describe("markPermanentlyDeletedEntity", () => {
   });
 
   it("deletedAt 보다 최신 원격 업데이트는 통과시킨다", () => {
+    // markPermanentlyDeletedEntity 는 내부 Date.now() 로 strictUntilMs 를 재계산한다.
+    // 테스트의 now 와 1ms 라도 어긋나면 strict 창이 검사 시점(now+5분+1)을 덮어 flaky 해지므로
+    // 시스템 시간을 now 로 고정해 경계 의미를 보존한다.
     const now = Date.now();
-    markLocallyDeletedEntity("page", "p1", "ws1", now);
-    markPermanentlyDeletedEntity("page", "p1", "ws1");
-    const futureAt = new Date(now + DAY_MS).toISOString();
-    expect(createLocalDeleteGuardChecker(now + 5 * 60 * 1000 + 1)(
-      "page",
-      "p1",
-      "ws1",
-      futureAt,
-    )).toBe(false);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    try {
+      markLocallyDeletedEntity("page", "p1", "ws1", now);
+      markPermanentlyDeletedEntity("page", "p1", "ws1");
+      const futureAt = new Date(now + DAY_MS).toISOString();
+      expect(createLocalDeleteGuardChecker(now + 5 * 60 * 1000 + 1)(
+        "page",
+        "p1",
+        "ws1",
+        futureAt,
+      )).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
