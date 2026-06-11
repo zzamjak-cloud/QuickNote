@@ -106,6 +106,7 @@ import { useEditorExtensions } from "./useEditorExtensions";
 import { useCollabSession } from "../../lib/collab/useCollabSession";
 import { useCollabPresence } from "../../lib/collab/useCollabPresence";
 import { canEditCollab } from "../../lib/collab/collabGating";
+import { seedCollabDocIfEmpty } from "../../lib/collab/yjsDoc";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
@@ -465,6 +466,25 @@ export function Editor({
   // 즉시 editor 에 반영되도록 한다. 자기 타이핑은 editor.getJSON() === safeDoc 비교로 걸러지므로 무한 루프 없음.
   // 사용자 입력 중(focused)이면 cursor 보존을 위해 blur 까지 setContent 를 보류.
   const lastSyncedPageIdRef = useRef<string | null>(null);
+  // 협업 ON 페이지 최초 시드 가드 — 페이지당 1회만 시드 시도.
+  const collabSeededPageRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // 서버 sync 완료 후에만(=서버에 콘텐츠 없음을 확인한 뒤) 시드해야 안전하다.
+    if (!collabEnabled || !collabSynced || !collabDoc) return;
+    if (!effectivePageId || !safePageDoc) return;
+    // 콘텐츠 미로드(meta-only) 상태에서 시드하면 빈 placeholder 를 권위로 박아 실제 본문이 영영 시드 안 된다.
+    if (pageContentMissing) return;
+    if (collabSeededPageRef.current === effectivePageId) return;
+    collabSeededPageRef.current = effectivePageId;
+    // Y.Doc 이 비어 있으면(서버·피어에 콘텐츠 없음) 기존 본문으로 결정적 시드(동시 시드도 중복 없음).
+    try {
+      seedCollabDocIfEmpty(collabDoc, editor.schema, safePageDoc);
+    } catch (err) {
+      reportNonFatal(err, "collab.seedFromStore");
+    }
+  }, [editor, collabEnabled, collabSynced, collabDoc, effectivePageId, safePageDoc, pageContentMissing]);
+
   // 동일 pageDoc 참조에 대해 정규화 updateDoc 을 한 번만 실행하기 위한 가드
   const lastNormalizedDocRef = useRef<unknown>(null);
   useEffect(() => {
