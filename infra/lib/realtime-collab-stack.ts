@@ -113,6 +113,14 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
     [connectFn, disconnectFn, syncFn].forEach((f) => connections.grantReadWriteData(f));
     ydoc.grantReadWriteData(syncFn);
     ydocUpdates.grantReadWriteData(syncFn);
+    // sync 핸들러는 DB 룸 첫 진입 시드(buildDbSeedUpdate)를 위해
+    // Database 항목과 행 페이지(dbCells)를 GetItem 한다. (slice A 부터 필요했으나 누락돼 있던 권한 포함)
+    syncFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem"],
+        resources: [props.databaseTableArn, props.pageTableArn],
+      }),
+    );
     // connect 핸들러는 페이지 존재/워크스페이스 귀속 확인을 위해 Pages 테이블 GetItem 필요.
     connectFn.addToRolePolicy(
       new iam.PolicyStatement({
