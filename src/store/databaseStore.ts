@@ -247,6 +247,26 @@ export const useDatabaseStore = create<DatabaseStore>()(
         if (handle) handle.baseline = structure; // 다음 reconcile 삭제 판정 기준 갱신
         // 서버 영속(LWW 파생본). skipCollab 으로 reconcile 가로채기를 우회 → 루프 없음.
         enqueueUpsertDatabase(nextBundle, undefined, { skipCollab: true });
+        // slice B: Y rows → 각 행 페이지 dbCells 단방향 materialize(파생본).
+        // membership 권위는 페이지 존재. 존재하지 않는 rows 항목은 무시.
+        // 값이 동일한 행은 건너뛰어 잉여 upsert/루프 방지.
+        const rows = structure.rows ?? {};
+        const changed: Page[] = [];
+        usePageStore.setState((s) => {
+          let dirty = false;
+          const nextPages = { ...s.pages };
+          for (const [rowPageId, cells] of Object.entries(rows)) {
+            const page = nextPages[rowPageId];
+            if (!page) continue;
+            if (JSON.stringify(page.dbCells ?? {}) === JSON.stringify(cells)) continue;
+            const updated = { ...page, dbCells: cells as Record<string, CellValue>, updatedAt: now() };
+            nextPages[rowPageId] = updated;
+            changed.push(updated);
+            dirty = true;
+          }
+          return dirty ? { pages: nextPages } : s;
+        });
+        for (const p of changed) enqueueUpsertPageRaw(p, { includeCells: true });
       },
 
       setDatabaseTitle: (id, title) => {
