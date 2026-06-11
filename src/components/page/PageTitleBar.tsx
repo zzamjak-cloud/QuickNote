@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { MessageSquarePlus, Star } from "lucide-react";
 import { IconPicker } from "../common/IconPicker";
 import { useSettingsStore } from "../../store/settingsStore";
+import { PageTitleColorToolbar } from "./PageTitleColorToolbar";
 
 interface PageTitleBarProps {
   pageId: string;
@@ -15,6 +16,8 @@ interface PageTitleBarProps {
   onTitleKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   onTitleFocus?: () => void;
   onIconChange: (icon: string | null) => void;
+  onTitleColorChange?: (color: string | null) => void;
+  titleColor?: string | null;
   onIconUploadMessage?: (msg: string) => void;
   defaultIcon?: React.ReactNode;
   /** 제공 시 즐겨찾기 아이콘 왼쪽에 "댓글 추가" 버튼을 표시한다. */
@@ -33,10 +36,29 @@ export function PageTitleBar({
   onTitleKeyDown,
   onTitleFocus,
   onIconChange,
+  onTitleColorChange,
+  titleColor,
   onIconUploadMessage,
   defaultIcon,
   onAddComment,
 }: PageTitleBarProps) {
+  const [titleToolbarOpen, setTitleToolbarOpen] = useState(false);
+  const internalTitleRef = React.useRef<HTMLInputElement | null>(null);
+  const mergedTitleRef = titleRef ?? internalTitleRef;
+
+  const syncTitleSelectionToolbar = useCallback(() => {
+    const input = mergedTitleRef.current;
+    if (!input || !onTitleColorChange) {
+      setTitleToolbarOpen(false);
+      return;
+    }
+    const hasSelection =
+      input.selectionStart != null &&
+      input.selectionEnd != null &&
+      input.selectionStart !== input.selectionEnd;
+    setTitleToolbarOpen(hasSelection);
+  }, [mergedTitleRef, onTitleColorChange]);
+
   // 즐겨찾기 상태는 내부에서 직접 구독 — 다른 페이지 변경 시 이 컴포넌트만 리렌더
   const isFavorite = useSettingsStore(
     (s) => s.favoritePageIds.includes(pageId),
@@ -44,7 +66,7 @@ export function PageTitleBar({
   const toggleFavoritePage = useSettingsStore((s) => s.toggleFavoritePage);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="relative flex items-center gap-2">
       <IconPicker
         current={icon ?? null}
         onChange={onIconChange}
@@ -52,16 +74,36 @@ export function PageTitleBar({
         defaultIcon={defaultIcon}
       />
       <input
-        ref={titleRef}
+        ref={mergedTitleRef}
         type="text"
         value={titleDraft}
         onChange={(e) => onTitleChange(e.target.value)}
-        onBlur={onTitleBlur}
+        onBlur={() => {
+          setTitleToolbarOpen(false);
+          onTitleBlur();
+        }}
         onKeyDown={onTitleKeyDown}
         onFocus={onTitleFocus}
+        onSelect={syncTitleSelectionToolbar}
+        onMouseUp={syncTitleSelectionToolbar}
+        onKeyUp={syncTitleSelectionToolbar}
         placeholder={placeholder}
         className={titleClassName}
+        style={titleColor ? { color: titleColor } : undefined}
       />
+      {onTitleColorChange ? (
+        <PageTitleColorToolbar
+          anchorRef={mergedTitleRef}
+          open={titleToolbarOpen}
+          currentColor={titleColor ?? null}
+          onPick={(color) => {
+            onTitleColorChange(color);
+            setTitleToolbarOpen(false);
+            mergedTitleRef.current?.blur();
+          }}
+          onClose={() => setTitleToolbarOpen(false)}
+        />
+      ) : null}
       {onAddComment && (
         <button
           type="button"

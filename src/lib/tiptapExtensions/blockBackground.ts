@@ -131,6 +131,24 @@ export const BlockBackground = Extension.create({
   name: "blockBackground",
 
   addGlobalAttributes() {
+    const colorAttr = {
+      default: null as string | null,
+      keepOnSplit: false,
+      parseHTML: (el: HTMLElement) => el.getAttribute("data-text-color") || null,
+      renderHTML: (attrs: { blockTextColor?: string | null }) => {
+        if (!attrs.blockTextColor) return {};
+        return { "data-text-color": attrs.blockTextColor };
+      },
+    };
+    const bgAttr = {
+      default: null as string | null,
+      keepOnSplit: false,
+      parseHTML: (el: HTMLElement) => el.getAttribute("data-bg-color") || null,
+      renderHTML: (attrs: { backgroundColor?: string | null }) => {
+        if (!attrs.backgroundColor) return {};
+        return { "data-bg-color": attrs.backgroundColor };
+      },
+    };
     return [
       {
         types: [
@@ -142,29 +160,26 @@ export const BlockBackground = Extension.create({
           "bulletList",
           "orderedList",
           "taskList",
-          // 마크다운 형식 블록 — 개별 항목 단위로도 배경색을 적용할 수 있도록 listItem/taskItem 포함.
           "listItem",
           "taskItem",
         ],
         attributes: {
-          backgroundColor: {
-            default: null as string | null,
-            keepOnSplit: false,
-            parseHTML: (el) => (el as HTMLElement).getAttribute("data-bg-color") || null,
-            renderHTML: (attrs) => {
-              if (!attrs.backgroundColor) return {};
-              return { "data-bg-color": attrs.backgroundColor };
-            },
-          },
-          blockTextColor: {
-            default: null as string | null,
-            keepOnSplit: false,
-            parseHTML: (el) => (el as HTMLElement).getAttribute("data-text-color") || null,
-            renderHTML: (attrs) => {
-              if (!attrs.blockTextColor) return {};
-              return { "data-text-color": attrs.blockTextColor };
-            },
-          },
+          backgroundColor: bgAttr,
+        },
+      },
+      {
+        // 글머리/번호 목록 텍스트 색은 listItem·taskItem 단위만 — ul/ol 에 두면 자식 항목까지 연쇄 적용된다.
+        types: [
+          "paragraph",
+          "heading",
+          "blockquote",
+          "toggle",
+          "toggleHeader",
+          "listItem",
+          "taskItem",
+        ],
+        attributes: {
+          blockTextColor: colorAttr,
         },
       },
     ];

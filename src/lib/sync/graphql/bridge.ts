@@ -36,6 +36,7 @@ function normalizePageInput(input: unknown): unknown {
     "workspaceId",
     "createdByMemberId",
     "title",
+    "titleColor",
     "icon",
     "coverImage",
     "parentId",

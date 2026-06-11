@@ -238,6 +238,7 @@ type PageStoreActions = {
   navigateToParentPage: () => void;
   reorderPages: (orderedIds: string[]) => void;
   setIcon: (id: string, icon: string | null) => void;
+  setTitleColor: (id: string, titleColor: string | null) => void;
   setCoverImage: (id: string, coverImage: string | null) => void;
   /** 해당 DB 의 전체 페이지(본문이 fullPage databaseBlock 단독) 페이지 id — 없으면 null */
   findFullPagePageIdForDatabase: (databaseId: string) => string | null;
@@ -573,6 +574,32 @@ export const usePageStore = create<PageStore>()(
             id,
             "page.icon",
             { id, icon: after.icon },
+            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+          );
+          enqueueUpsertPage(after);
+        }
+      },
+
+      setTitleColor: (id, titleColor) => {
+        const before = get().pages[id];
+        set((state) => {
+          const current = state.pages[id];
+          if (!current) return state;
+          return {
+            pages: {
+              ...state.pages,
+              [id]: { ...current, titleColor, updatedAt: Date.now() },
+            },
+          };
+        });
+        const after = get().pages[id];
+        if (before && after && before.titleColor !== after.titleColor) {
+          const hs = useHistoryStore.getState();
+          const events = hs.pageEventsByPageId[id] ?? [];
+          hs.recordPageEvent(
+            id,
+            "page.titleColor",
+            { id, titleColor: after.titleColor ?? null },
             shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
           );
           enqueueUpsertPage(after);

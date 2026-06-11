@@ -4,13 +4,20 @@ import * as LucideIcons from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { prepareIconImageForUpload } from "../../lib/images/compressImage";
 import { uploadImage } from "../../lib/images/upload";
-import { encodeLucidePageIcon } from "../../lib/pageIcon";
+import {
+  decodeLucidePageIcon,
+  encodeLucidePageIcon,
+  isImageLikePageIcon,
+  LUCIDE_PAGE_ICON_PREFIX,
+} from "../../lib/pageIcon";
 import { PageIconDisplay } from "./PageIconDisplay";
 import { IconPickerEmoji } from "./IconPickerEmoji";
 import { type CustomIconPreset } from "../../lib/iconStorage";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useCustomIconStore } from "../../store/customIconStore";
 import { EMOJI_SHORTCODE_GROUPS } from "../../lib/emojiShortcodes";
+import { loadRecentIcons, pushRecentIcon } from "../../lib/recentIconStorage";
+import { loadLucideIconColor, saveLucideIconColor } from "../../lib/lucideIconColorStorage";
 
 const MAX_ICON_BYTES = 5 * 1024 * 1024;
 const DEFAULT_LUCIDE_COLOR = "#3f3f46";
@@ -357,6 +364,7 @@ type IconPickerPanelProps = {
 };
 
 const ICON_PICKER_MENUS = [
+  { id: "unified", label: "통합" },
   { id: "lucide", label: "루시드" },
   { id: "emoji", label: "이모지" },
   { id: "custom", label: "커스텀" },
@@ -375,11 +383,12 @@ export function IconPickerPanel({
   customIcons = [],
   onDeleteCustomIcon,
 }: IconPickerPanelProps) {
-  const [color, setColor] = useState(DEFAULT_LUCIDE_COLOR);
+  const [color, setColor] = useState(() => loadLucideIconColor());
   const [colorOpen, setColorOpen] = useState(false);
-  const [activeMenu, setActiveMenu] = useState<IconPickerMenu>("lucide");
+  const [activeMenu, setActiveMenu] = useState<IconPickerMenu>("unified");
   const [activeLucideCategory, setActiveLucideCategory] = useState("all");
   const [lucideQuery, setLucideQuery] = useState("");
+  const [recentIcons, setRecentIcons] = useState<string[]>(() => loadRecentIcons());
 
   const activeCategory =
     LUCIDE_ICON_CATEGORIES.find((category) => category.id === activeLucideCategory) ??
@@ -393,6 +402,27 @@ export function IconPickerPanel({
   }, [activeCategory, activeLucideCategory, lucideQuery]);
 
   const pickLucideIcon = (name: string) => onPickLucide(name, color);
+
+  const pickRecentIcon = (icon: string) => {
+    if (icon.startsWith(LUCIDE_PAGE_ICON_PREFIX)) {
+      const decoded = decodeLucidePageIcon(icon);
+      if (decoded) {
+        onPickLucide(decoded.name, decoded.color);
+        return;
+      }
+    }
+    if (isImageLikePageIcon(icon)) {
+      onPickCustom?.(icon);
+      return;
+    }
+    onPickEmoji(icon);
+  };
+
+  const handleColorChange = (preset: string) => {
+    setColor(preset);
+    saveLucideIconColor(preset);
+    setColorOpen(false);
+  };
 
   return (
     <div className="w-[320px] rounded-md border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
@@ -439,7 +469,7 @@ export function IconPickerPanel({
                         <button
                           key={preset}
                           type="button"
-                          onClick={() => { setColor(preset); setColorOpen(false); }}
+                          onClick={() => handleColorChange(preset)}
                           className={[
                             "h-5 w-5 rounded-full border",
                             color === preset
@@ -459,6 +489,36 @@ export function IconPickerPanel({
           </div>
         </div>
         <div className="h-[360px] overflow-hidden">
+          {activeMenu === "unified" ? (
+            <div className="flex h-full flex-col">
+              <p className="mb-2 px-0.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                최근 항목
+              </p>
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                {recentIcons.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-zinc-400">
+                    최근 사용한 아이콘이 없습니다.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-6 gap-1">
+                    {recentIcons.map((icon) => (
+                      <button
+                        key={icon}
+                        type="button"
+                        onClick={() => pickRecentIcon(icon)}
+                        className="flex h-11 w-full items-center justify-center overflow-hidden rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        title="최근 아이콘"
+                        aria-label="최근 아이콘"
+                      >
+                        <PageIconDisplay icon={icon} size="md" className="!h-9 !w-9" imgClassName="!h-9 !w-9" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+
           {activeMenu === "lucide" ? (
             <div className="flex h-full flex-col">
               <div className="mb-2 flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 dark:border-zinc-700 dark:bg-zinc-950">
@@ -857,16 +917,20 @@ export function IconPicker({
           <IconPickerPanel
             onPickLucide={(name, nextColor) => {
               iconUploadSeqRef.current += 1;
-              onChange(encodeLucidePageIcon(name, nextColor));
+              const encoded = encodeLucidePageIcon(name, nextColor);
+              pushRecentIcon(encoded);
+              onChange(encoded);
               setPickerOpen(false);
             }}
             onPickEmoji={(emoji) => {
               iconUploadSeqRef.current += 1;
+              pushRecentIcon(emoji);
               onChange(emoji);
               setPickerOpen(false);
             }}
             onPickCustom={(icon) => {
               iconUploadSeqRef.current += 1;
+              pushRecentIcon(icon);
               onChange(icon);
               setPickerOpen(false);
             }}

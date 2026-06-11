@@ -72,6 +72,7 @@ export function toPageInputPayload(
     workspaceId: p.workspaceId,
     createdByMemberId: p.createdByMemberId,
     title: p.title,
+    titleColor: typeof p.titleColor === "string" ? p.titleColor : null,
     icon: p.icon ?? null,
     coverImage: p.coverImage ?? null,
     parentId: p.parentId ?? null,
@@ -122,6 +123,7 @@ export function gqlPageToLocalPage(p: GqlPage): Page {
     id: p.id,
     workspaceId: p.workspaceId,
     title: p.title,
+    titleColor: typeof p.titleColor === "string" ? p.titleColor : null,
     icon: p.icon ?? null,
     coverImage: typeof p.coverImage === "string" ? p.coverImage : null,
     doc: (() => {

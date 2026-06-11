@@ -144,6 +144,7 @@ function gqlPageMetaToLocalPage(p: GqlPageMeta, local?: Page): Page {
     id: p.id,
     workspaceId: p.workspaceId,
     title: p.title,
+    titleColor: typeof p.titleColor === "string" ? p.titleColor : null,
     icon: p.icon ?? null,
     coverImage: typeof p.coverImage === "string" ? p.coverImage : null,
     doc: local?.doc ?? structuredClone(EMPTY_DOC),

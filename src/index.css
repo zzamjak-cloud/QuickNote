@@ -241,11 +241,10 @@ html.dark .page-mention:hover {
   line-height: 1;
   display: inline-flex;
   align-items: center;
-  color: inherit;
 }
-.page-mention .page-mention-icon svg {
+/* 이모지 아이콘만 본문 색 상속 — 루시드는 PageIconDisplay color prop 유지 */
+.page-mention .page-mention-icon:not(:has(svg)) {
   color: inherit;
-  stroke: currentColor;
 }
 .page-mention .truncate {
   text-decoration: underline;

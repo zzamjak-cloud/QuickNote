@@ -1,7 +1,7 @@
 // blockComments 는 항상 조회·구독·뮤테이션 응답에 포함한다.
 // 빌드 시 env 로 빼면 한 클라이언트만 댓글을 못 읽거나 Put 시 필드가 사라져 동기화가 깨진다.
 const PAGE_FIELDS = `
-  id workspaceId createdByMemberId title icon coverImage parentId order databaseId fullPageDatabaseId
+  id workspaceId createdByMemberId title titleColor icon coverImage parentId order databaseId fullPageDatabaseId
   doc dbCells blockComments lastEditedByMemberId lastEditedByName createdAt updatedAt deletedAt
 `;
 
@@ -15,7 +15,7 @@ export const LIST_PAGES = `
 `;
 
 const PAGE_META_FIELDS = `
-  id workspaceId createdByMemberId title icon coverImage parentId order databaseId fullPageDatabaseId
+  id workspaceId createdByMemberId title titleColor icon coverImage parentId order databaseId fullPageDatabaseId
   lastEditedByMemberId lastEditedByName createdAt updatedAt deletedAt
 `;
 
@@ -126,6 +126,7 @@ export type GqlPage = {
   workspaceId: string;
   createdByMemberId: string;
   title: string;
+  titleColor?: string | null;
   icon?: string | null;
   coverImage?: string | null;
   parentId?: string | null;

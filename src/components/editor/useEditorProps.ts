@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type { MutableRefObject } from "react";
+import type { Editor } from "@tiptap/react";
 import type { EditorView as PmEditorView } from "@tiptap/pm/view";
 import { extractClipboardFiles } from "../../lib/editor/clipboardFiles";
 import { isGifFile } from "../../lib/files/videoCompress";
@@ -24,6 +25,7 @@ import {
 } from "./editorHelpers";
 import type { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { TextSelection } from "@tiptap/pm/state";
+import { pasteMarkdownAsDocContent } from "../../lib/editor/pasteMarkdownAsDoc";
 
 
 type UseEditorPropsParams = {
@@ -41,6 +43,7 @@ type UseEditorPropsParams = {
     left: number;
   } | null) => void;
   editorScrollHostRef: MutableRefObject<HTMLDivElement | null>;
+  editorRef: MutableRefObject<Editor | null>;
 };
 
 /**
@@ -57,6 +60,7 @@ export function useEditorProps({
   handleAtOpenMention,
   setPasteUrlChoice,
   editorScrollHostRef,
+  editorRef,
 }: UseEditorPropsParams) {
   const handleBackspaceOnEmptyTaskItem = useCallback((view: PmEditorView, event: KeyboardEvent): boolean => {
     if (event.key !== "Backspace" || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) {
@@ -199,6 +203,18 @@ export function useEditorProps({
       handleKeyDown(view: PmEditorView, event: KeyboardEvent) {
         if (handleBackspaceOnEmptyTaskItem(view, event)) return true;
         if (handleAtOpenMention(view, event)) return true;
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          event.key.toLowerCase() === "v"
+        ) {
+          event.preventDefault();
+          const ed = editorRef.current;
+          if (ed && !ed.isDestroyed) {
+            void pasteMarkdownAsDocContent(ed);
+          }
+          return true;
+        }
         return false;
       },
       handleScrollToSelection: (view: PmEditorView) => {
@@ -220,6 +236,7 @@ export function useEditorProps({
       bodyOnly,
       columnDropRef,
       editorScrollHostRef,
+      editorRef,
     ],
   );
 

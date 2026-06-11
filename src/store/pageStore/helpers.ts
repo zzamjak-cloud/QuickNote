@@ -57,6 +57,7 @@ export function toGqlPage(p: Page, createdByMemberId: string): Record<string, un
     workspaceId,
     createdByMemberId,
     title: p.title,
+    titleColor: p.titleColor ?? null,
     icon: p.icon ?? null,
     coverImage: p.coverImage ?? null,
     parentId: p.parentId ?? null,

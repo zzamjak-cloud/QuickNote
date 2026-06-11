@@ -1,9 +1,9 @@
-import { useMemo, type ReactNode } from "react";
-import { FileText } from "lucide-react";
+import { useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 import type { Page } from "../../types/page";
 import {
   buildPageTreeRows,
@@ -25,13 +25,6 @@ type PageSubpageTreeProps = {
   onNavigate?: (pageId: string) => void;
   hideHeader?: boolean;
 };
-
-function pageIcon(icon: string | null): ReactNode {
-  if (!icon || /^https?:|^quicknote-image:|^data:/i.test(icon)) {
-    return <FileText size={14} className="text-zinc-400" />;
-  }
-  return <span className="text-sm leading-none">{icon}</span>;
-}
 
 export function PageSubpageTree({
   rootPageId,
@@ -103,7 +96,7 @@ export function PageSubpageTree({
               }`}
               style={{ paddingLeft: 8 + depth * 18 }}
             >
-              <span className="flex size-5 shrink-0 items-center justify-center">{pageIcon(page.icon)}</span>
+              <PageIconDisplay icon={page.icon} size="sm" className="shrink-0" />
               <span className="min-w-0 flex-1 truncate">{page.title || "제목 없음"}</span>
               {isCurrent && (
                 <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-500 shadow-sm dark:bg-zinc-900 dark:text-zinc-400">

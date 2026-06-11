@@ -140,7 +140,7 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
           <span className="qn-code-copy-label">복사</span>
         </button>
         <div
-          className={`absolute inset-0 box-border overflow-y-auto bg-white px-3 pb-2 pl-3 pr-14 pt-10 prose prose-sm prose-zinc max-w-none dark:bg-zinc-950 dark:prose-invert prose-headings:text-orange-700 prose-a:text-amber-700 dark:prose-headings:text-orange-300 dark:prose-a:text-amber-400 prose-strong:text-zinc-800 dark:prose-strong:text-zinc-100 ${
+          className={`absolute inset-0 box-border select-text overflow-y-auto bg-white px-3 pb-2 pl-3 pr-14 pt-10 prose prose-sm prose-zinc max-w-none dark:bg-zinc-950 dark:prose-invert prose-headings:text-orange-700 prose-a:text-amber-700 dark:prose-headings:text-orange-300 dark:prose-a:text-amber-400 prose-strong:text-zinc-800 dark:prose-strong:text-zinc-100 ${
             previewActive ? "z-10" : "pointer-events-none invisible z-0"
           }`}
           style={{ fontSize: MARKDOWN_PREVIEW_FONT_SIZE }}

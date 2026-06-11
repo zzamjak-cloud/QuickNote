@@ -85,6 +85,7 @@ export const GqlPageSchema = z
     workspaceId: z.string(),
     createdByMemberId: z.string(),
     title: z.string(),
+    titleColor: z.string().nullish(),
     icon: z.string().nullish(),
     coverImage: z.string().nullish(),
     parentId: z.string().nullish(),

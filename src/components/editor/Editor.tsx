@@ -165,6 +165,7 @@ export function Editor({
   const updateDoc = usePageStore((s) => s.updateDoc);
   const renamePage = usePageStore((s) => s.renamePage);
   const setIcon = usePageStore((s) => s.setIcon);
+  const setTitleColor = usePageStore((s) => s.setTitleColor);
   const setCoverImage = usePageStore((s) => s.setCoverImage);
 
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
@@ -185,6 +186,7 @@ export function Editor({
   }, [pageDoc]);
 
   const titleRef = useRef<HTMLInputElement | null>(null);
+  const editorRef = useRef<import("@tiptap/react").Editor | null>(null);
   /** 제목 입력 포커스가 잡힌 페이지 — 전환 후 지연 blur 가 새 페이지를 덮어쓰지 않도록 */
   const titleFocusPageIdRef = useRef<string | null>(null);
   /** 풀 페이지 DB 제목 중복 시 입력 되돌리기용 — 마지막으로 저장에 성공한 제목 */
@@ -334,6 +336,7 @@ export function Editor({
     handleAtOpenMention,
     setPasteUrlChoice,
     editorScrollHostRef,
+    editorRef,
   });
 
   // 슬래시 명령 등 editor 인스턴스만 받는 콜백에서 현재 페이지 ID 를 알 수 있도록
@@ -356,6 +359,10 @@ export function Editor({
     },
     [lowlightApi, isFullPageDatabase, collabDoc, collabAwareness],
   );
+
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
 
   // PageContext storage 동기화 — 슬래시 명령(/페이지 등) 이 현재 호스트 페이지를 식별하기 위함.
   useEffect(() => {
@@ -976,6 +983,8 @@ export function Editor({
                   }
                 }}
                 onIconChange={(icon) => setIcon(effectivePageId, icon)}
+                titleColor={page.titleColor ?? null}
+                onTitleColorChange={(color) => setTitleColor(effectivePageId, color)}
                 onIconUploadMessage={(msg) => setSimpleAlert(msg)}
                 onAddComment={() => setAddCommentSignal((n) => n + 1)}
                 defaultIcon={

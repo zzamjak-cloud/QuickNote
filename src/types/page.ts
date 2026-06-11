@@ -6,6 +6,8 @@ export type Page = {
   id: string;
   workspaceId?: string;
   title: string;
+  /** 페이지 제목 텍스트 색(hex). null 이면 기본 테마 색 */
+  titleColor?: string | null;
   icon: string | null;
   doc: JSONContent;
   parentId: string | null;

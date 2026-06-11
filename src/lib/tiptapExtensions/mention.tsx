@@ -39,6 +39,9 @@ function MentionNodeView({ node }: NodeViewProps) {
   const reactivePageTitle = usePageStore((s) =>
     isPage ? s.pages[pageId]?.title : undefined,
   );
+  const reactivePageTitleColor = usePageStore((s) =>
+    isPage ? s.pages[pageId]?.titleColor ?? null : null,
+  );
   const label = isPage ? (reactivePageTitle ?? rawLabel ?? "페이지") : rawLabel;
   const dataKind = kindAttr === "member" ? undefined : kindAttr;
   const mentionClass = isPage
@@ -71,7 +74,12 @@ function MentionNodeView({ node }: NodeViewProps) {
         {isDatabase ? (
           <span className="select-none text-xs">DB</span>
         ) : null}
-        <span className="truncate">{label}</span>
+        <span
+          className="truncate"
+          style={reactivePageTitleColor ? { color: reactivePageTitleColor } : undefined}
+        >
+          {label}
+        </span>
       </span>
     </NodeViewWrapper>
   );
