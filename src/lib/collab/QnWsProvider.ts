@@ -188,6 +188,9 @@ export class QnWsProvider {
   // 네트워크 온라인 복귀 — backoff 대기 없이 즉시 재연결한다.
   private handleOnline = (): void => {
     if (this.destroyed) return;
+    // offline 상태였을 때만 즉시 재연결. 그 외(이미 온라인·정상 disconnect 의 backoff 대기 중)에
+    // spurious online 이벤트로 connect() 를 또 부르면 기존 소켓을 닫지 않은 채 중복 연결이 생긴다.
+    if (!this.offline) return;
     this.offline = false;
     this.retries = 0;
     this.connect();
