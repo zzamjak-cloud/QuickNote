@@ -5,13 +5,16 @@
 import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
+import { IndexeddbPersistence } from "y-indexeddb";
 import { isCollabEnabledForPage, buildCollabWsUrl } from "./collabConfig";
 import { QnWsProvider } from "./QnWsProvider";
-import { yDocToJson } from "./yjsDoc";
+import { yDocToJson, YJS_XML_FRAGMENT } from "./yjsDoc";
 import { readStoredTokens } from "../auth/tokenStore";
 import { usePageStore } from "../../store/pageStore";
 import { collabColor } from "./collabColor";
 import { useMemberStore } from "../../store/memberStore";
+import { useCollabConnectionStore } from "../../store/collabConnectionStore";
+import { toBadgeStatus, type ProviderStatus } from "./collabConnectionStatus";
 
 const MATERIALIZE_DEBOUNCE_MS = 1800;
 
@@ -23,6 +26,10 @@ export type CollabSession =
       awareness: Awareness;
       /** 서버 초기 sync 완료 여부. true 가 되기 전에는 에디터를 read-only 로 둔다. */
       synced: boolean;
+      /** 로컬 IndexedDB 로드 완료 여부. */
+      idbLoaded: boolean;
+      /** 로컬 로드 시점 doc 에 콘텐츠가 있었는지(빈 doc 오편집 방지 게이팅용). */
+      docNotEmpty: boolean;
     };
 
 /**
@@ -33,9 +40,13 @@ export function useCollabSession(
 ): CollabSession {
   const enabled = isCollabEnabledForPage(pageId);
   const [synced, setSynced] = useState(false);
+  const [idbLoaded, setIdbLoaded] = useState(false);
+  const [docNotEmpty, setDocNotEmpty] = useState(false);
   const docRef = useRef<Y.Doc | null>(null);
   const awarenessRef = useRef<Awareness | null>(null);
+  const idbRef = useRef<IndexeddbPersistence | null>(null);
   const me = useMemberStore((s) => s.me);
+  const setConnStatus = useCollabConnectionStore((s) => s.setStatus);
 
   // pageId 별로 새 Y.Doc 을 만든다. enabled 가 false 면 아무것도 만들지 않는다.
   if (enabled && pageId && !docRef.current) {
@@ -65,6 +76,9 @@ export function useCollabSession(
     const doc = docRef.current ?? new Y.Doc();
     docRef.current = doc;
     setSynced(false);
+    setIdbLoaded(false);
+    setDocNotEmpty(false);
+    setConnStatus("reconnecting");
 
     let cancelled = false;
     let provider: QnWsProvider | null = null;
@@ -86,6 +100,15 @@ export function useCollabSession(
     };
     doc.on("update", scheduleMaterialize);
 
+    // 로컬 영속(IndexedDB). synced 시 로컬 로드 완료 + 콘텐츠 유무 기록.
+    const idb = new IndexeddbPersistence("qn-collab:" + pageId, doc);
+    idbRef.current = idb;
+    idb.on("synced", () => {
+      if (cancelled) return;
+      setIdbLoaded(true);
+      setDocNotEmpty(doc.getXmlFragment(YJS_XML_FRAGMENT).length > 0);
+    });
+
     void (async () => {
       const tokens = await readStoredTokens();
       if (cancelled || !tokens) return;
@@ -94,8 +117,15 @@ export function useCollabSession(
         url: buildCollabWsUrl(pageId, tokens.idToken),
         awareness: awarenessRef.current ?? undefined,
       });
+      provider.on("status", (s) => {
+        if (cancelled) return;
+        setConnStatus(toBadgeStatus(s as ProviderStatus, provider!.isSynced));
+      });
       provider.on("synced", () => {
-        if (!cancelled) setSynced(true);
+        if (!cancelled) {
+          setSynced(true);
+          setConnStatus(toBadgeStatus("connected", true));
+        }
       });
       provider.connect();
     })();
@@ -110,9 +140,19 @@ export function useCollabSession(
       docRef.current = null;
       awarenessRef.current?.destroy();
       awarenessRef.current = null;
+      idbRef.current?.destroy();
+      idbRef.current = null;
+      setConnStatus("idle");
     };
   }, [enabled, pageId]);
 
   if (!enabled || !pageId || !docRef.current || !awarenessRef.current) return { enabled: false };
-  return { enabled: true, doc: docRef.current, awareness: awarenessRef.current, synced };
+  return {
+    enabled: true,
+    doc: docRef.current,
+    awareness: awarenessRef.current,
+    synced,
+    idbLoaded,
+    docNotEmpty,
+  };
 }
