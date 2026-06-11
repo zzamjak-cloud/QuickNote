@@ -10,6 +10,7 @@ import type { ClientMessage } from "./protocol";
 import { parseClientMessage, serializeServerMessage } from "./protocol";
 import { loadPageState, appendPageUpdate, diffForClient, stateVectorOf } from "./yjsStore";
 import { roomConnections, leaveRoom } from "./connections";
+import { buildDbSeedUpdate } from "./dbSeed";
 
 /** awareness 메시지인지 — true 면 영속하지 않고 룸 fan-out 만 한다. */
 export function isAwarenessMessage(msg: ClientMessage): boolean {
@@ -57,7 +58,19 @@ export const handler: APIGatewayProxyHandler = async (event) => {
 
   if (msg.t === "hello") {
     // 초기 핸드셰이크: 서버 상태와 클라이언트 sv 를 비교해 diff 만 전송
-    const state = await loadPageState(pageId);
+    let state = await loadPageState(pageId);
+    // DB room 첫 진입: 서버 권위 구조 시드(중복 컬럼 방지). 빈 Y.Doc 일 때만.
+    if (pageId.startsWith("db:")) {
+      const sv = stateVectorOf(state);
+      const isEmpty = sv.length <= 1; // 빈 Y.Doc 의 state vector 길이
+      if (isEmpty) {
+        const seed = await buildDbSeedUpdate(pageId.slice(3));
+        if (seed) {
+          await appendPageUpdate(pageId, seed);
+          state = await loadPageState(pageId);
+        }
+      }
+    }
     const reply = serializeServerMessage({
       t: "sync",
       update: diffForClient(state, msg.sv),
