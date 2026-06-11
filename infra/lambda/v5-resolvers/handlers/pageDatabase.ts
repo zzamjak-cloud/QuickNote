@@ -1284,6 +1284,17 @@ export async function upsertPage(args: {
       input.blockComments = prev;
     }
   }
+  // fullPageDatabaseId 도 동일하게 보존한다 — 키를 빼고 Put 하는 클라이언트(구 빌드,
+  // 또는 태그가 로컬에 없는 stale 페이지의 재업서트)가 풀페이지 DB 홈 태그를 소거하면
+  // 홈이 사이드바에 유령 페이지로 노출된다(wiki/pages/ghost-page-prevention.md).
+  if (!("fullPageDatabaseId" in input) || input.fullPageDatabaseId == null) {
+    const prev = existingPage?.fullPageDatabaseId;
+    if (prev != null) {
+      input.fullPageDatabaseId = prev;
+    } else {
+      delete input.fullPageDatabaseId;
+    }
+  }
   validateCoverImageField(input);
   normalizeBlockCommentsField(input);
   // byDatabaseAndOrder GSI 키는 NULL 타입을 거부한다(파티션=databaseId, 정렬=order).

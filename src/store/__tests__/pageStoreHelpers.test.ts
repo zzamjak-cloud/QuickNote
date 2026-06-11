@@ -56,4 +56,20 @@ describe("pageStore helpers", () => {
 
     expect(payload.workspaceId).toBe("personal-ws");
   });
+
+  it("fullPageDatabaseId 태그가 있으면 페이로드에 실어 보낸다(유령 페이지 방지)", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "personal-ws", workspaces: [] });
+
+    const payload = toGqlPage(page({ fullPageDatabaseId: "db-1" }), "member-1");
+
+    expect(payload.fullPageDatabaseId).toBe("db-1");
+  });
+
+  it("fullPageDatabaseId 가 없으면 키 자체를 보내지 않는다(서버가 기존 태그 보존)", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "personal-ws", workspaces: [] });
+
+    const payload = toGqlPage(page(), "member-1");
+
+    expect("fullPageDatabaseId" in payload).toBe(false);
+  });
 });

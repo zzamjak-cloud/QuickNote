@@ -69,6 +69,9 @@ export function toGqlPage(p: Page, createdByMemberId: string): Record<string, un
     createdAt: new Date(p.createdAt).toISOString(),
     updatedAt: new Date(p.updatedAt).toISOString(),
   };
+  // 값이 있을 때만 싣는다 — 키 부재 시 서버가 기존 태그를 보존하므로,
+  // 태그가 로컬에 없는(stale) 페이지의 재업서트가 서버 태그를 소거하지 못한다.
+  if (p.fullPageDatabaseId != null) base.fullPageDatabaseId = p.fullPageDatabaseId;
   return base;
 }
 

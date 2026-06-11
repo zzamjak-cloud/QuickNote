@@ -91,6 +91,21 @@ persist 된 탭이 { databaseId: X } (풀페이지 DB 탭)
 
 > 점검 쿼리: `quicknote-page` 전체 스캔에서 `미삭제 AND 미태깅 AND 루트(databaseId 없음)` 후보 중 `doc.content[0]` 이 `databaseBlock` + `layout==="fullPage"` 인 것이 유령. 정상 워크스페이스는 0건이어야 한다.
 
+## 태그 일괄 소실 사고 (2026-06-11, dev)
+
+`toGqlPage`(`src/store/pageStore/helpers.ts`)와 `toPageInputPayload`(`src/lib/sync/storeApply/helpers.ts`)가
+`fullPageDatabaseId` 를 직렬화하지 않아, **모든 클라이언트 재업서트가 서버 태그를 소거**해 왔다
+(서버 `upsertPage` 는 input 전체 교체 Put). `movePage` 의 형제 일괄 재정렬이 루트의 숨은 홈 전체를
+같은 ts 로 upsert 하면서 dev CAT 홈 태그가 일괄 소실 → 유령 노출.
+
+수정(3중 방어):
+1. `toGqlPage`/`toPageInputPayload` — 태그가 있으면 싣고, 없으면 **키 자체를 보내지 않는다**.
+2. `gqlPageToLocalPage` — listPages 응답의 태그를 로컬에 매핑(로컬 소실 차단).
+3. 서버 `upsertPage` — 키 부재·명시 null 모두 기존 태그를 보존(blockComments 와 동일 패턴).
+   이 필드는 의도적 삭제 유스케이스가 없으므로 null 도 보존으로 처리한다.
+
+회귀 테스트: `pageStoreHelpers.test.ts`(페이로드 포함/키 생략), `pageDatabase.test.ts`(서버 보존 가드).
+
 ## CRITICAL 회귀 주의
 
 - **ghost 재발 조건**: `upsertPage` 호출 시 `fullPageDatabaseId`를 빠뜨리면 레거시 폴백에만 의존하게 된다. 폴백은 doc 본문이 로드된 후에만 동작하므로 메타 베이스라인 경로에서 사이드바에 순간 노출될 수 있다.

@@ -87,6 +87,10 @@ export function toPageInputPayload(
     blockComments: stringifyAwsJson(p.blockComments),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
+    // 값이 있을 때만 싣는다 — 키 부재 시 서버가 기존 태그를 보존한다(유령 페이지 방지).
+    ...(p.fullPageDatabaseId != null
+      ? { fullPageDatabaseId: p.fullPageDatabaseId }
+      : {}),
   };
 }
 
@@ -139,6 +143,7 @@ export function gqlPageToLocalPage(p: GqlPage): Page {
     parentId: p.parentId ?? null,
     order: gqlOrderNumber(p),
     databaseId: p.databaseId ?? undefined,
+    fullPageDatabaseId: p.fullPageDatabaseId ?? undefined,
     dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
     createdByMemberId: p.createdByMemberId ?? undefined,
     lastEditedByMemberId: p.lastEditedByMemberId ?? undefined,

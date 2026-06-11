@@ -86,6 +86,38 @@ describe("page/database handlers", () => {
     expect(result.id).toBe("p1");
   });
 
+  it("upsertPage: input 에 fullPageDatabaseId 키가 없으면 기존 태그를 보존한다(유령 페이지 방지)", async () => {
+    const doc = mockDoc(
+      { Item: { id: "p1", workspaceId: "ws-1", fullPageDatabaseId: "db-9" } }, // 기존 페이지 Get
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      {}, // put
+    );
+    const result = await upsertPage({
+      doc,
+      tables,
+      caller,
+      input: { id: "p1", workspaceId: "ws-1", updatedAt: "now", createdAt: "now", title: "T", doc: "{}", order: "a", createdByMemberId: "m1" },
+    });
+    expect(result.fullPageDatabaseId).toBe("db-9");
+  });
+
+  it("upsertPage: fullPageDatabaseId 가 명시 null 이어도 기존 태그를 보존한다", async () => {
+    const doc = mockDoc(
+      { Item: { id: "p1", workspaceId: "ws-1", fullPageDatabaseId: "db-9" } },
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {},
+    );
+    const result = await upsertPage({
+      doc,
+      tables,
+      caller,
+      input: { id: "p1", workspaceId: "ws-1", updatedAt: "now", createdAt: "now", title: "T", doc: "{}", order: "a", createdByMemberId: "m1", fullPageDatabaseId: null },
+    });
+    expect(result.fullPageDatabaseId).toBe("db-9");
+  });
+
   it("upsertPage: order 가 null 이면 createdAt 기반 숫자 문자열로 보정한다(byDatabaseAndOrder GSI 보호)", async () => {
     const doc = mockDoc(
       { Item: undefined }, // blockComments 보존용 Get
