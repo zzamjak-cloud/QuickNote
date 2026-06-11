@@ -157,14 +157,20 @@ TipTap 확장 기반 블록 타입 설명. 각 항목은 `src/lib/tiptapExtensio
 
 **GlobalAttributes 대상 노드 타입**
 
-`paragraph`, `heading`, `blockquote`, `toggle`, `toggleHeader`, `bulletList`, `orderedList`, `taskList` 등 텍스트 기반 블록.
+| 속성 | 대상 노드 |
+|------|-----------|
+| `backgroundColor` | `paragraph`, `heading`, `blockquote`, `toggle`, `toggleHeader`, `bulletList`, `orderedList`, `taskList`, `listItem`, `taskItem` |
+| `blockTextColor` | `paragraph`, `heading`, `blockquote`, `toggle`, `toggleHeader`, **`listItem`, `taskItem`만** (ul/ol 컨테이너 제외) |
 
 **추가 속성**
 
 | 속성 | 타입 | 설명 |
 |------|------|------|
 | `backgroundColor` | `BlockBgColor` | `"yellow"` \| `"blue"` \| `"gray"` \| … \| null |
-| `textColor` | `BlockTextColor` | `"default"` \| `"gray"` \| `"brown"` \| … |
+| `blockTextColor` | `BlockTextColor` | `"default"` \| `"gray"` \| `"brown"` \| … — HTML `data-text-color` |
+
+> **회귀 주의 — 중첩 글머리 목록**
+> 자식 `listItem` 텍스트 색만 바꿔야 하는데 `bulletList` 에 `blockTextColor` 가 있으면 형제·부모 항목까지 연쇄 변색된다. BlockHandles 메뉴는 hover 노드(`listItem` 우선)에만 적용하되, 스키마에서 ul/ol 에 텍스트 색 attr 자체를 금지한다.
 
 `BlockBgColor` 팔레트: yellow, blue, gray, brown, red, orange, green, purple, pink, teal (10가지 + null).
 

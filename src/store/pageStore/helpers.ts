@@ -182,6 +182,7 @@ export function toPageSnapshot(page: Page): PageSnapshot {
   return {
     id: page.id,
     title: page.title,
+    titleColor: page.titleColor ?? null,
     icon: page.icon,
     doc: structuredClone(page.doc),
     parentId: page.parentId,

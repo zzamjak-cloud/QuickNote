@@ -73,11 +73,22 @@
 
 - 글자 크기는 부모 본문 텍스트 상속(`font-size` 미지정), hover 시 `opacity: 0.7`.
 - 제목(`.truncate`)에만 `text-decoration: underline` + 연한 밑줄색(컬럼 구분선 톤). `text-underline-offset: 2px`.
-- 아이콘은 `<PageIconDisplay icon size="md" className="page-mention-icon" />` 로 렌더 — **이모지·커스텀 이미지(`quicknote-image://`)·Lucide 아이콘을 모두 정상 표시**. (과거 `{icon}` 텍스트 직접 출력이라 이미지 ref 가 `quicknote-image://...` 문자열로 노출되던 버그가 있었음). 아이콘 없으면 `PageIconDisplay` 가 `FileText` 폴백. `.page-mention-icon` `font-size: 1.6rem` 은 이모지 분기에만 적용.
+- 아이콘은 `<PageIconDisplay icon size="md" className="page-mention-icon" />` 로 렌더 — **이모지·커스텀 이미지(`quicknote-image://`)·Lucide 아이콘을 모두 정상 표시**. (과거 `{icon}` 텍스트 직접 출력이라 이미지 ref 가 `quicknote-image://...` 문자열로 노출되던 버그가 있었음). 아이콘 없으면 `PageIconDisplay` 가 `FileText` 폴백. `.page-mention-icon` `font-size: 1.6rem` 은 **이모지 분기만** 적용.
+- **Lucide 컬러**: `PageIconDisplay` 가 `color={lucideIcon.color}` 로 stroke 색을 지정한다. `.page-mention-icon svg` 에 `color: inherit` / `stroke: currentColor` 를 두면 루시드 색이 사라지므로 **금지** — `index.css` 는 `:not(:has(svg))` 로 이모지만 inherit.
+- **제목 컬러**: `mention.tsx` 가 `pageStore` 의 `titleColor` 를 구독해 `.truncate` 에 `style={{ color }}` 적용. 페이지 제목 색 변경 시 멘션 제목도 즉시 연동 ([pages/overview.md](../pages/overview.md)).
 - 정적 직렬화(`renderHTML`/`renderText`)는 `isPlainEmojiIcon` 가드로 **이모지만** 텍스트로 내보낸다 — 이미지·Lucide ref 가 복사/붙여넣기 시 raw 문자열로 새지 않도록.
 - **chevron(`>`) 제거됨** — `mention.tsx` 의 React 노드뷰·`renderHTML` 양쪽에서 삭제.
 
 구형 저장 HTML 폴백(`.member-mention[data-mention-kind="page"]`, `span.member-mention[data-id^="p:"]`)은 별도 규칙으로 남아있다(레거시 회색 칩).
+
+---
+
+## 페이지 트리 팝오버 (`PageSubpageTree`)
+
+`TopBar` 우측 **페이지 트리** 버튼 → `PageSubpageTree` (`hideHeader`).
+
+- 각 행 아이콘은 **`PageIconDisplay`** 로 렌더 — 이모지·`quicknote-image://`·`quicknote-lucide:` 모두 표시.
+- 과거 `pageIcon()` 헬퍼가 Lucide ref 를 raw 문자열로 출력하던 회귀와 동일 패턴 — **멘션 수정 이력과 같이 `PageIconDisplay` 단일 경로**를 유지한다.
 
 ---
 
@@ -93,3 +104,5 @@
 | `src/components/layout/TabBar.tsx` | 탭 가운데클릭 닫기 |
 | `src/lib/tiptapExtensions/mention.tsx` | **모든 멘션(member/page/database) 단일 노드** `MentionExtension`. 페이지 멘션 렌더 + PM mousedown(멤버/DB 만) |
 | `src/lib/tiptapExtensions/pageLink.tsx`, `buttonBlock.tsx` | 인라인 링크 / 블록 링크 이동 |
+| `src/components/page/PageSubpageTree.tsx` | 헤더 페이지 트리 팝오버 — 아이콘은 `PageIconDisplay` |
+| `src/components/common/PageIconDisplay.tsx` | 페이지 아이콘 공통 렌더 (멘션·트리·사이드바·IconPicker) |

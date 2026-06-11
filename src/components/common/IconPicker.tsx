@@ -20,7 +20,6 @@ import { loadRecentIcons, pushRecentIcon } from "../../lib/recentIconStorage";
 import { loadLucideIconColor, saveLucideIconColor } from "../../lib/lucideIconColorStorage";
 
 const MAX_ICON_BYTES = 5 * 1024 * 1024;
-const DEFAULT_LUCIDE_COLOR = "#3f3f46";
 const ICON_PICKER_PANEL_WIDTH = 320;
 const ICON_PICKER_PANEL_ESTIMATED_HEIGHT = 440;
 const ICON_PICKER_VIEWPORT_PADDING = 24;
@@ -388,7 +387,7 @@ export function IconPickerPanel({
   const [activeMenu, setActiveMenu] = useState<IconPickerMenu>("unified");
   const [activeLucideCategory, setActiveLucideCategory] = useState("all");
   const [lucideQuery, setLucideQuery] = useState("");
-  const [recentIcons, setRecentIcons] = useState<string[]>(() => loadRecentIcons());
+  const recentIcons = loadRecentIcons();
 
   const activeCategory =
     LUCIDE_ICON_CATEGORIES.find((category) => category.id === activeLucideCategory) ??

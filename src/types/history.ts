@@ -11,6 +11,7 @@ export type PageSnapshot = Pick<
   Page,
   | "id"
   | "title"
+  | "titleColor"
   | "icon"
   | "coverImage"
   | "doc"
@@ -27,6 +28,7 @@ export type PageHistoryKind =
   | "page.create"
   | "page.rename"
   | "page.icon"
+  | "page.titleColor"
   | "page.coverImage"
   | "page.doc"
   | "page.move"

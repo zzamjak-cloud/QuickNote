@@ -29,6 +29,7 @@
 | `navigateToParentPage` | 없음 | 부모 페이지로 이동 (루트면 무시) |
 | `reorderPages` | `orderedIds` | 같은 부모 내 페이지 순서 재정렬 |
 | `setIcon` | `id, icon \| null` | 페이지 아이콘 설정 |
+| `setTitleColor` | `id, titleColor \| null` | 페이지 제목 텍스트 색(hex). 멘션 제목 색과 연동 |
 | `setCoverImage` | `id, coverImage \| null` | 커버 이미지 설정 |
 | `movePage` | `id, parentId \| null, index` | 다른 부모/위치로 이동 |
 | `movePageRelative` | `id, direction` | 키보드 단축키용 상대 이동 (up/down/indent/outdent) |
@@ -49,6 +50,12 @@
 - 저장 필드: `pages`, `activePageId`, `cacheWorkspaceId`, `migrationQuarantine`
 - 마이그레이션 로직: `migratePageStore` (`src/store/pageStore/migrations.ts`)
 - 마이그레이션 필요 조건: `Page` 타입에 필수 필드 추가·제거·이름 변경 시 version bump 필요
+
+## Page 메타 필드 (동기화)
+
+| 필드 | 타입 | upsert |
+|------|------|--------|
+| `titleColor` | `string \| null` | `toGqlPage` / `toPageInputPayload` / GraphQL `PAGE_FIELDS` 포함. 스키마: `Page.titleColor` |
 
 ## 의존 관계
 

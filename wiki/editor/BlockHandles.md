@@ -53,6 +53,11 @@
 
 `menuOpen`, `boxSelectionActive`는 `ref`로 관리 — mousemove 핸들러가 최신값을 읽되 리스너를 매번 재등록하지 않는다.
 
+## 블록 텍스트 색 (`applyBlockTextColor`)
+
+- `hover.node` 에 `updateAttributes(..., { blockTextColor })` — 글머리·번호·할 일은 **`listItem`/`taskItem` hover** 가 우선(`blockHandles/helpers.ts` `hoverFromListItemElement`).
+- `blockBackground` extension 은 `blockTextColor` 를 **`bulletList`/`orderedList`/`taskList` 에 부여하지 않음** — 중첩 목록에서 부모 항목까지 색이 번지는 회귀 방지 ([blocks/block-types.md](../blocks/block-types.md)).
+
 ## 박스 선택 감지
 `MutationObserver`로 `document.body.classList` 변화를 감시. `qn-box-select-tracking` / `qn-box-select-dragging` 클래스 유무로 `boxSelecting` 상태를 동기화한다.
 

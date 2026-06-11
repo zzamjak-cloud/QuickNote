@@ -51,7 +51,7 @@
 | 사용처 | 사용 파일 |
 |--------|----------|
 | `Editor.tsx` | `insertImageFromFile`, `editorNavigationBridge`, `pendingNavigation`, `editorByPageRegistry`, `editorHandleDrop` |
-| `useEditorProps.ts` | `editorHandleDrop`, `clipboardFiles`, `insertImageFromFile`, `insertFileFromFile` |
+| `useEditorProps.ts` | `editorHandleDrop`, `clipboardFiles`, `insertImageFromFile`, `insertFileFromFile`, `pasteMarkdownAsDoc` |
 | `TableBlockControls.tsx` | `tableReorderDrag`, `tableHeaders` |
 | `BlockHandles.tsx` | `tableHeaders` (표 블록 좌상단 핸들 메뉴의 헤더행/열 토글) |
 | `BubbleToolbar.tsx` | `tableColumnWidths` (다중 열 선택 시 균등 너비 버튼) |
