@@ -1,6 +1,6 @@
 // 실시간 협업 feature flag 및 WebSocket URL 빌더.
 // Phase 1 은 기본 OFF. VITE_COLLAB_WS_URL 이 설정되고 페이지가 allowlist 에 포함될 때만 활성.
-// build-marker: 2026-06-12 #6 — 라이브 협업 단일 페이지 활성화(Production env, prod WS, epoch v3).
+// build-marker: 2026-06-12 #7 — 라이브 협업 단일 페이지 재활성화(placeholder 시드 보류 수정 반영).
 
 /** 협업 WS 베이스 URL(없으면 협업 전체 비활성). 예: wss://abc.execute-api.ap-northeast-2.amazonaws.com/dev */
 function wsBase(): string {
