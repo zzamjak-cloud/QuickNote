@@ -826,6 +826,9 @@ export function Editor({
       }
       if (!editor.isDestroyed && editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
     }
+    // 가드형 deps(collab.enabled && collab.X) — 협업 union 의 타입 안전 접근. bare collab.X 는
+    // {enabled:false} 분기에 없어 타입 오류. 가드형도 X 변화 시 값이 바뀌어 재실행은 정상 보장된다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     editor,
     isFullPageDatabase,
