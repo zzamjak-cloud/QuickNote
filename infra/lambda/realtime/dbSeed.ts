@@ -71,6 +71,7 @@ export async function buildDbSeedUpdate(databaseId: string): Promise<Uint8Array 
     root.set("panelState", jsonToY(parseJson(item.panelState, {})));
     root.set("rowPageOrder", jsonToY(rowPageOrder));
     root.set("rows", jsonToY(rows));
+    root.set("rowMembers", jsonToY(rowPageOrder));
   });
   return Y.encodeStateAsUpdate(doc);
 }

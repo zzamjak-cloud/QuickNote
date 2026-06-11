@@ -16,6 +16,13 @@ beforeEach(() => {
   process.env.PAGE_TABLE = "PG";
 });
 
+function decodeMembers(update: Uint8Array): string[] {
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, update);
+  const arr = doc.getMap("db").get("rowMembers") as Y.Array<string>;
+  return arr ? arr.toArray() : [];
+}
+
 function decodeRows(update: Uint8Array) {
   const doc = new Y.Doc();
   Y.applyUpdate(doc, update);
@@ -51,6 +58,23 @@ describe("buildDbSeedUpdate rows 시드", () => {
     const update = await buildDbSeedUpdate("db1");
     expect(update).not.toBeNull();
     expect(decodeRows(update!)).toEqual({ pg1: { c1: "a" }, pg2: { c1: "b" }, pg3: {} });
+  });
+
+  it("rowMembers 를 rowPageOrder 와 동일하게 시드한다", async () => {
+    const { buildDbSeedUpdate } = await import("../dbSeed");
+    sendMock.mockImplementation((cmd: { input: { TableName: string; Key: { id?: string } } }) => {
+      const t = cmd.input.TableName;
+      if (t === "DB") {
+        return Promise.resolve({ Item: {
+          id: "db1", columns: "[]", presets: "[]", panelState: "{}",
+          rowPageOrder: JSON.stringify(["pg1", "pg2"]),
+        }});
+      }
+      const id = cmd.input.Key.id;
+      return Promise.resolve({ Item: { id, dbCells: JSON.stringify({ c1: "v" }) } });
+    });
+    const update = await buildDbSeedUpdate("db1");
+    expect(decodeMembers(update!)).toEqual(["pg1", "pg2"]);
   });
 
   it("Database 항목이 없으면 null 을 반환한다", async () => {
