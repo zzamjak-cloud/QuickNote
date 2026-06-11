@@ -13,7 +13,7 @@ import {
 } from "./wsProtocol";
 
 type ProviderEvent = "synced" | "status";
-type StatusValue = "connecting" | "connected" | "disconnected";
+type StatusValue = "connecting" | "connected" | "disconnected" | "offline";
 
 export type QnWsProviderOptions = {
   doc: Y.Doc;
@@ -46,6 +46,7 @@ export class QnWsProvider {
   private retries = 0;
   private pingTimer: number | null = null;
   private reconnectTimer: number | null = null;
+  private offline = false;
   private listeners: Record<ProviderEvent, Set<(arg?: unknown) => void>> = {
     synced: new Set(),
     status: new Set(),
@@ -67,6 +68,13 @@ export class QnWsProvider {
         window.addEventListener("beforeunload", this.handleBeforeUnload);
       }
     }
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", this.handleOnline);
+      window.addEventListener("offline", this.handleOffline);
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        this.offline = true;
+      }
+    }
   }
 
   on(event: ProviderEvent, cb: (arg?: unknown) => void): void {
@@ -84,7 +92,7 @@ export class QnWsProvider {
   }
 
   connect(): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.offline) return;
     this.emit("status", "connecting" as StatusValue);
     const ws = this.socketFactory(this.url);
     this.ws = ws;
@@ -162,6 +170,29 @@ export class QnWsProvider {
     }
   };
 
+  // 네트워크 오프라인 — 재연결 타이머·소켓을 정리하고 offline status 를 emit 한다.
+  private handleOffline = (): void => {
+    this.offline = true;
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.stopPing();
+    this.emit("status", "offline" as StatusValue);
+    if (this.ws) {
+      try { this.ws.close(); } catch { /* 무시 */ }
+      this.ws = null;
+    }
+  };
+
+  // 네트워크 온라인 복귀 — backoff 대기 없이 즉시 재연결한다.
+  private handleOnline = (): void => {
+    if (this.destroyed) return;
+    this.offline = false;
+    this.retries = 0;
+    this.connect();
+  };
+
   private startPing(): void {
     this.stopPing();
     this.pingTimer = window.setInterval(() => {
@@ -179,6 +210,7 @@ export class QnWsProvider {
     this.stopPing();
     this.ws = null;
     this.synced = false;
+    if (this.offline) return; // offline 상태는 handleOffline 이 status 를 관리 — 덮어쓰지 않음
     this.emit("status", "disconnected" as StatusValue);
     if (this.destroyed) return;
     const delay = Math.min(this.maxBackoffMs, 500 * 2 ** this.retries);
@@ -194,6 +226,10 @@ export class QnWsProvider {
       if (typeof window !== "undefined") {
         window.removeEventListener("beforeunload", this.handleBeforeUnload);
       }
+    }
+    if (typeof window !== "undefined") {
+      window.removeEventListener("online", this.handleOnline);
+      window.removeEventListener("offline", this.handleOffline);
     }
     this.destroyed = true;
     this.doc.off("update", this.handleLocalUpdate);

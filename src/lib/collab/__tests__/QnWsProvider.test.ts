@@ -149,4 +149,40 @@ describe("QnWsProvider", () => {
     const aw = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "awareness");
     expect(aw.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("offline 이벤트 시 status offline 을 emit 하고 재연결하지 않는다", () => {
+    const { socket, provider } = makeProvider();
+    const statuses: string[] = [];
+    provider.on("status", (s) => statuses.push(s as string));
+    provider.connect();
+    socket.open();
+    window.dispatchEvent(new Event("offline"));
+    expect(statuses).toContain("offline");
+    // offline 후 ws.close()→onclose 가 disconnected 로 되돌리면 안 됨 — 마지막은 offline
+    expect(statuses[statuses.length - 1]).toBe("offline");
+    provider.destroy();
+  });
+
+  it("online 이벤트 시 즉시 재연결을 시도한다(새 소켓 생성)", () => {
+    const doc = new Y.Doc();
+    let created = 0;
+    const sockets: FakeSocket[] = [];
+    const provider = new QnWsProvider({
+      doc,
+      url: "wss://x/dev?token=t&pageId=p",
+      socketFactory: () => {
+        created += 1;
+        const s = new FakeSocket();
+        sockets.push(s);
+        return s as unknown as WebSocket;
+      },
+    });
+    provider.connect();
+    sockets[0].open();
+    expect(created).toBe(1);
+    window.dispatchEvent(new Event("offline"));
+    window.dispatchEvent(new Event("online"));
+    expect(created).toBe(2); // online 시 즉시 새 connect
+    provider.destroy();
+  });
 });
