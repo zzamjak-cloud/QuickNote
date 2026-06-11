@@ -5,9 +5,17 @@ import { getCallerMember, hasWorkspaceViewAccess, ResolverError } from "../v5-re
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const PAGE_TABLE = process.env.PAGE_TABLE!;
+const DATABASE_TABLE = process.env.DATABASE_TABLE!;
 const MEMBERS_TABLE = process.env.MEMBERS_TABLE!;
 const MEMBER_TEAMS_TABLE = process.env.MEMBER_TEAMS_TABLE!;
 const WORKSPACE_ACCESS_TABLE = process.env.WORKSPACE_ACCESS_TABLE!;
+
+export type Room = { kind: "page" | "database"; id: string };
+/** room 식별자 파싱. "db:<id>" → database, 그 외 → page. */
+export function parseRoom(roomId: string): Room {
+  if (roomId.startsWith("db:")) return { kind: "database", id: roomId.slice(3) };
+  return { kind: "page", id: roomId };
+}
 
 // Cognito ID 토큰 검증기 — USER_POOL_ID·USER_POOL_CLIENT_ID 는 CDK 스택에서 주입
 const verifier = CognitoJwtVerifier.create({
@@ -42,9 +50,16 @@ export async function authorizeConnect(token: string, pageId: string): Promise<A
     return null;
   }
 
-  // 페이지 존재 여부 및 워크스페이스 귀속 확인
-  const page = await ddb.send(new GetCommand({ TableName: PAGE_TABLE, Key: { id: pageId } }));
-  const workspaceId = page.Item?.workspaceId as string | undefined;
+  // 페이지/DB room 에 따라 workspaceId 출처를 다르게 조회
+  const room = parseRoom(pageId);
+  let workspaceId: string | undefined;
+  if (room.kind === "database") {
+    const db = await ddb.send(new GetCommand({ TableName: DATABASE_TABLE, Key: { id: room.id } }));
+    workspaceId = db.Item?.workspaceId as string | undefined;
+  } else {
+    const page = await ddb.send(new GetCommand({ TableName: PAGE_TABLE, Key: { id: room.id } }));
+    workspaceId = page.Item?.workspaceId as string | undefined;
+  }
   if (!workspaceId) return null;
 
   // caller 멤버 조회 + 워크스페이스 멤버십(view 이상) 검증
