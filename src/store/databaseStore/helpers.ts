@@ -95,6 +95,7 @@ export function enqueueUpsertDatabase(
         panelState: bundle.panelState ?? {},
         rowPageOrder: bundle.rowPageOrder,
         rows: {},
+        rowMembers: bundle.rowPageOrder,
       }, collab.baseline);
       return;
     }

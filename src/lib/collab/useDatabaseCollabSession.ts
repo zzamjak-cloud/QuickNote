@@ -13,7 +13,7 @@ import { useCollabConnectionStore } from "../../store/collabConnectionStore";
 import { toBadgeStatus, type ProviderStatus } from "./collabConnectionStatus";
 
 const MATERIALIZE_DEBOUNCE_MS = 1500;
-const EMPTY_STRUCTURE: DbStructure = { columns: [], presets: [], panelState: {}, rowPageOrder: [], rows: {} };
+const EMPTY_STRUCTURE: DbStructure = { columns: [], presets: [], panelState: {}, rowPageOrder: [], rows: {}, rowMembers: [] };
 
 export type DbCollabSession =
   | { enabled: false }

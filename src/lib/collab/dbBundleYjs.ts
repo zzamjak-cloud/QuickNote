@@ -11,6 +11,8 @@ export type DbStructure = {
   rowPageOrder: string[];
   // rowPageId → (columnId → 셀 값 JSON). slice B: 행 셀 협업 권위.
   rows: Record<string, Record<string, unknown>>;
+  // 살아있는 행 pageId 집합. slice C: 행 멤버십 권위(CRDT). 순서는 rowPageOrder(LWW).
+  rowMembers: string[];
 };
 
 export type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
@@ -51,6 +53,7 @@ export function seedDbStructure(doc: Y.Doc, structure: DbStructure): void {
     root.set("panelState", jsonToY(structure.panelState as Json));
     root.set("rowPageOrder", jsonToY(structure.rowPageOrder as Json));
     root.set("rows", jsonToY(structure.rows as Json));
+    root.set("rowMembers", jsonToY(structure.rowMembers as Json));
   });
 }
 
@@ -63,5 +66,6 @@ export function readDbStructure(doc: Y.Doc): DbStructure {
     panelState: (yToJson(root.get("panelState")) as Record<string, unknown>) ?? {},
     rowPageOrder: (yToJson(root.get("rowPageOrder")) as string[]) ?? [],
     rows: (yToJson(root.get("rows")) as Record<string, Record<string, unknown>>) ?? {},
+    rowMembers: (yToJson(root.get("rowMembers")) as string[]) ?? [],
   };
 }
