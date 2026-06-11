@@ -20,6 +20,7 @@ import {
   isLCSchedulerDatabaseId,
   isProtectedDatabaseId,
 } from "../lib/scheduler/database";
+import { writeCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../lib/scheduler/scope";
 import {
   EMPTY_DOC,
@@ -902,7 +903,12 @@ export const usePageStore = create<PageStore>()(
             { id: pageId, dbCells: { [columnId]: value } },
             shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
           );
-          enqueueUpsertPage(after);
+          // 협업 ON DB 행 페이지: 셀을 Y.Doc 으로 라우팅하고 페이지 LWW upsert 는 생략.
+          // (셀 영속은 materialize 가 includeCells 로 담당.) 비협업이면 false → 기존 경로.
+          const routed =
+            after.databaseId != null &&
+            writeCellsToCollabDoc(after.databaseId, pageId, { [columnId]: value });
+          if (!routed) enqueueUpsertPage(after);
         }
       },
 
