@@ -105,7 +105,7 @@ import {
 import { useEditorExtensions } from "./useEditorExtensions";
 import { useCollabSession } from "../../lib/collab/useCollabSession";
 import { useCollabPresence } from "../../lib/collab/useCollabPresence";
-import { seedCollabDocIfEmpty } from "../../lib/collab/yjsDoc";
+import { seedCollabDocIfEmpty, isPlaceholderBodyJson } from "../../lib/collab/yjsDoc";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
@@ -480,7 +480,11 @@ export function Editor({
       !collabDoc ||
       !effectivePageId ||
       !safePageDoc ||
-      pageContentMissing
+      pageContentMissing ||
+      // 본문이 아직 placeholder(빈 문단) 면 시드를 보류한다. 콜드 로드(메타 베이스라인→본문 로드)
+      // race 에서 contentLoaded 전환과 실제 doc 갱신 사이 틈에 시드되면 빈 문단이 Y.Doc 에 박혀
+      // 이후 본문 시드가 영구 차단된다(2026-06-12 라이브 CAT 빈 화면). 본문이 채워진 뒤에만 시드·바인딩.
+      isPlaceholderBodyJson(safePageDoc)
     ) {
       setCollabBoundDoc(null);
       return;
