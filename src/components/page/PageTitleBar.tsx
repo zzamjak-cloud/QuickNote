@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useState } from "react";
 import { MessageSquarePlus, Star } from "lucide-react";
 import { IconPicker } from "../common/IconPicker";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -44,10 +44,10 @@ export function PageTitleBar({
 }: PageTitleBarProps) {
   const [titleToolbarOpen, setTitleToolbarOpen] = useState(false);
   const internalTitleRef = React.useRef<HTMLInputElement | null>(null);
-  const mergedTitleRef = titleRef ?? internalTitleRef;
+  const inputRef = titleRef ?? internalTitleRef;
 
-  const syncTitleSelectionToolbar = useCallback(() => {
-    const input = mergedTitleRef.current;
+  const syncTitleSelectionToolbar = () => {
+    const input = inputRef.current;
     if (!input || !onTitleColorChange) {
       setTitleToolbarOpen(false);
       return;
@@ -57,7 +57,7 @@ export function PageTitleBar({
       input.selectionEnd != null &&
       input.selectionStart !== input.selectionEnd;
     setTitleToolbarOpen(hasSelection);
-  }, [mergedTitleRef, onTitleColorChange]);
+  };
 
   // 즐겨찾기 상태는 내부에서 직접 구독 — 다른 페이지 변경 시 이 컴포넌트만 리렌더
   const isFavorite = useSettingsStore(
@@ -74,7 +74,7 @@ export function PageTitleBar({
         defaultIcon={defaultIcon}
       />
       <input
-        ref={mergedTitleRef}
+        ref={inputRef}
         type="text"
         value={titleDraft}
         onChange={(e) => onTitleChange(e.target.value)}
@@ -93,13 +93,13 @@ export function PageTitleBar({
       />
       {onTitleColorChange ? (
         <PageTitleColorToolbar
-          anchorRef={mergedTitleRef}
+          anchorRef={inputRef}
           open={titleToolbarOpen}
           currentColor={titleColor ?? null}
           onPick={(color) => {
             onTitleColorChange(color);
             setTitleToolbarOpen(false);
-            mergedTitleRef.current?.blur();
+            inputRef.current?.blur();
           }}
           onClose={() => setTitleToolbarOpen(false)}
         />
