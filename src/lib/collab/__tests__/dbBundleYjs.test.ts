@@ -1,0 +1,47 @@
+import { describe, it, expect } from "vitest";
+import * as Y from "yjs";
+import { seedDbStructure, readDbStructure, DB_ROOT_KEY } from "../dbBundleYjs";
+
+const sampleStructure = {
+  columns: [
+    { id: "c1", name: "제목", type: "title" },
+    { id: "c2", name: "상태", type: "select", options: [{ id: "o1", label: "진행" }] },
+  ],
+  presets: [{ id: "p1", name: "전체", rules: [] }],
+  panelState: { viewConfigs: { table: { hiddenColumnIds: ["c2"] } }, sort: { columnId: "c1", dir: "asc" } },
+  rowPageOrder: ["pg1", "pg2"],
+};
+
+describe("dbBundleYjs", () => {
+  it("seed → read 라운드트립이 구조를 보존한다", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, sampleStructure);
+    expect(readDbStructure(doc)).toEqual(sampleStructure);
+  });
+  it("이미 시드된 Y.Doc 은 재시드하지 않는다", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, sampleStructure);
+    seedDbStructure(doc, { columns: [{ id: "x", name: "X", type: "text" }], presets: [], panelState: {}, rowPageOrder: [] });
+    expect(readDbStructure(doc).columns).toHaveLength(2);
+  });
+  it("두 Y.Doc 에 동시 컬럼 추가가 둘 다 보존된다(수렴)", () => {
+    const a = new Y.Doc();
+    seedDbStructure(a, sampleStructure);
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    (a.getMap(DB_ROOT_KEY).get("columns") as Y.Array<unknown>).push([newCol("c3")]);
+    (b.getMap(DB_ROOT_KEY).get("columns") as Y.Array<unknown>).push([newCol("c4")]);
+    Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const ids = readDbStructure(a).columns.map((c) => (c as { id: string }).id);
+    expect(ids).toContain("c3");
+    expect(ids).toContain("c4");
+    expect(readDbStructure(a)).toEqual(readDbStructure(b));
+  });
+});
+
+function newCol(id: string) {
+  const m = new Y.Map();
+  m.set("id", id); m.set("name", id); m.set("type", "text");
+  return m;
+}
