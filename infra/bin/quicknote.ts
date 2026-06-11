@@ -99,4 +99,6 @@ new QuicknoteRealtimeCollabStack(app, `${stackPrefix}QuicknoteRealtimeCollabStac
     process.env.COLLAB_WORKSPACE_ACCESS_TABLE_NAME ?? syncStack.workspaceAccessTable.tableName,
   workspaceAccessTableArn:
     process.env.COLLAB_WORKSPACE_ACCESS_TABLE_ARN ?? syncStack.workspaceAccessTable.tableArn,
+  databaseTableName: process.env.COLLAB_DATABASE_TABLE_NAME ?? syncStack.databaseTable.table.tableName,
+  databaseTableArn: process.env.COLLAB_DATABASE_TABLE_ARN ?? syncStack.databaseTable.table.tableArn,
 });

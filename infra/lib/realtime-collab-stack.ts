@@ -25,6 +25,8 @@ export interface RealtimeCollabStackProps extends cdk.StackProps {
   memberTeamsTableArn: string;
   workspaceAccessTableName: string;
   workspaceAccessTableArn: string;
+  databaseTableName: string;
+  databaseTableArn: string;
 }
 
 /**
@@ -81,6 +83,7 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
       MEMBERS_TABLE: props.membersTableName,
       MEMBER_TEAMS_TABLE: props.memberTeamsTableName,
       WORKSPACE_ACCESS_TABLE: props.workspaceAccessTableName,
+      DATABASE_TABLE: props.databaseTableName,
       USER_POOL_ID: props.userPoolId,
       USER_POOL_CLIENT_ID: props.userPoolClientId,
     };
@@ -127,6 +130,13 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
           props.memberTeamsTableArn,
           props.workspaceAccessTableArn,
         ],
+      }),
+    );
+    // DB 방 인가: database 테이블에서 페이지 소속 DB 확인을 위해 GetItem 필요.
+    connectFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem"],
+        resources: [props.databaseTableArn],
       }),
     );
 
