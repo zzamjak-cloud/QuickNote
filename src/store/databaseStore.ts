@@ -238,12 +238,25 @@ export const useDatabaseStore = create<DatabaseStore>()(
       applyCollabDbStructure: (databaseId, structure) => {
         const before = get().databases[databaseId];
         if (!before) return;
+        // slice C: 멤버십(rowMembers)·순서(rowPageOrder LWW)로 표시 순서 계산.
+        // finalOrder = 순서∩멤버 ++ (멤버 중 순서에 없는 것 append). 멤버 비면 구버전 폴백.
+        const members = structure.rowMembers ?? [];
+        const memberSet = new Set(members);
+        const order = structure.rowPageOrder ?? [];
+        let finalOrder: string[];
+        if (memberSet.size === 0) {
+          finalOrder = order;
+        } else {
+          const inOrder = order.filter((id) => memberSet.has(id));
+          const seen = new Set(inOrder);
+          finalOrder = [...inOrder, ...members.filter((id) => !seen.has(id))];
+        }
         const nextBundle: DatabaseBundle = {
           ...before,
           columns: structure.columns as ColumnDef[],
           presets: structure.presets as DatabaseRowPreset[],
           panelState: structure.panelState as DatabasePanelState,
-          rowPageOrder: structure.rowPageOrder,
+          rowPageOrder: finalOrder,
           meta: { ...before.meta, updatedAt: now() },
         };
         set((state) => ({ databases: { ...state.databases, [databaseId]: nextBundle } }));
@@ -251,15 +264,14 @@ export const useDatabaseStore = create<DatabaseStore>()(
         if (handle) handle.baseline = structure; // 다음 reconcile 삭제 판정 기준 갱신
         // 서버 영속(LWW 파생본). skipCollab 으로 reconcile 가로채기를 우회 → 루프 없음.
         enqueueUpsertDatabase(nextBundle, undefined, { skipCollab: true });
-        // slice B: Y rows → 각 행 페이지 dbCells 단방향 materialize(파생본).
-        // membership 권위는 페이지 존재. 존재하지 않는 rows 항목은 무시.
-        // 값이 동일한 행은 건너뛰어 잉여 upsert/루프 방지.
+        // slice B: Y rows → 각 행 dbCells materialize. slice C: 멤버 행에만 적용(비멤버=삭제됨).
         const rows = structure.rows ?? {};
         const changed: Page[] = [];
         usePageStore.setState((s) => {
           let dirty = false;
           const nextPages = { ...s.pages };
           for (const [rowPageId, cells] of Object.entries(rows)) {
+            if (memberSet.size > 0 && !memberSet.has(rowPageId)) continue; // 비멤버 제외(삭제 승)
             const page = nextPages[rowPageId];
             if (!page) continue;
             if (JSON.stringify(page.dbCells ?? {}) === JSON.stringify(cells)) continue;
