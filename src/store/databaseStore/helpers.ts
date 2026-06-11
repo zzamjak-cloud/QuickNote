@@ -26,7 +26,7 @@ import { useWorkspaceStore } from "../workspaceStore";
 import { usePageStore } from "../pageStore";
 import { isLCSchedulerDatabaseId, isLCMilestoneDatabaseId, isLCFeatureDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
-import { getDbCollab } from "../../lib/collab/dbCollabRegistry";
+import { getDbCollab, isDbCollabActive } from "../../lib/collab/dbCollabRegistry";
 import { reconcileStructureIntoYDoc } from "../../lib/collab/dbStructureReconcile";
 import type { DbMap } from "./migrations";
 
@@ -119,9 +119,14 @@ export function enqueueUpsertDatabase(
 
 // 행 페이지를 직접 mutate 한 경우 페이지 enqueue 를 보조해주는 헬퍼.
 // doc/dbCells 는 AppSync AWSJSON 요구사항에 맞춰 JSON.stringify 로 직렬화.
-export function enqueueUpsertPageRaw(p: Page): void {
+// 협업 ON DB 행 페이지는 셀 권위가 Y.Doc 이므로, materialize(includeCells)가 아닌
+// 비셀 변경발 upsert 는 dbCells 를 제외해 다른 클라 셀의 LWW 스톰프를 막는다.
+export function enqueueUpsertPageRaw(p: Page, opts?: { includeCells?: boolean }): void {
   const createdByMemberId = getCreatedByMemberId();
   const workspaceId = p.workspaceId ?? resolveWorkspaceIdByDatabaseId(p.databaseId ?? null);
+  const collabActive = p.databaseId ? isDbCollabActive(p.databaseId) : false;
+  const dbCells =
+    collabActive && !opts?.includeCells ? null : p.dbCells ? JSON.stringify(p.dbCells) : null;
   enqueueAsync(
     "upsertPage",
     {
@@ -134,7 +139,7 @@ export function enqueueUpsertPageRaw(p: Page): void {
       order: String(p.order),
       databaseId: p.databaseId ?? null,
       doc: JSON.stringify(p.doc),
-      dbCells: p.dbCells ? JSON.stringify(p.dbCells) : null,
+      dbCells,
       createdAt: new Date(p.createdAt).toISOString(),
       updatedAt: new Date(p.updatedAt).toISOString(),
     } as Record<string, unknown> & { id: string; updatedAt?: string },

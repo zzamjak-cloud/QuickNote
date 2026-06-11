@@ -15,6 +15,7 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { useAuthStore } from "../authStore";
 import { useMemberStore } from "../memberStore";
 import { useWorkspaceStore } from "../workspaceStore";
+import { isDbCollabActive } from "../../lib/collab/dbCollabRegistry";
 
 const MAX_UPSERT_PAGE_PAYLOAD_BYTES = 350 * 1024;
 
@@ -79,7 +80,7 @@ function payloadByteLength(payload: Record<string, unknown>): number {
   }
 }
 
-export function enqueueUpsertPage(p: Page): void {
+export function enqueueUpsertPage(p: Page, opts?: { includeCells?: boolean }): void {
   // 인증/부트스트랩 미완료 시점에 enqueue 되면 서버 검증에서 거부되어 outbox 에 stale 로 남는다.
   const workspaceId = resolvePageWorkspaceId(p);
   if (!workspaceId) {
@@ -90,6 +91,10 @@ export function enqueueUpsertPage(p: Page): void {
     id: string;
     updatedAt?: string;
   };
+  // 협업 ON DB 행 페이지: 셀 권위는 Y.Doc. 비셀 변경발 upsert 는 dbCells 제외.
+  if (p.databaseId && isDbCollabActive(p.databaseId) && !opts?.includeCells) {
+    payload.dbCells = null;
+  }
   const bytes = payloadByteLength(payload);
   if (bytes > MAX_UPSERT_PAGE_PAYLOAD_BYTES) {
     console.warn("[sync] upsertPage skipped: payload too large", {
