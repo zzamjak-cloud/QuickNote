@@ -238,6 +238,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
       applyCollabDbStructure: (databaseId, structure) => {
         const before = get().databases[databaseId];
         if (!before) return;
+        // 미시드(빈) Y.Doc 구조로 기존 DB 를 덮어쓰면 컬럼·행이 통째로 사라진다(데이터 유실).
+        // 컬럼은 항상 최소 title 1개라 columns 가 비면 = Y.Doc 미시드/sync 전 → 기존 구조가 있으면 materialize 생략.
+        if ((structure.columns?.length ?? 0) === 0 && before.columns.length > 0) return;
         // slice C: 멤버십(rowMembers)·순서(rowPageOrder LWW)로 표시 순서 계산.
         // finalOrder = 순서∩멤버 ++ (멤버 중 순서에 없는 것 append). 멤버 비면 구버전 폴백.
         const members = structure.rowMembers ?? [];

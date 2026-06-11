@@ -6,6 +6,25 @@ vi.mock("../../lib/sync/runtime", () => ({ enqueueAsync: (...a: unknown[]) => en
 beforeEach(() => { enqueueAsync.mockClear(); });
 
 describe("applyCollabDbStructure rows materialize", () => {
+  it("빈(미시드) 구조로 기존 DB 를 덮어쓰지 않는다(데이터 유실 방지)", async () => {
+    const { useDatabaseStore } = await import("../databaseStore");
+    useDatabaseStore.setState({
+      databases: {
+        dbp: { meta: { id: "dbp", workspaceId: "ws1", title: "DB", createdAt: 0, updatedAt: 0 },
+          columns: [{ id: "t", name: "제목", type: "title" }], presets: [], panelState: {},
+          rowPageOrder: ["r1"] } as never,
+      },
+    });
+    // 서버 시드 전/실패로 Y.Doc 이 비어 readDbStructure 가 빈 구조를 반환한 상황
+    useDatabaseStore.getState().applyCollabDbStructure("dbp", {
+      columns: [], presets: [], panelState: {}, rowPageOrder: [], rows: {}, rowMembers: [],
+    } as never);
+    const after = useDatabaseStore.getState().databases.dbp;
+    expect(after?.columns).toHaveLength(1); // 컬럼 보존(덮어쓰기 안 함)
+    expect(after?.rowPageOrder).toEqual(["r1"]); // 행 순서 보존
+    expect(enqueueAsync).not.toHaveBeenCalledWith("upsertDatabase", expect.anything());
+  });
+
   it("Y rows 를 존재하는 행 페이지 dbCells 로 반영하고 includeCells 로 영속한다", async () => {
     const { useDatabaseStore } = await import("../databaseStore");
     const { usePageStore } = await import("../pageStore");
