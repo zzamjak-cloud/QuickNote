@@ -56,6 +56,7 @@ import {
   toPageSnapshot,
 } from "./databaseStore/helpers";
 import { createColumnActions } from "./databaseStore/actions/columnActions";
+import { getDbCollab } from "../lib/collab/dbCollabRegistry";
 import type { Page } from "../types/page";
 import { EMPTY_DOC, nextOrderForParent } from "./pageStore/helpers";
 
@@ -141,6 +142,11 @@ type DatabaseStoreActions = {
   ) => void;
   deletePreset: (databaseId: string, presetId: string) => void;
   applyPresetToRow: (databaseId: string, pageId: string, presetId: string) => boolean;
+  /** 협업 Y.Doc materialize → store 구조 반영(meta·행 보존) + baseline 갱신 + 서버 영속. */
+  applyCollabDbStructure: (
+    databaseId: string,
+    structure: import("../lib/collab/dbBundleYjs").DbStructure,
+  ) => void;
 };
 
 export type DatabaseStore = DatabaseStoreState & DatabaseStoreActions;
@@ -223,6 +229,24 @@ export const useDatabaseStore = create<DatabaseStore>()(
             updatedAt,
           });
         }
+      },
+
+      applyCollabDbStructure: (databaseId, structure) => {
+        const before = get().databases[databaseId];
+        if (!before) return;
+        const nextBundle: DatabaseBundle = {
+          ...before,
+          columns: structure.columns as ColumnDef[],
+          presets: structure.presets as DatabaseRowPreset[],
+          panelState: structure.panelState as DatabasePanelState,
+          rowPageOrder: structure.rowPageOrder,
+          meta: { ...before.meta, updatedAt: now() },
+        };
+        set((state) => ({ databases: { ...state.databases, [databaseId]: nextBundle } }));
+        const handle = getDbCollab(databaseId);
+        if (handle) handle.baseline = structure; // 다음 reconcile 삭제 판정 기준 갱신
+        // 서버 영속(LWW 파생본). skipCollab 으로 reconcile 가로채기를 우회 → 루프 없음.
+        enqueueUpsertDatabase(nextBundle, undefined, { skipCollab: true });
       },
 
       setDatabaseTitle: (id, title) => {

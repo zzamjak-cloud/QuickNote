@@ -26,6 +26,8 @@ import { useWorkspaceStore } from "../workspaceStore";
 import { usePageStore } from "../pageStore";
 import { isLCSchedulerDatabaseId, isLCMilestoneDatabaseId, isLCFeatureDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
+import { getDbCollab } from "../../lib/collab/dbCollabRegistry";
+import { reconcileStructureIntoYDoc } from "../../lib/collab/dbStructureReconcile";
 import type { DbMap } from "./migrations";
 
 // v5 fallback: 아직 memberStore(me.memberId)와 완전 연동 전이라 auth sub 를 사용.
@@ -78,7 +80,24 @@ export function toGqlDatabase(
   return payload;
 }
 
-export function enqueueUpsertDatabase(bundle: DatabaseBundle, templates?: DatabaseTemplate[]): void {
+export function enqueueUpsertDatabase(
+  bundle: DatabaseBundle,
+  templates?: DatabaseTemplate[],
+  opts?: { skipCollab?: boolean },
+): void {
+  // 협업 ON DB: LWW 대신 Y.Doc 에 구조 reconcile. 서버 영속은 materialize→applyCollabDbStructure(skipCollab) 가 담당.
+  if (!opts?.skipCollab) {
+    const collab = getDbCollab(bundle.meta.id);
+    if (collab) {
+      reconcileStructureIntoYDoc(collab.doc, {
+        columns: bundle.columns,
+        presets: bundle.presets ?? [],
+        panelState: bundle.panelState ?? {},
+        rowPageOrder: bundle.rowPageOrder,
+      }, collab.baseline);
+      return;
+    }
+  }
   const workspaceId = bundle.meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(bundle.meta.id);
   if (!workspaceId) {
     console.warn("[sync] upsertDatabase skipped: workspaceId 미설정", { dbId: bundle.meta.id });
