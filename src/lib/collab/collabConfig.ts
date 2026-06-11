@@ -30,3 +30,26 @@ export function buildCollabWsUrl(pageId: string, token: string): string {
   const sep = base.includes("?") ? "&" : "?";
   return `${base}${sep}token=${encodeURIComponent(token)}&pageId=${encodeURIComponent(pageId)}`;
 }
+
+/** 협업 허용 databaseId 목록. 콤마 구분. "*" 이면 전체 허용. */
+function enabledDatabaseIds(): string[] {
+  const raw = (import.meta.env.VITE_COLLAB_ENABLED_DB_IDS as string | undefined) ?? "";
+  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** 해당 DB 에서 구조 실시간 협업을 활성화할지 여부. */
+export function isCollabEnabledForDatabase(databaseId: string | null | undefined): boolean {
+  if (!databaseId) return false;
+  if (!wsBase()) return false;
+  const list = enabledDatabaseIds();
+  if (list.includes("*")) return true;
+  return list.includes(databaseId);
+}
+
+/** DB room($connect)용 WS URL. room 식별자는 기존 pageId 파라미터에 "db:<id>" 로 싣는다. */
+export function buildDbCollabWsUrl(databaseId: string, token: string): string {
+  const base = wsBase();
+  const sep = base.includes("?") ? "&" : "?";
+  const room = "db:" + databaseId;
+  return `${base}${sep}token=${encodeURIComponent(token)}&pageId=${encodeURIComponent(room)}`;
+}

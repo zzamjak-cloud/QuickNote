@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { isCollabEnabledForPage, buildCollabWsUrl } from "../collabConfig";
+import { isCollabEnabledForPage, buildCollabWsUrl, isCollabEnabledForDatabase, buildDbCollabWsUrl } from "../collabConfig";
 
 describe("collabConfig", () => {
   const orig = { ...import.meta.env };
@@ -32,5 +32,23 @@ describe("collabConfig", () => {
     const url = buildCollabWsUrl("p1", "tok en/+=");
     expect(url).toContain("pageId=p1");
     expect(url).toContain("token=tok%20en%2F%2B%3D");
+  });
+
+  it("VITE_COLLAB_ENABLED_DB_IDS 에 포함된 DB 만 협업 활성", () => {
+    (import.meta.env as Record<string, unknown>).VITE_COLLAB_WS_URL = "wss://x/dev";
+    (import.meta.env as Record<string, unknown>).VITE_COLLAB_ENABLED_DB_IDS = "db-1, db-2";
+    expect(isCollabEnabledForDatabase("db-1")).toBe(true);
+    expect(isCollabEnabledForDatabase("db-3")).toBe(false);
+  });
+  it("WS URL 없으면 DB 협업 비활성", () => {
+    (import.meta.env as Record<string, unknown>).VITE_COLLAB_WS_URL = "";
+    (import.meta.env as Record<string, unknown>).VITE_COLLAB_ENABLED_DB_IDS = "*";
+    expect(isCollabEnabledForDatabase("db-1")).toBe(false);
+  });
+  it("buildDbCollabWsUrl 은 db: prefix room 을 pageId 파라미터에 싣는다", () => {
+    (import.meta.env as Record<string, unknown>).VITE_COLLAB_WS_URL = "wss://x/dev";
+    const url = buildDbCollabWsUrl("db-1", "tok");
+    expect(url).toContain("pageId=db%3Adb-1");
+    expect(url).toContain("token=tok");
   });
 });
