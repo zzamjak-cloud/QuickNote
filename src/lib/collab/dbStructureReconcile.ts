@@ -60,6 +60,29 @@ function reconcileById(
   }
 }
 
+// 문자열 id 집합 reconcile(rowMembers 용). baseline 으로 삭제 vs 원격신규 disambiguate.
+// - Y에 있고 local에도 있음 → 유지
+// - Y에 있고 local에 없고 baseline에 있음 → 로컬 삭제 → 제거(삭제 승)
+// - Y에 있고 local에 없고 baseline에도 없음 → 원격 신규 → 유지
+// - local에만 있음(Y에 없음) → 로컬 추가 → push
+function reconcileStringSet(
+  yArr: Y.Array<string>,
+  localItems: string[],
+  baselineItems: string[],
+): void {
+  const localRemaining = new Set(localItems);
+  const baselineSet = new Set(baselineItems);
+  for (let i = yArr.length - 1; i >= 0; i--) {
+    const id = yArr.get(i);
+    if (localRemaining.has(id)) {
+      localRemaining.delete(id);
+    } else if (baselineSet.has(id)) {
+      yArr.delete(i, 1);
+    }
+  }
+  for (const id of localRemaining) yArr.push([id]);
+}
+
 /** localNew 구조를 Y.Doc 에 반영. baseline 은 직전 materialize 구조(삭제 판정용). */
 export function reconcileStructureIntoYDoc(
   doc: Y.Doc,
@@ -96,5 +119,13 @@ export function reconcileStructureIntoYDoc(
     const order = root.get("rowPageOrder") as Y.Array<string>;
     order.delete(0, order.length);
     order.push(localNew.rowPageOrder);
+
+    // rowMembers: 집합 단위 CRDT diff(추가/삭제 수렴, 삭제 승). 구버전 doc 대비 방어 생성.
+    let members = root.get("rowMembers");
+    if (!(members instanceof Y.Array)) {
+      members = new Y.Array<string>();
+      root.set("rowMembers", members);
+    }
+    reconcileStringSet(members as Y.Array<string>, localNew.rowMembers ?? [], baseline.rowMembers ?? []);
   });
 }

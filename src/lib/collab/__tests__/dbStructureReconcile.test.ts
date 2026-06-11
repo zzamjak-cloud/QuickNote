@@ -40,3 +40,46 @@ describe("reconcileStructureIntoYDoc", () => {
     expect(out.rowPageOrder).toEqual(["p1", "p2"]);
   });
 });
+
+const EMPTY = { columns: [], presets: [], panelState: {}, rowPageOrder: [], rows: {}, rowMembers: [] };
+
+describe("rowMembers 집합 reconcile", () => {
+  it("로컬 추가 행이 rowMembers 에 들어간다", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, { ...EMPTY, rowPageOrder: ["a"], rowMembers: ["a"] });
+    const baseline = { ...EMPTY, rowPageOrder: ["a"], rowMembers: ["a"] };
+    reconcileStructureIntoYDoc(doc, { ...EMPTY, rowPageOrder: ["a", "b"], rowMembers: ["a", "b"] }, baseline);
+    expect(readDbStructure(doc).rowMembers).toEqual(["a", "b"]);
+  });
+
+  it("로컬 삭제 행이 rowMembers 에서 제거된다(삭제 승)", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, { ...EMPTY, rowPageOrder: ["a", "b"], rowMembers: ["a", "b"] });
+    const baseline = { ...EMPTY, rowPageOrder: ["a", "b"], rowMembers: ["a", "b"] };
+    reconcileStructureIntoYDoc(doc, { ...EMPTY, rowPageOrder: ["a"], rowMembers: ["a"] }, baseline);
+    expect(readDbStructure(doc).rowMembers).toEqual(["a"]);
+  });
+
+  it("baseline 에 없는 원격 신규 멤버는 로컬에 없어도 유지된다(동시 추가 보호)", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, { ...EMPTY, rowPageOrder: ["a", "r"], rowMembers: ["a", "r"] });
+    const baseline = { ...EMPTY, rowPageOrder: ["a"], rowMembers: ["a"] };
+    reconcileStructureIntoYDoc(doc, { ...EMPTY, rowPageOrder: ["a", "b"], rowMembers: ["a", "b"] }, baseline);
+    const m = readDbStructure(doc).rowMembers;
+    expect(new Set(m)).toEqual(new Set(["a", "r", "b"]));
+  });
+
+  it("두 doc 동시 추가가 둘 다 수렴한다", () => {
+    const a = new Y.Doc();
+    seedDbStructure(a, { ...EMPTY, rowPageOrder: ["x"], rowMembers: ["x"] });
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const baseSt = { ...EMPTY, rowPageOrder: ["x"], rowMembers: ["x"] };
+    reconcileStructureIntoYDoc(a, { ...EMPTY, rowPageOrder: ["x", "a1"], rowMembers: ["x", "a1"] }, baseSt);
+    reconcileStructureIntoYDoc(b, { ...EMPTY, rowPageOrder: ["x", "b1"], rowMembers: ["x", "b1"] }, baseSt);
+    Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    expect(new Set(readDbStructure(a).rowMembers)).toEqual(new Set(["x", "a1", "b1"]));
+    expect(readDbStructure(a).rowMembers).toEqual(readDbStructure(b).rowMembers);
+  });
+});
