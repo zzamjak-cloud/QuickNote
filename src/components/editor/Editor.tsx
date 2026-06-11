@@ -307,6 +307,11 @@ export function Editor({
   const collab = useCollabSession(effectivePageId);
   const collabDoc = collab.enabled ? collab.doc : null;
   const collabAwareness = collab.enabled ? collab.awareness : null;
+  // 협업 게이팅 입력 — union 타입 안전 접근(비활성 시 false). 변수로 추출해 effect deps 정적 검사 통과.
+  const collabEnabled = collab.enabled;
+  const collabSynced = collab.enabled && collab.synced;
+  const collabIdbLoaded = collab.enabled && collab.idbLoaded;
+  const collabDocNotEmpty = collab.enabled && collab.docNotEmpty;
   // presence 훅 — awareness 가 null 이면 내부에서 store 를 비운다 (React hook 규칙: 무조건 최상위 호출)
   useCollabPresence(collabAwareness);
 
@@ -809,11 +814,11 @@ export function Editor({
     if (!editor || editor.isDestroyed) return;
     // 협업 ON 페이지: 서버 초기 sync 완료 전에는 read-only(초기 콘텐츠 중복 삽입 방지).
     const collabBlocking =
-      collab.enabled &&
+      collabEnabled &&
       !canEditCollab({
-        synced: collab.synced,
-        idbLoaded: collab.idbLoaded,
-        docNotEmpty: collab.docNotEmpty,
+        synced: collabSynced,
+        idbLoaded: collabIdbLoaded,
+        docNotEmpty: collabDocNotEmpty,
       });
     editor.setEditable(!isFullPageDatabase && !collabBlocking);
     if (isFullPageDatabase) {
@@ -826,16 +831,13 @@ export function Editor({
       }
       if (!editor.isDestroyed && editor.view.dom instanceof HTMLElement) editor.view.dom.blur();
     }
-    // 가드형 deps(collab.enabled && collab.X) — 협업 union 의 타입 안전 접근. bare collab.X 는
-    // {enabled:false} 분기에 없어 타입 오류. 가드형도 X 변화 시 값이 바뀌어 재실행은 정상 보장된다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     editor,
     isFullPageDatabase,
-    collab.enabled,
-    collab.enabled && collab.synced,
-    collab.enabled && collab.idbLoaded,
-    collab.enabled && collab.docNotEmpty,
+    collabEnabled,
+    collabSynced,
+    collabIdbLoaded,
+    collabDocNotEmpty,
   ]);
 
   // 슬래시 "페이지 링크" 명령이 발행하는 커스텀 이벤트를 수신 → mention search modal 열기

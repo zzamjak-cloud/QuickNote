@@ -144,7 +144,7 @@ export function useCollabSession(
       idbRef.current = null;
       setConnStatus("idle");
     };
-  }, [enabled, pageId]);
+  }, [enabled, pageId, setConnStatus]);
 
   if (!enabled || !pageId || !docRef.current || !awarenessRef.current) return { enabled: false };
   return {
