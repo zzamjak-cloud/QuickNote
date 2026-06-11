@@ -1,6 +1,6 @@
 // 실시간 협업 feature flag 및 WebSocket URL 빌더.
 // Phase 1 은 기본 OFF. VITE_COLLAB_WS_URL 이 설정되고 페이지가 allowlist 에 포함될 때만 활성.
-// build-marker: 2026-06-11 #3 — Plain env 재등록(단일 페이지 allowlist), 시드-바인딩 수정 검증 빌드.
+// build-marker: 2026-06-12 #4 — epoch v3(직전 사고의 IDB/룸 빈문단 잔재 격리), 단일 페이지 검증.
 
 /** 협업 WS 베이스 URL(없으면 협업 전체 비활성). 예: wss://abc.execute-api.ap-northeast-2.amazonaws.com/dev */
 function wsBase(): string {
@@ -31,7 +31,7 @@ export function isCollabEnabledForPage(pageId: string | null | undefined): boole
  * IndexedDB 잔재가 모두 새 세대로 격리되어, stale 상태가 최신 본문을 되돌리는 사고를 차단한다.
  */
 export function collabRoomEpoch(): string {
-  return (import.meta.env.VITE_COLLAB_ROOM_EPOCH as string | undefined)?.trim() || "v2";
+  return (import.meta.env.VITE_COLLAB_ROOM_EPOCH as string | undefined)?.trim() || "v3";
 }
 
 /** $connect 쿼리스트링(token·pageId)을 붙인 최종 WS URL. room 은 epoch 솔트를 포함한다. */
