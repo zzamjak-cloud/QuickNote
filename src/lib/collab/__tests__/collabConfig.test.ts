@@ -27,11 +27,20 @@ describe("collabConfig", () => {
     expect(isCollabEnabledForPage("anything")).toBe(true);
   });
 
-  it("buildCollabWsUrl 은 token·pageId 를 쿼리스트링으로 인코딩", () => {
+  it("buildCollabWsUrl 은 token·pageId 를 쿼리스트링으로 인코딩하고 room 에 epoch 솔트를 싣는다", () => {
     (import.meta.env as Record<string, unknown>).VITE_COLLAB_WS_URL = "wss://x/dev";
     const url = buildCollabWsUrl("p1", "tok en/+=");
-    expect(url).toContain("pageId=p1");
+    expect(url).toContain("pageId=v2%3Ap1");
     expect(url).toContain("token=tok%20en%2F%2B%3D");
+  });
+
+  it("VITE_COLLAB_ROOM_EPOCH 로 epoch 를 올리면 room 키 세대가 바뀐다", () => {
+    (import.meta.env as Record<string, unknown>).VITE_COLLAB_WS_URL = "wss://x/dev";
+    (import.meta.env as Record<string, unknown>).VITE_COLLAB_ROOM_EPOCH = "v3";
+    expect(buildCollabWsUrl("p1", "tok")).toContain("pageId=v3%3Ap1");
+    expect(buildDbCollabWsUrl("db-1", "tok")).toContain("pageId=db%3Av3%3Adb-1");
+    // afterEach 의 Object.assign 은 orig 에 없던 키를 지우지 못하므로 직접 정리한다.
+    delete (import.meta.env as Record<string, unknown>).VITE_COLLAB_ROOM_EPOCH;
   });
 
   it("VITE_COLLAB_ENABLED_DB_IDS 에 포함된 DB 만 협업 활성", () => {
@@ -45,10 +54,10 @@ describe("collabConfig", () => {
     (import.meta.env as Record<string, unknown>).VITE_COLLAB_ENABLED_DB_IDS = "*";
     expect(isCollabEnabledForDatabase("db-1")).toBe(false);
   });
-  it("buildDbCollabWsUrl 은 db: prefix room 을 pageId 파라미터에 싣는다", () => {
+  it("buildDbCollabWsUrl 은 db:<epoch>: prefix room 을 pageId 파라미터에 싣는다", () => {
     (import.meta.env as Record<string, unknown>).VITE_COLLAB_WS_URL = "wss://x/dev";
     const url = buildDbCollabWsUrl("db-1", "tok");
-    expect(url).toContain("pageId=db%3Adb-1");
+    expect(url).toContain("pageId=db%3Av2%3Adb-1");
     expect(url).toContain("token=tok");
   });
 });

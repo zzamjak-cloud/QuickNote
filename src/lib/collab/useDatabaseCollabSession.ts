@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { IndexeddbPersistence } from "y-indexeddb";
-import { isCollabEnabledForDatabase, buildDbCollabWsUrl } from "./collabConfig";
+import { isCollabEnabledForDatabase, buildDbCollabWsUrl, collabRoomEpoch } from "./collabConfig";
 import { QnWsProvider } from "./QnWsProvider";
 import { readDbStructure, type DbStructure } from "./dbBundleYjs";
 import { registerDbCollab, unregisterDbCollab } from "./dbCollabRegistry";
@@ -48,12 +48,16 @@ export function useDatabaseCollabSession(
     let cancelled = false;
     let provider: QnWsProvider | null = null;
     let timer: number | null = null;
+    let serverSynced = false;
 
     // Y.Doc 변경 → 디바운스 materialize → onMaterialize 콜백
     const scheduleMaterialize = () => {
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         timer = null;
+        // 서버 sync 전(IndexedDB 단독 로드 등)의 로컬 Y 구조는 stale 일 수 있다 —
+        // 서버 룸과 병합되기 전에 materialize 하면 최신 구조·행 순서를 과거로 되돌린다.
+        if (!serverSynced) return;
         try { onMaterializeRef.current(readDbStructure(doc)); } catch { /* 다음 변경에서 재시도 */ }
       }, MATERIALIZE_DEBOUNCE_MS);
     };
@@ -63,7 +67,8 @@ export function useDatabaseCollabSession(
     registerDbCollab(databaseId, { doc, baseline: { ...EMPTY_STRUCTURE } });
 
     // 로컬 영속(IndexedDB). synced 시 로컬 로드 완료 표시.
-    const idb = new IndexeddbPersistence("qn-collab-db:" + databaseId, doc);
+    // 키에 epoch 솔트 포함 — 협업 재활성화 시 과거 세대 잔재가 로드되지 않는다.
+    const idb = new IndexeddbPersistence(`qn-collab-db:${collabRoomEpoch()}:${databaseId}`, doc);
     idb.on("synced", () => { if (!cancelled) setIdbLoaded(true); });
 
     // WS provider 비동기 초기화(토큰 획득 후).
@@ -74,6 +79,7 @@ export function useDatabaseCollabSession(
       provider.on("status", (s) => { if (!cancelled) setConnStatus(toBadgeStatus(s as ProviderStatus, provider!.isSynced)); });
       provider.on("synced", () => {
         if (!cancelled) {
+          serverSynced = true;
           setSynced(true);
           setConnStatus(toBadgeStatus("connected", true));
           try { onSyncedRef.current?.(); } catch { /* 시드 폴백 실패는 무시 */ }

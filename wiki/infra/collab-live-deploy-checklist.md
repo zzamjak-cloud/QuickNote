@@ -34,6 +34,27 @@ Phase 1(§9.1)에서 클라이언트 `PAGE_FIELDS`/`PAGE_META_FIELDS` 에 **`las
 
 ---
 
+## 1.5 ⛔ 룸 epoch — 협업을 껐다 다시 켤 때 반드시 올린다 (2026-06-11 감사)
+
+룸 Y 상태는 서버(`{env}quicknote-rt-ydoc`/`-ydoc-updates`, TTL 없음)와 각 브라우저
+IndexedDB(`qn-collab:*`) 양쪽에 영구 보존된다. 협업이 꺼진 기간에 일반 동기화로 수정된
+페이지·DB 는 룸 상태에 반영되지 않으므로, **재활성화 시 stale 룸이 그대로 살아나면 빈-가드를
+통과해 최신 본문·행 순서를 과거로 되돌린다.** (서버 테이블만 비워도 브라우저 잔재가 sv-reply
+로 룸을 재오염시키므로 불충분.)
+
+방어 체계:
+- 룸 키와 IndexedDB 키에 **epoch 솔트**(`collabRoomEpoch()`, 기본 `v2`)가 들어간다 —
+  `v2:<pageId>` / `db:v2:<dbId>` / `qn-collab:v2:<pageId>`. 서버는 `parseRoom`(infra/lambda/realtime/room.ts)
+  으로 솔트를 벗겨 인가·시드하고, 저장 키는 풀 문자열이라 세대별 격리된다.
+- **운영 규칙: 협업을 OFF→ON 할 때마다 Vercel `VITE_COLLAB_ROOM_EPOCH` 를 올린다**(v2→v3→…).
+  과거 세대 룸·IDB 잔재가 전부 무력화된다.
+- materialize 는 **서버 sync 완료 후에만** 동작한다(useCollabSession·useDatabaseCollabSession 의
+  serverSynced 게이트) — IndexedDB 단독 stale 상태가 store 를 덮지 못한다.
+- 본문 미로드(pageContentMissing) 중에는 협업 편집이 차단된다(Editor.tsx) — 시드 전 입력이
+  본문을 대체하는 레이스 봉합.
+- 잔여 위험: 라이브 점진 롤아웃 중 구버전 번들(협업 OFF) 사용자의 일반 편집은 룸에 반영되지
+  않는다 → **단계적 오픈 + 짧은 롤아웃 창** 권장 (소수 페이지 → 팀 워크스페이스 → `*`).
+
 ## 2. ⛔ 협업을 켤 거면 — 페이지/DB 시드 확인
 
 - **`VITE_COLLAB_ENABLED_PAGE_IDS=*` 같은 광범위 활성화 금지(검증 전).** 기존 콘텐츠 페이지가 협업 ON 되면 본문 권위가 Y.Doc 으로 바뀐다.

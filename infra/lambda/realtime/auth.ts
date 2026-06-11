@@ -2,6 +2,7 @@ import { CognitoJwtVerifier } from "aws-jwt-verify";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { getCallerMember, hasWorkspaceViewAccess, ResolverError } from "../v5-resolvers/handlers/_auth";
+import { parseRoom } from "./room";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const PAGE_TABLE = process.env.PAGE_TABLE!;
@@ -10,12 +11,8 @@ const MEMBERS_TABLE = process.env.MEMBERS_TABLE!;
 const MEMBER_TEAMS_TABLE = process.env.MEMBER_TEAMS_TABLE!;
 const WORKSPACE_ACCESS_TABLE = process.env.WORKSPACE_ACCESS_TABLE!;
 
-export type Room = { kind: "page" | "database"; id: string };
-/** room 식별자 파싱. "db:<id>" → database, 그 외 → page. */
-export function parseRoom(roomId: string): Room {
-  if (roomId.startsWith("db:")) return { kind: "database", id: roomId.slice(3) };
-  return { kind: "page", id: roomId };
-}
+// room 파싱은 Cognito 의존성이 없는 sync 핸들러에서도 쓰므로 별도 모듈로 분리(./room).
+export { parseRoom, type Room } from "./room";
 
 // Cognito ID 토큰 검증기 — USER_POOL_ID·USER_POOL_CLIENT_ID 는 CDK 스택에서 주입
 const verifier = CognitoJwtVerifier.create({

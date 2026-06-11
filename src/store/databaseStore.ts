@@ -248,7 +248,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const order = structure.rowPageOrder ?? [];
         let finalOrder: string[];
         if (memberSet.size === 0) {
-          finalOrder = order;
+          // 부분 시드(컬럼만 있고 멤버·순서 모두 빈) Y 구조가 기존 행 순서를 비우지 못하게 보존한다.
+          finalOrder =
+            order.length === 0 && before.rowPageOrder.length > 0
+              ? before.rowPageOrder
+              : order;
         } else {
           const inOrder = order.filter((id) => memberSet.has(id));
           const seen = new Set(inOrder);

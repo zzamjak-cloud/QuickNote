@@ -24,11 +24,21 @@ export function isCollabEnabledForPage(pageId: string | null | undefined): boole
   return list.includes(pageId);
 }
 
-/** $connect 쿼리스트링(token·pageId)을 붙인 최종 WS URL. */
+/**
+ * 협업 룸·로컬 영속(IndexedDB) 키 세대(epoch).
+ * 협업을 껐다 다시 켤 때(OFF→ON)는 반드시 이 값을 올린다 — 서버 룸 Y 상태와 각 브라우저의
+ * IndexedDB 잔재가 모두 새 세대로 격리되어, stale 상태가 최신 본문을 되돌리는 사고를 차단한다.
+ */
+export function collabRoomEpoch(): string {
+  return (import.meta.env.VITE_COLLAB_ROOM_EPOCH as string | undefined)?.trim() || "v2";
+}
+
+/** $connect 쿼리스트링(token·pageId)을 붙인 최종 WS URL. room 은 epoch 솔트를 포함한다. */
 export function buildCollabWsUrl(pageId: string, token: string): string {
   const base = wsBase();
   const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}token=${encodeURIComponent(token)}&pageId=${encodeURIComponent(pageId)}`;
+  const room = `${collabRoomEpoch()}:${pageId}`;
+  return `${base}${sep}token=${encodeURIComponent(token)}&pageId=${encodeURIComponent(room)}`;
 }
 
 /** 협업 허용 databaseId 목록. 콤마 구분. "*" 이면 전체 허용. */
@@ -46,10 +56,10 @@ export function isCollabEnabledForDatabase(databaseId: string | null | undefined
   return list.includes(databaseId);
 }
 
-/** DB room($connect)용 WS URL. room 식별자는 기존 pageId 파라미터에 "db:<id>" 로 싣는다. */
+/** DB room($connect)용 WS URL. room 식별자는 pageId 파라미터에 "db:<epoch>:<id>" 로 싣는다. */
 export function buildDbCollabWsUrl(databaseId: string, token: string): string {
   const base = wsBase();
   const sep = base.includes("?") ? "&" : "?";
-  const room = "db:" + databaseId;
+  const room = `db:${collabRoomEpoch()}:${databaseId}`;
   return `${base}${sep}token=${encodeURIComponent(token)}&pageId=${encodeURIComponent(room)}`;
 }

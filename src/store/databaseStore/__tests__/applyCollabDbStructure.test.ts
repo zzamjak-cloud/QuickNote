@@ -30,4 +30,15 @@ describe("applyCollabDbStructure", () => {
     expect(db.rowPageOrder).toEqual(["p1", "p2"]);
     expect(db.panelState).toEqual({ sort: { columnId: "c1", dir: "asc" } });
   });
+
+  it("부분 시드(멤버·순서 모두 빈) 구조는 기존 행 순서를 비우지 못한다", () => {
+    useDatabaseStore.getState().applyCollabDbStructure("d1", {
+      columns: [{ id: "c1", name: "제목", type: "title" }],
+      presets: [],
+      panelState: {},
+      rowPageOrder: [],
+      rowMembers: [],
+    });
+    expect(useDatabaseStore.getState().databases["d1"].rowPageOrder).toEqual(["p1"]);
+  });
 });

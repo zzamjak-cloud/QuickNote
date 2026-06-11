@@ -840,13 +840,16 @@ export function Editor({
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     // 협업 ON 페이지: 서버 초기 sync 완료 전에는 read-only(초기 콘텐츠 중복 삽입 방지).
+    // 본문 미로드(pageContentMissing) 상태도 차단 — 이때 빈 Y.Doc 에 입력하면 시드가 영구
+    // 보류된 채 그 입력만 남아 materialize 시 기존 본문을 대체한다.
     const collabBlocking =
       collabEnabled &&
-      !canEditCollab({
-        synced: collabSynced,
-        idbLoaded: collabIdbLoaded,
-        docNotEmpty: collabDocNotEmpty,
-      });
+      (pageContentMissing ||
+        !canEditCollab({
+          synced: collabSynced,
+          idbLoaded: collabIdbLoaded,
+          docNotEmpty: collabDocNotEmpty,
+        }));
     editor.setEditable(!isFullPageDatabase && !collabBlocking);
     if (isFullPageDatabase) {
       // PM 이 atom 단독 doc 에 자동으로 NodeSelection 을 만들어 .ProseMirror-selectednode 가
@@ -865,6 +868,7 @@ export function Editor({
     collabSynced,
     collabIdbLoaded,
     collabDocNotEmpty,
+    pageContentMissing,
   ]);
 
   // 슬래시 "페이지 링크" 명령이 발행하는 커스텀 이벤트를 수신 → mention search modal 열기

@@ -11,6 +11,7 @@ import { parseClientMessage, serializeServerMessage } from "./protocol";
 import { loadPageState, appendPageUpdate, diffForClient, stateVectorOf } from "./yjsStore";
 import { roomConnections, leaveRoom } from "./connections";
 import { buildDbSeedUpdate } from "./dbSeed";
+import { parseRoom } from "./room";
 
 /** awareness 메시지인지 — true 면 영속하지 않고 룸 fan-out 만 한다. */
 export function isAwarenessMessage(msg: ClientMessage): boolean {
@@ -64,7 +65,8 @@ export const handler: APIGatewayProxyHandler = async (event) => {
       const sv = stateVectorOf(state);
       const isEmpty = sv.length <= 1; // 빈 Y.Doc 의 state vector 길이
       if (isEmpty) {
-        const seed = await buildDbSeedUpdate(pageId.slice(3));
+        // room 문자열에는 epoch 솔트가 섞여 있으므로 실제 DB id 는 parseRoom 으로 추출한다.
+        const seed = await buildDbSeedUpdate(parseRoom(pageId).id);
         if (seed) {
           await appendPageUpdate(pageId, seed);
           state = await loadPageState(pageId);
