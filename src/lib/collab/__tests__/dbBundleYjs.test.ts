@@ -10,6 +10,7 @@ const sampleStructure = {
   presets: [{ id: "p1", name: "전체", rules: [] }],
   panelState: { viewConfigs: { table: { hiddenColumnIds: ["c2"] } }, sort: { columnId: "c1", dir: "asc" } },
   rowPageOrder: ["pg1", "pg2"],
+  rows: { pg1: { c2: "o1" }, pg2: { c2: null } },
 };
 
 describe("dbBundleYjs", () => {
@@ -37,6 +38,17 @@ describe("dbBundleYjs", () => {
     expect(ids).toContain("c3");
     expect(ids).toContain("c4");
     expect(readDbStructure(a)).toEqual(readDbStructure(b));
+  });
+  it("rows 도 seed → read 라운드트립으로 보존된다", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, sampleStructure);
+    expect(readDbStructure(doc).rows).toEqual(sampleStructure.rows);
+  });
+  it("rows 누락 Y.Doc 은 빈 객체로 읽힌다", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, { columns: [], presets: [], panelState: {}, rowPageOrder: [], rows: {} });
+    doc.getMap(DB_ROOT_KEY).delete("rows"); // 구버전 doc 시뮬레이션
+    expect(readDbStructure(doc).rows).toEqual({});
   });
 });
 
