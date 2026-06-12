@@ -38,6 +38,8 @@
 | 자산 관리 탭·캐싱 | `wiki/settings/assets.md` |
 | 노션 가져오기(이미지 누락·인코딩·진행률) | `wiki/settings/notion-import.md` |
 | 동기화 버그 | `wiki/sync/architecture.md` |
+| 실시간 협업(Yjs)·빈 화면·본문 불일치·epoch | `wiki/collab/overview.md` |
+| 협업 라이브 배포·재활성화(epoch bump) | `wiki/infra/collab-live-deploy-checklist.md` |
 | Ghost 페이지(풀페이지 DB 사이드바 중복)·진입 시 재생성 | `wiki/pages/ghost-page-prevention.md` |
 | 워크스페이스 진입 화면/첫 인덱스 리셋 | `wiki/workspace/overview.md` |
 | 버전 히스토리(페이지/DB·복원·삭제) | `wiki/history/overview.md` |

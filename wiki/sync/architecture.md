@@ -153,7 +153,15 @@ window 'online' 이벤트
 | `src/store/databaseRowRemoteStore.ts` | DB 행 nextToken·로딩 상태 (persist) |
 | `src/Bootstrap.tsx` | 초기 로드 및 동기화 시작 |
 
+## 실시간 협업(Yjs)과의 관계
+
+협업 ON 페이지/DB 는 본문·구조 권위가 Y.Doc 으로 넘어가고, Y→store 반영(materialize)이
+기존 sync 큐(`deferSync`)에 실려 서버로 전파된다. 즉 협업은 이 동기화 아키텍처 위에 얹힌
+레이어다 — 시드·바인딩 순서, epoch 격리, materialize 방어선은
+[collab/overview.md](../collab/overview.md) 가 권위 문서.
+
 ## 관련 위키
+- [collab/overview.md](../collab/overview.md) — 실시간 협업 구조·안전장치·운영
 - [incremental-sync.md](incremental-sync.md) — delta/watermark 상세
 - [lc-scheduler-workspace-repair.md](lc-scheduler-workspace-repair.md) — LC 스케줄러 루트 DB 페이지 결손 복구
 - [page-content-load.md](page-content-load.md) — 페이지 본문 지연 로드
