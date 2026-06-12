@@ -7,6 +7,7 @@ import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { useSchedulerHolidaysStore } from "../../store/schedulerHolidaysStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
+import { useMemberStore } from "../../store/memberStore";
 import { useSchedulerFiltersStore } from "../../store/schedulerFiltersStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import type { SelectOption } from "../../types/database";
@@ -45,6 +46,11 @@ export function LCSchedulerModal({ onClose }: Props) {
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
+  const memberRangeSignature = useMemberStore((s) => (
+    `${s.cacheWorkspaceId ?? ""}:${s.members
+      .map((member) => `${member.memberId}:${member.status}:${member.jobCategory ?? ""}`)
+      .join("|")}`
+  ));
   const disabledOrgIds = useSchedulerFiltersStore((s) => s.disabledOrgIds);
   const disabledTeamIds = useSchedulerFiltersStore((s) => s.disabledTeamIds);
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
@@ -63,6 +69,7 @@ export function LCSchedulerModal({ onClose }: Props) {
   const schedulerColumns = useDatabaseStore((s) => s.databases[schedulerDatabaseId]?.columns ?? []);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
+  const selectedJobTitle = useSchedulerViewStore((s) => s.selectedJobTitle);
   const [bodyReady, setBodyReady] = useState(false);
 
   useEffect(() => {
@@ -110,8 +117,15 @@ export function LCSchedulerModal({ onClose }: Props) {
   }, [
     currentYear,
     fetchSchedules,
+    memberRangeSignature,
+    organizations,
+    projects,
     schedulerWorkspaceId,
     schedulerDbUpdatedAt,
+    selectedJobTitle,
+    selectedMemberId,
+    selectedProjectId,
+    teams,
   ]);
 
   // 공휴일은 첫 페인트 이후 갱신한다. 프로젝트는 workspace meta 통합 API가 함께 가져온다.

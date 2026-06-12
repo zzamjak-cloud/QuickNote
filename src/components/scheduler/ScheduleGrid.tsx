@@ -40,7 +40,6 @@ import {
   pickTextColor,
 } from "../../lib/scheduler/colors";
 import { updateMemberApi } from "../../lib/sync/memberApi";
-import { parseScheduleInstanceId } from "../../lib/scheduler/taskAdapter";
 import { LC_SCHEDULER_ATTENDANCE_TITLE } from "../../lib/scheduler/database";
 import { groupSchedulesByMember } from "../../lib/scheduler/selectors/scheduleSelectors";
 import {
@@ -61,6 +60,7 @@ import {
   useScheduleDeleteFlow,
   type SchedulerCreateRange,
 } from "./hooks/scheduleInteractions";
+import { useOpenSchedulePage } from "./useOpenSchedulePage";
 
 // DateAxis 고정 높이: 주간/월간 뷰와 동일한 40px + 36px
 const DATE_AXIS_HEIGHT = 76;
@@ -366,11 +366,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
     }
   }, [clearSelection, isCardSelected, selectSchedule]);
 
-  const openSchedulePage = useCallback((id: string) => {
-    const parsed = parseScheduleInstanceId(id);
-    if (!parsed) return;
-    openPeek(parsed.pageId);
-  }, [openPeek]);
+  const openSchedulePage = useOpenSchedulePage(workspaceId);
 
   const handleCreateRange = useCallback(
     (range: SchedulerCreateRange) => {
@@ -413,7 +409,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
         selectSchedule(schedule.id);
         const currentPeekPageId = useUiStore.getState().peekPageId;
         if (!currentPeekPageId || currentPeekPageId === pendingPeekPageId) {
-          openSchedulePage(schedule.id);
+          void openSchedulePage(schedule.id);
         }
       }).catch((error) => {
         console.error(error);

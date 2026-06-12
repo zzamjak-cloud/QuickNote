@@ -42,6 +42,10 @@ docs/*
 !docs/database-architecture.md
 !docs/sync-architecture.md
 !docs/lc-scheduler-database-policy.md
+!docs/superpowers/
+!docs/superpowers/plans/
+docs/superpowers/plans/*
+!docs/superpowers/plans/2026-06-08-database-template-automation.md
 .vercel
 .superpowers
 .claude

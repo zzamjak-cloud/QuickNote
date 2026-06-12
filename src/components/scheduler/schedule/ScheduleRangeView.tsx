@@ -19,7 +19,6 @@ import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR, pickTextColor } from '../..
 import { useMemberStore } from '../../../store/memberStore'
 import { getHolidaysForYear } from '../../../lib/scheduler/koreanHolidays'
 import { LC_SCHEDULER_WORKSPACE_ID } from '../../../lib/scheduler/scope'
-import { parseScheduleInstanceId } from '../../../lib/scheduler/taskAdapter'
 import { LC_SCHEDULER_ATTENDANCE_TITLE } from '../../../lib/scheduler/database'
 import { useUiStore } from '../../../store/uiStore'
 import { computeRowCount, hasCollision } from '../../../lib/scheduler/collisionDetection'
@@ -67,6 +66,7 @@ import {
   slotRangeToIso,
   clampSlotStart,
 } from './weekScheduleUtils'
+import { useOpenSchedulePage } from '../useOpenSchedulePage'
 
 export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const schedules = useSchedulerStore((s) => s.schedules)
@@ -260,11 +260,7 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
 
   const cellWidth = timelineWidth / slotCount
 
-  const openSchedulePage = useCallback((id: string) => {
-    const parsed = parseScheduleInstanceId(id)
-    if (!parsed) return
-    openPeek(parsed.pageId)
-  }, [openPeek])
+  const openSchedulePage = useOpenSchedulePage(workspaceId)
 
   const memberRowItems = useMemo(() => (
     filteredMembers.reduce<{ items: MemberRowItem[]; top: number }>((acc, member) => {
@@ -579,7 +575,7 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
         selectSchedule(schedule.id)
         const currentPeekPageId = useUiStore.getState().peekPageId
         if (!currentPeekPageId || currentPeekPageId === pendingPeekPageId) {
-          openSchedulePage(schedule.id)
+          void openSchedulePage(schedule.id)
         }
       }).catch((error) => {
         console.error(error)

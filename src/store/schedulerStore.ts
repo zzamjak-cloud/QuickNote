@@ -20,7 +20,10 @@ import {
   pickTextColor,
 } from "../lib/scheduler/colors";
 import { useMemberStore } from "./memberStore";
+import { useOrganizationStore } from "./organizationStore";
+import { useSchedulerProjectsStore } from "./schedulerProjectsStore";
 import { useSchedulerViewStore } from "./schedulerViewStore";
+import { useTeamStore } from "./teamStore";
 import { filterSchedulesByRange, scheduleOverlapsRange } from "../lib/scheduler/selectors/scheduleSelectors";
 import { logSchedulerPerf, nowSchedulerPerf } from "../lib/scheduler/performance";
 import { makeDeferredStorage } from "../lib/storage/index";
@@ -30,12 +33,17 @@ import { fetchDatabasesByWorkspace, fetchPagesByWorkspace } from "../lib/sync/bo
 import type { GqlSchedule } from "../lib/sync/graphql/operations";
 import { getSyncEngine } from "../lib/sync/runtime";
 import { applyRemotePagesToStore, reconcileLCSchedulerRemoteSnapshot } from "../lib/sync/storeApply";
-import { extractScheduleRangeSourcePages, fetchScheduleRange } from "../lib/sync/scheduleRangeApi";
+import {
+  extractScheduleRangeSourcePages,
+  fetchScheduleRange,
+  type ScheduleRangeRequest,
+} from "../lib/sync/scheduleRangeApi";
 import {
   readSchedulerReconcileWatermark,
   resolveNextSchedulerReconcileWatermark,
   writeSchedulerReconcileWatermark,
 } from "../lib/scheduler/schedulerReconcileCache";
+import { parseSchedulerScopeKey, resolveVisibleSchedulerMembers } from "../lib/scheduler/scopeMembers";
 
 export type Schedule = {
   id: string;
@@ -154,6 +162,153 @@ function mergeSchedulesById(primary: Schedule[], secondary: Schedule[]): Schedul
     merged.push(schedule);
   }
   return merged;
+}
+
+function mergeGqlSchedulesById(schedules: GqlSchedule[]): GqlSchedule[] {
+  const seen = new Set<string>();
+  const merged: GqlSchedule[] = [];
+  for (const schedule of schedules) {
+    if (seen.has(schedule.id)) continue;
+    seen.add(schedule.id);
+    merged.push(schedule);
+  }
+  return merged;
+}
+
+function makeSchedulerRangeCacheKey(
+  scopeKey: string | null,
+  assigneeId: string | null,
+  selectedJobTitle: string | null,
+): string {
+  return JSON.stringify({
+    scopeKey,
+    assigneeId,
+    selectedJobTitle,
+  });
+}
+
+function dedupeScheduleRangeRequests(requests: ScheduleRangeRequest[]): ScheduleRangeRequest[] {
+  const seen = new Set<string>();
+  const deduped: ScheduleRangeRequest[] = [];
+  for (const request of requests) {
+    const key = [
+      request.organizationId ?? "",
+      request.teamId ?? "",
+      request.projectId ?? "",
+      request.assigneeId ?? "",
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(request);
+  }
+  return deduped;
+}
+
+function buildSchedulerRangeRequests(args: {
+  workspaceId: string;
+  from: string;
+  to: string;
+  scopeKey: string | null;
+  assigneeId: string | null;
+  selectedJobTitle: string | null;
+}): ScheduleRangeRequest[] {
+  const { workspaceId, from, to, scopeKey, assigneeId, selectedJobTitle } = args;
+  const base = {
+    workspaceId,
+    from,
+    to,
+  };
+  const scopedIds = parseSchedulerScopeKey(scopeKey);
+  const requests: ScheduleRangeRequest[] = [];
+
+  if (scopeKey) {
+    requests.push({
+      ...base,
+      ...scopedIds,
+      assigneeId: null,
+    });
+  }
+
+  if (assigneeId) {
+    requests.push({
+      ...base,
+      organizationId: null,
+      teamId: null,
+      projectId: null,
+      assigneeId,
+    });
+    return dedupeScheduleRangeRequests(requests);
+  }
+
+  if (!scopeKey) {
+    requests.push({
+      ...base,
+      organizationId: null,
+      teamId: null,
+      projectId: null,
+      assigneeId: null,
+    });
+    return requests;
+  }
+
+  const memberState = useMemberStore.getState();
+  const memberIds = resolveVisibleSchedulerMembers({
+    members: memberState.members,
+    memberCacheWorkspaceId: memberState.cacheWorkspaceId,
+    organizations: useOrganizationStore.getState().organizations,
+    organizationCacheWorkspaceId: useOrganizationStore.getState().cacheWorkspaceId,
+    teams: useTeamStore.getState().teams,
+    teamCacheWorkspaceId: useTeamStore.getState().cacheWorkspaceId,
+    projects: useSchedulerProjectsStore.getState().projects,
+    projectCacheWorkspaceId: useSchedulerProjectsStore.getState().workspaceId,
+    selectedScopeKey: scopeKey,
+    selectedJobTitle,
+  }).map((member) => member.memberId);
+
+  for (const memberId of memberIds) {
+    requests.push({
+      ...base,
+      organizationId: null,
+      teamId: null,
+      projectId: null,
+      assigneeId: memberId,
+    });
+  }
+
+  return dedupeScheduleRangeRequests(requests);
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const item = items[index];
+      if (item === undefined) continue;
+      results[index] = await mapper(item);
+    }
+  }));
+  return results;
+}
+
+async function fetchSchedulerRangeForCurrentScope(args: {
+  workspaceId: string;
+  from: string;
+  to: string;
+  scopeKey: string | null;
+  assigneeId: string | null;
+  selectedJobTitle: string | null;
+}): Promise<GqlSchedule[]> {
+  const requests = buildSchedulerRangeRequests(args);
+  const groups = await mapWithConcurrency(requests, 6, fetchScheduleRange);
+  return mergeGqlSchedulesById(groups.flat());
 }
 
 function sameSchedule(a: Schedule, b: Schedule): boolean {
@@ -330,15 +485,16 @@ export const useSchedulerStore = create<SchedulerStore>()(
 
       fetchSchedules: async (workspaceId, from, to) => {
         const startedAt = nowSchedulerPerf();
-        const { selectedProjectId, selectedMemberId } = useSchedulerViewStore.getState();
+        const { selectedProjectId, selectedMemberId, selectedJobTitle } = useSchedulerViewStore.getState();
         const scopeKey = selectedProjectId ?? null;
         const assigneeId = selectedMemberId ?? null;
+        const cacheScopeKey = makeSchedulerRangeCacheKey(scopeKey, assigneeId, selectedJobTitle ?? null);
         const current = get();
         const hasSameVisibleCache =
           current.cachedWorkspaceId === workspaceId &&
           current.visibleRangeFrom === from &&
           current.visibleRangeTo === to &&
-          current.cachedScopeKey === scopeKey &&
+          current.cachedScopeKey === cacheScopeKey &&
           // 빈 schedules 캐시는 cache-hit 으로 막지 않는다.
           // (과거 망가진 시점에 persist 된 빈 배열이 영구히 재계산을 차단하던 회귀 방지 —
           //  page store 에 행이 있어도 빈 캐시로 early-return 하면 카드가 안 보였음)
@@ -372,17 +528,13 @@ export const useSchedulerStore = create<SchedulerStore>()(
         let remoteProjected: Schedule[] | null = null;
         if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
           try {
-            const teamId = scopeKey?.startsWith("team:") ? scopeKey.slice(5) : null;
-            const organizationId = scopeKey?.startsWith("org:") ? scopeKey.slice(4) : null;
-            const projectId = !teamId && !organizationId ? scopeKey : null;
-            const rangeSchedules = await fetchScheduleRange({
+            const rangeSchedules = await fetchSchedulerRangeForCurrentScope({
               workspaceId,
               from,
               to,
-              teamId,
-              organizationId,
-              projectId,
+              scopeKey,
               assigneeId,
+              selectedJobTitle: selectedJobTitle ?? null,
             });
             const sourcePages = extractScheduleRangeSourcePages(rangeSchedules);
             applyRemotePagesToStore(sourcePages);
@@ -407,7 +559,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
           cachedWorkspaceId: workspaceId,
           visibleRangeFrom: from,
           visibleRangeTo: to,
-          cachedScopeKey: scopeKey,
+          cachedScopeKey: cacheScopeKey,
           loading: false,
         });
         logSchedulerPerf("fetchSchedules:project-visible-range", startedAt, {
