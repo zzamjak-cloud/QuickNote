@@ -31,6 +31,7 @@ import {
   isProtectedDatabaseId,
 } from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
+import { isPageCollabActive } from "../collab/pageCollabRegistry";
 import {
   tryParseSerializedColumns,
   tryParseSerializedPanelState,
@@ -257,6 +258,23 @@ function ensurePageInDatabaseRowOrder(databaseId: string, pageId: string): void 
   });
 }
 
+/**
+ * 협업 세션이 열린 페이지의 본문(doc) 권위는 Y.Doc/materialize 다. 원격 page.doc echo(REST)가
+ * 라이브 편집분을 옛 내용으로 덮지 않도록, 본문이 로드된 활성 협업 페이지는 doc 을 로컬 값으로
+ * 보존하고 메타(title/icon/order 등)만 원격을 반영한다. (초기 하이드레이션 = local 없음/meta-only,
+ * 세션 비활성 = 정상 적용.)
+ */
+function preserveCollabDoc(
+  merged: Page,
+  local: Page | undefined,
+  localIsMetaOnly: boolean,
+): Page {
+  if (local && !localIsMetaOnly && isPageCollabActive(merged.id)) {
+    return { ...merged, doc: local.doc, updatedAt: local.updatedAt };
+  }
+  return merged;
+}
+
 export function applyRemotePageToStore(
   remotePage: GqlPage | null | undefined,
 ): void {
@@ -307,7 +325,7 @@ export function applyRemotePageToStore(
         : { ...s, cacheWorkspaceId: nextCacheWorkspaceId };
     }
 
-    const merged = gqlPageToLocalPage(p);
+    const merged = preserveCollabDoc(gqlPageToLocalPage(p), local, localIsMetaOnly);
     return {
       ...s,
       pages: { ...s.pages, [p.id]: merged },
@@ -390,7 +408,7 @@ export function applyRemotePagesToStore(
       }
 
       if (local && !localIsMetaOnly && !shouldApplyRemotePageOverwrite(local, p)) continue;
-      const merged = gqlPageToLocalPage(p);
+      const merged = preserveCollabDoc(gqlPageToLocalPage(p), local, localIsMetaOnly);
       ensurePagesCopy();
       nextPages[p.id] = merged;
       if (merged.databaseId) affectedDatabaseIds.add(merged.databaseId);

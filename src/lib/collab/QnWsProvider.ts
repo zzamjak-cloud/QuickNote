@@ -128,9 +128,14 @@ export class QnWsProvider {
     if (!msg) return;
     if (msg.t === "sync") {
       Y.applyUpdate(this.doc, msg.update, REMOTE_ORIGIN);
-      const diff = Y.encodeStateAsUpdate(this.doc, msg.sv);
-      this.send(serializeClientMessage({ t: "sv-reply", update: diff }));
+      // sv-reply(서버가 모르는 로컬 delta 업로드)는 연결당 첫 sync 에서만 보낸다.
+      // 첫 sync 이후의 편집은 doc update → "update" 메시지로 전송되므로 매번 보낼 필요가 없다.
+      // 매 ping-sync(25초)마다 보내면 stale IDB 잔재가 서버 룸에 반복 append 되어 권위 본문을
+      // 옛 내용으로 오염시킨다(H3). 재연결 시 synced=false 로 리셋되므로, 끊긴 동안의 편집분은
+      // 다음 첫 sync 의 sv-reply 로 정상 업로드된다(오프라인 편집 복구 유지).
       if (!this.synced) {
+        const diff = Y.encodeStateAsUpdate(this.doc, msg.sv);
+        this.send(serializeClientMessage({ t: "sv-reply", update: diff }));
         this.synced = true;
         this.emit("synced");
       }

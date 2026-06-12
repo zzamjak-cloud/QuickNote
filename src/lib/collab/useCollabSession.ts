@@ -8,6 +8,7 @@ import { Awareness } from "y-protocols/awareness";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { isCollabEnabledForPage, buildCollabWsUrl, collabRoomEpoch } from "./collabConfig";
 import { QnWsProvider, QN_WS_REMOTE_ORIGIN } from "./QnWsProvider";
+import { registerPageCollab, unregisterPageCollab } from "./pageCollabRegistry";
 import {
   yDocToJson,
   YJS_XML_FRAGMENT,
@@ -84,6 +85,9 @@ export function useCollabSession(
     if (!enabled || !pageId) return undefined;
     const doc = docRef.current ?? new Y.Doc();
     docRef.current = doc;
+    // 세션이 열려 있는 동안 본문 권위는 Y.Doc — storeApply 가 stale REST echo 로 store.doc 를
+    // 덮지 않도록 활성 페이지로 등록한다(cleanup 에서 해제).
+    registerPageCollab(pageId);
     setSynced(false);
     setIdbLoaded(false);
     setDocNotEmpty(false);
@@ -184,6 +188,7 @@ export function useCollabSession(
 
     return () => {
       cancelled = true;
+      unregisterPageCollab(pageId);
       doc.off("update", onDocUpdate);
       if (materializeTimer !== null) window.clearTimeout(materializeTimer);
       if (serverDocSyncTimer !== null) window.clearTimeout(serverDocSyncTimer);

@@ -70,6 +70,25 @@ describe("QnWsProvider", () => {
     expect(onSynced).toHaveBeenCalledTimes(1);
   });
 
+  it("두 번째 sync(ping 유발)에는 sv-reply 를 재전송하지 않는다(H3 stale 재오염 방지)", () => {
+    const { socket, provider, doc } = makeProvider();
+    provider.connect();
+    socket.open();
+
+    const server = new Y.Doc();
+    server.getXmlFragment("prosemirror");
+    const update = Y.encodeStateAsUpdate(server, Y.encodeStateVector(doc));
+    const sv = Y.encodeStateVector(server);
+    const syncFrame = JSON.stringify({ t: "sync", update: encodeBytes(update), sv: encodeBytes(sv) });
+
+    socket.receive(syncFrame); // 첫 sync → sv-reply 1회
+    socket.sent.length = 0;
+    socket.receive(syncFrame); // ping 유발 두 번째 sync → sv-reply 없어야 함
+
+    const replies = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "sv-reply");
+    expect(replies.length).toBe(0);
+  });
+
   it("로컬 doc 변경 시 update{update} 를 전송한다", () => {
     const { socket, provider, doc } = makeProvider();
     provider.connect();
