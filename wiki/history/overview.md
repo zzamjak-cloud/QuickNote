@@ -8,8 +8,10 @@
 upsert 마다 1버전이 아니라 **편집 세션 1건 = 버전 1건**(`page.session`/`database.session`).
 협업(Yjs) materialize 가 1.8s 마다 upsert 를 보내도 버전이 폭증하지 않는다.
 
-- **세션 경계**: idle **15분** 또는 세션 최대 **60분**(`historySession.ts` `SESSION_IDLE_MS`/`SESSION_MAX_MS`).
+- **세션 경계**: idle **10분** 또는 세션 최대 **20분**(`historySession.ts` `SESSION_IDLE_MS`/`SESSION_MAX_MS`,
+  Google Docs/Notion 류 활동 기반 체크포인트 캐던스 — 활발히 편집해도 20분마다 버전 확정).
   별도 스케줄러 없음 — 경계 밖 첫 upsert 가 새 엔트리를 연다. 열린 세션은 같은 historyId 를 in-place 갱신.
+  세분화 기록은 로컬 Yjs(IDB+undo 히스토리)가 담당 — 서버 버전과 역할 분리.
 - **no-op 필터** (`diffMeaningfulPageUnits`/`diffMeaningfulDatabaseUnits`): 빈 블럭 생성·삭제,
   동일 내용 블럭의 위치 이동(밀림), `order`·`blockComments`(읽음 시각)·`panelState`·`updatedAt` 변화는
   버전을 만들지 않는다. 블럭 매칭은 TipTap uniqueId(`attrs.id`), id 없으면 내용 시그니처 폴백.

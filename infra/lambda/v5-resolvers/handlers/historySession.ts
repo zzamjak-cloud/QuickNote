@@ -2,7 +2,8 @@
  * 버전 히스토리 세션 머지 + 의미 변화 판정 유틸.
  *
  * - 세션: 같은 페이지/DB 에 대한 연속 편집을 하나의 버전 엔트리로 머지한다.
- *   경계 = idle 15분 또는 세션 최대 60분. 다음 upsert 가 자연히 새 세션을 연다(스케줄러 불필요).
+ *   경계 = idle 10분 또는 세션 최대 20분(Google Docs/Notion 류 활동 기반 체크포인트 캐던스).
+ *   다음 upsert 가 자연히 새 세션을 연다(스케줄러 불필요).
  * - 의미 변화: 빈 블럭 추가/삭제, 동일 내용 블럭의 위치 이동(밀림), order/blockComments/updatedAt
  *   변화는 버전을 만들지 않는다. 블럭 매칭은 TipTap uniqueId(attrs.id) 기준.
  * - changedUnits: UI 가 재계산 없이 변경 단위를 조회하는 키 목록.
@@ -10,8 +11,8 @@
  *   DB:     "column:<id>" | "preset:<id>" | "templates" | "meta:title"
  */
 
-export const SESSION_IDLE_MS = 15 * 60 * 1000;
-export const SESSION_MAX_MS = 60 * 60 * 1000;
+export const SESSION_IDLE_MS = 10 * 60 * 1000;
+export const SESSION_MAX_MS = 20 * 60 * 1000;
 /** 머지 누적 patch 가 이 개수를 넘으면 전체 스냅샷 set 1개로 강등(레거시 워커 호환 유지). */
 export const SESSION_PATCH_COMPACT_LIMIT = 200;
 const CONTRIBUTORS_MAX = 20;

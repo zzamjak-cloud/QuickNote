@@ -316,10 +316,11 @@ export function PageHistoryPreviewDialog({
                     const contributors = parseContributors(raw?.contributors);
                     const editorSuffix =
                       contributors.length > 1 ? ` 외 ${contributors.length - 1}명` : "";
+                    // 서버 SESSION_IDLE_MS(10분)와 동일 창 — 이 안이면 아직 머지될 수 있는 열린 세션
                     const isLiveSession =
                       raw?.kind === "page.session" &&
                       nowTs > 0 &&
-                      nowTs - (Date.parse(raw.lastActivityAt ?? "") || 0) < 15 * 60_000;
+                      nowTs - (Date.parse(raw.lastActivityAt ?? "") || 0) < 10 * 60_000;
                     return (
                       <button
                         key={entry.id}
