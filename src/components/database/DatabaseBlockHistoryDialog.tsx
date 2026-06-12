@@ -27,6 +27,9 @@ import {
 } from "../../lib/history/historyPreviewDiff";
 import type { GqlDatabaseHistoryEntry, GqlPageHistoryEntry } from "../../lib/sync/graphql/operations";
 import type { DatabaseLayout } from "../../types/database";
+import { summarizeChangedUnits } from "../../lib/history/blockDiff";
+import { BlockDiffView } from "../history/BlockDiffView";
+import { DatabaseStructureDiffView } from "./DatabaseStructureDiffView";
 
 const EMPTY_ENTRIES: GqlDatabaseHistoryEntry[] = [];
 const EMPTY_PAGE_ENTRIES: GqlPageHistoryEntry[] = [];
@@ -272,6 +275,11 @@ export function DatabaseBlockHistoryDialog({
     () => buildPagePreviewChanges(pageBefore, pageAfter, pageCtx),
     [pageBefore, pageAfter, pageCtx],
   );
+  // 본문은 BlockDiffView 가 실제 블럭 모습으로 렌더 — 텍스트 라인 diff(doc:*)는 제외.
+  const pageMetaChanges = useMemo(
+    () => pagePreviewChanges.filter((change) => !change.id.startsWith("doc:")),
+    [pagePreviewChanges],
+  );
 
   const confirmZIndex = isInsidePeek ? 730 : 500;
 
@@ -322,7 +330,10 @@ export function DatabaseBlockHistoryDialog({
                 ) : pagePreviewChanges.length === 0 ? (
                   <PreviewHint text="표시할 변경 내용이 없습니다." />
                 ) : (
-                  <PreviewChangeList changes={pagePreviewChanges} />
+                  <div className="space-y-2">
+                    <PreviewChangeList changes={pageMetaChanges} />
+                    <BlockDiffView beforeDoc={pageBefore?.doc} afterDoc={pageAfter?.doc} />
+                  </div>
                 )
               ) : loading ? (
                 <PreviewHint text="불러오는 중..." />
@@ -337,7 +348,10 @@ export function DatabaseBlockHistoryDialog({
               ) : previewChanges.length === 0 ? (
                 <PreviewHint text="표시할 DB 구조 변경이 없습니다." />
               ) : (
-                <PreviewChangeList changes={previewChanges} />
+                <div className="space-y-2">
+                  <DatabaseStructureDiffView before={selectedBefore} after={selectedAfter} />
+                  <PreviewChangeList changes={previewChanges} />
+                </div>
               )}
             </div>
 
@@ -458,7 +472,12 @@ export function DatabaseBlockHistoryDialog({
                 ) : (
                   dbHistoryTimeline.slice(0, 100).map((entry) => {
                     const active = selectedHistoryId === entry.id;
-                    const summary = dbSummaries.get(entry.id) || entry.label;
+                    // 세션 엔트리는 서버가 미리 계산한 changedUnits 요약을 우선 사용한다.
+                    const rawEntry = historyEntries.find((e) => e.historyId === entry.id);
+                    const summary =
+                      summarizeChangedUnits(rawEntry?.changedUnits) ||
+                      dbSummaries.get(entry.id) ||
+                      entry.label;
                     return (
                       <button
                         key={entry.id}

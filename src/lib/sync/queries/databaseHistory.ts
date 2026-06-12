@@ -2,8 +2,10 @@ const DATABASE_FIELDS = `
   id workspaceId createdByMemberId title columns presets panelState templates createdAt updatedAt deletedAt
 `;
 
+// ⚠ 필드 추가 시 infra/lib/sync/schema.graphql 의 DatabaseHistoryEntry 와 동시 수정 + CDK 선배포
 const DATABASE_HISTORY_FIELDS = `
-  databaseId historyId workspaceId ownerId kind patch anchor createdAt createdByMemberId createdByName
+  databaseId historyId workspaceId ownerId kind patch anchor snapshot changedUnits contributors
+  sessionStartedAt lastActivityAt createdAt createdByMemberId createdByName
 `;
 
 export const LIST_DATABASE_HISTORY = `
@@ -34,6 +36,13 @@ export type GqlDatabaseHistoryEntry = {
   kind: string;
   patch: unknown;
   anchor?: unknown | null;
+  /** 세션 엔트리(kind database.session)의 post-state 전체 스냅샷(AWSJSON) */
+  snapshot?: unknown | null;
+  /** 변경 단위 키 목록(AWSJSON): "column:<id>" | "preset:<id>" | "templates" | "meta:title" */
+  changedUnits?: unknown | null;
+  contributors?: unknown | null;
+  sessionStartedAt?: string | null;
+  lastActivityAt?: string | null;
   createdAt: string;
   createdByMemberId?: string | null;
   createdByName?: string | null;

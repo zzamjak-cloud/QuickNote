@@ -9,6 +9,8 @@ import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { buildPageHistorySnapshotMap } from "../../lib/history/pageHistoryPatch";
 import { buildPagePreviewChanges, summarizePreviewChanges } from "../../lib/history/historyPreviewDiff";
+import { parseContributors, summarizeChangedUnits } from "../../lib/history/blockDiff";
+import { BlockDiffView } from "./BlockDiffView";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import type { GqlPageHistoryEntry } from "../../lib/sync/graphql/operations";
@@ -47,11 +49,14 @@ export function PageHistoryPreviewDialog({
   const restorePageHistoryEvent = useServerPageHistoryStore((s) => s.restorePageHistoryEvent);
   const deletePageHistoryEvents = useServerPageHistoryStore((s) => s.deletePageHistoryEvents);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
+  // "편집 중" 배지 판정 기준 시각 — 렌더 중 Date.now() 호출 금지(react-hooks/purity)라 effect 로 고정.
+  const [nowTs, setNowTs] = useState(0);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ label: string; eventIds: string[] } | null>(null);
 
   useEffect(() => {
     if (!open || !pageId || !workspaceId) return;
+    setNowTs(Date.now());
     void fetchPageHistory(pageId, workspaceId);
   }, [fetchPageHistory, open, pageId, workspaceId]);
 
@@ -127,6 +132,16 @@ export function PageHistoryPreviewDialog({
   const previewChanges = useMemo(
     () => buildPagePreviewChanges(selectedBefore, selectedAfter, previewContext),
     [selectedAfter, selectedBefore, previewContext],
+  );
+  // 본문은 BlockDiffView 가 실제 블럭 모습으로 렌더하므로, 텍스트 라인 diff(doc:*)는 제외한다.
+  const metaChanges = useMemo(
+    () => previewChanges.filter((change) => !change.id.startsWith("doc:")),
+    [previewChanges],
+  );
+  // 세션 엔트리 메타(changedUnits 요약·참여자·편집 중 배지)용 원본 엔트리 조회 맵.
+  const rawEntryById = useMemo(
+    () => new Map(historyEntries.map((entry) => [entry.historyId, entry])),
+    [historyEntries],
   );
 
   // 리스트에 "무엇이 바뀌었나" 요약 — 컬럼명 해석용 ctx 는 페이지의 databaseId 기준.
@@ -217,7 +232,7 @@ export function PageHistoryPreviewDialog({
                 <div className="text-sm text-zinc-500">현재 최신 버전입니다.</div>
               ) : (
                 <div className="space-y-2">
-                  {previewChanges.map((change) => (
+                  {metaChanges.map((change) => (
                     <div
                       key={change.id}
                       className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
@@ -249,6 +264,7 @@ export function PageHistoryPreviewDialog({
                       </div>
                     </div>
                   ))}
+                  <BlockDiffView beforeDoc={selectedBefore?.doc} afterDoc={selectedAfter?.doc} />
                 </div>
               )}
             </div>
@@ -291,7 +307,19 @@ export function PageHistoryPreviewDialog({
                 ) : (
                   pageHistoryTimeline.slice(0, 100).map((entry) => {
                     const active = selectedHistoryId === entry.id;
-                    const summary = pageSummaries.get(entry.id) || entry.label;
+                    const raw = rawEntryById.get(entry.id);
+                    // 세션 엔트리는 서버가 미리 계산한 changedUnits 요약을 우선 사용한다.
+                    const summary =
+                      summarizeChangedUnits(raw?.changedUnits) ||
+                      pageSummaries.get(entry.id) ||
+                      entry.label;
+                    const contributors = parseContributors(raw?.contributors);
+                    const editorSuffix =
+                      contributors.length > 1 ? ` 외 ${contributors.length - 1}명` : "";
+                    const isLiveSession =
+                      raw?.kind === "page.session" &&
+                      nowTs > 0 &&
+                      nowTs - (Date.parse(raw.lastActivityAt ?? "") || 0) < 15 * 60_000;
                     return (
                       <button
                         key={entry.id}
@@ -334,8 +362,14 @@ export function PageHistoryPreviewDialog({
                           </span>
                           <span className="block truncate text-xs text-zinc-400">
                             {formatPageHistoryEditorLine(entry, { members, me })}
+                            {editorSuffix}
                           </span>
                         </span>
+                        {isLiveSession ? (
+                          <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
+                            편집 중
+                          </span>
+                        ) : null}
                         <span className="shrink-0 text-xs text-zinc-400">
                           {new Date(entry.endTs).toLocaleString()}
                         </span>

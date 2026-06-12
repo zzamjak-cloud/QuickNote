@@ -28,6 +28,7 @@ type Actions = {
 
 function kindLabel(kind: string): string {
   if (kind === "page.create") return "페이지 생성";
+  if (kind === "page.session") return "편집 세션";
   if (kind === "page.restoreVersion") return "버전 복구";
   if (kind === "page.update") return "페이지 수정";
   if (kind === "page.delete") return "페이지 삭제";
@@ -36,13 +37,15 @@ function kindLabel(kind: string): string {
 
 function toTimelineEntry(entry: GqlPageHistoryEntry): HistoryTimelineEntry {
   const ts = Date.parse(entry.createdAt) || Date.now();
+  // 세션 엔트리는 createdAt=세션 시작, lastActivityAt=마지막 편집 — 표시 시각은 마지막 활동 기준.
+  const endTs = (entry.lastActivityAt && Date.parse(entry.lastActivityAt)) || ts;
   return {
     id: entry.historyId,
     bucket: "content",
     representativeKind: entry.kind as PageHistoryKind,
     eventIds: [entry.historyId],
     startTs: ts,
-    endTs: ts,
+    endTs,
     count: 1,
     label: kindLabel(entry.kind),
     lastEditedByMemberId: entry.createdByMemberId ?? undefined,

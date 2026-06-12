@@ -302,6 +302,12 @@ type PageHistoryEntry {
   kind: String!
   patch: AWSJSON!
   anchor: AWSJSON
+  # 세션 머지 엔트리(kind page.session)의 post-state 전체 스냅샷·세션 메타
+  snapshot: AWSJSON
+  changedUnits: AWSJSON
+  contributors: AWSJSON
+  sessionStartedAt: AWSDateTime
+  lastActivityAt: AWSDateTime
   createdAt: AWSDateTime!
   createdByMemberId: ID
   createdByName: String
@@ -315,6 +321,12 @@ type DatabaseHistoryEntry {
   kind: String!
   patch: AWSJSON!
   anchor: AWSJSON
+  # 세션 머지 엔트리(kind database.session)의 post-state 전체 스냅샷·세션 메타
+  snapshot: AWSJSON
+  changedUnits: AWSJSON
+  contributors: AWSJSON
+  sessionStartedAt: AWSDateTime
+  lastActivityAt: AWSDateTime
   createdAt: AWSDateTime!
   createdByMemberId: ID
   createdByName: String
