@@ -175,6 +175,16 @@ function mergeGqlSchedulesById(schedules: GqlSchedule[]): GqlSchedule[] {
   return merged;
 }
 
+function isPageBackedLCSchedulerRecord(schedule: GqlSchedule): boolean {
+  const parsed = parseScheduleInstanceId(schedule.id);
+  if (!parsed) return false;
+  if (!schedule.sourcePageId || schedule.sourcePageId !== parsed.pageId) return false;
+  const sourcePage = schedule.sourcePage;
+  if (!sourcePage || sourcePage.id !== parsed.pageId) return false;
+  if (sourcePage.deletedAt) return false;
+  return true;
+}
+
 function makeSchedulerRangeCacheKey(
   scopeKey: string | null,
   assigneeId: string | null,
@@ -184,6 +194,7 @@ function makeSchedulerRangeCacheKey(
     scopeKey,
     assigneeId,
     selectedJobTitle,
+    pageBackedOnly: 1,
   });
 }
 
@@ -308,7 +319,7 @@ async function fetchSchedulerRangeForCurrentScope(args: {
 }): Promise<GqlSchedule[]> {
   const requests = buildSchedulerRangeRequests(args);
   const groups = await mapWithConcurrency(requests, 6, fetchScheduleRange);
-  return mergeGqlSchedulesById(groups.flat());
+  return mergeGqlSchedulesById(groups.flat().filter(isPageBackedLCSchedulerRecord));
 }
 
 function sameSchedule(a: Schedule, b: Schedule): boolean {

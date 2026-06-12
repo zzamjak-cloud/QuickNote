@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LC_SCHEDULER_DATABASE_ID } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { fetchScheduleRange, type ScheduleRangeRequest } from "../../lib/sync/scheduleRangeApi";
 import type { GqlSchedule } from "../../lib/sync/graphql/operations";
@@ -82,6 +83,52 @@ function gqlSchedule(input: {
   return {
     id: `${input.pageId}::${input.assigneeId ?? "__global__"}`,
     sourcePageId: input.pageId,
+    sourcePage: {
+      id: input.pageId,
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      createdByMemberId: "creator-1",
+      title: input.title,
+      icon: null,
+      parentId: null,
+      order: 0,
+      databaseId: LC_SCHEDULER_DATABASE_ID,
+      doc: { type: "doc", content: [] },
+      dbCells: {},
+      blockComments: {},
+      createdAt: "2026-05-31T00:00:00.000Z",
+      updatedAt: "2026-05-31T00:00:00.000Z",
+      deletedAt: null,
+    },
+    workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    title: input.title,
+    comment: null,
+    link: null,
+    projectId: input.projectId,
+    teamId: null,
+    organizationId: null,
+    kind: "schedule",
+    startAt: "2026-06-01T00:00:00.000Z",
+    endAt: "2026-06-02T23:59:59.999Z",
+    assigneeId: input.assigneeId,
+    color: null,
+    textColor: null,
+    rowIndex: 0,
+    createdByMemberId: "creator-1",
+    createdAt: "2026-05-31T00:00:00.000Z",
+    updatedAt: "2026-05-31T00:00:00.000Z",
+  };
+}
+
+function standaloneSchedule(input: {
+  id: string;
+  assigneeId: string | null;
+  projectId: string | null;
+  title: string;
+}): GqlSchedule {
+  return {
+    id: input.id,
+    sourcePageId: null,
+    sourcePage: null,
     workspaceId: LC_SCHEDULER_WORKSPACE_ID,
     title: input.title,
     comment: null,
@@ -320,6 +367,140 @@ describe("schedulerStore scope range fetch", () => {
     expect(useSchedulerStore.getState().schedules.map((schedule) => schedule.title).sort()).toEqual([
       "Bob outside selected project",
       "Project global",
+    ]);
+  });
+
+  it("does not project standalone schedule records that are not backed by task database pages", async () => {
+    const alice = member("member-1", "Alice");
+    useMemberStore.setState({
+      members: [alice],
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    });
+    useSchedulerProjectsStore.setState({
+      projects: [
+        {
+          id: "project-1",
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          name: "Project 1",
+          color: "#2563eb",
+          memberIds: ["member-1"],
+          leaderMemberIds: [],
+          isHidden: false,
+          createdByMemberId: "creator-1",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    });
+    useSchedulerViewStore.setState({
+      selectedProjectId: "proj:project-1",
+      selectedMemberId: null,
+    });
+    fetchScheduleRangeMock.mockImplementation(async (request) => {
+      if (request.assigneeId === "member-1") {
+        return [
+          standaloneSchedule({
+            id: "sch_ghost_1",
+            assigneeId: "member-1",
+            projectId: "project-1",
+            title: "테스트 2",
+          }),
+          gqlSchedule({
+            pageId: "task-member-1",
+            assigneeId: "member-1",
+            projectId: "project-1",
+            title: "Real task",
+          }),
+        ];
+      }
+      return [];
+    });
+
+    await useSchedulerStore.getState().fetchSchedules(
+      LC_SCHEDULER_WORKSPACE_ID,
+      range.from,
+      range.to,
+    );
+
+    expect(useSchedulerStore.getState().schedules.map((schedule) => schedule.title)).toEqual([
+      "Real task",
+    ]);
+  });
+
+  it("invalidates older cached ranges so previously persisted ghost cards are replaced", async () => {
+    const alice = member("member-1", "Alice");
+    useMemberStore.setState({
+      members: [alice],
+      cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    });
+    useSchedulerProjectsStore.setState({
+      projects: [
+        {
+          id: "project-1",
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          name: "Project 1",
+          color: "#2563eb",
+          memberIds: ["member-1"],
+          leaderMemberIds: [],
+          isHidden: false,
+          createdByMemberId: "creator-1",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+    });
+    useSchedulerViewStore.setState({
+      selectedProjectId: "proj:project-1",
+      selectedMemberId: null,
+    });
+    useSchedulerStore.setState({
+      schedules: [
+        {
+          id: "sch_ghost_1",
+          workspaceId: LC_SCHEDULER_WORKSPACE_ID,
+          title: "테스트 2",
+          startAt: "2026-06-01T00:00:00.000Z",
+          endAt: "2026-06-02T23:59:59.999Z",
+          assigneeId: "member-1",
+          createdByMemberId: "creator-1",
+          createdAt: "2026-05-31T00:00:00.000Z",
+          updatedAt: "2026-05-31T00:00:00.000Z",
+        },
+      ],
+      cachedWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
+      visibleRangeFrom: range.from,
+      visibleRangeTo: range.to,
+      cachedScopeKey: JSON.stringify({
+        scopeKey: "proj:project-1",
+        assigneeId: null,
+        selectedJobTitle: null,
+      }),
+    });
+    fetchScheduleRangeMock.mockImplementation(async (request) => {
+      if (request.assigneeId === "member-1") {
+        return [
+          gqlSchedule({
+            pageId: "task-member-1",
+            assigneeId: "member-1",
+            projectId: "project-1",
+            title: "Real task",
+          }),
+        ];
+      }
+      return [];
+    });
+
+    await useSchedulerStore.getState().fetchSchedules(
+      LC_SCHEDULER_WORKSPACE_ID,
+      range.from,
+      range.to,
+    );
+
+    expect(fetchScheduleRangeMock).toHaveBeenCalled();
+    expect(useSchedulerStore.getState().schedules.map((schedule) => schedule.title)).toEqual([
+      "Real task",
     ]);
   });
 });
