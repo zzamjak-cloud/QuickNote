@@ -28,8 +28,9 @@ export type QnWsProviderOptions = {
   awareness?: Awareness;
 };
 
-// 수신 update 적용 시 사용하는 origin — 로컬 echo 전송 방지에 사용.
-const REMOTE_ORIGIN = Symbol("qn-ws-remote");
+// 수신 update 적용 시 사용하는 origin — 로컬 echo 전송 방지 + 로컬 편집 판별(useCollabSession)에 사용.
+export const QN_WS_REMOTE_ORIGIN = Symbol("qn-ws-remote");
+const REMOTE_ORIGIN = QN_WS_REMOTE_ORIGIN;
 
 export class QnWsProvider {
   private doc: Y.Doc;

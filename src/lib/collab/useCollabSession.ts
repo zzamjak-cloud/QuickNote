@@ -7,7 +7,7 @@ import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { IndexeddbPersistence } from "y-indexeddb";
 import { isCollabEnabledForPage, buildCollabWsUrl, collabRoomEpoch } from "./collabConfig";
-import { QnWsProvider } from "./QnWsProvider";
+import { QnWsProvider, QN_WS_REMOTE_ORIGIN } from "./QnWsProvider";
 import {
   yDocToJson,
   YJS_XML_FRAGMENT,
@@ -15,13 +15,17 @@ import {
   isPlaceholderBodyJson,
 } from "./yjsDoc";
 import { readStoredTokens } from "../auth/tokenStore";
-import { usePageStore } from "../../store/pageStore";
+import { usePageStore, enqueuePageUpsertForSync } from "../../store/pageStore";
 import { collabColor } from "./collabColor";
 import { useMemberStore } from "../../store/memberStore";
 import { useCollabConnectionStore } from "../../store/collabConnectionStore";
 import { toBadgeStatus, type ProviderStatus } from "./collabConnectionStatus";
 
 const MATERIALIZE_DEBOUNCE_MS = 1800;
+// 로컬 편집분의 서버 Pages.doc 영속 주기. updateDoc(deferSync) 는 sync enqueue 를 생략하므로
+// (DB 협업의 skipCollab 서버 영속과 동일한 역할을) 이 주기 업서트가 담당한다.
+// 서버 page.doc 이 stale 하면 버전 히스토리가 안 쌓이고, epoch bump 시드 소스도 과거로 밀린다.
+const SERVER_DOC_SYNC_INTERVAL_MS = 8000;
 
 export type CollabSession =
   | { enabled: false }
@@ -89,6 +93,24 @@ export function useCollabSession(
     let provider: QnWsProvider | null = null;
     let materializeTimer: number | null = null;
     let serverSynced = false;
+    // 이 클라이언트에서 발생한 Y 편집이 있는지(원격 수신·IDB 로드 적용분 제외).
+    // 편집한 클라이언트만 서버 Pages.doc 업서트를 책임진다(view-only 는 업서트 안 함).
+    let localEdited = false;
+    let serverDocSyncTimer: number | null = null;
+
+    // 로컬 편집분을 주기적으로 서버에 영속. idle-reset 디바운스가 아니라 고정 주기 —
+    // 연속 타이핑 중에도 8초마다 한 번은 업서트돼 히스토리(세션 머지)가 끊기지 않는다.
+    const scheduleServerDocSync = () => {
+      if (serverDocSyncTimer !== null) return;
+      serverDocSyncTimer = window.setTimeout(() => {
+        serverDocSyncTimer = null;
+        if (cancelled || !localEdited) return;
+        const latest = usePageStore.getState().pages[pageId];
+        if (!latest) return;
+        localEdited = false;
+        enqueuePageUpsertForSync(latest);
+      }, SERVER_DOC_SYNC_INTERVAL_MS);
+    };
 
     // Y.Doc 변경 → 디바운스 materialize → Pages.doc(JSON)
     const scheduleMaterialize = () => {
@@ -110,14 +132,23 @@ export function useCollabSession(
             console.warn("[collab] placeholder Y 상태 materialize 차단", { pageId });
             return;
           }
-          // 단방향(Y→JSON). deferSync 로 기존 sync 큐에 실어 보낸다.
+          // 단방향(Y→JSON) store 반영. deferSync 는 sync enqueue 를 생략하므로
+          // 서버 영속은 아래 scheduleServerDocSync(주기 업서트)가 담당한다.
           usePageStore.getState().updateDoc(pageId, json, { deferSync: true });
+          scheduleServerDocSync();
         } catch {
           /* 변환 실패 시 다음 변경에서 재시도 */
         }
       }, MATERIALIZE_DEBOUNCE_MS);
     };
-    doc.on("update", scheduleMaterialize);
+    const onDocUpdate = (_update: Uint8Array, origin: unknown) => {
+      // 원격 수신(QN_WS_REMOTE_ORIGIN)·IndexedDB 로드 적용분은 로컬 편집이 아니다.
+      if (origin !== QN_WS_REMOTE_ORIGIN && origin !== idbRef.current) {
+        localEdited = true;
+      }
+      scheduleMaterialize();
+    };
+    doc.on("update", onDocUpdate);
 
     // 로컬 영속(IndexedDB). synced 시 로컬 로드 완료 + 콘텐츠 유무 기록.
     // 키에 epoch 솔트 포함 — 협업 재활성화 시 과거 세대 잔재가 로드되지 않는다.
@@ -153,8 +184,14 @@ export function useCollabSession(
 
     return () => {
       cancelled = true;
-      doc.off("update", scheduleMaterialize);
+      doc.off("update", onDocUpdate);
       if (materializeTimer !== null) window.clearTimeout(materializeTimer);
+      if (serverDocSyncTimer !== null) window.clearTimeout(serverDocSyncTimer);
+      // 페이지 이탈 시 미전송 로컬 편집분 최종 영속(남은 1.8s 미만 delta 는 Y 룸·IDB 에 안전).
+      if (localEdited) {
+        const latest = usePageStore.getState().pages[pageId];
+        if (latest) enqueuePageUpsertForSync(latest);
+      }
       provider?.destroy();
       // 페이지 전환 시 Y.Doc 폐기(다음 페이지는 새 doc).
       doc.destroy();

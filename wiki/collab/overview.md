@@ -26,6 +26,13 @@ disconnect.ts
 본문 권위: 협업 ON 페이지는 **Y.Doc 이 권위**. 스토어 JSON 역주입은 바인딩 후 차단되고,
 Y→store 반영은 materialize(1.8s 디바운스) 단방향. DB 구조는 applyCollabDbStructure 가 materialize.
 
+⚠ **서버 Pages.doc 영속**: materialize 의 `updateDoc(deferSync)` 는 sync enqueue 를 **생략**한다.
+서버 영속은 useCollabSession 의 **주기 업서트**(로컬 편집 발생 시 8s 간격 + 페이지 이탈 시 flush)가
+담당한다 — 이게 없으면 협업 중 본문이 서버에 안 올라가 **버전 히스토리가 안 쌓이고**, epoch bump
+시드 소스(page.doc)가 과거로 밀려 본문 유실 위험(2026-06-12 발견·수정). 로컬 편집 판별은
+Y update origin(QN_WS_REMOTE_ORIGIN·IDB 제외) — view-only 클라는 업서트하지 않는다.
+DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: true })` 로 동일 역할.
+
 ---
 
 ## 에디터 바인딩 3원칙 (CRITICAL — Editor.tsx)
