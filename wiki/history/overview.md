@@ -20,14 +20,33 @@ upsert 마다 1버전이 아니라 **편집 세션 1건 = 버전 1건**(`page.se
   `patch` 는 직전 엔트리 post-state 기준 누적 합성으로 계속 기록(레거시 patch 체인 워커 호환).
 - **최종 편집자**: 세션의 `createdByMemberId/Name` = 마지막 upsert caller(= Yjs `lastEditedBy` 와 동일 소스).
   동시 머지 race 는 LWW(본문은 CRDT/서버 권위로 수렴, 손실은 귀속 메타뿐).
-- **UI**: 본문 diff 는 `BlockDiffView`(generateHTML 정적 렌더, 실제 블럭 모습 + 추가=초록/삭제=빨강/변경=노랑),
+- **UI**: 본문 diff 는 `BlockDiffView` — **read-only TipTap 에디터**(실제 스키마+NodeView)로 변경 블럭만
+  렌더한다. 탭 블럭·DB 블럭 등 React NodeView 블럭도 본래 모습 그대로 보인다(정적 generateHTML 아님).
+  라벨/배지/박스 없이 **컬러만**(빨강=이전·삭제 / 초록=이후·추가) — 좌(이전)·우(이후) 두 패널.
+  인라인 DB 블럭은 프리뷰에서 전체 DB 를 렌더하지 않고 컴팩트 플레이스홀더로 대체(`toPreviewBlock`).
   DB 구조는 `DatabaseStructureDiffView`(컬럼 칩 스트립). 목록 요약은 `summarizeChangedUnits`.
-  진행 중 세션(15분 내 활동)은 "편집 중" 배지.
+  진행 중 세션(**10분** 내 활동 = 서버 `SESSION_IDLE_MS`)은 "편집 중" 배지(`Date.now()` 는 effect 로 고정 — react-hooks/purity).
+- **⚠ null 기본값 attr 정규화 (CRITICAL 회귀)**: `editor.getJSON` 은 기본값 attr 을 `textAlign: null` 처럼
+  포함하고, 협업 materialize(`yDocToJson`/y-prosemirror)는 **null 기본값을 생략**한다. 시그니처 비교가
+  `{textAlign: null}` ≠ `{}` 로 갈리면 멘션 하나 추가에도 **전 블럭이 modified 로 오판**된다(인라인 DB 까지
+  diff 에 끌려나옴). 서버 `blockSignature`/`diffMeaningfulPageUnits` 와 클라 `blockDiff.blockSignature` 모두
+  `normalizeForSignature`(attrs/marks 의 null 키 깊이 제거)를 **반드시 통과**시켜야 한다. 두 곳을 함께 유지할 것.
 - **⚠ 배포 순서**: `snapshot` 등 신규 필드는 클라 쿼리가 select 한다 — **CDK(스키마) 선배포 후 프론트**
   (PageMeta FieldUndefined 사고와 동일 규칙).
+- **⚠ 협업 모드 본문 영속 의존성**: 협업 ON 페이지는 materialize 의 `updateDoc(deferSync)` 가 sync enqueue 를
+  생략하므로, 서버 `page.doc` 업서트가 없으면 **히스토리가 아예 안 쌓인다.** `useCollabSession` 의 주기 업서트
+  (로컬 편집 시 8s 간격 + 페이지 이탈 flush)가 이를 담당 → [`collab/overview.md`](../collab/overview.md) 참고.
 - 구(patch/anchor) 엔트리는 읽기 전용 레거시로 공존 — 재구성 경로가 snapshot 우선, 없으면 anchor+patch 폴백.
+  이번 개편 이전에 "전체 변경"으로 기록된 세션은 그대로 남는다(새 기록부터 정상). 거슬리면 목록에서 선택 삭제.
 - Y.Snapshot/룸 update 로그 기반 히스토리는 **채택하지 않음**: gc:false 비대화, rt-ydoc-updates 50건 압축,
   epoch bump 시 룸 세대 폐기(히스토리 증발) 때문. 버전 영속은 항상 이 서버 테이블이다.
+
+### 보편적 버전 관리 캐던스 (설계 근거)
+Google Docs/Notion/Figma 모두 "키 입력마다 버전"이 아니라 **활동 기반 자동 체크포인트**다(편집이 이어지는
+동안 일정 시간마다 확정, 손 떼면 세션 종료). 세분화 기록은 로컬이 담당 — 퀵노트는 Yjs 가 모든 키 입력을
+IndexedDB 에 영속 + 무제한 undo 로 노출하므로 "로컬 자주 + 서버 병합" 구조가 이미 현재 아키텍처다.
+별도 로컬 버전 스토어 신설은 서버 일원화 원칙(로컬 `historyStore` 은퇴, 아래 절)과 충돌하므로 피한다.
+후속 후보: Notion 식 수동 "지금 버전 저장" 체크포인트 버튼.
 
 ## 아키텍처 (서버 권위)
 
