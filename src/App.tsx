@@ -164,10 +164,26 @@ function App() {
   // document 레벨에서 mention 클릭을 받아 navigate. (DB 행 페이지 등 특정 컨텍스트에서
   // 클릭이 막혀 보이던 회귀를 영구 차단.) capture 단계로 어떤 자식 핸들러보다 먼저 받는다.
   useEffect(() => {
-    const onMentionClick = (e: MouseEvent) => {
+    const onEditorPointerClick = (e: MouseEvent) => {
       if (e.button !== 0) return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
+
+      const anchor = target.closest<HTMLAnchorElement>("a[href]");
+      if (anchor?.closest(".ProseMirror")) {
+        if (!anchor.closest("[data-bookmark-block], [data-page-link], [data-button-block]")) {
+          const href = anchor.getAttribute("href") ?? "";
+          const isExternal =
+            /^https?:\/\//i.test(href) || /^mailto:/i.test(href) || /^tel:/i.test(href);
+          if (isExternal && !parseQuickNoteLink(href)) {
+            e.preventDefault();
+            e.stopPropagation();
+            window.open(href, "_blank", "noopener,noreferrer");
+            return;
+          }
+        }
+      }
+
       const el = target.closest<HTMLElement>("[data-type='mention'][data-id]");
       if (!el) return;
       const rawId = el.getAttribute("data-id");
@@ -199,8 +215,8 @@ function App() {
         openPageInCurrentTab(id);
       }
     };
-    document.addEventListener("click", onMentionClick, true);
-    return () => document.removeEventListener("click", onMentionClick, true);
+    document.addEventListener("click", onEditorPointerClick, true);
+    return () => document.removeEventListener("click", onEditorPointerClick, true);
   }, []);
 
   useEffect(() => {

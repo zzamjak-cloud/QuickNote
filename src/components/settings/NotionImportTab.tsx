@@ -35,6 +35,8 @@ import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useUiStore } from "../../store/uiStore";
+import { hydrateStructuralChildPageMentions } from "../../lib/notionImport/hydrateChildPageMentions";
+import { resolveNotionPageHref } from "../../lib/notionImport/resolveNotionPageHref";
 import {
   extractNotionInlineComments,
   ensureCommentAnchorBlockIds,
@@ -350,33 +352,24 @@ export function NotionImportTab() {
         return pageId;
       };
 
+      const notionPathNormalizer = {
+        normalizePath: normalizeNotionPath,
+        normalizeSegment: normalizeNotionSegment,
+        pathDirname,
+        pathBasename,
+      };
+
       const resolveImportedPageMention = (
         href: string,
         sourcePath: string,
         ownerPageId: string,
       ): { pageId: string; label?: string } | null => {
-        const hrefNoHash = href.split("#")[0]?.split("?")[0] ?? href;
-        const normalizedHref = decodeURIComponent(hrefNoHash).replace(/^\.\/+/, "");
-        const resolvedPath = href.startsWith(".") || href.startsWith("/")
-          ? (() => {
-            const baseParts = sourcePath.split("/").slice(0, -1);
-            for (const part of normalizedHref.split("/")) {
-              if (!part || part === ".") continue;
-              if (part === "..") baseParts.pop();
-              else baseParts.push(part);
-            }
-            return baseParts.join("/");
-          })()
-          : normalizedHref;
-        const normalizedResolvedPath = normalizeNotionPath(resolvedPath);
-        const linked = Array.from(pageByPath.values()).find((p) => {
-          const normalizedCandidatePath = normalizeNotionPath(p.path);
-          if (normalizedCandidatePath === normalizedResolvedPath) return true;
-          if (normalizedCandidatePath.endsWith(`/${normalizedResolvedPath}`)) return true;
-          const candidateBase = normalizeNotionSegment(pathBasename(p.path));
-          const targetBase = normalizeNotionSegment(pathBasename(resolvedPath));
-          return candidateBase.length > 0 && candidateBase === targetBase;
-        });
+        const linked = resolveNotionPageHref(
+          href,
+          sourcePath,
+          Array.from(pageByPath.values()),
+          notionPathNormalizer,
+        );
         if (!linked) return null;
         const linkedPageId = ensurePageIdForSource(linked.path, ownerPageId);
         if (!linkedPageId) return null;
@@ -711,6 +704,25 @@ export function NotionImportTab() {
         // 처리 완료 후 컨텐츠 해제 → 다음 페이지 전 GC 대상
         contentByPath.delete(path);
         diagImportMem(`[${idx + 1}/${subtreePaths.length}] 페이지 완료`);
+      }
+
+      // link-to-page href 해석 실패로 제목 텍스트만 남은 문단 → 구조적 자식 페이지 멘션으로 보강
+      {
+        const updateDocForHydrate = usePageStore.getState().updateDoc;
+        for (const [sourcePath, pageId] of importedPageIdByPath.entries()) {
+          const childEntries = Array.from(importedPageIdByPath.entries()).filter(
+            ([childPath]) => findParentSourcePath(childPath) === sourcePath,
+          );
+          if (childEntries.length === 0) continue;
+          const children = childEntries.map(([childPath, childPageId]) => ({
+            pageId: childPageId,
+            title: pageByPath.get(childPath)?.title ?? "",
+          }));
+          const page = usePageStore.getState().pages[pageId];
+          if (!page?.doc) continue;
+          const { doc: hydrated, changed } = hydrateStructuralChildPageMentions(page.doc, children);
+          if (changed) updateDocForHydrate(pageId, hydrated);
+        }
       }
 
       // 임포트 끝에서 멘션 id remap — standalone → DB 행 병합 시 옛 pageId 를 가리키던 멘션 노드들을

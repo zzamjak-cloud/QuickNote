@@ -75,7 +75,7 @@ TipTap 에디터에 등록할 extension 배열을 생성하는 훅. `lowlightApi
 |-----------|------|
 | `NodeRange` | 노드 범위 선택 |
 | `Placeholder` | 빈 에디터 안내 문구 (`/ 를 입력해 명령 보기...`) |
-| `Link` | 링크 (openOnClick: false) |
+| `Link` | 링크 (`openOnClick: false` — **클릭 열기는 `App.tsx` `onEditorPointerClick`**, [navigation/overview.md](../navigation/overview.md)) |
 | `TaskList` / `TaskItem` | 체크리스트 |
 | `Table` / `TableRow` / `TableHeader` / `TableCell` | 테이블 (resizable) |
 | `TextStyle` / `Color` / `Highlight` | 텍스트 스타일·색상·강조 |
@@ -95,3 +95,4 @@ TipTap 에디터에 등록할 extension 배열을 생성하는 훅. `lowlightApi
 - **`UniqueID.filterTransaction`**: 짧은 텍스트 입력마다 `appendTransaction`을 생략해 YouTube·임베드 노드의 불필요한 ID 갱신을 방지한다.
 - **`isFullPageDatabase`**: 전체 페이지 DB 모드에서는 `UniqueID.updateDocument: false`로 설정한다.
 - **ImageBlock.allowBase64: false**: 대용량 data URL을 문서 JSON에 저장하지 않는다. 이미지는 `quicknote-image://` 스킴으로 관리한다.
+- **`Link.openOnClick: false`**: TipTap 기본 링크 navigation 은 끈다. `.ProseMirror` 내 `http(s)://`·`mailto:`·`tel:` 인라인 링크 클릭은 **`App.tsx` capture 리스너**(`onEditorPointerClick`)가 `window.open` 으로 처리한다. 북마크·페이지링크·버튼 블록은 NodeView 자체 핸들러.

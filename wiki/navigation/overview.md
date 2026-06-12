@@ -12,14 +12,26 @@
 | 인라인 페이지 링크 | `pageLink.tsx` (`PageLink`) | 회색/아웃라인 버튼 |
 | 블록 링크 | `buttonBlock.tsx` (`ButtonBlock`) | "블럭 링크 복사" → 붙여넣기 시 `buttonBlock` 으로 삽입(`useEditorProps.ts`). 내부 `quicknote` 링크는 `parseQuickNoteLink` 로 판별 |
 
-### 멘션 클릭의 단일 권위 = `App.tsx onMentionClick`
-- `document.addEventListener("click", onMentionClick, true)` — **capture 단계 + `stopPropagation`** 이라 PM 의 atom NodeSelection 경합이나 특정 컨텍스트(DB 행 페이지 등)에서 클릭이 삼켜지던 회귀와 무관하게 항상 멘션 클릭을 받는다.
+| 인라인 **외부** 웹 링크 | TipTap `Link` mark → `<a href>` | `openOnClick: false` — 클릭 열기는 **`App.tsx` capture** ([아래](#에디터-외부-웹-링크-클릭)) |
+| 북마크 블록 | `bookmarkBlock.tsx` | `onClick` → `window.open` (에디터 capture와 별도) |
+
+### 멘션·내부 링크 클릭의 단일 권위 = `App.tsx onEditorPointerClick`
+- `document.addEventListener("click", onEditorPointerClick, true)` — **capture 단계**. 멘션 클릭과 **같은 리스너**에서 `.ProseMirror` 내 외부 `<a>` 도 처리한다.
 - 멤버(`m:`)·DB(`d:`) 멘션은 early-return → PM 핸들러(프로필 팝업·안내 토스트)에 위임.
 - 페이지 멘션: `Ctrl/Cmd` → `openPageInNewTab`, 사이드 피크 내부 → `peekNavigate`, 그 외 → `openPageInCurrentTab`.
 - `mention.tsx` 의 PM 플러그인은 **mousedown 에서 멤버 팝업·DB 토스트만** 처리하고, 페이지 멘션은 atom NodeSelection 만 막고 이동하지 않는다(이동은 App.tsx 담당).
 
 > **CRITICAL 회귀 주의 — Ctrl+클릭 새 탭 2개**
 > PM mousedown 과 App.tsx click 양쪽에서 페이지 이동을 실행하면, `Ctrl/Cmd+클릭` 시 `openPageInNewTab` 이 두 번 불려 **새 탭이 2개** 열린다. 페이지 이동은 반드시 App.tsx 한 곳에서만 한다.
+
+### 에디터 외부 웹 링크 클릭
+
+TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 의도치 않은 navigation 방지. 대신:
+
+- `.ProseMirror a[href]` 클릭 시 `onEditorPointerClick` 이 **`http(s)://`·`mailto:`·`tel:`** 이면 `preventDefault` + `window.open(..., "_blank", "noopener,noreferrer")`.
+- **제외**: `[data-bookmark-block]`, `[data-page-link]`, `[data-button-block]` — 각 NodeView/블록이 자체 클릭 처리.
+- **제외**: `parseQuickNoteLink(href)` 가 잡히는 내부 quicknote URL — 페이지/블록 링크 흐름에 위임.
+- CSS `.ProseMirror a[href] { cursor: pointer }`(`index.css`)만 있고 클릭이 안 되면 **App.tsx 핸들러 누락**을 의심한다(커서만 pointer 인 전형적 증상).
 
 ---
 
@@ -99,7 +111,7 @@
 | `src/lib/navigation/internalNavigation.ts` | `openPageInCurrentTab`/`openPageInNewTab`, `shouldOpenInternalLinkInNewTab`, `pushPageBrowserHistory` |
 | `src/lib/navigation/quicknoteLinks.ts` | `buildQuickNotePageUrl`/`parseQuickNoteLink`(딥링크 `?page&blockId`/`quicknote://`) |
 | `src/store/navigationHistoryStore.ts` | 인앱 백스택(`backStack`, `lastTargetPageId`, `pushBack`/`popBack`/`jumpTo`) |
-| `src/App.tsx` | `onMentionClick`(멘션 클릭 권위), `applyLocationLink`(popstate 복원) |
+| `src/App.tsx` | `onEditorPointerClick`(멘션·에디터 외부 링크 클릭), `applyLocationLink`(popstate 복원) |
 | `src/components/layout/TopBar.tsx` | "이전 페이지" 버튼·브레드크럼·클리어 가드 |
 | `src/components/layout/TabBar.tsx` | 탭 가운데클릭 닫기 |
 | `src/lib/tiptapExtensions/mention.tsx` | **모든 멘션(member/page/database) 단일 노드** `MentionExtension`. 페이지 멘션 렌더 + PM mousedown(멤버/DB 만) |
