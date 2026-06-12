@@ -26,6 +26,7 @@ export type DatabaseSnapshot = DatabaseBundle;
 
 export type PageHistoryKind =
   | "page.create"
+  | "page.session"
   | "page.rename"
   | "page.icon"
   | "page.titleColor"

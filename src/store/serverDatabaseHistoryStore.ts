@@ -36,6 +36,7 @@ type Actions = {
 
 function kindLabel(kind: string): string {
   if (kind === "database.create") return "DB 생성";
+  if (kind === "database.session") return "편집 세션";
   if (kind === "database.restoreVersion") return "DB 버전 복구";
   if (kind === "database.delete") return "DB 삭제";
   if (kind === "database.update") return "DB 수정";
@@ -44,13 +45,18 @@ function kindLabel(kind: string): string {
 
 function toTimelineEntry(entry: GqlDatabaseHistoryEntry): HistoryTimelineEntry {
   const ts = Date.parse(entry.createdAt) || Date.now();
+  // 세션 엔트리는 createdAt=세션 시작, lastActivityAt=마지막 편집 — 표시 시각은 마지막 활동 기준.
+  const endTs = (entry.lastActivityAt && Date.parse(entry.lastActivityAt)) || ts;
   return {
     id: entry.historyId,
-    bucket: entry.kind === "database.update" ? "structure" : "content",
+    bucket:
+      entry.kind === "database.update" || entry.kind === "database.session"
+        ? "structure"
+        : "content",
     representativeKind: entry.kind as DbHistoryKind,
     eventIds: [entry.historyId],
     startTs: ts,
-    endTs: ts,
+    endTs,
     count: 1,
     label: kindLabel(entry.kind),
     lastEditedByMemberId: entry.createdByMemberId ?? undefined,

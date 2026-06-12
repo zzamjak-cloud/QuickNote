@@ -166,6 +166,13 @@ export function buildDatabaseHistorySnapshotMap(
   let snapshot: DatabaseHistorySnapshot | null = null;
   for (const entry of sortHistoryAsc(entries)) {
     if (entry.workspaceId !== workspaceId) continue;
+    // 세션 엔트리는 post-state 전체 스냅샷을 직접 보유 — patch 재생도 localStorage 캐시도 불필요.
+    const direct = parseAwsJson(entry.snapshot);
+    if (isRecord(direct) && typeof direct.id === "string") {
+      snapshot = direct as DatabaseHistorySnapshot;
+      out.set(entry.historyId, snapshot);
+      continue;
+    }
     const key = cacheKey(workspaceId, databaseId, entry.historyId);
     const cached = getCachedSnapshot(key);
     if (cached) {

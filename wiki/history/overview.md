@@ -3,11 +3,35 @@
 페이지·데이터베이스 버전 히스토리는 **서버 권위(server-authoritative)** 로 일원화돼 있다.
 로컬 `historyStore` 는 거의 은퇴 상태(아래 "로컬 historyStore" 참고).
 
+## 세션 머지 모델 (2026-06-12 개편)
+
+upsert 마다 1버전이 아니라 **편집 세션 1건 = 버전 1건**(`page.session`/`database.session`).
+협업(Yjs) materialize 가 1.8s 마다 upsert 를 보내도 버전이 폭증하지 않는다.
+
+- **세션 경계**: idle **15분** 또는 세션 최대 **60분**(`historySession.ts` `SESSION_IDLE_MS`/`SESSION_MAX_MS`).
+  별도 스케줄러 없음 — 경계 밖 첫 upsert 가 새 엔트리를 연다. 열린 세션은 같은 historyId 를 in-place 갱신.
+- **no-op 필터** (`diffMeaningfulPageUnits`/`diffMeaningfulDatabaseUnits`): 빈 블럭 생성·삭제,
+  동일 내용 블럭의 위치 이동(밀림), `order`·`blockComments`(읽음 시각)·`panelState`·`updatedAt` 변화는
+  버전을 만들지 않는다. 블럭 매칭은 TipTap uniqueId(`attrs.id`), id 없으면 내용 시그니처 폴백.
+- **엔트리 필드**: `snapshot`(post-state 전체 — patch 재생 불필요), `changedUnits`("block:<id>"|"cell:<colId>"|
+  "column:<id>"|"preset:<id>"|"meta:*"), `contributors`(세션 참여자 누적), `sessionStartedAt`/`lastActivityAt`.
+  `patch` 는 직전 엔트리 post-state 기준 누적 합성으로 계속 기록(레거시 patch 체인 워커 호환).
+- **최종 편집자**: 세션의 `createdByMemberId/Name` = 마지막 upsert caller(= Yjs `lastEditedBy` 와 동일 소스).
+  동시 머지 race 는 LWW(본문은 CRDT/서버 권위로 수렴, 손실은 귀속 메타뿐).
+- **UI**: 본문 diff 는 `BlockDiffView`(generateHTML 정적 렌더, 실제 블럭 모습 + 추가=초록/삭제=빨강/변경=노랑),
+  DB 구조는 `DatabaseStructureDiffView`(컬럼 칩 스트립). 목록 요약은 `summarizeChangedUnits`.
+  진행 중 세션(15분 내 활동)은 "편집 중" 배지.
+- **⚠ 배포 순서**: `snapshot` 등 신규 필드는 클라 쿼리가 select 한다 — **CDK(스키마) 선배포 후 프론트**
+  (PageMeta FieldUndefined 사고와 동일 규칙).
+- 구(patch/anchor) 엔트리는 읽기 전용 레거시로 공존 — 재구성 경로가 snapshot 우선, 없으면 anchor+patch 폴백.
+- Y.Snapshot/룸 update 로그 기반 히스토리는 **채택하지 않음**: gc:false 비대화, rt-ydoc-updates 50건 압축,
+  epoch bump 시 룸 세대 폐기(히스토리 증발) 때문. 버전 영속은 항상 이 서버 테이블이다.
+
 ## 아키텍처 (서버 권위)
 
 서버(AppSync + v5-resolvers Lambda + DynamoDB)가 유일한 진실이다. 클라이언트는 조회·복원만 한다.
 
-- **기록**: `upsertPage`/`upsertDatabase` 시 서버가 diff patch + 주기 anchor 를 누적 기록.
+- **기록**: `upsertPage`/`upsertDatabase` 시 서버가 세션 머지 기록(위 절). 신규 엔트리는 전체 `snapshot` 보유.
   - 페이지 삭제(`softDeletePage`)도 `page.delete` 히스토리를 남긴다(아래 주의 참고).
 - **저장 테이블** (`infra/lib/sync-stack.ts`)
   - `quicknote-page-history`: PK `pageId`, SK `historyId`

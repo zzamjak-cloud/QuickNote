@@ -60,9 +60,14 @@ import {
   syncLCDatabaseRowMemberIndexForPage,
 } from "./lcDatabaseRowMemberIndex";
 import { reconcileTemplateAutomationSchedules } from "./templateAutomationScheduler";
-
-const PAGE_HISTORY_ANCHOR_INTERVAL = 20;
-const DATABASE_HISTORY_ANCHOR_INTERVAL = 20;
+import {
+  SESSION_PATCH_COMPACT_LIMIT,
+  canMergeIntoSession,
+  compactPatchOps,
+  diffMeaningfulDatabaseUnits,
+  diffMeaningfulPageUnits,
+  mergeContributors,
+} from "./historySession";
 
 type Connection<T> = { items: T[]; nextToken?: string | null };
 
@@ -390,6 +395,34 @@ async function listDatabaseHistoryAsc(args: {
   return out;
 }
 
+/** 히스토리 최신 엔트리 1건 조회 (세션 머지 판정용 — 전량 스캔 금지). */
+async function latestHistoryEntry(args: {
+  doc: DynamoDBDocumentClient;
+  tableName: string;
+  keyName: "pageId" | "databaseId";
+  keyValue: string;
+}): Promise<Record<string, unknown> | null> {
+  const res = await args.doc.send(
+    new QueryCommand({
+      TableName: args.tableName,
+      KeyConditionExpression: "#k = :v",
+      ExpressionAttributeNames: { "#k": args.keyName },
+      ExpressionAttributeValues: { ":v": args.keyValue },
+      ScanIndexForward: false,
+      Limit: 1,
+    }),
+  );
+  return ((res.Items ?? [])[0] as Record<string, unknown> | undefined) ?? null;
+}
+
+/**
+ * 세션 머지 버전 기록(페이지).
+ * - 일반 편집(page.update)은 의미 변화(diffMeaningfulPageUnits)가 없으면 기록하지 않는다
+ *   (빈 블럭 생성/삭제, 블럭 밀림(order), blockComments 읽음 시각 등은 버전 사유가 아님).
+ * - 직전 엔트리가 열린 세션(idle 15분·최대 60분 내)이면 새 엔트리 대신 그 엔트리를 갱신한다.
+ *   동시 머지 race 는 LWW 로 수용한다(본문은 CRDT/서버 권위로 수렴, 손실은 귀속 메타뿐).
+ * - patch 는 직전 엔트리 post-state(snapshot) 기준 누적 합성 — 레거시 patch 체인 워커와 호환.
+ */
 async function recordPageHistory(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -408,32 +441,100 @@ async function recordPageHistory(args: {
     typeof args.after.databaseId === "string" && args.after.databaseId
       ? args.after.databaseId
       : null;
-  const history = await listPageHistoryAsc({ doc: args.doc, tableName, pageId });
+  const latest = await latestHistoryEntry({
+    doc: args.doc,
+    tableName,
+    keyName: "pageId",
+    keyValue: pageId,
+  });
   const afterSnap = normalizePageSnapshot(args.after);
-  const isFirstEver = history.length === 0;
-  // 히스토리가 0건인 페이지는 변경 유무와 무관하게 최초 1건을 베이스라인으로 기록한다.
-  // (기능 도입 이전에 생성됐거나, 첫 upsert 가 기록 경로를 못 탔던 페이지의 버전 보정.)
-  const patch = isFirstEver
-    ? diffPageSnapshot(null, afterSnap)
-    : diffPageSnapshot(args.before ? normalizePageSnapshot(args.before) : null, afterSnap);
-  if (patch.length === 0) return;
-  const createdAt = new Date().toISOString();
-  const shouldWriteAnchor = isFirstEver || history.length % PAGE_HISTORY_ANCHOR_INTERVAL === 0;
-  // 최초 베이스라인은 "페이지 생성"으로 표기하고 현재 전체 스냅샷을 anchor 로 남긴다.
-  const kind = isFirstEver ? "page.create" : args.kind;
-  const anchorSnap = isFirstEver ? afterSnap : normalizePageSnapshot(args.before ?? args.after);
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const caller = { memberId: args.caller.memberId, name: args.caller.name };
+  if (!latest) {
+    // 히스토리가 0건인 페이지는 변경 유무와 무관하게 최초 1건을 베이스라인으로 기록한다.
+    // (기능 도입 이전에 생성됐거나, 첫 upsert 가 기록 경로를 못 탔던 페이지의 버전 보정.)
+    await args.doc.send(
+      new PutCommand({
+        TableName: tableName,
+        Item: {
+          pageId,
+          historyId: `${nowIso}#${uuid()}`,
+          workspaceId,
+          ...(rowDatabaseId ? { databaseId: rowDatabaseId } : {}),
+          kind: "page.create",
+          patch: [{ op: "set", path: [], value: afterSnap }],
+          anchor: afterSnap,
+          snapshot: afterSnap,
+          sessionStartedAt: nowIso,
+          lastActivityAt: nowIso,
+          contributors: mergeContributors(null, caller),
+          createdAt: nowIso,
+          createdByMemberId: args.caller.memberId,
+          createdByName: args.caller.name,
+        },
+      }),
+    );
+    return;
+  }
+  const beforeSnap = args.before ? normalizePageSnapshot(args.before) : null;
+  const changedUnits = diffMeaningfulPageUnits(beforeSnap, afterSnap);
+  if (args.kind === "page.update" && changedUnits.length === 0) return;
+  // 직전 엔트리 post-state. 레거시 엔트리(snapshot 없음)는 upsert 시점 before 로 근사한다
+  // (의미 무시 필드(order 등)만 스킵돼 미세 드리프트 가능 — 무해).
+  const latestSnapshot = isPlainObject(parseJsonLike(latest.snapshot))
+    ? (parseJsonLike(latest.snapshot) as Record<string, unknown>)
+    : null;
+  const patchBase = latestSnapshot ?? beforeSnap;
+  if (
+    args.kind === "page.update" &&
+    canMergeIntoSession({ latest, sessionKind: "page.session", workspaceId, now: nowMs })
+  ) {
+    const priorOps = Array.isArray(latest.patch) ? (latest.patch as PagePatchOp[]) : [];
+    let patch = compactPatchOps([...priorOps, ...diffPageSnapshot(patchBase, afterSnap)]);
+    if (patch.length > SESSION_PATCH_COMPACT_LIMIT) {
+      patch = [{ op: "set", path: [], value: afterSnap }];
+    }
+    const priorUnits = Array.isArray(latest.changedUnits)
+      ? (latest.changedUnits as string[])
+      : [];
+    await args.doc.send(
+      new PutCommand({
+        TableName: tableName,
+        Item: {
+          ...latest,
+          patch,
+          snapshot: afterSnap,
+          changedUnits: [...new Set([...priorUnits, ...changedUnits])].sort(),
+          lastActivityAt: nowIso,
+          contributors: mergeContributors(latest.contributors, caller),
+          // 세션 최종 편집자(= Yjs lastEditedBy 와 동일 소스인 upsert caller)로 갱신
+          createdByMemberId: args.caller.memberId,
+          createdByName: args.caller.name,
+        },
+      }),
+    );
+    return;
+  }
+  const patch = diffPageSnapshot(patchBase, afterSnap);
+  if (patch.length === 0 && changedUnits.length === 0) return;
+  const kind = args.kind === "page.update" ? "page.session" : args.kind;
   await args.doc.send(
     new PutCommand({
       TableName: tableName,
       Item: {
         pageId,
-        historyId: `${createdAt}#${uuid()}`,
+        historyId: `${nowIso}#${uuid()}`,
         workspaceId,
         ...(rowDatabaseId ? { databaseId: rowDatabaseId } : {}),
         kind,
         patch,
-        ...(shouldWriteAnchor ? { anchor: anchorSnap } : {}),
-        createdAt,
+        snapshot: afterSnap,
+        ...(changedUnits.length > 0 ? { changedUnits } : {}),
+        sessionStartedAt: nowIso,
+        lastActivityAt: nowIso,
+        contributors: mergeContributors(null, caller),
+        createdAt: nowIso,
         createdByMemberId: args.caller.memberId,
         createdByName: args.caller.name,
       },
@@ -480,6 +581,7 @@ async function recordPageDeleteHistory(args: {
   );
 }
 
+/** 세션 머지 버전 기록(DB 구조) — 페이지와 동일 규칙. panelState 등 UI 휘발 상태는 버전 사유가 아니다. */
 async function recordDatabaseHistory(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -494,29 +596,95 @@ async function recordDatabaseHistory(args: {
   const databaseId = typeof args.after.id === "string" ? args.after.id : null;
   const workspaceId = typeof args.after.workspaceId === "string" ? args.after.workspaceId : null;
   if (!databaseId || !workspaceId) return;
-  const history = await listDatabaseHistoryAsc({ doc: args.doc, tableName, databaseId });
+  const latest = await latestHistoryEntry({
+    doc: args.doc,
+    tableName,
+    keyName: "databaseId",
+    keyValue: databaseId,
+  });
   const afterSnap = normalizeDatabaseSnapshot(args.after);
-  const isFirstEver = history.length === 0;
-  const patch = isFirstEver
-    ? diffDatabaseSnapshot(null, afterSnap)
-    : diffDatabaseSnapshot(args.before ? normalizeDatabaseSnapshot(args.before) : null, afterSnap);
-  if (patch.length === 0) return;
-  const createdAt = new Date().toISOString();
-  const shouldWriteAnchor = isFirstEver || history.length % DATABASE_HISTORY_ANCHOR_INTERVAL === 0;
-  const kind = isFirstEver ? "database.create" : args.kind;
-  const anchorSnap = isFirstEver ? afterSnap : normalizeDatabaseSnapshot(args.before ?? args.after);
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const caller = { memberId: args.caller.memberId, name: args.caller.name };
+  if (!latest) {
+    await args.doc.send(
+      new PutCommand({
+        TableName: tableName,
+        Item: {
+          databaseId,
+          historyId: `${nowIso}#${uuid()}`,
+          workspaceId,
+          ownerId,
+          kind: "database.create",
+          patch: [{ op: "set", path: [], value: afterSnap }],
+          anchor: afterSnap,
+          snapshot: afterSnap,
+          sessionStartedAt: nowIso,
+          lastActivityAt: nowIso,
+          contributors: mergeContributors(null, caller),
+          createdAt: nowIso,
+          createdByMemberId: args.caller.memberId,
+          createdByName: args.caller.name,
+        },
+      }),
+    );
+    return;
+  }
+  const beforeSnap = args.before ? normalizeDatabaseSnapshot(args.before) : null;
+  const changedUnits = diffMeaningfulDatabaseUnits(beforeSnap, afterSnap);
+  if (args.kind === "database.update" && changedUnits.length === 0) return;
+  const latestSnapshot = isPlainObject(parseJsonLike(latest.snapshot))
+    ? (parseJsonLike(latest.snapshot) as Record<string, unknown>)
+    : null;
+  const patchBase = latestSnapshot ?? beforeSnap;
+  if (
+    args.kind === "database.update" &&
+    canMergeIntoSession({ latest, sessionKind: "database.session", workspaceId, now: nowMs })
+  ) {
+    const priorOps = Array.isArray(latest.patch) ? (latest.patch as PagePatchOp[]) : [];
+    let patch = compactPatchOps([...priorOps, ...diffDatabaseSnapshot(patchBase, afterSnap)]);
+    if (patch.length > SESSION_PATCH_COMPACT_LIMIT) {
+      patch = [{ op: "set", path: [], value: afterSnap }];
+    }
+    const priorUnits = Array.isArray(latest.changedUnits)
+      ? (latest.changedUnits as string[])
+      : [];
+    await args.doc.send(
+      new PutCommand({
+        TableName: tableName,
+        Item: {
+          ...latest,
+          patch,
+          snapshot: afterSnap,
+          changedUnits: [...new Set([...priorUnits, ...changedUnits])].sort(),
+          lastActivityAt: nowIso,
+          contributors: mergeContributors(latest.contributors, caller),
+          createdByMemberId: args.caller.memberId,
+          createdByName: args.caller.name,
+        },
+      }),
+    );
+    return;
+  }
+  const patch = diffDatabaseSnapshot(patchBase, afterSnap);
+  if (patch.length === 0 && changedUnits.length === 0) return;
+  const kind = args.kind === "database.update" ? "database.session" : args.kind;
   await args.doc.send(
     new PutCommand({
       TableName: tableName,
       Item: {
         databaseId,
-        historyId: `${createdAt}#${uuid()}`,
+        historyId: `${nowIso}#${uuid()}`,
         workspaceId,
         ownerId,
         kind,
         patch,
-        ...(shouldWriteAnchor ? { anchor: anchorSnap } : {}),
-        createdAt,
+        snapshot: afterSnap,
+        ...(changedUnits.length > 0 ? { changedUnits } : {}),
+        sessionStartedAt: nowIso,
+        lastActivityAt: nowIso,
+        contributors: mergeContributors(null, caller),
+        createdAt: nowIso,
         createdByMemberId: args.caller.memberId,
         createdByName: args.caller.name,
       },
@@ -2375,6 +2543,16 @@ export async function restorePageVersion(args: {
   let found = false;
   for (const event of history) {
     if (event.workspaceId !== args.input.workspaceId) continue;
+    // 세션 엔트리는 post-state 전체 스냅샷을 직접 보유 — patch 재생 없이 그대로 사용.
+    const eventSnapshot = parseJsonLike(event.snapshot);
+    if (isPlainObject(eventSnapshot)) {
+      snapshot = cloneJson(eventSnapshot);
+      if (event.historyId === args.input.historyId) {
+        found = true;
+        break;
+      }
+      continue;
+    }
     if (event.anchor && typeof event.anchor === "object") {
       snapshot = cloneJson(event.anchor as Record<string, unknown>);
     }
@@ -2518,6 +2696,16 @@ export async function restoreDatabaseVersion(args: {
   let found = false;
   for (const event of history) {
     if (event.workspaceId !== args.input.workspaceId) continue;
+    // 세션 엔트리는 post-state 전체 스냅샷을 직접 보유 — patch 재생 없이 그대로 사용.
+    const eventSnapshot = parseJsonLike(event.snapshot);
+    if (isPlainObject(eventSnapshot)) {
+      snapshot = cloneJson(eventSnapshot);
+      if (event.historyId === args.input.historyId) {
+        found = true;
+        break;
+      }
+      continue;
+    }
     if (event.anchor && typeof event.anchor === "object") {
       snapshot = cloneJson(event.anchor as Record<string, unknown>);
     }

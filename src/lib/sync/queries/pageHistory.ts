@@ -3,8 +3,11 @@ const PAGE_FIELDS = `
   doc dbCells blockComments createdAt updatedAt deletedAt
 `;
 
+// ⚠ 필드 추가 시 infra/lib/sync/schema.graphql 의 PageHistoryEntry 와 동시 수정 + CDK 선배포
+//   (스키마에 없는 필드 select 는 쿼리 전체 거부 — wiki/sync/architecture.md 정합 사고 참고)
 const PAGE_HISTORY_FIELDS = `
-  pageId historyId workspaceId kind patch anchor createdAt createdByMemberId createdByName
+  pageId historyId workspaceId kind patch anchor snapshot changedUnits contributors
+  sessionStartedAt lastActivityAt createdAt createdByMemberId createdByName
 `;
 
 export const LIST_PAGE_HISTORY = `
@@ -44,6 +47,14 @@ export type GqlPageHistoryEntry = {
   kind: string;
   patch: unknown;
   anchor?: unknown | null;
+  /** 세션 엔트리(kind page.session)의 post-state 전체 스냅샷(AWSJSON) */
+  snapshot?: unknown | null;
+  /** 변경 단위 키 목록(AWSJSON): "block:<id>" | "cell:<colId>" | "meta:*" */
+  changedUnits?: unknown | null;
+  /** 세션 참여 멤버 누적(AWSJSON): [{memberId, name}] */
+  contributors?: unknown | null;
+  sessionStartedAt?: string | null;
+  lastActivityAt?: string | null;
   createdAt: string;
   createdByMemberId?: string | null;
   createdByName?: string | null;

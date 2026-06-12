@@ -572,6 +572,195 @@ describe("page/database handlers", () => {
     expect(historyPut).toBeUndefined();
   });
 
+  it("upsertPage: 빈 블럭 추가와 블럭 밀림만으로는 히스토리를 만들지 않는다", async () => {
+    const tablesWithHistory: Tables = { ...tables, PageHistory: "PH" };
+    const block = (id: string, text: string) => ({
+      type: "paragraph",
+      attrs: { id },
+      content: [{ type: "text", text }],
+    });
+    const existingPage = {
+      id: "p1",
+      workspaceId: "ws-1",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      title: "제목",
+      doc: JSON.stringify({ type: "doc", content: [block("a", "하나"), block("b", "둘")] }),
+      order: "1",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Item: existingPage },
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {},
+      { Items: [{ pageId: "p1", historyId: "h1", workspaceId: "ws-1", kind: "page.create" }] },
+    );
+
+    await upsertPage({
+      doc,
+      tables: tablesWithHistory,
+      caller,
+      input: {
+        ...existingPage,
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        // 빈 블럭이 맨 앞에 끼면서 기존 블럭들이 한 칸씩 밀린 상황
+        doc: JSON.stringify({
+          type: "doc",
+          content: [{ type: "paragraph", attrs: { id: "z" } }, block("a", "하나"), block("b", "둘")],
+        }),
+      },
+    });
+
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const historyPut = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand && command.input.TableName === "PH");
+    expect(historyPut).toBeUndefined();
+  });
+
+  it("upsertPage: 열린 세션(idle 내)이면 새 엔트리 대신 기존 세션 엔트리에 머지한다", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-06-12T00:10:00.000Z"));
+      const tablesWithHistory: Tables = { ...tables, PageHistory: "PH" };
+      const block = (id: string, text: string) => ({
+        type: "paragraph",
+        attrs: { id },
+        content: [{ type: "text", text }],
+      });
+      const beforeDoc = { type: "doc", content: [block("a", "하나")] };
+      const afterDoc = { type: "doc", content: [block("a", "하나 수정")] };
+      const existingPage = {
+        id: "p1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-12T00:09:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "제목",
+        doc: JSON.stringify(beforeDoc),
+        order: "1",
+        createdByMemberId: "m1",
+      };
+      const openSession = {
+        pageId: "p1",
+        historyId: "2026-06-12T00:05:00.000Z#u1",
+        workspaceId: "ws-1",
+        kind: "page.session",
+        patch: [{ op: "set", path: ["title"], value: "제목" }],
+        snapshot: { id: "p1", workspaceId: "ws-1", title: "제목", doc: JSON.stringify(beforeDoc) },
+        changedUnits: ["meta:title"],
+        contributors: [{ memberId: "m0", name: "M0" }],
+        sessionStartedAt: "2026-06-12T00:05:00.000Z",
+        lastActivityAt: "2026-06-12T00:09:00.000Z",
+        createdAt: "2026-06-12T00:05:00.000Z",
+        createdByMemberId: "m0",
+        createdByName: "M0",
+      };
+      const doc = mockDoc(
+        { Item: existingPage },
+        { Items: [] },
+        { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+        {},
+        { Items: [openSession] },
+      );
+
+      await upsertPage({
+        doc,
+        tables: tablesWithHistory,
+        caller,
+        input: { ...existingPage, updatedAt: "2026-06-12T00:10:00.000Z", doc: JSON.stringify(afterDoc) },
+      });
+
+      const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+      const historyPut = sendMock.mock.calls
+        .map((call) => call[0])
+        .find((command) => command instanceof PutCommand && command.input.TableName === "PH") as
+        | PutCommand
+        | undefined;
+      const item = historyPut?.input.Item as Record<string, unknown>;
+      // 같은 historyId 갱신(머지) + 최종 편집자/변경 단위/스냅샷 갱신
+      expect(item.historyId).toBe(openSession.historyId);
+      expect(item.kind).toBe("page.session");
+      expect(item.lastActivityAt).toBe("2026-06-12T00:10:00.000Z");
+      expect(item.createdByMemberId).toBe("m1");
+      expect(item.changedUnits).toEqual(["block:a", "meta:title"]);
+      expect(item.contributors).toEqual([
+        { memberId: "m0", name: "M0" },
+        { memberId: "m1", name: "M1" },
+      ]);
+      expect((item.snapshot as Record<string, unknown>).doc).toBe(JSON.stringify(afterDoc));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("upsertPage: idle 경과 후 편집은 새 세션 엔트리를 만든다", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-06-12T01:00:00.000Z"));
+      const tablesWithHistory: Tables = { ...tables, PageHistory: "PH" };
+      const block = (id: string, text: string) => ({
+        type: "paragraph",
+        attrs: { id },
+        content: [{ type: "text", text }],
+      });
+      const beforeDoc = { type: "doc", content: [block("a", "하나")] };
+      const afterDoc = { type: "doc", content: [block("a", "둘")] };
+      const existingPage = {
+        id: "p1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-12T00:09:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "제목",
+        doc: JSON.stringify(beforeDoc),
+        order: "1",
+        createdByMemberId: "m1",
+      };
+      const sealedSession = {
+        pageId: "p1",
+        historyId: "2026-06-12T00:05:00.000Z#u1",
+        workspaceId: "ws-1",
+        kind: "page.session",
+        patch: [],
+        snapshot: { id: "p1", workspaceId: "ws-1", title: "제목", doc: JSON.stringify(beforeDoc) },
+        sessionStartedAt: "2026-06-12T00:05:00.000Z",
+        lastActivityAt: "2026-06-12T00:09:00.000Z",
+        createdAt: "2026-06-12T00:05:00.000Z",
+      };
+      const doc = mockDoc(
+        { Item: existingPage },
+        { Items: [] },
+        { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+        {},
+        { Items: [sealedSession] },
+      );
+
+      await upsertPage({
+        doc,
+        tables: tablesWithHistory,
+        caller,
+        input: { ...existingPage, updatedAt: "2026-06-12T01:00:00.000Z", doc: JSON.stringify(afterDoc) },
+      });
+
+      const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+      const historyPut = sendMock.mock.calls
+        .map((call) => call[0])
+        .find((command) => command instanceof PutCommand && command.input.TableName === "PH") as
+        | PutCommand
+        | undefined;
+      const item = historyPut?.input.Item as Record<string, unknown>;
+      expect(item.historyId).not.toBe(sealedSession.historyId);
+      expect(item.kind).toBe("page.session");
+      expect(item.sessionStartedAt).toBe("2026-06-12T01:00:00.000Z");
+      expect(item.changedUnits).toEqual(["block:a"]);
+      // patch 는 직전 세션 post-state(snapshot) 기준으로 계산된다
+      expect(Array.isArray(item.patch)).toBe(true);
+      expect((item.patch as Array<{ path: unknown[] }>).some((op) => op.path[0] === "doc")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("upsertPage: coverImage 가 너무 크면 거부", async () => {
     const doc = mockDoc(
       { Item: undefined }, // blockComments 키 없을 때 선행 Get
