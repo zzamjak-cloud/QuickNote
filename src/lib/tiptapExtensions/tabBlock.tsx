@@ -169,6 +169,8 @@ const TabBlockView = memo(function TabBlockView({
   const placement = safePlacement(node.attrs.placement);
   const [menuOpen, setMenuOpen] = useState(false);
   const [tabMenuIndex, setTabMenuIndex] = useState<number | null>(null);
+  // 탭 삭제 2단계 확인("삭제" → "삭제 확인") — window.confirm 대신 퀵노트 공통 패턴
+  const [deleteArmed, setDeleteArmed] = useState(false);
   const [iconPickerIndex, setIconPickerIndex] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [tabMenuPosition, setTabMenuPosition] = useState({ top: 0, left: 0 });
@@ -497,6 +499,7 @@ const TabBlockView = memo(function TabBlockView({
     );
     setMenuOpen(false);
     setIconPickerIndex(null);
+    setDeleteArmed(false);
     setTabMenuIndex((current) => (current === index ? null : index));
   };
 
@@ -543,10 +546,7 @@ const TabBlockView = memo(function TabBlockView({
       setTabMenuIndex(null);
       return;
     }
-    const ok = window.confirm(
-      "탭을 정말로 삭제하시겠습니까?\n탭의 컨텐츠 내용도 모두 함께 삭제됩니다.",
-    );
-    if (!ok || typeof getPos !== "function") return;
+    if (typeof getPos !== "function") return;
     const panelPos = panelPosAt(index);
     const panel = node.child(index);
     const blockPos = getPos();
@@ -671,11 +671,23 @@ const TabBlockView = memo(function TabBlockView({
                 </button>
                 <button
                   type="button"
-                  onClick={() => deleteTab(tabMenuIndex)}
-                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40"
+                  onClick={() => {
+                    if (!deleteArmed) {
+                      setDeleteArmed(true);
+                      return;
+                    }
+                    setDeleteArmed(false);
+                    deleteTab(tabMenuIndex);
+                  }}
+                  className={[
+                    "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm",
+                    deleteArmed
+                      ? "bg-red-50 font-medium text-red-700 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-200 dark:hover:bg-red-950/60"
+                      : "text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/40",
+                  ].join(" ")}
                 >
                   <Trash2 size={14} className="shrink-0" />
-                  삭제
+                  {deleteArmed ? "삭제 확인" : "삭제"}
                 </button>
               </div>,
               portalRoot,
