@@ -35,10 +35,10 @@ function BlockPane({
 }) {
   const toneClass =
     tone === "before"
-      ? "border-red-200 bg-red-50/60 dark:border-red-900/40 dark:bg-red-950/20"
-      : "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/40 dark:bg-emerald-950/20";
+      ? "bg-red-50/70 dark:bg-red-950/25"
+      : "bg-emerald-50/70 dark:bg-emerald-950/25";
   return (
-    <div className={`min-w-0 rounded border p-2 ${toneClass}`}>
+    <div className={`min-w-0 rounded px-2 py-1 ${toneClass}`}>
       {html ? (
         <div
           className="ProseMirror pointer-events-none !min-h-0 !p-0 text-sm"
@@ -88,34 +88,13 @@ export function BlockDiffView({ beforeDoc, afterDoc }: Props) {
   if (cards.length === 0) return null;
   const visible = cards.slice(0, MAX_CARDS);
 
+  // 라벨·배지·카드 박스 없이 변경 블럭 내용 + 컬러만 — 색(빨강=이전/삭제, 초록=이후/추가)으로 구분한다.
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {visible.map((card) => (
-        <div
-          key={`${card.kind}:${card.id}`}
-          className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
-              본문 블럭
-            </span>
-            <span
-              className={[
-                "shrink-0 rounded px-1.5 py-0.5 text-xs",
-                card.kind === "added"
-                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                  : card.kind === "removed"
-                    ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                    : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-              ].join(" ")}
-            >
-              {card.kind === "added" ? "추가" : card.kind === "removed" ? "삭제" : "변경"}
-            </span>
-          </div>
-          <div className="space-y-2">
-            {card.before ? <BlockPane html={card.beforeHtml} node={card.before} tone="before" /> : null}
-            {card.after ? <BlockPane html={card.afterHtml} node={card.after} tone="after" /> : null}
-          </div>
+        <div key={`${card.kind}:${card.id}`} className="space-y-1">
+          {card.before ? <BlockPane html={card.beforeHtml} node={card.before} tone="before" /> : null}
+          {card.after ? <BlockPane html={card.afterHtml} node={card.after} tone="after" /> : null}
         </div>
       ))}
       {cards.length > MAX_CARDS ? (
