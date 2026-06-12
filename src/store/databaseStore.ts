@@ -69,6 +69,28 @@ function now(): number {
   return Date.now();
 }
 
+/** 본문이 비었는지(없거나 단일 빈 문단) 판별 — 템플릿 본문 복사 여부 결정에 쓴다. */
+function templateDocHasContent(doc: unknown): boolean {
+  if (!doc || typeof doc !== "object") return false;
+  const d = doc as {
+    type?: string;
+    content?: Array<{ type?: string; content?: unknown[] }>;
+  };
+  if (d.type !== "doc" || !Array.isArray(d.content) || d.content.length === 0) {
+    return false;
+  }
+  if (d.content.length === 1) {
+    const only = d.content[0];
+    if (
+      only?.type === "paragraph" &&
+      (!Array.isArray(only.content) || only.content.length === 0)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 type DatabaseStoreState = {
   version: number;
   databases: DbMap;
@@ -1265,7 +1287,12 @@ export const useDatabaseStore = create<DatabaseStore>()(
         if (def != null) defaults[col.id] = def;
       }
       const cells = { ...defaults, ...templateCells };
-      if (Object.keys(cells).length > 0) {
+      // 템플릿 페이지 본문(doc)도 새 행에 복제한다. 셀만 복사하고 본문을 빠뜨리면
+      // 템플릿으로 만든 페이지가 빈 본문으로 생성된다(서버 자동화 경로는 본문 복사함).
+      const templateDoc = templateDocHasContent(templatePage?.doc)
+        ? structuredClone(templatePage!.doc)
+        : null;
+      if (Object.keys(cells).length > 0 || templateDoc) {
         const t = Date.now();
         usePageStore.setState((s) => {
           const page = s.pages[pageId];
@@ -1276,6 +1303,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
               [pageId]: {
                 ...page,
                 dbCells: { ...(page.dbCells ?? {}), ...cells },
+                ...(templateDoc ? { doc: templateDoc } : {}),
                 updatedAt: t,
               },
             },
@@ -1298,6 +1326,10 @@ export const useDatabaseStore = create<DatabaseStore>()(
       });
       const bundleAfter = get().databases[databaseId];
       if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
+      // 행 페이지 자체(주입된 doc·dbCells 포함)를 최종 상태로 재업서트한다.
+      // createPage 의 지연 upsert 는 빈 본문 스냅샷을 캡처하므로 누락된다(addRow 동일 패턴).
+      const newPage = usePageStore.getState().pages[pageId];
+      if (newPage) enqueueUpsertPageRaw(newPage);
       return pageId;
     },
 
