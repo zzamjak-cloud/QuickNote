@@ -62,3 +62,37 @@ LC 스케줄러(일정 캘린더)의 일정 데이터를 관리하는 스토어.
 
 - `src/components/scheduler/LCSchedulerModal.tsx` — 모달 진입 시 `fetchSchedules` 호출(useEffect). 작업 탭: `ScheduleGrid`(연)/`ScheduleRangeView`(주·월). 마일스톤/피처 탭: `SchedulerDatabaseTimeline`.
 - 작업 탭 그리드는 `schedulerStore.schedules` + `useVisibleMembers()`(멤버 행)를 읽는다.
+
+## LC 스케줄러 range index 계약
+
+LC 스케줄러 작업 탭의 source of truth는 작업 DB page다. `Schedules` DynamoDB 테이블은 빠른 range 조회를 위한 read index일 뿐이며, 타임라인에서 수정, 삭제, 드래그 가능한 작업 카드로 투영하려면 반드시 작업 DB page와 연결되어야 한다.
+
+`fetchScheduleRange` 응답을 `schedulerStore.schedules`에 넣을 때 다음 조건을 만족하는 record만 허용한다.
+
+- `id`가 `pageId::assigneeId` 또는 `pageId::__global__` 형식으로 `parseScheduleInstanceId`에 의해 파싱된다.
+- `sourcePageId`가 존재하고, 파싱된 `pageId`와 일치한다.
+- `sourcePage` snapshot이 응답에 포함되어 있고, `sourcePage.id`가 `sourcePageId`와 일치한다.
+- `sourcePage.deletedAt`이 없다.
+
+`sch_...` 형태의 standalone schedule record는 작업 DB page가 아니므로 작업 탭 타임라인에 투영하면 안 된다. 이 record가 화면에 들어오면 `updateLCSchedulerSchedule`, `deleteLCSchedulerSchedule`, picker open, drag update가 모두 작업 DB row를 찾지 못해 삭제되지 않고 이동도 안 되는 유령 일정 카드가 된다.
+
+## 2026-06-12 유령 일정 카드 회귀
+
+증상:
+
+- 개발 빌드에서 실제 작업 DB에는 없는 `테스트 2` 일정 카드가 여러 개 표시됐다.
+- 카드 삭제와 드래그 이동이 동작하지 않았다.
+- 카드가 일정 타임라인에만 존재하고 picker/edit 동작은 작업 DB row와 연결되지 않았다.
+
+원인:
+
+- 조직/팀/프로젝트 scope 선택 시 구성원 중심의 모든 일정을 가져오도록 `fetchSchedules`를 넓히면서, 서버 `Schedules` 테이블의 standalone/stale record까지 range 응답에 포함됐다.
+- 해당 record는 `sch_...` id를 사용하거나 `sourcePage`가 없는 record였고, 작업 DB page 기반 index row가 아니었다.
+- 기존 캐시 키가 유지되면 이미 persist된 유령 카드가 cache-hit으로 남을 수 있었다.
+
+재발 방지 규칙:
+
+- 작업 탭 타임라인에는 page-backed LC schedule index record만 투영한다.
+- `sourcePage` 없는 range 응답은 stale index 또는 standalone schedule로 보고 제외한다.
+- range projection 규칙을 바꾸면 `cachedScopeKey`에 projection version을 포함해 기존 persist cache를 강제로 갱신한다.
+- 회귀 테스트는 `src/store/__tests__/schedulerStore.scopeFetch.test.ts`에 추가한다. 최소 검증 항목은 standalone `sch_...` record 제외와 과거 cache key 무효화다.
