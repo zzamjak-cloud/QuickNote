@@ -75,11 +75,35 @@ export function isEmptyBlockNode(node: unknown): boolean {
 
 type BlockEntry = { sig: string; empty: boolean };
 
+/**
+ * 시그니처용 노드 정규화 — attrs/marks 의 null 값 키를 깊이 제거한다.
+ * editor.getJSON 은 기본값 attr 을 null 로 포함하고 yDocToJson(y-prosemirror)은 생략하므로,
+ * 정규화 없이는 같은 내용이 "전부 변경"으로 오판된다(협업 materialize 본문 vs 기존 본문).
+ */
+function normalizeForSignature(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeForSignature);
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (key === "attrs" && isPlainObject(v)) {
+      const attrs: Record<string, unknown> = {};
+      for (const [ak, av] of Object.entries(v)) {
+        if (av != null) attrs[ak] = normalizeForSignature(av);
+      }
+      if (Object.keys(attrs).length > 0) out.attrs = attrs;
+      continue;
+    }
+    if (v != null) out[key] = normalizeForSignature(v);
+  }
+  return out;
+}
+
 /** 블럭 시그니처: 타입 + (id 제외) attrs + content. 위치(index)는 포함하지 않는다 → 이동은 무변화. */
 function blockSignature(node: Record<string, unknown>): string {
-  const attrs = isPlainObject(node.attrs) ? { ...node.attrs } : {};
+  const normalized = normalizeForSignature(node) as Record<string, unknown>;
+  const attrs = isPlainObject(normalized.attrs) ? { ...normalized.attrs } : {};
   delete (attrs as Record<string, unknown>).id;
-  return stableStringify({ type: node.type, attrs, content: node.content ?? null });
+  return stableStringify({ type: normalized.type, attrs, content: normalized.content ?? null });
 }
 
 /** doc 최상위 블럭들을 identity(attrs.id, 없으면 sig 해시) → {sig, empty} 맵으로 수집. */

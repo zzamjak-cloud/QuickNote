@@ -38,6 +38,30 @@ describe("diffDocBlocks", () => {
     expect(diff[0]?.after).toEqual(block("a", "하나!"));
   });
 
+  it("null 기본값 attr 유무 차이는 변화가 아니다 (getJSON vs yDocToJson 직렬화 차이)", () => {
+    const withNulls = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "a", textAlign: null, backgroundColor: null },
+          content: [{ type: "text", marks: [{ type: "link", attrs: { href: "https://x.com", target: null } }], text: "x" }],
+        },
+      ],
+    };
+    const withoutNulls = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "a" },
+          content: [{ type: "text", marks: [{ type: "link", attrs: { href: "https://x.com" } }], text: "x" }],
+        },
+      ],
+    };
+    expect(diffDocBlocks(withNulls, withoutNulls)).toEqual([]);
+  });
+
   it("JSON 문자열 doc 과 키 순서 차이를 흡수한다", () => {
     const before = JSON.stringify(docOf(block("a", "x")));
     const after = JSON.stringify({

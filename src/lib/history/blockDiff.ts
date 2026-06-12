@@ -67,10 +67,34 @@ export function isEmptyBlockNode(node: unknown): boolean {
   return !hasMeaningfulNode(node);
 }
 
+/**
+ * 시그니처용 노드 정규화 — attrs/marks 의 null 값 키를 깊이 제거한다.
+ * editor.getJSON 은 기본값 attr 을 null 로 포함하고 yDocToJson(y-prosemirror)은 생략하므로,
+ * 정규화 없이는 같은 내용이 "전부 변경"으로 오판된다(서버 historySession.ts 와 동일 규칙).
+ */
+function normalizeForSignature(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(normalizeForSignature);
+  if (!isRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (key === "attrs" && isRecord(v)) {
+      const attrs: Record<string, unknown> = {};
+      for (const [ak, av] of Object.entries(v)) {
+        if (av != null) attrs[ak] = normalizeForSignature(av);
+      }
+      if (Object.keys(attrs).length > 0) out.attrs = attrs;
+      continue;
+    }
+    if (v != null) out[key] = normalizeForSignature(v);
+  }
+  return out;
+}
+
 function blockSignature(node: BlockNode): string {
-  const attrs = isRecord(node.attrs) ? { ...node.attrs } : {};
+  const normalized = normalizeForSignature(node) as Record<string, unknown>;
+  const attrs = isRecord(normalized.attrs) ? { ...normalized.attrs } : {};
   delete (attrs as Record<string, unknown>).id;
-  return stableStringify({ type: node.type, attrs, content: node.content ?? null });
+  return stableStringify({ type: normalized.type, attrs, content: normalized.content ?? null });
 }
 
 type CollectedBlock = { id: string; sig: string; empty: boolean; node: BlockNode; index: number };

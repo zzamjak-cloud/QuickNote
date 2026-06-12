@@ -14,6 +14,17 @@ import { diffDocBlocks, type BlockNode } from "../../lib/history/blockDiff";
 
 const MAX_BLOCKS = 20;
 
+/** 인라인 DB 블럭은 프리뷰에서 전체 DB 를 렌더하지 않고 컴팩트 플레이스홀더로 대체한다. */
+function toPreviewBlock(node: BlockNode): BlockNode {
+  if (node.type === "databaseBlock") {
+    return {
+      type: "paragraph",
+      content: [{ type: "text", text: "📊 인라인 데이터베이스 블럭 (변경됨)" }],
+    };
+  }
+  return node;
+}
+
 function ReadOnlyBlocksPane({
   blocks,
   tone,
@@ -54,11 +65,19 @@ type Props = {
 export function BlockDiffView({ beforeDoc, afterDoc }: Props) {
   const diff = useMemo(() => diffDocBlocks(beforeDoc, afterDoc), [beforeDoc, afterDoc]);
   const beforeBlocks = useMemo(
-    () => diff.filter((d) => d.before).map((d) => d.before as BlockNode).slice(0, MAX_BLOCKS),
+    () =>
+      diff
+        .filter((d) => d.before)
+        .map((d) => toPreviewBlock(d.before as BlockNode))
+        .slice(0, MAX_BLOCKS),
     [diff],
   );
   const afterBlocks = useMemo(
-    () => diff.filter((d) => d.after).map((d) => d.after as BlockNode).slice(0, MAX_BLOCKS),
+    () =>
+      diff
+        .filter((d) => d.after)
+        .map((d) => toPreviewBlock(d.after as BlockNode))
+        .slice(0, MAX_BLOCKS),
     [diff],
   );
   if (beforeBlocks.length === 0 && afterBlocks.length === 0) return null;

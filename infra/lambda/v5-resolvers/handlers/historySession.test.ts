@@ -60,6 +60,24 @@ describe("diffMeaningfulPageUnits", () => {
     expect(diffMeaningfulPageUnits(before, after)).toEqual(["cell:col1", "meta:title"]);
   });
 
+  it("null 기본값 attr 유무 차이(getJSON vs yDocToJson)는 변화가 아니다", () => {
+    const before = {
+      doc: docOf({
+        type: "paragraph",
+        attrs: { id: "a", textAlign: null },
+        content: [{ type: "text", text: "x" }],
+      }),
+    };
+    const after = {
+      doc: docOf({
+        type: "paragraph",
+        attrs: { id: "a" },
+        content: [{ type: "text", text: "x" }],
+      }),
+    };
+    expect(diffMeaningfulPageUnits(before, after)).toEqual([]);
+  });
+
   it("doc 이 JSON 문자열이고 키 순서가 달라도 동일 내용은 무변화", () => {
     const before = { doc: docOf({ type: "paragraph", attrs: { id: "a" }, content: [{ type: "text", text: "x" }] }) };
     const after = { doc: docOf({ content: [{ text: "x", type: "text" }], attrs: { id: "a" }, type: "paragraph" }) };
