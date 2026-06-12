@@ -105,7 +105,14 @@ import {
 import { useEditorExtensions } from "./useEditorExtensions";
 import { useCollabSession } from "../../lib/collab/useCollabSession";
 import { useCollabPresence } from "../../lib/collab/useCollabPresence";
-import { seedCollabDocIfEmpty, isPlaceholderBodyJson } from "../../lib/collab/yjsDoc";
+import {
+  seedCollabDocIfEmpty,
+  isPlaceholderBodyJson,
+  isCollabDocBodyEmpty,
+} from "../../lib/collab/yjsDoc";
+import { EditorErrorBoundary } from "./EditorErrorBoundary";
+import { fetchPageById } from "../../lib/sync/bootstrap";
+import { applyRemotePageToStore } from "../../lib/sync/storeApply";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
@@ -131,7 +138,16 @@ const MemoImageResizeOverlay = memo(ImageResizeOverlay);
 const DOC_SYNC_IDLE_MS = 3000;
 const DYNAMIC_LAYOUT_INPUT_AUTOSAVE_DEBOUNCE_MS = 1200;
 
-export function Editor({
+/** 에디터 내부 오류를 에디터 영역에 격리 — 루트 경계 전파로 사이드바까지 무너지는 것을 방지. */
+export function Editor(props: EditorProps = {}) {
+  return (
+    <EditorErrorBoundary>
+      <EditorInner {...props} />
+    </EditorErrorBoundary>
+  );
+}
+
+function EditorInner({
   pageId,
   bodyOnly = false,
   peek = false,
@@ -367,6 +383,34 @@ export function Editor({
     editorRef.current = editor;
   }, [editor]);
 
+  // EditorContent 가 view 를 마운트하기 전에는 editor 의존 오버레이를 렌더하지 않는다.
+  // useEditor 가 deps 로 재생성된 직후 editor.view 접근은 TipTap 프록시가 throw 해
+  // 루트 경계까지 전파된다(2026-06-12 라이브 크래시). view 마운트('create') 후에만 연다.
+  const [editorViewReady, setEditorViewReady] = useState(false);
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) {
+      setEditorViewReady(false);
+      return;
+    }
+    const viewMounted = () => {
+      try {
+        return Boolean(editor.view);
+      } catch {
+        return false;
+      }
+    };
+    if (viewMounted()) {
+      setEditorViewReady(true);
+      return;
+    }
+    setEditorViewReady(false);
+    const onCreate = () => setEditorViewReady(true);
+    editor.on("create", onCreate);
+    return () => {
+      editor.off("create", onCreate);
+    };
+  }, [editor]);
+
   // PageContext storage 동기화 — 슬래시 명령(/페이지 등) 이 현재 호스트 페이지를 식별하기 위함.
   useEffect(() => {
     setPageContext(editor, effectivePageId ?? null);
@@ -468,39 +512,96 @@ export function Editor({
   // 즉시 editor 에 반영되도록 한다. 자기 타이핑은 editor.getJSON() === safeDoc 비교로 걸러지므로 무한 루프 없음.
   // 사용자 입력 중(focused)이면 cursor 보존을 위해 blur 까지 setContent 를 보류.
   const lastSyncedPageIdRef = useRef<string | null>(null);
-  // 협업 ON 페이지 최초 시드 가드 — 페이지당 1회만 시드 시도.
-  const collabSeededPageRef = useRef<string | null>(null);
+  // 협업 ON 페이지 시드 상태 — 페이지당 서버 fresh 본문으로 1회만 시드 후 바인딩.
+  const collabSeedStateRef = useRef<{
+    pageId: string;
+    status: "idle" | "fetching" | "done";
+  }>({ pageId: "", status: "idle" });
+  const [collabSeedRetry, setCollabSeedRetry] = useState(0);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    // 준비 전(세션 없음·서버 sync 전·본문 미로드)에는 바인딩을 풀어 둔다 —
+    // 준비 전(세션 없음·서버 sync 전)에는 바인딩을 풀어 둔다 —
     // 빈 Y.Doc 에 ySyncPlugin 이 붙어 빈 문단을 주입하는 경로 자체를 차단.
-    if (
-      !collabEnabled ||
-      !collabSynced ||
-      !collabDoc ||
-      !effectivePageId ||
-      !safePageDoc ||
-      pageContentMissing ||
-      // 본문이 아직 placeholder(빈 문단) 면 시드를 보류한다. 콜드 로드(메타 베이스라인→본문 로드)
-      // race 에서 contentLoaded 전환과 실제 doc 갱신 사이 틈에 시드되면 빈 문단이 Y.Doc 에 박혀
-      // 이후 본문 시드가 영구 차단된다(2026-06-12 라이브 CAT 빈 화면). 본문이 채워진 뒤에만 시드·바인딩.
-      isPlaceholderBodyJson(safePageDoc)
-    ) {
+    if (!collabEnabled || !collabSynced || !collabDoc || !effectivePageId) {
       setCollabBoundDoc(null);
       return;
     }
-    // Y.Doc 이 비어 있으면(서버·피어에 콘텐츠 없음) 기존 본문으로 결정적 시드(동시 시드도 중복 없음).
-    // 시드는 반드시 바인딩(setCollabBoundDoc)보다 먼저 끝나야 한다.
-    if (collabSeededPageRef.current !== effectivePageId) {
-      collabSeededPageRef.current = effectivePageId;
-      try {
-        seedCollabDocIfEmpty(collabDoc, editor.schema, safePageDoc);
-      } catch (err) {
-        reportNonFatal(err, "collab.seedFromStore");
-      }
+    if (collabSeedStateRef.current.pageId !== effectivePageId) {
+      collabSeedStateRef.current = { pageId: effectivePageId, status: "idle" };
     }
-    setCollabBoundDoc(collabDoc);
-  }, [editor, collabEnabled, collabSynced, collabDoc, effectivePageId, safePageDoc, pageContentMissing]);
+    const seedState = collabSeedStateRef.current;
+    if (seedState.status === "done") {
+      setCollabBoundDoc(collabDoc);
+      return;
+    }
+    if (seedState.status === "fetching") return;
+    seedState.status = "fetching";
+    let cancelled = false;
+    void (async () => {
+      try {
+        // 피어가 이미 시드/편집한 doc 이면 그대로 바인딩 — 시드 주체는 룸당 사실상 1명이 된다.
+        if (!isCollabDocBodyEmpty(collabDoc)) {
+          seedState.status = "done";
+          if (!cancelled) setCollabBoundDoc(collabDoc);
+          return;
+        }
+        // 시드 소스는 서버 fresh 본문으로 일원화 — 클라이언트마다 다른 로컬 본문으로 결정적
+        // 시드(고정 clientID)를 하면 같은 (clientID, clock) 에 서로 다른 내용이 생겨 CRDT 가
+        // 갈라진다(라이브 "한 줄 불일치" 사고). 서버 본문은 모든 클라이언트에서 byte-동일하다.
+        const workspaceId = page?.workspaceId ?? currentWorkspaceId;
+        if (!workspaceId) {
+          seedState.status = "idle";
+          return;
+        }
+        const remote = await fetchPageById(workspaceId, effectivePageId);
+        if (cancelled || collabSeedStateRef.current !== seedState) return;
+        if (editor.isDestroyed) {
+          seedState.status = "idle";
+          return;
+        }
+        if (!remote) {
+          // 일시 실패 — 바인딩 보류 유지, 잠시 후 재시도.
+          seedState.status = "idle";
+          window.setTimeout(() => {
+            if (!cancelled) setCollabSeedRetry((c) => c + 1);
+          }, 1500);
+          return;
+        }
+        applyRemotePageToStore(remote);
+        // fetch 동안 피어 시드가 도착했으면 그쪽이 권위 — 비어 있을 때만 시드한다.
+        if (isCollabDocBodyEmpty(collabDoc)) {
+          const freshDoc = usePageStore.getState().pages[effectivePageId]?.doc;
+          // 서버 본문이 placeholder 면 "진짜 빈 페이지"로 확정 — 시드 없이 바인딩해야 신규
+          // 페이지 편집이 가능하다(PM 초기 빈 문단은 빈 페이지에선 무해, materialize 가드와 정합).
+          if (freshDoc && !isPlaceholderBodyJson(freshDoc)) {
+            seedCollabDocIfEmpty(collabDoc, editor.schema, freshDoc);
+          }
+        }
+        seedState.status = "done";
+        if (!cancelled) setCollabBoundDoc(collabDoc);
+      } catch (err) {
+        seedState.status = "idle";
+        reportNonFatal(err, "collab.seedFromServer");
+        window.setTimeout(() => {
+          if (!cancelled) setCollabSeedRetry((c) => c + 1);
+        }, 1500);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      // 진행 중 fetch 가 dep 변경으로 폐기되면 다음 실행이 재시도할 수 있게 되돌린다.
+      if (seedState.status === "fetching") seedState.status = "idle";
+    };
+  }, [
+    editor,
+    collabEnabled,
+    collabSynced,
+    collabDoc,
+    effectivePageId,
+    page?.workspaceId,
+    currentWorkspaceId,
+    collabSeedRetry,
+  ]);
 
   // 동일 pageDoc 참조에 대해 정규화 updateDoc 을 한 번만 실행하기 위한 가드
   const lastNormalizedDocRef = useRef<unknown>(null);
@@ -1058,16 +1159,16 @@ export function Editor({
               }}
             />
           ) : null}
-          {!isFullPageDatabase && (
+          {!isFullPageDatabase && editorViewReady && (
             <ColumnReorderHandles editor={editor} boxSelectedStarts={boxSelectedStarts} />
           )}
-          {!isFullPageDatabase && <TableBlockControls editor={editor} />}
+          {!isFullPageDatabase && editorViewReady && <TableBlockControls editor={editor} />}
         </div>
         {/* BlockHandles 는 외곽 wrapper 의 padding 영역(pr-[256px] 등 사이드바 예약)에서도
             카드를 렌더할 수 있어야 하므로 inner relative 컨테이너 밖, 외곽 wrapper 의 직접 자식으로 둠.
             pageId 를 명시 전달해 피크 뷰처럼 activePageId 와 다른 페이지를 편집 중일 때도
             올바른 페이지의 댓글로 필터링됨. */}
-        {!isFullPageDatabase && (
+        {!isFullPageDatabase && editorViewReady && (
           <BlockHandles
             editor={editor}
             pageId={effectivePageId ?? null}
@@ -1090,8 +1191,8 @@ export function Editor({
       {!bodyOnly && !peek && (
         <ScrollToTopButton scrollRef={editorScrollHostRef} position="fixed" />
       )}
-      <MemoBubbleToolbar editor={editor} pageId={effectivePageId} />
-      <MemoImageResizeOverlay editor={editor} />
+      {editorViewReady && <MemoBubbleToolbar editor={editor} pageId={effectivePageId} />}
+      {editorViewReady && <MemoImageResizeOverlay editor={editor} />}
       <ImageUpload
         open={imageOpen}
         onClose={() => setImageOpen(false)}
