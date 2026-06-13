@@ -14,11 +14,20 @@ const WORKSPACE_ACCESS_TABLE = process.env.WORKSPACE_ACCESS_TABLE!;
 // room 파싱은 Cognito 의존성이 없는 sync 핸들러에서도 쓰므로 별도 모듈로 분리(./room).
 export { parseRoom, type Room } from "./room";
 
-// Cognito ID 토큰 검증기 — USER_POOL_ID·USER_POOL_CLIENT_ID 는 CDK 스택에서 주입
+// Cognito ID 토큰 검증기 — USER_POOL_ID·USER_POOL_CLIENT_ID 는 CDK 스택에서 주입.
+// USER_POOL_CLIENT_ID 는 콤마 구분 복수 허용(웹·데스크톱 앱 클라이언트). 둘은 aud 가 달라
+// 단일 client 만 허용하면 데스크톱 토큰이 거부되어 WS $connect 가 403 으로 막힌다.
+const allowedClientIds = [
+  process.env.USER_POOL_CLIENT_ID,
+  process.env.USER_POOL_DESKTOP_CLIENT_ID,
+]
+  .flatMap((v) => (v ?? "").split(","))
+  .map((s) => s.trim())
+  .filter(Boolean);
 const verifier = CognitoJwtVerifier.create({
   userPoolId: process.env.USER_POOL_ID!,
   tokenUse: "id",
-  clientId: process.env.USER_POOL_CLIENT_ID!,
+  clientId: allowedClientIds,
 });
 
 export type AuthContext = { userId: string; pageId: string; workspaceId: string; memberId: string };

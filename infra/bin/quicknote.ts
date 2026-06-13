@@ -89,6 +89,7 @@ new QuicknoteRealtimeCollabStack(app, `${stackPrefix}QuicknoteRealtimeCollabStac
   description: `QuickNote [${deployEnv}] 실시간 협업 스택 (WS API + DDB + Lambda)`,
   userPoolId: process.env.COLLAB_USER_POOL_ID ?? cognitoStack.userPoolId,
   userPoolClientId: process.env.COLLAB_WEB_CLIENT_ID ?? cognitoStack.webClientId,
+  userPoolDesktopClientId: process.env.COLLAB_DESKTOP_CLIENT_ID ?? cognitoStack.desktopClientId,
   pageTableName: process.env.COLLAB_PAGE_TABLE_NAME ?? syncStack.pageTable.table.tableName,
   pageTableArn: process.env.COLLAB_PAGE_TABLE_ARN ?? syncStack.pageTable.table.tableArn,
   membersTableName: process.env.COLLAB_MEMBERS_TABLE_NAME ?? syncStack.membersTable.tableName,

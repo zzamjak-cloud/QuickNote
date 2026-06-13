@@ -16,6 +16,8 @@ export interface RealtimeCollabStackProps extends cdk.StackProps {
   // CognitoStack / SyncStack 의 출력값을 cross-stack reference 로 받는다.
   userPoolId: string;
   userPoolClientId: string;
+  // 데스크톱 앱 클라이언트 ID. 협업 WS 인증은 웹·데스크톱 토큰(서로 다른 aud)을 모두 허용해야 한다.
+  userPoolDesktopClientId?: string;
   pageTableName: string;
   pageTableArn: string;
   // $connect 멤버십 인가에 필요한 테이블(이름 + ARN). members 는 byCognitoSub GSI 조회 필요.
@@ -86,6 +88,9 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
       DATABASE_TABLE: props.databaseTableName,
       USER_POOL_ID: props.userPoolId,
       USER_POOL_CLIENT_ID: props.userPoolClientId,
+      // 데스크톱 앱 클라이언트 ID(별도 env). auth.ts 가 웹+데스크톱 두 aud 를 모두 허용한다.
+      // 별도 env 로 두어 기존 웹 client cross-ref 를 건드리지 않는다(배포 블래스트 반경 최소화).
+      USER_POOL_DESKTOP_CLIENT_ID: props.userPoolDesktopClientId ?? "",
     };
 
     // realtime 핸들러 Lambda 팩토리.

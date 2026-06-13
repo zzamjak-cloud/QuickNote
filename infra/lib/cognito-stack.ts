@@ -27,6 +27,8 @@ export class CognitoStack extends cdk.Stack {
   public readonly userPoolArn: string;
   // 웹 클라이언트 ID — 실시간 협업 스택의 WS 인증(ID 토큰 검증)에서 사용한다.
   public readonly webClientId: string;
+  // 데스크톱 클라이언트 ID — 협업 WS 인증은 웹·데스크톱 두 aud 를 모두 허용해야 한다.
+  public readonly desktopClientId: string;
 
   constructor(scope: Construct, id: string, props: CognitoStackProps) {
     super(scope, id, props);
@@ -202,5 +204,6 @@ export class CognitoStack extends cdk.Stack {
     this.userPoolId = userPool.userPoolId;
     this.userPoolArn = userPool.userPoolArn;
     this.webClientId = webClient.userPoolClientId;
+    this.desktopClientId = desktopClient.userPoolClientId;
   }
 }
