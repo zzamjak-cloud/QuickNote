@@ -173,9 +173,11 @@ function App() {
       if (anchor?.closest(".ProseMirror")) {
         if (!anchor.closest("[data-bookmark-block], [data-page-link], [data-button-block]")) {
           const href = anchor.getAttribute("href") ?? "";
-          const isExternal =
-            /^https?:\/\//i.test(href) || /^mailto:/i.test(href) || /^tel:/i.test(href);
-          if (isExternal && !parseQuickNoteLink(href)) {
+          // http(s) 외부 링크만 새 창으로 연다. mailto:/tel: 을 window.open 으로 열면
+          // webview 가 해당 스킴을 처리하지 못해 net::ERR_UNKNOWN_URL_SCHEME 가 난다 —
+          // 기본 동작(OS 핸들러 위임)에 맡긴다.
+          const isWebUrl = /^https?:\/\//i.test(href);
+          if (isWebUrl && !parseQuickNoteLink(href)) {
             e.preventDefault();
             e.stopPropagation();
             window.open(href, "_blank", "noopener,noreferrer");
