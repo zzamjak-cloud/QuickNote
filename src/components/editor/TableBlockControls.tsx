@@ -217,6 +217,67 @@ function applyDeleteRow(editor: Editor, tablePos: number, rowIndex: number): boo
   return true;
 }
 
+/** 빈 셀 생성 — paragraph 1개를 담은 cellType(tableCell|tableHeader) 노드. */
+function createEmptyCell(cellType: PMNode["type"]): PMNode | null {
+  // createAndFill 은 스키마 content("block+") 를 충족하는 최소 노드(빈 paragraph)를 자동 채움
+  return cellType.createAndFill();
+}
+
+/** 행 끝 추가: 마지막 행과 동일한 열 수의 빈 행을 끝에 추가 — selection 비의존.
+ *  새 행의 각 셀 타입은 마지막 행의 동일 컬럼 셀 타입(tableHeader|tableCell)을 따른다.
+ *  (헤더열이 활성화된 표는 첫 셀이 header 로 유지되고, 헤더행은 본문 행에 영향 없음) */
+function applyAddRowAtEnd(editor: Editor, tablePos: number): boolean {
+  const state = editor.state;
+  const table = state.doc.nodeAt(tablePos);
+  if (!table || table.type.name !== "table") return false;
+  const lastRow = table.maybeChild(table.childCount - 1);
+  if (!lastRow || lastRow.childCount === 0) return false;
+  const rowType = lastRow.type;
+  const newCells: PMNode[] = [];
+  let ok = true;
+  lastRow.forEach((cell) => {
+    const empty = createEmptyCell(cell.type);
+    if (!empty) ok = false;
+    else newCells.push(empty);
+  });
+  if (!ok || newCells.length === 0) return false;
+  const newRow = rowType.createChecked(null, newCells);
+  const newRows: PMNode[] = [];
+  table.forEach((row) => newRows.push(row));
+  newRows.push(newRow);
+  const newTable = table.type.createChecked(table.attrs, newRows, table.marks);
+  editor.view.dispatch(state.tr.replaceWith(tablePos, tablePos + table.nodeSize, newTable));
+  return true;
+}
+
+/** 열 끝 추가: 모든 행의 끝에 빈 셀을 추가 — selection 비의존.
+ *  새 셀 타입은 각 행의 마지막 셀 타입(tableHeader|tableCell)을 따른다 — 헤더행은 header, 본문행은 cell. */
+function applyAddColumnAtEnd(editor: Editor, tablePos: number): boolean {
+  const state = editor.state;
+  const table = state.doc.nodeAt(tablePos);
+  if (!table || table.type.name !== "table") return false;
+  if (table.childCount === 0) return false;
+  const newRows: PMNode[] = [];
+  let ok = true;
+  table.forEach((row) => {
+    const lastCell = row.maybeChild(row.childCount - 1);
+    const cells: PMNode[] = [];
+    row.forEach((cell) => cells.push(cell));
+    if (lastCell) {
+      const empty = createEmptyCell(lastCell.type);
+      if (!empty) ok = false;
+      else cells.push(empty);
+    } else {
+      ok = false;
+    }
+    newRows.push(row.type.createChecked(row.attrs, cells, row.marks));
+  });
+  if (!ok) return false;
+  const newTable = table.type.createChecked(table.attrs, newRows, table.marks);
+  editor.view.dispatch(state.tr.replaceWith(tablePos, tablePos + table.nodeSize, newTable));
+  return true;
+}
+
 export function TableBlockControls({ editor }: { editor: Editor | null }) {
   const [ui, setUi] = useState<TableUi | null>(null);
   const [drag, setDrag] = useState<{ kind: "row" | "col"; from: number } | null>(null);
@@ -665,7 +726,7 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
         type="button"
         title="열 추가"
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => editor.chain().focus().addColumnAfter().run()}
+        onClick={() => applyAddColumnAtEnd(editor, ui.pos)}
         className="pointer-events-auto fixed flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
         style={{ left: ui.rect.right + 6, top: ui.rect.top + ui.rect.height / 2 - 12 }}
       >
@@ -675,7 +736,7 @@ export function TableBlockControls({ editor }: { editor: Editor | null }) {
         type="button"
         title="행 추가"
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => editor.chain().focus().addRowAfter().run()}
+        onClick={() => applyAddRowAtEnd(editor, ui.pos)}
         className="pointer-events-auto fixed flex h-6 w-6 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
         style={{ left: ui.rect.left + ui.rect.width / 2 - 12, top: ui.rect.bottom + 6 }}
       >
