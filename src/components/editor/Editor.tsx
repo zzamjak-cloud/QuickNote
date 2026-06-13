@@ -40,7 +40,8 @@ import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/inser
 import { ImageUpload } from "./ImageUpload";
 import { ServerImagePicker } from "./ServerImagePicker";
 import { IconPickerPanel } from "../common/IconPicker";
-import { FileText, Database, Loader2 } from "lucide-react";
+import { useCustomIconUpload } from "../common/useCustomIconUpload";
+import { FileText, Database, Loader2, ImagePlus } from "lucide-react";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { getEditorColumnClass } from "../../lib/editorLayout";
 import {
@@ -233,6 +234,14 @@ function EditorInner({
     useState<BlockDropIndicatorRect | null>(null);
 
   const [simpleAlert, setSimpleAlert] = useState<string | null>(null);
+  // 슬래시 "이모지" picker 의 커스텀 아이콘(이미지 업로드/등록/삭제/목록) 처리.
+  const emojiIconFileRef = useRef<HTMLInputElement | null>(null);
+  const {
+    customIcons: emojiCustomIcons,
+    uploading: emojiCustomIconUploading,
+    uploadIconFile: uploadEmojiCustomIcon,
+    deleteCustomIcon: deleteEmojiCustomIcon,
+  } = useCustomIconUpload({ onMessage: (msg) => setSimpleAlert(msg) });
   /** @ 키로 멘션 검색 모달 — 인라인 제안과 분리 */
   const [mentionRange, setMentionRange] = useState<{
     from: number;
@@ -856,6 +865,25 @@ function EditorInner({
     [editor],
   );
 
+  // 슬래시 picker 에서 고른 커스텀 아이콘(이미지 URL)을 본문에 이미지로 삽입.
+  // 기존 이미지 삽입 경로(image 노드)를 그대로 사용한다.
+  const insertCustomIconAtAnchor = useCallback(
+    (src: string) => {
+      if (!editor || !emojiAnchor || emojiAnchor.insertPos == null) return;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(emojiAnchor.insertPos, {
+          type: "image",
+          attrs: { src },
+        })
+        .run();
+      setEmojiPickerOpen(false);
+      setEmojiAnchor(null);
+    },
+    [editor, emojiAnchor],
+  );
+
   useEffect(() => {
     const open = () => {
       if (!editor) return;
@@ -1290,8 +1318,41 @@ function EditorInner({
                   setEmojiPickerOpen(false);
                   setEmojiAnchor(null);
                 }}
+                customIcons={emojiCustomIcons}
+                onPickCustom={(icon) => insertCustomIconAtAnchor(icon)}
+                onRequestCustomUpload={() => emojiIconFileRef.current?.click()}
+                onDeleteCustomIcon={(id) => deleteEmojiCustomIcon(id)}
+                footer={
+                  <button
+                    type="button"
+                    onClick={() => emojiIconFileRef.current?.click()}
+                    disabled={emojiCustomIconUploading}
+                    className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 disabled:cursor-progress disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    {emojiCustomIconUploading ? (
+                      <Loader2 size={14} className="shrink-0 animate-spin text-blue-500" />
+                    ) : (
+                      <ImagePlus size={14} className="shrink-0 text-zinc-500" />
+                    )}
+                    {emojiCustomIconUploading ? "업로드 중..." : "이미지 업로드"}
+                  </button>
+                }
               />
             </Suspense>
+            <input
+              ref={emojiIconFileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (e.currentTarget) e.currentTarget.value = "";
+                void (async () => {
+                  const src = await uploadEmojiCustomIcon(file);
+                  if (src) insertCustomIconAtAnchor(src);
+                })();
+              }}
+            />
           </div>
         </div>
       )}
