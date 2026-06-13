@@ -1,7 +1,7 @@
 {
   "name": "quicknote",
   "private": true,
-  "version": "5.4.41",
+  "version": "5.4.42",
   "type": "module",
   "engines": {
     "node": ">=20 <25"
@@ -18,7 +18,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "notion:preview": "node scripts/notion/import-preview.mjs"
+    "notion:preview": "node scripts/notion/import-preview.mjs",
+    "bump": "node scripts/bump-version.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx}": "eslint --fix"
