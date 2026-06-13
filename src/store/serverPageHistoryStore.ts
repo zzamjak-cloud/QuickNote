@@ -9,6 +9,7 @@ import {
 import { applyRemotePageToStore } from "../lib/sync/storeApply";
 import { clearLocalDeleteGuard } from "../lib/sync/localDeleteGuards";
 import { usePageStore, enqueuePageUpsertForSync } from "./pageStore";
+import { formatError } from "../lib/util/formatError";
 
 // 베이스라인 시드를 페이지당 세션 1회로 제한(재조회 루프 방지).
 const seededBaselinePages = new Set<string>();
@@ -51,10 +52,6 @@ function toTimelineEntry(entry: GqlPageHistoryEntry): HistoryTimelineEntry {
     lastEditedByMemberId: entry.createdByMemberId ?? undefined,
     lastEditedByName: entry.createdByName ?? undefined,
   };
-}
-
-function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 // 원본 엔트리 배열을 타임라인으로 변환. 컴포넌트에서 useMemo 로 감싸 호출하면

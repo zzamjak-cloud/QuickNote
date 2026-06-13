@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { DatabaseHistorySnapshot } from "../../lib/history/databaseHistoryPatch";
+import { isRecord } from "../../lib/util/typeGuards";
 
 /**
  * DB 구조 버전 diff — 실제 테이블 헤더 모습(컬럼 칩 스트립)으로 보여준다.
@@ -13,9 +14,6 @@ type PreviewColumn = {
   config?: unknown;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
 
 function parseColumns(value: unknown): PreviewColumn[] {
   let parsed: unknown = value;

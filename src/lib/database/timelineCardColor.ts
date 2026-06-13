@@ -1,12 +1,9 @@
 import type { CellValue } from "../../types/database";
+import { isRecord } from "../util/typeGuards";
 
 export const TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID = "_qn_timelineCardColorOverrides";
 
 type TimelineCardColorOverrides = Record<string, string>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function isTimelineCardColor(value: unknown): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);

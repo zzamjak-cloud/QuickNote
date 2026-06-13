@@ -118,14 +118,3 @@ export function filterSlashLeaves(
     .sort((a, b) => (scoreLeaf(b.item, q) - scoreLeaf(a.item, q)) || (a.idx - b.idx))
     .map(({ item }) => item);
 }
-
-/** @deprecated filterSlashMenuEntries 사용 */
-export function filterSlashItems(query: string): SlashLeafItem[] {
-  const filtered = filterSlashMenuEntries(query);
-  const out: SlashLeafItem[] = [];
-  for (const e of filtered) {
-    if (e.kind === "leaf") out.push(e);
-    else out.push(...e.children);
-  }
-  return out;
-}

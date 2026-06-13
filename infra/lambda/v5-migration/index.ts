@@ -7,6 +7,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuid } from "uuid";
+import { requireEnv } from "../_shared/env";
 
 type MemberRow = {
   memberId: string;
@@ -16,27 +17,13 @@ type MemberRow = {
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-const TABLES = {
-  members: process.env.MEMBERS_TABLE_NAME ?? "",
-  workspaces: process.env.WORKSPACES_TABLE_NAME ?? "",
-  workspaceAccess: process.env.WORKSPACE_ACCESS_TABLE_NAME ?? "",
-  pages: process.env.PAGES_TABLE_NAME ?? "",
-  databases: process.env.DATABASES_TABLE_NAME ?? "",
-};
-
-function requireEnv(name: keyof typeof TABLES): string {
-  const value = TABLES[name];
-  if (!value) throw new Error(`${name} env is required`);
-  return value;
-}
-
 function migratedEmail(ownerId: string): string {
   const safe = ownerId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 24) || "owner";
   return `${safe.toLowerCase()}@migrated.quicknote.local`;
 }
 
 async function getOrCreateMember(ownerId: string): Promise<MemberRow> {
-  const membersTable = requireEnv("members");
+  const membersTable = requireEnv("MEMBERS_TABLE_NAME");
 
   const existing = await ddb.send(
     new QueryCommand({
@@ -74,7 +61,7 @@ async function getOrCreateMember(ownerId: string): Promise<MemberRow> {
 
   await ddb.send(
     new PutCommand({
-      TableName: requireEnv("workspaces"),
+      TableName: requireEnv("WORKSPACES_TABLE_NAME"),
       Item: {
         workspaceId: personalWorkspaceId,
         name: "마이그레이션 개인 워크스페이스",
@@ -87,7 +74,7 @@ async function getOrCreateMember(ownerId: string): Promise<MemberRow> {
   );
   await ddb.send(
     new PutCommand({
-      TableName: requireEnv("workspaceAccess"),
+      TableName: requireEnv("WORKSPACE_ACCESS_TABLE_NAME"),
       Item: {
         workspaceId: personalWorkspaceId,
         subjectKey: `member#${memberId}`,
@@ -136,8 +123,8 @@ async function migrateRecords(params: {
 }
 
 export async function handler() {
-  const pagesTable = requireEnv("pages");
-  const databasesTable = requireEnv("databases");
+  const pagesTable = requireEnv("PAGES_TABLE_NAME");
+  const databasesTable = requireEnv("DATABASES_TABLE_NAME");
 
   const pages = await ddb.send(new ScanCommand({ TableName: pagesTable }));
   const dbs = await ddb.send(new ScanCommand({ TableName: databasesTable }));

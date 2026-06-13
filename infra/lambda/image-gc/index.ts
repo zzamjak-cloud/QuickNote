@@ -5,6 +5,7 @@ import {
   QueryCommand,
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { requireEnv } from "../_shared/env";
 import {
   S3Client,
   DeleteObjectCommand,
@@ -171,8 +172,3 @@ async function deleteAsset(item: { id: string; key: string }) {
   await ddb.send(new DeleteCommand({ TableName: IMAGE_ASSET_TABLE, Key: { id: item.id } }));
 }
 
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`env ${name} not set`);
-  return v;
-}

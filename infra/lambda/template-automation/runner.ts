@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { requireEnv } from "../_shared/env";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
@@ -60,12 +61,6 @@ mutation PublishPageChanged($input: PageInput!) {
     deletedAt
   }
 }`;
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} env is required`);
-  return value;
-}
 
 function readTablesFromEnv(): RunnerTables {
   return {

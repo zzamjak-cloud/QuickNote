@@ -8,6 +8,8 @@
  * - attrs.id 가 없는 레거시 블럭은 내용 시그니처로 매칭한다(수정은 삭제+추가로 보임).
  */
 
+import { isRecord } from "../util/typeGuards";
+
 export type BlockNode = Record<string, unknown>;
 
 export type BlockDiffEntry = {
@@ -17,10 +19,6 @@ export type BlockDiffEntry = {
   before: BlockNode | null;
   after: BlockNode | null;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
 
 function parseJsonLike(value: unknown): unknown {
   if (typeof value !== "string") return value;

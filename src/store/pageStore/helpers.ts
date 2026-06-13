@@ -17,7 +17,7 @@ import { useMemberStore } from "../memberStore";
 import { useWorkspaceStore } from "../workspaceStore";
 import { isDbCollabActive } from "../../lib/collab/dbCollabRegistry";
 
-const MAX_UPSERT_PAGE_PAYLOAD_BYTES = 350 * 1024;
+export const MAX_UPSERT_PAGE_PAYLOAD_BYTES = 350 * 1024;
 
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
 // 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
@@ -75,7 +75,7 @@ export function toGqlPage(p: Page, createdByMemberId: string): Record<string, un
   return base;
 }
 
-function payloadByteLength(payload: Record<string, unknown>): number {
+export function payloadByteLength(payload: Record<string, unknown>): number {
   try {
     return new TextEncoder().encode(JSON.stringify(payload)).length;
   } catch {

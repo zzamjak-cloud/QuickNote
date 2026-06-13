@@ -27,6 +27,3 @@ export type SlashCategoryItem = {
 };
 
 export type SlashMenuEntry = SlashLeafItem | SlashCategoryItem;
-
-/** @deprecated SlashLeafItem 사용 */
-export type SlashItem = SlashLeafItem;

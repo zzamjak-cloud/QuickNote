@@ -12,6 +12,7 @@ import { getSyncEngine } from "./runtime";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { isProtectedDatabaseId } from "../scheduler/database";
 import { createLocalDeleteGuardChecker } from "./localDeleteGuards";
+import { isRecord } from "../util/typeGuards";
 
 type WorkspaceSnapshot = {
   pages: ReturnType<typeof usePageStore.getState>["pages"];
@@ -130,10 +131,6 @@ function favoriteMetaFromSnapshotPage(
     pageTitle: page.title || "제목 없음",
     pageIcon: page.icon ?? null,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function toFiniteNumber(value: unknown, fallback: number): number {

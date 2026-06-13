@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { requireEnv } from "../_shared/env";
 import {
   S3Client,
   PutObjectCommand,
@@ -302,12 +303,6 @@ async function hasWorkspaceAccessToAsset(callerSub: string, assetId: string): Pr
     if (ok) return true;
   }
   return false;
-}
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`env ${name} not set`);
-  return v;
 }
 
 export function createStableAssetId(ownerId: string, input: UploadInput): string {

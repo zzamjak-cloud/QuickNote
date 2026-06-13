@@ -6,6 +6,7 @@ import type { JSONContent } from "@tiptap/react";
 import {
   isLCSchedulerDatabaseId,
 } from "../../scheduler/database";
+import { stringifyAwsJson } from "../../util/awsJson";
 
 /** 원격 ISO 문자열 → epoch ms. 실패 시 0. */
 export function isoToMs(iso: string | null | undefined): number {
@@ -58,15 +59,6 @@ export function stringArrayEqual(a: string[], b: string[]): boolean {
 export function toPageInputPayload(
   p: GqlPage,
 ): Record<string, unknown> & { id: string; updatedAt?: string } {
-  const stringifyAwsJson = (value: unknown): string | null => {
-    if (value == null) return null;
-    if (typeof value === "string") return value;
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return null;
-    }
-  };
   return {
     id: p.id,
     workspaceId: p.workspaceId,

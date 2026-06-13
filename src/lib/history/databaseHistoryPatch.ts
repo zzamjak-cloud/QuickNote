@@ -1,4 +1,5 @@
 import type { GqlDatabaseHistoryEntry } from "../sync/graphql/operations";
+import { isRecord } from "../util/typeGuards";
 
 type DatabasePatchOp = {
   op: "set" | "unset";
@@ -31,10 +32,6 @@ type CachedSnapshot = {
 function cloneJson<T>(value: T): T {
   if (value == null) return value;
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function parseAwsJson(value: unknown): unknown {

@@ -5,6 +5,7 @@ import {
   restoreDatabaseRemote,
 } from "../lib/sync/trashApi";
 import { applyRemoteDatabaseToStore } from "../lib/sync/storeApply";
+import { formatError } from "../lib/util/formatError";
 
 // 삭제된 DB(휴지통) 목록·복원 — 서버 권위(listTrashedDatabases / restoreDatabase).
 // 기존 로컬 historyStore.getDeletedDbRestorePoints 를 대체한다.
@@ -23,10 +24,6 @@ type Actions = {
   getTrashedDatabases: (workspaceId: string) => GqlDatabase[];
   hasMore: (workspaceId: string) => boolean;
 };
-
-function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
 
 export const useServerTrashedDatabaseStore = create<State & Actions>()((set, get) => ({
   byWorkspaceId: {},

@@ -9,6 +9,7 @@ import {
 import { applyRemoteDatabaseToStore } from "../lib/sync/storeApply";
 import { enqueueUpsertDatabase } from "./databaseStore/helpers";
 import { useDatabaseStore } from "./databaseStore";
+import { formatError } from "../lib/util/formatError";
 
 const seededBaselineDatabases = new Set<string>();
 
@@ -62,10 +63,6 @@ function toTimelineEntry(entry: GqlDatabaseHistoryEntry): HistoryTimelineEntry {
     lastEditedByMemberId: entry.createdByMemberId ?? undefined,
     lastEditedByName: entry.createdByName ?? undefined,
   };
-}
-
-function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 export const useServerDatabaseHistoryStore = create<State & Actions>()((set, get) => ({

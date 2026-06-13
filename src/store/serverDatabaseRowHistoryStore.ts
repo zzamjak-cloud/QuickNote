@@ -3,6 +3,7 @@ import type { HistoryTimelineEntry, PageHistoryKind } from "../types/history";
 import type { GqlPageHistoryEntry } from "../lib/sync/graphql/operations";
 import { listDatabaseRowHistoryApi } from "../lib/sync/pageHistoryApi";
 import { buildPageHistorySnapshotMap } from "../lib/history/pageHistoryPatch";
+import { formatError } from "../lib/util/formatError";
 
 // DB 소속 row 페이지들의 page-history 를 DB 단위로 모아 보여주기 위한 집계 스토어.
 // 서버 byDatabaseAndCreatedAt GSI 단일 쿼리 + 서버 페이지네이션으로 N+1 을 제거한다.
@@ -96,10 +97,6 @@ function toEntries(
       };
     })
     .sort((a, b) => b.endTs - a.endTs);
-}
-
-function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 export const useServerDatabaseRowHistoryStore = create<State & Actions>()((set, get) => ({

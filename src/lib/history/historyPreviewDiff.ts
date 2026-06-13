@@ -1,6 +1,7 @@
 import type { JSONContent } from "@tiptap/react";
 import type { PageSnapshot } from "../../types/history";
 import type { DatabaseHistorySnapshot } from "./databaseHistoryPatch";
+import { isRecord } from "../util/typeGuards";
 
 export type HistoryPreviewChange = {
   id: string;
@@ -77,10 +78,6 @@ function resolveCellValue(
 
 function equalJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function parseJsonValue<T>(value: unknown, fallback: T): T {

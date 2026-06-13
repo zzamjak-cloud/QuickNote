@@ -24,6 +24,7 @@ import {
 import { useAuthStore } from "../authStore";
 import { useWorkspaceStore } from "../workspaceStore";
 import { usePageStore } from "../pageStore";
+import { MAX_UPSERT_PAGE_PAYLOAD_BYTES, payloadByteLength } from "../pageStore/helpers";
 import { isLCSchedulerDatabaseId, isLCMilestoneDatabaseId, isLCFeatureDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { getDbCollab, isDbCollabActive } from "../../lib/collab/dbCollabRegistry";
@@ -129,23 +130,30 @@ export function enqueueUpsertPageRaw(p: Page, opts?: { includeCells?: boolean })
   const collabActive = p.databaseId ? isDbCollabActive(p.databaseId) : false;
   const dbCells =
     collabActive && !opts?.includeCells ? null : p.dbCells ? JSON.stringify(p.dbCells) : null;
-  enqueueAsync(
-    "upsertPage",
-    {
-      id: p.id,
-      workspaceId,
-      createdByMemberId,
-      title: p.title,
-      icon: p.icon ?? null,
-      parentId: p.parentId ?? null,
-      order: String(p.order),
-      databaseId: p.databaseId ?? null,
-      doc: JSON.stringify(p.doc),
-      dbCells,
-      createdAt: new Date(p.createdAt).toISOString(),
-      updatedAt: new Date(p.updatedAt).toISOString(),
-    } as Record<string, unknown> & { id: string; updatedAt?: string },
-  );
+  const payload = {
+    id: p.id,
+    workspaceId,
+    createdByMemberId,
+    title: p.title,
+    icon: p.icon ?? null,
+    parentId: p.parentId ?? null,
+    order: String(p.order),
+    databaseId: p.databaseId ?? null,
+    doc: JSON.stringify(p.doc),
+    dbCells,
+    createdAt: new Date(p.createdAt).toISOString(),
+    updatedAt: new Date(p.updatedAt).toISOString(),
+  } as Record<string, unknown> & { id: string; updatedAt?: string };
+  const bytes = payloadByteLength(payload);
+  if (bytes > MAX_UPSERT_PAGE_PAYLOAD_BYTES) {
+    console.warn("[sync] upsertPage skipped: payload too large", {
+      pageId: p.id,
+      bytes,
+      limit: MAX_UPSERT_PAGE_PAYLOAD_BYTES,
+    });
+    return;
+  }
+  enqueueAsync("upsertPage", payload);
 }
 
 export function seedColumns(): ColumnDef[] {
