@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { JSONContent } from "@tiptap/react";
 import { Image } from "lucide-react";
@@ -112,6 +112,17 @@ export function DatabaseGalleryView({
     [columns, panelState.viewConfigs],
   );
 
+  // 카드별 인라인 클로저 재생성으로 GalleryCard memo 가 무력화되지 않도록 pageId 인자형 안정 콜백.
+  // (훅이므로 early return 보다 위에서 무조건 호출되어야 한다.)
+  const setCoverSrc = useCallback((pageId: string, src: string | null) => {
+    setCoverOverrides((prev) => {
+      const next = new Map(prev);
+      if (src) next.set(pageId, src);
+      else next.delete(pageId);
+      return next;
+    });
+  }, []);
+
   if (!bundle) return null;
 
   const gridStyle = {
@@ -127,14 +138,7 @@ export function DatabaseGalleryView({
       coverColumn={coverColumn}
       coverSrcOverride={coverOverrides.get(row.pageId)}
       visibleColumns={visibleColumns}
-      onSetCoverSrc={(src) => {
-        setCoverOverrides((prev) => {
-          const next = new Map(prev);
-          if (src) next.set(row.pageId, src);
-          else next.delete(row.pageId);
-          return next;
-        });
-      }}
+      onSetCoverSrc={setCoverSrc}
     />
   );
 
@@ -205,7 +209,7 @@ const GalleryCard = memo(function GalleryCard({
   coverColumn?: ColumnDef;
   coverSrcOverride?: string;
   visibleColumns: ColumnDef[];
-  onSetCoverSrc?: (src: string | null) => void;
+  onSetCoverSrc?: (pageId: string, src: string | null) => void;
 }) {
   const titleCol = columns.find((c) => c.type === "title");
   // 모든 뷰 공통 규칙 — getVisibleOrderedColumns 결과에서 제목/커버만 제외. (설정 없으면 전체 표시)
@@ -253,7 +257,7 @@ const GalleryCard = memo(function GalleryCard({
           <CoverImagePicker
             anchorEl={pickerBtnRef.current}
             imageSrcs={imageSrcs}
-            onSelect={(src) => { onSetCoverSrc?.(src); setPickerOpen(false); }}
+            onSelect={(src) => { onSetCoverSrc?.(row.pageId, src); setPickerOpen(false); }}
             onClose={() => setPickerOpen(false)}
           />,
           document.body,

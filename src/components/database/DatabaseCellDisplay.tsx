@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { CellValue, ColumnDef } from "../../types/database";
 import { OptionChip } from "./cells/OptionChip";
 import {
@@ -24,6 +25,9 @@ type Props = {
   /** 현재 행 pageId — sourceFromDb.viaPageLinkColumnId 로 연결된 페이지에서 값 자동 미러링 시 필요 */
   rowId?: string;
 };
+
+// person 미사용 셀이 멤버 변경에 리렌더되지 않도록 selector 가 반환하는 고정 빈 배열.
+const EMPTY_MEMBERS: ReturnType<typeof useMemberStore.getState>["members"] = [];
 
 function resolveSourceDisplayColumn(
   column: ColumnDef,
@@ -63,7 +67,9 @@ function pageTitlePartsFromIds(
   };
 }
 
-export function DatabaseCellDisplay({
+// memo: 한 셀/멤버/페이지 변경이 같은 행/뷰의 모든 표시 셀 리렌더로 번지지 않게 props 얕은 비교.
+// props(column/value/rowId/textClassName)는 불변 패턴으로 전달되므로 memo 효과 있음.
+export const DatabaseCellDisplay = memo(function DatabaseCellDisplay({
   column,
   value,
   textClassName,
@@ -71,7 +77,10 @@ export function DatabaseCellDisplay({
 }: Props) {
   const databases = useDatabaseStore((s) => s.databases);
   const pages = usePageStore((s) => s.pages);
-  const members = useMemberStore((s) => s.members);
+  // members 는 person 표시에서만 사용 — 그 외 컬럼은 멤버 변경에 리렌더되지 않도록 구독 생략.
+  // sourceFromDb 는 displayColumn 이 person 으로 해석될 수 있어 함께 포함(누락 방지).
+  const mayUseMembers = column.type === "person" || Boolean(column.config?.sourceFromDb);
+  const members = useMemberStore((s) => (mayUseMembers ? s.members : EMPTY_MEMBERS));
   const usingSourceDisplay = Boolean(column.config?.sourceFromDb);
   const displayColumn = usingSourceDisplay
     ? resolveSourceDisplayColumn(column, databases)
@@ -265,4 +274,4 @@ export function DatabaseCellDisplay({
       {display}
     </span>
   );
-}
+});

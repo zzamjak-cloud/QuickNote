@@ -1,6 +1,6 @@
 // 일정 카드 — react-rnd로 드래그(이동)·리사이즈(좌우) 지원.
 // Phase 2: x축 드래그 이동 + 좌/우 핸들 리사이즈. 수직 이동 비활성.
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, type MouseEvent as ReactMouseEvent } from "react";
+import { memo, useState, useRef, useCallback, useEffect, useLayoutEffect, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { Rnd } from "react-rnd";
 import { ExternalLink } from "lucide-react";
@@ -45,7 +45,7 @@ type Props = {
   multiDragDeltaX?: number | null;
   multiDragDeltaY?: number | null;
   scrollLeft?: number;
-  onMultiDragStart?: () => void;
+  onMultiDragStart?: (id: string) => void;
   onMultiDragMove?: (deltaX: number, deltaY: number) => void;
   onMultiDragEnd?: (deltaX: number, deltaY: number) => void;
 };
@@ -59,7 +59,7 @@ type ContextPointerEvent = {
   stopPropagation: () => void;
 };
 
-export function ScheduleCard({
+function ScheduleCardImpl({
   schedule,
   year,
   cellWidth,
@@ -180,9 +180,9 @@ export function ScheduleCard({
       isShiftDragRef.current = Boolean((e as { shiftKey?: boolean }).shiftKey);
     }
     if (isMultiSelected) {
-      onMultiDragStart?.();
+      onMultiDragStart?.(schedule.id);
     }
-  }, [isMultiSelected, onMultiDragStart]);
+  }, [isMultiSelected, onMultiDragStart, schedule.id]);
 
   // 드래그 중에는 자유롭게 따라가고, 드롭 시점에만 셀/행으로 스냅한다.
   const handleDrag = useCallback((_e: unknown, data: { x: number; y: number }) => {
@@ -654,3 +654,7 @@ export function ScheduleCard({
     </>
   );
 }
+
+// 가시 카드 전량 리렌더 방지 — schedule 객체는 불변 스토어에서 변경 시에만 새 참조가
+// 되고, 나머지 prop 은 원시값 또는 안정 콜백이므로 기본 shallow 비교로 정확히 갱신된다.
+export const ScheduleCard = memo(ScheduleCardImpl);

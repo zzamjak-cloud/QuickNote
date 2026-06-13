@@ -128,6 +128,16 @@ export function useProcessedRows(
     panelState.sortRules,
   ]);
 
+  // 컬럼 분류는 컬럼 정의가 바뀔 때만 변하므로 행 루프 밖에서 1회 캐싱한다.
+  // (행마다 type==="title" / isCellValueDerived 재평가 + 컬럼 배열 재순회 제거)
+  const columnPlan = useMemo(() => {
+    const columns = Array.isArray(bundle?.columns) ? bundle.columns : [];
+    const titleCol = columns.find((c) => c.type === "title") ?? null;
+    const nonTitleColumns = columns.filter((c) => c.type !== "title");
+    const derivedColumns = nonTitleColumns.filter((c) => isCellValueDerived(c));
+    return { titleCol, nonTitleColumns, derivedColumns };
+  }, [bundle]);
+
   const processed = useMemo(() => {
     if (
       !bundle ||
@@ -136,14 +146,13 @@ export function useProcessedRows(
     ) {
       return { rows: [] as DatabaseRowView[], columns: [] };
     }
-    const titleCol = bundle.columns.find((c) => c.type === "title");
+    const { titleCol, nonTitleColumns, derivedColumns } = columnPlan;
     const ordered: DatabaseRowView[] = [];
     for (const source of rowSources) {
       const cells: Record<string, CellValue> = { ...(source.dbCells ?? {}) };
       if (titleCol) cells[titleCol.id] = source.title;
-      for (const column of bundle.columns) {
-        if (column.type === "title") continue;
-        if (!isCellValueDerived(column)) continue;
+      // 1차: derived 컬럼만 계산(원본과 동일하게 filterable 보정 전에 모두 선반영)
+      for (const column of derivedColumns) {
         const derived = resolveDerivedCellValue(column, cells, pages, {
           currentRowPageId: source.pageId,
           databases,
@@ -152,8 +161,8 @@ export function useProcessedRows(
           cells[column.id] = (derived as CellValue) ?? null;
         }
       }
-      for (const column of bundle.columns) {
-        if (column.type === "title") continue;
+      // 2차: 모든 non-title 컬럼 filterable 보정(원본과 동일 순서·동일 입력)
+      for (const column of nonTitleColumns) {
         cells[column.id] = resolveFilterableCellValue({
           column,
           rowPageId: source.pageId,
@@ -185,7 +194,7 @@ export function useProcessedRows(
       queryState.sortRules,
     );
     return { rows, columns: bundle.columns };
-  }, [bundle, databases, rowSources, databaseId, members, organizations, pages, queryState, projects, teams]);
+  }, [bundle, columnPlan, databases, rowSources, databaseId, members, organizations, pages, queryState, projects, teams]);
 
   return { bundle, rows: processed.rows, columns: processed.columns };
 }

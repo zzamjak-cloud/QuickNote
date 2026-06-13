@@ -611,8 +611,19 @@ export function applyRemoteCommentsToStore(
 
   useBlockCommentStore.setState((s) => {
     const byId = new Map(s.messages.map((message) => [message.id, message]));
-    for (const id of deletes) byId.delete(id);
-    for (const msg of upserts) byId.set(msg.id, msg);
+    // 실제 변경 여부를 먼저 판정해 변경이 없으면 배열 재구성을 건너뛴다.
+    // (삭제 대상이 실제 존재하거나, upsert 가 기존 참조와 다를 때만 변경으로 본다.)
+    let changed = false;
+    for (const id of deletes) {
+      if (byId.delete(id)) changed = true;
+    }
+    for (const msg of upserts) {
+      if (byId.get(msg.id) !== msg) {
+        byId.set(msg.id, msg);
+        changed = true;
+      }
+    }
+    if (!changed) return s;
     const messages = Array.from(byId.values());
     if (messages.length === s.messages.length) {
       let same = true;

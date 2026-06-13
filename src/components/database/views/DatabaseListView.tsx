@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { getVisibleOrderedColumns } from "../../../types/database";
 import type { DatabasePanelState, DatabaseRowView } from "../../../types/database";
@@ -37,7 +37,7 @@ type Props = {
   visibleRowLimit?: number;
 };
 
-function DatabaseListRow({
+const DatabaseListRow = memo(function DatabaseListRow({
   databaseId,
   row,
   extraCols,
@@ -169,7 +169,7 @@ function DatabaseListRow({
       )}
     </div>
   );
-}
+});
 
 export function DatabaseListView({ databaseId, panelState, visibleRowLimit }: Props) {
   const { bundle, rows: allRows, columns } = useProcessedRows(databaseId, panelState);

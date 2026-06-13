@@ -851,7 +851,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                       multiDragDeltaX={isMultiDragging && isCardSelected(s.id) ? multiDragDeltaX : null}
                       multiDragDeltaY={isMultiDragging && isCardSelected(s.id) ? multiDragDeltaY : null}
                       scrollLeft={viewportState.scrollLeft}
-                      onMultiDragStart={() => handleMultiDragStart(s.id)}
+                      onMultiDragStart={handleMultiDragStart}
                       onMultiDragMove={handleMultiDragMove}
                       onMultiDragEnd={handleMultiDragComplete}
                       onSelect={handleScheduleSelect}

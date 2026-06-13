@@ -37,11 +37,12 @@ import { useWindowedRows } from "./useWindowedRows";
 import { cellToSearchString, resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "../useOpenDatabaseRow";
 import { DatabasePageSubtree } from "../DatabasePageSubtree";
-import {
-  collectPageTreePath,
-  countPageDescendants,
-} from "../../page/pageSubpageTreeUtils";
+import { collectPageTreePath } from "../../page/pageSubpageTreeUtils";
 import { useOpenPageInPeek } from "../../page/useOpenPageInPeek";
+import { useShallow } from "zustand/react/shallow";
+
+// pageTree 미사용 시 selector 가 반환할 고정 빈 Set — 매 렌더 새 Set 생성으로 인한 불필요 리렌더 방지.
+const EMPTY_PARENT_SET: ReadonlySet<string> = new Set<string>();
 
 type Props = {
   databaseId: string;
@@ -61,16 +62,19 @@ function cloneCellValue<T>(value: T): T {
 
 type FillDragState = { columnId: string; sourceRowIndex: number; sourceValue: CellValue };
 
-// props 얕은 비교: row/isBoxSelected 변경 시만 리렌더. 셀 편집 시 다른 행은 리렌더하지 않음.
+// props 얕은 비교: row/isBoxSelected/fill 관여 여부 변경 시만 리렌더. 셀 편집·타행 fill 드래그 시 리렌더하지 않음.
 const DatabaseTableRow = memo(function DatabaseTableRow({
   row,
   rIdx,
   databaseId,
   visibleCols,
   isBoxSelected,
-  fillDrag,
-  fillHoverRowIndex,
-  fillApplying,
+  hasChildren,
+  fillRangeStart,
+  fillRangeEnd,
+  fillSourceColumnId,
+  isFillSourceRow,
+  isFillApplyingRow,
   handleCheckboxClick,
   openRow,
   setIcon,
@@ -82,20 +86,25 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   databaseId: string;
   visibleCols: ColumnDef[];
   isBoxSelected: boolean;
-  fillDrag: FillDragState | null;
-  fillHoverRowIndex: number | null;
-  fillApplying: { columnId: string; sourceRowIndex: number } | null;
+  hasChildren: boolean;
+  /** fill 드래그 범위(평면 rIdx). 이 행이 범위 밖이면 null 들이 전달돼 memo 가 리렌더를 건너뛴다. */
+  fillRangeStart: number | null;
+  fillRangeEnd: number | null;
+  /** fill 드래그 대상 컬럼 id (범위 표시 테두리 그릴 컬럼) */
+  fillSourceColumnId: string | null;
+  /** 이 행이 fill 드래그의 소스 행인지 (소스 셀 핸들 강조) */
+  isFillSourceRow: boolean;
+  /** 이 행이 fill 적용중(복제중) 소스 행인지 */
+  isFillApplyingRow: boolean;
   handleCheckboxClick: (pageId: string, opts: { shiftKey: boolean }) => void;
   openRow: (pageId: string, opts?: { navigateInPeek?: boolean }) => void;
   setIcon: (pageId: string, icon: string | null) => void;
   setFillDrag: (v: FillDragState | null) => void;
   pageTreeEnabled: boolean;
 }) {
-  const pages = usePageStore((s) => s.pages);
-  const pageDescendantCount = usePageStore((s) => countPageDescendants(row.pageId, s.pages));
   const createPage = usePageStore((s) => s.createPage);
   const rootTreeCollapsed = useDatabasePageTreeCollapseStore((s) =>
-    pageTreeEnabled && pageDescendantCount > 0
+    pageTreeEnabled && hasChildren
       ? s.collapsedByKey[databasePageTreeCollapseKey(databaseId, row.pageId)] !== false
       : false,
   );
@@ -104,13 +113,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   const focusRequest = useUiStore((s) => s.databaseTreeFocusRequest);
   const requestDatabaseTreeFocus = useUiStore((s) => s.requestDatabaseTreeFocus);
   const openPageInPeek = useOpenPageInPeek();
-  const fillRangeStart = fillDrag && fillHoverRowIndex != null
-    ? Math.min(fillDrag.sourceRowIndex, fillHoverRowIndex)
-    : null;
-  const fillRangeEnd = fillDrag && fillHoverRowIndex != null
-    ? Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex)
-    : null;
-  const hasPageTree = pageTreeEnabled && pageDescendantCount > 0;
+  const hasPageTree = pageTreeEnabled && hasChildren;
 
   const createChildPage = (target: HTMLElement) => {
     const newPageId = createPage("새 페이지", row.pageId, { activate: false });
@@ -125,9 +128,11 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
   useEffect(() => {
     if (!pageTreeEnabled) return;
     if (!focusRequest || focusRequest.databaseId !== databaseId) return;
+    // focusRequest 변동 시에만 동작하는 단발 효과 — pages 전량 구독 대신 getState() 로 즉시 조회.
+    const pages = usePageStore.getState().pages;
     if (collectPageTreePath(focusRequest.pageId, pages, row.pageId).length === 0) return;
     setTreeCollapsed(databaseId, row.pageId, false);
-  }, [databaseId, focusRequest, pageTreeEnabled, pages, row.pageId, setTreeCollapsed]);
+  }, [databaseId, focusRequest, pageTreeEnabled, row.pageId, setTreeCollapsed]);
 
   return (
     <tr
@@ -163,8 +168,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
         const isFirst = cIdx === 0;
         const wrapText = col.config?.wrapText === true;
         const isFillRangeCell = Boolean(
-          fillDrag &&
-          fillDrag.columnId === col.id &&
+          fillSourceColumnId === col.id &&
           fillRangeStart != null && fillRangeEnd != null &&
           rIdx >= fillRangeStart && rIdx <= fillRangeEnd,
         );
@@ -293,7 +297,7 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                   "absolute bottom-0 right-0 z-20 flex h-4 w-4 items-center justify-center rounded-full text-blue-600",
                   "cursor-crosshair bg-white/90 dark:bg-zinc-800/90",
                   "opacity-0 transition-opacity group-hover/cell:opacity-100",
-                  fillDrag && fillDrag.columnId === col.id && fillDrag.sourceRowIndex === rIdx
+                  isFillSourceRow && fillSourceColumnId === col.id
                     ? "opacity-100"
                     : "",
                 ].join(" ")}
@@ -301,9 +305,8 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                 <Plus size={10} strokeWidth={2.5} />
               </button>
             )}
-            {fillApplying &&
-              fillApplying.columnId === col.id &&
-              fillApplying.sourceRowIndex === rIdx && (
+            {isFillApplyingRow &&
+              fillSourceColumnId === col.id && (
                 <span className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
                   <span className="rounded bg-zinc-900/85 px-2 py-0.5 text-[10px] font-medium text-white shadow-sm">
                     복제중
@@ -319,14 +322,26 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
 
 export function DatabaseTableView({ databaseId, panelState, setPanelState, visibleRowLimit }: Props) {
   const { bundle, rows: allRows } = useProcessedRows(databaseId, panelState);
-  const pages = usePageStore((s) => s.pages);
+  const pageTreeEnabled = panelState.pageTreeEnabled === true;
+  // 페이지 트리 기능이 켜진 경우에만 pages 를 구독해 "직접 자식 보유 페이지" 집합을 1회 파생한다.
+  // 노드의 전체 후손 수 > 0 ⟺ 직접 자식 1개 이상 보유이므로, 행마다 트리를 재구축(O(n)·정렬)하던
+  // countPageDescendants 를 O(1) Set 조회로 대체한다. 트리 미사용 뷰는 pages 구독 자체를 안 함.
+  const parentIdsWithChildren = usePageStore(
+    useShallow((s): ReadonlySet<string> => {
+      if (!pageTreeEnabled) return EMPTY_PARENT_SET;
+      const set = new Set<string>();
+      for (const page of Object.values(s.pages)) {
+        if (page.parentId) set.add(page.parentId);
+      }
+      return set;
+    }),
+  );
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? (allRows ?? []).slice(0, visibleRowLimit) : allRows;
   const autoFitRows = allRows ?? rows;
   const groups = useRowGroups(rows, bundle?.columns ?? [], panelState.groupByColumnId);
   const isGroupCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
   const toggleGroupCollapsed = useDatabaseGroupCollapseStore((s) => s.toggle);
-  const pageTreeEnabled = panelState.pageTreeEnabled === true;
   // fill-drag·렌더 공통 기준 행 목록. 그룹화 시 그룹 순서로 평탄화(person 다중값은 중복 가능).
   // rIdx 는 이 배열의 인덱스이므로 fill 핸들러도 동일 배열을 참조해야 일관된다.
   const effectiveRows = useMemo(
@@ -457,8 +472,8 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
     [visibleCols],
   );
   const hasPageTreeRows = useMemo(
-    () => pageTreeEnabled && rows.some((row) => countPageDescendants(row.pageId, pages) > 0),
-    [pageTreeEnabled, pages, rows],
+    () => pageTreeEnabled && rows.some((row) => parentIdsWithChildren.has(row.pageId)),
+    [pageTreeEnabled, parentIdsWithChildren, rows],
   );
   const CHECKBOX_COL = 28;
   const tableWidthPx =
@@ -555,25 +570,52 @@ export function DatabaseTableView({ databaseId, panelState, setPanelState, visib
 
   if (!bundle) return null;
 
+  // fill 드래그 상태를 전 행에 통째로 전파하면 드래그 중 모든 행이 리렌더된다.
+  // 여기서 1회 파생해, 각 행에는 자신이 관여하는 정보(범위 경계·소스 행 여부)만 좁혀 전달한다.
+  // → 드래그 시 실제로 범위에 들고나는 행만 리렌더(memo 가 나머지를 차단).
+  const fillRangeStart =
+    fillDrag && fillHoverRowIndex != null
+      ? Math.min(fillDrag.sourceRowIndex, fillHoverRowIndex)
+      : null;
+  const fillRangeEnd =
+    fillDrag && fillHoverRowIndex != null
+      ? Math.max(fillDrag.sourceRowIndex, fillHoverRowIndex)
+      : null;
+  // 범위 표시용 컬럼: 드래그 중엔 fillDrag, 적용중(드래그 종료 후)엔 fillApplying 의 컬럼.
+  const fillSourceColumnId = fillDrag?.columnId ?? fillApplying?.columnId ?? null;
+  const fillSourceRowIndex = fillDrag?.sourceRowIndex ?? null;
+  const fillApplyingRowIndex = fillApplying?.sourceRowIndex ?? null;
+
   // 그룹/평면 공통 행 렌더 — rIdx 는 effectiveRows 기준 평면 인덱스(fill-drag 일관성).
-  const renderTableRow = (row: DatabaseRowView, rIdx: number, key: string) => (
-    <DatabaseTableRow
-      key={key}
-      row={row}
-      rIdx={rIdx}
-      databaseId={databaseId}
-      visibleCols={visibleCols}
-      isBoxSelected={selectedRowIds.has(row.pageId)}
-      fillDrag={fillDrag}
-      fillHoverRowIndex={fillHoverRowIndex}
-      fillApplying={fillApplying}
-      handleCheckboxClick={handleCheckboxClick}
-      openRow={openRow}
-      setIcon={setIcon}
-      setFillDrag={setFillDrag}
-      pageTreeEnabled={pageTreeEnabled}
-    />
-  );
+  const renderTableRow = (row: DatabaseRowView, rIdx: number, key: string) => {
+    const inFillRange =
+      fillRangeStart != null && fillRangeEnd != null &&
+      rIdx >= fillRangeStart && rIdx <= fillRangeEnd;
+    return (
+      <DatabaseTableRow
+        key={key}
+        row={row}
+        rIdx={rIdx}
+        databaseId={databaseId}
+        visibleCols={visibleCols}
+        isBoxSelected={selectedRowIds.has(row.pageId)}
+        hasChildren={pageTreeEnabled && parentIdsWithChildren.has(row.pageId)}
+        // 범위 밖 행은 null 경계를 받아 memo 가 리렌더를 건너뛴다(드래그 중에도 미관여 행 안정).
+        fillRangeStart={inFillRange ? fillRangeStart : null}
+        fillRangeEnd={inFillRange ? fillRangeEnd : null}
+        fillSourceColumnId={
+          inFillRange || rIdx === fillApplyingRowIndex ? fillSourceColumnId : null
+        }
+        isFillSourceRow={rIdx === fillSourceRowIndex}
+        isFillApplyingRow={rIdx === fillApplyingRowIndex}
+        handleCheckboxClick={handleCheckboxClick}
+        openRow={openRow}
+        setIcon={setIcon}
+        setFillDrag={setFillDrag}
+        pageTreeEnabled={pageTreeEnabled}
+      />
+    );
+  };
 
   return (
     <div

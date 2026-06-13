@@ -182,24 +182,36 @@ function JsonCell({ value, onChange }: { value: CellValue; onChange: (v: CellVal
 // props 얕은 비교: column 객체·value 모두 불변 패턴으로 전달되므로 memo 효과 있음
 export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, column, value }: Props) {
   const updateCell = useDatabaseStore((s) => s.updateCell);
-  const databases = useDatabaseStore((s) => s.databases);
-  // sourceFromDb.viaPageLinkColumnId 가 설정된 컬럼은 셀값을 자동 derive — 편집 잠금.
-  const pages = usePageStore((s) => s.pages);
-  const rowCells = pages[rowId]?.dbCells;
-  const derived = resolveDerivedCellValue(column, rowCells, pages, {
-    currentRowPageId: rowId,
-    databases,
-  });
-  const pageLinkMirror = resolvePageLinkMirrorValue({
-    databases,
-    pages,
-    currentDatabaseId: databaseId,
-    rowId,
-    column,
-  });
-  const isDerived = isCellValueDerived(column);
-  const usesManualAutomationValue = shouldUseManualCellValueForAutomation(column, derived);
-  const effectiveValue: CellValue = isDerived && !usesManualAutomationValue ? ((derived as CellValue) ?? null) : value;
+  // 자동 derive(sourceFromDb)·pageLink 미러 컬럼만 pages/databases 전량을 횡단 조회해야 한다.
+  // 그 외 컬럼은 derived/mirror 가 항상 no-op 이므로 store 구독 자체를 생략해, 무관한 행/DB 변경에
+  // 의한 리렌더를 차단한다(값은 전적으로 value prop 에서 옴 — 동작 동일).
+  const needsCrossStore =
+    Boolean(column.config?.sourceFromDb) || column.type === "pageLink";
+  // 조건 없이 호출하되, 불필요 시 null 을 반환해 해당 store 변화로 리렌더되지 않게 한다.
+  const databases = useDatabaseStore((s) => (needsCrossStore ? s.databases : null));
+  const pages = usePageStore((s) => (needsCrossStore ? s.pages : null));
+
+  let effectiveValue: CellValue = value;
+  let pageLinkMirror: string[] | undefined;
+  let isDerived = false;
+  let usesManualAutomationValue = false;
+  if (needsCrossStore && pages && databases) {
+    const rowCells = pages[rowId]?.dbCells;
+    const derived = resolveDerivedCellValue(column, rowCells, pages, {
+      currentRowPageId: rowId,
+      databases,
+    });
+    pageLinkMirror = resolvePageLinkMirrorValue({
+      databases,
+      pages,
+      currentDatabaseId: databaseId,
+      rowId,
+      column,
+    });
+    isDerived = isCellValueDerived(column);
+    usesManualAutomationValue = shouldUseManualCellValueForAutomation(column, derived);
+    effectiveValue = isDerived && !usesManualAutomationValue ? ((derived as CellValue) ?? null) : value;
+  }
 
   const setVal = (v: CellValue) => {
     if (isDerived && !usesManualAutomationValue) return; // 미러 컬럼은 직접 편집 차단

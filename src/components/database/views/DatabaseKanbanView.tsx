@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { Maximize2, PanelRight, Plus, X } from "lucide-react";
 import type {
   ColumnDef,
@@ -112,14 +112,24 @@ export function DatabaseKanbanView({
     return next;
   }, [groupColId, options, rows]);
 
-  if (!bundle) return null;
+  // 카드별 인라인 클로저 재생성 방지 — pageId 인자형 안정 콜백.
+  // (훅이므로 early return 보다 위에서 무조건 호출되어야 한다.)
+  const openFull = useCallback(
+    async (pageId: string) => {
+      const loaded = await ensureRowContent(pageId, { source: "database-kanban-full-open" });
+      if (!loaded) return;
+      setActivePage(pageId);
+      setCurrentTabPage(pageId);
+    },
+    [ensureRowContent, setActivePage, setCurrentTabPage],
+  );
 
-  const openFull = async (pageId: string) => {
-    const loaded = await ensureRowContent(pageId, { source: "database-kanban-full-open" });
-    if (!loaded) return;
-    setActivePage(pageId);
-    setCurrentTabPage(pageId);
-  };
+  const openPeek = useCallback(
+    (pageId: string) => void openRow(pageId, { source: "database-kanban-row-open" }),
+    [openRow],
+  );
+
+  if (!bundle) return null;
 
   // 드롭 처리: 카드 → 다른 컬럼 = 그룹 컬럼 셀 값 변경
   const onDropToColumn = (e: React.DragEvent, colKey: string) => {
@@ -213,10 +223,10 @@ export function DatabaseKanbanView({
                       visibleCardCols={visibleCardCols}
                       colColor={col.color}
                       pageIcon={row.icon ?? null}
-                      onIconChange={(icon) => setIcon(row.pageId, icon)}
-                      onOpenFull={() => openFull(row.pageId)}
-                      onOpenPeek={() => void openRow(row.pageId, { source: "database-kanban-row-open" })}
-                      onDelete={() => setRowDeletePageId(row.pageId)}
+                      onIconChange={setIcon}
+                      onOpenFull={openFull}
+                      onOpenPeek={openPeek}
+                      onDelete={setRowDeletePageId}
                     />
                   ))}
                   {bucketRows.length === 0 && (
@@ -257,7 +267,7 @@ export function DatabaseKanbanView({
   );
 }
 
-function KanbanCard({
+const KanbanCard = memo(function KanbanCard({
   row,
   databaseId,
   visibleCardCols,
@@ -273,18 +283,19 @@ function KanbanCard({
   visibleCardCols: ColumnDef[];
   colColor: string | undefined;
   pageIcon: string | null;
-  onIconChange: (icon: string | null) => void;
-  onOpenFull: () => void;
-  onOpenPeek: () => void;
-  onDelete: () => void;
+  onIconChange: (id: string, icon: string | null) => void;
+  onOpenFull: (pageId: string) => void;
+  onOpenPeek: (pageId: string) => void;
+  onDelete: (pageId: string) => void;
 }) {
+  const pageId = row.pageId;
   return (
     <div
       draggable
       onDragStart={(e) => {
         e.stopPropagation();
         e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData(DRAG_MIME, `kanban:${row.pageId}`);
+        e.dataTransfer.setData(DRAG_MIME, `kanban:${pageId}`);
       }}
       onDragEnd={(e) => e.stopPropagation()}
       className="group relative cursor-grab rounded-md border border-zinc-200 bg-white p-2 shadow-sm hover:shadow-md active:cursor-grabbing dark:border-zinc-700 dark:bg-zinc-950"
@@ -295,7 +306,7 @@ function KanbanCard({
       <div className="mb-1 flex items-start justify-between gap-1">
         <span className="flex min-w-0 flex-1 items-center gap-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
           <span className="shrink-0" onPointerDown={(e) => e.stopPropagation()}>
-            <IconPicker current={pageIcon} size="sm" onChange={onIconChange} />
+            <IconPicker current={pageIcon} size="sm" onChange={(icon) => onIconChange(pageId, icon)} />
           </span>
           <span className="truncate">{row.title || "제목 없음"}</span>
         </span>
@@ -305,7 +316,7 @@ function KanbanCard({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              onOpenFull();
+              void onOpenFull(pageId);
             }}
             title="페이지로 열기"
             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
@@ -317,7 +328,7 @@ function KanbanCard({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              onOpenPeek();
+              onOpenPeek(pageId);
             }}
             title="사이드 피크 열기"
             className="rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800"
@@ -329,7 +340,7 @@ function KanbanCard({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              onDelete();
+              onDelete(pageId);
             }}
             title="항목 삭제"
             className="rounded p-0.5 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
@@ -359,4 +370,4 @@ function KanbanCard({
       )}
     </div>
   );
-}
+});
