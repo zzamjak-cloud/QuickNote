@@ -17,6 +17,7 @@ import {
   cacheBelongsToWorkspace,
   preloadWorkspaceSnapshots,
   workspaceHasStructureCache,
+  workspaceHasPageContentCache,
 } from "./lib/sync/workspaceSwitch";
 import { workspaceCacheNeedsPrepaintClear } from "./lib/sync/workspaceSwitch";
 import { reconcileWorkspaceCacheAfterFlush } from "./lib/sync/reconcileWorkspaceCacheAfterFlush";
@@ -284,9 +285,13 @@ function useSyncBootstrap(): void {
           if (
             updatedAfter &&
             !cancelled &&
-            !workspaceHasStructureCache(currentWorkspaceId)
+            (!workspaceHasStructureCache(currentWorkspaceId) ||
+              // 구조 캐시(nextToken=null)는 있으나 실제 보이는 페이지 본문이 0개인 경우 —
+              // persist 된 빈 캐시가 cache-hit 으로 처리되어 증분 fetch 만 돌면 사이드바가
+              // 영구히 빈 상태로 굳는다(데스크톱 SQLite persist 재발). 전체 fetch 로 강제 복구.
+              !workspaceHasPageContentCache(currentWorkspaceId))
           ) {
-            await applyRemote(undefined, "워크스페이스 전환(증분 캐시 비어 있음 → 전체)");
+            await applyRemote(undefined, "워크스페이스 전환(증분 후 캐시·본문 비어 있음 → 전체)");
           }
           if (
             useMetaBaseline &&
