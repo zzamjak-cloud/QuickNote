@@ -309,6 +309,91 @@ function stripLeadingTitle(markdown: string, title: string): string {
   return lines.join("\n");
 }
 
+// 표 본문/헤더 라인 형태(파이프 포함)인지 판정
+function isTableRowLine(line: string): boolean {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+
+// 구분선(|---|:--:|---| 등) 형태인지 판정
+function isTableDelimiterLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.includes("-")) return false;
+  // 셀마다 :?-+:? 형태여야 하며 파이프 구분 필요
+  return /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(trimmed);
+}
+
+// 한 라인을 셀 배열로 분리. escape 된 \| 는 셀 내용으로 보존
+function splitTableRow(line: string): string[] {
+  const cells: string[] = [];
+  let cur = "";
+  // 앞뒤 공백 제거 후 처리
+  const s = line.trim();
+  for (let idx = 0; idx < s.length; idx += 1) {
+    const ch = s[idx];
+    if (ch === "\\" && s[idx + 1] === "|") {
+      // escape 된 파이프는 셀 내용으로 살린다
+      cur += "|";
+      idx += 1;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur);
+  // 앞뒤 빈 셀(leading/trailing 파이프로 생긴 것) 제거
+  if (cells.length > 0 && cells[0]?.trim() === "") cells.shift();
+  if (cells.length > 0 && cells[cells.length - 1]?.trim() === "") cells.pop();
+  return cells.map((c) => c.trim());
+}
+
+// 셀 1개를 tableHeader/tableCell 노드로. htmlToDoc.tableFromElement 와 동일 구조
+function tableCellNode(text: string, isHeader: boolean): JSONContent {
+  const inline = text ? parseInlineContent(text) : [];
+  const paragraph: JSONContent = {
+    type: "paragraph",
+    content: inline.length > 0 ? inline : [],
+  };
+  return {
+    type: isHeader ? "tableHeader" : "tableCell",
+    content: [paragraph],
+  };
+}
+
+// 헤더 라인 + 구분선 + 본문 라인들을 table JSONContent 로 변환
+function buildTableNode(headerLine: string, bodyLines: string[]): JSONContent {
+  const headerCells = splitTableRow(headerLine);
+  const colCount = headerCells.length;
+  const rows: JSONContent[] = [];
+
+  // 헤더 행
+  rows.push({
+    type: "tableRow",
+    content: headerCells.map((cell) => tableCellNode(cell, true)),
+  });
+
+  // 본문 행: 헤더 열 수에 맞춰 부족분 빈 셀 채우고 초과분 버림
+  bodyLines.forEach((bodyLine) => {
+    const cells = splitTableRow(bodyLine);
+    const normalized: string[] = [];
+    for (let c = 0; c < colCount; c += 1) {
+      normalized.push(cells[c] ?? "");
+    }
+    rows.push({
+      type: "tableRow",
+      content: normalized.map((cell) => tableCellNode(cell, false)),
+    });
+  });
+
+  return {
+    type: "table",
+    content: rows.length > 0 ? rows : [{ type: "tableRow", content: [] }],
+  };
+}
+
 export function notionMarkdownToDoc(markdown: string, options?: { pageTitle?: string }): JSONContent {
   const normalizedMarkdown = options?.pageTitle
     ? stripLeadingTitle(markdown, options.pageTitle)
@@ -395,6 +480,21 @@ export function notionMarkdownToDoc(markdown: string, options?: { pageTitle?: st
         i += 1;
       }
       content.push(taskListNode(tasks));
+      continue;
+    }
+
+    // GFM 표: 현재 라인이 파이프 행이고 다음 라인이 구분선이면 표로 변환
+    if (isTableRowLine(line) && isTableDelimiterLine(lines[i + 1] ?? "")) {
+      const headerLine = line;
+      i += 2; // 헤더 + 구분선 소비
+      const bodyLines: string[] = [];
+      while (i < lines.length) {
+        const cur = (lines[i] ?? "").trimEnd();
+        if (!isTableRowLine(cur)) break;
+        bodyLines.push(cur);
+        i += 1;
+      }
+      content.push(buildTableNode(headerLine, bodyLines));
       continue;
     }
 
