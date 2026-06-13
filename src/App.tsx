@@ -23,17 +23,11 @@ import { useDatabaseStore } from "./store/databaseStore";
 import { usePageMetaRemoteStore } from "./store/pageMetaRemoteStore";
 import { useUiStore } from "./store/uiStore";
 import { useWorkspaceStore } from "./store/workspaceStore";
-import { useNavigationHistoryStore } from "./store/navigationHistoryStore";
 import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
 import { zustandStorage } from "./lib/storage/index";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import { buildQuickNotePageUrl, parseQuickNoteLink, type QuickNoteLinkTarget } from "./lib/navigation/quicknoteLinks";
-import {
-  openPageInCurrentTab,
-  openPageInNewTab,
-  shouldOpenInternalLinkInNewTab,
-} from "./lib/navigation/internalNavigation";
 import { navigateToBlockLink } from "./lib/editor/editorNavigationBridge";
 import { shouldAutoEnsureFullPageDatabaseHome } from "./lib/database/shouldAutoEnsureFullPageDatabaseHome";
 import {
@@ -160,61 +154,24 @@ function App() {
     return bindPageScrollMemory(activePageId, databaseRowScrollHostRef.current, "db-row");
   }, [activePage?.databaseId, activePageId]);
 
-  // 멘션 클릭 안전망 — PM 플러그인 체인이 어떤 이유로든 클릭을 처리하지 못하더라도
-  // document 레벨에서 mention 클릭을 받아 navigate. (DB 행 페이지 등 특정 컨텍스트에서
-  // 클릭이 막혀 보이던 회귀를 영구 차단.) capture 단계로 어떤 자식 핸들러보다 먼저 받는다.
+  // 에디터 내 외부 링크(http/https) 클릭 안전망 — document 캡처 단계에서 받아 새 창으로 연다.
+  // (페이지 멘션 이동은 mention.tsx 의 mouseup 핸들러가 단일 경로로 담당한다.)
   useEffect(() => {
     const onEditorPointerClick = (e: MouseEvent) => {
       if (e.button !== 0) return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
-
       const anchor = target.closest<HTMLAnchorElement>("a[href]");
-      if (anchor?.closest(".ProseMirror")) {
-        if (!anchor.closest("[data-bookmark-block], [data-page-link], [data-button-block]")) {
-          const href = anchor.getAttribute("href") ?? "";
-          // http(s) 외부 링크만 새 창으로 연다. mailto:/tel: 을 window.open 으로 열면
-          // webview 가 해당 스킴을 처리하지 못해 net::ERR_UNKNOWN_URL_SCHEME 가 난다 —
-          // 기본 동작(OS 핸들러 위임)에 맡긴다.
-          const isWebUrl = /^https?:\/\//i.test(href);
-          if (isWebUrl && !parseQuickNoteLink(href)) {
-            e.preventDefault();
-            e.stopPropagation();
-            window.open(href, "_blank", "noopener,noreferrer");
-            return;
-          }
-        }
-      }
-
-      const el = target.closest<HTMLElement>("[data-type='mention'][data-id]");
-      if (!el) return;
-      const rawId = el.getAttribute("data-id");
-      if (!rawId) return;
-      const kind = el.getAttribute("data-mention-kind");
-      // 멤버·DB 멘션은 페이지 이동이 아니므로 PM 핸들러(프로필 팝업·안내 토스트)에 위임
-      if (rawId.startsWith("m:") || kind === "member") return;
-      if (rawId.startsWith("d:") || kind === "database") return;
-      const id = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
-      if (!id) return;
-      e.preventDefault();
-      e.stopPropagation();
-      // Ctrl/Cmd+클릭 → 새 탭에서 열기
-      if (shouldOpenInternalLinkInNewTab(e)) {
-        openPageInNewTab(id);
-        return;
-      }
-      const inPeek = !!el.closest("[data-qn-peek-editor='true']");
-      const peekActive = useUiStore.getState().peekPageId;
-      if (inPeek && peekActive) {
-        useUiStore.getState().peekNavigate(id);
-      } else {
-        // 멘션으로 이동하기 전 현재 페이지를 뒤로가기 스택에 기록 → 헤더 '이전 페이지' 버튼.
-        const fromId = usePageStore.getState().activePageId;
-        if (fromId && fromId !== id) {
-          useNavigationHistoryStore.getState().pushBack(fromId, id);
-        }
-        // openPageInCurrentTab 이 브라우저 히스토리도 push 해 뒤로가기를 지원한다.
-        openPageInCurrentTab(id);
+      if (!anchor?.closest(".ProseMirror")) return;
+      if (anchor.closest("[data-bookmark-block], [data-page-link], [data-button-block]")) return;
+      const href = anchor.getAttribute("href") ?? "";
+      // http(s) 외부 링크만 새 창으로. mailto:/tel: 을 window.open 으로 열면 webview 가
+      // 스킴을 처리하지 못해 net::ERR_UNKNOWN_URL_SCHEME → 기본 동작(OS 핸들러)에 위임한다.
+      const isWebUrl = /^https?:\/\//i.test(href);
+      if (isWebUrl && !parseQuickNoteLink(href)) {
+        e.preventDefault();
+        e.stopPropagation();
+        window.open(href, "_blank", "noopener,noreferrer");
       }
     };
     document.addEventListener("click", onEditorPointerClick, true);
