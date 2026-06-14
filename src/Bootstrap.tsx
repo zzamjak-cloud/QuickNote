@@ -8,7 +8,7 @@ import {
 import type { GqlProject } from "./lib/sync/graphql/operations";
 import { getSyncEngine, shutdownSyncEngine } from "./lib/sync/runtime";
 import {
-  applyRemotePageToStore,
+  applyRemotePageMetasToStore,
   applyRemoteDatabaseToStore,
   applyRemoteCommentToStore,
 } from "./lib/sync/storeApply";
@@ -379,7 +379,7 @@ function useSyncBootstrap(): void {
             const isSchedulerPage = isLCSchedulerDatabaseId(
               p.databaseId ?? usePageStore.getState().pages[p.id]?.databaseId ?? null,
             );
-            applyRemotePageToStore(p);
+            applyRemotePageMetasToStore([p]);
             if (isSchedulerPage) {
               refreshSchedulerPage(p.id);
             }
@@ -526,7 +526,7 @@ function useSyncBootstrap(): void {
         const isSchedulerPage = isLCSchedulerDatabaseId(
           p.databaseId ?? usePageStore.getState().pages[p.id]?.databaseId ?? null,
         );
-        applyRemotePageToStore(p);
+        applyRemotePageMetasToStore([p]);
         if (isSchedulerPage) refreshSchedulerPage(p.id);
       },
       onDatabase: (d) => {

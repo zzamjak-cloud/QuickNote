@@ -3,7 +3,7 @@ import {
   ON_PAGE_CHANGED,
   ON_DATABASE_CHANGED,
   ON_PROJECT_CHANGED,
-  type GqlPage,
+  type GqlPageMeta,
   type GqlDatabase,
   type GqlProject,
 } from "./graphql/operations";
@@ -25,7 +25,7 @@ import {
 // 반환된 함수를 호출하면 모든 구독과 재연결 타이머를 해제.
 
 export type SubscribeHandlers = {
-  onPage: (item: GqlPage) => void;
+  onPage: (item: GqlPageMeta) => void;
   onDatabase: (item: GqlDatabase) => void;
   onComment: (item: GqlComment) => void;
   onProject?: (item: GqlProject) => void;
@@ -145,7 +145,7 @@ export function startSubscriptions(
           GqlPageSchema,
           "onPageChanged",
         );
-        if (parsed) handlers.onPage(parsed as unknown as GqlPage);
+        if (parsed) handlers.onPage(parsed as unknown as GqlPageMeta);
       },
       error: (e) => {
         logSubError("page", e);

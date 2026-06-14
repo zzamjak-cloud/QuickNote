@@ -115,9 +115,13 @@ export const PERMANENTLY_DELETE_PAGE = `
   }
 `;
 
+// 구독 페이로드에서 doc/dbCells/blockComments(대용량 AWSJSON)를 제외하고 meta 만 싣는다.
+// AppSync 구독은 ~240KB 페이로드 한도가 있어, 본문이 큰 페이지(노션 가져오기 등)는
+// 한도를 넘으면 mutation 은 성공해도 구독 fan-out 이 조용히 누락된다(생성 지연·삭제 전파 실패).
+// meta-only 로 보내 한도를 회피하고, 본문은 협업(Yjs) 또는 페이지 열람 시 지연 로드로 가져온다.
 export const ON_PAGE_CHANGED = `
   subscription OnPageChanged($workspaceId: ID!) {
-    onPageChanged(workspaceId: $workspaceId) { ${PAGE_FIELDS} }
+    onPageChanged(workspaceId: $workspaceId) { ${PAGE_META_FIELDS} }
   }
 `;
 
