@@ -14,13 +14,6 @@ import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
 import { PageIconDisplay } from "../../components/common/PageIconDisplay";
 import { isImageLikePageIcon, LUCIDE_PAGE_ICON_PREFIX } from "../pageIcon";
-import {
-  shouldOpenInternalLinkInNewTab,
-  openPageInCurrentTab,
-  openPageInNewTab,
-} from "../navigation/internalNavigation";
-import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
-
 /** 정적 직렬화(renderHTML/renderText)에서 텍스트로 노출해도 되는 아이콘인지 — 이모지만 허용 */
 function isPlainEmojiIcon(icon: string | null | undefined): icon is string {
   if (!icon) return false;
@@ -206,19 +199,10 @@ const MentionNode = Mention.extend({
   },
 
   addProseMirrorPlugins() {
-    // 멘션 클릭 처리:
-    //  - 멤버 멘션 → 프로필 팝업, DB 멘션 → 안내 토스트 (mousedown 에서 처리)
-    //  - 페이지 멘션 이동(현재 탭/새 탭(Ctrl·Cmd)/사이드 피크)은 mousedown 에서 press 정보를
-    //    캡처하고 mouseup 에서 수행한다. (과거에는 App.tsx document 캡처 click 핸들러가 담당했으나,
-    //    멘션 삽입 직후 React NodeView 재렌더로 mousedown/mouseup 타깃이 달라져 click 이 아예
-    //    발생하지 않아 "신규 멘션만 이동 안 됨" 회귀가 났다. mouseup 은 노드 재마운트와 무관하게
-    //    발생하므로 신뢰성 있다. 단일 경로라 Ctrl+클릭 새 탭 2개 열림도 없다.)
-    let pagePress:
-      | { x: number; y: number; id: string; inPeek: boolean }
-      | null = null;
-
+    // 멘션 mousedown 처리:
+    //  - 멤버 멘션 → 프로필 팝업, DB 멘션 → 안내 토스트
+    //  - 페이지 멘션 → atom NodeSelection 만 막음. 이동은 pageMentionClick.ts(document mouseup) 담당.
     const handleMentionMouseDown = (event: MouseEvent): boolean => {
-      pagePress = null;
       const target = event.target as HTMLElement;
       const el = target.closest<HTMLElement>('[data-type="mention"][data-id]');
       if (!el) return false;
@@ -254,44 +238,8 @@ const MentionNode = Mention.extend({
         return true;
       }
 
-      // 페이지 멘션 — atom 선택을 막고, 이동에 필요한 정보를 mouseup 용으로 캡처한다.
+      // 페이지 멘션 — atom 선택만 막는다. 이동은 document mouseup(pageMentionClick.ts).
       event.preventDefault();
-      const pageId = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
-      if (event.button === 0 && pageId) {
-        pagePress = {
-          x: event.clientX,
-          y: event.clientY,
-          id: pageId,
-          inPeek: !!el.closest("[data-qn-peek-editor='true']"),
-        };
-      }
-      return true;
-    };
-
-    const handleMentionMouseUp = (event: MouseEvent): boolean => {
-      const press = pagePress;
-      pagePress = null;
-      if (!press || event.button !== 0) return false;
-      // 드래그(텍스트 선택)로 끝난 경우엔 이동하지 않는다.
-      if (Math.abs(event.clientX - press.x) > 4 || Math.abs(event.clientY - press.y) > 4) {
-        return false;
-      }
-      event.preventDefault();
-      // Ctrl/Cmd+클릭 → 새 탭
-      if (shouldOpenInternalLinkInNewTab(event)) {
-        openPageInNewTab(press.id);
-        return true;
-      }
-      if (press.inPeek && useUiStore.getState().peekPageId) {
-        useUiStore.getState().peekNavigate(press.id);
-      } else {
-        // 이동 전 현재 페이지를 뒤로가기 스택에 기록.
-        const fromId = usePageStore.getState().activePageId;
-        if (fromId && fromId !== press.id) {
-          useNavigationHistoryStore.getState().pushBack(fromId, press.id);
-        }
-        openPageInCurrentTab(press.id);
-      }
       return true;
     };
 
@@ -301,9 +249,6 @@ const MentionNode = Mention.extend({
           handleDOMEvents: {
             mousedown(_view, event) {
               return handleMentionMouseDown(event);
-            },
-            mouseup(_view, event) {
-              return handleMentionMouseUp(event);
             },
           },
         },

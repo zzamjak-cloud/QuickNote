@@ -6,6 +6,7 @@ const UNIQUE_ID_EXCLUDED_NODE_TYPES = new Set([
   "fileBlock",
   "image",
   "lucideInlineIcon",
+  "imageInlineIcon",
   "mention",
   "youtube",
 ]);

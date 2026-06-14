@@ -257,7 +257,7 @@ export const blockDefinitions: BlockDefinition[] = [
   defineBlock({
     id: "emoji",
     title: "이모지",
-    nodeTypes: ["emoji", "lucideInlineIcon"],
+    nodeTypes: ["emoji", "lucideInlineIcon", "imageInlineIcon"],
     group: "interactive",
     dnd: movableLeafDnd,
     editor: { excludeFromUniqueId: true },

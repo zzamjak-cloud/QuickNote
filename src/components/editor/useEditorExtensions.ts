@@ -54,6 +54,7 @@ import { PageLink } from "../../lib/tiptapExtensions/pageLink";
 import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
 import { BookmarkBlock } from "../../lib/tiptapExtensions/bookmarkBlock";
 import { LucideInlineIcon } from "../../lib/tiptapExtensions/lucideInlineIcon";
+import { ImageInlineIcon } from "../../lib/tiptapExtensions/imageInlineIcon";
 import { DateInline } from "../../lib/tiptapExtensions/dateInline";
 import { FileBlock } from "../../lib/tiptapExtensions/fileBlock";
 import { BlockBackground } from "../../lib/tiptapExtensions/blockBackground";
@@ -188,6 +189,7 @@ export function useEditorExtensions({
       InsertBeforeBlock,
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       LucideInlineIcon,
+      ImageInlineIcon,
       DateInline,
       BlockBackground,
       SlashCommand.configure({

@@ -865,8 +865,7 @@ function EditorInner({
     [editor],
   );
 
-  // 슬래시 picker 에서 고른 커스텀 아이콘(이미지 URL)을 본문에 이미지로 삽입.
-  // 기존 이미지 삽입 경로(image 노드)를 그대로 사용한다.
+  // 슬래시 picker 에서 고른 커스텀 아이콘을 인라인 아이콘 노드로 삽입한다.
   const insertCustomIconAtAnchor = useCallback(
     (src: string) => {
       if (!editor || !emojiAnchor || emojiAnchor.insertPos == null) return;
@@ -874,7 +873,7 @@ function EditorInner({
         .chain()
         .focus()
         .insertContentAt(emojiAnchor.insertPos, {
-          type: "image",
+          type: "imageInlineIcon",
           attrs: { src },
         })
         .run();
