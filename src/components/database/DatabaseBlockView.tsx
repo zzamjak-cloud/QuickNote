@@ -1,7 +1,6 @@
 import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper } from "@tiptap/react";
 import {
-  lazy,
   Suspense,
   useCallback,
   useEffect,
@@ -23,21 +22,7 @@ import type {
   ViewKind,
 } from "../../types/database";
 import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema";
-const DatabaseTableView = lazy(() =>
-  import("./views/DatabaseTableView").then((m) => ({ default: m.DatabaseTableView })),
-);
-const DatabaseKanbanView = lazy(() =>
-  import("./views/DatabaseKanbanView").then((m) => ({ default: m.DatabaseKanbanView })),
-);
-const DatabaseGalleryView = lazy(() =>
-  import("./views/DatabaseGalleryView").then((m) => ({ default: m.DatabaseGalleryView })),
-);
-const DatabaseTimelineView = lazy(() =>
-  import("./views/DatabaseTimelineView").then((m) => ({ default: m.DatabaseTimelineView })),
-);
-const DatabaseListView = lazy(() =>
-  import("./views/DatabaseListView").then((m) => ({ default: m.DatabaseListView })),
-);
+import { DATABASE_VIEW_REGISTRY } from "./databaseViewRegistry";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
 import { DatabaseBlockBinding } from "./DatabaseBlockBinding";
@@ -458,55 +443,17 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const activeViewComponent = useMemo(() => {
     if (!bundle) return null;
-    switch (view) {
-      case "table":
-        return (
-          <DatabaseTableView
-            databaseId={viewDatabaseId}
-            panelState={panelState}
-            setPanelState={setPanelState}
-            visibleRowLimit={visibleRowLimit}
-          />
-        );
-      case "list":
-        return (
-          <DatabaseListView
-            databaseId={viewDatabaseId}
-            panelState={panelState}
-            setPanelState={setPanelState}
-            visibleRowLimit={visibleRowLimit}
-          />
-        );
-      case "kanban":
-        return (
-          <DatabaseKanbanView
-            databaseId={viewDatabaseId}
-            panelState={panelState}
-            setPanelState={setPanelState}
-            visibleRowLimit={visibleRowLimit}
-          />
-        );
-      case "gallery":
-        return (
-          <DatabaseGalleryView
-            databaseId={viewDatabaseId}
-            panelState={panelState}
-            setPanelState={setPanelState}
-            visibleRowLimit={visibleRowLimit}
-          />
-        );
-      case "timeline":
-        return (
-          <DatabaseTimelineView
-            databaseId={viewDatabaseId}
-            panelState={panelState}
-            setPanelState={setPanelState}
-            visibleRowLimit={visibleRowLimit}
-          />
-        );
-      default:
-        return null;
-    }
+    const entry = DATABASE_VIEW_REGISTRY[view];
+    if (!entry) return null;
+    const ViewComponent = entry.component;
+    return (
+      <ViewComponent
+        databaseId={viewDatabaseId}
+        panelState={panelState}
+        setPanelState={setPanelState}
+        visibleRowLimit={visibleRowLimit}
+      />
+    );
   }, [bundle, panelState, setPanelState, view, viewDatabaseId, visibleRowLimit]);
 
   return (
