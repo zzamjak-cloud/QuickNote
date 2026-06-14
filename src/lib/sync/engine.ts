@@ -11,33 +11,21 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { isLCSchedulerDatabaseId } from "../scheduler/database";
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import { markPermanentlyDeletedEntity } from "./localDeleteGuards";
+import {
+  isDeleteOp,
+  supersededUpsertOpForDelete,
+  SYNC_OP_REGISTRY,
+  type EnqueuePayload,
+  type GqlBridge,
+} from "./syncOpRegistry";
 
 // 동기화 엔진. enqueue 시 outbox 에 적재 → 백그라운드 워커가 mutation 으로 flush.
 // 같은 (op, id) 의 새 enqueue 는 dedupe 로 마지막 본만 남김.
 // 실패한 항목만 지수 백오프 재시도(최대 60초), 나머지 배치는 계속 처리.
+// op 별 실행/삭제판정/supersede/tombstone 배선은 syncOpRegistry 단일 등록점에 있다.
 
-export interface GqlBridge {
-  upsertPage(input: unknown): Promise<void>;
-  upsertDatabase(input: unknown): Promise<void>;
-  softDeletePage(id: string, workspaceId: string, updatedAt: string): Promise<void>;
-  softDeleteDatabase(id: string, workspaceId: string, updatedAt: string): Promise<void>;
-  /** 멤버 본인 clientPrefs(즐겨찾기 등) 동기화. */
-  updateMyClientPrefs(clientPrefsJson: string): Promise<void>;
-  upsertComment(input: unknown): Promise<void>;
-  softDeleteComment(id: string, workspaceId: string, updatedAt: string): Promise<void>;
-}
-
-function normalizeClientPrefsJsonForServer(json: string): string {
-  try {
-    const parsed = JSON.parse(json) as Record<string, unknown>;
-    if (Number(parsed.v) === 2) {
-      return JSON.stringify({ ...parsed, v: 1 });
-    }
-  } catch {
-    return json;
-  }
-  return json;
-}
+// 기존 임포트 경로(`./engine`)를 유지하기 위해 재노출한다.
+export type { EnqueuePayload, GqlBridge } from "./syncOpRegistry";
 
 const MAX_BACKOFF_MS = 60_000;
 const DEAD_LETTER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -137,34 +125,16 @@ function isResourceGoneError(message: string): boolean {
   );
 }
 
-function isDeleteOp(op: OutboxOp): boolean {
-  return op === "softDeletePage" || op === "softDeleteDatabase" || op === "softDeleteComment";
-}
-
 /** delete op entry 가 서버에서 영구히 사라진 것으로 확정될 때 호출. localDeleteGuards 를 영구 tombstone 으로 승격. */
 function promoteDeleteEntryToPermanentTombstone(entry: OutboxEntry): void {
   const payload = entry.payload as { id?: string; workspaceId?: string };
   const id = payload?.id;
   const workspaceId = payload?.workspaceId ?? entry.workspaceId;
   if (!id || !workspaceId) return;
-  if (entry.op === "softDeletePage") {
-    markPermanentlyDeletedEntity("page", id, workspaceId);
-  } else if (entry.op === "softDeleteDatabase") {
-    markPermanentlyDeletedEntity("database", id, workspaceId);
-  }
-  // comment 는 별도 가드 시스템이 없으므로 처리하지 않음.
-}
-
-function supersededUpsertOpForDelete(op: OutboxOp): OutboxOp | null {
-  switch (op) {
-    case "softDeletePage":
-      return "upsertPage";
-    case "softDeleteDatabase":
-      return "upsertDatabase";
-    case "softDeleteComment":
-      return "upsertComment";
-    default:
-      return null;
+  // comment 등 tombstone 가드 미지원 엔티티는 tombstoneEntity 가 null 이라 건너뛴다.
+  const tombstoneEntity = SYNC_OP_REGISTRY[entry.op].tombstoneEntity;
+  if (tombstoneEntity) {
+    markPermanentlyDeletedEntity(tombstoneEntity, id, workspaceId);
   }
 }
 
@@ -190,14 +160,6 @@ function isWorkspaceMismatchDebugEnabled(): boolean {
     return false;
   }
 }
-
-export type EnqueuePayload = {
-  id: string;
-  workspaceId?: string;
-  updatedAt?: string;
-  /** updateMyClientPrefs 전용(JSON 문자열) */
-  clientPrefs?: string;
-};
 
 export class SyncEngine {
   private flushing = false;
@@ -530,28 +492,7 @@ export class SyncEngine {
 
   private async execute(entry: OutboxEntry): Promise<void> {
     const p = entry.payload as EnqueuePayload;
-    switch (entry.op) {
-      case "upsertPage":
-        return this.gql.upsertPage(p);
-      case "upsertDatabase":
-        return this.gql.upsertDatabase(p);
-      case "softDeletePage":
-        return this.gql.softDeletePage(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
-      case "softDeleteDatabase":
-        if (isLCSchedulerDatabaseId(p.id)) return;
-        return this.gql.softDeleteDatabase(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
-      case "upsertComment":
-        return this.gql.upsertComment(p);
-      case "softDeleteComment":
-        return this.gql.softDeleteComment(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
-      case "updateMyClientPrefs": {
-        const json = (p as { clientPrefs?: string }).clientPrefs;
-        if (typeof json !== "string" || !json) {
-          throw new Error("updateMyClientPrefs: clientPrefs 문자열 누락");
-        }
-        return this.gql.updateMyClientPrefs(normalizeClientPrefsJsonForServer(json));
-      }
-    }
+    return SYNC_OP_REGISTRY[entry.op].execute(this.gql, p);
   }
 
   private async removeSupersededUpsertForDelete(entry: OutboxEntry): Promise<void> {
