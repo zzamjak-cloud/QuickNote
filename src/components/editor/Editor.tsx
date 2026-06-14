@@ -37,6 +37,7 @@ import {
 } from "../../lib/sync/pageContentLoad";
 import { setPageContext } from "../../lib/tiptapExtensions/pageContext";
 import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/insertBeforeBlock";
+import { isDefaultNewPageTitle, PAGE_TITLE_DUPLICATE_MESSAGE, preparePageTitleInput } from "../../store/pageStore/helpers";
 import { ImageUpload } from "./ImageUpload";
 import { ServerImagePicker } from "./ServerImagePicker";
 import { IconPickerPanel } from "../common/IconPicker";
@@ -913,7 +914,7 @@ function EditorInner({
 
   // 새 페이지 생성 시 제목 자동 포커스
   useEffect(() => {
-    if (page && page.title === "새 페이지") {
+    if (page && isDefaultNewPageTitle(page.title)) {
       titleRef.current?.focus();
       titleRef.current?.select();
     }
@@ -1122,9 +1123,18 @@ function EditorInner({
                   titleFocusPageIdRef.current = null;
                   if (!focusPageId || focusPageId !== effectivePageId) return;
 
-                  const nextTitle = titleDraft.trim() || "제목 없음";
+                  const nextTitle = preparePageTitleInput(titleDraft);
                   if (nextTitle !== page.title) {
-                    renamePage(focusPageId, nextTitle);
+                    const ok = renamePage(focusPageId, nextTitle);
+                    if (!ok) {
+                      setSimpleAlert(PAGE_TITLE_DUPLICATE_MESSAGE);
+                      syncTitleDraft(page.title);
+                      window.setTimeout(() => {
+                        titleRef.current?.focus();
+                        titleRef.current?.select();
+                      }, 0);
+                      return;
+                    }
                   }
                   if (!isFullPageDatabase) return;
                   const ok = trySyncFullPageDatabaseTitle(page.doc, nextTitle);

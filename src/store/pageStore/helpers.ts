@@ -215,3 +215,101 @@ export function isDescendant(
   }
   return false;
 }
+
+/** 표시용 제목 정규화 — 비교·중복 검사에 공통 사용 */
+export function normalizePageTitle(title: string): string {
+  return title.trim() || "제목 없음";
+}
+
+function isPageSoftDeleted(page: Page): boolean {
+  return Boolean((page as { deletedAt?: string | null }).deletedAt);
+}
+
+function pageInWorkspace(page: Page, workspaceId: string | undefined): boolean {
+  return (page.workspaceId ?? "") === (workspaceId ?? "");
+}
+
+export function isPageTitleTaken(
+  pages: PageMap,
+  title: string,
+  opts?: { exceptId?: string; workspaceId?: string; reservedTitles?: Set<string> },
+): boolean {
+  const normalized = normalizePageTitle(title);
+  if (opts?.reservedTitles?.has(normalized)) return true;
+  const exceptId = opts?.exceptId ?? "";
+  const workspaceId = opts?.workspaceId;
+  for (const [id, page] of Object.entries(pages)) {
+    if (id === exceptId) continue;
+    if (isPageSoftDeleted(page)) continue;
+    if (workspaceId !== undefined && !pageInWorkspace(page, workspaceId)) continue;
+    if (normalizePageTitle(page.title) === normalized) return true;
+  }
+  return false;
+}
+
+/** 신규 페이지용 — 워크스페이스 내 기존 제목과 겹치지 않는 제목 */
+export function allocateUniquePageTitle(
+  pages: PageMap,
+  preferred: string,
+  opts?: {
+    workspaceId?: string;
+    exceptId?: string;
+    reservedTitles?: Set<string>;
+  },
+): string {
+  const base = normalizePageTitle(preferred);
+  if (!isPageTitleTaken(pages, base, opts)) return base;
+  let n = 1;
+  while (isPageTitleTaken(pages, `${base} (${n})`, opts)) {
+    n += 1;
+  }
+  return `${base} (${n})`;
+}
+
+/** 워크스페이스 복제 등 — 대상 WS 의 기존 페이지 제목 인덱스 */
+export function collectWorkspacePages(
+  pages: PageMap,
+  workspaceId: string,
+): PageMap {
+  const out: PageMap = {};
+  for (const [id, page] of Object.entries(pages)) {
+    if (isPageSoftDeleted(page)) continue;
+    if (!pageInWorkspace(page, workspaceId)) continue;
+    out[id] = page;
+  }
+  return out;
+}
+
+export function mergeRemotePageMetasIntoMap(
+  target: PageMap,
+  metas: Array<{ id: string; title: string; deletedAt?: string | null }>,
+  workspaceId: string,
+): void {
+  for (const meta of metas) {
+    if (meta.deletedAt) continue;
+    if (target[meta.id]) continue;
+    target[meta.id] = {
+      id: meta.id,
+      title: meta.title,
+      icon: null,
+      doc: structuredClone(EMPTY_DOC),
+      parentId: null,
+      order: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      workspaceId,
+    };
+  }
+}
+
+export const PAGE_TITLE_DUPLICATE_MESSAGE =
+  "이미 같은 이름의 페이지가 있습니다. 다른 이름을 입력해 주세요.";
+
+export function preparePageTitleInput(draft: string): string {
+  return normalizePageTitle(draft);
+}
+
+/** 사이드바·+ 버튼 등 기본 생성 제목 — "새 페이지 (1)" 형태 포함 */
+export function isDefaultNewPageTitle(title: string): boolean {
+  return /^새 페이지(?: \(\d+\))?$/.test(title.trim());
+}

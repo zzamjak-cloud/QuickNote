@@ -26,6 +26,8 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { DbPropertySection } from "../page/DbPropertySection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
+import { PAGE_TITLE_DUPLICATE_MESSAGE, preparePageTitleInput } from "../../store/pageStore/helpers";
 import { PageHistoryPreviewDialog } from "../history/PageHistoryPreviewDialog";
 import { PageMoveDialog } from "../layout/PageMoveDialog";
 import { PageCommentBar } from "../comments/PageCommentBar";
@@ -167,6 +169,8 @@ export function DatabaseRowPeek() {
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const titleDraftRef = useRef(titleDraft);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const [titleDuplicateAlert, setTitleDuplicateAlert] = useState(false);
   const [width, setWidth] = useState<number>(() => loadPeekWidth());
   const [menuOpen, setMenuOpen] = useState(false);
   const [addCommentSignal, setAddCommentSignal] = useState(0);
@@ -661,12 +665,19 @@ export function DatabaseRowPeek() {
                   pageId={peekPageId}
                   icon={page.icon}
                   titleDraft={titleDraft}
+                  titleRef={titleInputRef}
                   titleClassName="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-zinc-400"
                   onTitleChange={(v) => {
                     titleDraftRef.current = v;
                     setTitleDraft(v);
                   }}
-                  onTitleBlur={() => renamePage(peekPageId, titleDraft.trim() || "제목 없음")}
+                  onTitleBlur={() => {
+                    if (!page) return;
+                    const nextTitle = preparePageTitleInput(titleDraft);
+                    if (nextTitle === page.title) return;
+                    const ok = renamePage(peekPageId, nextTitle);
+                    if (!ok) setTitleDuplicateAlert(true);
+                  }}
                   onTitleKeyDown={(e) => {
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                   }}
@@ -748,6 +759,21 @@ export function DatabaseRowPeek() {
             setPageDeleteConfirmOpen(false);
             if (peekPageId) deletePage(peekPageId);
             handleClose();
+          }}
+        />
+        <SimpleAlertDialog
+          open={titleDuplicateAlert}
+          message={PAGE_TITLE_DUPLICATE_MESSAGE}
+          onClose={() => {
+            setTitleDuplicateAlert(false);
+            if (page) {
+              titleDraftRef.current = page.title;
+              setTitleDraft(page.title);
+            }
+            window.setTimeout(() => {
+              titleInputRef.current?.focus();
+              titleInputRef.current?.select();
+            }, 0);
           }}
         />
       </div>

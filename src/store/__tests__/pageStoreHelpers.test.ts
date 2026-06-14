@@ -3,7 +3,7 @@ import { makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import type { Page } from "../../types/page";
 import { useWorkspaceStore } from "../workspaceStore";
-import { toGqlPage } from "../pageStore/helpers";
+import { toGqlPage, allocateUniquePageTitle } from "../pageStore/helpers";
 
 function page(partial: Partial<Page> = {}): Page {
   return {
@@ -71,5 +71,28 @@ describe("pageStore helpers", () => {
     const payload = toGqlPage(page(), "member-1");
 
     expect("fullPageDatabaseId" in payload).toBe(false);
+  });
+
+  it("allocateUniquePageTitle은 워크스페이스 내 중복 제목을 (n)으로 회피한다", () => {
+    const pages: Record<string, Page> = {
+      a: page({ id: "a", title: "메모", workspaceId: "ws-1" }),
+      b: page({ id: "b", title: "메모 (1)", workspaceId: "ws-1" }),
+      c: page({ id: "c", title: "메모", workspaceId: "ws-2" }),
+    };
+    expect(allocateUniquePageTitle(pages, "메모", { workspaceId: "ws-1" })).toBe("메모 (2)");
+    expect(allocateUniquePageTitle(pages, "메모", { workspaceId: "ws-2" })).toBe("메모 (1)");
+  });
+
+  it("allocateUniquePageTitle은 reservedTitles 도 함께 고려한다", () => {
+    const pages: Record<string, Page> = {
+      a: page({ id: "a", title: "메모", workspaceId: "ws-1" }),
+    };
+    const reserved = new Set(["메모 (1)"]);
+    expect(
+      allocateUniquePageTitle(pages, "메모", {
+        workspaceId: "ws-1",
+        reservedTitles: reserved,
+      }),
+    ).toBe("메모 (2)");
   });
 });

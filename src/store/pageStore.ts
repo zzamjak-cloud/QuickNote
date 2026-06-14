@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { deferredPageStorage } from "../lib/storage/index";
+import { fetchPageMetasByWorkspace } from "../lib/sync/bootstrap";
 import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../types/page";
 import { emptyPanelState, type CellValue, type ViewKind } from "../types/database";
@@ -33,6 +34,12 @@ import {
   nextOrderForParent,
   toPageSnapshot,
   updateButtonLabelsInDoc,
+  allocateUniquePageTitle,
+  collectWorkspacePages,
+  isPageTitleTaken,
+  mergeRemotePageMetasIntoMap,
+  normalizePageTitle,
+  preparePageTitleInput,
 } from "./pageStore/helpers";
 
 export { enqueueUpsertPage as enqueuePageUpsertForSync, isDescendant } from "./pageStore/helpers";
@@ -228,7 +235,7 @@ type PageStoreActions = {
   deletePage: (id: string) => void;
   /** 마지막으로 삭제한 페이지 배치를 복원. 복원되면 true 반환. */
   undoLastDelete: () => boolean;
-  renamePage: (id: string, title: string) => void;
+  renamePage: (id: string, title: string) => boolean;
   updateDoc: (
     id: string,
     doc: JSONContent,
@@ -261,7 +268,10 @@ type PageStoreActions = {
   // 페이지(와 자손)를 복제하여 원본 바로 다음에 삽입. 복제된 루트의 id를 반환.
   duplicatePage: (id: string) => string;
   // 페이지(와 자손 전체)를 다른 워크스페이스로 복제. 복제된 페이지 수를 반환.
-  duplicatePageToWorkspace: (id: string, targetWorkspaceId: string) => number;
+  duplicatePageToWorkspace: (
+    id: string,
+    targetWorkspaceId: string,
+  ) => Promise<number>;
   // 행 페이지의 dbCells 한 항목을 갱신 (title 컬럼 제외)
   setPageDbCell: (pageId: string, columnId: string, value: CellValue) => void;
   restorePageFromLatestHistory: (pageId: string) => boolean;
@@ -289,10 +299,13 @@ export const usePageStore = create<PageStore>()(
         const id = newId();
         const now = Date.now();
         const workspaceId = getCurrentWorkspaceId();
+        const uniqueTitle = allocateUniquePageTitle(get().pages, title, {
+          workspaceId: workspaceId || undefined,
+        });
         const page: Page = {
           id,
           workspaceId: workspaceId || undefined,
-          title,
+          title: uniqueTitle,
           icon: null,
           doc: structuredClone(EMPTY_DOC),
           contentLoaded: true,
@@ -439,13 +452,26 @@ export const usePageStore = create<PageStore>()(
 
       renamePage: (id, title) => {
         const before = get().pages[id];
+        if (!before) return false;
+        const nextTitle = preparePageTitleInput(title);
+        if (nextTitle === normalizePageTitle(before.title)) return true;
+        const ws = before.workspaceId ?? getCurrentWorkspaceId();
+        const workspaceId = ws || undefined;
+        if (
+          isPageTitleTaken(get().pages, nextTitle, {
+            exceptId: id,
+            workspaceId,
+          })
+        ) {
+          return false;
+        }
         set((state) => {
           const current = state.pages[id];
           if (!current) return state;
           return {
             pages: {
               ...state.pages,
-              [id]: { ...current, title, updatedAt: Date.now() },
+              [id]: { ...current, title: nextTitle, updatedAt: Date.now() },
             },
           };
         });
@@ -461,6 +487,7 @@ export const usePageStore = create<PageStore>()(
           );
           enqueueUpsertPage(after);
         }
+        return true;
       },
 
       updateDoc: (id, doc, options) => {
@@ -827,7 +854,7 @@ export const usePageStore = create<PageStore>()(
         return cloneMap.get(id) ?? "";
       },
 
-      duplicatePageToWorkspace: (id, targetWorkspaceId) => {
+      duplicatePageToWorkspace: async (id, targetWorkspaceId) => {
         const state = get();
         const source = state.pages[id];
         if (!source) return 0;
@@ -841,6 +868,27 @@ export const usePageStore = create<PageStore>()(
         };
         cloneSubtree(id);
 
+        const targetPages = collectWorkspacePages(state.pages, targetWorkspaceId);
+        try {
+          const metas = await fetchPageMetasByWorkspace(targetWorkspaceId);
+          mergeRemotePageMetasIntoMap(targetPages, metas, targetWorkspaceId);
+        } catch (err) {
+          console.error("[pageStore] duplicatePageToWorkspace title fetch failed", err);
+        }
+
+        const reservedTitles = new Set<string>();
+        const titleByOrigId = new Map<string, string>();
+        for (const origId of cloneMap.keys()) {
+          const orig = state.pages[origId];
+          if (!orig) continue;
+          const uniqueTitle = allocateUniquePageTitle(targetPages, orig.title, {
+            workspaceId: targetWorkspaceId,
+            reservedTitles,
+          });
+          reservedTitles.add(normalizePageTitle(uniqueTitle));
+          titleByOrigId.set(origId, uniqueTitle);
+        }
+
         const now = Date.now();
         const createdByMemberId = getCreatedByMemberId();
 
@@ -853,7 +901,7 @@ export const usePageStore = create<PageStore>()(
             doc: structuredClone(orig.doc),
             dbCells: orig.dbCells ? structuredClone(orig.dbCells) : orig.dbCells,
             blockComments: undefined,
-            title: isRoot ? `${orig.title} (Copy)` : orig.title,
+            title: titleByOrigId.get(origId) ?? orig.title,
             workspaceId: targetWorkspaceId || undefined,
             parentId: isRoot ? null : (cloneMap.get(orig.parentId ?? "") ?? null),
             order: orig.order,

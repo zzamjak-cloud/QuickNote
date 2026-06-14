@@ -11,6 +11,7 @@ import { PageTitleBar } from "../page/PageTitleBar";
 import { DbPropertySection } from "../page/DbPropertySection";
 import { PageCoverImage } from "../editor/PageCoverImage";
 import { useSettingsStore } from "../../store/settingsStore";
+import { PAGE_TITLE_DUPLICATE_MESSAGE, preparePageTitleInput } from "../../store/pageStore/helpers";
 import { getEditorColumnClass } from "../../lib/editorLayout";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
@@ -37,6 +38,8 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const titleDraftRef = useRef(titleDraft);
   const [iconAlert, setIconAlert] = useState<string | null>(null);
+  const [titleDuplicateAlert, setTitleDuplicateAlert] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [addCommentSignal, setAddCommentSignal] = useState(0);
   const [tailSpacerPx, setTailSpacerPx] = useState(240);
   const tailSpacerPxRef = useRef(tailSpacerPx);
@@ -100,12 +103,20 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
               pageId={pageId}
               icon={page.icon}
               titleDraft={titleDraft}
+              titleRef={titleInputRef}
               titleClassName="min-w-0 flex-1 bg-transparent text-3xl font-semibold outline-none placeholder:text-zinc-400"
               onTitleChange={(v) => {
                 titleDraftRef.current = v;
                 setTitleDraft(v);
               }}
-              onTitleBlur={() => renamePage(pageId, titleDraft.trim() || "제목 없음")}
+              onTitleBlur={() => {
+                const nextTitle = preparePageTitleInput(titleDraft);
+                if (nextTitle === page.title) return;
+                const ok = renamePage(pageId, nextTitle);
+                if (!ok) {
+                  setTitleDuplicateAlert(true);
+                }
+              }}
               onTitleKeyDown={(e) => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
               }}
@@ -134,6 +145,20 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
         open={iconAlert !== null}
         message={iconAlert ?? ""}
         onClose={() => setIconAlert(null)}
+      />
+      <SimpleAlertDialog
+        open={titleDuplicateAlert}
+        message={PAGE_TITLE_DUPLICATE_MESSAGE}
+        onClose={() => {
+          setTitleDuplicateAlert(false);
+          const current = page.title;
+          titleDraftRef.current = current;
+          setTitleDraft(current);
+          window.setTimeout(() => {
+            titleInputRef.current?.focus();
+            titleInputRef.current?.select();
+          }, 0);
+        }}
       />
     </div>
   );

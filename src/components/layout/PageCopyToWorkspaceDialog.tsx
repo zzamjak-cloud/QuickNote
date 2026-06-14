@@ -16,6 +16,7 @@ export function PageCopyToWorkspaceDialog({ pageId, onClose }: Props) {
   const duplicatePageToWorkspace = usePageStore((s) => s.duplicatePageToWorkspace);
   const showToast = useUiStore((s) => s.showToast);
   const [query, setQuery] = useState("");
+  const [copying, setCopying] = useState(false);
 
   const allTargets = useMemo(
     () => workspaces.filter((w) => w.workspaceId !== currentWorkspaceId && !w.removedAt),
@@ -32,13 +33,22 @@ export function PageCopyToWorkspaceDialog({ pageId, onClose }: Props) {
   const page = pages[pageId];
   if (!page) return null;
 
-  const handleCopy = (targetWorkspaceId: string, targetName: string) => {
-    const count = duplicatePageToWorkspace(pageId, targetWorkspaceId);
-    onClose();
-    showToast(
-      `"${page.title || "페이지"}" 외 ${count - 1}개 자식 페이지를 "${targetName}"에 복제했습니다.`,
-      { kind: "success" },
-    );
+  const handleCopy = async (targetWorkspaceId: string, targetName: string) => {
+    if (copying) return;
+    setCopying(true);
+    try {
+      const count = await duplicatePageToWorkspace(pageId, targetWorkspaceId);
+      onClose();
+      showToast(
+        `"${page.title || "페이지"}" 외 ${count - 1}개 자식 페이지를 "${targetName}"에 복제했습니다.`,
+        { kind: "success" },
+      );
+    } catch (err) {
+      console.error("[PageCopyToWorkspaceDialog] copy failed", err);
+      showToast("워크스페이스 복제에 실패했습니다.", { kind: "error" });
+    } finally {
+      setCopying(false);
+    }
   };
 
   return (
@@ -77,8 +87,9 @@ export function PageCopyToWorkspaceDialog({ pageId, onClose }: Props) {
               <button
                 key={ws.workspaceId}
                 type="button"
-                onClick={() => handleCopy(ws.workspaceId, ws.name)}
-                className="flex w-full items-center gap-3 rounded px-2 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => void handleCopy(ws.workspaceId, ws.name)}
+                disabled={copying}
+                className="flex w-full items-center gap-3 rounded px-2 py-2 text-left text-sm hover:bg-zinc-100 disabled:cursor-progress disabled:opacity-60 dark:hover:bg-zinc-800"
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-zinc-200 text-xs font-medium dark:bg-zinc-700">
                   {ws.name.charAt(0).toUpperCase()}

@@ -20,6 +20,8 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
+import { PAGE_TITLE_DUPLICATE_MESSAGE } from "../../store/pageStore/helpers";
 import { buildPageTimeline, useServerPageHistoryStore } from "../../store/serverPageHistoryStore";
 import type { GqlPageHistoryEntry } from "../../lib/sync/graphql/operations";
 import { useHistorySelection } from "../history/useHistorySelection";
@@ -128,11 +130,12 @@ const PageListItemInner = function PageListItem({
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(node.title);
+  const [titleDuplicateAlert, setTitleDuplicateAlert] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuOpen = menuPosition !== null;
 
@@ -173,7 +176,13 @@ const PageListItemInner = function PageListItem({
 
   const commit = () => {
     const next = draft.trim() || "제목 없음";
-    if (next !== node.title) renamePage(node.id, next);
+    if (next !== node.title) {
+      const ok = renamePage(node.id, next);
+      if (!ok) {
+        setTitleDuplicateAlert(true);
+        return;
+      }
+    }
     setEditing(false);
   };
 
@@ -479,6 +488,17 @@ const PageListItemInner = function PageListItem({
       <PageCopyToWorkspaceDialog
         pageId={copyToWorkspaceOpen ? node.id : null}
         onClose={() => setCopyToWorkspaceOpen(false)}
+      />
+      <SimpleAlertDialog
+        open={titleDuplicateAlert}
+        message={PAGE_TITLE_DUPLICATE_MESSAGE}
+        onClose={() => {
+          setTitleDuplicateAlert(false);
+          window.setTimeout(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+          }, 0);
+        }}
       />
       {hasChildren && expanded && (
         <PageListGroup

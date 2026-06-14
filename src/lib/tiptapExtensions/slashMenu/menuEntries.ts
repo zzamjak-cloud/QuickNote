@@ -114,6 +114,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
       const parentId = ctx?.pageId ?? store.activePageId;
       // 자동 활성화는 끈다 — 사용자는 현재 페이지에 머무르고 멘션 버튼만 보게 된다.
       const newId = store.createPage("새 페이지", parentId, { activate: false });
+      const newTitle = store.pages[newId]?.title ?? "새 페이지";
       setTimeout(() => {
         editor
           .chain()
@@ -125,7 +126,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
             // 이 포맷이어야 mention.tsx 의 MentionNodeView 가 페이지 제목을 반응형으로 동기화함
             attrs: {
               id: `p:${newId}`,
-              label: "새 페이지",
+              label: newTitle,
               mentionKind: "page",
             },
           })

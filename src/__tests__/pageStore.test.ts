@@ -8,11 +8,29 @@ beforeEach(() => {
 });
 
 describe("pageStore", () => {
+  it("createPage: 동일 제목이 있으면 (1), (2) 접미사를 붙인다", () => {
+    const first = usePageStore.getState().createPage("새 페이지");
+    const second = usePageStore.getState().createPage("새 페이지");
+    const third = usePageStore.getState().createPage("새 페이지");
+    const pages = usePageStore.getState().pages;
+    expect(pages[first]?.title).toBe("새 페이지");
+    expect(pages[second]?.title).toBe("새 페이지 (1)");
+    expect(pages[third]?.title).toBe("새 페이지 (2)");
+  });
+
   it("createPage: 페이지를 추가하고 활성화", () => {
     const id = usePageStore.getState().createPage("첫 페이지");
     const state = usePageStore.getState();
     expect(state.pages[id]?.title).toBe("첫 페이지");
     expect(state.activePageId).toBe(id);
+  });
+
+  it("renamePage: 동일 워크스페이스에 같은 제목이 있으면 false", () => {
+    const a = usePageStore.getState().createPage("메모");
+    const b = usePageStore.getState().createPage("다른");
+    expect(usePageStore.getState().renamePage(b, "메모")).toBe(false);
+    expect(usePageStore.getState().pages[b]?.title).toBe("다른");
+    expect(usePageStore.getState().renamePage(a, "메모")).toBe(true);
   });
 
   it("renamePage: 제목과 updatedAt 갱신", () => {
