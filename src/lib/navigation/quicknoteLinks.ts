@@ -5,6 +5,11 @@ export type QuickNoteLinkTarget = {
   /** 블록 시작 PM 위치 — blockId 가 없는(레거시) 링크의 폴백. */
   block?: number | null;
   tab?: string | null;
+  /**
+   * 같은 페이지 안에서 이 텍스트와 일치하는 블록으로 점프하기 위한 매칭 텍스트.
+   * (노션 임포트의 자기참조 블록 링크 — 블록 앵커가 export 에서 유실되므로 텍스트 매칭으로 점프)
+   */
+  text?: string | null;
 };
 
 export function buildQuickNotePageUrl(target: QuickNoteLinkTarget): string {
@@ -20,6 +25,9 @@ export function buildQuickNotePageUrl(target: QuickNoteLinkTarget): string {
   }
   if (typeof target.block === "number" && Number.isFinite(target.block)) {
     params.set("block", String(target.block));
+  }
+  if (target.text) {
+    params.set("text", target.text);
   }
   const hash = target.tab ? `#tab-${encodeURIComponent(target.tab)}` : "";
   return `${base}?${params.toString()}${hash}`;
@@ -41,6 +49,7 @@ export function parseQuickNoteLink(raw: string): QuickNoteLinkTarget | null {
         blockId: url.searchParams.get("blockId"),
         block: Number.isFinite(block) ? block : null,
         tab: null,
+        text: url.searchParams.get("text"),
       };
     } catch {
       return null;
@@ -59,6 +68,7 @@ export function parseQuickNoteLink(raw: string): QuickNoteLinkTarget | null {
       blockId: url.searchParams.get("blockId"),
       block: Number.isFinite(block) ? block : null,
       tab: tabHash ? decodeURIComponent(tabHash[1] ?? "") : null,
+      text: url.searchParams.get("text"),
     };
   } catch {
     return null;

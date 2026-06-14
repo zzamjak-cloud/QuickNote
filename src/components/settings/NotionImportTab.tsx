@@ -363,7 +363,7 @@ export function NotionImportTab() {
         href: string,
         sourcePath: string,
         ownerPageId: string,
-      ): { pageId: string; label?: string } | null => {
+      ): { pageId: string; label?: string; intraPage?: boolean } | null => {
         const linked = resolveNotionPageHref(
           href,
           sourcePath,
@@ -373,7 +373,9 @@ export function NotionImportTab() {
         if (!linked) return null;
         const linkedPageId = ensurePageIdForSource(linked.path, ownerPageId);
         if (!linkedPageId) return null;
-        return { pageId: linkedPageId, label: linked.title };
+        // 해소된 페이지가 지금 임포트 중인 현재 페이지 자신이면 자기참조 링크 신호.
+        const intraPage = linkedPageId === ownerPageId;
+        return { pageId: linkedPageId, label: linked.title, intraPage };
       };
 
       const importPageFromSource = (sourcePath: string): string | null => {

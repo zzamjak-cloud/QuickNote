@@ -29,7 +29,7 @@ import { zustandStorage } from "./lib/storage/index";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import { buildQuickNotePageUrl, parseQuickNoteLink, type QuickNoteLinkTarget } from "./lib/navigation/quicknoteLinks";
 import { installPageMentionClickNavigation } from "./lib/navigation/pageMentionClick";
-import { navigateToBlockLink } from "./lib/editor/editorNavigationBridge";
+import { navigateToBlockLink, scrollToTextMatch } from "./lib/editor/editorNavigationBridge";
 import { shouldAutoEnsureFullPageDatabaseHome } from "./lib/database/shouldAutoEnsureFullPageDatabaseHome";
 import {
   bindPageScrollMemory,
@@ -168,6 +168,21 @@ function App() {
       if (!anchor?.closest(".ProseMirror")) return;
       if (anchor.closest("[data-bookmark-block], [data-page-link], [data-button-block]")) return;
       const href = anchor.getAttribute("href") ?? "";
+      // 같은 페이지 안 텍스트 점프(노션 자기참조 블록 링크) — text 파라미터가 있으면 멘션 대신
+      // 그 용어명과 일치하는 블록으로 스크롤한다. 본문 미하이드레이션 대비 짧게 재시도한다.
+      const intraTarget = parseQuickNoteLink(href);
+      if (intraTarget?.text) {
+        e.preventDefault();
+        e.stopPropagation();
+        const query = intraTarget.text.toLowerCase();
+        let tries = 0;
+        const tick = () => {
+          if (scrollToTextMatch(query)) return;
+          if (++tries < 30) window.setTimeout(tick, 100);
+        };
+        tick();
+        return;
+      }
       // http(s) 외부 링크만 새 창으로. mailto:/tel: 을 window.open 으로 열면 webview 가
       // 스킴을 처리하지 못해 net::ERR_UNKNOWN_URL_SCHEME → 기본 동작(OS 핸들러)에 위임한다.
       const isWebUrl = /^https?:\/\//i.test(href);

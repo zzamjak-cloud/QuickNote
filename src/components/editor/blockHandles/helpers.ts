@@ -562,6 +562,50 @@ function considerTableHandleFromStack(
 }
 
 
+/** 콜아웃·토글·인용 등 flatten 가능한 wrapper 의 "윗단 핸들 영역"에 커서가 있을 때,
+ *  그 wrapper 자체를 byStart 후보로 등록한다.
+ *
+ *  hoverFromResolvedPos 는 ancestor 체인의 wrapper 들을 단 하나(가장 외곽)로 접어버리므로,
+ *  콜아웃 안 콜아웃처럼 중첩된 경우 안쪽 wrapper 가 후보에서 통째로 빠져 그립이 안 붙었다.
+ *  여기서는 각 wrapper 를 자기 top-zone(아래 컨테이너 게이트와 동일한 [top-8, top+triggerH])
+ *  안에서만 등록하므로, 바깥 wrapper 상단을 호버하면 바깥이, 안쪽 wrapper 상단을 호버하면
+ *  안쪽이 선택된다. N단계 중첩에도 일반화된다. */
+function considerWrapperHandlesFromPos(
+  editor: Editor,
+  $pos: ResolvedPos,
+  byStart: Map<number, HoverInfo>,
+  clientX: number,
+  clientY: number,
+) {
+  for (let d = $pos.depth; d > 0; d--) {
+    const n = $pos.node(d);
+    if (!n.isBlock || n.type.name === "doc") continue;
+    if (shouldSuppressBlockHandle(n.type.name)) continue;
+    if (!shouldFlattenWrapperBeforeTypeChange(n.type.name)) continue;
+    const start = $pos.before(d);
+    const dom = editor.view.nodeDOM(start);
+    const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
+    if (!el) continue;
+    const rectEl = visualElementForBlockNode(n.type.name, el);
+    const rect = rectEl.getBoundingClientRect();
+    // 아래 CONTAINER_TOP_HANDLE_TYPES 게이트와 동일한 상단 밴드 — 본문 영역에선 등록하지 않아
+    // 내부 블록(문단·이미지 등)의 핸들을 가로채지 않는다.
+    const triggerH = 40;
+    if (clientY < rect.top - 8 || clientY > rect.top + triggerH) continue;
+    // 가로 범위 밖(거터/우측 여백 제외) 이면 무시 — 다른 컬럼/형제로의 오인 방지
+    if (clientX < rect.left - GUTTER_LEFT_PX || clientX > rect.right + RECT_PAD_X) continue;
+    const candidate: HoverInfo = {
+      rect,
+      blockStart: start,
+      // 깊을수록(안쪽 wrapper) 우선. 컨테이너/리스트 핸들과 충돌하지 않도록 큰 오프셋 부여.
+      depth: d + 200,
+      node: n,
+    };
+    const prev = byStart.get(start);
+    if (!prev || candidate.depth > prev.depth) byStart.set(start, candidate);
+  }
+}
+
 export function blockAtPoint(
   editor: Editor,
   clientX: number,
@@ -580,6 +624,9 @@ export function blockAtPoint(
       reportNonFatal(err, "blockHandles.considerPosition.resolve");
       return;
     }
+    // 중첩 wrapper(콜아웃 안 콜아웃 등) 의 상단 핸들 영역이면 그 wrapper 자체도 후보로 등록.
+    // hoverFromResolvedPos 가 wrapper 를 외곽 하나로 접어버리는 한계를 보완한다.
+    considerWrapperHandlesFromPos(editor, $pos, byStart, clientX, clientY);
     const h = hoverFromResolvedPos(editor, $pos);
     if (!h) return;
     if (suppressedListStarts.has(h.blockStart)) return;

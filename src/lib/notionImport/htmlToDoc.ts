@@ -5,6 +5,7 @@ import {
   normalizeImportedLinkHref,
   summarizeImportedLinkText,
 } from "./linkUtils";
+import { buildQuickNotePageUrl } from "../navigation/quicknoteLinks";
 import {
   HIGHLIGHT_BG_COLOR_MAP,
   parseColorFromStyle,
@@ -334,6 +335,23 @@ function dashListBlocksFromParagraph(
   return blocks;
 }
 
+// div/section 등 래퍼가 블록 요소 없이 인라인 콘텐츠(텍스트·strong·code·br 등)만 담는지 판별.
+// true 면 자식을 개별 순회해 쪼개지 말고 한 문단으로(br→hardBreak) 변환해야 줄바꿈이 보존된다.
+// (노션 콜아웃 본문 div 가 대표적: <div>...<br/>...<br/>...</div>)
+const BLOCK_LEVEL_TAGS_IN_CONTAINER = new Set([
+  "p", "div", "section", "article", "details", "summary", "table", "thead", "tbody", "tr",
+  "aside", "figure", "ul", "ol", "li", "blockquote", "pre", "iframe", "img", "video", "source",
+  "hr", "h1", "h2", "h3", "h4", "h5", "h6",
+]);
+function isInlineOnlyWrapper(el: HTMLElement): boolean {
+  for (const child of Array.from(el.children)) {
+    if (child instanceof HTMLElement && BLOCK_LEVEL_TAGS_IN_CONTAINER.has(child.tagName.toLowerCase())) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function blocksFromContainerChildren(
   container: HTMLElement,
   inheritedBlockColor: string | null = null,
@@ -503,6 +521,13 @@ function blocksFromContainerChildren(
         return;
       }
       if (tag === "div" || tag === "section" || tag === "article") {
+        // 블록 자식 없이 인라인(텍스트/strong/code/br 등)만 담은 래퍼는 한 문단으로 변환해
+        // 내부 <br> 줄바꿈을 hardBreak 로 보존한다(노션 콜아웃 본문 div 가 이 형태).
+        // 자식별로 쪼개 순회하면 strong/br 이 각자 별도 문단이 되며 줄바꿈이 유실된다.
+        if (isInlineOnlyWrapper(node) && (node.textContent ?? "").trim().length > 0) {
+          out.push(paragraphFromElement(node, blockColor, blockToken, options));
+          return;
+        }
         for (const child of Array.from(node.childNodes)) {
           appendFromNode(child, blockColor, blockToken);
         }
@@ -581,11 +606,26 @@ function headingFromElement(
   };
 }
 
+// 콜아웃 본문 컨테이너를 블록 리스트로 변환한다.
+// 컨테이너가 블록 자식 없이 인라인(텍스트/strong/code/br 등)만 담으면 자식별로 쪼개지 말고
+// 한 문단으로(br→hardBreak) 변환해 줄바꿈을 보존한다(노션 콜아웃 본문 div 가 이 형태).
+function calloutBodyBlocks(
+  container: HTMLElement,
+  blockColor: string | null,
+  blockToken: string | null,
+  options?: HtmlToDocOptions,
+): JSONContent[] {
+  if (isInlineOnlyWrapper(container) && (container.textContent ?? "").trim().length > 0) {
+    return [paragraphFromElement(container, blockColor, blockToken, options)];
+  }
+  return blocksFromContainerChildren(container, blockColor, blockToken, options);
+}
+
 function calloutFromAside(aside: HTMLElement): JSONContent {
   const classColor = parseColorFromClass(aside.className);
   const blockColor = parseColorFromStyle(aside.getAttribute("style")) ?? classColor?.css ?? null;
   const blockToken = classColor?.token ?? null;
-  const blocks = blocksFromContainerChildren(aside, blockColor, blockToken);
+  const blocks = calloutBodyBlocks(aside, blockColor, blockToken);
   return {
     type: "callout",
     attrs: { preset: "info" },
@@ -607,7 +647,7 @@ function calloutFromFigure(figure: HTMLElement, options?: HtmlToDocOptions): JSO
       .sort((a, b) => b.len - a.len)[0];
     return withMostText?.node ?? figure;
   })();
-  const blocks = blocksFromContainerChildren(textContainer, blockColor, blockToken, options);
+  const blocks = calloutBodyBlocks(textContainer, blockColor, blockToken, options);
   const hasIcon = !!figure.querySelector("img.notion-static-icon");
   return {
     type: "callout",
@@ -837,7 +877,7 @@ type HtmlToDocOptions = {
   resolveMediaNode?: (src: string, element: HTMLElement) => JSONContent | null;
   iconReplacementText?: string;
   currentPagePath?: string;
-  resolvePageMentionByHref?: (href: string) => { pageId: string; label?: string } | null;
+  resolvePageMentionByHref?: (href: string) => { pageId: string; label?: string; intraPage?: boolean } | null;
   deferPageMentions?: boolean;
 };
 
@@ -985,6 +1025,20 @@ function inlineFromNode(node: Node, inheritedColor: string | null, inheritedMark
     const pageMention = options?.resolvePageMentionByHref?.(href);
     if (pageMention?.pageId) {
       const labelText = (node.textContent ?? "").trim();
+      // 자기참조(=같은 페이지로 해소되는) 링크: 페이지 멘션으로 만들면 라벨 대신 페이지 제목이
+      // reactive 표시되어 모든 용어 링크가 제목으로 보인다. 라벨(용어명) 텍스트를 보존하고,
+      // 클릭 시 같은 페이지 안에서 그 용어명과 일치하는 블록으로 점프하는 내부 링크로 변환한다.
+      if (pageMention.intraPage) {
+        const intraLabel = labelText || pageMention.label || "";
+        return [textNode(intraLabel, [{
+          type: "link",
+          attrs: {
+            href: buildQuickNotePageUrl({ pageId: pageMention.pageId, text: intraLabel }),
+            target: "_blank",
+            rel: "noopener noreferrer",
+          },
+        }])];
+      }
       if (options?.deferPageMentions) {
         return [textNode(createDeferredMentionToken(pageMention.pageId, pageMention.label ?? labelText ?? "페이지"))];
       }

@@ -643,7 +643,9 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
                 resolveImportedPageId(resolvedGlobalPath) ??
                 resolveImportedPageId(resolvedLocalPath);
               if (!linkedPageId) return null;
-              return { pageId: linkedPageId };
+              // 해소된 페이지가 지금 임포트 중인 현재 페이지 자신이면 자기참조 링크 신호.
+              const intraPage = linkedPageId === targetPageId;
+              return { pageId: linkedPageId, intraPage };
             },
             onCollectionTable: (table: NotionCollectionTable) => {
               const sampleLink = table.rows.find((r) => !!r.titleLinkPath)?.titleLinkPath ?? null;
