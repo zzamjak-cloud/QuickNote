@@ -6,6 +6,11 @@ import {
   openPageInNewTab,
   shouldOpenInternalLinkInNewTab,
 } from "./internalNavigation";
+import {
+  isDatabaseMention,
+  isMemberMention,
+  stripPagePrefix,
+} from "../tiptapExtensions/mentionKind";
 
 type PagePress = {
   x: number;
@@ -27,9 +32,9 @@ function resolvePageMentionPress(
   const rawId = el.getAttribute("data-id");
   if (!rawId) return null;
   const kindAttr = el.getAttribute("data-mention-kind");
-  if (kindAttr === "member" || rawId.startsWith("m:")) return null;
-  if (kindAttr === "database" || rawId.startsWith("d:")) return null;
-  const pageId = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
+  if (isMemberMention(rawId, kindAttr)) return null;
+  if (isDatabaseMention(rawId, kindAttr)) return null;
+  const pageId = stripPagePrefix(rawId);
   if (!pageId) return null;
   return {
     x: clientX,

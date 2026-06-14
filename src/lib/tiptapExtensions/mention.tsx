@@ -14,6 +14,16 @@ import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
 import { PageIconDisplay } from "../../components/common/PageIconDisplay";
 import { isImageLikePageIcon, LUCIDE_PAGE_ICON_PREFIX } from "../pageIcon";
+import {
+  hasDatabasePrefix,
+  hasPagePrefix,
+  isDatabaseMention,
+  isMemberMention,
+  isPageMention,
+  resolveMentionKindAttr,
+  stripMemberPrefix,
+  stripPagePrefix,
+} from "./mentionKind";
 /** 정적 직렬화(renderHTML/renderText)에서 텍스트로 노출해도 되는 아이콘인지 — 이모지만 허용 */
 function isPlainEmojiIcon(icon: string | null | undefined): icon is string {
   if (!icon) return false;
@@ -27,10 +37,10 @@ function MentionNodeView({ node }: NodeViewProps) {
   const id = (node.attrs.id as string | undefined) ?? "";
   const rawLabel = (node.attrs.label as string | undefined) ?? "";
   const kindAttr = (node.attrs.mentionKind as string | undefined) ?? "member";
-  const isPage = kindAttr === "page" || id.startsWith("p:");
-  const isDatabase = kindAttr === "database" || id.startsWith("d:");
+  const isPage = isPageMention(id, kindAttr);
+  const isDatabase = isDatabaseMention(id, kindAttr);
   const isMember = !isPage && !isDatabase;
-  const pageId = id.startsWith("p:") ? id.slice(2) : id;
+  const pageId = stripPagePrefix(id);
   const reactivePageIcon = usePageStore((s) =>
     isPage ? s.pages[pageId]?.icon ?? null : null,
   );
@@ -208,28 +218,17 @@ const MentionNode = Mention.extend({
       if (!el) return false;
       const rawId = el.getAttribute("data-id");
       if (!rawId) return false;
-      const kindAttr =
-        el.getAttribute("data-mention-kind") ??
-        (rawId.startsWith("p:")
-          ? "page"
-          : rawId.startsWith("d:")
-            ? "database"
-            : rawId.startsWith("m:")
-              ? "member"
-              : "page");
+      const kindAttr = resolveMentionKindAttr(rawId, el.getAttribute("data-mention-kind"));
 
       // 멤버 멘션 — 프로필 팝업만 표시
-      if (kindAttr === "member" || rawId.startsWith("m:")) {
+      if (isMemberMention(rawId, kindAttr)) {
         event.preventDefault();
-        showMemberProfilePopup(
-          rawId.startsWith("m:") ? rawId.slice(2) : rawId,
-          el,
-        );
+        showMemberProfilePopup(stripMemberPrefix(rawId), el);
         return true;
       }
 
       // 데이터베이스 멘션 — 안내 토스트
-      if (kindAttr === "database" || rawId.startsWith("d:")) {
+      if (isDatabaseMention(rawId, kindAttr)) {
         event.preventDefault();
         useUiStore.getState().showToast(
           "데이터베이스는 왼쪽 사이드바 하단「데이터베이스 관리」에서 열 수 있습니다.",
@@ -259,16 +258,16 @@ const MentionNode = Mention.extend({
   renderHTML({ node, HTMLAttributes }) {
     const kind = (node.attrs.mentionKind as string | undefined) ?? "member";
     const rawId = (node.attrs.id as string | undefined) ?? "";
-    const isPage = kind === "page" || rawId.startsWith("p:");
-    const isDatabase = kind === "database" || rawId.startsWith("d:");
+    const isPage = isPageMention(rawId, kind);
+    const isDatabase = isDatabaseMention(rawId, kind);
     const label =
-      isPage && rawId.startsWith("p:")
-        ? (usePageStore.getState().pages[rawId.slice(2)]?.title ??
+      isPage && hasPagePrefix(rawId)
+        ? (usePageStore.getState().pages[stripPagePrefix(rawId)]?.title ??
           ((node.attrs.label as string) || "페이지"))
         : (node.attrs.label as string) || "";
     const pageIcon =
-      isPage && rawId.startsWith("p:")
-        ? (usePageStore.getState().pages[rawId.slice(2)]?.icon ?? "")
+      isPage && hasPagePrefix(rawId)
+        ? (usePageStore.getState().pages[stripPagePrefix(rawId)]?.icon ?? "")
         : "";
     return [
       "span",
@@ -281,7 +280,7 @@ const MentionNode = Mention.extend({
         },
         HTMLAttributes,
       ),
-      kind === "member" && !rawId.startsWith("p:") && !rawId.startsWith("d:")
+      kind === "member" && !hasPagePrefix(rawId) && !hasDatabasePrefix(rawId)
         ? [
             "span",
             {
@@ -303,8 +302,8 @@ const MentionNode = Mention.extend({
     const kind = (node.attrs.mentionKind as string | undefined) ?? "member";
     const rawId = (node.attrs.id as string | undefined) ?? "";
     const label = (node.attrs.label as string) ?? "";
-    if (kind === "page" || rawId.startsWith("p:")) {
-      const pageId = rawId.startsWith("p:") ? rawId.slice(2) : rawId;
+    if (isPageMention(rawId, kind)) {
+      const pageId = stripPagePrefix(rawId);
       const page = usePageStore.getState().pages[pageId];
       const title = page?.title ?? label ?? "페이지";
       return isPlainEmojiIcon(page?.icon) ? `${page.icon} ${title}` : title;
