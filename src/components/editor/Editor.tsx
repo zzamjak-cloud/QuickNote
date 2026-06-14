@@ -1,5 +1,6 @@
 import {
   Suspense,
+  lazy,
   memo,
   useCallback,
   useEffect,
@@ -40,7 +41,6 @@ import { syncInsertBeforeBlockSelection } from "../../lib/tiptapExtensions/inser
 import { isDefaultNewPageTitle, PAGE_TITLE_DUPLICATE_MESSAGE, preparePageTitleInput } from "../../store/pageStore/helpers";
 import { ImageUpload } from "./ImageUpload";
 import { ServerImagePicker } from "./ServerImagePicker";
-import { IconPickerPanel } from "../common/IconPicker";
 import { useCustomIconUpload } from "../common/useCustomIconUpload";
 import { FileText, Database, Loader2, ImagePlus } from "lucide-react";
 import { PageTitleBar } from "../page/PageTitleBar";
@@ -120,6 +120,10 @@ import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
 import type { ViewKind } from "../../types/database";
 
+// 무거운 아이콘 카탈로그/패널은 picker 가 열릴 때만 지연 로드.
+const IconPickerPanel = lazy(() =>
+  import("../common/IconPickerPanel").then((m) => ({ default: m.IconPickerPanel })),
+);
 
 type EditorProps = {
   /** 지정 시 해당 페이지를 편집(예: 사이드 피크). 미지정이면 activePageId 사용. */

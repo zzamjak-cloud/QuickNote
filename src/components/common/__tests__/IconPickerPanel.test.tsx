@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { IconPickerPanel } from "../IconPicker";
+import { IconPickerPanel } from "../IconPickerPanel";
 
 describe("IconPickerPanel", () => {
   it("단축어 탭에서 지원 키워드를 확인하고 이모지를 선택한다", () => {

@@ -9,6 +9,8 @@ import {
 import type { NodeViewProps } from "@tiptap/react";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -29,7 +31,6 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { IconPickerPanel } from "../../components/common/IconPicker";
 import { PageIconDisplay } from "../../components/common/PageIconDisplay";
 import { useUiStore } from "../../store/uiStore";
 import { usePageStore } from "../../store/pageStore";
@@ -39,6 +40,13 @@ import { isEditorLazyInactiveTabPanelsEnabled } from "./editorRenderingFeatureFl
 import { pickTabPanelShells } from "./tabPanelDom";
 
 type TabPlacement = "top" | "bottom" | "left" | "right";
+
+// 무거운 아이콘 카탈로그/패널은 picker 가 열릴 때만 지연 로드.
+const IconPickerPanel = lazy(() =>
+  import("../../components/common/IconPickerPanel").then((m) => ({
+    default: m.IconPickerPanel,
+  })),
+);
 
 const BLOCK_MENU_WIDTH = 144;
 const BLOCK_MENU_HEIGHT = 142;
@@ -700,19 +708,21 @@ const TabBlockView = memo(function TabBlockView({
                 className="fixed z-[510]"
                 style={{ top: iconPickerPosition.top, left: iconPickerPosition.left }}
               >
-                <IconPickerPanel
-                  title="탭 아이콘"
-                  onPickEmoji={(emoji) => {
-                    updateTabAttrs(iconPickerIndex, { icon: emoji });
-                    setIconPickerIndex(null);
-                  }}
-                  onPickLucide={(name, color) => {
-                    updateTabAttrs(iconPickerIndex, {
-                      icon: encodeLucidePageIcon(name, color),
-                    });
-                    setIconPickerIndex(null);
-                  }}
-                />
+                <Suspense fallback={null}>
+                  <IconPickerPanel
+                    title="탭 아이콘"
+                    onPickEmoji={(emoji) => {
+                      updateTabAttrs(iconPickerIndex, { icon: emoji });
+                      setIconPickerIndex(null);
+                    }}
+                    onPickLucide={(name, color) => {
+                      updateTabAttrs(iconPickerIndex, {
+                        icon: encodeLucidePageIcon(name, color),
+                      });
+                      setIconPickerIndex(null);
+                    }}
+                  />
+                </Suspense>
               </div>,
               portalRoot,
             )

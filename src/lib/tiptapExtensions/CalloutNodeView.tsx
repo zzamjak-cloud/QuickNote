@@ -1,13 +1,19 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { Suspense, lazy, useState, useEffect, useRef, useCallback } from "react";
 import {
   NodeViewWrapper,
   NodeViewContent,
   type NodeViewProps,
 } from "@tiptap/react";
-import { IconPickerPanel } from "../../components/common/IconPicker";
 import { PageIconDisplay } from "../../components/common/PageIconDisplay";
 import { encodeLucidePageIcon } from "../pageIcon";
 import { CALLOUT_PRESET_MAP, type CalloutPresetId } from "./calloutPresets";
+
+// 무거운 아이콘 카탈로그/패널은 picker 가 열릴 때만 지연 로드.
+const IconPickerPanel = lazy(() =>
+  import("../../components/common/IconPickerPanel").then((m) => ({
+    default: m.IconPickerPanel,
+  })),
+);
 
 export function CalloutNodeView({ node, updateAttributes }: NodeViewProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -103,10 +109,12 @@ export function CalloutNodeView({ node, updateAttributes }: NodeViewProps) {
           suppressContentEditableWarning
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <IconPickerPanel
-            onPickEmoji={handlePickEmoji}
-            onPickLucide={handlePickLucide}
-          />
+          <Suspense fallback={null}>
+            <IconPickerPanel
+              onPickEmoji={handlePickEmoji}
+              onPickLucide={handlePickLucide}
+            />
+          </Suspense>
         </div>
       )}
     </NodeViewWrapper>

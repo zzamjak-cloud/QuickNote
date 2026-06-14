@@ -1,12 +1,13 @@
 // 마크다운 언어 codeBlock: 미리보기 | 소스 탭 (기본 미리보기)
 
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import CodeBlock from "@tiptap/extension-code-block";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { CodeBlockLowlightStable } from "./codeBlockLowlightStable";
 import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
+
+// react-markdown + remark-gfm 는 미리보기 탭에서만 필요하므로 지연 로드해 eager 청크에서 분리한다.
+const MarkdownPreviewRender = lazy(() => import("./MarkdownPreviewRender"));
 
 /** codeBlockCopy 와 동일 복사 아이콘(버튼 스타일 일관) */
 function MarkdownCodeCopyIcon() {
@@ -150,7 +151,9 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
               미리보기 준비 중...
             </p>
           ) : text.trim() ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+            <Suspense fallback={<div className="text-xs text-zinc-400">로딩…</div>}>
+              <MarkdownPreviewRender source={text} />
+            </Suspense>
           ) : (
             <p className="my-0 text-sm text-zinc-500 dark:text-zinc-400">
               비어 있습니다. 「마크다운」 탭에서 편집하세요.
