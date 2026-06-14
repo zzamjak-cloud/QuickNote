@@ -61,7 +61,8 @@ TipTap 에디터에 등록할 extension 배열을 생성하는 훅. `lowlightApi
 | `ButtonBlock` | `buttonBlock.tsx` | 버튼 블록 |
 | `BookmarkBlock` | `bookmarkBlock.tsx` | 북마크 블록 |
 | `InsertBeforeBlock` | `insertBeforeBlock.ts` | 블록 앞 삽입 단축키 |
-| `LucideInlineIcon` | `lucideInlineIcon.tsx` | 인라인 아이콘 |
+| `LucideInlineIcon` | `lucideInlineIcon.tsx` | 인라인 Lucide 아이콘 |
+| `ImageInlineIcon` | `imageInlineIcon.tsx` | 인라인 커스텀 이미지 아이콘(슬래시 `/이모지` 커스텀 탭) |
 | `DateInline` | `dateInline.ts` | 인라인 날짜 |
 | `BlockBackground` | `blockBackground.ts` | 블록 배경색 |
 | `SlashCommand` | `slashCommand.ts` | `/` 슬래시 메뉴 (`filterSlashMenuEntries`, `createSlashRenderer` 연동) |

@@ -15,16 +15,19 @@
 | 인라인 **외부** 웹 링크 | TipTap `Link` mark → `<a href>` | `openOnClick: false` — 클릭 열기는 **`App.tsx` capture** ([아래](#에디터-외부-웹-링크-클릭)) |
 | 북마크 블록 | `bookmarkBlock.tsx` | `onClick` → `window.open` (에디터 capture와 별도) |
 
-### 멘션·내부 링크 클릭의 단일 권위 = `App.tsx onEditorPointerClick`
-- `document.addEventListener("click", onEditorPointerClick, true)` — **capture 단계**. 멘션 클릭과 **같은 리스너**에서 `.ProseMirror` 내 외부 `<a>` 도 처리한다.
-- 멤버(`m:`)·DB(`d:`) 멘션은 early-return → PM 핸들러(프로필 팝업·안내 토스트)에 위임.
-- 페이지 멘션: `Ctrl/Cmd` → `openPageInNewTab`, 사이드 피크 내부 → `peekNavigate`, 그 외 → `openPageInCurrentTab`.
-- `mention.tsx` 의 PM 플러그인은 **mousedown 에서 멤버 팝업·DB 토스트만** 처리하고, 페이지 멘션은 atom NodeSelection 만 막고 이동하지 않는다(이동은 App.tsx 담당).
+### 페이지 멘션 클릭 이동 — `pageMentionClick.ts` (document capture mouseup)
+
+페이지 멘션 이동은 **`App.tsx` click 이 아니라** `installPageMentionClickNavigation()` (`src/lib/navigation/pageMentionClick.ts`) 이 담당한다. `App.tsx` 마운트 시 `document` capture **`mousedown`/`mouseup`** 으로 press 정보를 캡처·이동한다.
+
+- **왜 mouseup 인가**: 멘션 삽입 직후 React NodeView 재마운트로 `click` 이벤트가 깨지거나(mousedown/mouseup 타깃 불일치) PM `handleDOMEvents` 만으로는 에디터 인스턴스 경계에서 누락될 수 있다. document mouseup 은 재마운트와 무관하게 수신된다.
+- **동작**: `.ProseMirror` 내 `[data-type="mention"][data-id]` 중 페이지 멘션(`mentionKind: page` 또는 `p:` prefix)만 대상. 드래그(4px 초과)는 이동 제외.
+- **분기**: `Ctrl/Cmd` → `openPageInNewTab`, 사이드 피크(`[data-qn-peek-editor]`) → `peekNavigate`, 그 외 → `openPageInCurrentTab` + `navigationHistoryStore.pushBack`.
+- **`mention.tsx` PM 플러그인**: **mousedown** 에서 멤버(프로필 팝업)·DB(안내 토스트)만 처리. 페이지 멘션은 atom NodeSelection 만 `preventDefault` — **이동은 하지 않는다**.
 
 > **CRITICAL 회귀 주의 — Ctrl+클릭 새 탭 2개**
-> PM mousedown 과 App.tsx click 양쪽에서 페이지 이동을 실행하면, `Ctrl/Cmd+클릭` 시 `openPageInNewTab` 이 두 번 불려 **새 탭이 2개** 열린다. 페이지 이동은 반드시 App.tsx 한 곳에서만 한다.
+> PM mousedown 과 document mouseup 양쪽에서 페이지 이동을 실행하면 `openPageInNewTab` 이 두 번 불려 **새 탭이 2개** 열린다. 페이지 이동은 **`pageMentionClick.ts` 한 곳**에서만 한다.
 
-### 에디터 외부 웹 링크 클릭
+### 에디터 외부 웹 링크 클릭 — `App.tsx onEditorPointerClick`
 
 TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 의도치 않은 navigation 방지. 대신:
 
@@ -55,7 +58,7 @@ TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 
 
 브라우저 히스토리와 **별개**인 인앱 백스택. `TopBar` 헤더가 소비한다(브라우저 뒤로가기와 둘 다 동작).
 
-- **push 시점**: 멘션(App.tsx), 페이지 링크(`pageLink`), 블록 링크(`buttonBlock`), DB 인라인→풀페이지(`DatabaseBlockView`), DB 슬래시 커맨드(`dbCommands`).
+- **push 시점**: 멘션(`pageMentionClick.ts`), 페이지 링크(`pageLink`), 블록 링크(`buttonBlock`), DB 인라인→풀페이지(`DatabaseBlockView`), DB 슬래시 커맨드(`dbCommands`).
 - `pushBack(fromPageId, targetPageId?)` — 떠나는 페이지를 스택에 쌓고, 도착 페이지를 `lastTargetPageId` 로 기록.
 - **표시**(`TopBar.tsx`): `backStack.length === 1` → "◁ 이전 페이지" 버튼(`showPreviousButton`), `>= 2` → 상단 브레드크럼 트레일(각 단계 `jumpTo`).
 - `popBack`/`jumpTo` 는 돌아간 페이지를 `lastTargetPageId` 로 갱신 → 연속 뒤로가기에서도 백스택 유지.
@@ -111,10 +114,11 @@ TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 
 | `src/lib/navigation/internalNavigation.ts` | `openPageInCurrentTab`/`openPageInNewTab`, `shouldOpenInternalLinkInNewTab`, `pushPageBrowserHistory` |
 | `src/lib/navigation/quicknoteLinks.ts` | `buildQuickNotePageUrl`/`parseQuickNoteLink`(딥링크 `?page&blockId`/`quicknote://`) |
 | `src/store/navigationHistoryStore.ts` | 인앱 백스택(`backStack`, `lastTargetPageId`, `pushBack`/`popBack`/`jumpTo`) |
-| `src/App.tsx` | `onEditorPointerClick`(멘션·에디터 외부 링크 클릭), `applyLocationLink`(popstate 복원) |
+| `src/lib/navigation/pageMentionClick.ts` | 페이지 멘션 클릭 이동(document capture mousedown/mouseup). `App.tsx` 에서 설치 |
+| `src/App.tsx` | `installPageMentionClickNavigation`, `onEditorPointerClick`(에디터 **외부** `<a>` 링크만), `applyLocationLink`(popstate 복원) |
 | `src/components/layout/TopBar.tsx` | "이전 페이지" 버튼·브레드크럼·클리어 가드 |
 | `src/components/layout/TabBar.tsx` | 탭 가운데클릭 닫기 |
-| `src/lib/tiptapExtensions/mention.tsx` | **모든 멘션(member/page/database) 단일 노드** `MentionExtension`. 페이지 멘션 렌더 + PM mousedown(멤버/DB 만) |
+| `src/lib/tiptapExtensions/mention.tsx` | **모든 멘션(member/page/database) 단일 노드** `MentionExtension`. 페이지 멘션 렌더 + PM mousedown(멤버/DB·atom 선택 차단만) |
 | `src/lib/tiptapExtensions/pageLink.tsx`, `buttonBlock.tsx` | 인라인 링크 / 블록 링크 이동 |
 | `src/components/page/PageSubpageTree.tsx` | 헤더 페이지 트리 팝오버 — 아이콘은 `PageIconDisplay` |
 | `src/components/common/PageIconDisplay.tsx` | 페이지 아이콘 공통 렌더 (멘션·트리·사이드바·IconPicker) |

@@ -20,10 +20,10 @@
 
 | 액션명 | 파라미터 | 설명 |
 |--------|---------|------|
-| `createPage` | `title?, parentId?, opts?` | 새 페이지 생성. 생성된 페이지 ID 반환 |
+| `createPage` | `title?, parentId?, opts?` | 새 페이지 생성. **워크스페이스 내 제목 중복 시 `(1)`, `(2)` … 접미사 자동 부여**(`allocateUniquePageTitle`). 생성된 페이지 ID 반환 |
 | `deletePage` | `id` | 페이지와 자손을 삭제. `lastDeletedBatch`에 저장 |
 | `undoLastDelete` | 없음 | 마지막 삭제 배치 복원. 성공 시 `true` 반환 |
-| `renamePage` | `id, title` | 페이지 제목 변경 |
+| `renamePage` | `id, title` | 페이지 제목 변경. **동일 워크스페이스에 같은 제목이 있으면 `false`**(스토어·원격 변경 없음). UI는 `SimpleAlertDialog` 로 안내 |
 | `updateDoc` | `id, doc, options?` | 페이지 본문(TipTap JSON) 업데이트. `skipHistory`, `deferSync` 옵션 지원 |
 | `setActivePage` | `id \| null` | 활성 페이지 전환 |
 | `navigateToParentPage` | 없음 | 부모 페이지로 이동 (루트면 무시) |
@@ -33,14 +33,29 @@
 | `setCoverImage` | `id, coverImage \| null` | 커버 이미지 설정 |
 | `movePage` | `id, parentId \| null, index` | 다른 부모/위치로 이동 |
 | `movePageRelative` | `id, direction` | 키보드 단축키용 상대 이동 (up/down/indent/outdent) |
-| `duplicatePage` | `id` | 페이지와 자손을 복제하여 바로 다음에 삽입. 복제된 루트 ID 반환 |
-| `duplicatePageToWorkspace` | `id, targetWorkspaceId` | 다른 워크스페이스로 복제. 복제된 페이지 수 반환 |
+| `duplicatePage` | `id` | 같은 워크스페이스에서 페이지와 자손을 복제하여 바로 다음에 삽입. 루트 제목은 `{title} (Copy)`. 복제된 루트 ID 반환 |
+| `duplicatePageToWorkspace` | `id, targetWorkspaceId` | **async** — 다른 워크스페이스로 복제. 대상 WS 의 로컬 페이지 + `fetchPageMetasByWorkspace` 메타로 제목 충돌 검사 후 **루트·자손 각각 `allocateUniquePageTitle`**(`(1)` 형식, `(Copy)` 접미사 없음). 복제된 페이지 수 반환 |
 | `setPageDbCell` | `pageId, columnId, value` | DB 행 페이지의 셀 값 업데이트 (title 제외) |
 | `restorePageFromLatestHistory` | `pageId` | 최신 히스토리로 페이지 복원 |
 | `restorePageFromHistoryEvent` | `pageId, eventId` | 특정 히스토리 이벤트로 페이지 복원 |
 | `findFullPagePageIdForDatabase` | `databaseId` | DB의 전체 페이지 홈 ID 반환 (없으면 null) |
 | `ensureFullPagePageForDatabase` | `databaseId, title?, view?` | DB의 숨김 홈 페이지를 보장하고 ID 반환 |
 | `updateButtonBlockLabels` | `homePageId, newLabel` | DB 제목 변경 시 buttonBlock 레이블 동기화 |
+
+## 제목 중복 방지 (`pageStore/helpers.ts`)
+
+| 함수 | 용도 |
+|------|------|
+| `normalizePageTitle` | trim·빈 값 → `"제목 없음"` |
+| `isPageTitleTaken` | 워크스페이스 스코프·`exceptId`·`deletedAt` 제외·`reservedTitles`(복제 배치) |
+| `allocateUniquePageTitle` | 신규 생성·WS 간 복제 시 `(1)`, `(2)` … 부여 |
+| `isDefaultNewPageTitle` | `"새 페이지"`, `"새 페이지 (1)"` 등 — 생성 직후 제목 자동 포커스 판별 |
+| `PAGE_TITLE_DUPLICATE_MESSAGE` | rename 중복 시 UI 공통 문구 |
+
+> **회귀 주의**
+> - 제목 비교는 **워크스페이스 단위**. 다른 WS 와 같은 이름은 허용.
+> - 휴지통(`deletedAt`) 페이지는 중복 검사에서 제외.
+> - rename 거부는 **스토어가 `false` 반환** → UI(`PageListItem`, `Editor`/`PageTitleBar`, `DatabaseRowPage`, `DatabaseRowPeek`)에서 alert + 입력 재포커스. 스토어에서 silent skip 하지 말 것.
 
 ## Persist
 

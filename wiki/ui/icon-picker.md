@@ -42,6 +42,7 @@
 - `PageListItem` / 사이드바 — `size="sm"` 인라인
 - `CalloutNodeView` — `IconPickerPanel`만 임베드(트리거 없음)
 - `DatabaseTableView` 등 DB 뷰 — 행/컬럼 아이콘
+- **`Editor.tsx` 슬래시 `/이모지`** — `IconPickerPanel` + `useCustomIconUpload`. 커스텀 선택 → `imageInlineIcon` 노드 삽입 ([slash-menu.md](../editor/slash-menu.md))
 
 ## 회귀 주의
 
