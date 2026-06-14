@@ -1,4 +1,5 @@
 import type { Page } from "../../types/page";
+import { COLUMN_TYPE_META } from "../../types/database";
 import type {
   CellValue,
   ColumnDef,
@@ -165,15 +166,7 @@ export function resolveFilterValueLabel(
 }
 
 export function isIdLabelBackedColumn(column: ColumnDef): boolean {
-  return [
-    "select",
-    "multiSelect",
-    "status",
-    "person",
-    "dbLink",
-    "pageLink",
-    "itemFetch",
-  ].includes(column.type);
+  return COLUMN_TYPE_META[column.type]?.idLabelBacked ?? false;
 }
 
 export function resolveFilterableCellValue({

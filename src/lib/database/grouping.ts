@@ -2,7 +2,7 @@
 // 표/리스트/갤러리(+후속 타임라인) 뷰가 공유하는 그룹 분할 로직을 한곳에 모은다.
 // 칸반은 자체 kanbanGroupColumnId 를 사용하므로 이 엔진과 분리되어 있다.
 
-import type { ColumnDef, ColumnType, DatabaseRowView } from "../../types/database";
+import { COLUMN_TYPE_META, type ColumnDef, type ColumnType, type DatabaseRowView } from "../../types/database";
 import {
   extractFilterValueIds,
   filterDisplayOptionsForColumn,
@@ -12,14 +12,12 @@ import {
 import { personChipColor } from "../../components/database/cells/utils";
 
 /**
- * 그룹화 가능한 컬럼 타입 — 확장 단일 지점.
- * 추후 그룹화 대상 타입을 늘리려면 이 집합에만 추가하면 된다(엔진/뷰 수정 불필요).
+ * 그룹화 가능한 컬럼 타입 — `COLUMN_TYPE_META.groupable` 에서 파생(단일 출처).
+ * 그룹화 대상 타입을 늘리려면 메타의 groupable 플래그만 바꾸면 된다(엔진/뷰 수정 불필요).
  */
-export const GROUPABLE_COLUMN_TYPES: ReadonlySet<ColumnType> = new Set<ColumnType>([
-  "person",
-  "status",
-  "select",
-]);
+export const GROUPABLE_COLUMN_TYPES: ReadonlySet<ColumnType> = new Set<ColumnType>(
+  (Object.keys(COLUMN_TYPE_META) as ColumnType[]).filter((t) => COLUMN_TYPE_META[t].groupable),
+);
 
 /** 값이 없는 행이 모이는 "미지정" 그룹의 키(항상 마지막에 배치). */
 export const GROUP_UNASSIGNED = "__ungrouped__";

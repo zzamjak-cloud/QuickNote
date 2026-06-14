@@ -31,6 +31,44 @@ export type ColumnType =
   | "progress"
   | "itemFetch";
 
+/**
+ * 컬럼 타입별 정책 메타 — 산재하던 minWidth/groupable/arrayValued/idLabelBacked 의 단일 출처.
+ * `Record<ColumnType, ...>` 라 새 타입 추가 시 누락 항목을 컴파일러가 강제 검출한다
+ * (과거 Set/배열 형태일 때는 새 타입 누락이 런타임까지 통과하던 표면).
+ *
+ * - minWidth      : colgroup width/minWidth 기본값(px)
+ * - groupable     : 표/리스트/갤러리 그룹화 대상 여부(칸반 제외)
+ * - arrayValued   : 다중 값(배열)로 저장되는 타입 — 시드/필터가 배열을 기대
+ * - idLabelBacked : 셀 값이 id 이고 라벨은 별도 해석이 필요한 타입(옵션/사람/링크류)
+ */
+export type ColumnTypeMeta = {
+  minWidth: number;
+  groupable: boolean;
+  arrayValued: boolean;
+  idLabelBacked: boolean;
+};
+
+export const COLUMN_TYPE_META: Record<ColumnType, ColumnTypeMeta> = {
+  title: { minWidth: 200, groupable: false, arrayValued: false, idLabelBacked: false },
+  text: { minWidth: 160, groupable: false, arrayValued: false, idLabelBacked: false },
+  json: { minWidth: 220, groupable: false, arrayValued: false, idLabelBacked: false },
+  number: { minWidth: 100, groupable: false, arrayValued: false, idLabelBacked: false },
+  select: { minWidth: 140, groupable: true, arrayValued: false, idLabelBacked: true },
+  multiSelect: { minWidth: 180, groupable: false, arrayValued: true, idLabelBacked: true },
+  status: { minWidth: 140, groupable: true, arrayValued: false, idLabelBacked: true },
+  date: { minWidth: 120, groupable: false, arrayValued: false, idLabelBacked: false },
+  person: { minWidth: 140, groupable: true, arrayValued: true, idLabelBacked: true },
+  file: { minWidth: 160, groupable: false, arrayValued: false, idLabelBacked: false },
+  checkbox: { minWidth: 60, groupable: false, arrayValued: false, idLabelBacked: false },
+  url: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false },
+  phone: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false },
+  email: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false },
+  dbLink: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: true },
+  pageLink: { minWidth: 200, groupable: false, arrayValued: true, idLabelBacked: true },
+  progress: { minWidth: 140, groupable: false, arrayValued: false, idLabelBacked: false },
+  itemFetch: { minWidth: 200, groupable: false, arrayValued: true, idLabelBacked: true },
+};
+
 export type SelectOption = {
   id: string;
   label: string;
@@ -355,27 +393,7 @@ export const emptyPanelState = (): DatabasePanelState => ({
 
 /** 컬럼 타입별 기본 최소 폭(px) — colgroup의 width/minWidth에 적용. */
 export function defaultMinWidthForType(type: ColumnType): number {
-  switch (type) {
-    case "title": return 200;
-    case "text": return 160;
-    case "json": return 220;
-    case "number": return 100;
-    case "select":
-    case "status": return 140;
-    case "multiSelect": return 180;
-    case "date": return 120;
-    case "person": return 140;
-    case "file": return 160;
-    case "checkbox": return 60;
-    case "url":
-    case "email":
-    case "phone": return 180;
-    case "dbLink": return 180;
-    case "pageLink": return 200;
-    case "progress": return 140;
-    case "itemFetch": return 200;
-    default: return 140;
-  }
+  return COLUMN_TYPE_META[type]?.minWidth ?? 140;
 }
 
 /**

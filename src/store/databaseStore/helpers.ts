@@ -1,6 +1,7 @@
 // databaseStore 내부 헬퍼 — 순수 유틸 + sync enqueue 래퍼.
 // databaseStore.ts 에서 분리 — 동작 변경 없음.
 
+import { COLUMN_TYPE_META } from "../../types/database";
 import type {
   CellValue,
   ColumnDef,
@@ -175,12 +176,12 @@ export function defaultCellValueForColumn(col: ColumnDef): CellValue {
 }
 
 // 배열(다중 값)로 저장되는 컬럼 타입 — 시드 값도 배열로 감싸야 필터를 통과한다.
-const ARRAY_VALUED_COLUMN_TYPES = new Set<ColumnDef["type"]>([
-  "pageLink",
-  "multiSelect",
-  "person",
-  "itemFetch",
-]);
+// 출처는 COLUMN_TYPE_META.arrayValued(단일 출처).
+const ARRAY_VALUED_COLUMN_TYPES = new Set<ColumnDef["type"]>(
+  (Object.keys(COLUMN_TYPE_META) as ColumnDef["type"][]).filter(
+    (t) => COLUMN_TYPE_META[t].arrayValued,
+  ),
+);
 
 /**
  * 활성 필터 규칙을 만족시키는 새 행의 셀 시드 값을 계산한다.
