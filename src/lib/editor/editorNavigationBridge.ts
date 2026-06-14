@@ -21,6 +21,12 @@ export type SearchHitTarget = {
 export type BlockLinkTarget = {
   blockId?: string | null;
   blockPos?: number | null;
+  /**
+   * blockId/숫자 위치로 못 찾을 때 마지막 폴백으로 쓸 라벨 텍스트(소문자 무관).
+   * 협업 ON 환경에서 서버 시드 본문이 구버전이라 heading 의 attrs.id 가 어긋난 경우
+   * 링크 표시 텍스트(제목)로라도 이동시켜 무반응을 막는다. blockId 성공 시엔 쓰이지 않음.
+   */
+  fallbackText?: string | null;
 };
 
 /** 우측 패널(목차·댓글)에서 메인 에디터로 스크롤/포커스 요청할 때 쓰는 단일 브리지 */
@@ -316,7 +322,8 @@ export function navigateToBlockLink(
 ): void {
   const blockId = target.blockId ?? null;
   const fallbackPos = target.blockPos ?? null;
-  if (blockId == null && fallbackPos == null) return;
+  const fallbackText = (target.fallbackText ?? "").trim().toLowerCase();
+  if (blockId == null && fallbackPos == null && !fallbackText) return;
   const maxTries = opts.maxTries ?? 50;
   const intervalMs = opts.intervalMs ?? 100;
   let tries = 0;
@@ -334,6 +341,9 @@ export function navigateToBlockLink(
           scrollBlockDomIntoView(blockId, fallbackPos, pageId, true);
           return;
         }
+        // blockId/숫자 위치로 못 찾았고 라벨 텍스트가 있으면 텍스트 매칭으로 폴백한다.
+        // (협업 시드 본문이 구버전이라 attrs.id 가 어긋난 경우의 안전망 — blockId 성공 시엔 미실행.)
+        if (fallbackText && scrollToTextMatch(fallbackText)) return;
       }
     }
     if (tries < maxTries) window.setTimeout(tick, intervalMs);

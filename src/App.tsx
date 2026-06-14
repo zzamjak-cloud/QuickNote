@@ -174,7 +174,13 @@ function App() {
       if (t && (t.blockId || t.block != null)) {
         e.preventDefault();
         e.stopPropagation();
-        navigateToBlockLink(t.pageId, { blockId: t.blockId, blockPos: t.block });
+        // 링크 표시 텍스트(제목)를 폴백으로 함께 넘긴다 — 협업 시드 본문이 구버전이라
+        // blockId(attrs.id)가 어긋나도 제목 텍스트로 이동시켜 무반응을 막는다.
+        navigateToBlockLink(t.pageId, {
+          blockId: t.blockId,
+          blockPos: t.block,
+          fallbackText: anchor.textContent,
+        });
         return;
       }
       // http(s) 외부 링크만 새 창으로. mailto:/tel: 을 window.open 으로 열면 webview 가

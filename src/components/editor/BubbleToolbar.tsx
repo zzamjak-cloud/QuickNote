@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { ImageBubbleToolbar } from "./ImageBubbleToolbar";
 import { sanitizeWebLinkHref } from "../../lib/safeUrl";
+import { parseQuickNoteLink } from "../../lib/navigation/quicknoteLinks";
 import { useUiStore } from "../../store/uiStore";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
 import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
@@ -438,16 +439,23 @@ export function BubbleToolbar({ editor, pageId }: Props) {
                 void (async () => {
                   const url = await useUiStore
                     .getState()
-                    .requestTextPrompt("URL을 입력하세요", {
-                      placeholder: "https://…",
+                    .requestTextPrompt("URL 또는 복사한 블록 링크를 입력하세요", {
+                      placeholder: "https://… 또는 페이지 내 블록 링크",
                     });
                   if (url === null) return;
                   if (url === "") {
                     editor.chain().focus().unsetLink().run();
                   } else {
-                    const safe = sanitizeWebLinkHref(url);
-                    if (!safe) return;
-                    editor.chain().focus().setLink({ href: safe }).run();
+                    // 대상 블록의 "블럭 링크 복사"로 만든 내부 링크(?page=&blockId=)면
+                    // 외부 URL 검증을 우회해 그대로 적용한다 → 클릭 시 같은 페이지 내 블록으로 이동.
+                    const intra = parseQuickNoteLink(url);
+                    if (intra && (intra.blockId || intra.block != null)) {
+                      editor.chain().focus().setLink({ href: url.trim() }).run();
+                    } else {
+                      const safe = sanitizeWebLinkHref(url);
+                      if (!safe) return;
+                      editor.chain().focus().setLink({ href: safe }).run();
+                    }
                   }
                 })();
               }}
