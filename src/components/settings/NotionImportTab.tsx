@@ -27,6 +27,7 @@ import {
 import { NotionCsvFolderSection } from "./NotionCsvFolderSection";
 import { createFilesVirtualDir, createTauriVirtualDir } from "../../lib/notionImport/zipVirtualFs";
 import { usePageStore } from "../../store/pageStore";
+import { flushDebouncedKeys } from "../../lib/sync/debouncePerKey";
 import { useDatabaseStore } from "../../store/databaseStore";
 import type { ColumnType } from "../../types/database";
 import type { JSONContent } from "@tiptap/react";
@@ -347,7 +348,10 @@ export function NotionImportTab() {
         // "자식의 자식" 깊은 계층이 평탄화되지 않고 트리로 유지된다.
         // 구조적 부모가 없을 때에만 멘션 소유자(forcedParentPageId) 를 부모로 사용.
         const parentPageId = structuralParentPageId ?? forcedParentPageId ?? null;
-        const pageId = createPage(source.title, parentPageId);
+        // 협업 ON 환경에서 import 페이지를 즉시 활성화하면, 본문(updateDoc)이 서버에 올라가기 전에
+        // 빈 협업 룸이 바인딩·잠겨 본문이 Y.Doc 에 영영 반영되지 않는다(웹앱 본문 공백 버그).
+        // CSV 가져오기와 동일하게 활성화하지 않는다 — 본문 동기화 후 사용자가 직접 열면 정상 시드된다.
+        const pageId = createPage(source.title, parentPageId, { activate: false });
         importedPageIdByPath.set(source.path, pageId);
         return pageId;
       };
@@ -793,6 +797,10 @@ export function NotionImportTab() {
     } finally {
       setImportProgress(null);
       setIsImporting(false);
+      // 가져오기 종료 시 대기 중인 doc 동기화(`page:` 2초 idle 디바운스)를 즉시 발사한다.
+      // 다중 페이지 import 의 마지막 페이지들이나 종료 직후 앱 전환 시 본문 enqueue 가
+      // 유실돼 서버에 "제목만 있고 본문이 빈" 페이지가 남던 문제를 막는다.
+      flushDebouncedKeys();
     }
   };
 

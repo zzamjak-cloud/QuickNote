@@ -46,6 +46,7 @@ import {
   resolveImportedPersonMemberId,
 } from "../../lib/notionImport/personName";
 import { pauseStorageWrites, resumeStorageWrites } from "../../lib/storage/index";
+import { flushDebouncedKeys } from "../../lib/sync/debouncePerKey";
 
 type SectionStatus =
   | { kind: "idle" }
@@ -889,6 +890,8 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
       setProgress(null);
       // import 완료 — 차단된 쓰기를 한 번에 flush
       await resumeStorageWrites();
+      // 대기 중인 doc 동기화(`page:` 2초 idle 디바운스)를 즉시 발사 — 본문 enqueue 유실 방지.
+      flushDebouncedKeys();
     }
   };
 
