@@ -27,7 +27,8 @@ function tableToMd(node: JSONContent): string {
   if (rows.length === 0) return "";
 
   const headerRow = rows[0];
-  const colCount = headerRow?.content?.length ?? 0;
+  if (!headerRow) return "";
+  const colCount = headerRow.content?.length ?? 0;
   if (colCount === 0) return "";
 
   const headerLine = tableRowToMdLine(headerRow);
