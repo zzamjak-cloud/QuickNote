@@ -599,6 +599,11 @@ function headingFromElement(
   const attrs: Record<string, unknown> = { level };
   if (blockToken) attrs.blockTextColor = blockToken;
   if (bgToken) attrs.backgroundColor = bgToken;
+  // 노션 export 의 heading id(uuid) 를 보존한다. UniqueID 확장이 attrs.id 를 런타임까지
+  // 유지하므로, 자기참조 링크의 blockId 와 이 heading 의 attrs.id 가 정확히 일치한다.
+  // id 가 없으면 UniqueID 가 런타임에 부여하도록 그대로 둔다.
+  const hid = (el.getAttribute("id") ?? "").trim();
+  if (hid) attrs.id = hid;
   return {
     type: "heading",
     attrs,
@@ -879,7 +884,40 @@ type HtmlToDocOptions = {
   currentPagePath?: string;
   resolvePageMentionByHref?: (href: string) => { pageId: string; label?: string; intraPage?: boolean } | null;
   deferPageMentions?: boolean;
+  /**
+   * 자기참조(intraPage) 링크 라벨 → 유일하게 일치하는 heading 블록 id 를 해소한다.
+   * 노션 export 는 블록 링크의 #fragment 를 폐기하므로, 라벨↔제목 정확·유일 매칭으로
+   * 안정적 blockId 를 복원한다. 유일 매칭이 아니면 null.
+   */
+  resolveIntraPageBlockId?: (label: string) => string | null;
 };
+
+// 제목 색인용 정규화: 선두 화살표/기호 제거 → 연속 공백 1칸 → 소문자.
+function normalizeHeadingTitle(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^[↑↓→←⬆⬇▲▼]+\s*/u, "")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+// document(또는 root element) 의 h1~h6 을 스캔해 (정규화 제목 → { id, count }) 색인을 만든다.
+// id 는 노션 export 의 heading el id attr(uuid). id 빈 heading 은 색인에서 제외.
+function buildHeadingTitleIndex(root: ParentNode): Map<string, { id: string; count: number }> {
+  const index = new Map<string, { id: string; count: number }>();
+  const headings = root.querySelectorAll("h1, h2, h3, h4, h5, h6");
+  headings.forEach((h) => {
+    if (!(h instanceof HTMLElement)) return;
+    const id = (h.getAttribute("id") ?? "").trim();
+    if (!id) return;
+    const key = normalizeHeadingTitle(h.textContent ?? "");
+    if (!key) return;
+    const existing = index.get(key);
+    if (existing) existing.count += 1;
+    else index.set(key, { id, count: 1 });
+  });
+  return index;
+}
 
 // 페이지 멘션 헬퍼는 htmlToDoc/pageMentions.ts 로 이동.
 
@@ -1029,15 +1067,21 @@ function inlineFromNode(node: Node, inheritedColor: string | null, inheritedMark
       // reactive 표시되어 모든 용어 링크가 제목으로 보인다. 라벨(용어명) 텍스트를 보존하고,
       // 클릭 시 같은 페이지 안에서 그 용어명과 일치하는 블록으로 점프하는 내부 링크로 변환한다.
       if (pageMention.intraPage) {
+        // 자기참조 링크: 라벨↔제목 정확·유일 매칭으로 blockId 를 복원한다.
+        // 매칭되면 안정적 blockId 링크(편집에도 안전), 아니면 가짜 연결을 피해 라벨만 보존한다.
         const intraLabel = labelText || pageMention.label || "";
-        return [textNode(intraLabel, [{
-          type: "link",
-          attrs: {
-            href: buildQuickNotePageUrl({ pageId: pageMention.pageId, text: intraLabel }),
-            target: "_blank",
-            rel: "noopener noreferrer",
-          },
-        }])];
+        const blockId = options?.resolveIntraPageBlockId?.(intraLabel) ?? null;
+        if (blockId) {
+          return [textNode(intraLabel, [{
+            type: "link",
+            attrs: {
+              href: buildQuickNotePageUrl({ pageId: pageMention.pageId, blockId }),
+              target: "_blank",
+              rel: "noopener noreferrer",
+            },
+          }])];
+        }
+        return [textNode(intraLabel)];
       }
       if (options?.deferPageMentions) {
         return [textNode(createDeferredMentionToken(pageMention.pageId, pageMention.label ?? labelText ?? "페이지"))];
@@ -1334,6 +1378,24 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
     : html;
   const page = doc.querySelector("article.page") ?? doc.body;
   const blocks: JSONContent[] = [];
+
+  // 자기참조 링크 해소용 제목 색인을 페이지 단위로 구성한다.
+  // 호출부가 resolveIntraPageBlockId 를 이미 주입했으면 그대로 쓰고(중첩 변환 등),
+  // 아니면 이 페이지의 heading 색인으로 resolver 를 만들어 options 에 합친다.
+  let effectiveOptions = options;
+  if (page && !options?.resolveIntraPageBlockId) {
+    const headingIndex = buildHeadingTitleIndex(page);
+    if (headingIndex.size > 0) {
+      effectiveOptions = {
+        ...options,
+        resolveIntraPageBlockId: (label: string) => {
+          const hit = headingIndex.get(normalizeHeadingTitle(label));
+          return hit && hit.count === 1 ? hit.id : null;
+        },
+      };
+    }
+  }
+  options = effectiveOptions;
 
   // Notion 의 컬럼 블록은 보통 div.column-list 지만, 일부 export 변형에서 class 가 살짝 다를 수 있어
   // 속성 부분일치 셀렉터로도 잡아낸다. ("column_list", "notion-column-list" 등).
