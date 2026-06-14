@@ -35,7 +35,8 @@ import { isLCSchedulerDatabaseId, isProtectedDatabaseId } from "../../lib/schedu
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
-import { pageDocToHtml } from "../../lib/export/pageToHtml";
+import { buildPageHtmlZipBlob } from "../../lib/export/pageHtmlZip";
+import { collectDatabaseCollection } from "../../lib/export/databaseCollection";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
@@ -342,15 +343,16 @@ export function DatabaseRowPeek() {
     setMenuOpen(false);
   };
 
-  const handleExportHtml = () => {
+  const handleExportHtml = async () => {
     if (!page) return;
     const title = page.title || "untitled";
-    const html = pageDocToHtml(title, page.doc);
-    const blob = new Blob([html], { type: "text/html" });
+    const blob = await buildPageHtmlZipBlob(title, page.doc, {
+      resolveCollection: (id) => collectDatabaseCollection(id),
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${title}.html`;
+    a.download = `${title}.zip`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 100);
     setMenuOpen(false);
@@ -601,7 +603,7 @@ export function DatabaseRowPeek() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleExportHtml}
+                  onClick={() => void handleExportHtml()}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   <Code className={MENU_ITEM_ICON} aria-hidden />
