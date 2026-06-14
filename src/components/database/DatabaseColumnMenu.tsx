@@ -7,7 +7,7 @@ import { AppSelect } from "../common/AppSelect";
 import { AnchoredPanelBase } from "../../lib/ui-primitives";
 import { IconPicker } from "../common/IconPicker";
 import { PageIconDisplay } from "../common/PageIconDisplay";
-import { defaultColumnIcon } from "./columnTypeIcons";
+import { COLUMN_TYPE_LABELS, defaultColumnIcon } from "./columnTypeIcons";
 import {
   ProgressSourceEditor,
   SelectSourceEditor,
@@ -17,24 +17,16 @@ import {
 
 type TypeLabel = { id: ColumnType; label: string; icon?: string };
 
-const TYPE_LABELS: TypeLabel[] = [
-  { id: "text", label: "텍스트", icon: defaultColumnIcon("text") },
-  { id: "number", label: "숫자", icon: defaultColumnIcon("number") },
-  { id: "select", label: "선택", icon: defaultColumnIcon("select") },
-  { id: "multiSelect", label: "다중 선택", icon: defaultColumnIcon("multiSelect") },
-  { id: "status", label: "상태", icon: defaultColumnIcon("status") },
-  { id: "date", label: "날짜", icon: defaultColumnIcon("date") },
-  { id: "person", label: "사람", icon: defaultColumnIcon("person") },
-  { id: "file", label: "파일", icon: defaultColumnIcon("file") },
-  { id: "checkbox", label: "체크박스", icon: defaultColumnIcon("checkbox") },
-  { id: "url", label: "URL", icon: defaultColumnIcon("url") },
-  { id: "phone", label: "연락처", icon: defaultColumnIcon("phone") },
-  { id: "email", label: "이메일", icon: defaultColumnIcon("email") },
-  { id: "dbLink", label: "DB 연결", icon: defaultColumnIcon("dbLink") },
-  { id: "pageLink", label: "페이지 연결", icon: defaultColumnIcon("pageLink") },
-  { id: "progress", label: "진행률", icon: defaultColumnIcon("progress") },
-  { id: "itemFetch", label: "페이지 연결 가져오기", icon: defaultColumnIcon("itemFetch") },
+// 타입 변경 메뉴에 노출할 타입(순서 유지). 라벨/아이콘은 단일 레지스트리에서 파생.
+const TYPE_MENU_IDS: ColumnType[] = [
+  "text", "number", "select", "multiSelect", "status", "date", "person",
+  "file", "checkbox", "url", "phone", "email", "dbLink", "pageLink", "progress", "itemFetch",
 ];
+const TYPE_LABELS: TypeLabel[] = TYPE_MENU_IDS.map((id) => ({
+  id,
+  label: COLUMN_TYPE_LABELS[id],
+  icon: defaultColumnIcon(id),
+}));
 
 type Props = {
   databaseId: string;

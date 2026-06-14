@@ -13,7 +13,7 @@ import { DatabaseCell } from "./DatabaseCell";
 import { DatabaseColumnMenu } from "./DatabaseColumnMenu";
 import { AppSelect } from "../common/AppSelect";
 import { PageIconDisplay } from "../common/PageIconDisplay";
-import { defaultColumnIcon } from "./columnTypeIcons";
+import { COLUMN_TYPE_LABELS, defaultColumnIcon } from "./columnTypeIcons";
 import {
   isLCSchedulerDatabaseId,
   isLCSchedulerHiddenPropertyColumnId,
@@ -27,23 +27,17 @@ import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR } from "../../lib/scheduler/
 import { effectiveOptions } from "../../lib/database/columnSource";
 import { resolveEffectiveCellValueById } from "../../lib/database/effectiveCellValue";
 
-const COLUMN_TYPES: { id: ColumnType; label: string; icon?: string }[] = [
-  { id: "text", label: "텍스트", icon: defaultColumnIcon("text") },
-  { id: "number", label: "숫자", icon: defaultColumnIcon("number") },
-  { id: "select", label: "선택", icon: defaultColumnIcon("select") },
-  { id: "multiSelect", label: "다중 선택", icon: defaultColumnIcon("multiSelect") },
-  { id: "status", label: "상태", icon: defaultColumnIcon("status") },
-  { id: "date", label: "날짜", icon: defaultColumnIcon("date") },
-  { id: "person", label: "사람", icon: defaultColumnIcon("person") },
-  { id: "file", label: "파일", icon: defaultColumnIcon("file") },
-  { id: "checkbox", label: "체크박스", icon: defaultColumnIcon("checkbox") },
-  { id: "url", label: "URL", icon: defaultColumnIcon("url") },
-  { id: "phone", label: "연락처", icon: defaultColumnIcon("phone") },
-  { id: "email", label: "이메일", icon: defaultColumnIcon("email") },
-  { id: "dbLink", label: "DB 연결", icon: defaultColumnIcon("dbLink") },
-  { id: "pageLink", label: "페이지 연결", icon: defaultColumnIcon("pageLink") },
-  { id: "progress", label: "진행률", icon: defaultColumnIcon("progress") },
+// 속성 패널의 타입 변경 목록(순서 유지). 라벨/아이콘은 단일 레지스트리에서 파생.
+const PROPERTY_COLUMN_TYPE_IDS: ColumnType[] = [
+  "text", "number", "select", "multiSelect", "status", "date", "person",
+  "file", "checkbox", "url", "phone", "email", "dbLink", "pageLink", "progress",
 ];
+const COLUMN_TYPES: { id: ColumnType; label: string; icon?: string }[] =
+  PROPERTY_COLUMN_TYPE_IDS.map((id) => ({
+    id,
+    label: COLUMN_TYPE_LABELS[id],
+    icon: defaultColumnIcon(id),
+  }));
 
 type PresetScope = "workspace" | "organization" | "team" | "project";
 
