@@ -82,6 +82,21 @@ git push origin develop
 # git push origin v{version}
 ```
 
+## STEP 6.5 — Vercel Production 배포 (main push 후 필수 확인)
+
+`main` push·태그만으로 **Production alias가 갱신되지 않는 경우가 있다.** develop Preview는 Ready인데 live(Production)가 몇 시간 전 커밋에 머물면 이 단계를 수행한다.
+
+```bash
+vercel ls --prod          # Production ● Ready 시각·커밋 확인
+vercel ls                 # develop Preview vs Production 시각 비교
+# Production이 main 최신 커밋보다 오래됐으면:
+git checkout main && git pull
+vercel deploy --prod --yes
+vercel ls --prod          # 새 Production Ready 확인
+```
+
+**회귀 징후**: dev에서 확인한 fix(예: 슬래시 `/이모지` 커스텀 탭·이미지 업로드)가 live에 없음 → 대부분 Production 미배포. GitHub `main` CI success ≠ Vercel Production 갱신.
+
 ## STEP 7 — dev/live 배포 확인
 ```bash
 vercel ls   # dev 배포 ● Ready 확인

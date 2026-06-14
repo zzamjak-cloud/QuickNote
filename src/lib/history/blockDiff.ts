@@ -9,6 +9,14 @@
  */
 
 import { isRecord } from "../util/typeGuards";
+import {
+  blockSignature,
+  hashString,
+  isEmptyBlockNode,
+  parseJsonLike,
+} from "./signatureCore";
+
+export { isEmptyBlockNode } from "./signatureCore";
 
 export type BlockNode = Record<string, unknown>;
 
@@ -19,81 +27,6 @@ export type BlockDiffEntry = {
   before: BlockNode | null;
   after: BlockNode | null;
 };
-
-function parseJsonLike(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
-/** 키 순서 무관 직렬화 — 직렬화 경로(서버 왕복 등)에 따른 키 순서 차이를 무시한다. */
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const obj = value as Record<string, unknown>;
-  return `{${Object.keys(obj)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`)
-    .join(",")}}`;
-}
-
-function hashString(input: string): string {
-  let h = 5381;
-  for (let i = 0; i < input.length; i += 1) {
-    h = ((h << 5) + h + input.charCodeAt(i)) | 0;
-  }
-  return (h >>> 0).toString(36);
-}
-
-function hasMeaningfulNode(node: unknown): boolean {
-  if (!isRecord(node)) return false;
-  if (node.type === "text") {
-    return typeof node.text === "string" && node.text.length > 0;
-  }
-  if (node.type !== "paragraph") return true;
-  const content = node.content;
-  return Array.isArray(content) && content.some(hasMeaningfulNode);
-}
-
-/** 빈 블럭(내용 없는 문단) — 추가/삭제를 변화로 치지 않는다. */
-export function isEmptyBlockNode(node: unknown): boolean {
-  if (!isRecord(node)) return true;
-  if (node.type !== "paragraph") return false;
-  return !hasMeaningfulNode(node);
-}
-
-/**
- * 시그니처용 노드 정규화 — attrs/marks 의 null 값 키를 깊이 제거한다.
- * editor.getJSON 은 기본값 attr 을 null 로 포함하고 yDocToJson(y-prosemirror)은 생략하므로,
- * 정규화 없이는 같은 내용이 "전부 변경"으로 오판된다(서버 historySession.ts 와 동일 규칙).
- */
-function normalizeForSignature(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeForSignature);
-  if (!isRecord(value)) return value;
-  const out: Record<string, unknown> = {};
-  for (const [key, v] of Object.entries(value)) {
-    if (key === "attrs" && isRecord(v)) {
-      const attrs: Record<string, unknown> = {};
-      for (const [ak, av] of Object.entries(v)) {
-        if (av != null) attrs[ak] = normalizeForSignature(av);
-      }
-      if (Object.keys(attrs).length > 0) out.attrs = attrs;
-      continue;
-    }
-    if (v != null) out[key] = normalizeForSignature(v);
-  }
-  return out;
-}
-
-function blockSignature(node: BlockNode): string {
-  const normalized = normalizeForSignature(node) as Record<string, unknown>;
-  const attrs = isRecord(normalized.attrs) ? { ...normalized.attrs } : {};
-  delete (attrs as Record<string, unknown>).id;
-  return stableStringify({ type: normalized.type, attrs, content: normalized.content ?? null });
-}
 
 type CollectedBlock = { id: string; sig: string; empty: boolean; node: BlockNode; index: number };
 

@@ -11,6 +11,17 @@
  *   DB:     "column:<id>" | "preset:<id>" | "templates" | "meta:title"
  */
 
+import {
+  blockSignature,
+  hashString,
+  isEmptyBlockNode,
+  isPlainObject,
+  parseJsonLike,
+  stableStringify,
+} from "../../../../src/lib/history/signatureCore";
+
+export { isEmptyBlockNode };
+
 export const SESSION_IDLE_MS = 10 * 60 * 1000;
 export const SESSION_MAX_MS = 20 * 60 * 1000;
 /** 머지 누적 patch 가 이 개수를 넘으면 전체 스냅샷 set 1개로 강등(레거시 워커 호환 유지). */
@@ -25,86 +36,7 @@ export type SessionPatchOp = {
 
 export type Contributor = { memberId: string; name?: string | null };
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function parseJsonLike(value: unknown): unknown {
-  if (typeof value !== "string") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
-}
-
-/** 키 순서 무관 직렬화 — DynamoDB 왕복/입력 경로에 따라 키 순서가 달라도 동일 시그니처. */
-export function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
-}
-
-function hashString(input: string): string {
-  // djb2 — 식별용 짧은 해시(암호학적 강도 불필요)
-  let h = 5381;
-  for (let i = 0; i < input.length; i += 1) {
-    h = ((h << 5) + h + input.charCodeAt(i)) | 0;
-  }
-  return (h >>> 0).toString(36);
-}
-
-function hasMeaningfulNode(node: unknown): boolean {
-  if (!isPlainObject(node)) return false;
-  if (node.type === "text") {
-    return typeof node.text === "string" && node.text.length > 0;
-  }
-  if (node.type !== "paragraph") return true;
-  const content = node.content;
-  return Array.isArray(content) && content.some(hasMeaningfulNode);
-}
-
-/** 빈 블럭(내용 없는 문단) 판정 — 이 블럭의 추가/삭제는 버전 사유가 아니다. */
-export function isEmptyBlockNode(node: unknown): boolean {
-  if (!isPlainObject(node)) return true;
-  if (node.type !== "paragraph") return false;
-  return !hasMeaningfulNode(node);
-}
-
 type BlockEntry = { sig: string; empty: boolean };
-
-/**
- * 시그니처용 노드 정규화 — attrs/marks 의 null 값 키를 깊이 제거한다.
- * editor.getJSON 은 기본값 attr 을 null 로 포함하고 yDocToJson(y-prosemirror)은 생략하므로,
- * 정규화 없이는 같은 내용이 "전부 변경"으로 오판된다(협업 materialize 본문 vs 기존 본문).
- */
-function normalizeForSignature(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(normalizeForSignature);
-  if (!isPlainObject(value)) return value;
-  const out: Record<string, unknown> = {};
-  for (const [key, v] of Object.entries(value)) {
-    if (key === "attrs" && isPlainObject(v)) {
-      const attrs: Record<string, unknown> = {};
-      for (const [ak, av] of Object.entries(v)) {
-        if (av != null) attrs[ak] = normalizeForSignature(av);
-      }
-      if (Object.keys(attrs).length > 0) out.attrs = attrs;
-      continue;
-    }
-    if (v != null) out[key] = normalizeForSignature(v);
-  }
-  return out;
-}
-
-/** 블럭 시그니처: 타입 + (id 제외) attrs + content. 위치(index)는 포함하지 않는다 → 이동은 무변화. */
-function blockSignature(node: Record<string, unknown>): string {
-  const normalized = normalizeForSignature(node) as Record<string, unknown>;
-  const attrs = isPlainObject(normalized.attrs) ? { ...normalized.attrs } : {};
-  delete (attrs as Record<string, unknown>).id;
-  return stableStringify({ type: normalized.type, attrs, content: normalized.content ?? null });
-}
 
 /** doc 최상위 블럭들을 identity(attrs.id, 없으면 sig 해시) → {sig, empty} 맵으로 수집. */
 export function collectBlockEntries(docValue: unknown): Map<string, BlockEntry> {
