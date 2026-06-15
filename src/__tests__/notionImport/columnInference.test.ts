@@ -56,3 +56,33 @@ describe("inferNotionColumnType - 사람 컬럼 감지", () => {
     expect(type).not.toBe("person");
   });
 });
+
+describe("inferNotionColumnType - URL 컬럼 감지", () => {
+  it("http(s):// 값은 '/' 분할로 multiSelect 가 아니라 url 로 감지한다", () => {
+    const type = inferNotionColumnType({
+      header: "링크",
+      values: [
+        "https://sensortower.com/ko/pre-g-star-connect-2025-seoul",
+        "https://example.com/a/b/c",
+        "http://foo.bar/x",
+      ],
+    });
+    expect(type).toBe("url");
+  });
+
+  it("헤더 키워드가 없어도 값이 URL 이면 url 로 감지한다", () => {
+    const type = inferNotionColumnType({
+      header: "참고",
+      values: ["https://a.com/path/seg", "https://b.io/y/z"],
+    });
+    expect(type).toBe("url");
+  });
+
+  it("일부만 URL 인 혼합 컬럼은 url 로 단정하지 않는다", () => {
+    const type = inferNotionColumnType({
+      header: "메모",
+      values: ["https://a.com/x", "일반 텍스트", "또 다른 텍스트", "그냥 메모"],
+    });
+    expect(type).not.toBe("url");
+  });
+});

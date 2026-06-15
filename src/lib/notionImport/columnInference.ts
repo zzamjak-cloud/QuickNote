@@ -29,6 +29,14 @@ export function parseDateLike(raw: string): string | null {
   return null;
 }
 
+// http(s):// 로 시작하는 값은 URL 링크다. 노션 URL 속성을 텍스트로 내보낼 때
+// '/' 가 multiSelect 구분자로 쪼개져(https:, 도메인, 경로 조각…) 다중 선택으로
+// 오판되던 문제를 막기 위해 url 타입으로 우선 판정한다.
+function isUrlValue(raw: string): boolean {
+  const v = raw.trim().toLowerCase();
+  return v.startsWith("http://") || v.startsWith("https://");
+}
+
 function splitMultiSelectTokens(raw: string): string[] {
   const src = raw.trim();
   if (!src) return [];
@@ -98,6 +106,14 @@ export function inferNotionColumnType(input: InferColumnInput): ColumnType {
 
   if (headerSuggestsDate(headerLower)) return "date";
   if (headerSuggestsPerson(headerLower)) return "person";
+
+  // URL 값 컬럼은 '/' 토큰 분할로 multiSelect 오판되므로 url(링크)로 우선 판정한다.
+  if (
+    nonEmpty.length > 0 &&
+    nonEmpty.filter(isUrlValue).length / nonEmpty.length >= 0.7
+  ) {
+    return "url";
+  }
 
   if (meta.length > 0) {
     const hasTimeLike = meta.some((m) => m.hasTimeTag);
