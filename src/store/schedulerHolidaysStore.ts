@@ -1,14 +1,12 @@
 // LC 스케줄러 공휴일 스토어 — persist 미들웨어로 로컬 캐시 유지.
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { appsyncClient } from "../lib/sync/graphql/client";
 import {
-  LIST_HOLIDAYS,
-  CREATE_HOLIDAY,
-  UPDATE_HOLIDAY,
-  DELETE_HOLIDAY,
-  type GqlHoliday,
-} from "../lib/sync/graphql/operations";
+  listHolidaysApi,
+  createHolidayApi,
+  updateHolidayApi,
+  deleteHolidayApi,
+} from "../lib/sync/schedulerHolidaysApi";
 import { zustandStorage } from "../lib/storage/index";
 
 export type HolidayType = "holiday" | "evaluation" | "release" | "meeting" | "custom";
@@ -69,32 +67,21 @@ export const useSchedulerHolidaysStore = create<SchedulerHolidaysStore>()(
         }
         // loading을 true로 올리지 않음 — 기존 캐시로 화면이 이미 그려진 상태 유지
         try {
-          const r = await (appsyncClient().graphql({
-            query: LIST_HOLIDAYS,
-            variables: { workspaceId },
-          }) as Promise<{ data: { listHolidays: GqlHoliday[] } }>);
-          set({ holidays: r.data.listHolidays as SchedulerHoliday[], workspaceId });
+          const list = await listHolidaysApi(workspaceId);
+          set({ holidays: list as SchedulerHoliday[], workspaceId });
         } finally {
           set({ loading: false });
         }
       },
 
       createHoliday: async (input) => {
-        const r = await (appsyncClient().graphql({
-          query: CREATE_HOLIDAY,
-          variables: { input },
-        }) as Promise<{ data: { createHoliday: GqlHoliday } }>);
-        const h = r.data.createHoliday as SchedulerHoliday;
+        const h = (await createHolidayApi(input)) as SchedulerHoliday;
         set((st) => ({ holidays: [...st.holidays, h] }));
         return h;
       },
 
       updateHoliday: async (input) => {
-        const r = await (appsyncClient().graphql({
-          query: UPDATE_HOLIDAY,
-          variables: { input },
-        }) as Promise<{ data: { updateHoliday: GqlHoliday } }>);
-        const h = r.data.updateHoliday as SchedulerHoliday;
+        const h = (await updateHolidayApi(input)) as SchedulerHoliday;
         set((st) => ({
           holidays: st.holidays.map((x) => (x.id === h.id ? h : x)),
         }));
@@ -102,10 +89,7 @@ export const useSchedulerHolidaysStore = create<SchedulerHolidaysStore>()(
       },
 
       deleteHoliday: async (id, workspaceId) => {
-        await appsyncClient().graphql({
-          query: DELETE_HOLIDAY,
-          variables: { id, workspaceId },
-        });
+        await deleteHolidayApi(id, workspaceId);
         set((st) => ({ holidays: st.holidays.filter((x) => x.id !== id) }));
       },
 

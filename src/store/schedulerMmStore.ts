@@ -1,16 +1,16 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { appsyncClient } from "../lib/sync/graphql/client";
 import {
-  LIST_MM_ENTRIES,
-  LIST_MM_REVISIONS,
-  LOCK_MM_ENTRY,
-  REVIEW_MM_ENTRY,
-  UNLOCK_MM_ENTRY,
-  UPSERT_MM_ENTRY,
   type GqlMmEntry,
-  type GqlMmRevision,
 } from "../lib/sync/graphql/operations";
+import {
+  listMmEntriesApi,
+  upsertMmEntryApi,
+  reviewMmEntryApi,
+  lockMmEntryApi,
+  unlockMmEntryApi,
+  listMmRevisionsApi,
+} from "../lib/sync/schedulerMmApi";
 import type { MmAutoReason, MmBucket, MmEntry, MmEntryInput, MmRevision } from "../lib/scheduler/mm/mmTypes";
 import { makeDeferredStorage } from "../lib/storage/index";
 
@@ -66,23 +66,6 @@ function normalizeEntry(entry: GqlMmEntry): MmEntry {
   };
 }
 
-function bucketToInput(bucket: MmBucket) {
-  return {
-    id: bucket.id,
-    kind: bucket.kind.toUpperCase(),
-    scopeId: bucket.scopeId ?? null,
-    label: bucket.label,
-    ratioBp: bucket.ratioBp,
-    editable: bucket.editable,
-    reasons: (bucket.reasons ?? []).map((reason) => ({
-      date: reason.date,
-      type: reason.type.toUpperCase(),
-      label: reason.label,
-      ratioBp: reason.ratioBp,
-    })),
-  };
-}
-
 function upsertLocal(entries: MmEntry[], entry: MmEntry): MmEntry[] {
   const exists = entries.some((item) => item.id === entry.id);
   return exists
@@ -100,11 +83,8 @@ export const useSchedulerMmStore = create<SchedulerMmStore>()(
       fetchEntries: async ({ workspaceId, fromWeekStart, toWeekStart, memberId }) => {
         set({ loading: true });
         try {
-          const r = await (appsyncClient().graphql({
-            query: LIST_MM_ENTRIES,
-            variables: { workspaceId, fromWeekStart, toWeekStart, memberId: memberId ?? null },
-          }) as Promise<{ data: { listMmEntries: GqlMmEntry[] } }>);
-          const incoming = r.data.listMmEntries.map(normalizeEntry);
+          const list = await listMmEntriesApi({ workspaceId, fromWeekStart, toWeekStart, memberId });
+          const incoming = list.map(normalizeEntry);
           set((state) => {
             const incomingIds = new Set(incoming.map((entry) => entry.id));
             const kept = state.entries.filter((entry) => {
@@ -139,65 +119,35 @@ export const useSchedulerMmStore = create<SchedulerMmStore>()(
           note: input.note ?? null,
         };
         set((state) => ({ entries: upsertLocal(state.entries, optimistic) }));
-        const r = await (appsyncClient().graphql({
-          query: UPSERT_MM_ENTRY,
-          variables: {
-            input: {
-              ...input,
-              sourceSnapshot: JSON.stringify(input.sourceSnapshot ?? {}),
-              buckets: input.buckets.map(bucketToInput),
-            },
-          },
-        }) as Promise<{ data: { upsertMmEntry: GqlMmEntry } }>);
-        const entry = normalizeEntry(r.data.upsertMmEntry);
+        const entry = normalizeEntry(await upsertMmEntryApi(input));
         set((state) => ({ entries: upsertLocal(state.entries, entry) }));
         return entry;
       },
 
       reviewEntry: async (input) => {
-        const r = await (appsyncClient().graphql({
-          query: REVIEW_MM_ENTRY,
-          variables: {
-            input: {
-              ...input,
-              buckets: input.buckets?.map(bucketToInput) ?? null,
-            },
-          },
-        }) as Promise<{ data: { reviewMmEntry: GqlMmEntry } }>);
-        const entry = normalizeEntry(r.data.reviewMmEntry);
+        const entry = normalizeEntry(await reviewMmEntryApi(input));
         set((state) => ({ entries: upsertLocal(state.entries, entry) }));
         return entry;
       },
 
       lockEntry: async (workspaceId, entryIdValue, note) => {
-        const r = await (appsyncClient().graphql({
-          query: LOCK_MM_ENTRY,
-          variables: { workspaceId, entryId: entryIdValue, note: note ?? null },
-        }) as Promise<{ data: { lockMmEntry: GqlMmEntry } }>);
-        const entry = normalizeEntry(r.data.lockMmEntry);
+        const entry = normalizeEntry(await lockMmEntryApi(workspaceId, entryIdValue, note));
         set((state) => ({ entries: upsertLocal(state.entries, entry) }));
         return entry;
       },
 
       unlockEntry: async (workspaceId, entryIdValue, note) => {
-        const r = await (appsyncClient().graphql({
-          query: UNLOCK_MM_ENTRY,
-          variables: { workspaceId, entryId: entryIdValue, note: note ?? null },
-        }) as Promise<{ data: { unlockMmEntry: GqlMmEntry } }>);
-        const entry = normalizeEntry(r.data.unlockMmEntry);
+        const entry = normalizeEntry(await unlockMmEntryApi(workspaceId, entryIdValue, note));
         set((state) => ({ entries: upsertLocal(state.entries, entry) }));
         return entry;
       },
 
       fetchRevisions: async (workspaceId, entryIdValue) => {
-        const r = await (appsyncClient().graphql({
-          query: LIST_MM_REVISIONS,
-          variables: { workspaceId, entryId: entryIdValue },
-        }) as Promise<{ data: { listMmRevisions: GqlMmRevision[] } }>);
+        const revisions = await listMmRevisionsApi(workspaceId, entryIdValue);
         set((state) => ({
           revisionsByEntryId: {
             ...state.revisionsByEntryId,
-            [entryIdValue]: r.data.listMmRevisions,
+            [entryIdValue]: revisions,
           },
         }));
       },

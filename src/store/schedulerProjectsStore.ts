@@ -1,15 +1,14 @@
 // LC 스케줄러 프로젝트 스토어 — persist 미들웨어로 로컬 캐시 유지.
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { appsyncClient } from "../lib/sync/graphql/client";
 import { zustandStorage } from "../lib/storage/index";
+import { type GqlProject } from "../lib/sync/graphql/operations";
 import {
-  LIST_PROJECTS,
-  CREATE_PROJECT,
-  UPDATE_PROJECT,
-  DELETE_PROJECT,
-  type GqlProject,
-} from "../lib/sync/graphql/operations";
+  listProjectsApi,
+  createProjectApi,
+  updateProjectApi,
+  deleteProjectApi,
+} from "../lib/sync/schedulerProjectsApi";
 
 export type SchedulerProject = {
   id: string;
@@ -98,12 +97,9 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
         }
         // loading을 true로 올리지 않음 — 기존 캐시로 화면이 이미 그려진 상태 유지
         try {
-          const r = await (appsyncClient().graphql({
-            query: LIST_PROJECTS,
-            variables: { workspaceId },
-          }) as Promise<{ data: { listProjects: GqlProject[] } }>);
+          const list = await listProjectsApi(workspaceId);
           set({
-            projects: r.data.listProjects.map(normalizeProject),
+            projects: list.map(normalizeProject),
             workspaceId,
             lastFetchedAt: Date.now(),
           });
@@ -113,11 +109,7 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
       },
 
       createProject: async (input) => {
-        const r = await (appsyncClient().graphql({
-          query: CREATE_PROJECT,
-          variables: { input },
-        }) as Promise<{ data: { createProject: GqlProject } }>);
-        const p = normalizeProject(r.data.createProject);
+        const p = normalizeProject(await createProjectApi(input));
         set((st) => ({
           projects: [...st.projects, p],
           workspaceId: p.workspaceId,
@@ -127,11 +119,7 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
       },
 
       updateProject: async (input) => {
-        const r = await (appsyncClient().graphql({
-          query: UPDATE_PROJECT,
-          variables: { input },
-        }) as Promise<{ data: { updateProject: GqlProject } }>);
-        const p = normalizeProject(r.data.updateProject);
+        const p = normalizeProject(await updateProjectApi(input));
         set((st) => ({
           projects: st.projects.map((x) => (x.id === p.id ? p : x)),
           workspaceId: p.workspaceId,
@@ -141,10 +129,7 @@ export const useSchedulerProjectsStore = create<SchedulerProjectsStore>()(
       },
 
       deleteProject: async (id, workspaceId) => {
-        await appsyncClient().graphql({
-          query: DELETE_PROJECT,
-          variables: { id, workspaceId },
-        });
+        await deleteProjectApi(id, workspaceId);
         set((st) => ({
           projects: st.projects.filter((x) => x.id !== id),
           workspaceId,
