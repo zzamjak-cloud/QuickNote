@@ -10,8 +10,8 @@ import { getSyncEngine, shutdownSyncEngine } from "./lib/sync/runtime";
 import {
   applyRemotePageMetasToStore,
   applyRemoteDatabaseToStore,
-  applyRemoteCommentToStore,
 } from "./lib/sync/storeApply";
+import { applyRemoteCommentToStore } from "./lib/sync/storeApply/commentApply";
 import {
   applyWorkspaceSwitch,
   cacheBelongsToWorkspace,

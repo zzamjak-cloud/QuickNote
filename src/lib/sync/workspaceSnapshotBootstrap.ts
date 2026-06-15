@@ -13,9 +13,9 @@ import {
   applyRemotePageMetasToStore,
   applyRemotePagesToStore,
   applyRemoteDatabasesToStore,
-  applyRemoteCommentsToStore,
   reconcileWorkspaceFullSnapshot,
 } from "./storeApply";
+import { applyRemoteCommentsToStore } from "./storeApply/commentApply";
 import { applyWorkspaceLanding } from "./workspaceLanding";
 import {
   clearWorkspaceScopedStores,
