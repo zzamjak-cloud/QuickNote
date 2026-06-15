@@ -1,4 +1,5 @@
 import { appsyncClient } from "./graphql/client";
+import { gqlOptional } from "./graphqlRequest";
 import {
   LIST_MY_NOTIFICATIONS,
   MARK_NOTIFICATION_READ,
@@ -21,12 +22,6 @@ type RawNotification = {
   pageTitle?: string;
   read: boolean;
   createdAt: string;
-};
-
-type ListMyNotificationsResponse = {
-  data?: {
-    listMyNotifications?: RawNotification[];
-  };
 };
 
 type MarkNotificationReadResponse = {
@@ -62,10 +57,12 @@ function rawToInApp(raw: RawNotification): InAppNotification {
 
 /** 서버에서 내 알림 목록을 전량 조회한다. */
 export async function fetchMyNotificationsApi(): Promise<InAppNotification[]> {
-  const res = (await appsyncClient().graphql({
-    query: LIST_MY_NOTIFICATIONS,
-  })) as ListMyNotificationsResponse;
-  return (res.data?.listMyNotifications ?? []).map(rawToInApp);
+  const raws = await gqlOptional<RawNotification[]>(
+    LIST_MY_NOTIFICATIONS,
+    undefined,
+    "listMyNotifications",
+  );
+  return (raws ?? []).map(rawToInApp);
 }
 
 /** 특정 알림을 읽음으로 표시한다. */

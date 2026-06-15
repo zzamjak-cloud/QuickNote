@@ -1,13 +1,9 @@
-import { appsyncClient } from "./graphql/client";
+import { gqlOptional } from "./graphqlRequest";
 import { LIST_COMMENTS, type GqlComment } from "./queries/comment";
 
-type ListCommentsResponse = {
-  data?: {
-    listComments?: {
-      items: GqlComment[];
-      nextToken?: string | null;
-    };
-  };
+type CommentPage = {
+  items: GqlComment[];
+  nextToken?: string | null;
 };
 
 /**
@@ -22,12 +18,12 @@ export async function fetchCommentsByWorkspace(
   let nextToken: string | null | undefined = undefined;
 
   do {
-    const res = (await appsyncClient().graphql({
-      query: LIST_COMMENTS,
-      variables: { workspaceId, updatedAfter, limit: 1000, nextToken },
-    })) as ListCommentsResponse;
+    const page = await gqlOptional<CommentPage>(
+      LIST_COMMENTS,
+      { workspaceId, updatedAfter, limit: 1000, nextToken },
+      "listComments",
+    );
 
-    const page = res.data?.listComments;
     if (page?.items) {
       all.push(...page.items);
     }

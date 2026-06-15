@@ -1,4 +1,4 @@
-import { appsyncClient } from "./graphql/client";
+import { gqlOptional, gqlRequired } from "./graphqlRequest";
 import {
   DELETE_PAGE_HISTORY_EVENTS,
   LIST_DATABASE_ROW_HISTORY,
@@ -13,11 +13,12 @@ export async function listPageHistoryApi(
   workspaceId: string,
   limit = 100,
 ): Promise<GqlPageHistoryEntry[]> {
-  const res = (await appsyncClient().graphql({
-    query: LIST_PAGE_HISTORY,
-    variables: { pageId, workspaceId, limit },
-  })) as { data?: { listPageHistory?: GqlPageHistoryEntry[] } };
-  return res.data?.listPageHistory ?? [];
+  const entries = await gqlOptional<GqlPageHistoryEntry[]>(
+    LIST_PAGE_HISTORY,
+    { pageId, workspaceId, limit },
+    "listPageHistory",
+  );
+  return entries ?? [];
 }
 
 /** DB 소속 모든 row 페이지 히스토리를 단일 GSI 쿼리로(삭제된 행 포함). 서버 페이지네이션. */
@@ -27,17 +28,14 @@ export async function listDatabaseRowHistoryApi(
   limit = 100,
   nextToken?: string | null,
 ): Promise<{ items: GqlPageHistoryEntry[]; nextToken: string | null }> {
-  const res = (await appsyncClient().graphql({
-    query: LIST_DATABASE_ROW_HISTORY,
-    variables: { databaseId, workspaceId, limit, nextToken: nextToken ?? null },
-  })) as {
-    data?: {
-      listDatabaseRowHistory?: { items?: GqlPageHistoryEntry[]; nextToken?: string | null };
-    };
-  };
+  const conn = await gqlOptional<{ items?: GqlPageHistoryEntry[]; nextToken?: string | null }>(
+    LIST_DATABASE_ROW_HISTORY,
+    { databaseId, workspaceId, limit, nextToken: nextToken ?? null },
+    "listDatabaseRowHistory",
+  );
   return {
-    items: res.data?.listDatabaseRowHistory?.items ?? [],
-    nextToken: res.data?.listDatabaseRowHistory?.nextToken ?? null,
+    items: conn?.items ?? [],
+    nextToken: conn?.nextToken ?? null,
   };
 }
 
@@ -46,12 +44,7 @@ export async function restorePageVersionApi(input: {
   workspaceId: string;
   historyId: string;
 }): Promise<GqlPage> {
-  const res = (await appsyncClient().graphql({
-    query: RESTORE_PAGE_VERSION,
-    variables: { input },
-  })) as { data?: { restorePageVersion?: GqlPage } };
-  if (!res.data?.restorePageVersion) throw new Error("restorePageVersion 응답 없음");
-  return res.data.restorePageVersion;
+  return gqlRequired<GqlPage>(RESTORE_PAGE_VERSION, { input }, "restorePageVersion");
 }
 
 export async function deletePageHistoryEventsApi(
@@ -59,9 +52,10 @@ export async function deletePageHistoryEventsApi(
   workspaceId: string,
   historyIds: string[],
 ): Promise<boolean> {
-  const res = (await appsyncClient().graphql({
-    query: DELETE_PAGE_HISTORY_EVENTS,
-    variables: { pageId, workspaceId, historyIds },
-  })) as { data?: { deletePageHistoryEvents?: boolean } };
-  return Boolean(res.data?.deletePageHistoryEvents);
+  const ok = await gqlOptional<boolean>(
+    DELETE_PAGE_HISTORY_EVENTS,
+    { pageId, workspaceId, historyIds },
+    "deletePageHistoryEvents",
+  );
+  return Boolean(ok);
 }

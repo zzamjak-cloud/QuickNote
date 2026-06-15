@@ -1,4 +1,4 @@
-import { appsyncClient } from "./graphql/client";
+import { gqlOptional } from "./graphqlRequest";
 import {
   ARCHIVE_WORKSPACE,
   CREATE_WORKSPACE,
@@ -48,18 +48,20 @@ function normalizeWorkspace(ws: WorkspaceResponse): WorkspaceSummary & { options
 }
 
 export async function listMyWorkspacesApi(): Promise<(WorkspaceSummary & { options?: WorkspaceOptions })[]> {
-  const result = (await appsyncClient().graphql({
-    query: LIST_MY_WORKSPACES,
-  })) as { data?: { listMyWorkspaces?: WorkspaceResponse[] } };
-  return (result.data?.listMyWorkspaces ?? []).map(normalizeWorkspace);
+  const list = await gqlOptional<WorkspaceResponse[]>(
+    LIST_MY_WORKSPACES,
+    undefined,
+    "listMyWorkspaces",
+  );
+  return (list ?? []).map(normalizeWorkspace);
 }
 
 export async function getWorkspaceApi(workspaceId: string): Promise<WorkspaceDetail> {
-  const result = (await appsyncClient().graphql({
-    query: GET_WORKSPACE,
-    variables: { workspaceId },
-  })) as { data?: { getWorkspace?: WorkspaceResponse | null } };
-  const ws = result.data?.getWorkspace;
+  const ws = await gqlOptional<WorkspaceResponse>(
+    GET_WORKSPACE,
+    { workspaceId },
+    "getWorkspace",
+  );
   if (!ws) throw new Error("getWorkspace 응답이 비어 있습니다.");
   return {
     ...normalizeWorkspace(ws),
@@ -71,11 +73,11 @@ export async function createWorkspaceApi(input: {
   name: string;
   access: WorkspaceAccessInput[];
 }): Promise<WorkspaceSummary> {
-  const result = (await appsyncClient().graphql({
-    query: CREATE_WORKSPACE,
-    variables: { input },
-  })) as { data?: { createWorkspace?: WorkspaceResponse } };
-  const ws = result.data?.createWorkspace;
+  const ws = await gqlOptional<WorkspaceResponse>(
+    CREATE_WORKSPACE,
+    { input },
+    "createWorkspace",
+  );
   if (!ws) throw new Error("createWorkspace 응답이 비어 있습니다.");
   return normalizeWorkspace(ws);
 }
@@ -85,11 +87,11 @@ export async function updateWorkspaceApi(input: {
   name?: string;
   options?: { jobFunctions?: string[]; jobTitles?: string[] };
 }): Promise<WorkspaceSummary & { options?: WorkspaceOptions }> {
-  const result = (await appsyncClient().graphql({
-    query: UPDATE_WORKSPACE,
-    variables: { input },
-  })) as { data?: { updateWorkspace?: WorkspaceResponse } };
-  const ws = result.data?.updateWorkspace;
+  const ws = await gqlOptional<WorkspaceResponse>(
+    UPDATE_WORKSPACE,
+    { input },
+    "updateWorkspace",
+  );
   if (!ws) throw new Error("updateWorkspace 응답이 비어 있습니다.");
   return normalizeWorkspace(ws);
 }
@@ -105,37 +107,34 @@ export async function setWorkspaceAccessApi(input: {
   workspaceId: string;
   entries: WorkspaceAccessInput[];
 }): Promise<WorkspaceSummary> {
-  const result = (await appsyncClient().graphql({
-    query: SET_WORKSPACE_ACCESS,
-    variables: { workspaceId: input.workspaceId, entries: input.entries },
-  })) as { data?: { setWorkspaceAccess?: WorkspaceResponse } };
-  const ws = result.data?.setWorkspaceAccess;
+  const ws = await gqlOptional<WorkspaceResponse>(
+    SET_WORKSPACE_ACCESS,
+    { workspaceId: input.workspaceId, entries: input.entries },
+    "setWorkspaceAccess",
+  );
   if (!ws) throw new Error("setWorkspaceAccess 응답이 비어 있습니다.");
   return normalizeWorkspace(ws);
 }
 
 export async function deleteWorkspaceApi(workspaceId: string): Promise<boolean> {
-  const result = (await appsyncClient().graphql({
-    query: DELETE_WORKSPACE,
-    variables: { workspaceId },
-  })) as { data?: { deleteWorkspace?: boolean } };
-  return Boolean(result.data?.deleteWorkspace);
+  const ok = await gqlOptional<boolean>(DELETE_WORKSPACE, { workspaceId }, "deleteWorkspace");
+  return Boolean(ok);
 }
 
 export async function archiveWorkspaceApi(workspaceId: string): Promise<WorkspaceSummary | null> {
-  const result = (await appsyncClient().graphql({
-    query: ARCHIVE_WORKSPACE,
-    variables: { workspaceId },
-  })) as { data?: { archiveWorkspace?: WorkspaceResponse } };
-  const ws = result.data?.archiveWorkspace;
+  const ws = await gqlOptional<WorkspaceResponse>(
+    ARCHIVE_WORKSPACE,
+    { workspaceId },
+    "archiveWorkspace",
+  );
   return ws ? normalizeWorkspace(ws) : null;
 }
 
 export async function restoreWorkspaceApi(workspaceId: string): Promise<WorkspaceSummary | null> {
-  const result = (await appsyncClient().graphql({
-    query: RESTORE_WORKSPACE,
-    variables: { workspaceId },
-  })) as { data?: { restoreWorkspace?: WorkspaceResponse } };
-  const ws = result.data?.restoreWorkspace;
+  const ws = await gqlOptional<WorkspaceResponse>(
+    RESTORE_WORKSPACE,
+    { workspaceId },
+    "restoreWorkspace",
+  );
   return ws ? normalizeWorkspace(ws) : null;
 }

@@ -1,6 +1,6 @@
 // 자산 관리 GraphQL API 래퍼.
 
-import { appsyncClient } from "./graphql/client";
+import { gqlOptional } from "./graphqlRequest";
 import {
   LIST_MY_ASSETS,
   GET_ASSET_USAGES,
@@ -24,66 +24,62 @@ export type ListMyAssetsInput = {
 export async function listMyAssetsApi(
   input: ListMyAssetsInput | null = null,
 ): Promise<{ items: GqlAsset[]; nextToken: string | null }> {
-  const res = (await appsyncClient().graphql({
-    query: LIST_MY_ASSETS,
-    variables: { input },
-  })) as { data?: { listMyAssets?: { items?: GqlAsset[]; nextToken?: string | null } } };
+  const conn = await gqlOptional<{ items?: GqlAsset[]; nextToken?: string | null }>(
+    LIST_MY_ASSETS,
+    { input },
+    "listMyAssets",
+  );
   return {
-    items: res.data?.listMyAssets?.items ?? [],
-    nextToken: res.data?.listMyAssets?.nextToken ?? null,
+    items: conn?.items ?? [],
+    nextToken: conn?.nextToken ?? null,
   };
 }
 
 export async function getAssetUsagesApi(assetId: string): Promise<GqlAssetUsage[]> {
-  const res = (await appsyncClient().graphql({
-    query: GET_ASSET_USAGES,
-    variables: { assetId },
-  })) as { data?: { getAssetUsages?: GqlAssetUsage[] } };
-  return res.data?.getAssetUsages ?? [];
+  const usages = await gqlOptional<GqlAssetUsage[]>(
+    GET_ASSET_USAGES,
+    { assetId },
+    "getAssetUsages",
+  );
+  return usages ?? [];
 }
 
 export async function deleteMyAssetsApi(assetIds: string[]): Promise<string[]> {
-  const res = (await appsyncClient().graphql({
-    query: DELETE_MY_ASSETS,
-    variables: { assetIds },
-  })) as { data?: { deleteMyAssets?: string[] } };
-  return res.data?.deleteMyAssets ?? [];
+  const deleted = await gqlOptional<string[]>(
+    DELETE_MY_ASSETS,
+    { assetIds },
+    "deleteMyAssets",
+  );
+  return deleted ?? [];
 }
 
 export async function renameAssetApi(
   assetId: string,
   name: string | null,
 ): Promise<GqlAsset | null> {
-  const res = (await appsyncClient().graphql({
-    query: RENAME_ASSET,
-    variables: { assetId, name },
-  })) as { data?: { renameAsset?: GqlAsset } };
-  return res.data?.renameAsset ?? null;
+  return gqlOptional<GqlAsset>(RENAME_ASSET, { assetId, name }, "renameAsset");
 }
 
 export async function replaceAssetRefApi(
   oldAssetId: string,
   newAssetId: string,
 ): Promise<number> {
-  const res = (await appsyncClient().graphql({
-    query: REPLACE_ASSET_REF,
-    variables: { input: { oldAssetId, newAssetId } },
-  })) as { data?: { replaceAssetRef?: number } };
-  return res.data?.replaceAssetRef ?? 0;
+  const count = await gqlOptional<number>(
+    REPLACE_ASSET_REF,
+    { input: { oldAssetId, newAssetId } },
+    "replaceAssetRef",
+  );
+  return count ?? 0;
 }
 
 export async function migrateAssetUsageApi(
   cursor: string | null = null,
 ): Promise<{ processedRows: number; nextCursor: string | null; hasMore: boolean }> {
-  const res = (await appsyncClient().graphql({
-    query: MIGRATE_ASSET_USAGE,
-    variables: { cursor },
-  })) as {
-    data?: {
-      migrateAssetUsage?: { processedRows?: number; nextCursor?: string | null; hasMore?: boolean };
-    };
-  };
-  const r = res.data?.migrateAssetUsage;
+  const r = await gqlOptional<{ processedRows?: number; nextCursor?: string | null; hasMore?: boolean }>(
+    MIGRATE_ASSET_USAGE,
+    { cursor },
+    "migrateAssetUsage",
+  );
   return {
     processedRows: r?.processedRows ?? 0,
     nextCursor: r?.nextCursor ?? null,

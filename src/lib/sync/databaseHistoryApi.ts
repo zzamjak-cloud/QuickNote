@@ -1,4 +1,4 @@
-import { appsyncClient } from "./graphql/client";
+import { gqlOptional, gqlRequired } from "./graphqlRequest";
 import {
   DELETE_DATABASE_HISTORY_EVENTS,
   LIST_DATABASE_HISTORY,
@@ -12,11 +12,12 @@ export async function listDatabaseHistoryApi(
   workspaceId: string,
   limit = 100,
 ): Promise<GqlDatabaseHistoryEntry[]> {
-  const res = (await appsyncClient().graphql({
-    query: LIST_DATABASE_HISTORY,
-    variables: { databaseId, workspaceId, limit },
-  })) as { data?: { listDatabaseHistory?: GqlDatabaseHistoryEntry[] } };
-  return res.data?.listDatabaseHistory ?? [];
+  const entries = await gqlOptional<GqlDatabaseHistoryEntry[]>(
+    LIST_DATABASE_HISTORY,
+    { databaseId, workspaceId, limit },
+    "listDatabaseHistory",
+  );
+  return entries ?? [];
 }
 
 export async function restoreDatabaseVersionApi(input: {
@@ -24,12 +25,11 @@ export async function restoreDatabaseVersionApi(input: {
   workspaceId: string;
   historyId: string;
 }): Promise<GqlDatabase> {
-  const res = (await appsyncClient().graphql({
-    query: RESTORE_DATABASE_VERSION,
-    variables: { input },
-  })) as { data?: { restoreDatabaseVersion?: GqlDatabase } };
-  if (!res.data?.restoreDatabaseVersion) throw new Error("restoreDatabaseVersion 응답 없음");
-  return res.data.restoreDatabaseVersion;
+  return gqlRequired<GqlDatabase>(
+    RESTORE_DATABASE_VERSION,
+    { input },
+    "restoreDatabaseVersion",
+  );
 }
 
 export async function deleteDatabaseHistoryEventsApi(
@@ -37,9 +37,10 @@ export async function deleteDatabaseHistoryEventsApi(
   workspaceId: string,
   historyIds: string[],
 ): Promise<boolean> {
-  const res = (await appsyncClient().graphql({
-    query: DELETE_DATABASE_HISTORY_EVENTS,
-    variables: { databaseId, workspaceId, historyIds },
-  })) as { data?: { deleteDatabaseHistoryEvents?: boolean } };
-  return Boolean(res.data?.deleteDatabaseHistoryEvents);
+  const ok = await gqlOptional<boolean>(
+    DELETE_DATABASE_HISTORY_EVENTS,
+    { databaseId, workspaceId, historyIds },
+    "deleteDatabaseHistoryEvents",
+  );
+  return Boolean(ok);
 }

@@ -1,4 +1,4 @@
-import { appsyncClient } from "./graphql/client";
+import { gqlOptional } from "./graphqlRequest";
 import { LIST_SCHEDULES, type GqlSchedule } from "./graphql/operations";
 import type { GqlPage } from "./queries/page";
 
@@ -10,12 +10,6 @@ export type ScheduleRangeRequest = {
   teamId?: string | null;
   projectId?: string | null;
   assigneeId?: string | null;
-};
-
-type ListSchedulesResult = {
-  data?: {
-    listSchedules?: GqlSchedule[] | null;
-  };
 };
 
 export function extractScheduleRangeSourcePages(schedules: GqlSchedule[]): GqlPage[] {
@@ -31,9 +25,9 @@ export function extractScheduleRangeSourcePages(schedules: GqlSchedule[]): GqlPa
 }
 
 export async function fetchScheduleRange(request: ScheduleRangeRequest): Promise<GqlSchedule[]> {
-  const result = await appsyncClient().graphql({
-    query: LIST_SCHEDULES,
-    variables: {
+  const schedules = await gqlOptional<GqlSchedule[]>(
+    LIST_SCHEDULES,
+    {
       workspaceId: request.workspaceId,
       from: request.from,
       to: request.to,
@@ -42,7 +36,8 @@ export async function fetchScheduleRange(request: ScheduleRangeRequest): Promise
       projectId: request.projectId ?? undefined,
       assigneeId: request.assigneeId ?? undefined,
     },
-  }) as ListSchedulesResult;
+    "listSchedules",
+  );
 
-  return result.data?.listSchedules ?? [];
+  return schedules ?? [];
 }

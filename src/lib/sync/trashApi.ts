@@ -1,4 +1,5 @@
 import { appsyncClient } from "./graphql/client";
+import { gqlRequired } from "./graphqlRequest";
 import {
   EMPTY_TRASH,
   LIST_TRASHED_PAGES_BRIEF,
@@ -37,17 +38,15 @@ export async function fetchTrashedPagesBatch(
   workspaceId: string,
   nextToken?: string | null,
 ): Promise<TrashedPageBatch> {
-  const r = (await appsyncClient().graphql({
-    query: LIST_TRASHED_PAGES_BRIEF,
-    variables: {
+  const conn = await gqlRequired<{ items: GqlPageBrief[]; nextToken: string | null }>(
+    LIST_TRASHED_PAGES_BRIEF,
+    {
       workspaceId,
       limit: TRASH_BATCH_SIZE,
       nextToken: nextToken ?? null,
     },
-  })) as {
-    data: { listTrashedPages: { items: GqlPageBrief[]; nextToken: string | null } };
-  };
-  const conn = r.data.listTrashedPages;
+    "listTrashedPages",
+  );
   return { items: conn.items, nextToken: conn.nextToken ?? null };
 }
 
@@ -55,11 +54,7 @@ export async function restorePageRemote(
   id: string,
   workspaceId: string,
 ): Promise<GqlPage> {
-  const r = (await appsyncClient().graphql({
-    query: RESTORE_PAGE,
-    variables: { id, workspaceId },
-  })) as { data: { restorePage: GqlPage } };
-  return r.data.restorePage;
+  return gqlRequired<GqlPage>(RESTORE_PAGE, { id, workspaceId }, "restorePage");
 }
 
 /** 삭제된 DB 한 배치(기본 50건). nextToken 으로 연속 조회. */
@@ -67,17 +62,15 @@ export async function fetchTrashedDatabasesBatch(
   workspaceId: string,
   nextToken?: string | null,
 ): Promise<TrashedDatabaseBatch> {
-  const r = (await appsyncClient().graphql({
-    query: LIST_TRASHED_DATABASES,
-    variables: {
+  const conn = await gqlRequired<{ items: GqlDatabase[]; nextToken: string | null }>(
+    LIST_TRASHED_DATABASES,
+    {
       workspaceId,
       limit: TRASH_BATCH_SIZE,
       nextToken: nextToken ?? null,
     },
-  })) as {
-    data: { listTrashedDatabases: { items: GqlDatabase[]; nextToken: string | null } };
-  };
-  const conn = r.data.listTrashedDatabases;
+    "listTrashedDatabases",
+  );
   return { items: conn.items, nextToken: conn.nextToken ?? null };
 }
 
@@ -85,11 +78,7 @@ export async function restoreDatabaseRemote(
   id: string,
   workspaceId: string,
 ): Promise<GqlDatabase> {
-  const r = (await appsyncClient().graphql({
-    query: RESTORE_DATABASE,
-    variables: { id, workspaceId },
-  })) as { data: { restoreDatabase: GqlDatabase } };
-  return r.data.restoreDatabase;
+  return gqlRequired<GqlDatabase>(RESTORE_DATABASE, { id, workspaceId }, "restoreDatabase");
 }
 
 export async function emptyTrashRemote(workspaceId: string): Promise<number> {
