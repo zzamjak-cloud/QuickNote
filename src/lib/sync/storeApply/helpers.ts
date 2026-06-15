@@ -1,5 +1,6 @@
 // storeApply 의 순수 헬퍼 함수 모음.
 // 외부 store / side-effect 없음. 입력으로만 결과 산출.
+import { z } from "zod";
 import type { GqlPage } from "../graphql/operations";
 import type { Page } from "../../../types/page";
 import type { JSONContent } from "@tiptap/react";
@@ -7,6 +8,7 @@ import {
   isLCSchedulerDatabaseId,
 } from "../../scheduler/database";
 import { stringifyAwsJson } from "../../util/awsJson";
+import { DocEnvelopeSchema, DbCellsSchema } from "../schemas";
 
 /** 원격 ISO 문자열 → epoch ms. 실패 시 0. */
 export function isoToMs(iso: string | null | undefined): number {
@@ -15,17 +17,29 @@ export function isoToMs(iso: string | null | undefined): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-/** AppSync AWSJSON 응답은 보통 JSON 문자열로 도착한다. Amplify 가 객체로 풀어주는 경우도 있어 양쪽 대응. */
-export function parseAwsJson<T>(v: unknown, fallback: T): T {
+/**
+ * AppSync AWSJSON 응답은 보통 JSON 문자열로 도착한다. Amplify 가 객체로 풀어주는 경우도 있어 양쪽 대응.
+ * schema 를 주면 파싱 결과의 shape 를 검증하고, 깨진 모양이면 fallback 으로 떨군다(silent corruption 방지).
+ * 검증 실패는 기존 JSON.parse 실패와 동일하게 조용히 fallback — 이 헬퍼는 side-effect 없는 순수 함수다.
+ */
+export function parseAwsJson<T>(v: unknown, fallback: T, schema?: z.ZodTypeAny): T {
   if (v == null) return fallback;
+  let parsed: unknown;
   if (typeof v === "string") {
     try {
-      return JSON.parse(v) as T;
+      parsed = JSON.parse(v);
     } catch {
       return fallback;
     }
+  } else {
+    parsed = v;
   }
-  return v as T;
+  if (schema) {
+    const result = schema.safeParse(parsed);
+    if (!result.success) return fallback;
+    return result.data as T;
+  }
+  return parsed as T;
 }
 
 export function isRemoteNewer(localUpdatedMs: number, remoteIso: string): boolean {
@@ -126,7 +140,7 @@ export function gqlPageToLocalPage(p: GqlPage): Page {
       const parsed = parseAwsJson<JSONContent>(p.doc, {
         type: "doc",
         content: [{ type: "paragraph" }],
-      });
+      }, DocEnvelopeSchema);
       if (parsed.content) {
         parsed.content = parsed.content.filter(Boolean);
       }
@@ -136,7 +150,7 @@ export function gqlPageToLocalPage(p: GqlPage): Page {
     order: gqlOrderNumber(p),
     databaseId: p.databaseId ?? undefined,
     fullPageDatabaseId: p.fullPageDatabaseId ?? undefined,
-    dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined),
+    dbCells: parseAwsJson<Page["dbCells"]>(p.dbCells, undefined, DbCellsSchema),
     createdByMemberId: p.createdByMemberId ?? undefined,
     lastEditedByMemberId: p.lastEditedByMemberId ?? undefined,
     lastEditedByName: p.lastEditedByName ?? undefined,

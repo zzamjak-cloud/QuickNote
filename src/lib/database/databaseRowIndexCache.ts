@@ -5,6 +5,7 @@ import {
   isoToMs,
   parseAwsJson,
 } from "../sync/storeApply/helpers";
+import { DbCellsSchema } from "../sync/schemas";
 import { zustandStorage } from "../storage/index";
 
 export const DATABASE_ROW_INDEX_CACHE_VERSION = 1;
@@ -58,6 +59,7 @@ export function gqlPageToDatabaseRowIndexEntry(
   const dbCells = parseAwsJson<Record<string, CellValue> | undefined>(
     page.dbCells,
     undefined,
+    DbCellsSchema,
   );
   if (dbCells?.["_qn_isTemplate"] === "1") return null;
   return {

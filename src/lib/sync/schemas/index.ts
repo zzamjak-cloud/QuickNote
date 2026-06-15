@@ -157,6 +157,17 @@ export const GqlProjectSchema = z
 
 export type GqlProjectParsed = z.infer<typeof GqlProjectSchema>;
 
+// --- AWSJSON 경계 envelope 스키마 (doc/cells shape 검증, 무손실) ---
+// PageMeta 소실류 사고와 동일 부류의 경계. 깊은 구조는 검증하지 않고
+// "올바른 컨테이너 모양"만 강제해 garbage(문자열/배열/스칼라) 유입 시 fallback 으로 떨군다.
+// passthrough/unknown 으로 내부 데이터는 한 글자도 버리지 않는다.
+
+/** doc(AWSJSON) — 최상위 type 문자열만 강제, 나머지 키는 passthrough. */
+export const DocEnvelopeSchema = z.object({ type: z.string() }).passthrough();
+
+/** dbCells(AWSJSON) — 문자열 키 객체 맵임만 강제(배열/스칼라 거부). 값은 미검증. */
+export const DbCellsSchema = z.record(z.string(), z.unknown());
+
 /**
  * GraphQL 응답 배열을 검증하고 실패한 항목은 reportNonFatal 후 제외.
  * 부분 실패에도 나머지 정상 항목은 유지 — 앱 안 죽음.
