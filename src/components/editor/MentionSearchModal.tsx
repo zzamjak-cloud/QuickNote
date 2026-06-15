@@ -15,6 +15,7 @@ import {
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
 import { useMemberStore } from "../../store/memberStore";
 import { useUiStore } from "../../store/uiStore";
+import { stripMemberPrefix } from "../../lib/tiptapExtensions/mentionKind";
 
 type Range = { from: number; to: number };
 type MentionGroup = {
@@ -94,7 +95,7 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
         return;
       }
       if (item.mentionKind === "member") {
-        const memberId = item.id.startsWith("m:") ? item.id.slice(2) : item.id;
+        const memberId = stripMemberPrefix(item.id);
         const member = useMemberStore
           .getState()
           .members.find((m) => m.memberId === memberId && m.status === "active");

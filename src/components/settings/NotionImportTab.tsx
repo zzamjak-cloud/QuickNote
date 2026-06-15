@@ -37,6 +37,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useUiStore } from "../../store/uiStore";
 import { hydrateStructuralChildPageMentions } from "../../lib/notionImport/hydrateChildPageMentions";
+import { MENTION_PAGE_PREFIX, stripPagePrefix } from "../../lib/tiptapExtensions/mentionKind";
 import { resolveNotionPageHref } from "../../lib/notionImport/resolveNotionPageHref";
 import {
   extractNotionInlineComments,
@@ -740,10 +741,10 @@ export function NotionImportTab() {
           let changed = false;
           if (rec.type === "mention" && rec.attrs && typeof rec.attrs.id === "string") {
             const raw = rec.attrs.id;
-            const bare = raw.startsWith("p:") ? raw.slice(2) : raw;
+            const bare = stripPagePrefix(raw);
             const remapped = pageIdRemap.get(bare);
             if (remapped) {
-              rec.attrs.id = `p:${remapped}`;
+              rec.attrs.id = `${MENTION_PAGE_PREFIX}${remapped}`;
               changed = true;
             }
           }

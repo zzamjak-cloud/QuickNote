@@ -2,6 +2,7 @@
 // 동기 시점에서 페이지 id 가 아직 없으면 deferred 토큰을 텍스트로 박아두고,
 // 페이지 생성 후 별도 패스에서 실 mention 노드로 치환한다.
 import type { JSONContent } from "@tiptap/react";
+import { MENTION_PAGE_PREFIX } from "../../tiptapExtensions/mentionKind";
 
 export const DEFERRED_PAGE_MENTION_PREFIX = "__QN_PM__";
 
@@ -38,7 +39,7 @@ export function createPageMentionParagraph(pageId: string, label: string): JSONC
       {
         type: "mention",
         attrs: {
-          id: `p:${pageId}`,
+          id: `${MENTION_PAGE_PREFIX}${pageId}`,
           label,
           mentionKind: "page",
         },

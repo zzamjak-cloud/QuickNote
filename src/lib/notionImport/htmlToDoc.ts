@@ -6,6 +6,7 @@ import {
   summarizeImportedLinkText,
 } from "./linkUtils";
 import { buildQuickNotePageUrl } from "../navigation/quicknoteLinks";
+import { MENTION_PAGE_PREFIX } from "../tiptapExtensions/mentionKind";
 import {
   HIGHLIGHT_BG_COLOR_MAP,
   parseColorFromStyle,
@@ -1089,7 +1090,7 @@ function inlineFromNode(node: Node, inheritedColor: string | null, inheritedMark
       return [{
         type: "mention",
         attrs: {
-          id: `p:${pageMention.pageId}`,
+          id: `${MENTION_PAGE_PREFIX}${pageMention.pageId}`,
           label: pageMention.label ?? labelText ?? "페이지",
           mentionKind: "page",
         },

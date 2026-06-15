@@ -19,6 +19,7 @@ import {
   type BlockDropIndicatorRect,
 } from "./blockDropTarget";
 import { parseQuickNoteLink } from "../navigation/quicknoteLinks";
+import { MENTION_PAGE_PREFIX } from "../tiptapExtensions/mentionKind";
 import { usePageStore } from "../../store/pageStore";
 import { isGifFile } from "../files/videoCompress";
 
@@ -78,7 +79,7 @@ function tryInsertDroppedPageMention(view: EditorView, event: DragEvent): boolea
   const title =
     usePageStore.getState().pages[internalTarget.pageId]?.title?.trim() || "제목 없음";
   const mentionNode = mentionType.create({
-    id: `p:${internalTarget.pageId}`,
+    id: `${MENTION_PAGE_PREFIX}${internalTarget.pageId}`,
     label: title,
     mentionKind: "page",
     subtitle: "페이지",

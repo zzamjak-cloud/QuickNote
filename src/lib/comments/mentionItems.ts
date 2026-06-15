@@ -4,6 +4,11 @@ import { useMemberStore } from "../../store/memberStore";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { CACHE_TTL, isCacheFresh } from "../cache/ttl";
+import {
+  MENTION_DATABASE_PREFIX,
+  MENTION_MEMBER_PREFIX,
+  MENTION_PAGE_PREFIX,
+} from "../tiptapExtensions/mentionKind";
 
 /**
  * 멤버 로컬 캐시가 신선한지 판단한다.
@@ -28,7 +33,7 @@ function buildLocalMentionItems(query: string): MentionListItem[] {
   const membersLocal = filterWorkspaceMembersForMention(query, 14);
   const mergedMembers = new Map<string, MentionListItem>();
   const pushMember = (memberId: string, name: string, jobRole: string) => {
-    const id = `m:${memberId}`;
+    const id = `${MENTION_MEMBER_PREFIX}${memberId}`;
     if (!mergedMembers.has(id)) {
       mergedMembers.set(id, {
         id,
@@ -49,7 +54,7 @@ function buildLocalMentionItems(query: string): MentionListItem[] {
     return title.includes(q);
   });
   const pageItems: MentionListItem[] = pages.slice(0, 8).map((p) => ({
-    id: `p:${p.id}`,
+    id: `${MENTION_PAGE_PREFIX}${p.id}`,
     label: p.title || "제목 없음",
     subtitle: "페이지",
     mentionKind: "page" as const,
@@ -63,7 +68,7 @@ function buildLocalMentionItems(query: string): MentionListItem[] {
     },
   );
   const dbItems: MentionListItem[] = databases.slice(0, 6).map((bundle) => ({
-    id: `d:${bundle.meta.id}`,
+    id: `${MENTION_DATABASE_PREFIX}${bundle.meta.id}`,
     label: bundle.meta.title || "데이터베이스",
     subtitle: "DB",
     mentionKind: "database" as const,
