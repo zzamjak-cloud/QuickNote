@@ -1480,6 +1480,16 @@ export async function upsertPage(args: {
   // 협업 모드의 materialize 도 이 upsertPage 경로를 타므로 caller 가 곧 편집 유발자.
   input.lastEditedByMemberId = args.caller.memberId;
   input.lastEditedByName = args.caller.name;
+  // AWSJSON 필드 방어 정규화 — 객체로 도착한 doc/dbCells/blockComments 를 DynamoDB 저장 전
+  // 문자열로 강제한다. 객체로 저장하면 깊은 본문이 DynamoDB 32레벨 중첩 한도를 초과해
+  // "Nesting Levels have exceeded the supported limit" 로 거부된다(신규 페이지 생성 불가).
+  // 이미 문자열이면 그대로 둔다(idempotent) — 정상 클라이언트 영향 없음.
+  for (const key of ["doc", "dbCells", "blockComments"] as const) {
+    const v = input[key];
+    if (v != null && typeof v !== "string") {
+      input[key] = JSON.stringify(v);
+    }
+  }
   const saved = await upsertRecord({ ...args, tableName: args.tables.Pages, input });
   try {
     await recordPageHistory({
