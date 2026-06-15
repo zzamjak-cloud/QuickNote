@@ -10,12 +10,24 @@ import {
   seedCollabDocIfEmpty,
   isCollabDocBodyEmpty,
   isPlaceholderBodyJson,
+  sanitizeCollabDocAttrsForRender,
+  isCollabDocRenderableForEditor,
+  replaceCollabDocContent,
+  hasRenderableCollabContent,
 } from "../yjsDoc";
+import { BlockBackground } from "../../tiptapExtensions/blockBackground";
 
 // 라운드트립 검증용 최소 schema (StarterKit 기반).
 // @tiptap/core 가 getDefaultSchema 를 export 하지 않으므로 Editor 인스턴스에서 schema 를 추출한다.
 function schema() {
   const e = new Editor({ extensions: [StarterKit] });
+  const s = e.schema;
+  e.destroy();
+  return s;
+}
+
+function schemaWithBlockAttrs() {
+  const e = new Editor({ extensions: [StarterKit, BlockBackground] });
   const s = e.schema;
   e.destroy();
   return s;
@@ -101,6 +113,47 @@ describe("yjsDoc", () => {
     });
     expect(reseeded).toBe(false);
     expect(JSON.stringify(yDocToJson(doc))).toContain("시드 본문");
+  });
+
+  it("렌더링에 위험한 객체 attrs 는 primitive attrs 만 남기고 정화한다", () => {
+    const s = schemaWithBlockAttrs();
+    const doc = jsonToYDoc(s, {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: {
+            backgroundColor: { nested: ["bad"] },
+            blockTextColor: "red",
+          },
+          content: [{ type: "text", text: "본문" }],
+        },
+      ],
+    });
+    expect(sanitizeCollabDocAttrsForRender(doc, s)).toBe(true);
+    const attrs = yDocToJson(doc).content?.[0]?.attrs ?? {};
+    expect(typeof attrs.backgroundColor).not.toBe("object");
+    expect(attrs.blockTextColor).toBe("red");
+  });
+
+  it("Y.Doc 본문을 지정 JSON 으로 교체한다", () => {
+    const s = schema();
+    const doc = jsonToYDoc(s, seedJson);
+    replaceCollabDocContent(doc, s, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "교체 본문" }] }],
+    });
+    expect(isCollabDocRenderableForEditor(doc, s)).toBe(true);
+    expect(hasRenderableCollabContent(doc, s)).toBe(true);
+    expect(JSON.stringify(yDocToJson(doc))).toContain("교체 본문");
+    expect(JSON.stringify(yDocToJson(doc))).not.toContain("시드 본문");
+  });
+
+  it("빈 문단 placeholder 는 렌더 가능하지만 사용 가능한 본문으로 보지 않는다", () => {
+    const s = schema();
+    const doc = jsonToYDoc(s, { type: "doc", content: [{ type: "paragraph" }] });
+    expect(isCollabDocRenderableForEditor(doc, s)).toBe(true);
+    expect(hasRenderableCollabContent(doc, s)).toBe(false);
   });
 
   it("isPlaceholderBodyJson: 블록 없음·빈 문단만은 placeholder, 텍스트·비문단 블록은 아님", () => {

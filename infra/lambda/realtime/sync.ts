@@ -7,7 +7,14 @@ import {
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 import type { ClientMessage } from "./protocol";
-import { parseClientMessage, serializeServerMessage } from "./protocol";
+import {
+  parseClientMessage,
+  serializeServerMessage,
+  parseChunk,
+  splitMessage,
+  newMsgId,
+} from "./protocol";
+import { collectChunk } from "./chunks";
 import { loadPageState, appendPageUpdate, diffForClient, stateVectorOf } from "./yjsStore";
 import { roomConnections, leaveRoom } from "./connections";
 import { buildDbSeedUpdate } from "./dbSeed";
@@ -35,24 +42,36 @@ export const handler: APIGatewayProxyHandler = async (event) => {
   const pageId = conn.Item?.pageId as string | undefined;
   if (!pageId) return { statusCode: 403, body: "no room" };
 
-  // 클라이언트 메시지 파싱
-  const msg = parseClientMessage(event.body ?? "");
+  // 클라이언트 메시지(텍스트 JSON). chunk 면 누적하고, 모든 청크가 도착해야 원본으로 처리한다.
+  let body = event.body ?? "";
+  const chunk = parseChunk(body);
+  if (chunk) {
+    const assembled = await collectChunk(connectionId, chunk);
+    if (!assembled) return { statusCode: 200, body: "chunk buffered" };
+    body = assembled;
+  }
+
+  const msg = parseClientMessage(body);
   if (!msg) return { statusCode: 400, body: "bad message" };
 
   /**
-   * 특정 커넥션에 메시지를 전송한다.
+   * 특정 커넥션에 메시지를 전송한다. 28KB 초과 메시지는 chunk 로 분할한다.
    * GoneException(끊긴 연결) 발생 시 룸에서 제거하고 APIGW 연결도 삭제한다.
    */
   const post = async (target: string, data: string) => {
-    try {
-      await api.send(
-        new PostToConnectionCommand({ ConnectionId: target, Data: Buffer.from(data) })
-      );
-    } catch (e: unknown) {
-      if ((e as { name?: string }).name === "GoneException") {
-        // 스테일 커넥션 정리: DynamoDB 레코드 삭제 + APIGW 연결 해제
-        await leaveRoom(target);
-        await api.send(new DeleteConnectionCommand({ ConnectionId: target })).catch(() => {});
+    const frames = splitMessage(data, newMsgId());
+    for (const f of frames) {
+      try {
+        await api.send(
+          new PostToConnectionCommand({ ConnectionId: target, Data: Buffer.from(f) }),
+        );
+      } catch (e: unknown) {
+        if ((e as { name?: string }).name === "GoneException") {
+          // 스테일 커넥션 정리: DynamoDB 레코드 삭제 + APIGW 연결 해제
+          await leaveRoom(target);
+          await api.send(new DeleteConnectionCommand({ ConnectionId: target })).catch(() => {});
+        }
+        break; // 이 연결에는 더 이상 전송하지 않는다.
       }
     }
   };
@@ -85,8 +104,8 @@ export const handler: APIGatewayProxyHandler = async (event) => {
   if (isAwarenessMessage(msg)) {
     // 휘발성: 영속 없이 같은 룸 피어로 릴레이만 한다.
     const targets = (await roomConnections(pageId)).filter((id) => id !== connectionId);
-    const frame = serializeServerMessage({ t: "awareness", update: (msg as { update: Uint8Array }).update });
-    await Promise.all(targets.map((id) => post(id, frame)));
+    const awFrame = serializeServerMessage({ t: "awareness", update: (msg as { update: Uint8Array }).update });
+    await Promise.all(targets.map((id) => post(id, awFrame)));
     return { statusCode: 200, body: "awareness" };
   }
 

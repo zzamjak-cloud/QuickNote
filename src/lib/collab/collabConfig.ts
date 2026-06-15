@@ -31,10 +31,10 @@ export function isCollabEnabledForPage(pageId: string | null | undefined): boole
  * IndexedDB 잔재가 모두 새 세대로 격리되어, stale 상태가 최신 본문을 되돌리는 사고를 차단한다.
  */
 export function collabRoomEpoch(): string {
-  // v3→v4: 데스크톱 협업 합류 시점. 데스크톱이 협업 OFF 였던 기간에 REST page.doc 으로만
-  // 갱신된 본문이 stale v3 룸에 가려지던 사고를 차단한다. 세대 전환 시 빈 v4 룸이
-  // 서버 page.doc(최신)으로 재시드된다. 웹(Vercel)·데스크톱(빌드) env 를 동시에 v4 로 맞출 것.
-  return (import.meta.env.VITE_COLLAB_ROOM_EPOCH as string | undefined)?.trim() || "v4";
+  // v4→v5: 바이너리 WS 프로토콜 + 메시지 청킹 전환. 와이어 포맷이 바뀌어 구/신 버전이
+  // 같은 룸을 공유하면 프레임을 못 읽으므로, 신세대 룸으로 격리한다. 세대 전환 시 빈 v5
+  // 룸이 서버 page.doc(최신)으로 재시드된다. 웹(Vercel)·데스크톱(빌드) env 를 동시에 v5 로 맞출 것.
+  return (import.meta.env.VITE_COLLAB_ROOM_EPOCH as string | undefined)?.trim() || "v5";
 }
 
 /** $connect 쿼리스트링(token·pageId)을 붙인 최종 WS URL. room 은 epoch 솔트를 포함한다. */

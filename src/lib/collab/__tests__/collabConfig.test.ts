@@ -27,10 +27,10 @@ describe("collabConfig", () => {
     expect(isCollabEnabledForPage("anything")).toBe(true);
   });
 
-  it("buildCollabWsUrl 은 token·pageId 를 쿼리스트링으로 인코딩하고 room 에 epoch 솔트(기본 v4)를 싣는다", () => {
+  it("buildCollabWsUrl 은 token·pageId 를 쿼리스트링으로 인코딩하고 room 에 epoch 솔트(기본 v5)를 싣는다", () => {
     (import.meta.env as Record<string, unknown>).VITE_COLLAB_WS_URL = "wss://x/dev";
     const url = buildCollabWsUrl("p1", "tok en/+=");
-    expect(url).toContain("pageId=v4%3Ap1");
+    expect(url).toContain("pageId=v5%3Ap1");
     expect(url).toContain("token=tok%20en%2F%2B%3D");
   });
 
@@ -54,10 +54,10 @@ describe("collabConfig", () => {
     (import.meta.env as Record<string, unknown>).VITE_COLLAB_ENABLED_DB_IDS = "*";
     expect(isCollabEnabledForDatabase("db-1")).toBe(false);
   });
-  it("buildDbCollabWsUrl 은 db:<epoch>: prefix room 을 pageId 파라미터에 싣는다(기본 v4)", () => {
+  it("buildDbCollabWsUrl 은 db:<epoch>: prefix room 을 pageId 파라미터에 싣는다(기본 v5)", () => {
     (import.meta.env as Record<string, unknown>).VITE_COLLAB_WS_URL = "wss://x/dev";
     const url = buildDbCollabWsUrl("db-1", "tok");
-    expect(url).toContain("pageId=db%3Av4%3Adb-1");
+    expect(url).toContain("pageId=db%3Av5%3Adb-1");
     expect(url).toContain("token=tok");
   });
 });

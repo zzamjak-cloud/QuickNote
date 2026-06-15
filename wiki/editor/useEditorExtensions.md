@@ -49,7 +49,7 @@ TipTap 에디터에 등록할 extension 배열을 생성하는 훅. `lowlightApi
 | `ListItemPermissive` | `listItemPermissive.ts` | 글머리 항목 content 완화 |
 | `MoveBlock` | `moveBlock.ts` | 블록 이동 키보드 단축키 |
 | `DeleteCurrentBlock` | `deleteCurrentBlock.ts` | 현재 블록 삭제 단축키 |
-| `Callout` | `callout.ts` | 콜아웃 블록 |
+| `Callout` | `callout.ts` | 콜아웃 블록. 에디터 렌더는 일반 DOM, 아이콘 클릭은 Editor 레벨 피커로 처리 |
 | `Toggle` / `ToggleHeader` / `ToggleContent` | `toggle.tsx` | 토글 블록 3종 |
 | `ColumnLayout` / `Column` | `columns.ts` | 컬럼 레이아웃 2종 |
 | `TabBlock` / `TabPanel` | `tabBlock.tsx` | 탭 블록 2종 |

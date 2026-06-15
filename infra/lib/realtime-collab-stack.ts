@@ -76,11 +76,24 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    // 대용량 메시지 chunk 재조립 버퍼. ttl(60s)로 미완성 청크를 자동 만료한다.
+    // 클라→서버 큰 프레임(노션 import 페이지 sv-reply 등)이 90KB 초과 시 chunk 로
+    // 나뉘어 도착하므로, stateless Lambda 가 여기서 누적·재조립한다.
+    const chunks = new dynamodb.Table(this, "RtChunks", {
+      tableName: `${envPrefix}quicknote-rt-chunks`,
+      partitionKey: { name: "bufKey", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "i", type: dynamodb.AttributeType.NUMBER },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "ttl",
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
     // 모든 핸들러에 공통 주입하는 환경변수.
     const environment = {
       CONNECTIONS_TABLE: connections.tableName,
       YDOC_TABLE: ydoc.tableName,
       YDOC_UPDATES_TABLE: ydocUpdates.tableName,
+      CHUNKS_TABLE: chunks.tableName,
       PAGE_TABLE: props.pageTableName,
       MEMBERS_TABLE: props.membersTableName,
       MEMBER_TEAMS_TABLE: props.memberTeamsTableName,
@@ -118,6 +131,7 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
     [connectFn, disconnectFn, syncFn].forEach((f) => connections.grantReadWriteData(f));
     ydoc.grantReadWriteData(syncFn);
     ydocUpdates.grantReadWriteData(syncFn);
+    chunks.grantReadWriteData(syncFn);
     // sync 핸들러는 DB 룸 첫 진입 시드(buildDbSeedUpdate)를 위해
     // Database 항목과 행 페이지(dbCells)를 GetItem 한다. (slice A 부터 필요했으나 누락돼 있던 권한 포함)
     syncFn.addToRolePolicy(

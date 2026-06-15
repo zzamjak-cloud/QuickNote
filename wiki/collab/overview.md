@@ -43,7 +43,8 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
    고정 SEED_CLIENT_ID 결정적 시드가 안전). **로컬 store 본문으로 시드 금지**: 클라마다
    다른 본문으로 시드하면 같은 (clientID, clock)에 다른 내용이 생겨 CRDT 가 갈라진다
    (라이브 "한 줄 불일치" 사고). 피어가 이미 시드한 doc(비어있지 않음)은 시드 생략.
-   서버 본문이 placeholder 면 "진짜 빈 페이지"로 확정하고 시드 없이 바인딩.
+   서버 본문이 placeholder 면 "진짜 빈 페이지"로 확정하고 시드 없이 바인딩. 단, 기존
+   Y.Doc 이 placeholder 또는 렌더 불가능 상태면 fresh 서버 본문으로 교체한 뒤 바인딩한다.
 2. **시드 완료 후에만 바인딩** — `collabBoundDoc` 게이트. ySyncPlugin 이 빈 fragment 에
    붙으면 PM 초기 빈 문단을 Y 에 주입해 `seedCollabDocIfEmpty` 가 "콘텐츠 있음"으로
    오판 → 본문 시드 영구 차단 → 전 페이지 빈 화면(라이브 사고). 바인딩 전에는 일반
@@ -59,6 +60,8 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
 - **빈 doc 가드**: `isCollabDocBodyEmpty`(fragment length 0) → 저장 생략.
 - **placeholder 가드**: 빈 문단뿐인 Y 상태가 의미 있는 기존 본문을 덮지 못함
   (`isPlaceholderBodyJson`, 서버 `preserveExistingDocForPlaceholderInput` 와 동일 의미).
+- **렌더 가능성 가드**: 에디터 바인딩 전 Y.Doc attrs 를 primitive 만 남기고 정화하고,
+  placeholder/오염 상태는 서버 본문으로 교체한다.
 - **DB**: 컬럼 0개 구조 차단 + 부분 시드(멤버·순서 빈)가 기존 행 순서를 비우지 못하게 보존.
 - **fullPageDatabaseId 보존**: toGqlPage/toPageInputPayload 는 태그 있으면 싣고 없으면 키 생략,
   서버 upsertPage 가 키 부재·null 시 기존 태그 유지([`pages/ghost-page-prevention.md`](../pages/ghost-page-prevention.md)).
@@ -102,7 +105,10 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
 | `src/lib/collab/useCollabSession.ts` | 페이지 세션(Y.Doc·IDB·materialize·synced 게이트) |
 | `src/lib/collab/useDatabaseCollabSession.ts` | DB 구조 세션 |
 | `src/lib/collab/yjsDoc.ts` | 시드(buildSeedUpdate)·빈/placeholder 판정·JSON↔Y 변환 |
-| `src/lib/collab/QnWsProvider.ts` | WS 프로토콜(hello/sync/update/awareness) |
+| `src/lib/collab/QnWsProvider.ts` | WS 프로토콜(hello/sync/update/awareness) + 송신 청킹·수신 재조립·CONNECTING 소켓 cleanup |
+| `src/lib/collab/wsProtocol.ts` | 직렬화(base64+JSON) + `chunk` 분할/재조립(`CHUNK_THRESHOLD=28KB`) |
+| `infra/lambda/realtime/protocol.ts` | 서버 직렬화 + 청킹(클라와 바이트 계약 일치) |
+| `infra/lambda/realtime/chunks.ts` | 서버 수신 chunk 재조립 버퍼(rt-chunks, TTL 60s) |
 | `src/components/editor/Editor.tsx` | 시드→바인딩 게이트·viewReady·서버 시드 effect |
 | `src/components/editor/EditorErrorBoundary.tsx` | 에디터 오류 격리 |
 | `src/store/databaseStore.ts` (applyCollabDbStructure) | DB 구조 materialize·가드 |
@@ -116,5 +122,26 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
 3. **한 줄 불일치(CRDT 분기)** — 클라별 다른 본문으로 결정적 시드 → 원칙 1(서버 시드 일원화).
 4. **view 크래시 → 사이드바 소실** — view 미마운트 접근이 루트 경계 전파 → 원칙 3 + 경계 격리.
 5. **Sensitive env 함정** — 협업이 꺼진 줄 알았으나 실제 값 유지 → 운영 규칙(Plain·env rm·번들 검증).
+6. **대용량 본문 collab 끊김(메시지 청킹)** — 2026-06-15. 노션 import 등 본문이 큰 페이지(측정 316KB)를
+   collab 으로 열면 sync 가 단일 WS 메시지로 API GW 한도를 넘어 연결이 끊기고 1초 주기 무한 재연결.
+   본문이 서버 룸에 한 번도 저장되지 못해 매 재연결마다 전체 본문을 sv-reply 로 재전송 → 영구 루프.
+   상세·교훈은 아래 **"WS 메시지 청킹"** 절. (epoch v4→v5 격리)
 
 각 사고의 상세 메커니즘·검증 절차는 [`infra/collab-live-deploy-checklist.md`](../infra/collab-live-deploy-checklist.md) §0·§1.5·§1.6.
+
+## WS 메시지 청킹 (CRITICAL — 2026-06-15)
+
+대용량 본문 페이지의 collab sync 가 API Gateway WebSocket 한도를 넘어 끊기던 사고의 해결책.
+`wsProtocol.ts`(클라)·`protocol.ts`(서버) 가 직렬화 문자열을 `chunk` 메시지로 분할하고 수신측이 재조립한다.
+
+핵심 교훈(회귀 방지):
+1. **바이너리 프레임 금지** — API GW WebSocket route selection 이 `$request.body.action`(JSON 평가)이라
+   바이너리 메시지는 `$default` 라우트에 닿지 못하고 드롭된다(편집 불가 사고). **반드시 base64+JSON 텍스트 유지.**
+2. **청크 임계는 프레임 32KB 가 상한 — 메시지 128KB 가 아니다.** 브라우저는 한 `ws.send` 를 단일 WS
+   프레임으로 보내므로, 32KB 를 넘는 청크는 API GW 가 거부하며 **연결을 끊는다**. `CHUNK_THRESHOLD=28*1024`
+   (프레임 한도 내). 96KB 로 잡았다가 끊김이 재현됐다.
+3. **증상 판별** — Network `prod` WS 가 1초 주기로 무한 재생성 + 서버 sync 응답이 `update:"AAA="`(빈 값)면
+   = sv-reply 청크가 서버에 안 닿아 룸이 빈 채 유지되는 상태. 첫 sv-reply 가 한 번 저장되면(서버 sv 가
+   클라 sv 와 일치) sv-reply 가 수십 바이트로 작아지고 루프가 멈춘다.
+4. 서버 수신 재조립은 stateless Lambda 라 `infra/lambda/realtime/chunks.ts`(rt-chunks 테이블, TTL 60s)에 누적.
+5. 프로토콜 변경이므로 **epoch bump + 클라(웹/데스크톱)·서버 Lambda 동시 배포** 필수.

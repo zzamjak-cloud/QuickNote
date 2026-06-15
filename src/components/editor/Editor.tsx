@@ -10,15 +10,19 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { useEditor, EditorContent } from "@tiptap/react";
-import type { createLowlight } from "lowlight";
+import type { Editor as TiptapEditor } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Selection } from "@tiptap/pm/state";
+import { createLowlight } from "lowlight";
 import "tippy.js/dist/tippy.css";
-type LowlightApi = ReturnType<typeof createLowlight>;
 
 type EmojiAnchor = {
   top: number;
   left: number;
   insertPos: number;
+  mode: "insert" | "callout";
 };
 
 type PasteUrlChoice = {
@@ -111,6 +115,10 @@ import {
   seedCollabDocIfEmpty,
   isPlaceholderBodyJson,
   isCollabDocBodyEmpty,
+  sanitizeCollabDocAttrsForRender,
+  isCollabDocRenderableForEditor,
+  replaceCollabDocContent,
+  hasRenderableCollabContent,
 } from "../../lib/collab/yjsDoc";
 import { EditorErrorBoundary } from "./EditorErrorBoundary";
 import { fetchPageById } from "../../lib/sync/bootstrap";
@@ -119,6 +127,12 @@ import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
 import type { ViewKind } from "../../types/database";
+import { PageIconDisplay } from "../common/PageIconDisplay";
+import {
+  encodeLucidePageIcon,
+  isImageLikePageIcon,
+  LUCIDE_PAGE_ICON_PREFIX,
+} from "../../lib/pageIcon";
 
 // 무거운 아이콘 카탈로그/패널은 picker 가 열릴 때만 지연 로드.
 const IconPickerPanel = lazy(() =>
@@ -143,6 +157,50 @@ const MemoBubbleToolbar = memo(BubbleToolbar);
 const MemoImageResizeOverlay = memo(ImageResizeOverlay);
 const DOC_SYNC_IDLE_MS = 3000;
 const DYNAMIC_LAYOUT_INPUT_AUTOSAVE_DEBOUNCE_MS = 1200;
+
+function findFirstInlineSelectionPos(doc: TiptapEditor["state"]["doc"]): number | null {
+  const stack: Array<{ node: ProseMirrorNode; pos: number; isDoc: boolean }> = [
+    { node: doc, pos: 0, isDoc: true },
+  ];
+
+  while (stack.length > 0) {
+    const { node, pos, isDoc } = stack.pop()!;
+    if (node.isTextblock && node.inlineContent) {
+      return pos + 1;
+    }
+
+    const children: Array<{ node: ProseMirrorNode; pos: number; isDoc: boolean }> = [];
+    let offset = 0;
+    const base = isDoc ? 0 : pos + 1;
+    for (let i = 0; i < node.childCount; i += 1) {
+      const child = node.child(i);
+      children.push({ node: child, pos: base + offset, isDoc: false });
+      offset += child.nodeSize;
+    }
+    for (let i = children.length - 1; i >= 0; i -= 1) {
+      stack.push(children[i]!);
+    }
+  }
+
+  return null;
+}
+
+function normalizeSelectionBeforeCollabBind(editor: TiptapEditor): void {
+  const { state } = editor;
+  const { selection } = state;
+  if (selection.$from.parent.inlineContent && selection.$to.parent.inlineContent) return;
+  const pos = findFirstInlineSelectionPos(state.doc);
+  if (pos == null) return;
+  const safePos = Math.min(pos, state.doc.content.size);
+  const safeSelection = Selection.near(state.doc.resolve(safePos), 1);
+  if (safeSelection.eq(selection)) return;
+  editor.view.dispatch(
+    state.tr
+      .setSelection(safeSelection)
+      .setMeta("addToHistory", false)
+      .setMeta("preventUpdate", true),
+  );
+}
 
 /** 에디터 내부 오류를 에디터 영역에 격리 — 루트 경계 전파로 사이드바까지 무너지는 것을 방지. */
 export function Editor(props: EditorProps = {}) {
@@ -324,16 +382,20 @@ function EditorInner({
     [setSimpleAlert],
   );
 
-  const [lowlightApi, setLowlightApi] = useState<LowlightApi | null>(null);
+  // lowlight 인스턴스를 빈 상태로 동기 생성(안정 ref) — useEditor deps 로 들어가도 null→로드
+  // 토글이 없어 에디터를 재생성시키지 않는다. 언어 문법(common)은 lazy 로 register 한다(인스턴스
+  // 내부 변형이라 에디터 재생성 불필요, 다음 코드블록 렌더부터 반영). 큰 문서 페이지에서 lowlight
+  // 토글 재생성이 대량 NodeView 를 반복 동기 마운트시켜 콜스택을 초과하던 사고를 차단한다.
+  const lowlightApi = useMemo(() => createLowlight(), []);
   useEffect(() => {
     let cancelled = false;
-    void import("lowlight").then(({ common, createLowlight }) => {
-      if (!cancelled) setLowlightApi(createLowlight(common));
+    void import("lowlight").then(({ common }) => {
+      if (!cancelled) lowlightApi.register(common);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [lowlightApi]);
 
   // 협업 세션 — flag OFF 면 enabled:false(현행 경로). ON 이면 Y.Doc·provider 생성·sync 상태 추적.
   const collab = useCollabSession(effectivePageId);
@@ -544,8 +606,14 @@ function EditorInner({
       collabSeedStateRef.current = { pageId: effectivePageId, status: "idle" };
     }
     const seedState = collabSeedStateRef.current;
-    if (seedState.status === "done") {
+    const bindCollabDoc = () => {
+      if (editor.isDestroyed) return;
+      normalizeSelectionBeforeCollabBind(editor);
+      sanitizeCollabDocAttrsForRender(collabDoc, editor.schema);
       setCollabBoundDoc(collabDoc);
+    };
+    if (seedState.status === "done") {
+      bindCollabDoc();
       return;
     }
     if (seedState.status === "fetching") return;
@@ -553,10 +621,13 @@ function EditorInner({
     let cancelled = false;
     void (async () => {
       try {
-        // 피어가 이미 시드/편집한 doc 이면 그대로 바인딩 — 시드 주체는 룸당 사실상 1명이 된다.
-        if (!isCollabDocBodyEmpty(collabDoc)) {
+        // 피어가 이미 시드/편집했고 렌더 가능한 doc 이면 그대로 바인딩 — 시드 주체는 룸당 사실상 1명이 된다.
+        if (
+          !isCollabDocBodyEmpty(collabDoc) &&
+          hasRenderableCollabContent(collabDoc, editor.schema)
+        ) {
           seedState.status = "done";
-          if (!cancelled) setCollabBoundDoc(collabDoc);
+          if (!cancelled) bindCollabDoc();
           return;
         }
         // 시드 소스는 서버 fresh 본문으로 일원화 — 클라이언트마다 다른 로컬 본문으로 결정적
@@ -582,17 +653,27 @@ function EditorInner({
           return;
         }
         applyRemotePageToStore(remote);
-        // fetch 동안 피어 시드가 도착했으면 그쪽이 권위 — 비어 있을 때만 시드한다.
-        if (isCollabDocBodyEmpty(collabDoc)) {
-          const freshDoc = usePageStore.getState().pages[effectivePageId]?.doc;
+        // fetch 동안 피어 시드가 도착했으면 그쪽이 권위. 단, 기존 Y.Doc 이 렌더 불가능하면
+        // 서버 fresh 본문(실패 시 현재 로컬 본문)으로 교체해 오염된 collab room 진입 크래시를 끊는다.
+        if (!hasRenderableCollabContent(collabDoc, editor.schema)) {
+          const freshDoc = usePageStore.getState().pages[effectivePageId]?.doc ?? safePageDoc;
+          if (freshDoc) {
+            replaceCollabDocContent(collabDoc, editor.schema, freshDoc);
+          }
+        } else if (isCollabDocBodyEmpty(collabDoc)) {
+          const freshDoc = usePageStore.getState().pages[effectivePageId]?.doc ?? safePageDoc;
           // 서버 본문이 placeholder 면 "진짜 빈 페이지"로 확정 — 시드 없이 바인딩해야 신규
           // 페이지 편집이 가능하다(PM 초기 빈 문단은 빈 페이지에선 무해, materialize 가드와 정합).
           if (freshDoc && !isPlaceholderBodyJson(freshDoc)) {
             seedCollabDocIfEmpty(collabDoc, editor.schema, freshDoc);
           }
         }
+        if (!isCollabDocRenderableForEditor(collabDoc, editor.schema)) {
+          seedState.status = "idle";
+          return;
+        }
         seedState.status = "done";
-        if (!cancelled) setCollabBoundDoc(collabDoc);
+        if (!cancelled) bindCollabDoc();
       } catch (err) {
         seedState.status = "idle";
         reportNonFatal(err, "collab.seedFromServer");
@@ -614,6 +695,7 @@ function EditorInner({
     effectivePageId,
     page?.workspaceId,
     currentWorkspaceId,
+    safePageDoc,
     collabSeedRetry,
   ]);
 
@@ -865,15 +947,41 @@ function EditorInner({
       } catch (err) {
         reportNonFatal(err, "emojiPicker.coordsAtPos");
       }
-      return { top, left, insertPos };
+      return { top, left, insertPos, mode: "insert" };
     },
     [editor],
+  );
+
+  const closeEmojiPicker = useCallback(() => {
+    setEmojiPickerOpen(false);
+    setEmojiAnchor(null);
+  }, []);
+
+  const updateCalloutIconAtAnchor = useCallback(
+    (icon: string | null) => {
+      if (!editor || !emojiAnchor || emojiAnchor.mode !== "callout") return false;
+      const pos = emojiAnchor.insertPos;
+      const node = editor.state.doc.nodeAt(pos);
+      if (node?.type.name !== "callout") return false;
+      const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        emoji: icon,
+      });
+      editor.view.dispatch(tr);
+      return true;
+    },
+    [editor, emojiAnchor],
   );
 
   // 슬래시 picker 에서 고른 커스텀 아이콘을 인라인 아이콘 노드로 삽입한다.
   const insertCustomIconAtAnchor = useCallback(
     (src: string) => {
       if (!editor || !emojiAnchor || emojiAnchor.insertPos == null) return;
+      if (emojiAnchor.mode === "callout") {
+        updateCalloutIconAtAnchor(src);
+        closeEmojiPicker();
+        return;
+      }
       editor
         .chain()
         .focus()
@@ -882,10 +990,9 @@ function EditorInner({
           attrs: { src },
         })
         .run();
-      setEmojiPickerOpen(false);
-      setEmojiAnchor(null);
+      closeEmojiPicker();
     },
-    [editor, emojiAnchor],
+    [closeEmojiPicker, editor, emojiAnchor, updateCalloutIconAtAnchor],
   );
 
   useEffect(() => {
@@ -900,10 +1007,46 @@ function EditorInner({
   }, [editor, getEmojiAnchor]);
 
   useEffect(() => {
+    const open = (event: Event) => {
+      if (!editor) return;
+      const detail = (event as CustomEvent<{
+        pos?: number;
+        top?: number;
+        bottom?: number;
+        left?: number;
+      }>).detail;
+      if (
+        typeof detail?.pos !== "number" ||
+        typeof detail.top !== "number" ||
+        typeof detail.bottom !== "number" ||
+        typeof detail.left !== "number"
+      ) {
+        return;
+      }
+      const next = clampFloatingPanelPosition({
+        top: detail.top,
+        bottom: detail.bottom,
+        left: detail.left,
+      });
+      setEmojiAnchor({
+        ...next,
+        insertPos: detail.pos,
+        mode: "callout",
+      });
+      setEmojiPickerOpen(true);
+    };
+    window.addEventListener("quicknote:open-callout-icon-picker", open);
+    return () =>
+      window.removeEventListener("quicknote:open-callout-icon-picker", open);
+  }, [editor]);
+
+  useEffect(() => {
     if (!emojiPickerOpen || !emojiAnchor) return;
     const reposition = () => {
       setEmojiAnchor((current) =>
-        current ? getEmojiAnchor(current.insertPos) : current,
+        current && current.mode === "insert"
+          ? getEmojiAnchor(current.insertPos)
+          : current,
       );
     };
     window.addEventListener("resize", reposition, { passive: true });
@@ -915,6 +1058,66 @@ function EditorInner({
       window.visualViewport?.removeEventListener("scroll", reposition);
     };
   }, [emojiAnchor, emojiPickerOpen, getEmojiAnchor]);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const roots = new Map<HTMLElement, Root>();
+    let frame = 0;
+    const renderCalloutIcons = () => {
+      frame = 0;
+      if (editor.isDestroyed) return;
+      const live = new Set<HTMLElement>();
+      const nodes = editor.view.dom.querySelectorAll<HTMLElement>(
+        "[data-callout-icon-value]",
+      );
+      nodes.forEach((el) => {
+        const icon = el.getAttribute("data-callout-icon-value");
+        if (
+          !icon ||
+          (!icon.startsWith(LUCIDE_PAGE_ICON_PREFIX) && !isImageLikePageIcon(icon))
+        ) {
+          const root = roots.get(el);
+          if (root) {
+            root.unmount();
+            roots.delete(el);
+          }
+          if (el.textContent !== icon) el.textContent = icon ?? "";
+          return;
+        }
+        live.add(el);
+        let root = roots.get(el);
+        if (!root) {
+          el.textContent = "";
+          root = createRoot(el);
+          roots.set(el, root);
+        }
+        root.render(
+          <PageIconDisplay
+            icon={icon}
+            size="sm"
+            className="text-[1.25rem] leading-none"
+          />,
+        );
+      });
+      for (const [el, root] of roots) {
+        if (live.has(el) || el.isConnected) continue;
+        root.unmount();
+        roots.delete(el);
+      }
+    };
+    const scheduleRender = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(renderCalloutIcons);
+    };
+    scheduleRender();
+    editor.on("transaction", scheduleRender);
+    return () => {
+      editor.off("transaction", scheduleRender);
+      if (frame) window.cancelAnimationFrame(frame);
+      for (const root of roots.values()) root.unmount();
+      roots.clear();
+    };
+  }, [editor]);
 
   // 새 페이지 생성 시 제목 자동 포커스
   useEffect(() => {
@@ -1289,7 +1492,7 @@ function EditorInner({
         <div
           className="fixed inset-0 z-50"
           onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setEmojiPickerOpen(false);
+            if (e.target === e.currentTarget) closeEmojiPicker();
           }}
         >
           <div
@@ -1305,20 +1508,23 @@ function EditorInner({
               }
             >
               <IconPickerPanel
-                title="아이콘 삽입"
+                title={emojiAnchor.mode === "callout" ? "콜아웃 아이콘" : "아이콘 삽입"}
                 onPickEmoji={(emoji) => {
-                  if (editor && emojiAnchor.insertPos != null) {
+                  if (emojiAnchor.mode === "callout") {
+                    updateCalloutIconAtAnchor(emoji);
+                  } else if (editor && emojiAnchor.insertPos != null) {
                     editor
                       .chain()
                       .focus()
                       .insertContentAt(emojiAnchor.insertPos, emoji)
                       .run();
                   }
-                  setEmojiPickerOpen(false);
-                  setEmojiAnchor(null);
+                  closeEmojiPicker();
                 }}
                 onPickLucide={(name, color) => {
-                  if (editor && emojiAnchor.insertPos != null) {
+                  if (emojiAnchor.mode === "callout") {
+                    updateCalloutIconAtAnchor(encodeLucidePageIcon(name, color));
+                  } else if (editor && emojiAnchor.insertPos != null) {
                     editor
                       .chain()
                       .focus()
@@ -1328,8 +1534,7 @@ function EditorInner({
                       })
                       .run();
                   }
-                  setEmojiPickerOpen(false);
-                  setEmojiAnchor(null);
+                  closeEmojiPicker();
                 }}
                 customIcons={emojiCustomIcons}
                 onPickCustom={(icon) => insertCustomIconAtAnchor(icon)}

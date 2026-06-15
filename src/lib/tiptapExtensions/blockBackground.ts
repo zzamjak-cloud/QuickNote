@@ -136,7 +136,7 @@ export const BlockBackground = Extension.create({
       keepOnSplit: false,
       parseHTML: (el: HTMLElement) => el.getAttribute("data-text-color") || null,
       renderHTML: (attrs: { blockTextColor?: string | null }) => {
-        if (!attrs.blockTextColor) return {};
+        if (typeof attrs.blockTextColor !== "string" || !attrs.blockTextColor) return {};
         return { "data-text-color": attrs.blockTextColor };
       },
     };
@@ -145,7 +145,7 @@ export const BlockBackground = Extension.create({
       keepOnSplit: false,
       parseHTML: (el: HTMLElement) => el.getAttribute("data-bg-color") || null,
       renderHTML: (attrs: { backgroundColor?: string | null }) => {
-        if (!attrs.backgroundColor) return {};
+        if (typeof attrs.backgroundColor !== "string" || !attrs.backgroundColor) return {};
         return { "data-bg-color": attrs.backgroundColor };
       },
     };

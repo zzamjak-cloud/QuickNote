@@ -24,10 +24,10 @@ export const Indentation = Extension.create({
             default: 0,
             parseHTML: (el) =>
               parseInt(el.getAttribute("data-indent") ?? "0", 10) || 0,
-            renderHTML: (attrs) =>
-              (attrs.indent as number) > 0
-                ? { "data-indent": String(attrs.indent) }
-                : {},
+            renderHTML: (attrs) => {
+              const indent = typeof attrs.indent === "number" ? attrs.indent : 0;
+              return indent > 0 ? { "data-indent": String(indent) } : {};
+            },
           },
         },
       },

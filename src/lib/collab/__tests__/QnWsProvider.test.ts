@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { QnWsProvider } from "../QnWsProvider";
-import { encodeBytes } from "../wsProtocol";
+import { encodeBytes, splitMessage, newMsgId } from "../wsProtocol";
 
 // 최소 가짜 WebSocket — provider 가 기대하는 인터페이스만 구현.
 class FakeSocket {
@@ -125,6 +125,16 @@ describe("QnWsProvider", () => {
     expect(socket.sent.length).toBe(0);
   });
 
+  it("연결 수립 전 destroy 는 CONNECTING 소켓을 즉시 close 하지 않는다", () => {
+    const { socket, provider } = makeProvider();
+    provider.connect();
+    provider.destroy();
+    expect(socket.readyState).toBe(0);
+    socket.open();
+    expect(socket.readyState).toBe(FakeSocket.CLOSED);
+    expect(socket.sent.length).toBe(0);
+  });
+
   it("로컬 awareness 변경 시 awareness 메시지를 전송한다", () => {
     const { socket, provider, awareness } = makeProvider(true);
     provider.connect();
@@ -177,7 +187,6 @@ describe("QnWsProvider", () => {
     socket.open();
     window.dispatchEvent(new Event("offline"));
     expect(statuses).toContain("offline");
-    // offline 후 ws.close()→onclose 가 disconnected 로 되돌리면 안 됨 — 마지막은 offline
     expect(statuses[statuses.length - 1]).toBe("offline");
     provider.destroy();
   });
@@ -201,7 +210,30 @@ describe("QnWsProvider", () => {
     expect(created).toBe(1);
     window.dispatchEvent(new Event("offline"));
     window.dispatchEvent(new Event("online"));
-    expect(created).toBe(2); // online 시 즉시 새 connect
+    expect(created).toBe(2);
     provider.destroy();
+  });
+
+  it("청크로 분할되어 도착한 sync 를 재조립해 처리한다", () => {
+    const { socket, provider, doc } = makeProvider();
+    const onSynced = vi.fn();
+    provider.on("synced", onSynced);
+    provider.connect();
+    socket.open();
+
+    // 큰 본문 서버 doc → sync 직렬화가 임계를 넘어 chunk 로 쪼개져 도착하는 상황.
+    const server = new Y.Doc();
+    server.getText("big").insert(0, "x".repeat(200 * 1024));
+    const update = Y.encodeStateAsUpdate(server, Y.encodeStateVector(doc));
+    const sv = Y.encodeStateVector(server);
+    const syncFrame = JSON.stringify({ t: "sync", update: encodeBytes(update), sv: encodeBytes(sv) });
+
+    const frames = splitMessage(syncFrame, newMsgId());
+    expect(frames.length).toBeGreaterThan(1);
+    for (const f of frames) socket.receive(f);
+
+    expect(onSynced).toHaveBeenCalledTimes(1);
+    const reply = socket.sent.map((s) => JSON.parse(s)).find((m) => m.t === "sv-reply" || m.t === "chunk");
+    expect(reply).toBeTruthy();
   });
 });

@@ -10,6 +10,11 @@ import {
 import {
   serializeClientMessage,
   parseServerMessage,
+  splitMessage,
+  parseChunk,
+  newMsgId,
+  type ClientMessage,
+  type ChunkMsg,
 } from "./wsProtocol";
 
 type ProviderEvent = "synced" | "status";
@@ -100,12 +105,12 @@ export class QnWsProvider {
     ws.onopen = () => {
       this.retries = 0;
       this.emit("status", "connected" as StatusValue);
-      this.send(serializeClientMessage({ t: "hello", sv: Y.encodeStateVector(this.doc) }));
+      this.sendMsg({ t: "hello", sv: Y.encodeStateVector(this.doc) });
       this.startPing();
       // 새/재연결 시 로컬 awareness 를 즉시 피어에 알린다.
       if (this.awareness) {
         const u = encodeAwarenessUpdate(this.awareness, [this.doc.clientID]);
-        this.send(serializeClientMessage({ t: "awareness", update: u }));
+        this.sendMsg({ t: "awareness", update: u });
       }
     };
     ws.onmessage = (e: MessageEvent) => this.handleMessage(String(e.data));
@@ -115,7 +120,13 @@ export class QnWsProvider {
     };
   }
 
-  private send(data: string): void {
+  // ClientMessage 를 직렬화해 전송. 28KB 초과 메시지는 chunk 로 분할한다.
+  private sendMsg(msg: ClientMessage): void {
+    const serialized = serializeClientMessage(msg);
+    for (const f of splitMessage(serialized, newMsgId())) this.sendRaw(f);
+  }
+
+  private sendRaw(data: string): void {
     const ws = this.ws;
     if (!ws) return;
     const OPEN = (ws.constructor as { OPEN?: number }).OPEN ?? 1;
@@ -123,7 +134,70 @@ export class QnWsProvider {
     ws.send(data);
   }
 
+  private detachSocket(ws: WebSocket | null = this.ws): void {
+    if (!ws) return;
+    if (this.ws === ws) this.ws = null;
+
+    const ctor = ws.constructor as { CONNECTING?: number; OPEN?: number };
+    const CONNECTING = ctor.CONNECTING ?? 0;
+    const OPEN = ctor.OPEN ?? 1;
+
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+
+    if (ws.readyState === OPEN) {
+      try {
+        ws.close();
+      } catch {
+        /* 무시 */
+      }
+      return;
+    }
+
+    if (ws.readyState === CONNECTING) {
+      // WebKit은 CONNECTING 소켓을 즉시 close() 하면 콘솔 에러를 남긴다.
+      ws.onopen = () => {
+        try {
+          ws.close();
+        } catch {
+          /* 무시 */
+        }
+      };
+      return;
+    }
+
+    ws.onopen = null;
+  }
+
+  // 수신 chunk 재조립 버퍼(msgId → 도착한 body 조각들).
+  private chunkBuf = new Map<string, { parts: string[]; n: number; got: number }>();
+
+  // chunk 메시지를 누적하고, 모두 도착하면 원본 직렬화 문자열을 반환한다(아니면 null).
+  private collectChunk(c: ChunkMsg): string | null {
+    let entry = this.chunkBuf.get(c.id);
+    if (!entry) {
+      entry = { parts: new Array<string>(c.n), n: c.n, got: 0 };
+      this.chunkBuf.set(c.id, entry);
+    }
+    if (entry.parts[c.i] === undefined) entry.got += 1;
+    entry.parts[c.i] = c.body;
+    if (entry.got < entry.n) return null;
+    this.chunkBuf.delete(c.id);
+    return entry.parts.join("");
+  }
+
   private handleMessage(raw: string): void {
+    const c = parseChunk(raw);
+    if (c) {
+      const assembled = this.collectChunk(c);
+      if (assembled) this.dispatchServer(assembled);
+      return;
+    }
+    this.dispatchServer(raw);
+  }
+
+  private dispatchServer(raw: string): void {
     const msg = parseServerMessage(raw);
     if (!msg) return;
     if (msg.t === "sync") {
@@ -135,7 +209,7 @@ export class QnWsProvider {
       // 다음 첫 sync 의 sv-reply 로 정상 업로드된다(오프라인 편집 복구 유지).
       if (!this.synced) {
         const diff = Y.encodeStateAsUpdate(this.doc, msg.sv);
-        this.send(serializeClientMessage({ t: "sv-reply", update: diff }));
+        this.sendMsg({ t: "sv-reply", update: diff });
         this.synced = true;
         this.emit("synced");
       }
@@ -154,7 +228,7 @@ export class QnWsProvider {
   private handleLocalUpdate = (update: Uint8Array, origin: unknown): void => {
     if (this.destroyed) return;
     if (origin === REMOTE_ORIGIN) return;
-    this.send(serializeClientMessage({ t: "update", update }));
+    this.sendMsg({ t: "update", update });
   };
 
   private handleAwarenessUpdate = (
@@ -166,7 +240,7 @@ export class QnWsProvider {
     if (!this.awareness) return;
     const changed = [...changes.added, ...changes.updated, ...changes.removed];
     const u = encodeAwarenessUpdate(this.awareness, changed);
-    this.send(serializeClientMessage({ t: "awareness", update: u }));
+    this.sendMsg({ t: "awareness", update: u });
   };
 
   // 탭 닫기/새로고침 직전 — self awareness 제거(handleAwarenessUpdate 가 동기 전송).
@@ -185,10 +259,9 @@ export class QnWsProvider {
     }
     this.stopPing();
     this.emit("status", "offline" as StatusValue);
-    if (this.ws) {
-      try { this.ws.close(); } catch { /* 무시 */ }
-      this.ws = null;
-    }
+    this.synced = false;
+    this.chunkBuf.clear();
+    this.detachSocket();
   };
 
   // 네트워크 온라인 복귀 — backoff 대기 없이 즉시 재연결한다.
@@ -205,7 +278,7 @@ export class QnWsProvider {
   private startPing(): void {
     this.stopPing();
     this.pingTimer = window.setInterval(() => {
-      this.send(serializeClientMessage({ t: "hello", sv: Y.encodeStateVector(this.doc) }));
+      this.sendMsg({ t: "hello", sv: Y.encodeStateVector(this.doc) });
     }, this.pingIntervalMs);
   }
   private stopPing(): void {
@@ -219,6 +292,8 @@ export class QnWsProvider {
     this.stopPing();
     this.ws = null;
     this.synced = false;
+    // 끊긴 연결의 미완성 chunk 는 버린다(재연결 시 처음부터 다시 받음).
+    this.chunkBuf.clear();
     if (this.offline) return; // offline 상태는 handleOffline 이 status 를 관리 — 덮어쓰지 않음
     this.emit("status", "disconnected" as StatusValue);
     if (this.destroyed) return;
@@ -247,13 +322,8 @@ export class QnWsProvider {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (this.ws) {
-      try {
-        this.ws.close();
-      } catch {
-        /* 무시 */
-      }
-      this.ws = null;
-    }
+    this.synced = false;
+    this.chunkBuf.clear();
+    this.detachSocket();
   }
 }

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.48] - 2026-06-15
+
+### Changed
+
+- 실시간 협업 룸 epoch을 v5로 올리고 WebSocket 대용량 메시지를 28KB 청크로 분할하도록 변경.
+
+### Fixed
+
+- 노션 import/BK 용어집처럼 큰 문서에서 협업 동기화가 WebSocket 한도에 걸려 반복 재연결되던 문제 수정.
+- collab Y.Doc가 placeholder 또는 렌더 불가 상태일 때 서버 본문으로 복구한 뒤 에디터에 바인딩하도록 수정.
+- 연결 수립 전 WebSocket 정리 시 콘솔 에러가 발생하던 문제와 콜아웃 아이콘 렌더 경로 크래시를 수정.
+
 ## [5.4.30] - 2026-06-09
 
 ### Fixed

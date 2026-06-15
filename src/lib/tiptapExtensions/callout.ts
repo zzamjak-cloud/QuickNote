@@ -1,11 +1,10 @@
 import { Node, mergeAttributes } from "@tiptap/core";
-import { ReactNodeViewRenderer } from "@tiptap/react";
+import { Plugin } from "@tiptap/pm/state";
 import {
   type CalloutPresetId,
   CALLOUT_PRESET_MAP,
   presetFromLegacyEmoji,
 } from "./calloutPresets";
-import { CalloutNodeView } from "./CalloutNodeView";
 
 export const Callout = Node.create({
   name: "callout",
@@ -94,7 +93,11 @@ export const Callout = Node.create({
       "div",
       {
         contenteditable: "false",
-        class: "callout-emoji shrink-0 select-none text-xl leading-7",
+        class:
+          "callout-emoji shrink-0 cursor-pointer select-none rounded-md text-xl leading-7 transition hover:bg-black/10 dark:hover:bg-white/10",
+        "data-callout-icon": "",
+        "data-callout-icon-value": displayEmoji,
+        title: "아이콘 변경",
       },
       displayEmoji,
     ];
@@ -111,8 +114,33 @@ export const Callout = Node.create({
     ];
   },
 
-  addNodeView() {
-    return ReactNodeViewRenderer(CalloutNodeView);
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleClickOn: (_view, _pos, node, nodePos, event) => {
+            if (node.type.name !== this.name) return false;
+            const target = event.target as HTMLElement | null;
+            const icon = target?.closest<HTMLElement>("[data-callout-icon]");
+            if (!icon) return false;
+            event.preventDefault();
+            event.stopPropagation();
+            const rect = icon.getBoundingClientRect();
+            window.dispatchEvent(
+              new CustomEvent("quicknote:open-callout-icon-picker", {
+                detail: {
+                  pos: nodePos,
+                  top: rect.top,
+                  bottom: rect.bottom,
+                  left: rect.left,
+                },
+              }),
+            );
+            return true;
+          },
+        },
+      }),
+    ];
   },
 
   addCommands() {

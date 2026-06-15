@@ -1,5 +1,12 @@
-// 클라이언트 WebSocket 메시지 직렬화. 서버 infra/lambda/realtime/protocol.ts 의 계약과 일치해야 한다.
-// 브라우저 환경이므로 base64 는 btoa/atob 로 처리한다.
+// 클라이언트 WebSocket 메시지 직렬화 + 대용량 메시지 청킹.
+// 서버 infra/lambda/realtime/protocol.ts 의 계약과 일치해야 한다.
+//
+// 직렬화는 base64+JSON 텍스트를 쓴다. API Gateway WebSocket 의 route selection
+// ($request.body.action)이 메시지를 JSON 으로 평가하므로, 바이너리 프레임은 $default
+// 라우트에 닿지 못해 드롭된다(편집 불가 사고). 따라서 텍스트(JSON)를 유지한다.
+//
+// API GW WebSocket 의 프레임 한도(32KB)를 넘으면 연결이 끊기므로, 28KB 초과 직렬화
+// 문자열은 chunk 메시지로 분할한다.
 
 export type ClientMessage =
   | { t: "hello"; sv: Uint8Array }
@@ -51,6 +58,64 @@ export function parseServerMessage(raw: string): ServerMessage | null {
   }
   if (o.t === "awareness" && typeof o.update === "string") {
     return { t: "awareness", update: decodeBytes(o.update) };
+  }
+  return null;
+}
+
+// 이 길이(문자)를 넘는 직렬화 메시지는 chunk 로 분할한다.
+// API GW WebSocket 의 프레임 한도는 32KB(메시지 128KB). 브라우저는 한 ws.send 를 단일
+// 프레임으로 보내므로, 32KB 를 넘는 청크는 API GW 가 거부하며 연결을 끊는다. 따라서 프레임
+// 한도 내(28KB)로 유지해야 한다 — 메시지 128KB 가 아니라 프레임 32KB 가 실질 상한이다.
+export const CHUNK_THRESHOLD = 28 * 1024;
+// chunk JSON 래퍼({t,id,i,n,body:""}) 여유분.
+const CHUNK_WRAPPER_RESERVE = 256;
+
+// 새 메시지 식별자(32자 hex).
+export function newMsgId(): string {
+  const a = new Uint8Array(16);
+  crypto.getRandomValues(a);
+  let s = "";
+  for (let i = 0; i < a.length; i++) s += a[i]!.toString(16).padStart(2, "0");
+  return s;
+}
+
+// 직렬화 문자열을 임계 이하면 그대로, 초과면 chunk 메시지(JSON 문자열)들로 분할한다.
+export function splitMessage(
+  serialized: string,
+  msgId: string,
+  threshold = CHUNK_THRESHOLD,
+): string[] {
+  if (serialized.length <= threshold) return [serialized];
+  const partSize = threshold - CHUNK_WRAPPER_RESERVE;
+  const n = Math.ceil(serialized.length / partSize);
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const body = serialized.slice(i * partSize, (i + 1) * partSize);
+    out.push(JSON.stringify({ t: "chunk", id: msgId, i, n, body }));
+  }
+  return out;
+}
+
+export type ChunkMsg = { t: "chunk"; id: string; i: number; n: number; body: string };
+
+// chunk 메시지면 파싱, 아니면 null.
+export function parseChunk(raw: string): ChunkMsg | null {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== "object") return null;
+  const o = obj as Record<string, unknown>;
+  if (
+    o.t === "chunk"
+    && typeof o.id === "string"
+    && typeof o.body === "string"
+    && Number.isInteger(o.i)
+    && Number.isInteger(o.n)
+  ) {
+    return { t: "chunk", id: o.id, i: o.i as number, n: o.n as number, body: o.body };
   }
   return null;
 }

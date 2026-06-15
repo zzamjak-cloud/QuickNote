@@ -30,6 +30,97 @@ export function yDocToJson(ydoc: Y.Doc): JSONContent {
   return yDocToProsemirrorJSON(ydoc, YJS_XML_FRAGMENT) as JSONContent;
 }
 
+function isSafeAttrValue(value: unknown): boolean {
+  if (value == null) return true;
+  const type = typeof value;
+  if (type === "string" || type === "number" || type === "boolean") return true;
+  return Array.isArray(value) && value.every(isSafeAttrValue);
+}
+
+function sanitizeAttrs(attrs: Record<string, unknown> | undefined): {
+  attrs?: Record<string, unknown>;
+  changed: boolean;
+} {
+  if (!attrs) return { changed: false };
+  let changed = false;
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    if (isSafeAttrValue(value)) {
+      next[key] = value;
+    } else {
+      changed = true;
+    }
+  }
+  return { attrs: next, changed };
+}
+
+function sanitizeJsonNode(node: JSONContent): { node: JSONContent; changed: boolean } {
+  let changed = false;
+  const next: JSONContent = { ...node };
+
+  const nodeAttrs = sanitizeAttrs(node.attrs as Record<string, unknown> | undefined);
+  if (nodeAttrs.changed) changed = true;
+  if (nodeAttrs.attrs) next.attrs = nodeAttrs.attrs as JSONContent["attrs"];
+
+  if (node.marks) {
+    next.marks = node.marks.map((mark) => {
+      const markAttrs = sanitizeAttrs(mark.attrs as Record<string, unknown> | undefined);
+      if (!markAttrs.changed) return mark;
+      changed = true;
+      return { ...mark, attrs: markAttrs.attrs as typeof mark.attrs };
+    });
+  }
+
+  if (node.content) {
+    next.content = node.content.map((child) => {
+      const sanitized = sanitizeJsonNode(child);
+      if (sanitized.changed) changed = true;
+      return sanitized.node;
+    });
+  }
+
+  return { node: next, changed };
+}
+
+export function sanitizeCollabDocAttrsForRender(doc: Y.Doc, schema: Schema): boolean {
+  const json = yDocToJson(doc);
+  const sanitized = sanitizeJsonNode(json);
+  PMNode.fromJSON(schema, sanitized.node);
+  if (!sanitized.changed) return false;
+  replaceCollabDocContent(doc, schema, sanitized.node);
+  return true;
+}
+
+export function isCollabDocRenderableForEditor(doc: Y.Doc, schema: Schema): boolean {
+  try {
+    const json = yDocToJson(doc);
+    const sanitized = sanitizeJsonNode(json);
+    PMNode.fromJSON(schema, sanitized.node);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function hasRenderableCollabContent(doc: Y.Doc, schema: Schema): boolean {
+  try {
+    const json = yDocToJson(doc);
+    const sanitized = sanitizeJsonNode(json);
+    PMNode.fromJSON(schema, sanitized.node);
+    return !isPlaceholderBodyJson(sanitized.node);
+  } catch {
+    return false;
+  }
+}
+
+export function replaceCollabDocContent(doc: Y.Doc, schema: Schema, json: JSONContent): void {
+  const fragment = doc.get(YJS_XML_FRAGMENT, Y.XmlFragment) as Y.XmlFragment;
+  doc.transact(() => {
+    if (fragment.length > 0) fragment.delete(0, fragment.length);
+    prosemirrorToYXmlFragment(PMNode.fromJSON(schema, json), fragment);
+  }, "replace-collab-content");
+}
+
 /**
  * ProseMirror JSON → 결정적 Yjs 시드 update(바이트).
  * 고정 clientID(SEED_CLIENT_ID) + 결정적 변환이라 같은 입력은 항상 byte 동일한 update 를 만든다.
