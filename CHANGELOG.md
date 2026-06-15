@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.50] - 2026-06-15
+
+### Fixed
+
+- 데스크톱 dev/live Tauri가 같은 SQLite 저장소를 공유해 dev Cognito 토큰을 live 앱에서 복구하던 문제를 차단.
+- auth 토큰과 OIDC user/state 저장소를 Cognito user pool/client 기준으로 분리하고, 현재 빌드와 issuer/audience가 다른 legacy 토큰은 폐기.
+- 댓글 증분 fetch 타입 추론 오류로 production typecheck가 실패할 수 있던 문제 수정.
+
+### Changed
+
+- 릴리스 전 Vercel CLI를 54.14.0으로 업데이트.
+
 ## [5.4.49] - 2026-06-15
 
 ### Fixed

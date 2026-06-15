@@ -18,7 +18,7 @@ export async function fetchCommentsByWorkspace(
   let nextToken: string | null | undefined = undefined;
 
   do {
-    const page = await gqlOptional<CommentPage>(
+    const page: CommentPage | null = await gqlOptional<CommentPage>(
       LIST_COMMENTS,
       { workspaceId, updatedAfter, limit: 1000, nextToken },
       "listComments",

@@ -2,6 +2,7 @@ import { OidcClient, UserManager, WebStorageStateStore } from "oidc-client-ts";
 import { buildAuthConfig } from "./config";
 import { zustandStorage } from "../storage/index";
 import { AsyncStateStore } from "./asyncStateStore";
+import { authStorageScopeSuffix } from "./storageScope";
 
 let _manager: UserManager | null = null;
 let _client: OidcClient | null = null;
@@ -9,11 +10,14 @@ let _stateStore: AsyncStateStore | null = null;
 let _userStore: AsyncStateStore | null = null;
 
 function ensureStores() {
+  const scope = authStorageScopeSuffix();
+  const statePrefix = scope ? `quicknote.auth.state.${scope}` : "quicknote.auth.state";
+  const userPrefix = scope ? `quicknote.auth.user.${scope}` : "quicknote.auth.user";
   if (!_stateStore) {
-    _stateStore = new AsyncStateStore(zustandStorage, "quicknote.auth.state");
+    _stateStore = new AsyncStateStore(zustandStorage, statePrefix);
   }
   if (!_userStore) {
-    _userStore = new AsyncStateStore(zustandStorage, "quicknote.auth.user");
+    _userStore = new AsyncStateStore(zustandStorage, userPrefix);
   }
   return { stateStore: _stateStore, userStore: _userStore };
 }

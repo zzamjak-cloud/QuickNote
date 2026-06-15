@@ -46,6 +46,20 @@ vi.mock("../lib/storage/index", () => ({
 const { useAuthStore } = await import("../store/authStore");
 const { writeStoredTokens, readStoredTokens } = await import("../lib/auth/tokenStore");
 
+function resetAuthEnv() {
+  const env = import.meta.env as Record<string, unknown>;
+  delete env.VITE_COGNITO_REGION;
+  delete env.VITE_COGNITO_USER_POOL_ID;
+  delete env.VITE_COGNITO_WEB_CLIENT_ID;
+  delete env.VITE_COGNITO_DESKTOP_CLIENT_ID;
+}
+
+function encodeJwtPayload(payload: Record<string, unknown>): string {
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8")
+    .toString("base64url");
+  return `header.${encoded}.signature`;
+}
+
 function fakeUser(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     profile: { sub: "sub-1", email: "alice@example.com", name: "Alice" },
@@ -62,6 +76,7 @@ describe("authStore", () => {
   beforeEach(() => {
     memory.clear();
     vi.clearAllMocks();
+    resetAuthEnv();
     useAuthStore.setState({ state: { status: "loading" } });
   });
 
@@ -131,5 +146,28 @@ describe("authStore", () => {
     const s = useAuthStore.getState().state;
     expect(s.status).toBe("anonymous");
     if (s.status === "anonymous") expect(s.reason).toBe("signedOut");
+  });
+
+  it("현재 Cognito 환경과 다른 legacy 토큰은 복구하지 않는다", async () => {
+    Object.assign(import.meta.env as Record<string, unknown>, {
+      VITE_COGNITO_REGION: "ap-northeast-2",
+      VITE_COGNITO_USER_POOL_ID: "live_pool",
+      VITE_COGNITO_WEB_CLIENT_ID: "live_web",
+    });
+    memory.set(
+      "quicknote.auth.tokens.v1",
+      JSON.stringify({
+        idToken: encodeJwtPayload({
+          iss: "https://cognito-idp.ap-northeast-2.amazonaws.com/dev_pool",
+          aud: "dev_web",
+        }),
+        accessToken: "a",
+        refreshToken: "r",
+        expiresAt: Math.floor(Date.now() / 1000) + 1000,
+      }),
+    );
+
+    expect(await readStoredTokens()).toBeNull();
+    expect(memory.has("quicknote.auth.tokens.v1")).toBe(false);
   });
 });
