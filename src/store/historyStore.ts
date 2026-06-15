@@ -381,3 +381,23 @@ export function repairDbHistoryBaselineIfNeeded(
 export function shouldWriteAnchor(eventCount: number): boolean {
   return eventCount % HISTORY_ANCHOR_INTERVAL === 0;
 }
+
+/**
+ * 페이지 변이 기록 게이트웨이 — getState→이벤트수 조회→shouldWriteAnchor→recordPageEvent 복붙을 단일화.
+ * anchor 는 thunk 로 받아 앵커 기록 시점에만 평가한다(page.doc/dbCell 핫패스에서 불필요한 스냅샷 계산 방지).
+ */
+export function recordPageMutation(
+  pageId: string,
+  kind: PageHistoryKind,
+  patch: Partial<PageSnapshot>,
+  anchor: () => PageSnapshot,
+): void {
+  const hs = useHistoryStore.getState();
+  const events = hs.pageEventsByPageId[pageId] ?? [];
+  hs.recordPageEvent(
+    pageId,
+    kind,
+    patch,
+    shouldWriteAnchor(events.length + 1) ? anchor() : undefined,
+  );
+}

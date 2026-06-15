@@ -7,8 +7,8 @@ import type { Page, PageMap } from "../types/page";
 import { emptyPanelState, type CellValue, type ViewKind } from "../types/database";
 import { newId } from "../lib/id";
 import {
-  shouldWriteAnchor,
   useHistoryStore,
+  recordPageMutation,
 } from "./historyStore";
 import { useSettingsStore } from "./settingsStore";
 import { useNotificationStore } from "./notificationStore";
@@ -332,13 +332,11 @@ export const usePageStore = create<PageStore>()(
         }
         // 생성 직후 렌더를 먼저 확정하고, 기록/동기화는 다음 틱으로 미뤄 체감 지연을 줄인다.
         queueMicrotask(() => {
-          const hs = useHistoryStore.getState();
-          const pageEvents = hs.pageEventsByPageId[id] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             id,
             "page.create",
             toPageSnapshot(page),
-            shouldWriteAnchor(pageEvents.length + 1) ? toPageSnapshot(page) : undefined,
+            () => toPageSnapshot(page),
           );
           enqueueUpsertPage(page);
         });
@@ -390,13 +388,11 @@ export const usePageStore = create<PageStore>()(
           };
         });
         if (before) {
-          const hs = useHistoryStore.getState();
-          const events = hs.pageEventsByPageId[id] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             id,
             "page.delete",
             toPageSnapshot(before),
-            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(before) : undefined,
+            () => toPageSnapshot(before),
           );
         }
         // 삭제된 모든 페이지(자손 포함) 각각에 대해 softDeletePage 를 enqueue.
@@ -477,13 +473,11 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[id];
         if (before && after && before.title !== after.title) {
-          const hs = useHistoryStore.getState();
-          const events = hs.pageEventsByPageId[id] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             id,
             "page.rename",
             { id, title: after.title },
-            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+            () => toPageSnapshot(after),
           );
           enqueueUpsertPage(after);
         }
@@ -519,13 +513,11 @@ export const usePageStore = create<PageStore>()(
             debouncePerKey(`history:${id}`, 300, () => {
               const latest = get().pages[id];
               if (!latest) return;
-              const hs = useHistoryStore.getState();
-              const events = hs.pageEventsByPageId[id] ?? [];
-              hs.recordPageEvent(
+              recordPageMutation(
                 id,
                 "page.doc",
                 { id, doc: structuredClone(latest.doc) },
-                shouldWriteAnchor(events.length + 1) ? toPageSnapshot(latest) : undefined,
+                () => toPageSnapshot(latest),
               );
             });
           }
@@ -596,13 +588,11 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[id];
         if (before && after && before.icon !== after.icon) {
-          const hs = useHistoryStore.getState();
-          const events = hs.pageEventsByPageId[id] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             id,
             "page.icon",
             { id, icon: after.icon },
-            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+            () => toPageSnapshot(after),
           );
           enqueueUpsertPage(after);
         }
@@ -622,13 +612,11 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[id];
         if (before && after && before.titleColor !== after.titleColor) {
-          const hs = useHistoryStore.getState();
-          const events = hs.pageEventsByPageId[id] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             id,
             "page.titleColor",
             { id, titleColor: after.titleColor ?? null },
-            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+            () => toPageSnapshot(after),
           );
           enqueueUpsertPage(after);
         }
@@ -648,13 +636,11 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[id];
         if (before && after && before.coverImage !== after.coverImage) {
-          const hs = useHistoryStore.getState();
-          const events = hs.pageEventsByPageId[id] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             id,
             "page.coverImage",
             { id, coverImage: after.coverImage },
-            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+            () => toPageSnapshot(after),
           );
           enqueueUpsertPage(after);
         }
@@ -705,15 +691,11 @@ export const usePageStore = create<PageStore>()(
           const changed =
             before.parentId !== after.parentId || before.order !== after.order;
           if (changed) {
-            const hs = useHistoryStore.getState();
-            const events = hs.pageEventsByPageId[id] ?? [];
-            hs.recordPageEvent(
+            recordPageMutation(
               id,
               "page.move",
               { id, parentId: after.parentId, order: after.order },
-              shouldWriteAnchor(events.length + 1)
-                ? toPageSnapshot(after)
-                : undefined,
+              () => toPageSnapshot(after),
             );
             // 이동된 본인 + 부모 변경/order 재조정으로 영향받은 모든 형제를 enqueue.
             const afterPages = get().pages;
@@ -943,13 +925,11 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[pageId];
         if (before && after) {
-          const hs = useHistoryStore.getState();
-          const events = hs.pageEventsByPageId[pageId] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             pageId,
             "page.dbCell",
             { id: pageId, dbCells: { [columnId]: value } },
-            shouldWriteAnchor(events.length + 1) ? toPageSnapshot(after) : undefined,
+            () => toPageSnapshot(after),
           );
           // 협업 ON DB 행 페이지: 셀을 Y.Doc 으로 라우팅하고 페이지 LWW upsert 는 생략.
           // (셀 영속은 materialize 가 includeCells 로 담당.) 비협업이면 false → 기존 경로.
@@ -1093,13 +1073,11 @@ export const usePageStore = create<PageStore>()(
         }));
 
         queueMicrotask(() => {
-          const hs = useHistoryStore.getState();
-          const pageEvents = hs.pageEventsByPageId[id] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             id,
             "page.create",
             toPageSnapshot(page),
-            shouldWriteAnchor(pageEvents.length + 1) ? toPageSnapshot(page) : undefined,
+            () => toPageSnapshot(page),
           );
           enqueueUpsertPage(page);
         });
