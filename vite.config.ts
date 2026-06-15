@@ -34,9 +34,9 @@ export default defineConfig({
           if (id.includes("node_modules/lucide-react")) {
             return "lucide-vendor";
           }
-          if (id.includes("node_modules/lowlight") || id.includes("node_modules/highlight.js")) {
-            return "lowlight-vendor";
-          }
+          // lowlight/highlight.js 는 named vendor 청크로 묶지 않는다 — Editor 가 동적 import
+          // 하므로 named chunk 로 두면 Vite 가 eager modulepreload(+테마 CSS eager)로 승격시킨다.
+          // 규칙을 빼면 동적 import 경계로 자연 코드분할되어 lazy 로드된다.
           if (id.includes("emoji-picker-react")) {
             return "emoji-picker-vendor";
           }

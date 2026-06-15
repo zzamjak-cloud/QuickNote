@@ -5,7 +5,6 @@ import { findChildren } from "@tiptap/core";
 import { Plugin, PluginKey, type Plugin as PMPlugin } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type Decoration as PMDecoration } from "@tiptap/pm/view";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import highlight from "highlight.js/lib/core";
 
 const LOWLIGHT_ORIGINAL_KEY = "lowlight";
 
@@ -48,10 +47,8 @@ function getHighlightNodes(result: unknown): unknown {
 }
 
 function isRegistered(lowlight: LowlightApi, name: string): boolean {
-  return (
-    Boolean(highlight.getLanguage(name)) ||
-    Boolean(lowlight.registered?.(name))
-  );
+  // lowlight 인스턴스 기준으로만 판정한다. (hljs core 전역 레지스트리는 기본 언어가 없어 항상 미등록)
+  return Boolean(lowlight.registered?.(name));
 }
 
 function getDecorations({

@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import "prosemirror-view/style/prosemirror.css";
 import "./index.css";
-import "highlight.js/styles/github-dark.css";
+// hljs 테마 CSS 는 Editor 의 lowlight lazy 로드와 함께 동적 import 한다(eager 번들에서 분리).
 import { reportNonFatal } from "./lib/reportNonFatal";
 import { Bootstrap } from "./Bootstrap";
 import { RootErrorBoundary } from "./components/RootErrorBoundary";

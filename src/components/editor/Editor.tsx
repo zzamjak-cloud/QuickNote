@@ -15,7 +15,7 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection } from "@tiptap/pm/state";
-import { createLowlight } from "lowlight";
+import type { createLowlight } from "lowlight";
 import "tippy.js/dist/tippy.css";
 
 type EmojiAnchor = {
@@ -382,20 +382,43 @@ function EditorInner({
     [setSimpleAlert],
   );
 
-  // lowlight 인스턴스를 빈 상태로 동기 생성(안정 ref) — useEditor deps 로 들어가도 null→로드
-  // 토글이 없어 에디터를 재생성시키지 않는다. 언어 문법(common)은 lazy 로 register 한다(인스턴스
-  // 내부 변형이라 에디터 재생성 불필요, 다음 코드블록 렌더부터 반영). 큰 문서 페이지에서 lowlight
-  // 토글 재생성이 대량 NodeView 를 반복 동기 마운트시켜 콜스택을 초과하던 사고를 차단한다.
-  const lowlightApi = useMemo(() => createLowlight(), []);
+  // lowlight 를 동적 로드해 eager 번들(lowlight-vendor ~172KB)에서 분리한다.
+  // 단, 동기 생성한 안정 ref(위임 wrapper)를 유지해 lowlightApi 동일성을 보장한다 — null→로드
+  // 토글이 없어 에디터를 재생성시키지 않는다(큰 문서에서 NodeView 대량 동기 재마운트로 콜스택을
+  // 초과하던 사고 차단). 로드 전엔 빈 상태(listLanguages: []) 라 하이라이팅을 건너뛰고, 로드 후
+  // 내부 인스턴스만 채워 다음 코드블록 렌더부터 강조가 반영된다(기존 lazy register 패턴과 동일).
+  type LowlightApi = ReturnType<typeof createLowlight>;
+  const lowlightInnerRef = useRef<LowlightApi | null>(null);
+  const lowlightApi = useMemo<LowlightApi>(() => {
+    const emptyRoot = { type: "root", children: [] };
+    const cur = () => lowlightInnerRef.current;
+    const wrapper = {
+      highlight: (lang: string, value: string) =>
+        cur() ? cur()!.highlight(lang, value) : emptyRoot,
+      highlightAuto: (value: string) =>
+        cur() ? cur()!.highlightAuto(value) : emptyRoot,
+      listLanguages: () => (cur() ? cur()!.listLanguages() : []),
+      registered: (name: string) => (cur() ? Boolean(cur()!.registered(name)) : false),
+      register: () => {
+        /* 실제 등록은 내부 인스턴스 생성 시 일괄 수행한다 */
+      },
+    };
+    return wrapper as unknown as LowlightApi;
+  }, []);
   useEffect(() => {
     let cancelled = false;
-    void import("lowlight").then(({ common }) => {
-      if (!cancelled) lowlightApi.register(common);
+    // lowlight 엔진·언어와 hljs 테마 CSS 를 함께 lazy 로드(eager 번들에서 lowlight-vendor 분리).
+    // hljs CSS 를 같은 동적 경로로 옮겨 manualChunks 청크명 충돌로 인한 eager 승격을 막는다.
+    void Promise.all([
+      import("lowlight"),
+      import("highlight.js/styles/github-dark.css"),
+    ]).then(([{ createLowlight, common }]) => {
+      if (!cancelled) lowlightInnerRef.current = createLowlight(common);
     });
     return () => {
       cancelled = true;
     };
-  }, [lowlightApi]);
+  }, []);
 
   // 협업 세션 — flag OFF 면 enabled:false(현행 경로). ON 이면 Y.Doc·provider 생성·sync 상태 추적.
   const collab = useCollabSession(effectivePageId);
