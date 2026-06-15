@@ -14,6 +14,8 @@ git status → clean?
   ↓
 infra/ 변경 있음? → CDK deploy → 완료 확인
   ↓
+웹/데스크톱 빌드 env 확인 (Vercel env + GitHub Secrets)
+  ↓
 로컬 테스트 + build 통과
   ↓
 git push origin develop
@@ -54,6 +56,28 @@ git commit -m "chore: 버전 X.Y.Z bump"
 cd infra && npx cdk deploy --all
 ```
 CDK 완료 전 프론트 push 하면 AppSync 뮤테이션 실패 → 데이터 손실 위험
+
+## STEP 3.5 — 웹/데스크톱 빌드 env 확인
+
+Vite env 는 빌드 시점에 번들에 박힌다. 웹은 Vercel env, 데스크톱 릴리스는 GitHub repo
+Secrets(`.github/workflows/build.yml`)를 사용하므로 둘을 따로 확인해야 한다.
+
+```bash
+# 웹 production env
+tmp=$(mktemp)
+vercel env pull "$tmp" --environment=production --yes
+grep '^VITE_COLLAB_' "$tmp"
+rm -f "$tmp"
+
+# 데스크톱 release build secrets — 값은 못 읽지만 updatedAt 으로 갱신 여부 확인
+gh secret list | grep 'VITE_COLLAB'
+```
+
+- 협업 ON 릴리스는 `VITE_COLLAB_WS_URL`, `VITE_COLLAB_ENABLED_PAGE_IDS`,
+  `VITE_COLLAB_ENABLED_DB_IDS`, `VITE_COLLAB_ROOM_EPOCH` 이 웹·데스크톱 양쪽에서 같아야 한다.
+- epoch/WS URL을 바꿨으면 Vercel env만 바꾸지 말고 GitHub Secrets도 같은 값으로 갱신한 뒤 tag를 만든다.
+- 데스크톱 앱은 updater의 `latest.json` version 이 설치 버전보다 커야 업데이트를 받는다. 같은 버전으로
+  assets만 다시 빌드/업로드하면 이미 그 버전을 받은 사용자는 보통 다시 업데이트되지 않는다.
 
 ## STEP 4 — 로컬 검증
 ```bash
