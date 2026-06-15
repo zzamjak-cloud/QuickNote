@@ -3,8 +3,9 @@
 import { lazy, Suspense, useState } from "react";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import CodeBlock from "@tiptap/extension-code-block";
+import { Eye, X } from "lucide-react";
+import { DialogBase } from "../ui-primitives";
 import { CodeBlockLowlightStable } from "./codeBlockLowlightStable";
-import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 
 // react-markdown + remark-gfm 는 미리보기 탭에서만 필요하므로 지연 로드해 eager 청크에서 분리한다.
 const MarkdownPreviewRender = lazy(() => import("./MarkdownPreviewRender"));
@@ -37,23 +38,19 @@ function isMarkdownLanguage(lang: unknown): boolean {
   return s === "markdown" || s === "md";
 }
 
-const tabBtnBase =
-  "rounded px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400";
-
-/** 탭 아래 본문: 미리보기·소스 공통 뷰포트(박스 높이 = 스크롤 영역)
-    세로 높이 최대값을 기존(min(70vh,560px))의 약 2배로 확대 */
-const MARKDOWN_PANEL_H = "min(90vh,1120px)";
-
 /** 미리보기 본문 글자 크기 — 마크다운 소스 탭(15px)과 동일하게 맞춤 */
 const MARKDOWN_PREVIEW_FONT_SIZE = "15px";
+
+/** 인라인 미리보기·확대 모달이 공유하는 prose 색상 규칙(렌더 일관성). */
+const PREVIEW_PROSE_CLASS =
+  "prose prose-sm prose-zinc max-w-none dark:prose-invert prose-headings:text-orange-700 prose-a:text-amber-700 dark:prose-headings:text-orange-300 dark:prose-a:text-amber-400 prose-strong:text-zinc-800 dark:prose-strong:text-zinc-100";
 
 function MarkdownCodeBlockNodeView(props: NodeViewProps) {
   const { node } = props;
   const isMd = isMarkdownLanguage(node.attrs.language);
-  const [tab, setTab] = useState<"preview" | "source">("preview");
-  const activation = useLazyNodeViewActivation<HTMLDivElement>({
-    selected: props.selected,
-  });
+  // 미리보기 모달 — 에디터(contenteditable) 밖(portal)에서 렌더해 본문 텍스트를 자유롭게 드래그·복사.
+  // 인라인 미리보기는 ProseMirror 가 DOM 선택을 문서 선택과 강제 동기화해 부분 선택이 막히므로, 모달로 우회.
+  const [expanded, setExpanded] = useState(false);
 
   if (!isMd) {
     return (
@@ -76,100 +73,104 @@ function MarkdownCodeBlockNodeView(props: NodeViewProps) {
   }
 
   const text = node.textContent;
-  const previewActive = tab === "preview";
-  const previewRenderable = previewActive && activation.active;
 
   return (
     <NodeViewWrapper
-      ref={activation.ref}
-      className="qn-markdown-code-block my-4 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950"
-      onPointerDown={activation.activate}
-      onFocusCapture={activation.activate}
+      className="qn-markdown-code-block my-4 overflow-hidden rounded-lg border border-zinc-700 bg-[#26262b]"
+      data-language="markdown"
     >
-      <div
-        className="flex gap-0.5 border-b border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-700 dark:bg-zinc-900"
-        role="tablist"
-        aria-label="마크다운 보기 모드"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={previewActive}
-          className={`${tabBtnBase} ${
-            previewActive
-              ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-          }`}
-          onClick={() => setTab("preview")}
-        >
-          미리보기
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={!previewActive}
-          className={`${tabBtnBase} ${
-            !previewActive
-              ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-100"
-              : "text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-          }`}
-          onClick={() => setTab("source")}
-        >
-          마크다운
-        </button>
-      </div>
-      {/* 고정 높이 한 덩어리: 테두리·스크롤 경계가 동일(미리보기/소스 규격 일치)
-          진입 시 미리보기 레이어 마운트 전 회색 배경이 한번 깜빡이는 회귀를 막기 위해
-          컨테이너 배경을 미리보기와 동일한 흰색으로 미리 깔아둔다. */}
-      <div
-        className="relative w-full overflow-hidden rounded-b-lg bg-white dark:bg-zinc-950"
-        style={{ height: MARKDOWN_PANEL_H }}
-      >
-        <button
-          type="button"
-          className="qn-code-copy-btn pointer-events-auto absolute right-3 top-2 z-30"
-          title="코드 복사"
-          aria-label="코드 복사"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            void navigator.clipboard.writeText(props.node.textContent);
-          }}
-        >
-          <MarkdownCodeCopyIcon />
-          <span className="qn-code-copy-label">복사</span>
-        </button>
-        <div
-          className={`absolute inset-0 box-border select-text overflow-y-auto bg-white px-3 pb-2 pl-3 pr-14 pt-10 prose prose-sm prose-zinc max-w-none dark:bg-zinc-950 dark:prose-invert prose-headings:text-orange-700 prose-a:text-amber-700 dark:prose-headings:text-orange-300 dark:prose-a:text-amber-400 prose-strong:text-zinc-800 dark:prose-strong:text-zinc-100 ${
-            previewActive ? "z-10" : "pointer-events-none invisible z-0"
-          }`}
-          style={{ fontSize: MARKDOWN_PREVIEW_FONT_SIZE }}
-        >
-          {!previewRenderable ? (
-            <p className="my-0 text-sm text-zinc-500 dark:text-zinc-400">
-              미리보기 준비 중...
-            </p>
-          ) : text.trim() ? (
-            <Suspense fallback={<div className="text-xs text-zinc-400">로딩…</div>}>
-              <MarkdownPreviewRender source={text} />
-            </Suspense>
-          ) : (
-            <p className="my-0 text-sm text-zinc-500 dark:text-zinc-400">
-              비어 있습니다. 「마크다운」 탭에서 편집하세요.
-            </p>
-          )}
+      {/* 상단 헤더바: 라벨 + 미리보기·복사 버튼. 본문(코드) 안에는 버튼을 두지 않는다. */}
+      <div className="flex items-center gap-2 border-b border-zinc-700 bg-[#26262b] px-2.5 py-1.5">
+        <span className="text-xs font-medium text-zinc-400">마크다운</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            className="qn-code-copy-btn"
+            title="미리보기 (텍스트 선택·복사 가능)"
+            aria-label="마크다운 미리보기"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setExpanded(true);
+            }}
+          >
+            <Eye size={13} />
+            <span className="qn-code-copy-label">미리보기</span>
+          </button>
+          <button
+            type="button"
+            className="qn-code-copy-btn"
+            title="코드 복사"
+            aria-label="코드 복사"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void navigator.clipboard.writeText(props.node.textContent);
+            }}
+          >
+            <MarkdownCodeCopyIcon />
+            <span className="qn-code-copy-label">복사</span>
+          </button>
         </div>
-        <pre
-          className={`qn-markdown-code-source hljs absolute inset-0 m-0 box-border overflow-auto rounded-b-lg border-0 bg-[#2d2d32] text-zinc-200 dark:bg-[#2d2d32] dark:text-zinc-200 ${
-            previewActive ? "pointer-events-none invisible z-0" : "z-10"
-          }`}
-        >
-          <code className="language-markdown block text-[15px] leading-relaxed">
-            <NodeViewContent spellCheck={false} />
-          </code>
-        </pre>
       </div>
+      <pre className="qn-markdown-code-source hljs m-0 overflow-x-auto bg-[#2d2d32] text-zinc-200">
+        <code className="language-markdown block px-3 py-2.5 text-[15px] leading-relaxed">
+          <NodeViewContent spellCheck={false} />
+        </code>
+      </pre>
+      {expanded && (
+        <DialogBase
+          open
+          onClose={() => setExpanded(false)}
+          widthClassName="max-w-4xl"
+          labelId="qn-md-preview-modal-title"
+        >
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2
+              id="qn-md-preview-modal-title"
+              className="text-base font-semibold text-zinc-900 dark:text-zinc-100"
+            >
+              마크다운 미리보기
+            </h2>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="rounded px-2 py-1 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                title="전체 복사"
+                onClick={() => void navigator.clipboard.writeText(text)}
+              >
+                전체 복사
+              </button>
+              <button
+                type="button"
+                className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                title="닫기"
+                aria-label="닫기"
+                onClick={() => setExpanded(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          {/* 에디터 밖(portal) 이라 텍스트 자유 선택·부분 복사 가능 */}
+          <div
+            className={`max-h-[78vh] select-text overflow-y-auto ${PREVIEW_PROSE_CLASS}`}
+            style={{ fontSize: MARKDOWN_PREVIEW_FONT_SIZE }}
+          >
+            {text.trim() ? (
+              <Suspense fallback={<div className="text-xs text-zinc-400">로딩…</div>}>
+                <MarkdownPreviewRender source={text} />
+              </Suspense>
+            ) : (
+              <p className="my-0 text-sm text-zinc-500 dark:text-zinc-400">
+                비어 있습니다.
+              </p>
+            )}
+          </div>
+        </DialogBase>
+      )}
     </NodeViewWrapper>
   );
 }

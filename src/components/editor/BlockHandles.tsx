@@ -401,7 +401,16 @@ export function BlockHandles({
     hover && wrapperRect
       ? (() => {
           const tableTopNudge = hover.node.type.name === "table" ? -14 : 0;
-          const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX + tableTopNudge;
+          const columnNoneTopNudge =
+            hover.node.type.name === "columnLayout" && hover.node.attrs.preset === "none"
+              ? -18
+              : 0;
+          const top =
+            hover.rect.top -
+            wrapperRect.top +
+            HANDLE_TOP_OFFSET_PX +
+            tableTopNudge +
+            columnNoneTopNudge;
           const left = resolveHandleLeft(hover, wrapperRect);
           return { top, left };
         })()

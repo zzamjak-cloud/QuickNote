@@ -9,6 +9,7 @@ export type CalloutPresetId =
   | "success"
   | "note"
   | "tip"
+  | "gray"
   // 아이콘 없이 배경색만 적용하는 컬러칩 전용 변형
   | "info-plain"
   | "warning-plain"
@@ -16,7 +17,8 @@ export type CalloutPresetId =
   | "idea-plain"
   | "success-plain"
   | "note-plain"
-  | "tip-plain";
+  | "tip-plain"
+  | "gray-plain";
 
 export type CalloutPresetDef = {
   id: CalloutPresetId;
@@ -94,6 +96,14 @@ export const CALLOUT_PRESETS: CalloutPresetDef[] = [
     color: "#eef2ff",
     frameClass: "border bg-indigo-50/95 shadow-none ring-0",
   },
+  {
+    id: "gray",
+    label: "회색",
+    hint: "중립 배경",
+    emoji: "",
+    color: "#e7e5e4",
+    frameClass: "border bg-[#e7e5e4] shadow-none ring-0",
+  },
 ];
 
 /** 아이콘 없이 배경색만 적용하는 컬러칩 전용 프리셋 */
@@ -105,6 +115,7 @@ const COLOR_ONLY_BASES = [
   { id: "success-plain" as const, src: "success" as const },
   { id: "note-plain" as const,    src: "note" as const },
   { id: "tip-plain" as const,     src: "tip" as const },
+  { id: "gray-plain" as const,    src: "gray" as const },
 ];
 
 export const CALLOUT_COLOR_CHIP_PRESETS: CalloutPresetDef[] = COLOR_ONLY_BASES.map(

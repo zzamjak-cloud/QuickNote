@@ -4,7 +4,7 @@
 // - yCursorPlugin: awareness 기반 원격 커서·선택 영역 렌더링.
 // 사용 시 StarterKit 의 history/undoRedo 를 반드시 꺼야 한다.
 import { Extension } from "@tiptap/core";
-import { Plugin, Selection } from "@tiptap/pm/state";
+import { Plugin, Selection, TextSelection } from "@tiptap/pm/state";
 import {
   ySyncPlugin,
   yUndoPlugin,
@@ -66,6 +66,10 @@ export const Collaboration = Extension.create<CollaborationOptions>({
       new Plugin({
         appendTransaction: (_trs, _oldState, state) => {
           const sel = state.selection;
+          // TextSelection 만 보정 대상 — CellSelection(표 셀)·NodeSelection 은
+          // 끝점 부모가 inlineContent 가 아닌 것이 정상이므로 보존해야 한다.
+          // (이를 보정하면 표 셀 선택이 생성 즉시 TextSelection 으로 되돌아가 무력화됨)
+          if (!(sel instanceof TextSelection)) return null;
           if (sel.$from.parent.inlineContent && sel.$to.parent.inlineContent) return null;
           const near = Selection.near(
             state.doc.resolve(Math.min(sel.from, state.doc.content.size)),

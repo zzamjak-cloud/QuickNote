@@ -145,3 +145,28 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
    클라 sv 와 일치) sv-reply 가 수십 바이트로 작아지고 루프가 멈춘다.
 4. 서버 수신 재조립은 stateless Lambda 라 `infra/lambda/realtime/chunks.ts`(rt-chunks 테이블, TTL 60s)에 누적.
 5. 프로토콜 변경이므로 **epoch bump + 클라(웹/데스크톱)·서버 Lambda 동시 배포** 필수.
+
+## selection 가드 (CRITICAL — 2026-06-15)
+
+`collaboration.ts` 의 `appendTransaction` plugin. 첫 노드가 callout 등 inline content 없는 block 인
+문서에서 ySyncPlugin 의 selection 복원이 비-textblock 에 endpoint 를 만들면 ProseMirror 보정이
+무한 재귀(stack overflow)하던 크래시를 끊기 위한 안전장치.
+
+**반드시 `TextSelection` 에만 적용해야 한다.**
+
+```ts
+appendTransaction: (_trs, _oldState, state) => {
+  const sel = state.selection;
+  if (!(sel instanceof TextSelection)) return null; // ← CellSelection/NodeSelection 보존
+  if (sel.$from.parent.inlineContent && sel.$to.parent.inlineContent) return null;
+  const near = Selection.near(state.doc.resolve(Math.min(sel.from, state.doc.content.size)), 1);
+  return near.eq(sel) ? null : state.tr.setSelection(near);
+},
+```
+
+회귀 사고(2026-06-15, v5.4.48 도입): `TextSelection` 한정 없이 "양 끝점 부모가 inlineContent 아니면
+보정" 으로 만들었더니, **`CellSelection`(표 셀)·`NodeSelection`도 끝점 부모가 셀/행(=inlineContent 아님)이라
+생성 즉시 TextSelection 으로 되돌려져** 표 컬럼 셀 드래그·Shift+클릭 선택·균등분배 툴바가 전부 무력화됐다.
+크래시는 TextSelection 복원에서만 발생하므로 `TextSelection` 한정으로 방지 효과는 유지된다.
+진단: live 에서 `@tiptap/pm/tables` 의 `CellSelection` 을 직접 dispatch → appendTransaction 통과 후에도
+살아있는지로 가드 영향을 판정(Playwright 합성 마우스 드래그는 prosemirror-tables 드래그 추적을 구동 못 함).

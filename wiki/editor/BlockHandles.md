@@ -130,8 +130,8 @@
 
 `columnLayout` 블럭 컨텍스트 메뉴의 "프리셋" 항목에서 접근하는 서브메뉴:
 
-- **None / 프레임 행**: `COLUMN_LAYOUT_PRESETS`에서 `none`(아웃라인 숨김)과 `empty`(회색 테두리) 2개를 텍스트 행으로 표시.
-- **컬러칩 그리드**: `CALLOUT_COLOR_CHIP_PRESETS` 7개를 원형 컬러칩으로 표시. 클릭 시 아이콘 없이 배경색만 적용.
+- **None / 프레임 행**: `COLUMN_LAYOUT_PRESETS`에서 `none`(아웃라인·내부 padding/gap 숨김)과 `empty`(회색 테두리) 2개를 텍스트 행으로 표시.
+- **컬러칩 그리드**: `CALLOUT_COLOR_CHIP_PRESETS` 8개를 원형 컬러칩으로 표시. 클릭 시 아이콘 없이 배경색만 적용.
 - 프리셋 적용 커맨드: `editor.commands.updateColumnLayoutPreset(presetId)` — `setNodeMarkup`으로 선택된 노드만 대상(중첩 컬럼 격리).
 
 ## 콜아웃 블럭 프리셋 서브메뉴
@@ -139,7 +139,7 @@
 `callout` 블럭 컨텍스트 메뉴의 "프리셋" 항목에서 접근하는 서브메뉴:
 
 - **아이콘+라벨 행**: `CALLOUT_PRESETS` 전체(empty/"프레임" 포함)를 이모지+이름 행으로 표시.
-- **컬러칩 그리드**: `CALLOUT_COLOR_CHIP_PRESETS` 7개를 원형 컬러칩으로 표시. 클릭 시 아이콘 없이 배경색만 적용(`-plain` 접미사 presetId).
+- **컬러칩 그리드**: `CALLOUT_COLOR_CHIP_PRESETS` 8개를 원형 컬러칩으로 표시. 클릭 시 아이콘 없이 배경색만 적용(`-plain` 접미사 presetId).
 - 프리셋 적용 커맨드: `editor.commands.updateCalloutPreset(presetId)` — `-plain` 계열은 emoji 유지, 일반 계열은 `emoji: null` 리셋.
 
 ## 링크 형식 변환 메뉴 (멘션/URL/북마크/버튼)

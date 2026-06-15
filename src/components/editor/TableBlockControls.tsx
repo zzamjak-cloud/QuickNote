@@ -91,11 +91,17 @@ function isPointerNearTableChrome(rect: DOMRect, clientX: number, clientY: numbe
 
 /** SVG(path 등)·비 HTML 타깃에서도 표 탐색이 되도록 가장 가까운 HTMLElement */
 function resolvePointerTargetElement(raw: EventTarget | null): HTMLElement | null {
-  if (!(raw instanceof Element)) return null;
-  if (raw instanceof HTMLElement) return raw;
-  const byRole = raw.closest<HTMLElement>("td, th, table, tbody, thead, tr, [data-type]");
+  const el =
+    raw instanceof Element
+      ? raw
+      : raw instanceof Node
+        ? raw.parentElement
+        : null;
+  if (!el) return null;
+  if (el instanceof HTMLElement) return el;
+  const byRole = el.closest<HTMLElement>("td, th, table, tbody, thead, tr, [data-type]");
   if (byRole) return byRole;
-  let n: Element | null = raw;
+  let n: Element | null = el;
   while (n && !(n instanceof HTMLElement)) n = n.parentElement;
   return n instanceof HTMLElement ? n : null;
 }

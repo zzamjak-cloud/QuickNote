@@ -46,6 +46,114 @@ type UseEditorPropsParams = {
   editorRef: MutableRefObject<Editor | null>;
 };
 
+const TEXT_SELECTION_DRAG_THRESHOLD_SQ = 16; // 4px — 클릭과 드래그 구분
+const TEXT_SELECTION_SCROLL_EDGE_PX = 56;
+const TEXT_SELECTION_SCROLL_MAX_STEP_PX = 28;
+
+function armTextSelectionScrollDampener(
+  view: PmEditorView,
+  event: MouseEvent,
+  scrollHost: HTMLElement | null,
+): void {
+  if (event.button !== 0 || !scrollHost) return;
+  const target = event.target;
+  if (!(target instanceof Element) || !view.dom.contains(target)) return;
+  if (
+    target.closest(
+      [
+        "[data-qn-editor-chrome]",
+        "[role='menu']",
+        "[role='dialog']",
+        ".tippy-box",
+        "button",
+        "input",
+        "textarea",
+        "select",
+        "label",
+        "[contenteditable='false']",
+      ].join(", "),
+    )
+  ) {
+    return;
+  }
+
+  const startX = event.clientX;
+  const startY = event.clientY;
+  let pointerY = event.clientY;
+  let lastScrollTop = scrollHost.scrollTop;
+  let dragging = false;
+  let restoring = false;
+  let restoringTo: number | null = null;
+  let restoreRaf: number | null = null;
+
+  const releaseRestoreGuardSoon = () => {
+    if (restoreRaf != null) return;
+    restoreRaf = window.requestAnimationFrame(() => {
+      restoreRaf = null;
+      restoring = false;
+      restoringTo = null;
+      lastScrollTop = scrollHost.scrollTop;
+    });
+  };
+
+  const onMove = (ev: MouseEvent) => {
+    pointerY = ev.clientY;
+    if (dragging) return;
+    const dist = (ev.clientX - startX) ** 2 + (ev.clientY - startY) ** 2;
+    if (dist >= TEXT_SELECTION_DRAG_THRESHOLD_SQ) dragging = true;
+  };
+
+  const onScroll = () => {
+    const current = scrollHost.scrollTop;
+    if (restoring) {
+      if (restoringTo != null && current !== restoringTo) {
+        scrollHost.scrollTop = restoringTo;
+        return;
+      }
+      lastScrollTop = current;
+      return;
+    }
+    if (!dragging) {
+      lastScrollTop = current;
+      return;
+    }
+
+    const rect = scrollHost.getBoundingClientRect();
+    const nearTop = pointerY <= rect.top + TEXT_SELECTION_SCROLL_EDGE_PX;
+    const nearBottom = pointerY >= rect.bottom - TEXT_SELECTION_SCROLL_EDGE_PX;
+    const delta = current - lastScrollTop;
+    let next = current;
+
+    if (!nearTop && !nearBottom) {
+      next = lastScrollTop;
+    } else if (Math.abs(delta) > TEXT_SELECTION_SCROLL_MAX_STEP_PX) {
+      next = lastScrollTop + Math.sign(delta) * TEXT_SELECTION_SCROLL_MAX_STEP_PX;
+    }
+
+    if (next !== current) {
+      restoring = true;
+      restoringTo = Math.max(0, next);
+      scrollHost.scrollTop = restoringTo;
+      releaseRestoreGuardSoon();
+    } else {
+      lastScrollTop = current;
+    }
+  };
+
+  const cleanup = () => {
+    document.removeEventListener("mousemove", onMove, true);
+    document.removeEventListener("mouseup", cleanup, true);
+    window.removeEventListener("blur", cleanup, true);
+    scrollHost.removeEventListener("scroll", onScroll);
+    if (restoreRaf != null) window.cancelAnimationFrame(restoreRaf);
+  };
+
+  document.addEventListener("mousemove", onMove, true);
+  document.addEventListener("mouseup", cleanup, true);
+  window.addEventListener("blur", cleanup, true);
+  scrollHost.addEventListener("scroll", onScroll, { passive: true });
+}
+
 /**
  * TipTap useEditor 에 전달할 editorProps 객체를 생성하는 훅.
  * paste·drag·drop·keyboard·scroll 처리를 담당한다.
@@ -188,6 +296,10 @@ export function useEditorProps({
         insertImageFromFile: handleEditorInsertImage,
       }),
       handleDOMEvents: {
+        mousedown: (view: PmEditorView, event: MouseEvent) => {
+          armTextSelectionScrollDampener(view, event, editorScrollHostRef.current);
+          return false;
+        },
         dragover: createEditorHandleDragOver({
           showBlockDropIndicator: setBlockDropIndicator,
           clearBlockDropIndicator,
