@@ -151,6 +151,72 @@ describe("page/database handlers", () => {
     expect(savedOrder).toBe(String(Date.parse("2026-01-01T00:00:00.000Z")));
   });
 
+  it("upsertPage: doc/dbCells 가 객체로 도착해도 문자열로 저장한다(DynamoDB 중첩 한도 초과 방지)", async () => {
+    // AppSync 가 AWSJSON 인자를 역직렬화해 객체로 넘기면, 그대로 저장 시 깊은 본문이
+    // DynamoDB 32레벨 중첩 한도를 초과해 "Nesting Levels exceeded" 로 거부된다(라이브 사고).
+    const doc = mockDoc(
+      { Item: undefined }, // Get
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      {}, // put
+    );
+    const docObj = { type: "doc", content: [{ type: "paragraph" }] };
+    const cellsObj = { c1: "v", c2: ["a", "b"] };
+    await upsertPage({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "p-obj-doc",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "T",
+        doc: docObj,
+        dbCells: cellsObj,
+        createdByMemberId: "m1",
+      },
+    });
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand) as PutCommand | undefined;
+    const item = putCommand?.input.Item;
+    expect(typeof item?.doc).toBe("string");
+    expect(item?.doc).toBe(JSON.stringify(docObj));
+    expect(typeof item?.dbCells).toBe("string");
+    expect(item?.dbCells).toBe(JSON.stringify(cellsObj));
+  });
+
+  it("upsertPage: doc 가 이미 문자열이면 이중 인코딩하지 않는다(idempotent)", async () => {
+    const doc = mockDoc(
+      { Item: undefined },
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      {},
+    );
+    const docStr = JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] });
+    await upsertPage({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "p-str-doc",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "T",
+        doc: docStr,
+        createdByMemberId: "m1",
+      },
+    });
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const putCommand = sendMock.mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand) as PutCommand | undefined;
+    expect(putCommand?.input.Item?.doc).toBe(docStr);
+  });
+
   it("upsertPage: databaseId 가 null 이면 속성을 제거해 저장한다(byDatabaseAndOrder GSI NULL 키 거부 방지)", async () => {
     const doc = mockDoc(
       { Item: undefined }, // blockComments 보존용 Get
