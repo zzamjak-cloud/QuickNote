@@ -62,6 +62,12 @@ export const UPSERT_PAGE = `
   }
 `;
 
+export const UPSERT_PAGE_META = `
+  mutation UpsertPageMeta($input: PageInput!) {
+    upsertPage(input: $input) { ${PAGE_META_FIELDS} }
+  }
+`;
+
 export const SOFT_DELETE_PAGE = `
   mutation SoftDeletePage($id: ID!, $workspaceId: ID!, $updatedAt: AWSDateTime!) {
     softDeletePage(id: $id, workspaceId: $workspaceId, updatedAt: $updatedAt) { ${PAGE_FIELDS} }

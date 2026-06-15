@@ -31,6 +31,7 @@ export {
   RESTORE_PAGE,
   SOFT_DELETE_PAGE,
   UPSERT_PAGE,
+  UPSERT_PAGE_META,
   type GqlPage,
   type GqlDatabaseRowIndexPage,
   type GqlPageMeta,

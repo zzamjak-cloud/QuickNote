@@ -19,6 +19,7 @@ import { useWorkspaceStore } from "../workspaceStore";
 import { isDbCollabActive } from "../../lib/collab/dbCollabRegistry";
 
 export const MAX_UPSERT_PAGE_PAYLOAD_BYTES = 350 * 1024;
+export const META_ONLY_PAGE_UPSERT_FLAG = "__metaOnly";
 
 // 동기화 헬퍼 — v5 에서는 workspaceId 스코핑 + 작성자 식별자(createdByMemberId)가 필요.
 // 현재는 auth sub 를 createdByMemberId fallback 으로 사용한다.
@@ -72,7 +73,7 @@ export function payloadByteLength(payload: Record<string, unknown>): number {
   }
 }
 
-export function enqueueUpsertPage(p: Page, opts?: { includeCells?: boolean }): void {
+export function enqueueUpsertPage(p: Page, opts?: { includeCells?: boolean; metaOnly?: boolean }): void {
   // 인증/부트스트랩 미완료 시점에 enqueue 되면 서버 검증에서 거부되어 outbox 에 stale 로 남는다.
   const workspaceId = resolvePageWorkspaceId(p);
   if (!workspaceId) {
@@ -83,8 +84,13 @@ export function enqueueUpsertPage(p: Page, opts?: { includeCells?: boolean }): v
     id: string;
     updatedAt?: string;
   };
+  if (opts?.metaOnly) {
+    payload[META_ONLY_PAGE_UPSERT_FLAG] = true;
+    payload.doc = structuredClone(EMPTY_DOC);
+    delete payload.dbCells;
+  }
   // 협업 ON DB 행 페이지: 셀 권위는 Y.Doc. 비셀 변경발 upsert 는 dbCells 제외.
-  if (p.databaseId && isDbCollabActive(p.databaseId) && !opts?.includeCells) {
+  if (!opts?.metaOnly && p.databaseId && isDbCollabActive(p.databaseId) && !opts?.includeCells) {
     payload.dbCells = null;
   }
   const bytes = payloadByteLength(payload);

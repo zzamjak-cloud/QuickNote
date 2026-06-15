@@ -14,7 +14,7 @@ import { getSyncEngine } from "./runtime";
 import {
   GqlCommentSchema,
   GqlDatabaseSchema,
-  GqlPageSchema,
+  GqlPageMetaSchema,
   GqlProjectSchema,
   parseGqlOne,
 } from "./schemas";
@@ -106,9 +106,12 @@ export function startSubscriptions(
     clearSubs();
 
     // AppSync USER_POOL 인증에서 subscription 의 connection_init 핸드셰이크에는
-    // Amplify 의 headers 함수 대신 authToken 옵션으로 직접 토큰을 주입해야 한다.
+    // Amplify 의 authToken 옵션이 아니라 additionalHeaders 경로로 직접 토큰을 주입해야 한다.
+    // authToken 은 query/mutation 에서는 Authorization 으로 변환되지만,
+    // subscription WebSocket handshake 에서는 additionalCustomHeaders 만 사용된다.
     const tokens = await ensureFreshTokensForAppSync();
     const authToken = tokens?.idToken;
+    const additionalHeaders = authToken ? { Authorization: authToken } : undefined;
 
     const c = appsyncClient();
 
@@ -126,7 +129,7 @@ export function startSubscriptions(
         query: ON_PAGE_CHANGED,
         enabled: true,
         onNext: (data) => {
-          const parsed = parseGqlOne(data.onPageChanged, GqlPageSchema, "onPageChanged");
+          const parsed = parseGqlOne(data.onPageChanged, GqlPageMetaSchema, "onPageChanged");
           if (parsed) handlers.onPage(parsed as unknown as GqlPageMeta);
         },
       },
@@ -176,8 +179,8 @@ export function startSubscriptions(
         obs = c.graphql({
           query: channel.query,
           variables: { workspaceId },
-          authToken,
-        } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
+          authMode: "none",
+        }, additionalHeaders) as unknown as Subscribable;
       } catch (e) {
         logSubError(channel.key, e);
         if (isUnauthorizedError(e)) {
@@ -189,7 +192,11 @@ export function startSubscriptions(
       const sub = obs.subscribe({
         next: ({ data }) => {
           retryAttempts = 0;
-          channel.onNext(data);
+          try {
+            channel.onNext(data);
+          } catch (e) {
+            logSubError(channel.key, e);
+          }
         },
         error: (e) => {
           logSubError(channel.key, e);

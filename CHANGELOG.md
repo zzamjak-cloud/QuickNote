@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.51] - 2026-06-15
+
+### Fixed
+
+- AppSync 구독 인증 헤더와 페이지 meta-only 수신 스키마를 정렬해 웹/데스크톱 실시간 동기화가 끊기던 문제 수정.
+- 사이드바 이동을 full page upsert 대신 meta-only upsert로 전환해 큰 Notion import 페이지에서도 드래그 위치 동기화가 누락되지 않도록 수정.
+- 사이드바 드래그 시 부모와 첫 자식 사이 drop 위치가 시각적 라인과 다르게 해석되던 문제 수정.
+- packaged Tauri 앱에서는 로컬 Notion import를 막고, dev Tauri에서는 파일 선택을 허용하도록 정리.
+
 ## [5.4.50] - 2026-06-15
 
 ### Fixed

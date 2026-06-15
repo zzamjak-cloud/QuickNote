@@ -96,7 +96,7 @@ export type ResolveDropArgs = {
   prev: SidebarDropHint | null;
   /** activeId 자기 자신·자손인지 판정 (movePage 차단 사유와 동일하게 미리 차단) */
   isBlocked: (overId: string) => boolean;
-  /** 펼친 행 위 "after" 드롭은 자동으로 "child-first"(첫 자식)로 해석 */
+  /** 펼친 행 위 "after" 드롭은 "child-first"(첫 자식)로 해석한다. */
   isExpanded: (overId: string) => boolean;
 };
 
@@ -106,6 +106,8 @@ export type ResolveDropArgs = {
  *   2) 상단 25% → before(같은 부모 안 형제, over 앞)
  *   3) 중앙 50% → child-last(over 의 마지막 자식)
  *   4) 하단 25% → after(같은 부모 안 형제, over 뒤)
+ * 단, 펼친 부모 행의 중앙/하단은 화면상 "부모와 첫 자식 사이"이므로 child-first 로 해석한다.
+ * sibling after 는 펼친 subtree 의 마지막 자식 뒤에 드롭해야 시각적 위치와 실제 트리가 일치한다.
  * 히스테리시스는 같은 overId 일 때만 적용해 경계 근처 흔들림을 줄인다.
  */
 export function resolveSidebarDrop(args: ResolveDropArgs): SidebarDropHint {
@@ -120,6 +122,7 @@ export function resolveSidebarDrop(args: ResolveDropArgs): SidebarDropHint {
 
   const yRatio = (clientY - r.top) / Math.max(r.height, 1);
   const sameTarget = prev?.overId === overId;
+  const expanded = isExpanded(overId);
 
   const beforeBoundary =
     sameTarget && prev?.mode === "before"
@@ -136,8 +139,9 @@ export function resolveSidebarDrop(args: ResolveDropArgs): SidebarDropHint {
 
   if (yRatio < beforeBoundary) return { overId, mode: "before" };
   if (yRatio > afterBoundary) {
-    if (isExpanded(overId)) return { overId, mode: "child-first" };
+    if (expanded) return { overId, mode: "child-first" };
     return { overId, mode: "after" };
   }
+  if (expanded) return { overId, mode: "child-first" };
   return { overId, mode: "child-last" };
 }

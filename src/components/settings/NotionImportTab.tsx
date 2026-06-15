@@ -98,6 +98,7 @@ export function NotionImportTab() {
   const isSourceLoading = status.kind === "loading";
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const isTauriRuntime = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  const importBlockedInTauri = isTauriRuntime && import.meta.env.PROD;
 
   const pages = useMemo(
     () => (status.kind === "ready" ? status.preview.pages : []),
@@ -819,7 +820,7 @@ export function NotionImportTab() {
             <button
               type="button"
               onClick={() => {
-                if (isSourceLoading) return;
+                if (isSourceLoading || importBlockedInTauri) return;
                 if (canUseNativeFolderPicker) {
                   void onPickFolder();
                   return;
@@ -830,8 +831,9 @@ export function NotionImportTab() {
                 }
                 folderInputRef.current?.click();
               }}
-              disabled={isSourceLoading}
-              className="inline-flex items-center rounded bg-zinc-900 px-3 py-1.5 text-xs text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+              disabled={isSourceLoading || importBlockedInTauri}
+              title={importBlockedInTauri ? "데스크톱 앱에서는 웹앱에서 가져오기를 사용하세요." : undefined}
+              className="inline-flex items-center rounded bg-zinc-900 px-3 py-1.5 text-xs text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-400 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300 dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
             >
               {isSourceLoading ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : null}
               파일 선택
@@ -887,9 +889,10 @@ export function NotionImportTab() {
                   <button
                     type="button"
                     onClick={() => void onImportSelectedPage()}
-                    disabled={isImporting || importCompleted}
+                    disabled={isImporting || importCompleted || importBlockedInTauri}
+                    title={importBlockedInTauri ? "데스크톱 앱에서는 웹앱에서 가져오기를 사용하세요." : undefined}
                     className={`inline-flex items-center rounded px-3 py-1.5 text-sm text-white ${
-                      isImporting || importCompleted
+                      isImporting || importCompleted || importBlockedInTauri
                         ? "cursor-not-allowed bg-zinc-400"
                         : "bg-blue-600 hover:bg-blue-700"
                     }`}

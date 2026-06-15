@@ -129,6 +129,8 @@ AppSync 구독 (WebSocket)
   → Zustand 스토어 업데이트
 ```
 
+회귀 체크: 데스크톱 앱은 Amplify Auth 세션이 아니라 `oidc-client-ts` 토큰 저장소를 사용한다. AppSync subscription 은 `authToken` 옵션이 WebSocket 핸드셰이크 `Authorization` 으로 전달되지 않으므로, `authMode: "none"` + `additionalHeaders.Authorization` 경로를 유지해야 한다. 이 경로가 깨지면 쿼리/뮤테이션은 성공해도 삭제·이동·아이콘 같은 실시간 이벤트만 새로고침 전까지 반영되지 않는다.
+
 ### 네트워크 복구 시
 ```
 window 'online' 이벤트

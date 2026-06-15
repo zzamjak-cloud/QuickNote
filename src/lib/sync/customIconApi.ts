@@ -2,6 +2,7 @@
 
 import { appsyncClient } from "./graphql/client";
 import { gqlOptional, gqlRequired } from "./graphqlRequest";
+import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import {
   LIST_CUSTOM_ICONS,
   CREATE_CUSTOM_ICON,
@@ -54,18 +55,35 @@ export function subscribeCustomIcons(
   onEvent: (icon: GqlCustomIcon) => void,
   onError?: (e: unknown) => void,
 ): { unsubscribe: () => void } {
-  const obs = appsyncClient().graphql({
-    query: ON_CUSTOM_ICON_CHANGED,
-    variables: { workspaceId },
-  } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
-  return obs.subscribe({
-    next: ({ data }) => {
-      const icon = (data as { onCustomIconChanged?: GqlCustomIcon }).onCustomIconChanged;
-      if (icon && icon.id) onEvent(icon);
-    },
-    error: (e) => {
-      console.warn("[customIcon subscription] error", e);
-      onError?.(e);
-    },
+  let stopped = false;
+  let sub: { unsubscribe: () => void } | null = null;
+  void (async () => {
+    const tokens = await ensureFreshTokensForAppSync();
+    if (stopped) return;
+    const additionalHeaders = tokens?.idToken ? { Authorization: tokens.idToken } : undefined;
+    const obs = appsyncClient().graphql({
+      query: ON_CUSTOM_ICON_CHANGED,
+      variables: { workspaceId },
+      authMode: "none",
+    }, additionalHeaders) as unknown as Subscribable;
+    sub = obs.subscribe({
+      next: ({ data }) => {
+        const icon = (data as { onCustomIconChanged?: GqlCustomIcon }).onCustomIconChanged;
+        if (icon && icon.id) onEvent(icon);
+      },
+      error: (e) => {
+        console.warn("[customIcon subscription] error", e);
+        onError?.(e);
+      },
+    });
+  })().catch((e) => {
+    console.warn("[customIcon subscription] setup failed", e);
+    onError?.(e);
   });
+  return {
+    unsubscribe: () => {
+      stopped = true;
+      sub?.unsubscribe();
+    },
+  };
 }

@@ -1,6 +1,7 @@
 import { appsyncClient } from "./client";
 import {
   UPSERT_PAGE,
+  UPSERT_PAGE_META,
   UPSERT_DATABASE,
   SOFT_DELETE_PAGE,
   SOFT_DELETE_DATABASE,
@@ -11,6 +12,7 @@ import type { GqlBridge } from "../engine";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 
 const FORCE_DELETE_UPDATED_AT = "9999-12-31T23:59:59.999Z";
+const META_ONLY_PAGE_UPSERT_FLAG = "__metaOnly";
 
 // AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다.
 // v5.0.4 이전 형식(객체)으로 큐잉된 outbox stale entry 도 송신 직전에 정규화해
@@ -42,6 +44,7 @@ function normalizePageInput(input: unknown): unknown {
     "parentId",
     "order",
     "databaseId",
+    "fullPageDatabaseId",
     "doc",
     "dbCells",
     "blockComments",
@@ -51,6 +54,14 @@ function normalizePageInput(input: unknown): unknown {
     if (key in i) out[key] = i[key];
   }
   return out;
+}
+
+function isMetaOnlyPageInput(input: unknown): boolean {
+  return Boolean(
+    input &&
+      typeof input === "object" &&
+      (input as Record<string, unknown>)[META_ONLY_PAGE_UPSERT_FLAG] === true,
+  );
 }
 
 function getGraphQLErrorMessage(error: unknown): string {
@@ -168,8 +179,9 @@ async function softDeleteDatabaseWithForceRetry(
 // AppSync 호출 어댑터 — SyncEngine 에 주입.
 export const realGqlBridge: GqlBridge = {
   upsertPage: async (input) => {
+    const metaOnly = isMetaOnlyPageInput(input);
     await appsyncClient().graphql({
-      query: UPSERT_PAGE,
+      query: metaOnly ? UPSERT_PAGE_META : UPSERT_PAGE,
       variables: { input: normalizeAwsJsonFields(normalizePageInput(input)) },
     });
   },

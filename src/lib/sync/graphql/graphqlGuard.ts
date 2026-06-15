@@ -1,10 +1,18 @@
 export type GraphqlArgs = {
   query: string;
   variables?: Record<string, unknown>;
+  authMode?: "apiKey" | "iam" | "identityPool" | "oidc" | "userPool" | "lambda" | "none";
   authToken?: string;
 };
 
-type GraphqlExecutor = (args: GraphqlArgs) => Promise<unknown> | unknown;
+export type GraphqlAdditionalHeaders =
+  | Record<string, string>
+  | (() => Promise<Record<string, string>> | Record<string, string>);
+
+type GraphqlExecutor = (
+  args: GraphqlArgs,
+  additionalHeaders?: GraphqlAdditionalHeaders,
+) => Promise<unknown> | unknown;
 
 type GraphqlGuardOptions = {
   now?: () => number;
@@ -59,9 +67,9 @@ export function createGuardedGraphql(
   const inFlightQueries = new Map<string, Promise<unknown>>();
   const buckets = new Map<string, Bucket>();
 
-  return (args) => {
+  return (args, additionalHeaders) => {
     const type = operationType(args.query);
-    if (type === "subscription") return execute(args);
+    if (type === "subscription") return execute(args, additionalHeaders);
 
     const key = guardKey(args);
     const at = now();
@@ -87,13 +95,13 @@ export function createGuardedGraphql(
     if (type === "query") {
       const current = inFlightQueries.get(key);
       if (current) return current;
-      const pending = Promise.resolve(execute(args)).finally(() => {
+      const pending = Promise.resolve(execute(args, additionalHeaders)).finally(() => {
         inFlightQueries.delete(key);
       });
       inFlightQueries.set(key, pending);
       return pending;
     }
 
-    return execute(args);
+    return execute(args, additionalHeaders);
   };
 }

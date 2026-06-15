@@ -36,4 +36,18 @@ describe("createGuardedGraphql", () => {
     await expect(graphql(args)).rejects.toThrow(/GraphQL circuit open/);
     expect(execute).toHaveBeenCalledTimes(2);
   });
+
+  it("subscription additionalHeaders를 executor까지 전달한다", () => {
+    const execute = vi.fn(() => ({ subscribe: vi.fn() }));
+    const graphql = createGuardedGraphql(execute);
+    const args = {
+      query: "subscription OnPageChanged($workspaceId: ID!) { onPageChanged(workspaceId: $workspaceId) { id } }",
+      variables: { workspaceId: "ws-1" },
+    };
+    const headers = { Authorization: "id-token" };
+
+    graphql(args, headers);
+
+    expect(execute).toHaveBeenCalledWith(args, headers);
+  });
 });

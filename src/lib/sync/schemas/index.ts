@@ -79,7 +79,7 @@ export const GqlOrganizationSchema = z
 
 export type GqlOrganizationParsed = z.infer<typeof GqlOrganizationSchema>;
 
-export const GqlPageSchema = z
+export const GqlPageMetaSchema = z
   .object({
     id: z.string(),
     workspaceId: z.string(),
@@ -92,14 +92,22 @@ export const GqlPageSchema = z
     // AppSync/구독 경로에서 number 로 내려오는 경우가 있어 문자열로 정규화
     order: z.coerce.string(),
     databaseId: z.string().nullish(),
-    doc: z.unknown(),
-    dbCells: z.unknown().nullish(),
-    blockComments: z.unknown().nullish(),
+    fullPageDatabaseId: z.string().nullish(),
+    lastEditedByMemberId: z.string().nullish(),
+    lastEditedByName: z.string().nullish(),
     createdAt: z.string(),
     updatedAt: z.string(),
     deletedAt: z.string().nullish(),
   })
   .passthrough();
+
+export type GqlPageMetaParsed = z.infer<typeof GqlPageMetaSchema>;
+
+export const GqlPageSchema = GqlPageMetaSchema.extend({
+  doc: z.unknown(),
+  dbCells: z.unknown().nullish(),
+  blockComments: z.unknown().nullish(),
+}).passthrough();
 
 export type GqlPageParsed = z.infer<typeof GqlPageSchema>;
 

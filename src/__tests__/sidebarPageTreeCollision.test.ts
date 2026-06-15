@@ -65,4 +65,18 @@ describe("resolveSidebarDrop", () => {
       }).mode,
     ).toBe("child-first");
   });
+
+  it("펼쳐진 페이지의 중앙도 표시선과 맞게 첫 자식 위치로 드롭한다", () => {
+    installSidebarRow("target");
+    expect(
+      resolveSidebarDrop({
+        overId: "target",
+        activeId: "active",
+        clientY: 120,
+        prev: null,
+        isBlocked: () => false,
+        isExpanded: () => true,
+      }).mode,
+    ).toBe("child-first");
+  });
 });

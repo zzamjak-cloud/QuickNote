@@ -721,7 +721,7 @@ export const usePageStore = create<PageStore>()(
               const prev = beforePages[pid];
               if (!prev) continue;
               if (prev.parentId !== p.parentId || prev.order !== p.order) {
-                enqueueUpsertPage(p);
+                enqueueUpsertPage(p, { metaOnly: true });
               }
             }
           }
