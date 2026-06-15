@@ -5,6 +5,7 @@ import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../../types/page";
 import type { PageSnapshot } from "../../types/history";
 import { enqueueAsync } from "../../lib/sync/runtime";
+import { toUpsertPageInput } from "../../lib/sync/mappers/upsertPageInput";
 import {
   isLCSchedulerDatabaseId,
   isLCMilestoneDatabaseId,
@@ -52,27 +53,15 @@ function normalizePageDatabaseId(databaseId: string | null | undefined): string 
 // AppSync AWSJSON 스칼라는 JSON 문자열을 요구한다 — 객체를 그대로 보내면
 // 'Variable has an invalid value' 검증 오류로 mutation 이 거부된다.
 export function toGqlPage(p: Page, createdByMemberId: string): Record<string, unknown> {
-  const workspaceId = resolvePageWorkspaceId(p);
-  const base: Record<string, unknown> = {
-    id: p.id,
-    workspaceId,
-    createdByMemberId,
-    title: p.title,
-    titleColor: p.titleColor ?? null,
-    icon: p.icon ?? null,
-    coverImage: p.coverImage ?? null,
-    parentId: p.parentId ?? null,
-    order: String(p.order),
+  // 이 경로는 titleColor/coverImage/fullPageDatabaseId 를 포함하고,
+  // dbCells 협업 제어는 enqueueUpsertPage 가 매핑 이후 별도로 처리한다.
+  return toUpsertPageInput(p, createdByMemberId, {
+    workspaceId: resolvePageWorkspaceId(p),
     databaseId: normalizePageDatabaseId(p.databaseId),
-    doc: JSON.stringify(p.doc),
     dbCells: p.dbCells ? JSON.stringify(p.dbCells) : null,
-    createdAt: new Date(p.createdAt).toISOString(),
-    updatedAt: new Date(p.updatedAt).toISOString(),
-  };
-  // 값이 있을 때만 싣는다 — 키 부재 시 서버가 기존 태그를 보존하므로,
-  // 태그가 로컬에 없는(stale) 페이지의 재업서트가 서버 태그를 소거하지 못한다.
-  if (p.fullPageDatabaseId != null) base.fullPageDatabaseId = p.fullPageDatabaseId;
-  return base;
+    includeMetaColors: true,
+    includeFullPageDatabaseId: true,
+  });
 }
 
 export function payloadByteLength(payload: Record<string, unknown>): number {

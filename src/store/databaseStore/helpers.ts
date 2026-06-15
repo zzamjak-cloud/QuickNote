@@ -26,6 +26,7 @@ import { useAuthStore } from "../authStore";
 import { useWorkspaceStore } from "../workspaceStore";
 import { usePageStore } from "../pageStore";
 import { MAX_UPSERT_PAGE_PAYLOAD_BYTES, payloadByteLength } from "../pageStore/helpers";
+import { toUpsertPageInput } from "../../lib/sync/mappers/upsertPageInput";
 import { isLCSchedulerDatabaseId, isLCMilestoneDatabaseId, isLCFeatureDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { getDbCollab, isDbCollabActive } from "../../lib/collab/dbCollabRegistry";
@@ -131,20 +132,13 @@ export function enqueueUpsertPageRaw(p: Page, opts?: { includeCells?: boolean })
   const collabActive = p.databaseId ? isDbCollabActive(p.databaseId) : false;
   const dbCells =
     collabActive && !opts?.includeCells ? null : p.dbCells ? JSON.stringify(p.dbCells) : null;
-  const payload = {
-    id: p.id,
+  // 매퍼는 raw 경로의 기존 필드 집합(titleColor/coverImage/fullPageDatabaseId 미포함)을
+  // includeMetaColors/includeFullPageDatabaseId 미지정으로 그대로 유지한다.
+  const payload = toUpsertPageInput(p, createdByMemberId, {
     workspaceId,
-    createdByMemberId,
-    title: p.title,
-    icon: p.icon ?? null,
-    parentId: p.parentId ?? null,
-    order: String(p.order),
     databaseId: p.databaseId ?? null,
-    doc: JSON.stringify(p.doc),
     dbCells,
-    createdAt: new Date(p.createdAt).toISOString(),
-    updatedAt: new Date(p.updatedAt).toISOString(),
-  } as Record<string, unknown> & { id: string; updatedAt?: string };
+  }) as Record<string, unknown> & { id: string; updatedAt?: string };
   const bytes = payloadByteLength(payload);
   if (bytes > MAX_UPSERT_PAGE_PAYLOAD_BYTES) {
     console.warn("[sync] upsertPage skipped: payload too large", {
