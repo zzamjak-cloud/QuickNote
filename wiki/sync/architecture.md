@@ -137,11 +137,22 @@ window 'online' 이벤트
   → outbox flush (오프라인 중 쌓인 mutations 전송)
 ```
 
+## 동기화 엔티티 추가 시 등록점 (단일화)
+
+새 완전동기화 엔티티/op 추가는 **세 등록점**만 수정하면 된다. 분산 분기를 흩지 말 것.
+
+1. `src/lib/sync/outbox/types.ts` — `OutboxOp` union + (신규 엔티티면) `OutboxEntityType`.
+2. `src/lib/sync/syncOpRegistry.ts` — `SYNC_OP_REGISTRY[op]` 항목. `execute`/`isDelete`/`supersededUpsertOp`/`tombstoneEntity` 와 **메타 플래그 3종**(`workspaceScoped`/`capturesBaseVersion`/`warnIfMissingWorkspace`)을 채운다. `outboxMeta.ts` 는 이 플래그로 구동되므로 별도 switch 추가 금지.
+3. (서버 푸시를 받는 엔티티면) `src/lib/sync/subscribers.ts` 의 `channels` 디스크립터 배열에 `{key,query,enabled,onNext}` 1건 + `SubscribeHandlers` 핸들러.
+
+회귀 체크: op 추가 후 `outboxMeta.ts` 가 컴파일되면(누락 플래그는 타입 에러) 메타가 자동 채워진다. `apply`(storeApply LWW)는 의도적으로 이 레지스트리에 넣지 않는다(거대 핫로직, Phase 5.6 분할 대상).
+
 ## 핵심 파일
 
 | 파일 | 역할 |
 |------|------|
 | `src/lib/sync/engine.ts` | IndexedDB outbox, 뮤테이션 전송, 재시도 |
+| `src/lib/sync/syncOpRegistry.ts` | op→엔티티 배선·메타 플래그 단일 등록점 |
 | `src/lib/sync/subscribers.ts` | AppSync WebSocket 구독 재연결 |
 | `src/lib/sync/storeApply.ts` | LWW 충돌 해결 |
 | `src/lib/sync/workspaceFetchMode.ts` | delta/full 모드 결정 로직 |

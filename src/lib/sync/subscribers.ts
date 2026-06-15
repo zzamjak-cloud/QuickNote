@@ -68,26 +68,16 @@ export function startSubscriptions(
   handlers: SubscribeHandlers,
 ): () => void {
   let stopped = false;
-  let pageSub: { unsubscribe: () => void } | null = null;
-  let dbSub: { unsubscribe: () => void } | null = null;
-  let commentSub: { unsubscribe: () => void } | null = null;
-  let projectSub: { unsubscribe: () => void } | null = null;
-  let workspaceSub: { unsubscribe: () => void } | null = null;
+  let subs: Array<{ unsubscribe: () => void }> = [];
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryAttempts = 0;
   const lastErrorByChannel = new Map<string, { message: string; at: number }>();
 
   const clearSubs = () => {
-    try { pageSub?.unsubscribe(); } catch { /* noop */ }
-    try { dbSub?.unsubscribe(); } catch { /* noop */ }
-    try { commentSub?.unsubscribe(); } catch { /* noop */ }
-    try { projectSub?.unsubscribe(); } catch { /* noop */ }
-    try { workspaceSub?.unsubscribe(); } catch { /* noop */ }
-    pageSub = null;
-    dbSub = null;
-    commentSub = null;
-    projectSub = null;
-    workspaceSub = null;
+    for (const sub of subs) {
+      try { sub.unsubscribe(); } catch { /* noop */ }
+    }
+    subs = [];
   };
 
   const scheduleRetry = () => {
@@ -122,175 +112,94 @@ export function startSubscriptions(
 
     const c = appsyncClient();
 
-    let pageObs: Subscribable;
-    try {
-      pageObs = c.graphql({
+    // 채널별 구독 배선을 단일 디스크립터 테이블로 모은다.
+    // 새 동기화 엔티티 구독 추가 시 이 배열에 한 항목만 더하면 된다.
+    // enabled=false 인 채널은 건너뛴다(해당 핸들러 미제공 시).
+    const channels: Array<{
+      key: "page" | "database" | "comment" | "project" | "workspace";
+      query: string;
+      enabled: boolean;
+      onNext: (data: Record<string, unknown>) => void;
+    }> = [
+      {
+        key: "page",
         query: ON_PAGE_CHANGED,
-        variables: { workspaceId },
-        authToken,
-      } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
-    } catch (e) {
-      logSubError("page", e);
-      if (isUnauthorizedError(e)) {
-        await ensureFreshTokensForAppSync();
-      }
-      scheduleRetry();
-      return;
-    }
-    pageSub = pageObs.subscribe({
-      next: ({ data }) => {
-        retryAttempts = 0;
-        const parsed = parseGqlOne(
-          data.onPageChanged,
-          GqlPageSchema,
-          "onPageChanged",
-        );
-        if (parsed) handlers.onPage(parsed as unknown as GqlPageMeta);
+        enabled: true,
+        onNext: (data) => {
+          const parsed = parseGqlOne(data.onPageChanged, GqlPageSchema, "onPageChanged");
+          if (parsed) handlers.onPage(parsed as unknown as GqlPageMeta);
+        },
       },
-      error: (e) => {
-        logSubError("page", e);
-        if (isUnauthorizedError(e)) {
-          void ensureFreshTokensForAppSync();
-        }
-        scheduleRetry();
-      },
-    });
-
-    let dbObs: Subscribable;
-    try {
-      dbObs = c.graphql({
+      {
+        key: "database",
         query: ON_DATABASE_CHANGED,
-        variables: { workspaceId },
-        authToken,
-      } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
-    } catch (e) {
-      logSubError("database", e);
-      if (isUnauthorizedError(e)) {
-        await ensureFreshTokensForAppSync();
-      }
-      scheduleRetry();
-      return;
-    }
-    dbSub = dbObs.subscribe({
-      next: ({ data }) => {
-        retryAttempts = 0;
-        const parsed = parseGqlOne(
-          data.onDatabaseChanged,
-          GqlDatabaseSchema,
-          "onDatabaseChanged",
-        );
-        if (parsed) handlers.onDatabase(parsed as unknown as GqlDatabase);
+        enabled: true,
+        onNext: (data) => {
+          const parsed = parseGqlOne(data.onDatabaseChanged, GqlDatabaseSchema, "onDatabaseChanged");
+          if (parsed) handlers.onDatabase(parsed as unknown as GqlDatabase);
+        },
       },
-      error: (e) => {
-        logSubError("database", e);
-        if (isUnauthorizedError(e)) {
-          void ensureFreshTokensForAppSync();
-        }
-        scheduleRetry();
-      },
-    });
-
-    let commentObs: Subscribable;
-    try {
-      commentObs = c.graphql({
+      {
+        key: "comment",
         query: ON_COMMENT_CHANGED,
-        variables: { workspaceId },
-        authToken,
-      } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
-    } catch (e) {
-      logSubError("comment", e);
-      if (isUnauthorizedError(e)) {
-        await ensureFreshTokensForAppSync();
-      }
-      scheduleRetry();
-      return;
-    }
-    commentSub = commentObs.subscribe({
-      next: ({ data }) => {
-        retryAttempts = 0;
-        const parsed = parseGqlOne(
-          data.onCommentChanged,
-          GqlCommentSchema,
-          "onCommentChanged",
-        );
-        if (parsed) handlers.onComment(parsed as unknown as GqlComment);
+        enabled: true,
+        onNext: (data) => {
+          const parsed = parseGqlOne(data.onCommentChanged, GqlCommentSchema, "onCommentChanged");
+          if (parsed) handlers.onComment(parsed as unknown as GqlComment);
+        },
       },
-      error: (e) => {
-        logSubError("comment", e);
-        if (isUnauthorizedError(e)) {
-          void ensureFreshTokensForAppSync();
-        }
-        scheduleRetry();
-      },
-    });
-
-    // 워크스페이스 접근권한 변경 구독(트리거). onWorkspace 핸들러가 있을 때만.
-    if (handlers.onProject) {
-      let projectObs: Subscribable;
-      try {
-        projectObs = c.graphql({
-          query: ON_PROJECT_CHANGED,
-          variables: { workspaceId },
-          authToken,
-        } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
-      } catch (e) {
-        logSubError("project", e);
-        if (isUnauthorizedError(e)) {
-          await ensureFreshTokensForAppSync();
-        }
-        scheduleRetry();
-        return;
-      }
-      projectSub = projectObs.subscribe({
-        next: ({ data }) => {
-          retryAttempts = 0;
-          const parsed = parseGqlOne(
-            data.onProjectChanged,
-            GqlProjectSchema,
-            "onProjectChanged",
-          );
+      {
+        // 워크스페이스 접근권한 변경 구독(트리거). onProject 핸들러가 있을 때만.
+        key: "project",
+        query: ON_PROJECT_CHANGED,
+        enabled: !!handlers.onProject,
+        onNext: (data) => {
+          const parsed = parseGqlOne(data.onProjectChanged, GqlProjectSchema, "onProjectChanged");
           if (parsed) handlers.onProject?.(parsed as unknown as GqlProject);
         },
-        error: (e) => {
-          logSubError("project", e);
-          if (isUnauthorizedError(e)) {
-            void ensureFreshTokensForAppSync();
-          }
-          scheduleRetry();
-        },
-      });
-    }
-
-    if (handlers.onWorkspace) {
-      let workspaceObs: Subscribable;
-      try {
-        workspaceObs = c.graphql({
-          query: ON_WORKSPACE_CHANGED,
-          variables: { workspaceId },
-          authToken,
-        } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
-      } catch (e) {
-        logSubError("workspace", e);
-        if (isUnauthorizedError(e)) {
-          await ensureFreshTokensForAppSync();
-        }
-        scheduleRetry();
-        return;
-      }
-      workspaceSub = workspaceObs.subscribe({
-        next: ({ data }) => {
-          retryAttempts = 0;
+      },
+      {
+        key: "workspace",
+        query: ON_WORKSPACE_CHANGED,
+        enabled: !!handlers.onWorkspace,
+        onNext: (data) => {
           const changed = (data.onWorkspaceChanged as { workspaceId?: string } | null)?.workspaceId;
           if (changed) handlers.onWorkspace?.(changed);
         },
+      },
+    ];
+
+    for (const channel of channels) {
+      if (!channel.enabled) continue;
+      let obs: Subscribable;
+      try {
+        obs = c.graphql({
+          query: channel.query,
+          variables: { workspaceId },
+          authToken,
+        } as unknown as { query: string; variables: Record<string, unknown> }) as unknown as Subscribable;
+      } catch (e) {
+        logSubError(channel.key, e);
+        if (isUnauthorizedError(e)) {
+          await ensureFreshTokensForAppSync();
+        }
+        scheduleRetry();
+        return;
+      }
+      const sub = obs.subscribe({
+        next: ({ data }) => {
+          retryAttempts = 0;
+          channel.onNext(data);
+        },
         error: (e) => {
-          logSubError("workspace", e);
+          logSubError(channel.key, e);
           if (isUnauthorizedError(e)) {
             void ensureFreshTokensForAppSync();
           }
           scheduleRetry();
         },
       });
+      subs.push(sub);
     }
 
     // 구독 연결 완료 후 오프라인 중 쌓인 outbox 즉시 flush

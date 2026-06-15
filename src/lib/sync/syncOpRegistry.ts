@@ -45,6 +45,12 @@ export type SyncOpSpec = {
   supersededUpsertOp: OutboxOp | null;
   /** 서버에서도 사라짐이 확정될 때 영구 tombstone 가드를 심을 엔티티. 미지원이면 null. */
   tombstoneEntity: "page" | "database" | null;
+  /** outbox 메타: 워크스페이스 스코프 op 인지. false 면 메타 workspaceId 를 null 로 둔다(멤버 전역 prefs). */
+  workspaceScoped: boolean;
+  /** outbox 메타: payload.version 을 baseVersion 으로 기록할지(낙관적 동시성용 upsert 계열만). */
+  capturesBaseVersion: boolean;
+  /** outbox 메타: workspaceId 누락 시 flush 범위 이탈 위험을 경고할지. */
+  warnIfMissingWorkspace: boolean;
   /** 실제 AppSync mutation 실행. */
   execute: (gql: GqlBridge, payload: EnqueuePayload) => Promise<void>;
 };
@@ -55,6 +61,9 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     isDelete: false,
     supersededUpsertOp: null,
     tombstoneEntity: null,
+    workspaceScoped: true,
+    capturesBaseVersion: true,
+    warnIfMissingWorkspace: false,
     execute: (gql, p) => gql.upsertPage(p),
   },
   upsertDatabase: {
@@ -62,6 +71,9 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     isDelete: false,
     supersededUpsertOp: null,
     tombstoneEntity: null,
+    workspaceScoped: true,
+    capturesBaseVersion: true,
+    warnIfMissingWorkspace: false,
     execute: (gql, p) => gql.upsertDatabase(p),
   },
   softDeletePage: {
@@ -69,6 +81,9 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     isDelete: true,
     supersededUpsertOp: "upsertPage",
     tombstoneEntity: "page",
+    workspaceScoped: true,
+    capturesBaseVersion: false,
+    warnIfMissingWorkspace: false,
     execute: (gql, p) => gql.softDeletePage(p.id, p.workspaceId ?? "", p.updatedAt ?? ""),
   },
   softDeleteDatabase: {
@@ -76,6 +91,9 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     isDelete: true,
     supersededUpsertOp: "upsertDatabase",
     tombstoneEntity: "database",
+    workspaceScoped: true,
+    capturesBaseVersion: false,
+    warnIfMissingWorkspace: false,
     execute: (gql, p) => {
       if (isLCSchedulerDatabaseId(p.id)) return Promise.resolve();
       return gql.softDeleteDatabase(p.id, p.workspaceId ?? "", p.updatedAt ?? "");
@@ -86,6 +104,10 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     isDelete: false,
     supersededUpsertOp: null,
     tombstoneEntity: null,
+    workspaceScoped: true,
+    capturesBaseVersion: true,
+    // workspaceId 없는 comment 는 워크스페이스 전환 시 영영 flush 안 될 수 있으므로 경고.
+    warnIfMissingWorkspace: true,
     execute: (gql, p) => gql.upsertComment(p),
   },
   softDeleteComment: {
@@ -94,6 +116,9 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     isDelete: true,
     supersededUpsertOp: "upsertComment",
     tombstoneEntity: null,
+    workspaceScoped: true,
+    capturesBaseVersion: false,
+    warnIfMissingWorkspace: false,
     execute: (gql, p) => gql.softDeleteComment(p.id, p.workspaceId ?? "", p.updatedAt ?? ""),
   },
   updateMyClientPrefs: {
@@ -101,6 +126,10 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     isDelete: false,
     supersededUpsertOp: null,
     tombstoneEntity: null,
+    // 멤버 전역 prefs 는 워크스페이스 비스코프 → 메타 workspaceId 는 null.
+    workspaceScoped: false,
+    capturesBaseVersion: false,
+    warnIfMissingWorkspace: false,
     execute: (gql, p) => {
       const json = (p as { clientPrefs?: string }).clientPrefs;
       if (typeof json !== "string" || !json) {
