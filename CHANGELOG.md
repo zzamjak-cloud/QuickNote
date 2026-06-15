@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.4.49] - 2026-06-15
+
+### Fixed
+
+- 데스크톱 릴리스 빌드가 웹 production과 같은 collab WS URL·allowlist·epoch(v5)를 사용하도록 release secrets를 정렬.
+
 ## [5.4.48] - 2026-06-15
 
 ### Changed
