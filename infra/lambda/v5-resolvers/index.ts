@@ -268,6 +268,588 @@ function normalizeMmEntryForGql(entry: Record<string, unknown>) {
   };
 }
 
+// resolver 의 공통 컨텍스트 — 기존 `const base = { doc, tables, caller }` 추론 타입과 동일.
+type ResolverBase = {
+  doc: typeof doc;
+  tables: typeof tables;
+  caller: Awaited<ReturnType<typeof getCallerMember>>;
+};
+
+// fieldName → resolver 매핑 테이블. 각 엔트리는 기존 switch case body 를 그대로 옮긴 것.
+const RESOLVERS: Record<
+  string,
+  (event: AppsyncEvent, base: ResolverBase) => unknown | Promise<unknown>
+> = {
+  me: (_event, base) => normalizeMemberForGql(base.caller as unknown as Record<string, unknown>),
+  createMember: async (event, base) =>
+    normalizeMemberForGql((await createMember({
+      ...base,
+      input: event.arguments.input as import("./handlers/member").CreateMemberInput,
+    })) as Record<string, unknown>),
+  listMembers: async (event, base) =>
+    (await listMembers({
+      ...base,
+      filter: event.arguments.filter as
+        | { status?: "ACTIVE" | "REMOVED"; teamId?: string; workspaceRole?: "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER" }
+        | undefined,
+    })).map((m) => normalizeMemberForGql(m as unknown as Record<string, unknown>)),
+  getMember: async (event, base) => {
+    const member = await getMember({ ...base, memberId: event.arguments.memberId as string });
+    return member ? normalizeMemberForGql(member as unknown as Record<string, unknown>) : null;
+  },
+  updateMember: async (event, base) =>
+    normalizeMemberForGql((await updateMember({ ...base, input: event.arguments.input as UpdateMemberInput & { memberId: string } })) as Record<string, unknown>),
+  updateMyClientPrefs: async (event, base) => {
+    const raw = event.arguments.input as { clientPrefs?: unknown };
+    const cp =
+      typeof raw?.clientPrefs === "string"
+        ? raw.clientPrefs
+        : JSON.stringify(raw.clientPrefs ?? {});
+    return normalizeMemberForGql(
+      (await updateMyClientPrefs({
+        ...base,
+        input: { clientPrefs: cp },
+      })) as Record<string, unknown>,
+    );
+  },
+  promoteToManager: async (event, base) =>
+    normalizeMemberForGql((await promoteToManager({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>),
+  demoteToMember: async (event, base) =>
+    normalizeMemberForGql((await demoteToMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>),
+  setMemberRole: async (event, base) =>
+    normalizeMemberForGql((await setMemberRole({
+      ...base,
+      memberId: event.arguments.memberId as string,
+      role: (event.arguments.role as string).toLowerCase() as import("./handlers/_auth").WorkspaceRole,
+    })) as Record<string, unknown>),
+  transferOwnership: async (event, base) =>
+    normalizeMemberForGql((await transferOwnership({ ...base, toMemberId: event.arguments.toMemberId as string })) as Record<string, unknown>),
+  removeMember: async (event, base) =>
+    normalizeMemberForGql((await removeMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>),
+  restoreMember: async (event, base) =>
+    normalizeMemberForGql((await restoreMember({
+      ...base,
+      memberId: event.arguments.memberId as string,
+    })) as Record<string, unknown>),
+  assignMemberToTeam: async (event, base) => {
+    await assignMemberToTeam({ ...base, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
+    return true;
+  },
+  unassignMemberFromTeam: async (event, base) => {
+    await unassignMemberFromTeam({ ...base, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
+    return true;
+  },
+  listTeams: async (_event, base) =>
+    (await listTeams(base)).map((t) => normalizeTeamForGql(t as unknown as Record<string, unknown>)),
+  getTeam: async (event, base) => {
+    const team = await getTeam({ ...base, teamId: event.arguments.teamId as string });
+    return team ? normalizeTeamForGql(team as unknown as Record<string, unknown>) : null;
+  },
+  createTeam: async (event, base) =>
+    normalizeTeamForGql((await createTeam({ ...base, name: event.arguments.name as string })) as Record<string, unknown>),
+  updateTeam: async (event, base) =>
+    normalizeTeamForGql((await updateTeam({
+      ...base,
+      teamId: event.arguments.teamId as string,
+      name: event.arguments.name as string | undefined,
+      leaderMemberIds: event.arguments.leaderMemberIds as string[] | undefined,
+    })) as Record<string, unknown>),
+  deleteTeam: async (event, base) => await deleteTeam({ ...base, teamId: event.arguments.teamId as string }),
+  archiveTeam: async (event, base) =>
+    normalizeTeamForGql(await archiveTeam({ ...base, teamId: event.arguments.teamId as string }) as Record<string, unknown>),
+  restoreTeam: async (event, base) =>
+    normalizeTeamForGql(await restoreTeam({ ...base, teamId: event.arguments.teamId as string }) as Record<string, unknown>),
+  // ── 조직(실) ──────────────────────────────────────────────────────────
+  listOrganizations: async (_event, base) =>
+    (await listOrganizations(base)).map((o) => normalizeOrgForGql(o as unknown as Record<string, unknown>)),
+  createOrganization: async (event, base) =>
+    normalizeOrgForGql((await createOrganization({ ...base, name: event.arguments.name as string })) as unknown as Record<string, unknown>),
+  updateOrganization: async (event, base) =>
+    normalizeOrgForGql((await updateOrganization({
+      ...base,
+      organizationId: event.arguments.organizationId as string,
+      name: event.arguments.name as string | undefined,
+      leaderMemberIds: event.arguments.leaderMemberIds as string[] | undefined,
+    })) as unknown as Record<string, unknown>),
+  deleteOrganization: async (event, base) => await deleteOrganization({ ...base, organizationId: event.arguments.organizationId as string }),
+  archiveOrganization: async (event, base) =>
+    normalizeOrgForGql(await archiveOrganization({ ...base, organizationId: event.arguments.organizationId as string }) as unknown as Record<string, unknown>),
+  restoreOrganization: async (event, base) =>
+    normalizeOrgForGql(await restoreOrganization({ ...base, organizationId: event.arguments.organizationId as string }) as unknown as Record<string, unknown>),
+  assignMemberToOrganization: async (event, base) => {
+    await assignMemberToOrganization({ ...base, memberId: event.arguments.memberId as string, organizationId: event.arguments.organizationId as string });
+    return true;
+  },
+  unassignMemberFromOrganization: async (event, base) => {
+    await unassignMemberFromOrganization({ ...base, memberId: event.arguments.memberId as string, organizationId: event.arguments.organizationId as string });
+    return true;
+  },
+  getWorkspaceMeta: async (event, base) => {
+    const meta = await getWorkspaceMeta({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    });
+    return {
+      members: meta.members.map((member) => normalizeMemberForGql(member as unknown as Record<string, unknown>)),
+      teams: meta.teams.map((team) => normalizeTeamForGql(team as unknown as Record<string, unknown>)),
+      organizations: meta.organizations.map((organization) => normalizeOrgForGql(organization as unknown as Record<string, unknown>)),
+      projects: meta.projects,
+    };
+  },
+  createWorkspace: async (event, base) =>
+    normalizeWorkspaceForGql((await createWorkspace({
+      ...base,
+      input: event.arguments.input as { name: string; access: Array<{ subjectType: "MEMBER" | "TEAM" | "EVERYONE"; subjectId?: string; level: "EDIT" | "VIEW" }> },
+    })) as Record<string, unknown>),
+  updateWorkspace: async (event, base) =>
+    normalizeWorkspaceForGql((await updateWorkspace({
+      ...base,
+      input: event.arguments.input as { workspaceId: string; name?: string | null },
+    })) as Record<string, unknown>),
+  setWorkspaceAccess: async (event, base) =>
+    normalizeWorkspaceForGql((await setWorkspaceAccess({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      entries: event.arguments.entries as Array<{ subjectType: "MEMBER" | "TEAM" | "EVERYONE"; subjectId?: string; level: "EDIT" | "VIEW" }>,
+    })) as Record<string, unknown>),
+  deleteWorkspace: async (event, base) => await deleteWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string }),
+  archiveWorkspace: async (event, base) =>
+    normalizeWorkspaceForGql(await archiveWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string }) as Record<string, unknown>),
+  restoreWorkspace: async (event, base) =>
+    normalizeWorkspaceForGql(await restoreWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string }) as Record<string, unknown>),
+  listMyWorkspaces: async (_event, base) =>
+    (await listMyWorkspaces(base)).map((w) => normalizeWorkspaceForGql(w as unknown as Record<string, unknown>)),
+  getWorkspace: async (event, base) => {
+    const ws = await getWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string });
+    return ws ? normalizeWorkspaceForGql(ws as unknown as Record<string, unknown>) : null;
+  },
+  searchMembersForMention: async (event, base) =>
+    await searchMembersForMention({
+      ...base,
+      query: (event.arguments.query as string | null | undefined) ?? null,
+      limit: (event.arguments.limit as number | null | undefined) ?? null,
+    }),
+  listPages: async (event, base) =>
+    await listPages({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAfter: event.arguments.updatedAfter as string | undefined,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | undefined,
+    }),
+  listPageMetas: async (event, base) =>
+    await listPageMetas({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAfter: event.arguments.updatedAfter as string | undefined,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | undefined,
+    }),
+  getPage: async (event, base) =>
+    await getPage({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  listDatabaseRows: async (event, base) =>
+    await listDatabaseRows({
+      ...base,
+      databaseId: event.arguments.databaseId as string,
+      workspaceId: event.arguments.workspaceId as string,
+      organizationId: event.arguments.organizationId as string | undefined,
+      teamId: event.arguments.teamId as string | undefined,
+      projectId: event.arguments.projectId as string | undefined,
+      assigneeId: event.arguments.assigneeId as string | undefined,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | undefined,
+    }),
+  listPageHistory: async (event, base) =>
+    await listPageHistory({
+      ...base,
+      pageId: event.arguments.pageId as string,
+      workspaceId: event.arguments.workspaceId as string,
+      limit: event.arguments.limit as number | undefined,
+    }),
+  listDatabaseHistory: async (event, base) =>
+    await listDatabaseHistory({
+      ...base,
+      databaseId: event.arguments.databaseId as string,
+      workspaceId: event.arguments.workspaceId as string,
+      limit: event.arguments.limit as number | undefined,
+    }),
+  listDatabaseRowHistory: async (event, base) =>
+    await listDatabaseRowHistory({
+      ...base,
+      databaseId: event.arguments.databaseId as string,
+      workspaceId: event.arguments.workspaceId as string,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | undefined,
+    }),
+  listDatabases: async (event, base) =>
+    await listDatabases({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAfter: event.arguments.updatedAfter as string | undefined,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | undefined,
+    }),
+  getDatabase: async (event, base) =>
+    await getDatabase({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  listTrashedPages: async (event, base) =>
+    await listTrashedPages({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | null | undefined,
+    }),
+  listTrashedDatabases: async (event, base) =>
+    await listTrashedDatabases({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | null | undefined,
+    }),
+  restoreDatabase: async (event, base) =>
+    await restoreDatabase({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  upsertPage: async (event, base) =>
+    await upsertPage({ ...base, input: event.arguments.input as Record<string, unknown> }),
+  softDeletePage: async (event, base) =>
+    await softDeletePage({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAt: event.arguments.updatedAt as string,
+    }),
+  restorePage: async (event, base) =>
+    await restorePage({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  restorePageVersion: async (event, base) =>
+    await restorePageVersion({
+      ...base,
+      input: event.arguments.input as { pageId: string; workspaceId: string; historyId: string },
+    }),
+  deletePageHistoryEvents: async (event, base) =>
+    await deletePageHistoryEvents({
+      ...base,
+      pageId: event.arguments.pageId as string,
+      workspaceId: event.arguments.workspaceId as string,
+      historyIds: event.arguments.historyIds as string[],
+    }),
+  restoreDatabaseVersion: async (event, base) =>
+    await restoreDatabaseVersion({
+      ...base,
+      input: event.arguments.input as { databaseId: string; workspaceId: string; historyId: string },
+    }),
+  deleteDatabaseHistoryEvents: async (event, base) =>
+    await deleteDatabaseHistoryEvents({
+      ...base,
+      databaseId: event.arguments.databaseId as string,
+      workspaceId: event.arguments.workspaceId as string,
+      historyIds: event.arguments.historyIds as string[],
+    }),
+  emptyTrash: async (event, base) =>
+    await emptyTrash({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  permanentlyDeletePage: async (event, base) =>
+    await permanentlyDeletePage({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  upsertDatabase: async (event, base) =>
+    await upsertDatabase({ ...base, input: event.arguments.input as Record<string, unknown> }),
+  softDeleteDatabase: async (event, base) =>
+    await softDeleteDatabase({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAt: event.arguments.updatedAt as string,
+    }),
+  permanentlyDeleteDatabase: async (event, base) =>
+    await permanentlyDeleteDatabase({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  listComments: async (event, base) =>
+    await listComments({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAfter: event.arguments.updatedAfter as string | undefined,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | undefined,
+    }),
+  upsertComment: async (event, base) =>
+    await upsertComment({ ...base, input: event.arguments.input as Record<string, unknown> }),
+  softDeleteComment: async (event, base) =>
+    await softDeleteComment({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAt: event.arguments.updatedAt as string,
+    }),
+  listMyNotifications: async (_event, base) =>
+    await listMyNotifications({ doc: base.doc, tables: base.tables, caller: base.caller }),
+  markNotificationRead: async (event, base) =>
+    await markNotificationRead({ doc: base.doc, tables: base.tables, caller: base.caller, notificationId: event.arguments.notificationId as string }),
+  deleteMyNotification: async (event, base) =>
+    await deleteMyNotification({ doc: base.doc, tables: base.tables, caller: base.caller, notificationId: event.arguments.notificationId as string }),
+  onCommentChanged: async (event, base) =>
+    await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string }),
+  onPageChanged: async (event, base) =>
+    await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string }),
+  onDatabaseChanged: async (event, base) =>
+    await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string }),
+  listSchedules: async (event, base) =>
+    await listSchedules({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      from: event.arguments.from as string,
+      to: event.arguments.to as string,
+      organizationId: event.arguments.organizationId as string | undefined,
+      teamId: event.arguments.teamId as string | undefined,
+      projectId: event.arguments.projectId as string | undefined,
+      assigneeId: event.arguments.assigneeId as string | undefined,
+    }),
+  createSchedule: async (event, base) =>
+    await createSchedule({
+      ...base,
+      input: event.arguments.input as {
+        workspaceId: string;
+        title: string;
+        startAt: string;
+        endAt: string;
+        assigneeId?: string;
+        color?: string;
+      },
+    }),
+  updateSchedule: async (event, base) =>
+    await updateSchedule({
+      ...base,
+      input: event.arguments.input as {
+        id: string;
+        workspaceId: string;
+        title?: string;
+        startAt?: string;
+        endAt?: string;
+        assigneeId?: string;
+        color?: string;
+      },
+    }),
+  deleteSchedule: async (event, base) =>
+    await deleteSchedule({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  onScheduleChanged: async (event, base) =>
+    await validateWorkspaceSubscription({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  listProjects: async (event, base) =>
+    await listProjects({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  createProject: async (event, base) =>
+    await createProject({
+      ...base,
+      input: event.arguments.input as {
+        workspaceId: string;
+        name: string;
+        color: string;
+        description?: string;
+        memberIds?: string[];
+        leaderMemberIds?: string[];
+        isHidden?: boolean;
+      },
+    }),
+  updateProject: async (event, base) =>
+    await updateProject({
+      ...base,
+      input: event.arguments.input as {
+        id: string;
+        workspaceId: string;
+        name?: string;
+        color?: string;
+        description?: string;
+        memberIds?: string[];
+        leaderMemberIds?: string[];
+        isHidden?: boolean;
+      },
+    }),
+  deleteProject: async (event, base) =>
+    await deleteProject({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  onProjectChanged: async (event, base) =>
+    await validateWorkspaceSubscription({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  listHolidays: async (event, base) =>
+    await listHolidays({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  createHoliday: async (event, base) =>
+    await createHoliday({
+      ...base,
+      input: event.arguments.input as {
+        workspaceId: string;
+        title: string;
+        date: string;
+        type: string;
+        color: string;
+      },
+    }),
+  updateHoliday: async (event, base) =>
+    await updateHoliday({
+      ...base,
+      input: event.arguments.input as {
+        id: string;
+        workspaceId: string;
+        title?: string;
+        date?: string;
+        type?: string;
+        color?: string;
+      },
+    }),
+  deleteHoliday: async (event, base) =>
+    await deleteHoliday({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  onHolidayChanged: async (event, base) =>
+    await validateWorkspaceSubscription({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  listMmEntries: async (event, base) =>
+    (await listMmEntries({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      fromWeekStart: event.arguments.fromWeekStart as string,
+      toWeekStart: event.arguments.toWeekStart as string,
+      memberId: event.arguments.memberId as string | undefined,
+    })).map((entry) => normalizeMmEntryForGql(entry as unknown as Record<string, unknown>)),
+  listMmRevisions: async (event, base) =>
+    await listMmRevisions({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      entryId: event.arguments.entryId as string,
+    }),
+  upsertMmEntry: async (event, base) =>
+    normalizeMmEntryForGql((await upsertMmEntry({
+      ...base,
+      input: event.arguments.input as Parameters<typeof upsertMmEntry>[0]["input"],
+    })) as unknown as Record<string, unknown>),
+  reviewMmEntry: async (event, base) =>
+    normalizeMmEntryForGql((await reviewMmEntry({
+      ...base,
+      input: event.arguments.input as Parameters<typeof reviewMmEntry>[0]["input"],
+    })) as unknown as Record<string, unknown>),
+  lockMmEntry: async (event, base) =>
+    normalizeMmEntryForGql((await setMmEntryLock({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      entryId: event.arguments.entryId as string,
+      locked: true,
+      note: event.arguments.note as string | undefined,
+    })) as unknown as Record<string, unknown>),
+  unlockMmEntry: async (event, base) =>
+    normalizeMmEntryForGql((await setMmEntryLock({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      entryId: event.arguments.entryId as string,
+      locked: false,
+      note: event.arguments.note as string | undefined,
+    })) as unknown as Record<string, unknown>),
+  onMmEntryChanged: async (event, base) =>
+    await validateWorkspaceSubscription({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  // ── 자산 관리 ────────────────────────────────────────────────────
+  listMyAssets: async (event, base) => {
+    const res = await listMyAssets({
+      ...base,
+      input: (event.arguments.input as ListMyAssetsInput | null | undefined) ?? null,
+    });
+    return res;
+  },
+  getAssetUsages: async (event, base) =>
+    await getAssetUsages({
+      ...base,
+      assetId: event.arguments.assetId as string,
+    }),
+  deleteMyAssets: async (event, base) =>
+    await deleteMyAssets({
+      ...base,
+      assetIds: event.arguments.assetIds as string[],
+    }),
+  renameAsset: async (event, base) =>
+    await renameAsset({
+      ...base,
+      assetId: event.arguments.assetId as string,
+      name: (event.arguments.name as string | null | undefined) ?? null,
+    }),
+  replaceAssetRef: async (event, base) =>
+    await replaceAssetRef({
+      ...base,
+      input: event.arguments.input as { oldAssetId: string; newAssetId: string },
+    }),
+  migrateAssetUsage: async (event, base) =>
+    await migrateAssetUsage({
+      ...base,
+      cursor: (event.arguments.cursor as string | null | undefined) ?? null,
+    }),
+  // ── 워크스페이스 공유 커스텀 아이콘 ─────────────────────────────────
+  listCustomIcons: async (event, base) =>
+    await listCustomIcons({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  createCustomIcon: async (event, base) =>
+    await createCustomIcon({
+      ...base,
+      input: event.arguments.input as { workspaceId: string; src: string; label: string },
+    }),
+  deleteCustomIcon: async (event, base) =>
+    await deleteCustomIcon({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  onCustomIconChanged: async (event, base) =>
+    await validateWorkspaceSubscription({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  onWorkspaceChanged: async (event, base) =>
+    await validateWorkspaceSubscription({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+};
+
 export async function handler(event: AppsyncEvent): Promise<unknown> {
   try {
     if (event.info.fieldName === "publishPageChanged") {
@@ -277,581 +859,11 @@ export async function handler(event: AppsyncEvent): Promise<unknown> {
     const caller = await getCallerMember(doc, tables.Members, event.identity?.sub);
     const base = { doc, tables, caller };
 
-    switch (event.info.fieldName) {
-      case "me":
-        return normalizeMemberForGql(caller as unknown as Record<string, unknown>);
-      case "createMember":
-        return normalizeMemberForGql((await createMember({
-          ...base,
-          input: event.arguments.input as import("./handlers/member").CreateMemberInput,
-        })) as Record<string, unknown>);
-      case "listMembers":
-        return (await listMembers({
-          ...base,
-          filter: event.arguments.filter as
-            | { status?: "ACTIVE" | "REMOVED"; teamId?: string; workspaceRole?: "DEVELOPER" | "OWNER" | "LEADER" | "MANAGER" | "MEMBER" }
-            | undefined,
-        })).map((m) => normalizeMemberForGql(m as unknown as Record<string, unknown>));
-      case "getMember":
-        {
-          const member = await getMember({ ...base, memberId: event.arguments.memberId as string });
-          return member ? normalizeMemberForGql(member as unknown as Record<string, unknown>) : null;
-        }
-      case "updateMember":
-        return normalizeMemberForGql((await updateMember({ ...base, input: event.arguments.input as UpdateMemberInput & { memberId: string } })) as Record<string, unknown>);
-      case "updateMyClientPrefs": {
-        const raw = event.arguments.input as { clientPrefs?: unknown };
-        const cp =
-          typeof raw?.clientPrefs === "string"
-            ? raw.clientPrefs
-            : JSON.stringify(raw.clientPrefs ?? {});
-        return normalizeMemberForGql(
-          (await updateMyClientPrefs({
-            ...base,
-            input: { clientPrefs: cp },
-          })) as Record<string, unknown>,
-        );
-      }
-      case "promoteToManager":
-        return normalizeMemberForGql((await promoteToManager({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
-      case "demoteToMember":
-        return normalizeMemberForGql((await demoteToMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
-      case "setMemberRole":
-        return normalizeMemberForGql((await setMemberRole({
-          ...base,
-          memberId: event.arguments.memberId as string,
-          role: (event.arguments.role as string).toLowerCase() as import("./handlers/_auth").WorkspaceRole,
-        })) as Record<string, unknown>);
-      case "transferOwnership":
-        return normalizeMemberForGql((await transferOwnership({ ...base, toMemberId: event.arguments.toMemberId as string })) as Record<string, unknown>);
-      case "removeMember":
-        return normalizeMemberForGql((await removeMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>);
-      case "restoreMember":
-        return normalizeMemberForGql((await restoreMember({
-          ...base,
-          memberId: event.arguments.memberId as string,
-        })) as Record<string, unknown>);
-      case "assignMemberToTeam":
-        await assignMemberToTeam({ ...base, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
-        return true;
-      case "unassignMemberFromTeam":
-        await unassignMemberFromTeam({ ...base, memberId: event.arguments.memberId as string, teamId: event.arguments.teamId as string });
-        return true;
-      case "listTeams":
-        return (await listTeams(base)).map((t) => normalizeTeamForGql(t as unknown as Record<string, unknown>));
-      case "getTeam":
-        {
-          const team = await getTeam({ ...base, teamId: event.arguments.teamId as string });
-          return team ? normalizeTeamForGql(team as unknown as Record<string, unknown>) : null;
-        }
-      case "createTeam":
-        return normalizeTeamForGql((await createTeam({ ...base, name: event.arguments.name as string })) as Record<string, unknown>);
-      case "updateTeam":
-        return normalizeTeamForGql((await updateTeam({
-          ...base,
-          teamId: event.arguments.teamId as string,
-          name: event.arguments.name as string | undefined,
-          leaderMemberIds: event.arguments.leaderMemberIds as string[] | undefined,
-        })) as Record<string, unknown>);
-      case "deleteTeam":
-        return await deleteTeam({ ...base, teamId: event.arguments.teamId as string });
-      case "archiveTeam":
-        return normalizeTeamForGql(await archiveTeam({ ...base, teamId: event.arguments.teamId as string }) as Record<string, unknown>);
-      case "restoreTeam":
-        return normalizeTeamForGql(await restoreTeam({ ...base, teamId: event.arguments.teamId as string }) as Record<string, unknown>);
-      // ── 조직(실) ──────────────────────────────────────────────────────────
-      case "listOrganizations":
-        return (await listOrganizations(base)).map((o) => normalizeOrgForGql(o as unknown as Record<string, unknown>));
-      case "createOrganization":
-        return normalizeOrgForGql((await createOrganization({ ...base, name: event.arguments.name as string })) as unknown as Record<string, unknown>);
-      case "updateOrganization":
-        return normalizeOrgForGql((await updateOrganization({
-          ...base,
-          organizationId: event.arguments.organizationId as string,
-          name: event.arguments.name as string | undefined,
-          leaderMemberIds: event.arguments.leaderMemberIds as string[] | undefined,
-        })) as unknown as Record<string, unknown>);
-      case "deleteOrganization":
-        return await deleteOrganization({ ...base, organizationId: event.arguments.organizationId as string });
-      case "archiveOrganization":
-        return normalizeOrgForGql(await archiveOrganization({ ...base, organizationId: event.arguments.organizationId as string }) as unknown as Record<string, unknown>);
-      case "restoreOrganization":
-        return normalizeOrgForGql(await restoreOrganization({ ...base, organizationId: event.arguments.organizationId as string }) as unknown as Record<string, unknown>);
-      case "assignMemberToOrganization":
-        await assignMemberToOrganization({ ...base, memberId: event.arguments.memberId as string, organizationId: event.arguments.organizationId as string });
-        return true;
-      case "unassignMemberFromOrganization":
-        await unassignMemberFromOrganization({ ...base, memberId: event.arguments.memberId as string, organizationId: event.arguments.organizationId as string });
-        return true;
-      case "getWorkspaceMeta": {
-        const meta = await getWorkspaceMeta({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-        return {
-          members: meta.members.map((member) => normalizeMemberForGql(member as unknown as Record<string, unknown>)),
-          teams: meta.teams.map((team) => normalizeTeamForGql(team as unknown as Record<string, unknown>)),
-          organizations: meta.organizations.map((organization) => normalizeOrgForGql(organization as unknown as Record<string, unknown>)),
-          projects: meta.projects,
-        };
-      }
-      case "createWorkspace":
-        return normalizeWorkspaceForGql((await createWorkspace({
-          ...base,
-          input: event.arguments.input as { name: string; access: Array<{ subjectType: "MEMBER" | "TEAM" | "EVERYONE"; subjectId?: string; level: "EDIT" | "VIEW" }> },
-        })) as Record<string, unknown>);
-      case "updateWorkspace":
-        return normalizeWorkspaceForGql((await updateWorkspace({
-          ...base,
-          input: event.arguments.input as { workspaceId: string; name?: string | null },
-        })) as Record<string, unknown>);
-      case "setWorkspaceAccess":
-        return normalizeWorkspaceForGql((await setWorkspaceAccess({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          entries: event.arguments.entries as Array<{ subjectType: "MEMBER" | "TEAM" | "EVERYONE"; subjectId?: string; level: "EDIT" | "VIEW" }>,
-        })) as Record<string, unknown>);
-      case "deleteWorkspace":
-        return await deleteWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string });
-      case "archiveWorkspace":
-        return normalizeWorkspaceForGql(await archiveWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string }) as Record<string, unknown>);
-      case "restoreWorkspace":
-        return normalizeWorkspaceForGql(await restoreWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string }) as Record<string, unknown>);
-      case "listMyWorkspaces":
-        return (await listMyWorkspaces(base)).map((w) => normalizeWorkspaceForGql(w as unknown as Record<string, unknown>));
-      case "getWorkspace":
-        {
-          const ws = await getWorkspace({ ...base, workspaceId: event.arguments.workspaceId as string });
-          return ws ? normalizeWorkspaceForGql(ws as unknown as Record<string, unknown>) : null;
-        }
-      case "searchMembersForMention":
-        return await searchMembersForMention({
-          ...base,
-          query: (event.arguments.query as string | null | undefined) ?? null,
-          limit: (event.arguments.limit as number | null | undefined) ?? null,
-        });
-      case "listPages":
-        return await listPages({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          updatedAfter: event.arguments.updatedAfter as string | undefined,
-          limit: event.arguments.limit as number | undefined,
-          nextToken: event.arguments.nextToken as string | undefined,
-        });
-      case "listPageMetas":
-        return await listPageMetas({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          updatedAfter: event.arguments.updatedAfter as string | undefined,
-          limit: event.arguments.limit as number | undefined,
-          nextToken: event.arguments.nextToken as string | undefined,
-        });
-      case "getPage":
-        return await getPage({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "listDatabaseRows":
-        return await listDatabaseRows({
-          ...base,
-          databaseId: event.arguments.databaseId as string,
-          workspaceId: event.arguments.workspaceId as string,
-          organizationId: event.arguments.organizationId as string | undefined,
-          teamId: event.arguments.teamId as string | undefined,
-          projectId: event.arguments.projectId as string | undefined,
-          assigneeId: event.arguments.assigneeId as string | undefined,
-          limit: event.arguments.limit as number | undefined,
-          nextToken: event.arguments.nextToken as string | undefined,
-        });
-      case "listPageHistory":
-        return await listPageHistory({
-          ...base,
-          pageId: event.arguments.pageId as string,
-          workspaceId: event.arguments.workspaceId as string,
-          limit: event.arguments.limit as number | undefined,
-        });
-      case "listDatabaseHistory":
-        return await listDatabaseHistory({
-          ...base,
-          databaseId: event.arguments.databaseId as string,
-          workspaceId: event.arguments.workspaceId as string,
-          limit: event.arguments.limit as number | undefined,
-        });
-      case "listDatabaseRowHistory":
-        return await listDatabaseRowHistory({
-          ...base,
-          databaseId: event.arguments.databaseId as string,
-          workspaceId: event.arguments.workspaceId as string,
-          limit: event.arguments.limit as number | undefined,
-          nextToken: event.arguments.nextToken as string | undefined,
-        });
-      case "listDatabases":
-        return await listDatabases({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          updatedAfter: event.arguments.updatedAfter as string | undefined,
-          limit: event.arguments.limit as number | undefined,
-          nextToken: event.arguments.nextToken as string | undefined,
-        });
-      case "getDatabase":
-        return await getDatabase({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "listTrashedPages":
-        return await listTrashedPages({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          limit: event.arguments.limit as number | undefined,
-          nextToken: event.arguments.nextToken as string | null | undefined,
-        });
-      case "listTrashedDatabases":
-        return await listTrashedDatabases({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          limit: event.arguments.limit as number | undefined,
-          nextToken: event.arguments.nextToken as string | null | undefined,
-        });
-      case "restoreDatabase":
-        return await restoreDatabase({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "upsertPage":
-        return await upsertPage({ ...base, input: event.arguments.input as Record<string, unknown> });
-      case "softDeletePage":
-        return await softDeletePage({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-          updatedAt: event.arguments.updatedAt as string,
-        });
-      case "restorePage":
-        return await restorePage({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "restorePageVersion":
-        return await restorePageVersion({
-          ...base,
-          input: event.arguments.input as { pageId: string; workspaceId: string; historyId: string },
-        });
-      case "deletePageHistoryEvents":
-        return await deletePageHistoryEvents({
-          ...base,
-          pageId: event.arguments.pageId as string,
-          workspaceId: event.arguments.workspaceId as string,
-          historyIds: event.arguments.historyIds as string[],
-        });
-      case "restoreDatabaseVersion":
-        return await restoreDatabaseVersion({
-          ...base,
-          input: event.arguments.input as { databaseId: string; workspaceId: string; historyId: string },
-        });
-      case "deleteDatabaseHistoryEvents":
-        return await deleteDatabaseHistoryEvents({
-          ...base,
-          databaseId: event.arguments.databaseId as string,
-          workspaceId: event.arguments.workspaceId as string,
-          historyIds: event.arguments.historyIds as string[],
-        });
-      case "emptyTrash":
-        return await emptyTrash({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "permanentlyDeletePage":
-        return await permanentlyDeletePage({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "upsertDatabase":
-        return await upsertDatabase({ ...base, input: event.arguments.input as Record<string, unknown> });
-      case "softDeleteDatabase":
-        return await softDeleteDatabase({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-          updatedAt: event.arguments.updatedAt as string,
-        });
-      case "permanentlyDeleteDatabase":
-        return await permanentlyDeleteDatabase({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "listComments":
-        return await listComments({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          updatedAfter: event.arguments.updatedAfter as string | undefined,
-          limit: event.arguments.limit as number | undefined,
-          nextToken: event.arguments.nextToken as string | undefined,
-        });
-      case "upsertComment":
-        return await upsertComment({ ...base, input: event.arguments.input as Record<string, unknown> });
-      case "softDeleteComment":
-        return await softDeleteComment({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-          updatedAt: event.arguments.updatedAt as string,
-        });
-      case "listMyNotifications":
-        return await listMyNotifications({ doc, tables, caller });
-      case "markNotificationRead":
-        return await markNotificationRead({ doc, tables, caller, notificationId: event.arguments.notificationId as string });
-      case "deleteMyNotification":
-        return await deleteMyNotification({ doc, tables, caller, notificationId: event.arguments.notificationId as string });
-      case "onCommentChanged":
-        return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
-      case "onPageChanged":
-        return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
-      case "onDatabaseChanged":
-        return await validateWorkspaceSubscription({ ...base, workspaceId: event.arguments.workspaceId as string });
-      case "listSchedules":
-        return await listSchedules({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          from: event.arguments.from as string,
-          to: event.arguments.to as string,
-          organizationId: event.arguments.organizationId as string | undefined,
-          teamId: event.arguments.teamId as string | undefined,
-          projectId: event.arguments.projectId as string | undefined,
-          assigneeId: event.arguments.assigneeId as string | undefined,
-        });
-      case "createSchedule":
-        return await createSchedule({
-          ...base,
-          input: event.arguments.input as {
-            workspaceId: string;
-            title: string;
-            startAt: string;
-            endAt: string;
-            assigneeId?: string;
-            color?: string;
-          },
-        });
-      case "updateSchedule":
-        return await updateSchedule({
-          ...base,
-          input: event.arguments.input as {
-            id: string;
-            workspaceId: string;
-            title?: string;
-            startAt?: string;
-            endAt?: string;
-            assigneeId?: string;
-            color?: string;
-          },
-        });
-      case "deleteSchedule":
-        return await deleteSchedule({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "onScheduleChanged":
-        return await validateWorkspaceSubscription({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "listProjects":
-        return await listProjects({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "createProject":
-        return await createProject({
-          ...base,
-          input: event.arguments.input as {
-            workspaceId: string;
-            name: string;
-            color: string;
-            description?: string;
-            memberIds?: string[];
-            leaderMemberIds?: string[];
-            isHidden?: boolean;
-          },
-        });
-      case "updateProject":
-        return await updateProject({
-          ...base,
-          input: event.arguments.input as {
-            id: string;
-            workspaceId: string;
-            name?: string;
-            color?: string;
-            description?: string;
-            memberIds?: string[];
-            leaderMemberIds?: string[];
-            isHidden?: boolean;
-          },
-        });
-      case "deleteProject":
-        return await deleteProject({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "onProjectChanged":
-        return await validateWorkspaceSubscription({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "listHolidays":
-        return await listHolidays({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "createHoliday":
-        return await createHoliday({
-          ...base,
-          input: event.arguments.input as {
-            workspaceId: string;
-            title: string;
-            date: string;
-            type: string;
-            color: string;
-          },
-        });
-      case "updateHoliday":
-        return await updateHoliday({
-          ...base,
-          input: event.arguments.input as {
-            id: string;
-            workspaceId: string;
-            title?: string;
-            date?: string;
-            type?: string;
-            color?: string;
-          },
-        });
-      case "deleteHoliday":
-        return await deleteHoliday({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "onHolidayChanged":
-        return await validateWorkspaceSubscription({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "listMmEntries":
-        return (await listMmEntries({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          fromWeekStart: event.arguments.fromWeekStart as string,
-          toWeekStart: event.arguments.toWeekStart as string,
-          memberId: event.arguments.memberId as string | undefined,
-        })).map((entry) => normalizeMmEntryForGql(entry as unknown as Record<string, unknown>));
-      case "listMmRevisions":
-        return await listMmRevisions({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          entryId: event.arguments.entryId as string,
-        });
-      case "upsertMmEntry":
-        return normalizeMmEntryForGql((await upsertMmEntry({
-          ...base,
-          input: event.arguments.input as Parameters<typeof upsertMmEntry>[0]["input"],
-        })) as unknown as Record<string, unknown>);
-      case "reviewMmEntry":
-        return normalizeMmEntryForGql((await reviewMmEntry({
-          ...base,
-          input: event.arguments.input as Parameters<typeof reviewMmEntry>[0]["input"],
-        })) as unknown as Record<string, unknown>);
-      case "lockMmEntry":
-        return normalizeMmEntryForGql((await setMmEntryLock({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          entryId: event.arguments.entryId as string,
-          locked: true,
-          note: event.arguments.note as string | undefined,
-        })) as unknown as Record<string, unknown>);
-      case "unlockMmEntry":
-        return normalizeMmEntryForGql((await setMmEntryLock({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-          entryId: event.arguments.entryId as string,
-          locked: false,
-          note: event.arguments.note as string | undefined,
-        })) as unknown as Record<string, unknown>);
-      case "onMmEntryChanged":
-        return await validateWorkspaceSubscription({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      // ── 자산 관리 ────────────────────────────────────────────────────
-      case "listMyAssets": {
-        const res = await listMyAssets({
-          ...base,
-          input: (event.arguments.input as ListMyAssetsInput | null | undefined) ?? null,
-        });
-        return res;
-      }
-      case "getAssetUsages":
-        return await getAssetUsages({
-          ...base,
-          assetId: event.arguments.assetId as string,
-        });
-      case "deleteMyAssets":
-        return await deleteMyAssets({
-          ...base,
-          assetIds: event.arguments.assetIds as string[],
-        });
-      case "renameAsset":
-        return await renameAsset({
-          ...base,
-          assetId: event.arguments.assetId as string,
-          name: (event.arguments.name as string | null | undefined) ?? null,
-        });
-      case "replaceAssetRef":
-        return await replaceAssetRef({
-          ...base,
-          input: event.arguments.input as { oldAssetId: string; newAssetId: string },
-        });
-      case "migrateAssetUsage":
-        return await migrateAssetUsage({
-          ...base,
-          cursor: (event.arguments.cursor as string | null | undefined) ?? null,
-        });
-      // ── 워크스페이스 공유 커스텀 아이콘 ─────────────────────────────────
-      case "listCustomIcons":
-        return await listCustomIcons({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "createCustomIcon":
-        return await createCustomIcon({
-          ...base,
-          input: event.arguments.input as { workspaceId: string; src: string; label: string },
-        });
-      case "deleteCustomIcon":
-        return await deleteCustomIcon({
-          ...base,
-          id: event.arguments.id as string,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "onCustomIconChanged":
-        return await validateWorkspaceSubscription({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      case "onWorkspaceChanged":
-        return await validateWorkspaceSubscription({
-          ...base,
-          workspaceId: event.arguments.workspaceId as string,
-        });
-      default:
-        throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");
+    const resolver = RESOLVERS[event.info.fieldName];
+    if (!resolver) {
+      throw new ResolverError(`unknown fieldName: ${event.info.fieldName}`, "InternalError");
     }
+    return await resolver(event, base);
   } catch (err) {
     if (err instanceof ResolverError) {
       return errorResponse(err.message, err.errorType);
