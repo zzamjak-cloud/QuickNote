@@ -15,7 +15,7 @@ import type {
 import { DATABASE_STORE_VERSION, emptyPanelState } from "../types/database";
 import { newId } from "../lib/id";
 import { usePageStore } from "./pageStore";
-import { shouldWriteAnchor, useHistoryStore } from "./historyStore";
+import { useHistoryStore, recordDbMutation, recordPageMutation } from "./historyStore";
 import { enqueueAsync } from "../lib/sync/runtime";
 import { clearLocalDeleteGuard, markLocallyDeletedEntity } from "../lib/sync/localDeleteGuards";
 import { useWorkspaceStore } from "./workspaceStore";
@@ -204,13 +204,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
           databases: { ...state.databases, [id]: bundle },
           cacheWorkspaceId: workspaceId || state.cacheWorkspaceId,
         }));
-        const hs = useHistoryStore.getState();
-        const events = hs.dbEventsByDatabaseId[id] ?? [];
-        hs.recordDbEvent(
+        recordDbMutation(
           id,
           "db.create",
           toDatabaseSnapshot(bundle),
-          shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundle) : undefined,
+          () => toDatabaseSnapshot(bundle),
         );
         enqueueUpsertDatabase(bundle);
         return id;
@@ -236,17 +234,13 @@ export const useDatabaseStore = create<DatabaseStore>()(
           return { databases: next };
         });
         if (bundle) {
-          const hs = useHistoryStore.getState();
-          const events = hs.dbEventsByDatabaseId[id] ?? [];
           const workspaceId = bundle.meta.workspaceId ?? useWorkspaceStore.getState().currentWorkspaceId ?? "";
           const updatedAt = new Date().toISOString();
-          hs.recordDbEvent(
+          recordDbMutation(
             id,
             "db.delete",
             toDatabaseSnapshot(bundle),
-            shouldWriteAnchor(events.length + 1)
-              ? toDatabaseSnapshot(bundle)
-              : undefined,
+            () => toDatabaseSnapshot(bundle),
           );
           markLocallyDeletedEntity("database", id, workspaceId, Date.parse(updatedAt) || Date.now());
           enqueueAsync("softDeleteDatabase", {
@@ -360,15 +354,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[id];
         if (bundleAfter) {
-          const hs = useHistoryStore.getState();
-          const events = hs.dbEventsByDatabaseId[id] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             id,
             "db.title",
             { meta: structuredClone(bundleAfter.meta) },
-            shouldWriteAnchor(events.length + 1)
-              ? toDatabaseSnapshot(bundleAfter)
-              : undefined,
+            () => toDatabaseSnapshot(bundleAfter),
           );
           enqueueUpsertDatabase(bundleAfter);
         }
@@ -467,15 +457,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         if (bundleAfter) {
-          const hs = useHistoryStore.getState();
-          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             databaseId,
             "db.row.add",
             { rowPageOrder: [...bundleAfter.rowPageOrder] },
-            shouldWriteAnchor(events.length + 1)
-              ? toDatabaseSnapshot(bundleAfter)
-              : undefined,
+            () => toDatabaseSnapshot(bundleAfter),
           );
           enqueueUpsertDatabase(bundleAfter);
         }
@@ -601,15 +587,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         if (bundleAfter) {
-          const hs = useHistoryStore.getState();
-          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             databaseId,
             "db.row.delete",
             { rowPageOrder: [...bundleAfter.rowPageOrder] },
-            shouldWriteAnchor(events.length + 1)
-              ? toDatabaseSnapshot(bundleAfter)
-              : undefined,
+            () => toDatabaseSnapshot(bundleAfter),
           );
           enqueueUpsertDatabase(bundleAfter);
         }
@@ -677,15 +659,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         if (bundleAfter) {
-          const hs = useHistoryStore.getState();
-          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             databaseId,
             "db.row.order",
             { rowPageOrder: [...bundleAfter.rowPageOrder] },
-            shouldWriteAnchor(events.length + 1)
-              ? toDatabaseSnapshot(bundleAfter)
-              : undefined,
+            () => toDatabaseSnapshot(bundleAfter),
           );
           enqueueUpsertDatabase(bundleAfter);
         }
@@ -748,29 +726,22 @@ export const useDatabaseStore = create<DatabaseStore>()(
             };
           });
 
-          const hs = useHistoryStore.getState();
           const refPageAfter = usePageStore.getState().pages[refPageId];
           const dbAfter = get().databases[databaseId];
           if (refPageAfter) {
-            const pageEvents = hs.pageEventsByPageId[refPageId] ?? [];
-            hs.recordPageEvent(
+            recordPageMutation(
               refPageId,
               "page.dbCell",
               { id: refPageId, databaseId, dbCells: structuredClone(nextCells) },
-              shouldWriteAnchor(pageEvents.length + 1)
-                ? toPageSnapshot(refPageAfter)
-                : undefined,
+              () => toPageSnapshot(refPageAfter),
             );
           }
           if (dbAfter) {
-            const dbEvents = hs.dbEventsByDatabaseId[databaseId] ?? [];
-            hs.recordDbEvent(
+            recordDbMutation(
               databaseId,
               "db.row.add",
               { rowPageOrder: [...dbAfter.rowPageOrder] },
-              shouldWriteAnchor(dbEvents.length + 1)
-                ? toDatabaseSnapshot(dbAfter)
-                : undefined,
+              () => toDatabaseSnapshot(dbAfter),
             );
             enqueueUpsertDatabase(dbAfter);
           }
@@ -832,43 +803,33 @@ export const useDatabaseStore = create<DatabaseStore>()(
           return { databases: nextDatabases };
         });
 
-        const hs = useHistoryStore.getState();
         const pageAfter = usePageStore.getState().pages[pageId];
         const targetAfter = get().databases[databaseId];
         if (pageAfter) {
-          const pageEvents = hs.pageEventsByPageId[pageId] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             pageId,
             "page.dbCell",
             { id: pageId, databaseId, dbCells: structuredClone(nextCells) },
-            shouldWriteAnchor(pageEvents.length + 1)
-              ? toPageSnapshot(pageAfter)
-              : undefined,
+            () => toPageSnapshot(pageAfter),
           );
         }
         if (targetAfter) {
-          const targetEvents = hs.dbEventsByDatabaseId[databaseId] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             databaseId,
             "db.row.add",
             { rowPageOrder: [...targetAfter.rowPageOrder] },
-            shouldWriteAnchor(targetEvents.length + 1)
-              ? toDatabaseSnapshot(targetAfter)
-              : undefined,
+            () => toDatabaseSnapshot(targetAfter),
           );
           enqueueUpsertDatabase(targetAfter);
         }
         if (fromDbId && fromDbId !== databaseId) {
           const oldAfter = get().databases[fromDbId];
           if (oldAfter) {
-            const oldEvents = hs.dbEventsByDatabaseId[fromDbId] ?? [];
-            hs.recordDbEvent(
+            recordDbMutation(
               fromDbId,
               "db.row.delete",
               { rowPageOrder: [...oldAfter.rowPageOrder] },
-              shouldWriteAnchor(oldEvents.length + 1)
-                ? toDatabaseSnapshot(oldAfter)
-                : undefined,
+              () => toDatabaseSnapshot(oldAfter),
             );
             enqueueUpsertDatabase(oldAfter);
           }
@@ -915,29 +876,22 @@ export const useDatabaseStore = create<DatabaseStore>()(
           };
         });
 
-        const hs = useHistoryStore.getState();
         const pageAfter = usePageStore.getState().pages[pageId];
         const dbAfter = get().databases[fromDbId];
         if (pageAfter) {
-          const pageEvents = hs.pageEventsByPageId[pageId] ?? [];
-          hs.recordPageEvent(
+          recordPageMutation(
             pageId,
             "page.dbCell",
             { id: pageId, databaseId: undefined, dbCells: undefined },
-            shouldWriteAnchor(pageEvents.length + 1)
-              ? toPageSnapshot(pageAfter)
-              : undefined,
+            () => toPageSnapshot(pageAfter),
           );
         }
         if (dbAfter) {
-          const dbEvents = hs.dbEventsByDatabaseId[fromDbId] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             fromDbId,
             "db.row.delete",
             { rowPageOrder: [...dbAfter.rowPageOrder] },
-            shouldWriteAnchor(dbEvents.length + 1)
-              ? toDatabaseSnapshot(dbAfter)
-              : undefined,
+            () => toDatabaseSnapshot(dbAfter),
           );
           enqueueUpsertDatabase(dbAfter);
         }
@@ -1026,13 +980,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         if (bundleAfter) {
-          const hs = useHistoryStore.getState();
-          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             databaseId,
             "db.preset",
             { presets: structuredClone(bundleAfter.presets ?? []) },
-            shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundleAfter) : undefined,
+            () => toDatabaseSnapshot(bundleAfter),
           );
           enqueueUpsertDatabase(bundleAfter);
         }
@@ -1061,13 +1013,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         if (bundleAfter) {
-          const hs = useHistoryStore.getState();
-          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             databaseId,
             "db.preset",
             { presets: structuredClone(bundleAfter.presets ?? []) },
-            shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundleAfter) : undefined,
+            () => toDatabaseSnapshot(bundleAfter),
           );
           enqueueUpsertDatabase(bundleAfter);
         }
@@ -1090,13 +1040,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         });
         const bundleAfter = get().databases[databaseId];
         if (bundleAfter) {
-          const hs = useHistoryStore.getState();
-          const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-          hs.recordDbEvent(
+          recordDbMutation(
             databaseId,
             "db.preset",
             { presets: structuredClone(bundleAfter.presets ?? []) },
-            shouldWriteAnchor(events.length + 1) ? toDatabaseSnapshot(bundleAfter) : undefined,
+            () => toDatabaseSnapshot(bundleAfter),
           );
           enqueueUpsertDatabase(bundleAfter);
         }

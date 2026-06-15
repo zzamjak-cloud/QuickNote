@@ -4,7 +4,7 @@ import type { DatabaseStore } from "../../databaseStore";
 import { newId } from "../../../lib/id";
 import { normalizeColumnDef } from "../../../lib/database/schema/normalizeDatabase";
 import { usePageStore } from "../../pageStore";
-import { shouldWriteAnchor, useHistoryStore } from "../../historyStore";
+import { recordDbMutation } from "../../historyStore";
 import {
   defaultCellValueForColumn,
   enqueueUpsertDatabase,
@@ -81,15 +81,11 @@ export function createColumnActions(
       }
       const bundleAfter = get().databases[databaseId];
       if (bundleAfter) {
-        const hs = useHistoryStore.getState();
-        const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-        hs.recordDbEvent(
+        recordDbMutation(
           databaseId,
           "db.column.add",
           { columns: structuredClone(bundleAfter.columns) },
-          shouldWriteAnchor(events.length + 1)
-            ? toDatabaseSnapshot(bundleAfter)
-            : undefined,
+          () => toDatabaseSnapshot(bundleAfter),
         );
         enqueueUpsertDatabase(bundleAfter);
       }
@@ -126,16 +122,12 @@ export function createColumnActions(
       });
       const bundleAfter = get().databases[databaseId];
       if (bundleAfter) {
-        const hs = useHistoryStore.getState();
-        const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-        hs.recordDbEvent(
+        recordDbMutation(
           databaseId,
           "db.column.update",
           { columns: structuredClone(bundleAfter.columns) },
-          shouldWriteAnchor(events.length + 1)
-            ? toDatabaseSnapshot(bundleAfter)
-            : undefined,
-          );
+          () => toDatabaseSnapshot(bundleAfter),
+        );
         enqueueUpsertDatabase(bundleAfter);
       }
     },
@@ -180,15 +172,11 @@ export function createColumnActions(
       });
       const bundleAfter = get().databases[databaseId];
       if (bundleAfter) {
-        const hs = useHistoryStore.getState();
-        const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
-        hs.recordDbEvent(
+        recordDbMutation(
           databaseId,
           "db.column.remove",
           { columns: structuredClone(bundleAfter.columns) },
-          shouldWriteAnchor(events.length + 1)
-            ? toDatabaseSnapshot(bundleAfter)
-            : undefined,
+          () => toDatabaseSnapshot(bundleAfter),
         );
         enqueueUpsertDatabase(bundleAfter);
       }

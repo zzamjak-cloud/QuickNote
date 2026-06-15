@@ -401,3 +401,23 @@ export function recordPageMutation(
     shouldWriteAnchor(events.length + 1) ? anchor() : undefined,
   );
 }
+
+/**
+ * DB 변이 기록 게이트웨이 — recordPageMutation 의 DB 판. dbEventsByDatabaseId 기준 앵커 판정.
+ * anchor 는 thunk 로 받아 앵커 기록 시점에만 평가한다(불필요한 DatabaseSnapshot 계산 방지).
+ */
+export function recordDbMutation(
+  databaseId: string,
+  kind: DbHistoryKind,
+  patch: Partial<DatabaseSnapshot>,
+  anchor: () => DatabaseSnapshot,
+): void {
+  const hs = useHistoryStore.getState();
+  const events = hs.dbEventsByDatabaseId[databaseId] ?? [];
+  hs.recordDbEvent(
+    databaseId,
+    kind,
+    patch,
+    shouldWriteAnchor(events.length + 1) ? anchor() : undefined,
+  );
+}
