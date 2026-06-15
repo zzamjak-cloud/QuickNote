@@ -16,7 +16,7 @@
     "test:run": "vitest run",
     "prepare": "husky",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "tauri:build": "tauri build",
     "notion:preview": "node scripts/notion/import-preview.mjs",
     "bump": "node scripts/bump-version.mjs"
