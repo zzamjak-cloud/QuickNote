@@ -956,12 +956,13 @@ html.dark .qn-database-subtle-scrollbar:hover::-webkit-scrollbar-thumb {
   background: rgba(39, 39, 42, 0.15);
 }
 
-/* "None" 프리셋: 외곽 아웃라인·컬럼 구분선 모두 숨김 */
+/* "None" 프리셋: 외곽 아웃라인·컬럼 구분선 모두 숨김.
+   단, 컬럼끼리 딱 붙어 구분이 안 되므로 컬럼 사이 간격(gap)은 유지한다. */
 .ProseMirror [data-column-layout][data-preset="none"],
 .dark .ProseMirror [data-column-layout][data-preset="none"] {
   border: none;
   background: transparent;
-  gap: 0;
+  gap: 1.5rem;
   margin: 0;
   padding: 0;
 }
