@@ -1,10 +1,58 @@
 import { Node, mergeAttributes } from "@tiptap/core";
-import { Plugin } from "@tiptap/pm/state";
+import {
+  Plugin,
+  NodeSelection,
+  type EditorState,
+  type Transaction,
+} from "@tiptap/pm/state";
 import {
   type CalloutPresetId,
   CALLOUT_PRESET_MAP,
   presetFromLegacyEmoji,
 } from "./calloutPresets";
+
+/**
+ * 현재 선택/커서가 가리키는 단일 콜아웃 노드 하나에만 attr 을 적용한다.
+ * updateAttributes 는 selection 범위 내 모든 동일 타입 노드를 갱신하므로,
+ * 중첩 콜아웃에서 부모(또는 자식)까지 함께 바뀌는 회귀가 발생한다. 이를 방지한다.
+ */
+function updateSingleCallout(
+  typeName: string,
+  state: EditorState,
+  tr: Transaction,
+  dispatch: ((tr: Transaction) => void) | undefined,
+  attrs: Record<string, unknown>,
+): boolean {
+  const { selection } = state;
+  // NodeSelection 으로 콜아웃이 직접 선택된 경우(블록 핸들 프리셋 적용 경로)
+  if (
+    selection instanceof NodeSelection &&
+    selection.node.type.name === typeName
+  ) {
+    if (dispatch) {
+      tr.setNodeMarkup(selection.from, undefined, {
+        ...selection.node.attrs,
+        ...attrs,
+      });
+    }
+    return true;
+  }
+  // 커서가 콜아웃 내부에 있는 경우 가장 가까운 콜아웃 하나만 갱신
+  const { $from } = selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth);
+    if (node.type.name === typeName) {
+      if (dispatch) {
+        tr.setNodeMarkup($from.before(depth), undefined, {
+          ...node.attrs,
+          ...attrs,
+        });
+      }
+      return true;
+    }
+  }
+  return false;
+}
 
 export const Callout = Node.create({
   name: "callout",
@@ -155,16 +203,16 @@ export const Callout = Node.create({
           }),
       updateCalloutPreset:
         (preset: CalloutPresetId) =>
-        ({ commands }) => {
+        ({ state, tr, dispatch }) => {
           // plain 컬러칩 변형은 색만 바꾸고 이모지 유지, 일반 프리셋은 이모지 초기화
           const attrs: Record<string, unknown> = { preset };
           if (!preset.endsWith("-plain")) attrs.emoji = null;
-          return commands.updateAttributes(this.name, attrs);
+          return updateSingleCallout(this.name, state, tr, dispatch, attrs);
         },
       updateCalloutEmoji:
         (emoji: string | null) =>
-        ({ commands }) =>
-          commands.updateAttributes(this.name, { emoji }),
+        ({ state, tr, dispatch }) =>
+          updateSingleCallout(this.name, state, tr, dispatch, { emoji }),
     };
   },
 });

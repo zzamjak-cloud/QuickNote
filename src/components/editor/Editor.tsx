@@ -133,6 +133,7 @@ import {
   isImageLikePageIcon,
   LUCIDE_PAGE_ICON_PREFIX,
 } from "../../lib/pageIcon";
+import { pushRecentIcon } from "../../lib/recentIconStorage";
 
 // 무거운 아이콘 카탈로그/패널은 picker 가 열릴 때만 지연 로드.
 const IconPickerPanel = lazy(() =>
@@ -1000,6 +1001,7 @@ function EditorInner({
   const insertCustomIconAtAnchor = useCallback(
     (src: string) => {
       if (!editor || !emojiAnchor || emojiAnchor.insertPos == null) return;
+      pushRecentIcon(src);
       if (emojiAnchor.mode === "callout") {
         updateCalloutIconAtAnchor(src);
         closeEmojiPicker();
@@ -1533,6 +1535,7 @@ function EditorInner({
               <IconPickerPanel
                 title={emojiAnchor.mode === "callout" ? "콜아웃 아이콘" : "아이콘 삽입"}
                 onPickEmoji={(emoji) => {
+                  pushRecentIcon(emoji);
                   if (emojiAnchor.mode === "callout") {
                     updateCalloutIconAtAnchor(emoji);
                   } else if (editor && emojiAnchor.insertPos != null) {
@@ -1545,6 +1548,7 @@ function EditorInner({
                   closeEmojiPicker();
                 }}
                 onPickLucide={(name, color) => {
+                  pushRecentIcon(encodeLucidePageIcon(name, color));
                   if (emojiAnchor.mode === "callout") {
                     updateCalloutIconAtAnchor(encodeLucidePageIcon(name, color));
                   } else if (editor && emojiAnchor.insertPos != null) {
