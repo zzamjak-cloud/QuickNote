@@ -17,6 +17,10 @@
 - `panelState.pageTreeEnabled === true`일 때만 항목의 하위 페이지 접기/펼치기 버튼과 하위 페이지 추가 버튼을 표시한다.
 - 하위 페이지 트리 본문은 `DatabasePageSubtree`가 렌더한다. 펼쳐진 하위 페이지는 루트 항목보다 추가 들여쓰기(`BASE_INDENT_PX`)를 갖고, compact 모드에서도 `text-sm` 기준으로 표시한다.
 
+## 갤러리 뷰
+- 카드 커버는 선택된 file/url 컬럼을 우선하되, 커버 URL 로드 실패·비이미지 file·컬럼 미지정 상태에서는 항목 페이지 본문 첫 이미지를 fallback으로 쓴다.
+- 커버 선택기는 항목 페이지 본문 이미지를 후보로 쓰며, `quicknote-image://`/`quicknote-file://` ref는 `useImageUrl`로 표시 URL을 풀어 썸네일을 렌더한다.
+
 ## 카드 memo (리스트/갤러리/칸반 — 성능 회귀 방지)
 
 리스트/갤러리/칸반 뷰의 행/카드(`DatabaseListRow`/`GalleryCard`/칸반 카드)는 `memo` 로 감싸고, 카드에 넘기는 핸들러는 `pageId` 를 인자로 받는 안정 콜백(`useCallback`)으로 만든다. 인라인 클로저를 매 렌더 새로 만들면 memo 가 무력화돼 한 셀 편집이 전 카드 리렌더로 번진다(1000행 렉 재발). 훅은 early-return 위에 배치(조건부 호출 금지). behavior-preserving.

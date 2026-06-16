@@ -21,7 +21,11 @@ import { imageUrlCache } from "../../../lib/images/registry";
 import { useImageUrl } from "../../../lib/images/hooks";
 import { usePageStore } from "../../../store/pageStore";
 import { IconPicker } from "../../common/IconPicker";
-import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "../useOpenDatabaseRow";
+import {
+  useAddDatabaseRowAndOpen,
+  useEnsureDatabaseRowContent,
+  useOpenDatabaseRow,
+} from "../useOpenDatabaseRow";
 
 type Props = {
   databaseId: string;
@@ -86,6 +90,7 @@ export function DatabaseGalleryView({
   // 표시 제한이 있으면 slice 적용.
   const rows = visibleRowLimit != null ? allRows.slice(0, visibleRowLimit) : allRows;
   const addRowAndOpen = useAddDatabaseRowAndOpen(databaseId);
+  const ensureRowContent = useEnsureDatabaseRowContent(databaseId);
   const groups = useRowGroups(rows, columns, panelState.groupByColumnId);
   const isCollapsed = useDatabaseGroupCollapseStore((s) => s.isCollapsed);
   const toggleCollapsed = useDatabaseGroupCollapseStore((s) => s.toggle);
@@ -139,6 +144,7 @@ export function DatabaseGalleryView({
       coverSrcOverride={coverOverrides.get(row.pageId)}
       visibleColumns={visibleColumns}
       onSetCoverSrc={setCoverSrc}
+      onEnsureRowContent={ensureRowContent}
     />
   );
 
@@ -202,6 +208,7 @@ const GalleryCard = memo(function GalleryCard({
   coverSrcOverride,
   visibleColumns,
   onSetCoverSrc,
+  onEnsureRowContent,
 }: {
   databaseId: string;
   row: DatabaseRowView;
@@ -210,6 +217,7 @@ const GalleryCard = memo(function GalleryCard({
   coverSrcOverride?: string;
   visibleColumns: ColumnDef[];
   onSetCoverSrc?: (pageId: string, src: string | null) => void;
+  onEnsureRowContent?: (pageId: string, options?: { source?: string }) => Promise<boolean>;
 }) {
   const titleCol = columns.find((c) => c.type === "title");
   // 모든 뷰 공통 규칙 — getVisibleOrderedColumns 결과에서 제목/커버만 제외. (설정 없으면 전체 표시)
@@ -223,6 +231,10 @@ const GalleryCard = memo(function GalleryCard({
   const pickerBtnRef = useRef<HTMLButtonElement>(null);
 
   const imageSrcs = useMemo(() => findAllImageSrcs(pageDoc), [pageDoc]);
+  useEffect(() => {
+    if (imageSrcs.length > 0) return;
+    void onEnsureRowContent?.(row.pageId, { source: "database-gallery-cover-preview" });
+  }, [imageSrcs.length, onEnsureRowContent, row.pageId]);
 
   return (
     <div
@@ -330,18 +342,40 @@ function CoverImagePicker({
       ) : (
         <div className="grid grid-cols-3 gap-1.5">
           {imageSrcs.map((src, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => onSelect(src)}
-              className="aspect-video overflow-hidden rounded border border-zinc-200 hover:ring-2 hover:ring-blue-400 dark:border-zinc-700"
-            >
-              <img src={src} alt="" className="h-full w-full object-cover" />
-            </button>
+            <CoverImagePickerThumb
+              key={`${src}-${i}`}
+              src={src}
+              onSelect={onSelect}
+            />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function CoverImagePickerThumb({
+  src,
+  onSelect,
+}: {
+  src: string;
+  onSelect: (src: string | null) => void;
+}) {
+  const { url } = useImageUrl(src);
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(src)}
+      className="aspect-video overflow-hidden rounded border border-zinc-200 hover:ring-2 hover:ring-blue-400 dark:border-zinc-700"
+    >
+      {url ? (
+        <img src={url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center bg-zinc-100 text-[10px] text-zinc-400 dark:bg-zinc-800">
+          로딩
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -358,6 +392,7 @@ function CoverImage({
 }) {
   const [src, setSrc] = useState<string | null>(null);
   const { url: resolvedSrc } = useImageUrl(src);
+  const fallbackSrc = useMemo(() => findFirstImageSrc(pageDoc), [pageDoc]);
 
   useEffect(() => {
     // 오버라이드 src가 있으면 즉시 사용
@@ -386,7 +421,7 @@ function CoverImage({
       const ref = fileCellRef(first);
       if (ref) {
         if (typeof first.mime !== "string" || !first.mime.startsWith("image/")) {
-          setIfActive(findFirstImageSrc(pageDoc));
+          setIfActive(fallbackSrc);
           return () => {
             cancelled = true;
             if (revoked) URL.revokeObjectURL(revoked);
@@ -402,7 +437,7 @@ function CoverImage({
         }
         void imageUrlCache.get(fileId).then(
           (u) => setIfActive(u),
-          () => setIfActive(findFirstImageSrc(pageDoc)),
+          () => setIfActive(fallbackSrc),
         );
       } else {
         void getDatabaseFile(first.fileId).then((blob) => {
@@ -413,7 +448,7 @@ function CoverImage({
             setIfActive(u);
           } else {
             // file 컬럼이지만 이미지가 아니면 페이지 본문 fallback.
-            setIfActive(findFirstImageSrc(pageDoc));
+            setIfActive(fallbackSrc);
           }
         });
       }
@@ -424,12 +459,12 @@ function CoverImage({
     }
 
     // 2) Fallback — 페이지 본문 첫 이미지
-    setIfActive(findFirstImageSrc(pageDoc));
+    setIfActive(fallbackSrc);
     return () => {
       cancelled = true;
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [column, cell, pageDoc, overrideSrc]);
+  }, [column, cell, fallbackSrc, overrideSrc]);
 
   if (!resolvedSrc) {
     return (
@@ -442,6 +477,9 @@ function CoverImage({
     <img
       src={resolvedSrc}
       alt=""
+      onError={() => {
+        if (fallbackSrc && src !== fallbackSrc) setSrc(fallbackSrc);
+      }}
       className="aspect-video w-full object-cover"
     />
   );
