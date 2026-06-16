@@ -16,9 +16,12 @@
 | `src/store/teamStore.ts` | 팀 메타데이터 |
 | `src/store/workspaceStore.ts` | 워크스페이스 선택·설정 |
 | `src/store/organizationStore.ts` | 조직 정보 |
-| `src/store/schedulerStore.ts` | 스케줄 데이터 |
+| `src/store/schedulerStore.ts` | 스케줄 데이터 → [schedulerStore.md](schedulerStore.md) |
 | `src/store/schedulerViewStore.ts` | 스케줄러 뷰 상태 |
 | `src/store/schedulerFiltersStore.ts` | 스케줄러 필터 |
+| `src/store/schedulerHolidaysStore.ts` | 스케줄러 공휴일(graphql 호출은 `lib/sync/schedulerHolidaysApi.ts` 로 분리) |
+| `src/store/schedulerProjectsStore.ts` | 스케줄러 프로젝트(graphql 호출은 `lib/sync/schedulerProjectsApi.ts` 로 분리) |
+| `src/store/schedulerMmStore.ts` | 스케줄러 M/M(graphql 호출은 `lib/sync/schedulerMmApi.ts` 로 분리) |
 | `src/store/blockCommentStore.ts` | 댓글 스레드 |
 | `src/store/historyStore.ts` | 로컬 버전 히스토리 |
 | `src/store/serverPageHistoryStore.ts` | 서버 버전 히스토리 |

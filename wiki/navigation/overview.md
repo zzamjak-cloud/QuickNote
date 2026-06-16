@@ -20,7 +20,7 @@
 페이지 멘션 이동은 **`App.tsx` click 이 아니라** `installPageMentionClickNavigation()` (`src/lib/navigation/pageMentionClick.ts`) 이 담당한다. `App.tsx` 마운트 시 `document` capture **`mousedown`/`mouseup`** 으로 press 정보를 캡처·이동한다.
 
 - **왜 mouseup 인가**: 멘션 삽입 직후 React NodeView 재마운트로 `click` 이벤트가 깨지거나(mousedown/mouseup 타깃 불일치) PM `handleDOMEvents` 만으로는 에디터 인스턴스 경계에서 누락될 수 있다. document mouseup 은 재마운트와 무관하게 수신된다.
-- **동작**: `.ProseMirror` 내 `[data-type="mention"][data-id]` 중 페이지 멘션(`mentionKind: page` 또는 `p:` prefix)만 대상. 드래그(4px 초과)는 이동 제외.
+- **동작**: `.ProseMirror` 내 `[data-type="mention"][data-id]` 중 페이지 멘션만 대상. 멤버/DB 판정은 `mentionKind.ts` 의 `isMemberMention`/`isDatabaseMention`, pageId 추출은 `stripPagePrefix` 로 한다(bare `startsWith("m:"/"d:"/"p:")` 직접 분기 금지 → [editor/lib-tiptapExtensions.md](../editor/lib-tiptapExtensions.md#멘션-prefix-단일진실원-mentionkindts)). 드래그(4px 초과)는 이동 제외.
 - **분기**: `Ctrl/Cmd` → `openPageInNewTab`, 사이드 피크(`[data-qn-peek-editor]`) → `peekNavigate`, 그 외 → `openPageInCurrentTab` + `navigationHistoryStore.pushBack`.
 - **`mention.tsx` PM 플러그인**: **mousedown** 에서 멤버(프로필 팝업)·DB(안내 토스트)만 처리. 페이지 멘션은 atom NodeSelection 만 `preventDefault` — **이동은 하지 않는다**.
 

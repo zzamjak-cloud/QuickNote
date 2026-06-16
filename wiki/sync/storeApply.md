@@ -11,7 +11,9 @@ AppSync(GraphQL)에서 내려온 원격 변경을 LWW(Last-Write-Wins) 규칙으
 |------|------|------|
 | `applyRemotePageToStore` | function | GqlPage를 pageStore에 LWW 적용 |
 | `applyRemoteDatabaseToStore` | function | GqlDatabase를 databaseStore에 LWW 적용 |
-| `applyRemoteCommentToStore` | function | GqlComment를 blockCommentStore에 LWW 적용 |
+| `shouldApplyRemoteSnapshot` | function | 워크스페이스 가드. `storeApply/commentApply.ts` 와 공유하기 위해 export(무순환) |
+
+> **댓글 reducer 분리(Phase 5.6)**: 원격 Comment LWW 적용(`applyRemoteCommentToStore`/`applyRemoteCommentsToStore`)은 `src/lib/sync/storeApply/commentApply.ts` 로 verbatim 이동했다(behavior-preserving). 워크스페이스 가드는 `storeApply` 의 `shouldApplyRemoteSnapshot` 를 import 해 공유한다. 호출처(`Bootstrap.tsx`·`workspaceSnapshotBootstrap.ts`)는 import 경로만 바뀌었다. 고정용 특성화 테스트: `src/lib/sync/__tests__/commentApply.characterization.test.ts`.
 
 ## 주요 함수
 | 함수명 | 파라미터 | 반환값 | 설명 |
@@ -42,6 +44,19 @@ AppSync(GraphQL)에서 내려온 원격 변경을 LWW(Last-Write-Wins) 규칙으
 ### LWW 판정
 - GraphQL은 ISO 문자열, 로컬은 epoch ms — 경계에서 `isoToMs` 변환
 - `isRemoteNewer(local.updatedAt, remote.updatedAt)` 가 false이면 원격 덮어쓰기 거부
+
+## AWSJSON 경계 shape 검증 (회귀 가드)
+
+`storeApply/helpers.ts` 의 `parseAwsJson<T>(v, fallback, schema?)` 는 선택적 zod 스키마를 받아 파싱 결과의 **shape** 를 검증한다(Phase 4.2). 깨진 모양이면 기존 JSON.parse 실패와 동일하게 조용히 `fallback` 으로 떨군다(side-effect 없는 순수 함수).
+
+- `doc` ← `DocEnvelopeSchema`(`schemas/index.ts`): 최상위 `type` 문자열만 강제, 나머지 키는 passthrough.
+- `dbCells` ← `DbCellsSchema`: 문자열 키 객체 맵임만 강제(배열/스칼라 거부). 값은 미검증.
+
+깊은 구조는 검증하지 않고 "올바른 컨테이너 모양"만 강제해 garbage(문자열/배열/스칼라) 유입을 차단한다. 내부 데이터는 passthrough/unknown 으로 한 글자도 버리지 않는다 — PageMeta 소실류 사고와 동일 부류의 경계 방어. 회귀 테스트: `src/lib/sync/__tests__/parseAwsJsonGuard.test.ts`.
+
+## 댓글 배치 no-op 단축 (성능)
+
+`applyRemoteCommentsToStore` 는 `useBlockCommentStore.setState` 안에서 실제 변경 여부(삭제 대상 존재 여부, upsert 가 기존 참조와 다른지)를 먼저 판정해, 변경이 없으면 `Map` 왕복·배열 재구성을 건너뛰고 기존 state 를 그대로 반환한다(Phase 1.5, `storeApply.ts:611` 부근). 갱신 시점·결과는 동일.
 
 ## 외부 의존
 - `usePageStore`, `useDatabaseStore`, `useBlockCommentStore` (Zustand 스토어)

@@ -9,8 +9,22 @@
 ## 주요 exports
 | 이름 | 종류 | 설명 |
 |------|------|------|
-| `GqlBridge` | interface | AppSync mutation 어댑터 인터페이스 (upsertPage, softDeletePage 등) |
+| `GqlBridge` | interface | AppSync mutation 어댑터 인터페이스 (upsertPage, softDeletePage 등). 실제 정의는 `syncOpRegistry.ts`, engine 은 re-export(`engine.ts:28`)만 한다 |
+| `EnqueuePayload` | type | enqueue payload 타입. 정의는 `syncOpRegistry.ts`, engine 은 re-export |
 | `SyncEngine` (클래스) | class | outbox 관리 + flush 루프 + 재시도 로직 전체 |
+
+## op 배선 단일 등록점 (syncOpRegistry)
+
+op 별 **실행/삭제판정/supersede/tombstone** 배선은 engine 안의 switch 가 아니라 `src/lib/sync/syncOpRegistry.ts` 의 `SYNC_OP_REGISTRY` 한 곳에 모여 있다(Phase 3.2 단일화, behavior-preserving). engine 은 다음 조회 지점에서 이 레지스트리를 읽는다:
+
+| 조회 | 위치 | 용도 |
+|------|------|------|
+| `SYNC_OP_REGISTRY[op].execute(gql, payload)` | `engine.ts:495` | 실제 AppSync mutation 실행 (이전 op별 switch 대체) |
+| `isDeleteOp(op)` | `engine.ts:346,420,499` | soft-delete op 분기(resource-gone·supersede 판정) |
+| `supersededUpsertOpForDelete(op)` | `engine.ts:142` | delete 가 무력화할 대응 upsert dedupe key 산출 |
+| `SYNC_OP_REGISTRY[op].tombstoneEntity` | `engine.ts:135` | resource-gone 확정 시 영구 tombstone 가드(`markPermanentlyDeletedEntity`) 대상. null 이면 건너뜀(comment 등) |
+
+> **새 동기화 op 추가 시**: `syncOpRegistry.ts` 의 `SYNC_OP_REGISTRY[op]` 1건만 추가하면 engine 의 위 분기들이 자동으로 따라온다. engine.ts 에는 op별 switch 를 다시 만들지 말 것. 등록점 전체 안내는 [architecture.md](architecture.md) "동기화 엔티티 추가 시 등록점" 참조.
 
 ## 주요 상수
 | 상수 | 값 | 설명 |
@@ -58,6 +72,6 @@
 
 ## 주의사항
 - `MAX_ATTEMPTS`를 초과한 항목은 silent drop됨 — stuck-head(후속 항목 처리 차단) 방지가 목적
-- `clientPrefsJson` v2 포맷은 서버로 보내기 전 v1으로 정규화 (`normalizeClientPrefsJsonForServer`)
+- `clientPrefsJson` v2 포맷은 서버로 보내기 전 v1으로 정규화 (`normalizeClientPrefsJsonForServer`, 현재 `syncOpRegistry.ts` 의 `updateMyClientPrefs.execute` 안)
 - `purgePendingForPageIds`는 휴지통 영구삭제 직후 반드시 호출해야 함. 미호출 시 upsert가 flush되어 서버에 페이지가 재생성(되살아남)됨
 - dead letter TTL이 만료된 항목은 `flush()` 진입 시 `pruneExpiredDeadLetters`로 자동 정리

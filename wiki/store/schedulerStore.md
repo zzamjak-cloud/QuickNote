@@ -40,6 +40,13 @@ LC 스케줄러(일정 캘린더)의 일정 데이터를 관리하는 스토어.
 - AppSync Lambda — `createLCSchedulerSchedule`, `deleteLCSchedulerSchedule` 등 뮤테이션
 - `workspaceStore` — 워크스페이스 전환 감지
 
+## 보조 스케줄러 스토어의 GraphQL 호출 분리 (`*Api`)
+
+`schedulerHolidaysStore`/`schedulerProjectsStore`/`schedulerMmStore` 가 `appsyncClient().graphql` 을 직접 호출하던 코드는 각각 **`src/lib/sync/schedulerHolidaysApi.ts`·`schedulerProjectsApi.ts`·`schedulerMmApi.ts`** 로 추출됐다(Phase 5.1, 다른 store 의 `*Api` 패턴 준수, behavior-preserving).
+
+- 호출 형태·요청 shaping(`bucketToInput` 등)·응답 정규화·캐시 로직 모두 보존.
+- 이 스케줄러 보조 데이터는 **outbox 를 경유하지 않는 직접 graphql 호출**이다(읽기·즉시 쓰기). 이 점도 추출 전후 동일 — outbox 경로로 바꾸지 말 것.
+
 ## 데이터 흐름 (fetchSchedules)
 
 1. cache-hit 판정: `cachedWorkspaceId`+`visibleRange`+`cachedScopeKey` 일치 **AND `schedules.length > 0`** 이면 재계산 생략.

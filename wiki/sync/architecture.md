@@ -144,19 +144,40 @@ window 'online' 이벤트
 새 완전동기화 엔티티/op 추가는 **세 등록점**만 수정하면 된다. 분산 분기를 흩지 말 것.
 
 1. `src/lib/sync/outbox/types.ts` — `OutboxOp` union + (신규 엔티티면) `OutboxEntityType`.
-2. `src/lib/sync/syncOpRegistry.ts` — `SYNC_OP_REGISTRY[op]` 항목. `execute`/`isDelete`/`supersededUpsertOp`/`tombstoneEntity` 와 **메타 플래그 3종**(`workspaceScoped`/`capturesBaseVersion`/`warnIfMissingWorkspace`)을 채운다. `outboxMeta.ts` 는 이 플래그로 구동되므로 별도 switch 추가 금지.
-3. (서버 푸시를 받는 엔티티면) `src/lib/sync/subscribers.ts` 의 `channels` 디스크립터 배열에 `{key,query,enabled,onNext}` 1건 + `SubscribeHandlers` 핸들러.
+2. `src/lib/sync/syncOpRegistry.ts:58` — `SYNC_OP_REGISTRY[op]` 항목. `execute`/`isDelete`/`supersededUpsertOp`/`tombstoneEntity` 와 **메타 플래그 3종**(`workspaceScoped`/`capturesBaseVersion`/`warnIfMissingWorkspace`)을 채운다. `outboxMeta.ts`(`buildOutboxEntryMeta`) 와 `engine.ts` 의 실행/삭제 분기가 모두 이 항목으로 구동되므로 별도 switch 추가 금지. `GqlBridge` 인터페이스에 새 mutation 이 필요하면 여기서 함께 선언하고 `bridge.ts` 의 `realGqlBridge` 가 구현한다.
+3. (서버 푸시를 받는 엔티티면) `src/lib/sync/subscribers.ts` 의 `channels` 디스크립터 배열에 `{key,query,enabled,onNext}` 1건 + `SubscribeHandlers` 핸들러. 5개 채널(page/database/comment/project/workspace)이 이전엔 복붙 try-catch 블록이었으나 Phase 3.2 에서 단일 디스크립터 루프로 통합됐다(behavior-preserving).
 
-회귀 체크: op 추가 후 `outboxMeta.ts` 가 컴파일되면(누락 플래그는 타입 에러) 메타가 자동 채워진다. `apply`(storeApply LWW)는 의도적으로 이 레지스트리에 넣지 않는다(거대 핫로직, Phase 5.6 분할 대상).
+회귀 체크:
+- op 추가 후 `outboxMeta.ts`/`syncOpRegistry.ts` 가 컴파일되면(`Record<OutboxOp, SyncOpSpec>` 이라 누락 op·누락 플래그는 타입 에러) 메타가 자동 채워진다.
+- engine 의 `execute`/`isDeleteOp`/`supersededUpsertOpForDelete`/`tombstoneEntity` 조회는 레지스트리만 본다([engine.md](engine.md) 참조).
+- `apply`(storeApply LWW)는 의도적으로 이 레지스트리에 넣지 않는다(거대 핫로직).
+
+## GraphQL 읽기 호출 언랩 (gqlRequired/gqlOptional)
+
+읽기측 `*Api.ts` 들이 `appsyncClient().graphql({query,variables})` 호출 후 `as { data?: { op?: ... } }` 캐스트 → `data?.op` 언랩 → 없으면 throw(필수)/null(선택) 하던 수동 패턴은 **`src/lib/sync/graphqlRequest.ts`** 의 두 헬퍼로 통일됐다(Phase 4.1, 9개 파일 23개 사이트, behavior-preserving).
+
+- `gqlRequired<T>(query, variables, opName)` — `data[opName]` 이 null/undefined 면 `throw new Error("<opName> 응답 없음")`.
+- `gqlOptional<T>(query, variables, opName)` — null/undefined 면 `null` 반환(호출자가 fallback 적용).
+- **대상 아님**: GraphQL `errors` 배열을 검사하거나 응답을 무시(fire-and-forget)하는 사이트는 동작이 달라 그대로 둔다. 단순 op 언랩만 흡수한다.
+
+## 스키마 정합성 자동 검사 (schemaFieldParity)
+
+`src/lib/sync/queries/__tests__/schemaFieldParity.test.ts` 는 Phase 4.4 에서 2개 하드코딩 쿼리 검사 → **`items` 셀렉션을 가진 모든 list 쿼리**를 SDL 의 Query/Connection 타입 파싱으로 자동 해소해 "요청 필드 ⊆ 스키마 타입 필드" 정합성을 전수 검사한다(FieldUndefined 거절 사고 부류 광범위 예방). 추가로 Page 스칼라 타입↔SDL 정합을 고정하고, `order`(클라 number ↔ SDL String) 같은 의도된 표류는 allowlist 로 명시한다. 새 list 쿼리는 별도 등록 없이 자동 검사 대상이 된다.
 
 ## 핵심 파일
 
 | 파일 | 역할 |
 |------|------|
 | `src/lib/sync/engine.ts` | IndexedDB outbox, 뮤테이션 전송, 재시도 |
-| `src/lib/sync/syncOpRegistry.ts` | op→엔티티 배선·메타 플래그 단일 등록점 |
-| `src/lib/sync/subscribers.ts` | AppSync WebSocket 구독 재연결 |
-| `src/lib/sync/storeApply.ts` | LWW 충돌 해결 |
+| `src/lib/sync/syncOpRegistry.ts` | op→엔티티 배선(execute/delete/supersede/tombstone)·메타 플래그·`GqlBridge` 계약 단일 등록점 |
+| `src/lib/sync/outboxMeta.ts` | `buildOutboxEntryMeta` — 레지스트리 메타 플래그로 outbox 행 메타 구성 |
+| `src/lib/sync/graphqlRequest.ts` | 읽기 호출 언랩 헬퍼 `gqlRequired`/`gqlOptional` |
+| `src/lib/sync/mappers/upsertPageInput.ts` | upsertPage GraphQL input 단일 매퍼 `toUpsertPageInput` |
+| `src/lib/sync/subscribers.ts` | AppSync WebSocket 구독 재연결(단일 채널 디스크립터 루프) |
+| `src/lib/sync/storeApply.ts` | 페이지/DB LWW 충돌 해결 |
+| `src/lib/sync/storeApply/commentApply.ts` | 댓글 LWW 적용 reducer(storeApply 에서 분리) |
+| `src/lib/sync/storeApply/helpers.ts` | `parseAwsJson`(envelope shape 검증 포함) 등 순수 헬퍼 |
+| `src/lib/sync/schemas/index.ts` | `DocEnvelopeSchema`/`DbCellsSchema` 등 수신 검증 스키마 |
 | `src/lib/sync/workspaceFetchMode.ts` | delta/full 모드 결정 로직 |
 | `src/lib/sync/workspaceSnapshotBootstrap.ts` | 메타·전체 스냅샷 페치 및 적용 |
 | `src/lib/sync/lcSchedulerWorkspaceRepair.ts` | LC 스케줄러 루트 DB 페이지 결손 감지 및 repair gate |

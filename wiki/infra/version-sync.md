@@ -17,8 +17,16 @@ GitHub Actions `Publish Release` 워크플로우는 세 값 불일치 시 실패
 - 라이브 이슈 수정이라도 `develop` → dev 빌드 검증 → 승인 → `main`/live promote 순서를 건너뛰지 않는다.
 
 ## 버전 bump 절차
+
+수동 2중 수정은 불일치가 잦아 **`npm run bump` 스크립트로 동기화**한다
+(`scripts/bump-version.mjs`, `228bbfcd`). package.json + tauri.conf.json 의 `version` 을 한 번에 맞춘다.
+
 ```bash
-# 1. 두 파일 동시 수정
+# 1. 버전 동기화 (택1)
+npm run bump 5.4.53   # 지정 버전
+npm run bump patch    # patch +1
+npm run bump minor    # minor +1, patch=0
+npm run bump major    # major +1, minor=patch=0
 # 2. 확인
 grep '"version"' package.json src-tauri/tauri.conf.json
 # 3. 커밋

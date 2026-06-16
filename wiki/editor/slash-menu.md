@@ -31,7 +31,7 @@
 ## `/새 페이지`
 
 - `createPage("새 페이지", parentId, { activate: false })` — 제목은 `allocateUniquePageTitle` 적용
-- 멘션 attrs: `id: p:{newId}`, `mentionKind: "page"`, **`label` = 실제 부여된 제목**
+- 멘션 attrs: `id: ${MENTION_PAGE_PREFIX}{newId}`(`p:`), `mentionKind: "page"`, **`label` = 실제 부여된 제목**. prefix 는 `mentionKind.ts` 상수 사용(bare `"p:"` 리터럴 금지 → [lib-tiptapExtensions.md](lib-tiptapExtensions.md#멘션-prefix-단일진실원-mentionkindts))
 - 클릭 이동: [navigation/overview.md](../navigation/overview.md)
 
 ## 커맨드 추가 시

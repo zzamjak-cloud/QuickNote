@@ -71,6 +71,7 @@
 ### 주의사항
 - person 타입은 memberStore의 멤버 목록에서 옵션을 생성한다. 멤버가 없으면 빈 배열.
 - pageLink, itemFetch, sourceFromDb 자동화 컬럼은 raw 셀값 대신 실효값을 기준으로 필터링될 수 있다.
+- `isIdLabelBackedColumn`은 이제 하드코딩 배열 대신 `COLUMN_TYPE_META[type].idLabelBacked`(`src/types/database.ts`)를 읽는다. 새 id-backed 타입은 메타에만 표시하면 된다.
 
 ---
 

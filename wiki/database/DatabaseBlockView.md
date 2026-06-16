@@ -23,7 +23,7 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 ## 주요 로직
 | 항목 | 설명 |
 |------|------|
-| 뷰 컴포넌트 스위치 | `view` 값에 따라 `DatabaseTableView`, `DatabaseTimelineView`, `DatabaseGalleryView`를 `Suspense` + `lazy`로 렌더 |
+| 뷰 컴포넌트 레지스트리 조회 | `activeViewComponent`는 `DATABASE_VIEW_REGISTRY[view].component`(lazy)를 조회해 `Suspense`로 렌더한다. 과거 `switch(view)` 하드코딩 분기는 제거됨(`databaseViewRegistry.ts` 단일 등록점). 레지스트리에 없는 `view`는 `null` 렌더 |
 | 더보기 버튼 | `visibleRowLimit` 초과 시 "+ N개 더보기" 버튼 노출. 표시 단위는 `databaseRowLimit.ts` 정책을 따르고, row index count까지 포함해 남은 행을 계산 |
 | 표시 설정 | `DatabaseColumnSettingsButton`에서 항목 표시 개수와 `pageTreeEnabled`를 설정한다. `pageTreeEnabled` 기본값은 OFF이며, ON일 때만 리스트/테이블 DB 항목의 하위 페이지 트리 UI가 노출된다. |
 | 새 항목 생성 UX | 각 뷰의 "+ 새 항목"은 `useAddDatabaseRowAndOpen`으로 row 생성 직후 반환된 pageId를 피크뷰로 연다. 필터/표시설정 때문에 새 row가 리스트 하단이나 현재 화면 밖에 생겨도 사용자에게 생성 성공이 즉시 보여야 한다. |
@@ -36,7 +36,7 @@ TipTap NodeView로서 에디터 내 데이터베이스 블록을 렌더링하는
 
 ## 의존 관계
 - **사용하는 스토어**: `useDatabaseStore`, `usePageStore`, `useWorkspaceStore`, `useSettingsStore`, `useNavigationHistoryStore`, `useMemberStore`, `useDatabaseInlineUiPrefsStore`
-- **사용하는 뷰 컴포넌트**: `DatabaseTableView`, `DatabaseTimelineView`, `DatabaseGalleryView` (lazy import)
+- **사용하는 뷰 컴포넌트**: `DATABASE_VIEW_REGISTRY`(`databaseViewRegistry.ts`)를 통한 lazy 조회 (`DatabaseTableView`/`DatabaseListView`/`DatabaseKanbanView`/`DatabaseTimelineView`/`DatabaseGalleryView`). lazy import 선언도 레지스트리로 이동
 - **사용하는 다이얼로그**: `DatabaseDeleteConfirmDialog`, `DatabaseBlockHistoryDialog`, `DatabaseBlockLinkExistingDialog`
 - **사용하는 컨트롤**: `DatabaseToolbarControls`, `DatabaseBlockDataArea`
 - **이 컴포넌트를 사용하는 곳**: TipTap extension NodeView 등록 (에디터 내 `database` 노드 타입)

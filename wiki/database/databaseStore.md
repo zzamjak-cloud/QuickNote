@@ -55,8 +55,16 @@
 | partialize | `databases`, `cacheWorkspaceId`, `migrationQuarantine`, `dbTemplates` |
 | merge | `mergePersistedSubset` (DATABASE_STORE_DATA_KEYS 기준) |
 
+## history 기록 게이트웨이 (recordDbMutation)
+DB 변이의 히스토리 기록은 `historyStore.recordDbMutation(databaseId, kind, patch, anchorThunk)` 한 곳으로 단일화됐다(`src/store/historyStore.ts`). 과거 `databaseStore`(13곳)·`columnActions`(3곳)에 복붙되던 `getState() → dbEventsByDatabaseId 이벤트 수 → shouldWriteAnchor → recordDbEvent` 패턴을 흡수.
+
+- **anchor 는 thunk**(`() => DatabaseSnapshot`)로 받아 앵커 기록 시점에만 평가한다 → 불필요한 `DatabaseSnapshot` 계산 방지.
+- page 이벤트 동시 기록 블록은 `recordPageMutation`(동일 패턴의 page 판)을 재사용한다.
+- 서로 다른 id/맵(`dbEventsByDatabaseId` vs page)이라 호출 순서 무관 → **동작 불변(behavior-preserving)**.
+- 새 DB 변이 액션 추가 시 `recordDbEvent` 를 직접 호출하지 말고 `recordDbMutation` 게이트웨이를 쓴다.
+
 ## 의존 관계
-- **사용하는 스토어**: `usePageStore`, `useHistoryStore`, `useWorkspaceStore`
+- **사용하는 스토어**: `usePageStore`, `useHistoryStore`(`recordDbMutation`/`recordPageMutation`), `useWorkspaceStore`
 - **사용하는 유틸**: `src/store/databaseStore/helpers.ts`, `src/store/databaseStore/migrations.ts`, `src/store/databaseStore/actions/columnActions.ts`
 - **동기화**: `enqueueUpsertDatabase`, `enqueueUpsertPageRaw` (AppSync outbox)
 - **이 스토어를 사용하는 주요 파일**: `DatabaseBlockView.tsx`, `DatabaseTableView`, `DatabaseTimelineView`, `DatabaseGalleryView`, `Bootstrap.tsx`
@@ -64,7 +72,7 @@
 ## 주의사항
 - `deleteDatabase`는 페이지에서 블록만 제거할 때는 호출하지 않는다. DB 데이터가 유지되어야 하기 때문.
 - `isProtectedDatabaseId`로 보호된 DB (스케줄러/마일스톤/피처)는 삭제 불가.
-- 행 추가 시 활성 필터를 통과하는 값을 해당 컬럼에 자동 주입하여 필터 상태에서도 새 행이 즉시 보이도록 한다.
+- 행 추가 시 활성 필터를 통과하는 값을 해당 컬럼에 자동 주입하여 필터 상태에서도 새 행이 즉시 보이도록 한다. 배열로 시드해야 하는 타입은 `helpers.ts` 의 `ARRAY_VALUED_COLUMN_TYPES`(이제 `COLUMN_TYPE_META.arrayValued` 에서 파생) 기준.
 - `importRowsBatch`는 단일 `pageStore.setState`로 일괄 반영해 렌더 flicker를 최소화한다.
 - `migrationQuarantine` 배열은 자동 복구 실패 데이터 보존용이므로 절대 삭제하지 않는다.
 - 컬럼 액션(`addColumn`, `deleteColumn`, `updateColumn` 등)은 `createColumnActions`로 별도 분리됨 (`src/store/databaseStore/actions/columnActions.ts`).

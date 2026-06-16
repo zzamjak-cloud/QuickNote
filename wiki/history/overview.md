@@ -29,8 +29,9 @@ upsert 마다 1버전이 아니라 **편집 세션 1건 = 버전 1건**(`page.se
 - **⚠ null 기본값 attr 정규화 (CRITICAL 회귀)**: `editor.getJSON` 은 기본값 attr 을 `textAlign: null` 처럼
   포함하고, 협업 materialize(`yDocToJson`/y-prosemirror)는 **null 기본값을 생략**한다. 시그니처 비교가
   `{textAlign: null}` ≠ `{}` 로 갈리면 멘션 하나 추가에도 **전 블럭이 modified 로 오판**된다(인라인 DB 까지
-  diff 에 끌려나옴). 서버 `blockSignature`/`diffMeaningfulPageUnits` 와 클라 `blockDiff.blockSignature` 모두
-  `normalizeForSignature`(attrs/marks 의 null 키 깊이 제거)를 **반드시 통과**시켜야 한다. 두 곳을 함께 유지할 것.
+  diff 에 끌려나옴). `normalizeForSignature`(attrs/marks 의 null 키 깊이 제거)를 **반드시 통과**시켜야 한다.
+  2026-06-14 이후 이 함수(및 `blockSignature`/`stableStringify` 등)는 **공유 코어 `src/lib/history/signatureCore.ts`**
+  단일 정의로 통합됐고 클라(`blockDiff.ts`)·서버(`historySession.ts`)가 같은 소스를 import 한다 — 아래 "공통 시그니처 코어" 절 참고. **분기시키지 말 것.**
 - **⚠ 배포 순서**: `snapshot` 등 신규 필드는 클라 쿼리가 select 한다 — **CDK(스키마) 선배포 후 프론트**
   (PageMeta FieldUndefined 사고와 동일 규칙).
 - **⚠ 협업 모드 본문 영속 의존성**: 협업 ON 페이지는 materialize 의 `updateDoc(deferSync)` 가 sync enqueue 를
@@ -40,6 +41,29 @@ upsert 마다 1버전이 아니라 **편집 세션 1건 = 버전 1건**(`page.se
   이번 개편 이전에 "전체 변경"으로 기록된 세션은 그대로 남는다(새 기록부터 정상). 거슬리면 목록에서 선택 삭제.
 - Y.Snapshot/룸 update 로그 기반 히스토리는 **채택하지 않음**: gc:false 비대화, rt-ydoc-updates 50건 압축,
   epoch bump 시 룸 세대 폐기(히스토리 증발) 때문. 버전 영속은 항상 이 서버 테이블이다.
+
+## 공통 시그니처 코어 / patch 엔진 (2026-06-14 통합, `a5527b5e`)
+
+페이지·DB 히스토리는 시그니처 계산과 patch→스냅샷 재구성을 **단일 공유 코어**로 돌린다. behavior-preserving 리팩토링 — 외부 동작 불변, 중복 정의만 제거했다.
+
+### 공통 시그니처 코어 — `src/lib/history/signatureCore.ts`
+의존성 0(에디터/store/lambda 어느 것에도 안 묶임) 순수 모듈. `isPlainObject`/`parseJsonLike`/`stableStringify`(`signatureCore.ts:17`)/`hashString`/`isEmptyBlockNode`/`normalizeForSignature`(`signatureCore.ts:56`)/`blockSignature`(`signatureCore.ts:75`)를 export.
+
+- **클라**: `blockDiff.ts:12-19` 가 import(+ `isEmptyBlockNode` 재export).
+- **서버**: `historySession.ts:14-21` 가 상대경로 `../../../../src/lib/history/signatureCore` 로 import — **infra Lambda 빌드가 src 를 직접 참조**한다.
+- 이전엔 `blockDiff.ts` 와 `historySession.ts` 에 동일 7함수가 **복붙**돼 있었다(각각 ~80줄). 이제 한 곳.
+
+> **⚠ CRITICAL 회귀 가드 — 클라↔서버 시그니처 동일성**
+> 시그니처 코어가 클라/서버에서 어긋나면 멘션 한 글자 추가에도 전 블럭이 modified 로 오판되거나(인라인 DB 까지 diff 에 끌려나옴), 협업 materialize 경로에서 **유령·누락 버전**이 생긴다(과거 사고의 핵심 원인). 그래서 두 정의를 합쳤다. **`signatureCore.ts` 를 한쪽 전용으로 분기·복제하지 말 것.** 규칙(특히 `normalizeForSignature` 의 null 키 제거)을 바꿀 때는 이 단일 파일만 고치면 양측이 자동으로 동기화된다.
+
+### 제네릭 patch 엔진 — `src/lib/history/historyPatchEngine.ts`
+`createHistoryPatchEngine<TEntry, TSnapshot>(options)`(`historyPatchEngine.ts:167`) 가 patch/anchor→스냅샷 재구성 + localStorage 캐시(`readCacheMap`/`writeCacheMap`)를 제공한다.
+
+- **페이지**: `pageHistoryPatch.ts:5` 가 `cacheKey` 만 주입해 인스턴스화. `buildPageHistorySnapshotMap`/`getPreviousPageHistorySnapshot` 은 이제 엔진 위임 래퍼.
+- **DB**: `databaseHistoryPatch.ts:17` 가 `cacheKey: "quicknote.databaseHistoryPreview.v1"` 로 동일 인스턴스화.
+- 이전엔 두 파일이 각자 patch 합성·캐시 로직을 들고 있었다(각각 ~180줄). 이제 엔진 1개.
+
+> **batched-cache 최적화 공유**: 성능 절(#1)의 "빌드당 read 1회 / write 1회" 캐시 최적화는 원래 페이지에만 있었는데, 엔진 통합으로 **DB patch 엔진도 같은 최적화를 자동으로 받는다.** 캐시 thrashing 회귀는 이제 엔진 한 곳에서만 관리한다.
 
 ### 보편적 버전 관리 캐던스 (설계 근거)
 Google Docs/Notion/Figma 모두 "키 입력마다 버전"이 아니라 **활동 기반 자동 체크포인트**다(편집이 이어지는
@@ -119,18 +143,20 @@ DB 히스토리는 한 화면에서 두 탭으로 본다 (`DatabaseBlockHistoryD
 | `src/components/database/DatabaseBlockHistoryDialog.tsx` | DB 히스토리 팝업(DB구조/페이지 2탭, 인라인 프리뷰) |
 | `src/components/history/PageHistoryPreviewDialog.tsx` | 개별 페이지 히스토리 팝업 |
 | `src/lib/history/historyPreviewDiff.ts` | diff 계산 + `summarizePreviewChanges` |
-| `src/lib/history/pageHistoryPatch.ts`, `databaseHistoryPatch.ts` | 서버 patch/anchor → 스냅샷 재구성(localStorage 캐시) |
+| `src/lib/history/signatureCore.ts` | **공유** 시그니처 코어(`normalizeForSignature`/`blockSignature`/`stableStringify` 등). 클라(`blockDiff.ts`)·서버(`historySession.ts`) 단일 소스. **분기 금지** |
+| `src/lib/history/historyPatchEngine.ts` | **공유** 제네릭 patch 엔진 `createHistoryPatchEngine<T>`(patch/anchor→스냅샷 + batched localStorage 캐시) |
+| `src/lib/history/pageHistoryPatch.ts`, `databaseHistoryPatch.ts` | 위 엔진을 `cacheKey` 주입해 인스턴스화하는 얇은 래퍼(과거엔 각자 patch/캐시 로직 보유) |
 | `src/lib/sync/pageHistoryApi.ts`, `databaseHistoryApi.ts`, `trashApi.ts` | GraphQL 호출 래퍼 |
 
 ## 성능 — 스냅샷 재구성·렌더 (회귀 주의)
 
 페이지/DB 히스토리 팝업은 patch/anchor 로 스냅샷을 재구성한다. 과거 다음 3가지가 겹쳐 팝업이 심하게 렉이 걸렸다(서버 통신 빈도 문제가 아니라 메인 스레드 동기 처리 폭주):
 
-1. **`buildPageHistorySnapshotMap` localStorage 캐시 thrashing** — 엔트리마다 캐시 전체(최대 300개)를 `JSON.parse`(read)하고 미스 시 `.sort()` 후 전체를 `JSON.stringify`(write)했다 → O(엔트리×캐시) 대용량 직렬화. **빌드당 read 1회 / write 1회**로 변경(`pageHistoryPatch.ts` `readCacheMap`/`writeCacheMap`). 캐시 히트 스냅샷은 읽기 전용으로 공유하고, 다음 패치는 `applyPagePatch` 가 base 를 clone 한 뒤 적용하므로 오염되지 않는다(테스트: `src/lib/history/__tests__/pageHistoryPatch.test.ts`).
+1. **`buildPageHistorySnapshotMap` localStorage 캐시 thrashing** — 엔트리마다 캐시 전체(최대 300개)를 `JSON.parse`(read)하고 미스 시 `.sort()` 후 전체를 `JSON.stringify`(write)했다 → O(엔트리×캐시) 대용량 직렬화. **빌드당 read 1회 / write 1회**로 변경(2026-06-14 이후 공유 엔진 `historyPatchEngine.ts` `readCacheMap`/`writeCacheMap`). 캐시 히트 스냅샷은 읽기 전용으로 공유하고, 다음 패치는 `applyPagePatch` 가 base 를 clone 한 뒤 적용하므로 오염되지 않는다(테스트: `src/lib/history/__tests__/pageHistoryPatch.test.ts`).
 2. **렌더마다 맵 통째 재빌드** — `selectedBefore` 가 `getPreviousPageHistorySnapshot`(내부에서 맵 전체 재빌드)을 useMemo 없이 호출 → 매 렌더 재빌드. 이미 만든 `snapshotMap` 에서 이전 버전 id 를 조회하도록 useMemo 화(`PageHistoryPreviewDialog.tsx`).
 3. **셀렉터가 매 호출 새 배열 반환** — `useServerPageHistoryStore((s) => s.getPageTimeline(pageId))` 는 `.map()` 으로 매번 새 배열을 만들어 zustand 스냅샷이 불안정 → 잦은 리렌더(→ 위 2 반복). 원본 배열을 셀렉터로 받아 `buildPageTimeline`(store export)을 `useMemo` 로 감싸도록 변경(`PageHistoryPreviewDialog.tsx`, `PageListItem.tsx`).
 
-> 캐시 수정(#1)은 `DatabaseBlockHistoryDialog`(DB 히스토리)에도 동일 적용된다.
+> 캐시 수정(#1)은 patch 엔진 통합으로 DB 히스토리(`databaseHistoryPatch.ts`)에도 자동 적용된다 — 위 "제네릭 patch 엔진" 절 참고.
 
 ## 로컬 historyStore (`src/store/historyStore.ts`)
 

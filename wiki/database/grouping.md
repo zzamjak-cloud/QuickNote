@@ -6,13 +6,14 @@
 - **v1 적용 뷰**: 표 · 리스트 · 갤러리
 - **후속**: 타임라인(그룹별 스윔레인)
 - **칸반은 분리** — 자체 `kanbanGroupColumnId`(보드 컬럼=그룹) 유지. 표시설정 그룹화 섹션은 칸반 뷰에서 숨김.
-- **그룹화 가능 타입**: 사람(person) · 상태(status) · 선택(select). 확장은 `GROUPABLE_COLUMN_TYPES` 한 곳만 수정.
+- **그룹화 가능 타입**: 사람(person) · 상태(status) · 선택(select). 이제 `GROUPABLE_COLUMN_TYPES`(`grouping.ts`)는 하드코딩 Set 이 아니라 **`COLUMN_TYPE_META.groupable`(`src/types/database.ts:51`)에서 파생**한다. 확장하려면 메타의 `groupable: true` 플래그만 바꾼다(엔진/뷰 수정 불필요).
 
 ## 관련 파일
 
 | 파일 | 역할 |
 |------|------|
-| `src/lib/database/grouping.ts` | 그룹화 엔진(순수 함수): `isGroupableColumn`, `getGroupableColumns`, `buildRowGroups`, `resolveRowGroupKeys`, `GROUPABLE_COLUMN_TYPES`, `GROUP_UNASSIGNED` |
+| `src/lib/database/grouping.ts` | 그룹화 엔진(순수 함수): `isGroupableColumn`, `getGroupableColumns`, `buildRowGroups`, `resolveRowGroupKeys`, `GROUPABLE_COLUMN_TYPES`(=`COLUMN_TYPE_META.groupable` 파생), `GROUP_UNASSIGNED` |
+| `src/types/database.ts` | `COLUMN_TYPE_META.groupable` — 그룹화 가능 타입의 단일 출처 |
 | `src/components/database/useRowGroups.ts` | 뷰 공용 훅 — store 읽어 `RowGroup[] \| null` 반환(그룹화 off=null) |
 | `src/components/database/GroupSectionHeader.tsx` | 그룹 헤더(chevron+색점+라벨+개수) |
 | `src/store/databaseGroupCollapseStore.ts` | 접힘 상태(로컬 전용, **동기화 안 함**) |

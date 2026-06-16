@@ -72,9 +72,16 @@
 |------|------|--------|
 | `titleColor` | `string \| null` | `toGqlPage` / `toPageInputPayload` / GraphQL `PAGE_FIELDS` 포함. 스키마: `Page.titleColor` |
 
+## 히스토리 기록 게이트웨이 (`recordPageMutation`)
+
+pageStore 의 변이 액션(updateDoc·setIcon·movePage 등 10여 곳)이 직접 `getState→이벤트수 조회→shouldWriteAnchor→recordPageEvent` 를 복붙하던 패턴은 **`historyStore.recordPageMutation(pageId, kind, patch, anchor)`** 단일 게이트웨이로 통합됐다(Phase 5.2, behavior-preserving).
+
+- 위치: `src/store/historyStore.ts` (`recordPageMutation`).
+- `anchor` 는 **thunk**(`() => PageSnapshot`)로 받아 앵커 기록 시점(`shouldWriteAnchor(events.length+1)` true)에만 평가한다 → `page.doc`/`dbCell` 핫패스에서 불필요한 스냅샷 계산을 막는다. 앵커 주기·기록 결과는 이전과 동일.
+
 ## 의존 관계
 
-- `useHistoryStore` — `updateDoc` 에서 히스토리 앵커 기록
+- `useHistoryStore` — 변이 시 `recordPageMutation` 게이트웨이로 히스토리/앵커 기록
 - `useSettingsStore` — 탭 상태 갱신 (DB 삭제 시 탭 정리)
 - `useNotificationStore` — 페이지 멘션 알림 생성
 - `src/lib/sync/engine.ts` (outbox) — AppSync 뮤테이션 enqueue
