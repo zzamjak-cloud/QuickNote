@@ -7,6 +7,7 @@ import type { FavoritePageMeta } from "../../store/settingsStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { BlockCommentMsg } from "../../store/blockCommentStore";
 import type { WorkspaceSummary } from "../../store/workspaceStore";
+import type { Page } from "../../types/page";
 import { zustandStorage } from "../storage/index";
 import { getSyncEngine } from "./runtime";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
@@ -477,6 +478,21 @@ export function preloadWorkspaceSnapshots(workspaceIds: Array<string | null | un
       }),
     ),
   );
+}
+
+// 워크스페이스 방문 시 적재된 스냅샷 캐시의 페이지 목록(메모리). 크로스 워크스페이스 멘션/링크 후보를
+// 네트워크 없이 즉시 제공하는 데 쓴다.
+export function getLoadedWorkspaceSnapshotPages(workspaceId: string): Page[] | null {
+  const snapshot = workspaceSnapshotById.get(workspaceId);
+  return snapshot ? Object.values(snapshot.pages) : null;
+}
+
+// 메모리에 없으면 persist 된 스냅샷을 읽어 반환(미방문/콜드 세션 폴백). 네트워크 listPages 보다 가볍다.
+export async function readWorkspaceSnapshotPages(workspaceId: string): Promise<Page[] | null> {
+  const loaded = getLoadedWorkspaceSnapshotPages(workspaceId);
+  if (loaded) return loaded;
+  const snapshot = await readPersistedWorkspaceSnapshot(workspaceId);
+  return snapshot ? Object.values(snapshot.pages) : null;
 }
 
 export function getFavoritePageMetaFromLoadedWorkspaceSnapshots(

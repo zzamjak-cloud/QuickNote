@@ -1,17 +1,30 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePageStore } from "../../../store/pageStore";
 import { useSettingsStore } from "../../../store/settingsStore";
+import { useUiStore } from "../../../store/uiStore";
+import { useWorkspaceStore } from "../../../store/workspaceStore";
 import type { Page } from "../../../types/page";
+
+const requestCrossWorkspaceLanding = vi.fn();
+vi.mock("../../sync/workspaceLanding", () => ({
+  requestCrossWorkspaceLanding: (...args: unknown[]) => requestCrossWorkspaceLanding(...args),
+}));
+const ensurePageContentLoaded = vi.fn(async () => true);
+vi.mock("../../sync/pageContentLoad", () => ({
+  ensurePageContentLoaded: (...args: unknown[]) => ensurePageContentLoaded(...args),
+}));
 import {
+  navigateToWorkspacePage,
   openDatabaseInNewTab,
   openPageInCurrentTab,
   openPageInNewTab,
   shouldOpenInternalLinkInNewTab,
 } from "../internalNavigation";
 
-function page(id: string): Page {
+function page(id: string, workspaceId?: string): Page {
   return {
     id,
+    workspaceId,
     title: id,
     icon: null,
     doc: { type: "doc", content: [] },
@@ -75,6 +88,57 @@ describe("internalNavigation", () => {
       { pageId: "page-1", databaseId: null },
     ]);
     expect(usePageStore.getState().activePageId).toBe("page-1");
+  });
+
+  it("로컬에 없는 페이지 + workspaceId 힌트는 전환하지 않고 미리보기(peek)로 띄운다", async () => {
+    requestCrossWorkspaceLanding.mockClear();
+    ensurePageContentLoaded.mockClear();
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-current" });
+    useUiStore.setState({ peekPageId: null });
+
+    // 타 워크스페이스 링크를 붙여넣어 만든 버튼: 페이지가 현재 store 에 없어도 ws 로 콘텐츠 로드 후 peek.
+    expect(
+      openPageInCurrentTab("cross-page", { workspaceId: "ws-other" }),
+    ).toBe(true);
+
+    // 워크스페이스 전환·착지는 클릭 시점에 일어나지 않는다(peek 만).
+    expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-current");
+    expect(requestCrossWorkspaceLanding).not.toHaveBeenCalled();
+    expect(ensurePageContentLoaded).toHaveBeenCalledWith(
+      expect.objectContaining({ pageId: "cross-page", workspaceId: "ws-other" }),
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(useUiStore.getState().peekPageId).toBe("cross-page");
+  });
+
+  it("로컬에 있지만 타 워크스페이스인 페이지도 전환 대신 peek 로 띄운다", () => {
+    requestCrossWorkspaceLanding.mockClear();
+    ensurePageContentLoaded.mockClear();
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-current" });
+    usePageStore.setState({
+      pages: { "page-x": page("page-x", "ws-other") },
+      activePageId: "page-1",
+    });
+
+    expect(openPageInCurrentTab("page-x")).toBe(true);
+
+    expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-current");
+    expect(requestCrossWorkspaceLanding).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().tabs).toEqual([
+      { pageId: "page-1", databaseId: null },
+    ]);
+  });
+
+  it("navigateToWorkspacePage 는 워크스페이스 전환 + 착지 목표를 요청한다", () => {
+    requestCrossWorkspaceLanding.mockClear();
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-current" });
+
+    navigateToWorkspacePage("page-x", "ws-other");
+
+    expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-other");
+    expect(requestCrossWorkspaceLanding).toHaveBeenCalledWith("ws-other", "page-x");
   });
 
   it("DB를 새 탭으로 열고 페이지 활성 상태를 비운다", () => {

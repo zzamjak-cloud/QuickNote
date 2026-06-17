@@ -12,6 +12,7 @@ import {
 } from "../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import {
   fetchDatabaseById,
   fetchDatabaseRowIndexBatch,
@@ -24,6 +25,10 @@ import { applyRemoteDatabasesToStore, applyRemotePagesToStore } from "./storeApp
 import { refreshWorkspaceSnapshot } from "./workspaceSwitch";
 import { gqlPageToDatabaseRowIndexEntry } from "../database/databaseRowIndexCache";
 import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
+import {
+  databaseCandidateFromGql,
+  rememberCrossWorkspaceDatabaseRows,
+} from "../crossWorkspaceSearch";
 
 const DEFAULT_ROW_BATCH_LIMIT = 100;
 const BACKGROUND_ROW_INDEX_BATCH_LIMIT = 200;
@@ -123,10 +128,12 @@ function resolveDatabaseRowLoadTarget(
       protectedDatabase: true,
     };
   }
-  if (!currentWorkspaceId) return null;
+  const databaseWorkspaceId =
+    useDatabaseStore.getState().databases[databaseId]?.meta.workspaceId ?? currentWorkspaceId;
+  if (!databaseWorkspaceId) return null;
   return {
     resolvedDatabaseId: databaseId,
-    workspaceId: currentWorkspaceId,
+    workspaceId: databaseWorkspaceId,
     scope: {},
     protectedDatabase: false,
   };
@@ -169,6 +176,11 @@ function databaseRowIndexConfirmsEmpty(loadKey: string): boolean {
 
 function databaseBundleIsConfirmedEmpty(databaseId: string, loadKey: string): boolean {
   return databaseBundleIsEmpty(databaseId) && databaseRowIndexConfirmsEmpty(loadKey);
+}
+
+function shouldUseCrossWorkspaceRowMerge(workspaceId: string, protectedDatabase: boolean): boolean {
+  if (protectedDatabase) return false;
+  return workspaceId !== useWorkspaceStore.getState().currentWorkspaceId;
 }
 
 function isSchemaUnavailableError(error: unknown): boolean {
@@ -323,10 +335,18 @@ async function loadLegacyFullProtectedDatabaseSnapshot(args: {
   if (args.cancelled?.()) return false;
   const database = databases.find((item) => item.id === args.resolvedDatabaseId);
   if (!database) return false;
-  applyRemotePagesToStore(pages);
-  applyRemoteDatabasesToStore([database]);
+  if (shouldUseCrossWorkspaceRowMerge(args.workspaceId, args.protectedDatabase)) {
+    const candidate = databaseCandidateFromGql(database);
+    if (!candidate) return false;
+    rememberCrossWorkspaceDatabaseRows(candidate, pages);
+  } else {
+    applyRemotePagesToStore(pages);
+    applyRemoteDatabasesToStore([database]);
+  }
   useDatabaseRowRemoteStore.getState().setNextToken(args.resolvedDatabaseId, null);
-  refreshWorkspaceSnapshot(args.workspaceId);
+  if (!shouldUseCrossWorkspaceRowMerge(args.workspaceId, args.protectedDatabase)) {
+    refreshWorkspaceSnapshot(args.workspaceId);
+  }
   const resolved = databaseRowsAreCached(args.resolvedDatabaseId);
   return resolved;
 }
@@ -408,8 +428,14 @@ export async function ensureDatabaseRowsLoaded({
       return false;
     }
 
-    applyRemotePagesToStore(rows.items);
-    applyRemoteDatabasesToStore([database]);
+    if (shouldUseCrossWorkspaceRowMerge(workspaceId, protectedDatabase)) {
+      const candidate = databaseCandidateFromGql(database);
+      if (!candidate) return false;
+      rememberCrossWorkspaceDatabaseRows(candidate, rows.items);
+    } else {
+      applyRemotePagesToStore(rows.items);
+      applyRemoteDatabasesToStore([database]);
+    }
     useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
     upsertRowIndexRows({
       loadKey,
@@ -436,7 +462,9 @@ export async function ensureDatabaseRowsLoaded({
       firstNextToken: rows.nextToken ?? null,
       source,
     });
-    refreshWorkspaceSnapshot(workspaceId);
+    if (!shouldUseCrossWorkspaceRowMerge(workspaceId, protectedDatabase)) {
+      refreshWorkspaceSnapshot(workspaceId);
+    }
 
     const resolved =
       scoped || databaseRowsAreCached(resolvedDatabaseId) || rowIndexFallbackResolved;
@@ -481,7 +509,7 @@ export async function loadMoreDatabaseRows(args: {
 }): Promise<boolean> {
   const target = resolveDatabaseRowLoadTarget(args.databaseId, args.currentWorkspaceId);
   if (!target) return false;
-  const { resolvedDatabaseId, workspaceId, scope } = target;
+  const { resolvedDatabaseId, workspaceId, scope, protectedDatabase } = target;
   const loadKey = compositeKey(resolvedDatabaseId, scope);
   const store = useDatabaseRowRemoteStore.getState();
   const nextToken = store.nextTokenByDatabaseId[loadKey];
@@ -499,7 +527,22 @@ export async function loadMoreDatabaseRows(args: {
       limit: rowLimit,
       nextToken,
     });
-    applyRemotePagesToStore(rows.items);
+    if (shouldUseCrossWorkspaceRowMerge(workspaceId, protectedDatabase)) {
+      const existing = useDatabaseStore.getState().databases[resolvedDatabaseId];
+      if (existing) {
+        rememberCrossWorkspaceDatabaseRows(
+          {
+            id: resolvedDatabaseId,
+            workspaceId,
+            meta: existing.meta,
+            columns: existing.columns,
+          },
+          rows.items,
+        );
+      }
+    } else {
+      applyRemotePagesToStore(rows.items);
+    }
     useDatabaseRowRemoteStore.getState().setNextToken(loadKey, rows.nextToken ?? null);
     upsertRowIndexRows({
       loadKey,
@@ -507,7 +550,9 @@ export async function loadMoreDatabaseRows(args: {
       rows: rows.items,
       complete: !rows.nextToken,
     });
-    refreshWorkspaceSnapshot(workspaceId);
+    if (!shouldUseCrossWorkspaceRowMerge(workspaceId, protectedDatabase)) {
+      refreshWorkspaceSnapshot(workspaceId);
+    }
     return rows.items.length > 0;
   })().catch(() => {
     return false;

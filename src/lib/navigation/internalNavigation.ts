@@ -1,6 +1,11 @@
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useUiStore } from "../../store/uiStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { ensurePageContentLoaded } from "../sync/pageContentLoad";
+import { requestCrossWorkspaceLanding } from "../sync/workspaceLanding";
 import { buildQuickNotePageUrl } from "./quicknoteLinks";
+import type { Page } from "../../types/page";
 
 export type InternalNavigationClick = {
   ctrlKey?: boolean;
@@ -11,8 +16,40 @@ export function shouldOpenInternalLinkInNewTab(event: InternalNavigationClick): 
   return Boolean(event.ctrlKey || event.metaKey);
 }
 
-function pageExists(pageId: string): boolean {
-  return Boolean(usePageStore.getState().pages[pageId]);
+function findPage(pageId: string): Page | null {
+  return usePageStore.getState().pages[pageId] ?? null;
+}
+
+// 타 워크스페이스 페이지는 워크스페이스를 전환하지 않고 미리보기(peek) 팝업으로 띄운다.
+// 현재 탭 구조를 건드리지 않고 해당 페이지만 본다. 실제 전환은 peek 의 "이 워크스페이스로 이동"
+// 버튼이 navigateToWorkspacePage() 로 수행한다.
+function openCrossWorkspacePeek(pageId: string, targetWorkspaceId: string | null): boolean {
+  const currentWorkspaceId = useWorkspaceStore.getState().currentWorkspaceId;
+  if (!targetWorkspaceId || targetWorkspaceId === currentWorkspaceId) return false;
+  void ensurePageContentLoaded({
+    pageId,
+    workspaceId: targetWorkspaceId,
+    source: "cross-workspace-peek",
+  }).then((loaded) => {
+    if (loaded) useUiStore.getState().openPeek(pageId);
+    else useUiStore.getState().showToast("다른 워크스페이스 페이지를 불러오지 못했습니다.", { kind: "error" });
+  });
+  return true;
+}
+
+function requestWorkspaceNavigationIfNeeded(page: Page): boolean {
+  return openCrossWorkspacePeek(page.id, page.workspaceId ?? null);
+}
+
+// peek 의 "이 워크스페이스로 이동" 버튼 — 실제 워크스페이스 전환 + 진입 landing 이 first-root 로
+// 리셋하는 대신 이 페이지로 결정적으로 착지하도록 요청한다.
+export function navigateToWorkspacePage(pageId: string, targetWorkspaceId: string): void {
+  if (!targetWorkspaceId || targetWorkspaceId === useWorkspaceStore.getState().currentWorkspaceId) {
+    openPageInCurrentTab(pageId);
+    return;
+  }
+  requestCrossWorkspaceLanding(targetWorkspaceId, pageId);
+  useWorkspaceStore.getState().setCurrentWorkspaceId(targetWorkspaceId);
 }
 
 /**
@@ -35,16 +72,26 @@ function pushPageBrowserHistory(pageId: string): void {
   }
 }
 
-export function openPageInCurrentTab(pageId: string): boolean {
-  if (!pageExists(pageId)) return false;
+export function openPageInCurrentTab(
+  pageId: string,
+  opts?: { workspaceId?: string | null },
+): boolean {
+  const page = findPage(pageId);
+  if (!page) return openCrossWorkspacePeek(pageId, opts?.workspaceId ?? null);
+  if (requestWorkspaceNavigationIfNeeded(page)) return true;
   useSettingsStore.getState().setCurrentTabPage(pageId);
   usePageStore.getState().setActivePage(pageId);
   pushPageBrowserHistory(pageId);
   return true;
 }
 
-export function openPageInNewTab(pageId: string): boolean {
-  if (!pageExists(pageId)) return false;
+export function openPageInNewTab(
+  pageId: string,
+  opts?: { workspaceId?: string | null },
+): boolean {
+  const page = findPage(pageId);
+  if (!page) return openCrossWorkspacePeek(pageId, opts?.workspaceId ?? null);
+  if (requestWorkspaceNavigationIfNeeded(page)) return true;
   useSettingsStore.getState().openTab(pageId);
   usePageStore.getState().setActivePage(pageId);
   return true;

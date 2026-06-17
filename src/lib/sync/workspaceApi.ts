@@ -9,7 +9,7 @@ import {
   SET_WORKSPACE_ACCESS,
   UPDATE_WORKSPACE,
 } from "./queries/workspace";
-import type { WorkspaceSummary } from "../../store/workspaceStore";
+import type { WorkspaceAccessSummary, WorkspaceSummary } from "../../store/workspaceStore";
 
 export type WorkspaceAccessInput = {
   subjectType: "TEAM" | "MEMBER" | "EVERYONE";
@@ -29,10 +29,23 @@ type WorkspaceResponse = Omit<WorkspaceSummary, "type" | "myEffectiveLevel"> & {
   options?: WorkspaceOptions;
 };
 
-export type WorkspaceDetail = WorkspaceSummary & {
+export type WorkspaceDetail = Omit<WorkspaceSummary, "access"> & {
   access: WorkspaceAccessInput[];
   options?: WorkspaceOptions;
 };
+
+function normalizeAccessEntry(entry: WorkspaceAccessInput): WorkspaceAccessSummary {
+  return {
+    subjectType:
+      entry.subjectType === "MEMBER"
+        ? "member"
+        : entry.subjectType === "TEAM"
+          ? "team"
+          : "everyone",
+    subjectId: entry.subjectId ?? null,
+    level: entry.level === "EDIT" ? "edit" : "view",
+  };
+}
 
 function normalizeWorkspace(ws: WorkspaceResponse): WorkspaceSummary & { options?: WorkspaceOptions } {
   return {
@@ -44,6 +57,7 @@ function normalizeWorkspace(ws: WorkspaceResponse): WorkspaceSummary & { options
         : ws.myEffectiveLevel === "VIEW"
           ? "view"
           : ws.myEffectiveLevel,
+    access: (ws.access ?? []).map(normalizeAccessEntry),
   };
 }
 

@@ -1,3 +1,5 @@
+import { useWorkspaceStore } from "../../store/workspaceStore";
+
 export type QuickNoteLinkTarget = {
   pageId: string;
   /** 블록 노드 attrs.id — 페이지 편집(블록 추가/삭제)에도 안전한 기준. 우선 사용. */
@@ -5,6 +7,8 @@ export type QuickNoteLinkTarget = {
   /** 블록 시작 PM 위치 — blockId 가 없는(레거시) 링크의 폴백. */
   block?: number | null;
   tab?: string | null;
+  /** 페이지가 속한 워크스페이스. 타 워크스페이스 링크 클릭 시 전환 대상 식별에 사용. */
+  workspaceId?: string | null;
 };
 
 export function buildQuickNotePageUrl(target: QuickNoteLinkTarget): string {
@@ -20,6 +24,12 @@ export function buildQuickNotePageUrl(target: QuickNoteLinkTarget): string {
   }
   if (typeof target.block === "number" && Number.isFinite(target.block)) {
     params.set("block", String(target.block));
+  }
+  // 링크를 자기설명적으로 — 페이지 복사는 항상 현재 워크스페이스에서 일어나므로 기본값으로 현재 WS 를 싣는다.
+  // 타 워크스페이스에 붙여넣어 클릭하면 이 값으로 워크스페이스를 전환한다.
+  const workspaceId = target.workspaceId ?? useWorkspaceStore.getState().currentWorkspaceId;
+  if (workspaceId) {
+    params.set("ws", workspaceId);
   }
   const hash = target.tab ? `#tab-${encodeURIComponent(target.tab)}` : "";
   return `${base}?${params.toString()}${hash}`;
@@ -41,6 +51,7 @@ export function parseQuickNoteLink(raw: string): QuickNoteLinkTarget | null {
         blockId: url.searchParams.get("blockId"),
         block: Number.isFinite(block) ? block : null,
         tab: null,
+        workspaceId: url.searchParams.get("ws"),
       };
     } catch {
       return null;
@@ -59,6 +70,7 @@ export function parseQuickNoteLink(raw: string): QuickNoteLinkTarget | null {
       blockId: url.searchParams.get("blockId"),
       block: Number.isFinite(block) ? block : null,
       tab: tabHash ? decodeURIComponent(tabHash[1] ?? "") : null,
+      workspaceId: url.searchParams.get("ws"),
     };
   } catch {
     return null;

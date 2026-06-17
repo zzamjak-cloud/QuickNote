@@ -60,12 +60,16 @@ persist 된 탭이 { databaseId: X } (풀페이지 DB 탭)
 
 **2중 방어 (둘 다 필요):**
 
-1. **진입 시 첫 인덱스 페이지로 리셋** — `applyWorkspaceLanding(ws, { forceFirstRoot: true })`.
-   Bootstrap 의 모든 워크스페이스 데이터 적용에서 `landingForceFirstRoot: true` 로 호출 →
-   전환·새로고침·강제 새로고침 진입 시 직전 DB 탭/마지막 방문 페이지를 복원하지 않고
-   항상 첫 인덱스 페이지로 결정적 리셋한다. DB 탭이 비워지므로 ensure 트리거 자체가 사라진다.
-   일반 워크스페이스 landing 후보에서는 다른 워크스페이스 페이지와 LC 보호 DB 페이지/블록을 제외한다.
+1. **진입 시 유령 위험 탭만 무력화(안전한 페이지는 복원)** — `applyWorkspaceLanding(ws, { forceFirstRoot: true })`.
+   Bootstrap 의 모든 워크스페이스 데이터 적용에서 `landingForceFirstRoot: true` 로 호출된다.
+   - 활성 탭이 **안전한 일반 페이지**(현재 WS 소속·DB 탭 아님·풀페이지 DB 홈 아님·보호 DB 블록 아님)면
+     그대로 유지해 사용자가 보던 위치를 복원한다(`isRestorableLandingPage`).
+   - 활성 탭이 **DB 탭/풀페이지 DB 홈**이면 마지막 방문 페이지(안전 시) 또는 첫 인덱스 페이지로 대체한다.
+     활성 탭에서 DB 탭/풀페이지 홈이 사라지므로 ensure 트리거 자체가 없어진다(유령 방지 핵심 불변식).
+   - 복원/대체 후보에서 다른 워크스페이스 페이지와 LC 보호 DB 페이지/블록은 항상 제외한다.
    (`src/lib/sync/workspaceLanding.ts`, `src/Bootstrap.tsx`)
+   > 과거에는 진입 시 **항상** 첫 인덱스로 리셋했으나, 사용자 요청으로 안전한 일반 페이지는 복원하도록 완화했다.
+   > 단 "활성 탭이 DB 탭/풀페이지 홈이면 안 된다"는 불변식은 그대로다 — 이것이 유령 방지의 본질이다.
 
 2. **부트 구간 자동 생성 차단** — `uiStore.workspaceBootstrapping`.
    landing 이 탭을 비우기 전 새로고침 레이스로 ensure 가 먼저 실행될 수 있으므로,
@@ -111,7 +115,7 @@ persist 된 탭이 { databaseId: X } (풀페이지 DB 탭)
 - **ghost 재발 조건**: `upsertPage` 호출 시 `fullPageDatabaseId`를 빠뜨리면 레거시 폴백에만 의존하게 된다. 폴백은 doc 본문이 로드된 후에만 동작하므로 메타 베이스라인 경로에서 사이드바에 순간 노출될 수 있다.
 - **수동 제거된 ghost**: localStorage 캐시에 `fullPageDatabaseId` 없이 저장된 기존 ghost는 재동기화 전까지 표시될 수 있다. F5(재동기화)로 해결.
 - **reconcileWorkspaceFullSnapshot**: ghost 제거(prune)는 전체 스냅샷에서만 실행된다. 델타 동기화 중에는 실행되지 않는다.
-- **landing 진입 리셋을 끄지 말 것**: `landingForceFirstRoot` 를 false 로 되돌리면 복원된 DB 탭이 다시 ghost 를 만든다. 진입 화면 고정은 UX 선택이자 ghost 방지책이다.
+- **landing 가드를 끄지 말 것**: `landingForceFirstRoot` 를 false 로 되돌리거나 `isRestorableLandingPage` 의 풀페이지 DB 홈/DB 탭 배제를 풀면 복원된 DB 탭이 다시 ghost 를 만든다. "활성 탭은 DB 탭/풀페이지 홈이 아니어야 한다"는 불변식은 유지하되, 안전한 일반 페이지 복원은 허용된다.
 - **초기 `?page=` 복원 금지**: 새로고침/콜드 부트에서 URL 의 stale `?page` 를 먼저 열면 landing 결과를 다시 덮는다. 최초 마운트는 landing 을 권위로 두고, URL 은 active page 확정 후 교정한다.
 
 ## 관련 파일

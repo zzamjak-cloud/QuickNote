@@ -2,13 +2,17 @@ import { filterWorkspaceMembersForMention } from "./filterMembersForMention";
 import { searchMembersForMentionApi } from "../sync/memberApi";
 import { useMemberStore } from "../../store/memberStore";
 import { usePageStore } from "../../store/pageStore";
-import { useDatabaseStore } from "../../store/databaseStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import { CACHE_TTL, isCacheFresh } from "../cache/ttl";
 import {
-  MENTION_DATABASE_PREFIX,
+  loadCrossWorkspacePageCandidates,
+  rememberCrossWorkspacePages,
+} from "../crossWorkspaceSearch";
+import {
   MENTION_MEMBER_PREFIX,
   MENTION_PAGE_PREFIX,
 } from "../tiptapExtensions/mentionKind";
+import type { Page } from "../../types/page";
 
 /**
  * 멤버 로컬 캐시가 신선한지 판단한다.
@@ -25,11 +29,12 @@ export type MentionListItem = {
   id: string;
   label: string;
   subtitle: string;
-  mentionKind: "member" | "page" | "database";
+  mentionKind: "member" | "page";
+  workspaceId?: string;
+  page?: Page;
 };
 
 function buildLocalMentionItems(query: string): MentionListItem[] {
-  const q = query.trim().toLowerCase();
   const membersLocal = filterWorkspaceMembersForMention(query, 14);
   const mergedMembers = new Map<string, MentionListItem>();
   const pushMember = (memberId: string, name: string, jobRole: string) => {
@@ -47,37 +52,39 @@ function buildLocalMentionItems(query: string): MentionListItem[] {
     pushMember(m.memberId, m.name, m.jobRole);
   }
 
-  const pages = Object.values(usePageStore.getState().pages).filter((p) => {
-    if ((p as { deletedAt?: string | null }).deletedAt) return false;
-    if (!q) return true;
-    const title = (p.title || "제목 없음").toLowerCase();
-    return title.includes(q);
-  });
-  const pageItems: MentionListItem[] = pages.slice(0, 8).map((p) => ({
-    id: `${MENTION_PAGE_PREFIX}${p.id}`,
-    label: p.title || "제목 없음",
-    subtitle: "페이지",
-    mentionKind: "page" as const,
-  }));
-
-  const databases = Object.values(useDatabaseStore.getState().databases).filter(
-    (bundle) => {
-      const t = (bundle.meta.title || "").toLowerCase();
-      if (!q) return true;
-      return t.includes(q);
-    },
-  );
-  const dbItems: MentionListItem[] = databases.slice(0, 6).map((bundle) => ({
-    id: `${MENTION_DATABASE_PREFIX}${bundle.meta.id}`,
-    label: bundle.meta.title || "데이터베이스",
-    subtitle: "DB",
-    mentionKind: "database" as const,
-  }));
-
-  return [...mergedMembers.values(), ...pageItems, ...dbItems];
+  return [...mergedMembers.values()];
 }
 
-/** @query 에 대한 통합 멘션 후보(멤버·페이지·DB), 부분 문자열 필터 */
+function pageMentionItems(pages: Page[], query: string, limit: number): MentionListItem[] {
+  const q = query.trim().toLowerCase();
+  // 동명 페이지 구분을 위해 subtitle 에 소속 워크스페이스 이름을 표기한다.
+  const workspaceNameById = new Map(
+    useWorkspaceStore.getState().workspaces.map((w) => [w.workspaceId, w.name]),
+  );
+  return pages
+    .filter((p) => {
+      if ((p as { deletedAt?: string | null }).deletedAt) return false;
+      if (!q) return true;
+      return (p.title || "제목 없음").toLowerCase().includes(q);
+    })
+    // 로컬 페이지가 merge 앞쪽에 오므로 작은 하드캡은 타 워크스페이스 페이지를 잘라낸다.
+    // 최종 limit 이 통합 후보를 다시 자르므로 여기서는 그보다 넉넉히 둔다.
+    .slice(0, Math.max(limit, 16))
+    .map((p) => ({
+      id: `${MENTION_PAGE_PREFIX}${p.id}`,
+      label: p.title || "제목 없음",
+      subtitle: (p.workspaceId && workspaceNameById.get(p.workspaceId)) || "페이지",
+      mentionKind: "page" as const,
+      workspaceId: p.workspaceId,
+      page: p,
+    }));
+}
+
+export function rememberMentionItemTarget(item: MentionListItem): void {
+  if (item.page) rememberCrossWorkspacePages([item.page]);
+}
+
+/** @query 에 대한 통합 멘션 후보(멤버·페이지), 부분 문자열 필터 */
 export async function loadMergedMentionItems(
   query: string,
   limit = 10,
@@ -86,6 +93,13 @@ export async function loadMergedMentionItems(
   const q = query.trim().toLowerCase();
   const includeRemoteMembers = options?.includeRemoteMembers ?? true;
   const localCombined = buildLocalMentionItems(query);
+  let pageItems: MentionListItem[] = [];
+  try {
+    const pages = await loadCrossWorkspacePageCandidates();
+    pageItems = pageMentionItems(pages, query, limit);
+  } catch {
+    pageItems = pageMentionItems(Object.values(usePageStore.getState().pages), query, limit);
+  }
 
   const mergedMembers = new Map<string, MentionListItem>();
   const accessibleMemberIds = new Set(
@@ -118,13 +132,9 @@ export async function loadMergedMentionItems(
     }
   }
 
-  const pageItems = localCombined.filter((item) => item.mentionKind === "page");
-  const dbItems = localCombined.filter((item) => item.mentionKind === "database");
-
   const combined: MentionListItem[] = [
     ...mergedMembers.values(),
     ...pageItems,
-    ...dbItems,
   ];
 
   if (!q) {

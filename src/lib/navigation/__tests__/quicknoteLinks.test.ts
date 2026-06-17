@@ -26,4 +26,10 @@ describe("quicknoteLinks blockId 파라미터", () => {
     expect(parsed?.pageId).toBe("pageX");
     expect(parsed?.blockId).toBe("uuid-123");
   });
+
+  it("build→parse 라운드트립으로 workspaceId(ws) 가 보존된다", () => {
+    const url = buildQuickNotePageUrl({ pageId: "p1", workspaceId: "ws-origin" });
+    expect(url.includes("ws=ws-origin")).toBe(true);
+    expect(parseQuickNoteLink(url)?.workspaceId).toBe("ws-origin");
+  });
 });

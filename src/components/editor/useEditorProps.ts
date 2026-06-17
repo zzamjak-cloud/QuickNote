@@ -14,7 +14,9 @@ import {
 import {
   parseQuickNoteLink,
   quickNoteLinkLabel,
+  type QuickNoteLinkTarget,
 } from "../../lib/navigation/quicknoteLinks";
+import { fetchPageById } from "../../lib/sync/bootstrap";
 import { usePageStore } from "../../store/pageStore";
 import { sanitizeWebLinkHref } from "../../lib/safeUrl";
 import {
@@ -45,6 +47,50 @@ type UseEditorPropsParams = {
   editorScrollHostRef: MutableRefObject<HTMLDivElement | null>;
   editorRef: MutableRefObject<Editor | null>;
 };
+
+// 붙여넣은 타 워크스페이스 페이지 링크 버튼의 라벨을 실제 페이지 제목으로 비동기 갱신한다.
+// 붙여넣기 시점엔 로컬 store 에 페이지가 없어 제목을 모르므로, 링크의 ws 로 메타를 조회해 라벨만 교체한다.
+async function applyCrossWorkspaceButtonLabel(
+  view: PmEditorView,
+  href: string,
+  target: QuickNoteLinkTarget,
+): Promise<void> {
+  if (!target.workspaceId) return;
+  const placeholderLabel = quickNoteLinkLabel(undefined, target);
+  let title: string | undefined;
+  try {
+    const page = await fetchPageById(target.workspaceId, target.pageId);
+    title = page?.title || undefined;
+  } catch {
+    return;
+  }
+  if (!title) return;
+  const nextLabel = quickNoteLinkLabel(title, target);
+  if (nextLabel === placeholderLabel) return;
+  // 붙여넣은 버튼 노드를 href + 플레이스홀더 라벨로 찾아 라벨만 갱신(사용자가 이미 수정한 버튼은 건드리지 않음).
+  const positions: number[] = [];
+  view.state.doc.descendants((node, pos) => {
+    if (
+      node.type.name === "buttonBlock" &&
+      node.attrs.href === href &&
+      node.attrs.label === placeholderLabel
+    ) {
+      positions.push(pos);
+    }
+    return true;
+  });
+  if (positions.length === 0) return;
+  try {
+    let tr = view.state.tr;
+    for (const pos of positions) {
+      const node = tr.doc.nodeAt(pos);
+      if (node) tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, label: nextLabel });
+    }
+    view.dispatch(tr);
+  } catch {
+    /* 에디터가 그 사이 사라졌으면 무시 */
+  }
+}
 
 const TEXT_SELECTION_DRAG_THRESHOLD_SQ = 16; // 4px — 클릭과 드래그 구분
 const TEXT_SELECTION_SCROLL_EDGE_PX = 56;
@@ -259,17 +305,21 @@ export function useEditorProps({
         const internalTarget = parseQuickNoteLink(text);
         if (internalTarget) {
           event.preventDefault();
-          const title = usePageStore.getState().pages[internalTarget.pageId]?.title;
+          const localTitle = usePageStore.getState().pages[internalTarget.pageId]?.title;
           const buttonType = view.state.schema.nodes.buttonBlock;
           if (!buttonType) return true;
           view.dispatch(
             view.state.tr.replaceSelectionWith(
               buttonType.create({
-                label: quickNoteLinkLabel(title, internalTarget),
+                label: quickNoteLinkLabel(localTitle, internalTarget),
                 href: text,
               }),
             ),
           );
+          // 로컬에 제목이 없는 타 워크스페이스 페이지면 제목을 비동기로 가져와 버튼 라벨을 갱신한다.
+          if (!localTitle && internalTarget.workspaceId) {
+            void applyCrossWorkspaceButtonLabel(view, text, internalTarget);
+          }
           return true;
         }
 

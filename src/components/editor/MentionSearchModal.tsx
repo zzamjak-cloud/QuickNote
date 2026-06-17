@@ -10,6 +10,7 @@ import {
 import type { Editor } from "@tiptap/react";
 import {
   loadMergedMentionItems,
+  rememberMentionItemTarget,
   type MentionListItem,
 } from "../../lib/comments/mentionItems";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
@@ -40,7 +41,6 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
   const groups: MentionGroup[] = [
     { kind: "member", label: "구성원", rows: [] },
     { kind: "page", label: "페이지", rows: [] },
-    { kind: "database", label: "데이터베이스", rows: [] },
   ];
   items.forEach((item, index) => {
     groups.find((group) => group.kind === item.mentionKind)?.rows.push({
@@ -108,6 +108,7 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
           return;
         }
       }
+      rememberMentionItemTarget(item);
       const $from = editor.state.doc.resolve(range.from);
       for (let depth = $from.depth; depth > 0; depth--) {
         if ($from.node(depth).isBlock) {

@@ -1,7 +1,7 @@
 // 컬럼 편집 팝업의 추가 섹션 — sourceFromDb / progressSource / pageLinkScope·검색필터.
 // DatabaseColumnMenu 내부에서 컬럼 type 에 따라 조건부 렌더링.
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppSelect } from "../../common/AppSelect";
 import { useDatabaseStore, listDatabases } from "../../../store/databaseStore";
 import type {
@@ -9,11 +9,44 @@ import type {
   ProgressSourceConfig,
   ColumnSourceFromDb,
 } from "../../../types/database";
+import {
+  loadCrossWorkspaceDatabaseCandidates,
+  rememberCrossWorkspaceDatabase,
+  type CrossWorkspaceDatabaseCandidate,
+} from "../../../lib/crossWorkspaceSearch";
 
 type CommonProps = {
   databaseId: string;
   column: ColumnDef;
 };
+
+function useCrossWorkspaceDatabases(): CrossWorkspaceDatabaseCandidate[] {
+  const localDatabases = useDatabaseStore(listDatabases);
+  const localDatabasesSignature = useMemo(
+    () => localDatabases.map((db) => `${db.id}:${db.meta.updatedAt}`).join("|"),
+    [localDatabases],
+  );
+  const [databases, setDatabases] = useState<CrossWorkspaceDatabaseCandidate[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadCrossWorkspaceDatabaseCandidates().then((rows) => {
+      if (!cancelled) setDatabases(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [localDatabasesSignature]);
+
+  return databases.length > 0
+    ? databases
+    : localDatabases.map((db) => ({
+        id: db.id,
+        workspaceId: db.meta.workspaceId ?? "",
+        meta: db.meta,
+        columns: [],
+      }));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1) 진행률 소스 편집기 — column.type === "progress"
@@ -22,6 +55,7 @@ type CommonProps = {
 export function ProgressSourceEditor({ databaseId, column }: CommonProps) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const databases = useDatabaseStore((s) => s.databases);
+  const allDatabases = useCrossWorkspaceDatabases();
   const ps = column.config?.progressSource ?? null;
 
   const currentBundle = databases[databaseId];
@@ -35,7 +69,9 @@ export function ProgressSourceEditor({ databaseId, column }: CommonProps) {
     linkedPageColumn?.type === "itemFetch"
       ? linkedPageColumn.config?.itemFetchSourceDatabaseId ?? ps?.databaseId ?? ""
       : linkedPageColumn?.config?.pageLinkScopeDatabaseId ?? ps?.databaseId ?? "";
-  const targetDb = targetDbId ? databases[targetDbId] : null;
+  const targetDb = targetDbId
+    ? databases[targetDbId] ?? allDatabases.find((d) => d.id === targetDbId) ?? null
+    : null;
   const statusColumnOptions = (targetDb?.columns ?? [])
     .filter((c) => c.type === "status" || c.type === "select" || c.type === "checkbox")
     .map((c) => ({ value: c.id, label: c.name }));
@@ -141,13 +177,15 @@ export function ProgressSourceEditor({ databaseId, column }: CommonProps) {
 export function SelectSourceEditor({ databaseId, column }: CommonProps) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const databases = useDatabaseStore((s) => s.databases);
-  const allDatabases = useDatabaseStore(listDatabases);
+  const allDatabases = useCrossWorkspaceDatabases();
   const src = column.config?.sourceFromDb ?? null;
   const linkedScope = column.config?.linkedScope ?? null;
   const enabled = src != null;
   const sourceMode = src?.automation ? "_automation" : enabled ? "_db" : linkedScope ?? "_none";
 
-  const targetDb = src?.databaseId ? databases[src.databaseId] : null;
+  const targetDb = src?.databaseId
+    ? databases[src.databaseId] ?? allDatabases.find((d) => d.id === src.databaseId) ?? null
+    : null;
   const targetColumns = (targetDb?.columns ?? []).filter((c) => c.type === column.type);
 
   const update = (patch: ColumnSourceFromDb | null) => {
@@ -160,6 +198,11 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
       // sourceFromDb 와 linkedScope 는 상호 배타적 — 설정 시 다른 쪽 해제
       config: { ...(column.config ?? {}), sourceFromDb: patch, linkedScope: undefined },
     });
+  };
+
+  const rememberSelectedDatabase = (databaseId: string) => {
+    const selected = allDatabases.find((db) => db.id === databaseId);
+    if (selected) rememberCrossWorkspaceDatabase(selected);
   };
 
   const setLinkedScope = (scope: "organization" | "team" | "project" | null) => {
@@ -216,13 +259,14 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
         <div className="mt-2 space-y-1.5">
           <AppSelect
             value={src?.databaseId ?? ""}
-            onChange={(v) =>
+            onChange={(v) => {
+              rememberSelectedDatabase(v);
               update({
                 databaseId: v,
                 columnId: "",
                 automation: src?.automation,
-              })
-            }
+              });
+            }}
             options={[
               { value: "", label: "DB 선택…" },
               ...allDatabases
@@ -319,12 +363,14 @@ export function SelectSourceEditor({ databaseId, column }: CommonProps) {
 export function ItemFetchEditor({ databaseId, column }: CommonProps) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const databases = useDatabaseStore((s) => s.databases);
-  const allDatabases = useDatabaseStore(listDatabases);
+  const allDatabases = useCrossWorkspaceDatabases();
 
   const sourceDbId = column.config?.itemFetchSourceDatabaseId ?? "";
   const matchColId = column.config?.itemFetchMatchColumnId ?? "";
 
-  const sourceDb = sourceDbId ? databases[sourceDbId] : null;
+  const sourceDb = sourceDbId
+    ? databases[sourceDbId] ?? allDatabases.find((d) => d.id === sourceDbId) ?? null
+    : null;
 
   const matchColOptions = useMemo(() => {
     if (!sourceDb) return [];
@@ -334,6 +380,8 @@ export function ItemFetchEditor({ databaseId, column }: CommonProps) {
   }, [sourceDb]);
 
   const setSourceDb = (v: string) => {
+    const selected = allDatabases.find((db) => db.id === v);
+    if (selected) rememberCrossWorkspaceDatabase(selected);
     updateColumn(databaseId, column.id, {
       config: {
         ...(column.config ?? {}),
@@ -404,13 +452,15 @@ export function ItemFetchEditor({ databaseId, column }: CommonProps) {
 export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
   const updateColumn = useDatabaseStore((s) => s.updateColumn);
   const databases = useDatabaseStore((s) => s.databases);
-  const allDatabases = useDatabaseStore(listDatabases);
+  const allDatabases = useCrossWorkspaceDatabases();
 
   const rawScopeDbId = column.config?.pageLinkScopeDatabaseId;
   const scopeDbId = rawScopeDbId === databaseId ? undefined : rawScopeDbId;
   const mirrorColumnId = column.config?.pageLinkMirrorColumnId ?? "";
 
-  const scopeDb = scopeDbId ? databases[scopeDbId] : null;
+  const scopeDb = scopeDbId
+    ? databases[scopeDbId] ?? allDatabases.find((d) => d.id === scopeDbId) ?? null
+    : null;
   const linkableDatabases = useMemo(
     () => allDatabases.filter((d) => d.id !== databaseId),
     [allDatabases, databaseId],
@@ -436,6 +486,8 @@ export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
   }, [scopeDb]);
 
   const setScopeDb = (v: string) => {
+    const selected = allDatabases.find((db) => db.id === v);
+    if (selected) rememberCrossWorkspaceDatabase(selected);
     updateColumn(databaseId, column.id, {
       config: {
         ...(column.config ?? {}),

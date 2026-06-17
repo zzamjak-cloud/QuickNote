@@ -54,6 +54,11 @@ import {
   resolveDatabaseVisibleRowLimit,
 } from "./databaseRowLimit";
 import { useDatabaseCollabSession } from "../../lib/collab/useDatabaseCollabSession";
+import {
+  loadCrossWorkspaceDatabaseCandidates,
+  rememberCrossWorkspaceDatabase,
+  type CrossWorkspaceDatabaseCandidate,
+} from "../../lib/crossWorkspaceSearch";
 
 const DEFAULT_VISIBLE_ROW_LIMIT = DEFAULT_DATABASE_VISIBLE_ROW_LIMIT;
 
@@ -76,6 +81,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   panelStateRef.current = panelState;
 
   const bundle = useDatabaseStore((s) => s.databases[viewDatabaseId]);
+  const databaseWorkspaceId = bundle?.meta.workspaceId ?? currentWorkspaceId;
 
   // DB 구조·셀 실시간 협업(Phase 4) — flag ON 인 DB 만 활성. materialize 시 store 에 투영, 첫 sync 시 행 셀 시드 폴백.
   useDatabaseCollabSession(
@@ -89,7 +95,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const bundleGone = hasDatabaseId && !bundle;
   const isProtectedDatabase = isProtectedDatabaseId(databaseId);
   const rowPageOrder = bundle?.rowPageOrder;
-  const remoteRowKey = resolveDatabaseRowRemoteKey(databaseId, currentWorkspaceId);
+  const remoteRowKey = resolveDatabaseRowRemoteKey(databaseId, databaseWorkspaceId);
   const remoteRowNextToken = useDatabaseRowRemoteStore(
     (s) => (remoteRowKey ? s.nextTokenByDatabaseId[remoteRowKey] : null) ?? null,
   );
@@ -184,11 +190,11 @@ export function DatabaseBlockView(props: NodeViewProps) {
   }, [currentWorkspaceId]);
 
   useEffect(() => {
-    if (!hasDatabaseId || !currentWorkspaceId) return;
+    if (!hasDatabaseId || !databaseWorkspaceId) return;
     let cancelled = false;
     void ensureDatabaseRowsLoaded({
       databaseId,
-      currentWorkspaceId,
+      currentWorkspaceId: databaseWorkspaceId,
       cancelled: () => cancelled,
       rowLimit: resolveDatabaseInitialRowLimit(layout, panelState.itemLimit),
       source: "database-block",
@@ -196,7 +202,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [currentWorkspaceId, databaseId, hasDatabaseId, layout, panelState.itemLimit, rowPageOrder]);
+  }, [databaseWorkspaceId, databaseId, hasDatabaseId, layout, panelState.itemLimit, rowPageOrder]);
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
@@ -301,7 +307,26 @@ export function DatabaseBlockView(props: NodeViewProps) {
     [editor, getPos, layout, updateAttributes],
   );
 
-  const databasesList = useDatabaseStore(listDatabases);
+  const localDatabasesList = useDatabaseStore(listDatabases);
+  const localDatabasesSignature = useMemo(
+    () => localDatabasesList.map((db) => `${db.id}:${db.meta.updatedAt}`).join("|"),
+    [localDatabasesList],
+  );
+  const [databaseCandidates, setDatabaseCandidates] = useState<CrossWorkspaceDatabaseCandidate[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadCrossWorkspaceDatabaseCandidates().then((rows) => {
+      if (!cancelled) setDatabaseCandidates(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [localDatabasesSignature]);
+
+  const databasesList = databaseCandidates.length > 0
+    ? databaseCandidates.map((db) => ({ id: db.id, meta: db.meta }))
+    : localDatabasesList;
 
   const linkPickerFiltered = useMemo(() => {
     const q = linkPickerQuery.trim().toLowerCase();
@@ -336,20 +361,23 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const bindToExistingDatabase = useCallback(
     (id: string) => {
       if (!id) return;
+      const candidate = databaseCandidates.find((db) => db.id === id);
+      if (candidate) rememberCrossWorkspaceDatabase(candidate);
       const linked = useDatabaseStore.getState().databases[id];
+      const linkedTitle = linked?.meta.title ?? candidate?.meta.title ?? "";
       updateInlineBindingAttributes(
         layout === "fullPage"
           ? { databaseId: id }
           : { databaseId: id, readOnlyTitle: true },
       );
-      if (layout === "fullPage" && activePageId && linked) {
-        renamePage(activePageId, linked.meta.title);
+      if (layout === "fullPage" && activePageId && linkedTitle) {
+        renamePage(activePageId, linkedTitle);
       }
       setLinkOpen(false);
       setLinkPickerQuery("");
       setLinkPickerHighlight(0);
     },
-    [layout, activePageId, updateInlineBindingAttributes, renamePage],
+    [databaseCandidates, layout, activePageId, updateInlineBindingAttributes, renamePage],
   );
 
   const createNewDatabaseAndBind = useCallback(() => {
@@ -565,7 +593,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
                     } else if (remoteRowsHasMore) {
                       const loaded = await loadMoreDatabaseRows({
                         databaseId,
-                        currentWorkspaceId,
+                        currentWorkspaceId: databaseWorkspaceId,
                         rowLimit: remoteStep,
                         source: "database-block-more",
                       });

@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Database, Search } from "lucide-react";
-import { useDatabaseStore, listDatabases } from "../../../store/databaseStore";
 import { koreanIncludes } from "../../../lib/koreanSearch";
 import { AnchoredPanelBase } from "../../../lib/ui-primitives";
+import {
+  loadCrossWorkspaceDatabaseCandidates,
+  rememberCrossWorkspaceDatabase,
+  type CrossWorkspaceDatabaseCandidate,
+} from "../../../lib/crossWorkspaceSearch";
 
 type Props = {
   anchorEl: HTMLElement | null;
@@ -13,14 +17,23 @@ type Props = {
 
 export function DbLinkSearchPopup({ anchorEl, currentValue, onSelect, onClose }: Props) {
   const [query, setQuery] = useState("");
+  const [databases, setDatabases] = useState<CrossWorkspaceDatabaseCandidate[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const databases = useDatabaseStore(listDatabases);
 
   // 위치 보정(클램프/플립/스크롤·리사이즈 재계산)·외부 클릭·ESC 닫힘은 AnchoredPanelBase 가 흡수.
   useEffect(() => {
     const id = requestAnimationFrame(() => inputRef.current?.focus());
     return () => cancelAnimationFrame(id);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadCrossWorkspaceDatabaseCandidates().then((rows) => {
+      if (!cancelled) setDatabases(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const q = query.trim().toLowerCase();
@@ -65,7 +78,11 @@ export function DbLinkSearchPopup({ anchorEl, currentValue, onSelect, onClose }:
           <button
             key={db.id}
             type="button"
-            onClick={() => { onSelect(db.id); onClose(); }}
+            onClick={() => {
+              rememberCrossWorkspaceDatabase(db);
+              onSelect(db.id);
+              onClose();
+            }}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
           >
             <Database size={14} className="shrink-0 text-zinc-400" />

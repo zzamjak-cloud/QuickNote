@@ -272,6 +272,29 @@ function preserveCollabDoc(
   return merged;
 }
 
+// 명시적 cross-workspace 페이지 적재(미리보기 peek·collab 시드·타 워크스페이스 인라인 DB 행 등)용.
+// shouldApplyRemoteSnapshot 가드는 subscription 레이스로 인한 타 워크스페이스 오염 방지가 목적이라 유지하되,
+// 호출처가 의도적으로 다른 워크스페이스 페이지를 적재할 때는 가드 우회로 직접 store 에 넣는다(불필요한 경고 제거).
+// workspaceId 가 현재와 달라 사이드바·동기화 대상에선 자동 제외된다.
+export function applyRemotePageToStoreCrossWorkspaceAware(
+  remotePage: GqlPage | null | undefined,
+): void {
+  if (!remotePage) return;
+  const current = useWorkspaceStore.getState().currentWorkspaceId;
+  if (
+    remotePage.workspaceId &&
+    remotePage.workspaceId !== current &&
+    remotePage.workspaceId !== LC_SCHEDULER_WORKSPACE_ID
+  ) {
+    const local = gqlPageToLocalPage(remotePage);
+    usePageStore.setState((s) => ({
+      pages: { ...s.pages, [local.id]: { ...s.pages[local.id], ...local } },
+    }));
+    return;
+  }
+  applyRemotePageToStore(remotePage);
+}
+
 export function applyRemotePageToStore(
   remotePage: GqlPage | null | undefined,
 ): void {

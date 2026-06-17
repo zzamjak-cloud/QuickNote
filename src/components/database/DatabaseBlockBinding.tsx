@@ -1,6 +1,5 @@
 import { Database, Link2, Plus, Search } from "lucide-react";
 import type { Dispatch, KeyboardEvent, SetStateAction } from "react";
-import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 import type { DatabaseMeta } from "../../types/database";
 
 type InlineBindingStep = "choose" | "new" | "link";
@@ -33,8 +32,6 @@ export function DatabaseBlockBinding({
   bindToExistingDatabase,
   onLinkPickerKeyDown,
 }: Props) {
-  const databasesList = useDatabaseStore(listDatabases);
-
   return (
     <div className="p-2">
       <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50/60 px-3 py-4 text-xs dark:border-zinc-600 dark:bg-zinc-900/40">
@@ -128,12 +125,7 @@ export function DatabaseBlockBinding({
               aria-label="검색된 데이터베이스"
               className="mb-3 max-h-48 max-w-md overflow-y-auto rounded border border-zinc-200 bg-white dark:border-zinc-600 dark:bg-zinc-950"
             >
-              {databasesList.length === 0 ? (
-                <div className="px-3 py-6 text-center text-sm text-amber-700 dark:text-amber-400">
-                  아직 저장된 데이터베이스가 없습니다. 「뒤로」에서 새로 만들기를
-                  선택하세요.
-                </div>
-              ) : linkPickerFiltered.length === 0 ? (
+              {linkPickerFiltered.length === 0 ? (
                 <div className="px-3 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
                   검색과 일치하는 데이터베이스가 없습니다.
                 </div>

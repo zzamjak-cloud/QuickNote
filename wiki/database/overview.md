@@ -15,6 +15,7 @@
 | `src/components/database/DatabaseTimelineView.tsx` | 타임라인 뷰 |
 | `src/components/database/useOpenDatabaseRow.ts` | cached-only row 클릭 시 본문 로드 보장 |
 | `src/components/layout/DatabaseManagerDialog.tsx` | DB 관리 팝업(목록·열기·삭제된 DB 휴지통·숨겨진 일괄삭제) |
+| `src/lib/crossWorkspaceSearch.ts` | 공개 워크스페이스의 페이지/DB 교차 검색 후보 로딩 |
 | `src/lib/database/` | 스키마·셀 로직·필터 쿼리 |
 | `infra/lambda/template-automation/` | DB 템플릿 자동 생성 runner |
 

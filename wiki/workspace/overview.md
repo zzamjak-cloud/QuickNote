@@ -44,22 +44,21 @@ Organization
 ## 전환
 사이드바에서 워크스페이스 선택 → `workspaceStore.activeWorkspaceId` 업데이트 → 해당 워크스페이스 페이지 로드
 
-## 진입 랜딩 (첫 인덱스 페이지 리셋)
+## 진입 랜딩 (보던 페이지 복원 + 유령 위험 탭만 무력화)
 
-워크스페이스 진입(전환·새로고침·강제 새로고침) 시 **항상 첫 인덱스(루트) 페이지로 리셋**한다.
-직전에 보던 페이지·풀페이지 DB 탭을 복원하지 않는다.
+워크스페이스 진입(전환·새로고침·강제 새로고침) 시 **활성 탭이 안전한 일반 페이지면 그대로 복원**하고,
+유령 페이지를 만드는 탭(DB 탭/풀페이지 DB 홈)만 첫 인덱스로 대체한다. 비활성 탭은 워크스페이스 스냅샷에서 보존된다.
 
 - `applyWorkspaceLanding(workspaceId, { forceFirstRoot: true })` (`src/lib/sync/workspaceLanding.ts`)
-  - `forceFirstRoot` 시: 활성 탭의 `databaseId`·`lastVisitedPageIdByWorkspaceId` 를 무시하고
-    `getFirstRootSidebarPageId` 결과로 탭·activePage 를 덮어쓴다.
-  - 첫 인덱스 후보는 반드시 현재 `workspaceId` 소속 페이지만 사용한다.
+  - 활성 탭이 `isRestorableLandingPage`(현재 `workspaceId` 소속·DB 탭 아님·풀페이지 DB 홈 아님·보호 DB 블록 아님)면 그대로 유지 → 사용자가 보던 위치 복원.
+  - 그 외(DB 탭/풀페이지 DB 홈/무효)면 `lastVisitedPageIdByWorkspaceId`(안전 시) 또는 `getFirstRootSidebarPageId` 로 대체.
   - 일반 워크스페이스에서는 LC 보호 DB(작업·마일스톤·피처) 페이지/블록을 후보에서 제외한다.
 - Bootstrap 의 모든 데이터 적용 경로에서 `landingForceFirstRoot: true` 로 호출.
-- 앱 최초 마운트에서는 URL 의 `?page=` 를 복원하지 않는다. 새로고침 landing 은 항상 첫 인덱스가 권위이며,
-  stale `?page=...` 는 landing 후 현재 active page URL 로 교정한다.
+- 앱 최초 마운트에서는 URL 의 `?page=` 를 복원하지 않는다. landing 결과가 권위이며 stale `?page=...` 는 landing 후 active page URL 로 교정한다.
 
-**이유**: 풀페이지 DB 탭을 복원하면 `ensureFullPagePageForDatabase` 가 메타 상태에서 홈을
-재생성해 ghost(중복 풀페이지 홈)가 생긴다. 진입 화면을 결정적으로 고정해 이 회귀를 차단한다.
+**유령 방지 불변식(끄지 말 것)**: 풀페이지 DB 탭/홈을 활성 탭으로 복원하면 `ensureFullPagePageForDatabase`
+가 메타 상태에서 홈을 재생성해 ghost(중복 풀페이지 홈)가 생긴다. **"활성 탭은 DB 탭/풀페이지 홈이 아니어야
+한다"** 는 불변식만 지키면 안전한 일반 페이지 복원은 허용된다(과거엔 항상 첫 인덱스로 리셋 → 사용자 요청으로 완화).
 새로고침 레이스 보강으로 `uiStore.workspaceBootstrapping` 구간에는 자동 홈 생성을 막는다.
 상세: [ghost-page-prevention.md](../pages/ghost-page-prevention.md)
 

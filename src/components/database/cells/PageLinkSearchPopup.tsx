@@ -19,7 +19,15 @@ import {
   makeSearchFilterPrefKey,
 } from "../../../store/searchFilterPrefsStore";
 import type { SearchFilterRule } from "../../../types/database";
+import type { Page } from "../../../types/page";
 import { AnchoredPanelBase } from "../../../lib/ui-primitives";
+import {
+  loadCrossWorkspaceDatabaseCandidates,
+  loadCrossWorkspacePageCandidates,
+  loadCrossWorkspaceRowsForDatabase,
+  rememberCrossWorkspacePages,
+  type CrossWorkspaceDatabaseCandidate,
+} from "../../../lib/crossWorkspaceSearch";
 
 type Props = {
   anchorEl: HTMLElement | null;
@@ -58,6 +66,8 @@ export function PageLinkSearchPopup({
   onClose,
 }: Props) {
   const [query, setQuery] = useState("");
+  const [loadedPages, setLoadedPages] = useState<Page[]>([]);
+  const [candidateDatabases, setCandidateDatabases] = useState<CrossWorkspaceDatabaseCandidate[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const pages = usePageStore((s) => s.pages);
@@ -112,7 +122,12 @@ export function PageLinkSearchPopup({
       case "feature":
         return featurePages.map((p) => ({ value: p.id, label: p.title || "제목 없음" }));
       case "database":
-        return allDatabases.map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" }));
+        return [
+          ...allDatabases.map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" })),
+          ...candidateDatabases
+            .filter((d) => !allDatabases.some((local) => local.id === d.id))
+            .map((d) => ({ value: d.id, label: d.meta.title || "제목 없음" })),
+        ];
     }
   };
 
@@ -123,14 +138,45 @@ export function PageLinkSearchPopup({
     return () => cancelAnimationFrame(id);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [pages, dbs] = await Promise.all([
+        scopeDatabaseId
+          ? loadCrossWorkspaceRowsForDatabase(scopeDatabaseId)
+          : loadCrossWorkspacePageCandidates(),
+        loadCrossWorkspaceDatabaseCandidates(),
+      ]);
+      if (cancelled) return;
+      setLoadedPages(pages);
+      setCandidateDatabases(dbs);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeDatabaseId]);
+
+  const databaseFilterMap = useMemo(() => {
+    const next = { ...databases };
+    for (const db of candidateDatabases) {
+      if (next[db.id]) continue;
+      next[db.id] = {
+        meta: db.meta,
+        columns: db.columns,
+        rowPageOrder: [],
+      };
+    }
+    return next;
+  }, [databases, candidateDatabases]);
+
   // 후보 페이지 산출 — scope → 컬럼 config 필터 → 사용자 동적 필터 → 검색어
   const candidatePages = useMemo(() => {
-    let result = Object.values(pages).filter((p) => p.id !== excludePageId);
+    let result = loadedPages.filter((p) => p.id !== excludePageId);
     if (scopeDatabaseId) result = result.filter((p) => p.databaseId === scopeDatabaseId);
-    result = applySearchFilters(result, searchFilters, databases, pages);
-    result = applySearchFilters(result, userFilters, databases, pages);
+    result = applySearchFilters(result, searchFilters, databaseFilterMap, pages);
+    result = applySearchFilters(result, userFilters, databaseFilterMap, pages);
     return result;
-  }, [pages, databases, excludePageId, scopeDatabaseId, searchFilters, userFilters]);
+  }, [databaseFilterMap, excludePageId, loadedPages, pages, scopeDatabaseId, searchFilters, userFilters]);
 
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -241,7 +287,10 @@ export function PageLinkSearchPopup({
             <button
               key={page.id}
               type="button"
-              onClick={() => onToggle(page.id)}
+              onClick={() => {
+                rememberCrossWorkspacePages([page]);
+                onToggle(page.id);
+              }}
               className={[
                 "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800",
                 selected ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-700 dark:text-zinc-300",

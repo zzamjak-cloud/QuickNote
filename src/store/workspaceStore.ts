@@ -7,6 +7,13 @@ import {
 
 export type WorkspaceAccessLevel = "edit" | "view";
 export type WorkspaceType = "personal" | "shared";
+export type WorkspaceAccessSubjectType = "member" | "team" | "everyone";
+
+export type WorkspaceAccessSummary = {
+  subjectType: WorkspaceAccessSubjectType;
+  subjectId?: string | null;
+  level: WorkspaceAccessLevel;
+};
 
 export type WorkspaceSummary = {
   workspaceId: string;
@@ -14,6 +21,7 @@ export type WorkspaceSummary = {
   type: WorkspaceType;
   ownerMemberId: string;
   myEffectiveLevel: WorkspaceAccessLevel;
+  access?: WorkspaceAccessSummary[];
   createdAt?: string;
   removedAt?: string;
 };

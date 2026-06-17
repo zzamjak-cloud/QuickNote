@@ -13,6 +13,7 @@ import {
   FolderTree,
   Loader2,
   Maximize2,
+  LogIn,
   MoreHorizontal,
   Printer,
   Trash2,
@@ -38,6 +39,7 @@ import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { buildPageHtmlZipBlob } from "../../lib/export/pageHtmlZip";
 import { collectDatabaseCollection } from "../../lib/export/databaseCollection";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
+import { navigateToWorkspacePage } from "../../lib/navigation/internalNavigation";
 import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageSubpageTree } from "../page/PageSubpageTree";
@@ -88,6 +90,13 @@ export function DatabaseRowPeek() {
     ? (pageFullWidthById[peekPageId] ?? globalFullWidth)
     : globalFullWidth;
   const page = usePageStore((s) => (peekPageId ? s.pages[peekPageId] : undefined));
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  // 다른 워크스페이스의 페이지를 미리보기로 띄운 경우 — "전체 열기"는 로컬 활성화 대신 해당 워크스페이스로 이동한다.
+  const isCrossWorkspacePeek = Boolean(
+    page?.workspaceId &&
+      page.workspaceId !== currentWorkspaceId &&
+      !isProtectedDatabaseId(page.databaseId),
+  );
   const peekDescendantCount = usePageStore((s) =>
     peekPageId ? countPageDescendants(peekPageId, s.pages) : 0,
   );
@@ -99,6 +108,12 @@ export function DatabaseRowPeek() {
   // 항목 페이지를 활성화하여 전체 페이지 뷰(DatabaseRowPage)가 보이게 한다.
   const openFullPage = () => {
     if (!peekPageId || !page) return;
+    // 다른 워크스페이스 페이지: 현재 워크스페이스에 펼치지 않고 해당 워크스페이스로 전환 이동한다.
+    if (isCrossWorkspacePeek && page.workspaceId) {
+      navigateToWorkspacePage(peekPageId, page.workspaceId);
+      closePeek();
+      return;
+    }
     const latestPages = usePageStore.getState().pages;
     const latestTarget = latestPages[peekPageId];
     if (!latestTarget) {
@@ -426,16 +441,16 @@ export function DatabaseRowPeek() {
         <div className="shrink-0 px-8 pt-8">
         <div className="mb-8 flex items-center justify-between gap-1">
           <div className="flex items-center gap-1">
-            {/* 전체보기 — 헤더 최좌측에 항상 고정 */}
+            {/* 전체보기 / 타 워크스페이스면 해당 워크스페이스로 이동 — 헤더 최좌측에 항상 고정 */}
             <button
               type="button"
               onClick={openFullPage}
               disabled={isPendingPageCreation}
               className="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800"
-              title="전체 페이지로 열기"
-              aria-label="전체 페이지로 열기"
+              title={isCrossWorkspacePeek ? "이 워크스페이스로 이동" : "전체 페이지로 열기"}
+              aria-label={isCrossWorkspacePeek ? "이 워크스페이스로 이동" : "전체 페이지로 열기"}
             >
-              <Maximize2 size={14} />
+              {isCrossWorkspacePeek ? <LogIn size={14} /> : <Maximize2 size={14} />}
             </button>
             {peekHistory.length > 0 && (
               <button

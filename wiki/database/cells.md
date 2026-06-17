@@ -26,6 +26,7 @@
 ## 자동화/참조 셀
 - `sourceFromDb` 자동화 결과가 비어 있으면 저장된 수동 셀값을 표시·편집 fallback 으로 사용한다. 참조 DB 값이 채워지면 자동화 값이 다시 우선한다.
 - `Page Link`는 연결 값을 다른 셀로 복사하거나 역방향으로 쓰지 않는다. 연결 DB의 `연결 없음`은 특정 DB scope가 없는 상태이며, 연결 DB 목록에서는 현재 DB를 제외한다.
+- `Page Link`/`DB Link`/컬럼 소스 DB 선택은 현재 워크스페이스 + `EVERYONE` 접근이 열린 공개 shared 워크스페이스 후보를 함께 검색한다(`crossWorkspaceSearch.ts`). 팀/멤버 전용 통제 워크스페이스와 LC 스케줄러 공용 워크스페이스는 일반 교차 후보에서 제외한다. 외부 후보는 `listPages`(DB 행 포함) + 워크스페이스 스냅샷 캐시 우선으로 로딩하고, 타 워크스페이스 인라인 DB의 행을 클릭하면 워크스페이스 전환 대신 **피크 팝업**으로 열린다(상세: `wiki/navigation/overview.md` 교차 멘션/링크/피크).
 - `Page Link`의 참조 표시는 `pageLinkMirrorColumnId`, `sourceFromDb`, `itemFetch` 실효값으로 계산한다.
 - `Progress`는 `progressSource`/`itemFetch` 기준 완료율 계산이며 pageLink 역방향 쓰기와 무관하다.
 - `Item Fetch`는 source DB에서 현재 row와 매칭되는 페이지를 읽기 전용으로 표시하며, LC Feature의 작업 목록과 진행률 계산에 사용된다.

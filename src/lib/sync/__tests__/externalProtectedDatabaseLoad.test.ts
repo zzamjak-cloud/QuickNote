@@ -9,6 +9,7 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 import { useDatabaseRowRemoteStore } from "../../../store/databaseRowRemoteStore";
 import { useDatabaseRowIndexStore } from "../../../store/databaseRowIndexStore";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
+import { useWorkspaceStore } from "../../../store/workspaceStore";
 import {
   fetchDatabaseById,
   fetchDatabaseRowIndexBatch,
@@ -50,6 +51,7 @@ beforeEach(() => {
   useDatabaseStore.setState({ databases: {}, cacheWorkspaceId: null });
   usePageStore.setState({ pages: {}, activePageId: null, cacheWorkspaceId: null });
   useSchedulerViewStore.setState({ selectedProjectId: null, selectedMemberId: null });
+  useWorkspaceStore.setState({ currentWorkspaceId: null, workspaces: [] });
 });
 
 describe("externalProtectedDatabaseLoad", () => {
@@ -269,6 +271,74 @@ describe("externalProtectedDatabaseLoad", () => {
       "cat-row-1",
     ]);
     expect(usePageStore.getState().pages["cat-row-1"]).toBeDefined();
+  });
+
+  it("외부 워크스페이스 DB는 저장된 DB workspaceId 로 row를 적재한다", async () => {
+    const updatedAt = "2026-06-04T00:00:00.000Z";
+    useWorkspaceStore.setState({ currentWorkspaceId: "cat-workspace" });
+    useDatabaseStore.setState({
+      databases: {
+        "external-db": {
+          meta: {
+            id: "external-db",
+            workspaceId: "public-workspace",
+            title: "Public DB",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [],
+          rowPageOrder: [],
+        },
+      },
+    });
+    fetchDatabaseByIdMock.mockResolvedValue({
+      id: "external-db",
+      workspaceId: "public-workspace",
+      createdByMemberId: "member-1",
+      title: "Public DB",
+      columns: [],
+      presets: [],
+      panelState: null,
+      createdAt: updatedAt,
+      updatedAt,
+    });
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({
+      items: [
+        {
+          id: "external-row-1",
+          workspaceId: "public-workspace",
+          createdByMemberId: "member-1",
+          title: "외부 항목",
+          parentId: null,
+          order: "1",
+          databaseId: "external-db",
+          doc: { type: "doc", content: [] },
+          dbCells: {},
+          blockComments: null,
+          createdAt: updatedAt,
+          updatedAt,
+        },
+      ],
+      nextToken: null,
+    });
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "external-db",
+        currentWorkspaceId: "cat-workspace",
+        source: "test",
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchDatabaseByIdMock).toHaveBeenCalledWith("public-workspace", "external-db");
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledWith({
+      workspaceId: "public-workspace",
+      databaseId: "external-db",
+      limit: 100,
+    });
+    expect(useDatabaseStore.getState().databases["external-db"]?.rowPageOrder).toEqual([
+      "external-row-1",
+    ]);
   });
 
   it("인라인 진입에서 row batch가 비어도 row index fallback으로 후보군을 적재한다", async () => {

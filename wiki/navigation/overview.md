@@ -15,6 +15,30 @@
 | 인라인 **외부** 웹 링크 | TipTap `Link` mark → `<a href>` | `openOnClick: false` — 클릭 열기는 **`App.tsx` capture** ([아래](#에디터-외부-웹-링크-클릭)) |
 | 북마크 블록 | `bookmarkBlock.tsx` | `onClick` → `window.open` (에디터 capture와 별도) |
 
+### 공개 워크스페이스 교차 멘션/링크/피크
+
+공개(`Workspace.access` 에 `EVERYONE` view/edit) shared 워크스페이스의 페이지·DB를 현재 워크스페이스에서 멘션·링크·연결할 수 있다. 팀/멤버 전용 통제 워크스페이스와 LC 스케줄러 공용 워크스페이스는 교차 후보에서 제외한다(`isPublicCrossWorkspace`, `src/lib/crossWorkspaceSearch.ts`).
+
+**후보 로딩 (`crossWorkspaceSearch.ts`)**
+- `loadCrossWorkspacePageCandidates` / `loadCrossWorkspaceDatabaseCandidates` = 로컬 + 공개 외부 워크스페이스. 외부 로딩은 워크스페이스별 `Promise.allSettled` 격리 — 한 곳이 실패해도 로컬+나머지는 유지(picker 가 통째로 비지 않음).
+- 외부 페이지는 **`listPages`(일반 페이지 + DB 행 포함)** 로 가져온다. `listPageMetas` 는 DB 행을 제외하므로 DB 중심 워크스페이스에서 후보가 0개가 되는 것을 피한다(로컬 멘션이 store의 DB 행을 포함하는 것과 대칭).
+- 캐시 우선순위: ① 5분 `pageCache` ② **워크스페이스 방문 시 적재된 스냅샷 캐시**(`readWorkspaceSnapshotPages` — 네트워크 0, 첫 검색 지연 제거) ③ 미방문만 `listPages` 네트워크 페치.
+- `Workspace.access`/`myEffectiveLevel` 은 서버가 소문자(`everyone`/`edit`)로 내려도 클라이언트 `normalizeAccessEntry`(`workspaceApi.ts`)가 흡수한다(대소문자 무관).
+
+**멘션 검색 (`MentionSearchModal` → `mentionItems.ts`)**
+- 멤버 + 페이지(로컬·교차)만. **DB(데이터베이스 자체)는 멘션 후보 아님** — DB 연결은 DB Link/Page Link/컬럼 소스 UI에서만.
+- 각 페이지 항목 subtitle 에 소속 **워크스페이스 이름**을 표시(동명 페이지 구분).
+
+**클릭 이동 — 워크스페이스 전환이 아니라 피크(peek)**
+- 타 워크스페이스 페이지를 링크/버튼/멘션으로 클릭하면 `internalNavigation.ts` 가 **워크스페이스를 전환하지 않고** `ensurePageContentLoaded(ws)` 로 본문만 적재해 **피크 팝업**(`DatabaseRowPeek`)으로 띄운다(`openCrossWorkspacePeek`). 현재 탭 구조를 건드리지 않는다.
+- 피크 좌상단 버튼이 **"이 워크스페이스로 이동"**(`LogIn` 아이콘)으로 바뀌고, 클릭 시 `navigateToWorkspacePage` 가 실제 전환 + 착지(`requestCrossWorkspaceLanding`)를 수행한다.
+- 타 워크스페이스 본문 적재는 storeApply 워크스페이스 가드를 우회해 직접 `pageStore` 에 넣는다(`applyRemotePageToStoreCrossWorkspaceAware` / `ensurePageContentLoaded`). 가드는 `page.workspaceId` 기준 판정이므로 **우회 판정도 가져온 페이지의 실제 workspaceId 기준**으로 한다(요청 workspaceId 가 어긋나도 안전). workspaceId 가 달라 사이드바·동기화 대상에선 자동 제외된다.
+  - DB 행을 `useOpenDatabaseRow` 로 열 때 workspaceId 폴백 순서: `page.workspaceId` → rowIndex → **DB 번들 `meta.workspaceId`** → currentWorkspaceId.
+
+**자기설명적 링크 (`quicknoteLinks.ts`)**
+- `buildQuickNotePageUrl` 은 `ws`(원본 워크스페이스, 기본값=현재 워크스페이스) 파라미터를 싣는다. 타 워크스페이스에 붙여넣어 만든 버튼(`buttonBlock`)을 클릭하면 이 `ws` 로 어느 워크스페이스 페이지인지 식별한다. ⚠️ 기존(ws 없이) 복사된 링크는 다시 복사해야 한다.
+- 붙여넣기 시 버튼 라벨은 즉시 로컬 제목(없으면 placeholder)으로 만들고, 타 워크스페이스면 `fetchPageById(ws)` 로 제목을 비동기 조회해 라벨을 갱신한다(`useEditorProps` `applyCrossWorkspaceButtonLabel`).
+
 ### 페이지 멘션 클릭 이동 — `pageMentionClick.ts` (document capture mouseup)
 
 페이지 멘션 이동은 **`App.tsx` click 이 아니라** `installPageMentionClickNavigation()` (`src/lib/navigation/pageMentionClick.ts`) 이 담당한다. `App.tsx` 마운트 시 `document` capture **`mousedown`/`mouseup`** 으로 press 정보를 캡처·이동한다.
@@ -113,6 +137,7 @@ TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 
 |------|------|
 | `src/lib/navigation/internalNavigation.ts` | `openPageInCurrentTab`/`openPageInNewTab`, `shouldOpenInternalLinkInNewTab`, `pushPageBrowserHistory` |
 | `src/lib/navigation/quicknoteLinks.ts` | `buildQuickNotePageUrl`/`parseQuickNoteLink`(딥링크 `?page&blockId`/`quicknote://`) |
+| `src/lib/crossWorkspaceSearch.ts` | 공개 워크스페이스 교차 페이지/DB 후보 로딩·선택 후보 메타 기억 |
 | `src/store/navigationHistoryStore.ts` | 인앱 백스택(`backStack`, `lastTargetPageId`, `pushBack`/`popBack`/`jumpTo`) |
 | `src/lib/navigation/pageMentionClick.ts` | 페이지 멘션 클릭 이동(document capture mousedown/mouseup). `App.tsx` 에서 설치 |
 | `src/App.tsx` | `installPageMentionClickNavigation`, `onEditorPointerClick`(에디터 **외부** `<a>` 링크만), `applyLocationLink`(popstate 복원) |

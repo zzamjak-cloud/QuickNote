@@ -26,6 +26,31 @@ function pageBelongsToWorkspace(
   return true;
 }
 
+// 크로스 워크스페이스 진입 목표 — 타 워크스페이스 페이지를 풀페이지로 열 때, 워크스페이스 전환
+// 진입 landing 이 first-root 로 강제 리셋하는 대신 클릭한 목표 페이지로 결정적으로 착지하게 한다.
+// 전환 중 applyRemote→landing 이 여러 번 실행돼도 항상 목표로 수렴한다(사후 네비 레이스 제거).
+let pendingCrossWorkspaceLanding: { workspaceId: string; pageId: string } | null = null;
+
+export function requestCrossWorkspaceLanding(workspaceId: string, pageId: string): void {
+  pendingCrossWorkspaceLanding = { workspaceId, pageId };
+}
+
+export function clearCrossWorkspaceLanding(): void {
+  pendingCrossWorkspaceLanding = null;
+}
+
+// 진입 landing 에서 활성/마지막 페이지로 복원해도 안전한지 — 유령 페이지(풀페이지 DB 홈)·
+// 보호 DB 블록·타 워크스페이스 페이지를 배제한다. pageBelongsToWorkspace 가 후자 둘을 거른다.
+function isRestorableLandingPage(
+  page: PageMap[string] | undefined,
+  workspaceId: string,
+): boolean {
+  if (!page) return false;
+  if (!pageBelongsToWorkspace(page, workspaceId)) return false;
+  if (isFullPageDatabaseHomePage(page)) return false;
+  return true;
+}
+
 export function getFirstRootSidebarPageId(
   pages: PageMap,
   workspaceId: string,
@@ -55,12 +80,44 @@ export function applyWorkspaceLanding(
   const settings = useSettingsStore.getState();
   const { pages, setActivePage } = usePageStore.getState();
 
-  // 워크스페이스 전환 진입: 직전에 보던 상태(원본 풀페이지 DB 탭·마지막 방문 페이지)를
-  // 복원하지 않고 항상 첫 인덱스 페이지로 리셋한다. 풀페이지 DB 탭을 복원하면
-  // ensureFullPagePageForDatabase 가 메타 상태에서 홈을 재생성해 데이터가 꼬이므로,
-  // 진입 화면을 결정적으로 고정해 회귀를 차단한다.
+  // 크로스 워크스페이스 진입 목표가 있으면 first-root 대신 목표 페이지로 착지한다.
+  // forceFirstRoot 와 동일하게 활성 탭을 교체하므로(풀페이지 DB 탭 복원 회귀 방지) 유령 페이지 위험은 없다.
+  if (pendingCrossWorkspaceLanding) {
+    if (pendingCrossWorkspaceLanding.workspaceId !== workspaceId) {
+      // 다른 워크스페이스로 진입 → 스테일 목표 폐기
+      pendingCrossWorkspaceLanding = null;
+    } else if (pageBelongsToWorkspace(pages[pendingCrossWorkspaceLanding.pageId], workspaceId)) {
+      const target = pendingCrossWorkspaceLanding.pageId;
+      settings.replaceCurrentTabPage(target);
+      setActivePage(target);
+      settings.setLastVisitedPageForWorkspace(workspaceId, target);
+      return;
+    }
+    // 목표 페이지가 아직 로드되지 않았으면 이번엔 first-root 로 폴백하고, 다음 landing 에서 재시도한다.
+  }
+
+  // 워크스페이스 전환/재진입: 직전에 보던 페이지를 복원하되, 유령 페이지를 만드는 탭만 무력화한다.
+  // - 안전한 일반 페이지(현재 WS 소속·DB 탭/풀페이지 DB 홈/보호 DB 블록 아님)면 그대로 유지해
+  //   사용자가 보던 위치를 복원한다.
+  // - DB 탭/풀페이지 DB 홈을 활성 탭으로 복원하면 ensureFullPagePageForDatabase 가 홈을 재생성(유령)하므로
+  //   마지막 방문 페이지(안전 시) 또는 첫 인덱스 페이지로 대체한다. (유령 방지 가드 유지)
   if (options.forceFirstRoot) {
-    const target = getFirstRootSidebarPageId(pages, workspaceId);
+    const activeTab = settings.tabs[settings.activeTabIndex];
+    const activeTabPageId = activeTab?.pageId ?? null;
+    if (
+      !activeTab?.databaseId &&
+      activeTabPageId &&
+      isRestorableLandingPage(pages[activeTabPageId], workspaceId)
+    ) {
+      setActivePage(activeTabPageId);
+      settings.setLastVisitedPageForWorkspace(workspaceId, activeTabPageId);
+      return;
+    }
+    const remembered = settings.lastVisitedPageIdByWorkspaceId[workspaceId] ?? null;
+    const target =
+      remembered && isRestorableLandingPage(pages[remembered], workspaceId)
+        ? remembered
+        : getFirstRootSidebarPageId(pages, workspaceId);
     settings.replaceCurrentTabPage(target);
     setActivePage(target);
     if (target) settings.setLastVisitedPageForWorkspace(workspaceId, target);

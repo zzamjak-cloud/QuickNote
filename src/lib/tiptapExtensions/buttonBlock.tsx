@@ -100,7 +100,7 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
       };
       const hasBlockTarget = internalHref.blockId != null || internalHref.block != null;
       if (shouldOpenInternalLinkInNewTab(event)) {
-        if (!openPageInNewTab(internalHref.pageId)) return;
+        if (!openPageInNewTab(internalHref.pageId, { workspaceId: internalHref.workspaceId })) return;
         if (hasBlockTarget) {
           navigateToBlockLink(internalHref.pageId, {
             blockId: internalHref.blockId,
@@ -115,7 +115,7 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
         // 도착 페이지를 함께 기록 → 일반 페이지에서도 헤더 '이전 페이지' 백스택이 유지됨.
         useNavigationHistoryStore.getState().pushBack(currentPageId, internalHref.pageId);
       }
-      if (!openPageInCurrentTab(internalHref.pageId)) return;
+      if (!openPageInCurrentTab(internalHref.pageId, { workspaceId: internalHref.workspaceId })) return;
       if (hasBlockTarget) {
         navigateToBlockLink(internalHref.pageId, {
           blockId: internalHref.blockId,

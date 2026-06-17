@@ -2,9 +2,9 @@ import { useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { usePageStore } from "../../../store/pageStore";
 import { useDatabaseStore } from "../../../store/databaseStore";
-import { useUiStore } from "../../../store/uiStore";
 import { PageIconDisplay } from "../../common/PageIconDisplay";
 import { PageLinkSearchPopup } from "./PageLinkSearchPopup";
+import { useOpenPageInPeek } from "../../page/useOpenPageInPeek";
 
 type Props = {
   databaseId: string;
@@ -19,7 +19,7 @@ export function PageLinkCell({ databaseId, rowId, columnId, value, readOnly = fa
   const searchBtnRef = useRef<HTMLButtonElement>(null);
 
   const pages = usePageStore((s) => s.pages);
-  const openPeek = useUiStore((s) => s.openPeek);
+  const openPageInPeek = useOpenPageInPeek();
   const updatePageLinkCell = useDatabaseStore((s) => s.updatePageLinkCell);
   // 현재 컬럼 정의 — pageLinkScopeDatabaseId / searchFilters 추출
   const column = useDatabaseStore((s) =>
@@ -50,7 +50,12 @@ export function PageLinkCell({ databaseId, rowId, columnId, value, readOnly = fa
         >
           <button
             type="button"
-            onClick={() => openPeek(page.id)}
+            onClick={() => {
+              void openPageInPeek(page.id, {
+                workspaceId: page.workspaceId ?? null,
+                source: "page-link-cell",
+              });
+            }}
             className="flex items-center gap-1 text-xs font-semibold"
             style={{ color: "#0f345c" }}
             title={`${page.title}로 이동`}

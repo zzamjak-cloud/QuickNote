@@ -15,6 +15,11 @@ export type OpenDatabaseRowOptions = {
 
 export function useEnsureDatabaseRowContent(databaseId: string) {
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  // 타 워크스페이스 인라인 DB 의 행은 DB 번들의 워크스페이스에 속한다. 현재 워크스페이스로 오인하면
+  // 콘텐츠 로드가 storeApply 워크스페이스 가드에 막히므로 DB 번들 워크스페이스를 우선 폴백으로 쓴다.
+  const databaseWorkspaceId = useDatabaseStore(
+    (s) => s.databases[databaseId]?.meta.workspaceId ?? null,
+  );
   const rowIndexKey = useMemo(
     () => resolveDatabaseRowRemoteKey(databaseId, currentWorkspaceId),
     [currentWorkspaceId, databaseId],
@@ -33,6 +38,7 @@ export function useEnsureDatabaseRowContent(databaseId: string) {
       const workspaceId =
         page?.workspaceId ??
         rowIndexWorkspaceByPageId.get(pageId) ??
+        databaseWorkspaceId ??
         currentWorkspaceId;
       const loaded = await ensurePageContentLoaded({
         pageId,
@@ -41,7 +47,7 @@ export function useEnsureDatabaseRowContent(databaseId: string) {
       });
       return loaded;
     },
-    [currentWorkspaceId, rowIndexWorkspaceByPageId],
+    [currentWorkspaceId, databaseWorkspaceId, rowIndexWorkspaceByPageId],
   );
 }
 

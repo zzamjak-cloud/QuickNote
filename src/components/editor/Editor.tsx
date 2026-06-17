@@ -122,7 +122,7 @@ import {
 } from "../../lib/collab/yjsDoc";
 import { EditorErrorBoundary } from "./EditorErrorBoundary";
 import { fetchPageById } from "../../lib/sync/bootstrap";
-import { applyRemotePageToStore } from "../../lib/sync/storeApply";
+import { applyRemotePageToStoreCrossWorkspaceAware } from "../../lib/sync/storeApply";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
@@ -676,7 +676,7 @@ function EditorInner({
           }, 1500);
           return;
         }
-        applyRemotePageToStore(remote);
+        applyRemotePageToStoreCrossWorkspaceAware(remote);
         // fetch 동안 피어 시드가 도착했으면 그쪽이 권위. 단, 기존 Y.Doc 이 렌더 불가능하면
         // 서버 fresh 본문(실패 시 현재 로컬 본문)으로 교체해 오염된 collab room 진입 크래시를 끊는다.
         if (!hasRenderableCollabContent(collabDoc, editor.schema)) {
