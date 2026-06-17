@@ -212,6 +212,25 @@ export function failedNotionAsset(asset: NotionImportedAsset, error: unknown): U
   };
 }
 
+// 실패 자산을 사용자 안내용 짧은 사유로 변환한다. (용량 초과 / 빈 파일 / 기타)
+// 한도값(50/100MB)이 경로별로 달라 특정 최대치는 명시하지 않고 실제 크기만 보여준다.
+export function describeNotionAssetFailure(
+  asset: Extract<UploadedNotionAsset, { kind: "failed" }>,
+): string {
+  const err = asset.error ?? "";
+  if (/too large|용량/.test(err)) {
+    const matched = err.match(/([\d.]+)\s*MB/);
+    const sizeText = matched
+      ? `${matched[1]}MB`
+      : asset.size > 0
+        ? `${(asset.size / 1024 / 1024).toFixed(1)}MB`
+        : null;
+    return sizeText ? `용량 초과 (${sizeText})` : "용량 초과";
+  }
+  if (/빈 파일|empty/.test(err)) return "빈 파일";
+  return err || "업로드 실패";
+}
+
 export function uploadedAssetToDocNode(
   uploaded: UploadedNotionAsset,
   alt = "",

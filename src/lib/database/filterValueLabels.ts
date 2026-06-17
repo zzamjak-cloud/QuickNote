@@ -54,7 +54,8 @@ function personOptions(members: readonly FilterLabelMember[]): SelectOption[] {
   return dedupeOptions(
     members.map((member) => ({
       id: member.memberId,
-      label: member.name.trim() || member.email.trim() || member.memberId,
+      // 유령/오염 캐시에서 name·email 이 undefined 인 멤버가 로드될 수 있어 옵셔널 체이닝으로 방어
+      label: member.name?.trim() || member.email?.trim() || member.memberId,
     })),
   );
 }
@@ -158,7 +159,7 @@ export function resolveFilterValueLabel(
     case "person": {
       const member = ctx.members.find((candidate) => candidate.memberId === value);
       if (!member) return value;
-      return member.name.trim() || member.email.trim() || member.memberId;
+      return member.name?.trim() || member.email?.trim() || member.memberId;
     }
     default:
       return value;

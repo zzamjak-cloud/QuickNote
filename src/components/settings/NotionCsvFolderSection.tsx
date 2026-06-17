@@ -18,6 +18,7 @@ import {
   collectNotionAssetRefsFromHtml,
   uploadNotionAsset,
   failedNotionAsset,
+  describeNotionAssetFailure,
   uploadedAssetToDocNode,
   type UploadedNotionAsset,
 } from "../../lib/notionImport/assetUpload";
@@ -29,8 +30,10 @@ import type { JSONContent } from "@tiptap/react";
 import {
   inferNotionColumnType,
   mapNotionColorToQuickNote,
+  mapNotionPropertyType,
   normalizeImportedCellValue,
 } from "../../lib/notionImport/columnInference";
+import { parseNotionRowProperties } from "../../lib/notionImport/rowPropertyMeta";
 import type { NotionImportSource } from "../../lib/notionImport/importSource";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
@@ -53,7 +56,7 @@ type SectionStatus =
   | { kind: "scanning" }
   | { kind: "ready"; pairs: CsvDbPair[]; dirName: string; rootDir: FileSystemDirectoryHandle }
   | { kind: "importing" }
-  | { kind: "done"; rowsImported: number; failed: number }
+  | { kind: "done"; rowsImported: number; failed: number; failedAssets: { name: string; reason: string; page: string }[] }
   | { kind: "error"; message: string };
 
 type ImportProgress = {
@@ -63,7 +66,7 @@ type ImportProgress = {
   rowIdx: number;
   rowTotal: number;
   rowTitle: string;
-  phase: "파일맵 구성" | "DB 생성" | "항목 처리" | "에셋 업로드" | "중첩 DB 처리" | "완료";
+  phase: "파일맵 구성" | "DB 생성" | "컬럼 분석" | "항목 처리" | "에셋 업로드" | "중첩 DB 처리" | "완료";
   assetIdx?: number;
   assetTotal?: number;
 };
@@ -274,6 +277,15 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
 
     let totalRowsImported = 0;
     let totalFailed = 0;
+    // 업로드 실패 첨부의 이름·사유·페이지 누적 — 완료 메시지에서 사용자에게 노출 (용량 초과 등)
+    const failedAssetList: { name: string; reason: string; page: string }[] = [];
+    const collectFailedAssets = (map: Map<string, UploadedNotionAsset>, page: string) => {
+      for (const up of map.values()) {
+        if (up.kind === "failed") {
+          failedAssetList.push({ name: up.name, reason: describeNotionAssetFailure(up), page });
+        }
+      }
+    };
     const dbIdByFolderPath = new Map<string, string>();
     const dbPageIdByFolderPath = new Map<string, string>();
     const pageIdByImportedPath = new Map<string, string>();
@@ -452,6 +464,53 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           console.warn(`[CSV가져오기] "${pair.folderBase}" 메인 HTML 미발견 — 휴리스틱 사용`);
         }
 
+        // 행 페이지 properties 테이블에서 권위 컬럼 타입·옵션 색 수집.
+        // 메인 컬렉션 뷰는 "보이는 속성"만 노출하므로(숨김 컬럼 제외) 체크박스/셀렉트 등
+        // 숨은 컬럼의 정확한 타입·색을 잃는다. 각 행 페이지의 properties 테이블은 모든 속성을
+        // 원본 타입/색과 함께 내보내므로 이를 권위 소스로 삼는다.
+        const notionTypeVotesByHeader = new Map<string, Map<string, number>>();
+        const notionOptionColorByHeader = new Map<string, Map<string, string | null>>();
+        const rowHtmlPaths = Array.from(
+          new Set(rowPlans.map((p) => p.htmlRelPath).filter((p): p is string => !!p)),
+        );
+        if (rowHtmlPaths.length > 0) {
+          updateProgress({ phase: "컬럼 분석" });
+          await yieldToPaint();
+          await runConcurrent(rowHtmlPaths, 4, async (relPath) => {
+            const handle = fileMap.get(relPath);
+            if (!handle) return;
+            try {
+              const text = await (await handle.getFile()).text();
+              for (const prop of parseNotionRowProperties(text)) {
+                const key = prop.header.trim();
+                const votes = notionTypeVotesByHeader.get(key) ?? new Map<string, number>();
+                votes.set(prop.notionType, (votes.get(prop.notionType) ?? 0) + 1);
+                notionTypeVotesByHeader.set(key, votes);
+                if (prop.options.length > 0) {
+                  const colorMap = notionOptionColorByHeader.get(key) ?? new Map<string, string | null>();
+                  for (const opt of prop.options) {
+                    const existing = colorMap.get(opt.label);
+                    // 색 토큰이 있는 값으로만 갱신(색 없는 occurrence 가 색을 덮어쓰지 않도록).
+                    if (existing == null && opt.colorToken != null) colorMap.set(opt.label, opt.colorToken);
+                    else if (!colorMap.has(opt.label)) colorMap.set(opt.label, opt.colorToken);
+                  }
+                  notionOptionColorByHeader.set(key, colorMap);
+                }
+              }
+            } catch {
+              /* 행 HTML 파싱 실패는 무시 — 휴리스틱으로 폴백 */
+            }
+          });
+        }
+        const authoritativeNotionType = (header: string): string | null => {
+          const votes = notionTypeVotesByHeader.get(header.trim());
+          if (!votes) return null;
+          let best: string | null = null;
+          let bestN = 0;
+          for (const [t, n] of votes) if (n > bestN) { best = t; bestN = n; }
+          return best;
+        };
+
         // QuickNote 데이터베이스 생성
         const dbId = dbIdByFolderPath.get(pair.folderPath);
         if (!dbId) continue;
@@ -490,6 +549,14 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           } else {
             colType = inferNotionColumnType({ header, values });
           }
+          // 행 페이지 properties 테이블의 원본 타입이 있으면 휴리스틱보다 우선 적용
+          // (체크박스/셀렉트 등 메인 뷰에 숨겨진 컬럼의 오판 방지).
+          const authNotionType = authoritativeNotionType(header);
+          const authType = mapNotionPropertyType(authNotionType);
+          if (authType) {
+            colType = authType;
+            inferSource = `notion-meta:${authNotionType}`;
+          }
           console.log(`[CSV가져오기] 컬럼 "${header}" → ${colType} (${inferSource})`);
 
           const colId = addColumn(dbId, { name: header, type: colType });
@@ -516,6 +583,17 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
                   }
                 }
               });
+            }
+            // 행 페이지 properties 테이블의 옵션 색 병합 — 메인 뷰에 없는 숨은 컬럼의 색 복원.
+            // 색이 없던 라벨에 색을 채우되, 이미 있는 색은 덮어쓰지 않는다.
+            const authColors = notionOptionColorByHeader.get(header.trim());
+            if (authColors) {
+              for (const [label, token] of authColors) {
+                const color = mapNotionColorToQuickNote(token);
+                if (!labelToColor.has(label) || (labelToColor.get(label) == null && color != null)) {
+                  labelToColor.set(label, color);
+                }
+              }
             }
             // CSV에 있지만 메타에 없는 라벨도 포함 (CSV는 콤마 구분 가능)
             for (const row of csvData.rows) {
@@ -648,6 +726,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
               updateProgress({ phase: "에셋 업로드", assetIdx: uploadedCount, assetTotal: uniqueAssets.length });
             }
           });
+          collectFailedAssets(uploadedAssetByPath, label);
           const resolveImageNode = (src: string, element: HTMLElement): JSONContent | null => {
             const ast = assetResolver.resolve(src, htmlRelPathParam);
             if (!ast) return null;
@@ -775,6 +854,12 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
                 .map((token) => resolveImportedPersonMemberId(token, importMembers, ""))
                 .filter((id): id is string => !!id);
               cells[colMeta.id] = Array.from(new Set(ids));
+              continue;
+            }
+            // checkbox 는 Notion 의 "Yes"/"No" 텍스트를 boolean 으로 변환해 저장한다.
+            if (colMeta.type === "checkbox") {
+              const v = raw.trim().toLowerCase();
+              cells[colMeta.id] = v === "yes" || v === "true" || v === "checked" || v === "y" || v === "1";
               continue;
             }
             // select/status/multiSelect 는 라벨 → 옵션 ID 변환 (normalizeImportedCellValue 는 라벨을 그대로 반환하므로 셀에 표시되지 않음).
@@ -1027,6 +1112,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
                 totalFailed++;
               }
             });
+            collectFailedAssets(uploadedAssetByPath, titleFromImportedHtmlPath(wrapperPath));
             const resolveImageNode = (src: string, element: HTMLElement): JSONContent | null => {
               const ast = rootAssetResolver.resolve(src, wrapperPath);
               if (!ast) return null;
@@ -1119,7 +1205,15 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
         }
       }
 
-      setStatus({ kind: "done", rowsImported: totalRowsImported, failed: totalFailed });
+      const dedupedFailedAssets = Array.from(
+        new Map(failedAssetList.map((a) => [`${a.page}|${a.name}|${a.reason}`, a])).values(),
+      );
+      setStatus({
+        kind: "done",
+        rowsImported: totalRowsImported,
+        failed: totalFailed,
+        failedAssets: dedupedFailedAssets,
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error("[CSV가져오기] 오류:", error);
@@ -1262,10 +1356,22 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
       {status.kind === "done" && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs dark:border-emerald-800 dark:bg-emerald-950/40">
           <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />
-          <span className="text-emerald-700 dark:text-emerald-300">
-            가져오기 완료: {status.rowsImported}개 항목
-            {status.failed > 0 && ` (첨부 ${status.failed}개 실패)`}
-          </span>
+          <div className="text-emerald-700 dark:text-emerald-300">
+            <div>
+              가져오기 완료: {status.rowsImported}개 항목
+              {status.failed > 0 && ` (첨부 ${status.failed}개 실패)`}
+            </div>
+            {status.failedAssets.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5 text-amber-700 dark:text-amber-400">
+                {status.failedAssets.map((a, i) => (
+                  <li key={`${a.name}-${i}`} className="truncate">
+                    • {a.name} — {a.reason}
+                    {a.page && <span className="text-amber-600/80 dark:text-amber-500/80"> (페이지: {a.page})</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 
