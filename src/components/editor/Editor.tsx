@@ -637,7 +637,14 @@ function EditorInner({
       sanitizeCollabDocAttrsForRender(collabDoc, editor.schema);
       setCollabBoundDoc(collabDoc);
     };
+    const repairPlaceholderCollabDocFromStore = () => {
+      if (hasRenderableCollabContent(collabDoc, editor.schema)) return;
+      const freshDoc = usePageStore.getState().pages[effectivePageId]?.doc ?? safePageDoc;
+      if (!freshDoc || isPlaceholderBodyJson(freshDoc)) return;
+      replaceCollabDocContent(collabDoc, editor.schema, freshDoc);
+    };
     if (seedState.status === "done") {
+      repairPlaceholderCollabDocFromStore();
       bindCollabDoc();
       return;
     }
