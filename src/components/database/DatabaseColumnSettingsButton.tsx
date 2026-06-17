@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Eye, EyeOff, GripVertical, Settings2 } from "lucide-react";
 import type {
@@ -49,7 +49,11 @@ export function DatabaseColumnSettingsButton({
   const patchDatabasePanelState = useDatabaseStore((s) => s.patchDatabasePanelState);
   const openColumnMenuId = useUiStore((s) => s.openColumnMenuId);
   const setOpenColumnMenu = useUiStore((s) => s.setOpenColumnMenu);
-  const menuKey = `settings:${databaseId}:${viewKind}`;
+  // 같은 원본 DB를 가리키는 인라인 DB 블록이 한 페이지에 여러 개일 때,
+  // databaseId+viewKind 만으로는 menuKey 가 겹쳐 두 블록의 팝업이 동시에 열린다.
+  // useId() 로 블록 인스턴스마다 고유 키를 부여해 클릭한 블록의 팝업만 열리게 한다.
+  const instanceId = useId();
+  const menuKey = `settings:${databaseId}:${viewKind}:${instanceId}`;
   const open = openColumnMenuId === menuKey;
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
