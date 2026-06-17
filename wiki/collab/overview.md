@@ -45,6 +45,7 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
    (라이브 "한 줄 불일치" 사고). 피어가 이미 시드한 doc(비어있지 않음)은 시드 생략.
    서버 본문이 placeholder 면 "진짜 빈 페이지"로 확정하고 시드 없이 바인딩. 단, 기존
    Y.Doc 이 placeholder 또는 렌더 불가능 상태면 fresh 서버 본문으로 교체한 뒤 바인딩한다.
+   시드용 fresh 본문은 store 반영 결과가 아니라 방금 받은 서버 응답에서 직접 파싱해 쓴다.
 2. **시드 완료 후에만 바인딩** — `collabBoundDoc` 게이트. ySyncPlugin 이 빈 fragment 에
    붙으면 PM 초기 빈 문단을 Y 에 주입해 `seedCollabDocIfEmpty` 가 "콘텐츠 있음"으로
    오판 → 본문 시드 영구 차단 → 전 페이지 빈 화면(라이브 사고). 바인딩 전에는 일반
@@ -60,6 +61,8 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
 - **빈 doc 가드**: `isCollabDocBodyEmpty`(fragment length 0) → 저장 생략.
 - **placeholder 가드**: 빈 문단뿐인 Y 상태가 의미 있는 기존 본문을 덮지 못함
   (`isPlaceholderBodyJson`, 서버 `preserveExistingDocForPlaceholderInput` 와 동일 의미).
+- **storeApply 예외**: 활성 협업 페이지라도 로컬 doc 이 placeholder 이고 서버 doc 이 실제 본문이면
+  서버 doc 을 받아 현재 화면과 시드 소스를 복구한다.
 - **렌더 가능성 가드**: 에디터 바인딩 전 Y.Doc attrs 를 primitive 만 남기고 정화하고,
   placeholder/오염 상태는 서버 본문으로 교체한다.
 - **DB**: 컬럼 0개 구조 차단 + 부분 시드(멤버·순서 빈)가 기존 행 순서를 비우지 못하게 보존.

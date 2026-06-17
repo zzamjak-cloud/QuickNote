@@ -16,6 +16,7 @@ import type { GqlDatabase, GqlPage, GqlPageMeta } from "../../lib/sync/graphql/o
 import { makeLCSchedulerDatabaseId } from "../../lib/scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { markLocallyDeletedEntity } from "../../lib/sync/localDeleteGuards";
+import { registerPageCollab, unregisterPageCollab } from "../../lib/collab/pageCollabRegistry";
 
 const GUARDS_KEY = "quicknote.sync.localDeleteGuards.v1";
 
@@ -132,6 +133,35 @@ describe("storeApply 워크스페이스 가드", () => {
     expect(usePageContentLoadStore.getState().metaOnlyByPageId["pg-1"]).toBeUndefined();
     expect(usePageStore.getState().pages["pg-1"]?.contentLoaded).toBe(true);
     expect(JSON.stringify(usePageStore.getState().pages["pg-1"]?.doc)).toContain("loaded");
+  });
+
+  it("협업 활성 페이지의 로컬 placeholder 는 서버 실제 본문을 막지 않는다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    applyRemotePageToStore({
+      ...gqlPage("ws-a", "pg-1"),
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    registerPageCollab("pg-1");
+
+    try {
+      applyRemotePageToStore({
+        ...gqlPage("ws-a", "pg-1"),
+        updatedAt: "2026-01-01T00:01:00.000Z",
+        doc: JSON.stringify({
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "server body" }],
+            },
+          ],
+        }),
+      });
+
+      expect(JSON.stringify(usePageStore.getState().pages["pg-1"]?.doc)).toContain("server body");
+    } finally {
+      unregisterPageCollab("pg-1");
+    }
   });
 
   it("현재 워크스페이스와 다르면 적용하지 않는다", () => {

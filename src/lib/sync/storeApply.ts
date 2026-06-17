@@ -267,9 +267,21 @@ function preserveCollabDoc(
   localIsMetaOnly: boolean,
 ): Page {
   if (local && !localIsMetaOnly && isPageCollabActive(merged.id)) {
+    if (isPlaceholderPageDoc(local.doc) && !isPlaceholderPageDoc(merged.doc)) {
+      return merged;
+    }
     return { ...merged, doc: local.doc, updatedAt: local.updatedAt };
   }
   return merged;
+}
+
+function isPlaceholderPageDoc(doc: Page["doc"] | null | undefined): boolean {
+  const content = doc?.content;
+  if (!Array.isArray(content) || content.length === 0) return true;
+  return content.every((node) => {
+    if (node?.type !== "paragraph") return false;
+    return !Array.isArray(node.content) || node.content.length === 0;
+  });
 }
 
 // 명시적 cross-workspace 페이지 적재(미리보기 peek·collab 시드·타 워크스페이스 인라인 DB 행 등)용.

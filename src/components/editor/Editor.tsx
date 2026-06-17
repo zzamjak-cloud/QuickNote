@@ -123,6 +123,7 @@ import {
 import { EditorErrorBoundary } from "./EditorErrorBoundary";
 import { fetchPageById } from "../../lib/sync/bootstrap";
 import { applyRemotePageToStoreCrossWorkspaceAware } from "../../lib/sync/storeApply";
+import { gqlPageToLocalPage } from "../../lib/sync/storeApply/helpers";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
 import { DatabaseFullPageStandalone } from "../database/DatabaseFullPageStandalone";
@@ -676,16 +677,17 @@ function EditorInner({
           }, 1500);
           return;
         }
+        const remoteDoc = gqlPageToLocalPage(remote).doc;
         applyRemotePageToStoreCrossWorkspaceAware(remote);
         // fetch 동안 피어 시드가 도착했으면 그쪽이 권위. 단, 기존 Y.Doc 이 렌더 불가능하면
         // 서버 fresh 본문(실패 시 현재 로컬 본문)으로 교체해 오염된 collab room 진입 크래시를 끊는다.
         if (!hasRenderableCollabContent(collabDoc, editor.schema)) {
-          const freshDoc = usePageStore.getState().pages[effectivePageId]?.doc ?? safePageDoc;
+          const freshDoc = remoteDoc ?? usePageStore.getState().pages[effectivePageId]?.doc ?? safePageDoc;
           if (freshDoc) {
             replaceCollabDocContent(collabDoc, editor.schema, freshDoc);
           }
         } else if (isCollabDocBodyEmpty(collabDoc)) {
-          const freshDoc = usePageStore.getState().pages[effectivePageId]?.doc ?? safePageDoc;
+          const freshDoc = remoteDoc ?? usePageStore.getState().pages[effectivePageId]?.doc ?? safePageDoc;
           // 서버 본문이 placeholder 면 "진짜 빈 페이지"로 확정 — 시드 없이 바인딩해야 신규
           // 페이지 편집이 가능하다(PM 초기 빈 문단은 빈 페이지에선 무해, materialize 가드와 정합).
           if (freshDoc && !isPlaceholderBodyJson(freshDoc)) {
