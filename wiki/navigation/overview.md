@@ -34,6 +34,7 @@
 - 피크 좌상단 버튼이 **"이 워크스페이스로 이동"**(`LogIn` 아이콘)으로 바뀌고, 클릭 시 `navigateToWorkspacePage` 가 실제 전환 + 착지(`requestCrossWorkspaceLanding`)를 수행한다.
 - 타 워크스페이스 본문 적재는 storeApply 워크스페이스 가드를 우회해 직접 `pageStore` 에 넣는다(`applyRemotePageToStoreCrossWorkspaceAware` / `ensurePageContentLoaded`). 가드는 `page.workspaceId` 기준 판정이므로 **우회 판정도 가져온 페이지의 실제 workspaceId 기준**으로 한다(요청 workspaceId 가 어긋나도 안전). workspaceId 가 달라 사이드바·동기화 대상에선 자동 제외된다.
   - DB 행을 `useOpenDatabaseRow` 로 열 때 workspaceId 폴백 순서: `page.workspaceId` → rowIndex → **DB 번들 `meta.workspaceId`** → currentWorkspaceId.
+- **타 워크스페이스 페이지·인라인 DB 는 협업(Yjs)을 비활성화한다.** `useCollabSession`/`useDatabaseCollabSession` 이 `page.workspaceId`(또는 DB 번들 `meta.workspaceId`) ≠ 현재 워크스페이스면 `enabled=false` 로 게이트한다. 안 그러면 빈 Y.Doc 바인딩이 우회 적재한 본문을 덮어써(**잠깐 보였다 사라짐**) 타 워크스페이스 룸 WebSocket 연결이 404 로 실패한다(라이브 회귀). 같은 워크스페이스 협업엔 영향 없음.
 
 **자기설명적 링크 (`quicknoteLinks.ts`)**
 - `buildQuickNotePageUrl` 은 `ws`(원본 워크스페이스, 기본값=현재 워크스페이스) 파라미터를 싣는다. 타 워크스페이스에 붙여넣어 만든 버튼(`buttonBlock`)을 클릭하면 이 `ws` 로 어느 워크스페이스 페이지인지 식별한다. ⚠️ 기존(ws 없이) 복사된 링크는 다시 복사해야 한다.

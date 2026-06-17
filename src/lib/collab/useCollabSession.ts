@@ -17,6 +17,7 @@ import {
 } from "./yjsDoc";
 import { readStoredTokens } from "../auth/tokenStore";
 import { usePageStore, enqueuePageUpsertForSync } from "../../store/pageStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import { collabColor } from "./collabColor";
 import { useMemberStore } from "../../store/memberStore";
 import { useCollabConnectionStore } from "../../store/collabConnectionStore";
@@ -48,7 +49,13 @@ export type CollabSession =
 export function useCollabSession(
   pageId: string | null | undefined,
 ): CollabSession {
-  const enabled = isCollabEnabledForPage(pageId);
+  const flagEnabled = isCollabEnabledForPage(pageId);
+  const pageWorkspaceId = usePageStore((s) => (pageId ? s.pages[pageId]?.workspaceId ?? null : null));
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  // 타 워크스페이스 페이지(미리보기 peek 등)는 협업 룸에 합류하지 않는다 — 빈 Y.Doc 바인딩이
+  // 우회 적재한 본문을 덮어써(잠깐 보였다 사라짐) 룸 WebSocket 연결도 실패(404)하기 때문.
+  // workspaceId 가 없는(미로드/레거시) 페이지는 기존대로 현재 워크스페이스로 취급한다.
+  const enabled = flagEnabled && (!pageWorkspaceId || pageWorkspaceId === currentWorkspaceId);
   const [synced, setSynced] = useState(false);
   const [idbLoaded, setIdbLoaded] = useState(false);
   const [docNotEmpty, setDocNotEmpty] = useState(false);

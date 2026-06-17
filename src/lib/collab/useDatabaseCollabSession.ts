@@ -10,6 +10,8 @@ import { readDbStructure, type DbStructure } from "./dbBundleYjs";
 import { registerDbCollab, unregisterDbCollab } from "./dbCollabRegistry";
 import { readStoredTokens } from "../auth/tokenStore";
 import { useCollabConnectionStore } from "../../store/collabConnectionStore";
+import { useDatabaseStore } from "../../store/databaseStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 import { toBadgeStatus, type ProviderStatus } from "./collabConnectionStatus";
 
 const MATERIALIZE_DEBOUNCE_MS = 1500;
@@ -24,7 +26,14 @@ export function useDatabaseCollabSession(
   onMaterialize: (structure: DbStructure) => void,
   onSynced?: () => void,
 ): DbCollabSession {
-  const enabled = isCollabEnabledForDatabase(databaseId);
+  const flagEnabled = isCollabEnabledForDatabase(databaseId);
+  const databaseWorkspaceId = useDatabaseStore(
+    (s) => (databaseId ? s.databases[databaseId]?.meta.workspaceId ?? null : null),
+  );
+  const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  // 타 워크스페이스 인라인 DB 는 구조 협업 룸에 합류하지 않는다 — 타 워크스페이스 룸 WebSocket
+  // 연결 실패(404)와 구조 덮어쓰기를 막는다. workspaceId 미설정 DB 는 현재 워크스페이스로 취급.
+  const enabled = flagEnabled && (!databaseWorkspaceId || databaseWorkspaceId === currentWorkspaceId);
   const [synced, setSynced] = useState(false);
   const [idbLoaded, setIdbLoaded] = useState(false);
   const docRef = useRef<Y.Doc | null>(null);
