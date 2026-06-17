@@ -168,10 +168,12 @@ body,
   height: 1.1em;
   font-size: 0.52em;
 }
-.toggle-block[data-open="true"] summary::before {
+/* 자식 결합자로 "자기 토글"에만 적용 — 후손 선택자면 부모가 열렸을 때 중첩 자식 토글
+   화살표까지 90도로 강제 회전되어, 자식 토글을 닫아도 화살표가 안 돌아오는 누수가 발생한다. */
+.toggle-block[data-open="true"] > .toggle-inner > summary::before {
   transform: rotate(90deg);
 }
-.toggle-block[data-open="false"] [data-toggle-content] {
+.toggle-block[data-open="false"] > .toggle-inner > [data-toggle-content] {
   display: none;
 }
 /* 토글 본문이 비었을 때 제목도 함께 회색 */
