@@ -16,7 +16,8 @@ const filterRuleSchema = z.object({
   id: z.string(),
   columnId: z.string(),
   operator: filterOperatorSchema,
-  value: z.string().optional(),
+  // 옵션형 컬럼은 체크박스 다중 선택을 지원하므로 string[] 도 허용 (하위 호환: 기존은 string)
+  value: z.union([z.string(), z.array(z.string())]).optional(),
 });
 
 const sortRuleSchema = z.object({

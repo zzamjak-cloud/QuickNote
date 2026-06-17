@@ -23,6 +23,17 @@ describe("parseDatabasePanelStateJson", () => {
     expect(out.sortRules).toEqual(emptyPanelState().sortRules);
   });
 
+  it("필터 값이 배열(체크박스 다중 선택)이어도 round-trip 에서 보존한다", () => {
+    const raw = JSON.stringify({
+      filterRules: [
+        { id: "f1", columnId: "c1", operator: "equals" as const, value: ["a", "b"] },
+      ],
+    });
+    const out = parseDatabasePanelStateJson(raw);
+    expect(out.filterRules).toHaveLength(1);
+    expect(out.filterRules[0]?.value).toEqual(["a", "b"]);
+  });
+
   it("구성원 탭 순서(schedulerMemberOrder)를 동기화 round-trip 에서 보존한다", () => {
     const raw = JSON.stringify({
       schedulerMemberOrder: ["member-3", "member-1", "member-2"],
