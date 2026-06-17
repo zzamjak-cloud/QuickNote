@@ -155,7 +155,7 @@ export const DatabaseCellDisplay = memo(function DatabaseCellDisplay({
       <span className="inline-flex max-w-full flex-wrap items-center gap-1">
         {ids.map((id, idx) => {
           const member = members.find((candidate) => candidate.memberId === id);
-          const label = member?.name.trim() || member?.email.trim() || id;
+          const label = member?.name?.trim() || member?.email?.trim() || id;
           return (
             <span
               key={`${id}-${idx}`}

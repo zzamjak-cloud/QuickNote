@@ -96,7 +96,7 @@ function resolveSchedulerPresetKind(
   presetId: string,
   preset: DatabaseRowPreset | undefined,
 ): "task" | "attendance" | null {
-  const name = preset?.name.trim();
+  const name = preset?.name?.trim();
   if (name === "일정") return "task";
   if (name === "근태") return "attendance";
   if (presetId === LC_SCHEDULER_TASK_PRESET_ID) return "task";
