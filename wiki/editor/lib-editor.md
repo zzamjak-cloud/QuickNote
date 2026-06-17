@@ -18,7 +18,7 @@
 ### 드래그&드롭
 | 파일 | 주요 export | 설명 |
 |------|------------|------|
-| `blockDropTarget.ts` | `BlockDropIndicatorRect`, 관련 유틸 | 블록 드래그 중 드롭 위치 rect 계산 |
+| `blockDropTarget.ts` | `BlockDropIndicatorRect`, 관련 유틸 | 블록 드래그 중 드롭 위치 rect 계산. 파일/이미지 drop도 같은 위치 계산을 사용하므로 컬럼 gap·토글 NodeView wrapper(`div.toggle-block`) hit를 내부 삽입 위치로 해석해야 한다 |
 | `editorHandleDrop.ts` | `BlockDropIndicatorRect`, `ColumnDropState`, 드롭 핸들러 | 블록·컬럼 드롭 이벤트 처리 로직 |
 | `tableReorderDrag.ts` | — | 테이블 행/열 드래그 재정렬 로직 |
 | `tableHeaders.ts` | `isHeaderRowActive`, `isHeaderColActive`, `applyHeaderRowToggle`, `applyHeaderColToggle` | 표 헤더행/헤더열 판별·토글. TipTap toggleHeader 명령 신뢰성 문제로 PM 트랜잭션 직접 처리. `TableBlockControls`(행/열 그립 메뉴)와 `BlockHandles`(표 블록 좌상단 핸들 메뉴)가 공유 |

@@ -1,9 +1,14 @@
 import { memo } from "react";
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { InputRule, Node, mergeAttributes, type Editor } from "@tiptap/core";
-import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import { InputRule, Node, mergeAttributes, type Editor, type JSONContent } from "@tiptap/core";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import { isToggleContentEmpty } from "./toggleContentEmpty";
+import { getToggleNodeViewRenderKey } from "./toggleNodeViewKey";
+
+const LIST_NODE_TYPES = new Set(["bulletList", "orderedList", "taskList"]);
+const LIST_ITEM_NODE_TYPES = new Set(["listItem", "taskItem"]);
 
 /** 커서가 속한 토글(제목 토글 포함)의 open 상태를 반전 */
 function toggleFoldAtSelection(editor: Editor): boolean {
@@ -21,6 +26,72 @@ function toggleFoldAtSelection(editor: Editor): boolean {
     return true;
   }
   return false;
+}
+
+function findFirstTextblock(node: PMNode): PMNode | null {
+  if (node.isTextblock) return node;
+  let found: PMNode | null = null;
+  node.descendants((child) => {
+    if (!child.isTextblock) return !found;
+    found = child;
+    return false;
+  });
+  return found;
+}
+
+function isToggleTitleEmpty(node: PMNode): boolean {
+  if (node.type.name !== "toggle") return true;
+  for (let i = 0; i < node.childCount; i += 1) {
+    const child = node.child(i);
+    if (child.type.name === "toggleHeader") return child.content.size === 0;
+  }
+  return true;
+}
+
+function toggleTitleContentFromSelection(editor: Editor): JSONContent[] {
+  const { selection } = editor.state;
+  const sourceNode = selection instanceof NodeSelection ? selection.node : selection.$from.parent;
+  const textblock = findFirstTextblock(sourceNode);
+  const serialized = textblock?.toJSON() as JSONContent | undefined;
+  const inlineContent = serialized?.content;
+  if (inlineContent && inlineContent.length > 0) return inlineContent;
+
+  const fallbackText = sourceNode.textContent.trim();
+  return fallbackText ? [{ type: "text", text: fallbackText }] : [];
+}
+
+function createToggleJson(editor: Editor): JSONContent {
+  return {
+    type: "toggle",
+    content: [
+      {
+        type: "toggleHeader",
+        content: toggleTitleContentFromSelection(editor),
+      },
+      {
+        type: "toggleContent",
+        content: [{ type: "paragraph" }],
+      },
+    ],
+  };
+}
+
+function findToggleReplaceRange(editor: Editor): { from: number; to: number } | null {
+  const { selection } = editor.state;
+  if (!(selection instanceof NodeSelection)) return null;
+  if (LIST_NODE_TYPES.has(selection.node.type.name)) {
+    return { from: selection.from, to: selection.to };
+  }
+  if (!LIST_ITEM_NODE_TYPES.has(selection.node.type.name)) return null;
+
+  const { $from } = selection;
+  for (let depth = $from.depth; depth >= 1; depth -= 1) {
+    const node = $from.node(depth);
+    if (!LIST_NODE_TYPES.has(node.type.name) || node.childCount !== 1) continue;
+    const from = $from.before(depth);
+    return { from, to: from + node.nodeSize };
+  }
+  return null;
 }
 
 // 토글 = summary(인라인) + content(블록 다수). 저장/클립보드는 <details>/<summary> 유지,
@@ -59,6 +130,7 @@ export const ToggleHeader = Node.create({
     return [
       "summary",
       mergeAttributes(HTMLAttributes, {
+        "data-title-empty": node.content.size === 0 ? "true" : "false",
         class: `toggle-header ${titleClass}`,
       }),
       0,
@@ -84,24 +156,28 @@ export const ToggleContent = Node.create({
   },
 });
 
-// open 속성이 바뀔 때만 React 컴포넌트 리렌더 — 내용 입력 시 리렌더 없음
+// 표시 속성이 바뀔 때만 React 컴포넌트 리렌더 — 내용 입력 시 리렌더 없음
 function areToggleNodeViewsEqual(prev: NodeViewProps, next: NodeViewProps): boolean {
-  return (
-    prev.node.attrs.open === next.node.attrs.open &&
-    isToggleContentEmpty(prev.node) === isToggleContentEmpty(next.node)
-  );
+  return getToggleNodeViewRenderKey(prev.node) === getToggleNodeViewRenderKey(next.node);
 }
 
 const ToggleView = memo(function ToggleView({ node }: NodeViewProps) {
   const isOpen = node.attrs.open as boolean;
   const contentEmpty = isToggleContentEmpty(node);
+  const titleEmpty = isToggleTitleEmpty(node);
+  const backgroundColor = node.attrs.backgroundColor as string | null;
+  const blockTextColor = node.attrs.blockTextColor as string | null;
+  const indent = (node.attrs.indent as number) || 0;
   return (
     <NodeViewWrapper
       as="div"
       className="toggle-block my-2 rounded-md px-2 py-1"
       data-open={String(isOpen)}
       data-content-empty={contentEmpty ? "true" : "false"}
-      data-title-empty={contentEmpty ? "true" : "false"}
+      data-title-empty={titleEmpty ? "true" : "false"}
+      data-indent={indent > 0 ? String(indent) : undefined}
+      data-bg-color={backgroundColor || undefined}
+      data-text-color={blockTextColor || undefined}
     >
       <NodeViewContent />
     </NodeViewWrapper>
@@ -156,10 +232,10 @@ export const Toggle = Node.create({
             .insertContentAt(paragraphStart, {
               type: this.name,
               content: [
-                {
-                  type: "toggleHeader",
-                  content: [{ type: "text", text: "토글 제목" }],
-                },
+              {
+                type: "toggleHeader",
+                content: [],
+              },
                 {
                   type: "toggleContent",
                   content: [{ type: "paragraph" }],
@@ -286,20 +362,20 @@ export const Toggle = Node.create({
     return {
       setToggle:
         () =>
-        ({ commands }) =>
-          commands.insertContent({
-            type: this.name,
-            content: [
-              {
-                type: "toggleHeader",
-                content: [{ type: "text", text: "토글 제목" }],
-              },
-              {
-                type: "toggleContent",
-                content: [{ type: "paragraph" }],
-              },
-            ],
-          }),
+        ({ editor, commands, tr, dispatch }) => {
+          const toggleJson = createToggleJson(editor);
+          const replaceRange = findToggleReplaceRange(editor);
+          if (replaceRange) {
+            tr.replaceWith(
+              replaceRange.from,
+              replaceRange.to,
+              editor.schema.nodeFromJSON(toggleJson),
+            );
+            dispatch?.(tr);
+            return true;
+          }
+          return commands.insertContent(toggleJson);
+        },
       setHeadingToggle:
         (level: 1 | 2 | 3) =>
         ({ commands }) =>
@@ -309,9 +385,7 @@ export const Toggle = Node.create({
               {
                 type: "toggleHeader",
                 attrs: { titleLevel: String(level) },
-                content: [
-                  { type: "text", text: `제목 ${level} 토글` },
-                ],
+                content: [],
               },
               {
                 type: "toggleContent",

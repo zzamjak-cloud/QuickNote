@@ -156,6 +156,45 @@ export function inferNotionColumnType(input: InferColumnInput): ColumnType {
   return "text";
 }
 
+// Notion 원본 속성 타입(`property-row-<type>`) → QuickNote ColumnType.
+// 행 페이지 properties 테이블에서 얻은 권위 메타가 있으면 휴리스틱보다 우선 적용한다.
+// 매핑할 수 없는 타입(formula/rollup/relation/files 등)은 null 을 반환해 휴리스틱에 위임한다.
+export function mapNotionPropertyType(
+  notionType: string | null | undefined,
+): ColumnType | null {
+  switch ((notionType ?? "").trim()) {
+    case "text":
+    case "rich_text":
+      return "text";
+    case "number":
+      return "number";
+    case "select":
+      return "select";
+    case "status":
+      return "status";
+    case "multi_select":
+      return "multiSelect";
+    case "date":
+    case "created_time":
+    case "last_edited_time":
+      return "date";
+    case "person":
+    case "created_by":
+    case "last_edited_by":
+      return "person";
+    case "checkbox":
+      return "checkbox";
+    case "url":
+      return "url";
+    case "email":
+      return "email";
+    case "phone_number":
+      return "phone";
+    default:
+      return null;
+  }
+}
+
 export function mapNotionColorToQuickNote(token: string | null | undefined): string | undefined {
   if (!token) return undefined;
   const map: Record<string, string> = {

@@ -28,6 +28,7 @@ import {
 import type { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
 import { TextSelection } from "@tiptap/pm/state";
 import { pasteMarkdownAsDocContent } from "../../lib/editor/pasteMarkdownAsDoc";
+import { isLikelyVerticalScrollbarInput } from "../../lib/navigation/pageScrollMemory";
 
 
 type UseEditorPropsParams = {
@@ -102,6 +103,7 @@ function armTextSelectionScrollDampener(
   scrollHost: HTMLElement | null,
 ): void {
   if (event.button !== 0 || !scrollHost) return;
+  if (isLikelyVerticalScrollbarInput(event, scrollHost)) return;
   const target = event.target;
   if (!(target instanceof Element) || !view.dom.contains(target)) return;
   if (
@@ -125,6 +127,7 @@ function armTextSelectionScrollDampener(
 
   const startX = event.clientX;
   const startY = event.clientY;
+  let pointerX = event.clientX;
   let pointerY = event.clientY;
   let lastScrollTop = scrollHost.scrollTop;
   let dragging = false;
@@ -143,6 +146,7 @@ function armTextSelectionScrollDampener(
   };
 
   const onMove = (ev: MouseEvent) => {
+    pointerX = ev.clientX;
     pointerY = ev.clientY;
     if (dragging) return;
     const dist = (ev.clientX - startX) ** 2 + (ev.clientY - startY) ** 2;
@@ -161,6 +165,10 @@ function armTextSelectionScrollDampener(
     }
     if (!dragging) {
       lastScrollTop = current;
+      return;
+    }
+    if (isLikelyVerticalScrollbarInput({ clientX: pointerX, clientY: pointerY }, scrollHost)) {
+      cleanup();
       return;
     }
 

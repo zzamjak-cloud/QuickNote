@@ -71,7 +71,7 @@ TipTap 확장 기반 블록 타입 설명. 각 항목은 `src/lib/tiptapExtensio
 
 각 탭 패널은 `tabPanel` 노드로 관리되며 탭 ID, 제목, 아이콘을 attrs로 보유.
 
-**렌더 방식**: `ReactNodeViewRenderer`. 탭 바와 패널을 React로 렌더. 탭 추가/삭제/이름 변경/아이콘 변경 메뉴를 Portal로 body에 렌더(화면 밖 클리핑 방지). `pickTabPanelShells` 헬퍼로 DOM 패널 위치를 계산.
+**렌더 방식**: `ReactNodeViewRenderer`. 탭 바와 패널을 React로 렌더. 탭 추가/삭제/이름 변경/아이콘 변경 메뉴를 Portal로 body에 렌더(화면 밖 클리핑 방지). `pickTabPanelShells` 헬퍼로 DOM 패널 위치를 계산. 루트 상하 margin 과 패널 상하 padding 은 0으로 유지하고, 상단/하단 탭바는 첫 버튼이 본문 쪽에 붙도록 작은 left padding 만 둔다.
 
 ---
 

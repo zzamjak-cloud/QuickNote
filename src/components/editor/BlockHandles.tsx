@@ -79,6 +79,7 @@ import {
   pointInsideListOwnRow,
   listElementForHover,
   resolveHandleLeft,
+  resolveHandleTop,
   visualElementForBlockNode,
 } from "./blockHandles/helpers";
 import { HoverMenuGroup, HoverMenuRow } from "./blockHandles/HoverMenuRow";
@@ -400,17 +401,7 @@ export function BlockHandles({
   const bar =
     hover && wrapperRect
       ? (() => {
-          const tableTopNudge = hover.node.type.name === "table" ? -14 : 0;
-          const columnNoneTopNudge =
-            hover.node.type.name === "columnLayout" && hover.node.attrs.preset === "none"
-              ? -18
-              : 0;
-          const top =
-            hover.rect.top -
-            wrapperRect.top +
-            HANDLE_TOP_OFFSET_PX +
-            tableTopNudge +
-            columnNoneTopNudge;
+          const top = resolveHandleTop(hover, wrapperRect);
           const left = resolveHandleLeft(hover, wrapperRect);
           return { top, left };
         })()

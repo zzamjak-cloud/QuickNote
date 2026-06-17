@@ -35,6 +35,7 @@
 | `flushHover` | rAF 기반 hover 갱신. 그립 존·댓글 버튼 존·리스트 보존 존 등 hysteresis 로직 포함 |
 | `onPointerDown` (핸들) | 드래그 vs 클릭 판별. `MARQUEE_ACTIVATE_PX` 이상 이동 시 드래그 커밋 |
 | `applyColumnRatio` | 2컬럼 레이아웃의 각 `column` 노드 `width`(flex-grow) attr 을 PM 트랜잭션으로 설정. `hover.blockStart`로 `columnLayout` 노드를 찾아 자식 컬럼 순서대로 비율 적용 |
+| `resolveHandleTop` | 렌더와 그립 hit-zone 이 같은 Y 좌표식을 공유. `horizontalRule`은 라인 중앙에 28px 핸들을 세로 중앙 정렬 |
 
 ## 컬럼 너비 비율 프리셋
 - `isTwoColumnLayout`(`columnLayout` && `childCount === 2`)일 때만 컬러 변경 아래에 "너비 비율" 행 노출.
@@ -67,7 +68,7 @@
 - `blockAtPoint` — 좌표로 블록 탐색
 - `pointInGripZone` / `pointInsideListOwnRow` — 마우스 존 판별
 - `isAncestorListHover` / `isListHandleNodeType` — 리스트 계층 판별
-- `resolveHandleLeft` — 핸들 X 좌표 계산
+- `resolveHandleLeft` / `resolveHandleTop` — 핸들 좌표 계산
 - `visualElementForBlockNode` — 블록의 시각 기준 DOM 엘리먼트
 - `listElementForHover` — 리스트 항목 DOM 엘리먼트
 - `unwrapWrapperBlock` — 래퍼 블록 해제

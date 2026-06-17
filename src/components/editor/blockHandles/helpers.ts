@@ -138,6 +138,21 @@ export function resolveHandleLeft(
   return Math.max(MIN_HANDLE_LEFT, rawLeft);
 }
 
+export function resolveHandleTop(
+  hover: HoverInfo,
+  wrapperRect: DOMRect,
+): number {
+  if (hover.node.type.name === "horizontalRule") {
+    return hover.rect.top - wrapperRect.top + hover.rect.height / 2 - GRIP_SIZE_PX / 2;
+  }
+  const tableTopNudge = hover.node.type.name === "table" ? -14 : 0;
+  const columnNoneTopNudge =
+    hover.node.type.name === "columnLayout" && hover.node.attrs.preset === "none"
+      ? -18
+      : 0;
+  return hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX + tableTopNudge + columnNoneTopNudge;
+}
+
 /** wrapper(콜아웃·토글·인용) 블록을 그 안의 텍스트만 담은 단일 paragraph로 치환.
  *  치환 성공 시 true 반환 — 호출자는 이후 setHeading 등 단일 타입 명령을 적용한다. */
 /** 토글 헤더 titleLevel 변경 — 본문·open 상태는 유지 */
@@ -209,7 +224,7 @@ export function pointInGripZone(
   hover: HoverInfo,
   wrapperRect: DOMRect,
 ): boolean {
-  const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX;
+  const top = resolveHandleTop(hover, wrapperRect);
   const left = resolveHandleLeft(hover, wrapperRect);
   const z = GRIP_ZONE_PAD_PX;
   const x0 = wrapperRect.left + left - z;

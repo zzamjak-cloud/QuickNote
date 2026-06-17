@@ -595,7 +595,7 @@ const TabBlockView = memo(function TabBlockView({
       contentEditable={false}
       className={[
         "qn-tab-list flex min-w-0 items-center gap-1 bg-zinc-100 py-1 pr-2 dark:bg-zinc-800/70",
-        placement === "top" || placement === "bottom" ? "pl-8" : "pl-2",
+        placement === "top" || placement === "bottom" ? "pl-3" : "pl-2",
       ].join(" ")}
       data-tab-placement={placement}
     >
@@ -618,8 +618,8 @@ const TabBlockView = memo(function TabBlockView({
               updateAttributes({ activeIndex: tab.index });
             }}
             className={[
-              "qn-tab-button min-w-0 shrink-0 rounded-md border px-2.5 py-1 text-left text-xs font-medium",
-              "max-w-36 truncate transition-colors",
+              "qn-tab-button min-w-0 shrink-0 rounded-md border px-[0.8125rem] py-1 text-left text-xs font-medium",
+              "max-w-[11.7rem] truncate transition-colors",
               tab.index === activeIndex
                 ? "border-emerald-600 bg-emerald-600 font-bold text-white shadow-sm dark:border-emerald-700 dark:bg-emerald-700 dark:text-white"
                 : "border-transparent text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100",
@@ -799,7 +799,7 @@ const TabBlockView = memo(function TabBlockView({
       data-active-index={activeIndex}
       data-lazy-inactive-panels={lazyInactivePanels ? "true" : "false"}
       className={[
-        "qn-tab-block my-2 overflow-hidden rounded-[10px] border border-zinc-300/40 bg-zinc-50/40",
+        "qn-tab-block my-0 overflow-hidden rounded-[10px] border border-zinc-300/40 bg-zinc-50/40",
         "dark:border-zinc-700/70 dark:bg-zinc-900/30",
         placement === "left" || placement === "right" ? "flex" : "block",
         placement === "right" ? "flex-row-reverse" : "",
@@ -810,7 +810,7 @@ const TabBlockView = memo(function TabBlockView({
       <div ref={panelsShellRef} className="contents">
         <NodeViewContent
           as="div"
-          className="qn-tab-panels relative min-w-0 flex-1 overflow-hidden bg-white/70 px-4 py-2 dark:bg-zinc-950/30"
+          className="qn-tab-panels relative min-w-0 flex-1 overflow-hidden bg-white/70 px-4 py-0 dark:bg-zinc-950/30"
         />
       </div>
       {placement === "bottom" && tabList}

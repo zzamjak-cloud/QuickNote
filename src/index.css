@@ -181,13 +181,23 @@ body,
 .toggle-block[data-open="false"] [data-toggle-content] {
   display: none;
 }
-/* 토글 본문이 비었을 때 제목도 함께 회색 */
-.ProseMirror .toggle-block[data-title-empty="true"] summary.toggle-header:not([data-text-color]),
-.ProseMirror .toggle-block[data-title-empty="true"] summary.toggle-header[data-text-color="default"] {
+/* 토글 제목이 비었을 때 placeholder 만 표시 */
+.ProseMirror summary.toggle-header[data-title-empty="true"]::after {
+  content: "토글 제목";
+  color: rgb(161 161 170);
+  pointer-events: none;
+}
+html.dark .ProseMirror summary.toggle-header[data-title-empty="true"]::after {
+  color: rgb(113 113 122);
+}
+.ProseMirror .toggle-block:not([data-text-color]) summary.toggle-header[data-title-empty="true"]:not([data-text-color]),
+.ProseMirror .toggle-block:not([data-text-color]) summary.toggle-header[data-title-empty="true"][data-text-color="default"],
+.ProseMirror .toggle-block[data-text-color="default"] summary.toggle-header[data-title-empty="true"]:not([data-text-color]) {
   color: rgb(161 161 170);
 }
-html.dark .ProseMirror .toggle-block[data-title-empty="true"] summary.toggle-header:not([data-text-color]),
-html.dark .ProseMirror .toggle-block[data-title-empty="true"] summary.toggle-header[data-text-color="default"] {
+html.dark .ProseMirror .toggle-block:not([data-text-color]) summary.toggle-header[data-title-empty="true"]:not([data-text-color]),
+html.dark .ProseMirror .toggle-block:not([data-text-color]) summary.toggle-header[data-title-empty="true"][data-text-color="default"],
+html.dark .ProseMirror .toggle-block[data-text-color="default"] summary.toggle-header[data-title-empty="true"]:not([data-text-color]) {
   color: rgb(113 113 122);
 }
 /* 토글 본문이 비었을 때(빈 문단만 있어도) 회색 표시 */
@@ -221,7 +231,7 @@ html.dark .ProseMirror .toggle-block[data-content-empty="true"] [data-toggle-con
   max-width: 100%;
   align-items: center;
   gap: 0.25rem;
-  vertical-align: baseline;
+  vertical-align: middle;
   line-height: inherit;
   color: #18181b; /* zinc-950 */
 }
@@ -1040,14 +1050,6 @@ body.quicknote-db-col-dragging .qn-block-drop-indicator {
   display: none !important;
 }
 
-.ProseMirror [data-tab-block][data-tab-placement="bottom"] .qn-tab-panels {
-  margin-bottom: 0.5rem;
-}
-
-.ProseMirror [data-tab-block][data-tab-placement="top"] .qn-tab-panels {
-  margin-top: 0.5rem;
-}
-
 .ProseMirror [data-tab-block][data-tab-placement="left"] .qn-tab-list,
 .ProseMirror [data-tab-block][data-tab-placement="right"] .qn-tab-list {
   flex-direction: column;
@@ -1256,9 +1258,9 @@ html.dark .ProseMirror .qn-block-comment-text {
 
 /* 블록 배경색 프리셋 */
 .ProseMirror [data-bg-color] { border-radius: 4px; }
-.ProseMirror [data-bg-color="yellow"]  { background-color: rgba(253,246,178,0.70); }
+.ProseMirror [data-bg-color="yellow"]  { background-color: #f8f3de; }
 .ProseMirror [data-bg-color="orange"]  { background-color: rgba(255,228,196,0.70); }
-.ProseMirror [data-bg-color="red"]     { background-color: rgba(255,210,210,0.65); }
+.ProseMirror [data-bg-color="red"]     { background-color: #f9eae7; }
 .ProseMirror [data-bg-color="pink"]    { background-color: rgba(255,215,235,0.65); }
 .ProseMirror [data-bg-color="purple"]  { background-color: rgba(230,215,255,0.65); }
 .ProseMirror [data-bg-color="blue"]    { background-color: rgba(210,230,255,0.65); }

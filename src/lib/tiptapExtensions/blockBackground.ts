@@ -44,9 +44,9 @@ export const BLOCK_BG_PRESETS: BlockBgPreset[] = [
   {
     id: "yellow",
     label: "노랑",
-    lightStyle: "rgba(253,246,178,0.7)",
+    lightStyle: "#f8f3de",
     darkStyle: "rgba(113,103,0,0.35)",
-    dot: "#f5d020",
+    dot: "#f8f3de",
   },
   {
     id: "orange",
@@ -58,9 +58,9 @@ export const BLOCK_BG_PRESETS: BlockBgPreset[] = [
   {
     id: "red",
     label: "빨강",
-    lightStyle: "rgba(255,210,210,0.65)",
+    lightStyle: "#f9eae7",
     darkStyle: "rgba(120,20,20,0.35)",
-    dot: "#e05252",
+    dot: "#f9eae7",
   },
   {
     id: "pink",

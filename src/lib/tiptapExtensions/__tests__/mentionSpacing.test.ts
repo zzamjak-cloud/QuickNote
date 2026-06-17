@@ -13,11 +13,11 @@ function cssRuleBody(css: string, selector: string): string {
 }
 
 describe("page mention spacing", () => {
-  it("페이지 멘션은 부모 텍스트 line-height를 기준으로 행 높이를 정한다", () => {
+  it("페이지 멘션은 부모 텍스트 line-height를 유지하면서 라인 중앙에 정렬한다", () => {
     const body = cssRuleBody(readEditorCss(), ".page-mention");
 
     expect(body).toContain("line-height: inherit;");
-    expect(body).toContain("vertical-align: baseline;");
+    expect(body).toContain("vertical-align: middle;");
   });
 
   it("페이지 멘션 아이콘은 텍스트 em 단위 안에 들어가 행간을 키우지 않는다", () => {

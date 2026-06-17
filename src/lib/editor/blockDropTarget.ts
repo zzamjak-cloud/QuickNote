@@ -153,9 +153,41 @@ function columnInsertionPosFromPoint(
   clientY: number,
 ): number | null {
   const hit = document.elementFromPoint(clientX, clientY);
-  const colEl = hit?.closest?.("[data-column]");
+  const direct = hit?.closest?.("[data-column]");
+  const colEl = direct instanceof HTMLElement
+    ? direct
+    : nearestColumnElementFromLayoutHit(view, hit, clientX);
   if (!(colEl instanceof HTMLElement) || !view.dom.contains(colEl)) return null;
   return containerChildInsertionPosFromPoint(view, clientY, colEl, "column");
+}
+
+function nearestColumnElementFromLayoutHit(
+  view: EditorView,
+  hit: Element | null,
+  clientX: number,
+): HTMLElement | null {
+  const layout = hit?.closest?.("[data-column-layout]");
+  if (!(layout instanceof HTMLElement) || !view.dom.contains(layout)) return null;
+  const columns = Array.from(layout.querySelectorAll<HTMLElement>("[data-column]"));
+  if (columns.length === 0) return null;
+  return columns.reduce<HTMLElement | null>((best, column) => {
+    if (!best) return column;
+    const bestRect = best.getBoundingClientRect();
+    const rect = column.getBoundingClientRect();
+    const bestDistance =
+      clientX < bestRect.left
+        ? bestRect.left - clientX
+        : clientX > bestRect.right
+          ? clientX - bestRect.right
+          : 0;
+    const distance =
+      clientX < rect.left
+        ? rect.left - clientX
+        : clientX > rect.right
+          ? clientX - rect.right
+          : 0;
+    return distance < bestDistance ? column : best;
+  }, null);
 }
 
 function calloutInsertionPosFromPoint(
@@ -192,7 +224,7 @@ function toggleBlockInsertionPosFromPoint(
   clientY: number,
 ): number | null {
   const hit = document.elementFromPoint(clientX, clientY);
-  const toggleEl = hit?.closest?.("details.toggle-block");
+  const toggleEl = hit?.closest?.(".toggle-block");
   if (!(toggleEl instanceof HTMLElement) || !view.dom.contains(toggleEl)) {
     return null;
   }

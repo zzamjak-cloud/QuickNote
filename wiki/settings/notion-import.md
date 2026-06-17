@@ -19,7 +19,8 @@ Notion export(HTML/Markdown + CSV + 첨부 에셋)를 QuickNote 페이지·DB로
 | `src/lib/notionImport/hydrateChildPageMentions.ts` | 멘션 해소 실패로 제목만 남은 문단 → 구조적 자식 멘션 보강 |
 | `src/lib/notionImport/linkUtils.ts` | 외부 URL 정규화·북마크 요약 (`normalizeImportedLinkHref`) |
 | `src/lib/notionImport/csvFolderImporter.ts` | CSV-HTML 쌍 감지·DB 생성·행/셀 채우기 |
-| `src/lib/notionImport/columnInference.ts` | CSV 컬럼 타입 추론(text/number/date/select/status/person 등) |
+| `src/lib/notionImport/columnInference.ts` | CSV 컬럼 타입 추론(text/number/date/select/status/person 등) + `mapNotionPropertyType`(권위 타입 매핑) |
+| `src/lib/notionImport/rowPropertyMeta.ts` | 행 페이지 `table.properties` → 컬럼 권위 타입·옵션 색 추출 |
 | `src/lib/notionImport/personName.ts` | 사람 이름 정규화·토큰화·워크스페이스 구성원 매칭 |
 
 ## 컬럼 타입 추론 — 사람(person) 감지
@@ -32,6 +33,23 @@ person 감지 신호(강→약):
 3. **약한 헤더 키워드 + 토큰 비율**(`headerWeaklySuggestsPerson`): `이름`/`name`/`구성원`/`멤버`/`member`/`assignee` 헤더에서 값이 사람 토큰으로 80% 이상 분해되면 person.
 
 > **주의 — 약한 키워드는 단독 판정 금지**: `이름` 같은 헤더는 일반 텍스트 컬럼일 수도 있으므로(예: 제품명) 값 패턴 확인 없이 person 으로 단정하지 않는다. 대괄호 태그만 있고 이름이 없는 값(`[긴급]` 등)은 person 패턴이 아니다. 회귀 테스트: `src/__tests__/notionImport/columnInference.test.ts`.
+
+## 컬럼 타입·옵션 — 행 properties 테이블이 권위 소스 (핵심 함정)
+
+메인 DB HTML 의 `collection-content` 뷰는 Notion 에서 **"보이는 속성"만** 내보낸다. 숨김 컬럼(체크박스·셀렉트 등)은 이 테이블에 아예 없으므로, collection-content 의 `cellMeta` 만 쓰면 숨은 컬럼의 타입을 휴리스틱으로 오판하고 옵션 색도 잃는다.
+
+- 증상: 노션 DB 가져오기 후 일부 컬럼의 **타입이 틀리거나(예: checkbox→No/Yes select, select→status)** 셀렉트/멀티셀렉트 **옵션 색이 전부 회색**.
+- 원인: 메인 뷰에 노출되지 않은 컬럼은 collection-content 에 없음.
+
+→ 각 **행(레코드) 페이지 HTML** 에는 `<table class="properties">` 가 있고, 여기엔 **모든 속성**이 `tr.property-row-<notionType>` 클래스(원본 타입) + `select-value-color-*` 색 토큰과 함께 들어있다. 이를 권위 소스로 삼는다(`rowPropertyMeta.ts`).
+
+흐름(`NotionCsvFolderSection`):
+1. 컬럼 생성 전, 행 HTML 들을 한 번 스캔(phase `컬럼 분석`)해 `parseNotionRowProperties` 로 헤더별 **원본 타입 다수결** + **옵션 라벨→색** 을 모은다. (full DOM 파싱 OOM 회피 위해 properties 테이블 조각만 잘라 파싱.)
+2. 컬럼 타입은 `mapNotionPropertyType(원본타입)` 결과가 있으면 **휴리스틱보다 우선** 적용. 매핑 불가(formula/rollup/relation/files)는 null → 휴리스틱 폴백.
+3. 옵션 색은 collection-content 색 → **행 properties 색** → CSV 라벨(색 없음) 순으로 병합(색 있는 값이 색 없는 값을 덮어쓰되 기존 색은 보존).
+4. checkbox 셀은 CSV 의 `"Yes"/"No"` 를 boolean 으로 변환 저장.
+
+회귀 테스트: `src/__tests__/notionImport/rowPropertyMeta.test.ts`.
 
 ## 페이지 멘션 (link-to-page · 내부 href)
 

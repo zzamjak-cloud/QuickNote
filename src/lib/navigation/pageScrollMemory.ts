@@ -16,6 +16,9 @@ const restoringByScroller = new WeakMap<
 let captureInstalled = false;
 let lastUserScrollInputAt = 0;
 const USER_SCROLL_INPUT_WINDOW_MS = 900;
+const SCROLLBAR_HIT_SLOP_PX = 48;
+const RESTORE_SCROLL_EPSILON_PX = 2;
+const RESTORE_LAYOUT_CHANGE_GRACE_MS = 120;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(value, max));
@@ -25,6 +28,28 @@ const makeKey = (scope: PageScrollScope, pageId: string): string => `${scope}:${
 const markUserScrollInput = (): void => {
   lastUserScrollInputAt = window.performance.now();
 };
+
+export function isLikelyVerticalScrollbarInput(
+  event: Pick<MouseEvent, "clientX" | "clientY">,
+  scroller: HTMLElement,
+): boolean {
+  if (scroller.scrollHeight <= scroller.clientHeight) return false;
+  const rect = scroller.getBoundingClientRect();
+  const nativeScrollbarWidth = Math.max(0, scroller.offsetWidth - scroller.clientWidth);
+  const hitWidth = Math.max(SCROLLBAR_HIT_SLOP_PX, nativeScrollbarWidth);
+  return (
+    event.clientX >= rect.right - hitWidth &&
+    event.clientX <= rect.right + 2 &&
+    event.clientY >= rect.top &&
+    event.clientY <= rect.bottom
+  );
+}
+
+function scrollContainerFromEventTarget(target: EventTarget | null): HTMLElement | null {
+  return target instanceof Element
+    ? target.closest<HTMLElement>("[data-qn-scroll-page-id]")
+    : null;
+}
 
 /**
  * 프로그래밍적 스크롤(블록 링크·댓글·검색 결과 이동)이 발생했음을 알린다.
@@ -144,6 +169,13 @@ export function installPageScrollCapture(): (() => void) | undefined {
   captureInstalled = true;
   const onWheel = () => markUserScrollInput();
   const onTouchMove = () => markUserScrollInput();
+  const onPotentialScrollbarInput = (event: MouseEvent | PointerEvent) => {
+    if (event.button !== 0) return;
+    const container = scrollContainerFromEventTarget(event.target);
+    if (!container || !isLikelyVerticalScrollbarInput(event, container)) return;
+    markUserScrollInput();
+    suppressScrollRestoreFor(container);
+  };
   const onKeyDown = (event: KeyboardEvent) => {
     if (
       event.key === "ArrowDown" ||
@@ -170,11 +202,15 @@ export function installPageScrollCapture(): (() => void) | undefined {
   };
   document.addEventListener("wheel", onWheel, true);
   document.addEventListener("touchmove", onTouchMove, true);
+  document.addEventListener("pointerdown", onPotentialScrollbarInput, true);
+  document.addEventListener("mousedown", onPotentialScrollbarInput, true);
   document.addEventListener("keydown", onKeyDown, true);
   document.addEventListener("scroll", onScroll, true);
   return () => {
     document.removeEventListener("wheel", onWheel, true);
     document.removeEventListener("touchmove", onTouchMove, true);
+    document.removeEventListener("pointerdown", onPotentialScrollbarInput, true);
+    document.removeEventListener("mousedown", onPotentialScrollbarInput, true);
     document.removeEventListener("keydown", onKeyDown, true);
     document.removeEventListener("scroll", onScroll, true);
     captureInstalled = false;
@@ -209,6 +245,9 @@ export function restorePageScrollPosition(
   const startedAt = window.performance.now();
   let cancelled = false;
   let finished = false;
+  let lastAppliedTop: number | null = null;
+  let lastAppliedLeft: number | null = null;
+  let layoutChangeGraceUntil = 0;
 
   // RAF 강제 적용은 초반 일정 시간만 한다. (스크롤바 드래그 같은
   // wheel/touch/key 로 감지되지 않는 사용자 조작을 오래 방해하지 않기 위함.)
@@ -221,6 +260,7 @@ export function restorePageScrollPosition(
     if (timeoutId != null) window.clearTimeout(timeoutId);
     resizeObserver?.disconnect();
     mutationObserver?.disconnect();
+    scroller.removeEventListener("scroll", onRestoringScroll);
     restoringByScroller.delete(scroller);
   };
 
@@ -235,8 +275,29 @@ export function restorePageScrollPosition(
     }
     const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     const maxLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-    scroller.scrollTop = clamp(saved.top, 0, maxTop);
-    scroller.scrollLeft = clamp(saved.left, 0, maxLeft);
+    const targetTop = clamp(saved.top, 0, maxTop);
+    const targetLeft = clamp(saved.left, 0, maxLeft);
+    lastAppliedTop = targetTop;
+    lastAppliedLeft = targetLeft;
+    scroller.scrollTop = targetTop;
+    scroller.scrollLeft = targetLeft;
+  };
+
+  const onRestoringScroll = () => {
+    if (cancelled || finished) return;
+    if (userTookOver() || isScrollRestoreSuppressedFor(scroller)) {
+      finish();
+      return;
+    }
+    if (lastAppliedTop == null || lastAppliedLeft == null) return;
+    if (window.performance.now() < layoutChangeGraceUntil) return;
+    const movedAwayFromRestoreTarget =
+      Math.abs(scroller.scrollTop - lastAppliedTop) > RESTORE_SCROLL_EPSILON_PX ||
+      Math.abs(scroller.scrollLeft - lastAppliedLeft) > RESTORE_SCROLL_EPSILON_PX;
+    if (!movedAwayFromRestoreTarget) return;
+    markUserScrollInput();
+    suppressScrollRestoreFor(scroller);
+    finish();
   };
 
   // 초반 RAF 루프: 비동기 콘텐츠 로드로 높이가 늘어나기 전까지 목표 위치를 계속 적용.
@@ -255,9 +316,15 @@ export function restorePageScrollPosition(
 
   // 콘텐츠 교체/높이 변화는 MutationObserver 로 끝까지 감시하며 재적용한다.
   // 메인 에디터의 본문 교체(replaceWith)가 RAF 종료 후에 일어나도 여기서 다시 복원된다.
-  resizeObserver = new ResizeObserver(() => apply());
+  const applyAfterLayoutChange = () => {
+    layoutChangeGraceUntil = window.performance.now() + RESTORE_LAYOUT_CHANGE_GRACE_MS;
+    apply();
+  };
+
+  scroller.addEventListener("scroll", onRestoringScroll, { passive: true });
+  resizeObserver = new ResizeObserver(applyAfterLayoutChange);
   resizeObserver.observe(scroller);
-  mutationObserver = new MutationObserver(() => apply());
+  mutationObserver = new MutationObserver(applyAfterLayoutChange);
   mutationObserver.observe(scroller, { childList: true, subtree: true });
   timeoutId = window.setTimeout(() => finish(), timeoutMs);
   apply();
