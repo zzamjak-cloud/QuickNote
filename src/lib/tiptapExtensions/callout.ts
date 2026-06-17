@@ -116,11 +116,11 @@ export const Callout = Node.create({
       class:
         presetId === "empty"
           ? [
-              "callout callout--empty relative my-3 w-full rounded-xl px-3 py-2",
+              "callout callout--empty relative w-full rounded-xl px-3 py-2",
               def.frameClass,
             ].join(" ")
           : [
-              "callout relative my-3 flex gap-2 rounded-xl px-3 py-2",
+              "callout relative flex gap-2 rounded-xl px-3 py-2",
               def.frameClass,
             ].join(" "),
     });

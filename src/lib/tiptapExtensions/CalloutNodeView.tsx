@@ -64,7 +64,7 @@ export function CalloutNodeView({ node, updateAttributes }: NodeViewProps) {
   }, [pickerOpen]);
 
   return (
-    <NodeViewWrapper className="relative w-full my-3">
+    <NodeViewWrapper className="relative w-full">
       <div
         data-callout=""
         data-preset={presetId}

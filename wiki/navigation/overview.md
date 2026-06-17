@@ -111,9 +111,9 @@ TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 
 | 글자 | zinc-950 `#18181b` | zinc-50 `#fafafa` |
 | 제목 밑줄(`.truncate`) | zinc-200 `#e4e4e7` | zinc-700 `#3f3f46` |
 
-- 글자 크기는 부모 본문 텍스트 상속(`font-size` 미지정), hover 시 `opacity: 0.7`.
+- 글자 크기와 행간은 부모 본문 텍스트 상속(`font-size` 미지정, `line-height: inherit`), hover 시 `opacity: 0.7`.
 - 제목(`.truncate`)에만 `text-decoration: underline` + 연한 밑줄색(컬럼 구분선 톤). `text-underline-offset: 2px`.
-- 아이콘은 `<PageIconDisplay icon size="md" className="page-mention-icon" />` 로 렌더 — **이모지·커스텀 이미지(`quicknote-image://`)·Lucide 아이콘을 모두 정상 표시**. (과거 `{icon}` 텍스트 직접 출력이라 이미지 ref 가 `quicknote-image://...` 문자열로 노출되던 버그가 있었음). 아이콘 없으면 `PageIconDisplay` 가 `FileText` 폴백. `.page-mention-icon` `font-size: 1.6rem` 은 **이모지 분기만** 적용.
+- 아이콘은 `<PageIconDisplay icon size="md" className="page-mention-icon" />` 로 렌더 — **이모지·커스텀 이미지(`quicknote-image://`)·Lucide 아이콘을 모두 정상 표시**. (과거 `{icon}` 텍스트 직접 출력이라 이미지 ref 가 `quicknote-image://...` 문자열로 노출되던 버그가 있었음). 아이콘 없으면 `PageIconDisplay` 가 `FileText` 폴백. `.page-mention-icon` 은 `width/height/font-size: 1em` 으로 본문 텍스트 높이 안에 고정해 아이콘이 행간을 키우지 않게 한다.
 - **Lucide 컬러**: `PageIconDisplay` 가 `color={lucideIcon.color}` 로 stroke 색을 지정한다. `.page-mention-icon svg` 에 `color: inherit` / `stroke: currentColor` 를 두면 루시드 색이 사라지므로 **금지** — `index.css` 는 `:not(:has(svg))` 로 이모지만 inherit.
 - **제목 컬러**: `mention.tsx` 가 `pageStore` 의 `titleColor` 를 구독해 `.truncate` 에 `style={{ color }}` 적용. 페이지 제목 색 변경 시 멘션 제목도 즉시 연동 ([pages/overview.md](../pages/overview.md)).
 - 정적 직렬화(`renderHTML`/`renderText`)는 `isPlainEmojiIcon` 가드로 **이모지만** 텍스트로 내보낸다 — 이미지·Lucide ref 가 복사/붙여넣기 시 raw 문자열로 새지 않도록.
