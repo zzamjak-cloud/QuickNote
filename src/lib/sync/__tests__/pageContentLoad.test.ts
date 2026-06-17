@@ -5,6 +5,7 @@ import {
   refreshWorkspaceSnapshot,
   workspaceHasStructureCache,
 } from "../workspaceSwitch";
+import { useWorkspaceStore } from "../../../store/workspaceStore";
 
 vi.mock("../bootstrap", () => ({
   fetchPageById: vi.fn(),
@@ -28,6 +29,9 @@ beforeEach(() => {
   refreshWorkspaceSnapshotMock.mockReset();
   workspaceHasStructureCacheMock.mockReset();
   workspaceHasStructureCacheMock.mockReturnValue(false);
+  // 같은 워크스페이스 본문 로드 시나리오 — 현재 워크스페이스를 ws-1 로 둬야
+  // ensurePageContentLoaded 가 타 워크스페이스 우회 경로가 아닌 일반 적용 경로를 탄다.
+  useWorkspaceStore.setState({ currentWorkspaceId: "ws-1" });
 });
 
 describe("pageContentLoad", () => {
