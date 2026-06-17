@@ -273,7 +273,9 @@ export type FilterRule = {
   id: string;
   columnId: string;
   operator: FilterOperator;
-  value?: string;
+  // 옵션형 컬럼(선택·상태·멤버·연결 등)은 체크박스 다중 선택을 지원하므로 string[] 도 허용한다.
+  // 자유 입력/숫자/날짜 컬럼은 단일 string 을 유지한다. (하위 호환: 기존 데이터는 string)
+  value?: string | string[];
 };
 
 /** 다중 정렬 규칙 — 배열의 앞쪽이 우선 키. */

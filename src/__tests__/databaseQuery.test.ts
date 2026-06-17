@@ -80,4 +80,54 @@ describe("databaseQuery", () => {
     const out = applyFilterSortSearch(rows, columns, "", [], []);
     expect(out.map((r) => r.pageId)).toEqual(["1", "2"]);
   });
+
+  it("다중 선택 value(equals)는 선택값 중 하나와 일치하면 통과한다", () => {
+    const three: DatabaseRowView[] = [
+      { pageId: "1", databaseId: "d", title: "알파", cells: { t: "알파", n: 10, s: "a" } },
+      { pageId: "2", databaseId: "d", title: "베타", cells: { t: "베타", n: 20, s: "b" } },
+      { pageId: "3", databaseId: "d", title: "감마", cells: { t: "감마", n: 5, s: "c" } },
+    ];
+    const rules: FilterRule[] = [
+      { id: "r1", columnId: "s", operator: "equals", value: ["a", "b"] },
+    ];
+    const out = applyFilterSortSearch(three, columns, "", rules, []);
+    expect(out.map((r) => r.pageId)).toEqual(["1", "2"]);
+  });
+
+  it("다중 선택 value(notEquals)는 선택값 어느 것과도 다른 행만 통과한다", () => {
+    const three: DatabaseRowView[] = [
+      { pageId: "1", databaseId: "d", title: "알파", cells: { t: "알파", n: 10, s: "a" } },
+      { pageId: "2", databaseId: "d", title: "베타", cells: { t: "베타", n: 20, s: "b" } },
+      { pageId: "3", databaseId: "d", title: "감마", cells: { t: "감마", n: 5, s: "c" } },
+    ];
+    const rules: FilterRule[] = [
+      { id: "r1", columnId: "s", operator: "notEquals", value: ["a", "b"] },
+    ];
+    const out = applyFilterSortSearch(three, columns, "", rules, []);
+    expect(out.map((r) => r.pageId)).toEqual(["3"]);
+  });
+
+  it("배열 셀값(multiSelect)도 선택값 중 하나라도 포함하면 통과한다", () => {
+    const cols: ColumnDef[] = [
+      { id: "t", name: "이름", type: "title" },
+      { id: "m", name: "태그", type: "multiSelect" },
+    ];
+    const rs: DatabaseRowView[] = [
+      { pageId: "1", databaseId: "d", title: "알파", cells: { t: "알파", m: ["x", "y"] } },
+      { pageId: "2", databaseId: "d", title: "베타", cells: { t: "베타", m: ["z"] } },
+    ];
+    const rules: FilterRule[] = [
+      { id: "r1", columnId: "m", operator: "equals", value: ["y", "w"] },
+    ];
+    const out = applyFilterSortSearch(rs, cols, "", rules, []);
+    expect(out.map((r) => r.pageId)).toEqual(["1"]);
+  });
+
+  it("빈 다중 선택 value는 필터 비활성으로 전체 통과한다", () => {
+    const rules: FilterRule[] = [
+      { id: "r1", columnId: "s", operator: "equals", value: [] },
+    ];
+    const out = applyFilterSortSearch(rows, columns, "", rules, []);
+    expect(out.map((r) => r.pageId)).toEqual(["1", "2"]);
+  });
 });

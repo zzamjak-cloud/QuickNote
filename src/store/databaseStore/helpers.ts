@@ -187,7 +187,8 @@ export function seedValueForFilterRule(
   col: ColumnDef,
   rule: FilterRule,
 ): CellValue | undefined {
-  const value = rule.value ?? "";
+  // 다중 선택(배열) 필터는 OR 매칭이므로 첫 선택값만 시드해도 새 행이 필터를 통과한다.
+  const value = Array.isArray(rule.value) ? (rule.value.find((v) => v !== "") ?? "") : (rule.value ?? "");
   switch (rule.operator) {
     case "equals":
     case "contains": {
@@ -241,10 +242,12 @@ export function seedDefaultsForFilters(
     const col = bundle.columns.find((c) => c.id === rule.columnId);
     if (!col) continue;
     const src = col.config?.sourceFromDb;
-    if (isCellValueDerived(col) && src?.databaseId && src.columnId && rule.value) {
+    // 다중 선택(배열) 필터는 첫 선택값 기준으로 소스 행을 연결한다.
+    const ruleValue = Array.isArray(rule.value) ? rule.value.find((v) => v !== "") : rule.value;
+    if (isCellValueDerived(col) && src?.databaseId && src.columnId && ruleValue) {
       const sourceDb = databases[src.databaseId];
       if (!sourceDb) continue;
-      const targetValue = rule.value;
+      const targetValue = ruleValue;
       // 소스 DB(예: 마일스톤)에서 파생 기준 컬럼 값이 필터값과 일치하는 첫 행을 찾는다.
       const matchSourcePageId = sourceDb.rowPageOrder.find((pid) => {
         const v = pages[pid]?.dbCells?.[src.columnId];

@@ -516,8 +516,10 @@ export function DatabaseToolbarControls({
     teams,
   ]);
   const filterRuleValueLabel = (rule: FilterRule, column: ColumnDef | undefined): string => {
-    const value = rule.value ?? "";
-    if (!value || !column) return value;
+    // 다중 선택(체크박스) 대응 — 값들을 각각 라벨로 변환해 ", " 로 join.
+    const values = (Array.isArray(rule.value) ? rule.value : rule.value != null ? [rule.value] : [])
+      .filter((value) => value !== "");
+    if (values.length === 0 || !column) return values.join(", ");
     const displayColumn =
       columnsWithFilterOptions.find((candidate) => candidate.id === column.id) ?? column;
     const labelCtx = {
@@ -526,24 +528,27 @@ export function DatabaseToolbarControls({
       members,
       scopeCtx: { organizations, teams, projects },
     };
-    // id 기반 컬럼(선택·페이지 연결·멤버·DB 연결 등)은 실제 옵션/소스 라벨로 변환.
-    if (isIdLabelBackedColumn(displayColumn)) {
-      const optionById = new Map(
-        filterDisplayOptionsForColumn(displayColumn, labelCtx).map((option) => [
-          option.id,
-          option.label,
-        ]),
-      );
-      return resolveFilterValueLabel(displayColumn, value, labelCtx, optionById);
-    }
-    // 날짜 컬럼은 매칭용 값이 "startISO endISO" 형태로 join 되어 있으므로 start/end 로 복원해 포맷.
-    if (column.type === "date") {
-      const parts = value.split(/\s+/).filter(Boolean);
-      const range = { start: parts[0], end: parts[1] };
-      return formatPlainDisplay(range, column).trim() || value;
-    }
-    // 그 외 일반 컬럼은 셀 표시 형식으로 변환.
-    return formatPlainDisplay(value, column).trim() || value;
+    const singleLabel = (value: string): string => {
+      // id 기반 컬럼(선택·페이지 연결·멤버·DB 연결 등)은 실제 옵션/소스 라벨로 변환.
+      if (isIdLabelBackedColumn(displayColumn)) {
+        const optionById = new Map(
+          filterDisplayOptionsForColumn(displayColumn, labelCtx).map((option) => [
+            option.id,
+            option.label,
+          ]),
+        );
+        return resolveFilterValueLabel(displayColumn, value, labelCtx, optionById);
+      }
+      // 날짜 컬럼은 매칭용 값이 "startISO endISO" 형태로 join 되어 있으므로 start/end 로 복원해 포맷.
+      if (column.type === "date") {
+        const parts = value.split(/\s+/).filter(Boolean);
+        const range = { start: parts[0], end: parts[1] };
+        return formatPlainDisplay(range, column).trim() || value;
+      }
+      // 그 외 일반 컬럼은 셀 표시 형식으로 변환.
+      return formatPlainDisplay(value, column).trim() || value;
+    };
+    return values.map(singleLabel).join(", ");
   };
   // 현재 열린 정렬 규칙 idx
   const openSortIdx = openRuleKey?.startsWith("sort:")
@@ -1030,83 +1035,90 @@ function FilterValueControl({
 }: {
   rule: FilterRule;
   options: Array<{ value: string; label: string }>;
+  onChange: (value: string | string[]) => void;
+}) {
+  // 옵션형 컬럼(선택·상태·멤버·연결 등) — 체크박스 다중 선택.
+  if (options.length > 0) {
+    const selected = new Set(
+      Array.isArray(rule.value)
+        ? rule.value
+        : rule.value != null && rule.value !== ""
+          ? [rule.value]
+          : [],
+    );
+    const toggle = (value: string) => {
+      const next = new Set(selected);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      onChange(Array.from(next));
+    };
+    return (
+      <div className="qn-no-scrollbar max-h-52 space-y-0.5 overflow-y-auto">
+        {options.map((option) => (
+          <label
+            key={option.value}
+            className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            <input
+              type="checkbox"
+              checked={selected.has(option.value)}
+              onChange={() => toggle(option.value)}
+              className="h-3.5 w-3.5 shrink-0 accent-zinc-600 dark:accent-zinc-400"
+            />
+            <span className="truncate">{option.label}</span>
+          </label>
+        ))}
+      </div>
+    );
+  }
+
+  // 자유 입력 컬럼(텍스트·숫자·날짜 등) — 단일 텍스트 입력.
+  return <FilterTextInput rule={rule} onChange={onChange} />;
+}
+
+function FilterTextInput({
+  rule,
+  onChange,
+}: {
+  rule: FilterRule;
   onChange: (value: string) => void;
 }) {
-  const [draft, setDraft] = useState(rule.value ?? "");
+  const initial = typeof rule.value === "string" ? rule.value : "";
+  const [draft, setDraft] = useState(initial);
   const draftRef = useRef(draft);
   const composingRef = useRef(false);
-  const selectedOption = options.find((option) => option.value === (rule.value ?? ""));
-  const [directInputOpen, setDirectInputOpen] = useState(!selectedOption);
-  const directInputOpenRef = useRef(directInputOpen);
 
   useEffect(() => {
-    if (!composingRef.current) {
-      const nextDraft = rule.value ?? "";
-      if (draftRef.current !== nextDraft) {
-        draftRef.current = nextDraft;
-        setDraft(nextDraft);
-      }
+    if (composingRef.current) return;
+    const nextDraft = typeof rule.value === "string" ? rule.value : "";
+    if (draftRef.current !== nextDraft) {
+      draftRef.current = nextDraft;
+      setDraft(nextDraft);
     }
-    const nextDirectInputOpen = !selectedOption;
-    if (directInputOpenRef.current !== nextDirectInputOpen) {
-      directInputOpenRef.current = nextDirectInputOpen;
-      setDirectInputOpen(nextDirectInputOpen);
-    }
-  }, [rule.value, selectedOption]);
-
-  const commit = (value: string) => {
-    onChange(value);
-  };
+  }, [rule.value]);
 
   return (
-    <div className="space-y-1">
-      {options.length > 0 && (
-        <AppSelect
-          value={selectedOption ? (rule.value ?? "") : ""}
-          onChange={(value) => {
-            if (!value) {
-              directInputOpenRef.current = true;
-              setDirectInputOpen(true);
-              draftRef.current = "";
-              setDraft("");
-              commit("");
-              return;
-            }
-            directInputOpenRef.current = false;
-            setDirectInputOpen(false);
-            draftRef.current = value;
-            setDraft(value);
-            commit(value);
-          }}
-          options={[{ value: "", label: "직접 입력" }, ...options]}
-          buttonClassName="w-full px-1.5 py-1"
-          menuClassName="qn-no-scrollbar"
-        />
-      )}
-      {(options.length === 0 || directInputOpen) && (
-        <input
-          value={draft}
-          onChange={(event) => {
-            const value = event.target.value;
-            draftRef.current = value;
-            setDraft(value);
-            if (!composingRef.current) commit(value);
-          }}
-          onCompositionStart={() => {
-            composingRef.current = true;
-          }}
-          onCompositionEnd={(event) => {
-            composingRef.current = false;
-            const value = event.currentTarget.value;
-            draftRef.current = value;
-            setDraft(value);
-            commit(value);
-          }}
-          onBlur={() => commit(draft)}
-          placeholder={options.length > 0 ? "직접 입력…" : "값 입력…"}
-          className="w-full select-text rounded border border-zinc-300 bg-white px-1.5 py-1 text-sm outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-800"
-        />
-      )}
-    </div>
+    <input
+      value={draft}
+      onChange={(event) => {
+        const value = event.target.value;
+        draftRef.current = value;
+        setDraft(value);
+        if (!composingRef.current) onChange(value);
+      }}
+      onCompositionStart={() => {
+        composingRef.current = true;
+      }}
+      onCompositionEnd={(event) => {
+        composingRef.current = false;
+        const value = event.currentTarget.value;
+        draftRef.current = value;
+        setDraft(value);
+        onChange(value);
+      }}
+      onBlur={() => onChange(draft)}
+      placeholder="값 입력…"
+      className="w-full select-text rounded border border-zinc-300 bg-white px-1.5 py-1 text-sm outline-none focus:ring-1 focus:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-800"
+    />
   );
 }

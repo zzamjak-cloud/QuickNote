@@ -207,12 +207,18 @@ function matchesFilter(
   const col = columns.find((c) => c.id === rule.columnId);
   const str = cellToSearchString(raw, columns, rule.columnId);
   const empty = str.trim() === "";
-  const target = rule.value ?? "";
+  // 다중 선택(체크박스) 대응 — value 를 항상 string[] 으로 정규화. 빈 값은 제거한다.
+  const targets = (Array.isArray(rule.value) ? rule.value : rule.value != null ? [rule.value] : [])
+    .filter((value) => value !== "");
+  // gt/lt 등 단일값 의미 연산자는 첫 값만 사용.
+  const target = targets[0] ?? "";
   const rawStringValues = Array.isArray(raw)
     ? (raw as unknown[]).filter((value): value is string => typeof value === "string")
     : typeof raw === "string"
       ? [raw]
       : [];
+  // 선택된 값 하나라도 셀에 일치하는지 (equals/contains 용 OR 매칭)
+  const matchesAny = (predicate: (t: string) => boolean) => targets.some(predicate);
 
   switch (rule.operator) {
     case "isEmpty":
@@ -220,11 +226,18 @@ function matchesFilter(
     case "isNotEmpty":
       return !empty;
     case "contains":
-      return str.toLowerCase().includes(target.toLowerCase()) || rawStringValues.some((value) => value === target);
+      // 선택 값 없으면 필터 비활성(전체 통과) — 기존 빈 value 동작 유지.
+      if (targets.length === 0) return true;
+      return matchesAny(
+        (t) => str.toLowerCase().includes(t.toLowerCase()) || rawStringValues.some((value) => value === t),
+      );
     case "equals":
-      return str === target || rawStringValues.includes(target);
+      if (targets.length === 0) return true;
+      return matchesAny((t) => str === t || rawStringValues.includes(t));
     case "notEquals":
-      return str !== target && !rawStringValues.includes(target);
+      if (targets.length === 0) return true;
+      // 선택된 값 어느 것과도 일치하지 않아야 통과.
+      return !matchesAny((t) => str === t || rawStringValues.includes(t));
     case "gt":
       if (col?.type === "number") {
         const n = typeof raw === "number" ? raw : Number(raw);
