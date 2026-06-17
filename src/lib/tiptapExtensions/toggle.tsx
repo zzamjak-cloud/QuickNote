@@ -103,9 +103,7 @@ const ToggleView = memo(function ToggleView({ node }: NodeViewProps) {
       data-content-empty={contentEmpty ? "true" : "false"}
       data-title-empty={contentEmpty ? "true" : "false"}
     >
-      {/* contentDOM 래퍼에 식별 클래스 부여 — 화살표/콘텐츠 CSS 를 자기 토글에만 자식 결합자로
-          스코프해, 부모 토글이 열려 있을 때 중첩 자식 토글 화살표가 누수 회전되는 버그를 막는다. */}
-      <NodeViewContent className="toggle-inner" />
+      <NodeViewContent />
     </NodeViewWrapper>
   );
 }, areToggleNodeViewsEqual);

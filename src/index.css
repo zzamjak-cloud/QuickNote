@@ -168,12 +168,17 @@ body,
   height: 1.1em;
   font-size: 0.52em;
 }
-/* 자식 결합자로 "자기 토글"에만 적용 — 후손 선택자면 부모가 열렸을 때 중첩 자식 토글
-   화살표까지 90도로 강제 회전되어, 자식 토글을 닫아도 화살표가 안 돌아오는 누수가 발생한다. */
-.toggle-block[data-open="true"] > .toggle-inner > summary::before {
+.toggle-block[data-open="true"] summary::before {
   transform: rotate(90deg);
 }
-.toggle-block[data-open="false"] > .toggle-inner > [data-toggle-content] {
+/* 닫힘 리셋 규칙을 열림 규칙 "뒤"에 둬 동일 특이도에서 소스 순서로 이긴다.
+   후손 선택자라 부모가 열리면 중첩 자식 summary 까지 90도가 누수되는데, 이 규칙이
+   자기(가장 가까운) 닫힌 토글의 화살표를 0도로 되돌려 누수를 상쇄한다. (닫힌 부모 안의
+   열린 자식은 어차피 display:none 으로 숨겨져 0도여도 보이지 않음) */
+.toggle-block[data-open="false"] summary::before {
+  transform: rotate(0deg);
+}
+.toggle-block[data-open="false"] [data-toggle-content] {
   display: none;
 }
 /* 토글 본문이 비었을 때 제목도 함께 회색 */
