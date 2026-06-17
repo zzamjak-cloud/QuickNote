@@ -278,7 +278,13 @@ export const useDatabaseStore = create<DatabaseStore>()(
           ...before,
           columns: structure.columns as ColumnDef[],
           presets: structure.presets as DatabaseRowPreset[],
-          panelState: structure.panelState as DatabasePanelState,
+          // 부분 panelState(서버/collab DbStructure 가 searchQuery 등 일부 키를 빠뜨릴 수 있음)를
+          // 그대로 저장하면 소비 측이 panelState.searchQuery.trim() 에서 크래시한다.
+          // emptyPanelState 기본값으로 항상 완전한 형태를 보장(patchDatabasePanelState 와 동일 패턴).
+          panelState: {
+            ...emptyPanelState(),
+            ...((structure.panelState ?? {}) as Partial<DatabasePanelState>),
+          },
           rowPageOrder: finalOrder,
           meta: { ...before.meta, updatedAt: now() },
         };

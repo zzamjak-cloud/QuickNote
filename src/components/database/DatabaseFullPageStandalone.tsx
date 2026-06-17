@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSONContent } from "@tiptap/react";
 import type { DatabasePanelState, ViewKind } from "../../types/database";
+import { emptyPanelState } from "../../types/database";
 import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -93,7 +94,9 @@ export function DatabaseFullPageStandalone({
   const getStoredView = useDatabaseViewPrefsStore((s) => s.getView);
   const setStoredView = useDatabaseViewPrefsStore((s) => s.setView);
   const [directPanelState, setDirectPanelState] = useState<DatabasePanelState>(() =>
-    databasePanelState ?? getPanelState(databaseId, panelStateRaw),
+    databasePanelState
+      ? { ...emptyPanelState(), ...databasePanelState }
+      : getPanelState(databaseId, panelStateRaw),
   );
   const [directView, setDirectView] = useState<ViewKind>(() =>
     getStoredView(databaseId, view),
@@ -112,7 +115,9 @@ export function DatabaseFullPageStandalone({
 
   useEffect(() => {
     if (pageId) return;
-    setDirectPanelState(databasePanelState ?? getPanelState(databaseId, panelStateRaw));
+    setDirectPanelState(databasePanelState
+      ? { ...emptyPanelState(), ...databasePanelState }
+      : getPanelState(databaseId, panelStateRaw));
     setDirectView(getStoredView(databaseId, view));
   }, [databaseId, databasePanelState, getPanelState, getStoredView, pageId, panelStateRaw, view]);
 

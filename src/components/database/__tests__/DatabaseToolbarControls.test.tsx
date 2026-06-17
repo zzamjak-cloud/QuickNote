@@ -244,6 +244,19 @@ describe("DatabaseToolbarControls", () => {
     });
   });
 
+  it("searchQuery 가 빠진 부분 panelState(서버/collab DbStructure 유래)에도 크래시하지 않는다", () => {
+    // 라이브 사고 회귀: 스토어가 보유한 부분 panelState 에 searchQuery 가 없으면
+    // panelState.searchQuery.trim() 이 RootErrorBoundary 로 전파돼 앱 전체가 빈 화면이 됐다.
+    const partial = { ...emptyPanelState() } as Partial<DatabasePanelState>;
+    delete partial.searchQuery;
+    expect(() =>
+      render(
+        <ToolbarHarness initialPanelState={partial as DatabasePanelState} />,
+      ),
+    ).not.toThrow();
+    expect(screen.getByRole("button", { name: "필터" })).toBeTruthy();
+  });
+
   it("프리셋 탭 버튼은 pointer 커서와 scale 클릭 피드백을 사용한다", () => {
     render(<ToolbarHarness />);
 

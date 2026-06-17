@@ -180,9 +180,11 @@ export function DatabaseToolbarControls({
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const members = useMemberStore((s) => s.members);
   const [rulesExpanded, setRulesExpanded] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(
-    panelState.searchQuery.trim().length > 0,
-  );
+  // panelState.searchQuery 는 타입상 string 이지만 부분 panelState(서버/collab DbStructure)에서
+  // undefined 가 흘러들 수 있다. 가드 없이 .trim() 하면 RootErrorBoundary 로 전파돼 앱 전체가
+  // 빈 화면이 된다(라이브 사고). 정규화 로컬로 일원화한다.
+  const searchQuery = panelState.searchQuery ?? "";
+  const [searchOpen, setSearchOpen] = useState(searchQuery.trim().length > 0);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [viewMenuHover, setViewMenuHover] = useState(false);
   const viewMenuRef = useRef<HTMLDivElement | null>(null);
@@ -196,18 +198,18 @@ export function DatabaseToolbarControls({
   );
 
   // 검색창 — 한글 IME 입력 깨짐 방지: composition 동안 panelState commit 보류.
-  const [searchDraft, setSearchDraft] = useState(panelState.searchQuery);
+  const [searchDraft, setSearchDraft] = useState(searchQuery);
   const searchDraftRef = useRef(searchDraft);
   const composingRef = useRef(false);
   useEffect(() => {
     if (composingRef.current) return;
-    if (searchDraftRef.current === panelState.searchQuery) return;
-    searchDraftRef.current = panelState.searchQuery;
-    setSearchDraft(panelState.searchQuery);
-  }, [panelState.searchQuery]);
+    if (searchDraftRef.current === searchQuery) return;
+    searchDraftRef.current = searchQuery;
+    setSearchDraft(searchQuery);
+  }, [searchQuery]);
   useEffect(() => {
-    if (panelState.searchQuery.trim().length > 0 && !searchOpen) setSearchOpen(true);
-  }, [panelState.searchQuery, searchOpen]);
+    if (searchQuery.trim().length > 0 && !searchOpen) setSearchOpen(true);
+  }, [searchQuery, searchOpen]);
   useEffect(() => {
     if (!bundle) return;
     const unavailable = new Set<ViewKind>(getUnavailableViewKinds(bundle.columns));
