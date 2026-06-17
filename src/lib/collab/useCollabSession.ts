@@ -136,11 +136,11 @@ export function useCollabSession(
         if (isCollabDocBodyEmpty(doc)) return;
         try {
           const json = yDocToJson(doc);
-          // 빈 문단뿐인 Y 상태(과거 오염 룸·시드 누락)가 의미 있는 기존 본문을 덮지 못하게 차단.
-          // 서버 placeholder 보존 가드(preserveExistingDocForPlaceholderInput)와 동일 의미의 클라 방어선.
-          const current = usePageStore.getState().pages[pageId];
-          if (current?.doc && isPlaceholderBodyJson(json) && !isPlaceholderBodyJson(current.doc)) {
-            console.warn("[collab] placeholder Y 상태 materialize 차단", { pageId });
+          // 빈/placeholder(빈 문단만) Y 상태는 **무조건** page.doc materialize 차단.
+          // 시드 전·오염 룸 바인딩이 복원된 본문을 다시 비우는 사고(2026-06-17 라이브)의 근본 차단선.
+          // 과거 가드는 "current.doc 이 비-placeholder 일 때만" 막아, current 가 이미 빈 레이스에서 뚫렸다.
+          // 의도적 전체 비우기의 collab persist 는 포기한다(데이터 보존 최우선).
+          if (isPlaceholderBodyJson(json)) {
             return;
           }
           // 단방향(Y→JSON) store 반영. deferSync 는 sync enqueue 를 생략하므로
