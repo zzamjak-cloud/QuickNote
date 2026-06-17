@@ -22,7 +22,7 @@ export const SEED_CLIENT_ID = 0x5eed;
 
 /** ProseMirror JSON 으로부터 Y.Doc 을 생성한다(시드). */
 export function jsonToYDoc(schema: Schema, json: JSONContent): Y.Doc {
-  return prosemirrorJSONToYDoc(schema, json, YJS_XML_FRAGMENT);
+  return prosemirrorJSONToYDoc(schema, normalizeLegacyJsonNode(json), YJS_XML_FRAGMENT);
 }
 
 /** Y.Doc 을 ProseMirror JSON 으로 직렬화한다(materialize). */
@@ -54,7 +54,48 @@ function sanitizeAttrs(attrs: Record<string, unknown> | undefined): {
   return { attrs: next, changed };
 }
 
+function normalizeLegacyColumnLayout(node: JSONContent): JSONContent | null {
+  const attrs = node.attrs as Record<string, unknown> | undefined;
+  const content = node.content;
+  if (
+    node.type !== "paragraph" ||
+    !attrs ||
+    typeof attrs.columns !== "number" ||
+    !Array.isArray(content) ||
+    content.length < 2 ||
+    content.length > 4 ||
+    !content.every((child) => child.type === "column")
+  ) {
+    return null;
+  }
+
+  return {
+    type: "columnLayout",
+    attrs: {
+      columns: content.length,
+      preset: typeof attrs.preset === "string" ? attrs.preset : "empty",
+    },
+    content,
+  };
+}
+
+function normalizeLegacyJsonNode(node: JSONContent): JSONContent {
+  const legacyColumnLayout = normalizeLegacyColumnLayout(node);
+  const source = legacyColumnLayout ?? node;
+  if (!source.content) return source;
+  return {
+    ...source,
+    content: source.content.map((child) => normalizeLegacyJsonNode(child)),
+  };
+}
+
 function sanitizeJsonNode(node: JSONContent): { node: JSONContent; changed: boolean } {
+  const legacyColumnLayout = normalizeLegacyColumnLayout(node);
+  if (legacyColumnLayout) {
+    const sanitized = sanitizeJsonNode(legacyColumnLayout);
+    return { node: sanitized.node, changed: true };
+  }
+
   let changed = false;
   const next: JSONContent = { ...node };
 
@@ -115,9 +156,10 @@ export function hasRenderableCollabContent(doc: Y.Doc, schema: Schema): boolean 
 
 export function replaceCollabDocContent(doc: Y.Doc, schema: Schema, json: JSONContent): void {
   const fragment = doc.get(YJS_XML_FRAGMENT, Y.XmlFragment) as Y.XmlFragment;
+  const normalized = normalizeLegacyJsonNode(json);
   doc.transact(() => {
     if (fragment.length > 0) fragment.delete(0, fragment.length);
-    prosemirrorToYXmlFragment(PMNode.fromJSON(schema, json), fragment);
+    prosemirrorToYXmlFragment(PMNode.fromJSON(schema, normalized), fragment);
   }, "replace-collab-content");
 }
 
@@ -129,7 +171,7 @@ export function buildSeedUpdate(schema: Schema, json: JSONContent): Uint8Array {
   const seedDoc = new Y.Doc();
   seedDoc.clientID = SEED_CLIENT_ID; // 콘텐츠 채우기 전에 고정
   const frag = seedDoc.get(YJS_XML_FRAGMENT, Y.XmlFragment) as Y.XmlFragment;
-  prosemirrorToYXmlFragment(PMNode.fromJSON(schema, json), frag);
+  prosemirrorToYXmlFragment(PMNode.fromJSON(schema, normalizeLegacyJsonNode(json)), frag);
   return Y.encodeStateAsUpdate(seedDoc);
 }
 

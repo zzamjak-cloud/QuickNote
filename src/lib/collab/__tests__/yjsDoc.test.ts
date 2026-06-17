@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import TaskList from "@tiptap/extension-task-list";
+import TaskItem from "@tiptap/extension-task-item";
 import {
   jsonToYDoc,
   yDocToJson,
@@ -16,6 +18,7 @@ import {
   hasRenderableCollabContent,
 } from "../yjsDoc";
 import { BlockBackground } from "../../tiptapExtensions/blockBackground";
+import { Column, ColumnLayout } from "../../tiptapExtensions/columns";
 
 // 라운드트립 검증용 최소 schema (StarterKit 기반).
 // @tiptap/core 가 getDefaultSchema 를 export 하지 않으므로 Editor 인스턴스에서 schema 를 추출한다.
@@ -28,6 +31,15 @@ function schema() {
 
 function schemaWithBlockAttrs() {
   const e = new Editor({ extensions: [StarterKit, BlockBackground] });
+  const s = e.schema;
+  e.destroy();
+  return s;
+}
+
+function schemaWithColumns() {
+  const e = new Editor({
+    extensions: [StarterKit, TaskList, TaskItem.configure({ nested: true }), ColumnLayout, Column],
+  });
   const s = e.schema;
   e.destroy();
   return s;
@@ -147,6 +159,51 @@ describe("yjsDoc", () => {
     expect(hasRenderableCollabContent(doc, s)).toBe(true);
     expect(JSON.stringify(yDocToJson(doc))).toContain("교체 본문");
     expect(JSON.stringify(yDocToJson(doc))).not.toContain("시드 본문");
+  });
+
+  it("legacy paragraph 컬럼 레이아웃은 현재 columnLayout 으로 시드한다", () => {
+    const s = schemaWithColumns();
+    const doc = new Y.Doc();
+    seedCollabDocIfEmpty(doc, s, {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { columns: 2, preset: "empty" },
+          content: [
+            {
+              type: "column",
+              content: [{ type: "paragraph", content: [{ type: "text", text: "왼쪽" }] }],
+            },
+            {
+              type: "column",
+              content: [
+                { type: "paragraph", content: [{ type: "text", text: "오른쪽" }] },
+                {
+                  type: "taskList",
+                  content: [
+                    {
+                      type: "taskItem",
+                      attrs: { checked: false },
+                      content: [
+                        { type: "paragraph", content: [{ type: "text", text: "체크" }] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    const back = yDocToJson(doc);
+    expect(back.content?.[0]?.type).toBe("columnLayout");
+    expect(JSON.stringify(back)).toContain("왼쪽");
+    expect(JSON.stringify(back)).toContain("오른쪽");
+    expect(JSON.stringify(back)).toContain("체크");
+    expect(hasRenderableCollabContent(doc, s)).toBe(true);
   });
 
   it("빈 문단 placeholder 는 렌더 가능하지만 사용 가능한 본문으로 보지 않는다", () => {

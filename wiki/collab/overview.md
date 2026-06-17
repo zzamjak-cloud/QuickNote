@@ -67,6 +67,8 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
   placeholder/오염 상태는 서버 본문으로 교체한다.
 - **done 재검증**: 이미 시드 완료로 표시된 세션도 바인딩 직전 Y.Doc 이 placeholder 이면
   로컬에 적재된 서버 본문으로 한 번 더 교체한다.
+- **legacy 컬럼 복구**: 버전 히스토리 복원 등으로 `paragraph(attrs.columns)` 아래에
+  `column` 자식이 저장된 본문은 Y.Doc 변환 전 현재 `columnLayout` 으로 보정한다.
 - **DB**: 컬럼 0개 구조 차단 + 부분 시드(멤버·순서 빈)가 기존 행 순서를 비우지 못하게 보존.
 - **fullPageDatabaseId 보존**: toGqlPage/toPageInputPayload 는 태그 있으면 싣고 없으면 키 생략,
   서버 upsertPage 가 키 부재·null 시 기존 태그 유지([`pages/ghost-page-prevention.md`](../pages/ghost-page-prevention.md)).
