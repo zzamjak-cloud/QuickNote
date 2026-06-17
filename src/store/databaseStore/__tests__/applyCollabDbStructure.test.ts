@@ -28,7 +28,9 @@ describe("applyCollabDbStructure", () => {
     expect(db.columns.map((c) => c.id)).toEqual(["c1", "c2"]);
     expect(db.meta.title).toBe("원래제목");
     expect(db.rowPageOrder).toEqual(["p1", "p2"]);
-    expect(db.panelState).toEqual({ sort: { columnId: "c1", dir: "asc" } });
+    // panelState 는 emptyPanelState 기본값으로 정규화되므로(searchQuery 누락 .trim() 크래시 방지)
+    // 입력 필드 보존만 부분 일치로 검증한다.
+    expect(db.panelState).toMatchObject({ sort: { columnId: "c1", dir: "asc" } });
   });
 
   it("부분 시드(멤버·순서 모두 빈) 구조는 기존 행 순서를 비우지 못한다", () => {
