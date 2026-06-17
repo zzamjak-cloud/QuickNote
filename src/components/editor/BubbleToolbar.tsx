@@ -436,6 +436,15 @@ export function BubbleToolbar({ editor, pageId }: Props) {
             <ToolbarBtn
               active={editor.isActive("link")}
               onClick={() => {
+                // 프롬프트 모달이 열리면 에디터가 blur 되며 선택이 붕괴된다.
+                // await 전에 선택 범위를 캡처해 두고, 적용 직전 setTextSelection 으로 복원해야
+                // setLink 가 빈 선택에 적용돼 "링크가 안 먹는" 버그를 막는다(색상 버튼과 동일 패턴).
+                const { from, to } = editor.state.selection;
+                const saved = from !== to ? { from, to } : null;
+                const restoredChain = () => {
+                  const chain = editor.chain().focus();
+                  return saved ? chain.setTextSelection(saved) : chain;
+                };
                 void (async () => {
                   const url = await useUiStore
                     .getState()
@@ -444,17 +453,17 @@ export function BubbleToolbar({ editor, pageId }: Props) {
                     });
                   if (url === null) return;
                   if (url === "") {
-                    editor.chain().focus().unsetLink().run();
+                    restoredChain().unsetLink().run();
                   } else {
                     // 대상 블록의 "블럭 링크 복사"로 만든 내부 링크(?page=&blockId=)면
                     // 외부 URL 검증을 우회해 그대로 적용한다 → 클릭 시 같은 페이지 내 블록으로 이동.
                     const intra = parseQuickNoteLink(url);
                     if (intra && (intra.blockId || intra.block != null)) {
-                      editor.chain().focus().setLink({ href: url.trim() }).run();
+                      restoredChain().setLink({ href: url.trim() }).run();
                     } else {
                       const safe = sanitizeWebLinkHref(url);
                       if (!safe) return;
-                      editor.chain().focus().setLink({ href: safe }).run();
+                      restoredChain().setLink({ href: safe }).run();
                     }
                   }
                 })();

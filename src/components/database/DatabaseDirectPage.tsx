@@ -9,6 +9,7 @@ import { useSettingsStore } from "../../store/settingsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { isProtectedDatabaseId } from "../../lib/scheduler/database";
 import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
+import { normalizeConfirmPhrase } from "../../lib/text/normalizeConfirmPhrase";
 import type { ViewKind } from "../../types/database";
 
 type Props = {
@@ -79,7 +80,7 @@ export function DatabaseDirectPage({ databaseId, pageId }: Props) {
     }
   };
   const deleteConfirmPhrase = useMemo(() => {
-    const name = title.trim() || "데이터베이스";
+    const name = normalizeConfirmPhrase(title) || "데이터베이스";
     return `${name} 삭제`;
   }, [title]);
   const refreshSnapshotAfterDatabaseDelete = () => {
@@ -100,7 +101,7 @@ export function DatabaseDirectPage({ databaseId, pageId }: Props) {
 
   const executeDeleteDatabase = () => {
     if (isProtectedDatabase) return;
-    if (deletePhraseDraft.trim() !== deleteConfirmPhrase) {
+    if (normalizeConfirmPhrase(deletePhraseDraft) !== deleteConfirmPhrase) {
       alert(`다음 문구를 정확히 입력하세요:\n「${deleteConfirmPhrase}」`);
       return;
     }

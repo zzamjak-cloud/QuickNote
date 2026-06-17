@@ -25,6 +25,7 @@ import { parseDatabasePanelStateJson } from "../../lib/schemas/panelStateSchema"
 import { DATABASE_VIEW_REGISTRY } from "./databaseViewRegistry";
 import { DatabaseToolbarControls } from "./DatabaseToolbarControls";
 import { scheduleEditorMutation } from "../../lib/pm/scheduleEditorMutation";
+import { normalizeConfirmPhrase } from "../../lib/text/normalizeConfirmPhrase";
 import { DatabaseBlockBinding } from "./DatabaseBlockBinding";
 import { DatabaseBlockDataArea } from "./DatabaseBlockDataArea";
 import { DatabaseBlockFullPageHeader } from "./DatabaseBlockFullPageHeader";
@@ -132,7 +133,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const displayDbTitle = bundle?.meta.title ?? "데이터베이스";
   const deleteConfirmPhrase = useMemo(() => {
-    const name = displayDbTitle.trim() || "데이터베이스";
+    const name = normalizeConfirmPhrase(displayDbTitle) || "데이터베이스";
     return `${name} 삭제`;
   }, [displayDbTitle]);
 
@@ -207,7 +208,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;
     if (isProtectedDatabase) return;
-    if (deletePhraseDraft.trim() !== deleteConfirmPhrase) {
+    if (normalizeConfirmPhrase(deletePhraseDraft) !== deleteConfirmPhrase) {
       alert(
         `다음 문구를 정확히 입력하세요:\n「${deleteConfirmPhrase}」`,
       );

@@ -51,7 +51,7 @@ import { flushDebouncedKeys } from "../../lib/sync/debouncePerKey";
 type SectionStatus =
   | { kind: "idle" }
   | { kind: "scanning" }
-  | { kind: "ready"; pairs: CsvDbPair[]; dirName: string }
+  | { kind: "ready"; pairs: CsvDbPair[]; dirName: string; rootDir: FileSystemDirectoryHandle }
   | { kind: "importing" }
   | { kind: "done"; rowsImported: number; failed: number }
   | { kind: "error"; message: string };
@@ -179,7 +179,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
         });
         return;
       }
-      setStatus({ kind: "ready", pairs, dirName: dir.name });
+      setStatus({ kind: "ready", pairs, dirName: dir.name, rootDir: dir });
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setStatus({ kind: "idle" });
@@ -206,7 +206,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
         });
         return;
       }
-      setStatus({ kind: "ready", pairs, dirName: file.name });
+      setStatus({ kind: "ready", pairs, dirName: file.name, rootDir: dir });
     } catch (error) {
       setStatus({
         kind: "error",
@@ -229,7 +229,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
             setStatus({ kind: "idle" });
             return;
           }
-          setStatus({ kind: "ready", pairs, dirName: sharedSource.label });
+          setStatus({ kind: "ready", pairs, dirName: sharedSource.label, rootDir: sharedSource.dir });
         })
         .catch((error) => {
           setStatus({
@@ -242,13 +242,13 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
     if (sharedSource.kind === "zip-file") {
       setStatus({ kind: "scanning" });
       void createZipVirtualDir(sharedSource.file)
-        .then((dir) => detectCsvDbPairsRecursive(dir))
-        .then((pairs) => {
+        .then(async (dir) => {
+          const pairs = await detectCsvDbPairsRecursive(dir);
           if (pairs.length === 0) {
             setStatus({ kind: "idle" });
             return;
           }
-          setStatus({ kind: "ready", pairs, dirName: sharedSource.label });
+          setStatus({ kind: "ready", pairs, dirName: sharedSource.label, rootDir: dir });
         })
         .catch((error) => {
           setStatus({
@@ -267,7 +267,7 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
 
   const onImport = async () => {
     if (status.kind !== "ready") return;
-    const { pairs } = status;
+    const { pairs, rootDir } = status;
     setStatus({ kind: "importing" });
     // import 중 Zustand persist 직렬화를 차단 — 완료 시 한 번에 flush
     pauseStorageWrites();
@@ -331,11 +331,36 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
     };
 
     try {
+      // === 인라인 DB 래퍼 페이지 사전 탐지 ===
+      // 본문에 인라인 DB(collection-content)를 품은 상위 "래퍼 페이지"를 전체 트리에서 찾는다.
+      // Notion 내보내기는 인라인 DB 의 CSV·행 폴더를 래퍼 페이지 폴더 안에 두므로,
+      // DB folderPath 의 부모 디렉터리와 동명인 HTML 이 곧 래퍼 페이지다.
+      // 래퍼가 있는 DB 는 fullPage 홈을 만들지 않고(아래) 2차 패스에서 본문 페이지로 만들어 인라인 연결한다.
+      const rootFileMap = new Map<string, FileSystemFileHandle>();
+      await buildFileMap(rootDir, "", rootFileMap);
+      const rootPaths = Array.from(rootFileMap.keys());
+      const allHtmlPaths = rootPaths.filter((p) => p.toLowerCase().endsWith(".html"));
+      const htmlByComparable = new Map<string, string>();
+      for (const h of allHtmlPaths) {
+        const key = comparableImportedPath(h);
+        if (!htmlByComparable.has(key)) htmlByComparable.set(key, h);
+      }
+      const wrapperPathByFolderPath = new Map<string, string>();
+      for (const pair of pairs) {
+        const parentDir = dirname(pair.folderPath);
+        if (!parentDir) continue; // 최상위 DB(래퍼 없음) → fullPage 유지
+        const wrapper = htmlByComparable.get(comparableImportedPath(parentDir));
+        if (wrapper && comparableImportedPath(wrapper) !== comparableImportedPath(pair.folderPath)) {
+          wrapperPathByFolderPath.set(pair.folderPath, wrapper);
+        }
+      }
+
       for (const pair of pairs) {
         if (!dbIdByFolderPath.has(pair.folderPath)) {
           dbIdByFolderPath.set(pair.folderPath, createDatabase(pair.folderBase));
         }
-        if (!dbPageIdByFolderPath.has(pair.folderPath)) {
+        // 래퍼 페이지가 있으면 fullPage 홈을 만들지 않는다(2차 패스에서 인라인 연결).
+        if (!wrapperPathByFolderPath.has(pair.folderPath) && !dbPageIdByFolderPath.has(pair.folderPath)) {
           const dbPageId = createPage(pair.folderBase, null, { activate: false });
           dbPageIdByFolderPath.set(pair.folderPath, dbPageId);
           registerImportedPagePath(`${pair.folderPath}.html`, dbPageId);
@@ -517,15 +542,18 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
           }
         }
 
-        // DB를 담을 부모 페이지 생성
-        const dbPageId = dbPageIdByFolderPath.get(pair.folderPath) ?? createPage(pair.folderBase, null, { activate: false });
-        dbPageIdByFolderPath.set(pair.folderPath, dbPageId);
-        updateDoc(dbPageId, {
-          type: "doc",
-          content: [{ type: "databaseBlock", attrs: { databaseId: dbId, layout: "fullPage" } }],
-        });
-        // 풀페이지 DB 홈으로 태깅 — 누락 시 메타 베이스라인에서 사이드바에 유령으로 노출된다.
-        markFullPageDatabaseHome(dbPageId, dbId);
+        // DB를 담을 부모 페이지 — 인라인 DB 래퍼 페이지가 있으면 fullPage 홈을 만들지 않는다.
+        // (2차 패스에서 래퍼 본문 페이지를 만들고 같은 dbId 를 인라인 databaseBlock 으로 연결한다.)
+        if (!wrapperPathByFolderPath.has(pair.folderPath)) {
+          const dbPageId = dbPageIdByFolderPath.get(pair.folderPath) ?? createPage(pair.folderBase, null, { activate: false });
+          dbPageIdByFolderPath.set(pair.folderPath, dbPageId);
+          updateDoc(dbPageId, {
+            type: "doc",
+            content: [{ type: "databaseBlock", attrs: { databaseId: dbId, layout: "fullPage" } }],
+          });
+          // 풀페이지 DB 홈으로 태깅 — 누락 시 메타 베이스라인에서 사이드바에 유령으로 노출된다.
+          markFullPageDatabaseHome(dbPageId, dbId);
+        }
 
         // 아이콘 자산을 업로드해 image/file ref 로 변환 (실패시 null).
         // PNG/JPEG/WEBP 는 압축 경로(uploadImage)로 → quicknote-image:// ref.
@@ -879,6 +907,216 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
             }
           }
         });
+      }
+
+      // === 2차 패스: 인라인 DB 래퍼 페이지 본문 임포트 ===
+      // 모든 CSV-DB 가 생성된 뒤, 본문에 인라인 DB 를 품은 래퍼 페이지를 만들어 같은 dbId 로 인라인 연결한다.
+      if (wrapperPathByFolderPath.size > 0) {
+        const rootPreview = buildPreviewFromFileMap(rootFileMap);
+        const rootAssetResolver = createNotionAssetResolver(rootPreview);
+        const allHtmlPathSet = new Set(allHtmlPaths);
+
+        const uploadWrapperIcon = async (file: File): Promise<string | null> => {
+          try {
+            const prepared = await prepareImageFileForUpload(file);
+            const candidate = prepared ?? file;
+            if (candidate && ["image/png", "image/jpeg", "image/webp"].includes(candidate.type)) {
+              return await uploadImage(candidate);
+            }
+            const uploaded = await uploadFile(file);
+            return uploaded.ref ?? null;
+          } catch (err) {
+            console.warn("[CSV가져오기] 래퍼 아이콘 업로드 실패", err);
+            return null;
+          }
+        };
+
+        // 래퍼 → 구조상 소속된 DB folderPath 목록 (부모 디렉터리가 이 래퍼인 DB 들).
+        const dbFolderPathsByWrapper = new Map<string, string[]>();
+        for (const [folderPath, wPath] of wrapperPathByFolderPath) {
+          const list = dbFolderPathsByWrapper.get(wPath) ?? [];
+          list.push(folderPath);
+          dbFolderPathsByWrapper.set(wPath, list);
+        }
+        // 행 링크(titleLinkPath, currentPagePath 기준 해석 완료)로 연결할 dbId 를 찾는다(보조 — 링크가 있으면 더 정확).
+        const resolveDbIdBySampleLink = (sampleLink: string | null): string | null => {
+          if (!sampleLink) return null;
+          const resolvedCmp = comparableImportedPath(sampleLink);
+          const folderPath = knownDbFolderPathList.find((root) => {
+            const rootCmp = comparableImportedPath(root);
+            return rootCmp.length > 0 && (resolvedCmp === rootCmp || resolvedCmp.startsWith(`${rootCmp}/`));
+          });
+          return folderPath ? (dbIdByFolderPath.get(folderPath) ?? null) : null;
+        };
+
+        // 래퍼 페이지 id 확보 — 구조적 부모(상위 HTML) 체인을 재귀 생성. 이미 임포트된 경로면 재사용.
+        const wrapperPageIdByPath = new Map<string, string>();
+        const ensureWrapperPageId = (htmlPath: string, depth = 0): string | null => {
+          if (depth > 50) return null;
+          const imported = resolveImportedPageId(htmlPath);
+          if (imported) return imported;
+          const cached = wrapperPageIdByPath.get(htmlPath);
+          if (cached) return cached;
+          const parentHtmlPath = findParentHtmlPath(htmlPath, allHtmlPathSet);
+          const parentPageId = parentHtmlPath ? ensureWrapperPageId(parentHtmlPath, depth + 1) : null;
+          const pageId = createPage(titleFromImportedHtmlPath(htmlPath), parentPageId, { activate: false });
+          wrapperPageIdByPath.set(htmlPath, pageId);
+          registerImportedPagePath(htmlPath, pageId);
+          return pageId;
+        };
+
+        // 얕은 깊이부터 처리 — 부모 래퍼를 자식보다 먼저 채워 빈 ancestor 로 덮이지 않게 한다.
+        const wrapperPaths = Array.from(new Set(wrapperPathByFolderPath.values()))
+          .sort((a, b) => importedPathDepth(a) - importedPathDepth(b) || a.localeCompare(b));
+
+        for (let wIdx = 0; wIdx < wrapperPaths.length; wIdx++) {
+          const wrapperPath = wrapperPaths[wIdx];
+          if (!wrapperPath) continue;
+          // 행/자식 임포트가 이미 처리한 페이지(중첩 DB 의 래퍼=행 페이지)는 건너뛴다.
+          if (resolveImportedPageId(wrapperPath)) continue;
+          const handle = rootFileMap.get(wrapperPath);
+          if (!handle) continue;
+
+          setProgress({
+            pairIdx: pairs.length - 1,
+            pairTotal: pairs.length,
+            pairLabel: titleFromImportedHtmlPath(wrapperPath),
+            rowIdx: wIdx,
+            rowTotal: wrapperPaths.length,
+            rowTitle: titleFromImportedHtmlPath(wrapperPath),
+            phase: "항목 처리",
+          });
+          await yieldToPaint();
+
+          const targetPageId = ensureWrapperPageId(wrapperPath);
+          if (!targetPageId) continue;
+
+          // 이 래퍼에 구조상 소속된 DB(들). 행 링크 매칭이 실패해도 이 목록으로 인라인 연결을 보장한다.
+          const wrapperDbIds = (dbFolderPathsByWrapper.get(wrapperPath) ?? [])
+            .map((fp) => dbIdByFolderPath.get(fp))
+            .filter((id): id is string => !!id);
+          const usedDbIds = new Set<string>();
+
+          try {
+            const html = await (await handle.getFile()).text();
+            const parsedDoc = typeof DOMParser !== "undefined"
+              ? new DOMParser().parseFromString(html, "text/html")
+              : null;
+
+            // 인라인 DB 영역 자산은 부모에서 업로드하지 않는다(미사용 자산 방지 — fillPageFromHtml 과 동일).
+            const inlineDbAssetPathSet = new Set<string>();
+            if (parsedDoc) {
+              for (const scope of Array.from(parsedDoc.querySelectorAll(".collection-content, table.collection-content, .collection_view_page-block"))) {
+                if (!(scope instanceof HTMLElement)) continue;
+                const scopedDoc = document.implementation.createHTMLDocument("");
+                scopedDoc.body.appendChild(scope.cloneNode(true));
+                for (const a of collectNotionAssetRefsFromHtml(scopedDoc, wrapperPath, rootAssetResolver)) {
+                  inlineDbAssetPathSet.add(a.path);
+                }
+              }
+            }
+            const uploadedAssetByPath = new Map<string, UploadedNotionAsset>();
+            const uniqueAssets = collectNotionAssetRefsFromHtml(parsedDoc ?? html, wrapperPath, rootAssetResolver)
+              .filter((a, i, arr) => a && !inlineDbAssetPathSet.has(a.path) && arr.findIndex((b) => b?.path === a.path) === i);
+            await runConcurrent(uniqueAssets, 4, async (asset) => {
+              if (!asset) return;
+              try {
+                uploadedAssetByPath.set(asset.path, await uploadNotionAsset(asset));
+              } catch (err) {
+                uploadedAssetByPath.set(asset.path, failedNotionAsset(asset, err));
+                totalFailed++;
+              }
+            });
+            const resolveImageNode = (src: string, element: HTMLElement): JSONContent | null => {
+              const ast = rootAssetResolver.resolve(src, wrapperPath);
+              if (!ast) return null;
+              const up = uploadedAssetByPath.get(ast.path);
+              return up ? uploadedAssetToDocNode(up, element.getAttribute("alt") ?? "") : null;
+            };
+
+            const doc = notionHtmlToDoc(parsedDoc ?? html, {
+              currentPagePath: wrapperPath,
+              resolveImageSrc: (src) => /^https?:\/\//i.test(src) || src.startsWith("data:") ? src : null,
+              resolveImageNode,
+              resolveMediaNode: resolveImageNode,
+              iconReplacementText: "▪︎",
+              resolvePageMentionByHref: (href) => {
+                if (/^(https?:|mailto:|tel:|data:|blob:|quicknote-)/i.test(href)) return null;
+                const normalizedHref = safeDecodeImportHref(href.split("#")[0]?.split("?")[0] ?? href).replace(/^\.\/+/, "");
+                if (!normalizedHref || normalizedHref.startsWith("#")) return null;
+                const linkedPageId = resolveImportedPageId(resolveRelativeImportPath(wrapperPath, normalizedHref));
+                if (!linkedPageId) return null;
+                return { pageId: linkedPageId, intraPage: linkedPageId === targetPageId };
+              },
+              onCollectionTable: (table) => {
+                const sampleLink = table.rows.find((r) => !!r.titleLinkPath)?.titleLinkPath ?? null;
+                // 1) 행 링크로 매칭 → 2) 실패 시 이 래퍼에 구조상 소속된 미사용 DB 를 순서대로 사용.
+                //    (게시판/갤러리 뷰처럼 행 링크가 없거나 경로가 어긋나도 인라인 연결을 보장)
+                let dbId = resolveDbIdBySampleLink(sampleLink);
+                if (!dbId) dbId = wrapperDbIds.find((id) => !usedDbIds.has(id)) ?? null;
+                if (dbId) usedDbIds.add(dbId);
+                console.log(`[CSV가져오기] 래퍼 인라인DB 연결: "${titleFromImportedHtmlPath(wrapperPath)}" → ${dbId ? dbId : "실패"} (sampleLink=${sampleLink ?? "없음"})`);
+                return dbId;
+              },
+            });
+            const docWithAnchorIds = ensureCommentAnchorBlockIds(doc) as JSONContent;
+            // collection-content 감지/연결에 실패해 인라인 블록이 안 생긴 소속 DB 는 본문 끝에 inline 블록으로 보강.
+            // → "DB·페이지는 생겼는데 인라인 블록이 누락" 케이스를 구조적 매핑으로 강제 연결한다.
+            const unlinkedDbIds = wrapperDbIds.filter((id) => !usedDbIds.has(id));
+            if (unlinkedDbIds.length > 0) {
+              const content = Array.isArray(docWithAnchorIds.content) ? docWithAnchorIds.content : [];
+              for (const id of unlinkedDbIds) {
+                content.push({ type: "databaseBlock", attrs: { databaseId: id, layout: "inline", view: "table" } });
+                usedDbIds.add(id);
+              }
+              docWithAnchorIds.content = content;
+              console.log(`[CSV가져오기] 래퍼 "${titleFromImportedHtmlPath(wrapperPath)}" 미연결 DB ${unlinkedDbIds.length}개 본문 끝에 인라인 보강`);
+            }
+            updateDoc(targetPageId, docWithAnchorIds);
+
+            const comments = extractNotionInlineComments(parsedDoc ?? html);
+            comments.forEach((comment) => {
+              const mappedBlockId =
+                resolveNotionCommentBlockId(docWithAnchorIds as { content?: Array<unknown> }, comment.blockText)
+                ?? "__page__";
+              const authorMemberId = resolveImportedCommentAuthorMemberId(
+                comment.authorName,
+                useMemberStore.getState().members,
+                me?.memberId ?? "notion-import",
+              );
+              const authorPrefix = authorMemberId === (me?.memberId ?? "notion-import")
+                ? `${comment.authorName ? `${comment.authorName}: ` : ""}`
+                : "";
+              addComment({
+                workspaceId: currentWorkspaceId,
+                pageId: targetPageId,
+                blockId: mappedBlockId,
+                authorMemberId,
+                bodyText: `${authorPrefix}${comment.bodyText}`.trim(),
+                mentionMemberIds: [],
+                parentId: null,
+              });
+            });
+
+            const iconInfo = extractNotionPageIcon(parsedDoc ?? html);
+            if (iconInfo?.imagePath) {
+              const iconAsset = rootAssetResolver.resolve(iconInfo.imagePath, wrapperPath);
+              if (iconAsset) {
+                try {
+                  const ref = await uploadWrapperIcon(await iconAsset.readAsFile());
+                  if (ref) { setIcon(targetPageId, ref); continue; }
+                } catch (err) {
+                  console.warn(`[CSV가져오기] 래퍼 아이콘 처리 실패: ${wrapperPath}`, err);
+                }
+              }
+            }
+            if (iconInfo?.emoji) { setIcon(targetPageId, iconInfo.emoji); continue; }
+            setIcon(targetPageId, "📝");
+          } catch (err) {
+            console.warn(`[CSV가져오기] 래퍼 페이지 처리 실패: ${wrapperPath}`, err);
+            totalFailed++;
+          }
+        }
       }
 
       setStatus({ kind: "done", rowsImported: totalRowsImported, failed: totalFailed });
