@@ -622,6 +622,8 @@ function EditorInner({
   const [collabSeedRetry, setCollabSeedRetry] = useState(0);
   // 버전 복원 시 store 가 채워 넣는 복원 본문. 다음 시드 효과 실행에서 Y룸에 교체된다.
   const pendingRestoreDocRef = useRef<unknown>(null);
+  // 복원 교체 직후 1회, done 재실행의 repair(현재 본문으로 되돌림) 를 건너뛰기 위한 플래그.
+  const restoreJustAppliedRef = useRef(false);
   // 복원 핸들러 등록: 언바인딩 → 재시드 트리거. 실제 교체/재바인딩은 아래 시드 효과가 수행.
   useEffect(() => {
     if (!collabEnabled || !effectivePageId) return;
@@ -665,17 +667,38 @@ function EditorInner({
       const beforeLen = collabDoc.getXmlFragment("prosemirror").length;
       replaceCollabDocContent(collabDoc, editor.schema, pendingRestore);
       const afterLen = collabDoc.getXmlFragment("prosemirror").length;
+      // 복원본은 권위 — 다음 done 재실행의 repair(현재 store 본문으로 되돌림) 를 1회 차단.
+      restoreJustAppliedRef.current = true;
+      const frag = collabDoc.getXmlFragment("prosemirror");
       console.log("[restore-diag] seed effect replace", {
         effectivePageId,
         beforeLen,
         afterLen,
+        restoredIsPlaceholder: isPlaceholderBodyJson(
+          pendingRestore as Parameters<typeof isPlaceholderBodyJson>[0],
+        ),
       });
+      // 시간차 길이 추적 — 무엇이 되돌리는지(WS sync vs repair vs materialize) 판별용.
+      window.setTimeout(() => {
+        console.log("[restore-diag] +800ms len", frag.length, "store",
+          (usePageStore.getState().pages[effectivePageId]?.doc?.content ?? []).length);
+      }, 800);
+      window.setTimeout(() => {
+        console.log("[restore-diag] +3000ms len", frag.length, "store",
+          (usePageStore.getState().pages[effectivePageId]?.doc?.content ?? []).length);
+      }, 3000);
       seedState.status = "done";
       bindCollabDoc();
       return;
     }
     if (seedState.status === "done") {
-      repairPlaceholderCollabDocFromStore();
+      if (restoreJustAppliedRef.current) {
+        restoreJustAppliedRef.current = false;
+        console.log("[restore-diag] skip repair after restore",
+          collabDoc.getXmlFragment("prosemirror").length);
+      } else {
+        repairPlaceholderCollabDocFromStore();
+      }
       bindCollabDoc();
       return;
     }
