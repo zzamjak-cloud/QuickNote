@@ -64,7 +64,7 @@ function databaseOptions(databases: Record<string, DatabaseBundle>): SelectOptio
   return dedupeOptions(
     Object.values(databases).map((database) => ({
       id: database.meta.id,
-      label: database.meta.title.trim() || "제목 없음",
+      label: (database.meta.title ?? "").trim() || "제목 없음",
     })),
   );
 }

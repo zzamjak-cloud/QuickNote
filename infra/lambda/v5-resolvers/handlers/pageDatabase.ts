@@ -163,7 +163,7 @@ function isEmptyParagraphNode(node: unknown): boolean {
   return !Array.isArray(content) || content.length === 0;
 }
 
-function isPlaceholderPageDoc(value: unknown): boolean {
+export function isPlaceholderPageDoc(value: unknown): boolean {
   const doc = parseJsonLike(value);
   if (!isPlainObject(doc) || doc.type !== "doc") return false;
   const content = doc.content;
@@ -182,11 +182,25 @@ function hasMeaningfulPageDocNode(node: unknown): boolean {
   return Array.isArray(content) && content.some(hasMeaningfulPageDocNode);
 }
 
-function hasMeaningfulPageDocContent(value: unknown): boolean {
+export function hasMeaningfulPageDocContent(value: unknown): boolean {
   const doc = parseJsonLike(value);
   if (!isPlainObject(doc) || doc.type !== "doc") return false;
   const content = doc.content;
   return Array.isArray(content) && content.some(hasMeaningfulPageDocNode);
+}
+
+// 들어온 upsert input 의 doc 이 "본문을 가지지 않은" 상태인지 판정한다.
+// 빈 placeholder(빈 문단만) 뿐 아니라 **키 부재 / null / undefined / 빈 문자열**까지 포함한다.
+// upsertRecord 는 전체 PutItem(전치환)이므로, 메타데이터만 보내는(doc 키 누락) 업서트나
+// JSON.stringify(undefined)===undefined 로 doc 이 떨어져 나간 업서트가 그대로 저장되면
+// 서버 본문이 통째로 소거된다(라이브 데이터 오염의 근본 경로). 이 판정으로 그 입력들을
+// 전부 "본문 없음" 으로 묶어 기존 본문 보존 대상에 포함시킨다.
+export function incomingDocLacksContent(input: Record<string, unknown>): boolean {
+  if (!("doc" in input)) return true;
+  const value = input.doc;
+  if (value == null) return true;
+  if (typeof value === "string" && value.trim() === "") return true;
+  return isPlaceholderPageDoc(value);
 }
 
 function isOnlyUpdatedAtPageChange(
@@ -206,12 +220,14 @@ function isOnlyUpdatedAtPageChange(
   return true;
 }
 
-function preserveExistingDocForPlaceholderInput(
+export function preserveExistingDocForPlaceholderInput(
   input: Record<string, unknown>,
   existingPage: Record<string, unknown> | null,
 ): void {
   if (!existingPage) return;
-  if (!isPlaceholderPageDoc(input.doc)) return;
+  // 들어온 doc 이 본문을 갖지 않고(키 부재/null/빈/placeholder), 기존 본문은 유의미하면
+  // 절대 덮어쓰지 않는다 — 클라이언트 버전·버그와 무관한 서버 최후 방어선.
+  if (!incomingDocLacksContent(input)) return;
   if (!hasMeaningfulPageDocContent(existingPage.doc)) return;
 
   input.doc = existingPage.doc;

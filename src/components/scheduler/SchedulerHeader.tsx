@@ -46,9 +46,9 @@ export function SchedulerHeader({ onClose }: Props) {
   const visibleOrgs = organizations.filter(
     (o) => !disabledOrgIds.includes(o.organizationId),
   );
-  const visibleOrgNameSet = new Set(visibleOrgs.map((org) => org.name.trim()).filter(Boolean));
+  const visibleOrgNameSet = new Set(visibleOrgs.map((org) => (org.name ?? "").trim()).filter(Boolean));
   const visibleTeams = teams.filter(
-    (t) => !disabledTeamIds.includes(t.teamId) && !visibleOrgNameSet.has(t.name.trim()),
+    (t) => !disabledTeamIds.includes(t.teamId) && !visibleOrgNameSet.has((t.name ?? "").trim()),
   );
   const visibleProjects = projects.filter((p) => !p.isHidden);
 
@@ -77,7 +77,7 @@ export function SchedulerHeader({ onClose }: Props) {
       const teamId = selectedProjectId.slice(5);
       const selectedTeam = teams.find((team) => team.teamId === teamId);
       const sameNamedOrg = selectedTeam
-        ? visibleOrgs.find((org) => org.name.trim() === selectedTeam.name.trim())
+        ? visibleOrgs.find((org) => (org.name ?? "").trim() === (selectedTeam.name ?? "").trim())
         : null;
       if (sameNamedOrg) {
         setSelectedProjectId(`org:${sameNamedOrg.organizationId}`);

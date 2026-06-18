@@ -106,7 +106,7 @@ function defaultTimelineColor(index: number): string {
 
 function timelineCardTitle(row: DatabaseRowView, entry: TimelineDateEntry): string {
   if (entry.titleMode === "custom") {
-    const title = entry.title.trim();
+    const title = (entry.title ?? "").trim();
     if (title) return title;
     return entry.columnName;
   }

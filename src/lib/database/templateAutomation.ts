@@ -181,7 +181,7 @@ export function buildTemplateAutomationGeneratedRow({
     cells[dateColumnId] = { start: dateParts.ymd };
   }
 
-  const prefix = automation.titlePrefix?.trim() || template.title.trim() || "Untitled";
+  const prefix = automation.titlePrefix?.trim() || (template.title ?? "").trim() || "Untitled";
   return {
     title: `${prefix} ${dateParts.short}`,
     cells,

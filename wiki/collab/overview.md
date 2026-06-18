@@ -61,6 +61,12 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
 - **빈 doc 가드**: `isCollabDocBodyEmpty`(fragment length 0) → 저장 생략.
 - **placeholder 가드**: 빈 문단뿐인 Y 상태가 의미 있는 기존 본문을 덮지 못함
   (`isPlaceholderBodyJson`, 서버 `preserveExistingDocForPlaceholderInput` 와 동일 의미).
+- **서버 최후 방어선(CRITICAL)**: `upsertRecord` 는 전체 PutItem(전치환)이라 본문 없는 입력이
+  기존 본문을 통째로 소거할 수 있다. `preserveExistingDocForPlaceholderInput` →
+  `incomingDocLacksContent` 가 **doc 키 부재 / null / 빈 문자열 / placeholder** 를 전부 "본문 없음"
+  으로 묶어, 기존이 유의미하면 절대 덮어쓰지 않는다. 클라 버전·버그(메타-only 업서트,
+  `JSON.stringify(undefined)` 로 doc 탈락 등)와 무관한 유일 backstop — 이 조건을 좁히지 말 것
+  (`preserveExistingDoc.test.ts` 11케이스 고정). 신규 페이지(existing=null)는 의도적 빈 본문 허용.
 - **storeApply 예외**: 활성 협업 페이지라도 로컬 doc 이 placeholder 이고 서버 doc 이 실제 본문이면
   서버 doc 을 받아 현재 화면과 시드 소스를 복구한다.
 - **렌더 가능성 가드**: 에디터 바인딩 전 Y.Doc attrs 를 primitive 만 남기고 정화하고,

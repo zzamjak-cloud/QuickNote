@@ -296,9 +296,9 @@ function resolveCardTitle(
   _usePageTitle: boolean,
 ): string {
   const config = column?.config?.timelineCard;
-  if (config?.titleMode === "pageTitle") return page.title.trim() || "제목 없음";
+  if (config?.titleMode === "pageTitle") return (page.title ?? "").trim() || "제목 없음";
   if (config?.titleMode === "custom") return config.title?.trim() || fallback;
-  return page.title.trim() || "제목 없음";
+  return (page.title ?? "").trim() || "제목 없음";
 }
 
 function resolveCardColor(column: ColumnDef | undefined, fallback: string): string {

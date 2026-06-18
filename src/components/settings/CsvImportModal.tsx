@@ -214,8 +214,8 @@ export function CsvImportModal({ open, onClose }: Props) {
       const csvTeamNames = [
         ...new Set(
           preview.rows
-            .filter((r) => r.employmentStatus !== "퇴사" && r.team.trim())
-            .map((r) => r.team.trim()),
+            .filter((r) => r.employmentStatus !== "퇴사" && (r.team ?? "").trim())
+            .map((r) => (r.team ?? "").trim()),
         ),
       ];
 
@@ -328,8 +328,8 @@ export function CsvImportModal({ open, onClose }: Props) {
       const csvOrgNames = [
         ...new Set(
           preview.rows
-            .filter((r) => r.employmentStatus !== "퇴사" && r.department.trim())
-            .map((r) => r.department.trim()),
+            .filter((r) => r.employmentStatus !== "퇴사" && (r.department ?? "").trim())
+            .map((r) => (r.department ?? "").trim()),
         ),
       ];
 

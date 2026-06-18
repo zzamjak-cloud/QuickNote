@@ -178,7 +178,7 @@ export function ProjectsPanel() {
       setErrorMessage("워크스페이스 정보를 확인할 수 없습니다.");
       return;
     }
-    if (!form.name.trim()) {
+    if (!(form.name ?? "").trim()) {
       setErrorMessage("프로젝트 이름을 입력해 주세요.");
       return;
     }
@@ -193,9 +193,9 @@ export function ProjectsPanel() {
       if (createOpen) {
         await createProject({
           workspaceId,
-          name: finalForm.name.trim(),
+          name: (finalForm.name ?? "").trim(),
           color: editingProject?.color ?? "#3b82f6",
-          description: finalForm.description.trim() || undefined,
+          description: (finalForm.description ?? "").trim() || undefined,
           memberIds: finalForm.memberIds,
           leaderMemberIds: finalForm.leaderMemberIds,
           isHidden: false,
@@ -204,8 +204,8 @@ export function ProjectsPanel() {
         await updateProject({
           id: editingProject.id,
           workspaceId,
-          name: finalForm.name.trim(),
-          description: finalForm.description.trim() || undefined,
+          name: (finalForm.name ?? "").trim(),
+          description: (finalForm.description ?? "").trim() || undefined,
           memberIds: finalForm.memberIds,
           leaderMemberIds: finalForm.leaderMemberIds,
         });
