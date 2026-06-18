@@ -1813,11 +1813,15 @@ async function softDeleteRecord(args: {
       ExpressionAttributeValues: {
         ":d": now,
         ":u": now,
-        ":old": args.updatedAt,
         ":w": args.workspaceId,
         ...(setPurge ? { ":p": args.ttlSeconds } : {}),
       },
-      ConditionExpression: "workspaceId = :w AND (attribute_not_exists(updatedAt) OR updatedAt <= :old)",
+      // 삭제(휴지통 이동)는 사용자의 명시 의도이므로 updatedAt 낙관적 동시성 가드로 막지 않는다.
+      // 과거 "updatedAt <= :old" 는 시계 skew·동시 편집·collab materialize 로 서버 updatedAt 이
+      // 클라 삭제시각보다 최신이면 조건 실패 → softDelete 가 throw 되어 deletedAt 미설정 →
+      // DB/페이지가 로컬에선 사라졌으나 서버엔 살아있고 휴지통에도 없는 유실이 간헐 발생했다.
+      // 워크스페이스 일치만 확인한다(삭제는 복원 가능하므로 안전).
+      ConditionExpression: "workspaceId = :w",
       ReturnValues: "ALL_NEW",
     }),
   );

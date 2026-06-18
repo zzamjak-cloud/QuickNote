@@ -192,7 +192,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const workspaceId = getCurrentWorkspaceId();
         const cols = seedColumns();
         const seedPageId = createRowPage(id, "항목 1");
-        const uniqueTitle = allocateUniqueDatabaseTitle(get().databases, title);
+        const uniqueTitle = allocateUniqueDatabaseTitle(get().databases, title, workspaceId);
 
         const bundle: DatabaseBundle = {
           meta: { id, workspaceId: workspaceId || undefined, title: uniqueTitle, createdAt: t, updatedAt: t },
@@ -346,7 +346,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           return normalizeDbTitle(title) === LC_FEATURE_DATABASE_TITLE;
         }
         const nextTitle = normalizeDbTitle(title);
-        if (isDatabaseTitleTaken(state.databases, nextTitle, id)) {
+        if (isDatabaseTitleTaken(state.databases, nextTitle, id, b.meta.workspaceId)) {
           return false;
         }
         set({

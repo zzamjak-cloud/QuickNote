@@ -279,10 +279,14 @@ export function isDatabaseTitleTaken(
   databases: DbMap,
   title: string,
   exceptId: string,
+  workspaceId?: string | null,
 ): boolean {
   const n = normalizeDbTitle(title);
   for (const [id, b] of Object.entries(databases)) {
     if (id === exceptId) continue;
+    // 다른 워크스페이스의 DB(특히 cross-workspace 검색용으로 remember 된 ghost — 관리 팝업엔
+    // 안 보이지만 databases 맵엔 남아 이름을 점유)는 현재 워크스페이스의 이름 충돌 대상이 아니다.
+    if (workspaceId && b.meta.workspaceId && b.meta.workspaceId !== workspaceId) continue;
     if (normalizeDbTitle(b.meta.title) === n) return true;
   }
   return false;
@@ -292,12 +296,13 @@ export function isDatabaseTitleTaken(
 export function allocateUniqueDatabaseTitle(
   databases: DbMap,
   preferred: string,
+  workspaceId?: string | null,
 ): string {
   let base = normalizeDbTitle(preferred);
   if (base === "제목 없음") base = "새 데이터베이스";
   let candidate = base;
   let n = 2;
-  while (isDatabaseTitleTaken(databases, candidate, "")) {
+  while (isDatabaseTitleTaken(databases, candidate, "", workspaceId)) {
     candidate = `${base} (${n})`;
     n += 1;
   }
