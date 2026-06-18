@@ -149,6 +149,23 @@ export function createLocalDeleteGuardChecker(nowMs = Date.now()): LocalDeleteGu
   };
 }
 
+/**
+ * 캐시 후보 목록(검색/멘션/링크 등)에서 로컬 삭제된 엔티티를 걸러내는 필터를 만든다.
+ * localStorage 를 1회만 읽어 (kind,id,workspaceId) tombstone 존재 여부를 반환한다.
+ * 원격 updatedAt 비교 없이 "로컬에서 최근 삭제됨"이면 true(=숨김) — 삭제 후 stale 캐시
+ * (워크스페이스 스냅샷·행 인덱스 등)가 검색/멘션에 삭제 항목을 계속 노출하던 문제 차단.
+ * 재생성은 새 id 를 받으므로 오탐(false positive)은 없다.
+ */
+export function createLocalDeletionFilter(
+  nowMs = Date.now(),
+): (kind: EntityKind, id: string, workspaceId: string | null | undefined) => boolean {
+  const guards = pruneGuards(readGuards(), nowMs);
+  return (kind, id, workspaceId) => {
+    if (!id || !workspaceId) return false;
+    return Boolean(guards[guardKey(kind, workspaceId, id)]);
+  };
+}
+
 /** 영구 tombstone 여부 조회 (UI/디버그용). */
 export function isPermanentlyDeletedEntity(
   kind: EntityKind,

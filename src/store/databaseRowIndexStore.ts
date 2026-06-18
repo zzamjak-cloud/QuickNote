@@ -23,6 +23,8 @@ type DatabaseRowIndexActions = {
     opts?: { reset?: boolean; complete?: boolean },
   ) => Promise<void>;
   removeRows: (indexKey: string, pageIds: readonly string[]) => Promise<void>;
+  /** 모든 인덱스 스냅샷에서 주어진 pageId 들을 제거(삭제된 페이지/행이 fallback 으로 유령 렌더되는 것 방지). */
+  removePagesFromAllIndexes: (pageIds: readonly string[]) => Promise<void>;
   clearIndex: (indexKey: string) => Promise<void>;
 };
 
@@ -88,6 +90,27 @@ export const useDatabaseRowIndexStore = create<DatabaseRowIndexStore>()(
         snapshotsByKey: { ...state.snapshotsByKey, [indexKey]: snapshot },
       }));
       await writeDatabaseRowIndexCache(snapshot);
+    },
+
+    removePagesFromAllIndexes: async (pageIds) => {
+      if (pageIds.length === 0) return;
+      const ids = new Set(pageIds);
+      const snapshots = get().snapshotsByKey;
+      const nextByKey = { ...snapshots };
+      const affected: DatabaseRowIndexSnapshot[] = [];
+      for (const [key, snap] of Object.entries(snapshots)) {
+        if (!snap.rows.some((row) => ids.has(row.pageId))) continue;
+        const next: DatabaseRowIndexSnapshot = {
+          ...snap,
+          rows: snap.rows.filter((row) => !ids.has(row.pageId)),
+          updatedAt: Date.now(),
+        };
+        nextByKey[key] = next;
+        affected.push(next);
+      }
+      if (affected.length === 0) return;
+      set({ snapshotsByKey: nextByKey });
+      await Promise.all(affected.map((snap) => writeDatabaseRowIndexCache(snap)));
     },
 
     clearIndex: async (indexKey) => {

@@ -10,6 +10,7 @@ import { parseAwsJson, gqlOrderNumber, isoToMs, gqlPageToLocalPage } from "./syn
 import { tryParseSerializedColumns } from "./database/schema/normalizeDatabase";
 import { readWorkspaceSnapshotPages } from "./sync/workspaceSwitch";
 import { LC_SCHEDULER_WORKSPACE_ID } from "./scheduler/scope";
+import { createLocalDeletionFilter } from "./sync/localDeleteGuards";
 
 export type CrossWorkspaceDatabaseCandidate = {
   id: string;
@@ -180,7 +181,11 @@ export async function loadCrossWorkspacePageCandidates(): Promise<Page[]> {
     (workspace) => workspace.workspaceId !== currentWorkspaceId,
   );
   const externalPages = await settledFlat(externalTargets, loadPublicPagesForWorkspace);
-  return mergeUniquePages([...localPages(), ...externalPages]);
+  // 로컬 삭제된 페이지는 stale 캐시(스냅샷·pageCache)에 남아도 후보에서 제외한다.
+  const isDeleted = createLocalDeletionFilter();
+  return mergeUniquePages([...localPages(), ...externalPages]).filter(
+    (page) => !isDeleted("page", page.id, page.workspaceId),
+  );
 }
 
 export async function loadCrossWorkspaceDatabaseCandidates(): Promise<CrossWorkspaceDatabaseCandidate[]> {
@@ -189,7 +194,10 @@ export async function loadCrossWorkspaceDatabaseCandidates(): Promise<CrossWorks
     (workspace) => workspace.workspaceId !== currentWorkspaceId,
   );
   const externalDatabases = await settledFlat(externalTargets, loadPublicDatabasesForWorkspace);
-  return mergeUniqueDatabases([...localDatabases(), ...externalDatabases]);
+  const isDeleted = createLocalDeletionFilter();
+  return mergeUniqueDatabases([...localDatabases(), ...externalDatabases]).filter(
+    (db) => !isDeleted("database", db.id, db.workspaceId),
+  );
 }
 
 export async function loadCrossWorkspaceRowsForDatabase(databaseId: string): Promise<Page[]> {

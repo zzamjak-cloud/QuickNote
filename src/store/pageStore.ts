@@ -12,6 +12,7 @@ import {
 } from "./historyStore";
 import { useSettingsStore } from "./settingsStore";
 import { useNotificationStore } from "./notificationStore";
+import { useDatabaseRowIndexStore } from "./databaseRowIndexStore";
 import { enqueueAsync } from "../lib/sync/runtime";
 import { markLocallyDeletedEntity } from "../lib/sync/localDeleteGuards";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
@@ -408,6 +409,9 @@ export const usePageStore = create<PageStore>()(
         }
         if (removedIds.length > 0) {
           useSettingsStore.getState().removeFavoritesForPages(removedIds);
+          // 삭제된 페이지(행 포함)를 DB 행 인덱스 캐시에서도 제거 — fallback 으로 유령 행이
+          // 계속 렌더되거나(테이블/리스트), 삭제 후에도 화면 갱신이 안 되던 문제 차단.
+          void useDatabaseRowIndexStore.getState().removePagesFromAllIndexes(removedIds);
         }
         const removedFullPageDatabaseIds = Array.from(
           new Set(removedPages.map(getFullPageDatabaseId).filter(Boolean) as string[]),
