@@ -83,30 +83,18 @@ export function SearchCommandPalette({ open, onClose }: Props) {
         className="flex h-[560px] max-h-[calc(100vh-120px)] w-[820px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        {/* 검색 입력 — 페이지 / DB 분리 */}
+        {/* 검색 입력 */}
         <div className="flex items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
-          <div className="flex flex-1 items-center gap-2 rounded-md border border-zinc-200 px-2.5 py-1.5 focus-within:border-zinc-400 dark:border-zinc-700 dark:focus-within:border-zinc-500">
-            <Search size={16} className="shrink-0 text-zinc-400" />
-            <input
-              ref={inputRef}
-              data-search-input="true"
-              type="text"
-              value={view.pageQuery}
-              onChange={(e) => view.setPageQuery(e.target.value)}
-              placeholder="페이지 검색"
-              className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
-            />
-          </div>
-          <div className="flex flex-1 items-center gap-2 rounded-md border border-zinc-200 px-2.5 py-1.5 focus-within:border-zinc-400 dark:border-zinc-700 dark:focus-within:border-zinc-500">
-            <Search size={16} className="shrink-0 text-zinc-400" />
-            <input
-              type="text"
-              value={view.dbQuery}
-              onChange={(e) => view.setDbQuery(e.target.value)}
-              placeholder="DB 검색"
-              className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
-            />
-          </div>
+          <Search size={18} className="shrink-0 text-zinc-400" />
+          <input
+            ref={inputRef}
+            data-search-input="true"
+            type="text"
+            value={view.query}
+            onChange={(e) => view.setQuery(e.target.value)}
+            placeholder="페이지, 데이터베이스, 본문 내용 검색…"
+            className="flex-1 bg-transparent text-base text-zinc-900 outline-none placeholder:text-zinc-400 dark:text-zinc-100"
+          />
           <button
             type="button"
             onClick={onClose}
