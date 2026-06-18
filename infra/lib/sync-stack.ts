@@ -1106,6 +1106,11 @@ export function response(ctx) {
       fieldName: "restorePageVersion",
     });
 
+    v5Ds.createResolver("MutationsavePageVersion", {
+      typeName: "Mutation",
+      fieldName: "savePageVersion",
+    });
+
     v5Ds.createResolver("MutationdeletePageHistoryEvents", {
       typeName: "Mutation",
       fieldName: "deletePageHistoryEvents",
