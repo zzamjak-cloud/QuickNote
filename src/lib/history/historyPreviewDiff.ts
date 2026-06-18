@@ -246,6 +246,73 @@ export function buildPagePreviewChanges(
   return out;
 }
 
+/** 통합 프리뷰용 속성 한 행 — 변경 여부와 무관하게 "현재 버전의 전체 속성"을 표현한다. */
+export type PagePropertyRow = {
+  id: string;
+  label: string;
+  before: string;
+  after: string;
+  status: "added" | "removed" | "changed" | "unchanged";
+};
+
+/**
+ * 선택 버전(after)의 전체 속성 목록 + 변경 상태.
+ * - 변경된 속성은 항상 포함, 변경 없는 속성은 값이 있을 때만 포함(빈 값 노이즈 제거).
+ * - 내부 셀 키(_qn_*)는 제외.
+ */
+export function buildPagePropertyRows(
+  before: PageSnapshot | null,
+  after: PageSnapshot | null,
+  ctx: PagePreviewContext = {},
+): PagePropertyRow[] {
+  if (!after) return [];
+  const rows: PagePropertyRow[] = [];
+  const push = (id: string, label: string, b: unknown, a: unknown) => {
+    const same = equalJson(b ?? null, a ?? null);
+    const aEmptyVal = a == null || a === "";
+    if (same && aEmptyVal) return; // 변경 없고 값도 없음 → 생략
+    const bEmpty = b == null || b === "";
+    const aEmpty = aEmptyVal;
+    rows.push({
+      id,
+      label,
+      before: stringifyValue(b),
+      after: stringifyValue(a),
+      status: same ? "unchanged" : bEmpty ? "added" : aEmpty ? "removed" : "changed",
+    });
+  };
+  push("title", "페이지 제목", before?.title, after.title);
+  push("icon", "아이콘", before?.icon, after.icon);
+  push("cover", "커버", before?.coverImage, after.coverImage);
+  const resolveParent = (id: string | null | undefined) =>
+    id ? (ctx.getPageTitle?.(id) ?? id) : id;
+  push("parent", "상위 페이지", resolveParent(before?.parentId), resolveParent(after.parentId));
+  const resolveDb = (id: string | null | undefined) =>
+    id ? (ctx.getDatabaseTitle?.(id) ?? id) : id;
+  push("database", "연결 DB", resolveDb(before?.databaseId), resolveDb(after.databaseId));
+
+  const beforeCells = pageCells(before);
+  const afterCells = pageCells(after);
+  for (const key of new Set([...Object.keys(beforeCells), ...Object.keys(afterCells)])) {
+    if (key.startsWith("_qn_")) continue; // 내부 메타 셀 제외
+    const colLabel = ctx.getColumnName?.(key) ?? key;
+    const bRaw = beforeCells[key];
+    const aRaw = afterCells[key];
+    const same = equalJson(bRaw ?? null, aRaw ?? null);
+    const aEmpty = aRaw == null || aRaw === "";
+    if (same && aEmpty) continue;
+    const bEmpty = bRaw == null || bRaw === "";
+    rows.push({
+      id: `cell:${key}`,
+      label: `속성: ${colLabel}`,
+      before: resolveCellValue(bRaw, key, ctx),
+      after: resolveCellValue(aRaw, key, ctx),
+      status: same ? "unchanged" : bEmpty ? "added" : aEmpty ? "removed" : "changed",
+    });
+  }
+  return rows;
+}
+
 type PreviewColumn = {
   id: string;
   name?: string | null;

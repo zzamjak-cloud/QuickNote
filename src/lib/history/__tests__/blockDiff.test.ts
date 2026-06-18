@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   diffDocBlocks,
+  buildUnifiedBlockDiff,
   parseChangedUnits,
   parseContributors,
   summarizeChangedUnits,
@@ -13,6 +14,39 @@ const block = (id: string, text: string) => ({
 });
 
 const docOf = (...blocks: unknown[]) => ({ type: "doc", content: blocks });
+
+describe("buildUnifiedBlockDiff", () => {
+  it("전체 본문을 문서 순서대로 펼치고 변경 구간만 표시한다", () => {
+    const before = docOf(block("a", "하나"), block("b", "둘"), block("c", "셋"));
+    const after = docOf(block("a", "하나"), block("b", "둘!"), block("d", "넷"));
+    const rows = buildUnifiedBlockDiff(before, after);
+    // a 무변경, b 수정(삭제+추가), c 삭제(b 뒤 anchor), d 추가
+    expect(rows.map((r) => r.status)).toEqual([
+      "unchanged", // a
+      "removed", // b(이전)
+      "added", // b(이후)
+      "removed", // c (b 뒤 anchor 위치)
+      "added", // d
+    ]);
+  });
+
+  it("전체 삭제 시 모든 블럭이 removed", () => {
+    const before = docOf(block("a", "하나"), block("b", "둘"));
+    const after = docOf({ type: "paragraph", attrs: { id: "z" } });
+    expect(buildUnifiedBlockDiff(before, after).map((r) => r.status)).toEqual([
+      "removed",
+      "removed",
+    ]);
+  });
+
+  it("변경 없으면 전부 unchanged(전체 본문 그대로 노출)", () => {
+    const doc = docOf(block("a", "하나"), block("b", "둘"));
+    expect(buildUnifiedBlockDiff(doc, doc).map((r) => r.status)).toEqual([
+      "unchanged",
+      "unchanged",
+    ]);
+  });
+});
 
 describe("diffDocBlocks", () => {
   it("빈 블럭 추가와 위치 이동은 diff 에 잡히지 않는다", () => {

@@ -74,6 +74,56 @@ export function diffDocBlocks(beforeDoc: unknown, afterDoc: unknown): BlockDiffE
   return out;
 }
 
+/** 통합(unified) 본문 diff 의 한 행 — 문서 순서대로 전체 블럭을 표현한다. */
+export type UnifiedBlockRow = {
+  status: "added" | "removed" | "unchanged";
+  node: BlockNode;
+};
+
+/**
+ * 전체 본문을 문서 순서대로 펼친 통합 diff.
+ * - unchanged: 그대로 표시(하이라이트 없음)
+ * - added: after 에만 있는 블럭(녹색)
+ * - removed: before 에만 있는 블럭(빨강) — 직전 "유지 블럭" 뒤 위치에 삽입
+ * - modified: removed(이전) + added(이후) 쌍으로 펼친다(git unified diff 와 동일 관습).
+ * 빈 문단은 양쪽 모두 무시(서버/diffDocBlocks 규칙과 동일).
+ */
+export function buildUnifiedBlockDiff(beforeDoc: unknown, afterDoc: unknown): UnifiedBlockRow[] {
+  const beforeBlocks = collectBlocks(beforeDoc).filter((b) => !b.empty);
+  const afterBlocks = collectBlocks(afterDoc).filter((b) => !b.empty);
+  const beforeById = new Map(beforeBlocks.map((b) => [b.id, b]));
+  const afterById = new Map(afterBlocks.map((b) => [b.id, b]));
+
+  // removed 블럭을 "직전 유지 블럭(anchor)" 뒤에 배치하기 위한 맵(anchor=null → 맨 앞).
+  const removedByAnchor = new Map<string | null, BlockNode[]>();
+  let anchor: string | null = null;
+  for (const b of beforeBlocks) {
+    if (afterById.has(b.id)) {
+      anchor = b.id;
+    } else {
+      const list = removedByAnchor.get(anchor) ?? [];
+      list.push(b.node);
+      removedByAnchor.set(anchor, list);
+    }
+  }
+
+  const rows: UnifiedBlockRow[] = [];
+  for (const node of removedByAnchor.get(null) ?? []) rows.push({ status: "removed", node });
+  for (const a of afterBlocks) {
+    const prev = beforeById.get(a.id);
+    if (!prev) {
+      rows.push({ status: "added", node: a.node });
+    } else if (prev.sig !== a.sig) {
+      rows.push({ status: "removed", node: prev.node });
+      rows.push({ status: "added", node: a.node });
+    } else {
+      rows.push({ status: "unchanged", node: a.node });
+    }
+    for (const node of removedByAnchor.get(a.id) ?? []) rows.push({ status: "removed", node });
+  }
+  return rows;
+}
+
 const META_UNIT_LABELS: Record<string, string> = {
   "meta:title": "제목",
   "meta:titleColor": "제목 색상",

@@ -8,9 +8,13 @@ import { useHistorySelection } from "./useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { buildPageHistorySnapshotMap } from "../../lib/history/pageHistoryPatch";
-import { buildPagePreviewChanges, summarizePreviewChanges } from "../../lib/history/historyPreviewDiff";
+import {
+  buildPagePreviewChanges,
+  buildPagePropertyRows,
+  summarizePreviewChanges,
+} from "../../lib/history/historyPreviewDiff";
 import { parseContributors, summarizeChangedUnits } from "../../lib/history/blockDiff";
-import { BlockDiffView } from "./BlockDiffView";
+import { UnifiedBlockDiffView } from "./BlockDiffView";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import type { GqlPageHistoryEntry } from "../../lib/sync/graphql/operations";
@@ -131,14 +135,10 @@ export function PageHistoryPreviewDialog({
     };
   }, [databases, pages, selectedAfter, selectedBefore]);
 
-  const previewChanges = useMemo(
-    () => buildPagePreviewChanges(selectedBefore, selectedAfter, previewContext),
+  // 통합 뷰: 변경분만이 아니라 선택 버전의 "전체 속성"을 변경 상태와 함께 보여준다.
+  const propertyRows = useMemo(
+    () => buildPagePropertyRows(selectedBefore, selectedAfter, previewContext),
     [selectedAfter, selectedBefore, previewContext],
-  );
-  // 본문은 BlockDiffView 가 실제 블럭 모습으로 렌더하므로, 텍스트 라인 diff(doc:*)는 제외한다.
-  const metaChanges = useMemo(
-    () => previewChanges.filter((change) => !change.id.startsWith("doc:")),
-    [previewChanges],
   );
   // 세션 엔트리 메타(changedUnits 요약·참여자·편집 중 배지)용 원본 엔트리 조회 맵.
   const rawEntryById = useMemo(
@@ -245,43 +245,49 @@ export function PageHistoryPreviewDialog({
                 <div className="text-sm text-red-600">{error}</div>
               ) : !selectedHistoryId ? (
                 <div className="text-sm text-zinc-500">버전 기록이 없습니다.</div>
-              ) : previewChanges.length === 0 ? (
-                <div className="text-sm text-zinc-500">현재 최신 버전입니다.</div>
               ) : (
-                <div className="space-y-2">
-                  {metaChanges.map((change) => (
-                    <div
-                      key={change.id}
-                      className="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="min-w-0 truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
-                          {change.label}
-                        </span>
-                        <span
-                          className={[
-                            "shrink-0 rounded px-1.5 py-0.5 text-xs",
-                            change.kind === "added"
-                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                              : change.kind === "removed"
-                                ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                                : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-                          ].join(" ")}
-                        >
-                          {change.kind === "added" ? "추가" : change.kind === "removed" ? "삭제" : "변경"}
-                        </span>
+                <div className="space-y-4">
+                  {propertyRows.length > 0 ? (
+                    <div className="rounded-md border border-zinc-200 dark:border-zinc-800">
+                      <div className="border-b border-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-500 dark:border-zinc-800">
+                        속성
                       </div>
-                      <div className="grid gap-2 text-sm md:grid-cols-2">
-                        <div className="min-w-0 rounded bg-red-50/70 p-2 text-red-900 dark:bg-red-950/25 dark:text-red-100">
-                          <div className="break-words">{change.before}</div>
-                        </div>
-                        <div className="min-w-0 rounded bg-emerald-50/70 p-2 text-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100">
-                          <div className="break-words">{change.after}</div>
-                        </div>
+                      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                        {propertyRows.map((row) => (
+                          <div key={row.id} className="flex gap-3 px-3 py-1.5 text-sm">
+                            <span className="w-28 shrink-0 truncate text-zinc-500">{row.label}</span>
+                            <span className="min-w-0 flex-1 break-words">
+                              {row.status === "unchanged" ? (
+                                <span className="text-zinc-700 dark:text-zinc-200">{row.after}</span>
+                              ) : row.status === "added" ? (
+                                <span className="rounded bg-emerald-50 px-1 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                  {row.after}
+                                </span>
+                              ) : row.status === "removed" ? (
+                                <span className="rounded bg-red-50 px-1 text-red-700 line-through dark:bg-red-950/40 dark:text-red-300">
+                                  {row.before}
+                                </span>
+                              ) : (
+                                <span className="inline-flex flex-wrap items-center gap-1">
+                                  <span className="rounded bg-red-50 px-1 text-red-700 line-through dark:bg-red-950/40 dark:text-red-300">
+                                    {row.before}
+                                  </span>
+                                  <span className="text-zinc-400">→</span>
+                                  <span className="rounded bg-emerald-50 px-1 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    {row.after}
+                                  </span>
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                  <BlockDiffView beforeDoc={selectedBefore?.doc} afterDoc={selectedAfter?.doc} />
+                  ) : null}
+                  <div>
+                    <div className="mb-1 px-1 text-xs font-medium text-zinc-500">본문</div>
+                    <UnifiedBlockDiffView beforeDoc={selectedBefore?.doc} afterDoc={selectedAfter?.doc} />
+                  </div>
                 </div>
               )}
             </div>
