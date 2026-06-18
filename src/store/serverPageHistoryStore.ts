@@ -11,6 +11,7 @@ import { applyRemotePageToStore } from "../lib/sync/storeApply";
 import { gqlPageToLocalPage } from "../lib/sync/storeApply/helpers";
 import { clearLocalDeleteGuard } from "../lib/sync/localDeleteGuards";
 import { restoreRowCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
+import { replacePageCollabBody } from "../lib/collab/pageCollabRegistry";
 import { usePageStore, enqueuePageUpsertForSync } from "./pageStore";
 import { formatError } from "../lib/util/formatError";
 
@@ -114,6 +115,12 @@ export const useServerPageHistoryStore = create<State & Actions>()((set, get) =>
     clearLocalDeleteGuard("page", pageId, workspaceId);
     applyRemotePageToStore(restored);
     const restoredLocal = gqlPageToLocalPage(restored);
+    // [Phase D-body] 본문: 협업 활성 페이지면 preserveCollabDoc 가 복원 doc 을 버려 store/화면이
+    // 안 바뀐다. 활성 세션의 Y.Doc 본문을 복원본으로 교체해 권위를 갱신한다(화면·피어 반영).
+    // 세션 미오픈/비협업이면 false → applyRemotePageToStore 가 넣은 store.doc 이 그대로 권위.
+    if (restoredLocal.doc) {
+      replacePageCollabBody(pageId, restoredLocal.doc);
+    }
     if (restoredLocal.databaseId) {
       if (restoredLocal.dbCells) {
         // [Phase D] 셀이 스냅샷에 캡처된 경우(객체, 빈 {} 포함): 복원본 셀을 DB Y룸(권위)에 주입.

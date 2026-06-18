@@ -110,6 +110,7 @@ import {
 } from "./editorHelpers";
 import { useEditorExtensions } from "./useEditorExtensions";
 import { useCollabSession } from "../../lib/collab/useCollabSession";
+import { setPageCollabReplaceBody } from "../../lib/collab/pageCollabRegistry";
 import { useCollabPresence } from "../../lib/collab/useCollabPresence";
 import {
   seedCollabDocIfEmpty,
@@ -619,6 +620,15 @@ function EditorInner({
     status: "idle" | "fetching" | "done";
   }>({ pageId: "", status: "idle" });
   const [collabSeedRetry, setCollabSeedRetry] = useState(0);
+  // 버전 복원이 활성 세션의 Y.Doc 본문을 복원본으로 교체할 수 있도록 콜백을 등록한다.
+  // (preserveCollabDoc 가 복원 doc 을 버려도 Y룸 권위를 갈아끼워 화면·피어에 반영.)
+  // 엔트리 자체는 useCollabSession 의 register/unregisterPageCollab 가 관리하므로 별도 해제 불필요.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !collabBoundDoc || !effectivePageId) return;
+    setPageCollabReplaceBody(effectivePageId, (json) => {
+      if (!editor.isDestroyed) replaceCollabDocContent(collabBoundDoc, editor.schema, json);
+    });
+  }, [editor, collabBoundDoc, effectivePageId]);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     // 준비 전(세션 없음·서버 sync 전)에는 바인딩을 풀어 둔다 —
