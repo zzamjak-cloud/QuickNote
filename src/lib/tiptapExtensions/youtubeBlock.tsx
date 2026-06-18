@@ -1,7 +1,7 @@
 // YouTube 블록 — 기본 확장은 renderHTML 로 iframe 만 갱신되어 탭/리렌더 시 동영상이 깜빡일 수 있음.
 // React NodeView 로 분리해 동일 속성에서는 iframe 을 재사용하고, 선택 상태도 메모 비교로 반영한다.
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import Youtube from "@tiptap/extension-youtube";
 import {
   getEmbedUrlFromYoutubeUrl,
@@ -61,6 +61,11 @@ function youtubeViewMemoEqual(prev: NodeViewProps, next: NodeViewProps): boolean
   );
 }
 
+// 이번 세션에 한 번이라도 iframe 이 로드된(활성화된) 비디오 src 집합.
+// 에디터 리마운트(협업 바인딩)·페이지 재진입 시 이미 본 비디오는 즉시 active 로 시작해
+// placeholder→iframe 재로딩 깜빡임을 없앤다. 한 번도 안 본/오프스크린 비디오는 기존대로 lazy.
+const activatedVideoSrcs = new Set<string>();
+
 const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
   const opts = props.extension.options as YoutubeOptions;
   const { src, start, width, height } = props.node.attrs as {
@@ -69,9 +74,15 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
     width?: number;
     height?: number;
   };
+  const srcKey = typeof src === "string" && src ? src : null;
   const activation = useLazyNodeViewActivation<HTMLDivElement>({
     selected: props.selected,
+    initialActive: srcKey ? activatedVideoSrcs.has(srcKey) : false,
   });
+  // 활성화된 src 를 기록 — 다음 마운트(재진입)부터 즉시 active.
+  useEffect(() => {
+    if (activation.active && srcKey) activatedVideoSrcs.add(srcKey);
+  }, [activation.active, srcKey]);
 
   const embedUrl = useMemo(() => {
     if (!activation.active) return null;
