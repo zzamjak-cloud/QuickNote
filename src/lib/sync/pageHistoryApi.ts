@@ -4,6 +4,7 @@ import {
   LIST_DATABASE_ROW_HISTORY,
   LIST_PAGE_HISTORY,
   RESTORE_PAGE_VERSION,
+  SAVE_PAGE_VERSION,
   type GqlPage,
   type GqlPageHistoryEntry,
 } from "./graphql/operations";
@@ -45,6 +46,13 @@ export async function restorePageVersionApi(input: {
   historyId: string;
 }): Promise<GqlPage> {
   return gqlRequired<GqlPage>(RESTORE_PAGE_VERSION, { input }, "restorePageVersion");
+}
+
+export async function savePageVersionApi(
+  pageId: string,
+  workspaceId: string,
+): Promise<GqlPage> {
+  return gqlRequired<GqlPage>(SAVE_PAGE_VERSION, { pageId, workspaceId }, "savePageVersion");
 }
 
 export async function deletePageHistoryEventsApi(

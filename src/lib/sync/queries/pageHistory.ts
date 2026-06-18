@@ -34,6 +34,12 @@ export const RESTORE_PAGE_VERSION = `
   }
 `;
 
+export const SAVE_PAGE_VERSION = `
+  mutation SavePageVersion($pageId: ID!, $workspaceId: ID!) {
+    savePageVersion(pageId: $pageId, workspaceId: $workspaceId) { ${PAGE_FIELDS} }
+  }
+`;
+
 export const DELETE_PAGE_HISTORY_EVENTS = `
   mutation DeletePageHistoryEvents($pageId: ID!, $workspaceId: ID!, $historyIds: [ID!]!) {
     deletePageHistoryEvents(pageId: $pageId, workspaceId: $workspaceId, historyIds: $historyIds)

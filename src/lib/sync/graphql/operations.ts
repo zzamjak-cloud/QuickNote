@@ -40,6 +40,7 @@ export {
   LIST_PAGE_HISTORY,
   LIST_DATABASE_ROW_HISTORY,
   RESTORE_PAGE_VERSION,
+  SAVE_PAGE_VERSION,
   DELETE_PAGE_HISTORY_EVENTS,
   type GqlPageHistoryEntry,
 } from "../queries/pageHistory";

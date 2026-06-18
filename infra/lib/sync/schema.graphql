@@ -573,6 +573,8 @@ type Mutation {
   """휴지통 페이지 복원(deletedAt 제거)"""
   restorePage(id: ID!, workspaceId: ID!): Page!
   restorePageVersion(input: RestorePageVersionInput!): Page!
+  """현재 페이지 상태를 즉시 하나의 버전 체크포인트로 기록(세션 머지와 무관하게 새 버전 경계 생성)"""
+  savePageVersion(pageId: ID!, workspaceId: ID!): Page!
   deletePageHistoryEvents(pageId: ID!, workspaceId: ID!, historyIds: [ID!]!): Boolean!
   """현재 워크스페이스의 휴지통 페이지를 DynamoDB에서 영구 삭제"""
   emptyTrash(workspaceId: ID!): Int!

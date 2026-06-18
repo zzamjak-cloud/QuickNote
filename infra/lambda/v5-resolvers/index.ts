@@ -69,6 +69,7 @@ import {
   restoreDatabase,
   restoreDatabaseVersion,
   restorePageVersion,
+  savePageVersion,
   softDeleteDatabase,
   softDeletePage,
   upsertDatabase,
@@ -538,6 +539,14 @@ const RESOLVERS: Record<
     await restorePageVersion({
       ...base,
       input: event.arguments.input as { pageId: string; workspaceId: string; historyId: string },
+    }),
+  savePageVersion: async (event, base) =>
+    await savePageVersion({
+      ...base,
+      input: {
+        pageId: event.arguments.pageId as string,
+        workspaceId: event.arguments.workspaceId as string,
+      },
     }),
   deletePageHistoryEvents: async (event, base) =>
     await deletePageHistoryEvents({

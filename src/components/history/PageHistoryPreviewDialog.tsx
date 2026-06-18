@@ -47,7 +47,9 @@ export function PageHistoryPreviewDialog({
   const error = useServerPageHistoryStore((s) => (pageId ? s.error[pageId] ?? null : null));
   const fetchPageHistory = useServerPageHistoryStore((s) => s.fetchPageHistory);
   const restorePageHistoryEvent = useServerPageHistoryStore((s) => s.restorePageHistoryEvent);
+  const savePageVersion = useServerPageHistoryStore((s) => s.savePageVersion);
   const deletePageHistoryEvents = useServerPageHistoryStore((s) => s.deletePageHistoryEvents);
+  const [savingVersion, setSavingVersion] = useState(false);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   // "편집 중" 배지 판정 기준 시각 — 렌더 중 Date.now() 호출 금지(react-hooks/purity)라 effect 로 고정.
   const [nowTs, setNowTs] = useState(0);
@@ -299,6 +301,19 @@ export function PageHistoryPreviewDialog({
                     <span className="inline-block h-3 w-3 rounded-sm border border-zinc-400" />
                   )}
                   전체 선택
+                </button>
+                <button
+                  type="button"
+                  disabled={savingVersion || !pageId || !workspaceId}
+                  onClick={() => {
+                    if (!pageId || !workspaceId) return;
+                    setSavingVersion(true);
+                    void savePageVersion(pageId, workspaceId).finally(() => setSavingVersion(false));
+                  }}
+                  className="inline-flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-sm text-blue-600 hover:bg-blue-50 disabled:cursor-progress disabled:opacity-60 dark:border-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                  title="현재 상태를 하나의 버전으로 즉시 저장합니다."
+                >
+                  {savingVersion ? "저장 중…" : "현재 버전 저장"}
                 </button>
                 {selectedTimelineIds.size > 0 && (
                   <button

@@ -5,6 +5,7 @@ import {
   deletePageHistoryEventsApi,
   listPageHistoryApi,
   restorePageVersionApi,
+  savePageVersionApi,
 } from "../lib/sync/pageHistoryApi";
 import { applyRemotePageToStore } from "../lib/sync/storeApply";
 import { gqlPageToLocalPage } from "../lib/sync/storeApply/helpers";
@@ -26,6 +27,8 @@ type Actions = {
   fetchPageHistory: (pageId: string, workspaceId: string) => Promise<void>;
   getPageTimeline: (pageId: string) => HistoryTimelineEntry[];
   restorePageHistoryEvent: (pageId: string, workspaceId: string, historyId: string) => Promise<boolean>;
+  /** 현재 상태를 즉시 버전 체크포인트로 저장(세션 머지 우회). */
+  savePageVersion: (pageId: string, workspaceId: string) => Promise<boolean>;
   deletePageHistoryEvents: (pageId: string, workspaceId: string, historyIds: string[]) => Promise<void>;
 };
 
@@ -33,6 +36,7 @@ function kindLabel(kind: string): string {
   if (kind === "page.create") return "페이지 생성";
   if (kind === "page.session") return "편집 세션";
   if (kind === "page.restoreVersion") return "버전 복구";
+  if (kind === "page.checkpoint") return "버전 저장";
   if (kind === "page.update") return "페이지 수정";
   if (kind === "page.delete") return "페이지 삭제";
   return kind;
@@ -125,6 +129,13 @@ export const useServerPageHistoryStore = create<State & Actions>()((set, get) =>
         });
       }
     }
+    await get().fetchPageHistory(pageId, workspaceId);
+    return true;
+  },
+
+  savePageVersion: async (pageId, workspaceId) => {
+    if (!pageId || !workspaceId) return false;
+    await savePageVersionApi(pageId, workspaceId);
     await get().fetchPageHistory(pageId, workspaceId);
     return true;
   },

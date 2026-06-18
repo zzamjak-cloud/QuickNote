@@ -471,6 +471,8 @@ async function recordPageHistory(args: {
   before: Record<string, unknown> | null;
   after: Record<string, unknown>;
   kind: string;
+  /** true 면 의미 변화가 없어도 항상 새 버전 엔트리를 기록한다(수동 "버전 저장" 체크포인트용). */
+  force?: boolean;
 }): Promise<void> {
   const tableName = args.tables.PageHistory;
   if (!tableName) return;
@@ -558,7 +560,7 @@ async function recordPageHistory(args: {
     return;
   }
   const patch = diffPageSnapshot(patchBase, afterSnap);
-  if (patch.length === 0 && changedUnits.length === 0) return;
+  if (!args.force && patch.length === 0 && changedUnits.length === 0) return;
   const kind = args.kind === "page.update" ? "page.session" : args.kind;
   await args.doc.send(
     new PutCommand({
@@ -2659,6 +2661,39 @@ export async function restorePageVersion(args: {
     console.error("[restorePageVersion] PageHistory 기록 실패 (무시)", err);
   }
   return restored;
+}
+
+/** 현재 페이지 상태를 즉시 하나의 버전 체크포인트로 기록한다(세션 머지 우회 — 수동 "버전 저장"). */
+export async function savePageVersion(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  input: { pageId: string; workspaceId: string };
+}): Promise<Record<string, unknown>> {
+  if (!args.tables.Pages) badRequest("Pages table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.input.workspaceId,
+    required: "edit",
+  });
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Pages, Key: { id: args.input.pageId } }),
+  );
+  const page = (existing.Item as Record<string, unknown> | undefined) ?? null;
+  if (!page) notFound("페이지 없음");
+  await recordPageHistory({
+    doc: args.doc,
+    tables: args.tables,
+    caller: args.caller,
+    before: page,
+    after: page,
+    kind: "page.checkpoint",
+    force: true,
+  });
+  return page;
 }
 
 export async function deletePageHistoryEvents(args: {
