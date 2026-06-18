@@ -12,7 +12,7 @@ beforeEach(() => { enqueueAsync.mockClear(); });
 afterEach(() => unregisterDbCollab("db1"));
 
 describe("setPageDbCell 협업 라우팅", () => {
-  it("협업 활성 행 페이지의 셀은 Y 로 가고 페이지 upsert 는 생략된다", async () => {
+  it("협업 활성 행 페이지의 셀은 Y 로 가고 cellsOnly upsert(본문 생략)로 서버/히스토리에도 영속된다", async () => {
     const { usePageStore } = await import("../pageStore");
     usePageStore.setState({
       pages: {
@@ -31,7 +31,12 @@ describe("setPageDbCell 협업 라우팅", () => {
 
     expect(usePageStore.getState().pages.pg1?.dbCells).toEqual({ c1: "hello" });
     expect(readDbStructure(doc).rows).toEqual({ pg1: { c1: "hello" } });
-    expect(enqueueAsync).not.toHaveBeenCalledWith("upsertPage", expect.anything());
+    // 셀은 Pages.dbCells + 페이지 히스토리에 남기되(복원 가능), 본문(doc)은 서버 백스톱이 보존하도록 생략.
+    const call = enqueueAsync.mock.calls.find((c) => c[0] === "upsertPage");
+    expect(call).toBeTruthy();
+    const payload = call![1] as Record<string, unknown>;
+    expect(payload.dbCells).toBe(JSON.stringify({ c1: "hello" }));
+    expect("doc" in payload).toBe(false);
   });
 
   it("협업 비활성 행 페이지는 기존대로 페이지 upsert 한다", async () => {

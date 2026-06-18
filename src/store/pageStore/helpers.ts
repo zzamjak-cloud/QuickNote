@@ -73,7 +73,10 @@ export function payloadByteLength(payload: Record<string, unknown>): number {
   }
 }
 
-export function enqueueUpsertPage(p: Page, opts?: { includeCells?: boolean; metaOnly?: boolean }): void {
+export function enqueueUpsertPage(
+  p: Page,
+  opts?: { includeCells?: boolean; metaOnly?: boolean; cellsOnly?: boolean },
+): void {
   // 인증/부트스트랩 미완료 시점에 enqueue 되면 서버 검증에서 거부되어 outbox 에 stale 로 남는다.
   const workspaceId = resolvePageWorkspaceId(p);
   if (!workspaceId) {
@@ -89,8 +92,22 @@ export function enqueueUpsertPage(p: Page, opts?: { includeCells?: boolean; meta
     payload.doc = structuredClone(EMPTY_DOC);
     delete payload.dbCells;
   }
+  // cellsOnly: 셀(dbCells)만 서버에 영속하고 본문(doc)은 건드리지 않는다.
+  // doc 키를 빼면 서버 doc 백스톤이 기존 본문을 보존하므로, 협업 DB 행의 로컬 셀 편집을
+  // Pages.dbCells + 페이지 히스토리에 안전하게 남길 수 있다(본문 클로버링 없음).
+  // (협업 셀 권위는 여전히 Y룸이지만, 서버는 durable mirror + 히스토리 소스로 함께 보유.)
+  if (opts?.cellsOnly) {
+    delete payload.doc;
+  }
   // 협업 ON DB 행 페이지: 셀 권위는 Y.Doc. 비셀 변경발 upsert 는 dbCells 제외.
-  if (!opts?.metaOnly && p.databaseId && isDbCollabActive(p.databaseId) && !opts?.includeCells) {
+  // (includeCells/cellsOnly 면 실제 셀을 보낸다.)
+  if (
+    !opts?.metaOnly &&
+    !opts?.cellsOnly &&
+    p.databaseId &&
+    isDbCollabActive(p.databaseId) &&
+    !opts?.includeCells
+  ) {
     payload.dbCells = null;
   }
   const bytes = payloadByteLength(payload);
