@@ -734,7 +734,7 @@ function EditorInner({
 
   // 동일 pageDoc 참조에 대해 정규화 updateDoc 을 한 번만 실행하기 위한 가드
   const lastNormalizedDocRef = useRef<unknown>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!editor || !pageDoc || !safePageDoc || !effectivePageId) return;
     // 협업 바인딩 후에는 본문 권위가 Y.Doc — 원격/스토어 JSON 을 에디터로 역주입하지 않는다.
     // 바인딩 전(시드 대기)에는 일반 경로로 주입해 본문을 즉시 표시한다(이때 에디터는 read-only).

@@ -128,6 +128,7 @@ function App() {
   const databaseRowScrollHostRef = useRef<HTMLDivElement | null>(null);
   /** effect B에서 탭을 active 기준으로 덮어쓸지: activePageId 가 실제로 바뀐 경우만 (탭 클릭 직후 이전 id 로 덮어쓰기 방지) */
   const prevActivePageIdRef = useRef<string | null | undefined>(undefined);
+  const pendingLocationTargetRef = useRef<QuickNoteLinkTarget | null>(null);
 
   // 다크 모드 클래스 동기화
   useEffect(() => {
@@ -216,6 +217,21 @@ function App() {
       }
     };
 
+    let unsubscribePendingTarget: (() => void) | undefined;
+    let pendingTargetTimeout: number | undefined;
+
+    const clearPendingLocationTarget = (target?: QuickNoteLinkTarget) => {
+      if (!target || pendingLocationTargetRef.current?.pageId === target.pageId) {
+        pendingLocationTargetRef.current = null;
+      }
+      unsubscribePendingTarget?.();
+      unsubscribePendingTarget = undefined;
+      if (pendingTargetTimeout !== undefined) {
+        window.clearTimeout(pendingTargetTimeout);
+        pendingTargetTimeout = undefined;
+      }
+    };
+
     // 페이지를 연다. 스토어에 아직 없으면 false(콜드 부트 비동기 하이드레이션/원격 페치 대기용).
     const openLinkTarget = (target: QuickNoteLinkTarget): boolean => {
       const page = usePageStore.getState().pages[target.pageId];
@@ -235,20 +251,27 @@ function App() {
       }
       setActivePage(target.pageId);
       setCurrentTabPage(target.pageId);
+      clearPendingLocationTarget(target);
       scrollToLinkTarget(target);
       return true;
     };
 
-    const applyLocationLink = () => {
-      const target = parseQuickNoteLink(window.location.href);
-      if (!target) return;
-      openLinkTarget(target);
+    const openLocationTargetWhenReady = (target: QuickNoteLinkTarget) => {
+      pendingLocationTargetRef.current = target;
+      if (openLinkTarget(target)) return;
+      unsubscribePendingTarget?.();
+      unsubscribePendingTarget = usePageStore.subscribe((state) => {
+        if (state.pages[target.pageId]) openLinkTarget(target);
+      });
+      if (pendingTargetTimeout !== undefined) window.clearTimeout(pendingTargetTimeout);
+      pendingTargetTimeout = window.setTimeout(() => {
+        clearPendingLocationTarget(target);
+      }, 20_000);
     };
 
     const initialTarget = parseQuickNoteLink(window.location.href);
     if (initialTarget) {
-      // 새로고침/콜드 부트에서는 URL page 파라미터를 복원하지 않는다.
-      // 워크스페이스 landing 이 항상 첫 인덱스 페이지를 결정하게 둔다.
+      openLocationTargetWhenReady(initialTarget);
     } else {
       // URL 에 ?page 가 없으면 현재 활성 페이지를 초기 히스토리 엔트리로 기록한다.
       // 이후 내부 이동마다 pushState 가 쌓이므로 뒤로가기가 시작 페이지까지
@@ -267,11 +290,18 @@ function App() {
       }
     }
 
+    const applyLocationLink = () => {
+      const target = parseQuickNoteLink(window.location.href);
+      if (!target) return;
+      openLocationTargetWhenReady(target);
+    };
+
     window.addEventListener("popstate", applyLocationLink);
     window.addEventListener("hashchange", applyLocationLink);
     return () => {
       window.removeEventListener("popstate", applyLocationLink);
       window.removeEventListener("hashchange", applyLocationLink);
+      clearPendingLocationTarget();
     };
   }, [currentWorkspaceId, setActivePage, setCurrentTabPage]);
 
@@ -279,6 +309,7 @@ function App() {
     if (!activePageId) return;
     const target = parseQuickNoteLink(window.location.href);
     if (!target || target.pageId === activePageId) return;
+    if (pendingLocationTargetRef.current?.pageId === target.pageId) return;
     try {
       window.history.replaceState(
         { qnPage: activePageId },

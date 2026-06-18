@@ -507,11 +507,15 @@ export function applyRemotePageMetasToStore(
         continue;
       }
 
-      if (local && !shouldApplyRemotePageMetaOverwrite(local, p)) continue;
+      if (local && !shouldApplyRemotePageMetaOverwrite(local, p)) {
+        if (local.contentLoaded === true && metaOnlyByPageId[p.id]) loadedIds.push(p.id);
+        continue;
+      }
       const merged = gqlPageMetaToLocalPage(p, local);
       ensurePagesCopy();
       nextPages[p.id] = merged;
-      if (merged.contentLoaded === false || metaOnlyByPageId[p.id]) metaOnlyIds.push(p.id);
+      if (merged.contentLoaded === false) metaOnlyIds.push(p.id);
+      else loadedIds.push(p.id);
       changed = true;
     }
 

@@ -37,6 +37,7 @@ ensurePageContentLoaded(pageId)
 - **중복 요청 방지**: `inFlightByPageId` Map으로 동일 pageId 중복 요청을 단일 Promise로 공유.
 - **workspaceId 누락**: workspaceId 없으면 경고 로그 후 `false` 반환 (silent fail).
 - **메타 모드 초기화**: `fetchApplyWorkspaceRemoteMetaSnapshot` 적용 직후 `markMetaOnly(모든pageId)` 호출 필요. 해당 호출이 빠지면 본문 로드가 트리거되지 않는다.
+- **stale metaOnly 제거**: 이미 `contentLoaded=true` 인 full-cache 페이지에 메타가 다시 내려오면 `markLoaded` 로 stale metaOnly 플래그를 제거한다. 그렇지 않으면 캐시 본문이 있어도 클릭 때마다 서버 본문을 다시 받는다.
 
 ## 관련 위키
 - [architecture.md](architecture.md) — 분할 로드 전략 전체 그림
