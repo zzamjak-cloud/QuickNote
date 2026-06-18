@@ -36,12 +36,6 @@ export function registerPageRestoreHandler(
  */
 export function requestPageBodyRestore(pageId: string, restoredDocJson: unknown): boolean {
   const handler = restoreHandlers.get(pageId);
-  // [restore-diag] 임시 진단 — 핸들러 등록 여부/호출 추적
-  console.log("[restore-diag] requestPageBodyRestore", {
-    pageId,
-    hasHandler: !!handler,
-    registered: Array.from(restoreHandlers.keys()),
-  });
   if (!handler) return false;
   handler(restoredDocJson);
   return true;

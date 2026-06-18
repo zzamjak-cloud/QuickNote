@@ -628,7 +628,6 @@ function EditorInner({
   useEffect(() => {
     if (!collabEnabled || !effectivePageId) return;
     return registerPageRestoreHandler(effectivePageId, (restoredDocJson) => {
-      console.log("[restore-diag] Editor handler invoked", { effectivePageId });
       pendingRestoreDocRef.current = restoredDocJson;
       setCollabBoundDoc(null);
       collabSeedStateRef.current = { pageId: effectivePageId, status: "idle" };
@@ -664,29 +663,9 @@ function EditorInner({
     const pendingRestore = pendingRestoreDocRef.current;
     if (pendingRestore != null) {
       pendingRestoreDocRef.current = null;
-      const beforeLen = collabDoc.getXmlFragment("prosemirror").length;
       replaceCollabDocContent(collabDoc, editor.schema, pendingRestore);
-      const afterLen = collabDoc.getXmlFragment("prosemirror").length;
       // 복원본은 권위 — 다음 done 재실행의 repair(현재 store 본문으로 되돌림) 를 1회 차단.
       restoreJustAppliedRef.current = true;
-      const frag = collabDoc.getXmlFragment("prosemirror");
-      console.log("[restore-diag] seed effect replace", {
-        effectivePageId,
-        beforeLen,
-        afterLen,
-        restoredIsPlaceholder: isPlaceholderBodyJson(
-          pendingRestore as Parameters<typeof isPlaceholderBodyJson>[0],
-        ),
-      });
-      // 시간차 길이 추적 — 무엇이 되돌리는지(WS sync vs repair vs materialize) 판별용.
-      window.setTimeout(() => {
-        console.log("[restore-diag] +800ms len", frag.length, "store",
-          (usePageStore.getState().pages[effectivePageId]?.doc?.content ?? []).length);
-      }, 800);
-      window.setTimeout(() => {
-        console.log("[restore-diag] +3000ms len", frag.length, "store",
-          (usePageStore.getState().pages[effectivePageId]?.doc?.content ?? []).length);
-      }, 3000);
       seedState.status = "done";
       bindCollabDoc();
       return;
@@ -694,8 +673,6 @@ function EditorInner({
     if (seedState.status === "done") {
       if (restoreJustAppliedRef.current) {
         restoreJustAppliedRef.current = false;
-        console.log("[restore-diag] skip repair after restore",
-          collabDoc.getXmlFragment("prosemirror").length);
       } else {
         repairPlaceholderCollabDocFromStore();
       }

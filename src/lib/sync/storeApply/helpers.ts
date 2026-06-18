@@ -31,6 +31,16 @@ export function parseAwsJson<T>(v: unknown, fallback: T, schema?: z.ZodTypeAny):
     } catch {
       return fallback;
     }
+    // AWSJSON 이중 인코딩 방어: 일부 mutation(예: restorePageVersion)은 doc/dbCells 를
+    // 이미 직렬화된 문자열로 반환해 전송 시 한 번 더 감싸진다. 1회 파싱 결과가 여전히
+    // 문자열이면 한 번 더 푼다(단일 인코딩은 객체로 풀리므로 이 경로를 타지 않아 무해).
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        /* 안쪽이 JSON 이 아니면 그대로 둔다(스키마 검증에서 걸러짐) */
+      }
+    }
   } else {
     parsed = v;
   }

@@ -22,6 +22,16 @@ describe("parseAwsJson + DocEnvelopeSchema", () => {
     expect(parseAwsJson(doc, EMPTY_DOC, DocEnvelopeSchema)).toEqual(doc);
   });
 
+  it("이중 인코딩 doc(restorePageVersion 응답)도 풀어서 통과", () => {
+    // AWSJSON 이 직렬화 문자열을 한 번 더 감싼 형태: JSON.stringify(JSON.stringify(doc))
+    const doc = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "복원" }] }],
+    };
+    const doubleEncoded = JSON.stringify(JSON.stringify(doc));
+    expect(parseAwsJson(doubleEncoded, EMPTY_DOC, DocEnvelopeSchema)).toEqual(doc);
+  });
+
   it("type 없는 객체/배열/스칼라/깨진 JSON 은 fallback", () => {
     expect(parseAwsJson({ content: [] }, EMPTY_DOC, DocEnvelopeSchema)).toBe(EMPTY_DOC);
     expect(parseAwsJson("[]", EMPTY_DOC, DocEnvelopeSchema)).toBe(EMPTY_DOC);
