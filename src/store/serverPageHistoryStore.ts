@@ -8,10 +8,7 @@ import {
   savePageVersionApi,
 } from "../lib/sync/pageHistoryApi";
 import { applyRemotePageToStore } from "../lib/sync/storeApply";
-import { gqlPageToLocalPage } from "../lib/sync/storeApply/helpers";
 import { clearLocalDeleteGuard } from "../lib/sync/localDeleteGuards";
-import { restoreRowCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
-import { replacePageCollabBody } from "../lib/collab/pageCollabRegistry";
 import { usePageStore, enqueuePageUpsertForSync } from "./pageStore";
 import { formatError } from "../lib/util/formatError";
 
@@ -108,34 +105,13 @@ export const useServerPageHistoryStore = create<State & Actions>()((set, get) =>
     (get().byPageId[pageId] ?? []).map(toTimelineEntry),
 
   restorePageHistoryEvent: async (pageId, workspaceId, historyId) => {
-    // 복원 전 현재 셀 — 셀 미캡처(pre-C) 버전 복원 시 셀 유실 방지용.
-    const prevCells = usePageStore.getState().pages[pageId]?.dbCells;
     const restored = await restorePageVersionApi({ pageId, workspaceId, historyId });
     // 사용자가 명시적으로 복원 → 삭제 가드를 해제해야 복원본이 무시/제거되지 않는다.
     clearLocalDeleteGuard("page", pageId, workspaceId);
     applyRemotePageToStore(restored);
-    const restoredLocal = gqlPageToLocalPage(restored);
-    // [Phase D-body] 본문: 협업 활성 페이지면 preserveCollabDoc 가 복원 doc 을 버려 store/화면이
-    // 안 바뀐다. 활성 세션의 Y.Doc 본문을 복원본으로 교체해 권위를 갱신한다(화면·피어 반영).
-    // 세션 미오픈/비협업이면 false → applyRemotePageToStore 가 넣은 store.doc 이 그대로 권위.
-    if (restoredLocal.doc) {
-      replacePageCollabBody(pageId, restoredLocal.doc);
-    }
-    if (restoredLocal.databaseId) {
-      if (restoredLocal.dbCells) {
-        // [Phase D] 셀이 스냅샷에 캡처된 경우(객체, 빈 {} 포함): 복원본 셀을 DB Y룸(권위)에 주입.
-        // store 엔 applyRemotePageToStore 가 이미 복원 셀을 넣었고, Y룸도 맞춰야 materialize 가
-        // 옛 셀로 되돌리지 않고 피어에도 전파된다. (그 시점 셀 상태로 정확히 복원 — 추가 셀은 삭제.)
-        restoreRowCellsToCollabDoc(restoredLocal.databaseId, pageId, restoredLocal.dbCells);
-      } else if (prevCells) {
-        // 셀 미캡처(undefined — Phase C 이전 버전 등): 복원이 store 셀을 비우지 않게 기존 셀 유지.
-        // (그 버전엔 셀 정보가 없으므로 현재 셀을 보존하는 게 안전 — Y룸 권위도 그대로 둔다.)
-        usePageStore.setState((s) => {
-          const p = s.pages[pageId];
-          return p ? { pages: { ...s.pages, [pageId]: { ...p, dbCells: prevCells } } } : s;
-        });
-      }
-    }
+    // NOTE: 협업 활성 페이지의 라이브 Y룸 본문/셀 재주입(D-body/D-cells)은 보류 — 외부에서 바인딩된
+    // Y.Doc 을 교체하면 ProseMirror 뷰가 즉시 갱신되지 않아 본문이 빈 화면으로 보이는 회귀가 있었다.
+    // 올바른 접근(복원 = 시드 흐름 재실행: 언바인딩→교체→재바인딩)은 별도 설계 후 신중 적용한다.
     await get().fetchPageHistory(pageId, workspaceId);
     return true;
   },
