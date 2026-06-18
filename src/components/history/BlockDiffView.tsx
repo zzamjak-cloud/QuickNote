@@ -30,13 +30,13 @@ function toPreviewBlock(node: BlockNode): BlockNode {
 type PaneTone = "before" | "after" | "added" | "removed" | "plain";
 
 const TONE_CLASS: Record<PaneTone, string> = {
+  // 좌우 컬럼(구) 방식 — 카드형
   before: "rounded bg-red-50/70 px-2 py-1 dark:bg-red-950/25",
   after: "rounded bg-emerald-50/70 px-2 py-1 dark:bg-emerald-950/25",
-  added:
-    "rounded border-l-2 border-emerald-400 bg-emerald-50/60 px-2 py-1 dark:border-emerald-600 dark:bg-emerald-950/20",
-  removed:
-    "rounded border-l-2 border-red-400 bg-red-50/60 px-2 py-1 opacity-75 dark:border-red-600 dark:bg-red-950/20",
-  plain: "px-2 py-1",
+  // 통합(연속) 방식 — 박스 없이 변경 줄만 진한 배경색으로 강조
+  added: "bg-emerald-200/70 px-2 dark:bg-emerald-800/40",
+  removed: "bg-red-200/70 px-2 dark:bg-red-800/40",
+  plain: "px-2",
 };
 
 function ReadOnlyBlocksPane({ blocks, tone }: { blocks: BlockNode[]; tone: PaneTone }) {
@@ -116,9 +116,10 @@ export function UnifiedBlockDiffView({ beforeDoc, afterDoc }: Props) {
   }
   const toneOf = (s: UnifiedBlockRow["status"]): PaneTone =>
     s === "added" ? "added" : s === "removed" ? "removed" : "plain";
+  // 박스/간격 없이 연속된 하나의 본문처럼 — 변경 구간만 배경색 띠로 강조.
   return (
     <EditorErrorBoundary>
-      <div className="space-y-0.5">
+      <div>
         {segments.map((seg, i) => (
           <ReadOnlyBlocksPane key={i} blocks={seg.blocks} tone={toneOf(seg.status)} />
         ))}

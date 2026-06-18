@@ -260,20 +260,20 @@ export function PageHistoryPreviewDialog({
                               {row.status === "unchanged" ? (
                                 <span className="text-zinc-700 dark:text-zinc-200">{row.after}</span>
                               ) : row.status === "added" ? (
-                                <span className="rounded bg-emerald-50 px-1 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                <span className="rounded bg-emerald-200/70 px-1 text-emerald-800 dark:bg-emerald-800/40 dark:text-emerald-200">
                                   {row.after}
                                 </span>
                               ) : row.status === "removed" ? (
-                                <span className="rounded bg-red-50 px-1 text-red-700 line-through dark:bg-red-950/40 dark:text-red-300">
+                                <span className="rounded bg-red-200/70 px-1 text-red-800 line-through dark:bg-red-800/40 dark:text-red-200">
                                   {row.before}
                                 </span>
                               ) : (
                                 <span className="inline-flex flex-wrap items-center gap-1">
-                                  <span className="rounded bg-red-50 px-1 text-red-700 line-through dark:bg-red-950/40 dark:text-red-300">
+                                  <span className="rounded bg-red-200/70 px-1 text-red-800 line-through dark:bg-red-800/40 dark:text-red-200">
                                     {row.before}
                                   </span>
                                   <span className="text-zinc-400">→</span>
-                                  <span className="rounded bg-emerald-50 px-1 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                  <span className="rounded bg-emerald-200/70 px-1 text-emerald-800 dark:bg-emerald-800/40 dark:text-emerald-200">
                                     {row.after}
                                   </span>
                                 </span>
