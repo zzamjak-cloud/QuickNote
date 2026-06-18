@@ -109,9 +109,19 @@ export const useServerPageHistoryStore = create<State & Actions>()((set, get) =>
 
   restorePageHistoryEvent: async (pageId, workspaceId, historyId) => {
     const restored = await restorePageVersionApi({ pageId, workspaceId, historyId });
+    // [restore-diag] API 응답 doc 원문 — 서버는 전체인데 클라가 placeholder 받는지 확정
+    const rawDoc = (restored as { doc?: unknown }).doc;
+    console.log("[restore-diag] API restored.doc", {
+      historyId,
+      type: typeof rawDoc,
+      len: typeof rawDoc === "string" ? rawDoc.length : -1,
+      preview: typeof rawDoc === "string" ? rawDoc.slice(0, 120) : rawDoc,
+    });
     // 사용자가 명시적으로 복원 → 삭제 가드를 해제해야 복원본이 무시/제거되지 않는다.
     clearLocalDeleteGuard("page", pageId, workspaceId);
     const local = gqlPageToLocalPage(restored);
+    console.log("[restore-diag] parsed local.doc blocks",
+      (local.doc?.content ?? []).length);
     // 협업 활성 페이지는 Y룸이 본문 권위 — store 만 갱신하면 화면이 안 바뀐다.
     // 열려 있는 Editor 에 재시드(언바인딩→Y룸 본문 교체→재바인딩)를 요청한다(없으면 false → 비협업 폴백).
     requestPageBodyRestore(pageId, local.doc);
