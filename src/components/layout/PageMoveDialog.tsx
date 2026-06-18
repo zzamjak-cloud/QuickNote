@@ -26,10 +26,12 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
   const dbList = useDatabaseStore(listDatabases);
   const attachPageAsRow = useDatabaseStore((s) => s.attachPageAsRow);
   const detachRowToNormalPage = useDatabaseStore((s) => s.detachRowToNormalPage);
-  const [query, setQuery] = useState("");
+  const [pageQuery, setPageQuery] = useState("");
+  const [dbQuery, setDbQuery] = useState("");
 
   useEffect(() => {
-    setQuery("");
+    setPageQuery("");
+    setDbQuery("");
   }, [pageId]);
 
   const flatList = useMemo(() => {
@@ -43,21 +45,22 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
       }
     };
     walk(tree, 0, false);
-    const q = query.trim().toLowerCase();
+    const q = pageQuery.trim().toLowerCase();
     if (!q) return out;
     return out.filter((x) => x.node.title.toLowerCase().includes(q));
-  }, [tree, pageId, query]);
+  }, [tree, pageId, pageQuery]);
 
   if (!pageId) return null;
   const target = pages[pageId];
   if (!target) return null;
   const isRowPage = !!target.databaseId;
 
-  const normalizedQuery = query.trim().toLowerCase();
+  const pageNorm = pageQuery.trim().toLowerCase();
+  const dbNorm = dbQuery.trim().toLowerCase();
   const filteredDbList =
-    normalizedQuery.length === 0
+    dbNorm.length === 0
       ? dbList
-      : dbList.filter((d) => d.meta.title.toLowerCase().includes(normalizedQuery));
+      : dbList.filter((d) => d.meta.title.toLowerCase().includes(dbNorm));
   const selectableDbList = filteredDbList.filter((d) => {
     // 1) 현재 페이지가 특정 DB의 fullPage 루트라면 그 DB로는 자기 자신 이동이므로 제외
     if (findFullPagePageIdForDatabase(d.id) === pageId) return false;
@@ -78,13 +81,13 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
     })
     .filter((g) => g.rows.length > 0)
     .map((g) => {
-      if (!normalizedQuery) return g;
-      const dbMatch = g.db.meta.title.toLowerCase().includes(normalizedQuery);
+      if (!pageNorm) return g;
+      const dbMatch = g.db.meta.title.toLowerCase().includes(pageNorm);
       if (dbMatch) return g;
       return {
         db: g.db,
         rows: g.rows.filter((r) =>
-          (r.title || "").toLowerCase().includes(normalizedQuery),
+          (r.title || "").toLowerCase().includes(pageNorm),
         ),
       };
     })
@@ -102,15 +105,26 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
         <h3 className="mb-3 px-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
           "{target.title}" 이동
         </h3>
-        <div className="mb-3 flex items-center gap-1.5 rounded-md bg-white px-2 py-1.5 ring-1 ring-zinc-200 focus-within:ring-zinc-400 dark:bg-zinc-950 dark:ring-zinc-800">
-          <Search size={15} className="text-zinc-400" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="페이지/DB 검색"
-            autoFocus
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
-          />
+        <div className="mb-3 flex items-center gap-2">
+          <div className="flex flex-1 items-center gap-1.5 rounded-md bg-white px-2 py-1.5 ring-1 ring-zinc-200 focus-within:ring-zinc-400 dark:bg-zinc-950 dark:ring-zinc-800">
+            <Search size={15} className="shrink-0 text-zinc-400" />
+            <input
+              value={pageQuery}
+              onChange={(e) => setPageQuery(e.target.value)}
+              placeholder="페이지 검색"
+              autoFocus
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
+            />
+          </div>
+          <div className="flex flex-1 items-center gap-1.5 rounded-md bg-white px-2 py-1.5 ring-1 ring-zinc-200 focus-within:ring-zinc-400 dark:bg-zinc-950 dark:ring-zinc-800">
+            <Search size={15} className="shrink-0 text-zinc-400" />
+            <input
+              value={dbQuery}
+              onChange={(e) => setDbQuery(e.target.value)}
+              placeholder="DB 검색"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
+            />
+          </div>
         </div>
         <div className="max-h-[60vh] overflow-y-auto">
           <button
