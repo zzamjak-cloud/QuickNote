@@ -12,6 +12,7 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
 import { permanentlyDeleteDatabaseRemote } from "../../lib/sync/trashApi";
+import { koreanIncludes } from "../../lib/koreanSearch";
 import { markPermanentlyDeletedEntity } from "../../lib/sync/localDeleteGuards";
 import { runChunkedPermanentDelete } from "../../lib/sync/chunkedPermanentDelete";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
@@ -141,7 +142,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
       ) {
         return false;
       }
-      return d.meta.title.toLowerCase().includes(q);
+      return koreanIncludes(d.meta.title.toLowerCase(), q);
     })
     .sort((a, b) => {
       const aScheduler = isLCSchedulerDatabaseId(a.id);

@@ -23,8 +23,10 @@ const CONTEXT_BEFORE = 32;
 const CONTEXT_AFTER = 72;
 
 /** 단일 블록 텍스트에서 query 주변 컨텍스트 스니펫을 만든다. 매치 없으면 null. */
-export function buildSnippetFromText(text: string, queryLower: string): Snippet | null {
-  const range = koreanMatchRange(text.toLowerCase(), queryLower);
+export function buildSnippetFromText(rawText: string, queryLower: string): Snippet | null {
+  // NFC 정규화 — 매칭과 슬라이싱을 같은 정규화 텍스트로 수행해 오프셋을 일치시킨다.
+  const text = rawText.normalize("NFC");
+  const range = koreanMatchRange(text.toLowerCase(), queryLower.normalize("NFC"));
   if (!range) return null;
   const { index, length } = range;
   const start = Math.max(0, index - CONTEXT_BEFORE);

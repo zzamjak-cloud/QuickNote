@@ -13,6 +13,7 @@ import {
 } from "react";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import { startBlockNativeDrag } from "../../lib/startBlockNativeDrag";
+import { koreanIncludes } from "../../lib/koreanSearch";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
 import { useSettingsStore } from "../../store/settingsStore";
@@ -333,7 +334,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
     const q = linkPickerQuery.trim().toLowerCase();
     if (!q) return databasesList;
     return databasesList.filter((d) =>
-      d.meta.title.toLowerCase().includes(q),
+      koreanIncludes(d.meta.title.toLowerCase(), q),
     );
   }, [databasesList, linkPickerQuery]);
   const linkPickerCandidates = useMemo(

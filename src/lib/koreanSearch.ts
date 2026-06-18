@@ -159,6 +159,10 @@ export function koreanMatchRange(
 }
 
 export function koreanMatchScore(text: string, query: string): number {
+  // macOS 등에서 분해형(NFD)으로 저장된 한글 제목과 조합형(NFC) 입력이 어긋나 매칭에
+  // 실패하는 문제 방어 — 양쪽을 NFC 로 통일한다. 점수만 반환하므로 오프셋 영향 없음.
+  text = text.normalize("NFC");
+  query = query.normalize("NFC");
   const candidates = [query];
   const converted = englishToKoreanTyped(query);
   if (converted && converted !== query) candidates.push(converted);

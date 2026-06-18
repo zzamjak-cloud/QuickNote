@@ -35,7 +35,8 @@ const BODY_SCORE = 400;
  * 제목은 koreanMatchScore(초성 포함) 전체 경로, 본문은 koreanMatchOffset(저비용 substring) 경로.
  */
 export function searchWorkspace(queryLower: string): SearchResult {
-  const q = queryLower.trim();
+  // NFC 정규화 — 분해형(NFD)으로 저장된 본문/제목과 조합형 입력의 매칭 실패 방어.
+  const q = queryLower.normalize("NFC").trim();
   if (!q) return { pageHits: [], dbHits: [] };
 
   const pageHits: PageHit[] = [];

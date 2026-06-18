@@ -7,6 +7,7 @@ import {
 } from "../../store/pageStore";
 import { selectFullPageTree } from "../../store/pageStore/selectors";
 import { listDatabases, useDatabaseStore } from "../../store/databaseStore";
+import { koreanIncludes } from "../../lib/koreanSearch";
 
 type Props = {
   pageId: string | null;
@@ -48,7 +49,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
     const q = pageQuery.trim().toLowerCase();
     // 검색 전에는 트리를 미리 펼쳐두지 않는다 — 멘션 검색처럼 입력 시 매칭 결과만 노출.
     if (!q) return [];
-    return out.filter((x) => x.node.title.toLowerCase().includes(q));
+    return out.filter((x) => koreanIncludes(x.node.title.toLowerCase(), q));
   }, [tree, pageId, pageQuery]);
 
   if (!pageId) return null;
@@ -61,7 +62,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
   const filteredDbList =
     dbNorm.length === 0
       ? []
-      : dbList.filter((d) => d.meta.title.toLowerCase().includes(dbNorm));
+      : dbList.filter((d) => koreanIncludes(d.meta.title.toLowerCase(), dbNorm));
   const selectableDbList = filteredDbList.filter((d) => {
     // 1) 현재 페이지가 특정 DB의 fullPage 루트라면 그 DB로는 자기 자신 이동이므로 제외
     if (findFullPagePageIdForDatabase(d.id) === pageId) return false;
@@ -84,12 +85,12 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
     .map((g) => {
       // 검색 전에는 항목 하위페이지도 미리 표시하지 않는다.
       if (!pageNorm) return { db: g.db, rows: [] };
-      const dbMatch = g.db.meta.title.toLowerCase().includes(pageNorm);
+      const dbMatch = koreanIncludes(g.db.meta.title.toLowerCase(), pageNorm);
       if (dbMatch) return g;
       return {
         db: g.db,
         rows: g.rows.filter((r) =>
-          (r.title || "").toLowerCase().includes(pageNorm),
+          koreanIncludes((r.title || "").toLowerCase(), pageNorm),
         ),
       };
     })

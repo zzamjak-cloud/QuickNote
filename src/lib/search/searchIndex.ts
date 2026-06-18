@@ -4,7 +4,8 @@ import { zustandStorage } from "../storage/index";
 import { extractPageSearchRecord, type PageSearchRecord } from "./extractPageText";
 
 /** 추출 로직/스키마가 바뀌면 +1 → 영속 캐시 무시하고 재빌드 */
-export const SEARCH_INDEX_VERSION = 1;
+// v2: 색인 텍스트 NFC 정규화(분해형 한글 매칭 수정) — 기존 NFD 캐시 무효화 후 재빌드.
+export const SEARCH_INDEX_VERSION = 2;
 
 /** 인메모리 인덱스 레코드 — 소문자 사본을 미리 만들어 매 검색마다 toLowerCase 비용 제거 */
 type IndexedRecord = PageSearchRecord & {
@@ -34,8 +35,9 @@ function toIndexed(rec: PageSearchRecord): IndexedRecord {
   const bodyParts = [rec.title, ...rec.blocks.map((b) => b.text)];
   return {
     ...rec,
-    titleLower: rec.title.toLowerCase(),
-    searchableLower: bodyParts.join("\n").toLowerCase(),
+    // NFC 정규화 — 분해형(NFD)으로 저장된 한글이 조합형 입력과 매칭되도록 색인을 통일.
+    titleLower: rec.title.normalize("NFC").toLowerCase(),
+    searchableLower: bodyParts.join("\n").normalize("NFC").toLowerCase(),
   };
 }
 
