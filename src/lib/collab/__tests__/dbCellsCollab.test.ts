@@ -1,12 +1,32 @@
 import { describe, it, expect, afterEach } from "vitest";
 import * as Y from "yjs";
-import { writeCellsToCollabDoc, restoreRowCellsToCollabDoc } from "../dbCellsCollab";
+import {
+  writeCellsToCollabDoc,
+  restoreRowCellsToCollabDoc,
+  deleteRowFromCollabDoc,
+} from "../dbCellsCollab";
 import { readDbStructure, seedDbStructure } from "../dbBundleYjs";
 import { registerDbCollab, unregisterDbCollab } from "../dbCollabRegistry";
 
 const EMPTY = { columns: [], presets: [], panelState: {}, rowPageOrder: [], rows: {} };
 
 afterEach(() => unregisterDbCollab("db1"));
+
+describe("deleteRowFromCollabDoc", () => {
+  it("핸들이 없으면 false", () => {
+    expect(deleteRowFromCollabDoc("nope", "pg1")).toBe(false);
+  });
+
+  it("행→일반페이지 전환 시 Y룸 rows 에서 해당 행을 제거한다", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, EMPTY);
+    registerDbCollab("db1", { doc, baseline: { ...EMPTY } });
+    writeCellsToCollabDoc("db1", "pg1", { c1: "a" });
+    writeCellsToCollabDoc("db1", "pg2", { c1: "b" });
+    expect(deleteRowFromCollabDoc("db1", "pg1")).toBe(true);
+    expect(readDbStructure(doc).rows).toEqual({ pg2: { c1: "b" } });
+  });
+});
 
 describe("writeCellsToCollabDoc", () => {
   it("핸들이 없으면 false 를 반환한다", () => {

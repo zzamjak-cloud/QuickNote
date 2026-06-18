@@ -58,7 +58,8 @@ import {
 import { createColumnActions } from "./databaseStore/actions/columnActions";
 import { getDbCollab } from "../lib/collab/dbCollabRegistry";
 import { readDbStructure } from "../lib/collab/dbBundleYjs";
-import { writeCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
+import { writeCellsToCollabDoc, deleteRowFromCollabDoc } from "../lib/collab/dbCellsCollab";
+import { useDatabaseRowIndexStore } from "./databaseRowIndexStore";
 import type { Page } from "../types/page";
 import { EMPTY_DOC, nextOrderForParent } from "./pageStore/helpers";
 
@@ -881,6 +882,13 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+
+        // 행이 더 이상 이 DB 소속이 아니므로 DB Y룸 rows 맵에서 제거한다.
+        // (안 하면 materialize 가 Y룸의 남은 행을 store 로 되살려 유령 행이 됨 — 전환된 페이지는
+        // 삭제가 아니라 살아 있어 tombstone 으로 걸러지지도 않는다.)
+        deleteRowFromCollabDoc(fromDbId, pageId);
+        // 행 인덱스 폴백 캐시도 prune — 검색/멘션/뷰 재구성 시 유령 행 재유입 차단.
+        void useDatabaseRowIndexStore.getState().removePagesFromAllIndexes([pageId]);
 
         const pageAfter = usePageStore.getState().pages[pageId];
         const dbAfter = get().databases[fromDbId];

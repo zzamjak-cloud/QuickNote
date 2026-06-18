@@ -40,6 +40,23 @@ export function writeCellsToCollabDoc(
 }
 
 /**
+ * databaseId 가 협업 활성이면 pageId 행 자체를 Y.Doc rows 맵에서 제거한다.
+ * 행 삭제/행→일반페이지 전환처럼 "행이 더 이상 이 DB 소속이 아닐 때" 호출 — 이걸 안 하면
+ * materialize 가 Y룸의 남은 행을 store 로 되살려 유령 행이 된다.
+ * @returns Y 에서 제거했으면 true, 협업 비활성이면 false.
+ */
+export function deleteRowFromCollabDoc(databaseId: string, pageId: string): boolean {
+  const handle = getDbCollab(databaseId);
+  if (!handle) return false;
+  const root = handle.doc.getMap(DB_ROOT_KEY);
+  handle.doc.transact(() => {
+    const rows = root.get("rows");
+    if (rows instanceof Y.Map) rows.delete(pageId);
+  });
+  return true;
+}
+
+/**
  * 버전 복원용 — pageId 행의 셀을 복원본 `cells` 와 **정확히 일치**하도록 DB Y룸(권위)에 덮어쓴다.
  * writeCellsToCollabDoc 는 전달된 키만 set/delete 하므로 복원본에 없는 기존 셀이 남는다.
  * 이 함수는 복원본에 없는 기존 셀까지 삭제해, 그 버전 시점의 셀 상태로 완전히 되돌린다.
