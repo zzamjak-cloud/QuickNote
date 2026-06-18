@@ -93,11 +93,12 @@ export function enqueueUpsertPage(
     delete payload.dbCells;
   }
   // cellsOnly: 셀(dbCells)만 서버에 영속하고 본문(doc)은 건드리지 않는다.
-  // doc 키를 빼면 서버 doc 백스톤이 기존 본문을 보존하므로, 협업 DB 행의 로컬 셀 편집을
-  // Pages.dbCells + 페이지 히스토리에 안전하게 남길 수 있다(본문 클로버링 없음).
+  // UpsertPageInput.doc 은 AWSJSON!(non-null) 이라 키를 빼면 mutation 이 거부된다.
+  // 대신 placeholder(빈 문단) doc 을 보내면 서버 doc 백스톤이 이를 "내용 없음"으로 보고
+  // 기존 본문을 보존한다 → 본문 클로버링 없이 셀만 Pages.dbCells + 페이지 히스토리에 남는다.
   // (협업 셀 권위는 여전히 Y룸이지만, 서버는 durable mirror + 히스토리 소스로 함께 보유.)
   if (opts?.cellsOnly) {
-    delete payload.doc;
+    payload.doc = structuredClone(EMPTY_DOC);
   }
   // 협업 ON DB 행 페이지: 셀 권위는 Y.Doc. 비셀 변경발 upsert 는 dbCells 제외.
   // (includeCells/cellsOnly 면 실제 셀을 보낸다.)

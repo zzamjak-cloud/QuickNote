@@ -50,8 +50,11 @@ describe("협업 ON DB 행 페이지 upsert 의 dbCells 제외", () => {
     const call = enqueueAsync.mock.calls.find((c) => c[0] === "upsertPage");
     expect(call).toBeTruthy();
     const payload = call![1] as Record<string, unknown>;
-    // 셀은 실제 값으로 영속(히스토리/durable mirror), 본문(doc)은 서버 백스톱이 보존하도록 생략.
+    // 셀은 실제 값으로 영속(히스토리/durable mirror), 본문(doc)은 placeholder 로 보내 서버
+    // doc 백스톱이 기존 본문을 보존하게 한다(스키마상 doc 은 non-null 필수라 생략 불가).
     expect(payload.dbCells).toBe(JSON.stringify({ c1: "v" }));
-    expect("doc" in payload).toBe(false);
+    const docPayload = payload.doc as { type?: string; content?: Array<{ type?: string; content?: unknown }> };
+    expect(docPayload?.type).toBe("doc");
+    expect((docPayload?.content ?? []).every((n) => n.type === "paragraph" && !n.content)).toBe(true);
   });
 });
