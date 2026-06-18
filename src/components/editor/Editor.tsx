@@ -111,6 +111,7 @@ import {
 import { useEditorExtensions } from "./useEditorExtensions";
 import { useCollabSession } from "../../lib/collab/useCollabSession";
 import { useCollabPresence } from "../../lib/collab/useCollabPresence";
+import { registerPageRestoreHandler } from "../../lib/collab/pageCollabRegistry";
 import {
   seedCollabDocIfEmpty,
   isPlaceholderBodyJson,
@@ -619,6 +620,18 @@ function EditorInner({
     status: "idle" | "fetching" | "done";
   }>({ pageId: "", status: "idle" });
   const [collabSeedRetry, setCollabSeedRetry] = useState(0);
+  // 버전 복원 시 store 가 채워 넣는 복원 본문. 다음 시드 효과 실행에서 Y룸에 교체된다.
+  const pendingRestoreDocRef = useRef<unknown>(null);
+  // 복원 핸들러 등록: 언바인딩 → 재시드 트리거. 실제 교체/재바인딩은 아래 시드 효과가 수행.
+  useEffect(() => {
+    if (!collabEnabled || !effectivePageId) return;
+    return registerPageRestoreHandler(effectivePageId, (restoredDocJson) => {
+      pendingRestoreDocRef.current = restoredDocJson;
+      setCollabBoundDoc(null);
+      collabSeedStateRef.current = { pageId: effectivePageId, status: "idle" };
+      setCollabSeedRetry((c) => c + 1);
+    });
+  }, [collabEnabled, effectivePageId]);
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     // 준비 전(세션 없음·서버 sync 전)에는 바인딩을 풀어 둔다 —
@@ -643,6 +656,16 @@ function EditorInner({
       if (!freshDoc || isPlaceholderBodyJson(freshDoc)) return;
       replaceCollabDocContent(collabDoc, editor.schema, freshDoc);
     };
+    // 버전 복원: 언바인딩된(collabBoundDoc=null) 지금 Y룸 본문을 복원본으로 교체한 뒤 재바인딩한다.
+    // 바인딩 상태에서 교체하면 PM 뷰가 안 따라오므로, 이 "교체 후 바인딩" 순서가 유일하게 안전.
+    const pendingRestore = pendingRestoreDocRef.current;
+    if (pendingRestore != null) {
+      pendingRestoreDocRef.current = null;
+      replaceCollabDocContent(collabDoc, editor.schema, pendingRestore);
+      seedState.status = "done";
+      bindCollabDoc();
+      return;
+    }
     if (seedState.status === "done") {
       repairPlaceholderCollabDocFromStore();
       bindCollabDoc();
