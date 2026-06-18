@@ -7,7 +7,9 @@ import {
   restorePageVersionApi,
 } from "../lib/sync/pageHistoryApi";
 import { applyRemotePageToStore } from "../lib/sync/storeApply";
+import { gqlPageToLocalPage } from "../lib/sync/storeApply/helpers";
 import { clearLocalDeleteGuard } from "../lib/sync/localDeleteGuards";
+import { restoreRowCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
 import { usePageStore, enqueuePageUpsertForSync } from "./pageStore";
 import { formatError } from "../lib/util/formatError";
 
@@ -101,10 +103,28 @@ export const useServerPageHistoryStore = create<State & Actions>()((set, get) =>
     (get().byPageId[pageId] ?? []).map(toTimelineEntry),
 
   restorePageHistoryEvent: async (pageId, workspaceId, historyId) => {
+    // 복원 전 현재 셀 — 셀 미캡처(pre-C) 버전 복원 시 셀 유실 방지용.
+    const prevCells = usePageStore.getState().pages[pageId]?.dbCells;
     const restored = await restorePageVersionApi({ pageId, workspaceId, historyId });
     // 사용자가 명시적으로 복원 → 삭제 가드를 해제해야 복원본이 무시/제거되지 않는다.
     clearLocalDeleteGuard("page", pageId, workspaceId);
     applyRemotePageToStore(restored);
+    const restoredLocal = gqlPageToLocalPage(restored);
+    if (restoredLocal.databaseId) {
+      if (restoredLocal.dbCells) {
+        // [Phase D] 셀이 스냅샷에 캡처된 경우(객체, 빈 {} 포함): 복원본 셀을 DB Y룸(권위)에 주입.
+        // store 엔 applyRemotePageToStore 가 이미 복원 셀을 넣었고, Y룸도 맞춰야 materialize 가
+        // 옛 셀로 되돌리지 않고 피어에도 전파된다. (그 시점 셀 상태로 정확히 복원 — 추가 셀은 삭제.)
+        restoreRowCellsToCollabDoc(restoredLocal.databaseId, pageId, restoredLocal.dbCells);
+      } else if (prevCells) {
+        // 셀 미캡처(undefined — Phase C 이전 버전 등): 복원이 store 셀을 비우지 않게 기존 셀 유지.
+        // (그 버전엔 셀 정보가 없으므로 현재 셀을 보존하는 게 안전 — Y룸 권위도 그대로 둔다.)
+        usePageStore.setState((s) => {
+          const p = s.pages[pageId];
+          return p ? { pages: { ...s.pages, [pageId]: { ...p, dbCells: prevCells } } } : s;
+        });
+      }
+    }
     await get().fetchPageHistory(pageId, workspaceId);
     return true;
   },

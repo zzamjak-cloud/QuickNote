@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import * as Y from "yjs";
-import { writeCellsToCollabDoc } from "../dbCellsCollab";
+import { writeCellsToCollabDoc, restoreRowCellsToCollabDoc } from "../dbCellsCollab";
 import { readDbStructure, seedDbStructure } from "../dbBundleYjs";
 import { registerDbCollab, unregisterDbCollab } from "../dbCollabRegistry";
 
@@ -46,6 +46,21 @@ describe("writeCellsToCollabDoc", () => {
     Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
     expect(readDbStructure(a).rows.pg1).toMatchObject({ c0: "seed", c1: "from-a", c2: "from-b" });
     expect(readDbStructure(a).rows).toEqual(readDbStructure(b).rows);
+  });
+
+  it("restoreRowCellsToCollabDoc: 복원본과 정확히 일치하도록 기존 셀까지 정리한다", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, EMPTY);
+    registerDbCollab("db1", { doc, baseline: { ...EMPTY } });
+    // 현재 상태: c1, c2, c3
+    writeCellsToCollabDoc("db1", "pg1", { c1: "a", c2: "b", c3: "c" });
+    // 복원본: c1(변경), c2(유지), c3 없음 → c3 는 삭제돼야 한다.
+    expect(restoreRowCellsToCollabDoc("db1", "pg1", { c1: "A", c2: "b" })).toBe(true);
+    expect(readDbStructure(doc).rows).toEqual({ pg1: { c1: "A", c2: "b" } });
+  });
+
+  it("restoreRowCellsToCollabDoc: 핸들 없으면 false", () => {
+    expect(restoreRowCellsToCollabDoc("nope", "pg1", { c1: "x" })).toBe(false);
   });
 
   it("같은 셀 동시 편집은 LWW 로 단일 값에 수렴한다", () => {
