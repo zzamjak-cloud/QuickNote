@@ -238,6 +238,31 @@ export function preserveExistingDocForPlaceholderInput(
   }
 }
 
+// 의미있는 dbCells(객체이고 키가 1개 이상)인지 — 빈 {}/null/비객체는 "내용 없음".
+export function hasMeaningfulDbCells(value: unknown): boolean {
+  const parsed = parseJsonLike(value);
+  return isPlainObject(parsed) && Object.keys(parsed).length > 0;
+}
+
+// 서버 최후 방어선(dbCells) — doc 백스톤과 동형.
+// 협업 ON DB 행 페이지는 셀 권위가 DB Y룸이라, 클라가 비-셀 업서트(본문 편집·주기 업서트)에서
+// dbCells 를 null 로 비워 보낸다(helpers.ts). 서버가 그걸 그대로 저장하면 page.dbCells 가 상시
+// null 로 비워져 ① 셀의 durable 영속처가 사라지고(Y룸 유실 시 복구 불가) ② 히스토리 스냅샷에
+// 셀이 안 잡힌다. 들어온 dbCells 가 "건드리지 마"(키 부재/null)면 기존 셀을 보존한다.
+// 권위적 셀 상태(객체 — 빈 {} 로 "모두 비움" 포함)는 그대로 적용해 셀 편집·비우기는 정상 동작한다.
+export function preserveExistingDbCellsForNullInput(
+  input: Record<string, unknown>,
+  existingPage: Record<string, unknown> | null,
+): void {
+  if (!existingPage) return;
+  // 권위적 셀(객체, 빈 {} 포함) 입력은 그대로 둔다.
+  if ("dbCells" in input && input.dbCells != null) return;
+  // 키 부재/null = "건드리지 마" → 기존 셀이 의미있으면 보존.
+  if (hasMeaningfulDbCells(existingPage.dbCells)) {
+    input.dbCells = existingPage.dbCells;
+  }
+}
+
 function diffValue(before: unknown, after: unknown, path: Array<string | number>, out: PagePatchOp[]): void {
   if (jsonEqual(before, after)) return;
   if (isPlainObject(before) && isPlainObject(after)) {
@@ -1492,6 +1517,8 @@ export async function upsertPage(args: {
   // 보호 DB row 의 org/팀/프로젝트 scope 키를 비정규화해 sparse GSI 색인 대상으로 만든다.
   deriveDatabaseRowScopeKeys(input);
   preserveExistingDocForPlaceholderInput(input, existingPage);
+  // dbCells 최후 방어선 — 협업 비-셀 업서트의 null dbCells 가 기존 셀을 비우지 못하게 보존.
+  preserveExistingDbCellsForNullInput(input, existingPage);
   // 마지막 편집자 스탬프(§9.1) — 변경별 귀속이 아니라 페이지당 최종 편집자 1명.
   // 협업 모드의 materialize 도 이 upsertPage 경로를 타므로 caller 가 곧 편집 유발자.
   input.lastEditedByMemberId = args.caller.memberId;
