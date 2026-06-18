@@ -335,7 +335,7 @@ export function PageHistoryPreviewDialog({
                     const restoreSrc = versionInfo.restoreSourceById.get(entry.id);
                     const summary = versionNum
                       ? isRestore
-                        ? `버전 ${versionNum}${restoreSrc ? ` (버전 ${restoreSrc} 복원)` : " (복원)"}`
+                        ? `버전 ${versionNum}${restoreSrc ? ` (${restoreSrc} 복원)` : " (복원)"}`
                         : `버전 ${versionNum}`
                       : entry.label;
                     const contributors = parseContributors(raw?.contributors);
@@ -395,8 +395,14 @@ export function PageHistoryPreviewDialog({
                             편집 중
                           </span>
                         ) : null}
-                        <span className="shrink-0 text-xs text-zinc-400">
-                          {new Date(entry.endTs).toLocaleString()}
+                        <span className="shrink-0 text-right text-[10px] leading-tight text-zinc-400">
+                          <span className="block">{new Date(entry.endTs).toLocaleDateString()}</span>
+                          <span className="block">
+                            {new Date(entry.endTs).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
                         </span>
                         <span
                           role="button"
