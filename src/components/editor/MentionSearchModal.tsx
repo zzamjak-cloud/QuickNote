@@ -195,46 +195,11 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
   const inputClass =
     "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/30 placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-emerald-400";
 
-  const renderSection = (
-    query: string,
-    search: { items: MentionListItem[]; loading: boolean; resolvedQuery: string },
-    indexBase: number,
-  ) => (
-    <div className="border-b border-zinc-100 last:border-0 dark:border-zinc-800">
-      {!query.trim() ? (
-        <div className="px-3 py-3 text-center text-xs text-zinc-400">검색어를 입력하세요.</div>
-      ) : search.loading && search.items.length === 0 ? (
-        <div className="px-3 py-3 text-center text-xs text-zinc-500">불러오는 중…</div>
-      ) : search.items.length === 0 ? (
-        search.resolvedQuery === query.trim() ? (
-          <div className="px-3 py-3 text-center text-xs text-zinc-500">일치하는 항목이 없습니다.</div>
-        ) : null
-      ) : (
-        search.items.map((item, i) => {
-          const index = indexBase + i;
-          return (
-            <button
-              key={`${item.id}-${index}`}
-              type="button"
-              onMouseEnter={() => setSelected(index)}
-              onClick={() => insert(item)}
-              className={[
-                "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm",
-                index === selected
-                  ? "bg-blue-50 dark:bg-blue-950/50"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60",
-              ].join(" ")}
-            >
-              <span className="min-w-0 truncate font-medium text-zinc-900 dark:text-zinc-100">
-                {item.label}
-              </span>
-              <span className="shrink-0 text-[10px] text-zinc-500">{item.subtitle}</span>
-            </button>
-          );
-        })
-      )}
-    </div>
-  );
+  const anyQuery = !!pageQuery.trim() || !!memberQuery.trim();
+  const anyLoading = pageSearch.loading || memberSearch.loading;
+  const pageSettled = !pageQuery.trim() || pageSearch.resolvedQuery === pageQuery.trim();
+  const memberSettled = !memberQuery.trim() || memberSearch.resolvedQuery === memberQuery.trim();
+  const settled = pageSettled && memberSettled;
 
   return (
     <div
@@ -273,8 +238,35 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
           />
         </div>
         <div className="h-80 overflow-y-auto rounded-lg border border-zinc-100 dark:border-zinc-700">
-          {renderSection(pageQuery, pageSearch, 0)}
-          {renderSection(memberQuery, memberSearch, pageSearch.items.length)}
+          {!anyQuery ? (
+            <div className="px-3 py-6 text-center text-xs text-zinc-400">검색어를 입력하세요.</div>
+          ) : anyLoading && combined.length === 0 ? (
+            <div className="px-3 py-6 text-center text-xs text-zinc-500">불러오는 중…</div>
+          ) : combined.length === 0 ? (
+            settled ? (
+              <div className="px-3 py-6 text-center text-xs text-zinc-500">일치하는 항목이 없습니다.</div>
+            ) : null
+          ) : (
+            combined.map((item, index) => (
+              <button
+                key={`${item.id}-${index}`}
+                type="button"
+                onMouseEnter={() => setSelected(index)}
+                onClick={() => insert(item)}
+                className={[
+                  "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm",
+                  index === selected
+                    ? "bg-blue-50 dark:bg-blue-950/50"
+                    : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60",
+                ].join(" ")}
+              >
+                <span className="min-w-0 truncate font-medium text-zinc-900 dark:text-zinc-100">
+                  {item.label}
+                </span>
+                <span className="shrink-0 text-[10px] text-zinc-500">{item.subtitle}</span>
+              </button>
+            ))
+          )}
         </div>
         <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
           ↑↓ 선택 · Enter 삽입 · Esc 닫기

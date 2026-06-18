@@ -46,7 +46,8 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
     };
     walk(tree, 0, false);
     const q = pageQuery.trim().toLowerCase();
-    if (!q) return out;
+    // 검색 전에는 트리를 미리 펼쳐두지 않는다 — 멘션 검색처럼 입력 시 매칭 결과만 노출.
+    if (!q) return [];
     return out.filter((x) => x.node.title.toLowerCase().includes(q));
   }, [tree, pageId, pageQuery]);
 
@@ -59,7 +60,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
   const dbNorm = dbQuery.trim().toLowerCase();
   const filteredDbList =
     dbNorm.length === 0
-      ? dbList
+      ? []
       : dbList.filter((d) => d.meta.title.toLowerCase().includes(dbNorm));
   const selectableDbList = filteredDbList.filter((d) => {
     // 1) 현재 페이지가 특정 DB의 fullPage 루트라면 그 DB로는 자기 자신 이동이므로 제외
@@ -81,7 +82,8 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
     })
     .filter((g) => g.rows.length > 0)
     .map((g) => {
-      if (!pageNorm) return g;
+      // 검색 전에는 항목 하위페이지도 미리 표시하지 않는다.
+      if (!pageNorm) return { db: g.db, rows: [] };
       const dbMatch = g.db.meta.title.toLowerCase().includes(pageNorm);
       if (dbMatch) return g;
       return {
@@ -126,7 +128,7 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
             />
           </div>
         </div>
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="h-[60vh] overflow-y-auto">
           <button
             type="button"
             onClick={() => {
@@ -139,98 +141,104 @@ export function PageMoveDialog({ pageId, onClose }: Props) {
             <ArrowUpToLine size={14} className="text-zinc-500" />
             <span>루트로 이동</span>
           </button>
-          <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
-          {flatList.length === 0 ? (
-            <p className="px-2 py-2 text-sm text-zinc-400">
-              일치하는 페이지가 없습니다.
-            </p>
-          ) : (
-            flatList.map(({ node, depth, disabled }) => (
-              <button
-                key={node.id}
-                type="button"
-                disabled={disabled}
-                onClick={() => {
-                  if (isRowPage) detachRowToNormalPage(pageId);
-                  movePage(pageId, node.id, Number.MAX_SAFE_INTEGER);
-                  onClose();
-                }}
-                className={[
-                  "flex w-full items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm",
-                  disabled
-                    ? "cursor-not-allowed text-zinc-300 dark:text-zinc-600"
-                    : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
-                ].join(" ")}
-                style={{ paddingLeft: depth * 14 + 8 }}
-                title={
-                  disabled
-                    ? "자기 자신 또는 자손으로는 이동할 수 없습니다"
-                    : "여기 자식으로 이동"
-                }
-              >
-                <PageIconDisplay icon={node.icon ?? null} size="sm" />
-                <span className="truncate">{node.title || "제목 없음"}</span>
-              </button>
-            ))
-          )}
-          {rowTargetGroups.length > 0 && (
+
+          {/* 페이지 검색 결과 — 입력 시에만 노출 */}
+          {pageNorm ? (
+            <>
+              <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+              {flatList.length === 0 && rowTargetGroups.length === 0 ? (
+                <p className="px-2 py-2 text-sm text-zinc-400">일치하는 페이지가 없습니다.</p>
+              ) : (
+                flatList.map(({ node, depth, disabled }) => (
+                  <button
+                    key={node.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      if (isRowPage) detachRowToNormalPage(pageId);
+                      movePage(pageId, node.id, Number.MAX_SAFE_INTEGER);
+                      onClose();
+                    }}
+                    className={[
+                      "flex w-full items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm",
+                      disabled
+                        ? "cursor-not-allowed text-zinc-300 dark:text-zinc-600"
+                        : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                    ].join(" ")}
+                    style={{ paddingLeft: depth * 14 + 8 }}
+                    title={
+                      disabled
+                        ? "자기 자신 또는 자손으로는 이동할 수 없습니다"
+                        : "여기 자식으로 이동"
+                    }
+                  >
+                    <PageIconDisplay icon={node.icon ?? null} size="sm" />
+                    <span className="truncate">{node.title || "제목 없음"}</span>
+                  </button>
+                ))
+              )}
+              {rowTargetGroups.length > 0 && (
+                <>
+                  <div className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    데이터베이스 항목의 하위 페이지로 이동
+                  </div>
+                  {rowTargetGroups.map(({ db, rows }) => (
+                    <div key={db.id}>
+                      <div className="px-2 py-1 text-xs uppercase tracking-wide text-zinc-400">
+                        {db.meta.title || "제목 없음"}
+                      </div>
+                      {rows.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => {
+                            if (isRowPage) detachRowToNormalPage(pageId);
+                            movePage(pageId, r.id, Number.MAX_SAFE_INTEGER);
+                            onClose();
+                          }}
+                          className="flex w-full items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          style={{ paddingLeft: 22 }}
+                          title="이 항목 페이지의 자식으로 이동"
+                        >
+                          <PageIconDisplay icon={r.icon ?? null} size="sm" />
+                          <span className="truncate">{r.title || "제목 없음"}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
+          ) : null}
+
+          {/* DB 검색 결과 — 입력 시에만 노출 */}
+          {dbNorm ? (
             <>
               <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
               <div className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">
-                데이터베이스 항목의 하위 페이지로 이동
+                데이터베이스 항목으로 이동
               </div>
-              {rowTargetGroups.map(({ db, rows }) => (
-                <div key={db.id}>
-                  <div className="px-2 py-1 text-xs uppercase tracking-wide text-zinc-400">
-                    {db.meta.title || "제목 없음"}
-                  </div>
-                  {rows.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => {
-                        // 항목의 자식으로 넣기 위해 먼저 row 속성을 떼어 일반 페이지로 만든다.
-                        if (isRowPage) detachRowToNormalPage(pageId);
-                        movePage(pageId, r.id, Number.MAX_SAFE_INTEGER);
-                        onClose();
-                      }}
-                      className="flex w-full items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                      style={{ paddingLeft: 22 }}
-                      title="이 항목 페이지의 자식으로 이동"
-                    >
-                      <PageIconDisplay icon={r.icon ?? null} size="sm" />
-                      <span className="truncate">{r.title || "제목 없음"}</span>
-                    </button>
-                  ))}
-                </div>
-              ))}
+              {selectableDbList.length === 0 ? (
+                <p className="px-2 py-2 text-sm text-zinc-400">일치하는 데이터베이스가 없습니다.</p>
+              ) : (
+                selectableDbList.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => {
+                      attachPageAsRow(d.id, pageId);
+                      onClose();
+                    }}
+                    className="flex w-full items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    title="이 데이터베이스의 항목으로 추가"
+                  >
+                    <span className="w-5 text-center">🗂️</span>
+                    <span className="truncate">{d.meta.title || "제목 없음"}</span>
+                  </button>
+                ))
+              )}
             </>
-          )}
-          <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
-          <div className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400">
-            데이터베이스 항목으로 이동
-          </div>
-          {selectableDbList.length === 0 ? (
-            <p className="px-2 py-2 text-sm text-zinc-400">
-              일치하는 데이터베이스가 없습니다.
-            </p>
-          ) : (
-            selectableDbList.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => {
-                  attachPageAsRow(d.id, pageId);
-                  onClose();
-                }}
-                className="flex w-full items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                title="이 데이터베이스의 항목으로 추가"
-              >
-                <span className="w-5 text-center">🗂️</span>
-                <span className="truncate">{d.meta.title || "제목 없음"}</span>
-              </button>
-            ))
-          )}
+          ) : null}
         </div>
         <div className="mt-2 flex justify-end gap-1 border-t border-zinc-200 pt-2 dark:border-zinc-700">
           <button
