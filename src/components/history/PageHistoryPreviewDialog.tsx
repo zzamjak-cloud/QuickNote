@@ -8,12 +8,8 @@ import { useHistorySelection } from "./useHistorySelection";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { formatPageHistoryEditorLine } from "../../lib/historyEditorLabel";
 import { buildPageHistorySnapshotMap } from "../../lib/history/pageHistoryPatch";
-import {
-  buildPagePreviewChanges,
-  buildPagePropertyRows,
-  summarizePreviewChanges,
-} from "../../lib/history/historyPreviewDiff";
-import { parseContributors, summarizeChangedUnits } from "../../lib/history/blockDiff";
+import { buildPagePropertyRows } from "../../lib/history/historyPreviewDiff";
+import { parseContributors } from "../../lib/history/blockDiff";
 import { UnifiedBlockDiffView } from "./BlockDiffView";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
@@ -161,30 +157,12 @@ export function PageHistoryPreviewDialog({
     return nowTs - last < 10 * 60_000 ? head.id : null;
   }, [pageHistoryTimeline, rawEntryById, nowTs]);
 
-  // 리스트에 "무엇이 바뀌었나" 요약 — 컬럼명 해석용 ctx 는 페이지의 databaseId 기준.
-  const listCtx = useMemo(() => {
-    let dbId = pageId ? pages[pageId]?.databaseId ?? null : null;
-    if (!dbId) {
-      for (const snap of snapshotMap.values()) {
-        if (snap?.databaseId) {
-          dbId = snap.databaseId;
-          break;
-        }
-      }
-    }
-    const colMap = new Map((dbId ? databases[dbId]?.columns ?? [] : []).map((c) => [c.id, c]));
-    return {
-      getDatabaseTitle: (id: string) => databases[id]?.meta.title ?? null,
-      getPageTitle: (id: string) => pages[id]?.title ?? null,
-      getColumnName: (columnId: string) => colMap.get(columnId)?.name ?? null,
-      getOptionLabel: (columnId: string, optionId: string) =>
-        colMap.get(columnId)?.config?.options?.find((o) => o.id === optionId)?.label ?? null,
-    };
-  }, [databases, pages, pageId, snapshotMap]);
-
-  const pageSummaries = useMemo(() => {
-    const map = new Map<string, string>();
-    if (!pageId || !workspaceId) return map;
+  // 타임라인 목록 라벨 — "버전 N" 순차 번호. 복원 항목은 같은 내용을 가진 이전 버전 번호를 찾아
+  // "버전 N (버전 K 복원)" 으로 표기한다. 번호는 시간 오름차순 기준(가장 오래된=버전 1).
+  const versionInfo = useMemo(() => {
+    const numberById = new Map<string, number>();
+    const restoreSourceById = new Map<string, number>();
+    if (!pageId || !workspaceId) return { numberById, restoreSourceById };
     const asc = [...historyEntries]
       .filter((e) => e.workspaceId === workspaceId)
       .sort(
@@ -192,16 +170,23 @@ export function PageHistoryPreviewDialog({
           (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0) ||
           a.historyId.localeCompare(b.historyId),
       );
-    let prev: ReturnType<typeof snapshotMap.get> | null = null;
-    for (const e of asc) {
-      const cur = snapshotMap.get(e.historyId) ?? null;
-      // 첫 버전(이전 스냅샷 없음)은 요약 대신 항목 라벨("페이지 생성")로 폴백.
-      const summary = prev === null ? "" : summarizePreviewChanges(buildPagePreviewChanges(prev, cur, listCtx));
-      map.set(e.historyId, summary);
-      if (cur) prev = cur;
-    }
-    return map;
-  }, [historyEntries, snapshotMap, listCtx, pageId, workspaceId]);
+    const sigToNumber = new Map<string, number>();
+    asc.forEach((e, i) => {
+      const n = i + 1;
+      numberById.set(e.historyId, n);
+      const snap = snapshotMap.get(e.historyId);
+      // 내용 시그니처(제목+본문+셀) — 복원본이 어느 버전과 동일한지 매칭용.
+      const sig = snap
+        ? JSON.stringify([snap.title ?? "", snap.doc ?? null, snap.dbCells ?? null])
+        : "";
+      if (e.kind === "page.restoreVersion" && sig) {
+        const src = sigToNumber.get(sig);
+        if (src != null) restoreSourceById.set(e.historyId, src);
+      }
+      if (sig && !sigToNumber.has(sig)) sigToNumber.set(sig, n);
+    });
+    return { numberById, restoreSourceById };
+  }, [historyEntries, snapshotMap, pageId, workspaceId]);
   const confirmZIndex = isInsidePeek ? 730 : 500;
 
   if (!open || !pageId || !workspaceId) return null;
@@ -344,11 +329,15 @@ export function PageHistoryPreviewDialog({
                   pageHistoryTimeline.slice(0, 100).map((entry) => {
                     const active = selectedHistoryId === entry.id;
                     const raw = rawEntryById.get(entry.id);
-                    // 세션 엔트리는 서버가 미리 계산한 changedUnits 요약을 우선 사용한다.
-                    const summary =
-                      summarizeChangedUnits(raw?.changedUnits) ||
-                      pageSummaries.get(entry.id) ||
-                      entry.label;
+                    // 타임라인 라벨 — "버전 N". 복원 항목은 파랑 + "(버전 K 복원)".
+                    const versionNum = versionInfo.numberById.get(entry.id);
+                    const isRestore = raw?.kind === "page.restoreVersion";
+                    const restoreSrc = versionInfo.restoreSourceById.get(entry.id);
+                    const summary = versionNum
+                      ? isRestore
+                        ? `버전 ${versionNum}${restoreSrc ? ` (버전 ${restoreSrc} 복원)` : " (복원)"}`
+                        : `버전 ${versionNum}`
+                      : entry.label;
                     const contributors = parseContributors(raw?.contributors);
                     const editorSuffix =
                       contributors.length > 1 ? ` 외 ${contributors.length - 1}명` : "";
@@ -385,11 +374,13 @@ export function PageHistoryPreviewDialog({
                           <span
                             className={[
                               "block truncate",
-                              entry.representativeKind === "page.delete"
-                                ? "text-red-600 dark:text-red-400"
-                                : entry.representativeKind === "page.create"
-                                  ? "text-blue-600 dark:text-blue-400"
-                                  : "text-zinc-700 dark:text-zinc-200",
+                              isRestore
+                                ? "font-medium text-blue-600 dark:text-blue-400"
+                                : entry.representativeKind === "page.delete"
+                                  ? "text-red-600 dark:text-red-400"
+                                  : entry.representativeKind === "page.create"
+                                    ? "text-blue-600 dark:text-blue-400"
+                                    : "text-zinc-700 dark:text-zinc-200",
                             ].join(" ")}
                           >
                             {summary}
