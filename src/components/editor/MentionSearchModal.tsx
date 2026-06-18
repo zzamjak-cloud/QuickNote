@@ -196,15 +196,11 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
     "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/30 placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-emerald-400";
 
   const renderSection = (
-    label: string,
     query: string,
     search: { items: MentionListItem[]; loading: boolean; resolvedQuery: string },
     indexBase: number,
   ) => (
     <div className="border-b border-zinc-100 last:border-0 dark:border-zinc-800">
-      <div className="bg-zinc-50 px-3 py-1 text-[11px] font-semibold text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-        {label}
-      </div>
       {!query.trim() ? (
         <div className="px-3 py-3 text-center text-xs text-zinc-400">검색어를 입력하세요.</div>
       ) : search.loading && search.items.length === 0 ? (
@@ -277,8 +273,8 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
           />
         </div>
         <div className="h-80 overflow-y-auto rounded-lg border border-zinc-100 dark:border-zinc-700">
-          {renderSection("페이지", pageQuery, pageSearch, 0)}
-          {renderSection("구성원", memberQuery, memberSearch, pageSearch.items.length)}
+          {renderSection(pageQuery, pageSearch, 0)}
+          {renderSection(memberQuery, memberSearch, pageSearch.items.length)}
         </div>
         <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
           ↑↓ 선택 · Enter 삽입 · Esc 닫기
