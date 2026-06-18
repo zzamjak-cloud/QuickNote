@@ -144,6 +144,21 @@ export function PageHistoryPreviewDialog({
     [historyEntries],
   );
 
+  // "편집 중" 배지는 단일 head(현재 작업 버전)에만 표시한다 — 복원/편집마다 새 head 가 생겨도
+  // 배지는 1개로 그 head 로 옮겨간다. 과거엔 "10분 내 page.session 이면 전부" 표시라, 복원+편집을
+  // 반복하면 옛 세션들이 계속 배지를 달아 "편집중"이 2개·3개로 누적되는 버그가 있었다.
+  // 복원 시 서버가 page.restoreVersion 을 새 head 로 남기므로, 그 head 도 "현재 작업 버전"으로 본다.
+  const liveHeadId = useMemo(() => {
+    if (nowTs <= 0) return null;
+    let head: (typeof pageHistoryTimeline)[number] | null = null;
+    for (const e of pageHistoryTimeline) if (!head || e.endTs > head.endTs) head = e;
+    if (!head) return null;
+    const raw = rawEntryById.get(head.id);
+    if (raw?.kind !== "page.session" && raw?.kind !== "page.restoreVersion") return null;
+    const last = Date.parse(raw.lastActivityAt ?? raw.createdAt ?? "") || head.endTs;
+    return nowTs - last < 10 * 60_000 ? head.id : null;
+  }, [pageHistoryTimeline, rawEntryById, nowTs]);
+
   // 리스트에 "무엇이 바뀌었나" 요약 — 컬럼명 해석용 ctx 는 페이지의 databaseId 기준.
   const listCtx = useMemo(() => {
     let dbId = pageId ? pages[pageId]?.databaseId ?? null : null;
@@ -316,11 +331,8 @@ export function PageHistoryPreviewDialog({
                     const contributors = parseContributors(raw?.contributors);
                     const editorSuffix =
                       contributors.length > 1 ? ` 외 ${contributors.length - 1}명` : "";
-                    // 서버 SESSION_IDLE_MS(10분)와 동일 창 — 이 안이면 아직 머지될 수 있는 열린 세션
-                    const isLiveSession =
-                      raw?.kind === "page.session" &&
-                      nowTs > 0 &&
-                      nowTs - (Date.parse(raw.lastActivityAt ?? "") || 0) < 10 * 60_000;
+                    // "편집 중"은 단일 head(현재 작업 버전)에만 — liveHeadId 참고.
+                    const isLiveSession = entry.id === liveHeadId;
                     return (
                       <button
                         key={entry.id}
