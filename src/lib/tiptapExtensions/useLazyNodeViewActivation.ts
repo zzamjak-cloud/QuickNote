@@ -4,15 +4,18 @@ type LazyNodeViewActivationOptions = {
   selected?: boolean;
   forceActive?: boolean;
   rootMargin?: string;
+  /** 마운트 즉시 active 로 시작(예: 컨텐츠가 이미 캐시돼 지연 로드가 불필요할 때). */
+  initialActive?: boolean;
 };
 
 export function useLazyNodeViewActivation<T extends HTMLElement>({
   selected = false,
   forceActive = false,
   rootMargin = "800px 0px",
+  initialActive = false,
 }: LazyNodeViewActivationOptions = {}) {
   const ref = useRef<T | null>(null);
-  const [active, setActive] = useState(() => selected || forceActive);
+  const [active, setActive] = useState(() => selected || forceActive || initialActive);
 
   const activate = useCallback(() => {
     setActive(true);

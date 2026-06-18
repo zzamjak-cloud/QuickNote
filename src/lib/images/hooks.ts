@@ -32,7 +32,10 @@ function mapImageErrorMessage(error: unknown): string {
   return msg;
 }
 
-function initialImageUrl(srcOrRef: string | null | undefined): string | null {
+// 동기 캐시 조회 — 이미 풀려있는 이미지 URL 을 즉시 반환(없으면 null).
+// 에디터 리마운트(협업 바인딩 등) 시 캐시가 따뜻하면 placeholder 플래시 없이 즉시 그리기 위해
+// NodeView 가 lazy-activation 초기값 결정에도 사용한다. 캐시는 모듈 싱글톤이라 리마운트에도 유지된다.
+export function initialImageUrl(srcOrRef: string | null | undefined): string | null {
   if (!srcOrRef) return null;
   const id = decodeImageRef(srcOrRef) ?? decodeFileRef(srcOrRef);
   if (!id) return srcOrRef;

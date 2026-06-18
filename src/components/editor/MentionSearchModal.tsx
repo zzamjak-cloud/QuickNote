@@ -37,6 +37,9 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<MentionListItem[]>([]);
   const [loading, setLoading] = useState(false);
+  // 현재 items 가 어떤 검색어의 결과인지 — "결과 없음" 안내를 검색 완료 후에만 띄워
+  // 캐시 적중으로 결과가 곧 올 대기 구간에 잘못된 빈 안내가 깜빡이지 않게 한다.
+  const [resolvedQuery, setResolvedQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const groups: MentionGroup[] = [
     { kind: "member", label: "구성원", rows: [] },
@@ -55,6 +58,7 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
     setQuery("");
     setItems([]);
     setLoading(false);
+    setResolvedQuery("");
     setSelected(0);
     const t = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(t);
@@ -62,17 +66,25 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    if (!query.trim()) {
+    const q = query.trim();
+    if (!q) {
       setItems([]);
       setLoading(false);
+      setResolvedQuery("");
       setSelected(0);
       return;
     }
     let cancelled = false;
-    setLoading(true);
+    // 스피너는 살짝 지연해서 켠다 — 캐시 적중으로 결과가 즉시 오면 스피너가 깜빡이지 않는다.
+    // 이전 결과(items)는 새 결과가 올 때까지 유지해 재검색 시 빈 화면/깜빡임을 막는다.
+    const loadingTimer = window.setTimeout(() => {
+      if (!cancelled) setLoading(true);
+    }, 180);
     void loadMergedMentionItems(query, 24, { includeRemoteMembers: false }).then((rows) => {
       if (cancelled) return;
+      window.clearTimeout(loadingTimer);
       setItems(rows);
+      setResolvedQuery(q);
       setLoading(false);
       setSelected(0);
     });
@@ -80,10 +92,12 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
       void loadMergedMentionItems(query, 24, { includeRemoteMembers: true }).then((rows) => {
         if (cancelled) return;
         setItems(rows);
+        setResolvedQuery(q);
       });
     }, 120);
     return () => {
       cancelled = true;
+      window.clearTimeout(loadingTimer);
       window.clearTimeout(remoteTimer);
     };
   }, [open, query]);
@@ -203,9 +217,12 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
               검색어를 입력하세요.
             </div>
           ) : items.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-zinc-500">
-              일치하는 항목이 없습니다.
-            </div>
+            // 검색 완료(resolvedQuery 일치) 후에만 "없음" 안내. 대기 중에는 빈 채로 둬 깜빡임 방지.
+            resolvedQuery === query.trim() ? (
+              <div className="px-3 py-6 text-center text-xs text-zinc-500">
+                일치하는 항목이 없습니다.
+              </div>
+            ) : null
           ) : (
             visibleGroups.map((group) => (
               <div key={group.kind} className="border-b border-zinc-100 last:border-0 dark:border-zinc-800">

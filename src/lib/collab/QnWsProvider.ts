@@ -29,6 +29,8 @@ export type QnWsProviderOptions = {
   pingIntervalMs?: number;
   /** 최대 재연결 backoff(ms). */
   maxBackoffMs?: number;
+  /** 연속 재연결 시도 최대 횟수(초과 시 중단). 기본 3. 0 이면 재연결 안 함. */
+  maxReconnectAttempts?: number;
   /** 프레즌스용 awareness(없으면 Phase 1 동작 그대로). */
   awareness?: Awareness;
 };
@@ -43,6 +45,7 @@ export class QnWsProvider {
   private socketFactory: (url: string) => WebSocket;
   private pingIntervalMs: number;
   private maxBackoffMs: number;
+  private maxReconnectAttempts: number;
 
   private awareness: Awareness | null;
 
@@ -65,6 +68,7 @@ export class QnWsProvider {
       opts.socketFactory ?? ((u: string) => new WebSocket(u));
     this.pingIntervalMs = opts.pingIntervalMs ?? 25_000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 15_000;
+    this.maxReconnectAttempts = opts.maxReconnectAttempts ?? 3;
     this.doc.on("update", this.handleLocalUpdate);
     this.awareness = opts.awareness ?? null;
     if (this.awareness) {
@@ -297,6 +301,10 @@ export class QnWsProvider {
     if (this.offline) return; // offline 상태는 handleOffline 이 status 를 관리 — 덮어쓰지 않음
     this.emit("status", "disconnected" as StatusValue);
     if (this.destroyed) return;
+    // 무한 재연결 방지: 연속 실패가 한도(기본 3회)에 도달하면 재연결을 중단한다.
+    // (깨진/없는 룸 등 영구 실패 시 1초 주기 무한 루프·콘솔 스팸을 막음. 콘솔 에러 자체는 허용.)
+    // 네트워크 복귀(handleOnline)나 페이지 재진입(새 provider)에서는 retries 가 리셋돼 다시 시도한다.
+    if (this.retries >= this.maxReconnectAttempts) return;
     const delay = Math.min(this.maxBackoffMs, 500 * 2 ** this.retries);
     this.retries += 1;
     this.reconnectTimer = window.setTimeout(() => this.connect(), delay);

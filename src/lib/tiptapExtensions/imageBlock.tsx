@@ -8,7 +8,7 @@ import {
   NodeViewWrapper,
   type NodeViewProps,
 } from "@tiptap/react";
-import { useImageUrl } from "../images/hooks";
+import { useImageUrl, initialImageUrl } from "../images/hooks";
 import {
   nextCaptionAlign,
   toggleSelectedMediaCaption,
@@ -56,9 +56,13 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
   const captionAlign = attrs.captionAlign ?? "left";
   const captionMaxWidth = attrs.width ? `${attrs.width}px` : "100%";
   const [previewOpen, setPreviewOpen] = useState(false);
+  // 이미지 URL 이 이미 캐시돼 있으면(예: 협업 바인딩으로 에디터가 리마운트된 경우) 지연 활성화를
+  // 건너뛰고 즉시 active 로 시작한다 — placeholder pulse 플래시(깜빡임) 제거. 미캐시는 기존대로 lazy.
+  const hasCachedUrl = initialImageUrl(attrs.src ?? null) != null;
   const activation = useLazyNodeViewActivation<HTMLDivElement>({
     selected: props.selected,
     forceActive: previewOpen,
+    initialActive: hasCachedUrl,
   });
   const { url, error } = useImageUrl(
     activation.active ? attrs.src ?? null : null,

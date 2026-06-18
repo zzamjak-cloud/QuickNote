@@ -236,4 +236,64 @@ describe("QnWsProvider", () => {
     const reply = socket.sent.map((s) => JSON.parse(s)).find((m) => m.t === "sv-reply" || m.t === "chunk");
     expect(reply).toBeTruthy();
   });
+
+  it("재연결은 maxReconnectAttempts 회까지만 시도하고 이후 중단한다(무한 루프 방지)", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new Y.Doc();
+      const sockets: FakeSocket[] = [];
+      const provider = new QnWsProvider({
+        doc,
+        url: "wss://x/dev?token=t&pageId=p",
+        socketFactory: () => {
+          const s = new FakeSocket();
+          sockets.push(s);
+          return s as unknown as WebSocket;
+        },
+        maxReconnectAttempts: 3,
+      });
+      provider.connect(); // 초기 소켓 #1 (CONNECTING)
+      // 연결 실패(close) 반복 — 캡에 도달하면 더는 재연결 타이머를 걸지 않아야 한다.
+      for (let i = 0; i < 10; i += 1) {
+        sockets[sockets.length - 1].close(); // onclose → 재연결 스케줄 or 중단
+        vi.runOnlyPendingTimers(); // 스케줄됐다면 reconnect 실행(새 소켓)
+      }
+      // 초기 1회 + 재연결 3회 = 총 4개 소켓에서 멈춰야 한다.
+      expect(sockets.length).toBe(4);
+      provider.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("재연결 중단 후 online 이벤트가 오면 재시도를 재개한다", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new Y.Doc();
+      const sockets: FakeSocket[] = [];
+      const provider = new QnWsProvider({
+        doc,
+        url: "wss://x/dev?token=t&pageId=p",
+        socketFactory: () => {
+          const s = new FakeSocket();
+          sockets.push(s);
+          return s as unknown as WebSocket;
+        },
+        maxReconnectAttempts: 3,
+      });
+      provider.connect();
+      for (let i = 0; i < 10; i += 1) {
+        sockets[sockets.length - 1].close();
+        vi.runOnlyPendingTimers();
+      }
+      expect(sockets.length).toBe(4); // 캡 도달
+      // 네트워크 복귀 시 retries 리셋 → 다시 연결 시도.
+      window.dispatchEvent(new Event("offline"));
+      window.dispatchEvent(new Event("online"));
+      expect(sockets.length).toBe(5);
+      provider.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

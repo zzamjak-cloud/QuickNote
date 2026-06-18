@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as LucideIcons from "lucide-react";
 import rawEmojiData from "emoji-picker-react/dist/data/emojis.json";
 
@@ -51,10 +51,16 @@ function buildEmojiMap(): Record<string, EmojiItem[]> {
 const EMOJI_MAP = buildEmojiMap();
 const ALL_EMOJIS = CATEGORIES.flatMap((cat) => EMOJI_MAP[cat.id] ?? []);
 
+// "전체" 카테고리는 ~1800개라 한 번에 렌더하면 패널 마운트마다 프리즈(로딩처럼 보임)가 난다.
+// 초기엔 한 배치만 그리고 스크롤 시 점진 확장한다(데이터는 이미 모듈 캐시).
+const GRID_BATCH = 180;
+
 /** 사이드바 아이콘 피커 본체 — 커스텀 이모지 그리드 */
 export function IconPickerEmoji({ onPick }: Props) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryId>("all");
+
+  const [limit, setLimit] = useState(GRID_BATCH);
 
   const visibleEmojis = useMemo<EmojiItem[]>(() => {
     if (query.trim()) {
@@ -64,6 +70,13 @@ export function IconPickerEmoji({ onPick }: Props) {
     if (activeCategory === "all") return ALL_EMOJIS;
     return EMOJI_MAP[activeCategory] ?? [];
   }, [query, activeCategory]);
+
+  // 검색어·카테고리가 바뀌면 렌더 윈도우를 처음으로 되돌린다.
+  useEffect(() => {
+    setLimit(GRID_BATCH);
+  }, [query, activeCategory]);
+
+  const shownEmojis = visibleEmojis.slice(0, limit);
 
   const handleCategoryClick = (cat: CategoryId) => {
     setActiveCategory(cat);
@@ -118,13 +131,21 @@ export function IconPickerEmoji({ onPick }: Props) {
         </div>
       ) : null}
 
-      {/* 이모지 그리드 */}
-      <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+      {/* 이모지 그리드 — 스크롤 시 점진 확장(초기 프리즈 방지) */}
+      <div
+        className="min-h-0 flex-1 overflow-y-auto pr-0.5"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 320) {
+            setLimit((l) => (l < visibleEmojis.length ? l + GRID_BATCH : l));
+          }
+        }}
+      >
         {visibleEmojis.length === 0 ? (
           <div className="py-8 text-center text-xs text-zinc-400">검색 결과가 없습니다.</div>
         ) : (
           <div className="grid grid-cols-6 gap-1">
-            {visibleEmojis.map((item, i) => (
+            {shownEmojis.map((item, i) => (
               <button
                 key={`${item.emoji}-${i}`}
                 type="button"

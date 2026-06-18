@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import * as LucideIcons from "lucide-react";
 import { prepareIconImageForUpload } from "../../lib/images/compressImage";
 import { uploadImage } from "../../lib/images/upload";
-import { encodeLucidePageIcon } from "../../lib/pageIcon";
+import { encodeLucidePageIcon, isImageLikePageIcon } from "../../lib/pageIcon";
 import { PageIconDisplay } from "./PageIconDisplay";
 import { type CustomIconPreset } from "../../lib/iconStorage";
 import { useWorkspaceStore } from "../../store/workspaceStore";
@@ -272,6 +272,27 @@ export function IconPicker({
     })();
   };
 
+  // 노션 가져오기 등으로 들어온 이미지 아이콘은 커스텀 아이콘 라이브러리에 없어 재사용이 어렵다.
+  // 현재 아이콘이 이미지이고 아직 등록되지 않았다면 "커스텀 아이콘 등록" 버튼을 노출한다.
+  const canRegisterCurrent =
+    !!workspaceId &&
+    isImageLikePageIcon(current) &&
+    !customIcons.some((icon) => icon.src === current);
+
+  const registerCurrentAsCustomIcon = async () => {
+    if (!workspaceId || !current) return;
+    setUploadStatus("아이콘 등록 중…");
+    try {
+      await addCustomIconSrv({ workspaceId, src: current, label: "커스텀 아이콘" });
+      onUploadMessage?.("현재 아이콘을 커스텀 아이콘으로 등록했습니다.");
+    } catch (err) {
+      console.error("[IconPicker] 현재 아이콘 커스텀 등록 실패", err);
+      onUploadMessage?.("커스텀 아이콘 등록에 실패했습니다.");
+    } finally {
+      setUploadStatus(null);
+    }
+  };
+
   return (
     <div className="relative" ref={ref}>
       {trigger}
@@ -331,6 +352,17 @@ export function IconPicker({
                     )}
                     {uploadStatus ?? "이미지 업로드"}
                   </button>
+                  {canRegisterCurrent ? (
+                    <button
+                      type="button"
+                      onClick={() => void registerCurrentAsCustomIcon()}
+                      disabled={!!uploadStatus}
+                      className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 disabled:cursor-progress disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      <LucideIcons.BookmarkPlus size={14} className="shrink-0 text-zinc-500" />
+                      커스텀 아이콘 등록
+                    </button>
+                  ) : null}
                   {current ? (
                     <button
                       type="button"
