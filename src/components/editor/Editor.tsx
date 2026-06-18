@@ -626,6 +626,7 @@ function EditorInner({
   useEffect(() => {
     if (!collabEnabled || !effectivePageId) return;
     return registerPageRestoreHandler(effectivePageId, (restoredDocJson) => {
+      console.log("[restore-diag] Editor handler invoked", { effectivePageId });
       pendingRestoreDocRef.current = restoredDocJson;
       setCollabBoundDoc(null);
       collabSeedStateRef.current = { pageId: effectivePageId, status: "idle" };
@@ -661,7 +662,14 @@ function EditorInner({
     const pendingRestore = pendingRestoreDocRef.current;
     if (pendingRestore != null) {
       pendingRestoreDocRef.current = null;
+      const beforeLen = collabDoc.getXmlFragment("prosemirror").length;
       replaceCollabDocContent(collabDoc, editor.schema, pendingRestore);
+      const afterLen = collabDoc.getXmlFragment("prosemirror").length;
+      console.log("[restore-diag] seed effect replace", {
+        effectivePageId,
+        beforeLen,
+        afterLen,
+      });
       seedState.status = "done";
       bindCollabDoc();
       return;
