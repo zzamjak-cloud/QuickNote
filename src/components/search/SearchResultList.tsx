@@ -37,6 +37,30 @@ export function SearchResultList({
           </p>
         ) : (
           <>
+            {/* DB 결과를 최상단에 — 페이지가 많이 매칭돼도 DB 가 묻히지 않게. */}
+            {dbHits.length > 0 ? (
+              <>
+                <div className="px-3 py-1.5 text-[11px] font-medium text-zinc-400">
+                  데이터베이스
+                </div>
+                {dbHits.map((db) => (
+                  <button
+                    key={db.databaseId}
+                    type="button"
+                    onClick={() => onOpenDatabase(db.databaseId)}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  >
+                    <Database size={15} className="shrink-0 text-zinc-400" />
+                    <span className="truncate">{db.title || "제목 없음"}</span>
+                  </button>
+                ))}
+                {items.length > 0 ? (
+                  <div className="mt-1 border-t border-zinc-100 px-3 py-1.5 text-[11px] font-medium text-zinc-400 dark:border-zinc-800">
+                    페이지
+                  </div>
+                ) : null}
+              </>
+            ) : null}
             {items.map((item) => (
               <button
                 key={item.pageId}
@@ -63,25 +87,6 @@ export function SearchResultList({
               >
                 더보기 ({total - items.length})
               </button>
-            ) : null}
-
-            {dbHits.length > 0 ? (
-              <>
-                <div className="mt-1 border-t border-zinc-100 px-3 py-1.5 text-[11px] font-medium text-zinc-400 dark:border-zinc-800">
-                  데이터베이스
-                </div>
-                {dbHits.map((db) => (
-                  <button
-                    key={db.databaseId}
-                    type="button"
-                    onClick={() => onOpenDatabase(db.databaseId)}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-zinc-800 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                  >
-                    <Database size={15} className="shrink-0 text-zinc-400" />
-                    <span className="truncate">{db.title || "제목 없음"}</span>
-                  </button>
-                ))}
-              </>
             ) : null}
           </>
         )}
