@@ -69,6 +69,17 @@ export function DatabaseBlockHistoryDialog({
     void fetchDatabaseHistory(databaseId, workspaceId);
   }, [databaseId, fetchDatabaseHistory, open, workspaceId]);
 
+  // 행 추가/삭제는 Y룸→materialize→서버 upsert 까지 비동기(~2-4s)다. 다이얼로그가 열린 동안
+  // 행 멤버십(rowPageOrder)이 바뀌면 잠시 후 히스토리를 재조회해 새 "버전 N"이 자동 반영되게 한다.
+  const rowMembershipKey = (bundle?.rowPageOrder ?? []).join("|");
+  useEffect(() => {
+    if (!open || !databaseId || !workspaceId) return;
+    const t = window.setTimeout(() => {
+      void fetchDatabaseHistory(databaseId, workspaceId);
+    }, 2600);
+    return () => window.clearTimeout(t);
+  }, [open, databaseId, workspaceId, rowMembershipKey, fetchDatabaseHistory]);
+
   const dbTimelineIds = useMemo(
     () => dbHistoryTimeline.map((entry) => entry.id),
     [dbHistoryTimeline],
