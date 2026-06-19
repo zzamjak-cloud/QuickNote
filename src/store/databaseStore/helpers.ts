@@ -91,12 +91,6 @@ export function enqueueUpsertDatabase(
   // 협업 ON DB: LWW 대신 Y.Doc 에 구조 reconcile. 서버 영속은 materialize→applyCollabDbStructure(skipCollab) 가 담당.
   if (!opts?.skipCollab) {
     const collab = getDbCollab(bundle.meta.id);
-    console.log("[db-hist-diag] enqueueUpsertDatabase", {
-      dbId: bundle.meta.id,
-      collabActive: !!collab,
-      rowCount: bundle.rowPageOrder.length,
-      skipCollab: !!opts?.skipCollab,
-    });
     if (collab) {
       reconcileStructureIntoYDoc(collab.doc, {
         columns: bundle.columns,
@@ -124,11 +118,6 @@ export function enqueueUpsertDatabase(
   );
   // rowPageOrder 는 서버가 DB 레코드에는 저장하지 않고 히스토리 스냅샷에만 사용한다(행 추가/삭제를 DB 버전으로 기록).
   payload.rowPageOrder = bundle.rowPageOrder;
-  console.log("[db-hist-diag] → server upsertDatabase", {
-    dbId: bundle.meta.id,
-    skipCollab: !!opts?.skipCollab,
-    rowPageOrder: bundle.rowPageOrder.length,
-  });
   enqueueAsync(
     "upsertDatabase",
     payload as Record<string, unknown> & { id: string; updatedAt?: string },

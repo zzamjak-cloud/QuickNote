@@ -83,11 +83,6 @@ export const useServerDatabaseHistoryStore = create<State & Actions>()((set, get
     }));
     try {
       const rows = await listDatabaseHistoryApi(databaseId, workspaceId, 100);
-      console.log("[db-hist-diag] fetchDatabaseHistory", {
-        databaseId,
-        count: rows.length,
-        kinds: rows.slice(0, 6).map((r) => `${r.kind}@${(r.createdAt ?? "").slice(11, 19)}`),
-      });
       const shouldSeedBaseline = rows.length === 0 && !seededBaselineDatabases.has(databaseId);
       set((s) => ({
         byDatabaseId: { ...s.byDatabaseId, [databaseId]: rows },

@@ -688,8 +688,14 @@ async function recordDatabaseHistory(args: {
   const changedUnits = diffMeaningfulDatabaseUnits(latestSnapshot ?? beforeSnap, afterSnap);
   if (!args.force && args.kind === "database.update" && changedUnits.length === 0) return;
   const patchBase = latestSnapshot ?? beforeSnap;
+  // 행 멤버십(rows) 변경은 세션 머지하지 않고 독립 버전으로 남긴다. 머지하면 행 삭제가 같은
+  // 세션 스냅샷을 덮어써 삭제 전 상태가 사라져 복구가 불가능해진다(req: 실수 삭제 복구).
+  // 연속 추가는 materialize 디바운스가 한 upsert 로 묶고, 동일 재전송은 위 changedUnits 빈값
+  // 가드로 스킵되므로 버전 스팸은 없다.
+  const isRowMembershipChange = changedUnits.includes("rows");
   if (
     args.kind === "database.update" &&
+    !isRowMembershipChange &&
     canMergeIntoSession({ latest, sessionKind: "database.session", workspaceId, now: nowMs })
   ) {
     const priorOps = Array.isArray(latest.patch) ? (latest.patch as PagePatchOp[]) : [];
