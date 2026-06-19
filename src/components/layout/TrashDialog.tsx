@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCcw, Search, Trash2, X } from "lucide-react";
+import { Check, RefreshCcw, Search, Trash2, X } from "lucide-react";
 import { applyRemotePageToStore } from "../../lib/sync/storeApply";
 import {
   fetchTrashedPagesBatch,
@@ -15,6 +15,7 @@ import {
 } from "../../lib/sync/localDeleteGuards";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseStore } from "../../store/databaseStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useUiStore } from "../../store/uiStore";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
@@ -28,6 +29,7 @@ const RETENTION_DAYS = 30;
 
 export function TrashDialog({ open, onClose }: Props) {
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const databases = useDatabaseStore((s) => s.databases);
   const setActivePage = usePageStore((s) => s.setActivePage);
   const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const removeFavoritesForPages = useSettingsStore((s) => s.removeFavoritesForPages);
@@ -41,6 +43,10 @@ export function TrashDialog({ open, onClose }: Props) {
   /** 다음 배치 조회용 서버 커서 */
   const [cursor, setCursor] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  // DB 필터: "all"=전체, "none"=일반 페이지(DB 아님), 그 외=databaseId
+  const [dbFilter, setDbFilter] = useState<string>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [restoringSelected, setRestoringSelected] = useState(false);
   const [confirmEmptyOpen, setConfirmEmptyOpen] = useState(false);
   const [emptying, setEmptying] = useState(false);
   /** 비우기 진행률 — null=비실행, { done, total } */
@@ -61,11 +67,55 @@ export function TrashDialog({ open, onClose }: Props) {
     [],
   );
 
+  // DB 필터 드롭다운 옵션 — 휴지통에 항목이 있는 DB 만 노출. 제목은 databaseStore 에서 해석.
+  const dbOptions = useMemo(() => {
+    const ids = new Set<string>();
+    let hasNonDb = false;
+    for (const p of items) {
+      if (p.databaseId) ids.add(p.databaseId);
+      else hasNonDb = true;
+    }
+    const opts = Array.from(ids)
+      .map((id) => ({ value: id, label: databases[id]?.meta.title?.trim() || "데이터베이스" }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return { opts, hasNonDb };
+  }, [items, databases]);
+
   const filteredItems = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((p) => (p.title ?? "").toLowerCase().includes(q));
-  }, [items, query]);
+    return items.filter((p) => {
+      if (q && !(p.title ?? "").toLowerCase().includes(q)) return false;
+      if (dbFilter === "all") return true;
+      if (dbFilter === "none") return !p.databaseId;
+      return p.databaseId === dbFilter;
+    });
+  }, [items, query, dbFilter]);
+
+  // 필터/검색이 바뀌면 선택을 초기화한다 — 숨겨진(필터 밖) 항목이 선택에 남아 복원되는 사고 방지.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [dbFilter, query]);
+
+  const filteredIds = useMemo(() => filteredItems.map((p) => p.id), [filteredItems]);
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+
+  const toggleSelectOne = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    // 전체 선택은 "현재 필터된 목록"에만 적용된다.
+    setSelectedIds((prev) => {
+      const everySelected = filteredIds.length > 0 && filteredIds.every((id) => prev.has(id));
+      return everySelected ? new Set() : new Set(filteredIds);
+    });
+  }, [filteredIds]);
 
   const loadFirst = useCallback(async () => {
     if (!currentWorkspaceId) return;
@@ -128,6 +178,35 @@ export function TrashDialog({ open, onClose }: Props) {
         kind: "error",
       });
     }
+  };
+
+  const restoreSelected = async () => {
+    if (!currentWorkspaceId || restoringSelected) return;
+    const wsId = currentWorkspaceId;
+    // 현재 필터된 목록 ∩ 선택 — 필터 밖(숨겨진) 항목은 절대 복원하지 않는다.
+    const targets = filteredItems.filter((p) => selectedIds.has(p.id));
+    if (targets.length === 0) return;
+    setRestoringSelected(true);
+    let ok = 0;
+    let fail = 0;
+    for (const p of targets) {
+      try {
+        clearLocalDeleteGuard("page", p.id, wsId);
+        const restored = await restorePageRemote(p.id, wsId);
+        applyRemotePageToStore(restored);
+        setItems((prev) => prev.filter((x) => x.id !== p.id));
+        ok += 1;
+      } catch (e) {
+        console.error(e);
+        fail += 1;
+      }
+    }
+    setSelectedIds(new Set());
+    setRestoringSelected(false);
+    showToast(
+      fail > 0 ? `${ok}개 복원 / ${fail}개 실패` : `${ok}개 항목을 복원했습니다.`,
+      { kind: fail > 0 ? "info" : "success" },
+    );
   };
 
   const emptyTrash = async () => {
@@ -264,16 +343,64 @@ export function TrashDialog({ open, onClose }: Props) {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="shrink-0 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
-            <div className="flex items-center gap-2 rounded-md border border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
-              <Search size={13} className="shrink-0 text-zinc-400" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="페이지 제목 검색"
-                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
-              />
+          <div className="shrink-0 space-y-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+            <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-zinc-200 px-2 py-1.5 dark:border-zinc-700">
+                <Search size={13} className="shrink-0 text-zinc-400" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="페이지 제목 검색"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
+                />
+              </div>
+              <select
+                value={dbFilter}
+                onChange={(e) => setDbFilter(e.target.value)}
+                className="shrink-0 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-700 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                title="데이터베이스로 필터"
+              >
+                <option value="all">전체 DB</option>
+                {dbOptions.hasNonDb ? <option value="none">일반 페이지</option> : null}
+                {dbOptions.opts.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </div>
+            {filteredItems.length > 0 ? (
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={toggleSelectAll}
+                  className="inline-flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                >
+                  <span
+                    className={[
+                      "inline-flex h-4 w-4 items-center justify-center rounded border",
+                      allFilteredSelected
+                        ? "border-blue-500 bg-blue-500 text-white"
+                        : "border-zinc-400",
+                    ].join(" ")}
+                  >
+                    {allFilteredSelected ? <Check size={11} strokeWidth={3} /> : null}
+                  </span>
+                  전체 선택{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
+                </button>
+                {selectedIds.size > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => void restoreSelected()}
+                    disabled={restoringSelected}
+                    className="inline-flex items-center gap-1 rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    <RefreshCcw size={11} />
+                    {restoringSelected ? "복원 중…" : `선택 복원 (${selectedIds.size})`}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
             {loading ? (
@@ -296,6 +423,19 @@ export function TrashDialog({ open, onClose }: Props) {
                       key={p.id}
                       className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2 last:border-b-0 dark:border-zinc-800"
                     >
+                      <button
+                        type="button"
+                        onClick={() => toggleSelectOne(p.id)}
+                        aria-label="선택"
+                        className={[
+                          "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                          selectedIds.has(p.id)
+                            ? "border-blue-500 bg-blue-500 text-white"
+                            : "border-zinc-400",
+                        ].join(" ")}
+                      >
+                        {selectedIds.has(p.id) ? <Check size={11} strokeWidth={3} /> : null}
+                      </button>
                       <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-100">
                         {p.icon ? (
                           <span className="mr-1">{p.icon}</span>
