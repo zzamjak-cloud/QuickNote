@@ -4,6 +4,8 @@ import { Check, Minus, RotateCcw, Trash2, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
+import { useHistoryStore } from "../../store/historyStore";
+import type { DeletedRowTombstone } from "../../types/history";
 import { useMemberStore } from "../../store/memberStore";
 import { useServerDatabaseHistoryStore } from "../../store/serverDatabaseHistoryStore";
 import { useHistorySelection } from "../history/useHistorySelection";
@@ -18,6 +20,7 @@ import type { DatabaseLayout } from "../../types/database";
 import { DatabaseStructureDiffView } from "./DatabaseStructureDiffView";
 
 const EMPTY_ENTRIES: GqlDatabaseHistoryEntry[] = [];
+const EMPTY_TOMBSTONES: DeletedRowTombstone[] = [];
 
 type Props = {
   open: boolean;
@@ -40,6 +43,11 @@ export function DatabaseBlockHistoryDialog({
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
   const pages = usePageStore((s) => s.pages);
+  // 삭제된 행 페이지는 pages 스토어에서 빠져 "제목 없음"이 된다. 삭제 시 저장된 tombstone(휴지통)
+  // 의 페이지 스냅샷에서 제목을 복원해 무엇이 삭제됐는지 보이게 한다.
+  const deletedRowTombstones = useHistoryStore(
+    (s) => s.deletedRowTombstonesByDbId[databaseId] ?? EMPTY_TOMBSTONES,
+  );
   const workspaceId = bundle?.meta.workspaceId ?? "";
   const { members, me } = useMemberStore(
     useShallow((s) => ({ members: s.members, me: s.me })),
@@ -126,7 +134,13 @@ export function DatabaseBlockHistoryDialog({
   const rowChanges = useMemo(() => {
     const beforeIds = new Set(selectedBefore?.rowPageOrder ?? []);
     const afterIds = new Set(selectedAfter?.rowPageOrder ?? []);
-    const titleOf = (id: string) => pages[id]?.title?.trim() || "제목 없음";
+    const tombstoneTitle = new Map(
+      deletedRowTombstones.map((t) => [t.pageId, t.pageSnapshot?.title]),
+    );
+    const titleOf = (id: string) =>
+      pages[id]?.title?.trim() ||
+      (tombstoneTitle.get(id) ?? "").trim() ||
+      "제목 없음";
     const added = (selectedAfter?.rowPageOrder ?? [])
       .filter((id) => !beforeIds.has(id))
       .map((id) => ({ id, title: titleOf(id) }));
@@ -134,7 +148,7 @@ export function DatabaseBlockHistoryDialog({
       .filter((id) => !afterIds.has(id))
       .map((id) => ({ id, title: titleOf(id) }));
     return { added, removed };
-  }, [selectedAfter, selectedBefore, pages]);
+  }, [selectedAfter, selectedBefore, pages, deletedRowTombstones]);
 
   // 원본 엔트리 조회 맵(복원 종류 판정용).
   const rawEntryById = useMemo(
