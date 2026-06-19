@@ -22,7 +22,7 @@ type State = {
 };
 
 type Actions = {
-  fetchDatabaseHistory: (databaseId: string, workspaceId: string) => Promise<void>;
+  fetchDatabaseHistory: (databaseId: string, workspaceId: string, opts?: { silent?: boolean }) => Promise<void>;
   getDatabaseTimeline: (databaseId: string) => HistoryTimelineEntry[];
   restoreDatabaseHistoryEvent: (
     databaseId: string,
@@ -75,12 +75,15 @@ export const useServerDatabaseHistoryStore = create<State & Actions>()((set, get
   seeding: {},
   error: {},
 
-  fetchDatabaseHistory: async (databaseId, workspaceId) => {
+  fetchDatabaseHistory: async (databaseId, workspaceId, opts) => {
     if (!databaseId || !workspaceId) return;
-    set((s) => ({
-      loading: { ...s.loading, [databaseId]: true },
-      error: { ...s.error, [databaseId]: null },
-    }));
+    // silent: 백그라운드 재조회(행 변경 반영)에서는 loading 토글을 생략해 프리뷰가 깜빡이지 않게 한다.
+    if (!opts?.silent) {
+      set((s) => ({
+        loading: { ...s.loading, [databaseId]: true },
+        error: { ...s.error, [databaseId]: null },
+      }));
+    }
     try {
       const rows = await listDatabaseHistoryApi(databaseId, workspaceId, 100);
       const shouldSeedBaseline = rows.length === 0 && !seededBaselineDatabases.has(databaseId);

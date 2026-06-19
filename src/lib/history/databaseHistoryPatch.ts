@@ -9,6 +9,8 @@ export type DatabaseHistorySnapshot = {
   columns?: unknown;
   presets?: unknown | null;
   panelState?: unknown | null;
+  // 행 멤버십 — 히스토리 스냅샷에만 존재(Database 레코드엔 비저장). 행 추가/삭제 프리뷰용.
+  rowPageOrder?: string[] | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   deletedAt?: string | null;

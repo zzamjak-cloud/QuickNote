@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Check, Minus, RotateCcw, Trash2, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { usePageStore } from "../../store/pageStore";
 import { useMemberStore } from "../../store/memberStore";
 import { useServerDatabaseHistoryStore } from "../../store/serverDatabaseHistoryStore";
 import { useHistorySelection } from "../history/useHistorySelection";
@@ -38,6 +39,7 @@ export function DatabaseBlockHistoryDialog({
   onDeletePermanently,
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
+  const pages = usePageStore((s) => s.pages);
   const workspaceId = bundle?.meta.workspaceId ?? "";
   const { members, me } = useMemberStore(
     useShallow((s) => ({ members: s.members, me: s.me })),
@@ -75,9 +77,9 @@ export function DatabaseBlockHistoryDialog({
   const rowMembershipKey = (bundle?.rowPageOrder ?? []).join("|");
   useEffect(() => {
     if (!open || !databaseId || !workspaceId) return;
-    const timers = [3000, 6000, 10000].map((ms) =>
+    const timers = [3500, 7000].map((ms) =>
       window.setTimeout(() => {
-        void fetchDatabaseHistory(databaseId, workspaceId);
+        void fetchDatabaseHistory(databaseId, workspaceId, { silent: true });
       }, ms),
     );
     return () => timers.forEach((t) => window.clearTimeout(t));
@@ -119,6 +121,20 @@ export function DatabaseBlockHistoryDialog({
   const selectedBefore = selectedHistoryId
     ? getPreviousDatabaseHistorySnapshot(historyEntries, databaseId, workspaceId, selectedHistoryId)
     : null;
+
+  // 선택 버전의 행(항목) 추가/삭제 — 직전 버전과 rowPageOrder 를 비교해 항목 페이지 제목으로 표시.
+  const rowChanges = useMemo(() => {
+    const beforeIds = new Set(selectedBefore?.rowPageOrder ?? []);
+    const afterIds = new Set(selectedAfter?.rowPageOrder ?? []);
+    const titleOf = (id: string) => pages[id]?.title?.trim() || "제목 없음";
+    const added = (selectedAfter?.rowPageOrder ?? [])
+      .filter((id) => !beforeIds.has(id))
+      .map((id) => ({ id, title: titleOf(id) }));
+    const removed = (selectedBefore?.rowPageOrder ?? [])
+      .filter((id) => !afterIds.has(id))
+      .map((id) => ({ id, title: titleOf(id) }));
+    return { added, removed };
+  }, [selectedAfter, selectedBefore, pages]);
 
   // 원본 엔트리 조회 맵(복원 종류 판정용).
   const rawEntryById = useMemo(
@@ -202,7 +218,34 @@ export function DatabaseBlockHistoryDialog({
               ) : !selectedHistoryId ? (
                 <div className="text-sm text-zinc-500">버전 기록이 없습니다.</div>
               ) : (
-                <DatabaseStructureDiffView before={selectedBefore} after={selectedAfter} />
+                <div className="space-y-3">
+                  {rowChanges.added.length > 0 || rowChanges.removed.length > 0 ? (
+                    <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+                      <div className="mb-2 text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                        항목 변경
+                      </div>
+                      <div className="space-y-1">
+                        {rowChanges.added.map((r) => (
+                          <div
+                            key={`a-${r.id}`}
+                            className="truncate rounded bg-emerald-200/70 px-2 py-1 text-sm text-emerald-800 dark:bg-emerald-800/40 dark:text-emerald-200"
+                          >
+                            + {r.title}
+                          </div>
+                        ))}
+                        {rowChanges.removed.map((r) => (
+                          <div
+                            key={`r-${r.id}`}
+                            className="truncate rounded bg-red-200/70 px-2 py-1 text-sm text-red-800 line-through dark:bg-red-800/40 dark:text-red-200"
+                          >
+                            − {r.title}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <DatabaseStructureDiffView before={selectedBefore} after={selectedAfter} />
+                </div>
               )}
             </div>
 
