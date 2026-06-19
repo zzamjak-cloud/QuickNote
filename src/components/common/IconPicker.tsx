@@ -7,7 +7,7 @@ import { encodeLucidePageIcon, isImageLikePageIcon } from "../../lib/pageIcon";
 import { PageIconDisplay } from "./PageIconDisplay";
 import { type CustomIconPreset } from "../../lib/iconStorage";
 import { useWorkspaceStore } from "../../store/workspaceStore";
-import { useCustomIconStore } from "../../store/customIconStore";
+import { useCustomIconStore, aggregateCustomIcons } from "../../store/customIconStore";
 import { pushRecentIcon } from "../../lib/recentIconStorage";
 
 // 무거운 아이콘 카탈로그/패널은 picker 가 열릴 때만 지연 로드.
@@ -65,20 +65,29 @@ export function IconPicker({
   // 워크스페이스 공유 커스텀 아이콘 — 모든 멤버가 같은 목록을 본다.
   // 서버 fetch 후 store 에 캐시, 페이지 첫 진입 시 1회 호출.
   const workspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const customIconsByWs = useCustomIconStore((s) => s.byWorkspace);
-  const fetchCustomIcons = useCustomIconStore((s) => s.fetch);
+  const fetchAllCustomIcons = useCustomIconStore((s) => s.fetchAll);
   const addCustomIconSrv = useCustomIconStore((s) => s.add);
   const removeCustomIconSrv = useCustomIconStore((s) => s.remove);
   // 업로드/등록 진행 상태 — 사용자에게 진행 중임을 시각적으로 알리는 용도.
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const customIcons: CustomIconPreset[] = useMemo(() => {
-    if (!workspaceId) return [];
-    return (customIconsByWs[workspaceId] ?? []).map((i) => ({
-      id: i.id,
-      src: i.src,
-      label: i.label || "커스텀 아이콘",
-    }));
-  }, [customIconsByWs, workspaceId]);
+  // 전역 집계: 모든 워크스페이스 아이콘을 합쳐 중복 제거·최신순.
+  const allIcons = useMemo(() => aggregateCustomIcons(customIconsByWs), [customIconsByWs]);
+  // 삭제 시 각 아이콘 자신의 workspaceId 가 필요하므로 src→workspaceId 맵을 유지.
+  const iconWorkspaceById = useMemo(
+    () => new Map(allIcons.map((i) => [i.id, i.workspaceId])),
+    [allIcons],
+  );
+  const customIcons: CustomIconPreset[] = useMemo(
+    () =>
+      allIcons.map((i) => ({
+        id: i.id,
+        src: i.src,
+        label: i.label || "커스텀 아이콘",
+      })),
+    [allIcons],
+  );
 
   const setPickerOpen = useCallback((nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -86,9 +95,11 @@ export function IconPicker({
   }, [onOpenChange]);
 
   useEffect(() => {
-    if (!workspaceId) return;
-    void fetchCustomIcons(workspaceId);
-  }, [workspaceId, fetchCustomIcons]);
+    const ids = workspaces.map((w) => w.workspaceId);
+    if (workspaceId && !ids.includes(workspaceId)) ids.push(workspaceId);
+    if (ids.length === 0) return;
+    void fetchAllCustomIcons(ids);
+  }, [workspaces, workspaceId, fetchAllCustomIcons]);
 
   useEffect(() => {
     if (!open) return;
@@ -332,8 +343,9 @@ export function IconPicker({
               onRequestCustomUpload={() => fileRef.current?.click()}
               customIcons={customIcons}
               onDeleteCustomIcon={(id) => {
-                if (!workspaceId) return;
-                void removeCustomIconSrv(id, workspaceId).catch((err) => {
+                const ownerWorkspaceId = iconWorkspaceById.get(id);
+                if (!ownerWorkspaceId) return;
+                void removeCustomIconSrv(id, ownerWorkspaceId).catch((err) => {
                   console.error("[IconPicker] deleteCustomIcon 실패", err);
                 });
               }}

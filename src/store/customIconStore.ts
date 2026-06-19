@@ -20,12 +20,36 @@ type State = {
 
 type Actions = {
   fetch: (workspaceId: string) => Promise<void>;
+  /** 여러 워크스페이스 아이콘을 병렬 적재. 개별 실패는 fetch 내부에서 무시된다. */
+  fetchAll: (workspaceIds: string[]) => Promise<void>;
   add: (input: { workspaceId: string; src: string; label: string }) => Promise<GqlCustomIcon>;
   remove: (id: string, workspaceId: string) => Promise<void>;
   /** 구독에서 도착한 새/삭제 아이콘 반영. deleted flag 는 호출자가 판단. */
   applyServerEvent: (icon: GqlCustomIcon, deleted: boolean) => void;
+  /** 모든 워크스페이스 아이콘을 합쳐 deletedAt 없는 것만, src 중복 제거(최신 우선), createdAt 내림차순으로 반환. */
+  getAllIcons: () => GqlCustomIcon[];
   clear: () => void;
 };
+
+// byWorkspace 전체를 전역 집계 목록으로 변환. 컴포넌트 useMemo 와 store getAllIcons 가 공유.
+export function aggregateCustomIcons(
+  byWorkspace: Record<string, GqlCustomIcon[]>,
+): GqlCustomIcon[] {
+  const all = Object.values(byWorkspace)
+    .flat()
+    .filter((icon) => !icon.deletedAt);
+  // src 기준 중복 제거 — 같은 이미지는 createdAt 최신 1개만 유지.
+  const bySrc = new Map<string, GqlCustomIcon>();
+  for (const icon of all) {
+    const prev = bySrc.get(icon.src);
+    if (!prev || (icon.createdAt ?? "") > (prev.createdAt ?? "")) {
+      bySrc.set(icon.src, icon);
+    }
+  }
+  return Array.from(bySrc.values()).sort((a, b) =>
+    (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
+  );
+}
 
 export const useCustomIconStore = create<State & Actions>()((set, get) => ({
   byWorkspace: {},
@@ -47,6 +71,14 @@ export const useCustomIconStore = create<State & Actions>()((set, get) => ({
           set((s) => ({ loading: { ...s.loading, [workspaceId]: false } }));
           console.error("[customIconStore] fetch 실패", err);
         }
+      },
+
+      fetchAll: async (workspaceIds) => {
+        await Promise.all(
+          workspaceIds
+            .filter(Boolean)
+            .map((id) => get().fetch(id).catch(() => undefined)),
+        );
       },
 
       add: async (input) => {
@@ -91,6 +123,8 @@ export const useCustomIconStore = create<State & Actions>()((set, get) => ({
           };
         });
       },
+
+  getAllIcons: () => aggregateCustomIcons(get().byWorkspace),
 
   clear: () => set({ byWorkspace: {}, lastFetchedAt: {}, loading: {} }),
 }));

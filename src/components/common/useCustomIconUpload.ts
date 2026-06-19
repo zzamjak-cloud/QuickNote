@@ -10,7 +10,7 @@ import { prepareIconImageForUpload } from "../../lib/images/compressImage";
 import { uploadImage } from "../../lib/images/upload";
 import type { CustomIconPreset } from "../../lib/iconStorage";
 import { useWorkspaceStore } from "../../store/workspaceStore";
-import { useCustomIconStore } from "../../store/customIconStore";
+import { useCustomIconStore, aggregateCustomIcons } from "../../store/customIconStore";
 
 const MAX_ICON_BYTES = 5 * 1024 * 1024;
 
@@ -45,25 +45,35 @@ type Result = {
 
 export function useCustomIconUpload({ onMessage }: Options = {}): Result {
   const workspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const customIconsByWs = useCustomIconStore((s) => s.byWorkspace);
-  const fetchCustomIcons = useCustomIconStore((s) => s.fetch);
+  const fetchAllCustomIcons = useCustomIconStore((s) => s.fetchAll);
   const addCustomIconSrv = useCustomIconStore((s) => s.add);
   const removeCustomIconSrv = useCustomIconStore((s) => s.remove);
   const [uploading, setUploading] = useState(false);
 
-  const customIcons: CustomIconPreset[] = useMemo(() => {
-    if (!workspaceId) return [];
-    return (customIconsByWs[workspaceId] ?? []).map((i) => ({
-      id: i.id,
-      src: i.src,
-      label: i.label || "커스텀 아이콘",
-    }));
-  }, [customIconsByWs, workspaceId]);
+  // 전역 집계: 모든 워크스페이스 아이콘을 합쳐 중복 제거·최신순.
+  const allIcons = useMemo(() => aggregateCustomIcons(customIconsByWs), [customIconsByWs]);
+  const iconWorkspaceById = useMemo(
+    () => new Map(allIcons.map((i) => [i.id, i.workspaceId])),
+    [allIcons],
+  );
+  const customIcons: CustomIconPreset[] = useMemo(
+    () =>
+      allIcons.map((i) => ({
+        id: i.id,
+        src: i.src,
+        label: i.label || "커스텀 아이콘",
+      })),
+    [allIcons],
+  );
 
   useEffect(() => {
-    if (!workspaceId) return;
-    void fetchCustomIcons(workspaceId);
-  }, [workspaceId, fetchCustomIcons]);
+    const ids = workspaces.map((w) => w.workspaceId);
+    if (workspaceId && !ids.includes(workspaceId)) ids.push(workspaceId);
+    if (ids.length === 0) return;
+    void fetchAllCustomIcons(ids);
+  }, [workspaces, workspaceId, fetchAllCustomIcons]);
 
   const uploadIconFile = useCallback(
     async (file: File | undefined | null): Promise<string | null> => {
@@ -123,12 +133,13 @@ export function useCustomIconUpload({ onMessage }: Options = {}): Result {
 
   const deleteCustomIcon = useCallback(
     (id: string) => {
-      if (!workspaceId) return;
-      void removeCustomIconSrv(id, workspaceId).catch((err) => {
+      const ownerWorkspaceId = iconWorkspaceById.get(id);
+      if (!ownerWorkspaceId) return;
+      void removeCustomIconSrv(id, ownerWorkspaceId).catch((err) => {
         console.error("[useCustomIconUpload] deleteCustomIcon 실패", err);
       });
     },
-    [workspaceId, removeCustomIconSrv],
+    [iconWorkspaceById, removeCustomIconSrv],
   );
 
   return { customIcons, uploading, uploadIconFile, deleteCustomIcon };
