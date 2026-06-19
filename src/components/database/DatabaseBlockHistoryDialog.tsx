@@ -90,6 +90,14 @@ export function DatabaseBlockHistoryDialog({
   const dbTimelineKey = dbTimelineIds.join("|");
   useEffect(() => {
     if (!open) return;
+    console.log("[db-hist-diag] dialog timeline", {
+      databaseId,
+      timelineCount: dbHistoryTimeline.length,
+      rawEntries: historyEntries.length,
+    });
+  }, [open, databaseId, dbTimelineKey, dbHistoryTimeline.length, historyEntries.length]);
+  useEffect(() => {
+    if (!open) return;
     setSelectedHistoryId((prev) => {
       if (prev && dbTimelineIds.includes(prev)) return prev;
       return dbTimelineIds[0] ?? null;
