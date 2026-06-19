@@ -167,6 +167,9 @@ export function diffMeaningfulDatabaseUnits(
   diffIdArrayUnits(before["columns"], afterSnap["columns"], "column", "columns", out);
   diffIdArrayUnits(before["presets"], afterSnap["presets"], "preset", "presets", out);
   if (!jsonEqual(before["templates"], afterSnap["templates"])) out.add("templates");
+  // rowPageOrder(행 멤버십 순서)는 ID 문자열 배열 — 추가/삭제/재배열을 "rows" 단위로 카운트.
+  // (행 추가/삭제는 Database 레코드를 안 바꿔 컬럼/프리셋 diff 로는 버전이 생기지 않는다.)
+  if (!jsonEqual(before["rowPageOrder"], afterSnap["rowPageOrder"])) out.add("rows");
   return [...out].sort();
 }
 

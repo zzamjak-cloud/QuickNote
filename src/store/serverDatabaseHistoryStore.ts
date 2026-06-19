@@ -5,6 +5,7 @@ import {
   deleteDatabaseHistoryEventsApi,
   listDatabaseHistoryApi,
   restoreDatabaseVersionApi,
+  saveDatabaseVersionApi,
 } from "../lib/sync/databaseHistoryApi";
 import { applyRemoteDatabaseToStore } from "../lib/sync/storeApply";
 import { enqueueUpsertDatabase } from "./databaseStore/helpers";
@@ -28,6 +29,8 @@ type Actions = {
     workspaceId: string,
     historyId: string,
   ) => Promise<boolean>;
+  /** 현재 DB 상태를 즉시 버전 체크포인트로 저장(세션 머지 우회). */
+  saveDatabaseVersion: (databaseId: string, workspaceId: string) => Promise<boolean>;
   deleteDatabaseHistoryEvents: (
     databaseId: string,
     workspaceId: string,
@@ -39,6 +42,7 @@ function kindLabel(kind: string): string {
   if (kind === "database.create") return "DB 생성";
   if (kind === "database.session") return "편집 세션";
   if (kind === "database.restoreVersion") return "DB 버전 복구";
+  if (kind === "database.checkpoint") return "버전 저장";
   if (kind === "database.delete") return "DB 삭제";
   if (kind === "database.update") return "DB 수정";
   return kind;
@@ -117,6 +121,13 @@ export const useServerDatabaseHistoryStore = create<State & Actions>()((set, get
   restoreDatabaseHistoryEvent: async (databaseId, workspaceId, historyId) => {
     const restored = await restoreDatabaseVersionApi({ databaseId, workspaceId, historyId });
     applyRemoteDatabaseToStore(restored);
+    await get().fetchDatabaseHistory(databaseId, workspaceId);
+    return true;
+  },
+
+  saveDatabaseVersion: async (databaseId, workspaceId) => {
+    if (!databaseId || !workspaceId) return false;
+    await saveDatabaseVersionApi(databaseId, workspaceId);
     await get().fetchDatabaseHistory(databaseId, workspaceId);
     return true;
   },

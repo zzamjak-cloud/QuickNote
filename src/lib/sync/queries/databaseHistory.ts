@@ -22,6 +22,12 @@ export const RESTORE_DATABASE_VERSION = `
   }
 `;
 
+export const SAVE_DATABASE_VERSION = `
+  mutation SaveDatabaseVersion($databaseId: ID!, $workspaceId: ID!) {
+    saveDatabaseVersion(databaseId: $databaseId, workspaceId: $workspaceId) { ${DATABASE_FIELDS} }
+  }
+`;
+
 export const DELETE_DATABASE_HISTORY_EVENTS = `
   mutation DeleteDatabaseHistoryEvents($databaseId: ID!, $workspaceId: ID!, $historyIds: [ID!]!) {
     deleteDatabaseHistoryEvents(databaseId: $databaseId, workspaceId: $workspaceId, historyIds: $historyIds)

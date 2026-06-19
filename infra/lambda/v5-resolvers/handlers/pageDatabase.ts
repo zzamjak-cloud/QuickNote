@@ -107,6 +107,9 @@ const DATABASE_HISTORY_FIELDS = [
   "presets",
   "panelState",
   "templates",
+  // 행 멤버십 순서. Database 테이블 레코드에는 저장하지 않고(업서트 전 strip),
+  // 히스토리 스냅샷에만 포함시켜 행 추가/삭제를 DB 버전으로 기록한다.
+  "rowPageOrder",
   "createdAt",
   "updatedAt",
   "deletedAt",
@@ -632,6 +635,8 @@ async function recordDatabaseHistory(args: {
   before: Record<string, unknown> | null;
   after: Record<string, unknown>;
   kind: string;
+  /** true 면 의미 변화가 없어도 항상 새 버전 엔트리를 기록한다(수동 "버전 저장" 체크포인트용). */
+  force?: boolean;
 }): Promise<void> {
   const tableName = args.tables.DatabaseHistory;
   if (!tableName) return;
@@ -674,11 +679,14 @@ async function recordDatabaseHistory(args: {
     return;
   }
   const beforeSnap = args.before ? normalizeDatabaseSnapshot(args.before) : null;
-  const changedUnits = diffMeaningfulDatabaseUnits(beforeSnap, afterSnap);
-  if (args.kind === "database.update" && changedUnits.length === 0) return;
   const latestSnapshot = isPlainObject(parseJsonLike(latest.snapshot))
     ? (parseJsonLike(latest.snapshot) as Record<string, unknown>)
     : null;
+  // changedUnits 는 직전 버전(히스토리 스냅샷) 기준으로 계산한다. Database 레코드(beforeSnap)에는
+  // rowPageOrder 가 저장되지 않아, 레코드 기준이면 매 upsert 마다 "rows" 가 항상 변경으로 잡혀
+  // 불필요한 버전이 생긴다. 직전 스냅샷에는 rowPageOrder 가 있어 실제 행 변경만 잡힌다.
+  const changedUnits = diffMeaningfulDatabaseUnits(latestSnapshot ?? beforeSnap, afterSnap);
+  if (!args.force && args.kind === "database.update" && changedUnits.length === 0) return;
   const patchBase = latestSnapshot ?? beforeSnap;
   if (
     args.kind === "database.update" &&
@@ -710,7 +718,7 @@ async function recordDatabaseHistory(args: {
     return;
   }
   const patch = diffDatabaseSnapshot(patchBase, afterSnap);
-  if (patch.length === 0 && changedUnits.length === 0) return;
+  if (!args.force && patch.length === 0 && changedUnits.length === 0) return;
   const kind = args.kind === "database.update" ? "database.session" : args.kind;
   await args.doc.send(
     new PutCommand({
@@ -1608,6 +1616,12 @@ export async function upsertDatabase(args: {
   if (schedulerWorkspaceId && schedulerWorkspaceId !== workspaceId) {
     badRequest("LC스케줄러 DB ID와 워크스페이스가 일치하지 않습니다");
   }
+  // rowPageOrder 는 Database 레코드에 저장하지 않는다(클라가 페이지의 databaseId 로 역추적).
+  // 히스토리 스냅샷에만 싣기 위해 input 에서 분리·제거한 뒤, 아래 after 스냅샷에만 합친다.
+  const incomingRowPageOrder = Array.isArray(args.input.rowPageOrder)
+    ? (args.input.rowPageOrder as unknown[]).filter((v): v is string => typeof v === "string")
+    : null;
+  delete args.input.rowPageOrder;
   normalizeDatabaseAwsJsonFields(args.input);
   if ("templates" in args.input) {
     console.warn("[QN_TEMPLATE_SYNC] lambda upsertDatabase:input", {
@@ -1785,7 +1799,8 @@ export async function upsertDatabase(args: {
       tables: args.tables,
       caller: args.caller,
       before: existingItem ?? null,
-      after: merged,
+      // rowPageOrder 는 레코드(merged)에는 없고 히스토리 스냅샷에만 포함시킨다.
+      after: incomingRowPageOrder ? { ...merged, rowPageOrder: incomingRowPageOrder } : merged,
       kind: existingItem ? "database.update" : "database.create",
     });
   } catch (err) {
@@ -2694,6 +2709,74 @@ export async function savePageVersion(args: {
     force: true,
   });
   return page;
+}
+
+/** 현재 DB 상태를 즉시 하나의 버전 체크포인트로 기록(세션 머지와 무관하게 새 버전 경계 생성).
+ *  현재 행 페이지 id 목록(삭제·템플릿 제외)을 Pages 에서 조회해 rowPageOrder 로 채운다. */
+export async function saveDatabaseVersion(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  input: { databaseId: string; workspaceId: string };
+}): Promise<Record<string, unknown>> {
+  if (!args.tables.Databases) badRequest("Databases table 미설정");
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: args.input.workspaceId,
+    required: "edit",
+  });
+  const existing = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Databases, Key: { id: args.input.databaseId } }),
+  );
+  const database = (existing.Item as Record<string, unknown> | undefined) ?? null;
+  if (!database) notFound("DB 없음");
+
+  // 현재 행 페이지 id 목록을 byDatabaseAndOrder GSI 로 수집(soft-delete·템플릿 제외).
+  const rowPageOrder: string[] = [];
+  if (args.tables.Pages) {
+    let nextKey: Record<string, unknown> | undefined;
+    do {
+      const r = await args.doc.send(
+        new QueryCommand({
+          TableName: args.tables.Pages,
+          IndexName: "byDatabaseAndOrder",
+          KeyConditionExpression: "databaseId = :d",
+          FilterExpression:
+            "workspaceId = :w AND (attribute_not_exists(deletedAt) OR attribute_type(deletedAt, :nullType) OR deletedAt = :empty)",
+          ExpressionAttributeValues: {
+            ":d": args.input.databaseId,
+            ":w": args.input.workspaceId,
+            ":empty": "",
+            ":nullType": "NULL",
+          },
+          ScanIndexForward: true,
+          ExclusiveStartKey: nextKey,
+        }),
+      );
+      for (const item of (r.Items ?? []) as Record<string, unknown>[]) {
+        // 템플릿 행(_qn_isTemplate 마커)은 행 목록에서 제외한다.
+        // dbCells 는 AWSJSON(문자열)일 수 있으므로 parseJsonLike 로 파싱 후 검사.
+        const cells = parseJsonLike(item.dbCells);
+        if (isPlainObject(cells) && cells["_qn_isTemplate"] === "1") continue;
+        if (typeof item.id === "string") rowPageOrder.push(item.id);
+      }
+      nextKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (nextKey);
+  }
+
+  await recordDatabaseHistory({
+    doc: args.doc,
+    tables: args.tables,
+    caller: args.caller,
+    before: database,
+    after: { ...database, rowPageOrder },
+    kind: "database.checkpoint",
+    force: true,
+  });
+  return database;
 }
 
 export async function deletePageHistoryEvents(args: {

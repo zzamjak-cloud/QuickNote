@@ -370,6 +370,8 @@ input DatabaseInput {
   presets: AWSJSON
   panelState: AWSJSON
   templates: AWSJSON
+  """행 멤버십 순서. 서버는 히스토리 스냅샷에만 사용하고 Database 레코드에는 저장하지 않는다."""
+  rowPageOrder: [ID!]
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
 }
@@ -584,6 +586,8 @@ type Mutation {
   softDeleteDatabase(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Database!
   restoreDatabase(id: ID!, workspaceId: ID!): Database!
   restoreDatabaseVersion(input: RestoreDatabaseVersionInput!): Database!
+  """현재 DB 상태를 즉시 하나의 버전 체크포인트로 기록(세션 머지와 무관하게 새 버전 경계 생성)"""
+  saveDatabaseVersion(databaseId: ID!, workspaceId: ID!): Database!
   deleteDatabaseHistoryEvents(databaseId: ID!, workspaceId: ID!, historyIds: [ID!]!): Boolean!
   permanentlyDeleteDatabase(id: ID!, workspaceId: ID!): Boolean!
 

@@ -53,7 +53,9 @@ export function DatabaseBlockHistoryDialog({
   const error = useServerDatabaseHistoryStore((s) => s.error[databaseId] ?? null);
   const fetchDatabaseHistory = useServerDatabaseHistoryStore((s) => s.fetchDatabaseHistory);
   const restoreDatabaseHistoryEvent = useServerDatabaseHistoryStore((s) => s.restoreDatabaseHistoryEvent);
+  const saveDatabaseVersion = useServerDatabaseHistoryStore((s) => s.saveDatabaseVersion);
   const deleteDatabaseHistoryEvents = useServerDatabaseHistoryStore((s) => s.deleteDatabaseHistoryEvents);
+  const [savingVersion, setSavingVersion] = useState(false);
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const [dbHistoryDeleteOpen, setDbHistoryDeleteOpen] = useState(false);
   const [dbPermanentDeleteOpen, setDbPermanentDeleteOpen] = useState(false);
@@ -205,6 +207,21 @@ export function DatabaseBlockHistoryDialog({
                     <span className="inline-block h-3 w-3 rounded-sm border border-zinc-400" />
                   )}
                   전체 선택
+                </button>
+                <button
+                  type="button"
+                  disabled={savingVersion || !databaseId || !workspaceId}
+                  onClick={() => {
+                    if (!databaseId || !workspaceId) return;
+                    setSavingVersion(true);
+                    void saveDatabaseVersion(databaseId, workspaceId).finally(() =>
+                      setSavingVersion(false),
+                    );
+                  }}
+                  className="inline-flex items-center gap-1 rounded border border-blue-200 px-2 py-1 text-sm text-blue-600 hover:bg-blue-50 disabled:cursor-progress disabled:opacity-60 dark:border-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                  title="현재 상태를 하나의 버전으로 즉시 저장합니다."
+                >
+                  {savingVersion ? "저장 중…" : "현재 버전 저장"}
                 </button>
                 {selectedDbTimelineIds.size > 0 && (
                   <button

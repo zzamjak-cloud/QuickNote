@@ -47,6 +47,7 @@ export {
 export {
   LIST_DATABASE_HISTORY,
   RESTORE_DATABASE_VERSION,
+  SAVE_DATABASE_VERSION,
   DELETE_DATABASE_HISTORY_EVENTS,
   type GqlDatabaseHistoryEntry,
 } from "../queries/databaseHistory";

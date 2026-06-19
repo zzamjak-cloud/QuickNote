@@ -116,6 +116,8 @@ export function enqueueUpsertDatabase(
     bundle.panelState,
     templates,
   );
+  // rowPageOrder 는 서버가 DB 레코드에는 저장하지 않고 히스토리 스냅샷에만 사용한다(행 추가/삭제를 DB 버전으로 기록).
+  payload.rowPageOrder = bundle.rowPageOrder;
   enqueueAsync(
     "upsertDatabase",
     payload as Record<string, unknown> & { id: string; updatedAt?: string },

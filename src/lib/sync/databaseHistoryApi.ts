@@ -3,6 +3,7 @@ import {
   DELETE_DATABASE_HISTORY_EVENTS,
   LIST_DATABASE_HISTORY,
   RESTORE_DATABASE_VERSION,
+  SAVE_DATABASE_VERSION,
   type GqlDatabase,
   type GqlDatabaseHistoryEntry,
 } from "./graphql/operations";
@@ -29,6 +30,17 @@ export async function restoreDatabaseVersionApi(input: {
     RESTORE_DATABASE_VERSION,
     { input },
     "restoreDatabaseVersion",
+  );
+}
+
+export async function saveDatabaseVersionApi(
+  databaseId: string,
+  workspaceId: string,
+): Promise<GqlDatabase> {
+  return gqlRequired<GqlDatabase>(
+    SAVE_DATABASE_VERSION,
+    { databaseId, workspaceId },
+    "saveDatabaseVersion",
   );
 }
 

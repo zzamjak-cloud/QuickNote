@@ -1121,6 +1121,11 @@ export function response(ctx) {
       fieldName: "restoreDatabaseVersion",
     });
 
+    v5Ds.createResolver("MutationsaveDatabaseVersion", {
+      typeName: "Mutation",
+      fieldName: "saveDatabaseVersion",
+    });
+
     v5Ds.createResolver("MutationdeleteDatabaseHistoryEvents", {
       typeName: "Mutation",
       fieldName: "deleteDatabaseHistoryEvents",
