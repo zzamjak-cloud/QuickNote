@@ -426,7 +426,6 @@ export function DatabaseBlockHistoryDialog({
                       databaseId,
                       workspaceId,
                       selectedHistoryId,
-                      selectedAfter?.rowPageOrder ?? [],
                     ).then(() => onClose());
                   }}
                   className="inline-flex items-center gap-1 rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"

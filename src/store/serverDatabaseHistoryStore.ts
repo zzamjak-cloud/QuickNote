@@ -7,12 +7,9 @@ import {
   restoreDatabaseVersionApi,
   saveDatabaseVersionApi,
 } from "../lib/sync/databaseHistoryApi";
-import { applyRemoteDatabaseToStore, applyRemotePageToStore } from "../lib/sync/storeApply";
+import { applyRemoteDatabaseToStore } from "../lib/sync/storeApply";
 import { enqueueUpsertDatabase } from "./databaseStore/helpers";
 import { useDatabaseStore } from "./databaseStore";
-import { usePageStore } from "./pageStore";
-import { fetchPageById } from "../lib/sync/bootstrap";
-import { clearLocalDeleteGuard } from "../lib/sync/localDeleteGuards";
 import { formatError } from "../lib/util/formatError";
 
 const seededBaselineDatabases = new Set<string>();
@@ -31,7 +28,6 @@ type Actions = {
     databaseId: string,
     workspaceId: string,
     historyId: string,
-    restoredRowIds?: string[],
   ) => Promise<boolean>;
   /** 현재 DB 상태를 즉시 버전 체크포인트로 저장(세션 머지 우회). */
   saveDatabaseVersion: (databaseId: string, workspaceId: string) => Promise<boolean>;
@@ -125,28 +121,9 @@ export const useServerDatabaseHistoryStore = create<State & Actions>()((set, get
   getDatabaseTimeline: (databaseId) =>
     (get().byDatabaseId[databaseId] ?? []).map(toTimelineEntry),
 
-  restoreDatabaseHistoryEvent: async (databaseId, workspaceId, historyId, restoredRowIds) => {
+  restoreDatabaseHistoryEvent: async (databaseId, workspaceId, historyId) => {
     const restored = await restoreDatabaseVersionApi({ databaseId, workspaceId, historyId });
     applyRemoteDatabaseToStore(restored);
-    // 복원 버전 rowPageOrder 의 행 중 현재 로컬에 살아있지 않은(삭제됐거나 없는) 페이지는
-    // 서버에서 un-delete 된 본문을 끌어와 store 에 반영한다(additive 복구). 실패는 무시.
-    if (restoredRowIds && restoredRowIds.length > 0) {
-      // 로컬 store 는 삭제된 페이지를 map 에서 제거한다(soft-delete 필드 없음).
-      // 따라서 "살아있지 않음" = map 에 없음.
-      const livePages = usePageStore.getState().pages;
-      const idsToFetch = restoredRowIds.filter((id) => !livePages[id]);
-      await Promise.all(
-        idsToFetch.map(async (id) => {
-          try {
-            clearLocalDeleteGuard("page", id, workspaceId);
-            const page = await fetchPageById(workspaceId, id);
-            if (page) applyRemotePageToStore(page);
-          } catch {
-            // 개별 페이지 복구 실패는 무시(상한 없음, 행 수 ~수십).
-          }
-        }),
-      );
-    }
     await get().fetchDatabaseHistory(databaseId, workspaceId);
     return true;
   },

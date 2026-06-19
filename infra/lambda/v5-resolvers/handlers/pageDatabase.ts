@@ -2911,8 +2911,8 @@ export async function restoreDatabaseVersion(args: {
     updatedAt: now,
   };
   delete restored["deletedAt"];
-  // rowPageOrder 는 Database 레코드에 저장하지 않는다(upsertDatabase 와 동일 규칙).
-  // 복원 버전이 보유하던 행 멤버십을 추출해, 그 중 삭제 상태인 페이지를 additive 복구한다.
+  // rowPageOrder 는 Database 레코드에 저장하지 않는다(upsertDatabase 와 동일 규칙) — strip.
+  // (삭제 행 additive 복구는 협업 Y룸 충돌로 보류 — 삭제 복구는 휴지통 경로 사용.)
   const restoredRowPageOrder = Array.isArray(snapshot.rowPageOrder)
     ? (snapshot.rowPageOrder as unknown[]).filter((v): v is string => typeof v === "string")
     : [];
@@ -2925,24 +2925,6 @@ export async function restoreDatabaseVersion(args: {
       ExpressionAttributeValues: { ":w": args.input.workspaceId },
     }),
   );
-  // 그 버전 rowPageOrder 의 각 행 페이지 중 현재 삭제 상태(deletedAt)인 것만 un-delete.
-  // 그 버전 이후 추가된 행은 건드리지 않는다(additive 복구). ConditionalCheckFailedException
-  // (이미 live·ws 불일치·TTL 영구삭제됨)은 무시·skip.
-  if (args.tables.Pages && restoredRowPageOrder.length > 0) {
-    await Promise.allSettled(
-      restoredRowPageOrder.map((pageId) =>
-        args.doc.send(
-          new UpdateCommand({
-            TableName: args.tables.Pages,
-            Key: { id: pageId },
-            UpdateExpression: "REMOVE deletedAt, purgeAt SET updatedAt = :now",
-            ConditionExpression: "attribute_exists(deletedAt) AND workspaceId = :w",
-            ExpressionAttributeValues: { ":now": now, ":w": args.input.workspaceId },
-          }),
-        ),
-      ),
-    );
-  }
   try {
     await recordDatabaseHistory({
       doc: args.doc,
