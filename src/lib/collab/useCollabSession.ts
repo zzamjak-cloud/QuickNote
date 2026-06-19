@@ -15,7 +15,7 @@ import {
   isCollabDocBodyEmpty,
   isPlaceholderBodyJson,
 } from "./yjsDoc";
-import { readStoredTokens } from "../auth/tokenStore";
+import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import { usePageStore, enqueuePageUpsertForSync } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { collabColor } from "./collabColor";
@@ -172,7 +172,9 @@ export function useCollabSession(
     });
 
     void (async () => {
-      const tokens = await readStoredTokens();
+      // 만료 임박 시 refresh 후 저장된 신선한 토큰을 받는다(WS URL 에 만료 토큰이 박혀
+      // 재연결·새 세션이 401 로 실패하던 문제 방지).
+      const tokens = await ensureFreshTokensForAppSync();
       if (cancelled || !tokens) return;
       provider = new QnWsProvider({
         doc,
