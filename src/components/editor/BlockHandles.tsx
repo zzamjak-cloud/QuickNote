@@ -143,6 +143,10 @@ export function BlockHandles({
       !!getEditorViewDom(editor)?.querySelector(".ProseMirror-selectednoderange"));
   const containerRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // 열린 메뉴 패널 DOM — 실제 높이 측정 후 viewport 안으로 세로 보정
+  const menuPanelRef = useRef<HTMLDivElement | null>(null);
+  // 메뉴 패널의 부모(.relative 그립 컨테이너) 기준 세로 오프셋(px). 0 = 그립 상단 정렬
+  const [menuVOffset, setMenuVOffset] = useState(0);
   const [hover, setHover] = useState<HoverInfo | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
@@ -348,6 +352,37 @@ export function BlockHandles({
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
+
+  // 메뉴 패널 세로 위치 보정 — 실제 높이를 측정해 viewport 밖으로 잘리지 않게 시프트.
+  // offsetHeight 는 CSS top 과 무관하므로 보정값 누적(피드백) 없이 안정적으로 계산된다.
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setMenuVOffset(0);
+      return;
+    }
+    const PAD = 8;
+    const compute = () => {
+      const panel = menuPanelRef.current;
+      const gripBox = menuRef.current; // 그립(.relative) 컨테이너 — 메뉴 위치와 무관하게 그립 좌표 제공
+      if (!panel || !gripBox) return;
+      const gripTopVp = gripBox.getBoundingClientRect().top;
+      const menuH = panel.offsetHeight;
+      let topVp = gripTopVp; // 기본: 그립 상단에 맞춰 아래로 펼침
+      if (topVp + menuH > window.innerHeight - PAD) {
+        topVp = window.innerHeight - PAD - menuH; // 하단 초과 시 위로 시프트
+      }
+      if (topVp < PAD) topVp = PAD; // 상단 클램프(메뉴가 화면보다 큰 극단 케이스)
+      setMenuVOffset(topVp - gripTopVp);
+    };
+    const rafId = window.requestAnimationFrame(compute);
+    window.addEventListener("resize", compute);
+    window.addEventListener("scroll", compute, true);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", compute);
+      window.removeEventListener("scroll", compute, true);
+    };
+  }, [menuOpen, hover]);
 
   // 팝업 열림 상태에서 단축키(삭제·복제)
   const deleteBlockRef = useRef<() => void>(() => {});
@@ -865,8 +900,6 @@ export function BlockHandles({
       : null;
   const menuFlipLeft =
     menuAnchor != null && menuAnchor.x + 8 + 192 > window.innerWidth - 8;
-  const menuFlipUp =
-    menuAnchor != null && menuAnchor.y + 260 > window.innerHeight - 8;
 
   const downloadAttachment = async () => {
     if (!editor || !hover || isDownloading) return;
@@ -976,12 +1009,13 @@ export function BlockHandles({
 
             {menuOpen && (
               <div
+                ref={menuPanelRef}
                 className="absolute z-[740] w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                 style={{
                   left: menuFlipLeft ? undefined : 32,
                   right: menuFlipLeft ? 32 : undefined,
-                  top: menuFlipUp ? undefined : 0,
-                  bottom: menuFlipUp ? 0 : undefined,
+                  // 세로는 측정 기반 오프셋으로 viewport 안에 고정 (clipping 방지)
+                  top: menuVOffset,
                 }}
               >
                 <HoverMenuGroup>

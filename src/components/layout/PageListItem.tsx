@@ -70,12 +70,20 @@ function clampFixedMenuPosition(
   };
 }
 
-function dropHintForRow(
-  dt: Props["dropTarget"],
-  rowId: string,
-): "none" | SidebarDropMode {
-  if (!dt || dt.id !== rowId) return "none";
-  return dt.mode;
+function subtreeContainsId(node: PageNode, id: string): boolean {
+  if (node.id === id) return true;
+  for (const child of node.children) {
+    if (subtreeContainsId(child, id)) return true;
+  }
+  return false;
+}
+
+// dropTarget 은 이 노드 자신 또는 자손을 가리킬 때만 이 아이템의 렌더에 영향을 준다.
+// 자손이 타겟이면 부모도 재렌더돼야 자식 서브트리(PageListGroup)에 최신 dropTarget 이
+// 전달된다. 자기 행만 비교하면 부모가 memo 로 스킵되어 자식 인디케이터가 안 뜬다.
+function relevantDropKey(dt: Props["dropTarget"], node: PageNode): string {
+  if (!dt || !subtreeContainsId(node, dt.id)) return "none";
+  return `${dt.id}:${dt.mode}`;
 }
 
 function pageNodePropsEqual(a: PageNode, b: PageNode): boolean {
@@ -99,8 +107,8 @@ function pageListItemPropsEqual(prev: Props, next: Props): boolean {
   if (prev.depth !== next.depth || prev.draggable !== next.draggable) return false;
   if (prev.onMove !== next.onMove) return false;
   if (
-    dropHintForRow(prev.dropTarget, prev.node.id) !==
-    dropHintForRow(next.dropTarget, next.node.id)
+    relevantDropKey(prev.dropTarget, prev.node) !==
+    relevantDropKey(next.dropTarget, next.node)
   ) {
     return false;
   }

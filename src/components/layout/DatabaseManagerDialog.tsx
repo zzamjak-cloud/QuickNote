@@ -148,7 +148,11 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
       const aScheduler = isLCSchedulerDatabaseId(a.id);
       const bScheduler = isLCSchedulerDatabaseId(b.id);
       if (aScheduler !== bScheduler) return aScheduler ? -1 : 1;
-      return b.meta.updatedAt - a.meta.updatedAt;
+      // 이름(제목) 기준 알파벳·가나다 순 정렬
+      return a.meta.title.localeCompare(b.meta.title, "ko-KR", {
+        numeric: true,
+        sensitivity: "base",
+      });
     });
   const visibleDeleted = trashedDatabases
     .filter((d) => !activeDbIds.has(d.id))
