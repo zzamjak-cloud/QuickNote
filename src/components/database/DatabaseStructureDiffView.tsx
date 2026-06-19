@@ -38,11 +38,11 @@ type ChipState = "added" | "removed" | "modified" | "unchanged";
 
 const CHIP_CLASS: Record<ChipState, string> = {
   added:
-    "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200",
+    "border-emerald-400 bg-emerald-200/70 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-800/40 dark:text-emerald-200",
   removed:
-    "border-red-300 bg-red-50 text-red-700 line-through dark:border-red-900 dark:bg-red-950/40 dark:text-red-300",
+    "border-red-400 bg-red-200/70 text-red-700 line-through dark:border-red-800 dark:bg-red-800/40 dark:text-red-200",
   modified:
-    "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200",
+    "border-amber-400 bg-amber-200/70 text-amber-800 dark:border-amber-700 dark:bg-amber-800/40 dark:text-amber-200",
   unchanged:
     "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-300",
 };
