@@ -49,3 +49,6 @@ docs/superpowers/plans/*
 .vercel
 .superpowers
 .claude
+
+# 로컬 복구 아티팩트(추적 금지)
+.recovery/
