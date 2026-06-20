@@ -37,6 +37,16 @@ import {
   timelineWeekLabel as weekLabel,
   timelineWeekdayIndex as weekdayIndex,
 } from "../../../lib/database/timelineGeometry";
+import {
+  fmtDate,
+  toDateIso,
+  startOfMonth,
+  addMonths,
+  endOfMonth,
+  monthInputToStart,
+  monthLabel,
+} from "../../../lib/database/timelineDateUtils";
+import { isInteractiveTarget, rectsIntersect } from "./timelineSelectionGeometry";
 import { useWindowedRows } from "./useWindowedRows";
 import { TimelineCardPropertyLabels } from "../TimelineCardPropertyLabels";
 import { ScheduleCardDetailRows } from "../ScheduleCardDetailRows";
@@ -129,69 +139,6 @@ type ContextPointerEvent = {
   preventDefault: () => void;
   stopPropagation: () => void;
 };
-
-const fmtDate = (ts: number) => {
-  const d = new Date(ts);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-};
-
-const toDateIso = (ms: number) => {
-  const d = new Date(ms);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-};
-
-const startOfMonth = (t: number) => {
-  const d = new Date(t);
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-};
-
-const addMonths = (t: number, delta: number) => {
-  const d = new Date(t);
-  d.setMonth(d.getMonth() + delta, 1);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-};
-
-const endOfMonth = (t: number) => addMonths(startOfMonth(t), 1) - DAY_MS;
-
-const monthInputToStart = (value: string): number | null => {
-  const match = /^(\d{4})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  const [, y, m] = match;
-  return startOfMonth(new Date(Number(y), Number(m) - 1, 1).getTime());
-};
-
-const monthLabel = (monthStart: number) => {
-  const d = new Date(monthStart);
-  return `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
-};
-
-function isInteractiveTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return Boolean(
-    target.closest(
-      "button, input, textarea, select, [contenteditable='true'], [role='textbox'], [data-db-timeline-card='true']",
-    ),
-  );
-}
-
-function rectsIntersect(
-  selLeft: number,
-  selRight: number,
-  selTop: number,
-  selBottom: number,
-  cardLeft: number,
-  cardRight: number,
-  cardTop: number,
-  cardBottom: number,
-): boolean {
-  return cardLeft < selRight && cardRight > selLeft && cardTop < selBottom && cardBottom > selTop;
-}
 
 type TimelineBoxRect = {
   startX: number;
