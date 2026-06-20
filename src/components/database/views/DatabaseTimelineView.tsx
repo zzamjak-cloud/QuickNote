@@ -20,7 +20,6 @@ import type {
   TimelineDateCardConfig,
   ViewConfigsMap,
 } from "../../../types/database";
-import { getVisibleOrderedColumns, resolveViewColumnOrderState } from "../../../types/database";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { useProcessedRows } from "../useProcessedRows";
 import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
@@ -47,9 +46,9 @@ import {
   monthLabel,
 } from "../../../lib/database/timelineDateUtils";
 import { isInteractiveTarget, rectsIntersect } from "./timelineSelectionGeometry";
+import { useTimelineColumns } from "./useTimelineColumns";
 import type {
   Granularity,
-  TimelineDateEntry,
   ContextPointerEvent,
   TimelineBoxRect,
   TimelineCardLayout,
@@ -326,51 +325,16 @@ export function DatabaseTimelineView({
 
   // 날짜 컬럼을 표시설정(viewConfigs.timeline) 순서대로 정렬한다.
   // → 표시설정에서 날짜 속성을 앞으로 옮기면 그 컬럼이 primary/첫 포커싱 대상이 되도록.
-  const dateCols = useMemo(() => {
-    const all = columns.filter((c) => c.type === "date");
-    const orderedIds = resolveViewColumnOrderState(
-      columns,
-      "timeline",
-      panelState.viewConfigs?.timeline,
-    ).orderedColumnIds;
-    const rank = new Map(orderedIds.map((id, index) => [id, index]));
-    return [...all].sort(
-      (a, b) =>
-        (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
-    );
-  }, [columns, panelState.viewConfigs]);
-  const primaryDateCol = useMemo(
-    () => dateCols.find((c) => c.id === panelState.timelineDateColumnId) ?? dateCols[0] ?? null,
-    [dateCols, panelState.timelineDateColumnId],
-  );
-  const dateColId = primaryDateCol?.id ?? null;
-  const hasExplicitTimelineCards = useMemo(
-    () => dateCols.some((c) => c.config?.timelineCard?.enabled === true),
-    [dateCols],
-  );
-  const timelineDateEntries = useMemo<TimelineDateEntry[]>(() => {
-    const activeColumns = hasExplicitTimelineCards
-      ? dateCols.filter((c) => c.config?.timelineCard?.enabled === true)
-      : primaryDateCol && primaryDateCol.config?.timelineCard?.enabled !== false
-        ? [primaryDateCol]
-        : [];
-    return activeColumns.map((column, index) => {
-      const config = column.config?.timelineCard;
-      return {
-        columnId: column.id,
-        columnName: column.name,
-        titleMode: config?.titleMode === "custom" ? "custom" : "pageTitle",
-        title: typeof config?.title === "string" ? config.title : "",
-        color: isValidTimelineColor(config?.color) ? config.color : defaultTimelineColor(index),
-        isPrimary: column.id === dateColId || (!dateColId && index === 0),
-      };
-    });
-  }, [dateColId, dateCols, hasExplicitTimelineCards, primaryDateCol]);
-
-  const activeTimelineColumnIds = useMemo(
-    () => new Set(timelineDateEntries.map((entry) => entry.columnId)),
-    [timelineDateEntries],
-  );
+  // 날짜 컬럼/타임라인 카드 엔트리 파생(순수 useMemo 묶음)은 useTimelineColumns 로 추출.
+  const {
+    dateCols,
+    primaryDateCol,
+    dateColId,
+    hasExplicitTimelineCards,
+    timelineDateEntries,
+    timelineExcludeColumnIds,
+    visibleTimelineColumnIdSet,
+  } = useTimelineColumns(columns, panelState);
 
   const updateTimelineCardConfig = useCallback(
     (column: ColumnDef, patch: TimelineDateCardConfig) => {
@@ -413,24 +377,6 @@ export function DatabaseTimelineView({
       updateTimelineCardConfig(column, { enabled });
     },
     [hasExplicitTimelineCards, primaryDateCol, updateTimelineCardConfig],
-  );
-
-  // 모든 뷰 공통 규칙 — 설정 없으면 전체 표시. 카드 보조 라벨은 표시 컬럼에서 제목과
-  // 타임라인 막대로 쓰이는 날짜 컬럼만 제외한 나머지다.
-  // 카드 라벨/툴팁 공용 컴포넌트에 넘길 제외 컬럼 — 타임라인 막대로 쓰이는 활성 날짜 컬럼.
-  const timelineExcludeColumnIds = useMemo(
-    () => [...activeTimelineColumnIds, ...(dateColId ? [dateColId] : [])],
-    [activeTimelineColumnIds, dateColId],
-  );
-
-  const visibleTimelineColumnIdSet = useMemo(
-    () =>
-      new Set(
-        getVisibleOrderedColumns(columns, "timeline", panelState.viewConfigs).map(
-          (column) => column.id,
-        ),
-      ),
-    [columns, panelState.viewConfigs],
   );
 
   const isYearAxis = granularity === "year";
