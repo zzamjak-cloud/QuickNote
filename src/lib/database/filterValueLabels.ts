@@ -92,19 +92,18 @@ export function filterDisplayOptionsForColumn(
   column: ColumnDef,
   ctx: FilterLabelContext,
 ): SelectOption[] {
-  switch (column.type) {
-    case "select":
-    case "multiSelect":
-    case "status":
+  // 컬럼타입이 아니라 COLUMN_TYPE_META 의 filterLabelSource 로 디스패치한다 —
+  // 새 컬럼타입은 META 한 줄 선언만으로 자동 처리된다(여기 분기 수정 불필요).
+  switch (COLUMN_TYPE_META[column.type].filterLabelSource) {
+    case "option":
       return effectiveOptions(column, ctx.databases, ctx.scopeCtx).filter(
         (option) => !option.divider,
       );
     case "person":
       return personOptions(ctx.members);
-    case "dbLink":
+    case "database":
       return databaseOptions(ctx.databases);
-    case "pageLink":
-    case "itemFetch":
+    case "page":
       return pageOptionsForColumn(column, ctx.pages, ctx.databases);
     default:
       return column.config?.options?.filter((option) => !option.divider) ?? [];
@@ -150,11 +149,12 @@ export function resolveFilterValueLabel(
 ): string {
   const mapped = optionById?.get(value);
   if (mapped) return mapped;
-  switch (column.type) {
-    case "pageLink":
-    case "itemFetch":
+  // filterDisplayOptionsForColumn 과 동일하게 filterLabelSource 로 디스패치.
+  // 'option' 소스(select/status 등)는 위 optionById 맵으로 해석되므로 여기선 원시값으로 떨어진다.
+  switch (COLUMN_TYPE_META[column.type].filterLabelSource) {
+    case "page":
       return ctx.pages[value] ? pageTitle(ctx.pages[value]) : value;
-    case "dbLink":
+    case "database":
       return ctx.databases[value]?.meta.title?.trim() || value;
     case "person": {
       const member = ctx.members.find((candidate) => candidate.memberId === value);

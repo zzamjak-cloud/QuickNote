@@ -40,33 +40,40 @@ export type ColumnType =
  * - groupable     : 표/리스트/갤러리 그룹화 대상 여부(칸반 제외)
  * - arrayValued   : 다중 값(배열)로 저장되는 타입 — 시드/필터가 배열을 기대
  * - idLabelBacked : 셀 값이 id 이고 라벨은 별도 해석이 필요한 타입(옵션/사람/링크류)
+ * - filterLabelSource : 필터 UI 가 옵션 목록·값 라벨을 해석하는 소스 종류.
+ *     'option'(컬럼 옵션) / 'person'(멤버) / 'database'(DB 제목) / 'page'(페이지 제목) / 'none'(원시값).
+ *     필터 옵션·라벨 해석을 컬럼타입이 아니라 이 소스 종류로 디스패치해, 새 타입 추가 시
+ *     filterValueLabels 의 분기를 건드리지 않고 여기 한 줄 선언만으로 동작하게 한다.
  */
+export type ColumnFilterLabelSource = "option" | "person" | "database" | "page" | "none";
+
 export type ColumnTypeMeta = {
   minWidth: number;
   groupable: boolean;
   arrayValued: boolean;
   idLabelBacked: boolean;
+  filterLabelSource: ColumnFilterLabelSource;
 };
 
 export const COLUMN_TYPE_META: Record<ColumnType, ColumnTypeMeta> = {
-  title: { minWidth: 200, groupable: false, arrayValued: false, idLabelBacked: false },
-  text: { minWidth: 160, groupable: false, arrayValued: false, idLabelBacked: false },
-  json: { minWidth: 220, groupable: false, arrayValued: false, idLabelBacked: false },
-  number: { minWidth: 100, groupable: false, arrayValued: false, idLabelBacked: false },
-  select: { minWidth: 140, groupable: true, arrayValued: false, idLabelBacked: true },
-  multiSelect: { minWidth: 180, groupable: false, arrayValued: true, idLabelBacked: true },
-  status: { minWidth: 140, groupable: true, arrayValued: false, idLabelBacked: true },
-  date: { minWidth: 120, groupable: false, arrayValued: false, idLabelBacked: false },
-  person: { minWidth: 140, groupable: true, arrayValued: true, idLabelBacked: true },
-  file: { minWidth: 160, groupable: false, arrayValued: false, idLabelBacked: false },
-  checkbox: { minWidth: 60, groupable: false, arrayValued: false, idLabelBacked: false },
-  url: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false },
-  phone: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false },
-  email: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false },
-  dbLink: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: true },
-  pageLink: { minWidth: 200, groupable: false, arrayValued: true, idLabelBacked: true },
-  progress: { minWidth: 140, groupable: false, arrayValued: false, idLabelBacked: false },
-  itemFetch: { minWidth: 200, groupable: false, arrayValued: true, idLabelBacked: true },
+  title: { minWidth: 200, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  text: { minWidth: 160, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  json: { minWidth: 220, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  number: { minWidth: 100, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  select: { minWidth: 140, groupable: true, arrayValued: false, idLabelBacked: true, filterLabelSource: "option" },
+  multiSelect: { minWidth: 180, groupable: false, arrayValued: true, idLabelBacked: true, filterLabelSource: "option" },
+  status: { minWidth: 140, groupable: true, arrayValued: false, idLabelBacked: true, filterLabelSource: "option" },
+  date: { minWidth: 120, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  person: { minWidth: 140, groupable: true, arrayValued: true, idLabelBacked: true, filterLabelSource: "person" },
+  file: { minWidth: 160, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  checkbox: { minWidth: 60, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  url: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  phone: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  email: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  dbLink: { minWidth: 180, groupable: false, arrayValued: false, idLabelBacked: true, filterLabelSource: "database" },
+  pageLink: { minWidth: 200, groupable: false, arrayValued: true, idLabelBacked: true, filterLabelSource: "page" },
+  progress: { minWidth: 140, groupable: false, arrayValued: false, idLabelBacked: false, filterLabelSource: "none" },
+  itemFetch: { minWidth: 200, groupable: false, arrayValued: true, idLabelBacked: true, filterLabelSource: "page" },
 };
 
 export type SelectOption = {
