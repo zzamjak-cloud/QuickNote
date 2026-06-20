@@ -748,3 +748,13 @@ export const TYPE_MENU_ITEMS = [
   { label: "토글", icon: ChevronRight, cmd: (e: Editor) => e.chain().focus().setToggle().run() },
   { label: "콜아웃", icon: Lightbulb, cmd: (e: Editor) => e.chain().focus().setCallout("idea").run() },
 ];
+
+// 에디터 뷰의 DOM 루트 — 파괴된 에디터/접근 실패 시 null.
+export function getEditorViewDom(editor: Editor | null | undefined): Element | null {
+  if (!editor || editor.isDestroyed) return null;
+  try {
+    return editor.view.dom;
+  } catch {
+    return null;
+  }
+}

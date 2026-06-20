@@ -65,6 +65,7 @@ import {
   TOGGLE_VARIANT_MENU_ITEMS,
   applyToggleTitleLevel,
   blockAtPoint,
+  getEditorViewDom,
   unwrapWrapperBlock,
   isAncestorListHover,
   isListHandleNodeType,
@@ -78,6 +79,7 @@ import {
 import { HoverMenuGroup, HoverMenuRow } from "./blockHandles/HoverMenuRow";
 import type { PinnedCommentBadge, DownloadNotice } from "./blockHandles/BlockHandlesTypes";
 import { computeBlockTypeFlags } from "./blockHandles/blockTypeFlags";
+import { DownloadNoticeToast } from "./blockHandles/DownloadNoticeToast";
 import {
   applyLinkBlockChoice,
   type LinkBlockMode,
@@ -95,15 +97,6 @@ type Props = {
   /** 피크 뷰처럼 좁은 컨텍스트에서 댓글을 작은 아이콘+카운트 배지로 표시 */
   compactComments?: boolean;
 };
-
-function getEditorViewDom(editor: Editor | null | undefined): Element | null {
-  if (!editor || editor.isDestroyed) return null;
-  try {
-    return editor.view.dom;
-  } catch {
-    return null;
-  }
-}
 
 export function BlockHandles({
   editor,
@@ -1510,21 +1503,7 @@ export function BlockHandles({
           </div>
         );
       })()}
-      {downloadNotice ? (
-        <div className="pointer-events-none fixed bottom-5 right-5 z-[420]">
-          <div
-            className={`rounded-lg border px-3 py-2 text-xs shadow-lg ${
-              downloadNotice.kind === "error"
-                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-300"
-                : downloadNotice.kind === "success"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/50 dark:text-emerald-300"
-                  : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/60 dark:bg-blue-950/50 dark:text-blue-300"
-            }`}
-          >
-            {downloadNotice.message}
-          </div>
-        </div>
-      ) : null}
+      <DownloadNoticeToast notice={downloadNotice} />
     </HandleLayerBase>
   );
 }
