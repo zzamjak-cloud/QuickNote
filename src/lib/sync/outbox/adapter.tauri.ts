@@ -137,6 +137,14 @@ export class TauriOutboxAdapter implements OutboxAdapter {
     return rows.map(rowToEntry);
   }
 
+  async count(): Promise<number> {
+    const d = await db();
+    const rows = await d.select<Array<{ c: number }>>(
+      `SELECT COUNT(*) AS c FROM outbox_entries`,
+    );
+    return rows[0]?.c ?? 0;
+  }
+
   async remove(id: string): Promise<void> {
     const d = await db();
     await d.execute(`DELETE FROM outbox_entries WHERE id = ?`, [id]);

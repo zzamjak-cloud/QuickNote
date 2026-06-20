@@ -36,6 +36,11 @@ const MAX_ATTEMPTS = 15;
 const AUTH_RETRY_DELAY_MS = 5_000;
 const TRANSIENT_RETRY_DELAY_MS = 4_000;
 const TRANSIENT_LOG_THROTTLE_MS = 15_000;
+// 대기 중인 정상 entry 의 soft 상한. 초과해도 entry 를 절대 버리지 않고(데이터 유실 방지)
+// 경고만 한다 — flush 가 막혔거나 폭주 enqueue 가 있다는 관측 신호. 체크는 throttle 로
+// hot-path(매 enqueue) 비용을 억제한다.
+const OUTBOX_SOFT_CAP = 5_000;
+const OUTBOX_CAP_WARN_THROTTLE_MS = 60_000;
 
 function getErrorMessage(error: unknown): string {
   // Amplify v6 GraphQL error 객체는 다음 중 하나의 형태를 띌 수 있다:
@@ -170,6 +175,7 @@ export class SyncEngine {
   private readonly clock: () => number;
   private enqueueTail: Promise<void> = Promise.resolve();
   private lastTransientLogAt = 0;
+  private lastCapCheckAt = 0;
   /** 플러시 시 UI 워크스페이스와 엔트리 메타 불일치 진단용(옵션). */
   private readonly getCurrentWorkspaceIdForLog?: () => string | null;
 
@@ -215,7 +221,35 @@ export class SyncEngine {
     };
     await this.removeSupersededUpsertForDelete(entry);
     await this.outbox.upsertByDedupe(entry);
+    await this.maybeWarnOutboxBacklog();
     this.scheduleFlush(0);
+  }
+
+  /**
+   * 대기 entry 수가 soft 상한을 넘으면 경고한다(throttle). entry 는 절대 버리지 않는다 —
+   * soft 상한은 데이터 유실 없이 비정상 누적(stuck flush / 폭주 enqueue)을 알리는 관측 신호다.
+   * 진단 실패가 enqueue 동작을 막지 않도록 모든 예외를 삼킨다.
+   */
+  private async maybeWarnOutboxBacklog(): Promise<void> {
+    const now = this.clock();
+    if (now - this.lastCapCheckAt < OUTBOX_CAP_WARN_THROTTLE_MS) return;
+    this.lastCapCheckAt = now;
+    try {
+      const count = this.outbox.count
+        ? await this.outbox.count()
+        : (await this.outbox.list(OUTBOX_SOFT_CAP + 1)).length;
+      if (count <= OUTBOX_SOFT_CAP) return;
+      console.warn("[sync] outbox 대기 항목이 soft 상한을 초과했습니다", {
+        count,
+        softCap: OUTBOX_SOFT_CAP,
+      });
+      useUiStore.getState().showToast(
+        `동기화 대기 항목이 많습니다(${count}건). 네트워크 연결을 확인해 주세요.`,
+        { kind: "error" },
+      );
+    } catch {
+      // 진단용 체크 실패는 enqueue 데이터 경로에 영향을 주지 않는다.
+    }
   }
 
   async peekPending(): Promise<number> {

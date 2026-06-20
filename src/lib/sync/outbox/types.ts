@@ -31,6 +31,8 @@ export type OutboxEntry = {
 export interface OutboxAdapter {
   put(entry: OutboxEntry): Promise<void>;
   list(limit: number): Promise<OutboxEntry[]>;
+  /** 대기 중인 정상 entry 총 개수(soft 상한 감지용). 미구현 어댑터는 list 로 대체된다. */
+  count?(): Promise<number>;
   remove(id: string): Promise<void>;
   /** dedupeKey 가 같은 기존 entry 를 새 entry 로 교체 */
   upsertByDedupe(entry: OutboxEntry): Promise<void>;

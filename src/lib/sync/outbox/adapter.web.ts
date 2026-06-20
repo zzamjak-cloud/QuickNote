@@ -29,6 +29,10 @@ export class DexieOutboxAdapter implements OutboxAdapter {
     return this.db.entries.orderBy("enqueuedAt").limit(limit).toArray();
   }
 
+  async count(): Promise<number> {
+    return this.db.entries.count();
+  }
+
   async remove(id: string): Promise<void> {
     await this.db.entries.delete(id);
   }

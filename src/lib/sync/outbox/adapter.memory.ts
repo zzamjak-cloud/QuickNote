@@ -17,6 +17,10 @@ export class MemoryOutboxAdapter implements OutboxAdapter {
       .slice(0, limit);
   }
 
+  async count(): Promise<number> {
+    return this.byId.size;
+  }
+
   async remove(id: string): Promise<void> {
     const entry = this.byId.get(id);
     if (entry) this.byDedupe.delete(entry.dedupeKey);

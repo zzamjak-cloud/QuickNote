@@ -34,6 +34,28 @@ function makeGql(): GqlBridge & { calls: Call[] } {
 }
 
 describe("SyncEngine", () => {
+  it("정상 entry 가 soft 상한을 초과하면 경고하되 entry 를 버리지 않는다", async () => {
+    // count 가 상한을 넘는 어댑터로 stuck/폭주 상황을 모사.
+    class BigOutbox extends MemoryOutboxAdapter {
+      async count(): Promise<number> {
+        return 9999;
+      }
+    }
+    const outbox = new BigOutbox();
+    const gql = makeGql();
+    // throttle 창을 넘기도록 고정 시각 클럭 주입.
+    const engine = new SyncEngine(outbox, gql, () => 10_000_000);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await engine.enqueue("upsertPage", { id: "p-1", updatedAt: "t1" });
+    // soft 상한은 경고만 — entry 는 그대로 큐에 남는다(데이터 유실 방지).
+    expect((await outbox.list(10)).length).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("soft 상한"),
+      expect.objectContaining({ count: 9999, softCap: 5000 }),
+    );
+    warnSpy.mockRestore();
+  });
+
   it("dispatches enqueued mutations and clears outbox", async () => {
     const outbox = new MemoryOutboxAdapter();
     const gql = makeGql();
