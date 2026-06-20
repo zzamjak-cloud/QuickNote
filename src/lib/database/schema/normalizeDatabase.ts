@@ -99,6 +99,7 @@ function normalizeSelectOption(value: unknown): SelectOption | null {
     id: value.id,
     label: value.label,
     ...(typeof value.color === "string" ? { color: value.color } : {}),
+    ...(typeof value.icon === "string" ? { icon: value.icon } : {}),
     ...(typeof value.divider === "boolean" ? { divider: value.divider } : {}),
   };
 }

@@ -11,6 +11,7 @@ import { DateCell } from "./cells/DateCell";
 import { PersonCell } from "./cells/PersonCell";
 import { MultiSelectCell, SelectCell, StatusCell } from "./cells/OptionCells";
 import { EmailCell, FileCell, PhoneCell, UrlCell } from "./cells/SimpleCells";
+import { TextCell } from "./cells/TextCell";
 import { DbLinkCell } from "./cells/DbLinkCell";
 import { PageLinkCell } from "./cells/PageLinkCell";
 import { ProgressCell } from "./cells/ProgressCell";
@@ -230,11 +231,9 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
       );
     case "text":
       return (
-        <input
-          type="text"
+        <TextCell
           value={typeof value === "string" ? value : ""}
-          onChange={(e) => setVal(e.target.value)}
-          className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm outline-none focus:border-zinc-300 dark:focus:border-zinc-600"
+          onChange={setVal}
         />
       );
     case "json":

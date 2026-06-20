@@ -73,6 +73,8 @@ export type SelectOption = {
   id: string;
   label: string;
   color?: string;
+  /** 옵션 앞에 표시할 아이콘 — 페이지 아이콘과 동일 인코딩(이모지 | quicknote-lucide:… | 이미지 URL). */
+  icon?: string;
   /** true 면 선택 불가능한 시각적 구분선 — 옵션 목록 그룹핑용. */
   divider?: boolean;
 };

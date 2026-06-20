@@ -79,3 +79,20 @@ export function formatPhone(raw: string): string {
 export function optionStyle(color: string | undefined) {
   return { backgroundColor: color ?? SELECT_COLOR_PRESETS[0] };
 }
+
+/**
+ * 배경색의 상대 휘도(WCAG)를 계산해 가독성 있는 텍스트 색을 고른다.
+ * 밝은 배경(프리셋의 밝은 버전 등)에는 어두운 텍스트, 어두운 배경에는 흰색.
+ */
+export function contrastTextColor(bg: string | undefined): string {
+  const hex = (bg ?? "").replace("#", "");
+  if (hex.length !== 6) return "#ffffff";
+  const channel = (h: string) => parseInt(h, 16) / 255;
+  const lin = (c: number) =>
+    c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  const r = lin(channel(hex.slice(0, 2)));
+  const g = lin(channel(hex.slice(2, 4)));
+  const b = lin(channel(hex.slice(4, 6)));
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.5 ? "#1f2937" : "#ffffff";
+}

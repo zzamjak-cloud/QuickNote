@@ -17,6 +17,7 @@ import {
   shouldUseManualCellValueForAutomation,
 } from "../../lib/database/columnSource";
 import { resolveDatabaseRowRemoteKey } from "../../lib/sync/externalProtectedDatabaseLoad";
+import { createLocalDeletionFilter } from "../../lib/sync/localDeleteGuards";
 import {
   resolveFilterableCellValue,
   withFilterDisplayOptions,
@@ -61,21 +62,41 @@ export function useProcessedRows(
   );
   const bundleRowPageOrder = bundle?.rowPageOrder ?? EMPTY_ROW_PAGE_ORDER;
   const rowPageOrder = useMemo(() => {
-    if (rowIndexRows.length === 0) return bundleRowPageOrder;
+    // 로컬 삭제 tombstone 으로 후보를 거른다. 서버 row-index 워밍업이 삭제된 행을
+    // 다시 받아 upsert 해도(=유령 행), 삭제 직후 재렌더에서 즉시 숨겨진다.
+    const isLocallyDeleted = createLocalDeletionFilter();
+    const pagesState = usePageStore.getState().pages;
+    const wsByIndexPage = new Map(
+      rowIndexRows.map((row) => [row.pageId, row.workspaceId]),
+    );
+    const isDeleted = (pageId: string) => {
+      const workspaceId =
+        wsByIndexPage.get(pageId) ??
+        pagesState[pageId]?.workspaceId ??
+        currentWorkspaceId ??
+        null;
+      return isLocallyDeleted("page", pageId, workspaceId);
+    };
+
+    const liveRowIndex = rowIndexRows.filter((row) => !isDeleted(row.pageId));
+    if (liveRowIndex.length === 0) {
+      return bundleRowPageOrder.filter((id) => !isDeleted(id));
+    }
     const ids: string[] = [];
     const seen = new Set<string>();
-    for (const row of rowIndexRows) {
+    for (const row of liveRowIndex) {
       if (seen.has(row.pageId)) continue;
       seen.add(row.pageId);
       ids.push(row.pageId);
     }
     for (const pageId of bundleRowPageOrder) {
       if (seen.has(pageId)) continue;
+      if (isDeleted(pageId)) continue;
       seen.add(pageId);
       ids.push(pageId);
     }
     return ids;
-  }, [bundleRowPageOrder, rowIndexRows]);
+  }, [bundleRowPageOrder, rowIndexRows, currentWorkspaceId]);
   const rowSourcesSelector = useMemo(
     () => createDatabaseRowSourcesSelector(rowPageOrder, rowIndexRows),
     [rowIndexRows, rowPageOrder],

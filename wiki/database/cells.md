@@ -42,6 +42,16 @@
 - `src/components/database/databaseCellDisplayUtils.ts` `formatYmdDisplay` — **리스트/카드 등 표시설정 뷰**의 날짜 텍스트
 - `src/lib/tiptapExtensions/dateInline.ts` `formatDateLabel` — 에디터 인라인 날짜 노드
 
+## 옵션 아이콘 (select/multiSelect/status)
+- `SelectOption.icon?`(`types/database.ts`)는 **페이지 아이콘과 동일 인코딩**(이모지 | `quicknote-lucide:NAME:HEX` | 이미지 URL). 옵션은 칩 단위라 3종 모두 지원.
+- 편집: `ColumnOptionsEditor` 의 색상 스와치 옆 `<IconPicker size="sm">`(전체 피커 재사용). 저장은 옵션 객체에 `icon` 머지(없으면 `undefined`).
+- 표시: `OptionChip` 이 `icon` 있으면 라벨 앞에 `<PageIconDisplay size="sm">` 렌더. 외부 소스 옵션(linkedScope/sourceFromDb)은 icon 미보유 — 정상.
+
+## 텍스트 셀 인라인 이모지
+- 텍스트 셀은 `cells/TextCell.tsx`(plain `<input>`, 저장형식 string 불변). **이모지만** 지원(Lucide/커스텀 미지원 — 단순 문자열이라).
+- `:체크 ` 등 단축어: Space 입력 시 `findEmojiShortcode`(`tiptapExtensions/emojiShortcode.ts`, 본문 에디터와 동일 매핑)로 치환.
+- `/이모지` 슬래시: 라인 시작/공백 뒤 `/키워드` 인식 → 미니 메뉴 → `IconPickerPanel emojiOnly`(이모지·단축어 탭만) → caret 위치에 이모지 삽입.
+
 ## 팝업 처리
 - `OptionCells` 등은 `CellEditorBase` 프리미티브 사용 (`src/lib/ui-primitives/CellEditorBase.tsx`)
 - 팝업 위치는 `useAnchoredPopover` 로 화면 경계 보정 → [ui/popup-clipping.md](../ui/popup-clipping.md)

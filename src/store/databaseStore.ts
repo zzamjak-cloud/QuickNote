@@ -592,6 +592,31 @@ export const useDatabaseStore = create<DatabaseStore>()(
             },
           };
         });
+        // cached-only 행(pageStore 에 실제 페이지가 없고 row-index fallback 으로만 표시되는 행)은
+        // deletePage 가 no-op 이라 tombstone/서버 softDelete/row-index prune 이 모두 누락된다.
+        // → 삭제해도 row-index 에 남아 유령으로 계속 보이고(중복 포함) 제거할 방법이 없어진다. 직접 처리.
+        if (!pageBefore) {
+          const indexState = useDatabaseRowIndexStore.getState();
+          let rowWorkspaceId: string | null = null;
+          for (const snap of Object.values(indexState.snapshotsByKey)) {
+            const hit = snap.rows.find((r) => r.pageId === pageId);
+            if (hit) {
+              rowWorkspaceId = hit.workspaceId;
+              break;
+            }
+          }
+          const ws =
+            rowWorkspaceId ??
+            get().databases[databaseId]?.meta.workspaceId ??
+            getCurrentWorkspaceId();
+          markLocallyDeletedEntity("page", pageId, ws);
+          void indexState.removePagesFromAllIndexes([pageId]);
+          enqueueAsync("softDeletePage", {
+            id: pageId,
+            workspaceId: ws,
+            updatedAt: new Date().toISOString(),
+          });
+        }
         const bundleAfter = get().databases[databaseId];
         if (bundleAfter) {
           recordDbMutation(

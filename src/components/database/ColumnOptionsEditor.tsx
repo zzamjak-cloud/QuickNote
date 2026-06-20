@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { GripVertical, Plus, X } from "lucide-react";
+import { GripVertical, Plus, Smile, X } from "lucide-react";
 import type { ColumnDef, SelectOption } from "../../types/database";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { newId } from "../../lib/id";
 import { SELECT_COLOR_PRESETS } from "./selectColorPresets";
+import { IconPicker } from "../common/IconPicker";
 
 type Props = {
   databaseId: string;
@@ -97,6 +98,18 @@ export function ColumnOptionsEditor({ databaseId, column }: Props) {
                 onPick={(color) =>
                   patchOptions(
                     opts.map((x) => (x.id === o.id ? { ...x, color } : x)),
+                  )
+                }
+              />
+              <IconPicker
+                size="sm"
+                current={o.icon ?? null}
+                defaultIcon={<Smile size={13} className="text-zinc-400" />}
+                onChange={(icon) =>
+                  patchOptions(
+                    opts.map((x) =>
+                      x.id === o.id ? { ...x, icon: icon ?? undefined } : x,
+                    ),
                   )
                 }
               />
@@ -209,8 +222,8 @@ function OptionColorSwatch({
           <div
             ref={popRef}
             data-qn-color-picker
-            style={{ position: "fixed", top: coords.top, left: coords.left }}
-            className="z-[760] flex gap-1 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+            style={{ position: "fixed", top: coords.top, left: coords.left, width: 172 }}
+            className="z-[760] flex flex-wrap gap-1 rounded-md border border-zinc-200 bg-white p-1.5 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
             {SELECT_COLOR_PRESETS.map((c) => (
               <button

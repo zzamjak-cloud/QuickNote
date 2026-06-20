@@ -326,6 +326,8 @@ export type IconPickerPanelProps = {
   onRequestCustomUpload?: () => void;
   customIcons?: CustomIconPreset[];
   onDeleteCustomIcon?: (id: string) => void;
+  /** 텍스트 셀처럼 유니코드 문자만 삽입 가능한 곳: 이모지·단축어 탭만 노출. */
+  emojiOnly?: boolean;
 };
 
 const ICON_PICKER_MENUS = [
@@ -338,6 +340,8 @@ const ICON_PICKER_MENUS = [
 
 type IconPickerMenu = (typeof ICON_PICKER_MENUS)[number]["id"];
 
+const EMOJI_ONLY_MENU_IDS: IconPickerMenu[] = ["emoji", "shortcuts"];
+
 export function IconPickerPanel({
   title: _title = "페이지 아이콘",
   footer,
@@ -347,10 +351,16 @@ export function IconPickerPanel({
   onRequestCustomUpload: _onRequestCustomUpload,
   customIcons = [],
   onDeleteCustomIcon,
+  emojiOnly = false,
 }: IconPickerPanelProps) {
+  const menus = emojiOnly
+    ? ICON_PICKER_MENUS.filter((m) => EMOJI_ONLY_MENU_IDS.includes(m.id))
+    : ICON_PICKER_MENUS;
   const [color, setColor] = useState(() => loadLucideIconColor());
   const [colorOpen, setColorOpen] = useState(false);
-  const [activeMenu, setActiveMenu] = useState<IconPickerMenu>("unified");
+  const [activeMenu, setActiveMenu] = useState<IconPickerMenu>(
+    emojiOnly ? "emoji" : "unified",
+  );
   const [activeLucideCategory, setActiveLucideCategory] = useState("all");
   const [lucideQuery, setLucideQuery] = useState("");
   const recentIcons = loadRecentIcons();
@@ -398,7 +408,7 @@ export function IconPickerPanel({
           {/* 탭 버튼 중앙 정렬 */}
           <div className="flex flex-1 justify-center">
             <div className="flex rounded-md bg-zinc-100 p-0.5 dark:bg-zinc-800">
-              {ICON_PICKER_MENUS.map((menu) => (
+              {menus.map((menu) => (
                 <button
                   key={menu.id}
                   type="button"
