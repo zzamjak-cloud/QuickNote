@@ -12,6 +12,7 @@ import type {
   CreateProjectInput,
   UpdateProjectInput,
 } from "../../store/schedulerProjectsStore";
+import { runSchedulerMutation } from "./schedulerMutationResilience";
 
 export async function listProjectsApi(workspaceId: string): Promise<GqlProject[]> {
   const r = await (appsyncClient().graphql({
@@ -22,24 +23,31 @@ export async function listProjectsApi(workspaceId: string): Promise<GqlProject[]
 }
 
 export async function createProjectApi(input: CreateProjectInput): Promise<GqlProject> {
-  const r = await (appsyncClient().graphql({
-    query: CREATE_PROJECT,
-    variables: { input },
-  }) as Promise<{ data: { createProject: GqlProject } }>);
-  return r.data.createProject;
+  // create 는 비멱등(서버가 id 할당) — 재시도 시 중복 생성 위험이라 관측만.
+  return runSchedulerMutation(async () => {
+    const r = await (appsyncClient().graphql({
+      query: CREATE_PROJECT,
+      variables: { input },
+    }) as Promise<{ data: { createProject: GqlProject } }>);
+    return r.data.createProject;
+  }, { context: "schedulerProjectsApi.createProject", retryable: false });
 }
 
 export async function updateProjectApi(input: UpdateProjectInput): Promise<GqlProject> {
-  const r = await (appsyncClient().graphql({
-    query: UPDATE_PROJECT,
-    variables: { input },
-  }) as Promise<{ data: { updateProject: GqlProject } }>);
-  return r.data.updateProject;
+  return runSchedulerMutation(async () => {
+    const r = await (appsyncClient().graphql({
+      query: UPDATE_PROJECT,
+      variables: { input },
+    }) as Promise<{ data: { updateProject: GqlProject } }>);
+    return r.data.updateProject;
+  }, { context: "schedulerProjectsApi.updateProject", retryable: true });
 }
 
 export async function deleteProjectApi(id: string, workspaceId: string): Promise<void> {
-  await appsyncClient().graphql({
-    query: DELETE_PROJECT,
-    variables: { id, workspaceId },
-  });
+  await runSchedulerMutation(async () => {
+    await appsyncClient().graphql({
+      query: DELETE_PROJECT,
+      variables: { id, workspaceId },
+    });
+  }, { context: "schedulerProjectsApi.deleteProject", retryable: true });
 }

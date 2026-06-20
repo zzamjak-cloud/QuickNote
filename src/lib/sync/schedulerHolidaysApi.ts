@@ -12,6 +12,7 @@ import type {
   CreateHolidayInput,
   UpdateHolidayInput,
 } from "../../store/schedulerHolidaysStore";
+import { runSchedulerMutation } from "./schedulerMutationResilience";
 
 export async function listHolidaysApi(workspaceId: string): Promise<GqlHoliday[]> {
   const r = await (appsyncClient().graphql({
@@ -22,24 +23,31 @@ export async function listHolidaysApi(workspaceId: string): Promise<GqlHoliday[]
 }
 
 export async function createHolidayApi(input: CreateHolidayInput): Promise<GqlHoliday> {
-  const r = await (appsyncClient().graphql({
-    query: CREATE_HOLIDAY,
-    variables: { input },
-  }) as Promise<{ data: { createHoliday: GqlHoliday } }>);
-  return r.data.createHoliday;
+  // create 는 비멱등 — 재시도 시 중복 생성 위험이라 관측만.
+  return runSchedulerMutation(async () => {
+    const r = await (appsyncClient().graphql({
+      query: CREATE_HOLIDAY,
+      variables: { input },
+    }) as Promise<{ data: { createHoliday: GqlHoliday } }>);
+    return r.data.createHoliday;
+  }, { context: "schedulerHolidaysApi.createHoliday", retryable: false });
 }
 
 export async function updateHolidayApi(input: UpdateHolidayInput): Promise<GqlHoliday> {
-  const r = await (appsyncClient().graphql({
-    query: UPDATE_HOLIDAY,
-    variables: { input },
-  }) as Promise<{ data: { updateHoliday: GqlHoliday } }>);
-  return r.data.updateHoliday;
+  return runSchedulerMutation(async () => {
+    const r = await (appsyncClient().graphql({
+      query: UPDATE_HOLIDAY,
+      variables: { input },
+    }) as Promise<{ data: { updateHoliday: GqlHoliday } }>);
+    return r.data.updateHoliday;
+  }, { context: "schedulerHolidaysApi.updateHoliday", retryable: true });
 }
 
 export async function deleteHolidayApi(id: string, workspaceId: string): Promise<void> {
-  await appsyncClient().graphql({
-    query: DELETE_HOLIDAY,
-    variables: { id, workspaceId },
-  });
+  await runSchedulerMutation(async () => {
+    await appsyncClient().graphql({
+      query: DELETE_HOLIDAY,
+      variables: { id, workspaceId },
+    });
+  }, { context: "schedulerHolidaysApi.deleteHoliday", retryable: true });
 }

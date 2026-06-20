@@ -13,6 +13,7 @@ import {
   type GqlMmRevision,
 } from "./graphql/operations";
 import type { MmBucket, MmEntryInput } from "../scheduler/mm/mmTypes";
+import { runSchedulerMutation } from "./schedulerMutationResilience";
 
 function bucketToInput(bucket: MmBucket) {
   return {
@@ -50,17 +51,20 @@ export async function listMmEntriesApi(args: {
 }
 
 export async function upsertMmEntryApi(input: MmEntryInput): Promise<GqlMmEntry> {
-  const r = await (appsyncClient().graphql({
-    query: UPSERT_MM_ENTRY,
-    variables: {
-      input: {
-        ...input,
-        sourceSnapshot: JSON.stringify(input.sourceSnapshot ?? {}),
-        buckets: input.buckets.map(bucketToInput),
+  // upsert 는 id 주소지정 멱등 — 일시적 네트워크 오류 시 재시도 안전.
+  return runSchedulerMutation(async () => {
+    const r = await (appsyncClient().graphql({
+      query: UPSERT_MM_ENTRY,
+      variables: {
+        input: {
+          ...input,
+          sourceSnapshot: JSON.stringify(input.sourceSnapshot ?? {}),
+          buckets: input.buckets.map(bucketToInput),
+        },
       },
-    },
-  }) as Promise<{ data: { upsertMmEntry: GqlMmEntry } }>);
-  return r.data.upsertMmEntry;
+    }) as Promise<{ data: { upsertMmEntry: GqlMmEntry } }>);
+    return r.data.upsertMmEntry;
+  }, { context: "schedulerMmApi.upsertMmEntry", retryable: true });
 }
 
 export async function reviewMmEntryApi(input: {
@@ -69,16 +73,19 @@ export async function reviewMmEntryApi(input: {
   buckets?: MmBucket[];
   note?: string | null;
 }): Promise<GqlMmEntry> {
-  const r = await (appsyncClient().graphql({
-    query: REVIEW_MM_ENTRY,
-    variables: {
-      input: {
-        ...input,
-        buckets: input.buckets?.map(bucketToInput) ?? null,
+  // review/lock/unlock 은 상태 전이 — 이중 적용 위험이라 재시도 안 함(관측만).
+  return runSchedulerMutation(async () => {
+    const r = await (appsyncClient().graphql({
+      query: REVIEW_MM_ENTRY,
+      variables: {
+        input: {
+          ...input,
+          buckets: input.buckets?.map(bucketToInput) ?? null,
+        },
       },
-    },
-  }) as Promise<{ data: { reviewMmEntry: GqlMmEntry } }>);
-  return r.data.reviewMmEntry;
+    }) as Promise<{ data: { reviewMmEntry: GqlMmEntry } }>);
+    return r.data.reviewMmEntry;
+  }, { context: "schedulerMmApi.reviewMmEntry", retryable: false });
 }
 
 export async function lockMmEntryApi(
@@ -86,11 +93,13 @@ export async function lockMmEntryApi(
   entryId: string,
   note?: string | null,
 ): Promise<GqlMmEntry> {
-  const r = await (appsyncClient().graphql({
-    query: LOCK_MM_ENTRY,
-    variables: { workspaceId, entryId, note: note ?? null },
-  }) as Promise<{ data: { lockMmEntry: GqlMmEntry } }>);
-  return r.data.lockMmEntry;
+  return runSchedulerMutation(async () => {
+    const r = await (appsyncClient().graphql({
+      query: LOCK_MM_ENTRY,
+      variables: { workspaceId, entryId, note: note ?? null },
+    }) as Promise<{ data: { lockMmEntry: GqlMmEntry } }>);
+    return r.data.lockMmEntry;
+  }, { context: "schedulerMmApi.lockMmEntry", retryable: false });
 }
 
 export async function unlockMmEntryApi(
@@ -98,11 +107,13 @@ export async function unlockMmEntryApi(
   entryId: string,
   note?: string | null,
 ): Promise<GqlMmEntry> {
-  const r = await (appsyncClient().graphql({
-    query: UNLOCK_MM_ENTRY,
-    variables: { workspaceId, entryId, note: note ?? null },
-  }) as Promise<{ data: { unlockMmEntry: GqlMmEntry } }>);
-  return r.data.unlockMmEntry;
+  return runSchedulerMutation(async () => {
+    const r = await (appsyncClient().graphql({
+      query: UNLOCK_MM_ENTRY,
+      variables: { workspaceId, entryId, note: note ?? null },
+    }) as Promise<{ data: { unlockMmEntry: GqlMmEntry } }>);
+    return r.data.unlockMmEntry;
+  }, { context: "schedulerMmApi.unlockMmEntry", retryable: false });
 }
 
 export async function listMmRevisionsApi(
