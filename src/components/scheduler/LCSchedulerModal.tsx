@@ -93,6 +93,7 @@ export function LCSchedulerModal({ onClose }: Props) {
           currentWorkspaceId: schedulerWorkspaceId,
           cancelled: () => cancelled,
           source: "lc-scheduler-modal",
+          loadContext: "scheduler",
         }),
       ),
     ).catch((error) => {

@@ -82,7 +82,7 @@ describe("externalProtectedDatabaseLoad", () => {
     expect(protectedDatabaseRowsAreCached(LC_SCHEDULER_DATABASE_ID)).toBe(false);
   });
 
-  it("row remote key는 일반 DB와 scoped protected DB를 로더와 동일하게 계산한다", () => {
+  it("row remote key: scheduler 컨텍스트만 전역 scope 를 붙이고, inline(기본)은 unscoped", () => {
     expect(resolveDatabaseRowRemoteKey("normal-db", "cat-workspace")).toBe("normal-db");
 
     useSchedulerViewStore.setState({
@@ -90,8 +90,14 @@ describe("externalProtectedDatabaseLoad", () => {
       selectedMemberId: "member-1",
     });
 
+    // 스케줄러 컨텍스트: 전역 org/team/project/멤버 필터를 scope 로 적용.
+    expect(
+      resolveDatabaseRowRemoteKey(LC_SCHEDULER_DATABASE_ID, "cat-workspace", "scheduler"),
+    ).toBe(`${LC_SCHEDULER_DATABASE_ID}|p:project-1|m:member-1`);
+
+    // 인라인(기본): 전역 필터에 끌려가지 않고 unscoped — 인라인 DB 행 누락 방지.
     expect(resolveDatabaseRowRemoteKey(LC_SCHEDULER_DATABASE_ID, "cat-workspace")).toBe(
-      `${LC_SCHEDULER_DATABASE_ID}|p:project-1|m:member-1`,
+      LC_SCHEDULER_DATABASE_ID,
     );
   });
 

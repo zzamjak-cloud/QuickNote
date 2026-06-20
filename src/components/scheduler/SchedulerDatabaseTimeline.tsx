@@ -394,8 +394,8 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
   const weekendColor = useSchedulerViewStore((s) => s.weekendColor);
   const storeHolidays = useSchedulerHolidaysStore((s) => s.holidays);
-  const rowIndexKey = resolveDatabaseRowRemoteKey(databaseId, workspaceId);
-  const milestoneRowIndexKey = resolveDatabaseRowRemoteKey(milestoneDatabaseId, workspaceId);
+  const rowIndexKey = resolveDatabaseRowRemoteKey(databaseId, workspaceId, "scheduler");
+  const milestoneRowIndexKey = resolveDatabaseRowRemoteKey(milestoneDatabaseId, workspaceId, "scheduler");
   const rowIndexScopeSignature = `${selectedProjectId ?? ""}:${selectedMemberId ?? ""}`;
   const hydrateRowIndex = useDatabaseRowIndexStore((s) => s.hydrateIndex);
   useEffect(() => {
