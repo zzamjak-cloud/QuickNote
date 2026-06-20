@@ -15,6 +15,10 @@ const IconPickerPanel = lazy(() =>
   import("./IconPickerPanel").then((m) => ({ default: m.IconPickerPanel })),
 );
 
+// 전역에서 IconPicker 팝업이 단 하나만 열리도록 보장한다.
+// 다른 picker 가 열리면 직전에 열려 있던 picker 를 즉시 닫는다.
+let activePickerCloser: (() => void) | null = null;
+
 const MAX_ICON_BYTES = 5 * 1024 * 1024;
 const ICON_PICKER_PANEL_WIDTH = 320;
 const ICON_PICKER_PANEL_ESTIMATED_HEIGHT = 440;
@@ -138,8 +142,20 @@ export function IconPicker({
     return { top, left };
   }, []);
 
+  // 이 picker 가 열려 있는 동안 전역 closer 로 자신을 등록 — 다른 picker 가 열릴 때 닫히도록.
+  useEffect(() => {
+    if (!open) return;
+    const closer = () => setPickerOpen(false);
+    activePickerCloser = closer;
+    return () => {
+      if (activePickerCloser === closer) activePickerCloser = null;
+    };
+  }, [open, setPickerOpen]);
+
   const openPicker = () => {
     if (open) { setPickerOpen(false); return; }
+    // 다른 위치에서 열려 있던 picker 를 먼저 닫아 단일 팝업을 보장.
+    activePickerCloser?.();
     const coords = computePopoverCoords(ICON_PICKER_PANEL_WIDTH, ICON_PICKER_PANEL_ESTIMATED_HEIGHT);
     if (coords) setPopoverCoords(coords);
     setPickerOpen(true);

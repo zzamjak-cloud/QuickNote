@@ -1,6 +1,6 @@
 // LC 스케줄러 헤더 — 뷰 모드 탭 + 조직/팀/프로젝트 선택 + 설정 버튼 + 닫기 버튼.
 import { useState, useEffect, useMemo } from "react";
-import { Calendar, X, Settings } from "lucide-react";
+import { Calendar, X, Settings, CalendarCheck } from "lucide-react";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { useOrganizationStore } from "../../store/organizationStore";
 import { useTeamStore } from "../../store/teamStore";
@@ -24,6 +24,8 @@ export function SchedulerHeader({ onClose }: Props) {
   const setEntityMode = useSchedulerViewStore((s) => s.setEntityMode);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
   const setSelectedProjectId = useSchedulerViewStore((s) => s.setSelectedProjectId);
+  const selectMember = useSchedulerViewStore((s) => s.selectMember);
+  const setMultiSelected = useSchedulerViewStore((s) => s.setMultiSelected);
 
   const organizations = useOrganizationStore((s) => s.organizations);
   const teams = useTeamStore((s) => s.teams);
@@ -37,6 +39,8 @@ export function SchedulerHeader({ onClose }: Props) {
 
   // 현재 로그인 멤버 — 권한 체크용
   const me = useMemberStore((s) => s.me);
+  // 스케줄러 워크스페이스 멤버 목록 — "내일정" 식별(이메일 조인)용
+  const schedulerMembers = useMemberStore((s) => s.members);
   const canManage = !!me && ADMIN_ROLES.has(me.workspaceRole);
 
   // 설정 모달 표시 여부
@@ -148,16 +152,65 @@ export function SchedulerHeader({ onClose }: Props) {
     [visibleProjects],
   );
 
+  // 스케줄러는 별도 워크스페이스라 me.memberId 가 스케줄러 멤버 ID 와 다를 수 있다.
+  // 안정적인 조인 키인 이메일로 스케줄러 멤버를 찾아 "나"의 memberId 를 확정.
+  const myMemberId = useMemo(() => {
+    if (!me) return null;
+    const byId = schedulerMembers.find((m) => m.memberId === me.memberId);
+    if (byId) return byId.memberId;
+    const myEmail = me.email?.trim().toLowerCase();
+    if (myEmail) {
+      const byEmail = schedulerMembers.find(
+        (m) => m.email?.trim().toLowerCase() === myEmail,
+      );
+      if (byEmail) return byEmail.memberId;
+    }
+    return null;
+  }, [me, schedulerMembers]);
+
+  // 내가 속한 스코프 — 조직 우선, 없으면 팀(가시 항목 우선)
+  const myScopeKey = useMemo(() => {
+    if (!myMemberId) return null;
+    const orgHit =
+      visibleOrgs.find((o) => o.members.some((m) => m.memberId === myMemberId)) ??
+      organizations.find((o) => o.members.some((m) => m.memberId === myMemberId));
+    if (orgHit) return `org:${orgHit.organizationId}`;
+    const teamHit =
+      visibleTeams.find((t) => t.members.some((m) => m.memberId === myMemberId)) ??
+      teams.find((t) => t.members.some((m) => m.memberId === myMemberId));
+    if (teamHit) return `team:${teamHit.teamId}`;
+    return null;
+  }, [myMemberId, visibleOrgs, organizations, visibleTeams, teams]);
+
+  // "내일정" — 내 스코프로 즉시 전환 + 내 구성원 탭 활성화
+  const handleMySchedule = () => {
+    if (!myMemberId) return;
+    if (myScopeKey) setSelectedProjectId(myScopeKey);
+    setMultiSelected([]);
+    selectMember(myMemberId);
+  };
+
   return (
     <>
       <div className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
         {/* 좌측: 아이콘 + 타이틀 + 데이터 모드 + 뷰 모드 탭 */}
         <div className="flex items-center gap-3 flex-wrap">
           <Calendar className="w-6 h-6 text-amber-500 shrink-0" />
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
-              {headerTitle}
-            </h1>
+          {/* 제목 영역 = 조직/팀/프로젝트 선택 드롭다운 (선택값이 곧 제목) */}
+          <div className="flex items-center gap-1">
+            <ScopeSelectDropdown
+              value={selectedProjectId ?? ""}
+              onChange={(value) => setSelectedProjectId(value || null)}
+              organizations={scopeOrganizations}
+              teams={scopeTeams}
+              projects={scopeProjects}
+              align="left"
+              ariaLabel="조직, 팀 또는 프로젝트 선택"
+              placeholder={headerTitle}
+              buttonClassName="max-w-[320px] !border-transparent !bg-transparent !shadow-none !px-2 !text-xl !font-bold hover:!bg-zinc-100 dark:hover:!bg-zinc-800"
+              menuClassName="w-[920px] max-w-[calc(100vw-24px)]"
+              listMaxHeightClass="max-h-[560px]"
+            />
             <span className="text-sm text-zinc-500">일정</span>
           </div>
           <div
@@ -232,24 +285,24 @@ export function SchedulerHeader({ onClose }: Props) {
               주간
             </button>
           </div>
-          {/* 조직 / 팀 / 프로젝트 선택 드롭다운 — 자주 쓰는 위치라 뷰 모드 탭 오른쪽으로 배치 */}
-          <ScopeSelectDropdown
-            value={selectedProjectId ?? ""}
-            onChange={(value) => setSelectedProjectId(value || null)}
-            organizations={scopeOrganizations}
-            teams={scopeTeams}
-            projects={scopeProjects}
-            align="left"
-            ariaLabel="조직, 팀 또는 프로젝트 선택"
-            placeholder={headerTitle}
-            buttonClassName="max-w-[260px]"
-            menuClassName="w-[920px] max-w-[calc(100vw-24px)]"
-            listMaxHeightClass="max-h-[560px]"
-          />
         </div>
 
-        {/* 우측: 설정 버튼 + 닫기 */}
+        {/* 우측: 내일정 + 설정 버튼 + 닫기 */}
         <div className="flex items-center gap-2">
+          {/* 내일정 — 내 조직 + 내 구성원 탭으로 즉시 이동 */}
+          {myMemberId && (
+            <button
+              type="button"
+              onClick={handleMySchedule}
+              className="flex items-center gap-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2.5 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-200 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-700/70 transition-colors"
+              aria-label="내일정"
+              title="내 조직의 내 일정으로 이동"
+            >
+              <CalendarCheck className="w-4 h-4" />
+              내일정
+            </button>
+          )}
+
           {/* 설정 버튼 — MANAGER 이상만 노출 */}
           {canManage && (
             <button
