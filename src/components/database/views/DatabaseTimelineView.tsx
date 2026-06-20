@@ -47,6 +47,20 @@ import {
   monthLabel,
 } from "../../../lib/database/timelineDateUtils";
 import { isInteractiveTarget, rectsIntersect } from "./timelineSelectionGeometry";
+import type {
+  Granularity,
+  TimelineDateEntry,
+  ContextPointerEvent,
+  TimelineBoxRect,
+  TimelineCardLayout,
+} from "./timelineTypes";
+import {
+  TIMELINE_CARD_COLOR_PRESETS,
+  makeTimelineCardId,
+  isValidTimelineColor,
+  defaultTimelineColor,
+  timelineCardTitle,
+} from "./timelineCardUtils";
 import { useWindowedRows } from "./useWindowedRows";
 import { TimelineCardPropertyLabels } from "../TimelineCardPropertyLabels";
 import { ScheduleCardDetailRows } from "../ScheduleCardDetailRows";
@@ -57,7 +71,6 @@ import {
   applyTimelineCardStickyOffset,
   applyUnscheduledCardPin,
 } from "../timelineCardStickyOffset";
-import { SELECT_COLOR_PRESETS } from "../selectColorPresets";
 import { buildTimelineCardConfigPatch } from "./timelineCardConfig";
 import { ContextMenu, announceSchedulerContextMenuOpen } from "../../scheduler/ContextMenu";
 import {
@@ -75,8 +88,6 @@ type Props = {
   visibleRowLimit?: number;
 };
 
-type Granularity = "year" | "month" | "week";
-
 const ROW_HEIGHT = 32;
 const ROW_GAP = 4;
 const HEADER_HEIGHT = 36;
@@ -93,8 +104,6 @@ const LS_MONTH_KEY = "quicknote.timeline.month";
 const DRAG_ACTIVATE_PX = 3;
 const UNSCHEDULED_CARD_LEFT = 8;
 const UNSCHEDULED_CARD_WIDTH = 168;
-const DEFAULT_TIMELINE_CARD_COLOR = "#16a34a";
-const TIMELINE_CARD_COLOR_PRESETS = SELECT_COLOR_PRESETS;
 
 let lastTimelineScrollerClientWidth = 0;
 
@@ -103,68 +112,6 @@ function estimateTimelineScrollerClientWidth(): number {
   if (typeof window === "undefined") return 900;
   return Math.max(360, Math.min(1400, window.innerWidth - 280));
 }
-
-const makeTimelineCardId = (pageId: string, columnId: string) => `${pageId}::${columnId}`;
-
-function isValidTimelineColor(value: string | undefined): value is string {
-  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
-}
-
-function defaultTimelineColor(index: number): string {
-  return TIMELINE_CARD_COLOR_PRESETS[index % TIMELINE_CARD_COLOR_PRESETS.length] ?? DEFAULT_TIMELINE_CARD_COLOR;
-}
-
-function timelineCardTitle(row: DatabaseRowView, entry: TimelineDateEntry): string {
-  if (entry.titleMode === "custom") {
-    const title = (entry.title ?? "").trim();
-    if (title) return title;
-    return entry.columnName;
-  }
-  return row.title || "제목 없음";
-}
-
-type TimelineDateEntry = {
-  columnId: string;
-  columnName: string;
-  titleMode: "pageTitle" | "custom";
-  title: string;
-  color: string;
-  isPrimary: boolean;
-};
-
-type ContextPointerEvent = {
-  button?: number;
-  clientX: number;
-  clientY: number;
-  preventDefault: () => void;
-  stopPropagation: () => void;
-};
-
-type TimelineBoxRect = {
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
-};
-
-type TimelineCardLayout = {
-  id: string;
-  row: DatabaseRowView;
-  pageId: string;
-  columnId: string;
-  columnName: string;
-  title: string;
-  color: string;
-  start: number;
-  end: number;
-  left: number;
-  width: number;
-  top: number;
-  dateLabel: string;
-  showDateLabel: boolean;
-  tooltipText: string;
-  isUnscheduled?: boolean;
-};
 
 // props 얕은 비교: row/isSelected 변경 시만 리렌더. 다른 행 선택·카드 드래그는 이 행에 영향 없음.
 const TimelineLabelRow = memo(function TimelineLabelRow({
