@@ -93,7 +93,11 @@ export function LCSchedulerModal({ onClose }: Props) {
           currentWorkspaceId: schedulerWorkspaceId,
           cancelled: () => cancelled,
           source: "lc-scheduler-modal",
-          loadContext: "scheduler",
+          // 피처는 scope(org/team/project)가 연결 마일스톤에서 미러될 뿐 자신의 dbCells 에는
+          // 없어 서버 scoped 쿼리로는 누락된다. 전체(unscoped) 로드 후 클라가
+          // getScopedMilestoneIds/matchesSchedulerScope 로 마일스톤 scope 기준 필터한다.
+          // (피처는 마일스톤과 같은 구조적 데이터라 규모가 유계 — 전체 로드 가능)
+          loadContext: databaseId === featureDatabaseId ? "inline" : "scheduler",
         }),
       ),
     ).catch((error) => {

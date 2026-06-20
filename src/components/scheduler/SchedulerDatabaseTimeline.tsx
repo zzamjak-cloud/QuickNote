@@ -394,7 +394,13 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
   const weekendColor = useSchedulerViewStore((s) => s.weekendColor);
   const storeHolidays = useSchedulerHolidaysStore((s) => s.holidays);
-  const rowIndexKey = resolveDatabaseRowRemoteKey(databaseId, workspaceId, "scheduler");
+  // 피처는 unscoped(전체) 로드 후 클라에서 마일스톤 scope 로 필터(아래 matchesSchedulerScope)하므로
+  // 읽기 키도 "inline" 이어야 LCSchedulerModal 의 피처 적재 키와 일치한다. 마일스톤/작업은 scoped.
+  const rowIndexKey = resolveDatabaseRowRemoteKey(
+    databaseId,
+    workspaceId,
+    mode === "feature" ? "inline" : "scheduler",
+  );
   const milestoneRowIndexKey = resolveDatabaseRowRemoteKey(milestoneDatabaseId, workspaceId, "scheduler");
   const rowIndexScopeSignature = `${selectedProjectId ?? ""}:${selectedMemberId ?? ""}`;
   const hydrateRowIndex = useDatabaseRowIndexStore((s) => s.hydrateIndex);
