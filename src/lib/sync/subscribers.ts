@@ -172,6 +172,11 @@ export function startSubscriptions(
       },
     ];
 
+    // 한 채널의 구독 생성 실패가 나머지 채널 구독을 막지 않도록 격리한다.
+    // 과거에는 첫 채널(page) throw 시 return 으로 database/comment 까지
+    // 미구독 상태가 되어 전체 재연결에만 의존했다. 이제 실패 채널만 건너뛰고
+    // 성공 채널은 구독을 유지하며, 전체 재연결(scheduleRetry)로 실패분을 복구한다.
+    let refreshedTokensThisPass = false;
     for (const channel of channels) {
       if (!channel.enabled) continue;
       let obs: Subscribable;
@@ -183,11 +188,13 @@ export function startSubscriptions(
         }, additionalHeaders) as unknown as Subscribable;
       } catch (e) {
         logSubError(channel.key, e);
-        if (isUnauthorizedError(e)) {
+        // 인증 만료는 한 패스에 한 번만 토큰 재발급(중복 await 방지).
+        if (isUnauthorizedError(e) && !refreshedTokensThisPass) {
+          refreshedTokensThisPass = true;
           await ensureFreshTokensForAppSync();
         }
         scheduleRetry();
-        return;
+        continue;
       }
       const sub = obs.subscribe({
         next: ({ data }) => {

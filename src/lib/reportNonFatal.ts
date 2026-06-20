@@ -57,10 +57,16 @@ function sendBeacon(entry: NonFatalEntry): void {
     if (typeof navigator === "undefined" || typeof navigator.sendBeacon !== "function") {
       return;
     }
+    // sendBeacon 은 브라우저별로 ~64KB 본문 상한이 있어, 거대 stack 이
+    // 통째로 실리면 전송이 silent 실패(관측 유실)한다. stack 을 캡한다.
+    const MAX_STACK_LENGTH = 8000;
+    const stack = entry.stack && entry.stack.length > MAX_STACK_LENGTH
+      ? `${entry.stack.slice(0, MAX_STACK_LENGTH)}…(truncated)`
+      : entry.stack;
     const payload = JSON.stringify({
       context: entry.context,
       message: entry.message,
-      stack: entry.stack,
+      stack,
       ts: entry.time,
       version: readVersion(),
     });

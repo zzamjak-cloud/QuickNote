@@ -14,6 +14,7 @@ import { useSettingsStore } from "./settingsStore";
 import { useNotificationStore } from "./notificationStore";
 import { useDatabaseRowIndexStore } from "./databaseRowIndexStore";
 import { enqueueAsync } from "../lib/sync/runtime";
+import { toUpsertPageInput } from "../lib/sync/mappers/upsertPageInput";
 import { markLocallyDeletedEntity } from "../lib/sync/localDeleteGuards";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
@@ -894,21 +895,17 @@ export const usePageStore = create<PageStore>()(
             createdAt: now,
             updatedAt: now,
           };
-          enqueueAsync("upsertPage", {
-            id: cloned.id,
+          // 손작성 input 을 단일 매퍼로 일원화 — Page 필드 추가 시 이 경로만
+          // 누락되는 회귀(PageMeta 소실류)를 방지한다. includeMetaColors 로
+          // titleColor 까지 보존(기존 손작성은 titleColor 를 누락했음).
+          // databaseId/dbCells 는 페이지 복제이므로 null, fullPageDatabaseId 는
+          // 유령 페이지 방지를 위해 싣지 않는다(includeFullPageDatabaseId 미지정).
+          enqueueAsync("upsertPage", toUpsertPageInput(cloned, createdByMemberId, {
             workspaceId: targetWorkspaceId,
-            createdByMemberId,
-            title: cloned.title,
-            icon: cloned.icon ?? null,
-            coverImage: cloned.coverImage ?? null,
-            parentId: cloned.parentId ?? null,
-            order: String(cloned.order),
             databaseId: null,
-            doc: JSON.stringify(cloned.doc),
             dbCells: null,
-            createdAt: new Date(cloned.createdAt).toISOString(),
-            updatedAt: new Date(cloned.updatedAt).toISOString(),
-          } as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
+            includeMetaColors: true,
+          }) as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
         }
 
         return cloneMap.size;

@@ -14,6 +14,7 @@ import { restoreRowCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
 import { clearLocalDeleteGuard } from "../lib/sync/localDeleteGuards";
 import { usePageStore, enqueuePageUpsertForSync } from "./pageStore";
 import { formatError } from "../lib/util/formatError";
+import { reportNonFatal } from "../lib/reportNonFatal";
 
 // 베이스라인 시드를 페이지당 세션 1회로 제한(재조회 루프 방지).
 const seededBaselinePages = new Set<string>();
@@ -97,6 +98,8 @@ export const useServerPageHistoryStore = create<State & Actions>()((set, get) =>
         }
       }
     } catch (err) {
+      // 서버 권위 히스토리 조회 실패를 관측 채널로 보고(기존엔 state.error 만 기록).
+      reportNonFatal(err, "serverPageHistoryStore.fetchPageHistory");
       set((s) => ({
         loading: { ...s.loading, [pageId]: false },
         error: { ...s.error, [pageId]: formatError(err) },

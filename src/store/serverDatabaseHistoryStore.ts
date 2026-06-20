@@ -11,6 +11,7 @@ import { applyRemoteDatabaseToStore } from "../lib/sync/storeApply";
 import { enqueueUpsertDatabase } from "./databaseStore/helpers";
 import { useDatabaseStore } from "./databaseStore";
 import { formatError } from "../lib/util/formatError";
+import { reportNonFatal } from "../lib/reportNonFatal";
 
 const seededBaselineDatabases = new Set<string>();
 
@@ -110,6 +111,8 @@ export const useServerDatabaseHistoryStore = create<State & Actions>()((set, get
         }
       }
     } catch (err) {
+      // 서버 권위 히스토리 조회 실패를 관측 채널로 보고(기존엔 state.error 만 기록).
+      reportNonFatal(err, "serverDatabaseHistoryStore.fetchDatabaseHistory");
       set((s) => ({
         loading: { ...s.loading, [databaseId]: false },
         seeding: { ...s.seeding, [databaseId]: false },
