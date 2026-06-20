@@ -26,22 +26,30 @@ import { resolveActiveFilterRules } from "../../../lib/databaseQuery";
 import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
 import {
   DAY_MS,
-  timelineClampToWeekday as clampToWeekday,
   timelineFocusScrollLeft as focusScrollLeft,
   timelineGetRange as getRange,
   timelineStartOfDay as startOfDay,
 } from "../../../lib/database/timelineGeometry";
 import {
-  fmtDate,
   toDateIso,
   startOfMonth,
   monthInputToStart,
 } from "../../../lib/database/timelineDateUtils";
-import { isInteractiveTarget, rectsIntersect } from "./timelineSelectionGeometry";
+import { isInteractiveTarget } from "./timelineSelectionGeometry";
 import { useTimelineColumns } from "./useTimelineColumns";
 import { useTimelineAxis } from "./useTimelineAxis";
 import { TimelineControlBar } from "./TimelineControlBar";
 import { TimelineDateCardSettings } from "./TimelineDateCardSettings";
+import { useTimelineCardLayouts } from "./useTimelineCardLayouts";
+import {
+  ROW_HEIGHT,
+  ROW_GAP,
+  HEADER_HEIGHT,
+  SIDE_LABEL_W,
+  SIDE_LABEL_W_MIN,
+  SIDE_LABEL_W_MAX,
+  UNSCHEDULED_CARD_LEFT,
+} from "./timelineLayoutConstants";
 import { CELL_WIDTH_MIN, CELL_WIDTH_MAX, CELL_WIDTH_DEFAULT } from "./timelineZoom";
 import type {
   Granularity,
@@ -49,10 +57,7 @@ import type {
   TimelineBoxRect,
   TimelineCardLayout,
 } from "./timelineTypes";
-import {
-  makeTimelineCardId,
-  timelineCardTitle,
-} from "./timelineCardUtils";
+import { makeTimelineCardId } from "./timelineCardUtils";
 import { useWindowedRows } from "./useWindowedRows";
 import { TimelineCardPropertyLabels } from "../TimelineCardPropertyLabels";
 import { ScheduleCardDetailRows } from "../ScheduleCardDetailRows";
@@ -67,7 +72,6 @@ import { buildTimelineCardConfigPatch } from "./timelineCardConfig";
 import { ContextMenu, announceSchedulerContextMenuOpen } from "../../scheduler/ContextMenu";
 import {
   makeTimelineCardColorOverrides,
-  resolveTimelineCardColor,
   TIMELINE_CARD_COLOR_OVERRIDES_CELL_ID,
 } from "../../../lib/database/timelineCardColor";
 import { useAddDatabaseRowAndOpen, useOpenDatabaseRow } from "../useOpenDatabaseRow";
@@ -80,18 +84,10 @@ type Props = {
   visibleRowLimit?: number;
 };
 
-const ROW_HEIGHT = 32;
-const ROW_GAP = 4;
-const HEADER_HEIGHT = 36;
-const SIDE_LABEL_W = 160;
-const SIDE_LABEL_W_MIN = 120;
-const SIDE_LABEL_W_MAX = 360;
 const LS_ZOOM_KEY = "quicknote.timeline.zoom";
 const LS_GRANULARITY_KEY = "quicknote.timeline.granularity";
 const LS_MONTH_KEY = "quicknote.timeline.month";
 const DRAG_ACTIVATE_PX = 3;
-const UNSCHEDULED_CARD_LEFT = 8;
-const UNSCHEDULED_CARD_WIDTH = 168;
 
 let lastTimelineScrollerClientWidth = 0;
 
@@ -430,132 +426,20 @@ export function DatabaseTimelineView({
     ? `${initialYearScrollKey ?? "year"}:${yearScrollSyncedKey === initialYearScrollKey ? "synced" : "visual"}:${trackPxWidth > 0 ? "ready" : "pending"}`
     : `${granularity}:${trackPxWidth > 0 ? "ready" : "pending"}`;
 
-  const cardLayouts = useMemo<TimelineCardLayout[]>(() => {
-    if (timelineDateEntries.length === 0) return [];
-    if (usesFitAxis && (!Number.isFinite(pxPerDay) || pxPerDay <= 0)) return [];
-    const layouts: TimelineCardLayout[] = [];
-    const trackWidth = usesScrollableAxis ? axis.totalW : trackPxWidth;
-    const unscheduledWidth = Math.max(
-      96,
-      Math.min(
-        UNSCHEDULED_CARD_WIDTH,
-        trackWidth > 0
-          ? Math.max(96, trackWidth - UNSCHEDULED_CARD_LEFT - 8)
-          : UNSCHEDULED_CARD_WIDTH,
-      ),
-    );
-    for (const [localIdx, row] of renderedRows.entries()) {
-      const rIdx = virtualRows.start + localIdx;
-      let rowHasScheduledCard = false;
-      for (const entry of timelineDateEntries) {
-        const range = getRange(row.cells[entry.columnId]);
-        if (!range) continue;
-        const cardTitle = timelineCardTitle(row, entry);
-        let visStart = Math.max(range.start, axis.minT);
-        let visEnd = Math.min(range.end, axis.maxT);
-        if (visEnd < axis.minT || visStart > axis.maxT) continue;
-        if (isWeekAxis) {
-          const clamped = clampToWeekday(visStart, visEnd);
-          if (!clamped) continue;
-          visStart = clamped.start;
-          visEnd = clamped.end;
-        }
-        const left = dayToX(visStart);
-        const width = Math.max(dayWidth(visStart, visEnd), 24);
-        const dateLabel = `${fmtDate(range.start)} ~ ${fmtDate(range.end)}`;
-        layouts.push({
-          id: makeTimelineCardId(row.pageId, entry.columnId),
-          row,
-          pageId: row.pageId,
-          columnId: entry.columnId,
-          columnName: entry.columnName,
-          title: cardTitle,
-          color: resolveTimelineCardColor(row.cells, entry.columnId, entry.color),
-          start: visStart,
-          end: visEnd,
-          left,
-          width,
-          top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
-          dateLabel,
-          showDateLabel: visibleTimelineColumnIdSet ? visibleTimelineColumnIdSet.has(entry.columnId) : true,
-          tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
-        });
-        rowHasScheduledCard = true;
-      }
-      // 날짜가 하나도 지정되지 않은 행 → 미등록(흰색) 카드 1개를 항목열 우측에 표시한다.
-      // (날짜 컬럼이 여러 개여도 항상 표시 — LC 스케줄러 타임라인과 동일 동작)
-      if (!rowHasScheduledCard) {
-        const entry =
-          timelineDateEntries.find((e) => e.isPrimary) ?? timelineDateEntries[0];
-        if (entry) {
-          const cardTitle = timelineCardTitle(row, entry);
-          const dateLabel = "날짜 없음";
-          layouts.push({
-            id: makeTimelineCardId(row.pageId, entry.columnId),
-            row,
-            pageId: row.pageId,
-            columnId: entry.columnId,
-            columnName: entry.columnName,
-            title: cardTitle,
-            color: resolveTimelineCardColor(row.cells, entry.columnId, entry.color),
-            start: axis.minT,
-            end: axis.minT,
-            left: UNSCHEDULED_CARD_LEFT,
-            width: unscheduledWidth,
-            top: rIdx * (ROW_HEIGHT + ROW_GAP) + 2,
-            dateLabel,
-            showDateLabel: visibleTimelineColumnIdSet ? visibleTimelineColumnIdSet.has(entry.columnId) : true,
-            tooltipText: `${cardTitle} · ${entry.columnName} (${dateLabel})`,
-            isUnscheduled: true,
-          });
-        }
-      }
-    }
-    return layouts;
-  }, [
-    axis.maxT,
-    axis.minT,
-    axis.totalW,
+  const { cardLayouts, getCardsInRect } = useTimelineCardLayouts({
+    timelineDateEntries,
+    renderedRows,
+    virtualRowsStart: virtualRows.start,
+    axis,
+    pxPerDay,
     dayToX,
     dayWidth,
     isWeekAxis,
-    pxPerDay,
-    renderedRows,
-    timelineDateEntries,
-    trackPxWidth,
     usesFitAxis,
     usesScrollableAxis,
+    trackPxWidth,
     visibleTimelineColumnIdSet,
-    virtualRows.start,
-  ]);
-
-  const getCardsInRect = useCallback(
-    (rect: TimelineBoxRect) => {
-      const left = Math.min(rect.startX, rect.endX);
-      const right = Math.max(rect.startX, rect.endX);
-      const top = Math.min(rect.startY, rect.endY);
-      const bottom = Math.max(rect.startY, rect.endY);
-      const next = new Set<string>();
-      for (const card of cardLayouts) {
-        if (
-          rectsIntersect(
-            left,
-            right,
-            top,
-            bottom,
-            card.left,
-            card.left + card.width,
-            card.top,
-            card.top + ROW_HEIGHT - 4,
-          )
-        ) {
-          next.add(card.id);
-        }
-      }
-      return next;
-    },
-    [cardLayouts],
-  );
+  });
 
   useEffect(() => {
     const pageIds = new Set(rows.map((row) => row.pageId));
