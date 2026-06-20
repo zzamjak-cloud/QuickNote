@@ -29,6 +29,12 @@ type Props = {
 // person 미사용 셀이 멤버 변경에 리렌더되지 않도록 selector 가 반환하는 고정 빈 배열.
 const EMPTY_MEMBERS: ReturnType<typeof useMemberStore.getState>["members"] = [];
 
+// cross-store 미구독 셀이 사용할 고정 빈 참조(안정 신원 — 무관 변경에 리렌더 안 됨).
+// 아래 needsCrossStore 가 false 인 컬럼은 pages/databases 를 조회하는 분기에 절대
+// 도달하지 않으므로(타입·값 조건으로 보장) 빈 객체로 대체해도 출력이 동일하다.
+const EMPTY_PAGES: ReturnType<typeof usePageStore.getState>["pages"] = {};
+const EMPTY_DATABASES: ReturnType<typeof useDatabaseStore.getState>["databases"] = {};
+
 function resolveSourceDisplayColumn(
   column: ColumnDef,
   databases: ReturnType<typeof useDatabaseStore.getState>["databases"],
@@ -75,8 +81,21 @@ export const DatabaseCellDisplay = memo(function DatabaseCellDisplay({
   textClassName,
   rowId,
 }: Props) {
-  const databases = useDatabaseStore((s) => s.databases);
-  const pages = usePageStore((s) => s.pages);
+  // pages/databases 횡단 조회가 실제로 필요한 컬럼만 구독한다. 그 외 일반 셀
+  // (text/number/date/checkbox/status/select 등 단일 값)은 구독을 생략해, 무관한
+  // 행/페이지 변경이 같은 뷰의 전체 표시셀 리렌더로 번지는 것을 차단한다.
+  //  - sourceFromDb/파생/pageLink/itemFetch/dbLink/progress: pages·databases 조회 필요
+  //  - 배열 값: 하단 암묵적 page-id 제목 폴백이 pages 를 조회(비배열 값은 폴백이 항상 null이라 무관)
+  const needsCrossStore =
+    Boolean(column.config?.sourceFromDb)
+    || isCellValueDerived(column)
+    || column.type === "pageLink"
+    || column.type === "itemFetch"
+    || column.type === "dbLink"
+    || column.type === "progress"
+    || Array.isArray(value);
+  const databases = useDatabaseStore((s) => (needsCrossStore ? s.databases : null)) ?? EMPTY_DATABASES;
+  const pages = usePageStore((s) => (needsCrossStore ? s.pages : null)) ?? EMPTY_PAGES;
   // members 는 person 표시에서만 사용 — 그 외 컬럼은 멤버 변경에 리렌더되지 않도록 구독 생략.
   // sourceFromDb 는 displayColumn 이 person 으로 해석될 수 있어 함께 포함(누락 방지).
   const mayUseMembers = column.type === "person" || Boolean(column.config?.sourceFromDb);

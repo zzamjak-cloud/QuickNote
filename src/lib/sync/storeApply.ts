@@ -161,17 +161,11 @@ function gqlPageMetaToLocalPage(p: GqlPageMeta, local?: Page): Page {
 }
 
 /** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다.
- *  _qn_isTemplate 마커가 있는 페이지는 템플릿이므로 행 목록에서 제외한다. */
+ *  _qn_isTemplate 마커가 있는 페이지는 템플릿이므로 행 목록에서 제외한다.
+ *  필터/정렬 규칙을 배치 버전과 한곳에서 공유해 두 경로가 어긋나지 않게 한다
+ *  (단건 호출은 구독 이벤트당 1회이므로 1회 pages 순회 비용은 동일하게 유지). */
 function collectRowPageIdsForDatabase(databaseId: string): string[] {
-  const pages = usePageStore.getState().pages;
-  return Object.values(pages)
-    .filter(
-      (page) =>
-        page.databaseId === databaseId &&
-        page.dbCells?.["_qn_isTemplate"] !== "1",
-    )
-    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
-    .map((page) => page.id);
+  return collectRowPageIdsForDatabases(new Set([databaseId])).get(databaseId) ?? [];
 }
 
 function collectRowPageIdsForDatabases(databaseIds: Set<string>): Map<string, string[]> {
