@@ -62,6 +62,18 @@
 ## 박스 선택 감지
 `MutationObserver`로 `document.body.classList` 변화를 감시. `qn-box-select-tracking` / `qn-box-select-dragging` 클래스 유무로 `boxSelecting` 상태를 동기화한다.
 
+## 파일 구조 (`blockHandles/` 디렉토리)
+
+`BlockHandles.tsx`에서 분리된 서브모듈(동작 보존 리팩토링):
+
+| 파일 | 역할 |
+|------|------|
+| `BlockHandlesTypes.ts` | `PinnedCommentBadge`, `DownloadNotice` 등 컴포넌트 공유 타입 |
+| `blockTypeFlags.ts` | `computeBlockTypeFlags` — hover/editor 읽기만 의존하는 순수 블록 타입 판별 플래그 |
+| `DownloadNoticeToast.tsx` | 첨부 다운로드 진행/성공/실패 토스트 서브컴포넌트 (우하단 고정) |
+| `helpers.ts` | 좌표 계산, 호버 판별, 타입 메뉴 상수 등 순수 헬퍼·상수 모음 |
+| `HoverMenuRow.tsx` | 서브메뉴 `HoverMenuRow`/`HoverMenuGroup` 컴포넌트 |
+
 ## 의존 관계
 
 ### 사용하는 유틸 (blockHandles/helpers)

@@ -19,6 +19,29 @@
 ## AppSync 연동
 스케줄 생성/수정/삭제 → AppSync 뮤테이션 + 구독 실시간 반영
 
+## Mutation 견고화 (`schedulerMutationResilience.ts`)
+
+`runSchedulerMutation` 래퍼가 모든 스케줄러 뮤테이션에 적용된다(`schedulerHolidaysApi`, `schedulerMmApi`, `schedulerProjectsApi`).
+
+**동작 원칙**
+- **성공 경로**: 반환값을 그대로 전달, 재시도/보고 없음.
+- **일시적 네트워크 오류** (`timed_out`, `timeout`, `failed to fetch`, `NetworkError` 등): `retryable: true` op에 한해 최초 1회 + 재시도 최대 2회(백오프: 400ms → 800ms). 재시도 소진 후에도 실패하면 `reportNonFatal`로 보고 후 호출처로 재던짐(fail-closed).
+- **비일시적 오류**(서버 검증 등): 재시도 없이 즉시 보고·재던짐.
+
+**retryable 분류 기준**
+
+| Op 유형 | `retryable` | 이유 |
+|---------|-------------|------|
+| update / delete / upsert (id 주소지정) | `true` | 멱등 → 재시도 안전 |
+| create (서버 id 할당) | `false` | 비멱등 → 중복 생성 위험 |
+| lock / unlock / review | `false` | 상태 전이 → 이중 적용 위험 |
+
+list 계열(조회)은 이 래퍼를 거치지 않는다.
+
+## 피처뷰 행 표시
+
+스케줄러 모달의 피처 뷰에서 행이 비어 보이던 문제가 수정됐다. 로드 scope 메커니즘 상세는 `wiki/sync/external-protected-database-load.md` 참조.
+
 ## 헤더 (`SchedulerHeader.tsx`)
 
 - **제목 = 스코프 드롭다운**: 캘린더 아이콘 오른쪽 제목 영역 자체가 조직/팀/프로젝트 선택 `ScopeSelectDropdown`. 선택값이 곧 제목이 되며 뒤에 "일정" 표기. (별도 정적 `<h1>` 없음)

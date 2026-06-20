@@ -4,7 +4,16 @@
 
 ## 파일 구성
 
-blockHandles 디렉토리에는 현재 `helpers.ts` 단일 파일이 존재한다. 핸들 UI 렌더링 컴포넌트(`BlockHandles.tsx`)는 상위 `editor/` 디렉토리에 위치하며, helpers.ts는 그 컴포넌트에서 분리된 순수 헬퍼 모음이다.
+`BlockHandles.tsx` 1620줄 → 하위 디렉토리로 분할(동작 보존 리팩토링). 파일별 역할:
+
+| 파일 | 역할 |
+|------|------|
+| `src/components/editor/BlockHandles.tsx` | 블록 핸들 오버레이 메인 컴포넌트 (이벤트·상태·렌더링) |
+| `src/components/editor/blockHandles/BlockHandlesTypes.ts` | `PinnedCommentBadge`, `DownloadNotice` 등 컴포넌트 공유 타입 정의 |
+| `src/components/editor/blockHandles/blockTypeFlags.ts` | `computeBlockTypeFlags` — hover/editor 읽기만 의존하는 순수 블록 타입 판별 플래그 계산 |
+| `src/components/editor/blockHandles/DownloadNoticeToast.tsx` | 첨부 다운로드 진행/성공/실패 토스트 JSX 서브컴포넌트 (우하단 고정) |
+| `src/components/editor/blockHandles/helpers.ts` | 좌표 계산, 호버 판별, 타입 메뉴 상수 등 순수 헬퍼·상수 모음 |
+| `src/components/editor/blockHandles/HoverMenuRow.tsx` | 서브메뉴 hover gap 문제 해결용 `HoverMenuRow`/`HoverMenuGroup` 컴포넌트 |
 
 ---
 

@@ -19,6 +19,23 @@ entries 가 있으면 → 뮤테이션이 서버에 전달되지 않은 것 (CDK
 2. 인터넷 오프라인
 3. AppSync API Key 만료
 
+## OutboxAdapter.count() — soft 상한 감지
+
+`OutboxAdapter` 인터페이스에 optional `count?(): Promise<number>` 메서드가 있다.
+엔진은 `enqueueNow` → `upsertByDedupe` 직후 `maybeWarnOutboxBacklog()`를 호출해 대기 entry 수를 점검한다(throttle 60s).
+
+| 어댑터 | 구현 방식 |
+|--------|-----------|
+| `adapter.web.ts` | Dexie `db.entries.count()` |
+| `adapter.tauri.ts` | `SELECT COUNT(*) AS c FROM outbox_entries` |
+| `adapter.memory.ts` | `byId.size` |
+
+`count()`가 없는 어댑터는 `list(OUTBOX_SOFT_CAP + 1).length`로 폴백한다.
+
+**soft 상한 초과 시 동작**: `console.warn` + `useUiStore.showToast` 에러 토스트.
+**entry는 절대 버리지 않음** — soft 상한은 비정상 누적(stuck flush / 폭주 enqueue)을 알리는 관측 신호이고 데이터 유실은 0.
+진단 실패(예외)는 try/catch로 삼켜 enqueue 데이터 경로에 영향을 주지 않는다.
+
 ## upsertPage input 구성 (단일 매퍼)
 
 `upsertPage` outbox payload(GraphQL input)는 손작성하지 않고 **`toUpsertPageInput()`** 단일 매퍼로 구성한다.

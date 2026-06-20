@@ -35,13 +35,16 @@ op 별 **실행/삭제판정/supersede/tombstone** 배선은 engine 안의 switc
 | `TRANSIENT_RETRY_DELAY_MS` | 4,000 | 네트워크 일시 오류 재시도 대기 |
 | `TRANSIENT_LOG_THROTTLE_MS` | 15,000 | 반복 네트워크 오류 로그 throttle |
 | `DEAD_LETTER_TTL_MS` | 30일 | 영구 실패 항목 자동 만료 TTL |
+| `OUTBOX_SOFT_CAP` | 5,000 | 정상 대기 entry 경고 soft 상한 (초과해도 entry 유실 없음) |
+| `OUTBOX_CAP_WARN_THROTTLE_MS` | 60,000 | soft 상한 경고 throttle 간격(ms) |
 
 ## 주요 메서드
 | 메서드 | 파라미터 | 반환값 | 설명 |
 |--------|---------|--------|------|
-| `enqueuePayload` | op, payload | `Promise<void>` | outbox에 항목 추가 (dedupe key로 중복 압축) |
+| `enqueue` | op, payload | `Promise<void>` | outbox에 항목 추가 (dedupe key로 중복 압축). 내부적으로 직렬 큐(`enqueueTail`)로 순서 보장 |
 | `flush` | — | `Promise<void>` | outbox 배치를 순서대로 mutation 전송 |
 | `scheduleFlush` | `delayMs` | `void` | 지정 지연 후 flush 예약 |
+| `maybeWarnOutboxBacklog` | — | `Promise<void>` | 대기 entry 수가 `OUTBOX_SOFT_CAP` 초과 시 throttle(60s)로 warn + toast. entry 절대 미삭제. 예외 삼킴 |
 | `getPendingUpsertEntityIds` | — | `Promise<{pages, databases}>` | 아직 전송 중인 엔티티 id 집합 반환 |
 | `purgePendingForPageIds` | `ids` | `Promise<void>` | 특정 페이지 id 의 outbox 항목 전부 제거 |
 | `clearAll` | — | `Promise<void>` | outbox 전체 삭제 |
@@ -71,7 +74,7 @@ op 별 **실행/삭제판정/supersede/tombstone** 배선은 engine 안의 switc
 - `useUiStore` (워크스페이스 로그 목적)
 
 ## 주의사항
-- `MAX_ATTEMPTS`를 초과한 항목은 silent drop됨 — stuck-head(후속 항목 처리 차단) 방지가 목적
+- `MAX_ATTEMPTS`를 초과한 항목은 dead-letter로 이동 후 outbox에서 제거됨 — stuck-head(후속 항목 처리 차단) 방지가 목적
 - `clientPrefsJson` v2 포맷은 서버로 보내기 전 v1으로 정규화 (`normalizeClientPrefsJsonForServer`, 현재 `syncOpRegistry.ts` 의 `updateMyClientPrefs.execute` 안)
 - `purgePendingForPageIds`는 휴지통 영구삭제 직후 반드시 호출해야 함. 미호출 시 upsert가 flush되어 서버에 페이지가 재생성(되살아남)됨
 - dead letter TTL이 만료된 항목은 `flush()` 진입 시 `pruneExpiredDeadLetters`로 자동 정리

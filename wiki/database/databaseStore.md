@@ -3,8 +3,27 @@
 ## 역할
 데이터베이스(열, 행, 셀, 필터, 프리셋, 템플릿) 전체 로컬 상태를 관리하는 Zustand persist 스토어.
 
-## 위치
-`src/store/databaseStore.ts`
+## 위치 / 파일 구성
+
+| 파일 | 역할 |
+|------|------|
+| `src/store/databaseStore.ts` | store 본문 (848줄). 상태·타입 정의, createDatabase/deleteDatabase 등 인라인 액션, 두 슬라이스 합성 |
+| `src/store/databaseStore/actions/columnActions.ts` | `createColumnActions(set, get)` — 컬럼 슬라이스 |
+| `src/store/databaseStore/actions/rowActions.ts` | `createRowActions(set, get)` — 행·셀 슬라이스 |
+| `src/store/databaseStore/helpers.ts` | 공유 헬퍼 함수 (enqueueUpsertDatabase 등) |
+| `src/store/databaseStore/migrations.ts` | persist 마이그레이션·상수 |
+
+### 슬라이스 합성 패턴
+
+두 슬라이스 모두 `StoreApi<DatabaseStore>["setState" | "getState"]` 를 타입 별칭으로 사용한다.
+
+```ts
+// databaseStore.ts (L399, L401)
+...createColumnActions(set, get),
+...createRowActions(set, get),
+```
+
+슬라이스 함수는 동작을 보존(behavior-preserving)하는 단순 추출이다. 외부 인터페이스(`DatabaseStore` 타입)·persist 스키마·동기화 흐름은 변경 없음.
 
 ## 주요 exports
 | 이름 | 종류 | 설명 |
@@ -24,26 +43,51 @@
 | `dbTemplates` | `Record<string, DatabaseTemplate[]>` | DB별 템플릿 목록 (로컬 전용) |
 
 ## 주요 액션
+
+### store 본문 인라인 액션 (databaseStore.ts)
 | 액션 | 파라미터 | 설명 |
 |------|---------|------|
 | `createDatabase` | `(title?: string) => string` | 새 DB 생성, ID 반환 |
 | `deleteDatabase` | `(id: string) => void` | DB 영구 삭제. 블록만 지울 때는 호출하지 않음 |
 | `setDatabaseTitle` | `(id, title) => boolean` | 제목 변경. 정규화 후 중복이면 false 반환 |
 | `patchDatabasePanelState` | `(databaseId, patch) => void` | 필터 프리셋 탭·뷰 설정을 동기화 payload에 반영 |
-| `addRow` | `(databaseId) => string` | 새 행(Page) 생성, pageId 반환 |
-| `importRowsBatch` | `(databaseId, existingSeedPageId, rows) => string[]` | 여러 행 일괄 가져오기 |
-| `deleteRow` | `(databaseId, pageId) => void` | 행 삭제 |
-| `setCellValue` | `(databaseId, pageId, columnId, value) => void` | 셀 값 설정 |
-| `updatePageLinkCell` | `(databaseId, pageId, columnId, linkedPageId) => void` | 현재 pageLink 셀만 업데이트. 복사/역방향 쓰기 없음 |
-| `orderedPageIds` | `(databaseId) => string[]` | 정렬된 행 ID 목록 반환 |
-| `attachPageAsRow` | `(databaseId, pageId) => void` | 기존 페이지를 DB 행으로 연결 |
-| `detachRowToNormalPage` | `(databaseId, pageId) => void` | DB 행을 일반 페이지로 분리 |
-| `restoreDeletedRowFromHistory` | `(databaseId, tombstoneId) => boolean` | 삭제된 행 복원(로컬 톰스톤). 복원 시 페이지 삭제 가드 해제 필수 |
+| `applyCollabDbStructure` | `(databaseId, structure) => void` | 협업 Y-doc 구조를 store에 반영 |
+| `seedCollabRowsFromStore` | `(databaseId) => void` | 협업 doc에 현재 store 행을 시드 |
 | `getBundle` | `(databaseId) => DatabaseBundle \| undefined` | DB 번들 조회 |
 | `resolveBundle` | `(databaseId) => DatabaseBundle \| undefined` | getBundle 별칭 |
-| `createTemplate` | `(databaseId, pageId) => string` | 템플릿 생성, pageId 반환 |
+| `addTemplate` | `(databaseId) => string` | 템플릿 생성, templateId 반환 |
 | `updateTemplate` | `(databaseId, templateId, patch) => void` | 템플릿 수정 |
 | `deleteTemplate` | `(databaseId, templateId) => void` | 템플릿 삭제 (연결 페이지 포함) |
+| `applyTemplate` | `(databaseId, templateId) => string` | 템플릿으로 새 행 생성, pageId 반환 |
+| `addPreset` | `(databaseId, preset?) => string` | 행 프리셋 추가, presetId 반환 |
+| `updatePreset` | `(databaseId, presetId, patch) => void` | 행 프리셋 수정 |
+| `deletePreset` | `(databaseId, presetId) => void` | 행 프리셋 삭제 |
+| `applyPresetToRow` | `(databaseId, pageId, presetId) => boolean` | 행에 프리셋 적용 |
+
+### columnActions 슬라이스 (actions/columnActions.ts)
+`createColumnActions(set, get): Pick<DatabaseStore, "addColumn"|"updateColumn"|"removeColumn"|"moveColumn">`
+
+| 액션 | 설명 |
+|------|------|
+| `addColumn` | 컬럼 추가, columnId 반환 |
+| `updateColumn` | 컬럼 정의 수정 |
+| `removeColumn` | 컬럼 삭제 (해당 컬럼 셀 전체 제거) |
+| `moveColumn` | 컬럼 순서 이동 |
+
+### rowActions 슬라이스 (actions/rowActions.ts)
+`createRowActions(set, get): Pick<DatabaseStore, "addRow"|"importRowsBatch"|"deleteRow"|"updateCell"|"updatePageLinkCell"|"setRowOrder"|"attachPageAsRow"|"detachRowToNormalPage"|"restoreDeletedRowFromHistory">`
+
+| 액션 | 설명 |
+|------|------|
+| `addRow` | 새 행(Page) 생성, pageId 반환 |
+| `importRowsBatch` | 여러 행 일괄 가져오기, 단일 setState로 flicker 최소화 |
+| `deleteRow` | 행 삭제 (캐시-only 행도 처리) |
+| `updateCell` | 셀 값 설정 |
+| `updatePageLinkCell` | pageLink 셀만 업데이트. 복사/역방향 쓰기 없음 |
+| `setRowOrder` | 행 순서 재정렬 |
+| `attachPageAsRow` | 기존 페이지를 DB 행으로 연결 |
+| `detachRowToNormalPage` | DB 행을 일반 페이지로 분리 |
+| `restoreDeletedRowFromHistory` | 삭제된 행 복원(로컬 톰스톤). 복원 시 페이지 삭제 가드 해제 필수 |
 
 ## persist 설정
 | 항목 | 값 |
@@ -65,7 +109,7 @@ DB 변이의 히스토리 기록은 `historyStore.recordDbMutation(databaseId, k
 
 ## 의존 관계
 - **사용하는 스토어**: `usePageStore`, `useHistoryStore`(`recordDbMutation`/`recordPageMutation`), `useWorkspaceStore`
-- **사용하는 유틸**: `src/store/databaseStore/helpers.ts`, `src/store/databaseStore/migrations.ts`, `src/store/databaseStore/actions/columnActions.ts`
+- **사용하는 유틸**: `src/store/databaseStore/helpers.ts`, `src/store/databaseStore/migrations.ts`, `src/store/databaseStore/actions/columnActions.ts`, `src/store/databaseStore/actions/rowActions.ts`
 - **동기화**: `enqueueUpsertDatabase`, `enqueueUpsertPageRaw` (AppSync outbox)
 - **이 스토어를 사용하는 주요 파일**: `DatabaseBlockView.tsx`, `DatabaseTableView`, `DatabaseTimelineView`, `DatabaseGalleryView`, `Bootstrap.tsx`
 
@@ -75,6 +119,6 @@ DB 변이의 히스토리 기록은 `historyStore.recordDbMutation(databaseId, k
 - 행 추가 시 활성 필터를 통과하는 값을 해당 컬럼에 자동 주입하여 필터 상태에서도 새 행이 즉시 보이도록 한다. 배열로 시드해야 하는 타입은 `helpers.ts` 의 `ARRAY_VALUED_COLUMN_TYPES`(이제 `COLUMN_TYPE_META.arrayValued` 에서 파생) 기준.
 - `importRowsBatch`는 단일 `pageStore.setState`로 일괄 반영해 렌더 flicker를 최소화한다.
 - `migrationQuarantine` 배열은 자동 복구 실패 데이터 보존용이므로 절대 삭제하지 않는다.
-- 컬럼 액션(`addColumn`, `deleteColumn`, `updateColumn` 등)은 `createColumnActions`로 별도 분리됨 (`src/store/databaseStore/actions/columnActions.ts`).
+- 컬럼 액션 4개(`addColumn`, `updateColumn`, `removeColumn`, `moveColumn`)는 `createColumnActions`로, 행·셀 액션 9개는 `createRowActions`로 슬라이스 분리됨. 나머지(createDatabase/preset/template/collab 등)는 여전히 store 본문 인라인. 두 슬라이스 모두 동작 보존(behavior-preserving) 추출이며 외부 인터페이스 변경 없음.
 - `pageLinkAutoFill`, `pageLinkAutoReverse`, `pageLinkReverseColumnName`은 제거된 legacy config다. normalize/migration에서 제거하며, pageLink는 참조 해석만 담당한다.
 - LC Scheduler/Feature 보호 DB의 기존 참조 컬럼은 persist v5에서 `sourceFromDb`/`itemFetch` 구조로 보정된다.
