@@ -508,14 +508,10 @@ export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
 
   return (
     <div className="border-t border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
-      <div className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">
-        페이지 연결 자동화
-      </div>
-
       <div className="space-y-2">
-        {/* 연결 DB */}
+        {/* 연결 DB 필터링 — 수동 페이지 연결 시 고를 수 있는 페이지의 범위 DB */}
         <div>
-          <div className="text-[10px] uppercase text-zinc-400">연결 DB</div>
+          <div className="text-[10px] uppercase text-zinc-400">연결 DB 필터링</div>
           <AppSelect
             value={scopeDbId ?? ""}
             onChange={setScopeDb}
@@ -528,10 +524,10 @@ export function PageLinkScopeEditor({ databaseId, column }: CommonProps) {
           />
         </div>
 
-        {/* 연결 대상 DB에서 가져올 컬럼 */}
+        {/* 연결 대상 DB에서 컬럼값 자동으로 가져오기 */}
         {scopeDb && (
           <div>
-            <div className="text-[10px] uppercase text-zinc-400">가져올 컬럼</div>
+            <div className="text-[10px] uppercase text-zinc-400">컬럼값 자동으로 가져오기</div>
             <AppSelect
               value={mirrorColumnId}
               onChange={setMirrorColumnId}
