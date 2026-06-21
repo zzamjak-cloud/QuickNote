@@ -95,6 +95,14 @@ export const Indentation = Extension.create({
         const { state } = editor;
         const { schema } = state;
 
+        // Tab 폴백으로 리스트 컨테이너에 적용된 indent 속성이 있으면 먼저 줄인다.
+        // liftListItem 보다 우선해야 root 항목이 통째로 리스트에서 빠져
+        // 일반 텍스트(글머리·체크박스 소실)가 되는 것을 막는다.
+        const target = findIndentTarget(state.selection.$from);
+        if (target && ((target.node.attrs.indent as number) || 0) > 0) {
+          return applyIndent(editor, -1);
+        }
+
         // 리스트 아이템 안에 있으면 lift (중첩 해제)
         if (schema.nodes.listItem) {
           if (liftListItem(schema.nodes.listItem)(state, editor.view.dispatch))
@@ -104,7 +112,6 @@ export const Indentation = Extension.create({
           if (liftListItem(schema.nodes.taskItem)(state, editor.view.dispatch))
             return true;
         }
-        // 더 lift 할 수 없으면: 리스트 컨테이너 indent 속성을 줄인다(root 글머리 대응).
         return applyIndent(editor, -1);
       },
     };
