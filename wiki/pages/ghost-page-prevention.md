@@ -85,7 +85,7 @@ persist 된 탭이 { databaseId: X } (풀페이지 DB 탭)
 
 라이브에서 같은 DB("아트 직군 살롱 지식 DB", `c5ce2a99`)의 풀페이지 홈이 날짜별로 미태깅 중복 생성되어 유령으로 반복 노출됐다.
 
-원인: **Notion CSV 폴더 임포트**(`src/components/settings/NotionCsvFolderSection.tsx`)가 DB 홈 페이지를 `createPage` + `updateDoc(databaseBlock)` 로 만들면서 페이지 레벨 `fullPageDatabaseId`(및 명시 `layout: "fullPage"`)를 설정하지 않았다. 서버 `upsertPage` 는 input 을 그대로 저장하므로(필드를 버리지 않음) 클라이언트가 안 보낸 것이 원인. 미태깅 홈은 메타 베이스라인에서 doc 폴백이 안 돼 사이드바에 노출되고, 델타 부트라 prune(`reconcileWorkspaceFullSnapshot`)도 안 돼 삭제해도 재동기화로 부활한다.
+원인: **Notion CSV 폴더 임포트**(`src/components/settings/NotionCsvFolderSection.tsx`)가 DB 홈 페이지를 `createPage` + `updateDoc(databaseBlock)` 로 만들면서 페이지 레벨 `fullPageDatabaseId`(및 명시 `layout: "fullPage"`)를 설정하지 않았다. 서버 `upsertPage` 는 input 을 그대로 저장하므로(필드를 버리지 않음) 클라이언트가 안 보낸 것이 원인. 미태깅 홈은 메타 베이스라인에서 doc 폴백이 안 돼 사이드바에 노출되고, 델타 부트라 페이지 prune(`reconcileWorkspacePagesFullSnapshot`)도 안 돼 삭제해도 재동기화로 부활한다.
 
 수정:
 - 임포트가 홈 생성 시 `layout: "fullPage"` 를 명시하고 `pageStore.markFullPageDatabaseHome(pageId, dbId)` 로 태깅한다.
@@ -114,7 +114,7 @@ persist 된 탭이 { databaseId: X } (풀페이지 DB 탭)
 
 - **ghost 재발 조건**: `upsertPage` 호출 시 `fullPageDatabaseId`를 빠뜨리면 레거시 폴백에만 의존하게 된다. 폴백은 doc 본문이 로드된 후에만 동작하므로 메타 베이스라인 경로에서 사이드바에 순간 노출될 수 있다.
 - **수동 제거된 ghost**: localStorage 캐시에 `fullPageDatabaseId` 없이 저장된 기존 ghost는 재동기화 전까지 표시될 수 있다. F5(재동기화)로 해결.
-- **reconcileWorkspaceFullSnapshot**: ghost 제거(prune)는 전체 스냅샷에서만 실행된다. 델타 동기화 중에는 실행되지 않는다.
+- **페이지 prune(`reconcileWorkspacePagesFullSnapshot`)**: ghost 페이지 제거는 전체 스냅샷에서만 실행된다. 델타 동기화 중에는 실행되지 않는다. (DB 좀비 prune 은 DB 를 항상 전체 조회하므로 델타에서도 실행됨 — `wiki/sync/incremental-sync.md` 참고.)
 - **landing 가드를 끄지 말 것**: `landingForceFirstRoot` 를 false 로 되돌리거나 `isRestorableLandingPage` 의 풀페이지 DB 홈/DB 탭 배제를 풀면 복원된 DB 탭이 다시 ghost 를 만든다. "활성 탭은 DB 탭/풀페이지 홈이 아니어야 한다"는 불변식은 유지하되, 안전한 일반 페이지 복원은 허용된다.
 - **초기 `?page=` 복원 금지**: 새로고침/콜드 부트에서 URL 의 stale `?page` 를 먼저 열면 landing 결과를 다시 덮는다. 최초 마운트는 landing 을 권위로 두고, URL 은 active page 확정 후 교정한다.
 

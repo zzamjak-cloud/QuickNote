@@ -40,17 +40,31 @@ deferred-switch / pending-outbox /
 
 ### 3. 전체 모드 (워크스페이스 전환·캐시 초기화 등)
 - `fetchApplyWorkspaceRemoteSnapshot()` (updatedAfter 없음) — 전체 스냅샷
-- prune (`reconcileWorkspaceFullSnapshot`) 실행 가능한 유일한 경로
+- **페이지** prune (`reconcileWorkspacePagesFullSnapshot`) 가능한 유일한 경로
+
+## DB 는 항상 전체 조회 + 증분에서도 prune (2026-06-21)
+
+DB 목록은 워크스페이스당 소수(보통 수십 개)라 `updatedAfter` 를 무시하고 **항상 전체 조회**한다
+(`fetchDatabasesByWorkspace(workspaceId)`, 댓글이 항상 전체 조회인 것과 동일 패턴). 그 권위 있는
+전체 목록으로 **delta·meta 경로에서도** 좀비 DB 를 prune 한다(`reconcileWorkspaceDatabasesFullSnapshot`).
+
+- **이유**: prune 이 전체 스냅샷 경로에만 있으면, 캐시 보유 복귀 사용자는 항상 delta 만 타므로
+  서버에서 사라진 DB(과거 노션 임포트·삭제 반복으로 로컬 캐시에만 남은 중복 DB)가 영구 잔존했다.
+  → DB 관리 팝업에 **동일 제목 DB 가 2개씩** 표시되는 증상. 서버에는 1건뿐, 로컬 좀비가 원인이었다.
+- 제거 시 그 DB 의 행 페이지(`page.databaseId === 제거된 DB`)도 함께 정리한다.
+- 보존 규칙: `remoteDatabaseIds`(서버 생존)·`pendingUpsertDatabaseIds`(outbox 대기)·보호 DB(LC)·
+  다른 워크스페이스 DB 는 prune 대상에서 제외.
 
 ## 동작
 - 적용 후 모든 도메인(pages·dbs·comments)이 성공하면 워터마크를 **최대 `updatedAt`** 으로 전진.
 - 메타 모드(`fetchApplyWorkspaceRemoteMetaSnapshot`)도 동일하게 워터마크 전진.
 
 ## CRITICAL 회귀 주의
-- **델타 모드에서는 절대 prune 하지 않는다.** `reconcileWorkspaceFullSnapshot`은 **전체 스냅샷에서만** 안전하다. 부분 결과로 prune 하면 변경되지 않은 항목이 전부 삭제된다. (`workspaceSnapshotBootstrap.ts`의 `isDelta` 가드)
+- **페이지는 델타 모드에서 절대 prune 하지 않는다.** `reconcileWorkspacePagesFullSnapshot`은 **전체 스냅샷에서만** 안전하다. 부분 결과로 prune 하면 변경되지 않은 페이지가 전부 삭제된다. (`workspaceSnapshotBootstrap.ts`의 `isDelta` 가드)
+- **DB prune 은 delta 에서도 안전**한데, 오직 DB 를 항상 전체 조회하기 때문이다. DB fetch 를 다시 `updatedAfter` 증분으로 바꾸면 부분 목록으로 prune 하게 되어 멀쩡한 DB 가 삭제된다 — 절대 되돌리지 말 것.
 - **reconcile 콜백에 넘기는 `fetchApply` 는 반드시 전체 모드여야 한다.** `reconcileWorkspaceCacheAfterFlush`는 캐시를 비우고 재페치하므로, 델타로 넘기면 비운 캐시가 일부만 복구된다. (`Bootstrap.tsx`의 `fetchApplyFull`)
 - **워터마크는 모든 도메인 성공 시에만 전진**한다. 한 도메인이라도 실패하면 보류.
-- 하드 삭제(영구삭제/`emptyTrash`)는 구독·델타로 전파되지 않는다 → 다음 **워크스페이스 전환의 전체 prune**에서 정리(설계상 허용).
+- 하드 삭제(영구삭제/`emptyTrash`)된 **페이지**는 구독·델타로 전파되지 않는다 → 다음 **워크스페이스 전환의 전체 prune**에서 정리(설계상 허용). **DB** 는 위처럼 매 동기화 prune 되므로 즉시 정리된다.
 - `listPageMetas` API 미배포 서버에서는 schema 에러 감지 → 경고 로그만 남기고 전체 스냅샷 fallback 대기.
 - `listPageMetas`는 **`byWorkspaceAndUpdatedAt` GSI(ALL 프로젝션)** 를 사용한다. 과거의 `byWorkspaceMetaUpdatedAt`(INCLUDE 프로젝션)은 `fullPageDatabaseId` 같은 신규 속성을 추가할 수 없어 GSI를 교체했다. CDK 배포 없이 Lambda IndexName 변경만으로 전환 가능.
 - **nextToken 미처리 버그 회귀 주의**: `fetchApplyWorkspaceRemoteMetaSnapshot` 내부에서 nextToken 루프를 직접 돌린다. `loadMorePageMetas`(pageMetasLoad.ts)는 별도 외부 호출용이므로 Bootstrap 경로에서 호출하지 않는다.

@@ -38,7 +38,8 @@ src/lib/sync/
 | `applyRemoteDatabaseToStore` | `databaseApply` | GqlDatabase → databaseStore LWW 적용 |
 | `applyRemoteDatabasesToStore` | `databaseApply` | 배치 적용 |
 | `reconcileLCSchedulerRemoteSnapshot` | `storeApply.ts` | LC 스케줄러 증분 스냅샷 적용 전용 |
-| `reconcileWorkspaceFullSnapshot` | `storeApply.ts` | 전체 워크스페이스 set-reconciliation(좀비 청소) |
+| `reconcileWorkspacePagesFullSnapshot` | `storeApply.ts` | 페이지 set-reconciliation(좀비 청소) — 전체 페이지 목록 필요 |
+| `reconcileWorkspaceDatabasesFullSnapshot` | `storeApply.ts` | DB set-reconciliation(좀비 청소) — DB 는 항상 전체 조회라 증분에서도 호출 |
 
 `applyRemoteCommentToStore` / `applyRemoteCommentsToStore` 는 `storeApply/commentApply.ts`에서 직접 export(배럴 경유 안 함 — 호출처가 commentApply 경로로 import).
 
@@ -79,21 +80,21 @@ reconcileLCSchedulerRemoteSnapshot({ pages, databases }): { prunedPageIds: [] }
 
 `applyRemoteDatabasesToStore` + `applyRemotePagesToStore` **적용만** 수행한다. 과거엔 "전체 살아있는 목록에 없는 로컬 행"을 prune 했으나, 호출자(`schedulerStore.reconcileSchedulerWorkspaceFromServer`)가 **증분(delta) fetch** 를 넘기므로 "delta에 없다"는 이유로 멀쩡한 행이 삭제되는 회귀가 있었다. scoped/부분 로딩과 absence prune은 양립 불가 → **prune 제거**. 삭제는 `deletedAt` 전파·구독·scoped 조회로만 반영. `prunedPageIds`는 항상 `[]`.
 
-### reconcileWorkspaceFullSnapshot
+### reconcileWorkspacePagesFullSnapshot / reconcileWorkspaceDatabasesFullSnapshot
 
 ```ts
-reconcileWorkspaceFullSnapshot({
-  workspaceId,
-  remotePageIds,
-  remoteDatabaseIds,
-  pendingUpsertPageIds,
-  pendingUpsertDatabaseIds,
-}): { removedPageIds: string[]; removedDatabaseIds: string[] }
+reconcileWorkspacePagesFullSnapshot({ workspaceId, remotePageIds, pendingUpsertPageIds })
+  : { removedPageIds: string[] }
+reconcileWorkspaceDatabasesFullSnapshot({ workspaceId, remoteDatabaseIds, pendingUpsertDatabaseIds })
+  : { removedDatabaseIds: string[]; removedRowPageIds: string[] }
 ```
 
-Bootstrap 전체 워크스페이스 fetch 직후 호출. 서버에서 영구 삭제된 page/database가 로컬 캐시에 좀비로 남는 현상을 청소한다.
+서버에서 영구 삭제된 page/database가 로컬 캐시에 좀비로 남는 현상을 청소한다.
 
-**규칙**:
+- **페이지**: 전체 페이지 목록이 권위 있을 때만(전체 스냅샷 경로) 호출. 메타 페이지네이션 등 부분 목록으로 호출하면 멀쩡한 페이지를 지운다.
+- **DB**: DB 는 워크스페이스당 소수라 항상 전체 조회하므로(`fetchDatabasesByWorkspace(workspaceId)`) **delta·meta 경로에서도** 호출해 좀비 DB 를 정리한다. 제거 시 그 DB 의 행 페이지(`removedRowPageIds`)도 함께 정리. 자세한 배경: [incremental-sync.md](./incremental-sync.md).
+
+**공통 규칙**:
 1. `remoteIds`에 있는 id → 이미 `applyRemote*`가 처리, 건드리지 않음.
 2. `pendingUpsertIds`에 있는 id(outbox 대기 중) → 보호.
 3. 위 둘 모두 해당 없고 같은 워크스페이스 소속 → 좀비로 판정, 로컬 제거.
