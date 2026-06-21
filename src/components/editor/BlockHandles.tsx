@@ -977,6 +977,31 @@ export function BlockHandles({
                         type="button"
                         onClick={() => {
                           if (!editor) return;
+                          // 박스 다중 선택 시: 선택된 모든 최상위 블록 범위를 TextSelection 으로
+                          // 잡아 타입 명령(setBlockType/toggleList)을 한꺼번에 적용한다.
+                          const multi =
+                            boxSelectedStarts && boxSelectedStarts.length > 1
+                              ? [...boxSelectedStarts].sort((a, b) => a - b)
+                              : null;
+                          if (multi) {
+                            const { doc } = editor.state;
+                            const firstStart = multi[0]!;
+                            const lastStart = multi[multi.length - 1]!;
+                            const lastNode = doc.nodeAt(lastStart);
+                            if (lastNode) {
+                              editor
+                                .chain()
+                                .focus()
+                                .setTextSelection({
+                                  from: firstStart + 1,
+                                  to: lastStart + lastNode.nodeSize - 1,
+                                })
+                                .run();
+                              item.cmd(editor);
+                              setMenuOpen(false);
+                              return;
+                            }
+                          }
                           if (hover) {
                             // wrapper(콜아웃·토글·인용) → 새 타입 적용 시 wrapper를 먼저 unwrap 하여
                             // 내부 블록을 버리지 않고 바깥으로 꺼낸다(이미지·리스트 등 보존).

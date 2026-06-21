@@ -23,6 +23,7 @@ import { OrderedListMarkdownShortcut } from "../../lib/tiptapExtensions/orderedL
 import { ListItemPermissive } from "../../lib/tiptapExtensions/listItemPermissive";
 import { BracketAutoClose } from "../../lib/tiptapExtensions/bracketAutoClose";
 import { InlineCodeShortcut } from "../../lib/tiptapExtensions/inlineCodeShortcut";
+import { ArrowShortcuts } from "../../lib/tiptapExtensions/arrowShortcuts";
 import TextAlign from "@tiptap/extension-text-align";
 import type { createLowlight } from "lowlight";
 import { PageContext } from "../../lib/tiptapExtensions/pageContext";
@@ -215,6 +216,7 @@ export function useEditorExtensions({
       }),
       Indentation,
       InlineCodeShortcut,
+      ArrowShortcuts,
       BracketAutoClose,
       UniqueID.configure({
         types: EDITOR_UNIQUE_ID_TYPES,

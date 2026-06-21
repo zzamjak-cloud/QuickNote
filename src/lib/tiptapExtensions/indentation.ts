@@ -15,22 +15,6 @@ const INDENTABLE_TYPES = new Set([
   "callout",
 ]);
 
-function isInsideList($from: ResolvedPos): boolean {
-  for (let depth = $from.depth; depth >= 0; depth -= 1) {
-    const typeName = $from.node(depth).type.name;
-    if (
-      typeName === "listItem" ||
-      typeName === "taskItem" ||
-      typeName === "bulletList" ||
-      typeName === "orderedList" ||
-      typeName === "taskList"
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function findIndentTarget($from: ResolvedPos) {
   for (let depth = 1; depth <= $from.depth; depth += 1) {
     const node = $from.node(depth);
@@ -92,8 +76,6 @@ export const Indentation = Extension.create({
       Tab: ({ editor }) => {
         const { state } = editor;
         const { schema } = state;
-        const { $from } = state.selection;
-        const insideList = isInsideList($from);
 
         // 리스트 아이템 안에 있으면 sink (중첩)
         if (schema.nodes.listItem) {
@@ -104,17 +86,14 @@ export const Indentation = Extension.create({
           if (sinkListItem(schema.nodes.taskItem)(state, editor.view.dispatch))
             return true;
         }
-        if (insideList) return false;
-
-        // 그 외 블록: 가장 바깥 들여쓰기 대상의 indent 속성 증가
+        // 리스트 첫 항목 등 sink 불가(앞 형제 없음) 시: 리스트 컨테이너 indent
+        // 속성으로 들여쓰기한다(root 글머리도 들여쓰기 가능).
         return applyIndent(editor, 1);
       },
 
       "Shift-Tab": ({ editor }) => {
         const { state } = editor;
         const { schema } = state;
-        const { $from } = state.selection;
-        const insideList = isInsideList($from);
 
         // 리스트 아이템 안에 있으면 lift (중첩 해제)
         if (schema.nodes.listItem) {
@@ -125,9 +104,7 @@ export const Indentation = Extension.create({
           if (liftListItem(schema.nodes.taskItem)(state, editor.view.dispatch))
             return true;
         }
-        if (insideList) return false;
-
-        // 그 외 블록: 가장 바깥 들여쓰기 대상의 indent 속성 감소
+        // 더 lift 할 수 없으면: 리스트 컨테이너 indent 속성을 줄인다(root 글머리 대응).
         return applyIndent(editor, -1);
       },
     };

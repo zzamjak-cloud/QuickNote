@@ -400,7 +400,12 @@ body.quicknote-block-dragging .ProseMirror {
 }
 
 .ProseMirror ul[data-type="taskList"] > li > label {
-  margin-top: 0.2rem;
+  /* 체크박스를 첫 줄 텍스트의 중앙 라인에 맞춘다.
+     라벨 박스 높이를 본문 첫 줄(line-height 1.42 + p margin-top 0.2em)에 맞추고
+     그 안에서 체크박스를 세로 중앙 정렬한다. */
+  display: flex;
+  align-items: center;
+  height: calc(1.42em + 0.2em);
   flex: 0 0 auto;
 }
 
