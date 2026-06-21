@@ -15,102 +15,39 @@ import {
 } from "./htmlToDoc/colors";
 import {
   createDeferredMentionToken,
-  parseDeferredMentionToken,
-  createPageMentionParagraph,
   pageMentionParagraphFromAnchor,
 } from "./htmlToDoc/pageMentions";
+import type { HtmlToDocOptions, NotionCollectionTable } from "./htmlToDoc/types";
+import { textNode, mergeMarks } from "./htmlToDoc/nodes";
+import { textNodesWithAutoLinks } from "./htmlToDoc/inlineText";
+import {
+  imageNodeFromElement,
+  mediaNodeFromElement,
+  maybeMediaBlockFromParagraph,
+} from "./htmlToDoc/media";
+import {
+  youtubeNodeFromUrl,
+  youtubeNodeFromElement,
+} from "./htmlToDoc/youtube";
+import {
+  hasBookmarkStructure,
+  bookmarkBlockFromAnchor,
+  isMapLinkHref,
+  hasDuplicateMapBookmarkAnchor,
+  mapBookmarkBlockFromAnchor,
+  maybeBookmarkBlockFromParagraph,
+} from "./htmlToDoc/bookmark";
+import { codeBlockFromElement } from "./htmlToDoc/code";
+import { normalizeHeadingTitle, buildHeadingTitleIndex } from "./htmlToDoc/headingIndex";
+import { dedupeConsecutiveImportBlocks } from "./htmlToDoc/dedupe";
+import {
+  assetBlockFromAnchor,
+  linkToPageFallbackParagraph,
+  resolveRelativePath,
+  relocateDeferredMentionsInToggleBlocks,
+} from "./htmlToDoc/anchors";
 
-function textNode(text: string, marks?: JSONContent["marks"]): JSONContent {
-  return marks && marks.length > 0 ? { type: "text", text, marks } : { type: "text", text };
-}
-
-function textNodesWithAutoLinks(
-  raw: string,
-  baseMarks: NonNullable<JSONContent["marks"]>,
-): JSONContent[] {
-  const urlRegex = /(https?:\/\/[^\s<>"')]+|www\.[^\s<>"')]+)/g;
-  const out: JSONContent[] = [];
-  let last = 0;
-  let match: RegExpExecArray | null = null;
-  while ((match = urlRegex.exec(raw)) !== null) {
-    const start = match.index;
-    const hit = match[0] ?? "";
-    if (start > last) {
-      out.push(textNode(raw.slice(last, start), baseMarks.length > 0 ? baseMarks : undefined));
-    }
-    const normalized = normalizeImportedLinkHref(hit);
-    if (normalized) {
-      out.push(
-        textNode(
-          summarizeImportedLinkText(hit),
-          mergeMarks(baseMarks, [{ type: "link", attrs: { href: normalized, target: "_blank", rel: "noopener noreferrer nofollow" } }]),
-        ),
-      );
-    } else {
-      out.push(textNode(hit, baseMarks.length > 0 ? baseMarks : undefined));
-    }
-    last = start + hit.length;
-  }
-  if (last < raw.length) {
-    out.push(textNode(raw.slice(last), baseMarks.length > 0 ? baseMarks : undefined));
-  }
-  return out.length > 0 ? out : [textNode(raw, baseMarks.length > 0 ? baseMarks : undefined)];
-}
-
-function mergeMarks(base: NonNullable<JSONContent["marks"]>, extra: NonNullable<JSONContent["marks"]>): NonNullable<JSONContent["marks"]> {
-  const out = [...base];
-  for (const mark of extra) {
-    const exists = out.some((m) => m.type === mark.type && JSON.stringify(m.attrs ?? {}) === JSON.stringify(mark.attrs ?? {}));
-    if (!exists) out.push(mark);
-  }
-  return out;
-}
-
-// Notion 은 이미지 캡션을 <figure class="image"><img/><figcaption>캡션</figcaption></figure>
-// 로 내보낸다. 이미지를 감싸는 figure 의 figcaption 텍스트를 추출한다.
-function figcaptionTextForImage(img: HTMLElement): string | null {
-  const figure = img.closest("figure");
-  if (!figure) return null;
-  const caption = figure.querySelector(":scope > figcaption");
-  const text = (caption?.textContent ?? "").trim();
-  return text.length > 0 ? text : null;
-}
-
-// 캡션 텍스트를 image/video 노드 attrs 에 병합. fileBlock 등은 캡션 미지원이라 그대로 둔다.
-function withCaption(node: JSONContent, caption: string | null): JSONContent {
-  if (!caption || (node.type !== "image" && node.type !== "video")) return node;
-  return { ...node, attrs: { ...(node.attrs ?? {}), caption } };
-}
-
-function imageNodeFromElement(
-  img: HTMLElement,
-  options?: HtmlToDocOptions,
-): JSONContent | null {
-  const rawSrc = img.getAttribute("src") ?? "";
-  if (!rawSrc) return null;
-  const caption = figcaptionTextForImage(img);
-  const custom = options?.resolveMediaNode?.(rawSrc, img) ?? options?.resolveImageNode?.(rawSrc, img);
-  if (custom) return withCaption(custom, caption);
-  const resolved = options?.resolveImageSrc?.(rawSrc) ?? rawSrc;
-  if (!resolved) return null;
-  return {
-    type: "image",
-    attrs: {
-      src: resolved,
-      alt: img.getAttribute("alt") ?? "",
-      ...(caption ? { caption } : {}),
-    },
-  };
-}
-
-function mediaNodeFromElement(
-  el: HTMLElement,
-  options?: HtmlToDocOptions,
-): JSONContent | null {
-  const rawSrc = el.getAttribute("src") ?? el.querySelector("source[src]")?.getAttribute("src") ?? "";
-  if (!rawSrc) return null;
-  return options?.resolveMediaNode?.(rawSrc, el) ?? options?.resolveImageNode?.(rawSrc, el) ?? null;
-}
+export type { NotionCollectionTable } from "./htmlToDoc/types";
 
 // li 내부에서 별도 블록(이미지/동영상/표/콜아웃/컬럼 등) 으로 끌어올릴 자손 셀렉터.
 // 노션은 글머리 항목 안에 이미지·동영상 블록을 자유롭게 배치할 수 있지만, 기존 변환기는
@@ -842,183 +779,6 @@ function tableFromElement(table: HTMLElement): JSONContent {
   };
 }
 
-function codeBlockFromElement(pre: HTMLElement): JSONContent {
-  const codeEl = pre.querySelector("code");
-  const rawText = (codeEl?.textContent ?? pre.textContent ?? "").replace(/\r\n/g, "\n");
-  const languageClass = (codeEl?.className ?? pre.className)
-    .split(/\s+/)
-    .find((cls) => cls.startsWith("language-"));
-  const language = languageClass?.replace(/^language-/, "") || null;
-  return {
-    type: "codeBlock",
-    attrs: language ? { language } : undefined,
-    content: rawText.length > 0 ? [{ type: "text", text: rawText }] : [],
-  };
-}
-
-export type NotionCollectionTable = {
-  headers: string[];
-  rows: Array<{
-    cells: string[];
-    titleLinkPath: string | null;
-    cellMeta: Array<{
-      hasTimeTag: boolean;
-      statusColorToken: string | null;
-      statusLike: boolean;
-      // 다중 선택 옵션 개수 (1 = single-select, 2+ = multi-select)
-      selectedCount: number;
-      // 선택된 옵션들 + 각각의 색 토큰
-      selectedOptions: Array<{ label: string; colorToken: string | null }>;
-      // 사람 속성 (Notion .user / .notion-user / role 아이콘)
-      hasPerson: boolean;
-      personNames: string[];
-    }>;
-  }>;
-};
-
-type HtmlToDocOptions = {
-  onCollectionTable?: (table: NotionCollectionTable) => string | null;
-  resolveImageSrc?: (src: string) => string | null;
-  resolveImageNode?: (src: string, element: HTMLElement) => JSONContent | null;
-  resolveMediaNode?: (src: string, element: HTMLElement) => JSONContent | null;
-  iconReplacementText?: string;
-  currentPagePath?: string;
-  resolvePageMentionByHref?: (href: string) => { pageId: string; label?: string; intraPage?: boolean } | null;
-  deferPageMentions?: boolean;
-  /**
-   * 자기참조(intraPage) 링크 라벨 → 유일하게 일치하는 heading 블록 id 를 해소한다.
-   * 노션 export 는 블록 링크의 #fragment 를 폐기하므로, 라벨↔제목 정확·유일 매칭으로
-   * 안정적 blockId 를 복원한다. 유일 매칭이 아니면 null.
-   */
-  resolveIntraPageBlockId?: (label: string) => string | null;
-};
-
-// 제목 색인용 정규화: 선두 화살표/기호 제거 → 연속 공백 1칸 → 소문자.
-function normalizeHeadingTitle(raw: string): string {
-  return raw
-    .trim()
-    .replace(/^[↑↓→←⬆⬇▲▼]+\s*/u, "")
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
-// document(또는 root element) 의 h1~h6 을 스캔해 (정규화 제목 → { id, count }) 색인을 만든다.
-// id 는 노션 export 의 heading el id attr(uuid). id 빈 heading 은 색인에서 제외.
-function buildHeadingTitleIndex(root: ParentNode): Map<string, { id: string; count: number }> {
-  const index = new Map<string, { id: string; count: number }>();
-  const headings = root.querySelectorAll("h1, h2, h3, h4, h5, h6");
-  headings.forEach((h) => {
-    if (!(h instanceof HTMLElement)) return;
-    const id = (h.getAttribute("id") ?? "").trim();
-    if (!id) return;
-    const key = normalizeHeadingTitle(h.textContent ?? "");
-    if (!key) return;
-    const existing = index.get(key);
-    if (existing) existing.count += 1;
-    else index.set(key, { id, count: 1 });
-  });
-  return index;
-}
-
-// 페이지 멘션 헬퍼는 htmlToDoc/pageMentions.ts 로 이동.
-
-function assetBlockFromAnchor(anchor: HTMLElement, options?: HtmlToDocOptions): JSONContent | null {
-  const href = anchor.getAttribute("href") ?? "";
-  if (!href) return null;
-  if (options?.resolvePageMentionByHref?.(href)) return null;
-  return options?.resolveMediaNode?.(href, anchor) ?? options?.resolveImageNode?.(href, anchor) ?? null;
-}
-
-// link-to-page figure 의 멘션을 해소하지 못했을 때의 폴백.
-// link-to-page 안의 아이콘 <img> 는 장식용이므로 본문 이미지로 떨어뜨리면 안 된다.
-// 대상 페이지를 못 찾으면 최소한 제목 텍스트만 보존한다(아이콘 이미지 누출 방지).
-function linkToPageFallbackParagraph(anchor: HTMLElement): JSONContent | null {
-  const title = (anchor.textContent ?? "").trim();
-  if (!title) return null;
-  return { type: "paragraph", content: [{ type: "text", text: title }] };
-}
-
-function relocateDeferredMentionsInToggleBlocks(blocks: JSONContent[]): JSONContent[] {
-  type MentionPlacement = { insertAt: number; mention: JSONContent };
-  const placements: MentionPlacement[] = [];
-  const cleanedBlocks: JSONContent[] = [];
-  blocks.forEach((block) => {
-    if (block.type !== "paragraph" || !Array.isArray(block.content)) {
-      cleanedBlocks.push(block);
-      return;
-    }
-    const nextContent: JSONContent[] = [];
-    let markerFound = false;
-    for (const inline of block.content) {
-      if (inline.type !== "text" || typeof inline.text !== "string") {
-        nextContent.push(inline);
-        continue;
-      }
-      const text = inline.text;
-      const tokenRegex = /__QN_PM__.+?__/g;
-      let lastIdx = 0;
-      let hasMarker = false;
-      for (const tokenMatch of text.matchAll(tokenRegex)) {
-        hasMarker = true;
-        const token = tokenMatch[0] ?? "";
-        const start = tokenMatch.index ?? 0;
-        if (start > lastIdx) {
-          nextContent.push({ ...inline, text: text.slice(lastIdx, start) });
-        }
-        const parsed = parseDeferredMentionToken(token);
-        if (parsed) {
-          placements.push({
-            insertAt: cleanedBlocks.length + 1,
-            mention: createPageMentionParagraph(parsed.pageId, parsed.label),
-          });
-          markerFound = true;
-        } else {
-          nextContent.push({ ...inline, text: token });
-        }
-        lastIdx = start + token.length;
-      }
-      if (lastIdx < text.length) {
-        nextContent.push({ ...inline, text: text.slice(lastIdx) });
-      } else if (!hasMarker && lastIdx === 0) {
-        nextContent.push(inline);
-      }
-    }
-    const filtered = nextContent.filter((item) => !(item.type === "text" && (item.text ?? "").length === 0));
-    if (filtered.length > 0 || !markerFound) {
-      cleanedBlocks.push({ ...block, content: filtered });
-    } else {
-      placements.forEach((placement) => {
-        if (placement.insertAt === cleanedBlocks.length + 1) placement.insertAt = cleanedBlocks.length;
-      });
-    }
-  });
-  if (placements.length === 0) return cleanedBlocks;
-
-  const tailMentions = placements.map((p) => p.mention);
-  const working = [...cleanedBlocks, ...tailMentions];
-  placements.forEach((placement, idx) => {
-    const mentionFromTail = tailMentions[idx];
-    if (!mentionFromTail) return;
-    const currentIdx = working.indexOf(mentionFromTail);
-    if (currentIdx < 0) return;
-    working.splice(currentIdx, 1);
-    const insertAt = Math.max(0, Math.min(placement.insertAt + idx, working.length));
-    working.splice(insertAt, 0, mentionFromTail);
-  });
-  return working;
-}
-
-function resolveRelativePath(basePath: string, href: string): string {
-  const baseParts = basePath.split("/").slice(0, -1);
-  const hrefParts = href.split("/");
-  for (const part of hrefParts) {
-    if (!part || part === ".") continue;
-    if (part === "..") baseParts.pop();
-    else baseParts.push(part);
-  }
-  return baseParts.join("/");
-}
-
 function inlineFromNode(node: Node, inheritedColor: string | null, inheritedMarks: NonNullable<JSONContent["marks"]>, options?: HtmlToDocOptions): JSONContent[] {
   if (node.nodeType === Node.TEXT_NODE) {
     const raw = node.textContent ?? "";
@@ -1123,54 +883,6 @@ function inlineFromNode(node: Node, inheritedColor: string | null, inheritedMark
   return out;
 }
 
-// YouTube URL → videoId 추출 (watch?v=, youtu.be/, embed/, shorts/, live/ 모두 지원)
-function extractYoutubeVideoId(url: string): string | null {
-  if (!url) return null;
-  const trimmed = url.trim();
-  const patterns = [
-    /(?:youtube\.com\/watch\?(?:.*&)?v=)([A-Za-z0-9_-]{11})/,
-    /youtu\.be\/([A-Za-z0-9_-]{11})/,
-    /youtube\.com\/embed\/([A-Za-z0-9_-]{11})/,
-    /youtube-nocookie\.com\/embed\/([A-Za-z0-9_-]{11})/,
-    /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/,
-    /youtube\.com\/live\/([A-Za-z0-9_-]{11})/,
-    /youtube\.com\/v\/([A-Za-z0-9_-]{11})/,
-  ];
-  for (const re of patterns) {
-    const m = trimmed.match(re);
-    if (m?.[1]) return m[1];
-  }
-  return null;
-}
-
-function youtubeNodeFromUrl(url: string): JSONContent | null {
-  const videoId = extractYoutubeVideoId(url);
-  if (!videoId) return null;
-  return {
-    type: "youtube",
-    attrs: {
-      src: `https://www.youtube.com/watch?v=${videoId}`,
-    },
-  };
-}
-
-// figure 내부의 youtube 링크/iframe 탐지
-function youtubeNodeFromElement(el: HTMLElement): JSONContent | null {
-  const iframe = el.querySelector("iframe[src]");
-  if (iframe instanceof HTMLElement) {
-    const src = iframe.getAttribute("src") ?? "";
-    const node = youtubeNodeFromUrl(src);
-    if (node) return node;
-  }
-  const anchors = Array.from(el.querySelectorAll("a[href]"));
-  for (const a of anchors) {
-    if (!(a instanceof HTMLElement)) continue;
-    const node = youtubeNodeFromUrl(a.getAttribute("href") ?? "");
-    if (node) return node;
-  }
-  return null;
-}
-
 // blockquote → tiptap blockquote 노드 (내부에 paragraph(s) 포함)
 function blockquoteFromElement(
   el: HTMLElement,
@@ -1196,181 +908,6 @@ function blockquoteFromElement(
     attrs: bgToken ? { backgroundColor: bgToken } : undefined,
     content: inner.length > 0 ? inner : [{ type: "paragraph", content: [] }],
   };
-}
-
-/**
- * Notion 의 figure 가 북마크 구조(.bookmark-title / .bookmark-description / .bookmark-href / .bookmark-image)
- * 를 포함하는지 검사. class="bookmark" 가 없는 경우에도 이 구조면 북마크로 우선 변환해야
- * 내부 이미지가 단독 image 블록으로 추출되어 버리는 회귀를 막을 수 있다.
- */
-function hasBookmarkStructure(figure: HTMLElement): boolean {
-  if (figure.classList.contains("bookmark")) return true;
-  return !!figure.querySelector(".bookmark-title, .bookmark-description, .bookmark-href, .bookmark-info");
-}
-
-function bookmarkBlockFromAnchor(anchor: HTMLElement, container?: HTMLElement | null): JSONContent | null {
-  const href = anchor.getAttribute("href") ?? "";
-  const normalizedHref = normalizeImportedLinkHref(href);
-  if (!normalizedHref) return null;
-  const scope: HTMLElement = container ?? anchor;
-  // Notion bookmark 구조 — .bookmark-title / .bookmark-description / .bookmark-image / .bookmark-icon
-  const titleEl = scope.querySelector(".bookmark-title");
-  const descEl = scope.querySelector(".bookmark-description");
-  const hrefEl = scope.querySelector(".bookmark-href");
-  const imgEl = scope.querySelector("img.bookmark-image") || scope.querySelector("img.bookmark-icon");
-  const title = (titleEl?.textContent ?? "").trim()
-    || (anchor.textContent ?? "").trim().split(/\s{2,}|\n/)[0]
-    || normalizedHref;
-  const description = (descEl?.textContent ?? "").trim();
-  const siteName = (hrefEl?.textContent ?? "").trim();
-  const imageUrl = imgEl instanceof HTMLElement ? (imgEl.getAttribute("src") ?? "") : "";
-  // Notion HTML 에서 추출한 메타가 빈약하면 (제목 없음 또는 이미지/설명 모두 빈 경우)
-  // status 를 "loading" 으로 두어 NodeView 가 /api/bookmark 로 라이브 메타 보강을 트리거하도록 함.
-  // 충분한 메타가 있으면 "ready" 로 유지해 불필요한 백엔드 호출을 막는다.
-  const hasMeaningfulMeta =
-    (title && title !== normalizedHref) &&
-    (description.length > 0 || imageUrl.length > 0 || siteName.length > 0);
-  return {
-    type: "bookmarkBlock",
-    attrs: {
-      href: normalizedHref,
-      title,
-      description,
-      siteName,
-      imageUrl,
-      status: hasMeaningfulMeta ? "ready" : "loading",
-    },
-  };
-}
-
-function isMapLinkHref(href: string): boolean {
-  const normalized = normalizeImportedLinkHref(href);
-  if (!normalized) return false;
-  try {
-    const url = new URL(normalized);
-    const host = url.hostname.toLowerCase();
-    if (host === "map.naver.com" || host.endsWith(".map.naver.com")) return true;
-    if (host === "maps.app.goo.gl") return true;
-    return host.includes("google.") && url.pathname.startsWith("/maps");
-  } catch {
-    return false;
-  }
-}
-
-function hasDuplicateMapBookmarkAnchor(anchor: HTMLElement): boolean {
-  const href = anchor.getAttribute("href") ?? "";
-  const normalizedHref = normalizeImportedLinkHref(href);
-  if (!normalizedHref || !isMapLinkHref(normalizedHref)) return false;
-  const listItem = anchor.closest("li");
-  if (!listItem) return false;
-  const figureAnchors = Array.from(listItem.querySelectorAll("figure a[href]")).filter(
-    (el): el is HTMLElement => el instanceof HTMLElement,
-  );
-  return figureAnchors.some((fa) => {
-    if (fa === anchor) return false;
-    const figureHref = normalizeImportedLinkHref(fa.getAttribute("href") ?? "");
-    return !!figureHref && figureHref === normalizedHref;
-  });
-}
-
-function mapBookmarkBlockFromAnchor(anchor: HTMLElement, container?: HTMLElement | null): JSONContent | null {
-  const href = anchor.getAttribute("href") ?? "";
-  if (!isMapLinkHref(href)) return null;
-  const normalizedHref = normalizeImportedLinkHref(href);
-  if (!normalizedHref) return null;
-  const scope = container ?? anchor;
-  const rawText = (scope.textContent ?? "").replace(/\s+/g, " ").trim();
-  const cleaned = rawText
-    .replace(/네이버\s*지도/gi, "")
-    .replace(/google\s*maps?/gi, "")
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/[•·\-–—>\u2192]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const title = cleaned || (anchor.textContent ?? "").trim() || "지도";
-  const siteName = normalizedHref.includes("naver.com") ? "네이버 지도" : "Google 지도";
-  const imageEl = scope.querySelector("img.bookmark-image, img.bookmark-icon, img");
-  const imageUrl = imageEl instanceof HTMLElement ? (imageEl.getAttribute("src") ?? "") : "";
-  return {
-    type: "bookmarkBlock",
-    attrs: {
-      href: normalizedHref,
-      title,
-      description: normalizedHref,
-      siteName,
-      imageUrl,
-      status: "ready",
-    },
-  };
-}
-
-function maybeBookmarkBlockFromParagraph(el: HTMLElement, options?: HtmlToDocOptions): JSONContent | null {
-  const anchors = Array.from(el.querySelectorAll("a[href]")).filter(
-    (a): a is HTMLElement => a instanceof HTMLElement,
-  );
-  if (anchors.length !== 1) return null;
-  const anchor = anchors[0];
-  if (!anchor) return null;
-  const href = anchor.getAttribute("href") ?? "";
-  if (options?.resolvePageMentionByHref?.(href)) return null;
-  const mapBookmark = mapBookmarkBlockFromAnchor(anchor, el);
-  if (mapBookmark) return mapBookmark;
-  const paragraphText = (el.textContent ?? "").trim().replace(/\s+/g, " ");
-  const anchorText = (anchor.textContent ?? "").trim().replace(/\s+/g, " ");
-  if (!paragraphText || paragraphText !== anchorText) return null;
-  // YouTube URL이면 youtube 노드를, 아니면 일반 북마크로
-  const yt = youtubeNodeFromUrl(href);
-  if (yt) return yt;
-  return bookmarkBlockFromAnchor(anchor);
-}
-
-function maybeMediaBlockFromParagraph(el: HTMLElement, options?: HtmlToDocOptions): JSONContent | null {
-  const anchors = Array.from(el.querySelectorAll("a[href]")).filter(
-    (a): a is HTMLElement => a instanceof HTMLElement,
-  );
-  if (anchors.length !== 1) return null;
-  const anchor = anchors[0];
-  if (!anchor) return null;
-  const href = anchor.getAttribute("href") ?? "";
-  if (options?.resolvePageMentionByHref?.(href)) return null;
-  // 로컬 자산(zip/이미지/비디오/파일 등) 으로 resolve 되면 paragraph 내 텍스트가 anchor 와 정확히 일치하지 않아도
-  // fileBlock/image 노드로 변환. (Notion 이 zip 같은 첨부를 paragraph 내부의 단일 anchor 로 내보낼 때 텍스트로만 남아버리는 회귀 방지)
-  const localAssetNode =
-    options?.resolveMediaNode?.(href, anchor) ?? options?.resolveImageNode?.(href, anchor) ?? null;
-  if (localAssetNode) return localAssetNode;
-  // 로컬 자산이 아니라면 — 외부 URL — paragraph 텍스트가 anchor 텍스트와 정확히 같을 때만 미디어/북마크 변환.
-  const paragraphText = (el.textContent ?? "").trim().replace(/\s+/g, " ");
-  const anchorText = (anchor.textContent ?? "").trim().replace(/\s+/g, " ");
-  if (!paragraphText || paragraphText !== anchorText) return null;
-  return null;
-}
-
-function blockFingerprint(node: JSONContent): string | null {
-  if (node.type === "image") {
-    return `image:${String(node.attrs?.src ?? "")}`;
-  }
-  if (node.type === "bookmarkBlock") {
-    return `bookmark:${String(node.attrs?.href ?? "")}:${String(node.attrs?.imageUrl ?? "")}`;
-  }
-  if (node.type === "paragraph" && Array.isArray(node.content) && node.content.length === 1) {
-    const child = node.content[0];
-    if (child?.type === "mention") {
-      return `mention:${String(child.attrs?.id ?? "")}:${String(child.attrs?.label ?? "")}`;
-    }
-  }
-  return null;
-}
-
-function dedupeConsecutiveImportBlocks(input: JSONContent[]): JSONContent[] {
-  const out: JSONContent[] = [];
-  let prevKey: string | null = null;
-  for (const block of input) {
-    const key = blockFingerprint(block);
-    if (key && key === prevKey) continue;
-    out.push(block);
-    prevKey = key;
-  }
-  return out;
 }
 
 function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOptions): JSONContent {
