@@ -1,10 +1,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { deferredPageStorage } from "../lib/storage/index";
-import { fetchPageMetasByWorkspace } from "../lib/sync/bootstrap";
 import type { JSONContent } from "@tiptap/react";
 import type { Page, PageMap } from "../types/page";
-import { emptyPanelState, type CellValue, type ViewKind } from "../types/database";
+import { type CellValue, type ViewKind } from "../types/database";
 import { newId } from "../lib/id";
 import {
   useHistoryStore,
@@ -14,14 +13,12 @@ import { useSettingsStore } from "./settingsStore";
 import { useNotificationStore } from "./notificationStore";
 import { useDatabaseRowIndexStore } from "./databaseRowIndexStore";
 import { enqueueAsync } from "../lib/sync/runtime";
-import { toUpsertPageInput } from "../lib/sync/mappers/upsertPageInput";
 import { markLocallyDeletedEntity } from "../lib/sync/localDeleteGuards";
 import { debouncePerKey } from "../lib/sync/debouncePerKey";
 import { jsonContentEquals } from "../lib/pm/jsonDocEquals";
 import { extractMentionMemberHitsFromDoc } from "../lib/comments/extractMentions";
 import {
   isLCSchedulerDatabaseId,
-  isProtectedDatabaseId,
 } from "../lib/scheduler/database";
 import { writeCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../lib/scheduler/scope";
@@ -29,17 +26,13 @@ import {
   EMPTY_DOC,
   blockPreviewById,
   enqueueUpsertPage,
-  getCreatedByMemberId,
   getCurrentMemberId,
   getCurrentWorkspaceId,
-  isDescendant,
   nextOrderForParent,
   toPageSnapshot,
   updateButtonLabelsInDoc,
   allocateUniquePageTitle,
-  collectWorkspacePages,
   isPageTitleTaken,
-  mergeRemotePageMetasIntoMap,
   normalizePageTitle,
   preparePageTitleInput,
 } from "./pageStore/helpers";
@@ -55,6 +48,10 @@ import {
   PAGE_STORE_PERSIST_VERSION,
   migratePageStore,
 } from "./pageStore/migrations";
+import { createFullPageDbActions } from "./pageStore/actions/fullPageDbActions";
+import { createMoveActions } from "./pageStore/actions/moveActions";
+import { createDuplicateActions } from "./pageStore/actions/duplicateActions";
+import { createAppearanceActions } from "./pageStore/actions/appearanceActions";
 
 function canRestoreLocalPageHistory(): boolean {
   return false;
@@ -562,354 +559,11 @@ export const usePageStore = create<PageStore>()(
         set({ activePageId: parentId });
       },
 
-      reorderPages: (orderedIds) => {
-        const updatedPages: Page[] = [];
-        set((state) => {
-          const next: PageMap = { ...state.pages };
-          orderedIds.forEach((id, idx) => {
-            const page = next[id];
-            if (page && page.order !== idx) {
-              const updated = { ...page, order: idx, updatedAt: Date.now() };
-              next[id] = updated;
-              updatedPages.push(updated);
-            }
-          });
-          return { pages: next };
-        });
-        for (const p of updatedPages) enqueueUpsertPage(p);
-      },
+      ...createMoveActions(set, get),
 
-      setIcon: (id, icon) => {
-        const before = get().pages[id];
-        set((state) => {
-          const current = state.pages[id];
-          if (!current) return state;
-          return {
-            pages: {
-              ...state.pages,
-              [id]: { ...current, icon, updatedAt: Date.now() },
-            },
-          };
-        });
-        const after = get().pages[id];
-        if (before && after && before.icon !== after.icon) {
-          recordPageMutation(
-            id,
-            "page.icon",
-            { id, icon: after.icon },
-            () => toPageSnapshot(after),
-          );
-          enqueueUpsertPage(after);
-        }
-      },
+      ...createAppearanceActions(set, get),
 
-      setTitleColor: (id, titleColor) => {
-        const before = get().pages[id];
-        set((state) => {
-          const current = state.pages[id];
-          if (!current) return state;
-          return {
-            pages: {
-              ...state.pages,
-              [id]: { ...current, titleColor, updatedAt: Date.now() },
-            },
-          };
-        });
-        const after = get().pages[id];
-        if (before && after && before.titleColor !== after.titleColor) {
-          recordPageMutation(
-            id,
-            "page.titleColor",
-            { id, titleColor: after.titleColor ?? null },
-            () => toPageSnapshot(after),
-          );
-          enqueueUpsertPage(after);
-        }
-      },
-
-      setCoverImage: (id, coverImage) => {
-        const before = get().pages[id];
-        set((state) => {
-          const current = state.pages[id];
-          if (!current) return state;
-          return {
-            pages: {
-              ...state.pages,
-              [id]: { ...current, coverImage, updatedAt: Date.now() },
-            },
-          };
-        });
-        const after = get().pages[id];
-        if (before && after && before.coverImage !== after.coverImage) {
-          recordPageMutation(
-            id,
-            "page.coverImage",
-            { id, coverImage: after.coverImage },
-            () => toPageSnapshot(after),
-          );
-          enqueueUpsertPage(after);
-        }
-      },
-
-      movePage: (id, parentId, index) => {
-        const before = get().pages[id];
-        const beforePages = get().pages;
-        set((state) => {
-          const target = state.pages[id];
-          if (!target) return state;
-          // 자기 자신·자손 아래로의 이동 차단 (순환 방지)
-          if (parentId !== null) {
-            if (parentId === id) return state;
-            if (isDescendant(state.pages, id, parentId)) return state;
-          }
-          const next: PageMap = {};
-          for (const p of Object.values(state.pages)) {
-            next[p.id] = p;
-          }
-          // 동일 타임스탬프로 묶어 LWW·upsertPage 가 형제 순서 전체를 한 번에 인지하도록 함
-          const ts = Date.now();
-          // 1) 원래 부모에서 제거 후 형제들의 order 재조정
-          const oldParent = target.parentId;
-          const oldSiblings = Object.values(next)
-            .filter((p) => p.parentId === oldParent && p.id !== id)
-            .sort((a, b) => a.order - b.order);
-          oldSiblings.forEach((p, i) => {
-            next[p.id] = { ...p, order: i, updatedAt: ts };
-          });
-          // 2) 새 부모의 형제 목록에 인덱스 위치로 삽입
-          const newSiblings = Object.values(next)
-            .filter((p) => p.parentId === parentId && p.id !== id)
-            .sort((a, b) => a.order - b.order);
-          const clampedIndex = Math.max(0, Math.min(index, newSiblings.length));
-          newSiblings.splice(clampedIndex, 0, {
-            ...target,
-            parentId,
-            order: 0,
-          });
-          newSiblings.forEach((p, i) => {
-            next[p.id] = { ...p, order: i, updatedAt: ts };
-          });
-          return { pages: next };
-        });
-        const after = get().pages[id];
-        if (before && after) {
-          const changed =
-            before.parentId !== after.parentId || before.order !== after.order;
-          if (changed) {
-            recordPageMutation(
-              id,
-              "page.move",
-              { id, parentId: after.parentId, order: after.order },
-              () => toPageSnapshot(after),
-            );
-            // 이동된 본인 + 부모 변경/order 재조정으로 영향받은 모든 형제를 enqueue.
-            const afterPages = get().pages;
-            for (const [pid, p] of Object.entries(afterPages)) {
-              const prev = beforePages[pid];
-              if (!prev) continue;
-              if (prev.parentId !== p.parentId || prev.order !== p.order) {
-                enqueueUpsertPage(p, { metaOnly: true });
-              }
-            }
-          }
-        }
-      },
-
-      movePageRelative: (id, direction) => {
-        const state = get();
-        const me = state.pages[id];
-        if (!me) return;
-        const siblings = Object.values(state.pages)
-          .filter((p) => p.parentId === me.parentId)
-          .sort((a, b) => a.order - b.order);
-        const idx = siblings.findIndex((p) => p.id === id);
-        if (idx === -1) return;
-        const move = get().movePage;
-
-        if (direction === "up") {
-          if (idx === 0) return;
-          move(id, me.parentId, idx - 1);
-          return;
-        }
-        if (direction === "down") {
-          if (idx >= siblings.length - 1) return;
-          move(id, me.parentId, idx + 1);
-          return;
-        }
-        if (direction === "indent") {
-          // 직전 형제의 마지막 자식으로
-          if (idx === 0) return;
-          const prev = siblings[idx - 1];
-          if (!prev) return;
-          move(id, prev.id, Number.MAX_SAFE_INTEGER);
-          return;
-        }
-        if (direction === "outdent") {
-          // 조부모의 자식으로 — 현재 부모 직후 위치
-          if (me.parentId === null) return;
-          const parent = state.pages[me.parentId];
-          if (!parent) return;
-          const grandSiblings = Object.values(state.pages)
-            .filter((p) => p.parentId === parent.parentId)
-            .sort((a, b) => a.order - b.order);
-          const parentIdx = grandSiblings.findIndex((p) => p.id === parent.id);
-          if (parentIdx === -1) return;
-          move(id, parent.parentId, parentIdx + 1);
-          return;
-        }
-      },
-
-      duplicatePage: (id) => {
-        const state = get();
-        const source = state.pages[id];
-        if (!source) return "";
-
-        const cloneMap = new Map<string, string>();
-
-        const cloneSubtree = (pageId: string): void => {
-          const page = state.pages[pageId];
-          if (!page) return;
-          const clonedId = newId();
-          cloneMap.set(pageId, clonedId);
-          const children = Object.values(state.pages).filter(
-            (p) => p.parentId === pageId
-          );
-          for (const child of children) {
-            cloneSubtree(child.id);
-          }
-        };
-        cloneSubtree(id);
-
-        const now = Date.now();
-        const newPages: PageMap = {};
-        for (const [origId, newPageId] of cloneMap.entries()) {
-          const orig = state.pages[origId]!;
-          const isRoot = origId === id;
-          newPages[newPageId] = {
-            ...orig,
-            id: newPageId,
-            doc: structuredClone(orig.doc),
-            dbCells: orig.dbCells
-              ? structuredClone(orig.dbCells)
-              : orig.dbCells,
-            blockComments: orig.blockComments
-              ? {
-                  messages: orig.blockComments.messages.map((m) => ({
-                    ...m,
-                    id: newId(),
-                    pageId: newPageId,
-                  })),
-                  threadVisitedAt: { ...orig.blockComments.threadVisitedAt },
-                }
-              : undefined,
-            title: isRoot ? `${orig.title} (Copy)` : orig.title,
-            parentId: isRoot
-              ? orig.parentId
-              : cloneMap.get(orig.parentId ?? "") ?? orig.parentId,
-            order: isRoot ? orig.order + 0.5 : orig.order,
-            createdAt: now,
-            updatedAt: now,
-          };
-        }
-
-        set((s) => {
-          const merged = { ...s.pages, ...newPages };
-          const siblings = Object.values(merged)
-            .filter((p) => p.parentId === source.parentId)
-            .sort((a, b) => a.order - b.order);
-          siblings.forEach((p, i) => {
-            merged[p.id] = { ...merged[p.id]!, order: i };
-          });
-          return { pages: merged };
-        });
-
-        // 복제된 모든 페이지(자손 포함)와 정렬 재조정으로 영향받은 형제까지 enqueue.
-        const afterPages = get().pages;
-        const clonedIds = new Set(cloneMap.values());
-        for (const [pid, p] of Object.entries(afterPages)) {
-          if (clonedIds.has(pid)) {
-            enqueueUpsertPage(p);
-          } else if (
-            p.parentId === source.parentId &&
-            state.pages[pid] &&
-            state.pages[pid]!.order !== p.order
-          ) {
-            enqueueUpsertPage(p);
-          }
-        }
-
-        return cloneMap.get(id) ?? "";
-      },
-
-      duplicatePageToWorkspace: async (id, targetWorkspaceId) => {
-        const state = get();
-        const source = state.pages[id];
-        if (!source) return 0;
-
-        const cloneMap = new Map<string, string>();
-        const cloneSubtree = (pageId: string): void => {
-          if (!state.pages[pageId]) return;
-          cloneMap.set(pageId, newId());
-          const children = Object.values(state.pages).filter((p) => p.parentId === pageId);
-          for (const child of children) cloneSubtree(child.id);
-        };
-        cloneSubtree(id);
-
-        const targetPages = collectWorkspacePages(state.pages, targetWorkspaceId);
-        try {
-          const metas = await fetchPageMetasByWorkspace(targetWorkspaceId);
-          mergeRemotePageMetasIntoMap(targetPages, metas, targetWorkspaceId);
-        } catch (err) {
-          console.error("[pageStore] duplicatePageToWorkspace title fetch failed", err);
-        }
-
-        const reservedTitles = new Set<string>();
-        const titleByOrigId = new Map<string, string>();
-        for (const origId of cloneMap.keys()) {
-          const orig = state.pages[origId];
-          if (!orig) continue;
-          const uniqueTitle = allocateUniquePageTitle(targetPages, orig.title, {
-            workspaceId: targetWorkspaceId,
-            reservedTitles,
-          });
-          reservedTitles.add(normalizePageTitle(uniqueTitle));
-          titleByOrigId.set(origId, uniqueTitle);
-        }
-
-        const now = Date.now();
-        const createdByMemberId = getCreatedByMemberId();
-
-        for (const [origId, newPageId] of cloneMap.entries()) {
-          const orig = state.pages[origId]!;
-          const isRoot = origId === id;
-          const cloned: Page = {
-            ...orig,
-            id: newPageId,
-            doc: structuredClone(orig.doc),
-            dbCells: orig.dbCells ? structuredClone(orig.dbCells) : orig.dbCells,
-            blockComments: undefined,
-            title: titleByOrigId.get(origId) ?? orig.title,
-            workspaceId: targetWorkspaceId || undefined,
-            parentId: isRoot ? null : (cloneMap.get(orig.parentId ?? "") ?? null),
-            order: orig.order,
-            createdAt: now,
-            updatedAt: now,
-          };
-          // 손작성 input 을 단일 매퍼로 일원화 — Page 필드 추가 시 이 경로만
-          // 누락되는 회귀(PageMeta 소실류)를 방지한다. includeMetaColors 로
-          // titleColor 까지 보존(기존 손작성은 titleColor 를 누락했음).
-          // databaseId/dbCells 는 페이지 복제이므로 null, fullPageDatabaseId 는
-          // 유령 페이지 방지를 위해 싣지 않는다(includeFullPageDatabaseId 미지정).
-          enqueueAsync("upsertPage", toUpsertPageInput(cloned, createdByMemberId, {
-            workspaceId: targetWorkspaceId,
-            databaseId: null,
-            dbCells: null,
-            includeMetaColors: true,
-          }) as unknown as Record<string, unknown> & { id: string; updatedAt?: string });
-        }
-
-        return cloneMap.size;
-      },
+      ...createDuplicateActions(set, get),
 
       setPageDbCell: (pageId, columnId, value) => {
         const before = get().pages[pageId];
@@ -1007,100 +661,7 @@ export const usePageStore = create<PageStore>()(
         for (const p of changed) enqueueUpsertPage(p);
       },
 
-      findFullPagePageIdForDatabase: (databaseId) => {
-        const idWant = databaseId.trim();
-        if (!idWant) return null;
-        for (const p of Object.values(get().pages)) {
-          // 메타데이터 필드 우선 — doc 로드 전에도 동작
-          if (p.fullPageDatabaseId === idWant) return p.id;
-          // 레거시·마이그레이션 페이지: doc content 로 폴백
-          const first = p.doc.content?.[0];
-          const attrs = first?.attrs as
-            | { databaseId?: unknown; layout?: unknown }
-            | undefined;
-          if (
-            first?.type === "databaseBlock" &&
-            attrs &&
-            String(attrs.databaseId ?? "") === idWant &&
-            String(attrs.layout ?? "") === "fullPage"
-          ) {
-            return p.id;
-          }
-        }
-        return null;
-      },
-
-      ensureFullPagePageForDatabase: (databaseId, title = "데이터베이스", view = "table") => {
-        const idWant = databaseId.trim();
-        if (!idWant) return null;
-        if (isProtectedDatabaseId(idWant)) return null;
-        const existing = get().findFullPagePageIdForDatabase(idWant);
-        if (existing) {
-          // 레거시·임포트 등으로 태그가 빠진 홈을 발견하면 보강한다(유령 방지, idempotent).
-          get().markFullPageDatabaseHome(existing, idWant);
-          return existing;
-        }
-
-        const id = newId();
-        const now = Date.now();
-        const workspaceId = getCurrentWorkspaceId();
-        const page: Page = {
-          id,
-          workspaceId: workspaceId || undefined,
-          title: title.trim() || "데이터베이스",
-          icon: null,
-          fullPageDatabaseId: idWant,
-          doc: {
-            type: "doc",
-            content: [
-              {
-                type: "databaseBlock",
-                attrs: {
-                  databaseId: idWant,
-                  layout: "fullPage",
-                  view,
-                  panelState: JSON.stringify(emptyPanelState()),
-                },
-              },
-            ],
-          },
-          parentId: null,
-          order: nextOrderForParent(get().pages, null),
-          createdAt: now,
-          updatedAt: now,
-        };
-
-        set((state) => ({
-          pages: { ...state.pages, [id]: page },
-          cacheWorkspaceId: getCurrentWorkspaceId() || state.cacheWorkspaceId,
-        }));
-
-        queueMicrotask(() => {
-          recordPageMutation(
-            id,
-            "page.create",
-            toPageSnapshot(page),
-            () => toPageSnapshot(page),
-          );
-          enqueueUpsertPage(page);
-        });
-
-        return id;
-      },
-
-      markFullPageDatabaseHome: (pageId, databaseId) => {
-        const idWant = databaseId.trim();
-        if (!idWant) return;
-        const existing = get().pages[pageId];
-        if (!existing || existing.fullPageDatabaseId === idWant) return;
-        const updated: Page = {
-          ...existing,
-          fullPageDatabaseId: idWant,
-          updatedAt: Date.now(),
-        };
-        set((s) => ({ pages: { ...s.pages, [pageId]: updated } }));
-        enqueueUpsertPage(updated);
-      },
+      ...createFullPageDbActions(set, get),
     }),
     {
       name: "quicknote.pages.v1",
