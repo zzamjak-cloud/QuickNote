@@ -7,6 +7,8 @@ type Props = {
   onClose: () => void;
   /** 기본: 확인 */
   actionLabel?: string;
+  /** 런타임 z-index 오버라이드. 미지정 시 DialogBase 기본(z-[400]). 피커뷰(z-[650]) 위에 떠야 할 때 지정. */
+  zIndex?: number;
 };
 
 export function SimpleAlertDialog({
@@ -15,6 +17,7 @@ export function SimpleAlertDialog({
   message,
   onClose,
   actionLabel = "확인",
+  zIndex,
 }: Props) {
   return (
     <DialogBase
@@ -22,6 +25,7 @@ export function SimpleAlertDialog({
       onClose={onClose}
       role="alertdialog"
       labelId="qn-simple-alert-title"
+      overlayStyle={zIndex != null ? { zIndex } : undefined}
     >
       <DialogBase.Header id="qn-simple-alert-title">{title}</DialogBase.Header>
       <DialogBase.Body>{message}</DialogBase.Body>

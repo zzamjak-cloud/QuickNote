@@ -781,6 +781,8 @@ export function DatabaseRowPeek() {
         <SimpleAlertDialog
           open={titleDuplicateAlert}
           message={PAGE_TITLE_DUPLICATE_MESSAGE}
+          // 피커뷰 오버레이(z-[650])·내부 모달(z-[670]) 위에 떠야 함.
+          zIndex={700}
           onClose={() => {
             setTitleDuplicateAlert(false);
             if (page) {
