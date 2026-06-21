@@ -415,8 +415,10 @@ body.quicknote-block-dragging .ProseMirror {
 }
 
 .ProseMirror ul[data-type="taskList"] > li > div > p {
-  margin-top: 0.2em;
-  margin-bottom: 0.2em;
+  /* flex 아이템(div)은 BFC 라 내부 p 마진이 collapse 되지 않는다. bullet(li 블록,
+     마진 collapse → 항목 간 0.2em)과 줄 간격을 맞추려면 0.1em(0.1+0.1=0.2em) 사용. */
+  margin-top: 0.1em;
+  margin-bottom: 0.1em;
   line-height: 1.42;
 }
 
