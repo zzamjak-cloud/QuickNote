@@ -112,18 +112,21 @@ export function reconcileWorkspacePagesFullSnapshot(args: {
  * 1) `remoteDatabaseIds` 에 있으면 서버에 살아있음 → 보존.
  * 2) `pendingUpsertDatabaseIds` (outbox 업로드 대기) → 보존.
  * 3) LC 스케줄러·보호 DB / 다른 워크스페이스 DB → 보존.
- * 4) 위에 모두 해당 없으면 서버에서 사라진 좀비 → 로컬 DB + 템플릿 + 그 DB 의 행 페이지 제거.
- *    (행 페이지는 부모 DB 가 서버에 없으므로 함께 좀비로 확정된다.)
+ * 4) 위에 모두 해당 없으면 서버에서 사라진 좀비 → 로컬 DB 번들 + 템플릿만 제거.
+ *
+ * 주의: 그 DB 의 **행 페이지는 건드리지 않는다**. 행 페이지 meta 는 멘션·페이지링크가 아이콘/이동을
+ * 해석하는 근거이고 `listPageMetas` 로 정상 로드되므로, 여기서 지우면 멀쩡한 멘션이 깨진다
+ * (행 페이지가 서버에 살아있어도 delta 로는 복구되지 않음). 진짜 좀비 행 페이지(서버에도 없음)는
+ * 전체 스냅샷의 `reconcileWorkspacePagesFullSnapshot` 가 안전하게 정리한다.
  */
 export function reconcileWorkspaceDatabasesFullSnapshot(args: {
   workspaceId: string;
   remoteDatabaseIds: Set<string>;
   pendingUpsertDatabaseIds: Set<string>;
-}): { removedDatabaseIds: string[]; removedRowPageIds: string[] } {
+}): { removedDatabaseIds: string[] } {
   const { workspaceId, remoteDatabaseIds, pendingUpsertDatabaseIds } = args;
   const removedDatabaseIds: string[] = [];
-  const removedRowPageIds: string[] = [];
-  if (!workspaceId) return { removedDatabaseIds, removedRowPageIds };
+  if (!workspaceId) return { removedDatabaseIds };
 
   useDatabaseStore.setState((s) => {
     if (s.cacheWorkspaceId && s.cacheWorkspaceId !== workspaceId) return s;
@@ -158,36 +161,12 @@ export function reconcileWorkspaceDatabasesFullSnapshot(args: {
     return { ...s, databases: next, dbTemplates: nextTemplates };
   });
 
-  // 제거된 DB 의 행 페이지도 함께 정리(부모 DB 가 서버에 없으니 좀비 확정).
-  if (removedDatabaseIds.length > 0) {
-    const removedDbIdSet = new Set(removedDatabaseIds);
-    usePageStore.setState((s) => {
-      let nextPages = s.pages;
-      let nextActive = s.activePageId;
-      let changed = false;
-      const ensureCopy = () => {
-        if (nextPages === s.pages) nextPages = { ...s.pages };
-      };
-      for (const [pageId, page] of Object.entries(s.pages)) {
-        if (!page?.databaseId || !removedDbIdSet.has(page.databaseId)) continue;
-        ensureCopy();
-        delete nextPages[pageId];
-        if (nextActive === pageId) nextActive = null;
-        removedRowPageIds.push(pageId);
-        changed = true;
-      }
-      if (!changed) return s;
-      return { ...s, pages: nextPages, activePageId: nextActive };
-    });
-  }
-
   if (removedDatabaseIds.length > 0) {
     console.info("[sync] reconcile pruned orphan databases", {
       workspaceId,
       databases: removedDatabaseIds.length,
-      rowPages: removedRowPageIds.length,
     });
   }
-  return { removedDatabaseIds, removedRowPageIds };
+  return { removedDatabaseIds };
 }
 

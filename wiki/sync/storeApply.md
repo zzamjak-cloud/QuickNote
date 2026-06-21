@@ -39,7 +39,7 @@ src/lib/sync/
 | `applyRemoteDatabasesToStore` | `databaseApply` | 배치 적용 |
 | `reconcileLCSchedulerRemoteSnapshot` | `storeApply.ts` | LC 스케줄러 증분 스냅샷 적용 전용 |
 | `reconcileWorkspacePagesFullSnapshot` | `storeApply.ts` | 페이지 set-reconciliation(좀비 청소) — 전체 페이지 목록 필요 |
-| `reconcileWorkspaceDatabasesFullSnapshot` | `storeApply.ts` | DB set-reconciliation(좀비 청소) — DB 는 항상 전체 조회라 증분에서도 호출 |
+| `reconcileWorkspaceDatabasesFullSnapshot` | `storeApply.ts` | DB 번들 set-reconciliation(좀비 청소) — DB 는 항상 전체 조회라 증분에서도 호출. 행 페이지는 건드리지 않음 |
 
 `applyRemoteCommentToStore` / `applyRemoteCommentsToStore` 는 `storeApply/commentApply.ts`에서 직접 export(배럴 경유 안 함 — 호출처가 commentApply 경로로 import).
 
@@ -86,13 +86,13 @@ reconcileLCSchedulerRemoteSnapshot({ pages, databases }): { prunedPageIds: [] }
 reconcileWorkspacePagesFullSnapshot({ workspaceId, remotePageIds, pendingUpsertPageIds })
   : { removedPageIds: string[] }
 reconcileWorkspaceDatabasesFullSnapshot({ workspaceId, remoteDatabaseIds, pendingUpsertDatabaseIds })
-  : { removedDatabaseIds: string[]; removedRowPageIds: string[] }
+  : { removedDatabaseIds: string[] }
 ```
 
 서버에서 영구 삭제된 page/database가 로컬 캐시에 좀비로 남는 현상을 청소한다.
 
 - **페이지**: 전체 페이지 목록이 권위 있을 때만(전체 스냅샷 경로) 호출. 메타 페이지네이션 등 부분 목록으로 호출하면 멀쩡한 페이지를 지운다.
-- **DB**: DB 는 워크스페이스당 소수라 항상 전체 조회하므로(`fetchDatabasesByWorkspace(workspaceId)`) **delta·meta 경로에서도** 호출해 좀비 DB 를 정리한다. 제거 시 그 DB 의 행 페이지(`removedRowPageIds`)도 함께 정리. 자세한 배경: [incremental-sync.md](./incremental-sync.md).
+- **DB**: DB 는 워크스페이스당 소수라 항상 전체 조회하므로(`fetchDatabasesByWorkspace(workspaceId)`) **delta·meta 경로에서도** 호출해 좀비 DB **번들만** 정리한다. **행 페이지는 건드리지 않는다** — 멘션/페이지링크가 행 페이지 meta 로 아이콘·이동을 해석하므로 지우면 멀쩡한 멘션이 깨진다(회귀 가드). 자세한 배경: [incremental-sync.md](./incremental-sync.md).
 
 **공통 규칙**:
 1. `remoteIds`에 있는 id → 이미 `applyRemote*`가 처리, 건드리지 않음.

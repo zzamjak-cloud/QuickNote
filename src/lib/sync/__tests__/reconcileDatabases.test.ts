@@ -76,7 +76,9 @@ describe("reconcileWorkspaceDatabasesFullSnapshot", () => {
     expect(result.removedDatabaseIds).toEqual([]);
   });
 
-  it("제거된 좀비 DB 의 행 페이지도 함께 정리한다", () => {
+  it("좀비 DB 를 제거해도 행 페이지는 보존한다(멘션 해석 근거 — 회귀 가드)", () => {
+    // 행 페이지 meta 는 멘션/페이지링크가 아이콘·이동을 해석하는 근거이고 listPageMetas 로
+    // 로드된다. 여기서 지우면 멀쩡한 멘션이 깨지므로 DB 번들만 제거하고 페이지는 건드리지 않는다.
     useDatabaseStore.setState({
       databases: { "db-ghost": bundle("db-ghost", WS) },
       cacheWorkspaceId: WS,
@@ -97,9 +99,11 @@ describe("reconcileWorkspaceDatabasesFullSnapshot", () => {
       pendingUpsertDatabaseIds: new Set(),
     });
 
-    expect(Object.keys(usePageStore.getState().pages)).toEqual(["page-keep"]);
-    expect(usePageStore.getState().activePageId).toBeNull();
-    expect(result.removedRowPageIds).toEqual(["row-1"]);
+    expect(useDatabaseStore.getState().databases["db-ghost"]).toBeUndefined();
+    // 페이지는 그대로 보존되어야 한다.
+    expect(Object.keys(usePageStore.getState().pages).sort()).toEqual(["page-keep", "row-1"]);
+    expect(usePageStore.getState().activePageId).toBe("row-1");
+    expect(result.removedDatabaseIds).toEqual(["db-ghost"]);
   });
 
   it("cacheWorkspaceId 가 대상 워크스페이스와 다르면 아무것도 지우지 않는다", () => {
