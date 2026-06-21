@@ -4,6 +4,7 @@ import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import {
   openPageInCurrentTab,
   openPageInNewTab,
+  peekNavigateToPage,
   shouldOpenInternalLinkInNewTab,
 } from "./internalNavigation";
 import {
@@ -50,7 +51,7 @@ function navigateToMentionedPage(press: PagePress, event: MouseEvent): void {
     return;
   }
   if (press.inPeek && useUiStore.getState().peekPageId) {
-    useUiStore.getState().peekNavigate(press.id);
+    peekNavigateToPage(press.id);
     return;
   }
   const fromId = usePageStore.getState().activePageId;

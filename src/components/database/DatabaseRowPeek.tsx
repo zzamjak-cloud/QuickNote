@@ -39,7 +39,7 @@ import { pageDocToMarkdown } from "../../lib/export/pageToMarkdown";
 import { buildPageHtmlZipBlob } from "../../lib/export/pageHtmlZip";
 import { collectDatabaseCollection } from "../../lib/export/databaseCollection";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
-import { navigateToWorkspacePage } from "../../lib/navigation/internalNavigation";
+import { navigateToWorkspacePage, peekNavigateToPage } from "../../lib/navigation/internalNavigation";
 import { PageCopyToWorkspaceDialog } from "../layout/PageCopyToWorkspaceDialog";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageSubpageTree } from "../page/PageSubpageTree";
@@ -733,7 +733,7 @@ export function DatabaseRowPeek() {
             style={{ position: "fixed", top: subpagePopover.coords.top, left: subpagePopover.coords.left, width: 280, zIndex: 9999 }}
             className="rounded-lg border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
           >
-            <PageSubpageTree currentPageId={peekPageId} compact onNavigate={(id) => peekNavigate(id)} className="px-2 pb-3 pt-1" hideHeader />
+            <PageSubpageTree currentPageId={peekPageId} compact onNavigate={(id) => peekNavigateToPage(id)} className="px-2 pb-3 pt-1" hideHeader />
           </div>,
           document.body,
         )}

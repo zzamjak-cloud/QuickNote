@@ -7,6 +7,7 @@ import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import {
   openPageInCurrentTab,
   openPageInNewTab,
+  peekNavigateToPage,
   shouldOpenInternalLinkInNewTab,
 } from "../navigation/internalNavigation";
 
@@ -14,7 +15,6 @@ function PageLinkView({ node }: NodeViewProps) {
   const id = node.attrs.id as string;
   const label = node.attrs.label as string;
   const title = usePageStore((s) => s.pages[id]?.title ?? label ?? "페이지");
-  const peekNavigate = useUiStore((s) => s.peekNavigate);
   const peekPageId = useUiStore((s) => s.peekPageId);
 
   return (
@@ -28,7 +28,7 @@ function PageLinkView({ node }: NodeViewProps) {
           }
           const isInPeek = !!(e.currentTarget.closest(".qn-peek-editor"));
           if (isInPeek && peekPageId) {
-            peekNavigate(id);
+            peekNavigateToPage(id);
           } else {
             // 이동 전 현재 페이지를 뒤로가기 스택에 기록 → 헤더 '이전 페이지' 버튼.
             const fromId = usePageStore.getState().activePageId;

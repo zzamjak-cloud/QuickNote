@@ -32,6 +32,7 @@
 **클릭 이동 — 워크스페이스 전환이 아니라 피크(peek)**
 - 타 워크스페이스 페이지를 링크/버튼/멘션으로 클릭하면 `internalNavigation.ts` 가 **워크스페이스를 전환하지 않고** `ensurePageContentLoaded(ws)` 로 본문만 적재해 **피크 팝업**(`DatabaseRowPeek`)으로 띄운다(`openCrossWorkspacePeek`). 현재 탭 구조를 건드리지 않는다.
 - 피크 좌상단 버튼이 **"이 워크스페이스로 이동"**(`LogIn` 아이콘)으로 바뀌고, 클릭 시 `navigateToWorkspacePage` 가 실제 전환 + 착지(`requestCrossWorkspaceLanding`)를 수행한다.
+- **피크 내부 이동(`peekNavigateToPage`)**: 타 워크스페이스 페이지를 피크로 연 뒤 그 안의 멘션·페이지링크·하위 페이지 트리를 클릭하면, 대상도 같은 타 워크스페이스 소속이라 로컬 store 에 없다. `peekNavigate` 를 그대로 부르면 `DatabaseRowPeek` 가 `pages[id]` 를 못 찾아 **피크가 즉시 닫히고 무반응**이 된다. 따라서 로컬에 없으면 현재 피크 중인 페이지의 workspaceId 로 `ensurePageContentLoaded` 한 뒤 이동한다. (회귀 주의: 피크 내부 네비게이션은 `peekNavigate` 직접 호출이 아니라 `peekNavigateToPage` 를 거쳐야 한다 — `pageMentionClick.ts`/`pageLink.tsx`/`DatabaseRowPeek` 하위 트리.)
 - 타 워크스페이스 본문 적재는 storeApply 워크스페이스 가드를 우회해 직접 `pageStore` 에 넣는다(`applyRemotePageToStoreCrossWorkspaceAware` / `ensurePageContentLoaded`). 가드는 `page.workspaceId` 기준 판정이므로 **우회 판정도 가져온 페이지의 실제 workspaceId 기준**으로 한다(요청 workspaceId 가 어긋나도 안전). workspaceId 가 달라 사이드바·동기화 대상에선 자동 제외된다.
   - DB 행을 `useOpenDatabaseRow` 로 열 때 workspaceId 폴백 순서: `page.workspaceId` → rowIndex → **DB 번들 `meta.workspaceId`** → currentWorkspaceId.
 - **타 워크스페이스 페이지·인라인 DB 는 협업(Yjs)을 비활성화한다.** `useCollabSession`/`useDatabaseCollabSession` 이 `page.workspaceId`(또는 DB 번들 `meta.workspaceId`) ≠ 현재 워크스페이스면 `enabled=false` 로 게이트한다. 안 그러면 빈 Y.Doc 바인딩이 우회 적재한 본문을 덮어써(**잠깐 보였다 사라짐**) 타 워크스페이스 룸 WebSocket 연결이 404 로 실패한다(라이브 회귀). 같은 워크스페이스 협업엔 영향 없음.
