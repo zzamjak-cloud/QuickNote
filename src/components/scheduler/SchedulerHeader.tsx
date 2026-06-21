@@ -183,8 +183,10 @@ export function SchedulerHeader({ onClose }: Props) {
   }, [myMemberId, visibleOrgs, organizations, visibleTeams, teams]);
 
   // "내일정" — 내 스코프로 즉시 전환 + 내 구성원 탭 활성화
+  // 마일스톤/피처 모드에서는 내일정이 의미가 없어 항상 작업 탭으로 강제 전환한다.
   const handleMySchedule = () => {
     if (!myMemberId) return;
+    setEntityMode("task");
     if (myScopeKey) setSelectedProjectId(myScopeKey);
     setMultiSelected([]);
     selectMember(myMemberId);
