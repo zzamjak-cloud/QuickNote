@@ -13,7 +13,8 @@ import {
   applyRemotePageMetasToStore,
   applyRemotePagesToStore,
   applyRemoteDatabasesToStore,
-  reconcileWorkspaceFullSnapshot,
+  reconcileWorkspacePagesFullSnapshot,
+  reconcileWorkspaceDatabasesFullSnapshot,
 } from "./storeApply";
 import { applyRemoteCommentsToStore } from "./storeApply/commentApply";
 import { applyWorkspaceLanding } from "./workspaceLanding";
@@ -100,7 +101,9 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
   const [[pagesResult, dbsResult, commentsResult], pendingIds] = await Promise.all([
     Promise.allSettled([
       fetchPagesByWorkspace(workspaceId, updatedAfter),
-      fetchDatabasesByWorkspace(workspaceId, updatedAfter),
+      // DB 는 워크스페이스당 소수라 항상 전체 조회한다(updatedAfter 무시). 그래야 증분 동기화에서도
+      // 서버에서 사라진 좀비 DB(과거 임포트·삭제 잔재)를 prune 할 권위 있는 전체 목록을 얻는다.
+      fetchDatabasesByWorkspace(workspaceId),
       // 댓글은 로컬 persist 안 됨(messages 미저장) → 콜드로드마다 빈 상태로 시작.
       // 공유 워터마크로 증분 조회하면 워터마크 이전 댓글을 영영 못 받으므로 항상 전체 조회.
       fetchCommentsByWorkspace(workspaceId),
@@ -148,15 +151,21 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
     }
     if (dbs) applyRemoteDatabasesToStore(dbs);
     if (comments) applyRemoteCommentsToStore(comments);
-    // 좀비 정리(prune)는 전체 스냅샷에서만 안전하다. 증분 모드에서는 부분 결과만 오므로
-    // prune 하면 변경되지 않은 멀쩡한 항목까지 삭제된다 → 절대 prune 하지 않는다.
-    // 또한 pages + dbs 모두 성공한 경우에만 실행한다(부분 실패 시 유효 캐시 삭제 방지).
-    if (!isDelta && pages && dbs) {
-      reconcileWorkspaceFullSnapshot({
+    // 페이지 좀비 정리(prune)는 전체 스냅샷에서만 안전하다. 증분 모드에서는 부분 결과만 오므로
+    // prune 하면 변경되지 않은 멀쩡한 페이지까지 삭제된다 → 비-delta + pages 성공 시에만 수행.
+    if (!isDelta && pages) {
+      reconcileWorkspacePagesFullSnapshot({
         workspaceId,
         remotePageIds,
-        remoteDatabaseIds,
         pendingUpsertPageIds: pendingIds.pages,
+      });
+    }
+    // DB 는 항상 전체 조회하므로(위 fetch) 증분 모드에서도 prune 이 안전하다.
+    // DB fetch 가 성공(dbs != null)한 경우에만 실행(부분 실패 시 유효 DB 삭제 방지).
+    if (dbs) {
+      reconcileWorkspaceDatabasesFullSnapshot({
+        workspaceId,
+        remoteDatabaseIds,
         pendingUpsertDatabaseIds: pendingIds.databases,
       });
     }
@@ -195,12 +204,17 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
   updatedAfter,
 }: FetchApplyWorkspaceSnapshotOptions): Promise<void> {
   const isDelta = Boolean(updatedAfter);
-  const [pageMetasBatchResult, dbsResult, commentsResult] = await Promise.allSettled([
-    fetchPageMetasBatch({ workspaceId, updatedAfter }),
-    fetchDatabasesByWorkspace(workspaceId, updatedAfter),
-    // 댓글은 로컬 persist 안 됨(messages 미저장) → 콜드로드마다 빈 상태로 시작.
-    // 공유 워터마크로 증분 조회하면 워터마크 이전 댓글을 영영 못 받으므로 항상 전체 조회.
-    fetchCommentsByWorkspace(workspaceId),
+  const engine = await getSyncEngine();
+  const [[pageMetasBatchResult, dbsResult, commentsResult], pendingIds] = await Promise.all([
+    Promise.allSettled([
+      fetchPageMetasBatch({ workspaceId, updatedAfter }),
+      // DB 는 워크스페이스당 소수라 항상 전체 조회한다(updatedAfter 무시) — 좀비 DB prune 용 권위 목록.
+      fetchDatabasesByWorkspace(workspaceId),
+      // 댓글은 로컬 persist 안 됨(messages 미저장) → 콜드로드마다 빈 상태로 시작.
+      // 공유 워터마크로 증분 조회하면 워터마크 이전 댓글을 영영 못 받으므로 항상 전체 조회.
+      fetchCommentsByWorkspace(workspaceId),
+    ]),
+    engine.getPendingUpsertEntityIds(),
   ]);
   if (cancelled?.()) return;
 
@@ -248,6 +262,16 @@ export async function fetchApplyWorkspaceRemoteMetaSnapshot({
     }
     if (dbs) applyRemoteDatabasesToStore(dbs);
     if (comments) applyRemoteCommentsToStore(comments);
+    // DB 는 항상 전체 조회하므로 좀비 DB prune 이 안전하다(페이지는 메타 페이지네이션이라 여기서 prune 안 함).
+    if (dbs) {
+      const remoteDatabaseIds = new Set<string>();
+      for (const database of dbs) if (database?.id) remoteDatabaseIds.add(database.id);
+      reconcileWorkspaceDatabasesFullSnapshot({
+        workspaceId,
+        remoteDatabaseIds,
+        pendingUpsertDatabaseIds: pendingIds.databases,
+      });
+    }
     if (applyLandingAfterApply) applyWorkspaceLanding(workspaceId, { forceFirstRoot: landingForceFirstRoot });
   };
 

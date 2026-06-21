@@ -53,37 +53,18 @@ export function reconcileLCSchedulerRemoteSnapshot(args: {
 // 원격 Comment LWW 적용 reducer 는 ./storeApply/commentApply 로 분리됨.
 
 /**
- * Bootstrap 전체 워크스페이스 페치 직후 호출하는 set-reconciliation.
- *
- * 목적: 서버에서 영구히 사라진(`permanentlyDelete` 또는 row 자체 purge) 데이터베이스 / 페이지가
- * 로컬 캐시에 좀비로 남아있는 현상을 청소한다.
- *
- * 규칙:
- * 1) `remoteIds` 에 있는 id 는 이미 `applyRemote*` 가 처리했으므로 건드리지 않는다.
- * 2) `pendingUpsertIds` 에 있는 id (아직 outbox 에 업로드 대기 중)는 보호.
- * 3) 위 둘 모두에 해당하지 않으면서 같은 워크스페이스에 속하면 → 로컬에서 제거.
- * 4) LC 스케줄러 / 다른 워크스페이스 / 로컬 전용 id 는 건드리지 않는다.
+ * 페이지 좀비 정리(prune). 전체 페이지 목록(`remotePageIds`)이 권위 있을 때만 호출해야 한다.
+ * (메타 페이지네이션 등 부분 목록으로 호출하면 멀쩡한 페이지를 지운다.)
  */
-export function reconcileWorkspaceFullSnapshot(args: {
+export function reconcileWorkspacePagesFullSnapshot(args: {
   workspaceId: string;
   remotePageIds: Set<string>;
-  remoteDatabaseIds: Set<string>;
   pendingUpsertPageIds: Set<string>;
-  pendingUpsertDatabaseIds: Set<string>;
-}): { removedPageIds: string[]; removedDatabaseIds: string[] } {
-  const {
-    workspaceId,
-    remotePageIds,
-    remoteDatabaseIds,
-    pendingUpsertPageIds,
-    pendingUpsertDatabaseIds,
-  } = args;
+}): { removedPageIds: string[] } {
+  const { workspaceId, remotePageIds, pendingUpsertPageIds } = args;
   const removedPageIds: string[] = [];
-  const removedDatabaseIds: string[] = [];
+  if (!workspaceId) return { removedPageIds };
 
-  if (!workspaceId) return { removedPageIds, removedDatabaseIds };
-
-  // -------- 페이지 reconciliation --------
   usePageStore.setState((s) => {
     if (s.cacheWorkspaceId && s.cacheWorkspaceId !== workspaceId) return s;
     let nextPages = s.pages;
@@ -113,13 +94,47 @@ export function reconcileWorkspaceFullSnapshot(args: {
     return { ...s, pages: nextPages, activePageId: nextActive };
   });
 
-  // -------- 데이터베이스 reconciliation --------
+  if (removedPageIds.length > 0) {
+    console.info("[sync] reconcile pruned orphan pages", {
+      workspaceId,
+      pages: removedPageIds.length,
+    });
+  }
+  return { removedPageIds };
+}
+
+/**
+ * 데이터베이스 좀비 정리(prune). DB 목록은 워크스페이스당 소수라 delta 동기화에서도
+ * 항상 전체 조회가 가능하므로, 전체 DB 목록(`remoteDatabaseIds`)을 받으면 페이지와 달리
+ * 증분 경로에서도 안전하게 prune 할 수 있다.
+ *
+ * 규칙:
+ * 1) `remoteDatabaseIds` 에 있으면 서버에 살아있음 → 보존.
+ * 2) `pendingUpsertDatabaseIds` (outbox 업로드 대기) → 보존.
+ * 3) LC 스케줄러·보호 DB / 다른 워크스페이스 DB → 보존.
+ * 4) 위에 모두 해당 없으면 서버에서 사라진 좀비 → 로컬 DB + 템플릿 + 그 DB 의 행 페이지 제거.
+ *    (행 페이지는 부모 DB 가 서버에 없으므로 함께 좀비로 확정된다.)
+ */
+export function reconcileWorkspaceDatabasesFullSnapshot(args: {
+  workspaceId: string;
+  remoteDatabaseIds: Set<string>;
+  pendingUpsertDatabaseIds: Set<string>;
+}): { removedDatabaseIds: string[]; removedRowPageIds: string[] } {
+  const { workspaceId, remoteDatabaseIds, pendingUpsertDatabaseIds } = args;
+  const removedDatabaseIds: string[] = [];
+  const removedRowPageIds: string[] = [];
+  if (!workspaceId) return { removedDatabaseIds, removedRowPageIds };
+
   useDatabaseStore.setState((s) => {
     if (s.cacheWorkspaceId && s.cacheWorkspaceId !== workspaceId) return s;
     let next = s.databases;
+    let nextTemplates = s.dbTemplates;
     let changed = false;
     const ensureCopy = () => {
       if (next === s.databases) next = { ...s.databases };
+    };
+    const ensureTemplatesCopy = () => {
+      if (nextTemplates === s.dbTemplates) nextTemplates = { ...s.dbTemplates };
     };
 
     for (const [dbId, bundle] of Object.entries(s.databases)) {
@@ -132,20 +147,47 @@ export function reconcileWorkspaceFullSnapshot(args: {
       if (pendingUpsertDatabaseIds.has(dbId)) continue;
       ensureCopy();
       delete next[dbId];
+      if (nextTemplates[dbId]) {
+        ensureTemplatesCopy();
+        delete nextTemplates[dbId];
+      }
       removedDatabaseIds.push(dbId);
       changed = true;
     }
     if (!changed) return s;
-    return { ...s, databases: next };
+    return { ...s, databases: next, dbTemplates: nextTemplates };
   });
 
-  if (removedPageIds.length > 0 || removedDatabaseIds.length > 0) {
-    console.info("[sync] reconcile pruned orphans", {
-      workspaceId,
-      pages: removedPageIds.length,
-      databases: removedDatabaseIds.length,
+  // 제거된 DB 의 행 페이지도 함께 정리(부모 DB 가 서버에 없으니 좀비 확정).
+  if (removedDatabaseIds.length > 0) {
+    const removedDbIdSet = new Set(removedDatabaseIds);
+    usePageStore.setState((s) => {
+      let nextPages = s.pages;
+      let nextActive = s.activePageId;
+      let changed = false;
+      const ensureCopy = () => {
+        if (nextPages === s.pages) nextPages = { ...s.pages };
+      };
+      for (const [pageId, page] of Object.entries(s.pages)) {
+        if (!page?.databaseId || !removedDbIdSet.has(page.databaseId)) continue;
+        ensureCopy();
+        delete nextPages[pageId];
+        if (nextActive === pageId) nextActive = null;
+        removedRowPageIds.push(pageId);
+        changed = true;
+      }
+      if (!changed) return s;
+      return { ...s, pages: nextPages, activePageId: nextActive };
     });
   }
 
-  return { removedPageIds, removedDatabaseIds };
+  if (removedDatabaseIds.length > 0) {
+    console.info("[sync] reconcile pruned orphan databases", {
+      workspaceId,
+      databases: removedDatabaseIds.length,
+      rowPages: removedRowPageIds.length,
+    });
+  }
+  return { removedDatabaseIds, removedRowPageIds };
 }
+
