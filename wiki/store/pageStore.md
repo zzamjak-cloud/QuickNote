@@ -3,8 +3,38 @@
 ## 역할
 앱 내 모든 페이지(노트, DB 행, 전체 페이지 DB 홈 등)의 트리 구조·본문·메타데이터를 관리하는 핵심 스토어.
 
-## 위치
-`src/store/pageStore.ts`
+## 위치 및 파일 구성
+
+```
+src/store/pageStore.ts          # 스토어 본문 (701줄) — persist 설정·코어 액션 인라인
+src/store/pageStore/
+  helpers.ts                    # enqueueUpsertPage, allocateUniquePageTitle 등 공통 유틸
+  selectors.ts                  # selectPageTree, createFilterPageTreeSelector 등 트리 셀렉터
+  migrations.ts                 # PAGE_STORE_PERSIST_VERSION, migratePageStore
+  actions/
+    fullPageDbActions.ts        # findFullPagePageIdForDatabase, ensureFullPagePageForDatabase, markFullPageDatabaseHome
+    moveActions.ts              # reorderPages, movePage, movePageRelative
+    duplicateActions.ts         # duplicatePage, duplicatePageToWorkspace
+    appearanceActions.ts        # setIcon, setTitleColor, setCoverImage
+  __tests__/                    # 단위 테스트
+```
+
+### 액션 슬라이스 패턴 (behavior-preserving 분리)
+
+databaseStore 의 `columnActions`/`rowActions` 와 동일한 패턴. 각 슬라이스는:
+
+```ts
+type PageStoreSet = StoreApi<PageStore>["setState"];
+type PageStoreGet = StoreApi<PageStore>["getState"];
+
+export function createXxxActions(set: PageStoreSet, get: PageStoreGet): Pick<PageStore, ...> {
+  return { ... };
+}
+```
+
+- `PageStore` 는 **type-only import** → 런타임 순환 의존 없음.
+- 스토어 본문에서 `...createXxxActions(set, get)` 스프레드로 합성.
+- 분리 순서: `...createMoveActions`, `...createAppearanceActions`, `...createDuplicateActions`, `...createFullPageDbActions`.
 
 ## State 타입
 
@@ -40,6 +70,7 @@
 | `restorePageFromHistoryEvent` | `pageId, eventId` | 특정 히스토리 이벤트로 페이지 복원 |
 | `findFullPagePageIdForDatabase` | `databaseId` | DB의 전체 페이지 홈 ID 반환 (없으면 null) |
 | `ensureFullPagePageForDatabase` | `databaseId, title?, view?` | DB의 숨김 홈 페이지를 보장하고 ID 반환 |
+| `markFullPageDatabaseHome` | `pageId, databaseId` | 기존 페이지를 DB 홈으로 태깅 (`fullPageDatabaseId` 설정) |
 | `updateButtonBlockLabels` | `homePageId, newLabel` | DB 제목 변경 시 buttonBlock 레이블 동기화 |
 
 ## 제목 중복 방지 (`pageStore/helpers.ts`)

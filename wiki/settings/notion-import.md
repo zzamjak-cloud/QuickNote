@@ -13,8 +13,19 @@ Notion export(HTML/Markdown + CSV + 첨부 에셋)를 QuickNote 페이지·DB로
 | `src/lib/notionImport/folderScanner.ts` | 폴더/파일배열 스캔 → `NotionZipPreview`(pages + assets) |
 | `src/lib/notionImport/zipParser.ts` | zip 파싱 → 동일 preview 구조 |
 | `src/lib/notionImport/assetUpload.ts` | 에셋 경로 매칭 리졸버 + S3 업로드 + 문서 노드 변환 |
-| `src/lib/notionImport/htmlToDoc.ts` | HTML → TipTap JSONContent 변환 |
-| `src/lib/notionImport/htmlToDoc/pageMentions.ts` | 페이지 멘션·deferred 토큰(`__QN_PM__`) 헬퍼 |
+| `src/lib/notionImport/htmlToDoc.ts` | HTML → TipTap JSONContent 변환 (1327줄). 재귀 코어·orchestrator 보유 |
+| `src/lib/notionImport/htmlToDoc/types.ts` | `HtmlToDocOptions`, `NotionCollectionTable` 타입 sink |
+| `src/lib/notionImport/htmlToDoc/nodes.ts` | `textNode`, `mergeMarks`, `withCaption` 등 공유 프리미티브 sink |
+| `src/lib/notionImport/htmlToDoc/inlineText.ts` | `textNodesWithAutoLinks` — 인라인 텍스트·자동 링크 |
+| `src/lib/notionImport/htmlToDoc/media.ts` | `imageNodeFromElement`, `mediaNodeFromElement`, `maybeMediaBlockFromParagraph` |
+| `src/lib/notionImport/htmlToDoc/youtube.ts` | `youtubeNodeFromUrl`, `youtubeNodeFromElement` |
+| `src/lib/notionImport/htmlToDoc/bookmark.ts` | `hasBookmarkStructure`, `bookmarkBlockFromAnchor`, `maybeBookmarkBlockFromParagraph` 등 |
+| `src/lib/notionImport/htmlToDoc/code.ts` | `codeBlockFromElement` |
+| `src/lib/notionImport/htmlToDoc/headingIndex.ts` | `normalizeHeadingTitle`, `buildHeadingTitleIndex` |
+| `src/lib/notionImport/htmlToDoc/dedupe.ts` | `dedupeConsecutiveImportBlocks` |
+| `src/lib/notionImport/htmlToDoc/anchors.ts` | `assetBlockFromAnchor`, `linkToPageFallbackParagraph`, `relocateDeferredMentionsInToggleBlocks` 등 |
+| `src/lib/notionImport/htmlToDoc/colors.ts` | 색상 파싱 헬퍼 (기존 유지) |
+| `src/lib/notionImport/htmlToDoc/pageMentions.ts` | 페이지 멘션·deferred 토큰(`__QN_PM__`) 헬퍼 (기존 유지) |
 | `src/lib/notionImport/resolveNotionPageHref.ts` | Notion HTML 내부 href → 스캔된 페이지 path 해석 |
 | `src/lib/notionImport/hydrateChildPageMentions.ts` | 멘션 해소 실패로 제목만 남은 문단 → 구조적 자식 멘션 보강 |
 | `src/lib/notionImport/linkUtils.ts` | 외부 URL 정규화·북마크 요약 (`normalizeImportedLinkHref`) |
@@ -22,6 +33,23 @@ Notion export(HTML/Markdown + CSV + 첨부 에셋)를 QuickNote 페이지·DB로
 | `src/lib/notionImport/columnInference.ts` | CSV 컬럼 타입 추론(text/number/date/select/status/person 등) + `mapNotionPropertyType`(권위 타입 매핑) |
 | `src/lib/notionImport/rowPropertyMeta.ts` | 행 페이지 `table.properties` → 컬럼 권위 타입·옵션 색 추출 |
 | `src/lib/notionImport/personName.ts` | 사람 이름 정규화·토큰화·워크스페이스 구성원 매칭 |
+
+## htmlToDoc 구현 구조
+
+`htmlToDoc.ts`는 재귀 하강 방식으로 HTML → TipTap `JSONContent`를 변환한다. 파일은 두 계층으로 나뉜다.
+
+**메인 파일 (`htmlToDoc.ts`)**: 상호재귀 코어와 orchestrator를 보유한다.
+- 재귀 코어: `blocksFromContainerChildren`, `inlineFromNode`, per-element 핸들러(paragraph/heading/list/callout/toggle/column/table/blockquote 등)
+- orchestrator: `notionHtmlToDocInternal` → 공개 API `notionHtmlToDoc`, `extractNotionPageIcon`
+
+**서브모듈 (`htmlToDoc/`)**: 코어를 호출하지 않는 **순수 리프 헬퍼만** 추출.
+- `types.ts`, `nodes.ts` — 공유 타입·프리미티브 sink. 다른 서브모듈이 import.
+- 나머지(inlineText/youtube/media/bookmark/code/headingIndex/dedupe/anchors) — 각자 독립 변환 로직.
+- `colors.ts`, `pageMentions.ts` — 기존 서브모듈, 동일 패턴 유지.
+
+**순환 방지 불변식**: 서브모듈은 메인 `htmlToDoc.ts`를 import하지 않는다(메인 → 서브모듈 단방향). 이 구조는 behavior-preserving 리팩터링이며, 공개 API(`notionHtmlToDoc`, `extractNotionPageIcon`, `NotionCollectionTable`)는 변경 없다.
+
+회귀 방어 테스트: `src/__tests__/notionImport/htmlToDoc.test.ts` (callout/bullet/todo/nestedToggle/mention 등).
 
 ## 컬럼 타입 추론 — 사람(person) 감지
 
