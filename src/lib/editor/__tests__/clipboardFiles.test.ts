@@ -49,4 +49,29 @@ describe("clipboardFiles", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.isImage).toBe(true);
   });
+
+  it("OS 스크린샷: items/files 가 lastModified 만 다른 별개 File 이어도 중복하지 않는다", () => {
+    // 실제 클립보드는 같은 스크린샷을 items.getAsFile() 와 files 에서 각각
+    // 다른 File 객체로 합성하며 lastModified 가 어긋날 수 있다.
+    const fromItem = new File(["x"], "image.png", {
+      type: "image/png",
+      lastModified: 1000,
+    });
+    const fromFiles = new File(["x"], "image.png", {
+      type: "image/png",
+      lastModified: 2000,
+    });
+    const item = {
+      kind: "file",
+      type: "image/png",
+      getAsFile: () => fromItem,
+    } as DataTransferItem;
+    const entries = extractClipboardFiles({
+      items: [item] as unknown as DataTransferItemList,
+      files: fileList([fromFiles]),
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.isImage).toBe(true);
+  });
 });
