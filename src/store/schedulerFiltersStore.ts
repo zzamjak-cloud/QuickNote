@@ -1,6 +1,7 @@
 // 스케줄러 조직·팀 활성/비활성 필터 스토어.
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 
 type FiltersState = {
   // 비활성 조직 ID 목록
@@ -40,7 +41,7 @@ export const useSchedulerFiltersStore = create<SchedulerFiltersStore>()(
     }),
     {
       name: "quicknote.scheduler.filters.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => zustandStorage),
     },
   ),
 );

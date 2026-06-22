@@ -1,6 +1,7 @@
 // LC 스케줄러 뷰 상태(줌·필터·뷰 모드 등) 로컬 스토어.
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 import { DEFAULT_SCHEDULE_COLOR, DEFAULT_WEEKEND_COLOR } from "../lib/scheduler/colors";
 
 export type SchedulerViewMode = "year" | "month" | "week";
@@ -142,7 +143,7 @@ export const useSchedulerViewStore = create<SchedulerViewStore>()(
     }),
     {
       name: "quicknote.scheduler.view.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => zustandStorage),
       partialize: (s) => ({
         schedulerOpen: s.schedulerOpen,
         viewMode: s.viewMode,

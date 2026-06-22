@@ -5,6 +5,7 @@
  */
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { zustandStorage } from "../lib/storage/index";
 import { newId } from "../lib/id";
 import type { BlockCommentMsg } from "../types/blockComment";
 import { useWorkspaceStore } from "./workspaceStore";
@@ -239,7 +240,7 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
     }),
     {
       name: "quicknote.blockComments.v1",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => zustandStorage),
       // threadVisitedAt 만 localStorage 에 유지. messages 는 부트 시 서버에서 재로드.
       partialize: (s) => ({ threadVisitedAt: s.threadVisitedAt }),
     },
