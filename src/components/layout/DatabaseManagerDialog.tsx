@@ -22,27 +22,8 @@ type Props = {
   onClose: () => void;
 };
 
-function collectReferencedDatabaseIds(value: unknown, out: Set<string>): void {
-  if (!value || typeof value !== "object") return;
-  const node = value as Record<string, unknown>;
-  const attrs = node.attrs as Record<string, unknown> | undefined;
-  const type = typeof node.type === "string" ? node.type : "";
-  const databaseId = String(attrs?.databaseId ?? "");
-  if (
-    (type === "databaseBlock" || type === "buttonBlock") &&
-    databaseId
-  ) {
-    out.add(databaseId);
-  }
-  const content = node.content;
-  if (!Array.isArray(content)) return;
-  for (const child of content) collectReferencedDatabaseIds(child, out);
-}
-
 export function DatabaseManagerDialog({ open, onClose }: Props) {
   const dbList = useDatabaseStore(listDatabases);
-  const databases = useDatabaseStore((s) => s.databases);
-  const dbTemplates = useDatabaseStore((s) => s.dbTemplates);
   const deleteDatabase = useDatabaseStore((s) => s.deleteDatabase);
   const pages = usePageStore((s) => s.pages);
   const findFullPagePageIdForDatabase = usePageStore(
@@ -119,29 +100,14 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   // 보호 DB(작업·마일스톤·피처) 는 LC 워크스페이스 DB 관리 화면에서만 표시.
   // (인라인 DB 블록 연결 등 다른 경로에서는 어디서나 사용 가능)
   const inLCWorkspace = currentWorkspaceId === LC_SCHEDULER_WORKSPACE_ID;
-  const referencedDatabaseIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const page of Object.values(pages)) {
-      if (page.databaseId) ids.add(page.databaseId);
-      if (page.fullPageDatabaseId) ids.add(page.fullPageDatabaseId);
-      collectReferencedDatabaseIds(page.doc, ids);
-    }
-    return ids;
-  }, [pages]);
   const visibleActive = dbList
     .filter((d) => {
+      // 보호 DB(작업·마일스톤·피처)는 LC 워크스페이스에서만 노출.
       if (isProtectedDatabaseId(d.id) && !inLCWorkspace) return false;
-      const bundle = databases[d.id];
-      const templateCount = dbTemplates[d.id]?.length ?? 0;
-      if (
-        bundle &&
-        !isProtectedDatabaseId(d.id) &&
-        bundle.rowPageOrder.length === 0 &&
-        templateCount === 0 &&
-        !referencedDatabaseIds.has(d.id)
-      ) {
-        return false;
-      }
+      // 워크스페이스의 모든 DB를 노출한다. 과거에는 "행이 로컬에 로드됨 또는 참조됨"이 아닌 DB를
+      // 숨겼는데(빈 고아 DB 정리 목적), 콜드(신규) 클라이언트에선 인라인 DB의 행·본문이 아직
+      // 로드되지 않아 정상 DB가 전부 숨겨졌다(기기마다 목록 불일치 — listPageMetas 는 DB 행 제외).
+      // 관리 UI 목적상 빈 DB도 보이는 게 맞으므로 로컬 로드 상태로 숨기지 않는다.
       return koreanIncludes(d.meta.title.toLowerCase(), q);
     })
     .sort((a, b) => {
