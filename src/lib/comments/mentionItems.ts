@@ -3,6 +3,7 @@ import { searchMembersForMentionApi } from "../sync/memberApi";
 import { useMemberStore } from "../../store/memberStore";
 import { usePageStore } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { koreanIncludes } from "../koreanSearch";
 import { CACHE_TTL, isCacheFresh } from "../cache/ttl";
 import {
   loadCrossWorkspacePageCandidates,
@@ -65,7 +66,9 @@ function pageMentionItems(pages: Page[], query: string, limit: number): MentionL
     .filter((p) => {
       if ((p as { deletedAt?: string | null }).deletedAt) return false;
       if (!q) return true;
-      return (p.title || "제목 없음").toLowerCase().includes(q);
+      // 평범한 includes 는 저장 제목이 분해형(NFD)·입력이 조합형(NFC)이면 한글 부분일치에 실패한다
+      // (검색 누락). koreanIncludes 는 NFC 정규화 + 한글 퍼지 매칭으로 앱 전역 검색과 동일하게 처리.
+      return koreanIncludes((p.title || "제목 없음").toLowerCase(), q);
     })
     // 로컬 페이지가 merge 앞쪽에 오므로 작은 하드캡은 타 워크스페이스 페이지를 잘라낸다.
     // 최종 limit 이 통합 후보를 다시 자르므로 여기서는 그보다 넉넉히 둔다.
