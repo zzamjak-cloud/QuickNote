@@ -157,7 +157,8 @@ export async function loadMergedMentionItems(
 
   const filtered = combined.filter((item) => {
     const hay = `${item.label} ${item.subtitle}`.toLowerCase();
-    return hay.includes(q);
+    // 전역 검색과 동일한 한글 매처(NFC 정규화). plain includes 는 NFD 저장 제목을 놓친다(검색 누락).
+    return koreanIncludes(hay, q);
   });
 
   const out = filtered.slice(0, limit);
