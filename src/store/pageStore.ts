@@ -21,6 +21,7 @@ import {
   isLCSchedulerDatabaseId,
 } from "../lib/scheduler/database";
 import { writeCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
+import { patchWorkspaceSnapshotPageCells } from "../lib/sync/workspaceSwitch";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../lib/scheduler/scope";
 import {
   EMPTY_DOC,
@@ -594,6 +595,19 @@ export const usePageStore = create<PageStore>()(
             after.databaseId != null &&
             writeCellsToCollabDoc(after.databaseId, pageId, { [columnId]: value });
           enqueueUpsertPage(after, routed ? { cellsOnly: true } : undefined);
+          // 파생 캐시 동기화: 셀 편집이 pageStore 만 갱신하면 row index 캐시와
+          // home 워크스페이스 스냅샷이 stale 로 남아, cached-only 표시·워크스페이스 전환 시
+          // 옛 값이 복원된다(크로스 워크스페이스 인라인 DB 편집 회귀). 두 캐시를 함께 패치한다.
+          if (after.databaseId != null) {
+            void useDatabaseRowIndexStore
+              .getState()
+              .patchRowCells(pageId, { [columnId]: value });
+          }
+          if (after.workspaceId) {
+            void patchWorkspaceSnapshotPageCells(after.workspaceId, pageId, {
+              [columnId]: value,
+            });
+          }
         }
       },
 
