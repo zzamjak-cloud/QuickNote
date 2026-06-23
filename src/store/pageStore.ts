@@ -21,6 +21,7 @@ import {
   isLCSchedulerDatabaseId,
 } from "../lib/scheduler/database";
 import { writeCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
+import { insertPageIntoCrossWorkspaceCache } from "../lib/crossWorkspacePageCache";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../lib/scheduler/scope";
 import {
   EMPTY_DOC,
@@ -338,6 +339,9 @@ export const usePageStore = create<PageStore>()(
             () => toPageSnapshot(page),
           );
           enqueueUpsertPage(page);
+          // 새 페이지를 교차 워크스페이스 후보 캐시에 즉시 반영(같은 세션의 후속 멘션/링크 검색에서
+          // 5분 TTL 을 기다리지 않고 바로 검색되도록). 캐시 미존재 시 no-op(다음 검색이 fresh 페치).
+          insertPageIntoCrossWorkspaceCache(page);
         });
         return id;
       },

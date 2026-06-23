@@ -11,6 +11,7 @@ import { tryParseSerializedColumns } from "./database/schema/normalizeDatabase";
 import { readWorkspaceSnapshotPages } from "./sync/workspaceSwitch";
 import { LC_SCHEDULER_WORKSPACE_ID } from "./scheduler/scope";
 import { createLocalDeletionFilter } from "./sync/localDeleteGuards";
+import { crossWorkspacePageCache as pageCache } from "./crossWorkspacePageCache";
 
 export type CrossWorkspaceDatabaseCandidate = {
   id: string;
@@ -22,7 +23,6 @@ export type CrossWorkspaceDatabaseCandidate = {
 const PUBLIC_CACHE_TTL_MS = 5 * 60 * 1000;
 const ROW_CACHE_TTL_MS = 90 * 1000;
 
-const pageCache = new Map<string, { loadedAt: number; pages: Page[] }>();
 const databaseCache = new Map<string, { loadedAt: number; databases: CrossWorkspaceDatabaseCandidate[] }>();
 const rowCache = new Map<string, { loadedAt: number; rows: Page[] }>();
 
