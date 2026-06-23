@@ -31,9 +31,15 @@ export function useDatabaseCollabSession(
     (s) => (databaseId ? s.databases[databaseId]?.meta.workspaceId ?? null : null),
   );
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
-  // 타 워크스페이스 인라인 DB 는 구조 협업 룸에 합류하지 않는다 — 타 워크스페이스 룸 WebSocket
-  // 연결 실패(404)와 구조 덮어쓰기를 막는다. workspaceId 미설정 DB 는 현재 워크스페이스로 취급.
-  const enabled = flagEnabled && (!databaseWorkspaceId || databaseWorkspaceId === currentWorkspaceId);
+  // 타 워크스페이스 DB(예: 페이지 멘션으로 연 다른 워크스페이스의 인라인 DB)도 협업 룸에 합류한다.
+  // 서버 $connect 인가는 DB 홈 워크스페이스 멤버십 기준이라(현재 워크스페이스 무관), 멤버이면 연결되어
+  // 셀 편집이 실시간 양방향 동기화된다. 비멤버는 connect 401 → QnWsProvider 가 3회 재시도 후 중단(폴백).
+  const crossWorkspace = !!databaseWorkspaceId && databaseWorkspaceId !== currentWorkspaceId;
+  const enabled = flagEnabled;
+  // 시드(로컬→룸) 차단 게이트. 타 워크스페이스 클라의 로컬 DB 데이터는 부분(row-index/일부 행)일 수
+  // 있어, 룸에 시드하면 권위 룸을 손상시킨다. materialize(룸→로컬, 가드 내장)는 허용한다.
+  const crossWorkspaceRef = useRef(crossWorkspace);
+  crossWorkspaceRef.current = crossWorkspace;
   const [synced, setSynced] = useState(false);
   const [idbLoaded, setIdbLoaded] = useState(false);
   const docRef = useRef<Y.Doc | null>(null);
@@ -91,7 +97,10 @@ export function useDatabaseCollabSession(
           serverSynced = true;
           setSynced(true);
           setConnStatus(toBadgeStatus("connected", true));
-          try { onSyncedRef.current?.(); } catch { /* 시드 폴백 실패는 무시 */ }
+          // 타 워크스페이스 클라는 룸에 시드하지 않는다(부분 로컬 데이터로 권위 룸 손상 방지).
+          if (!crossWorkspaceRef.current) {
+            try { onSyncedRef.current?.(); } catch { /* 시드 폴백 실패는 무시 */ }
+          }
         }
       });
       provider.connect();
