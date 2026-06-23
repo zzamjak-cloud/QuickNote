@@ -44,6 +44,7 @@ import { refreshWorkspaceSnapshot } from "../../lib/sync/workspaceSwitch";
 import { DatabaseBlockHistoryDialog } from "./DatabaseBlockHistoryDialog";
 import { DatabaseBlockLinkExistingDialog } from "./DatabaseBlockLinkExistingDialog";
 import { useMemberStore } from "../../store/memberStore";
+import { useUiStore } from "../../store/uiStore";
 import {
   makeInlineControlsPrefsKey,
   useDatabaseInlineUiPrefsStore,
@@ -83,7 +84,18 @@ export function DatabaseBlockView(props: NodeViewProps) {
   panelStateRef.current = panelState;
 
   const bundle = useDatabaseStore((s) => s.databases[viewDatabaseId]);
-  const databaseWorkspaceId = bundle?.meta.workspaceId ?? currentWorkspaceId;
+  // 번들이 아직 없으면(타 워크스페이스 페이지를 피크/멘션으로 열어 인라인 DB 가 콜드 로드되는 경우)
+  // 세션 현재 워크스페이스로 폴백하면 DB 를 엉뚱한 워크스페이스에서 찾아 영영 못 불러온다(연결 끊김).
+  // 인라인 DB 의 실제 워크스페이스는 그것을 담은 호스트 페이지(피크 중이면 peek, 아니면 active)의
+  // 워크스페이스이므로 이를 우선 폴백으로 사용해 올바른 워크스페이스에서 번들을 적재한다.
+  const peekPageId = useUiStore((s) => s.peekPageId);
+  const activePageId = usePageStore((s) => s.activePageId);
+  const hostPageId = isInsidePeek ? peekPageId : activePageId;
+  const hostPageWorkspaceId = usePageStore((s) =>
+    hostPageId ? s.pages[hostPageId]?.workspaceId ?? null : null,
+  );
+  const databaseWorkspaceId =
+    bundle?.meta.workspaceId ?? hostPageWorkspaceId ?? currentWorkspaceId;
 
   // DB 구조·셀 실시간 협업(Phase 4) — flag ON 인 DB 만 활성. materialize 시 store 에 투영, 첫 sync 시 행 셀 시드 폴백.
   useDatabaseCollabSession(
@@ -111,7 +123,6 @@ export function DatabaseBlockView(props: NodeViewProps) {
   const setDatabaseTitle = useDatabaseStore((s) => s.setDatabaseTitle);
   const deleteDatabaseFromStore = useDatabaseStore((s) => s.deleteDatabase);
   const renamePage = usePageStore((s) => s.renamePage);
-  const activePageId = usePageStore((s) => s.activePageId);
   const setActivePageNav = usePageStore((s) => s.setActivePage);
   const setCurrentTabDatabase = useSettingsStore((s) => s.setCurrentTabDatabase);
 
