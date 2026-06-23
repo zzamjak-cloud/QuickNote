@@ -7,7 +7,6 @@ import {
   type DatabaseRowIndexEntry,
   type DatabaseRowIndexSnapshot,
 } from "../lib/database/databaseRowIndexCache";
-import type { CellValue } from "../types/database";
 
 type DatabaseRowIndexState = {
   snapshotsByKey: Record<string, DatabaseRowIndexSnapshot>;
@@ -26,15 +25,6 @@ type DatabaseRowIndexActions = {
   removeRows: (indexKey: string, pageIds: readonly string[]) => Promise<void>;
   /** 모든 인덱스 스냅샷에서 주어진 pageId 들을 제거(삭제된 페이지/행이 fallback 으로 유령 렌더되는 것 방지). */
   removePagesFromAllIndexes: (pageIds: readonly string[]) => Promise<void>;
-  /**
-   * 모든 인덱스 스냅샷에서 주어진 pageId 행의 dbCells 를 머지 갱신한다.
-   * 셀 편집이 pageStore 만 갱신하고 row index 캐시는 stale 로 남던 문제를 막는다
-   * (cached-only 표시·필터, 워크스페이스 공유 캐시 동기화).
-   */
-  patchRowCells: (
-    pageId: string,
-    cells: Record<string, CellValue>,
-  ) => Promise<void>;
   clearIndex: (indexKey: string) => Promise<void>;
 };
 
@@ -114,37 +104,6 @@ export const useDatabaseRowIndexStore = create<DatabaseRowIndexStore>()(
           ...snap,
           rows: snap.rows.filter((row) => !ids.has(row.pageId)),
           updatedAt: Date.now(),
-        };
-        nextByKey[key] = next;
-        affected.push(next);
-      }
-      if (affected.length === 0) return;
-      set({ snapshotsByKey: nextByKey });
-      await Promise.all(affected.map((snap) => writeDatabaseRowIndexCache(snap)));
-    },
-
-    patchRowCells: async (pageId, cells) => {
-      if (!pageId || Object.keys(cells).length === 0) return;
-      const snapshots = get().snapshotsByKey;
-      const nextByKey = { ...snapshots };
-      const affected: DatabaseRowIndexSnapshot[] = [];
-      const stampedAt = Date.now();
-      for (const [key, snap] of Object.entries(snapshots)) {
-        let touched = false;
-        const rows = snap.rows.map((row) => {
-          if (row.pageId !== pageId) return row;
-          touched = true;
-          return {
-            ...row,
-            dbCells: { ...(row.dbCells ?? {}), ...cells },
-            updatedAt: stampedAt,
-          };
-        });
-        if (!touched) continue;
-        const next: DatabaseRowIndexSnapshot = {
-          ...snap,
-          rows,
-          updatedAt: stampedAt,
         };
         nextByKey[key] = next;
         affected.push(next);

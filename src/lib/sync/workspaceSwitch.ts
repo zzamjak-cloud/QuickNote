@@ -8,7 +8,6 @@ import { useBlockCommentStore } from "../../store/blockCommentStore";
 import type { BlockCommentMsg } from "../../store/blockCommentStore";
 import type { WorkspaceSummary } from "../../store/workspaceStore";
 import type { Page } from "../../types/page";
-import type { CellValue } from "../../types/database";
 import { zustandStorage } from "../storage/index";
 import { getSyncEngine } from "./runtime";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
@@ -420,39 +419,6 @@ function captureWorkspaceSnapshot(workspaceId: string): void {
 export function refreshWorkspaceSnapshot(workspaceId: string | null): void {
   if (!workspaceId) return;
   captureWorkspaceSnapshot(workspaceId);
-}
-
-/**
- * 워크스페이스 스냅샷에서 단일 페이지의 dbCells 만 머지 갱신한다.
- * captureWorkspaceSnapshot 은 현재 pageStore 를 통째로 재캡처하므로, 다른 워크스페이스에서
- * 편집 중인 페이지(home 워크스페이스 ≠ 현재)에는 적용할 수 없다(현재 pageStore 에 home
- * 워크스페이스 전체 페이지가 없어 스냅샷이 축소·손상됨). 따라서 home 워크스페이스 스냅샷의
- * 해당 페이지 셀만 외과적으로 패치해, 워크스페이스 전환 시 stale 셀이 복원되는 것을 막는다.
- */
-export async function patchWorkspaceSnapshotPageCells(
-  workspaceId: string | null,
-  pageId: string,
-  cells: Record<string, CellValue>,
-): Promise<void> {
-  if (!workspaceId || !pageId || Object.keys(cells).length === 0) return;
-  let snapshot = workspaceSnapshotById.get(workspaceId);
-  if (!snapshot) {
-    snapshot = (await readPersistedWorkspaceSnapshot(workspaceId)) ?? undefined;
-  }
-  if (!snapshot) return;
-  const page = snapshot.pages[pageId];
-  if (!page) return;
-  const nextPage: Page = {
-    ...page,
-    dbCells: { ...(page.dbCells ?? {}), ...cells },
-    updatedAt: Date.now(),
-  };
-  const next: WorkspaceSnapshot = {
-    ...snapshot,
-    pages: { ...snapshot.pages, [pageId]: nextPage },
-  };
-  workspaceSnapshotById.set(workspaceId, next);
-  persistWorkspaceSnapshot(workspaceId, next);
 }
 
 function hasWorkspaceSnapshot(workspaceId: string | null): boolean {

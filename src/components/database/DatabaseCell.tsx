@@ -23,7 +23,6 @@ import {
   shouldUseManualCellValueForAutomation,
 } from "../../lib/database/columnSource";
 import { resolvePageLinkMirrorValue } from "../../lib/database/pageLinkMirror";
-import { ensureRowPageLoadedForEdit } from "../../lib/database/ensureRowPageForEdit";
 
 type Props = {
   databaseId: string;
@@ -217,15 +216,7 @@ export const DatabaseCell = memo(function DatabaseCell({ databaseId, rowId, colu
 
   const setVal = (v: CellValue) => {
     if (isDerived && !usesManualAutomationValue) return; // 미러 컬럼은 직접 편집 차단
-    // cached-only 행(row index 에만 있고 pageStore 미적재)은 setPageDbCell 이 no-op 이므로
-    // 본문이 적재돼 있을 때만 즉시 쓰고, 아니면 적재 후 쓴다(원본 DB 연결 인라인 DB 회귀 방지).
-    if (usePageStore.getState().pages[rowId]) {
-      updateCell(databaseId, rowId, column.id, v);
-      return;
-    }
-    void ensureRowPageLoadedForEdit(databaseId, rowId).then((loaded) => {
-      if (loaded) updateCell(databaseId, rowId, column.id, v);
-    });
+    updateCell(databaseId, rowId, column.id, v);
   };
 
   switch (column.type) {
