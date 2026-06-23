@@ -54,6 +54,7 @@ import {
   deletePageHistoryEvents,
   getDatabase,
   getPage,
+  getPageById,
   listDatabases,
   listDatabaseHistory,
   listDatabaseRows,
@@ -452,6 +453,11 @@ const RESOLVERS: Record<
       ...base,
       id: event.arguments.id as string,
       workspaceId: event.arguments.workspaceId as string,
+    }),
+  getPageById: async (event, base) =>
+    await getPageById({
+      ...base,
+      id: event.arguments.id as string,
     }),
   listDatabaseRows: async (event, base) =>
     await listDatabaseRows({

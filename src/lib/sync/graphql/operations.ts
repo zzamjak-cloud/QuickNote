@@ -22,6 +22,7 @@ export {
 } from "../queries/workspaceMeta";
 export {
   GET_PAGE,
+  GET_PAGE_BY_ID,
   LIST_DATABASE_ROW_INDEX,
   LIST_DATABASE_ROWS,
   LIST_PAGE_METAS,

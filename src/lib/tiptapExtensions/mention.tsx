@@ -1,6 +1,7 @@
 // 모든 멘션(@) 의 단일 노드 — member / page / database 를 mentionKind 로 분기 처리한다.
 // 페이지 멘션도 여기서 렌더한다. (과거 별도 pageMention.tsx 가 있었으나 미사용 dead code 라 제거함)
 // 멘션 관련 수정은 반드시 이 파일에서 한다.
+import { useEffect } from "react";
 import Mention from "@tiptap/extension-mention";
 import { mergeAttributes } from "@tiptap/core";
 import { Plugin } from "prosemirror-state";
@@ -10,6 +11,7 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 import { usePageStore } from "../../store/pageStore";
+import { ensurePageContentLoaded } from "../sync/pageContentLoad";
 import { useUiStore } from "../../store/uiStore";
 import { useMemberStore } from "../../store/memberStore";
 import { PageIconDisplay } from "../../components/common/PageIconDisplay";
@@ -51,6 +53,14 @@ function MentionNodeView({ node }: NodeViewProps) {
   const reactivePageTitleColor = usePageStore((s) =>
     isPage ? s.pages[pageId]?.titleColor ?? null : null,
   );
+  // 멘션 대상 페이지가 로컬에 없으면(콜드 클라이언트의 타 워크스페이스/ DB 행 페이지 등) title 이
+  // undefined 다. id 단독 해석(서버 접근권 검사)으로 로드해 아이콘/제목/클릭이 동작하게 한다.
+  // ensurePageContentLoaded 가 inFlight 중복 제거하므로 여러 멘션이 같은 페이지를 요청해도 1회만 페치.
+  const pageMissing = isPage && reactivePageTitle === undefined;
+  useEffect(() => {
+    if (!pageMissing) return;
+    void ensurePageContentLoaded({ pageId, source: "page-mention-resolve" });
+  }, [pageMissing, pageId]);
   const label = isPage ? (reactivePageTitle ?? rawLabel ?? "페이지") : rawLabel;
   const dataKind = kindAttr === "member" ? undefined : kindAttr;
   const mentionClass = isPage

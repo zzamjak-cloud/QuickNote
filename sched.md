@@ -1,0 +1,121 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - complementary [ref=e5]:
+        - generic [ref=e6]:
+          - generic [ref=e7]
+          - button "워크스페이스 선택" [ref=e31] [cursor=pointer]
+        - generic [ref=e36]:
+          - generic [ref=e93]
+          - status [ref=e276]
+        - button "데이터베이스 관리" [ref=e38] [cursor=pointer]
+        - button "휴지통" [ref=e39] [cursor=pointer]
+      - button "사이드바 너비 조절" [ref=e40]
+    - generic [ref=e41]:
+      - generic [ref=e42]:
+        - button "이전 탭" [disabled] [ref=e43]:
+          - img [ref=e44]
+        - button "다음 탭" [disabled] [ref=e46]:
+          - img [ref=e47]
+        - generic [ref=e49]:
+          - button "Bakery Studio" [ref=e277] [cursor=pointer]
+          - button "새 탭" [ref=e58] [cursor=pointer]
+        - button "LC 스케줄러" [active] [ref=e60] [cursor=pointer]
+        - radiogroup "우측 패널 선택" [ref=e61]:
+          - radio "목차 보기" [ref=e62] [cursor=pointer]
+          - radio "즐겨찾기" [ref=e66] [cursor=pointer]
+      - banner [ref=e69]:
+        - button "상위 페이지로 이동" [disabled] [ref=e70]:
+          - img [ref=e71]
+        - generic [ref=e75]:
+          - generic "실시간 동기화 중" [ref=e278]
+          - button "페이지 트리" [ref=e280] [cursor=pointer]
+          - button "전체 너비 보기 끄기" [pressed] [ref=e78] [cursor=pointer]
+          - button "링크 복사" [ref=e82] [cursor=pointer]
+          - button "페이지 메뉴" [ref=e87] [cursor=pointer]
+      - generic [ref=e92]:
+        - generic [ref=e287]:
+          - img "커버" [ref=e288]
+          - generic [ref=e289]
+        - generic [ref=e292]:
+          - generic [ref=e294]
+          - generic [ref=e306]
+  - generic [ref=e391]:
+    - generic [ref=e392]:
+      - generic [ref=e393]:
+        - img [ref=e394]
+        - generic [ref=e396]:
+          - button "조직, 팀 또는 프로젝트 선택" [ref=e398] [cursor=pointer]
+          - generic [ref=e402]: 일정
+        - tablist "일정 데이터 모드" [ref=e403]:
+          - tab "마일스톤" [ref=e404] [cursor=pointer]
+          - tab "피처" [ref=e405] [cursor=pointer]
+          - tab "작업" [selected] [ref=e406] [cursor=pointer]
+        - tablist "일정 보기 모드" [ref=e407]:
+          - tab "연간" [selected] [ref=e408] [cursor=pointer]
+          - tab "월간" [ref=e409] [cursor=pointer]
+          - tab "주간" [ref=e410] [cursor=pointer]
+      - generic [ref=e411]:
+        - button "내일정" [ref=e412] [cursor=pointer]:
+          - img [ref=e413]
+          - text: 내일정
+        - button "스케줄러 설정" [ref=e416] [cursor=pointer]:
+          - img [ref=e417]
+        - button "닫기" [ref=e420] [cursor=pointer]:
+          - img [ref=e421]
+    - generic [ref=e425]:
+      - button "통합" [ref=e426] [cursor=pointer]:
+        - img [ref=e427]
+        - text: 통합
+      - button "최민철" [ref=e432]
+      - button "이해찬" [ref=e433]
+      - button "조일환" [ref=e434]
+      - button "최다운" [ref=e435]
+      - button "김가희" [ref=e436]
+      - status [ref=e437]
+    - generic [ref=e439]:
+      - generic [ref=e440]:
+        - button "2026년" [ref=e442] [cursor=pointer]:
+          - generic [ref=e443]: 2026년
+          - img [ref=e444]
+        - button "월 바로가기" [ref=e447] [cursor=pointer]:
+          - generic [ref=e448]: 월 바로가기
+          - img [ref=e449]
+        - button "전체 직무" [ref=e453] [cursor=pointer]:
+          - img [ref=e454]
+          - generic [ref=e459]: 전체 직무
+          - img [ref=e460]
+        - button "전체 이름" [ref=e464] [cursor=pointer]:
+          - img [ref=e465]
+          - generic [ref=e469]: 전체 이름
+          - img [ref=e470]
+      - generic [ref=e472]:
+        - button "오늘" [ref=e473] [cursor=pointer]:
+          - img [ref=e474]
+          - text: 오늘
+        - generic [ref=e476]:
+          - img [ref=e477]
+          - button "열너비 축소" [ref=e479] [cursor=pointer]
+          - generic "열너비 배율" [ref=e481]: 100%
+          - button "열너비 확대" [ref=e482] [cursor=pointer]
+          - button "열너비 초기화 (100%)" [disabled] [ref=e484]
+        - generic [ref=e488]:
+          - button "축소" [ref=e489] [cursor=pointer]
+          - generic [ref=e493]: 100%
+          - button "확대" [ref=e494] [cursor=pointer]
+        - button "사용 가이드 열기" [ref=e498] [cursor=pointer]:
+          - img [ref=e499]
+    - generic [ref=e504]:
+      - generic [ref=e505]:
+        - button "표시 설정" [ref=e507] [cursor=pointer]:
+          - img [ref=e508]
+        - generic [ref=e511]:
+          - generic [ref=e512]
+          - generic [ref=e519]
+      - generic [ref=e555]:
+        - generic [ref=e556]:
+          - generic [ref=e557]
+          - generic [ref=e570]
+        - generic [ref=e1685]:
+          - generic [ref=e1689]
+          - generic [ref=e1702]

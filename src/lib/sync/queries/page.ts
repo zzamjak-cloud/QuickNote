@@ -34,6 +34,13 @@ export const GET_PAGE = `
   }
 `;
 
+// workspaceId 를 모르는 멘션/링크 대상을 id 단독으로 해석한다(서버가 접근권 검사 후 반환).
+export const GET_PAGE_BY_ID = `
+  query GetPageById($id: ID!) {
+    getPageById(id: $id) { ${PAGE_FIELDS} }
+  }
+`;
+
 export const LIST_DATABASE_ROWS = `
   query ListDatabaseRows($databaseId: ID!, $workspaceId: ID!, $organizationId: ID, $teamId: ID, $projectId: ID, $assigneeId: ID, $limit: Int, $nextToken: String) {
     listDatabaseRows(databaseId: $databaseId, workspaceId: $workspaceId, organizationId: $organizationId, teamId: $teamId, projectId: $projectId, assigneeId: $assigneeId, limit: $limit, nextToken: $nextToken) {

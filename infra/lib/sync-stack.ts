@@ -1004,6 +1004,11 @@ export function response(ctx) {
       fieldName: "getPage",
     });
 
+    v5Ds.createResolver("QuerygetPageById", {
+      typeName: "Query",
+      fieldName: "getPageById",
+    });
+
     v5Ds.createResolver("QuerylistDatabaseRows", {
       typeName: "Query",
       fieldName: "listDatabaseRows",

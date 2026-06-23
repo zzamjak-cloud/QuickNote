@@ -27,6 +27,7 @@ export {
   listPages,
   listPageMetas,
   getPage,
+  getPageById,
   upsertPage,
   softDeletePage,
 } from "./page";

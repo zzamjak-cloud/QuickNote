@@ -1,7 +1,7 @@
 import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { usePageStore } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
-import { fetchPageById } from "./bootstrap";
+import { fetchPageById, fetchPageByIdOnly } from "./bootstrap";
 import { applyRemotePageToStore } from "./storeApply";
 import { gqlPageToLocalPage } from "./storeApply/helpers";
 import { refreshWorkspaceSnapshot, workspaceHasStructureCache } from "./workspaceSwitch";
@@ -59,37 +59,37 @@ export async function ensurePageContentLoaded(args: {
     args.workspaceId ??
     page?.workspaceId ??
     null;
-  if (
-    !shouldLoadPageContent(page, Boolean(state.metaOnlyByPageId[pageId])) &&
-    !(workspaceId && !page)
-  ) {
+  // 페이지가 store 에 있고 본문도 충분하면 로드 불필요. 단, 페이지 자체가 없으면(미로드 멘션/링크
+  // 대상) workspaceId 를 몰라도 id 단독 해석(fetchPageByIdOnly)으로 로드를 시도한다. (과거엔 이때
+  // 로드 없이 true 를 반환해, 클릭해도 store 에 페이지가 없어 무반응이었다.)
+  if (page && !shouldLoadPageContent(page, Boolean(state.metaOnlyByPageId[pageId]))) {
     return true;
-  }
-  if (!workspaceId) {
-    return false;
   }
 
   const promise = (async () => {
     usePageContentLoadStore.getState().setLoading(pageId, true);
     try {
-      const page = await fetchPageById(workspaceId, pageId);
-      if (!page) {
+      // workspaceId 를 알면 일반 경로, 모르면 id 단독 해석(서버가 접근권 검사).
+      const fetched = workspaceId
+        ? await fetchPageById(workspaceId, pageId)
+        : await fetchPageByIdOnly(pageId);
+      if (!fetched) {
         return false;
       }
-      // 타 워크스페이스 페이지(미리보기 peek·타 워크스페이스 인라인 DB 행 등): storeApply 의 워크스페이스
-      // 가드가 page.workspaceId 기준으로 원격 데이터를 무시하므로, 가져온 페이지의 실제 워크스페이스가
-      // 현재와 다르면(요청 workspaceId 와 무관하게) 가드를 우회해 현재 store 에 직접 적재한다.
-      // workspaceId 가 달라 사이드바·동기화 대상에선 자동 제외된다.
-      if (page.workspaceId && page.workspaceId !== useWorkspaceStore.getState().currentWorkspaceId) {
-        const local = gqlPageToLocalPage(page);
+      const resolvedWorkspaceId = fetched.workspaceId ?? workspaceId ?? null;
+      // 타 워크스페이스 페이지(미리보기 peek·타 워크스페이스 인라인 DB 행·멘션 대상 등): storeApply 의
+      // 워크스페이스 가드가 page.workspaceId 기준으로 원격 데이터를 무시하므로, 실제 워크스페이스가
+      // 현재와 다르면 가드를 우회해 현재 store 에 직접 적재한다(사이드바·동기화 대상에선 자동 제외).
+      if (resolvedWorkspaceId && resolvedWorkspaceId !== useWorkspaceStore.getState().currentWorkspaceId) {
+        const local = gqlPageToLocalPage(fetched);
         usePageStore.setState((s) => ({
           pages: { ...s.pages, [local.id]: { ...s.pages[local.id], ...local } },
         }));
         return true;
       }
-      applyRemotePageToStore(page);
-      if (workspaceHasStructureCache(workspaceId)) {
-        refreshWorkspaceSnapshot(workspaceId);
+      applyRemotePageToStore(fetched);
+      if (resolvedWorkspaceId && workspaceHasStructureCache(resolvedWorkspaceId)) {
+        refreshWorkspaceSnapshot(resolvedWorkspaceId);
       }
       return true;
     } catch {

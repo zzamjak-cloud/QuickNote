@@ -253,6 +253,36 @@ export async function getPage(args: {
   return item;
 }
 
+/**
+ * id 단독으로 페이지를 해석한다(workspaceId 를 모르는 멘션 대상 등).
+ * Page 테이블은 id 단일 키이므로 먼저 조회한 뒤, 그 페이지의 workspaceId 로 view 권한을 검사한다.
+ * 접근 권한이 없으면 requireWorkspaceAccess 가 거부(throw)한다.
+ */
+export async function getPageById(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  id: string;
+}): Promise<Record<string, unknown> | null> {
+  if (!args.tables.Pages) badRequest("Pages table 미설정");
+  const r = await args.doc.send(
+    new GetCommand({ TableName: args.tables.Pages, Key: { id: args.id } }),
+  );
+  const item = r.Item as Record<string, unknown> | undefined;
+  if (!item) return null;
+  const pageWorkspaceId = String(item["workspaceId"] ?? "");
+  if (!pageWorkspaceId) return null;
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId: pageWorkspaceId,
+    required: "view",
+  });
+  return item;
+}
+
 /** data URL·base64 커버가 DynamoDB 400KB 항목 한도를 압박하지 않도록 상한(문자열 length 기준). */
 const MAX_COVER_IMAGE_CHARS = 350_000;
 

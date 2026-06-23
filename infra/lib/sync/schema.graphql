@@ -487,6 +487,8 @@ type Query {
   getWorkspaceMeta(workspaceId: ID!): WorkspaceMeta!
 
   getPage(id: ID!, workspaceId: ID!): Page
+  """id 단독 페이지 해석(workspaceId 모를 때). 조회 후 해당 워크스페이스 view 권한 검사."""
+  getPageById(id: ID!): Page
   getDatabase(id: ID!, workspaceId: ID!): Database
   """사이드바/탭 기준선용 페이지 메타. doc/dbCells/blockComments 는 내려받지 않는다."""
   listPageMetas(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageMetaConnection!

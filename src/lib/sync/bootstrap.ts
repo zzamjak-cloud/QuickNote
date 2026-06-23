@@ -2,6 +2,7 @@ import { appsyncClient } from "./graphql/client";
 import {
   GET_DATABASE,
   GET_PAGE,
+  GET_PAGE_BY_ID,
   LIST_DATABASE_ROW_INDEX,
   LIST_DATABASE_ROWS,
   LIST_PAGE_METAS,
@@ -94,6 +95,16 @@ export async function fetchPageById(
     variables: { workspaceId, id },
   })) as { data: { getPage: GqlPage | null } };
   return r.data.getPage ?? null;
+}
+
+// workspaceId 를 모를 때 id 단독으로 페이지를 해석한다(미로드 멘션/링크 대상 복구용).
+// 서버가 페이지의 실제 workspaceId 로 view 권한을 검사한 뒤 반환한다(권한 없으면 throw, 없으면 null).
+export async function fetchPageByIdOnly(id: string): Promise<GqlPage | null> {
+  const r = (await appsyncClient().graphql({
+    query: GET_PAGE_BY_ID,
+    variables: { id },
+  })) as { data: { getPageById: GqlPage | null } };
+  return r.data.getPageById ?? null;
 }
 
 export async function fetchDatabaseById(
