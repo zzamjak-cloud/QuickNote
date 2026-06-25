@@ -171,6 +171,17 @@ export const blockDefinitions: BlockDefinition[] = [
     slashTitles: ["DB - 전체 페이지", "DB - 인라인"],
   }),
   defineBlock({
+    id: "flowchart",
+    title: "플로우차트",
+    nodeTypes: ["flowchartBlock"],
+    group: "media",
+    dnd: movableLeafDnd,
+    editor: { excludeFromUniqueId: true },
+    toolbar: { kind: "none" },
+    serialization: { schemaVersion: 1, stableType: "flowchart" },
+    slashTitles: ["플로우차트"],
+  }),
+  defineBlock({
     id: "table",
     title: "표",
     nodeTypes: ["table", "tableRow", "tableHeader", "tableCell"],

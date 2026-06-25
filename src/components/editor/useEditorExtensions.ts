@@ -51,6 +51,7 @@ import {
   type SlashMenuEntry,
 } from "../../lib/tiptapExtensions/slashItems";
 import { DatabaseBlock } from "../../lib/tiptapExtensions/databaseBlock";
+import { FlowchartBlock } from "../../lib/tiptapExtensions/flowchartBlock";
 import { PageLink } from "../../lib/tiptapExtensions/pageLink";
 import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
 import { BookmarkBlock } from "../../lib/tiptapExtensions/bookmarkBlock";
@@ -184,6 +185,7 @@ export function useEditorExtensions({
       createBlockCommentDecorations(effectivePageId ?? undefined, myMemberId),
       EmojiShortcode,
       DatabaseBlock,
+      FlowchartBlock,
       PageLink,
       ButtonBlock,
       BookmarkBlock,

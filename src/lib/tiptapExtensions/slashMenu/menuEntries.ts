@@ -20,6 +20,7 @@ import {
   Smile,
   Link,
   Table as TableIcon,
+  Workflow,
   Youtube as YoutubeIcon,
 } from "lucide-react";
 import { usePageStore } from "../../../store/pageStore";
@@ -290,6 +291,15 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     keywords: ["button", "link", "버튼", "링크", "url"],
     command: (ctx) =>
       runSlashCommand(ctx, (chain) => chain.insertButtonBlock("버튼", "")),
+  }),
+  slashLeaf({
+    id: "flowchart",
+    title: "플로우차트",
+    description: "도형과 선으로 다이어그램 그리기",
+    icon: Workflow,
+    keywords: ["flowchart", "diagram", "플로우차트", "다이어그램", "흐름도", "도형"],
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) => chain.insertFlowchartBlock()),
   }),
   slashLeaf({
     id: "callout",
