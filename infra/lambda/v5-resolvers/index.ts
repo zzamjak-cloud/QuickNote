@@ -49,6 +49,14 @@ import {
 } from "./handlers/workspace";
 import { searchMembersForMention } from "./handlers/mention";
 import {
+  getFlowchart,
+  listFlowcharts,
+  upsertFlowchart,
+  softDeleteFlowchart,
+  saveFlowchartVersion,
+  listFlowchartHistory,
+} from "./handlers/flowchart";
+import {
   emptyTrash,
   deleteDatabaseHistoryEvents,
   deletePageHistoryEvents,
@@ -137,6 +145,8 @@ const tables: Tables = {
   WorkspaceAccess: process.env.WORKSPACE_ACCESS_TABLE_NAME!,
   Pages: process.env.PAGES_TABLE_NAME,
   Databases: process.env.DATABASES_TABLE_NAME,
+  Flowcharts: process.env.FLOWCHARTS_TABLE_NAME,
+  FlowchartHistory: process.env.FLOWCHART_HISTORY_TABLE_NAME,
   Comments: process.env.COMMENTS_TABLE_NAME,
   Notifications: process.env.NOTIFICATIONS_TABLE_NAME,
   // 조직(실) 관련 테이블 — CDK 배포 후 env 주입
@@ -507,6 +517,27 @@ const RESOLVERS: Record<
       id: event.arguments.id as string,
       workspaceId: event.arguments.workspaceId as string,
     }),
+  getFlowchart: async (event, base) =>
+    await getFlowchart({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
+  listFlowcharts: async (event, base) =>
+    await listFlowcharts({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAfter: event.arguments.updatedAfter as string | undefined,
+      limit: event.arguments.limit as number | undefined,
+      nextToken: event.arguments.nextToken as string | undefined,
+    }),
+  listFlowchartHistory: async (event, base) =>
+    await listFlowchartHistory({
+      ...base,
+      flowchartId: event.arguments.flowchartId as string,
+      workspaceId: event.arguments.workspaceId as string,
+      limit: event.arguments.limit as number | undefined,
+    }),
   listTrashedPages: async (event, base) =>
     await listTrashedPages({
       ...base,
@@ -595,6 +626,23 @@ const RESOLVERS: Record<
     }),
   upsertDatabase: async (event, base) =>
     await upsertDatabase({ ...base, input: event.arguments.input as Record<string, unknown> }),
+  upsertFlowchart: async (event, base) =>
+    await upsertFlowchart({ ...base, input: event.arguments.input as Record<string, unknown> }),
+  saveFlowchartVersion: async (event, base) =>
+    await saveFlowchartVersion({
+      ...base,
+      flowchartId: event.arguments.flowchartId as string,
+      workspaceId: event.arguments.workspaceId as string,
+      title: event.arguments.title as string,
+      data: event.arguments.data,
+    }),
+  softDeleteFlowchart: async (event, base) =>
+    await softDeleteFlowchart({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+      updatedAt: event.arguments.updatedAt as string,
+    }),
   softDeleteDatabase: async (event, base) =>
     await softDeleteDatabase({
       ...base,

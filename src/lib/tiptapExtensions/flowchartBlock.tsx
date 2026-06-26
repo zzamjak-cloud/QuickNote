@@ -6,9 +6,15 @@ import {
   serializeFlowchart,
   FLOWCHART_SCHEMA_VERSION,
 } from "../../types/flowchart";
+import { newId } from "../id";
 
 export type FlowchartBlockAttrs = {
-  /** FlowchartData 를 JSON 문자열로 1회 인코딩해 보관 (Yjs 통짜 교체 안전) */
+  /**
+   * 공유 자원 참조 id. 같은 id 를 쓰는 모든 블록(복제본 포함)이 flowchartStore/서버에서
+   * 동일 데이터를 읽어 동기화된다. 빈 문자열이면 레거시(인라인 전용) 블록.
+   */
+  flowchartId: string;
+  /** 인라인 스냅샷/오프라인 fallback. 공유 저장소가 비었을 때 시드로 쓴다. */
   data: string;
   /** 블록 단위 스키마 버전 */
   version: number;
@@ -34,6 +40,9 @@ export const FlowchartBlock = Node.create({
 
   addAttributes() {
     return {
+      flowchartId: {
+        default: "",
+      },
       data: {
         default: serializeFlowchart(emptyFlowchart()),
       },
@@ -69,6 +78,7 @@ export const FlowchartBlock = Node.create({
           commands.insertContent({
             type: this.name,
             attrs: {
+              flowchartId: newId(),
               data: serializeFlowchart(emptyFlowchart()),
               version: FLOWCHART_SCHEMA_VERSION,
             },

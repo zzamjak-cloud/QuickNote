@@ -182,7 +182,12 @@ describe("getFlowchartBounds", () => {
       ],
       edges: [],
     });
-    expect(getFlowchartBounds(data)).toEqual({ width: 300, height: 150 });
+    expect(getFlowchartBounds(data)).toEqual({
+      minX: 0,
+      minY: 0,
+      width: 300,
+      height: 150,
+    });
   });
   it("실측 크기가 없으면 기본 크기로 추정한다", () => {
     const data = parseFlowchart({

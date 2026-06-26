@@ -3,7 +3,13 @@ import { Construct } from "constructs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./table-encryption";
 
-export type SyncModelName = "Page" | "Database" | "Contact" | "ImageAsset" | "Comment";
+export type SyncModelName =
+  | "Page"
+  | "Database"
+  | "Flowchart"
+  | "Contact"
+  | "ImageAsset"
+  | "Comment";
 
 export interface ModelTable {
   table: dynamodb.Table;

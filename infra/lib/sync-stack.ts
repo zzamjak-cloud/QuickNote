@@ -67,6 +67,7 @@ export interface SyncStackProps extends cdk.StackProps {
 export class QuicknoteSyncStack extends cdk.Stack {
   public readonly pageTable: ModelTable;
   public readonly databaseTable: ModelTable;
+  public readonly flowchartTable: ModelTable;
   public readonly imageAssetTable: ModelTable;
   public readonly commentTable: ModelTable;
   public readonly imagesBucket: s3.Bucket;
@@ -99,6 +100,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       envPrefix,
     });
     this.databaseTable = createSyncTable(this, "DatabaseTable", "Database", { envPrefix });
+    this.flowchartTable = createSyncTable(this, "FlowchartTable", "Flowchart", { envPrefix });
     this.commentTable = createSyncTable(this, "CommentTable", "Comment", { envPrefix });
     this.imageAssetTable = createSyncTable(this, "ImageAssetTable", "ImageAsset", {
       ttlAttribute: "expireAt", // pending 1일 자동 삭제용
@@ -186,6 +188,13 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "deletedAt", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
+    // 플로우차트 워크스페이스 델타 조회용(listFlowcharts updatedAfter).
+    this.flowchartTable.table.addGlobalSecondaryIndex({
+      indexName: "byWorkspaceAndUpdatedAt",
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
 
     this.commentTable.table.addGlobalSecondaryIndex({
       indexName: "byWorkspaceAndUpdatedAt",
@@ -216,6 +225,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "PageTableName", { value: this.pageTable.table.tableName });
     new cdk.CfnOutput(this, "DatabaseTableName", { value: this.databaseTable.table.tableName });
+    new cdk.CfnOutput(this, "FlowchartTableName", { value: this.flowchartTable.table.tableName });
     new cdk.CfnOutput(this, "CommentTableName", { value: this.commentTable.table.tableName });
     new cdk.CfnOutput(this, "ImageAssetTableName", {
       value: this.imageAssetTable.table.tableName,
@@ -489,6 +499,17 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
     new cdk.CfnOutput(this, "DatabaseHistoryTableName", { value: databaseHistoryTable.tableName });
+
+    // 플로우차트 버전 히스토리(append-only 스냅샷) — PK=flowchartId, SK=historyId(시간순).
+    const flowchartHistoryTable = new dynamodb.Table(this, "FlowchartHistoryTable", {
+      tableName: `${envPrefix}quicknote-flowchart-history`,
+      partitionKey: { name: "flowchartId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "historyId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    new cdk.CfnOutput(this, "FlowchartHistoryTableName", { value: flowchartHistoryTable.tableName });
 
     // LC 스케줄러 일정 테이블
     // live 환경: CDK 외부에서 먼저 생성된 테이블이므로 import. dev 환경: 신규 생성.
@@ -863,6 +884,8 @@ export function response(ctx) {
         WORKSPACE_ACCESS_TABLE_NAME: this.workspaceAccessTable.tableName,
         PAGES_TABLE_NAME: this.pageTable.table.tableName,
         DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
+        FLOWCHARTS_TABLE_NAME: this.flowchartTable.table.tableName,
+        FLOWCHART_HISTORY_TABLE_NAME: flowchartHistoryTable.tableName,
         COMMENTS_TABLE_NAME: this.commentTable.table.tableName,
         NOTIFICATIONS_TABLE_NAME: notificationTable.tableName,
         ORGANIZATIONS_TABLE_NAME: this.organizationsTable.tableName,
@@ -898,6 +921,8 @@ export function response(ctx) {
     this.workspaceAccessTable.grantReadWriteData(v5ResolversFn);
     this.pageTable.table.grantReadWriteData(v5ResolversFn);
     this.databaseTable.table.grantReadWriteData(v5ResolversFn);
+    this.flowchartTable.table.grantReadWriteData(v5ResolversFn);
+    flowchartHistoryTable.grantReadWriteData(v5ResolversFn);
     this.commentTable.table.grantReadWriteData(v5ResolversFn);
     notificationTable.grantReadWriteData(v5ResolversFn);
     this.organizationsTable.grantReadWriteData(v5ResolversFn);
@@ -1040,6 +1065,19 @@ export function response(ctx) {
       fieldName: "getDatabase",
     });
 
+    v5Ds.createResolver("QuerygetFlowchart", {
+      typeName: "Query",
+      fieldName: "getFlowchart",
+    });
+    v5Ds.createResolver("QuerylistFlowcharts", {
+      typeName: "Query",
+      fieldName: "listFlowcharts",
+    });
+    v5Ds.createResolver("QuerylistFlowchartHistory", {
+      typeName: "Query",
+      fieldName: "listFlowchartHistory",
+    });
+
     v5Ds.createResolver("QuerylistTrashedPages", {
       typeName: "Query",
       fieldName: "listTrashedPages",
@@ -1151,6 +1189,19 @@ export function response(ctx) {
       fieldName: "upsertDatabase",
     });
     (upsertDatabaseResolver.node.defaultChild as appsync.CfnResolver).overrideLogicalId("SyncApiMutationupsertDatabase432CF126");
+
+    v5Ds.createResolver("MutationupsertFlowchart", {
+      typeName: "Mutation",
+      fieldName: "upsertFlowchart",
+    });
+    v5Ds.createResolver("MutationsaveFlowchartVersion", {
+      typeName: "Mutation",
+      fieldName: "saveFlowchartVersion",
+    });
+    v5Ds.createResolver("MutationsoftDeleteFlowchart", {
+      typeName: "Mutation",
+      fieldName: "softDeleteFlowchart",
+    });
 
     const softDeleteDatabaseResolver = v5Ds.createResolver("MutationsoftDeleteDatabase", {
       typeName: "Mutation",

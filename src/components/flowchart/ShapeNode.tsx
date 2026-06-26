@@ -165,9 +165,11 @@ function ShapeNodeImpl({ id, data, selected }: NodeProps) {
             placeholder="텍스트"
           />
         ) : (
-          <span className="whitespace-pre-wrap break-words text-zinc-800">
+          // 편집기 textarea(w-full)와 동일한 폭/줄바꿈으로 렌더 — 노드 실측 크기가
+          // 편집기와 일치해야 미리보기에서 재측정 시 위치가 어긋나거나 깜빡이지 않는다.
+          <div className="w-full whitespace-pre-wrap break-words text-center text-zinc-800">
             {d.label}
-          </span>
+          </div>
         )}
       </div>
     </div>

@@ -295,6 +295,38 @@ type PageMetaConnection { items: [PageMeta!]! nextToken: String }
 type DatabaseConnection { items: [Database!]! nextToken: String }
 type PageHistoryConnection { items: [PageHistoryEntry!]! nextToken: String }
 
+# 여러 페이지가 flowchartId 로 공유하는 플로우차트 자원. data 는 FlowchartData JSON.
+type Flowchart {
+  id: ID!
+  workspaceId: ID!
+  createdByMemberId: ID
+  title: String!
+  data: AWSJSON!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  deletedAt: AWSDateTime
+}
+type FlowchartConnection { items: [Flowchart!]! nextToken: String }
+input FlowchartInput {
+  id: ID!
+  workspaceId: ID!
+  createdByMemberId: ID
+  title: String!
+  data: AWSJSON!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+type FlowchartHistoryEntry {
+  flowchartId: ID!
+  historyId: ID!
+  workspaceId: ID!
+  title: String!
+  data: AWSJSON!
+  createdAt: AWSDateTime!
+  createdByMemberId: ID
+  createdByName: String
+}
+
 type PageHistoryEntry {
   pageId: ID!
   historyId: ID!
@@ -490,6 +522,9 @@ type Query {
   """id 단독 페이지 해석(workspaceId 모를 때). 조회 후 해당 워크스페이스 view 권한 검사."""
   getPageById(id: ID!): Page
   getDatabase(id: ID!, workspaceId: ID!): Database
+  getFlowchart(id: ID!, workspaceId: ID!): Flowchart
+  listFlowcharts(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): FlowchartConnection!
+  listFlowchartHistory(flowchartId: ID!, workspaceId: ID!, limit: Int): [FlowchartHistoryEntry!]!
   """사이드바/탭 기준선용 페이지 메타. doc/dbCells/blockComments 는 내려받지 않는다."""
   listPageMetas(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageMetaConnection!
   listPages(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): PageConnection!
@@ -586,6 +621,9 @@ type Mutation {
   permanentlyDeletePage(id: ID!, workspaceId: ID!): Boolean!
   upsertDatabase(input: DatabaseInput!): Database!
   softDeleteDatabase(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Database!
+  upsertFlowchart(input: FlowchartInput!): Flowchart!
+  softDeleteFlowchart(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Flowchart!
+  saveFlowchartVersion(flowchartId: ID!, workspaceId: ID!, title: String!, data: AWSJSON!): FlowchartHistoryEntry!
   restoreDatabase(id: ID!, workspaceId: ID!): Database!
   restoreDatabaseVersion(input: RestoreDatabaseVersionInput!): Database!
   """현재 DB 상태를 즉시 하나의 버전 체크포인트로 기록(세션 머지와 무관하게 새 버전 경계 생성)"""

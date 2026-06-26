@@ -37,6 +37,7 @@
 | DB 그룹화(표시설정) | `wiki/database/grouping.md` |
 | 자산 관리 탭·캐싱 | `wiki/settings/assets.md` |
 | 노션 가져오기(이미지 누락·인코딩·진행률) | `wiki/settings/notion-import.md` |
+| 플로우차트(도형·화살표·공유 동기화·링크·히스토리·전체보기) | `wiki/flowchart/overview.md` |
 | 동기화 버그 | `wiki/sync/architecture.md` |
 | 실시간 협업(Yjs)·빈 화면·본문 불일치·epoch | `wiki/collab/overview.md` |
 | 협업 라이브 배포·재활성화(epoch bump) | `wiki/infra/collab-live-deploy-checklist.md` |

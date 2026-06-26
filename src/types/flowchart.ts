@@ -65,6 +65,18 @@ export type FlowchartData = {
   viewport?: FlowchartViewport;
 };
 
+// 여러 페이지가 flowchartId 로 공유하는 서버 동기 레코드.
+// 블록 attrs 에는 flowchartId 만 두고, 실제 데이터는 이 레코드(=flowchartStore/서버)에 둔다.
+export type FlowchartRecord = {
+  id: string;
+  workspaceId: string | null;
+  title: string;
+  data: FlowchartData;
+  /** LWW 충돌 해소용 epoch ms */
+  updatedAt: number;
+  deletedAt?: number | null;
+};
+
 const VALID_SHAPES: ReadonlySet<string> = new Set<FlowchartNodeShape>([
   "rectangle",
   "roundRectangle",
@@ -218,12 +230,12 @@ function estimateNodeSize(n: FlowchartNode): { w: number; h: number } {
 }
 
 /**
- * 모든 노드를 감싸는 바운딩박스 크기를 구한다.
- * 미리보기 박스의 가로:세로 비율 계산에 쓴다. 노드가 없으면 null.
+ * 모든 노드를 감싸는 바운딩박스(원점·크기)를 구한다.
+ * 미리보기 비율 계산 및 결정적 뷰포트(fitView 대체) 계산에 쓴다. 노드가 없으면 null.
  */
 export function getFlowchartBounds(
   data: FlowchartData,
-): { width: number; height: number } | null {
+): { minX: number; minY: number; width: number; height: number } | null {
   if (data.nodes.length === 0) return null;
   let minX = Infinity;
   let minY = Infinity;
@@ -236,7 +248,12 @@ export function getFlowchartBounds(
     maxX = Math.max(maxX, n.position.x + w);
     maxY = Math.max(maxY, n.position.y + h);
   }
-  return { width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+  return {
+    minX,
+    minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
 }
 
 /** 새 노드/엣지용 고유 id 생성 */

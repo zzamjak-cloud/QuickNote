@@ -1,27 +1,11 @@
-// 플로우차트 블록의 NodeView. 문서에서는 React Flow 를 비활성(읽기전용)으로 렌더하고,
-// 더블클릭하면 편집 모달을 연다. 편집 불가(editable=false) 문서에서는 모달을 열지 않는다.
-import "@xyflow/react/dist/style.css";
-import {
-  useId,
-  useMemo,
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-} from "react";
-import {
-  ReactFlow,
-  Background,
-  ConnectionMode,
-  type Node as RfNode,
-  type Edge as RfEdge,
-  type ReactFlowInstance,
-} from "@xyflow/react";
+// 플로우차트 블록의 NodeView. 문서에서는 정적 SVG(FlowchartStaticPreview)로 그려
+// 측정·재계산·깜빡임 없이 즉시 표시하고, 더블클릭하면 편집 모달을 연다.
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import {
   NodeViewWrapper,
   type NodeViewProps,
 } from "@tiptap/react";
-import { Workflow } from "lucide-react";
+import { Workflow, History, Maximize2 } from "lucide-react";
 import {
   parseFlowchart,
   serializeFlowchart,
@@ -29,86 +13,97 @@ import {
   type FlowchartData,
   type FlowchartNodeLink,
 } from "../../types/flowchart";
-import { ShapeNode } from "./ShapeNode";
+import { FlowchartStaticPreview } from "./FlowchartStaticPreview";
 import { FlowchartEditorModal } from "./FlowchartEditorModal";
-import { edgeVisual, defaultEdgeOptions } from "./edges";
+import { FlowchartFullViewModal } from "./FlowchartFullViewModal";
+import { FlowchartHistoryDialog } from "./FlowchartHistoryDialog";
+import { useFlowchartHistoryStore } from "../../store/flowchartHistoryStore";
 import { useOpenPageInPeek } from "../page/useOpenPageInPeek";
 import { stripPagePrefix } from "../../lib/tiptapExtensions/mentionKind";
-
-const nodeTypes = { shape: ShapeNode };
+import { useFlowchartStore } from "../../store/flowchartStore";
+import { useWorkspaceStore } from "../../store/workspaceStore";
+import { newId } from "../../lib/id";
+import {
+  fetchFlowchartApi,
+  pushFlowchartApi,
+  saveFlowchartVersionApi,
+} from "../../lib/sync/flowchartApi";
 
 export function FlowchartBlockView(props: NodeViewProps) {
   const { node, selected, updateAttributes, editor } = props;
-  const attrs = node.attrs as { data?: string; title?: string };
+  const attrs = node.attrs as {
+    flowchartId?: string;
+    data?: string;
+    title?: string;
+  };
+  const flowchartId = typeof attrs.flowchartId === "string" ? attrs.flowchartId : "";
   const raw = attrs.data;
   const title = typeof attrs.title === "string" ? attrs.title : "";
-  const data: FlowchartData = useMemo(() => parseFlowchart(raw), [raw]);
+  // 인라인 스냅샷(오프라인/시드용)
+  const inlineData: FlowchartData = useMemo(() => parseFlowchart(raw), [raw]);
+  // 공유 저장소 레코드(있으면 권위) — 같은 flowchartId 의 모든 블록이 이걸 구독한다.
+  const storeRecord = useFlowchartStore((s) =>
+    flowchartId ? s.records[flowchartId] : undefined,
+  );
+  const data: FlowchartData =
+    storeRecord && !storeRecord.deletedAt ? storeRecord.data : inlineData;
   const [editing, setEditing] = useState(false);
+  const [fullViewOpen, setFullViewOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const openInPeek = useOpenPageInPeek();
+  const pushVersion = useFlowchartHistoryStore((s) => s.pushVersion);
 
-  const rfNodes = useMemo<RfNode[]>(
-    () =>
-      data.nodes.map((n) => ({
-        id: n.id,
-        type: "shape",
-        position: n.position,
-        data: {
-          label: n.data.label,
-          shape: n.data.shape,
-          color: n.data.color,
-          hasLink: Boolean(n.data.link),
-          link: n.data.link,
-        },
-        // 편집기에서 측정한 크기를 그대로 고정 — 핸들(연결점) 위치가 편집기와
-        // 동일해져 미리보기에서 화살표 정렬이 어긋나지 않는다.
-        ...(typeof n.width === "number" ? { width: n.width } : {}),
-        ...(typeof n.height === "number" ? { height: n.height } : {}),
-        draggable: false,
-        selectable: false,
-        connectable: false,
-      })),
-    [data.nodes],
-  );
-  const rfEdges = useMemo<RfEdge[]>(
-    () =>
-      data.edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
-        ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
-        ...(e.label ? { label: e.label } : {}),
-        ...edgeVisual(e.color),
-        selectable: false,
-      })),
-    [data.edges],
-  );
+  const seedIfAbsent = useFlowchartStore((s) => s.seedIfAbsent);
+  const upsertLocal = useFlowchartStore((s) => s.upsertLocal);
+  const applyRemote = useFlowchartStore((s) => s.applyRemote);
 
-  const reactFlowId = useId();
-
-  // 미리보기 클리핑 방지: 컨테이너 크기가 바뀔 때마다 전체 도형에 다시 맞춘다.
-  const rfInstance = useRef<ReactFlowInstance | null>(null);
-  const paneRef = useRef<HTMLDivElement | null>(null);
-  const fitPreview = useCallback(() => {
-    rfInstance.current?.fitView({ padding: 0.12 });
-  }, []);
+  // 마운트 시 서버에서 최신본을 받아 store 에 병합(LWW) → 타 기기 변경 반영.
   useEffect(() => {
-    const el = paneRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => fitPreview());
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [fitPreview]);
+    if (!flowchartId) return;
+    const wsId = useWorkspaceStore.getState().currentWorkspaceId;
+    if (!wsId) return;
+    let cancelled = false;
+    void fetchFlowchartApi(flowchartId, wsId).then((rec) => {
+      if (!cancelled && rec) applyRemote(rec);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [flowchartId, applyRemote]);
+
+  // 서버 push 디바운스 타이머
+  const pushTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (pushTimer.current) window.clearTimeout(pushTimer.current);
+    },
+    [],
+  );
+
+  // 마이그레이션/시드: 편집 가능한 문서에서만 1회.
+  // - flowchartId 없으면 발급하고 인라인 데이터를 공유 저장소에 시드.
+  // - 있으면 저장소가 비었을 때만 인라인 스냅샷으로 시드(새 기기/서버 미적재 대비).
+  useEffect(() => {
+    if (!editor.isEditable) return;
+    const wsId = useWorkspaceStore.getState().currentWorkspaceId ?? null;
+    if (!flowchartId) {
+      const id = newId();
+      seedIfAbsent({ id, workspaceId: wsId, title, data: inlineData });
+      updateAttributes({ flowchartId: id });
+    } else {
+      seedIfAbsent({ id: flowchartId, workspaceId: wsId, title, data: inlineData });
+    }
+    // 의존성: flowchartId 변화 시에만 재실행 (인라인/title 변동은 시드에 영향 없음)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flowchartId, editor.isEditable]);
 
   const openEditor = useCallback(() => {
     if (editor.isEditable) setEditing(true);
   }, [editor.isEditable]);
 
   // 미리보기에서 링크가 연결된 도형 클릭 → 외부=새 탭, 내부=피크
-  const onNodeClick = useCallback(
-    (_e: unknown, clicked: RfNode) => {
-      const link = (clicked.data as { link?: FlowchartNodeLink }).link;
-      if (!link) return;
+  const onNodeLink = useCallback(
+    (link: FlowchartNodeLink) => {
       if (link.type === "url") {
         window.open(link.url, "_blank", "noopener,noreferrer");
       } else {
@@ -119,32 +114,69 @@ export function FlowchartBlockView(props: NodeViewProps) {
     [openInPeek],
   );
 
-  const handleSave = useCallback(
+  // 공유 저장소(권위)에 쓰고, 인라인 attrs 에도 스냅샷을 남긴다(오프라인/문서 이식 대비).
+  // 저장소 upsert 가 같은 flowchartId 의 모든 복제본을 즉시 리렌더 → 동기화.
+  const persist = useCallback(
     (next: FlowchartData) => {
+      const wsId = useWorkspaceStore.getState().currentWorkspaceId ?? null;
+      if (flowchartId) {
+        const record = upsertLocal({
+          id: flowchartId,
+          workspaceId: wsId,
+          title,
+          data: next,
+        });
+        // 버전 히스토리 스냅샷(직전과 동일하면 건너뜀). 실제 적립 시에만 서버에도 적립.
+        const versionAdded = pushVersion(flowchartId, title, next);
+        if (versionAdded) {
+          void saveFlowchartVersionApi(flowchartId, wsId ?? "", title, next);
+        }
+        // 서버 push 디바운스(1.5s) — 마지막 변경만 전송.
+        if (pushTimer.current) window.clearTimeout(pushTimer.current);
+        pushTimer.current = window.setTimeout(() => {
+          void pushFlowchartApi(record);
+        }, 1500);
+      }
       updateAttributes({ data: serializeFlowchart(next) });
-      setEditing(false);
     },
-    [updateAttributes],
+    [flowchartId, title, upsertLocal, updateAttributes, pushVersion],
   );
 
-  // 자동 저장 — 모달을 닫지 않고 attrs 만 갱신
+  // 버전 복원 — 해당 스냅샷을 현재 상태로 저장(동기화·새 버전 누적 포함).
+  const handleRestore = useCallback(
+    (restored: FlowchartData) => {
+      persist(restored);
+      setHistoryOpen(false);
+    },
+    [persist],
+  );
+
+  const handleSave = useCallback(
+    (next: FlowchartData) => {
+      persist(next);
+      setEditing(false);
+    },
+    [persist],
+  );
+
+  // 자동 저장 — 모달을 닫지 않고 저장소/스냅샷만 갱신
   const handleAutoSave = useCallback(
     (next: FlowchartData) => {
-      updateAttributes({ data: serializeFlowchart(next) });
+      persist(next);
     },
-    [updateAttributes],
+    [persist],
   );
 
   const isEmpty = data.nodes.length === 0;
 
   // 미리보기 박스를 저장된 도형 바운딩박스의 가로:세로 비율로 맞춘다.
+  // 높이 상한을 두지 않아, 세로로 긴 차트는 박스도 같이 길어진다(내용이 작아지지 않음).
   const stageStyle = useMemo(() => {
     const b = getFlowchartBounds(data);
     if (!b) return { height: 180 } as const;
     return {
       aspectRatio: `${b.width} / ${b.height}`,
       minHeight: 140,
-      maxHeight: 600,
     } as const;
   }, [data]);
 
@@ -158,7 +190,7 @@ export function FlowchartBlockView(props: NodeViewProps) {
           : "border-zinc-200 dark:border-zinc-700"
       }`}
     >
-      {/* 블록 헤더 — 제목 표시/편집 */}
+      {/* 블록 헤더 — 제목 표시/편집 + 우측 버전 히스토리·전체보기 */}
       <div className="flex items-center gap-2 border-b border-zinc-200 bg-white px-3 py-1.5 dark:border-zinc-700 dark:bg-zinc-900">
         <Workflow className="h-4 w-4 shrink-0 text-zinc-400" />
         {editor.isEditable ? (
@@ -168,15 +200,34 @@ export function FlowchartBlockView(props: NodeViewProps) {
             onChange={(e) => updateAttributes({ title: e.target.value })}
             placeholder="제목 없음"
             // 평소엔 텍스트처럼, 호버/포커스 시 입력 필드로 보이게
-            className="w-full rounded border border-transparent bg-transparent px-1.5 py-0.5 text-sm font-medium text-zinc-800 outline-none placeholder:font-normal placeholder:text-zinc-400 hover:border-zinc-300 focus:border-sky-400 dark:text-zinc-100 dark:hover:border-zinc-600"
+            className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1.5 py-0.5 text-sm font-medium text-zinc-800 outline-none placeholder:font-normal placeholder:text-zinc-400 hover:border-zinc-300 focus:border-sky-400 dark:text-zinc-100 dark:hover:border-zinc-600"
           />
         ) : (
-          title && (
-            <span className="px-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-100">
-              {title}
-            </span>
-          )
+          <span className="min-w-0 flex-1 truncate px-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-100">
+            {title}
+          </span>
         )}
+        <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            aria-label="버전 히스토리"
+            title="버전 히스토리"
+            onClick={() => setHistoryOpen(true)}
+            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            <History className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="전체보기"
+            title="전체보기"
+            disabled={isEmpty}
+            onClick={() => setFullViewOpen(true)}
+            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            <Maximize2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div
@@ -195,39 +246,8 @@ export function FlowchartBlockView(props: NodeViewProps) {
             </span>
           </div>
         ) : (
-          <div ref={paneRef} className="h-full w-full">
-            <ReactFlow
-              // raw 가 바뀌면(편집 저장) 리마운트되어 전체 도형에 다시 맞춘다.
-              key={raw}
-              id={reactFlowId}
-              onInit={(inst) => {
-                rfInstance.current = inst;
-                inst.fitView({ padding: 0.12 });
-              }}
-              nodes={rfNodes}
-              edges={rfEdges}
-              nodeTypes={nodeTypes}
-              onNodeClick={onNodeClick}
-              // 핸들이 모두 source 타입이라, Strict 모드면 엣지 타겟 핸들을 못 찾아
-              // 화살표가 통째로 사라진다. 편집기와 동일하게 Loose 로 맞춘다.
-              connectionMode={ConnectionMode.Loose}
-              defaultEdgeOptions={defaultEdgeOptions}
-              fitView
-              fitViewOptions={{ padding: 0.15 }}
-              minZoom={0.05}
-              nodesDraggable={false}
-              nodesConnectable={false}
-              elementsSelectable={false}
-              panOnDrag={false}
-              panOnScroll={false}
-              zoomOnScroll={false}
-              zoomOnPinch={false}
-              zoomOnDoubleClick={false}
-              preventScrolling={false}
-              proOptions={{ hideAttribution: true }}
-            >
-              <Background />
-            </ReactFlow>
+          <div className="h-full w-full">
+            <FlowchartStaticPreview data={data} onNodeLink={onNodeLink} />
           </div>
         )}
       </div>
@@ -238,6 +258,21 @@ export function FlowchartBlockView(props: NodeViewProps) {
         onSave={handleSave}
         onAutoSave={handleAutoSave}
         onClose={() => setEditing(false)}
+      />
+
+      <FlowchartFullViewModal
+        open={fullViewOpen}
+        data={data}
+        title={title}
+        onClose={() => setFullViewOpen(false)}
+      />
+
+      <FlowchartHistoryDialog
+        open={historyOpen}
+        flowchartId={flowchartId}
+        editable={editor.isEditable}
+        onRestore={handleRestore}
+        onClose={() => setHistoryOpen(false)}
       />
     </NodeViewWrapper>
   );
