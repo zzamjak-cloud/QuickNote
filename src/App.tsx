@@ -27,6 +27,7 @@ import { MigrationScreen } from "./components/MigrationScreen";
 import { hasLocalStorageData, migrateFromLocalStorage } from "./lib/migration/fromLocalStorage";
 import { zustandStorage } from "./lib/storage/index";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
+import { PwaUpdateBanner } from "./components/ui/PwaUpdateBanner";
 import { buildQuickNotePageUrl, parseQuickNoteLink, type QuickNoteLinkTarget } from "./lib/navigation/quicknoteLinks";
 import { installPageMentionClickNavigation } from "./lib/navigation/pageMentionClick";
 import { navigateToBlockLink } from "./lib/editor/editorNavigationBridge";
@@ -596,6 +597,7 @@ function App() {
         />
         <TextPromptDialog />
         <ToastViewport />
+        <PwaUpdateBanner />
         {autoUpdate.isSupported && (
           <Suspense fallback={null}>
             <AutoUpdateDialog

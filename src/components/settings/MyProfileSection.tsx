@@ -3,6 +3,7 @@ import { useAuthStore } from "../../store/authStore";
 import { useMemberStore } from "../../store/memberStore";
 import { resizeAvatar } from "../../lib/images/resizeAvatar";
 import { updateMemberApi } from "../../lib/sync/memberApi";
+import { InstallAppCta } from "../pwa/InstallAppCta";
 
 function ProfileField({ label, value }: { label: string; value: string }) {
   return (
@@ -118,6 +119,8 @@ export function MyProfileSection() {
 
       {error ? <p className="text-sm text-red-500">{error}</p> : null}
       {saving ? <p className="text-sm text-zinc-400">사진 저장 중...</p> : null}
+
+      <InstallAppCta />
     </div>
   );
 }

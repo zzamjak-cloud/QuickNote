@@ -11,11 +11,18 @@ import {
 } from "./lib/sync/legacyCleanup";
 import { registerDevTools } from "./lib/devtools/snapshot";
 import { attemptChunkReload } from "./lib/chunkReload";
+import { initPwa } from "./lib/pwa/swController";
+import { initInstallPrompt } from "./lib/pwa/installPrompt";
 
 // v4 첫 부팅 시 v1~v3 잔여 데이터 폐기 (사용자 합의 — 기존은 개발 테스트 데이터).
 purgeLegacyLocalStorage();
 void purgeLegacyTauriData();
 registerDevTools();
+
+// PWA Service Worker 등록(웹 전용) — auth 게이트와 무관하게 부팅 시 등록해 로그인 전에도 설치 가능.
+initPwa();
+// beforeinstallprompt 는 로드 직후 발생하므로 부팅 시점에 리스너를 건다.
+initInstallPrompt();
 
 // 새 배포 후 옛 청크(해시 파일명) 로드 실패 → 자동 1회 새로고침으로 복구.
 window.addEventListener("vite:preloadError", (ev) => {
