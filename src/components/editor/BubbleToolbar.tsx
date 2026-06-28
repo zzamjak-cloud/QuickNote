@@ -445,11 +445,15 @@ export function BubbleToolbar({ editor, pageId }: Props) {
                   const chain = editor.chain().focus();
                   return saved ? chain.setTextSelection(saved) : chain;
                 };
+                // 기존 링크 편집 시 현재 href 를 입력창에 미리 채운다.
+                const currentHref =
+                  (editor.getAttributes("link").href as string | undefined) ?? "";
                 void (async () => {
                   const url = await useUiStore
                     .getState()
                     .requestTextPrompt("URL 또는 복사한 블록 링크를 입력하세요", {
                       placeholder: "https://… 또는 페이지 내 블록 링크",
+                      initialValue: currentHref,
                     });
                   if (url === null) return;
                   if (url === "") {

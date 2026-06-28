@@ -17,6 +17,25 @@ import {
   resolveButtonPress,
   type ButtonPress,
 } from "./buttonBlockClick";
+import { parseQuickNoteLink } from "./quicknoteLinks";
+
+// 일반 텍스트 링크(link mark, a[href]) 중 내부 링크(?page=…)도 멘션·버튼과 동일 위임으로 SPA 이동.
+// @tiptap/extension-link 는 openOnClick:false 라 자체 클릭 핸들러가 없다(외부는 target=_blank native).
+function resolveInternalLinkPress(
+  target: EventTarget | null,
+  x: number,
+  y: number,
+): ButtonPress | null {
+  if (!(target instanceof HTMLElement)) return null;
+  const a = target.closest<HTMLElement>("a[href]");
+  if (!a || !a.closest(".ProseMirror")) return null;
+  // 멘션·블록 링크 버튼은 각자 처리하므로 제외.
+  if (a.closest("[data-qn-button-block]") || a.closest('[data-type="mention"]')) return null;
+  const href = a.getAttribute("href") ?? "";
+  // 내부 링크(quicknote ?page=…)만 SPA 처리. 외부 URL 은 native target=_blank 에 맡긴다(중복 방지).
+  if (!parseQuickNoteLink(href)) return null;
+  return { x, y, href, databaseId: "" };
+}
 
 type PagePress = {
   x: number;
@@ -79,7 +98,9 @@ export function installPageMentionClickNavigation(): () => void {
     if (event.button !== 0) return;
     pagePress = resolvePageMentionPress(event.target, event.clientX, event.clientY);
     if (!pagePress) {
-      btnPress = resolveButtonPress(event.target, event.clientX, event.clientY);
+      btnPress =
+        resolveButtonPress(event.target, event.clientX, event.clientY) ??
+        resolveInternalLinkPress(event.target, event.clientX, event.clientY);
     }
   };
 
