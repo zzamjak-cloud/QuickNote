@@ -266,9 +266,9 @@ export const ButtonBlock = TiptapNode.create({
   },
 
   addNodeView() {
-    // stopEvent: ProseMirror 가 node view 내부 DOM 이벤트(터치/포인터/클릭)를 가로채지 않게 한다.
-    // 없으면 모바일 터치에서 PM 이 탭을 selection 으로 처리해 버튼 click 이 발화하지 않는다(데스크톱 마우스는 통과).
-    return ReactNodeViewRenderer(ButtonBlockView, { stopEvent: () => true });
+    // 네비게이션은 페이지 멘션과 동일하게 document capture mouseup 위임(pageMentionClick)이 처리한다.
+    // 멘션 노드처럼 stopEvent 를 두지 않아 동일 조건으로 맞춘다.
+    return ReactNodeViewRenderer(ButtonBlockView);
   },
 
   addCommands() {

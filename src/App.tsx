@@ -32,7 +32,6 @@ import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import { PwaUpdateBanner } from "./components/ui/PwaUpdateBanner";
 import { buildQuickNotePageUrl, parseQuickNoteLink, type QuickNoteLinkTarget } from "./lib/navigation/quicknoteLinks";
 import { installPageMentionClickNavigation } from "./lib/navigation/pageMentionClick";
-import { installButtonBlockClickNavigation } from "./lib/navigation/buttonBlockClick";
 import { navigateToBlockLink } from "./lib/editor/editorNavigationBridge";
 import { shouldAutoEnsureFullPageDatabaseHome } from "./lib/database/shouldAutoEnsureFullPageDatabaseHome";
 import {
@@ -171,10 +170,9 @@ function App() {
     return bindPageScrollMemory(activePageId, databaseRowScrollHostRef.current, "db-row");
   }, [activePage?.databaseId, activePageId]);
 
-  // 페이지 멘션 클릭 이동 — document capture mousedown/mouseup (NodeView 재마운트에도 click 보다 안정).
+  // 페이지 멘션 + 블록 링크 버튼 클릭 이동 — 단일 document capture mousedown/mouseup
+  // (NodeView 재마운트·모바일/설치 PWA 터치에서 click 보다 안정. 버튼도 멘션과 동일 경로.)
   useEffect(() => installPageMentionClickNavigation(), []);
-  // 블록 링크 버튼 이동 — 멘션과 동일한 document 위임(모바일/설치 PWA 터치에서 React 핸들러 깨짐 대응).
-  useEffect(() => installButtonBlockClickNavigation(), []);
 
   // 에디터 내 외부 링크(http/https) 클릭 안전망 — document 캡처 단계에서 받아 새 창으로 연다.
   useEffect(() => {

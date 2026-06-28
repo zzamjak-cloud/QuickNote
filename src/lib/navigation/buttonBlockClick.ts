@@ -14,10 +14,9 @@ import {
 } from "./internalNavigation";
 import { navigateToBlockLink } from "../editor/editorNavigationBridge";
 
-type ButtonPress = { x: number; y: number; href: string; databaseId: string };
-let buttonPress: ButtonPress | null = null;
+export type ButtonPress = { x: number; y: number; href: string; databaseId: string };
 
-function resolveButtonPress(
+export function resolveButtonPress(
   target: EventTarget | null,
   x: number,
   y: number,
@@ -33,7 +32,7 @@ function resolveButtonPress(
   };
 }
 
-function navigateButtonBlock(press: ButtonPress, event: MouseEvent): void {
+export function navigateButtonBlock(press: ButtonPress, event: MouseEvent): void {
   const href = press.href.trim();
   const internalHref = href ? parseQuickNoteLink(href) : null;
   const newTab = shouldOpenInternalLinkInNewTab(event);
@@ -87,31 +86,4 @@ function navigateButtonBlock(press: ButtonPress, event: MouseEvent): void {
   }
 }
 
-export function installButtonBlockClickNavigation(): () => void {
-  const onMouseDown = (event: MouseEvent) => {
-    buttonPress = null;
-    if (event.button !== 0) return;
-    buttonPress = resolveButtonPress(event.target, event.clientX, event.clientY);
-  };
-  const onMouseUp = (event: MouseEvent) => {
-    const press = buttonPress;
-    buttonPress = null;
-    if (!press || event.button !== 0) return;
-    if (
-      Math.abs(event.clientX - press.x) > 4 ||
-      Math.abs(event.clientY - press.y) > 4
-    ) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    navigateButtonBlock(press, event);
-  };
-  document.addEventListener("mousedown", onMouseDown, true);
-  document.addEventListener("mouseup", onMouseUp, true);
-  return () => {
-    document.removeEventListener("mousedown", onMouseDown, true);
-    document.removeEventListener("mouseup", onMouseUp, true);
-    buttonPress = null;
-  };
-}
+// 설치는 pageMentionClick 의 단일 document 리스너가 멘션과 함께 처리한다(동일 경로 보장).
