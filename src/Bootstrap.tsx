@@ -350,7 +350,18 @@ function useSyncBootstrap(): void {
           // 캐시 비움 + 워터마크 리셋은 항상 짝 — 단일 헬퍼로 강제(누락 시 데이터 유실).
           resetWorkspaceLocalCaches(currentWorkspaceId);
         }
-        await fetchApply({ forceMetaBaseline: repairWorkspaceCache });
+        // 근본 가드(사이드바 페이지 부분 결손 자가치유): 앱 콜드 부팅(첫 워크스페이스 로드)에서
+        // 캐시가 있어 delta 모드로 결정됐더라도, 메타 baseline 으로 전체 페이지 메타를 한 번
+        // 재조회한다(prune 없음·머지). stale/부분 캐시(예: 과거 listPageMetas limit-before-filter
+        // 회귀로 일부 루트 페이지만 받은 캐시)에서 watermark 가 전진하면 delta 로는 누락된
+        // 오래된 페이지가 영영 안 돌아오는데, 콜드 부팅마다 1회 메타 baseline 으로 채워 복구한다.
+        // 메타는 본문 없이 가벼우므로(서버가 DB row 제외하고 limit 만큼 페이지네이션) 비용이 작다.
+        // 세션 중 워크스페이스 전환(prev!==null)은 그대로 delta 로 가볍게 유지한다.
+        const coldBootMetaReconcile =
+          isInitialWorkspaceBootstrap && fetchMode.kind === "delta";
+        await fetchApply({
+          forceMetaBaseline: repairWorkspaceCache || coldBootMetaReconcile,
+        });
         if (!cancelled && oneTimeWorkspaceCacheRepair) {
           markWorkspaceCacheRepaired(currentWorkspaceId);
         }
