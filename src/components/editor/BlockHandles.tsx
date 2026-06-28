@@ -16,6 +16,7 @@ import {
   Copy,
   Download,
   GripVertical,
+  MoreHorizontal,
   LayoutTemplate,
   Link2,
   MessageSquare,
@@ -77,6 +78,7 @@ import {
   visualElementForBlockNode,
 } from "./blockHandles/helpers";
 import { HoverMenuGroup, HoverMenuRow } from "./blockHandles/HoverMenuRow";
+import { useIsMobile } from "../../hooks/useViewport";
 import type { PinnedCommentBadge, DownloadNotice } from "./blockHandles/BlockHandlesTypes";
 import { computeBlockTypeFlags } from "./blockHandles/blockTypeFlags";
 import { DownloadNoticeToast } from "./blockHandles/DownloadNoticeToast";
@@ -105,6 +107,7 @@ export function BlockHandles({
   pageId,
   compactComments = false,
 }: Props) {
+  const isMobile = useIsMobile();
   const boxSelectionActive =
     (boxSelectedStarts?.length ?? 0) > 0 ||
     (!!editor &&
@@ -410,6 +413,15 @@ export function BlockHandles({
           return { top, left };
         })()
       : null;
+
+  // 모바일: ⋯ 버튼을 좌측 거터 대신 블록 우상단에 둔다(16px 거터 충돌 회피). 28px 버튼 + 여백.
+  const effectiveBar =
+    isMobile && hover && wrapperRect
+      ? {
+          top: hover.rect.top - wrapperRect.top,
+          left: Math.max(0, hover.rect.right - wrapperRect.left - 30),
+        }
+      : bar;
 
   const [pinnedCommentBadges, setPinnedCommentBadges] = useState<
     PinnedCommentBadge[]
@@ -882,6 +894,45 @@ export function BlockHandles({
     });
   }, [editor, boxSelectionActive, boxSelectedStarts]);
 
+  // 모바일: mousemove 가 없으므로 커서가 위치한 최상위 블록을 hover 로 잡아 ⋯ 액션 버튼/메뉴를 노출.
+  // 스크롤·리사이즈 시 위치를 다시 측정한다(데스크톱 mousemove 재측정 대체).
+  useEffect(() => {
+    if (!isMobile || !editor) return;
+    const update = () => {
+      if (menuOpenRef.current) return;
+      const view = editor.view;
+      if (!view || editor.isDestroyed) return;
+      const { from } = editor.state.selection;
+      const $pos = editor.state.doc.resolve(from);
+      if ($pos.depth < 1) {
+        setHover(null);
+        return;
+      }
+      const blockStart = $pos.before(1);
+      const node = editor.state.doc.nodeAt(blockStart);
+      if (!node) {
+        setHover(null);
+        return;
+      }
+      const dom = view.nodeDOM(blockStart);
+      const el = dom instanceof HTMLElement ? dom : (dom?.parentElement ?? null);
+      if (!el) return;
+      const rectEl = visualElementForBlockNode(node.type.name, el);
+      setHover({ blockStart, node, rect: rectEl.getBoundingClientRect(), depth: 1 });
+    };
+    editor.on("selectionUpdate", update);
+    editor.on("update", update);
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    update();
+    return () => {
+      editor.off("selectionUpdate", update);
+      editor.off("update", update);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [isMobile, editor]);
+
   // 박스 드래그(마퀴) 중에는 그립·호버 UI만 숨긴다 — 고정 댓글 배지는 계속 보이게 함
   return (
     <HandleLayerBase
@@ -889,37 +940,52 @@ export function BlockHandles({
       zClassName={menuOpen ? "z-[740]" : "z-10"}
       dataAttrs={{ "data-qn-editor-chrome": "block-handles" }}
     >
-      {!boxSelecting && hover && bar && wrapperRect ? (
+      {!boxSelecting && hover && effectiveBar && wrapperRect ? (
         <>
         <div
           className="pointer-events-auto absolute z-30 flex items-start"
-          style={{ top: bar.top, left: bar.left }}
+          style={{ top: effectiveBar.top, left: effectiveBar.left }}
         >
           <div className="relative" ref={menuRef}>
             <button
               type="button"
               data-qn-block-grip
-              draggable
-              onPointerDown={onGripPointerDown}
-              onDragStart={onGripDragStart}
-              onDragEnd={onGripDragEnd}
+              draggable={!isMobile}
+              onPointerDown={isMobile ? undefined : onGripPointerDown}
+              onDragStart={isMobile ? undefined : onGripDragStart}
+              onDragEnd={isMobile ? undefined : onGripDragEnd}
               onClick={onGripClick}
-              title="클릭: 메뉴 | 드래그: 블록 이동"
+              title={isMobile ? "블록 메뉴" : "클릭: 메뉴 | 드래그: 블록 이동"}
               className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-white/90 text-zinc-500 shadow-sm ring-1 ring-zinc-200/80 hover:bg-zinc-50 hover:text-zinc-800 dark:bg-zinc-900/90 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${POINTER_PRESS_FEEDBACK_CLASS}`}
             >
-              <GripVertical size={15} />
+              {isMobile ? <MoreHorizontal size={15} /> : <GripVertical size={15} />}
             </button>
 
             {menuOpen && (
+              <>
+              {isMobile && (
+                <div
+                  className="fixed inset-0 z-[739] bg-black/40"
+                  onMouseDown={() => setMenuOpen(false)}
+                />
+              )}
               <div
                 ref={menuPanelRef}
-                className="absolute z-[740] w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                style={{
-                  left: menuFlipLeft ? undefined : 32,
-                  right: menuFlipLeft ? 32 : undefined,
-                  // 세로는 측정 기반 오프셋으로 viewport 안에 고정 (clipping 방지)
-                  top: menuVOffset,
-                }}
+                className={
+                  isMobile
+                    ? "fixed inset-x-0 bottom-0 z-[740] max-h-[70dvh] overflow-y-auto rounded-t-xl border-t border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                    : "absolute z-[740] w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                }
+                style={
+                  isMobile
+                    ? undefined
+                    : {
+                        left: menuFlipLeft ? undefined : 32,
+                        right: menuFlipLeft ? 32 : undefined,
+                        // 세로는 측정 기반 오프셋으로 viewport 안에 고정 (clipping 방지)
+                        top: menuVOffset,
+                      }
+                }
               >
                 <HoverMenuGroup>
                 {hover && canBlockHaveComment(hover.node.type.name) ? (
@@ -1396,6 +1462,7 @@ export function BlockHandles({
                 </button>
                 </HoverMenuGroup>
               </div>
+              </>
             )}
           </div>
         </div>
