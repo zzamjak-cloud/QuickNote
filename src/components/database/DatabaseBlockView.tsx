@@ -569,6 +569,8 @@ export function DatabaseBlockView(props: NodeViewProps) {
                 }}
                 onTitleDragStart={onInlineTitleDragStart}
                 onTitleDragEnd={onInlineTitleDragEnd}
+                hideTitle={panelState.hideTitle}
+                headerColor={panelState.headerColor}
               />
             ) : (
               <DatabaseBlockFullPageHeader

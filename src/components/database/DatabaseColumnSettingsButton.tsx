@@ -16,6 +16,7 @@ import { getGroupableColumns } from "../../lib/database/grouping";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { AppSelect } from "../common/AppSelect";
+import { CALLOUT_PRESETS } from "../../lib/tiptapExtensions/calloutPresets";
 
 type Props = {
   databaseId: string;
@@ -43,6 +44,7 @@ export function DatabaseColumnSettingsButton({
   panelState,
   setPanelState,
   asTh,
+  layout,
   popoverZClassName = "z-[320]",
 }: Props) {
   const bundle = useDatabaseStore((s) => s.databases[databaseId]);
@@ -194,6 +196,69 @@ export function DatabaseColumnSettingsButton({
               e.stopPropagation();
             }}
           >
+            {/* 헤더 섹션 — 인라인 DB 전용(제목 숨기기·헤더 배경 컬러). */}
+            {layout === "inline" && (
+              <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">
+                <div className="px-1 py-1 text-xs uppercase tracking-wide text-zinc-500">
+                  헤더
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPanelState({ hideTitle: !panelState.hideTitle })}
+                  className="flex w-full items-center justify-between rounded px-1.5 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <span>제목 숨기기</span>
+                  <span
+                    className={[
+                      "relative h-4 w-7 shrink-0 rounded-full transition",
+                      panelState.hideTitle
+                        ? "bg-blue-500"
+                        : "bg-zinc-300 dark:bg-zinc-600",
+                    ].join(" ")}
+                  >
+                    <span
+                      className={[
+                        "absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all",
+                        panelState.hideTitle ? "left-3.5" : "left-0.5",
+                      ].join(" ")}
+                    />
+                  </span>
+                </button>
+                <div className="px-1 py-1">
+                  <div className="mb-1 text-xs text-zinc-500">헤더 컬러</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {/* 없음(기본/투명) */}
+                    <button
+                      type="button"
+                      title="없음"
+                      onClick={() => setPanelState({ headerColor: null })}
+                      className={[
+                        "flex h-6 w-6 items-center justify-center rounded border border-zinc-300 bg-white text-[10px] text-zinc-400 dark:border-zinc-600 dark:bg-zinc-800",
+                        panelState.headerColor == null ? "ring-2 ring-blue-400" : "",
+                      ].join(" ")}
+                    >
+                      ✕
+                    </button>
+                    {CALLOUT_PRESETS.filter((p) => p.color).map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        title={p.label}
+                        onClick={() => setPanelState({ headerColor: p.color })}
+                        className={[
+                          "h-6 w-6 rounded border border-zinc-300 dark:border-zinc-600",
+                          panelState.headerColor === p.color
+                            ? "ring-2 ring-blue-400"
+                            : "",
+                        ].join(" ")}
+                        style={{ background: p.color ?? undefined }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* 그룹화 섹션 — 칸반은 자체 그룹 컨트롤을 쓰므로 숨김. */}
             {viewKind !== "kanban" && (
               <div className="mb-1 border-b border-zinc-100 px-1 pb-1 dark:border-zinc-800">

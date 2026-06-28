@@ -338,6 +338,10 @@ export type DatabasePanelState = {
   pageTreeEnabled?: boolean;
   /** 갤러리 뷰 열 수 (기본 4). node attrs → 서버 동기화. */
   galleryColumns?: number;
+  /** 인라인 DB 헤더(제목 바) 숨기기. 기본 false. */
+  hideTitle?: boolean;
+  /** 인라인 DB 헤더 배경 컬러(hex). null/undefined = 기본(투명). 텍스트 블록 배경 프리셋과 동일 색. */
+  headerColor?: string | null;
   /** 필터 프리셋 탭 목록 */
   filterPresets?: FilterPreset[];
   /** 현재 활성화된 프리셋 ID. null이면 전역 filterRules/sortRules 사용. */

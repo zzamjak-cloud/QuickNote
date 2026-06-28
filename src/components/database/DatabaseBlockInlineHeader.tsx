@@ -16,6 +16,10 @@ type Props = {
   /** 제목 영역 드래그 — 인라인 DB 블럭을 통째로 이동 */
   onTitleDragStart?: (e: ReactDragEvent<HTMLDivElement>) => void;
   onTitleDragEnd?: () => void;
+  /** 표시 설정 — 제목 숨기기 */
+  hideTitle?: boolean;
+  /** 표시 설정 — 헤더 배경 컬러(hex) */
+  headerColor?: string | null;
 };
 
 export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader({
@@ -30,6 +34,8 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
   onToggleInlineControls,
   onTitleDragStart,
   onTitleDragEnd,
+  hideTitle = false,
+  headerColor,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -76,10 +82,15 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
         onDragEnd={onTitleDragEnd}
         className={[
           "group flex items-center justify-between gap-2 px-2 py-2",
+          headerColor ? "rounded-t-md" : "",
           onTitleDragStart ? "cursor-grab active:cursor-grabbing" : "",
         ].join(" ")}
+        style={headerColor ? { background: headerColor } : undefined}
         title={onTitleDragStart ? "드래그하여 블럭 이동" : undefined}
       >
+        {hideTitle ? (
+          <div className="min-w-0 flex-1" />
+        ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1">
           <Database size={16} className="shrink-0 text-zinc-500" />
           {inlineTitleLocked ? (
@@ -137,6 +148,7 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
             />
           )}
         </div>
+        )}
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"

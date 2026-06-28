@@ -57,6 +57,8 @@ const databasePanelStatePartialSchema = z
     itemLimit: z.number().int().positive().optional(),
     pageTreeEnabled: z.boolean().optional(),
     galleryColumns: z.number().int().min(1).max(10).optional(),
+    hideTitle: z.boolean().optional(),
+    headerColor: z.string().nullable().optional(),
     filterPresets: z.array(filterPresetSchema).optional(),
     activePresetId: z.string().nullable().optional(),
     schedulerFeatureMilestoneIds: z.array(z.string()).nullable().optional(),
