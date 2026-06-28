@@ -105,7 +105,7 @@ export function SettingsModal({ open, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[500] flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 z-[500] flex items-center justify-center bg-black/45 p-0 md:p-4"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -115,10 +115,10 @@ export function SettingsModal({ open, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-modal-title"
-        className="relative flex h-[min(86vh,820px)] w-full max-w-6xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-950"
+        className="relative flex h-[100dvh] w-full flex-col overflow-hidden rounded-none border border-zinc-200 bg-white shadow-xl md:h-[min(86vh,820px)] md:max-w-6xl md:flex-row md:rounded-xl dark:border-zinc-700 dark:bg-zinc-950"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <aside className="flex w-56 shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
+        <aside className="flex w-full shrink-0 flex-col border-b border-zinc-200 bg-zinc-50 p-3 md:w-56 md:border-b-0 md:border-r dark:border-zinc-800 dark:bg-zinc-900">
           <div className="mb-2 flex items-center justify-between px-1">
             <h2 id="settings-modal-title" className="text-sm font-semibold">설정</h2>
             <button
@@ -130,7 +130,7 @@ export function SettingsModal({ open, onClose }: Props) {
               <X size={14} />
             </button>
           </div>
-          <nav className="space-y-1">
+          <nav className="flex gap-1 overflow-x-auto md:flex-col md:space-y-1 md:overflow-visible">
             {tabs.map((t) => {
               const Icon = t.icon;
               return (
@@ -139,7 +139,7 @@ export function SettingsModal({ open, onClose }: Props) {
                   type="button"
                   onClick={() => setTab(t.id)}
                   className={[
-                    "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm",
+                    "flex shrink-0 items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-left text-sm md:w-full md:shrink",
                     tab === t.id
                       ? "bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100"
                       : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
@@ -151,11 +151,11 @@ export function SettingsModal({ open, onClose }: Props) {
               );
             })}
           </nav>
-          <div className="mt-auto space-y-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <div className="mt-2 flex items-center gap-2 border-t border-zinc-200 pt-2 md:mt-auto md:block md:space-y-1 md:pt-3 dark:border-zinc-800">
             <button
               type="button"
               onClick={toggleDarkMode}
-              className="flex w-full items-center justify-between rounded-md px-2 py-2 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              className="flex flex-1 items-center justify-between rounded-md px-2 py-2 text-xs text-zinc-700 hover:bg-zinc-100 md:w-full dark:text-zinc-200 dark:hover:bg-zinc-800"
               aria-pressed={darkMode}
             >
               <span>{darkMode ? "다크" : "라이트"}</span>
@@ -176,7 +176,7 @@ export function SettingsModal({ open, onClose }: Props) {
             <button
               type="button"
               onClick={() => void signOut()}
-              className="w-full rounded-md px-2 py-2 text-left text-xs text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              className="shrink-0 rounded-md px-2 py-2 text-left text-xs text-zinc-500 hover:bg-zinc-100 md:w-full dark:text-zinc-400 dark:hover:bg-zinc-800"
             >
               로그아웃
             </button>

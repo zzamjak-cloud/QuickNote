@@ -58,7 +58,7 @@ function DialogBaseRoot({
         role={role}
         aria-modal="true"
         aria-labelledby={labelId}
-        className={`w-full ${widthClassName} rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900`}
+        className={`max-h-[90dvh] w-full overflow-y-auto ${widthClassName} rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900`}
         onMouseDown={(e) => e.stopPropagation()}
       >
         {children}

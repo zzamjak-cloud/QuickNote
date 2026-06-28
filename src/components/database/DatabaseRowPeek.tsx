@@ -51,6 +51,7 @@ import {
   restorePageScrollPosition,
 } from "../../lib/navigation/pageScrollMemory";
 import { getEditorColumnClass } from "../../lib/editorLayout";
+import { useIsMobile } from "../../hooks/useViewport";
 
 const PEEK_WIDTH_KEY = "quicknote.peekWidth.v1";
 const DEFAULT_PEEK_WIDTH = 720;
@@ -89,6 +90,7 @@ export function DatabaseRowPeek() {
   const peekFullWidth = peekPageId
     ? (pageFullWidthById[peekPageId] ?? globalFullWidth)
     : globalFullWidth;
+  const isMobile = useIsMobile();
   const page = usePageStore((s) => (peekPageId ? s.pages[peekPageId] : undefined));
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   // 다른 워크스페이스의 페이지를 미리보기로 띄운 경우 — "전체 열기"는 로컬 활성화 대신 해당 워크스페이스로 이동한다.
@@ -673,6 +675,7 @@ export function DatabaseRowPeek() {
               fullWidth: peekFullWidth,
               hasPageComments: false,
               peek: true,
+              isMobile,
             })}`}
             data-qn-peek-page-header-column
           >

@@ -49,6 +49,7 @@ import { useCustomIconUpload } from "../common/useCustomIconUpload";
 import { FileText, Database, Loader2, ImagePlus } from "lucide-react";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { getEditorColumnClass } from "../../lib/editorLayout";
+import { useIsMobile } from "../../hooks/useViewport";
 import {
   bindPageScrollMemory,
   restorePageScrollPosition,
@@ -256,6 +257,7 @@ function EditorInner({
   const fullWidth = effectivePageId
     ? (pageFullWidthById[effectivePageId] ?? globalFullWidth)
     : globalFullWidth;
+  const isMobile = useIsMobile();
   const myMemberId = useMemberStore((s) => s.me?.memberId);
 
   const pageDoc = page?.doc;
@@ -1366,7 +1368,7 @@ function EditorInner({
         </div>
       ) : null}
       <div
-        className={`relative mx-auto w-full ${getEditorColumnClass({ fullWidth, hasPageComments, peek })}`}
+        className={`relative mx-auto w-full ${getEditorColumnClass({ fullWidth, hasPageComments, peek, isMobile })}`}
         data-qn-editor-column
       >
         {!bodyOnly && (

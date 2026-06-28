@@ -13,6 +13,7 @@ import { PageCoverImage } from "../editor/PageCoverImage";
 import { useSettingsStore } from "../../store/settingsStore";
 import { PAGE_TITLE_DUPLICATE_MESSAGE, preparePageTitleInput } from "../../store/pageStore/helpers";
 import { getEditorColumnClass } from "../../lib/editorLayout";
+import { useIsMobile } from "../../hooks/useViewport";
 
 export function DatabaseRowPage({ pageId }: { pageId: string }) {
   // doc 필드는 Editor 컴포넌트가 내부에서 직접 구독 — 여기서는 메타 필드만 구독해 불필요한 리렌더 방지
@@ -31,6 +32,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
   const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
   const fullWidth = pageId ? (pageFullWidthById[pageId] ?? globalFullWidth) : globalFullWidth;
+  const isMobile = useIsMobile();
   // 부트스트랩 하이드레이션 중인지 판별 — 스토어가 아직 비어 있으면 "없음"이 아니라 "로딩 중"이다.
   const pagesEmpty = usePageStore((s) => Object.keys(s.pages).length === 0);
   const databasesEmpty = useDatabaseStore((s) => Object.keys(s.databases).length === 0);
@@ -94,6 +96,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
         className={`relative mx-auto w-full ${getEditorColumnClass({
           fullWidth,
           hasPageComments: false,
+          isMobile,
         })}`}
         data-qn-row-page-header-column
       >
