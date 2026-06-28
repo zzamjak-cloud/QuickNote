@@ -256,6 +256,12 @@ export class SyncEngine {
     return (await this.outbox.list(1)).length;
   }
 
+  /** 대기 중인 outbox entry 총 개수(가시성 배지용). count() 미지원 어댑터는 soft cap 까지 추정. */
+  async pendingCount(): Promise<number> {
+    if (this.outbox.count) return this.outbox.count();
+    return (await this.outbox.list(OUTBOX_SOFT_CAP + 1)).length;
+  }
+
   async debugSnapshot(): Promise<unknown[]> {
     const all = await this.outbox.list(100);
     return all.map((e) => ({

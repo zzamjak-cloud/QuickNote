@@ -54,6 +54,7 @@ import {
 import { useSchedulerStore } from "./store/schedulerStore";
 import { useSchedulerProjectsStore } from "./store/schedulerProjectsStore";
 import { resetWorkspaceLocalCaches } from "./lib/sync/resetWorkspaceLocalCaches";
+import { consumeOfflineGapMs, reconnectStrategyForGap } from "./lib/sync/offlineGap";
 import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 import { createLCSchedulerRootPageRepairGate } from "./lib/sync/lcSchedulerWorkspaceRepair";
@@ -543,43 +544,79 @@ function useSyncBootstrap(): void {
   useEffect(() => {
     if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) return;
     const wsId = currentWorkspaceId;
-    const onOnline = () => {
-      void (async () => {
-        try {
-          const { clientPrefs } = await fetchMeWithClientPrefs();
-          applyRemoteClientPrefs(clientPrefs);
-        } catch {
-          /* ignore */
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const reconnect = async (attempt: number, gapMs: number): Promise<void> => {
+      // 1. 핸드셰이크: navigator.onLine=true 라도 실제 AppSync 도달 가능한지 경량 authed 호출로 확인.
+      //    캡티브 포털 등 거짓 online 이면 flush 가 어차피 실패하므로, 다음 online 이벤트를
+      //    기다리지 않고 backoff 재시도한다.
+      let clientPrefs;
+      try {
+        ({ clientPrefs } = await fetchMeWithClientPrefs());
+      } catch {
+        if (attempt < MAX_RECONNECT_ATTEMPTS && navigator.onLine) {
+          const delay = Math.min(30_000, 1_000 * 2 ** attempt);
+          reconnectTimer = setTimeout(() => void reconnect(attempt + 1, gapMs), delay);
         }
-        try {
-          // reconcile 에 넘기는 fetchApply 는 캐시 클리어 후 재호출될 수 있으므로 반드시 "전체 모드".
-          const fetchApplyFull = async (): Promise<void> => {
-            await fetchApplyWorkspaceRemoteSnapshot({
-              workspaceId: wsId,
-              logPrefix: "온라인 복귀",
-            });
-          };
-          // 1차 페치는 증분 모드(#3): 워터마크 이후 변경분만 받아 비용 절감.
-          // 워터마크가 없으면(첫 동기화) updatedAfter=undefined → 자동으로 전체 페치 + prune.
+        return;
+      }
+      try {
+        applyRemoteClientPrefs(clientPrefs);
+      } catch {
+        /* ignore */
+      }
+      // 2. 오프라인 갭 기반 fetch 전략 escalation(T1=10분→기준선, T2=24h→전체).
+      try {
+        // reconcile 에 넘기는 fetchApply 는 캐시 클리어 후 재호출될 수 있으므로 반드시 "전체 모드".
+        const fetchApplyFull = async (): Promise<void> => {
+          await fetchApplyWorkspaceRemoteSnapshot({
+            workspaceId: wsId,
+            logPrefix: "온라인 복귀",
+          });
+        };
+        const strategy = reconnectStrategyForGap(gapMs);
+        if (strategy === "meta-baseline") {
+          // 갭이 길면 메타 기준선 재확보로 누락 항목 자가치유(prune 없이).
+          await fetchApplyWorkspaceRemoteMetaSnapshot({
+            workspaceId: wsId,
+            logPrefix: "온라인 복귀(기준선)",
+          });
+        } else if (strategy === "full") {
+          // 갭이 매우 길면 전체 페치(updatedAfter 없음 → prune 포함).
+          await fetchApplyWorkspaceRemoteSnapshot({
+            workspaceId: wsId,
+            logPrefix: "온라인 복귀(전체)",
+          });
+        } else {
+          // 짧은 갭: 증분 모드 — 워터마크 이후 변경분만. 워터마크 없으면 자동 전체+prune.
           const watermark = useSyncWatermarkStore.getState().getWatermark(wsId);
           await fetchApplyWorkspaceRemoteSnapshot({
             workspaceId: wsId,
             updatedAfter: watermark,
             logPrefix: watermark ? "온라인 복귀(증분)" : "온라인 복귀",
           });
-          const engine = await getSyncEngine();
-          await engine.flush();
-          await reconcileWorkspaceCacheAfterFlush({
-            currentWorkspaceId: wsId,
-            fetchApply: fetchApplyFull,
-          });
-        } catch (err) {
-          console.error("[sync] online refetch failed", err);
         }
-      })();
+        const engine = await getSyncEngine();
+        await engine.flush();
+        await reconcileWorkspaceCacheAfterFlush({
+          currentWorkspaceId: wsId,
+          fetchApply: fetchApplyFull,
+        });
+      } catch (err) {
+        console.error("[sync] online refetch failed", err);
+      }
+    };
+
+    const onOnline = () => {
+      const gapMs = consumeOfflineGapMs();
+      void reconnect(0, gapMs);
     };
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
   }, [authStatus, authSub, currentWorkspaceId]);
 }
 

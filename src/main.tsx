@@ -13,6 +13,7 @@ import { registerDevTools } from "./lib/devtools/snapshot";
 import { attemptChunkReload } from "./lib/chunkReload";
 import { initPwa } from "./lib/pwa/swController";
 import { initInstallPrompt } from "./lib/pwa/installPrompt";
+import { initOfflineGapTracking } from "./lib/sync/offlineGap";
 
 // v4 첫 부팅 시 v1~v3 잔여 데이터 폐기 (사용자 합의 — 기존은 개발 테스트 데이터).
 purgeLegacyLocalStorage();
@@ -23,6 +24,8 @@ registerDevTools();
 initPwa();
 // beforeinstallprompt 는 로드 직후 발생하므로 부팅 시점에 리스너를 건다.
 initInstallPrompt();
+// 오프라인 진입 시각 추적(재접속 시 갭 기반 fetch escalation 용).
+initOfflineGapTracking();
 
 // 새 배포 후 옛 청크(해시 파일명) 로드 실패 → 자동 1회 새로고침으로 복구.
 window.addEventListener("vite:preloadError", (ev) => {
