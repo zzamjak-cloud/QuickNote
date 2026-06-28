@@ -4,6 +4,8 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { SidebarCollapsedRail } from "./components/layout/SidebarCollapsedRail";
 import { FavoritesPanel } from "./components/layout/FavoritesPanel";
 import { TopBar } from "./components/layout/TopBar";
+import { MobileDrawer } from "./components/ui/MobileDrawer";
+import { useIsCompact } from "./hooks/useViewport";
 import { TabBar } from "./components/layout/TabBar";
 import { Editor } from "./components/editor/Editor";
 import { DatabaseDirectPage } from "./components/database/DatabaseDirectPage";
@@ -72,6 +74,9 @@ function App() {
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
   const [searchOpen, setSearchOpen] = useState(false);
+  // 컴팩트(<lg) 화면에서 사이드바를 오버레이 드로어로 띄울지.
+  const isCompact = useIsCompact();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const activeTabIndex = useSettingsStore((s) => s.activeTabIndex);
   const activeTab = useSettingsStore(
     (s) => s.tabs[s.activeTabIndex] ?? { pageId: null, databaseId: null },
@@ -135,6 +140,14 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  // 모바일 드로어: 페이지 이동 시 자동으로 닫고, 데스크톱으로 넓어지면 해제.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [activePageId]);
+  useEffect(() => {
+    if (!isCompact) setMobileNavOpen(false);
+  }, [isCompact]);
 
   useEffect(() => {
     const uninstallScrollCapture = installPageScrollCapture();
@@ -544,12 +557,23 @@ function App() {
 
   return (
     <AuthGate>
-      <div className="flex h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-        {sidebarCollapsed ? <SidebarCollapsedRail /> : <Sidebar />}
+      <div className="flex h-[100dvh] bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+        {isCompact ? (
+          <MobileDrawer
+            open={mobileNavOpen}
+            onClose={() => setMobileNavOpen(false)}
+          >
+            <Sidebar variant="drawer" />
+          </MobileDrawer>
+        ) : sidebarCollapsed ? (
+          <SidebarCollapsedRail />
+        ) : (
+          <Sidebar />
+        )}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <TabBar />
           <WorkspaceSyncBanner />
-          <TopBar />
+          <TopBar onOpenNav={isCompact ? () => setMobileNavOpen(true) : undefined} />
           {workspaceLoading ? (
             <div
               role="status"
@@ -586,7 +610,7 @@ function App() {
             <Editor key={activeTabContentKey} />
           )}
         </div>
-        <FavoritesPanel />
+        {!isCompact && <FavoritesPanel />}
         <Suspense fallback={null}>
           <DatabaseRowPeek />
           <BlockCommentThreadPanel editor={null} />

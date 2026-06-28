@@ -13,6 +13,7 @@ import {
   FolderInput,
   History,
   FolderTree,
+  Menu,
   X,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -61,7 +62,7 @@ import { PageMoveDialog } from "./PageMoveDialog";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 
-export function TopBar() {
+export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
   const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
@@ -296,6 +297,17 @@ export function TopBar() {
 
   return (
     <header className="relative z-[350] flex h-10 shrink-0 items-center gap-2 border-b border-zinc-200 bg-white px-4 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+      {onOpenNav ? (
+        <button
+          type="button"
+          onClick={onOpenNav}
+          aria-label="메뉴 열기"
+          title="메뉴"
+          className="-ml-1.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+        >
+          <Menu size={18} />
+        </button>
+      ) : null}
       {showPreviousButton ? (
         <button
           type="button"

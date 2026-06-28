@@ -68,7 +68,7 @@ function SidebarDragPreview({ pageId }: { pageId: string }) {
 const HOVER_EXPAND_DELAY_MS = 700;
 const EDGE_SCROLL_ZONE_PX = 24;
 const EDGE_SCROLL_MAX_PER_FRAME = 12;
-export function Sidebar() {
+export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" } = {}) {
   const pointerRef = useRef({ x: 0, y: 0 });
   const nestHintRef = useRef<SidebarDropHint | null>(null);
   const dropUiRafRef = useRef<number | null>(null);
@@ -346,10 +346,16 @@ export function Sidebar() {
     );
   };
 
+  const isDrawer = variant === "drawer";
+
   return (
     <div
-      className="relative flex h-full shrink-0 flex-col"
-      style={{ width: sidebarWidth }}
+      className={
+        isDrawer
+          ? "relative flex h-full w-full flex-col"
+          : "relative flex h-full shrink-0 flex-col"
+      }
+      style={isDrawer ? undefined : { width: sidebarWidth }}
     >
       <aside className="flex h-full min-w-0 flex-1 flex-col border-r border-zinc-200 bg-zinc-50 px-2 py-3 dark:border-zinc-800 dark:bg-zinc-900">
       <SidebarHeader
@@ -416,14 +422,16 @@ export function Sidebar() {
         />
       </Suspense>
       </aside>
-      {/* 사이드바 폭 조절 핸들 */}
-      <button
-        type="button"
-        aria-label="사이드바 너비 조절"
-        title="드래그하여 너비 조절"
-        onPointerDown={onResizePointerDown}
-        className="absolute right-0 top-0 z-30 h-full w-2 cursor-col-resize border-0 bg-transparent p-0 hover:bg-blue-500/15 active:bg-blue-500/25"
-      />
+      {/* 사이드바 폭 조절 핸들 — drawer 변형에서는 너비 고정이므로 숨김 */}
+      {!isDrawer && (
+        <button
+          type="button"
+          aria-label="사이드바 너비 조절"
+          title="드래그하여 너비 조절"
+          onPointerDown={onResizePointerDown}
+          className="absolute right-0 top-0 z-30 h-full w-2 cursor-col-resize border-0 bg-transparent p-0 hover:bg-blue-500/15 active:bg-blue-500/25"
+        />
+      )}
     </div>
   );
 }
