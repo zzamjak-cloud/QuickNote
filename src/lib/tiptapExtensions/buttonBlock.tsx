@@ -1,6 +1,7 @@
 import { Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
+import { Plugin } from "prosemirror-state";
 import { useState, useRef, useEffect } from "react";
 import { Database, ExternalLink, Pencil, Link } from "lucide-react";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -269,6 +270,27 @@ export const ButtonBlock = TiptapNode.create({
     // 네비게이션은 페이지 멘션과 동일하게 document capture mouseup 위임(pageMentionClick)이 처리한다.
     // 멘션 노드처럼 stopEvent 를 두지 않아 동일 조건으로 맞춘다.
     return ReactNodeViewRenderer(ButtonBlockView);
+  },
+
+  // ⛔ 페이지 멘션과 동일: mousedown 에서 PM 의 atom 노드 선택/포커스를 막아야(preventDefault)
+  // 모바일 터치에서 탭이 selection 으로 소비되지 않고 document mouseup 이동(pageMentionClick)이 동작한다.
+  // 이 플러그인이 없어서 멘션은 되는데 블록 링크 버튼만 모바일에서 안 됐다.
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            mousedown(_view, event) {
+              const target = event.target as HTMLElement | null;
+              const el = target?.closest?.("[data-qn-button-block]");
+              if (!el?.closest(".ProseMirror")) return false;
+              event.preventDefault();
+              return true;
+            },
+          },
+        },
+      }),
+    ];
   },
 
   addCommands() {
