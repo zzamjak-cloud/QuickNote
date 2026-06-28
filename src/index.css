@@ -1051,6 +1051,19 @@ body.quicknote-table-reorder-dragging .qn-column-drop-indicator {
   display: none !important;
 }
 
+/* 모바일(<768): 다단 컬럼 레이아웃을 1열로 세로 스택해 가독성 확보.
+   셀의 인라인 style(flex: N 1 0%)을 덮어야 하므로 !important 사용. */
+@media (max-width: 767px) {
+  .column-layout {
+    flex-direction: column !important;
+    gap: 0.5rem !important;
+  }
+  .column-layout > [data-column] {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+  }
+}
+
 /* DB 컬럼 reorder 드래그 중 — dropcursor·블록 드롭 인디케이터 숨김 */
 body.quicknote-db-col-dragging .qn-dropcursor,
 body.quicknote-db-col-dragging .qn-block-drop-indicator {
