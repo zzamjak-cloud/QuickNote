@@ -1,10 +1,20 @@
 // PWA Service Worker 컨트롤러 — 웹(Vercel) 전용 싱글턴.
 // 부팅 시점(main.tsx)에 등록해 auth 상태와 무관하게 SW 를 활성화한다(로그인 전에도 설치 가능).
-// 업데이트(onNeedRefresh) 발생 시 구독자(usePwaUpdate)에게 알린다.
-// 자동 reload 는 하지 않는다 — 사용자 확인 후 applyUpdate() 로만 새 SW 활성화.
+// 업데이트 적용: 모바일/설치 PWA 는 자동(수동 불필요), 데스크톱 웹은 배너(usePwaUpdate)로 확인 후.
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+// 모바일/설치 PWA 는 새 버전을 자동 적용한다(사용자 수동 업데이트 불필요).
+// 데스크톱 웹은 배너로 확인 후 적용(편집 손실 방지).
+function shouldAutoApplyUpdate(): boolean {
+  if (typeof window === "undefined") return false;
+  const isStandalone =
+    window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  const isMobileWidth = window.matchMedia?.("(max-width: 767px)").matches;
+  return Boolean(isStandalone || isMobileWidth);
+}
 
 type Listener = () => void;
 
@@ -33,6 +43,11 @@ export function initPwa() {
     .then(({ registerSW }) => {
       updateSW = registerSW({
         onNeedRefresh() {
+          // 모바일/설치 PWA: 새 버전 자동 적용(즉시 새 SW 활성화 + reload). 데스크톱: 배너.
+          if (shouldAutoApplyUpdate()) {
+            void updateSW?.(true);
+            return;
+          }
           setState({ needRefresh: true });
         },
         onOfflineReady() {
@@ -41,7 +56,7 @@ export function initPwa() {
         onRegisteredSW(_swUrl, reg) {
           if (!reg) return;
           registration = reg;
-          // 주기 점검: 새 SW 감지 시 onNeedRefresh → 업데이트 배너(자동 reload 아님).
+          // 주기 점검: 새 SW 감지 시 onNeedRefresh(모바일 자동 적용 / 데스크톱 배너).
           window.setInterval(() => {
             void reg.update().catch(() => {});
           }, UPDATE_CHECK_INTERVAL_MS);

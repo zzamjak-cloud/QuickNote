@@ -7,7 +7,9 @@ const isTauri = process.env.TAURI_ARCH !== undefined;
 
 // PWA 는 웹(Vercel) 빌드 전용 — Tauri 데스크톱 빌드에서는 SW/manifest 를 생성하지 않는다.
 const pwaPlugin = VitePWA({
-  registerType: "prompt", // 자동 reload 금지 — 편집 중 데이터 손실 방지(usePwaUpdate 가 사용자 확인)
+  // prompt: 새 SW 를 waiting 으로 둔다. 모바일/설치 PWA 는 swController 가 자동 적용(applyPwaUpdate),
+  // 데스크톱 웹은 배너로 사용자 확인(편집 손실 방지). 런타임에서 기기별로 분기한다.
+  registerType: "prompt",
   injectRegister: null, // virtual:pwa-register 로 직접 등록(usePwaUpdate)
   includeAssets: ["favicon.svg", "apple-touch-icon.png"],
   manifest: {
@@ -37,7 +39,7 @@ const pwaPlugin = VitePWA({
     globPatterns: ["**/*.{js,css,html,svg,png,ico,woff,woff2}"],
     cleanupOutdatedCaches: true,
     clientsClaim: true,
-    skipWaiting: false, // 사용자 확인 후에만 새 SW 활성화
+    skipWaiting: false, // 새 SW 는 waiting; 적용 시점은 swController 가 기기별로 제어
     navigateFallback: "/index.html",
     navigateFallbackDenylist: [/^\/api\//, /^\/auth\//],
   },
