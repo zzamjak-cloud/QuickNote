@@ -40,6 +40,7 @@ export function WorkspaceSwitcher() {
         options={workspaceOptions}
         placeholder="워크스페이스 없음"
         buttonClassName="w-full rounded-md py-1 text-sm"
+        portal
       />
       {selected?.myEffectiveLevel === "view" ? (
         <span className="mt-1 inline-flex items-center gap-1 text-[10px] text-zinc-500 dark:text-zinc-400">

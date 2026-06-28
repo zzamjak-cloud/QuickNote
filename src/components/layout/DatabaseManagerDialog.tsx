@@ -275,7 +275,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-[430] flex items-center justify-center bg-black/45 p-4"
+      className="fixed inset-0 z-[430] flex items-center justify-center bg-black/45 p-0 md:p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -285,7 +285,7 @@ export function DatabaseManagerDialog({ open, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="qn-db-manager-title"
-        className="flex h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="flex h-[100dvh] w-full flex-col rounded-none border border-zinc-200 bg-white p-4 shadow-xl md:h-[90vh] md:max-w-3xl md:rounded-xl dark:border-zinc-700 dark:bg-zinc-900"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between gap-2">

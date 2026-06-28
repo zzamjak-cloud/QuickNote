@@ -63,7 +63,17 @@ export function InstallAppCta() {
     );
   }
 
-  return null;
+  // 아직 설치 프롬프트가 준비되지 않은 경우(Android Chrome 초기 방문 등)에도 수동 경로 안내.
+  return (
+    <Section>
+      <div className="font-medium text-zinc-800 dark:text-zinc-100">앱 설치</div>
+      <p className="mt-1 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+        <Download size={13} className="inline shrink-0" />
+        브라우저 메뉴(⋮)에서 <span className="font-medium">"앱 설치"</span> 또는{" "}
+        <span className="font-medium">"홈 화면에 추가"</span> 를 선택하세요.
+      </p>
+    </Section>
+  );
 }
 
 function Section({ children }: { children: React.ReactNode }) {

@@ -610,7 +610,7 @@ function App() {
             <Editor key={activeTabContentKey} />
           )}
         </div>
-        {!isCompact && <FavoritesPanel />}
+        <FavoritesPanel />
         <Suspense fallback={null}>
           <DatabaseRowPeek />
           <BlockCommentThreadPanel editor={null} />
