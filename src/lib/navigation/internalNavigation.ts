@@ -109,7 +109,14 @@ export function openPageInCurrentTab(
   opts?: { workspaceId?: string | null },
 ): boolean {
   const page = findPage(pageId);
-  if (!page) return openCrossWorkspacePeek(pageId, opts?.workspaceId ?? null);
+  if (!page) {
+    // 타 워크스페이스 → peek. 같은 워크스페이스인데 store 에 없으면(DB 항목 등 지연 로드)
+    // 콘텐츠를 먼저 로드한 뒤 현재 탭에 연다. (이게 없어서 DB 항목 페이지 블록/페이지 링크가
+    // 모바일 등 미로드 상태에서 동작하지 않았다.)
+    if (openCrossWorkspacePeek(pageId, opts?.workspaceId ?? null)) return true;
+    ensureLoadedThenOpenInCurrentTab(pageId, opts?.workspaceId ?? null);
+    return true;
+  }
   if (requestWorkspaceNavigationIfNeeded(page)) return true;
   useSettingsStore.getState().setCurrentTabPage(pageId);
   usePageStore.getState().setActivePage(pageId);
@@ -117,12 +124,49 @@ export function openPageInCurrentTab(
   return true;
 }
 
+// 같은 워크스페이스의 미로드 페이지(DB 항목 등)를 콘텐츠 로드 후 현재 탭에 연다.
+function ensureLoadedThenOpenInCurrentTab(
+  pageId: string,
+  workspaceId: string | null,
+): void {
+  const ws = workspaceId ?? useWorkspaceStore.getState().currentWorkspaceId;
+  void ensurePageContentLoaded({
+    pageId,
+    workspaceId: ws,
+    source: "internal-link",
+  }).then((loaded) => {
+    if (!loaded) {
+      useUiStore.getState().showToast("페이지를 불러오지 못했습니다.", { kind: "error" });
+      return;
+    }
+    useSettingsStore.getState().setCurrentTabPage(pageId);
+    usePageStore.getState().setActivePage(pageId);
+    pushPageBrowserHistory(pageId);
+  });
+}
+
 export function openPageInNewTab(
   pageId: string,
   opts?: { workspaceId?: string | null },
 ): boolean {
   const page = findPage(pageId);
-  if (!page) return openCrossWorkspacePeek(pageId, opts?.workspaceId ?? null);
+  if (!page) {
+    if (openCrossWorkspacePeek(pageId, opts?.workspaceId ?? null)) return true;
+    const ws = opts?.workspaceId ?? useWorkspaceStore.getState().currentWorkspaceId;
+    void ensurePageContentLoaded({
+      pageId,
+      workspaceId: ws,
+      source: "internal-link",
+    }).then((loaded) => {
+      if (!loaded) {
+        useUiStore.getState().showToast("페이지를 불러오지 못했습니다.", { kind: "error" });
+        return;
+      }
+      useSettingsStore.getState().openTab(pageId);
+      usePageStore.getState().setActivePage(pageId);
+    });
+    return true;
+  }
   if (requestWorkspaceNavigationIfNeeded(page)) return true;
   useSettingsStore.getState().openTab(pageId);
   usePageStore.getState().setActivePage(pageId);

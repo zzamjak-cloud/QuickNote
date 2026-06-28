@@ -80,10 +80,16 @@ describe("internalNavigation", () => {
     expect(usePageStore.getState().activePageId).toBe("page-2");
   });
 
-  it("없는 페이지 링크는 탭이나 페이지를 바꾸지 않는다", () => {
-    expect(openPageInCurrentTab("missing-page")).toBe(false);
-    expect(openPageInNewTab("missing-page")).toBe(false);
+  it("로드되지 않은 페이지 링크(DB 항목 등)는 콘텐츠 로드를 시도한다", () => {
+    // store 에 없는 같은 워크스페이스 페이지(DB 항목 페이지 등)는 콘텐츠를 로드한 뒤 연다.
+    // (예전엔 false 로 무시했고, 그게 DB 항목 페이지 블록/페이지 링크가 안 되던 원인.)
+    ensurePageContentLoaded.mockClear();
+    expect(openPageInCurrentTab("missing-page")).toBe(true);
+    expect(ensurePageContentLoaded).toHaveBeenCalledWith(
+      expect.objectContaining({ pageId: "missing-page" }),
+    );
 
+    // 로드는 비동기이므로 동기 시점에는 탭/활성 페이지가 바뀌지 않는다.
     expect(useSettingsStore.getState().tabs).toEqual([
       { pageId: "page-1", databaseId: null },
     ]);

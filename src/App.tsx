@@ -31,6 +31,7 @@ import { zustandStorage } from "./lib/storage/index";
 import { useAutoUpdate } from "./hooks/useAutoUpdate";
 import { PwaUpdateBanner } from "./components/ui/PwaUpdateBanner";
 import { buildQuickNotePageUrl, parseQuickNoteLink, type QuickNoteLinkTarget } from "./lib/navigation/quicknoteLinks";
+import { ensurePageContentLoaded } from "./lib/sync/pageContentLoad";
 import { installPageMentionClickNavigation } from "./lib/navigation/pageMentionClick";
 import { navigateToBlockLink } from "./lib/editor/editorNavigationBridge";
 import { shouldAutoEnsureFullPageDatabaseHome } from "./lib/database/shouldAutoEnsureFullPageDatabaseHome";
@@ -274,6 +275,13 @@ function App() {
     const openLocationTargetWhenReady = (target: QuickNoteLinkTarget) => {
       pendingLocationTargetRef.current = target;
       if (openLinkTarget(target)) return;
+      // 대상이 store 에 없으면(DB 항목 등 지연 로드/콜드 진입) 콘텐츠 로드를 트리거한다.
+      // 로드되면 아래 구독이 즉시 연다. (이게 없으면 DB 항목 페이지 딥링크가 20초 타임아웃 후 실패.)
+      void ensurePageContentLoaded({
+        pageId: target.pageId,
+        workspaceId: target.workspaceId ?? currentWorkspaceId,
+        source: "deep-link",
+      });
       unsubscribePendingTarget?.();
       unsubscribePendingTarget = usePageStore.subscribe((state) => {
         if (state.pages[target.pageId]) openLinkTarget(target);
