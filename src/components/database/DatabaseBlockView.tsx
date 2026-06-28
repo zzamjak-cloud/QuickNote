@@ -512,7 +512,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
   }, [bundle, isMobile, panelState, setPanelState, view, viewDatabaseId, visibleRowLimit]);
 
   return (
-    <NodeViewWrapper className="qn-database-block not-prose">
+    <NodeViewWrapper className="qn-database-block not-prose" contentEditable={false}>
       <div
         className={shellClass}
         onMouseDown={(e) => {

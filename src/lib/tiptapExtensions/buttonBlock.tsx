@@ -174,6 +174,7 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
       <span className="group relative inline-flex items-center">
         <button
           type="button"
+          contentEditable={false}
           onClick={handleClick}
           className={[
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",

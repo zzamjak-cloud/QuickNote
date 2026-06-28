@@ -22,6 +22,7 @@ import { useOpenPageInPeek } from "../page/useOpenPageInPeek";
 import { stripPagePrefix } from "../../lib/tiptapExtensions/mentionKind";
 import { useFlowchartStore } from "../../store/flowchartStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useIsMobile } from "../../hooks/useViewport";
 import { newId } from "../../lib/id";
 import {
   fetchFlowchartApi,
@@ -48,6 +49,9 @@ export function FlowchartBlockView(props: NodeViewProps) {
   const data: FlowchartData =
     storeRecord && !storeRecord.deletedAt ? storeRecord.data : inlineData;
   const [editing, setEditing] = useState(false);
+  // 모바일에서는 플로우차트 편집 차단(읽기 전용) — 좁은 화면 편집 UX 부적합.
+  const isMobile = useIsMobile();
+  const canEdit = editor.isEditable && !isMobile;
   const [fullViewOpen, setFullViewOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const openInPeek = useOpenPageInPeek();
@@ -98,8 +102,8 @@ export function FlowchartBlockView(props: NodeViewProps) {
   }, [flowchartId, editor.isEditable]);
 
   const openEditor = useCallback(() => {
-    if (editor.isEditable) setEditing(true);
-  }, [editor.isEditable]);
+    if (canEdit) setEditing(true);
+  }, [canEdit]);
 
   // 미리보기에서 링크가 연결된 도형 클릭 → 외부=새 탭, 내부=피크
   const onNodeLink = useCallback(
@@ -193,7 +197,7 @@ export function FlowchartBlockView(props: NodeViewProps) {
       {/* 블록 헤더 — 제목 표시/편집 + 우측 버전 히스토리·전체보기 */}
       <div className="flex items-center gap-2 border-b border-zinc-200 bg-white px-3 py-1.5 dark:border-zinc-700 dark:bg-zinc-900">
         <Workflow className="h-4 w-4 shrink-0 text-zinc-400" />
-        {editor.isEditable ? (
+        {canEdit ? (
           <input
             type="text"
             value={title}
@@ -236,13 +240,13 @@ export function FlowchartBlockView(props: NodeViewProps) {
         style={stageStyle}
         role="button"
         tabIndex={0}
-        title={editor.isEditable ? "더블클릭하여 편집" : undefined}
+        title={canEdit ? "더블클릭하여 편집" : undefined}
       >
         {isEmpty ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-zinc-400">
             <Workflow className="h-8 w-8" />
             <span className="text-sm">
-              빈 플로우차트{editor.isEditable ? " · 더블클릭하여 편집" : ""}
+              빈 플로우차트{canEdit ? " · 더블클릭하여 편집" : ""}
             </span>
           </div>
         ) : (

@@ -57,6 +57,7 @@ import { DatabaseTemplateButton } from "./DatabaseTemplateButton";
 import { AppSelect } from "../common/AppSelect";
 import { VIEW_ICONS, VIEW_LABELS, getUnavailableViewKinds } from "./databaseBlockViewConstants";
 import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
+import { useIsMobile } from "../../hooks/useViewport";
 
 type Props = {
   databaseId: string;
@@ -186,6 +187,8 @@ export function DatabaseToolbarControls({
   const searchQuery = panelState.searchQuery ?? "";
   const [searchOpen, setSearchOpen] = useState(searchQuery.trim().length > 0);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  // 모바일은 hover 가 없으므로 뷰 모드 버튼을 항상 노출(드롭다운 조작 가능).
+  const isMobile = useIsMobile();
   const [viewMenuHover, setViewMenuHover] = useState(false);
   const viewMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -629,7 +632,7 @@ export function DatabaseToolbarControls({
             setViewMenuHover(false);
           }}
         >
-          {viewMenuHover || viewMenuOpen ? (
+          {viewMenuHover || viewMenuOpen || isMobile ? (
             <button
               type="button"
               aria-label="데이터베이스 보기 모드"
