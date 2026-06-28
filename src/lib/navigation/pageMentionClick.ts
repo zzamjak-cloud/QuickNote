@@ -98,9 +98,9 @@ export function installPageMentionClickNavigation(): () => void {
     if (event.button !== 0) return;
     pagePress = resolvePageMentionPress(event.target, event.clientX, event.clientY);
     if (!pagePress) {
-      btnPress =
-        resolveButtonPress(event.target, event.clientX, event.clientY) ??
-        resolveInternalLinkPress(event.target, event.clientX, event.clientY);
+      // 블록 링크 버튼만 mousedown/mouseup 위임으로 처리(아톰 노드라 native 클릭이 깨짐).
+      // 일반 텍스트 link mark 는 native <a> 라 아래 onClick 에서 처리(중복 방지).
+      btnPress = resolveButtonPress(event.target, event.clientX, event.clientY);
     }
   };
 
@@ -135,14 +135,17 @@ export function installPageMentionClickNavigation(): () => void {
     navigateToMentionedPage(press, event);
   };
 
-  // 내부 링크 mark(a[href] ?page=…)는 mouseup 에서 SPA 이동을 처리한다. 하지만 <a target="_blank">
-  // 의 native click 이 그대로 발화하면 웹 페이지가 새 탭에 함께 떠 "이중 페이지"가 된다.
-  // 내부 링크 click 을 가로채 native 동작을 차단한다(외부 링크는 그대로 native 처리).
+  // 일반 텍스트 link mark(native <a href target="_blank">) 중 내부 링크(?page=…)는 여기서 처리.
+  // 반드시 click 에서 preventDefault 해야 native 새 탭 열기를 막는다(mouseup 으로는 못 막는다).
+  // preventDefault 로 native(웹 페이지)를 차단한 뒤 같은 핸들러에서 SPA 이동 → "이중 페이지" 제거.
+  // 외부 링크는 매칭되지 않으므로 그대로 native target=_blank 로 새 탭 열림.
   const onClick = (event: MouseEvent) => {
-    if (resolveInternalLinkPress(event.target, event.clientX, event.clientY)) {
-      event.preventDefault();
-      event.stopPropagation();
-    }
+    if (event.button !== 0) return;
+    const press = resolveInternalLinkPress(event.target, event.clientX, event.clientY);
+    if (!press) return;
+    event.preventDefault();
+    event.stopPropagation();
+    navigateButtonBlock(press, event);
   };
 
   document.addEventListener("mousedown", onMouseDown, true);
