@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { useIsMobile } from "../../hooks/useViewport";
 
 const VIEWPORT_PADDING = 8;
 
@@ -62,6 +63,7 @@ export function AnchoredPanelBase({
 }: AnchoredPanelBaseProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [coords, setCoords] = useState<Coords | null>(null);
+  const isMobile = useIsMobile();
 
   // 외부 클릭 닫힘
   useEffect(() => {
@@ -126,7 +128,41 @@ export function AnchoredPanelBase({
     };
   }, [open, anchorEl, width]);
 
-  if (!open || !anchorEl || !coords) return null;
+  if (!open || !anchorEl) return null;
+
+  // 모바일: 앵커 위치 대신 하단 바텀시트로(좁은 화면에서 클리핑·키보드 겹침 회피). 스크림 탭으로 닫힘.
+  if (isMobile) {
+    return createPortal(
+      <>
+        <div
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className={`fixed inset-0 ${zClassName} bg-black/40`}
+        />
+        <div
+          ref={panelRef}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            maxHeight: "80dvh",
+            overflowY: "auto",
+          }}
+          className={`${zClassName} ${contentClassName}`}
+        >
+          {children}
+        </div>
+      </>,
+      document.body,
+    );
+  }
+
+  if (!coords) return null;
 
   return createPortal(
     <div
