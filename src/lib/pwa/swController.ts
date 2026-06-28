@@ -8,7 +8,11 @@ const isTauri =
 
 type Listener = () => void;
 
+// 주기 업데이트 점검 간격(1시간) — stale 셸이 무한정 유지되지 않도록.
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
 let updateSW: ((reload?: boolean) => Promise<void>) | null = null;
+let registration: ServiceWorkerRegistration | null = null;
 let initialized = false;
 const listeners = new Set<Listener>();
 
@@ -34,6 +38,20 @@ export function initPwa() {
         onOfflineReady() {
           setState({ offlineReady: true });
         },
+        onRegisteredSW(_swUrl, reg) {
+          if (!reg) return;
+          registration = reg;
+          // 주기 점검: 새 SW 감지 시 onNeedRefresh → 업데이트 배너(자동 reload 아님).
+          window.setInterval(() => {
+            void reg.update().catch(() => {});
+          }, UPDATE_CHECK_INTERVAL_MS);
+          // 장시간 열어둔 탭이 포커스 복귀할 때도 1회 점검.
+          document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") {
+              void reg.update().catch(() => {});
+            }
+          });
+        },
       });
     })
     .catch(() => {
@@ -53,6 +71,27 @@ export function getPwaState() {
 // 사용자 확인 후 새 SW 활성화 + 새로고침
 export async function applyPwaUpdate() {
   await updateSW?.(true);
+}
+
+// 하드 staleness 복구 — 청크 404 가 새로고침 후에도 반복될 때(= stale precache 의심)
+// 호출. 새 SW 를 강제로 받아 활성화한 뒤 reload 한다. chunkReload 가 위임한다.
+export async function forcePwaUpdate(): Promise<void> {
+  if (isTauri || typeof window === "undefined") {
+    window.location.reload();
+    return;
+  }
+  try {
+    const reg =
+      registration ??
+      (await navigator.serviceWorker?.getRegistration()) ??
+      null;
+    await reg?.update();
+    // 대기 중 새 SW 가 있으면 즉시 활성화(vite-plugin-pwa SW 의 SKIP_WAITING 핸들러).
+    if (reg?.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+  } catch {
+    // 무시 — 아래 reload 로 폴백.
+  }
+  window.location.reload();
 }
 
 export function dismissPwaUpdate() {

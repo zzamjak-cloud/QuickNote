@@ -51,12 +51,9 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "./lib/scheduler/scope";
 import {
   isLCSchedulerDatabaseId,
 } from "./lib/scheduler/database";
-import { resetDatabaseRowLoadSessionState } from "./lib/sync/externalProtectedDatabaseLoad";
 import { useSchedulerStore } from "./store/schedulerStore";
 import { useSchedulerProjectsStore } from "./store/schedulerProjectsStore";
-import { useDatabaseRowRemoteStore } from "./store/databaseRowRemoteStore";
-import { usePageContentLoadStore } from "./store/pageContentLoadStore";
-import { usePageMetaRemoteStore } from "./store/pageMetaRemoteStore";
+import { resetWorkspaceLocalCaches } from "./lib/sync/resetWorkspaceLocalCaches";
 import { refreshWorkspaceMeta } from "./lib/sync/workspaceMetaCache";
 import { tryRecoverQuarantine } from "./lib/migrations/quarantineRecovery";
 import { createLCSchedulerRootPageRepairGate } from "./lib/sync/lcSchedulerWorkspaceRepair";
@@ -349,11 +346,8 @@ function useSyncBootstrap(): void {
         );
         const repairWorkspaceCache = oneTimeWorkspaceCacheRepair || rootPageCacheRepair;
         if (repairWorkspaceCache) {
-          resetDatabaseRowLoadSessionState();
-          useDatabaseRowRemoteStore.getState().clear();
-          usePageContentLoadStore.getState().clear();
-          usePageMetaRemoteStore.getState().clearWorkspace(currentWorkspaceId);
-          useSyncWatermarkStore.getState().reset(currentWorkspaceId);
+          // 캐시 비움 + 워터마크 리셋은 항상 짝 — 단일 헬퍼로 강제(누락 시 데이터 유실).
+          resetWorkspaceLocalCaches(currentWorkspaceId);
         }
         await fetchApply({ forceMetaBaseline: repairWorkspaceCache });
         if (!cancelled && oneTimeWorkspaceCacheRepair) {
