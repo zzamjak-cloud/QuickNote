@@ -170,11 +170,14 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
       : "text-white/60";
 
   return (
-    <NodeViewWrapper as="span" className="inline-block my-1">
+    <NodeViewWrapper as="span" className="inline-block my-1" contentEditable={false}>
       <span className="group relative inline-flex items-center">
         <button
           type="button"
           contentEditable={false}
+          // 터치: mousedown 의 기본 동작(contenteditable 포커스)을 막아 가상 키보드가 뜨지 않게 한다.
+          // click 은 그대로 발생하므로 네비게이션은 정상 동작.
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleClick}
           className={[
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",

@@ -16,6 +16,10 @@ import {
 import type { SidebarDropMode } from "../../lib/sidebarPageTreeCollision";
 import type { PageNode } from "../../store/pageStore";
 import { usePageStore } from "../../store/pageStore";
+import {
+  openPageInNewTab,
+  shouldOpenInternalLinkInNewTab,
+} from "../../lib/navigation/internalNavigation";
 import { useSettingsStore } from "../../store/settingsStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
@@ -293,7 +297,13 @@ const PageListItemInner = function PageListItem({
             type="button"
             className="flex-1 truncate text-left"
             style={{ cursor: "inherit" }}
-            onClick={() => {
+            onClick={(e) => {
+              // Ctrl/Cmd(또는 가운데 클릭) → 신규 탭에서 열기
+              if (shouldOpenInternalLinkInNewTab(e)) {
+                e.preventDefault();
+                openPageInNewTab(node.id);
+                return;
+              }
               setCurrentTabPage(node.id);
               setActivePage(node.id);
             }}
