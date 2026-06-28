@@ -48,7 +48,7 @@ export function PageCoverImage({
   // 커버 이미지가 없을 때: 호버 시 추가 버튼 표시
   if (!url) {
     return (
-      <div className="relative z-20 flex h-8 items-center px-12 pt-6">
+      <div className="relative z-20 flex h-8 items-center px-4 md:px-12 pt-6">
         <button
           type="button"
           disabled={uploading}

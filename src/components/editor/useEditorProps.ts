@@ -274,8 +274,8 @@ export function useEditorProps({
       attributes: {
         class: `prose prose-zinc dark:prose-invert max-w-none focus:outline-none ${
           bodyOnly
-            ? "px-12 py-4"
-            : "px-12 py-8 min-h-[min(85vh,900px)]"
+            ? "md:px-12 py-4"
+            : "md:px-12 py-8 min-h-[min(85vh,900px)]"
         } qn-prose-marquee-host`,
       },
       handlePaste: (view: import("@tiptap/pm/view").EditorView, event: ClipboardEvent) => {

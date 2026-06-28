@@ -1381,7 +1381,7 @@ function EditorInner({
                 onUploadError={(msg) => setSimpleAlert(msg)}
               />
             ) : null}
-            <div className={`${page.coverImage ? "mt-12" : "mt-4"} px-12`}>
+            <div className={`${page.coverImage ? "mt-12" : "mt-4"} md:px-12`}>
               <PageTitleBar
                 pageId={effectivePageId}
                 icon={page.icon}
@@ -1440,7 +1440,7 @@ function EditorInner({
               />
             </div>
             {/* 페이지 레벨 댓글 — 제목 바로 아래 */}
-            <div className="px-12">
+            <div className="md:px-12">
               <PageCommentBar
                 pageId={effectivePageId ?? pageId ?? ""}
                 openComposerSignal={addCommentSignal}

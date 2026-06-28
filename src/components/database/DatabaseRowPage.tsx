@@ -100,7 +100,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
         })}`}
         data-qn-row-page-header-column
       >
-        <div className={`${page.coverImage ? "mt-12" : "mt-4"} px-12`}>
+        <div className={`${page.coverImage ? "mt-12" : "mt-4"} md:px-12`}>
           <div className="mb-4">
             <PageTitleBar
               pageId={pageId}
