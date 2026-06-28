@@ -57,6 +57,8 @@ import {
   resolveDatabaseVisibleRowLimit,
 } from "./databaseRowLimit";
 import { useDatabaseCollabSession } from "../../lib/collab/useDatabaseCollabSession";
+import { useIsMobile } from "../../hooks/useViewport";
+import { DatabaseCardListView } from "./views/DatabaseCardListView";
 import {
   loadCrossWorkspaceDatabaseCandidates,
   rememberCrossWorkspaceDatabase,
@@ -67,6 +69,7 @@ const DEFAULT_VISIBLE_ROW_LIMIT = DEFAULT_DATABASE_VISIBLE_ROW_LIMIT;
 
 export function DatabaseBlockView(props: NodeViewProps) {
   const { editor, node, getPos, updateAttributes, deleteNode } = props;
+  const isMobile = useIsMobile();
   const databaseId = String(node.attrs.databaseId ?? "");
   const viewDatabaseId = resolveExternalProtectedDatabaseId(databaseId) ?? databaseId;
   const layout = (node.attrs.layout ?? "inline") as DatabaseLayout;
@@ -484,6 +487,17 @@ export function DatabaseBlockView(props: NodeViewProps) {
 
   const activeViewComponent = useMemo(() => {
     if (!bundle) return null;
+    // 모바일: 테이블 뷰는 가로 스크롤 대신 카드 리스트로 fallback(열람).
+    if (isMobile && view === "table") {
+      return (
+        <DatabaseCardListView
+          databaseId={viewDatabaseId}
+          panelState={panelState}
+          setPanelState={setPanelState}
+          visibleRowLimit={visibleRowLimit}
+        />
+      );
+    }
     const entry = DATABASE_VIEW_REGISTRY[view];
     if (!entry) return null;
     const ViewComponent = entry.component;
@@ -495,7 +509,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
         visibleRowLimit={visibleRowLimit}
       />
     );
-  }, [bundle, panelState, setPanelState, view, viewDatabaseId, visibleRowLimit]);
+  }, [bundle, isMobile, panelState, setPanelState, view, viewDatabaseId, visibleRowLimit]);
 
   return (
     <NodeViewWrapper className="qn-database-block not-prose">

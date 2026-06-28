@@ -20,9 +20,13 @@ import {
   resolveDatabaseInitialRowLimit,
   resolveDatabaseVisibleRowLimit,
 } from "./databaseRowLimit";
+import { useIsMobile } from "../../hooks/useViewport";
 
 const DatabaseTableView = lazy(() =>
   import("./views/DatabaseTableView").then((m) => ({ default: m.DatabaseTableView })),
+);
+const DatabaseCardListView = lazy(() =>
+  import("./views/DatabaseCardListView").then((m) => ({ default: m.DatabaseCardListView })),
 );
 const DatabaseKanbanView = lazy(() =>
   import("./views/DatabaseKanbanView").then((m) => ({ default: m.DatabaseKanbanView })),
@@ -71,6 +75,7 @@ export function DatabaseFullPageStandalone({
   view = "table",
   panelStateRaw,
 }: Props) {
+  const isMobile = useIsMobile();
   const updateDoc = usePageStore((s) => s.updateDoc);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const databasePanelState = useDatabaseStore((s) => s.databases[databaseId]?.panelState);
@@ -189,6 +194,17 @@ export function DatabaseFullPageStandalone({
   const activeView = useMemo(() => {
     switch (activeViewKind) {
       case "table":
+        // 모바일: 테이블은 가로 스크롤 대신 카드 리스트로 fallback(열람).
+        if (isMobile) {
+          return (
+            <DatabaseCardListView
+              databaseId={databaseId}
+              panelState={panelState}
+              setPanelState={setPanelState}
+              visibleRowLimit={visibleRowLimit}
+            />
+          );
+        }
         return (
           <DatabaseTableView
             databaseId={databaseId}
@@ -236,7 +252,7 @@ export function DatabaseFullPageStandalone({
       default:
         return null;
     }
-  }, [activeViewKind, databaseId, panelState, setPanelState, visibleRowLimit]);
+  }, [activeViewKind, databaseId, isMobile, panelState, setPanelState, visibleRowLimit]);
 
   return (
     <div className="qn-database-block">

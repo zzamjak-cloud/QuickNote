@@ -419,7 +419,7 @@ export function DatabaseRowPeek() {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ width }}
+        style={{ width: isMobile ? "100%" : width }}
         // pageMention 클릭 핸들러가 "피크 내부 클릭" 여부를 식별하는 마커.
         // 이 속성으로 피크 내부 클릭이면 peekNavigate, 외부면 메인 탭 setActivePage 로 분기한다.
         data-qn-peek-editor="true"
@@ -429,15 +429,17 @@ export function DatabaseRowPeek() {
           visible ? "translate-x-0" : "translate-x-full",
         ].join(" ")}
       >
-        {/* 좌측 리사이즈 핸들 — hover 시 파란 띠 */}
-        <div
-          onPointerDown={onResizeStart}
-          onPointerMove={onResizeMove}
-          onPointerUp={onResizeEnd}
-          onPointerCancel={onResizeEnd}
-          title="피크 너비 조절"
-          className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-blue-400/60"
-        />
+        {/* 좌측 리사이즈 핸들 — hover 시 파란 띠. 모바일(전폭)에서는 숨김 */}
+        {!isMobile && (
+          <div
+            onPointerDown={onResizeStart}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeEnd}
+            onPointerCancel={onResizeEnd}
+            title="피크 너비 조절"
+            className="absolute left-0 top-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-blue-400/60"
+          />
+        )}
 
         {/* 상단 툴바 — 스크롤 밖에 고정 */}
         <div className="shrink-0 px-8 pt-8">
