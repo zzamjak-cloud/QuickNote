@@ -183,6 +183,46 @@ describe("storeApply 워크스페이스 가드", () => {
     }
   });
 
+  // Phase 3 §1.7 불변식: 협업 활성 페이지의 본문 권위는 Y.Doc 이다.
+  // 원격 page.doc echo(REST)가 라이브 편집분을 옛 내용으로 되돌리면 안 된다(역주입 금지).
+  it("협업 활성 페이지의 로컬 실본문은 원격 echo 가 덮지 않는다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    // 1) 로컬에 실제 본문(=라이브 편집 결과)이 적재된 상태.
+    applyRemotePageToStore({
+      ...gqlPage("ws-a", "pg-1"),
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      doc: JSON.stringify({
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "live local body" }] },
+        ],
+      }),
+    });
+    registerPageCollab("pg-1");
+
+    try {
+      // 2) 더 최신 updatedAt 의 원격 echo 가 옛 본문을 들고 들어온다.
+      applyRemotePageToStore({
+        ...gqlPage("ws-a", "pg-1"),
+        title: "remote-title",
+        updatedAt: "2026-01-01T00:05:00.000Z",
+        doc: JSON.stringify({
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: "stale server body" }] },
+          ],
+        }),
+      });
+
+      // 본문은 로컬 값 유지(역주입 차단) — 협업 편집 손실 방지.
+      const docJson = JSON.stringify(usePageStore.getState().pages["pg-1"]?.doc);
+      expect(docJson).toContain("live local body");
+      expect(docJson).not.toContain("stale server body");
+    } finally {
+      unregisterPageCollab("pg-1");
+    }
+  });
+
   it("현재 워크스페이스와 다르면 적용하지 않는다", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });

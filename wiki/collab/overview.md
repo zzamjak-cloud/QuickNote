@@ -88,6 +88,29 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
 
 ---
 
+## 오프라인 협업 · PWA(SW) 관계 (2026-06-28, PWA Phase 3)
+
+협업 오프라인 동작은 PWA Service Worker 와 **독립**이다. SW 는 정적 셸·해시 청크만 precache 하고
+WS·IndexedDB·API 를 가로채지 않으므로, 아래 데이터 흐름에 관여하지 않는다.
+
+데이터 흐름:
+- **오프라인 진입**: WS 끊김 → Y.Doc 은 로컬 편집만 가능(`y-indexeddb` 가 자동 영속).
+  materialize 는 계속 동작 → store 갱신 + 비협업 변경은 sync outbox 에 큐잉.
+- **온라인 복귀**: outbox flush + WS 재연결 → Y.Doc diff sync 로 수렴.
+- **권위**: 협업 활성 페이지 본문은 **Y.Doc 단일 권위**. 원격 `page.doc` echo(REST)·store JSON 은
+  본문을 역주입하지 못한다(`preserveCollabDoc`, storeApply/pageApply.ts §1.7).
+  회귀 테스트: `src/__tests__/sync/storeApply.test.ts` "협업 활성 페이지의 로컬 실본문은 원격 echo 가 덮지 않는다".
+
+불변식: **SW precache 는 협업 본문을 절대 캐시/제공하지 않는다.** epoch 은 빌드타임 박힘이라
+stale SW = stale epoch — 배포 정합은 [collab-live-deploy-checklist §1.8](../infra/collab-live-deploy-checklist.md) 참고.
+
+수동 검증(자동 E2E 는 WS 테스트 하니스 부재로 보류):
+1. 협업 ON 페이지 열기 → DevTools Network "Offline" → 본문 편집(로컬 반영 확인).
+2. 새로고침 → `y-indexeddb` 에서 편집분 복원(셸은 SW precache 로 로드).
+3. Online 복귀 → 다른 탭/계정과 본문 수렴, 역주입으로 인한 옛 본문 되돌림 없음.
+
+---
+
 ## 운영 규칙
 
 - **env 는 Plain 타입만** — Sensitive 는 값을 읽을 수 없어 "비움 확인"이 가짜 신호가 된다

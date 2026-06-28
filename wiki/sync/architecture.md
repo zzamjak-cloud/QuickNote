@@ -134,10 +134,31 @@ AppSync 구독 (WebSocket)
 ### 네트워크 복구 시
 ```
 window 'online' 이벤트
-  → AppSync 구독 즉시 재연결
-  → delta 또는 full 재페치 (fetchMode 결정)
+  → AppSync 핸드셰이크(경량 authed 호출) — 실패 시 backoff 재시도(최대 5회)
+    (navigator.onLine=true 라도 캡티브 등 거짓 online 대응; 성공해야 다음 단계 진행)
+  → 오프라인 갭 기반 재페치 escalation (src/lib/sync/offlineGap.ts)
+      gap < 10분  → delta(watermark)
+      gap ≥ 10분  → meta-baseline(누락 항목 자가치유, prune 없음)
+      gap ≥ 24h   → full(prune 포함)
+  → AppSync 구독 재연결
   → outbox flush (오프라인 중 쌓인 mutations 전송)
 ```
+갭 추적: `initOfflineGapTracking()`(main.tsx)가 offline 진입 시각을 sessionStorage 에 기록,
+재접속 시 `consumeOfflineGapMs()` 로 소비. 적체 가시성은 `OfflineBadge`(TopBar) + `usePendingOutboxCount`.
+
+### 캐시 비움 ↔ 워터마크 정합 (단일 진입점)
+persist 데이터 캐시를 비울 때는 **반드시 워터마크도 함께 리셋**해야 한다. 어긋나면 delta 페치가
+비워진 데이터를 건너뛰어 영구 유실된다(댓글 사라짐·유령페이지 회귀 근본 원인). 두 작업은
+`resetWorkspaceLocalCaches(workspaceId)`(`src/lib/sync/resetWorkspaceLocalCaches.ts`) 단일
+진입점으로 강제하고, 호출 후 `forceMetaBaseline` 페치로 데이터를 다시 채운다. 향후 store
+persist 스키마 bump 복구 경로도 이 헬퍼를 거친다([store/schema-versioning.md](../store/schema-versioning.md)).
+
+### PWA Service Worker 캐시 정책 (불변식)
+SW(vite-plugin-pwa)는 **정적 셸·해시 청크만 precache** 한다. **API/Cognito/동적 데이터는 절대
+가로채지 않는다**(`navigateFallbackDenylist`로 `/api/`·`/auth/` 제외) — SW 가 GraphQL 응답을
+캐시하면 delta/watermark 정합이 깨지므로 영구 금지. 위험은 stale 셸(옛 번들→옛 청크/옛 epoch)
+간접 경로뿐이며, `swController` 주기 업데이트 + `chunkReload` SW 강제 교체로 신선도를 상한한다.
+협업 epoch 과의 배포 정합은 [collab-live-deploy-checklist §1.8](../infra/collab-live-deploy-checklist.md).
 
 ## 동기화 엔티티 추가 시 등록점 (단일화)
 
