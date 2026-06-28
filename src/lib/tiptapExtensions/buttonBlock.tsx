@@ -64,6 +64,8 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const [draftColor, setDraftColor] = useState<ButtonColor>(color);
   const popoverRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
+  // 모바일 터치: contenteditable 안에서 click 이 합성되지 않을 수 있어 pointerup 으로 직접 처리.
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!isDbButton || dbTitle == null) return;
@@ -175,7 +177,18 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
         <button
           type="button"
           contentEditable={false}
-          onClick={handleClick}
+          // 마우스·터치·펜 통합: pointerup 으로 이동 처리(터치에서 click 미합성 대응).
+          // 드래그/스크롤(이동거리 10px 초과)은 무시.
+          onPointerDown={(e) => {
+            pointerStart.current = { x: e.clientX, y: e.clientY };
+          }}
+          onPointerUp={(e) => {
+            const s = pointerStart.current;
+            pointerStart.current = null;
+            if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) return;
+            e.preventDefault();
+            handleClick(e);
+          }}
           className={[
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
             btnClass,
