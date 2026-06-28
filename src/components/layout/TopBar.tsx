@@ -48,6 +48,7 @@ function isFullPageDatabasePage(page: Page | undefined): boolean {
   );
 }
 import { useSettingsStore } from "../../store/settingsStore";
+import { useIsMobile } from "../../hooks/useViewport";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
@@ -63,6 +64,7 @@ import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 
 export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
+  const isMobile = useIsMobile();
   const sidebarCollapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const globalFullWidth = useSettingsStore((s) => s.fullWidth);
   const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
@@ -563,33 +565,38 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
                   <span className="min-w-0 flex-1">버전 히스토리</span>
                   <span className="shrink-0 text-xs text-zinc-400">열기</span>
                 </button>
-                <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
-                <button
-                  type="button"
-                  onClick={handleExportMarkdown}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  <FileText className={MENU_ITEM_ICON} aria-hidden />
-                  <span className="min-w-0 flex-1">
-                    마크다운 내보내기
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleExportPdf}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  <Printer className={MENU_ITEM_ICON} aria-hidden />
-                  <span className="min-w-0 flex-1">PDF 내보내기</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleExportHtml()}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  <Code className={MENU_ITEM_ICON} aria-hidden />
-                  <span className="min-w-0 flex-1">HTML 내보내기</span>
-                </button>
+                {/* 내보내기(마크다운/PDF/HTML)는 모바일에서 비활성화 — 데스크톱 전용. */}
+                {!isMobile && (
+                  <>
+                    <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+                    <button
+                      type="button"
+                      onClick={handleExportMarkdown}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      <FileText className={MENU_ITEM_ICON} aria-hidden />
+                      <span className="min-w-0 flex-1">
+                        마크다운 내보내기
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportPdf}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      <Printer className={MENU_ITEM_ICON} aria-hidden />
+                      <span className="min-w-0 flex-1">PDF 내보내기</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleExportHtml()}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    >
+                      <Code className={MENU_ITEM_ICON} aria-hidden />
+                      <span className="min-w-0 flex-1">HTML 내보내기</span>
+                    </button>
+                  </>
+                )}
                 <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
                 <button
                   type="button"
