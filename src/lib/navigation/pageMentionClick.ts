@@ -135,11 +135,23 @@ export function installPageMentionClickNavigation(): () => void {
     navigateToMentionedPage(press, event);
   };
 
+  // 내부 링크 mark(a[href] ?page=…)는 mouseup 에서 SPA 이동을 처리한다. 하지만 <a target="_blank">
+  // 의 native click 이 그대로 발화하면 웹 페이지가 새 탭에 함께 떠 "이중 페이지"가 된다.
+  // 내부 링크 click 을 가로채 native 동작을 차단한다(외부 링크는 그대로 native 처리).
+  const onClick = (event: MouseEvent) => {
+    if (resolveInternalLinkPress(event.target, event.clientX, event.clientY)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+
   document.addEventListener("mousedown", onMouseDown, true);
   document.addEventListener("mouseup", onMouseUp, true);
+  document.addEventListener("click", onClick, true);
   return () => {
     document.removeEventListener("mousedown", onMouseDown, true);
     document.removeEventListener("mouseup", onMouseUp, true);
+    document.removeEventListener("click", onClick, true);
     pagePress = null;
   };
 }
