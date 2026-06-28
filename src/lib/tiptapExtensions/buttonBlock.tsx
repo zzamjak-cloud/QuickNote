@@ -175,9 +175,6 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
         <button
           type="button"
           contentEditable={false}
-          // 터치: mousedown 의 기본 동작(contenteditable 포커스)을 막아 가상 키보드가 뜨지 않게 한다.
-          // click 은 그대로 발생하므로 네비게이션은 정상 동작.
-          onMouseDown={(e) => e.preventDefault()}
           onClick={handleClick}
           className={[
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
@@ -329,7 +326,9 @@ export const ButtonBlock = TiptapNode.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(ButtonBlockView);
+    // stopEvent: ProseMirror 가 node view 내부 DOM 이벤트(터치/포인터/클릭)를 가로채지 않게 한다.
+    // 없으면 모바일 터치에서 PM 이 탭을 selection 으로 처리해 버튼 click 이 발화하지 않는다(데스크톱 마우스는 통과).
+    return ReactNodeViewRenderer(ButtonBlockView, { stopEvent: () => true });
   },
 
   addCommands() {
