@@ -1,20 +1,9 @@
 import { Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { useState, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Database, ExternalLink, Pencil, Link } from "lucide-react";
-import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
-import { parseQuickNoteLink } from "../navigation/quicknoteLinks";
-import {
-  openDatabaseInCurrentTab,
-  openDatabaseInNewTab,
-  openPageInCurrentTab,
-  openPageInNewTab,
-  shouldOpenInternalLinkInNewTab,
-} from "../navigation/internalNavigation";
-import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
-import { navigateToBlockLink } from "../editor/editorNavigationBridge";
 
 type ButtonColor = "default" | "blue" | "red" | "purple" | "green" | "orange" | "darkGray";
 
@@ -49,7 +38,6 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const attrs = node.attrs as ButtonBlockAttrs;
   const color: ButtonColor = (attrs.color as ButtonColor) ?? "default";
   const href = attrs.href?.trim() ?? "";
-  const internalHref = href ? parseQuickNoteLink(href) : null;
   const isDbButton = Boolean(attrs.databaseId) && !href;
   const dbTitle = useDatabaseStore((s) =>
     isDbButton ? s.databases[attrs.databaseId!]?.meta.title ?? null : null,
@@ -64,8 +52,6 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
   const [draftColor, setDraftColor] = useState<ButtonColor>(color);
   const popoverRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLInputElement>(null);
-  // 모바일 터치: contenteditable 안에서 click 이 합성되지 않을 수 있어 pointerup 으로 직접 처리.
-  const pointerStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (!isDbButton || dbTitle == null) return;
@@ -90,60 +76,7 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
     return () => document.removeEventListener("mousedown", close);
   }, [editing, attrs.label, attrs.href, attrs.color]);
 
-  const handleClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (internalHref) {
-      const applyTab = () => {
-        if (!internalHref.tab) return;
-        document
-          .querySelector<HTMLButtonElement>(
-            `[data-qn-tab-id="${CSS.escape(internalHref.tab)}"]`,
-          )
-          ?.click();
-      };
-      const hasBlockTarget = internalHref.blockId != null || internalHref.block != null;
-      if (shouldOpenInternalLinkInNewTab(event)) {
-        if (!openPageInNewTab(internalHref.pageId, { workspaceId: internalHref.workspaceId })) return;
-        if (hasBlockTarget) {
-          navigateToBlockLink(internalHref.pageId, {
-            blockId: internalHref.blockId,
-            blockPos: internalHref.block,
-          });
-        }
-        window.setTimeout(applyTab, 80);
-        return;
-      }
-      const currentPageId = usePageStore.getState().activePageId;
-      if (currentPageId && currentPageId !== internalHref.pageId) {
-        // 도착 페이지를 함께 기록 → 일반 페이지에서도 헤더 '이전 페이지' 백스택이 유지됨.
-        useNavigationHistoryStore.getState().pushBack(currentPageId, internalHref.pageId);
-      }
-      if (!openPageInCurrentTab(internalHref.pageId, { workspaceId: internalHref.workspaceId })) return;
-      if (hasBlockTarget) {
-        navigateToBlockLink(internalHref.pageId, {
-          blockId: internalHref.blockId,
-          blockPos: internalHref.block,
-        });
-      }
-      window.setTimeout(applyTab, 80);
-      return;
-    }
-    if (href) {
-      const targetHref = href.startsWith("http") ? href : `https://${href}`;
-      window.open(targetHref, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (attrs.databaseId) {
-      if (shouldOpenInternalLinkInNewTab(event)) {
-        openDatabaseInNewTab(attrs.databaseId);
-        return;
-      }
-      const currentPageId = usePageStore.getState().activePageId;
-      if (currentPageId) {
-        useNavigationHistoryStore.getState().pushBack(currentPageId);
-      }
-      openDatabaseInCurrentTab(attrs.databaseId);
-    }
-  };
+  // 네비게이션은 컴포넌트가 아니라 document 위임(installButtonBlockClickNavigation)이 처리한다.
 
   const handleSave = () => {
     updateAttributes({ label: draftLabel, href: draftHref, color: draftColor });
@@ -177,18 +110,12 @@ function ButtonBlockView({ node, updateAttributes, selected }: NodeViewProps) {
         <button
           type="button"
           contentEditable={false}
-          // 마우스·터치·펜 통합: pointerup 으로 이동 처리(터치에서 click 미합성 대응).
-          // 드래그/스크롤(이동거리 10px 초과)은 무시.
-          onPointerDown={(e) => {
-            pointerStart.current = { x: e.clientX, y: e.clientY };
-          }}
-          onPointerUp={(e) => {
-            const s = pointerStart.current;
-            pointerStart.current = null;
-            if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 10) return;
-            e.preventDefault();
-            handleClick(e);
-          }}
+          // 네비게이션은 document 위임(installButtonBlockClickNavigation)이 처리한다 —
+          // 멘션/링크와 동일. NodeView 재마운트·모바일 터치에서 React onClick/pointerup 이
+          // 깨지는 경우에도 document capture mouseup 은 안정적으로 수신된다.
+          data-qn-button-block=""
+          data-href={attrs.href ?? ""}
+          data-database-id={attrs.databaseId ?? ""}
           className={[
             "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
             btnClass,
