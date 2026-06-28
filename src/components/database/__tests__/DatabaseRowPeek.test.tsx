@@ -91,7 +91,8 @@ describe("DatabaseRowPeek", () => {
   it("속성 패널 영역도 피커뷰 전체 너비 설정을 따른다", () => {
     const { rerender } = render(<DatabaseRowPeek />);
     const propertySection = screen.getByTestId("peek-db-property-section");
-    const propertyPadding = propertySection.closest(".px-12");
+    // 모바일에선 패딩 0, 데스크톱(md+)에서 px-12 — 반응형 클래스로 변경됨
+    const propertyPadding = propertySection.closest(".md\\:px-12");
 
     expect(propertySection.closest("[data-qn-peek-page-header-column]")?.className)
       .toContain("max-w-[784px]");

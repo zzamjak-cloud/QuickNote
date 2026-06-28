@@ -1483,7 +1483,7 @@ function EditorInner({
           <BlockHandles
             editor={editor}
             pageId={effectivePageId ?? null}
-            compactComments={peek}
+            compactComments={peek || isMobile}
             boxSelectedStarts={boxSelectedStarts}
             onClearBoxSelection={clearBoxSelection}
           />

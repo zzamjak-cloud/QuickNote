@@ -1,5 +1,6 @@
 // 모바일/컴팩트 화면용 좌측 오버레이 드로어. 사이드바를 화면을 잠식하지 않고 띄운다.
-// Portal + 스크림 + ESC. z-[300] — 사이드바에서 여는 다이얼로그(DialogBase z-[400])보다 아래.
+// Portal + 스크림 + ESC. z-[360] — TopBar/TabBar(z-[350])보다 위(헤더 가림 방지),
+// 사이드바에서 여는 다이얼로그(DialogBase z-[400]·Settings z-[500])보다는 아래.
 import { useEffect, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -30,7 +31,7 @@ export function MobileDrawer({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[300] bg-black/45"
+      className="fixed inset-0 z-[360] bg-black/45"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();

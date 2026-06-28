@@ -104,7 +104,7 @@ export function FavoritesPanel() {
   if (isCompact) {
     return (
       <div
-        className="fixed inset-0 z-[300] bg-black/40"
+        className="fixed inset-0 z-[360] bg-black/40"
         role="presentation"
         onMouseDown={(e) => {
           if (e.target === e.currentTarget) closePanel();

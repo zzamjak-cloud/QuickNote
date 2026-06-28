@@ -681,7 +681,7 @@ export function DatabaseRowPeek() {
             })}`}
             data-qn-peek-page-header-column
           >
-            <div className="px-12">
+            <div className="md:px-12">
               <div className="mb-2">
                 <PageTitleBar
                   pageId={peekPageId}
