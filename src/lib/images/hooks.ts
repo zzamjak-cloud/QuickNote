@@ -43,6 +43,11 @@ export function initialImageUrl(srcOrRef: string | null | undefined): string | n
   return peekMediaObjectUrl(id) ?? imageUrlCache.peek(id) ?? null;
 }
 
+// 협업 수신 직후 자산 confirm/AssetUsage 전파 전이라 presign 이 일시적으로 실패(403 등)할 수 있다.
+// 새로고침 없이 자가 치유하도록 백오프로 몇 회 재시도한다. (초기 시도 포함 총 시도 횟수)
+const IMAGE_RESOLVE_MAX_ATTEMPTS = 4;
+const IMAGE_RESOLVE_BASE_DELAY_MS = 700;
+
 export function useImageUrl(
   srcOrRef: string | null | undefined,
 ): UseImageUrlResult {
@@ -53,6 +58,7 @@ export function useImageUrl(
 
   useEffect(() => {
     let canceled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     if (!srcOrRef) {
       setUrl(null);
       setError(null);
@@ -74,16 +80,8 @@ export function useImageUrl(
         canceled = true;
       };
     }
-    void (async () => {
-      // 1) 로컬 blob 캐시(인메모리→IndexedDB) — 네트워크 없이 object URL 표시.
-      const cachedUrl = await getMediaObjectUrl(id);
-      if (canceled) return;
-      if (cachedUrl) {
-        setUrl(cachedUrl);
-        return;
-      }
-      // 2) 미스 — TTL 캐시 URL 이 있으면 먼저 보여주고, PreSignedURL 로 1회 다운로드 후 blob 캐싱.
-      setUrl(imageUrlCache.peek(id) ?? null);
+    // PreSignedURL 다운로드(+blob 캐싱). 실패 시 전파 레이스로 보고 백오프 재시도.
+    const resolveFromNetwork = async (attempt: number): Promise<void> => {
       try {
         const downloadUrl = await imageUrlCache.get(id);
         if (canceled) return;
@@ -98,11 +96,32 @@ export function useImageUrl(
         // 바이트 캐싱 불가 — PreSignedURL 직접 사용(<img> 는 CORS 불필요).
         setUrl(downloadUrl);
       } catch (e) {
-        if (!canceled) setError(mapImageErrorMessage(e));
+        if (canceled) return;
+        // 자산 전파 전 일시 실패면 재시도해 자가 치유. 마지막 시도까지 실패 시에만 에러 표시.
+        if (attempt < IMAGE_RESOLVE_MAX_ATTEMPTS - 1) {
+          retryTimer = setTimeout(() => {
+            if (!canceled) void resolveFromNetwork(attempt + 1);
+          }, IMAGE_RESOLVE_BASE_DELAY_MS * 2 ** attempt);
+          return;
+        }
+        setError(mapImageErrorMessage(e));
       }
+    };
+    void (async () => {
+      // 1) 로컬 blob 캐시(인메모리→IndexedDB) — 네트워크 없이 object URL 표시.
+      const cachedUrl = await getMediaObjectUrl(id);
+      if (canceled) return;
+      if (cachedUrl) {
+        setUrl(cachedUrl);
+        return;
+      }
+      // 2) 미스 — TTL 캐시 URL 이 있으면 먼저 보여주고, PreSignedURL 로 다운로드(+재시도) 후 blob 캐싱.
+      setUrl(imageUrlCache.peek(id) ?? null);
+      await resolveFromNetwork(0);
     })();
     return () => {
       canceled = true;
+      if (retryTimer) clearTimeout(retryTimer);
     };
   }, [srcOrRef]);
 
