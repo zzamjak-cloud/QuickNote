@@ -613,7 +613,16 @@ export class QuicknoteSyncStack extends cdk.Stack {
       cors: [
         {
           allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-          allowedOrigins: ["*"], // PreSignedURL 만 유효해 사실상 안전
+          // PreSignedURL 이 1차 통제지만, "*" 면 탈취된 presigned PUT 을 임의 악성 사이트가
+          // 브라우저에서 cross-origin 으로 완료시킬 수 있어 출처를 화이트리스트로 제한한다.
+          // 웹(Vercel 운영/모든 프리뷰)·로컬 dev·데스크톱(Tauri webview) 출처만 허용.
+          allowedOrigins: [
+            "https://*.vercel.app",
+            "http://localhost:5173",
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+          ],
           allowedHeaders: ["*"],
           maxAge: 3000,
         },

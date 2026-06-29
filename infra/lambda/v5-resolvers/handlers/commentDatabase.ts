@@ -5,7 +5,7 @@ import {
   QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { badRequest, requireWorkspaceAccess, type Member } from "./_auth";
+import { badRequest, forbidden, requireWorkspaceAccess, type Member } from "./_auth";
 import type { Tables } from "./member";
 import { generateNotificationsForComment } from "./notification";
 
@@ -85,14 +85,31 @@ export async function upsertComment(args: {
     workspaceId,
     pageId: input.pageId,
     blockId: input.blockId,
-    authorMemberId: input.authorMemberId ?? args.caller.memberId,
+    // 작성자 스푸핑 방지: 클라이언트가 보낸 authorMemberId 를 신뢰하지 않고 항상 호출자로 강제한다.
+    authorMemberId: args.caller.memberId,
     bodyText: input.bodyText,
     mentionMemberIds,
     parentId: input.parentId ?? null,
     createdAt: (input.createdAt as string | undefined) ?? now,
     updatedAt: (input.updatedAt as string | undefined) ?? now,
   };
-  await args.doc.send(new PutCommand({ TableName: args.tables.Comments, Item: item }));
+  // 교차 워크스페이스 덮어쓰기(IDOR) 차단: id 단독 PK 이므로 신규이거나 기존 댓글의
+  // workspaceId 가 호출자가 권한 검증한 workspaceId 와 일치할 때만 Put 을 허용한다.
+  try {
+    await args.doc.send(
+      new PutCommand({
+        TableName: args.tables.Comments,
+        Item: item,
+        ConditionExpression: "attribute_not_exists(id) OR workspaceId = :w",
+        ExpressionAttributeValues: { ":w": workspaceId },
+      }),
+    );
+  } catch (err) {
+    if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
+      forbidden("다른 워크스페이스의 댓글은 수정할 수 없습니다");
+    }
+    throw err;
+  }
 
   // 새 댓글에 한해 알림 생성 (updatedAt이 없거나 createdAt 기준 30초 이내)
   const createdMs = input.createdAt ? new Date(input.createdAt as string).getTime() : 0;
@@ -135,15 +152,26 @@ export async function softDeleteComment(args: {
     required: "view",
   });
   const now = new Date().toISOString();
-  const r = await args.doc.send(
-    new UpdateCommand({
-      TableName: args.tables.Comments,
-      Key: { id: args.id },
-      UpdateExpression: "SET deletedAt = :d, updatedAt = :u",
-      ExpressionAttributeValues: { ":d": now, ":u": args.updatedAt },
-      ReturnValues: "ALL_NEW",
-    }),
-  );
+  // 교차 워크스페이스 삭제(IDOR) 차단: 대상 댓글의 실제 workspaceId 가 호출자가 권한 검증한
+  // workspaceId 와 일치할 때만 soft delete 를 허용한다. (id 만으로 임의 댓글 삭제 방지)
+  let r;
+  try {
+    r = await args.doc.send(
+      new UpdateCommand({
+        TableName: args.tables.Comments,
+        Key: { id: args.id },
+        UpdateExpression: "SET deletedAt = :d, updatedAt = :u",
+        ConditionExpression: "workspaceId = :w",
+        ExpressionAttributeValues: { ":d": now, ":u": args.updatedAt, ":w": args.workspaceId },
+        ReturnValues: "ALL_NEW",
+      }),
+    );
+  } catch (err) {
+    if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
+      forbidden("다른 워크스페이스의 댓글은 삭제할 수 없습니다");
+    }
+    throw err;
+  }
   return (r.Attributes ?? {
     id: args.id,
     workspaceId: args.workspaceId,

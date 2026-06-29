@@ -20,11 +20,9 @@
   "context": {
     "cognitoDomainPrefix": "quicknote-auth",
     "webCallbackUrls": [
-      "http://localhost:5173/auth/callback",
       "https://quick-note-khaki.vercel.app/auth/callback"
     ],
     "webLogoutUrls": [
-      "http://localhost:5173/auth/signout",
       "https://quick-note-khaki.vercel.app/auth/signout"
     ],
     "desktopCallbackUrls": [

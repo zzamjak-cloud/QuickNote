@@ -5,6 +5,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
+  forbidden,
   notFound,
   requireWorkspaceAccess,
   type Member,
@@ -60,15 +61,27 @@ export async function upsertRecord(args: {
     workspaceId: input.workspaceId,
     required: "edit",
   });
-  await args.doc.send(
-    new PutCommand({
-      TableName: args.tableName,
-      Item: {
-        ...args.input,
-        createdByMemberId: input.createdByMemberId || args.caller.memberId,
-      },
-    }),
-  );
+  // 교차 워크스페이스 덮어쓰기(IDOR) 차단: id 단독 PK 이므로 ConditionExpression 없이 Put 하면
+  // 다른 워크스페이스의 레코드를 input.id 충돌만으로 전치환·탈취할 수 있다.
+  // 신규(attribute_not_exists) 이거나 기존 레코드의 workspaceId 가 일치할 때만 허용한다.
+  try {
+    await args.doc.send(
+      new PutCommand({
+        TableName: args.tableName,
+        Item: {
+          ...args.input,
+          createdByMemberId: input.createdByMemberId || args.caller.memberId,
+        },
+        ConditionExpression: "attribute_not_exists(workspaceId) OR workspaceId = :w",
+        ExpressionAttributeValues: { ":w": input.workspaceId },
+      }),
+    );
+  } catch (err) {
+    if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
+      forbidden("다른 워크스페이스의 레코드는 수정할 수 없습니다");
+    }
+    throw err;
+  }
   return args.input;
 }
 

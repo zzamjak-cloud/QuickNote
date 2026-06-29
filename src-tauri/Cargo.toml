@@ -21,8 +21,9 @@ tauri-build = { version = "2.6.0", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-# devtools: 릴리스 빌드에서도 웹뷰 인스펙터(에러 로그 확인)를 항상 사용 가능하게 한다.
-tauri = { version = "2.11.0", features = ["devtools"] }
+# devtools 는 디버그 빌드에서만 자동 활성(Tauri 기본). 릴리스 바이너리에 웹뷰 인스펙터를
+# 포함하면 배포본에서 IPC 호출·SQL·fs 접근·토큰을 임의 조사할 수 있어 보안상 제거한다.
+tauri = { version = "2.11.0" }
 tauri-plugin-log = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-updater = "2"
