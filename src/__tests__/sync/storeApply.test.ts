@@ -10,6 +10,7 @@ import {
 import { usePageStore } from "../../store/pageStore";
 import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useHistoryStore } from "../../store/historyStore";
 import type { GqlDatabase, GqlPage, GqlPageMeta } from "../../lib/sync/graphql/operations";
@@ -513,4 +514,76 @@ describe("storeApply 워크스페이스 가드", () => {
     expect(usePageStore.getState().pages["deleted-row"]).toBeUndefined();
   });
 
+});
+
+describe("수신 soft-delete 는 row-index 스냅샷도 prune 한다(유령 행 방지)", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  function seedRowIndex(pageId: string) {
+    useDatabaseRowIndexStore.setState({
+      snapshotsByKey: {},
+      hydratedByKey: {},
+      loadingByKey: {},
+    });
+    return useDatabaseRowIndexStore.getState().upsertRows(
+      "ws-a:db-1",
+      "db-1",
+      [
+        {
+          pageId,
+          workspaceId: "ws-a",
+          databaseId: "db-1",
+          title: pageId,
+          icon: null,
+          order: 0,
+          updatedAt: 1,
+        },
+      ],
+      { reset: true },
+    );
+  }
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "ws-a" });
+    usePageStore.setState({ pages: {}, activePageId: null, cacheWorkspaceId: null });
+  });
+
+  it("applyRemotePageMetasToStore: 삭제 메타가 오면 스냅샷에서 제거", async () => {
+    await seedRowIndex("ghost-row");
+    const meta = gqlPageMeta("ws-a", "ghost-row");
+    meta.databaseId = "db-1";
+    meta.deletedAt = new Date().toISOString();
+
+    applyRemotePageMetasToStore([meta]);
+    await flush();
+
+    const rows = useDatabaseRowIndexStore.getState().snapshotsByKey["ws-a:db-1"].rows;
+    expect(rows.map((r) => r.pageId)).not.toContain("ghost-row");
+  });
+
+  it("applyRemotePagesToStore: 삭제 페이지가 오면 스냅샷에서 제거", async () => {
+    await seedRowIndex("ghost-row");
+    const page = gqlPage("ws-a", "ghost-row");
+    page.databaseId = "db-1";
+    page.deletedAt = new Date().toISOString();
+
+    applyRemotePagesToStore([page]);
+    await flush();
+
+    const rows = useDatabaseRowIndexStore.getState().snapshotsByKey["ws-a:db-1"].rows;
+    expect(rows.map((r) => r.pageId)).not.toContain("ghost-row");
+  });
+
+  it("applyRemotePageToStore(단건): 삭제 페이지가 오면 스냅샷에서 제거", async () => {
+    await seedRowIndex("ghost-row");
+    const page = gqlPage("ws-a", "ghost-row");
+    page.databaseId = "db-1";
+    page.deletedAt = new Date().toISOString();
+
+    applyRemotePageToStore(page);
+    await flush();
+
+    const rows = useDatabaseRowIndexStore.getState().snapshotsByKey["ws-a:db-1"].rows;
+    expect(rows.map((r) => r.pageId)).not.toContain("ghost-row");
+  });
 });

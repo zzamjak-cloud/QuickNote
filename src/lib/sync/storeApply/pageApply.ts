@@ -6,6 +6,7 @@ import type {
 } from "../graphql/operations";
 import { usePageStore } from "../../../store/pageStore";
 import { usePageContentLoadStore } from "../../../store/pageContentLoadStore";
+import { useDatabaseRowIndexStore } from "../../../store/databaseRowIndexStore";
 import type { Page } from "../../../types/page";
 import { useWorkspaceStore } from "../../../store/workspaceStore";
 import { enqueueAsync } from "../runtime";
@@ -229,6 +230,9 @@ export function applyRemotePageToStore(
   if (p.deletedAt) {
     usePageContentLoadStore.getState().markLoaded([p.id]);
     if (deletedDbId) removePageIdFromDatabaseRowOrder(deletedDbId, p.id);
+    // row-index 스냅샷에서도 prune. 누락 시 삭제된 행이 fallback 으로 유령 렌더된다
+    // (databaseRowSources.ts). local 페이지가 없어도(이미 유령) 스냅샷 잔재를 제거해야 한다.
+    void useDatabaseRowIndexStore.getState().removePagesFromAllIndexes([p.id]);
     return;
   }
   usePageContentLoadStore.getState().markLoaded([p.id]);
@@ -252,6 +256,7 @@ export function applyRemotePagesToStore(
   if (pages.length === 0) return;
 
   const affectedDatabaseIds = new Set<string>();
+  const deletedPageIds: string[] = [];
   const shouldIgnoreLocalDelete = createLocalDeleteGuardChecker();
 
   usePageStore.setState((s) => {
@@ -291,6 +296,7 @@ export function applyRemotePagesToStore(
       const localIsMetaOnly =
         local?.contentLoaded === false || Boolean(metaOnlyByPageId[p.id]);
       if (p.deletedAt) {
+        deletedPageIds.push(p.id);
         if (!local) continue;
         ensurePagesCopy();
         delete nextPages[p.id];
@@ -324,6 +330,10 @@ export function applyRemotePagesToStore(
   });
 
   reconcileDatabaseRowOrders(affectedDatabaseIds);
+  // 수신한 soft-delete 페이지를 row-index 스냅샷에서도 prune(유령 행 방지). 멱등·안전.
+  if (deletedPageIds.length > 0) {
+    void useDatabaseRowIndexStore.getState().removePagesFromAllIndexes(deletedPageIds);
+  }
   usePageContentLoadStore.getState().markLoaded(pages.map((page) => page.id));
 }
 
@@ -340,6 +350,7 @@ export function applyRemotePageMetasToStore(
 
   const metaOnlyIds: string[] = [];
   const loadedIds: string[] = [];
+  const deletedPageIds: string[] = [];
   const affectedDatabaseIds = new Set<string>();
 
   usePageStore.setState((s) => {
@@ -360,6 +371,7 @@ export function applyRemotePageMetasToStore(
       if (p.databaseId) affectedDatabaseIds.add(p.databaseId);
       if (p.deletedAt) {
         loadedIds.push(p.id);
+        deletedPageIds.push(p.id);
         if (!local) continue;
         ensurePagesCopy();
         delete nextPages[p.id];
@@ -396,6 +408,10 @@ export function applyRemotePageMetasToStore(
   });
 
   reconcileDatabaseRowOrders(affectedDatabaseIds);
+  // 수신한 soft-delete 페이지를 row-index 스냅샷에서도 prune(유령 행 방지). 멱등·안전.
+  if (deletedPageIds.length > 0) {
+    void useDatabaseRowIndexStore.getState().removePagesFromAllIndexes(deletedPageIds);
+  }
   if (loadedIds.length > 0) usePageContentLoadStore.getState().markLoaded(loadedIds);
   if (metaOnlyIds.length > 0) usePageContentLoadStore.getState().markMetaOnly(metaOnlyIds);
 }
