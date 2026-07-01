@@ -6,6 +6,7 @@ import {
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { requireEnv } from "../_shared/env";
+import { collectFromValue } from "./collect";
 import {
   S3Client,
   DeleteObjectCommand,
@@ -13,7 +14,10 @@ import {
 } from "@aws-sdk/client-s3";
 
 // 야간 GC.
-// 1) Page 테이블에서 doc / dbCells 안의 quicknote-image/file ref 추출 → 도달 가능 set.
+// 1) 자산 참조를 가질 수 있는 모든 저장소에서 quicknote-image/file ref 추출 → 도달 가능 set.
+//    Page(doc·dbCells·icon·coverImage), CustomIcons(src), Page/DatabaseHistory(snapshot).
+//    icon·coverImage 누락으로 사용 중 커스텀 아이콘 자산이 오삭제된 사고(2026-07)가 있어
+//    참조 저장소를 추가할 때는 반드시 이 목록에도 반영해야 한다.
 // 2) ImageAsset 테이블의 READY 미참조 항목, 오래된 PENDING 항목, DDB 없는 S3 객체 정리.
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -22,12 +26,16 @@ const s3 = new S3Client({});
 const PAGE_TABLE = requireEnv("PAGE_TABLE");
 const IMAGE_ASSET_TABLE = requireEnv("IMAGE_ASSET_TABLE");
 const IMAGES_BUCKET = requireEnv("IMAGES_BUCKET");
+const CUSTOM_ICONS_TABLE = requireEnv("CUSTOM_ICONS_TABLE");
+const PAGE_HISTORY_TABLE = requireEnv("PAGE_HISTORY_TABLE");
+const DATABASE_HISTORY_TABLE = requireEnv("DATABASE_HISTORY_TABLE");
 const GRACE_DAYS = 30;
 const UNTRACKED_S3_GRACE_DAYS = 2;
-const SCHEMES = ["quicknote-image://", "quicknote-file://"];
 
 export async function handler() {
   const reachable = await collectReachableImageIds();
+  await collectCustomIconRefs(reachable);
+  await collectHistorySnapshotRefs(reachable);
   const orphans = await findReadyOrphans(reachable);
   // 오래된 PENDING 항목은 ImageAsset 테이블의 expireAt TTL 이 자동·무료로 정리한다(#2).
   // TTL 은 DDB row 만 지우므로, 남은 S3 객체는 아래 untracked-S3 sweep 이 회수한다.
@@ -65,34 +73,58 @@ async function collectReachableImageIds(): Promise<Set<string>> {
     const r = await ddb.send(
       new ScanCommand({
         TableName: PAGE_TABLE,
-        ProjectionExpression: "id, doc, dbCells",
+        // icon(커스텀 아이콘)·coverImage(커버) 도 자산 ref 를 담는다 — 누락 시 오삭제.
+        ProjectionExpression: "id, doc, dbCells, icon, coverImage",
         ExclusiveStartKey: nextToken,
       }),
     );
     for (const item of r.Items ?? []) {
       collectFromValue(item.doc, ids);
       collectFromValue(item.dbCells, ids);
+      collectFromValue(item.icon, ids);
+      collectFromValue(item.coverImage, ids);
     }
     nextToken = r.LastEvaluatedKey;
   } while (nextToken);
   return ids;
 }
 
-function collectFromValue(value: unknown, out: Set<string>): void {
-  if (value === null || value === undefined) return;
-  if (typeof value === "string") {
-    for (const scheme of SCHEMES) {
-      if (value.startsWith(scheme)) {
-        out.add(value.slice(scheme.length));
-        return;
-      }
-    }
-    return;
-  }
-  if (typeof value === "object") {
-    for (const v of Object.values(value as object)) collectFromValue(v, out);
+/** 커스텀 아이콘 팔레트(src) 참조 — 페이지에 설정돼 있지 않아도 팔레트 자산은 보존. */
+async function collectCustomIconRefs(out: Set<string>): Promise<void> {
+  let nextToken: Record<string, unknown> | undefined;
+  do {
+    const r = await ddb.send(
+      new ScanCommand({
+        TableName: CUSTOM_ICONS_TABLE,
+        ProjectionExpression: "src",
+        ExclusiveStartKey: nextToken,
+      }),
+    );
+    for (const item of r.Items ?? []) collectFromValue(item.src, out);
+    nextToken = r.LastEvaluatedKey;
+  } while (nextToken);
+}
+
+/** 버전 히스토리 snapshot(doc·dbCells) 참조 — 복원 시 이미지가 살아있어야 한다. */
+async function collectHistorySnapshotRefs(out: Set<string>): Promise<void> {
+  for (const table of [PAGE_HISTORY_TABLE, DATABASE_HISTORY_TABLE]) {
+    let nextToken: Record<string, unknown> | undefined;
+    do {
+      const r = await ddb.send(
+        new ScanCommand({
+          TableName: table,
+          // snapshot 은 DynamoDB 예약어라 alias 필요.
+          ProjectionExpression: "#s",
+          ExpressionAttributeNames: { "#s": "snapshot" },
+          ExclusiveStartKey: nextToken,
+        }),
+      );
+      for (const item of r.Items ?? []) collectFromValue(item.snapshot, out);
+      nextToken = r.LastEvaluatedKey;
+    } while (nextToken);
   }
 }
+
 
 async function findReadyOrphans(
   reachable: Set<string>,

@@ -609,7 +609,9 @@ export class QuicknoteSyncStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      versioned: false,
+      // 라이브 버킷은 이미 수동으로 버저닝이 켜져 있고(GC 오삭제 복구에 사용됨),
+      // false 로 두면 다음 deploy 가 버저닝을 꺼서 복구 안전망이 사라진다.
+      versioned: true,
       cors: [
         {
           allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
@@ -762,6 +764,10 @@ export function response(ctx) {
         PAGE_TABLE: this.pageTable.table.tableName,
         IMAGE_ASSET_TABLE: this.imageAssetTable.table.tableName,
         IMAGES_BUCKET: imagesBucket.bucketName,
+        // 도달성 스캔 참조 저장소 — 누락 시 사용 중 자산 오삭제 (2026-07 아이콘 사고)
+        CUSTOM_ICONS_TABLE: customIconsTable.tableName,
+        PAGE_HISTORY_TABLE: pageHistoryTable.tableName,
+        DATABASE_HISTORY_TABLE: databaseHistoryTable.tableName,
       },
       bundling: {
         minify: true,
@@ -773,6 +779,9 @@ export function response(ctx) {
 
     this.pageTable.table.grantReadData(gcFn);
     this.imageAssetTable.table.grantReadWriteData(gcFn);
+    customIconsTable.grantReadData(gcFn);
+    pageHistoryTable.grantReadData(gcFn);
+    databaseHistoryTable.grantReadData(gcFn);
     imagesBucket.grantRead(gcFn);
     imagesBucket.grantDelete(gcFn);
 
