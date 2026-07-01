@@ -8,6 +8,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -637,6 +638,21 @@ export class QuicknoteSyncStack extends cdk.Stack {
           abortIncompleteMultipartUploadAfter: cdk.Duration.days(1),
           expiration: undefined, // 정상 객체는 만료시키지 않음
         },
+        {
+          // GC 삭제는 delete marker 만 남긴다 — 이전 버전을 180일 보존해
+          // 오삭제 복구 창을 확보하고, 이후 만료시켜 저장 비용을 제한한다.
+          id: "expire-noncurrent-versions",
+          enabled: true,
+          noncurrentVersionExpiration: cdk.Duration.days(180),
+          expiredObjectDeleteMarker: true,
+        },
+        {
+          // GC 톰스톤(삭제된 레지스트리 행 백업)은 1년 보존 후 만료.
+          id: "expire-gc-tombstones",
+          enabled: true,
+          prefix: "gc-tombstones/",
+          expiration: cdk.Duration.days(365),
+        },
       ],
     });
 
@@ -768,6 +784,7 @@ export function response(ctx) {
         CUSTOM_ICONS_TABLE: customIconsTable.tableName,
         PAGE_HISTORY_TABLE: pageHistoryTable.tableName,
         DATABASE_HISTORY_TABLE: databaseHistoryTable.tableName,
+        ASSET_USAGE_TABLE: assetUsageTable.tableName,
       },
       bundling: {
         minify: true,
@@ -782,13 +799,39 @@ export function response(ctx) {
     customIconsTable.grantReadData(gcFn);
     pageHistoryTable.grantReadData(gcFn);
     databaseHistoryTable.grantReadData(gcFn);
+    assetUsageTable.grantReadData(gcFn);
     imagesBucket.grantRead(gcFn);
     imagesBucket.grantDelete(gcFn);
+    imagesBucket.grantPut(gcFn); // 톰스톤(gc-tombstones/) 기록용
 
     new events.Rule(this, "ImageGcSchedule", {
       // UTC 18:00 = KST 03:00
       schedule: events.Schedule.cron({ minute: "0", hour: "18" }),
       targets: [new eventsTargets.LambdaFunction(gcFn)],
+    });
+
+    // GC 실패·서킷브레이커 발동을 놓치지 않도록 에러 알람.
+    // (gc 는 비정상 상황에서 console.error 후 정상 종료하므로 Errors 지표 + 로그 필터 둘 다 건다.)
+    new cloudwatch.Alarm(this, "ImageGcErrorsAlarm", {
+      alarmName: `${envPrefix}quicknote-image-gc-errors`,
+      metric: gcFn.metricErrors({ period: cdk.Duration.days(1), statistic: "Sum" }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    const gcAbortMetric = new logs.MetricFilter(this, "ImageGcAbortMetricFilter", {
+      logGroup: gcFn.logGroup,
+      metricNamespace: "Quicknote/ImageGc",
+      metricName: `${envPrefix}gc-abort`,
+      filterPattern: logs.FilterPattern.anyTerm("gc aborted", "delete aborted"),
+      metricValue: "1",
+    });
+    new cloudwatch.Alarm(this, "ImageGcAbortAlarm", {
+      alarmName: `${envPrefix}quicknote-image-gc-abort`,
+      metric: gcAbortMetric.metric({ period: cdk.Duration.days(1), statistic: "Sum" }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
     // 휴지통 보관(30일) 만료 페이지 — DynamoDB 에서 영구 삭제

@@ -255,14 +255,22 @@ async function getDownloadUrl(callerSub: string, imageId: string) {
   const found = await ddb.send(
     new GetCommand({ TableName: TABLE, Key: { id: imageId } }),
   );
-  if (!found.Item) throw new Error("not found");
+  // 실패 원인 구분(레지스트리 소멸 vs 인가 거부)을 위해 assetId 를 로그에 남긴다 —
+  // 2026-07 GC 오삭제 사고 때 원인 추적이 어려웠던 지점.
+  if (!found.Item) {
+    console.error("getDownloadUrl: asset row missing", imageId);
+    throw new Error("not found");
+  }
   if (found.Item.status !== "READY") throw new Error("not ready");
 
   // 자산은 업로더(ownerId) 소유지만 공유 페이지에 임베드되므로,
   // 본인 자산이 아니면 자산이 사용된 워크스페이스의 멤버인지로 열람을 인가한다.
   if (found.Item.ownerId !== callerSub) {
     const allowed = await hasWorkspaceAccessToAsset(callerSub, imageId);
-    if (!allowed) throw new Error("not found");
+    if (!allowed) {
+      console.error("getDownloadUrl: access denied", imageId);
+      throw new Error("not found");
+    }
   }
 
   const cmd = new GetObjectCommand({ Bucket: BUCKET, Key: found.Item.key });
