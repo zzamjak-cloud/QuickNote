@@ -796,15 +796,14 @@ export function response(ctx) {
       },
     });
 
+    // GC 는 리포트 전용(삭제 안 함) — 읽기 권한만 부여한다.
     this.pageTable.table.grantReadData(gcFn);
-    this.imageAssetTable.table.grantReadWriteData(gcFn);
+    this.imageAssetTable.table.grantReadData(gcFn);
     customIconsTable.grantReadData(gcFn);
     pageHistoryTable.grantReadData(gcFn);
     databaseHistoryTable.grantReadData(gcFn);
     assetUsageTable.grantReadData(gcFn);
     imagesBucket.grantRead(gcFn);
-    imagesBucket.grantDelete(gcFn);
-    imagesBucket.grantPut(gcFn); // 톰스톤(gc-tombstones/) 기록용
 
     new events.Rule(this, "ImageGcSchedule", {
       // UTC 18:00 = KST 03:00
