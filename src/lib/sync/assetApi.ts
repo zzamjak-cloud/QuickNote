@@ -74,15 +74,22 @@ export async function replaceAssetRefApi(
 
 export async function migrateAssetUsageApi(
   cursor: string | null = null,
-): Promise<{ processedRows: number; nextCursor: string | null; hasMore: boolean }> {
-  const r = await gqlOptional<{ processedRows?: number; nextCursor?: string | null; hasMore?: boolean }>(
+  incremental = false,
+): Promise<{ processedRows: number; nextCursor: string | null; hasMore: boolean; mode: string }> {
+  const r = await gqlOptional<{
+    processedRows?: number;
+    nextCursor?: string | null;
+    hasMore?: boolean;
+    mode?: string;
+  }>(
     MIGRATE_ASSET_USAGE,
-    { cursor },
+    { cursor, incremental },
     "migrateAssetUsage",
   );
   return {
     processedRows: r?.processedRows ?? 0,
     nextCursor: r?.nextCursor ?? null,
     hasMore: r?.hasMore ?? false,
+    mode: r?.mode ?? (incremental ? "incremental" : "full"),
   };
 }

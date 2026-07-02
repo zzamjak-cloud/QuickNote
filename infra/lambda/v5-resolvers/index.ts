@@ -892,6 +892,7 @@ const RESOLVERS: Record<
     await migrateAssetUsage({
       ...base,
       cursor: (event.arguments.cursor as string | null | undefined) ?? null,
+      incremental: (event.arguments.incremental as boolean | null | undefined) ?? false,
     }),
   // ── 워크스페이스 공유 커스텀 아이콘 ─────────────────────────────────
   listCustomIcons: async (event, base) =>

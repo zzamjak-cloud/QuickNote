@@ -43,11 +43,12 @@ export const REPLACE_ASSET_REF = `
 `;
 
 export const MIGRATE_ASSET_USAGE = `
-  mutation MigrateAssetUsage($cursor: String) {
-    migrateAssetUsage(cursor: $cursor) {
+  mutation MigrateAssetUsage($cursor: String, $incremental: Boolean) {
+    migrateAssetUsage(cursor: $cursor, incremental: $incremental) {
       processedRows
       nextCursor
       hasMore
+      mode
     }
   }
 `;

@@ -11,6 +11,7 @@ import {
   DynamoDBDocumentClient,
   QueryCommand,
   ScanCommand,
+  type ScanCommandInput,
   PutCommand,
   DeleteCommand,
   GetCommand,
@@ -706,9 +707,55 @@ export async function replaceAssetRef(args: {
   return updated;
 }
 
+// 증분 재인덱싱 체크포인트 — 마지막으로 완료한 재인덱싱의 시작 시각(ISO)을 소유자별로 보관.
+// AssetUsage 테이블에 함께 저장하되 ownerId/pageId 속성을 넣지 않아 byOwner/byPage GSI 에
+// 투영되지 않게 한다(usageCount 집계·byPage 삭제 쿼리 오염 방지). PK/SK 직접 read 로만 접근.
+const REINDEX_CHECKPOINT_PK = "__reindex_checkpoint__";
+
+async function readReindexCheckpoint(
+  doc: DynamoDBDocumentClient,
+  usageTable: string,
+  ownerId: string,
+): Promise<string | null> {
+  try {
+    const res = await doc.send(
+      new GetCommand({ TableName: usageTable, Key: { assetId: REINDEX_CHECKPOINT_PK, sk: ownerId } }),
+    );
+    const v = res.Item?.lastReindexAt;
+    return typeof v === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeReindexCheckpoint(
+  doc: DynamoDBDocumentClient,
+  usageTable: string,
+  ownerId: string,
+  iso: string,
+): Promise<void> {
+  await doc.send(
+    new PutCommand({
+      TableName: usageTable,
+      Item: { assetId: REINDEX_CHECKPOINT_PK, sk: ownerId, lastReindexAt: iso },
+    }),
+  );
+}
+
+// 멀티콜 재인덱싱 상태 — cursor(base64 JSON)에 실어 호출 간 이어붙인다.
+type ReindexCursorState = {
+  key?: Record<string, unknown>; // DynamoDB LastEvaluatedKey
+  since: string | null; // updatedAt 하한(증분). null 이면 전체 스캔.
+  startedAt: string; // 이번 실행 시작 시각 — 완료 시 새 체크포인트로 기록.
+};
+
 /**
  * 기존 페이지를 스캔해 AssetUsage 인덱스를 재구성. 시간-박스 방식.
- * - cursor: 이전 호출의 nextCursor (base64-encoded LastEvaluatedKey).
+ * - cursor: 이전 호출의 nextCursor (base64-encoded 상태). 첫 호출은 null.
+ * - incremental=true: 마지막 완료 체크포인트 이후 updatedAt 이 갱신된 페이지만 스캔한다.
+ *   체크포인트가 없으면(최초 인덱싱) 전체 스캔으로 폴백하고, 완료 시 체크포인트를 남긴다.
+ *   변경 페이지만 처리하므로 대규모 워크스페이스에서 "삭제 전 미사용 확인" 재인덱싱이 빨라진다.
+ *   (페이지 삭제는 cascadeDeletePageAssetUsage 가 즉시 usage 를 정리하므로 유령 usage 는 안 남는다.)
  * - 호출당 약 22초 안에 가능한 만큼 처리하고, 남은 게 있으면 nextCursor 반환.
  * - 클라이언트는 hasMore=true 인 동안 cursor 를 그대로 전달해 반복 호출.
  */
@@ -717,22 +764,44 @@ export async function migrateAssetUsage(args: {
   tables: Tables;
   caller: { memberId: string; cognitoSub?: string | null };
   cursor?: string | null;
-}): Promise<{ processedRows: number; nextCursor: string | null; hasMore: boolean }> {
+  incremental?: boolean;
+}): Promise<{ processedRows: number; nextCursor: string | null; hasMore: boolean; mode: string }> {
   const pagesTable = requireTable(args.tables.Pages, "PAGES_TABLE_NAME");
   const usageTable = args.tables.AssetUsage;
   if (!usageTable) throw new Error("AssetUsage 테이블 미설정");
   const ownerId = requireCognitoSub(args.caller);
   const deadline = Date.now() + 22 * 1000; // Lambda 28s, AppSync 30s 에 안전한 여유.
-  let startKey: Record<string, unknown> | undefined = decodeCursor(args.cursor ?? null);
+
+  // 커서 상태 해석. 유효한 startedAt 이 없으면 첫 호출로 보고 초기화한다.
+  // (구버전/손상 커서도 첫 호출로 안전하게 재시작 — 재실행은 idempotent.)
+  const decoded = decodeCursor(args.cursor ?? null) as Partial<ReindexCursorState> | undefined;
+  let state: ReindexCursorState;
+  if (decoded && typeof decoded.startedAt === "string") {
+    state = { key: decoded.key, since: decoded.since ?? null, startedAt: decoded.startedAt };
+  } else {
+    const startedAt = new Date().toISOString();
+    const since = args.incremental
+      ? await readReindexCheckpoint(args.doc, usageTable, ownerId)
+      : null;
+    state = { key: undefined, since, startedAt };
+  }
+  const mode = state.since ? "incremental" : "full";
+
+  let startKey = state.key;
   let totalRows = 0;
   while (true) {
-    const res = await args.doc.send(
-      new ScanCommand({
-        TableName: pagesTable,
-        ExclusiveStartKey: startKey,
-        Limit: 50,
-      }),
-    );
+    const scanInput: ScanCommandInput = {
+      TableName: pagesTable,
+      ExclusiveStartKey: startKey,
+      Limit: 50,
+    };
+    if (state.since) {
+      // 체크포인트 이후 갱신된 페이지만. updatedAt 속성이 없는(레거시) 페이지는 제외된다.
+      scanInput.FilterExpression = "#u > :since";
+      scanInput.ExpressionAttributeNames = { "#u": "updatedAt" };
+      scanInput.ExpressionAttributeValues = { ":since": state.since };
+    }
+    const res = await args.doc.send(new ScanCommand(scanInput));
     const items = (res.Items ?? []) as Array<Record<string, unknown>>;
     // 한 페이지 안에서는 자산 소유 검증을 병렬화해 wall-clock 단축.
     for (const it of items) {
@@ -784,13 +853,17 @@ export async function migrateAssetUsage(args: {
       } catch (err) {
         console.error("[migrateAssetUsage] CustomIcons 재인덱싱 실패 (무시)", err);
       }
-      return { processedRows: totalRows, nextCursor: null, hasMore: false };
+      // 완료 — 다음 증분이 이어받도록 체크포인트를 이번 실행 시작시각으로 갱신한다.
+      // (실행 중 갱신된 페이지는 since=startedAt 로 다음 증분에서 다시 잡혀 누락되지 않는다.)
+      await writeReindexCheckpoint(args.doc, usageTable, ownerId, state.startedAt);
+      return { processedRows: totalRows, nextCursor: null, hasMore: false, mode };
     }
     if (Date.now() >= deadline) {
       return {
         processedRows: totalRows,
-        nextCursor: encodeCursor(startKey),
+        nextCursor: encodeCursor({ key: startKey, since: state.since, startedAt: state.startedAt }),
         hasMore: true,
+        mode,
       };
     }
   }

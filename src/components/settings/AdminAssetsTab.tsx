@@ -252,37 +252,47 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
     }
   }, []);
 
-  const runMigrate = useCallback(async () => {
-    setMigrating(true);
-    setMigrateNotice("인덱싱 시작…");
-    let totalRows = 0;
-    let cursor: string | null = null;
-    let pass = 0;
-    try {
-      // Lambda 단일 호출 시간 한도(28s) 이내에서 시간-박스로 처리하고 cursor 로 이어 호출.
-      // hasMore=false 가 될 때까지 반복.
-      while (true) {
-        pass += 1;
-        const res = await migrateAssetUsageApi(cursor);
-        totalRows += res.processedRows;
-        setMigrateNotice(`인덱싱 진행 중 — ${totalRows}건 (${pass}회차)`);
-        if (!res.hasMore || !res.nextCursor) break;
-        cursor = res.nextCursor;
-        // 안전 가드 — 무한 루프 방지 (정상이라면 hasMore 가 곧 false).
-        if (pass > 200) {
-          setMigrateNotice(`중단 — pass 한도 초과 (현재까지 ${totalRows}건)`);
-          break;
+  // incremental=true: 마지막 완료 이후 변경된 페이지만 스캔(대규모에서 빠름, 삭제 전 미사용 확인용).
+  //   최초 실행(서버에 체크포인트 없음)이면 서버가 자동으로 전체 스캔으로 폴백하고 mode="full" 을 반환.
+  // incremental=false: 전체 재스캔(유령 usage 정리 등 완전 재구성이 필요할 때).
+  const runMigrate = useCallback(
+    async (incremental: boolean) => {
+      setMigrating(true);
+      setMigrateNotice(incremental ? "증분 인덱싱 시작…" : "전체 인덱싱 시작…");
+      let totalRows = 0;
+      let cursor: string | null = null;
+      let pass = 0;
+      let mode = incremental ? "incremental" : "full";
+      try {
+        // Lambda 단일 호출 시간 한도(28s) 이내에서 시간-박스로 처리하고 cursor 로 이어 호출.
+        // hasMore=false 가 될 때까지 반복.
+        while (true) {
+          pass += 1;
+          const res = await migrateAssetUsageApi(cursor, incremental);
+          totalRows += res.processedRows;
+          mode = res.mode; // 서버가 실제 수행 모드를 알려줌(증분 요청이 전체로 폴백될 수 있음).
+          const label = mode === "incremental" ? "증분" : "전체";
+          setMigrateNotice(`${label} 인덱싱 진행 중 — ${totalRows}건 (${pass}회차)`);
+          if (!res.hasMore || !res.nextCursor) break;
+          cursor = res.nextCursor;
+          // 안전 가드 — 무한 루프 방지 (정상이라면 hasMore 가 곧 false).
+          if (pass > 200) {
+            setMigrateNotice(`중단 — pass 한도 초과 (현재까지 ${totalRows}건)`);
+            break;
+          }
         }
+        const label = mode === "incremental" ? "증분" : "전체";
+        setMigrateNotice(`${label} 인덱싱 완료 — 총 ${totalRows}건의 참조 (${pass}회차)`);
+        // 인덱싱으로 usageCount 가 바뀌므로 캐시를 강제 재로드.
+        await refresh();
+      } catch (err) {
+        setMigrateNotice(`실패 (${totalRows}건까지 처리됨): ${formatError(err)}`);
+      } finally {
+        setMigrating(false);
       }
-      setMigrateNotice(`인덱싱 완료 — 총 ${totalRows}건의 참조 (${pass}회차)`);
-      // 인덱싱으로 usageCount 가 바뀌므로 캐시를 강제 재로드.
-      await refresh();
-    } catch (err) {
-      setMigrateNotice(`실패 (${totalRows}건까지 처리됨): ${formatError(err)}`);
-    } finally {
-      setMigrating(false);
-    }
-  }, [refresh]);
+    },
+    [refresh],
+  );
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -352,13 +362,22 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
         </button>
         <button
           type="button"
-          onClick={() => void runMigrate()}
+          onClick={() => void runMigrate(true)}
           disabled={migrating}
           className="flex h-8 items-center gap-1 rounded border border-zinc-200 bg-white px-2 text-sm hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
-          title="기존 페이지를 스캔해 자산 사용 인덱스를 재구성 (한 번만 실행)"
+          title="마지막 재구성 이후 변경된 페이지만 스캔해 자산 사용 인덱스를 갱신 (미사용 확인용, 빠름). 최초 1회는 자동으로 전체 스캔."
         >
           {migrating ? <Loader2 size={14} className="animate-spin" /> : null}
           인덱스 재구성
+        </button>
+        <button
+          type="button"
+          onClick={() => void runMigrate(false)}
+          disabled={migrating}
+          className="flex h-8 items-center gap-1 rounded border border-zinc-200 bg-white px-2 text-sm text-zinc-500 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+          title="모든 페이지를 다시 스캔해 인덱스를 완전히 재구성 (느림). 유령 usage 정리 등 완전 재구성이 필요할 때."
+        >
+          전체 재구성
         </button>
       </div>
 

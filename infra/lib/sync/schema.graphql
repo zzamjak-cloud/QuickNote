@@ -271,6 +271,8 @@ type MigrateAssetUsageResult {
   nextCursor: String
   """추가 처리할 페이지가 남아 있는지."""
   hasMore: Boolean!
+  """실제 수행된 모드: "incremental"(변경분만) 또는 "full"(전체 스캔)."""
+  mode: String!
 }
 
 type CustomIcon {
@@ -667,7 +669,7 @@ type Mutation {
   replaceAssetRef(input: ReplaceAssetRefInput!): Int!
   """기존 페이지 데이터를 스캔해 AssetUsage 인덱스를 재구성.
   Lambda 타임아웃을 피해 시간-박스 방식으로 동작 — hasMore=true 면 cursor 로 재호출."""
-  migrateAssetUsage(cursor: String): MigrateAssetUsageResult!
+  migrateAssetUsage(cursor: String, incremental: Boolean): MigrateAssetUsageResult!
 }
 
 # ========== Subscription ==========
