@@ -26,6 +26,22 @@ let registration: ServiceWorkerRegistration | null = null;
 let initialized = false;
 const listeners = new Set<Listener>();
 
+// SW 등록 부수효과 정리용 핸들 — onRegisteredSW 가 재호출되어도 중복 누적되지 않도록
+// 이전 타이머/리스너를 먼저 해제한다.
+let updateCheckTimer: ReturnType<typeof setInterval> | null = null;
+let visibilityHandler: (() => void) | null = null;
+
+function teardownUpdateWatchers() {
+  if (updateCheckTimer !== null) {
+    clearInterval(updateCheckTimer);
+    updateCheckTimer = null;
+  }
+  if (visibilityHandler) {
+    document.removeEventListener("visibilitychange", visibilityHandler);
+    visibilityHandler = null;
+  }
+}
+
 // useSyncExternalStore 가 Object.is 로 비교하므로 스냅샷은 캐시하고 변경 시에만 교체한다.
 let snapshot = { needRefresh: false, offlineReady: false, isSupported: !isTauri };
 
@@ -56,16 +72,19 @@ export function initPwa() {
         onRegisteredSW(_swUrl, reg) {
           if (!reg) return;
           registration = reg;
+          // 재등록 콜백 중복 대비: 기존 타이머/리스너를 먼저 정리.
+          teardownUpdateWatchers();
           // 주기 점검: 새 SW 감지 시 onNeedRefresh(모바일 자동 적용 / 데스크톱 배너).
-          window.setInterval(() => {
+          updateCheckTimer = setInterval(() => {
             void reg.update().catch(() => {});
           }, UPDATE_CHECK_INTERVAL_MS);
           // 장시간 열어둔 탭이 포커스 복귀할 때도 1회 점검.
-          document.addEventListener("visibilitychange", () => {
+          visibilityHandler = () => {
             if (document.visibilityState === "visible") {
               void reg.update().catch(() => {});
             }
-          });
+          };
+          document.addEventListener("visibilitychange", visibilityHandler);
         },
       });
     })

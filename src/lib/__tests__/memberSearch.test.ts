@@ -30,5 +30,25 @@ describe("memberSearch", () => {
     ]);
     expect(sorted.map((member) => member.name)).toEqual(["김아름", "양지원", "홍길동"]);
   });
+
+  // 크래시 패밀리 회귀: name/email 은 타입상 string 이지만 런타임에 nullish 가 올 수 있다
+  // (초대 후 미온보딩 멤버 등). 무가드 문자열 메서드 호출이 앱을 죽이지 않아야 한다.
+  it("name/email 이 없어도 검색이 크래시하지 않는다", () => {
+    const member = { name: undefined, email: null } as unknown as {
+      name: string;
+      email?: string | null;
+    };
+    expect(() => matchesMemberSearchQuery(member, "aaa")).not.toThrow();
+    expect(matchesMemberSearchQuery(member, "aaa")).toBe(false);
+    expect(matchesMemberSearchQuery(member, "ㅎㄱ")).toBe(false);
+  });
+
+  it("name 이 없는 항목이 섞여도 정렬이 크래시하지 않는다", () => {
+    const sorted = sortByKoreanName([
+      { name: "홍길동", id: "2" },
+      { name: undefined as unknown as string, id: "1" },
+    ]);
+    expect(sorted).toHaveLength(2);
+  });
 });
 

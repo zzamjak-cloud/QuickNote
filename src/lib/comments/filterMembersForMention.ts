@@ -24,8 +24,8 @@ export function filterWorkspaceMembersForMention(
   return members
     .filter(
       (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.email.toLowerCase().includes(q),
+        (m.name ?? "").toLowerCase().includes(q) ||
+        (m.email ?? "").toLowerCase().includes(q),
     )
     .slice(0, limit)
     .map(toMini);

@@ -18,6 +18,44 @@ import {
   type Member,
 } from "./_auth";
 import type { Tables } from "./member";
+import { cascadeDeletePageAssetUsage } from "./asset";
+
+/**
+ * workspaceId GSI 로 조회되는 위성 테이블의 모든 행을 배치 삭제한다.
+ * keyOf 는 base 테이블의 PK(+SK) 를 반환한다 — GSI 는 항상 base 키를 포함하므로 안전.
+ */
+async function deleteAllByWorkspaceGsi(args: {
+  doc: DynamoDBDocumentClient;
+  tableName: string | undefined;
+  indexName: string;
+  workspaceId: string;
+  keyOf: (item: Record<string, unknown>) => Record<string, unknown>;
+}): Promise<void> {
+  if (!args.tableName) return;
+  const deletes: Array<{ DeleteRequest: { Key: Record<string, unknown> } }> = [];
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const res = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tableName,
+        IndexName: args.indexName,
+        KeyConditionExpression: "workspaceId = :w",
+        ExpressionAttributeValues: { ":w": args.workspaceId },
+        ExclusiveStartKey: startKey,
+      }),
+    );
+    for (const item of res.Items ?? []) deletes.push({ DeleteRequest: { Key: args.keyOf(item) } });
+    startKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (startKey);
+
+  for (let i = 0; i < deletes.length; i += 25) {
+    await args.doc.send(
+      new BatchWriteCommand({
+        RequestItems: { [args.tableName]: deletes.slice(i, i + 25) },
+      }),
+    );
+  }
+}
 
 type AccessLevel = "edit" | "view";
 type AccessSubjectType = "member" | "team" | "everyone";
@@ -403,38 +441,54 @@ export async function deleteWorkspace(args: {
     );
   }
 
+  // 페이지 목록 수집 — AssetUsage(byPage) 정리에 pageId 가 필요하므로 먼저 모은다.
+  const pageIds: string[] = [];
   if (args.tables.Pages) {
-    const pages = await args.doc.send(
-      new QueryCommand({
-        TableName: args.tables.Pages,
-        IndexName: "byWorkspaceAndUpdatedAt",
-        KeyConditionExpression: "workspaceId = :w",
-        ExpressionAttributeValues: { ":w": args.workspaceId },
-      }),
-    );
-    const pageDeletes = (pages.Items ?? []).map((p) => ({
-      DeleteRequest: { Key: { id: p.id } },
-    }));
-    for (let i = 0; i < pageDeletes.length; i += 25) {
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const pages = await args.doc.send(
+        new QueryCommand({
+          TableName: args.tables.Pages,
+          IndexName: "byWorkspaceAndUpdatedAt",
+          KeyConditionExpression: "workspaceId = :w",
+          ExpressionAttributeValues: { ":w": args.workspaceId },
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      for (const p of pages.Items ?? []) {
+        if (typeof p.id === "string") pageIds.push(p.id);
+      }
+      startKey = pages.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (startKey);
+
+    for (let i = 0; i < pageIds.length; i += 25) {
       await args.doc.send(
         new BatchWriteCommand({
-          RequestItems: { [args.tables.Pages]: pageDeletes.slice(i, i + 25) },
+          RequestItems: {
+            [args.tables.Pages]: pageIds
+              .slice(i, i + 25)
+              .map((id) => ({ DeleteRequest: { Key: { id } } })),
+          },
         }),
       );
     }
   }
   if (args.tables.Databases) {
-    const dbs = await args.doc.send(
-      new QueryCommand({
-        TableName: args.tables.Databases,
-        IndexName: "byWorkspaceAndUpdatedAt",
-        KeyConditionExpression: "workspaceId = :w",
-        ExpressionAttributeValues: { ":w": args.workspaceId },
-      }),
-    );
-    const dbDeletes = (dbs.Items ?? []).map((d) => ({
-      DeleteRequest: { Key: { id: d.id } },
-    }));
+    let startKey: Record<string, unknown> | undefined;
+    const dbDeletes: Array<{ DeleteRequest: { Key: Record<string, unknown> } }> = [];
+    do {
+      const dbs = await args.doc.send(
+        new QueryCommand({
+          TableName: args.tables.Databases,
+          IndexName: "byWorkspaceAndUpdatedAt",
+          KeyConditionExpression: "workspaceId = :w",
+          ExpressionAttributeValues: { ":w": args.workspaceId },
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      for (const d of dbs.Items ?? []) dbDeletes.push({ DeleteRequest: { Key: { id: d.id } } });
+      startKey = dbs.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (startKey);
     for (let i = 0; i < dbDeletes.length; i += 25) {
       await args.doc.send(
         new BatchWriteCommand({
@@ -442,6 +496,64 @@ export async function deleteWorkspace(args: {
         }),
       );
     }
+  }
+
+  // 위성 데이터 cascade 정리 — 누락 시 고아 행 축적(스토리지 비용·GC 도달성 스캔 오염).
+  // 각 테이블의 base 키로 삭제(GSI 는 base 키를 항상 포함).
+  await deleteAllByWorkspaceGsi({
+    doc: args.doc,
+    tableName: args.tables.Comments,
+    indexName: "byWorkspaceAndUpdatedAt",
+    workspaceId: args.workspaceId,
+    keyOf: (i) => ({ id: i.id }),
+  });
+  await deleteAllByWorkspaceGsi({
+    doc: args.doc,
+    tableName: args.tables.CustomIcons,
+    indexName: "byWorkspaceAndCreatedAt",
+    workspaceId: args.workspaceId,
+    keyOf: (i) => ({ id: i.id }),
+  });
+  await deleteAllByWorkspaceGsi({
+    doc: args.doc,
+    tableName: args.tables.PageHistory,
+    indexName: "byWorkspaceAndCreatedAt",
+    workspaceId: args.workspaceId,
+    keyOf: (i) => ({ pageId: i.pageId, historyId: i.historyId }),
+  });
+  await deleteAllByWorkspaceGsi({
+    doc: args.doc,
+    tableName: args.tables.DatabaseHistory,
+    indexName: "byWorkspaceAndCreatedAt",
+    workspaceId: args.workspaceId,
+    keyOf: (i) => ({ databaseId: i.databaseId, historyId: i.historyId }),
+  });
+  await deleteAllByWorkspaceGsi({
+    doc: args.doc,
+    tableName: args.tables.Holidays,
+    indexName: "byWorkspace",
+    workspaceId: args.workspaceId,
+    keyOf: (i) => ({ id: i.id, workspaceId: i.workspaceId }),
+  });
+  await deleteAllByWorkspaceGsi({
+    doc: args.doc,
+    tableName: args.tables.Projects,
+    indexName: "byWorkspace",
+    workspaceId: args.workspaceId,
+    keyOf: (i) => ({ id: i.id, workspaceId: i.workspaceId }),
+  });
+  await deleteAllByWorkspaceGsi({
+    doc: args.doc,
+    tableName: args.tables.MmEntries,
+    indexName: "byWorkspaceAndWeek",
+    workspaceId: args.workspaceId,
+    keyOf: (i) => ({ id: i.id, workspaceId: i.workspaceId }),
+  });
+
+  // AssetUsage 는 workspaceId 인덱스가 없어 페이지별(byPage)로 정리한다.
+  // 고아 AssetUsage 는 자산을 계속 "사용 중"으로 보이게 해 GC 가 영구 보존하므로 반드시 제거.
+  for (const pageId of pageIds) {
+    await cascadeDeletePageAssetUsage({ doc: args.doc, tables: args.tables, pageId });
   }
 
   await args.doc.send(

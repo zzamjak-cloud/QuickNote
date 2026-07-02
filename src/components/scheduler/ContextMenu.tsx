@@ -108,7 +108,7 @@ export function ContextMenu({
   );
   const filteredMembers = searchQuery
     ? transferableMembers.filter((member) =>
-        member.name.toLowerCase().includes(searchQuery.toLowerCase()),
+        (member.name ?? "").toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : transferableMembers;
   const normalizedCurrentColor = normalizeColorForCompare(currentColor);

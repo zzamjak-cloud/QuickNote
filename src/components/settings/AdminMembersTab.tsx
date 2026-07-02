@@ -55,9 +55,9 @@ export function AdminMembersTab() {
     return list.filter((m) => {
       const teamInfo = (teamNamesByMemberId.get(m.memberId) ?? []).join(" ").toLowerCase();
       return (
-        m.name.toLowerCase().includes(q) ||
-        m.email.toLowerCase().includes(q) ||
-        m.jobRole.toLowerCase().includes(q) ||
+        (m.name ?? "").toLowerCase().includes(q) ||
+        (m.email ?? "").toLowerCase().includes(q) ||
+        (m.jobRole ?? "").toLowerCase().includes(q) ||
         teamInfo.includes(q)
       );
     });
@@ -68,7 +68,7 @@ export function AdminMembersTab() {
     () =>
       applyFilter(members.filter((m) => m.status === "active"))
         .slice()
-        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+        .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "ko")),
     [members, applyFilter],
   );
 
@@ -76,7 +76,7 @@ export function AdminMembersTab() {
     () =>
       applyFilter(members.filter((m) => m.status === "removed"))
         .slice()
-        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+        .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "ko")),
     [members, applyFilter],
   );
 

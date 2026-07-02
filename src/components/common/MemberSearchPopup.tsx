@@ -57,10 +57,12 @@ export function MemberSearchPopup({
     .filter(
       (m) =>
         !excludedMemberIds.includes(m.memberId) &&
-        (!q || m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q)),
+        (!q ||
+          (m.name ?? "").toLowerCase().includes(q) ||
+          (m.email ?? "").toLowerCase().includes(q)),
     )
     .slice()
-    .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    .sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "ko"));
 
   return createPortal(
     <div

@@ -27,15 +27,16 @@ const CHOSEONG_LIST = [
   "ㅎ",
 ];
 
-function normalizeSearchText(value: string): string {
-  return value.normalize("NFC").toLowerCase();
+function normalizeSearchText(value: string | null | undefined): string {
+  // member.name/email 은 타입상 string 이지만 런타임에 빈값이 올 수 있어 가드한다.
+  return (value ?? "").normalize("NFC").toLowerCase();
 }
 
 function compactSearchText(value: string): string {
   return normalizeSearchText(value).replace(/\s+/g, "");
 }
 
-function toChoseongText(value: string): string {
+function toChoseongText(value: string | null | undefined): string {
   return [...normalizeSearchText(value)]
     .map((char) => {
       const code = char.charCodeAt(0);
@@ -84,6 +85,6 @@ export function matchesMemberSearchQuery(
 }
 
 export function sortByKoreanName<T extends { name: string }>(items: T[]): T[] {
-  return [...items].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  return [...items].sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "ko"));
 }
 
