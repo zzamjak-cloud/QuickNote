@@ -25,7 +25,7 @@ export type QnWsProviderOptions = {
   url: string;
   /** 테스트용 소켓 주입. 미지정 시 전역 WebSocket 사용. */
   socketFactory?: (url: string) => WebSocket;
-  /** keepalive ping 간격(ms). 기본 25초(API GW idle 10분 대비 충분). */
+  /** keepalive ping 간격(ms). 기본 4분(API GW idle 10분 대비 충분). */
   pingIntervalMs?: number;
   /** 최대 재연결 backoff(ms). */
   maxBackoffMs?: number;
@@ -66,7 +66,7 @@ export class QnWsProvider {
     this.url = opts.url;
     this.socketFactory =
       opts.socketFactory ?? ((u: string) => new WebSocket(u));
-    this.pingIntervalMs = opts.pingIntervalMs ?? 25_000;
+    this.pingIntervalMs = opts.pingIntervalMs ?? 240_000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 15_000;
     this.maxReconnectAttempts = opts.maxReconnectAttempts ?? 3;
     this.doc.on("update", this.handleLocalUpdate);
@@ -84,6 +84,9 @@ export class QnWsProvider {
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         this.offline = true;
       }
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.handleVisibilityChange);
     }
   }
 
@@ -208,9 +211,9 @@ export class QnWsProvider {
       Y.applyUpdate(this.doc, msg.update, REMOTE_ORIGIN);
       // sv-reply(서버가 모르는 로컬 delta 업로드)는 연결당 첫 sync 에서만 보낸다.
       // 첫 sync 이후의 편집은 doc update → "update" 메시지로 전송되므로 매번 보낼 필요가 없다.
-      // 매 ping-sync(25초)마다 보내면 stale IDB 잔재가 서버 룸에 반복 append 되어 권위 본문을
-      // 옛 내용으로 오염시킨다(H3). 재연결 시 synced=false 로 리셋되므로, 끊긴 동안의 편집분은
-      // 다음 첫 sync 의 sv-reply 로 정상 업로드된다(오프라인 편집 복구 유지).
+      // hello 재동기화(탭 전면 복귀 등)의 sync 응답마다 보내면 stale IDB 잔재가 서버 룸에 반복
+      // append 되어 권위 본문을 옛 내용으로 오염시킨다(H3). 재연결 시 synced=false 로 리셋되므로,
+      // 끊긴 동안의 편집분은 다음 첫 sync 의 sv-reply 로 정상 업로드된다(오프라인 편집 복구 유지).
       if (!this.synced) {
         const diff = Y.encodeStateAsUpdate(this.doc, msg.sv);
         this.sendMsg({ t: "sv-reply", update: diff });
@@ -235,6 +238,13 @@ export class QnWsProvider {
     this.sendMsg({ t: "update", update });
   };
 
+  // awareness 송신 스로틀 — 커서 이동은 이벤트가 초당 수 회 발생하고, 메시지마다 서버
+  // Lambda 호출 + 룸 fan-out 비용이 든다. 첫 변경은 즉시 보내고(leading edge, 체감 지연 없음)
+  // 쿨다운 동안의 변경은 client id 를 모아 만료 시점에 일괄 전송한다.
+  private static readonly AWARENESS_THROTTLE_MS = 300;
+  private awarenessPending = new Set<number>();
+  private awarenessSendTimer: number | null = null;
+
   private handleAwarenessUpdate = (
     changes: { added: number[]; updated: number[]; removed: number[] },
     origin: unknown,
@@ -242,10 +252,30 @@ export class QnWsProvider {
     if (this.destroyed) return;
     if (origin === REMOTE_ORIGIN) return; // 원격 적용분 echo 방지
     if (!this.awareness) return;
-    const changed = [...changes.added, ...changes.updated, ...changes.removed];
+    for (const id of [...changes.added, ...changes.updated, ...changes.removed]) {
+      this.awarenessPending.add(id);
+    }
+    // 이탈(removed)은 즉시 전송 — 탭 종료 직전에는 트레일링 타이머가 실행될 기회가 없다.
+    if (changes.removed.length > 0) {
+      this.flushAwarenessPending();
+      return;
+    }
+    if (this.awarenessSendTimer !== null) return; // 쿨다운 중 — 만료 시 일괄 전송
+    this.flushAwarenessPending();
+    this.awarenessSendTimer = window.setTimeout(() => {
+      this.awarenessSendTimer = null;
+      this.flushAwarenessPending();
+    }, QnWsProvider.AWARENESS_THROTTLE_MS);
+  };
+
+  // 누적된 awareness 변경(client id)을 한 메시지로 전송한다.
+  private flushAwarenessPending(): void {
+    if (!this.awareness || this.awarenessPending.size === 0) return;
+    const changed = [...this.awarenessPending];
+    this.awarenessPending.clear();
     const u = encodeAwarenessUpdate(this.awareness, changed);
     this.sendMsg({ t: "awareness", update: u });
-  };
+  }
 
   // 탭 닫기/새로고침 직전 — self awareness 제거(handleAwarenessUpdate 가 동기 전송).
   private handleBeforeUnload = (): void => {
@@ -268,6 +298,14 @@ export class QnWsProvider {
     this.detachSocket();
   };
 
+  // 탭 전면 복귀 — 백그라운드 동안 놓친 update 를 hello 재동기화로 보정한다.
+  // synced=true 상태의 sync 응답은 sv-reply 를 다시 보내지 않으므로(H3 가드) 안전하다.
+  private handleVisibilityChange = (): void => {
+    if (this.destroyed || this.offline) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    this.sendMsg({ t: "hello", sv: Y.encodeStateVector(this.doc) });
+  };
+
   // 네트워크 온라인 복귀 — backoff 대기 없이 즉시 재연결한다.
   private handleOnline = (): void => {
     if (this.destroyed) return;
@@ -281,8 +319,11 @@ export class QnWsProvider {
 
   private startPing(): void {
     this.stopPing();
+    // keepalive 는 경량 ping 으로만 보낸다. hello 는 서버가 룸 전체 상태를 로드해 diff 를
+    // 응답하므로(Lambda+DynamoDB 비용) 주기 전송에 쓰지 않는다 — 놓친 update 보정은
+    // 재연결 시 hello + 탭 전면 복귀 시 hello(handleVisibilityChange)가 담당한다.
     this.pingTimer = window.setInterval(() => {
-      this.sendMsg({ t: "hello", sv: Y.encodeStateVector(this.doc) });
+      this.sendMsg({ t: "ping" });
     }, this.pingIntervalMs);
   }
   private stopPing(): void {
@@ -323,9 +364,17 @@ export class QnWsProvider {
       window.removeEventListener("online", this.handleOnline);
       window.removeEventListener("offline", this.handleOffline);
     }
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.handleVisibilityChange);
+    }
     this.destroyed = true;
     this.doc.off("update", this.handleLocalUpdate);
     this.stopPing();
+    if (this.awarenessSendTimer !== null) {
+      window.clearTimeout(this.awarenessSendTimer);
+      this.awarenessSendTimer = null;
+    }
+    this.awarenessPending.clear();
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

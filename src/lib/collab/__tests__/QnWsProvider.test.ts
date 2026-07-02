@@ -52,6 +52,44 @@ describe("QnWsProvider", () => {
     expect(JSON.parse(socket.sent[0]).t).toBe("hello");
   });
 
+  it("keepalive 타이머는 hello 가 아닌 경량 ping 을 전송한다", () => {
+    vi.useFakeTimers();
+    try {
+      const { socket, provider } = makeProvider();
+      provider.connect();
+      socket.open();
+      socket.sent.length = 0;
+      vi.advanceTimersByTime(240_000);
+      const msgs = socket.sent.map((s) => JSON.parse(s));
+      expect(msgs.filter((m) => m.t === "ping").length).toBe(1);
+      expect(msgs.filter((m) => m.t === "hello").length).toBe(0);
+      provider.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("탭 전면 복귀(visibilitychange) 시 hello 재동기화를 보낸다", () => {
+    const { socket, provider } = makeProvider();
+    provider.connect();
+    socket.open();
+    socket.sent.length = 0;
+    document.dispatchEvent(new Event("visibilitychange")); // jsdom 기본 visibilityState=visible
+    const hellos = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "hello");
+    expect(hellos.length).toBe(1);
+    provider.destroy();
+  });
+
+  it("destroy 후에는 visibilitychange 에 hello 를 보내지 않는다", () => {
+    const { socket, provider } = makeProvider();
+    provider.connect();
+    socket.open();
+    provider.destroy();
+    socket.sent.length = 0;
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(socket.sent.length).toBe(0);
+  });
+
   it("sync 수신 시 applyUpdate 후 sv-reply 를 보내고 synced 콜백 호출", () => {
     const { socket, provider, doc } = makeProvider();
     const onSynced = vi.fn();
@@ -143,6 +181,28 @@ describe("QnWsProvider", () => {
     awareness!.setLocalStateField("user", { name: "A", color: "#2563eb" });
     const aw = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "awareness");
     expect(aw.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("연속 awareness 변경은 스로틀되어 즉시 1건 + 쿨다운 후 1건만 전송된다", () => {
+    vi.useFakeTimers();
+    try {
+      const { socket, provider, awareness } = makeProvider(true);
+      provider.connect();
+      socket.open();
+      socket.sent.length = 0;
+      // 커서 이동 폭주 시뮬레이션 — leading edge 1건 외에는 쿨다운에 묶여야 한다.
+      for (let i = 0; i < 10; i += 1) {
+        awareness!.setLocalStateField("cursor", { x: i });
+      }
+      const sentDuringBurst = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "awareness");
+      expect(sentDuringBurst.length).toBe(1);
+      vi.advanceTimersByTime(300);
+      const sentAfterCooldown = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "awareness");
+      expect(sentAfterCooldown.length).toBe(2);
+      provider.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("원격 awareness 수신분은 적용하고 다시 전송하지 않는다", () => {

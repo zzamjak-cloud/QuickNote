@@ -23,6 +23,10 @@ describe("protocol", () => {
     expect(msg?.t === "update" && Array.from(msg.update)).toEqual([9]);
   });
 
+  it("ping 메시지 파싱", () => {
+    expect(parseClientMessage(JSON.stringify({ t: "ping" }))).toEqual({ t: "ping" });
+  });
+
   it("잘못된 메시지는 null", () => {
     expect(parseClientMessage("{not json")).toBeNull();
     expect(parseClientMessage(JSON.stringify({ t: "bogus" }))).toBeNull();

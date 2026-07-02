@@ -30,6 +30,12 @@ const CONNECTIONS_TABLE = process.env.CONNECTIONS_TABLE!;
 
 // WebSocket $default(sync) 핸들러: 클라이언트 메시지 파싱 후 상태 동기화 또는 브로드캐스트 수행
 export const handler: APIGatewayProxyHandler = async (event) => {
+  // keepalive ping — 연결 유지(idle timeout 연장)만 목적이므로 커넥션 조회·상태 로드 없이
+  // 즉시 응답한다. hello 로 keepalive 하면 25초마다 룸 전체 상태 로드가 발생해 비용이 크다.
+  if (parseClientMessage(event.body ?? "")?.t === "ping") {
+    return { statusCode: 200, body: "pong" };
+  }
+
   const connectionId = event.requestContext.connectionId!;
   const domain = event.requestContext.domainName!;
   const stage = event.requestContext.stage!;
@@ -100,6 +106,9 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     await post(connectionId, reply);
     return { statusCode: 200, body: "synced" };
   }
+
+  // 상단 fast-path 가 처리하지만, chunk 로 도착한 ping 도 동일하게 응답한다(타입 내로잉 겸용).
+  if (msg.t === "ping") return { statusCode: 200, body: "pong" };
 
   if (isAwarenessMessage(msg)) {
     // 휘발성: 영속 없이 같은 룸 피어로 릴레이만 한다.

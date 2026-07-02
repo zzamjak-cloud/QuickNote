@@ -10,6 +10,7 @@
 
 export type ClientMessage =
   | { t: "hello"; sv: Uint8Array }
+  | { t: "ping" } // keepalive 전용 — 서버가 상태 로드 없이 즉시 응답
   | { t: "update"; update: Uint8Array }
   | { t: "sv-reply"; update: Uint8Array }
   | { t: "awareness"; update: Uint8Array };
@@ -37,6 +38,7 @@ export function decodeBytes(b64: string): Uint8Array {
 // 클라이언트→서버 메시지를 JSON 문자열로 직렬화
 export function serializeClientMessage(msg: ClientMessage): string {
   if (msg.t === "hello") return JSON.stringify({ t: "hello", sv: encodeBytes(msg.sv) });
+  if (msg.t === "ping") return JSON.stringify({ t: "ping" });
   return JSON.stringify({ t: msg.t, update: encodeBytes(msg.update) });
 }
 

@@ -8,6 +8,7 @@ import { webcrypto } from "node:crypto";
 
 export type ClientMessage =
   | { t: "hello"; sv: Uint8Array }
+  | { t: "ping" } // keepalive 전용 — 상태 로드 없이 즉시 응답
   | { t: "update"; update: Uint8Array }
   | { t: "sv-reply"; update: Uint8Array }
   | { t: "awareness"; update: Uint8Array };
@@ -34,6 +35,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
   if (!obj || typeof obj !== "object") return null;
   const o = obj as Record<string, unknown>;
   if (o.t === "hello" && typeof o.sv === "string") return { t: "hello", sv: decodeBytes(o.sv) };
+  if (o.t === "ping") return { t: "ping" };
   if (o.t === "update" && typeof o.update === "string") return { t: "update", update: decodeBytes(o.update) };
   if (o.t === "sv-reply" && typeof o.update === "string") return { t: "sv-reply", update: decodeBytes(o.update) };
   if (o.t === "awareness" && typeof o.update === "string") return { t: "awareness", update: decodeBytes(o.update) };

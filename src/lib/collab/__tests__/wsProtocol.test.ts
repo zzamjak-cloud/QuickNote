@@ -23,6 +23,10 @@ describe("wsProtocol", () => {
     expect(Array.from(decodeBytes(obj.sv))).toEqual([1, 2]);
   });
 
+  it("ping 메시지 직렬화", () => {
+    expect(JSON.parse(serializeClientMessage({ t: "ping" }))).toEqual({ t: "ping" });
+  });
+
   it("update / sv-reply 직렬화", () => {
     const u = new Uint8Array([9, 8, 7]);
     expect(JSON.parse(serializeClientMessage({ t: "update", update: u })).t).toBe("update");

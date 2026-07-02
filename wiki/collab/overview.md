@@ -18,6 +18,7 @@ room = "<epoch>:<pageId>" / "db:<epoch>:<dbId>"  (epoch 기본값 v3, env VITE_C
 [서버 — RealtimeCollabStack (API GW WebSocket)]
 connect.ts  : Cognito 토큰 검증 + parseRoom(room.ts, epoch 솔트 제거) + 워크스페이스 view 인가
 sync.ts     : hello→diff 응답, update 영속·fan-out. db: 룸은 빈 상태일 때 서버 권위 dbSeed
+              ping→즉시 pong(상태 로드 없음) — keepalive 전용(2026-07-03 비용 절감)
 disconnect.ts
 테이블: {env}quicknote-rt-connections(TTL) / rt-ydoc(스냅샷) / rt-ydoc-updates(로그, 50건 초과 압축)
 ⚠ rt-ydoc/-updates 는 TTL 없음 — 룸 상태는 영구 보존된다(epoch 격리의 이유)
@@ -141,7 +142,7 @@ stale SW = stale epoch — 배포 정합은 [collab-live-deploy-checklist §1.8]
 | `src/lib/collab/useCollabSession.ts` | 페이지 세션(Y.Doc·IDB·materialize·synced 게이트) |
 | `src/lib/collab/useDatabaseCollabSession.ts` | DB 구조 세션 |
 | `src/lib/collab/yjsDoc.ts` | 시드(buildSeedUpdate)·빈/placeholder 판정·JSON↔Y 변환 |
-| `src/lib/collab/QnWsProvider.ts` | WS 프로토콜(hello/sync/update/awareness) + 송신 청킹·수신 재조립·CONNECTING 소켓 cleanup |
+| `src/lib/collab/QnWsProvider.ts` | WS 프로토콜(hello/ping/sync/update/awareness) + 송신 청킹·수신 재조립·CONNECTING 소켓 cleanup. keepalive 는 경량 ping(4분)·hello 는 연결/재연결/탭 전면 복귀 시만(서버 상태 로드 비용) |
 | `src/lib/collab/wsProtocol.ts` | 직렬화(base64+JSON) + `chunk` 분할/재조립(`CHUNK_THRESHOLD=28KB`) |
 | `infra/lambda/realtime/protocol.ts` | 서버 직렬화 + 청킹(클라와 바이트 계약 일치) |
 | `infra/lambda/realtime/chunks.ts` | 서버 수신 chunk 재조립 버퍼(rt-chunks, TTL 60s) |
