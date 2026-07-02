@@ -24,6 +24,7 @@ import {
   PaintBucket,
   Pilcrow,
   Trash2,
+  Unlink,
 } from "lucide-react";
 import {
   CALLOUT_COLOR_CHIP_PRESETS,
@@ -87,6 +88,7 @@ import {
   type LinkBlockMode,
 } from "../../lib/editor/linkBlockConvert";
 import { isTrustedYoutubeInput } from "../../lib/safeUrl";
+import { unbindFlowchartSync } from "../../lib/flowchart/unbindSync";
 
 
 type Props = {
@@ -669,6 +671,24 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
+  // 플로우차트 동기화 해제 — 복제로 공유되던 차트를 현재 상태의 독립 차트로 분리한다.
+  // 새 flowchartId 를 발급하고 버전 히스토리를 "지금"을 버전 1로 새로 시작한다.
+  const unbindFlowchart = () => {
+    if (!editor || !hover) return;
+    const { newFlowchartId, serializedData } = unbindFlowchartSync(
+      hover.node.attrs as { flowchartId?: string; data?: string; title?: string },
+    );
+    editor
+      .chain()
+      .setNodeSelection(hover.blockStart)
+      .updateAttributes("flowchartBlock", {
+        flowchartId: newFlowchartId,
+        data: serializedData,
+      })
+      .run();
+    setMenuOpen(false);
+  };
+
   const openBlockCommentAtStart = (
     e: ReactMouseEvent<HTMLElement>,
     blockStart: number,
@@ -798,6 +818,7 @@ export function BlockHandles({
     isColumnLayout,
     isTwoColumnLayout,
     isToggleBlock,
+    isFlowchartBlock,
     isTable,
     tableHeaderRowActive,
     tableHeaderColActive,
@@ -1375,6 +1396,18 @@ export function BlockHandles({
                   <Copy size={14} />
                   복제
                 </button>
+
+                {/* 플로우차트 동기화 해제 — 현재 상태를 독립 차트로 분리 */}
+                {isFlowchartBlock && (
+                  <button
+                    type="button"
+                    onClick={unbindFlowchart}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <Unlink size={14} />
+                    차트 동기화 해제
+                  </button>
+                )}
 
                 {/* DB 인라인 보기로 변경 */}
                 {isDatabaseFullPage && (

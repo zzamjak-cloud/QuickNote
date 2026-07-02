@@ -51,6 +51,7 @@ FlowchartRecord = { id, workspaceId, title, data, updatedAt(epoch ms), deletedAt
 - 블록 attrs 의 `flowchartId` 가 공유 자원을 가리킨다. 데이터 권위는 **`flowchartStore`(→ 서버)**, 인라인 `data` 는 시드/오프라인 스냅샷.
 - **같은 기기**: 같은 `flowchartId` 를 쓰는 모든 블록이 `flowchartStore` 를 구독 → 한 곳 수정 시 전부 즉시 반영.
 - **페이지 복제**: 클론된 doc 이 `flowchartId` 를 그대로 유지(`duplicateActions` 가 인라인 attr 미-remap) → 복제본끼리 공유·동기화. **복제=독립이 아니라 공유**가 의도된 동작이다.
+- **동기화 해제**(`unbindFlowchartSync`): 블록 드래그 핸들 메뉴 "차트 동기화 해제" → 현재 상태를 새 `flowchartId` 독립 자원으로 분리(새 레코드 upsert + 서버 push). 원본·다른 복제본은 계속 공유되고 이 블록만 떨어져 나온다. **버전 히스토리는 해제 순간을 버전 1로 새로 시작**(원본 히스토리 미승계). 기존 복제→계속 공유 동작은 그대로 유지.
 - **크로스 기기**: 블록 마운트 시 `fetchFlowchartApi`→`applyRemote`(서버 최신본 병합), 저장 시 `pushFlowchartApi`(1.5s 디바운스). LWW: `updatedAt`(서버 ISO ↔ 클라 epoch ms 경계 변환).
 - **마이그레이션**: 레거시(인라인 전용) 블록은 마운트 시 `flowchartId` 발급 + 인라인 데이터를 store 에 시드(`seedIfAbsent`).
 - 로컬 캐싱 = **IndexedDB**(`zustandStorage`→`webStorage`). localStorage 아님.
