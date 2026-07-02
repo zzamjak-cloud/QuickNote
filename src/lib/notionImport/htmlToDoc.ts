@@ -353,7 +353,7 @@ function blocksFromContainerChildren(
         return;
       }
       if (tag === "aside") {
-        out.push(calloutFromAside(node));
+        out.push(calloutFromAside(node, options));
         return;
       }
       if (tag === "figure" && node.classList.contains("callout")) {
@@ -564,11 +564,13 @@ function calloutBodyBlocks(
   return blocksFromContainerChildren(container, blockColor, blockToken, options);
 }
 
-function calloutFromAside(aside: HTMLElement): JSONContent {
+function calloutFromAside(aside: HTMLElement, options?: HtmlToDocOptions): JSONContent {
   const classColor = parseColorFromClass(aside.className);
   const blockColor = parseColorFromStyle(aside.getAttribute("style")) ?? classColor?.css ?? null;
   const blockToken = classColor?.token ?? null;
-  const blocks = calloutBodyBlocks(aside, blockColor, blockToken);
+  // options 를 반드시 본문 변환에 전달해야 한다 — 누락 시 aside 콜아웃 내부 이미지/미디어/
+  // 페이지멘션이 리졸버 없이 변환돼 원본 노션 상대경로로 남고(업로드된 자산과 미연결) 404 가 된다.
+  const blocks = calloutBodyBlocks(aside, blockColor, blockToken, options);
   return {
     type: "callout",
     attrs: { preset: "info" },
@@ -1115,7 +1117,7 @@ function notionHtmlToDocInternal(html: string | Document, options?: HtmlToDocOpt
       continue;
     }
     if (tag === "aside") {
-      blocks.push(calloutFromAside(el));
+      blocks.push(calloutFromAside(el, options));
       continue;
     }
     if (tag === "figure" && el.classList.contains("callout")) {
