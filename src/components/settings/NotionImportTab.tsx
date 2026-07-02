@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NotionZipPreview } from "../../lib/notionImport/zipParser";
+import { notionImportDebug } from "../../lib/notionImport/debugLog";
 import { detectCsvDbPairsRecursive } from "../../lib/notionImport/csvFolderImporter";
 import {
   scanNotionFolder,
@@ -657,8 +658,8 @@ export function NotionImportTab() {
       // 1페이지씩 순차 처리: 컨텐츠 로드 → 에셋 업로드 → 문서 변환 → 메모리 해제
       const diagImportMem = (label: string) => {
         const m = (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
-        if (m) console.log(`[임포트진단] ${label} | 힙 ${(m.usedJSHeapSize / 1048576).toFixed(0)}MB / 한도 ${(m.jsHeapSizeLimit / 1048576).toFixed(0)}MB`);
-        else console.log(`[임포트진단] ${label}`);
+        if (m) notionImportDebug(`[임포트진단] ${label} | 힙 ${(m.usedJSHeapSize / 1048576).toFixed(0)}MB / 한도 ${(m.jsHeapSizeLimit / 1048576).toFixed(0)}MB`);
+        else notionImportDebug(`[임포트진단] ${label}`);
       };
       diagImportMem(`시작 — 서브트리 ${subtreePaths.length}페이지`);
       for (let idx = 0; idx < subtreePaths.length; idx += 1) {

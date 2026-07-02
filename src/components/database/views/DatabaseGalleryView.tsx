@@ -254,6 +254,7 @@ const GalleryCard = memo(function GalleryCard({
           cell={row.cells[coverColumn?.id ?? ""]}
           pageDoc={pageDoc}
           overrideSrc={coverSrcOverride}
+          alt={row.title || undefined}
         />
         <button
           ref={pickerBtnRef}
@@ -369,7 +370,7 @@ function CoverImagePickerThumb({
       className="aspect-video overflow-hidden rounded border border-zinc-200 hover:ring-2 hover:ring-blue-400 dark:border-zinc-700"
     >
       {url ? (
-        <img src={url} alt="" className="h-full w-full object-cover" />
+        <img src={url} alt="" loading="lazy" className="h-full w-full object-cover" />
       ) : (
         <span className="flex h-full w-full items-center justify-center bg-zinc-100 text-[10px] text-zinc-400 dark:bg-zinc-800">
           로딩
@@ -384,11 +385,13 @@ function CoverImage({
   cell,
   pageDoc,
   overrideSrc,
+  alt,
 }: {
   column?: ColumnDef;
   cell: import("../../../types/database").CellValue;
   pageDoc?: JSONContent;
   overrideSrc?: string;
+  alt?: string;
 }) {
   const [src, setSrc] = useState<string | null>(null);
   const { url: resolvedSrc } = useImageUrl(src);
@@ -476,7 +479,8 @@ function CoverImage({
   return (
     <img
       src={resolvedSrc}
-      alt=""
+      alt={alt ? `${alt} 커버 이미지` : ""}
+      loading="lazy"
       onError={() => {
         if (fallbackSrc && src !== fallbackSrc) setSrc(fallbackSrc);
       }}

@@ -955,6 +955,7 @@ export function BlockHandles({
               onDragStart={isMobile ? undefined : onGripDragStart}
               onDragEnd={isMobile ? undefined : onGripDragEnd}
               onClick={onGripClick}
+              aria-label="블록 메뉴"
               title={isMobile ? "블록 메뉴" : "클릭: 메뉴 | 드래그: 블록 이동"}
               className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-white/90 text-zinc-500 shadow-sm ring-1 ring-zinc-200/80 hover:bg-zinc-50 hover:text-zinc-800 dark:bg-zinc-900/90 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${POINTER_PRESS_FEEDBACK_CLASS}`}
             >

@@ -89,6 +89,7 @@ function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) 
             <img
               src={attrs.imageUrl}
               alt=""
+              loading="lazy"
               className="h-full min-h-[104px] w-full object-cover"
               loading="lazy"
               referrerPolicy="no-referrer"

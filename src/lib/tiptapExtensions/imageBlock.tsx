@@ -85,6 +85,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
         <img
           src={url}
           alt={attrs.alt ?? ""}
+          loading="lazy"
           width={attrs.width ?? undefined}
           height={attrs.height ?? undefined}
           className="block h-auto"
