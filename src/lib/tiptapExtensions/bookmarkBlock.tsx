@@ -91,7 +91,6 @@ function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) 
               alt=""
               loading="lazy"
               className="h-full min-h-[104px] w-full object-cover"
-              loading="lazy"
               referrerPolicy="no-referrer"
             />
           </span>

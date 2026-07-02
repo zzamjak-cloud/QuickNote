@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ChevronDown,
   Plus,
+  MoreHorizontal,
   Trash2,
   Check,
   ArrowUpToLine,
@@ -313,6 +314,21 @@ const PageListItemInner = function PageListItem({
             {node.title || "제목 없음"}
           </button>
         )}
+        {/* 페이지 메뉴 — 우클릭 대체. 터치 기기(우클릭 불가)에서 상시 노출, 데스크톱은 hover. */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenuPosition({ x: r.right, y: r.bottom });
+          }}
+          className="text-zinc-400 opacity-100 transition hover:text-zinc-900 md:opacity-0 md:group-hover:opacity-100 dark:hover:text-zinc-100"
+          style={{ cursor: "inherit" }}
+          aria-label="페이지 메뉴"
+          title="페이지 메뉴"
+        >
+          <MoreHorizontal size={14} />
+        </button>
         <button
           type="button"
           onClick={(e) => {
@@ -320,7 +336,7 @@ const PageListItemInner = function PageListItem({
             createPage("새 페이지", node.id);
             setExpanded(node.id, true);
           }}
-          className="text-zinc-400 opacity-0 transition hover:text-zinc-900 group-hover:opacity-100 dark:hover:text-zinc-100"
+          className="text-zinc-400 opacity-100 transition hover:text-zinc-900 md:opacity-0 md:group-hover:opacity-100 dark:hover:text-zinc-100"
           style={{ cursor: "inherit" }}
           aria-label="하위 페이지 추가"
           title="하위 페이지 추가"
