@@ -806,8 +806,9 @@ export function response(ctx) {
     imagesBucket.grantRead(gcFn);
 
     new events.Rule(this, "ImageGcSchedule", {
-      // UTC 18:00 = KST 03:00
-      schedule: events.Schedule.cron({ minute: "0", hour: "18" }),
+      // UTC 18:00 = KST 03:00, 주 1회(일→월 새벽). report-only 리포트 용도라 매일 돌릴
+      // 필요가 없고, 매 실행이 Pages(doc·dbCells)+히스토리 2테이블 풀스캔이라 비용이 크다.
+      schedule: events.Schedule.cron({ minute: "0", hour: "18", weekDay: "SUN" }),
       targets: [new eventsTargets.LambdaFunction(gcFn)],
     });
 
