@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import * as Y from "yjs";
 import { Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import { QnWsProvider } from "../QnWsProvider";
-import { encodeBytes, splitMessage, newMsgId } from "../wsProtocol";
+import { encodeBytes, decodeBytes, splitMessage, newMsgId } from "../wsProtocol";
 
 // 최소 가짜 WebSocket — provider 가 기대하는 인터페이스만 구현.
 class FakeSocket {
@@ -136,6 +136,52 @@ describe("QnWsProvider", () => {
     doc.getText("t").insert(0, "x");
     const updates = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "update");
     expect(updates.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("연속 편집은 배칭되어 즉시 1건 + 쿨다운 후 병합 1건만 전송된다", () => {
+    vi.useFakeTimers();
+    try {
+      const { socket, provider, doc } = makeProvider();
+      provider.connect();
+      socket.open();
+      socket.sent.length = 0;
+      // 타이핑 폭주 시뮬레이션 — leading edge 1건 외에는 쿨다운에 묶여야 한다.
+      for (let i = 0; i < 10; i += 1) {
+        doc.getText("t").insert(i, "x");
+      }
+      const burst = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "update");
+      expect(burst.length).toBe(1);
+      vi.advanceTimersByTime(250);
+      const after = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "update");
+      expect(after.length).toBe(2);
+      // 병합 update 를 적용하면 원본과 동일해야 한다(유실 없음).
+      const other = new Y.Doc();
+      for (const m of after) Y.applyUpdate(other, decodeBytes(m.update));
+      expect(other.getText("t").toString()).toBe(doc.getText("t").toString());
+      provider.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("destroy 는 배칭 중인 편집분을 flush 한다(페이지 이탈 유실 방지)", () => {
+    vi.useFakeTimers();
+    try {
+      const { socket, provider, doc } = makeProvider();
+      provider.connect();
+      socket.open();
+      socket.sent.length = 0;
+      doc.getText("t").insert(0, "a"); // leading edge 전송
+      doc.getText("t").insert(1, "b"); // 쿨다운 버퍼
+      provider.destroy(); // 타이머 만료 전 이탈 — flush 되어야 한다
+      const updates = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "update");
+      expect(updates.length).toBe(2);
+      const other = new Y.Doc();
+      for (const m of updates) Y.applyUpdate(other, decodeBytes(m.update));
+      expect(other.getText("t").toString()).toBe("ab");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("서버 update 수신분은 다시 서버로 echo 하지 않는다", () => {

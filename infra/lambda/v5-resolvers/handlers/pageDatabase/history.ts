@@ -66,6 +66,14 @@ type PagePatchOp = {
   value?: unknown;
 };
 
+// 히스토리 보존 기간 — DynamoDB TTL(expiresAt)이 지난 버전을 자동 삭제한다(삭제 무과금).
+// 버전마다 전체 snapshot 을 보유해 무한 성장하므로 보존 기간으로 스토리지를 억제한다.
+// ⚠ expiresAt 은 반드시 epoch **초**(밀리초 아님) — purgeAt 과 동일 규칙.
+const HISTORY_RETENTION_DAYS = 180;
+function historyExpiresAtSec(nowMs: number): number {
+  return Math.floor(nowMs / 1000) + HISTORY_RETENTION_DAYS * 24 * 60 * 60;
+}
+
 export function normalizePageSnapshot(item: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of PAGE_HISTORY_FIELDS) {
@@ -334,6 +342,7 @@ export async function recordPageHistory(args: {
           createdAt: nowIso,
           createdByMemberId: args.caller.memberId,
           createdByName: args.caller.name,
+          expiresAt: historyExpiresAtSec(nowMs),
         },
       }),
     );
@@ -373,6 +382,7 @@ export async function recordPageHistory(args: {
           // 세션 최종 편집자(= Yjs lastEditedBy 와 동일 소스인 upsert caller)로 갱신
           createdByMemberId: args.caller.memberId,
           createdByName: args.caller.name,
+          expiresAt: historyExpiresAtSec(nowMs), // 세션 갱신 시 보존 기간도 연장
         },
       }),
     );
@@ -399,6 +409,7 @@ export async function recordPageHistory(args: {
         createdAt: nowIso,
         createdByMemberId: args.caller.memberId,
         createdByName: args.caller.name,
+        expiresAt: historyExpiresAtSec(nowMs),
       },
     }),
   );
@@ -422,7 +433,8 @@ export async function recordPageDeleteHistory(args: {
     typeof args.deleted.databaseId === "string" && args.deleted.databaseId
       ? args.deleted.databaseId
       : null;
-  const createdAt = new Date().toISOString();
+  const nowMs = Date.now();
+  const createdAt = new Date(nowMs).toISOString();
   const deletedAt =
     typeof args.deleted.deletedAt === "string" ? args.deleted.deletedAt : createdAt;
   await args.doc.send(
@@ -438,6 +450,7 @@ export async function recordPageDeleteHistory(args: {
         createdAt,
         createdByMemberId: args.caller.memberId,
         createdByName: args.caller.name,
+        expiresAt: historyExpiresAtSec(nowMs),
       },
     }),
   );
@@ -489,6 +502,7 @@ export async function recordDatabaseHistory(args: {
           createdAt: nowIso,
           createdByMemberId: args.caller.memberId,
           createdByName: args.caller.name,
+          expiresAt: historyExpiresAtSec(nowMs),
         },
       }),
     );
@@ -534,6 +548,7 @@ export async function recordDatabaseHistory(args: {
           contributors: mergeContributors(latest.contributors, caller),
           createdByMemberId: args.caller.memberId,
           createdByName: args.caller.name,
+          expiresAt: historyExpiresAtSec(nowMs), // 세션 갱신 시 보존 기간도 연장
         },
       }),
     );
@@ -560,6 +575,7 @@ export async function recordDatabaseHistory(args: {
         createdAt: nowIso,
         createdByMemberId: args.caller.memberId,
         createdByName: args.caller.name,
+        expiresAt: historyExpiresAtSec(nowMs),
       },
     }),
   );

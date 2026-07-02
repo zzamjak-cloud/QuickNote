@@ -232,11 +232,43 @@ export class QnWsProvider {
     }
   }
 
+  // 로컬 update 송신 배칭 — 타이핑은 키 입력마다 Y update 가 발생하고, 메시지마다 서버
+  // Lambda 호출 + DDB append + 룸 fan-out 비용이 든다. 첫 변경은 즉시 보내고(leading edge)
+  // 쿨다운 동안의 변경은 Y.mergeUpdates 로 병합해 만료 시점에 한 메시지로 보낸다.
+  // 연결이 끊기면 버퍼는 폐기한다 — 재연결 첫 sync 의 sv-reply(doc 전체 diff)가 복구한다.
+  private static readonly UPDATE_BATCH_MS = 250;
+  private updateBuf: Uint8Array[] = [];
+  private updateFlushTimer: number | null = null;
+
   private handleLocalUpdate = (update: Uint8Array, origin: unknown): void => {
     if (this.destroyed) return;
     if (origin === REMOTE_ORIGIN) return;
-    this.sendMsg({ t: "update", update });
+    this.updateBuf.push(update);
+    if (this.updateFlushTimer !== null) return; // 쿨다운 중 — 만료 시 병합 전송
+    this.flushPendingUpdates();
+    this.updateFlushTimer = window.setTimeout(() => {
+      this.updateFlushTimer = null;
+      this.flushPendingUpdates();
+    }, QnWsProvider.UPDATE_BATCH_MS);
   };
+
+  // 버퍼된 로컬 update 를 병합해 한 메시지로 전송한다.
+  private flushPendingUpdates(): void {
+    if (this.updateBuf.length === 0) return;
+    const merged =
+      this.updateBuf.length === 1 ? this.updateBuf[0]! : Y.mergeUpdates(this.updateBuf);
+    this.updateBuf = [];
+    this.sendMsg({ t: "update", update: merged });
+  }
+
+  // 배칭 버퍼·타이머를 폐기한다(연결 단절 시 — sv-reply 복구 경로가 있어 안전).
+  private discardPendingUpdates(): void {
+    if (this.updateFlushTimer !== null) {
+      window.clearTimeout(this.updateFlushTimer);
+      this.updateFlushTimer = null;
+    }
+    this.updateBuf = [];
+  }
 
   // awareness 송신 스로틀 — 커서 이동은 이벤트가 초당 수 회 발생하고, 메시지마다 서버
   // Lambda 호출 + 룸 fan-out 비용이 든다. 첫 변경은 즉시 보내고(leading edge, 체감 지연 없음)
@@ -277,8 +309,10 @@ export class QnWsProvider {
     this.sendMsg({ t: "awareness", update: u });
   }
 
-  // 탭 닫기/새로고침 직전 — self awareness 제거(handleAwarenessUpdate 가 동기 전송).
+  // 탭 닫기/새로고침 직전 — 배칭 중인 편집분을 먼저 밀어내고 self awareness 를 제거한다
+  // (handleAwarenessUpdate 가 동기 전송).
   private handleBeforeUnload = (): void => {
+    this.flushPendingUpdates();
     if (this.awareness) {
       removeAwarenessStates(this.awareness, [this.doc.clientID], "window-unload");
     }
@@ -292,6 +326,7 @@ export class QnWsProvider {
       this.reconnectTimer = null;
     }
     this.stopPing();
+    this.discardPendingUpdates(); // 온라인 복귀 후 첫 sync 의 sv-reply 가 복구
     this.emit("status", "offline" as StatusValue);
     this.synced = false;
     this.chunkBuf.clear();
@@ -335,6 +370,8 @@ export class QnWsProvider {
 
   private handleClose(): void {
     this.stopPing();
+    // 끊긴 동안의 배칭 버퍼는 폐기 — 재연결 첫 sync 의 sv-reply 가 doc 전체 diff 로 복구한다.
+    this.discardPendingUpdates();
     this.ws = null;
     this.synced = false;
     // 끊긴 연결의 미완성 chunk 는 버린다(재연결 시 처음부터 다시 받음).
@@ -352,6 +389,8 @@ export class QnWsProvider {
   }
 
   destroy(): void {
+    // 페이지 이탈 등 정상 종료: 배칭 중인 편집분을 먼저 밀어낸다.
+    this.flushPendingUpdates();
     // 정상 이탈: self awareness 제거를 피어에 알린다(handleAwarenessUpdate 가 전송).
     if (this.awareness) {
       removeAwarenessStates(this.awareness, [this.doc.clientID], "local");
@@ -370,6 +409,7 @@ export class QnWsProvider {
     this.destroyed = true;
     this.doc.off("update", this.handleLocalUpdate);
     this.stopPing();
+    this.discardPendingUpdates();
     if (this.awarenessSendTimer !== null) {
       window.clearTimeout(this.awarenessSendTimer);
       this.awarenessSendTimer = null;

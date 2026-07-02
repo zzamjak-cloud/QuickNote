@@ -463,6 +463,8 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "historyId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      // 버전 보존 기간(180일) — recordPageHistory 가 기록하는 expiresAt(epoch 초) 기준 자동 삭제.
+      timeToLiveAttribute: "expiresAt",
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     pageHistoryTable.addGlobalSecondaryIndex({
@@ -487,6 +489,8 @@ export class QuicknoteSyncStack extends cdk.Stack {
       sortKey: { name: "historyId", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      // 버전 보존 기간(180일) — recordDatabaseHistory 가 기록하는 expiresAt(epoch 초) 기준 자동 삭제.
+      timeToLiveAttribute: "expiresAt",
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
     databaseHistoryTable.addGlobalSecondaryIndex({

@@ -142,7 +142,7 @@ stale SW = stale epoch — 배포 정합은 [collab-live-deploy-checklist §1.8]
 | `src/lib/collab/useCollabSession.ts` | 페이지 세션(Y.Doc·IDB·materialize·synced 게이트) |
 | `src/lib/collab/useDatabaseCollabSession.ts` | DB 구조 세션 |
 | `src/lib/collab/yjsDoc.ts` | 시드(buildSeedUpdate)·빈/placeholder 판정·JSON↔Y 변환 |
-| `src/lib/collab/QnWsProvider.ts` | WS 프로토콜(hello/ping/sync/update/awareness) + 송신 청킹·수신 재조립·CONNECTING 소켓 cleanup. keepalive 는 경량 ping(4분)·hello 는 연결/재연결/탭 전면 복귀 시만(서버 상태 로드 비용) |
+| `src/lib/collab/QnWsProvider.ts` | WS 프로토콜(hello/ping/sync/update/awareness) + 송신 청킹·수신 재조립·CONNECTING 소켓 cleanup. keepalive 는 경량 ping(4분)·hello 는 연결/재연결/탭 전면 복귀 시만(서버 상태 로드 비용). update·awareness 송신은 leading+쿨다운 배칭(250/300ms) — flush 는 destroy/beforeunload, 단절 시 버퍼 폐기(sv-reply 복구) |
 | `src/lib/collab/wsProtocol.ts` | 직렬화(base64+JSON) + `chunk` 분할/재조립(`CHUNK_THRESHOLD=28KB`) |
 | `infra/lambda/realtime/protocol.ts` | 서버 직렬화 + 청킹(클라와 바이트 계약 일치) |
 | `infra/lambda/realtime/chunks.ts` | 서버 수신 chunk 재조립 버퍼(rt-chunks, TTL 60s) |
