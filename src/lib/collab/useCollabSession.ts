@@ -18,6 +18,8 @@ import {
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import { usePageStore, enqueuePageUpsertForSync } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { fetchPageById } from "../sync/bootstrap";
+import { pruneServerMissingPageFromCache } from "../sync/storeApply";
 import { collabColor } from "./collabColor";
 import { useMemberStore } from "../../store/memberStore";
 import { useCollabConnectionStore } from "../../store/collabConnectionStore";
@@ -181,9 +183,33 @@ export function useCollabSession(
         url: buildCollabWsUrl(pageId, tokens.idToken),
         awareness: awarenessRef.current ?? undefined,
       });
+      // WS 단절 시 유령 페이지(영구삭제된 페이지의 stale 캐시) 진입인지 세션당 1회 확인한다.
+      // 본문이 IDB 에 캐시된 유령은 contentLoaded=true 라 시드 fetch/ensurePageContentLoaded
+      // 경로에 닿지 않아, connect 거절이 유일한 감지 신호다. GET_PAGE 오류는 throw 라 보류되고
+      // null(확정적 없음)일 때만 IDB 잔재 제거 + 캐시 자기치유가 동작한다.
+      let missingCheckStarted = false;
+      const verifyPageStillExists = async () => {
+        const ws =
+          usePageStore.getState().pages[pageId]?.workspaceId ??
+          useWorkspaceStore.getState().currentWorkspaceId;
+        if (!ws) return;
+        try {
+          const remote = await fetchPageById(ws, pageId);
+          if (remote !== null) return;
+          // IDB 본문 잔재를 먼저 지워야 다음 진입에서 유령이 재부활하지 않는다.
+          await idb.clearData().catch(() => {});
+          await pruneServerMissingPageFromCache(pageId, ws);
+        } catch {
+          /* 네트워크/인가 오류 — 판단 불가, 보류 */
+        }
+      };
       provider.on("status", (s) => {
         if (cancelled) return;
         setConnStatus(toBadgeStatus(s as ProviderStatus, provider!.isSynced));
+        if (s === "disconnected" && !missingCheckStarted) {
+          missingCheckStarted = true;
+          void verifyPageStillExists();
+        }
       });
       provider.on("synced", () => {
         if (!cancelled) {
