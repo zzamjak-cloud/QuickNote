@@ -52,9 +52,19 @@ ensurePageContentLoaded(pageId)
 이 구분이 안전장치의 핵심. `null` 일 때만 `pruneServerMissingPageFromCache`(storeApply/pageApply.ts)가
 합성 tombstone 으로 삭제 경로(스토어·activePageId·rowOrder·row-index·스냅샷 갱신)를 재사용해 정리한다.
 
-**호출 지점**: ① Editor 협업 시드 fetch(`fetchPageById` null — 이전엔 1.5s 무한 재시도했음)
-② `ensurePageContentLoaded` fetch null.
+**호출 지점** (3중 트리거 — 아래 "회귀 교훈" 참고):
+1. Editor 협업 시드 fetch(`fetchPageById` null — 이전엔 1.5s 무한 재시도했음)
+2. `ensurePageContentLoaded` fetch null
+3. **useCollabSession — collab WS 단절(disconnected) 시 세션당 1회 존재 확인** → null 이면
+   y-indexeddb 잔재(`idb.clearData()`)까지 제거 후 prune
+
+**⚠ 회귀 교훈 (2026-07-03 실사례, v5.6.5→v5.6.7 로 순차 해결)**: 본문이 y-indexeddb 에 영속된
+유령은 `contentLoaded=true` + "렌더 가능한 Y.Doc 있음"이라 트리거 1·2(fetch 경로)에 **아예 닿지
+않는다**. 최초 수정(1·2만, v5.6.5)이 라이브에서 안 나았던 이유. connect 거절(3, v5.6.6)이 이런
+유령의 유일한 진입 신호이고, **진입 없이도 낫는** 경로는 증분 좀비 대사(v5.6.7,
+[incremental-sync.md](incremental-sync.md))가 담당한다.
 
 **오인 삭제 방지 가드**: 로컬 없음 / 최근 10분 내 생성·수정(신생) / outbox 업로드 대기
 (`getPendingUpsertEntityIds`) / workspaceId 미해석 → 전부 보류(prune 안 함). 보류 시 Editor 는
-기존 재시도 유지. 회귀 테스트: `src/__tests__/sync/pruneServerMissingPage.test.ts`.
+기존 재시도 유지. GET_PAGE 계열의 네트워크/인가 오류는 throw 라 자기치유에 닿지 않는다.
+회귀 테스트: `src/__tests__/sync/pruneServerMissingPage.test.ts`.
