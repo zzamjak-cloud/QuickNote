@@ -9,18 +9,21 @@ import { useCallback, useRef, type TouchEvent as ReactTouchEvent } from "react";
 
 /** 한 번의 탭으로 인정하는 최대 누름 시간(ms). 초과 시 롱프레스/드래그로 간주. */
 const TAP_MAX_PRESS_MS = 500;
-/** 탭 중 허용 이동 거리(px). 초과 시 드래그로 간주. */
-const TAP_MOVE_SLOP_PX = 12;
+/** 탭 중 허용 이동 거리(px). 초과 시 드래그로 간주.
+ *  실기기 손가락 탭은 누르는 동안 10~20px 흔들리는 게 흔하므로 넉넉히 잡는다.
+ *  너무 좁으면(12px) 정상 탭이 드래그로 오판되어 더블탭이 영구 불성립한다. */
+const TAP_MOVE_SLOP_PX = 24;
 /** 두 탭 사이 최대 간격(ms). */
-const DOUBLE_TAP_INTERVAL_MS = 350;
+const DOUBLE_TAP_INTERVAL_MS = 400;
 /** 두 탭 사이 허용 좌표 편차(px). */
-const DOUBLE_TAP_DISTANCE_PX = 30;
+const DOUBLE_TAP_DISTANCE_PX = 40;
 
 type TapPoint = { time: number; x: number; y: number };
 
 export function useDoubleTap(onDoubleTap: () => void): {
   onTouchStart: (e: ReactTouchEvent) => void;
   onTouchEnd: (e: ReactTouchEvent) => void;
+  onTouchCancel: () => void;
 } {
   // 인라인 콜백이 매 렌더마다 바뀌어도 핸들러 참조가 안정되도록 ref 로 보관
   const callbackRef = useRef(onDoubleTap);
@@ -73,5 +76,11 @@ export function useDoubleTap(onDoubleTap: () => void): {
     }
   }, []);
 
-  return { onTouchStart, onTouchEnd };
+  // 시스템이 터치를 가로챈 경우(touchcancel) 탭 상태 전체 초기화
+  const onTouchCancel = useCallback(() => {
+    touchStartRef.current = null;
+    lastTapRef.current = null;
+  }, []);
+
+  return { onTouchStart, onTouchEnd, onTouchCancel };
 }
