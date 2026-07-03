@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import type { TouchEvent as ReactTouchEvent } from "react";
-import { useDoubleTap } from "../useDoubleTap";
+import { useDoubleTap, useDoubleTapByKey } from "../useDoubleTap";
 
 type Point = { x: number; y: number };
 
@@ -107,6 +107,27 @@ describe("useDoubleTap", () => {
     tap(result.current, { startTime: 200, startPoint: { x: 100, y: 100 }, endTime: 280, endPoint: { x: 100, y: 100 } });
 
     expect(onDoubleTap).not.toHaveBeenCalled();
+  });
+
+  it("useDoubleTapByKey: 같은 key 두 탭 → 해당 key 로 발화, 다른 key 는 불성립", () => {
+    const onDoubleTap = vi.fn();
+    const { result } = renderHook(() => useDoubleTapByKey(onDoubleTap));
+    const p = { x: 100, y: 100 };
+    const tapKeyed = (key: string, startTime: number) => {
+      result.current.onTouchStart(key, touchEvent({ time: startTime, point: p, activeTouches: [p] }));
+      result.current.onTouchEnd(key, touchEvent({ time: startTime + 80, point: p }));
+    };
+
+    // 서로 다른 카드에 연속 탭 → 발화 안 함
+    tapKeyed("card-a", 0);
+    tapKeyed("card-b", 200);
+    expect(onDoubleTap).not.toHaveBeenCalled();
+
+    // 같은 카드에 연속 두 탭 → 해당 key 로 발화
+    tapKeyed("card-a", 1000);
+    tapKeyed("card-a", 1250);
+    expect(onDoubleTap).toHaveBeenCalledTimes(1);
+    expect(onDoubleTap).toHaveBeenCalledWith("card-a");
   });
 
   it("연속 3탭 — 첫 더블탭 발화 후 상태 초기화되어 중복 발화 없음", () => {

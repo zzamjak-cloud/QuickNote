@@ -68,6 +68,7 @@ import { applyTimelineCardStickyOffset } from "../database/timelineCardStickyOff
 import { getScheduleCardContentOffset } from "./scheduleCardDisplay";
 import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
 import { ContextMenu, announceSchedulerContextMenuOpen } from "./ContextMenu";
+import { useDoubleTapByKey } from "../../hooks/useDoubleTap";
 import {
   makeTimelineCardColorOverrides,
   resolveTimelineCardColor,
@@ -560,6 +561,13 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     },
     [openPeek, openTimelineRow],
   );
+
+  // 터치 더블탭 → 카드 피크. Rnd(react-draggable)가 touchstart 를 preventDefault 해
+  // 합성 dblclick 이 안 생기므로 터치는 별도 감지가 필요하다.
+  // 카드는 map 렌더라 카드별 훅 호출이 불가 → pageId 키 기반 공용 감지기 1개 사용.
+  const cardDoubleTap = useDoubleTapByKey((pageId) => {
+    void openTimelineRowPeek(pageId);
+  });
 
   // 항목(마일스톤/피처) 추가 — DB에 행을 추가하고, 현재 스코프 선택을 기본값으로 적용한 뒤
   // 신규 페이지를 사이드 피커뷰로 띄운다. (DB에서 직접 추가해도 동일 DB라 자동 동기화)
@@ -1330,6 +1338,9 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                         onDoubleClick={() => {
                           void openTimelineRowPeek(card.pageId);
                         }}
+                        onTouchStart={(event) => cardDoubleTap.onTouchStart(card.pageId, event)}
+                        onTouchEnd={(event) => cardDoubleTap.onTouchEnd(card.pageId, event)}
+                        onTouchCancel={cardDoubleTap.onTouchCancel}
                         onMouseDown={(event) => {
                           if (event.button === 2) {
                             openCardColorMenu(event, card);
@@ -1397,6 +1408,9 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                       onDoubleClick={() => {
                         void openTimelineRowPeek(row.page.id);
                       }}
+                      onTouchStart={(event) => cardDoubleTap.onTouchStart(row.page.id, event)}
+                      onTouchEnd={(event) => cardDoubleTap.onTouchEnd(row.page.id, event)}
+                      onTouchCancel={cardDoubleTap.onTouchCancel}
                       title="드래그하여 날짜를 지정하세요"
                       className="flex h-full w-full cursor-grab items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border border-dashed border-zinc-300 bg-white px-2 text-left text-xs font-semibold text-zinc-700 shadow-sm active:cursor-grabbing dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
                     >
