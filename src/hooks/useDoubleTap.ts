@@ -20,6 +20,16 @@ const DOUBLE_TAP_DISTANCE_PX = 40;
 
 type TapPoint = { time: number; x: number; y: number };
 
+// ⚠️ 임시 계측 — 실기기 더블탭 미동작 원인 확정용. 원인 확정 후 반드시 제거.
+const DOUBLE_TAP_DEBUG = true;
+function debugToast(message: string): void {
+  if (!DOUBLE_TAP_DEBUG) return;
+  // 순환 의존 방지를 위해 동적 import
+  void import("../store/uiStore").then(({ useUiStore }) => {
+    useUiStore.getState().showToast(`[더블탭] ${message}`, { kind: "info" });
+  });
+}
+
 export function useDoubleTap(onDoubleTap: () => void): {
   onTouchStart: (e: ReactTouchEvent) => void;
   onTouchEnd: (e: ReactTouchEvent) => void;
@@ -41,13 +51,17 @@ export function useDoubleTap(onDoubleTap: () => void): {
     const touch = e.touches[0];
     if (!touch) return;
     touchStartRef.current = { time: e.timeStamp, x: touch.clientX, y: touch.clientY };
+    debugToast("touchstart 도달");
   }, []);
 
   const onTouchEnd = useCallback((e: ReactTouchEvent) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
     // 손가락이 남아있거나 시작점이 없으면 탭 아님
-    if (!start || e.touches.length > 0) return;
+    if (!start || e.touches.length > 0) {
+      debugToast(`touchend: 후보 아님 (start=${Boolean(start)} 남은손가락=${e.touches.length})`);
+      return;
+    }
     const touch = e.changedTouches[0];
     if (!touch) return;
 
@@ -56,12 +70,17 @@ export function useDoubleTap(onDoubleTap: () => void): {
     const moved =
       Math.abs(touch.clientX - start.x) > TAP_MOVE_SLOP_PX ||
       Math.abs(touch.clientY - start.y) > TAP_MOVE_SLOP_PX;
+    const pressMs = Math.round(e.timeStamp - start.time);
+    const moveX = Math.round(touch.clientX - start.x);
+    const moveY = Math.round(touch.clientY - start.y);
     if (pressedTooLong || moved) {
+      debugToast(`touchend: ${pressedTooLong ? "롱프레스" : "드래그"} (press=${pressMs}ms move=${moveX},${moveY})`);
       lastTapRef.current = null;
       return;
     }
 
     const last = lastTapRef.current;
+    const gapMs = last ? Math.round(e.timeStamp - last.time) : -1;
     const isDoubleTap =
       last !== null &&
       e.timeStamp - last.time < DOUBLE_TAP_INTERVAL_MS &&
@@ -69,9 +88,11 @@ export function useDoubleTap(onDoubleTap: () => void): {
       Math.abs(touch.clientY - last.y) < DOUBLE_TAP_DISTANCE_PX;
 
     if (isDoubleTap) {
+      debugToast(`더블탭 감지! (간격=${gapMs}ms) → 콜백 실행`);
       lastTapRef.current = null;
       callbackRef.current();
     } else {
+      debugToast(`탭 1회 기록 (press=${pressMs}ms move=${moveX},${moveY} 직전탭간격=${gapMs}ms)`);
       lastTapRef.current = { time: e.timeStamp, x: touch.clientX, y: touch.clientY };
     }
   }, []);
