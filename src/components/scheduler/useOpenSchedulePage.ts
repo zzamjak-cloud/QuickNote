@@ -10,11 +10,7 @@ export function useOpenSchedulePage(workspaceId = LC_SCHEDULER_WORKSPACE_ID) {
 
   return useCallback(async (scheduleId: string) => {
     const parsed = parseScheduleInstanceId(scheduleId);
-    if (!parsed) {
-      // ⚠️ 임시 계측 — 실기기 더블탭 디버그용. 원인 확정 후 제거.
-      showToast("[더블탭] 일정 ID 파싱 실패", { kind: "error" });
-      return false;
-    }
+    if (!parsed) return false;
     const loaded = await ensurePageContentLoaded({
       pageId: parsed.pageId,
       workspaceId,
@@ -25,8 +21,6 @@ export function useOpenSchedulePage(workspaceId = LC_SCHEDULER_WORKSPACE_ID) {
       return false;
     }
     openPeek(parsed.pageId);
-    // ⚠️ 임시 계측 — 실기기 더블탭 디버그용. 원인 확정 후 제거.
-    showToast(`[더블탭] 피크 오픈 호출됨: ${parsed.pageId.slice(0, 8)}`, { kind: "success" });
     return true;
   }, [openPeek, showToast, workspaceId]);
 }

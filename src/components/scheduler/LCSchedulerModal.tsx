@@ -22,8 +22,6 @@ import { SchedulerToolbar } from "./SchedulerToolbar";
 import { WeeklyMmPanel } from "./mm/WeeklyMmPanel";
 import { refreshWorkspaceMeta } from "../../lib/sync/workspaceMetaCache";
 import { ensureDatabaseRowsLoaded } from "../../lib/sync/externalProtectedDatabaseLoad";
-// ⚠️ 임시 계측용 임포트 — 원인 확정 후 제거
-import { useUiStore } from "../../store/uiStore";
 
 const ScheduleGrid = lazy(() =>
   import("./ScheduleGrid").then((m) => ({ default: m.ScheduleGrid })),
@@ -84,11 +82,6 @@ export function LCSchedulerModal({ onClose }: Props) {
     selectMember(null);
     setMultiSelected([]);
   }, [selectMember, setMultiSelected]);
-
-  // ⚠️ 임시 계측 — 실기기에서 어떤 번들이 실행 중인지 확인용 마커. 원인 확정 후 제거.
-  useEffect(() => {
-    useUiStore.getState().showToast("[계측] 더블탭 디버그 빌드 v2", { kind: "info" });
-  }, []);
 
   useEffect(() => {
     let cancelled = false;

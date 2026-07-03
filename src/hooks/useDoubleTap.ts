@@ -24,17 +24,6 @@ const DOUBLE_TAP_DISTANCE_PX = 40;
 
 type TapPoint = { time: number; x: number; y: number; key: string };
 
-// ⚠️ 임시 계측 — 실기기 더블탭 미동작 원인 확정용. 원인 확정 후 반드시 제거.
-const DOUBLE_TAP_DEBUG = true;
-function debugToast(message: string): void {
-  if (!DOUBLE_TAP_DEBUG) return;
-  // 순환 의존 방지를 위해 동적 import (테스트 teardown 이후 지연 도착 대비 window 가드)
-  void import("../store/uiStore").then(({ useUiStore }) => {
-    if (typeof window === "undefined") return;
-    useUiStore.getState().showToast(`[더블탭] ${message}`, { kind: "info" });
-  });
-}
-
 export function useDoubleTapByKey(onDoubleTap: (key: string) => void): {
   onTouchStart: (key: string, e: ReactTouchEvent) => void;
   onTouchEnd: (key: string, e: ReactTouchEvent) => void;
@@ -56,17 +45,13 @@ export function useDoubleTapByKey(onDoubleTap: (key: string) => void): {
     const touch = e.touches[0];
     if (!touch) return;
     touchStartRef.current = { time: e.timeStamp, x: touch.clientX, y: touch.clientY, key };
-    debugToast("touchstart 도달");
   }, []);
 
   const onTouchEnd = useCallback((key: string, e: ReactTouchEvent) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
     // 손가락이 남아있거나 시작점이 없거나 다른 카드에서 시작했으면 탭 아님
-    if (!start || start.key !== key || e.touches.length > 0) {
-      debugToast(`touchend: 후보 아님 (start=${Boolean(start)} 남은손가락=${e.touches.length})`);
-      return;
-    }
+    if (!start || start.key !== key || e.touches.length > 0) return;
     const touch = e.changedTouches[0];
     if (!touch) return;
 
@@ -75,17 +60,12 @@ export function useDoubleTapByKey(onDoubleTap: (key: string) => void): {
     const moved =
       Math.abs(touch.clientX - start.x) > TAP_MOVE_SLOP_PX ||
       Math.abs(touch.clientY - start.y) > TAP_MOVE_SLOP_PX;
-    const pressMs = Math.round(e.timeStamp - start.time);
-    const moveX = Math.round(touch.clientX - start.x);
-    const moveY = Math.round(touch.clientY - start.y);
     if (pressedTooLong || moved) {
-      debugToast(`touchend: ${pressedTooLong ? "롱프레스" : "드래그"} (press=${pressMs}ms move=${moveX},${moveY})`);
       lastTapRef.current = null;
       return;
     }
 
     const last = lastTapRef.current;
-    const gapMs = last ? Math.round(e.timeStamp - last.time) : -1;
     const isDoubleTap =
       last !== null &&
       last.key === key &&
@@ -94,11 +74,9 @@ export function useDoubleTapByKey(onDoubleTap: (key: string) => void): {
       Math.abs(touch.clientY - last.y) < DOUBLE_TAP_DISTANCE_PX;
 
     if (isDoubleTap) {
-      debugToast(`더블탭 감지! (간격=${gapMs}ms) → 콜백 실행`);
       lastTapRef.current = null;
       callbackRef.current(key);
     } else {
-      debugToast(`탭 1회 기록 (press=${pressMs}ms move=${moveX},${moveY} 직전탭간격=${gapMs}ms)`);
       lastTapRef.current = { time: e.timeStamp, x: touch.clientX, y: touch.clientY, key };
     }
   }, []);
