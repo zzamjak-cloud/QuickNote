@@ -4,6 +4,7 @@ import { useUiStore } from "../../store/uiStore";
 import {
   fetchDatabasesByWorkspace,
   fetchPageMetasBatch,
+  fetchPageMetasByWorkspace,
   fetchPagesByWorkspace,
 } from "./bootstrap";
 import { usePageMetaRemoteStore } from "../../store/pageMetaRemoteStore";
@@ -189,7 +190,32 @@ export async function fetchApplyWorkspaceRemoteSnapshot({
     const mx = maxUpdatedAt(pages, dbs, comments);
     if (mx) useSyncWatermarkStore.getState().advance(workspaceId, mx);
   }
+
+  // 영구삭제(hard delete)는 델타에 tombstone 이 없어 증분만 도는 PC 에 유령 페이지가 남는다.
+  // 세션당 워크스페이스별 1회, 전체 페이지 메타 ID 목록(권위)과 대사해 서버에 없는 좀비를 정리한다.
+  // 전체 목록 조회 실패 시 prune 은 위험하므로 건너뛰고 다음 증분에서 재시도한다.
+  if (isDelta && pages && !zombiePruneReconciledWorkspaces.has(workspaceId) && !cancelled?.()) {
+    try {
+      const metas = await fetchPageMetasByWorkspace(workspaceId);
+      if (cancelled?.()) return;
+      const fullRemotePageIds = new Set<string>();
+      for (const m of metas) if (m?.id) fullRemotePageIds.add(m.id);
+      const { removedPageIds } = reconcileWorkspacePagesFullSnapshot({
+        workspaceId,
+        remotePageIds: fullRemotePageIds,
+        pendingUpsertPageIds: pendingIds.pages,
+      });
+      zombiePruneReconciledWorkspaces.add(workspaceId);
+      // prune 결과를 persist 스냅샷에도 반영해야 새로고침 시 유령이 부활하지 않는다.
+      if (removedPageIds.length > 0) refreshWorkspaceSnapshot(workspaceId);
+    } catch {
+      /* 다음 증분에서 재시도 */
+    }
+  }
 }
+
+// 증분 모드 좀비 대사를 앱 세션당 워크스페이스별 1회로 제한하는 플래그.
+const zombiePruneReconciledWorkspaces = new Set<string>();
 
 export async function fetchApplyWorkspaceRemoteMetaSnapshot({
   workspaceId,
