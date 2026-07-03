@@ -16,6 +16,7 @@ import { ScheduleCardPropertyLabels } from '../ScheduleCardPropertyLabels'
 import { ScheduleCardDetailRows } from '../../database/ScheduleCardDetailRows'
 import { usePageStore } from '../../../store/pageStore'
 import { parseScheduleInstanceId } from '../../../lib/scheduler/taskAdapter'
+import { useDoubleTap } from '../../../hooks/useDoubleTap'
 import {
   type ProjectMeta,
   type WeekDaySlot,
@@ -421,6 +422,10 @@ export function ScheduleWeekCard({
     [allSchedules, onUpdate, s],
   )
 
+  // 터치 더블탭 → 페이지 열기. react-draggable 이 touchstart 를 preventDefault 해
+  // 합성 dblclick 이 안 생기므로 터치는 별도 감지가 필요하다.
+  const doubleTapHandlers = useDoubleTap(() => onOpenPage(s.id))
+
   return (
     <>
       <Rnd
@@ -475,6 +480,7 @@ export function ScheduleWeekCard({
             e.stopPropagation()
             onOpenPage(s.id)
           }}
+          {...doubleTapHandlers}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault()

@@ -31,6 +31,7 @@ import { ScheduleCardPropertyLabels } from "./ScheduleCardPropertyLabels";
 import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
 import { usePageStore } from "../../store/pageStore";
 import { parseScheduleInstanceId } from "../../lib/scheduler/taskAdapter";
+import { useDoubleTap } from "../../hooks/useDoubleTap";
 
 type Props = {
   schedule: Schedule;
@@ -518,6 +519,10 @@ function ScheduleCardImpl({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleDuplicate, isSelected]);
 
+  // 터치 더블탭 → 편집. react-draggable 이 touchstart 를 preventDefault 해
+  // 합성 dblclick 이 안 생기므로 터치는 별도 감지가 필요하다.
+  const doubleTapHandlers = useDoubleTap(() => onEdit(schedule.id));
+
   return (
     <>
       <Rnd
@@ -570,6 +575,7 @@ function ScheduleCardImpl({
           }}
           onContextMenu={handleContextMenu}
           onDoubleClick={() => onEdit(schedule.id)}
+          {...doubleTapHandlers}
         >
           <div
             className="absolute inset-y-0 flex items-center gap-1.5 overflow-hidden whitespace-nowrap"
