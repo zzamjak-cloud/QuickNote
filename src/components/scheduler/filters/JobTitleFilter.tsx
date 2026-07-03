@@ -1,10 +1,9 @@
 // 직무 필터링 컴포넌트 — 선택된 조직/팀 소속 멤버 기반으로 직무(jobCategory) 목록 한정
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { ChevronDown, Users } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { useVisibleMembers } from "../hooks/useVisibleMembers";
-import { useIsCompact } from "../../../hooks/useViewport";
 
 export function JobTitleFilter() {
   // 헤더의 조직/팀 선택에 한정된 멤버 목록 사용 (직무 옵션 산출이므로 직무 필터는 미적용)
@@ -13,8 +12,6 @@ export function JobTitleFilter() {
   const setSelectedJobTitle = useSchedulerViewStore((s) => s.setSelectedJobTitle);
 
   const [isOpen, setIsOpen] = useState(false);
-  // 컴팩트(모바일·태블릿): 아이콘 제거·라벨 축약("전체 직무"→"직무")
-  const isCompact = useIsCompact();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // 외부 클릭 시 닫기
@@ -63,12 +60,9 @@ export function JobTitleFilter() {
       {/* 드롭다운 버튼 */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center ${
-          isCompact ? "px-2 py-1 text-xs gap-1" : "px-3 py-1.5 text-sm gap-2"
-        }`}
+        className="px-2 py-1 text-xs gap-1 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center"
       >
-        {!isCompact && <Users className="w-4 h-4" />}
-        <span>{selectedJobTitle ?? (isCompact ? "직무" : "전체 직무")}</span>
+        <span>{selectedJobTitle ?? "직무"}</span>
         <ChevronDown
           className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
         />

@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from "react";
 import { Eye, EyeOff, ChevronDown, CalendarDays } from "lucide-react";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { getCellWidth } from "../../../lib/scheduler/grid";
-import { useIsCompact } from "../../../hooks/useViewport";
 
 const MONTH_NAMES = [
   "1월", "2월", "3월", "4월", "5월", "6월",
@@ -20,8 +19,6 @@ export function MonthFilter() {
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
 
   const [isOpen, setIsOpen] = useState(false);
-  // 컴팩트(모바일·태블릿): 라벨 축약("월 바로가기"→"월")·버튼 축소
-  const isCompact = useIsCompact();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const cellWidth = getCellWidth(zoomLevel, columnWidthScale);
 
@@ -81,14 +78,12 @@ export function MonthFilter() {
       {/* 드롭다운 버튼 */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center ${
-          isCompact ? "px-2 py-1 text-xs gap-1" : "px-3 py-1.5 text-sm gap-2"
-        }`}
+        className="px-2 py-1 text-xs gap-1 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center"
       >
-        <span>{isCompact ? "월" : "월 바로가기"}</span>
+        <span>월</span>
         {hiddenCount > 0 && (
-          <span className="text-xs bg-amber-500 text-white px-1.5 py-0.5 rounded">
-            {isCompact ? hiddenCount : `${hiddenCount}개 숨김`}
+          <span className="text-xs bg-amber-500 text-white px-1.5 py-0.5 rounded" title={`${hiddenCount}개 숨김`}>
+            {hiddenCount}
           </span>
         )}
         <ChevronDown

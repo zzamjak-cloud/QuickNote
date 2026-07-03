@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { ChevronDown, CalendarDays, Plus } from "lucide-react";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { DIRECT_KEYS } from "../../lib/sync/localStorageKeys";
-import { useIsCompact } from "../../hooks/useViewport";
 
 // 기본 연도 범위
 const DEFAULT_YEARS = [2024, 2025, 2026, 2027, 2028];
@@ -40,8 +39,6 @@ export function YearSelector() {
   const setCurrentYear = useSchedulerViewStore((s) => s.setCurrentYear);
 
   const [isOpen, setIsOpen] = useState(false);
-  // 컴팩트(모바일·태블릿): 라벨 축약("2026년"→"2026")·버튼 축소로 필터 라인 한 줄 유지
-  const isCompact = useIsCompact();
   const [availableYears, setAvailableYears] =
     useState<number[]>(getAvailableYears);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -113,11 +110,9 @@ export function YearSelector() {
       {/* 드롭다운 버튼 */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`font-medium border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center ${
-          isCompact ? "px-2 py-1 text-xs gap-1" : "px-3 py-1.5 text-sm gap-2"
-        }`}
+        className="px-2 py-1 text-xs gap-1 font-medium border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center"
       >
-        <span>{isCompact ? currentYear : `${currentYear}년`}</span>
+        <span>{currentYear}</span>
         <ChevronDown
           className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
         />

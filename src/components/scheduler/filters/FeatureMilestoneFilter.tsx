@@ -1,6 +1,6 @@
 // 피처 타임라인에서 표시할 마일스톤 항목을 고르는 서버 동기화 필터.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { usePageStore } from "../../../store/pageStore";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
@@ -81,7 +81,7 @@ export function FeatureMilestoneFilter() {
 
   const label =
     selectedIds === null || visibleSelectedIds.length === optionIds.length
-      ? "마일스톤 전체"
+      ? "마일스톤"
       : visibleSelectedIds.length === 0
         ? "마일스톤 없음"
         : `마일스톤 ${visibleSelectedIds.length}개`;
@@ -93,9 +93,8 @@ export function FeatureMilestoneFilter() {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="px-3 py-1.5 text-sm border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center gap-2"
+        className="px-2 py-1 text-xs gap-1 border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center"
       >
-        <CheckSquare className="w-4 h-4" />
         <span>{label}</span>
         <ChevronDown
           className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
