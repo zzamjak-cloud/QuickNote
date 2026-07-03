@@ -165,6 +165,49 @@ describe("updateMember", () => {
     expect(result.name).toBe("New Name");
   });
 
+  it("rowCount 단독 업데이트 — Member caller 도 허용 (표시 설정은 권한 가드 없음)", async () => {
+    const updated = { ...activeMember, rowCount: 3 };
+    const doc = mockDoc({ Item: activeMember }, { Attributes: updated });
+    const result = await updateMember({
+      doc, tables, caller: memberCaller,
+      input: { memberId: "tgt-1", rowCount: 3 },
+    });
+    expect(result.rowCount).toBe(3);
+  });
+
+  it("rowCount 단독 업데이트 — Owner target 행도 누구나 조절 가능(owner 보호 미적용)", async () => {
+    const updated = { ...ownerTarget, rowCount: 2 };
+    const doc = mockDoc({ Item: ownerTarget }, { Attributes: updated });
+    const result = await updateMember({
+      doc, tables, caller: memberCaller,
+      input: { memberId: "owner-2", rowCount: 2 },
+    });
+    expect(result.rowCount).toBe(2);
+  });
+
+  it("rowCount + 다른 필드 동시 업데이트는 기존 권한 가드 유지", async () => {
+    const doc = mockDoc();
+    await expect(updateMember({
+      doc, tables, caller: memberCaller,
+      input: { memberId: "tgt-1", rowCount: 3, name: "Hacked" },
+    })).rejects.toThrow(/권한 부족/);
+  });
+
+  it("rowCount 1~10 범위 클램프", async () => {
+    const doc = mockDoc(
+      { Item: activeMember },
+      { Attributes: { ...activeMember, rowCount: 10 } },
+    );
+    await updateMember({
+      doc, tables, caller: memberCaller,
+      input: { memberId: "tgt-1", rowCount: 99 },
+    });
+    const updateCommand = (doc.send as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as {
+      input: { ExpressionAttributeValues: Record<string, unknown> };
+    };
+    expect(updateCommand.input.ExpressionAttributeValues[":rc"]).toBe(10);
+  });
+
   it("teamIds 갱신 — Query 후 BatchWrite 호출", async () => {
     // GetItem, UpdateCommand(name), QueryCommand(existing teams), BatchWrite
     const doc = mockDoc(

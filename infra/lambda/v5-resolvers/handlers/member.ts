@@ -342,11 +342,17 @@ export async function updateMember(args: {
   caller: Member;
   input: UpdateMemberInput & { memberId: string };
 }): Promise<Member> {
-  requireRoleAtLeast(args.caller, "manager");
+  // rowCount(타임라인 행 개수)는 화면 표시 설정이므로 모든 구성원이 자유롭게 변경 가능해야 한다.
+  // rowCount 단독 업데이트는 권한 가드(manager 이상·owner 보호)를 건너뛴다.
+  const { memberId: _memberId, rowCount, ...restInput } = args.input;
+  const rowCountOnly =
+    typeof rowCount === "number" &&
+    Object.values(restInput).every((value) => value === undefined);
+  if (!rowCountOnly) requireRoleAtLeast(args.caller, "manager");
   const target = await getMemberById(args.doc, args.tables, args.input.memberId);
   if (!target) notFound("Member 없음");
   if (target.status !== "active") badRequest("비활성 멤버");
-  preventOwnerMutation(args.caller, target);
+  if (!rowCountOnly) preventOwnerMutation(args.caller, target);
 
   // name/jobRole 업데이트
   const sets: string[] = [];
@@ -366,7 +372,8 @@ export async function updateMember(args: {
   if (args.input.jobCategory !== undefined) { sets.push("jobCategory = :jc"); vals[":jc"] = args.input.jobCategory ?? null; }
   if (args.input.jobDetail !== undefined) { sets.push("jobDetail = :jd"); vals[":jd"] = args.input.jobDetail ?? null; }
   if (args.input.joinedAt !== undefined) { sets.push("joinedAt = :ja"); vals[":ja"] = args.input.joinedAt ?? null; }
-  if (args.input.rowCount !== undefined) { sets.push("rowCount = :rc"); vals[":rc"] = args.input.rowCount ?? 1; }
+  // 행 개수는 1~10 범위로 강제(비정상 값이 전체 레이아웃을 깨는 것 방지)
+  if (args.input.rowCount !== undefined) { sets.push("rowCount = :rc"); vals[":rc"] = Math.min(10, Math.max(1, args.input.rowCount ?? 1)); }
 
   let updated: Member = target;
   if (sets.length > 0) {

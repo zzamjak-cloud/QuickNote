@@ -258,6 +258,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
         if (member) {
           useMemberStore.getState().upsertMember({ ...member, rowCount: previousRowCount });
         }
+        useUiStore.getState().showToast("행 개수 저장에 실패했습니다.", { kind: "error" });
       });
     },
     [memberRowCounts, members],
@@ -282,6 +283,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
         if (member) {
           useMemberStore.getState().upsertMember({ ...member, rowCount: previousRowCount });
         }
+        useUiStore.getState().showToast("행 개수 저장에 실패했습니다.", { kind: "error" });
       });
     },
     [memberRowCounts, members],
@@ -716,7 +718,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                   특이사항
                 </span>
                 {/* +/- 버튼 */}
-                <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                   <button
                     type="button"
                     onClick={() => setGlobalRowCount((n) => Math.min(10, n + 1))}
@@ -755,7 +757,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
                 </span>
 
                 {/* +/- 버튼 — 절대위치 우측 하단, 호버 시만 표시 */}
-                <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute bottom-1 right-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                   <button
                     type="button"
                     onClick={() => handleAddRow(item.member.memberId, item.memberSchedules)}
