@@ -9,7 +9,7 @@ import { usePageContentLoadStore } from "../../../store/pageContentLoadStore";
 import { useDatabaseRowIndexStore } from "../../../store/databaseRowIndexStore";
 import type { Page } from "../../../types/page";
 import { useWorkspaceStore } from "../../../store/workspaceStore";
-import { enqueueAsync } from "../runtime";
+import { enqueueAsync, getSyncEngine } from "../runtime";
 import {
   createLocalDeleteGuardChecker,
   shouldIgnoreRemoteAfterLocalDelete,
@@ -20,6 +20,7 @@ import {
   isLegacyLCSchedulerDatabaseId,
 } from "../../scheduler/database";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
+import { refreshWorkspaceSnapshot, workspaceHasStructureCache } from "../workspaceSwitch";
 import { isPageCollabActive } from "../../collab/pageCollabRegistry";
 import { isDeletedSchedulePage } from "../../scheduler/deletedSchedulePages";
 import {
@@ -241,6 +242,49 @@ export function applyRemotePageToStore(
   if (after?.databaseId) {
     ensurePageInDatabaseRowOrder(after.databaseId, after.id);
   }
+}
+
+// 서버가 정상 응답으로 "페이지 없음"(getPage=null)을 반환했을 때의 자기치유.
+// 영구삭제(hard delete)는 델타 싱크에 tombstone 이 없어 다른 PC 캐시에 유령 페이지로 남는다
+// (soft delete tombstone 을 받기 전에 휴지통 영구삭제가 일어난 경우). 합성 tombstone 으로
+// applyRemotePageToStore 의 삭제 경로(스토어·activePageId·rowOrder·row-index 정리)를 재사용한다.
+// ⚠ GET_PAGE 계열의 네트워크/인가 오류는 throw 라 여기 닿지 않는다 — null 정상 응답에만 호출할 것.
+const SERVER_MISSING_PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
+
+export async function pruneServerMissingPageFromCache(
+  pageId: string,
+  workspaceId?: string | null,
+): Promise<boolean> {
+  const local = usePageStore.getState().pages[pageId];
+  if (!local) return false;
+  // 방금 생성돼 아직 서버(outbox flush)에 닿지 않았을 수 있는 신생 페이지는 오인 삭제하지 않는다.
+  const lastTouchedMs = Math.max(local.updatedAt || 0, local.createdAt || 0);
+  if (Date.now() - lastTouchedMs < SERVER_MISSING_PRUNE_MIN_AGE_MS) return false;
+  // outbox 업로드 대기 중이면 서버 미존재가 정상 과도 상태 — 보류. (조회 실패 시에도 안전하게 보류)
+  try {
+    const engine = await getSyncEngine();
+    const pending = await engine.getPendingUpsertEntityIds();
+    if (pending.pages.has(pageId)) return false;
+  } catch {
+    return false;
+  }
+  const ws = local.workspaceId ?? workspaceId ?? null;
+  if (!ws) return false;
+  const nowIso = new Date().toISOString();
+  applyRemotePageToStore({
+    id: pageId,
+    workspaceId: ws,
+    title: local.title ?? "",
+    deletedAt: nowIso,
+    updatedAt: nowIso,
+    createdAt: new Date(local.createdAt || Date.now()).toISOString(),
+  } as GqlPage);
+  const pruned = usePageStore.getState().pages[pageId] === undefined;
+  // persist 스냅샷에도 잔재가 남으면 새로고침 시 유령이 부활한다 — 캐시가 있으면 갱신.
+  if (pruned && workspaceHasStructureCache(ws)) {
+    refreshWorkspaceSnapshot(ws);
+  }
+  return pruned;
 }
 
 export function applyRemotePagesToStore(

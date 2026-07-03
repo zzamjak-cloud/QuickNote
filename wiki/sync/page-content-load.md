@@ -41,3 +41,20 @@ ensurePageContentLoaded(pageId)
 
 ## 관련 위키
 - [architecture.md](architecture.md) — 분할 로드 전략 전체 그림
+
+## 서버 "페이지 없음" 자기치유 (2026-07-03)
+
+**배경**: 휴지통 영구삭제(hard delete)는 델타 싱크에 tombstone 이 없다. soft delete tombstone 을
+받기 전에 영구삭제가 일어나면 다른 PC 캐시에 페이지가 유령으로 남고, 진입 시 collab connect 가
+거절되어 `WebSocket connection failed` 만 반복된다(실사례: 2026-07-02 CAT 복제 후 삭제).
+
+**동작**: GET_PAGE 계열은 오류 시 throw, 서버가 확정적으로 없다고 하면 `null` 을 반환한다 —
+이 구분이 안전장치의 핵심. `null` 일 때만 `pruneServerMissingPageFromCache`(storeApply/pageApply.ts)가
+합성 tombstone 으로 삭제 경로(스토어·activePageId·rowOrder·row-index·스냅샷 갱신)를 재사용해 정리한다.
+
+**호출 지점**: ① Editor 협업 시드 fetch(`fetchPageById` null — 이전엔 1.5s 무한 재시도했음)
+② `ensurePageContentLoaded` fetch null.
+
+**오인 삭제 방지 가드**: 로컬 없음 / 최근 10분 내 생성·수정(신생) / outbox 업로드 대기
+(`getPendingUpsertEntityIds`) / workspaceId 미해석 → 전부 보류(prune 안 함). 보류 시 Editor 는
+기존 재시도 유지. 회귀 테스트: `src/__tests__/sync/pruneServerMissingPage.test.ts`.

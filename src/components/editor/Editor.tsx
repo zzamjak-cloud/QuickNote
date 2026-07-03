@@ -124,7 +124,10 @@ import {
 } from "../../lib/collab/yjsDoc";
 import { EditorErrorBoundary } from "./EditorErrorBoundary";
 import { fetchPageById } from "../../lib/sync/bootstrap";
-import { applyRemotePageToStoreCrossWorkspaceAware } from "../../lib/sync/storeApply";
+import {
+  applyRemotePageToStoreCrossWorkspaceAware,
+  pruneServerMissingPageFromCache,
+} from "../../lib/sync/storeApply";
 import { gqlPageToLocalPage } from "../../lib/sync/storeApply/helpers";
 import { useEditorProps } from "./useEditorProps";
 import { setUniqueIdFilterHostEditor } from "./editorUniqueIdFilter";
@@ -710,11 +713,17 @@ function EditorInner({
           return;
         }
         if (!remote) {
-          // 일시 실패 — 바인딩 보류 유지, 잠시 후 재시도.
+          // GET_PAGE 의 네트워크/인가 오류는 throw(catch 경로) — null 은 서버가 확정적으로
+          // "페이지 없음"을 응답한 경우다(영구삭제된 페이지의 stale 캐시 진입 등). 재시도 루프
+          // 대신 로컬 캐시를 자기치유로 정리한다. 신생/outbox 대기 페이지라 prune 이 보류되면
+          // 기존처럼 잠시 후 재시도한다(업로드 완료 대기).
+          const pruned = await pruneServerMissingPageFromCache(effectivePageId, workspaceId);
           seedState.status = "idle";
-          window.setTimeout(() => {
-            if (!cancelled) setCollabSeedRetry((c) => c + 1);
-          }, 1500);
+          if (!pruned && !cancelled) {
+            window.setTimeout(() => {
+              if (!cancelled) setCollabSeedRetry((c) => c + 1);
+            }, 1500);
+          }
           return;
         }
         const remoteDoc = gqlPageToLocalPage(remote).doc;

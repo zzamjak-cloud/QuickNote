@@ -21,6 +21,7 @@ export {
   applyRemotePageToStore,
   applyRemotePagesToStore,
   applyRemotePageMetasToStore,
+  pruneServerMissingPageFromCache,
 } from "./storeApply/pageApply";
 // database 도메인 reducer re-export.
 export {

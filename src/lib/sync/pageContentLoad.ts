@@ -2,7 +2,7 @@ import { usePageContentLoadStore } from "../../store/pageContentLoadStore";
 import { usePageStore } from "../../store/pageStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { fetchPageById, fetchPageByIdOnly } from "./bootstrap";
-import { applyRemotePageToStore } from "./storeApply";
+import { applyRemotePageToStore, pruneServerMissingPageFromCache } from "./storeApply";
 import { gqlPageToLocalPage } from "./storeApply/helpers";
 import { refreshWorkspaceSnapshot, workspaceHasStructureCache } from "./workspaceSwitch";
 
@@ -74,6 +74,9 @@ export async function ensurePageContentLoaded(args: {
         ? await fetchPageById(workspaceId, pageId)
         : await fetchPageByIdOnly(pageId);
       if (!fetched) {
+        // 오류는 throw(catch 경로) — null 은 서버가 확정적으로 "페이지 없음"을 응답한 경우.
+        // 영구삭제는 델타 싱크에 tombstone 이 없어 stale 캐시에 유령으로 남으므로 자기치유로 정리.
+        void pruneServerMissingPageFromCache(pageId, workspaceId);
         return false;
       }
       const resolvedWorkspaceId = fetched.workspaceId ?? workspaceId ?? null;
