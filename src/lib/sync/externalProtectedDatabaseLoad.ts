@@ -44,8 +44,13 @@ type DatabaseRowScope = {
 /**
  * 현재 스케줄러 뷰 선택(selectedProjectId / selectedMemberId)을 서버 scope 인자로 변환한다.
  * selectedProjectId 는 "org:{id}" | "team:{id}" | "proj:{id}" | (접두사 없는 projectId) 형식.
+ *
+ * assigneeId(구성원 선택)는 **작업 DB 로드에만** 적용한다.
+ * 서버 구성원 인덱스(DatabaseRowMembers)는 작업 DB만 색인하므로, 마일스톤/피처 DB 로드에
+ * assigneeId 가 붙으면 서버가 assignee 경로로 라우팅되어 항상 0건을 반환한다
+ * (구성원 선택 잔존 시 마일스톤 카드 전체 미표시 버그의 원인).
  */
-function resolveCurrentDatabaseRowScope(): DatabaseRowScope {
+function resolveCurrentDatabaseRowScope(resolvedDatabaseId: string): DatabaseRowScope {
   const { selectedProjectId, selectedMemberId } = useSchedulerViewStore.getState();
   const scope: DatabaseRowScope = {};
   if (selectedProjectId) {
@@ -59,7 +64,9 @@ function resolveCurrentDatabaseRowScope(): DatabaseRowScope {
       scope.projectId = selectedProjectId;
     }
   }
-  if (selectedMemberId) scope.assigneeId = selectedMemberId;
+  if (selectedMemberId && resolvedDatabaseId === LC_SCHEDULER_DATABASE_ID) {
+    scope.assigneeId = selectedMemberId;
+  }
   return scope;
 }
 
@@ -137,7 +144,7 @@ function resolveDatabaseRowLoadTarget(
       workspaceId: LC_SCHEDULER_WORKSPACE_ID,
       // 스케줄러 모달에서만 전역 org/team/project/멤버 필터를 scope 로 적용한다.
       // 인라인 DB 블록·풀페이지·피크는 scope 없이(전체) 로드해 전역 필터 누락을 막는다.
-      scope: loadContext === "scheduler" ? resolveCurrentDatabaseRowScope() : {},
+      scope: loadContext === "scheduler" ? resolveCurrentDatabaseRowScope(protectedDatabaseId) : {},
       protectedDatabase: true,
     };
   }

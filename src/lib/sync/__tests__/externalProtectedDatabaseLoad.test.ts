@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDatabaseStore } from "../../../store/databaseStore";
 import { usePageStore } from "../../../store/pageStore";
 import {
+  LC_FEATURE_DATABASE_ID,
+  LC_MILESTONE_DATABASE_ID,
   LC_SCHEDULER_DATABASE_ID,
   makeLCSchedulerDatabaseId,
 } from "../../scheduler/database";
@@ -99,6 +101,26 @@ describe("externalProtectedDatabaseLoad", () => {
     expect(resolveDatabaseRowRemoteKey(LC_SCHEDULER_DATABASE_ID, "cat-workspace")).toBe(
       LC_SCHEDULER_DATABASE_ID,
     );
+  });
+
+  it("assigneeId scope 는 작업 DB에만 적용 — 마일스톤/피처는 멤버 선택을 무시한다", () => {
+    // 구성원 인덱스(DatabaseRowMembers)는 작업 DB만 색인하므로, 마일스톤/피처 로드에
+    // assigneeId 가 붙으면 서버가 항상 0건을 반환한다(마일스톤 카드 전체 미표시 회귀 방지).
+    useSchedulerViewStore.setState({
+      selectedProjectId: "proj:project-1",
+      selectedMemberId: "member-1",
+    });
+
+    expect(
+      resolveDatabaseRowRemoteKey(LC_MILESTONE_DATABASE_ID, "cat-workspace", "scheduler"),
+    ).toBe(`${LC_MILESTONE_DATABASE_ID}|p:project-1`);
+    expect(
+      resolveDatabaseRowRemoteKey(LC_FEATURE_DATABASE_ID, "cat-workspace", "scheduler"),
+    ).toBe(`${LC_FEATURE_DATABASE_ID}|p:project-1`);
+    // 작업 DB는 기존대로 멤버 scope 유지
+    expect(
+      resolveDatabaseRowRemoteKey(LC_SCHEDULER_DATABASE_ID, "cat-workspace", "scheduler"),
+    ).toBe(`${LC_SCHEDULER_DATABASE_ID}|p:project-1|m:member-1`);
   });
 
   it("row order의 page가 page store에 모두 있어야 캐시 완료로 본다", () => {
