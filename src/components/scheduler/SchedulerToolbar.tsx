@@ -19,6 +19,7 @@ import { JobTitleFilter } from "./filters/JobTitleFilter";
 import { WeekViewMemberFilter } from "./filters/WeekViewMemberFilter";
 import { FeatureMilestoneFilter } from "./filters/FeatureMilestoneFilter";
 import { SchedulerGuideModal } from "./SchedulerGuideModal";
+import { useIsCompact } from "../../hooks/useViewport";
 
 export function SchedulerToolbar() {
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
@@ -31,6 +32,8 @@ export function SchedulerToolbar() {
   const [guideOpen, setGuideOpen] = useState(false);
   const showUnifiedOnlyFilters = selectedMemberId === null;
   const isTaskMode = entityMode === "task";
+  // 컴팩트(모바일·태블릿): 줌·열너비·도움말 숨김 + 여백 축소로 필터 라인 한 줄 유지
+  const isCompact = useIsCompact();
 
   // 오늘로 이동 — ScheduleGrid 에서 이벤트를 listen
   const scrollToToday = () => {
@@ -43,9 +46,13 @@ export function SchedulerToolbar() {
   };
 
   return (
-    <div className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
+    <div
+      className={`bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between flex-shrink-0 ${
+        isCompact ? "px-3 py-1.5" : "px-6 py-3"
+      }`}
+    >
       {/* 좌측: 필터 그룹 */}
-      <div className="flex items-center gap-4 flex-wrap">
+      <div className={`flex items-center ${isCompact ? "gap-1.5 flex-nowrap min-w-0" : "gap-4 flex-wrap"}`}>
         {!isTaskMode ? (
           <>
             <YearSelector />
@@ -78,12 +85,14 @@ export function SchedulerToolbar() {
       </div>
 
       {/* 우측: 컨트롤 그룹 */}
-      <div className="flex items-center gap-2 flex-wrap justify-end">
+      <div className={`flex items-center justify-end shrink-0 ${isCompact ? "gap-1" : "gap-2 flex-wrap"}`}>
         {/* 오늘 버튼 */}
         {(viewMode === "year" || viewMode === "month" || viewMode === "week") && (
           <button
             onClick={scrollToToday}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-md transition-colors text-sm font-medium text-zinc-900 dark:text-zinc-100"
+            className={`flex items-center bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-md transition-colors font-medium text-zinc-900 dark:text-zinc-100 ${
+              isCompact ? "gap-1 px-2 py-1 text-xs" : "gap-1.5 px-3 py-1.5 text-sm"
+            }`}
             title="오늘 날짜로 이동"
           >
             <CalendarDays className="w-4 h-4" />
@@ -91,8 +100,8 @@ export function SchedulerToolbar() {
           </button>
         )}
 
-        {/* 열너비 컨트롤 (연간 전용) */}
-        {viewMode === "year" && (
+        {/* 열너비 컨트롤 (연간 전용, 컴팩트에선 숨김) */}
+        {!isCompact && viewMode === "year" && (
           <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-md p-1">
             <Columns3 className="w-4 h-4 text-zinc-500 dark:text-zinc-400 ml-1" />
             <button
@@ -132,8 +141,8 @@ export function SchedulerToolbar() {
           </div>
         )}
 
-        {/* 줌 컨트롤 */}
-        {(viewMode === "year" || viewMode === "month" || viewMode === "week") && (
+        {/* 줌 컨트롤 (컴팩트에선 숨김) */}
+        {!isCompact && (viewMode === "year" || viewMode === "month" || viewMode === "week") && (
           <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-800 rounded-md p-1">
             <button
               onClick={() => setZoomLevel(Math.max(0.5, zoomLevel - 0.25))}
@@ -157,7 +166,8 @@ export function SchedulerToolbar() {
           </div>
         )}
 
-        {/* 사용가이드 모달 */}
+        {/* 사용가이드 모달 (컴팩트에선 숨김) */}
+        {!isCompact && (
         <button
           type="button"
           onClick={() => setGuideOpen(true)}
@@ -167,6 +177,7 @@ export function SchedulerToolbar() {
         >
           <HelpCircle className="h-4 w-4" />
         </button>
+        )}
       </div>
 
       {guideOpen && <SchedulerGuideModal onClose={() => setGuideOpen(false)} />}

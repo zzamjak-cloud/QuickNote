@@ -7,7 +7,7 @@
 // 원본: TeamScheduler/src/components/schedule/ScheduleGrid.tsx 기반
 import { useRef, useMemo, useCallback, useState, useEffect, useLayoutEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Plus, Minus } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Plus, Minus } from "lucide-react";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -61,6 +61,7 @@ import {
   type SchedulerCreateRange,
 } from "./hooks/scheduleInteractions";
 import { useOpenSchedulePage } from "./useOpenSchedulePage";
+import { useIsCompact } from "../../hooks/useViewport";
 
 // DateAxis 고정 높이: 주간/월간 뷰와 동일한 40px + 36px
 const DATE_AXIS_HEIGHT = 76;
@@ -131,6 +132,12 @@ export function ScheduleGrid({ workspaceId }: Props) {
   const didInitialScrollRef = useRef(false);
   const prevYearRef = useRef(currentYear);
   const prevCellWidthRef = useRef(0);
+
+  // 컴팩트(모바일·태블릿): 구성원 컬럼 폴딩 — 타임라인 가로 공간 확보
+  const isCompact = useIsCompact();
+  const [memberColumnCollapsed, setMemberColumnCollapsed] = useState(false);
+  const collapsedMemberColumn = isCompact && memberColumnCollapsed;
+  const memberColumnWidth = collapsedMemberColumn ? 36 : MEMBER_COLUMN_WIDTH;
 
   // 멤버별 사용자 지정 행 수 (최소 1, 최대 10)
   const [memberRowCounts, setMemberRowCounts] = useState<Record<string, number>>({});
@@ -315,7 +322,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
     globalRowCount,
     showGlobalRow,
     dateAxisHeight: DATE_AXIS_HEIGHT,
-    contentXOffset: MEMBER_COLUMN_WIDTH,
+    contentXOffset: memberColumnWidth,
   });
 
   const handleMultiDragComplete = useCallback(
@@ -433,6 +440,21 @@ export function ScheduleGrid({ workspaceId }: Props) {
     ],
   );
 
+  // "+ 작업 추가" — 구성원 탭에서 오늘 날짜로 새 작업 생성(드래그 생성과 동일 경로)
+  const handleAddTask = useCallback(() => {
+    if (!selectedMemberId) return;
+    const index = todayIdx ?? 0;
+    handleCreateRange({
+      kind: "schedule",
+      rowTop: 0,
+      rowHeight: 0,
+      rowIndex: 0,
+      startIndex: index,
+      endIndex: index,
+      assigneeId: selectedMemberId,
+    });
+  }, [handleCreateRange, selectedMemberId, todayIdx]);
+
   // 오늘로 스크롤
   const scrollToToday = useCallback(() => {
     if (!containerRef.current || todayIdx === null) return;
@@ -496,7 +518,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
     const cellWidthChanged = prevCellWidth > 0 && prevCellWidth !== cellWidth;
 
     if (container && didInitialScrollRef.current && !yearChanged && cellWidthChanged) {
-      const timelineViewportWidth = Math.max(0, container.clientWidth - MEMBER_COLUMN_WIDTH);
+      const timelineViewportWidth = Math.max(0, container.clientWidth - memberColumnWidth);
       const anchorDay = (container.scrollLeft + timelineViewportWidth / 2) / prevCellWidth;
       container.scrollLeft = Math.max(0, anchorDay * cellWidth - timelineViewportWidth / 2);
       prevCellWidthRef.current = cellWidth;
@@ -586,7 +608,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
     createMarqueeStyle,
   } = useScheduleCreateDrag({
     containerRef,
-    contentXOffset: MEMBER_COLUMN_WIDTH,
+    contentXOffset: memberColumnWidth,
     timelineWidth: totalWidth,
     cellWidth,
     pointToRow: pointToScheduleRow,
@@ -692,15 +714,36 @@ export function ScheduleGrid({ workspaceId }: Props) {
       >
         <div
           style={{
-            width: totalWidth + MEMBER_COLUMN_WIDTH,
-            minWidth: totalWidth + MEMBER_COLUMN_WIDTH,
+            width: totalWidth + memberColumnWidth,
+            minWidth: totalWidth + memberColumnWidth,
             minHeight: contentMinHeight,
             position: "relative",
           }}
         >
-          <div className="sticky left-0 z-30 w-[120px] border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-            <div className="sticky top-0 z-40 flex items-center justify-end border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5" style={{ height: DATE_AXIS_HEIGHT }}>
-              <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />
+          <div
+            className={`sticky left-0 z-30 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 ${
+              collapsedMemberColumn ? "overflow-hidden" : ""
+            }`}
+            style={{ width: memberColumnWidth }}
+          >
+            <div
+              className={`sticky top-0 z-40 flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 ${
+                collapsedMemberColumn ? "justify-center" : "justify-end"
+              }`}
+              style={{ height: DATE_AXIS_HEIGHT }}
+            >
+              {/* 컴팩트: 구성원 컬럼 폴딩 토글 */}
+              {isCompact && (
+                <button
+                  type="button"
+                  onClick={() => setMemberColumnCollapsed((v) => !v)}
+                  aria-label={collapsedMemberColumn ? "구성원 컬럼 펼치기" : "구성원 컬럼 접기"}
+                  className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  {collapsedMemberColumn ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+                </button>
+              )}
+              {!collapsedMemberColumn && <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />}
             </div>
 
             <div>
@@ -783,6 +826,20 @@ export function ScheduleGrid({ workspaceId }: Props) {
           )}
 
             </div>
+            {/* 작업 추가 — 구성원 1명 탭 선택 시에만 표시 (통합탭 제외) */}
+            {selectedMemberId && (
+              <button
+                type="button"
+                onClick={handleAddTask}
+                title="작업 추가"
+                className={`flex h-11 w-full items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 ${
+                  collapsedMemberColumn ? "justify-center" : "justify-end pr-3"
+                }`}
+              >
+                <Plus size={12} className="shrink-0" />
+                {!collapsedMemberColumn && "작업 추가"}
+              </button>
+            )}
           </div>
           <div
             style={{
@@ -790,7 +847,7 @@ export function ScheduleGrid({ workspaceId }: Props) {
               minWidth: totalWidth,
               position: "absolute",
               top: 0,
-              left: MEMBER_COLUMN_WIDTH,
+              left: memberColumnWidth,
             }}
           >
             {/* 날짜 헤더 */}

@@ -24,7 +24,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronLeft, ChevronRight, Database, GripVertical, Layers, PanelRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database, GripVertical, Layers, PanelRight, Plus } from "lucide-react";
 import { Rnd } from "react-rnd";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
@@ -69,6 +69,7 @@ import { getScheduleCardContentOffset } from "./scheduleCardDisplay";
 import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
 import { ContextMenu, announceSchedulerContextMenuOpen } from "./ContextMenu";
 import { useDoubleTapByKey } from "../../hooks/useDoubleTap";
+import { useIsCompact } from "../../hooks/useViewport";
 import {
   makeTimelineCardColorOverrides,
   resolveTimelineCardColor,
@@ -90,6 +91,8 @@ import {
 const FOCUS_SCROLL_DURATION_MS = 300;
 const DATE_AXIS_HEIGHT = 76;
 const DEFAULT_ITEM_COLUMN_WIDTH = 220;
+/** 컴팩트(모바일·태블릿)에서 사이드바를 접었을 때의 폭 — 폴딩 버튼만 남는다. */
+const COLLAPSED_ITEM_COLUMN_WIDTH = 36;
 const BOTTOM_SPACER_HEIGHT = 220;
 const ADD_ITEM_ROW_HEIGHT = 44;
 const TIMELINE_CARD_COLORS = ["#2563eb", "#9333ea", "#f59e0b", "#dc2626", "#16a34a"];
@@ -383,12 +386,17 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const viewMode = useSchedulerViewStore((s) => s.viewMode);
   const zoomLevel = useSchedulerViewStore((s) => s.zoomLevel);
   const columnWidthScale = useSchedulerViewStore((s) => s.columnWidthScale);
-  const itemColumnWidth =
+  const storedItemColumnWidth =
     useSchedulerViewStore((s) => s.databaseTimelineItemColumnWidth) ??
     DEFAULT_ITEM_COLUMN_WIDTH;
   const setItemColumnWidth = useSchedulerViewStore(
     (s) => s.setDatabaseTimelineItemColumnWidth,
   );
+  // 컴팩트(모바일·태블릿): 사이드바가 화면 절반 이상을 차지하므로 A0 셀 폴딩 버튼으로 접을 수 있다.
+  const isCompact = useIsCompact();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const collapsed = isCompact && sidebarCollapsed;
+  const itemColumnWidth = collapsed ? COLLAPSED_ITEM_COLUMN_WIDTH : storedItemColumnWidth;
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
   const setCurrentYear = useSchedulerViewStore((s) => s.setCurrentYear);
   const selectedProjectId = useSchedulerViewStore((s) => s.selectedProjectId);
@@ -923,7 +931,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     (event: ReactPointerEvent<HTMLDivElement>) => {
       event.preventDefault();
       const startX = event.clientX;
-      const startWidth = itemColumnWidth;
+      const startWidth = storedItemColumnWidth;
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         setItemColumnWidth(startWidth + moveEvent.clientX - startX);
@@ -936,7 +944,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", handlePointerUp);
     },
-    [itemColumnWidth, setItemColumnWidth],
+    [storedItemColumnWidth, setItemColumnWidth],
   );
 
   // 뷰 범위 반영 후 해당 행/카드로 스크롤 (수직: 행 중앙, 수평: 첫 카드 시작)
@@ -1030,38 +1038,58 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
         }}
       >
         <div
-          className="sticky left-0 z-20 bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800"
+          className={`sticky left-0 z-40 bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 ${
+            collapsed ? "overflow-hidden" : ""
+          }`}
           style={{ width: itemColumnWidth, height: fixedColumnHeight }}
         >
           <div
-            className="sticky top-0 z-30 flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 text-sm font-semibold text-zinc-700 dark:text-zinc-200"
+            className={`sticky top-0 z-30 flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm font-semibold text-zinc-700 dark:text-zinc-200 ${
+              collapsed ? "justify-center px-0" : "px-3"
+            }`}
             style={{ height: DATE_AXIS_HEIGHT }}
           >
-            {mode === "milestone" ? (
-              <Database className="w-4 h-4 text-zinc-500" />
-            ) : (
-              <Layers className="w-4 h-4 text-zinc-500" />
+            {/* 컴팩트: 사이드바 폴딩 토글 — 접으면 타임라인 가로 공간 확보 */}
+            {isCompact && (
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed((v) => !v)}
+                aria-label={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
+                title={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
+                className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                {collapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+              </button>
             )}
-            <span className="truncate">{titleColumnName}</span>
-            <div className="ml-auto shrink-0">
-              <DatabaseColumnSettingsButton
-                databaseId={databaseId}
-                viewKind="timeline"
-                panelState={bundle?.panelState ?? emptyPanelState()}
-                setPanelState={(patch) => patchDatabasePanelState(databaseId, patch)}
-                // LC 스케줄러 모달(z-[500]) 내부라 팝오버가 뒤로 숨지 않도록 그 위 z-index 사용.
-                popoverZClassName="z-[560]"
-              />
-            </div>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="첫 컬럼 너비 조절"
-              onPointerDown={handleColumnResizeStart}
-              className="absolute right-[-4px] top-0 z-40 h-full w-2 cursor-col-resize touch-none"
-            >
-              <div className="mx-auto h-full w-px bg-transparent transition-colors hover:bg-green-500" />
-            </div>
+            {!collapsed && (
+              <>
+                {mode === "milestone" ? (
+                  <Database className="w-4 h-4 shrink-0 text-zinc-500" />
+                ) : (
+                  <Layers className="w-4 h-4 shrink-0 text-zinc-500" />
+                )}
+                <span className="truncate">{titleColumnName}</span>
+                <div className="ml-auto shrink-0">
+                  <DatabaseColumnSettingsButton
+                    databaseId={databaseId}
+                    viewKind="timeline"
+                    panelState={bundle?.panelState ?? emptyPanelState()}
+                    setPanelState={(patch) => patchDatabasePanelState(databaseId, patch)}
+                    // LC 스케줄러 모달(z-[500]) 내부라 팝오버가 뒤로 숨지 않도록 그 위 z-index 사용.
+                    popoverZClassName="z-[560]"
+                  />
+                </div>
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="첫 컬럼 너비 조절"
+                  onPointerDown={handleColumnResizeStart}
+                  className="absolute right-[-4px] top-0 z-40 h-full w-2 cursor-col-resize touch-none"
+                >
+                  <div className="mx-auto h-full w-px bg-transparent transition-colors hover:bg-green-500" />
+                </div>
+              </>
+            )}
           </div>
           <DndContext sensors={rowSensors} collisionDetection={closestCenter} onDragEnd={handleRowDragEnd}>
             <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
@@ -1088,10 +1116,13 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
           <button
             type="button"
             onClick={handleAddItem}
-            className="flex h-full w-full items-center justify-end gap-1 pr-3 text-right text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+            title={mode === "milestone" ? "마일스톤 추가" : "피처 추가"}
+            className={`flex h-full w-full items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 ${
+              collapsed ? "justify-center" : "justify-end pr-3 text-right"
+            }`}
           >
             <Plus size={12} className="shrink-0" />
-            {mode === "milestone" ? "마일스톤 추가" : "피처 추가"}
+            {!collapsed && (mode === "milestone" ? "마일스톤 추가" : "피처 추가")}
           </button>
         </div>
 

@@ -43,6 +43,12 @@ list 계열(조회)은 이 래퍼를 거치지 않는다.
 - **카드 더블탭 → 피커뷰**: 카드는 react-rnd(react-draggable) 래핑이라 `touchstart` 에서 `preventDefault()` 되어 합성 click/dblclick 이 생성되지 않는다 → `onDoubleClick` 은 터치에서 절대 발화하지 않는다. `useDoubleTap` 훅(`src/hooks/useDoubleTap.ts`)을 카드 콘텐츠 div 에 스프레드해 터치 더블탭을 직접 감지한다. **카드 구현은 세 곳** — 연간뷰(`ScheduleCard.tsx`)·주간뷰(`ScheduleWeekCard.tsx`)·**DB 타임라인(`SchedulerDatabaseTimeline.tsx`, 마일스톤/작업/날짜없음 카드)** 전부 적용해야 함. 실제로 앞 두 곳만 고쳐서 실기기 미동작이 재발한 이력 있음. 타임라인처럼 map 렌더 내부라 카드별 훅이 불가한 곳은 `useDoubleTapByKey`(pageId 키 기반 공용 감지기 1개) 사용. 탭 판정 파라미터(슬롭 24px·간격 400ms)는 실기기 손가락 오차 기준 — 좁히면 회귀.
 - **행 +/- 버튼 노출**: `opacity-0 group-hover:opacity-100` 은 hover 없는 터치 기기에서 버튼이 안 보인다. `[@media(hover:none)]:opacity-100` 병기로 터치에서 상시 노출 (`ScheduleGrid.tsx`).
 
+## 컴팩트(모바일·태블릿) 뷰 규칙
+
+- 분기 기준은 `useIsCompact()`(<1024px). 헤더(아이콘·"일정" 숨김, 탭 2종→네이티브 셀렉트, 내일정 아이콘만, 설정 숨김)·툴바(줌/열너비/도움말 숨김, 라벨 축약: 월·연도·직무·이름)가 한 줄로 축소된다.
+- 좌측 사이드바(항목/구성원 컬럼)는 A0 셀의 폴딩 버튼으로 접기 가능(접힘 폭 36px). 세 뷰(`SchedulerDatabaseTimeline`·`ScheduleGrid`·`ScheduleRangeView`) 각각 로컬 state.
+- **A0 z-index 계층 (회귀 주의)**: 좌측 sticky 컬럼이 날짜 헤더보다 높아야 한다. 연간(`DateAxis` z-10 < 컬럼 z-30), 월간/주간(`ScheduleRangeView` 날짜헤더 z-[45] < 컬럼 z-50), DB 타임라인(날짜헤더 z-30 < 컬럼 z-40). 날짜 헤더 z 를 컬럼과 동급 이상으로 올리면 가로 스크롤 시 A0 가 가려진다.
+
 ## 구성원 행 개수(rowCount) 권한
 
 행 늘리기/줄이기는 화면 표시 설정이므로 **모든 구성원이 자유롭게** 가능해야 한다. 서버 `updateMember`(`infra/lambda/v5-resolvers/handlers/member.ts`)는 **rowCount 단독 업데이트에 한해** `requireRoleAtLeast("manager")`·`preventOwnerMutation` 가드를 건너뛴다(1~10 클램프). 다른 필드가 섞이면 기존 가드 적용. 클라이언트 실패 시 무음 롤백 금지 — 에러 토스트 표시.

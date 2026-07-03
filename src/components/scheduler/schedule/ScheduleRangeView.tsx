@@ -1,7 +1,7 @@
 // 주간/월간 범위 뷰 — 멤버별 행 레이아웃과 일정 카드 렌더링을 담당하는 메인 컴포넌트
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Minus, Plus } from 'lucide-react'
 import {
   addDays,
   startOfDay,
@@ -15,6 +15,7 @@ import { useTeamStore } from '../../../store/teamStore'
 import { useSchedulerHolidaysStore } from '../../../store/schedulerHolidaysStore'
 import { useSchedulerProjectsStore } from '../../../store/schedulerProjectsStore'
 import { useVisibleMembers } from '../hooks/useVisibleMembers'
+import { useIsCompact } from '../../../hooks/useViewport'
 import { ANNUAL_LEAVE_COLOR, DEFAULT_SCHEDULE_COLOR, pickTextColor } from '../../../lib/scheduler/colors'
 import { useMemberStore } from '../../../store/memberStore'
 import { getHolidaysForYear } from '../../../lib/scheduler/koreanHolidays'
@@ -96,6 +97,11 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   const [scrollLeft, setScrollLeft] = useState(0)
   const suppressContainerClickRef = useRef(false)
   const visibleMembers = useVisibleMembers()
+  // 컴팩트(모바일·태블릿): 구성원 컬럼 폴딩 — 타임라인 가로 공간 확보
+  const isCompact = useIsCompact()
+  const [memberColumnCollapsed, setMemberColumnCollapsed] = useState(false)
+  const collapsedMemberColumn = isCompact && memberColumnCollapsed
+  const memberColumnWidth = collapsedMemberColumn ? 36 : MEMBER_COLUMN_WIDTH
 
   const organizations = useOrganizationStore((s) => s.organizations)
   const teams = useTeamStore((s) => s.teams)
@@ -230,12 +236,12 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) return
-    const measure = () => setTimelineWidth(Math.max(900, container.clientWidth - MEMBER_COLUMN_WIDTH))
+    const measure = () => setTimelineWidth(Math.max(900, container.clientWidth - memberColumnWidth))
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(container)
     return () => observer.disconnect()
-  }, [])
+  }, [memberColumnWidth])
 
   const effectiveSelectedProjectId =
     selectedProjectId?.startsWith('proj:') ? selectedProjectId.slice(5) : null
@@ -402,7 +408,7 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     clearSelection,
     isCardSelected,
   } = useSchedulerBoxSelection({
-    contentXOffset: MEMBER_COLUMN_WIDTH,
+    contentXOffset: memberColumnWidth,
     getCardsInRect,
     getMultiDragUpdates,
   })
@@ -597,6 +603,22 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     ],
   )
 
+  // "+ 작업 추가" — 구성원 탭에서 오늘 슬롯으로 새 작업 생성(드래그 생성과 동일 경로)
+  const handleAddTask = useCallback(() => {
+    if (!selectedMemberId) return
+    const index = todaySlotIndex ?? 0
+    handleCreateRange({
+      kind: 'schedule',
+      rowTop: 0,
+      rowHeight: 0,
+      rowIndex: 0,
+      startIndex: index,
+      endIndex: index,
+      assigneeId: selectedMemberId,
+    })
+  }, [handleCreateRange, selectedMemberId, todaySlotIndex]
+  )
+
   const {
     dragState,
     beginCreateDrag,
@@ -604,7 +626,7 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     createMarqueeStyle,
   } = useScheduleCreateDrag({
     containerRef,
-    contentXOffset: MEMBER_COLUMN_WIDTH,
+    contentXOffset: memberColumnWidth,
     timelineWidth,
     cellWidth,
     pointToRow: pointToScheduleRow,
@@ -781,18 +803,37 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
       >
         <div
           style={{
-            width: timelineWidth + MEMBER_COLUMN_WIDTH,
-            minWidth: timelineWidth + MEMBER_COLUMN_WIDTH,
+            width: timelineWidth + memberColumnWidth,
+            minWidth: timelineWidth + memberColumnWidth,
             minHeight: WEEK_HEADER_HEIGHT + bodyRowsHeight + (hasVisibleRows ? TIMELINE_BOTTOM_SPACER_HEIGHT : 0),
             position: 'relative',
           }}
         >
-          <div className="sticky left-0 z-30 w-[120px] flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+          {/* 좌측 구성원 컬럼(A0 포함)은 날짜 헤더(z-[45])·선택 카드(z-40)보다 항상 위 */}
+          <div
+            className={`sticky left-0 z-50 flex-shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 ${
+              collapsedMemberColumn ? 'overflow-hidden' : ''
+            }`}
+            style={{ width: memberColumnWidth }}
+          >
             <div
-              className="sticky top-0 z-40 flex items-center justify-end border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5"
+              className={`sticky top-0 z-40 flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 ${
+                collapsedMemberColumn ? 'justify-center' : 'justify-end'
+              }`}
               style={{ height: WEEK_HEADER_HEIGHT }}
             >
-              <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />
+              {/* 컴팩트: 구성원 컬럼 폴딩 토글 */}
+              {isCompact && (
+                <button
+                  type="button"
+                  onClick={() => setMemberColumnCollapsed((v) => !v)}
+                  aria-label={collapsedMemberColumn ? '구성원 컬럼 펼치기' : '구성원 컬럼 접기'}
+                  className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  {collapsedMemberColumn ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+                </button>
+              )}
+              {!collapsedMemberColumn && <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />}
             </div>
             <div
               style={{
@@ -862,6 +903,20 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
                 </div>
               ))}
             </div>
+            {/* 작업 추가 — 구성원 1명 탭 선택 시에만 표시 (통합탭 제외) */}
+            {selectedMemberId && (
+              <button
+                type="button"
+                onClick={handleAddTask}
+                title="작업 추가"
+                className={`flex h-11 w-full items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 ${
+                  collapsedMemberColumn ? 'justify-center' : 'justify-end pr-3'
+                }`}
+              >
+                <Plus size={12} className="shrink-0" />
+                {!collapsedMemberColumn && '작업 추가'}
+              </button>
+            )}
           </div>
 
           <div
@@ -870,11 +925,11 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
               minWidth: timelineWidth,
               position: 'absolute',
               top: 0,
-              left: MEMBER_COLUMN_WIDTH,
+              left: memberColumnWidth,
             }}
           >
           <div
-            className="sticky top-0 z-30 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800"
+            className="sticky top-0 z-[45] bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800"
             style={{ height: WEEK_HEADER_HEIGHT, width: timelineWidth }}
           >
             {mode === 'month' ? (

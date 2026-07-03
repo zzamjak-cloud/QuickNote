@@ -4,12 +4,15 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { ChevronDown, UserCircle } from "lucide-react";
 import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { useVisibleMembers } from "../hooks/useVisibleMembers";
+import { useIsCompact } from "../../../hooks/useViewport";
 
 export function WeekViewMemberFilter() {
   const weekViewMemberIds = useSchedulerViewStore((s) => s.weekViewMemberIds);
   const setWeekViewMemberIds = useSchedulerViewStore((s) => s.setWeekViewMemberIds);
 
   const [isOpen, setIsOpen] = useState(false);
+  // 컴팩트(모바일·태블릿): 아이콘 제거·라벨 축약("전체 이름"→"이름")
+  const isCompact = useIsCompact();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // 조직/팀 필터가 반영된 멤버 목록 사용
@@ -57,7 +60,7 @@ export function WeekViewMemberFilter() {
   const label =
     weekViewMemberIds === null ||
     weekViewMemberIds.length === projectMembers.length
-      ? "전체 이름"
+      ? (isCompact ? "이름" : "전체 이름")
       : `${weekViewMemberIds.length}명 선택`;
 
   if (projectMembers.length === 0) return null;
@@ -67,9 +70,11 @@ export function WeekViewMemberFilter() {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="px-3 py-1.5 text-sm border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center gap-2"
+        className={`border border-zinc-200 dark:border-zinc-700 rounded-md bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer flex items-center ${
+          isCompact ? "px-2 py-1 text-xs gap-1" : "px-3 py-1.5 text-sm gap-2"
+        }`}
       >
-        <UserCircle className="w-4 h-4" />
+        {!isCompact && <UserCircle className="w-4 h-4" />}
         <span>{label}</span>
         <ChevronDown
           className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
