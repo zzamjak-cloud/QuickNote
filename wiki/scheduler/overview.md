@@ -38,6 +38,19 @@
 
 list 계열(조회)은 이 래퍼를 거치지 않는다.
 
+## 터치(태블릿) 회귀 방지
+
+- **카드 더블탭 → 피커뷰**: 카드는 react-rnd(react-draggable) 래핑이라 `touchstart` 에서 `preventDefault()` 되어 합성 click/dblclick 이 생성되지 않는다 → `onDoubleClick` 은 터치에서 절대 발화하지 않는다. `useDoubleTap` 훅(`src/hooks/useDoubleTap.ts`)을 카드 콘텐츠 div 에 스프레드해 터치 더블탭을 직접 감지한다. **연간뷰(`ScheduleCard.tsx`)·주간뷰(`ScheduleWeekCard.tsx`) 두 곳 모두** 적용해야 함 — 한쪽만 고치면 뷰별 회귀.
+- **행 +/- 버튼 노출**: `opacity-0 group-hover:opacity-100` 은 hover 없는 터치 기기에서 버튼이 안 보인다. `[@media(hover:none)]:opacity-100` 병기로 터치에서 상시 노출 (`ScheduleGrid.tsx`).
+
+## 구성원 행 개수(rowCount) 권한
+
+행 늘리기/줄이기는 화면 표시 설정이므로 **모든 구성원이 자유롭게** 가능해야 한다. 서버 `updateMember`(`infra/lambda/v5-resolvers/handlers/member.ts`)는 **rowCount 단독 업데이트에 한해** `requireRoleAtLeast("manager")`·`preventOwnerMutation` 가드를 건너뛴다(1~10 클램프). 다른 필드가 섞이면 기존 가드 적용. 클라이언트 실패 시 무음 롤백 금지 — 에러 토스트 표시.
+
+## 마일스톤/피처 DB 로드 — assigneeId 금지
+
+서버 구성원 인덱스(`DatabaseRowMembers`)는 **작업 DB(`lc-scheduler-db:`)만** 색인한다. 마일스톤/피처 DB 로드에 `assigneeId` 가 붙으면 서버가 assignee 경로로 라우팅되어 **항상 0건**을 반환한다(구성원 선택 잔존 + 스코프 전환 시 마일스톤 카드 전체 미표시 버그). `resolveCurrentDatabaseRowScope()`(`src/lib/sync/externalProtectedDatabaseLoad.ts`)가 작업 DB일 때만 `assigneeId` 를 scope 에 넣는다. 멤버 선택(`selectedMemberId`)은 persist 되고 스코프 드롭다운 전환 시 해제되지 않는 점 주의.
+
 ## 피처뷰 행 표시
 
 스케줄러 모달의 피처 뷰에서 행이 비어 보이던 문제가 수정됐다. 로드 scope 메커니즘 상세는 `wiki/sync/external-protected-database-load.md` 참조.
