@@ -24,7 +24,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Database, GripVertical, Layers, PanelRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, GripVertical, PanelRight, Plus } from "lucide-react";
 import { Rnd } from "react-rnd";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { usePageStore } from "../../store/pageStore";
@@ -69,7 +69,6 @@ import { getScheduleCardContentOffset } from "./scheduleCardDisplay";
 import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
 import { ContextMenu, announceSchedulerContextMenuOpen } from "./ContextMenu";
 import { useDoubleTapByKey } from "../../hooks/useDoubleTap";
-import { useIsCompact } from "../../hooks/useViewport";
 import {
   makeTimelineCardColorOverrides,
   resolveTimelineCardColor,
@@ -392,10 +391,9 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const setItemColumnWidth = useSchedulerViewStore(
     (s) => s.setDatabaseTimelineItemColumnWidth,
   );
-  // 컴팩트(모바일·태블릿): 사이드바가 화면 절반 이상을 차지하므로 A0 셀 폴딩 버튼으로 접을 수 있다.
-  const isCompact = useIsCompact();
+  // 사이드바 폴딩 — A0 셀 버튼으로 접기/펼치기 (PC/모바일 공통)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const collapsed = isCompact && sidebarCollapsed;
+  const collapsed = sidebarCollapsed;
   const itemColumnWidth = collapsed ? COLLAPSED_ITEM_COLUMN_WIDTH : storedItemColumnWidth;
   const currentYear = useSchedulerViewStore((s) => s.currentYear);
   const setCurrentYear = useSchedulerViewStore((s) => s.setCurrentYear);
@@ -1042,25 +1040,18 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
             }`}
             style={{ height: DATE_AXIS_HEIGHT }}
           >
-            {/* 컴팩트: 사이드바 폴딩 토글 — 접으면 타임라인 가로 공간 확보 */}
-            {isCompact && (
-              <button
-                type="button"
-                onClick={() => setSidebarCollapsed((v) => !v)}
-                aria-label={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
-                title={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
-                className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              >
-                {collapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
-              </button>
-            )}
+            {/* 사이드바 폴딩 토글 — 접으면 타임라인 가로 공간 확보 */}
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              aria-label={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
+              title={collapsed ? "사이드바 펼치기" : "사이드바 접기"}
+              className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            >
+              {collapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+            </button>
             {!collapsed && (
               <>
-                {mode === "milestone" ? (
-                  <Database className="w-4 h-4 shrink-0 text-zinc-500" />
-                ) : (
-                  <Layers className="w-4 h-4 shrink-0 text-zinc-500" />
-                )}
                 <span className="truncate">{titleColumnName}</span>
                 <div className="ml-auto shrink-0">
                   <DatabaseColumnSettingsButton

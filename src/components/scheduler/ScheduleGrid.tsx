@@ -7,7 +7,7 @@
 // 원본: TeamScheduler/src/components/schedule/ScheduleGrid.tsx 기반
 import { useRef, useMemo, useCallback, useState, useEffect, useLayoutEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronsLeft, ChevronsRight, ClipboardList, Plus, Minus } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Plus, Minus } from "lucide-react";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -61,7 +61,6 @@ import {
   type SchedulerCreateRange,
 } from "./hooks/scheduleInteractions";
 import { useOpenSchedulePage } from "./useOpenSchedulePage";
-import { useIsCompact } from "../../hooks/useViewport";
 
 // DateAxis 고정 높이: 주간/월간 뷰와 동일한 40px + 36px
 const DATE_AXIS_HEIGHT = 76;
@@ -133,10 +132,9 @@ export function ScheduleGrid({ workspaceId }: Props) {
   const prevYearRef = useRef(currentYear);
   const prevCellWidthRef = useRef(0);
 
-  // 컴팩트(모바일·태블릿): 구성원 컬럼 폴딩 — 타임라인 가로 공간 확보
-  const isCompact = useIsCompact();
+  // 구성원 컬럼 폴딩 — A0 셀 버튼으로 접기/펼치기 (PC/모바일 공통)
   const [memberColumnCollapsed, setMemberColumnCollapsed] = useState(false);
-  const collapsedMemberColumn = isCompact && memberColumnCollapsed;
+  const collapsedMemberColumn = memberColumnCollapsed;
   const memberColumnWidth = collapsedMemberColumn ? 36 : MEMBER_COLUMN_WIDTH;
 
   // 멤버별 사용자 지정 행 수 (최소 1, 최대 10)
@@ -732,21 +730,18 @@ export function ScheduleGrid({ workspaceId }: Props) {
               }`}
               style={{ height: DATE_AXIS_HEIGHT }}
             >
-              {/* 컴팩트: 구성원 컬럼 폴딩 토글 */}
-              {isCompact && (
-                <button
-                  type="button"
-                  onClick={() => setMemberColumnCollapsed((v) => !v)}
-                  aria-label={collapsedMemberColumn ? "구성원 컬럼 펼치기" : "구성원 컬럼 접기"}
-                  className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  {collapsedMemberColumn ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
-                </button>
-              )}
+              {/* 구성원 컬럼 폴딩 토글 */}
+              <button
+                type="button"
+                onClick={() => setMemberColumnCollapsed((v) => !v)}
+                aria-label={collapsedMemberColumn ? "구성원 컬럼 펼치기" : "구성원 컬럼 접기"}
+                className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                {collapsedMemberColumn ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+              </button>
               {!collapsedMemberColumn && (
                 <>
                   {/* 탭 제목 — 마일스톤/피처 A0 와 동일 방식 */}
-                  <ClipboardList className="w-4 h-4 shrink-0 text-zinc-500" />
                   <span className="truncate text-sm font-semibold text-zinc-700 dark:text-zinc-200">작업</span>
                   <div className="ml-auto shrink-0">
                     <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />

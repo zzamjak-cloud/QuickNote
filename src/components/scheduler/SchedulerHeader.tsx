@@ -226,7 +226,6 @@ export function SchedulerHeader({ onClose }: Props) {
               menuClassName="w-[920px] max-w-[calc(100vw-24px)]"
               listMaxHeightClass="max-h-[560px]"
             />
-            {!isCompact && <span className="text-sm text-zinc-500">일정</span>}
           </div>
           {/* 데이터 모드·뷰 모드 — PC/모바일 공통 앵커드 드롭다운 (버튼 아래 배치·화면 클리핑 방지) */}
           <HeaderSelectDropdown
