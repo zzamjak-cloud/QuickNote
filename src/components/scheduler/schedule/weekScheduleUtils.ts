@@ -49,7 +49,8 @@ export type ProjectMeta = {
 
 export const PAST_WEEK_GRAY = '#9ca3af'
 
-export const WEEK_SLOT_COUNT = 15
+// 주간 보기: 3주 × 7일(월~일)
+export const WEEK_SLOT_COUNT = 21
 export const WEEK_HEADER_HEIGHT = 76
 export const WEEK_CARD_MARGIN = 2
 export const TIMELINE_BOTTOM_SPACER_HEIGHT = 240
@@ -106,7 +107,7 @@ export function buildWeekDaySlots(
   const slots: WeekDaySlot[] = []
   blocks.forEach((monday, weekIndex) => {
     const base = startOfDay(monday)
-    for (let dow = 0; dow < 5; dow++) {
+    for (let dow = 0; dow < 7; dow++) {
       slots.push({
         weekIndex: weekIndex as 0 | 1 | 2,
         dow,

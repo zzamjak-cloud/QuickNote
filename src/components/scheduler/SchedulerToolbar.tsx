@@ -78,7 +78,7 @@ export function SchedulerToolbar() {
           </>
         ) : (
           <>
-            <JobTitleFilter showWhenEmpty />
+            <JobTitleFilter />
             <WeekViewMemberFilter />
           </>
         )}

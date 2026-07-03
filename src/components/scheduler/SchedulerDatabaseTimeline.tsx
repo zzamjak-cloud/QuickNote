@@ -651,7 +651,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   ]);
   const rowIds = useMemo(() => rows.map((row) => row.page.id), [rows]);
 
-  const { slots, weekBlocks, mondays, slotCount } = useMemo(() => {
+  const { slots, weekBlocks, slotCount } = useMemo(() => {
     if (viewMode === "month") {
       const monthStart = startOfDay(new Date(currentYear, monthIndex, 1));
       const monthSlots = buildMonthDaySlots(currentYear, monthIndex);
@@ -675,12 +675,12 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
       ] as const;
       const weekSlots = buildWeekDaySlots(rangeMondays[0], rangeMondays[1], rangeMondays[2]);
       const blocks = rangeMondays.map((monday, weekIndex) => {
-        const friday = addDays(monday, 4);
+        const sunday = addDays(monday, 6);
         const relativeOffset = weekOffset + weekIndex - 1;
         return {
           key: `${relativeOffset}:${monday.toISOString()}`,
           title: relativeWeekTitle(relativeOffset),
-          subtitle: `${fmtMD(monday)} - ${fmtMD(friday)} (월-금)`,
+          subtitle: `${fmtMD(monday)} - ${fmtMD(sunday)} (월-일)`,
           weekIndex: weekIndex as 0 | 1 | 2,
         };
       });
@@ -713,19 +713,11 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
 
   const todaySlotIndex = useMemo(() => {
     if (isAnnualView) return null;
+    // 주간 뷰도 월~일 7일을 모두 렌더하므로 슬롯에 없으면 범위 밖 → 라인 숨김
     const today = startOfDay(new Date());
     const idx = slots.findIndex((slot) => isSameDay(slot.date, today));
-    if (idx >= 0) return idx;
-    if (viewMode === "month") return null;
-    const thisMonday = startOfWeek(today);
-    const weekIdx = mondays.findIndex((monday) => isSameDay(monday, thisMonday));
-    if (weekIdx >= 0) return weekIdx * 5 + 4;
-    const from = mondays[0];
-    const to = addDays(mondays[2], 6);
-    if (!from || !to) return null;
-    const outOfRange = differenceInCalendarDays(today, from) < 0 || differenceInCalendarDays(today, to) > 0;
-    return outOfRange ? null : 4;
-  }, [isAnnualView, mondays, slots, viewMode]);
+    return idx >= 0 ? idx : null;
+  }, [isAnnualView, slots]);
 
   const rangeCellWidth = slotCount > 0 ? rangeTimelineWidth / slotCount : rangeTimelineWidth;
   const activeCellWidth = isAnnualView ? annualCellWidth : rangeCellWidth;
@@ -840,7 +832,8 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
   const titleColumnName =
     bundle?.columns.find((column) => column.type === "title")?.name ??
     (mode === "milestone" ? "마일스톤" : "피처");
-  const rowsHeight = rows.length * rowHeight;
+  // 행이 없어도 빈 1행을 유지해 "+ 항목 추가" 버튼이 빈 상태 메시지와 겹치지 않게 한다.
+  const rowsHeight = Math.max(rows.length, 1) * rowHeight;
   const fixedColumnHeight = DATE_AXIS_HEIGHT + rowsHeight;
   const contentHeight = DATE_AXIS_HEIGHT + rowsHeight + BOTTOM_SPACER_HEIGHT;
 
@@ -1221,13 +1214,13 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                 {slots.map((slot, index) => {
                   const holidayText = holidayData.holidayMap.get(startOfDay(slot.date).getTime());
                   const isHoliday = holidayData.holidayTimeSet.has(startOfDay(slot.date).getTime());
-                  const isMonthWeekend = viewMode === "month" && (slot.date.getDay() === 0 || slot.date.getDay() === 6);
+                  const isWeekend = slot.date.getDay() === 0 || slot.date.getDay() === 6;
                   return (
                     <div
                       key={`${slot.date.getTime()}-${index}`}
                       className="text-[10px] text-center border-r border-zinc-200/60 dark:border-zinc-800/60 last:border-r-0 text-zinc-500 dark:text-zinc-400 leading-tight flex flex-col items-center justify-center"
                       style={{
-                        backgroundColor: isHoliday || isMonthWeekend ? weekendColor : "transparent",
+                        backgroundColor: isHoliday || isWeekend ? weekendColor : "transparent",
                         ...(viewMode === "month" && slot.weekBoundaryBefore
                           ? { borderLeft: "2px dotted rgba(113, 113, 122, 0.75)" }
                           : {}),
@@ -1261,10 +1254,19 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
           )}
           {rows.length === 0 ? (
             <div
-              className="flex items-center justify-center border-b border-zinc-200 dark:border-zinc-800 text-sm text-zinc-500 dark:text-zinc-400"
+              className="flex items-center border-b border-zinc-200 dark:border-zinc-800"
               style={{ height: rowHeight, width: activeTimelineWidth }}
             >
-              {mode === "milestone" ? "등록된 마일스톤이 없습니다." : "등록된 피처가 없습니다."}
+              {/* 가로 스크롤과 무관하게 항상 보이도록 sticky — 사이드바 오른쪽에 고정.
+                  사이드바 접힘 상태에서는 표시하지 않는다. */}
+              {!collapsed && (
+                <span
+                  className="sticky text-sm text-zinc-500 dark:text-zinc-400"
+                  style={{ left: itemColumnWidth + 16 }}
+                >
+                  {mode === "milestone" ? "등록된 마일스톤이 없습니다." : "등록된 피처가 없습니다."}
+                </span>
+              )}
             </div>
           ) : (
             rows.map((row) => (
@@ -1283,13 +1285,13 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                     {slots.map((slot, index) => {
                       const key = startOfDay(slot.date).getTime();
                       const isHoliday = holidayData.holidayTimeSet.has(key);
-                      const isMonthWeekend = viewMode === "month" && (slot.date.getDay() === 0 || slot.date.getDay() === 6);
+                      const isWeekend = slot.date.getDay() === 0 || slot.date.getDay() === 6;
                       return (
                         <div
                           key={`${row.page.id}:bg:${index}`}
                           className="border-r border-zinc-200/40 dark:border-zinc-800/40 last:border-r-0"
                           style={{
-                            backgroundColor: isHoliday || isMonthWeekend ? weekendColor : "transparent",
+                            backgroundColor: isHoliday || isWeekend ? weekendColor : "transparent",
                             ...(viewMode === "month" && slot.weekBoundaryBefore
                               ? { borderLeft: "2px dotted rgba(113, 113, 122, 0.75)" }
                               : {}),

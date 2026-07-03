@@ -1,7 +1,7 @@
 // 주간/월간 범위 뷰 — 멤버별 행 레이아웃과 일정 카드 렌더링을 담당하는 메인 컴포넌트
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Minus, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ClipboardList, Minus, Plus } from 'lucide-react'
 import {
   addDays,
   startOfDay,
@@ -156,7 +156,7 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     return { holidayMap: map, holidayTimeSet: timeSet }
   }, [currentYear, storeHolidays])
 
-  const { slots, weekBlocks, mondays, slotCount } = useMemo(() => {
+  const { slots, weekBlocks, slotCount } = useMemo(() => {
     if (mode === 'month') {
       const monthStart = startOfDay(new Date(currentYear, monthIndex, 1))
       const slots = buildMonthDaySlots(currentYear, monthIndex)
@@ -182,12 +182,12 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
     const slots = buildWeekDaySlots(mondays[0], mondays[1], mondays[2])
 
     const weekBlocks = mondays.map((mon, wi) => {
-      const fri = addDays(mon, 4)
+      const sun = addDays(mon, 6)
       const relativeOffset = weekOffset + wi - 1
       return {
         key: `${relativeOffset}:${mon.toISOString()}`,
         title: relativeWeekTitle(relativeOffset),
-        subtitle: `${fmtMD(mon)} – ${fmtMD(fri)} (월–금)`,
+        subtitle: `${fmtMD(mon)} – ${fmtMD(sun)} (월–일)`,
         weekIndex: wi as 0 | 1 | 2,
       }
     })
@@ -196,30 +196,16 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
   }, [currentYear, mode, monthIndex, weekOffset])
 
   const todaySlotIndex = useMemo(() => {
+    // 주간 뷰도 월~일 7일을 모두 렌더하므로 슬롯에 없으면 범위 밖 → 라인 숨김
     const today = startOfDay(new Date())
     const idx = slots.findIndex((slot) => isSameDay(slot.date, today))
-    if (idx >= 0) return idx
-
-    if (mode === 'month') return null
-
-    // 주말(토/일)은 월~금 뷰에 없으므로 같은 주의 금요일 칸에 라인 표시
-    const thisMonday = startOfWeek(today)
-    const weekIdx = mondays.findIndex((m) => isSameDay(m, thisMonday))
-    if (weekIdx >= 0) {
-      return weekIdx * 5 + 4
-    }
-
-    // 안전장치: 오늘이 3주 범위를 벗어나면 라인 숨김
-    const from = mondays[0]
-    const to = addDays(mondays[2], 6)
-    const outOfRange = differenceInCalendarDays(today, from) < 0 || differenceInCalendarDays(today, to) > 0
-    return outOfRange ? null : 4
-  }, [mode, slots, mondays])
+    return idx >= 0 ? idx : null
+  }, [slots])
 
   const getSlotBackground = (slot: WeekDaySlot, _alphaHex: string): string => {
     const key = startOfDay(slot.date).getTime()
-    if (holidayTimeSet.has(key) || (mode === 'month' && (slot.date.getDay() === 0 || slot.date.getDay() === 6))) {
-      // 월간 주말과 공휴일은 연간 보기와 동일한 배경색 사용
+    // 주말·공휴일은 연간 보기와 동일한 배경색 사용 (주간 뷰도 토/일 포함)
+    if (holidayTimeSet.has(key) || slot.date.getDay() === 0 || slot.date.getDay() === 6) {
       return weekendColor
     }
     return 'transparent'
@@ -817,8 +803,8 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
             style={{ width: memberColumnWidth }}
           >
             <div
-              className={`sticky top-0 z-40 flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 ${
-                collapsedMemberColumn ? 'justify-center' : 'justify-end'
+              className={`sticky top-0 z-40 flex items-center gap-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 ${
+                collapsedMemberColumn ? 'justify-center' : ''
               }`}
               style={{ height: WEEK_HEADER_HEIGHT }}
             >
@@ -833,7 +819,16 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
                   {collapsedMemberColumn ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
                 </button>
               )}
-              {!collapsedMemberColumn && <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />}
+              {!collapsedMemberColumn && (
+                <>
+                  {/* 탭 제목 — 마일스톤/피처 A0 와 동일 방식 */}
+                  <ClipboardList className="w-4 h-4 shrink-0 text-zinc-500" />
+                  <span className="truncate text-sm font-semibold text-zinc-700 dark:text-zinc-200">작업</span>
+                  <div className="ml-auto shrink-0">
+                    <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />
+                  </div>
+                </>
+              )}
             </div>
             <div
               style={{

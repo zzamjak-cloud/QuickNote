@@ -7,7 +7,7 @@
 // 원본: TeamScheduler/src/components/schedule/ScheduleGrid.tsx 기반
 import { useRef, useMemo, useCallback, useState, useEffect, useLayoutEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronsLeft, ChevronsRight, Plus, Minus } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, ClipboardList, Plus, Minus } from "lucide-react";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -727,8 +727,8 @@ export function ScheduleGrid({ workspaceId }: Props) {
             style={{ width: memberColumnWidth }}
           >
             <div
-              className={`sticky top-0 z-40 flex items-center border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 ${
-                collapsedMemberColumn ? "justify-center" : "justify-end"
+              className={`sticky top-0 z-40 flex items-center gap-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 ${
+                collapsedMemberColumn ? "justify-center" : ""
               }`}
               style={{ height: DATE_AXIS_HEIGHT }}
             >
@@ -743,7 +743,16 @@ export function ScheduleGrid({ workspaceId }: Props) {
                   {collapsedMemberColumn ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
                 </button>
               )}
-              {!collapsedMemberColumn && <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />}
+              {!collapsedMemberColumn && (
+                <>
+                  {/* 탭 제목 — 마일스톤/피처 A0 와 동일 방식 */}
+                  <ClipboardList className="w-4 h-4 shrink-0 text-zinc-500" />
+                  <span className="truncate text-sm font-semibold text-zinc-700 dark:text-zinc-200">작업</span>
+                  <div className="ml-auto shrink-0">
+                    <SchedulerTaskColumnSettingsButton workspaceId={workspaceId} />
+                  </div>
+                </>
+              )}
             </div>
 
             <div>

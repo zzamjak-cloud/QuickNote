@@ -6,12 +6,7 @@ import { useSchedulerViewStore } from "../../../store/schedulerViewStore";
 import { useVisibleMembers } from "../hooks/useVisibleMembers";
 import { useIsCompact } from "../../../hooks/useViewport";
 
-interface JobTitleFilterProps {
-  /** 직무 목록이 없어도 비활성 버튼으로 자리 표시 (주간 보기 등) */
-  showWhenEmpty?: boolean;
-}
-
-export function JobTitleFilter({ showWhenEmpty = false }: JobTitleFilterProps) {
+export function JobTitleFilter() {
   // 헤더의 조직/팀 선택에 한정된 멤버 목록 사용 (직무 옵션 산출이므로 직무 필터는 미적용)
   const members = useVisibleMembers({ ignoreJobFilter: true });
   const selectedJobTitle = useSchedulerViewStore((s) => s.selectedJobTitle);
@@ -60,22 +55,8 @@ export function JobTitleFilter({ showWhenEmpty = false }: JobTitleFilterProps) {
     setIsOpen(false);
   };
 
-  if (jobCategories.length === 0) {
-    if (!showWhenEmpty) return null;
-    return (
-      <div className="relative">
-        <button
-          type="button"
-          disabled
-          className="px-3 py-1.5 text-sm border border-zinc-200 dark:border-zinc-700 rounded-md bg-zinc-100/50 dark:bg-zinc-800/50 text-zinc-500 dark:text-zinc-400 cursor-not-allowed flex items-center gap-2"
-          title="등록된 직무 구분이 없습니다"
-        >
-          <Users className="w-4 h-4" />
-          <span>직무 없음</span>
-        </button>
-      </div>
-    );
-  }
+  // 등록된 직무 구분이 없으면 필터 자체를 표시하지 않는다.
+  if (jobCategories.length === 0) return null;
 
   return (
     <div ref={dropdownRef} className="relative">

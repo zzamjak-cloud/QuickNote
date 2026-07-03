@@ -9,6 +9,7 @@ import { useSchedulerProjectsStore } from "../../store/schedulerProjectsStore";
 import { useMemberStore } from "../../store/memberStore";
 import { SchedulerSettingsModal } from "./SchedulerSettingsModal";
 import { ScopeSelectDropdown } from "./common/ScopeSelectDropdown";
+import { HeaderSelectDropdown } from "./common/HeaderSelectDropdown";
 import { useIsCompact } from "../../hooks/useViewport";
 
 // 관리자 패널 접근 권한 — MANAGER 이상만 허용
@@ -227,106 +228,27 @@ export function SchedulerHeader({ onClose }: Props) {
             />
             {!isCompact && <span className="text-sm text-zinc-500">일정</span>}
           </div>
-          {isCompact ? (
-            <>
-              {/* 컴팩트: 탭 2종을 네이티브 셀렉트로 대체(모바일 OS 피커 활용) */}
-              <select
-                value={entityMode}
-                onChange={(e) => setEntityMode(e.target.value as typeof entityMode)}
-                aria-label="일정 데이터 모드"
-                className="shrink-0 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-100/40 dark:bg-zinc-800/40 px-1.5 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-200"
-              >
-                <option value="milestone">마일스톤</option>
-                <option value="feature">피처</option>
-                <option value="task">작업</option>
-              </select>
-              <select
-                value={viewMode}
-                onChange={(e) => setViewMode(e.target.value as typeof viewMode)}
-                aria-label="일정 보기 모드"
-                className="shrink-0 rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-100/40 dark:bg-zinc-800/40 px-1.5 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-200"
-              >
-                <option value="year">연간</option>
-                <option value="month">월간</option>
-                <option value="week">주간</option>
-              </select>
-            </>
-          ) : (
-            <>
-              <div
-                className="flex rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-100/40 dark:bg-zinc-800/40 p-0.5"
-                role="tablist"
-                aria-label="일정 데이터 모드"
-              >
-                {[
-                  ["milestone", "마일스톤"],
-                  ["feature", "피처"],
-                  ["task", "작업"],
-                ].map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="tab"
-                    aria-selected={entityMode === mode}
-                    onClick={() => setEntityMode(mode as typeof entityMode)}
-                    className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                      entityMode === mode
-                        ? "bg-green-600 text-white shadow-sm"
-                        : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {/* 뷰 모드 segmented control */}
-              <div
-                className="flex rounded-md border border-zinc-200 dark:border-zinc-700 bg-zinc-100/40 dark:bg-zinc-800/40 p-0.5"
-                role="tablist"
-                aria-label="일정 보기 모드"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={viewMode === "year"}
-                  onClick={() => setViewMode("year")}
-                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                    viewMode === "year"
-                      ? "bg-green-600 text-white shadow-sm"
-                      : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-                  }`}
-                >
-                  연간
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={viewMode === "month"}
-                  onClick={() => setViewMode("month")}
-                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                    viewMode === "month"
-                      ? "bg-green-600 text-white shadow-sm"
-                      : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-                  }`}
-                >
-                  월간
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={viewMode === "week"}
-                  onClick={() => setViewMode("week")}
-                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
-                    viewMode === "week"
-                      ? "bg-green-600 text-white shadow-sm"
-                      : "text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-                  }`}
-                >
-                  주간
-                </button>
-              </div>
-            </>
-          )}
+          {/* 데이터 모드·뷰 모드 — PC/모바일 공통 앵커드 드롭다운 (버튼 아래 배치·화면 클리핑 방지) */}
+          <HeaderSelectDropdown
+            value={entityMode}
+            onChange={setEntityMode}
+            ariaLabel="일정 데이터 모드"
+            options={[
+              { value: "milestone", label: "마일스톤" },
+              { value: "feature", label: "피처" },
+              { value: "task", label: "작업" },
+            ]}
+          />
+          <HeaderSelectDropdown
+            value={viewMode}
+            onChange={setViewMode}
+            ariaLabel="일정 보기 모드"
+            options={[
+              { value: "year", label: "연간" },
+              { value: "month", label: "월간" },
+              { value: "week", label: "주간" },
+            ]}
+          />
         </div>
 
         {/* 우측: 내일정 + 설정 버튼 + 닫기 */}
