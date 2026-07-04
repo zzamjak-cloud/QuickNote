@@ -210,56 +210,54 @@ export function FavoritesList() {
   const clearFavoriteNavigation = useUiStore((s) => s.clearFavoriteNavigation);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
 
+  // (1) 현재 워크스페이스에 로드된 즐겨찾기 페이지의 라이브 제목으로 캐시 갱신.
+  //     pages 변경(타이핑)마다 실행되므로 동기·경량으로만 처리한다.
+  useEffect(() => {
+    if (favoritePageIds.length === 0 || workspaces.length === 0) return;
+    const workspace =
+      workspaces.find((w) => w.workspaceId === currentWorkspaceId) ?? null;
+    for (const pageId of favoritePageIds) {
+      const page = pages[pageId];
+      if (!page) continue;
+      // 다른 워크스페이스에서 적재된 페이지(peek/크로스 로드)는 여기서 건드리지 않는다.
+      if ((page.workspaceId ?? currentWorkspaceId) !== currentWorkspaceId) continue;
+      updateFavoritePageMeta(pageId, {
+        pageId,
+        workspaceId: currentWorkspaceId,
+        workspaceName: workspace?.name ?? "",
+        pageTitle: page.title || "제목 없음",
+        pageIcon: page.icon ?? null,
+      });
+    }
+  }, [currentWorkspaceId, favoritePageIds, pages, updateFavoritePageMeta, workspaces]);
+
+  // (2) 다른 워크스페이스 즐겨찾기의 스테일 제목(변경 전 이름) 교정.
+  //     persist 스냅샷까지 읽으므로 해당 워크스페이스를 이번 세션에 방문하지 않았어도 최신 제목을
+  //     회복한다(in-memory 전용이면 미방문 워크스페이스에서 변경 전 제목이 계속 남았음).
+  //     pages 변경(타이핑)에 반응하지 않도록 별도 effect 로 분리 — 워크스페이스/즐겨찾기 변경 시에만 실행.
   useEffect(() => {
     if (favoritePageIds.length === 0 || workspaces.length === 0) return;
     let cancelled = false;
     void (async () => {
       for (const pageId of favoritePageIds) {
         if (cancelled) return;
-        const page = pages[pageId];
-        // 현재 워크스페이스에 로드된 페이지 → 라이브 제목으로 캐시 갱신.
-        // (peek 등으로 적재된 타 워크스페이스 페이지는 제외 — 아래 스냅샷 경로에서 정확히 처리)
-        const pageWsId = page?.workspaceId ?? null;
-        if (page && (pageWsId === null || pageWsId === currentWorkspaceId)) {
-          const workspace =
-            workspaces.find((w) => w.workspaceId === currentWorkspaceId) ??
-            null;
-          updateFavoritePageMeta(pageId, {
-            pageId,
-            workspaceId: currentWorkspaceId,
-            workspaceName: workspace?.name ?? "",
-            pageTitle: page.title || "제목 없음",
-            pageIcon: page.icon ?? null,
-          });
+        // 현재 워크스페이스에 로드된 페이지는 effect (1) 이 처리
+        if (usePageStore.getState().pages[pageId]) continue;
+        const meta = await resolveFavoritePageMetaFromWorkspaceSnapshots(pageId, workspaces);
+        if (meta) {
+          if (!cancelled) updateFavoritePageMeta(pageId, meta);
           continue;
         }
-        // 다른 워크스페이스: 워크스페이스 스냅샷에서 실제 제목을 찾아 스테일 캐시(변경 전 제목)를 교정.
-        // 캐시에 workspaceId 가 이미 있어도 제목/아이콘이 다르면 갱신한다(예전엔 여기서 건너뛰어
-        // 변경 전 제목이 계속 표시됐음). updateFavoritePageMeta 의 same 가드로 중복 쓰기는 없다.
-        const fromSnapshot = getFavoritePageMetaFromLoadedWorkspaceSnapshots(
-          pageId,
-          workspaces,
-        );
-        if (fromSnapshot) {
-          updateFavoritePageMeta(pageId, fromSnapshot);
-          continue;
-        }
-        if (favoritePageMetaById[pageId]?.workspaceId) continue;
-        const meta = await resolveFavoritePageMeta(pageId, workspaces, currentWorkspaceId);
-        if (!cancelled && meta) updateFavoritePageMeta(pageId, meta);
+        // 스냅샷에도 없고 워크스페이스 미상이면 네트워크 해석(기존 동작)
+        if (useSettingsStore.getState().favoritePageMetaById[pageId]?.workspaceId) continue;
+        const net = await resolveFavoritePageMeta(pageId, workspaces, currentWorkspaceId);
+        if (!cancelled && net) updateFavoritePageMeta(pageId, net);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [
-    currentWorkspaceId,
-    favoritePageIds,
-    favoritePageMetaById,
-    pages,
-    updateFavoritePageMeta,
-    workspaces,
-  ]);
+  }, [currentWorkspaceId, favoritePageIds, updateFavoritePageMeta, workspaces]);
 
   const validIds = favoritePageIds;
 
