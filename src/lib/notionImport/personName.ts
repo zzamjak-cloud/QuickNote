@@ -1,7 +1,11 @@
 import type { Member } from "../../store/memberStore";
 
 export function normalizeImportedPersonName(raw: string): string {
-  const trimmed = raw.trim();
+  // member.name 은 타입상 string 이나 런타임 nullish 가능(멤버 필드 크래시 패밀리) → 방어
+  if (typeof raw !== "string") return "";
+  // NFC 정규화 필수 — 노션/맥OS 내보내기 작성자명은 분해형(NFD)이라 조합형(NFC) 멤버명과
+  // === 비교에서 불일치해 매칭 실패→작성자 fallback(임포터 계정)으로 떨어졌다. 한글 NFD/NFC 패밀리.
+  const trimmed = raw.normalize("NFC").trim();
   if (!trimmed) return "";
   const base = trimmed.split("[")[0]?.trim() ?? trimmed;
   return base.replace(/\s+/g, "");
