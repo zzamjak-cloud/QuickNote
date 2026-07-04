@@ -39,6 +39,7 @@ import type { NotionImportSource } from "../../lib/notionImport/importSource";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useMemberStore } from "../../store/memberStore";
+import { refreshWorkspaceMeta } from "../../lib/sync/workspaceMetaCache";
 import {
   extractNotionInlineComments,
   ensureCommentAnchorBlockIds,
@@ -273,6 +274,14 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
     if (status.kind !== "ready") return;
     const { pairs, rootDir } = status;
     setStatus({ kind: "importing" });
+    // person 컬럼·댓글 작성자 매칭 전 대상 워크스페이스 구성원 로드 보장(전환 직후 레이스 방지)
+    if (currentWorkspaceId) {
+      try {
+        await refreshWorkspaceMeta(currentWorkspaceId);
+      } catch {
+        // 구성원 로드 실패해도 임포트는 진행
+      }
+    }
     // import 중 Zustand persist 직렬화를 차단 — 완료 시 한 번에 flush
     pauseStorageWrites();
 

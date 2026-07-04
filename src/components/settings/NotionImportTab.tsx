@@ -36,6 +36,7 @@ import { Loader2 } from "lucide-react";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useMemberStore } from "../../store/memberStore";
+import { refreshWorkspaceMeta } from "../../lib/sync/workspaceMetaCache";
 import { useUiStore } from "../../store/uiStore";
 import { hydrateStructuralChildPageMentions } from "../../lib/notionImport/hydrateChildPageMentions";
 import { MENTION_PAGE_PREFIX, stripPagePrefix } from "../../lib/tiptapExtensions/mentionKind";
@@ -221,6 +222,17 @@ export function NotionImportTab() {
     setIsImporting(true);
     setImportCompleted(false);
     await yieldToPaint();
+
+    // 댓글 작성자·person 컬럼 매칭 전, 대상 워크스페이스 구성원 목록 로드를 보장한다.
+    // (워크스페이스 전환 직후 memberStore 가 아직 이전/빈 목록이면 모든 작성자가 임포터로
+    //  fallback 되는 레이스가 있었음 — memberStore 는 워크스페이스 스코프)
+    if (currentWorkspaceId) {
+      try {
+        await refreshWorkspaceMeta(currentWorkspaceId);
+      } catch {
+        // 구성원 로드 실패해도 임포트 자체는 진행(작성자만 fallback)
+      }
+    }
 
     try {
       const pageByPath = new Map(currentStatus.preview.pages.map((p) => [p.path, p]));
