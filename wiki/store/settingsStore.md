@@ -33,6 +33,8 @@ UI 전역 설정(다크모드, 사이드바, 탭, 즐겨찾기, 전체너비 등
 
 **`FavoritePageMeta`** 필드: `pageId`, `workspaceId`, `workspaceName`, `pageTitle`, `pageIcon`
 
+> `favoritePageMetaById` 는 **표시용 캐시**(즐겨찾기 등록 시점 1회 스냅샷)일 뿐 권위 소스가 아니다. 페이지가 현재 워크스페이스에 로드돼 있으면 라이브 `pages[id].title` 이, 미로드면 서버 조회(`fetchPageByIdOnly`)가 권위다. 이 캐시만 믿으면 이름 변경 전 옛 제목이 다른 워크스페이스에서 노출된다 → 교정 경로는 [navigation/overview.md](../navigation/overview.md#즐겨찾기favorites-이동제목-표시-favoriteslisttsx). 워크스페이스 스냅샷은 stale 할 수 있어 제목 교정 소스로 쓰지 않는다.
+
 ## 액션 목록
 
 | 액션명 | 파라미터 | 설명 |
@@ -42,6 +44,8 @@ UI 전역 설정(다크모드, 사이드바, 탭, 즐겨찾기, 전체너비 등
 | `openTab` | `pageId \| null` | 새 탭 열기 또는 기존 탭 활성화 |
 | `closeTab` | `index` | 탭 닫기 (lastClosedTab 갱신) |
 | `setActiveTab` | `index` | 활성 탭 변경 |
+| `toggleFavoritePage` | `pageId` | 즐겨찾기 추가/제거. 추가 시 현재 `pages[id].title` 로 메타 스냅샷 기록 |
+| `updateFavoritePageMeta` | `pageId, meta, opts?` | 메타 캐시 갱신(`same` 가드로 무변경 시 skip). 제목 교정 진입점 |
 | `removeFavoritePage` | `pageId` | 즐겨찾기 제거 |
 | `removeFavoritesForPages` | `pageIds` | 여러 페이지 즐겨찾기 일괄 제거 |
 | `setEntityIcon` | `id, icon \| null` | 엔티티 아이콘 설정 |

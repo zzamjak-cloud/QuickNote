@@ -39,6 +39,8 @@
 - `swController` 가 `onRegisteredSW` 에서 registration 보관 → **60분 주기 + `visibilitychange`(포커스 복귀)** 마다 `reg.update()`. 새 SW 감지 시 `onNeedRefresh` → 배너.
 - 청크404(`vite:preloadError`)가 새로고침 후에도 반복되면(`src/lib/chunkReload.ts`) stale precache 로 보고 `forcePwaUpdate()`(SW 강제 교체 + reload, 쿨다운 1회 제한).
 
+> **디버깅 함정 — 배포한 수정이 사용자 화면에 안 보임.** SW precache 가 옛 번들을 계속 서빙하면, 라이브에 fix 를 배포해도 사용자는 예전 동작을 본다. **일반 새로고침 1회로는 SW 가 안 바뀐다.** 코드 vs 캐시 문제 구분법: **SW 이력이 없는 새 브라우저/시크릿 창**으로 라이브 URL 을 열면 항상 최신 번들을 받으므로, 거기서 정상이면 fix 는 이미 배포됨 = 사용자 쪽 stale SW 문제. 사용자 강제 교체: **모든 탭 완전히 닫고 재오픈**(1~2회) 또는 DevTools→Application→Service Workers→Unregister. (라이브 상태 직접 확인은 Playwright 등 무-SW 세션 + IndexedDB `quicknote-web-kv`/스냅샷 덤프로 가능.)
+
 ## 재접속 자가치유 (오프라인 갭 escalation)
 
 `offlineGap.ts`: offline 진입 시각 기록 → 재접속 시 갭 기반 fetch 모드.

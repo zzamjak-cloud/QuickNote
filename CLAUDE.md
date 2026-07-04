@@ -32,6 +32,7 @@
 | 박스 드래그 선택 버그 | `wiki/ui/box-select.md` |
 | 피커뷰 툴바 버그 | `wiki/ui/pickerview-toolbar.md` |
 | 멘션·링크 클릭 이동/Ctrl+클릭/뒤로가기/탭 닫기 | `wiki/navigation/overview.md` |
+| 즐겨찾기 이동·제목(워크스페이스별 옛 제목)·목차 스크롤 | `wiki/navigation/overview.md` |
 | 이미지 리사이즈 버그 | `wiki/editor/image-resize.md` |
 | DB 뷰/셀/필터 수정 | `wiki/database/` |
 | DB 그룹화(표시설정) | `wiki/database/grouping.md` |

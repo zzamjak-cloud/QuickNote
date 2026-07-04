@@ -134,11 +134,38 @@ TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 
 
 ---
 
+## 즐겨찾기(Favorites) 이동·제목 표시 (`FavoritesList.tsx`)
+
+즐겨찾기는 `settingsStore.favoritePageIds`(순서) + `favoritePageMetaById`(표시용 메타 캐시). 페이지 id 는 전역 고유(`crypto.randomUUID`)라 워크스페이스 간 충돌하지 않는다.
+
+**클릭 이동** — 로컬 스냅샷의 `workspaceId` 를 신뢰하지 않고, `ensurePageContentLoaded({pageId})`(workspaceId 미지정 → `fetchPageByIdOnly`) 로 **서버가 실제 소속 워크스페이스로 해석**해 본문을 적재한 뒤 판정한다.
+- 로드된 페이지의 `workspaceId === currentWorkspaceId`(또는 미상) → `openPageInCurrentTab`.
+- 다른 워크스페이스 → 스냅샷 workspaceId 를 실제 값으로 교정 + `requestCrossWorkspaceLanding` 후 `setCurrentWorkspaceId`(본문이 이미 store 에 있어 landing 이 first-root 대신 목표로 착지).
+- (구버전: `pages[pageId]` 폴링 + 6초 타임아웃 후 즐겨찾기 자동 제거 → 무반응·지연·**오삭제**. 폐기.)
+
+**제목 표시 — 왜 이름 변경 전 옛 제목이 뜨는가**
+- 표시 우선순위: ① 라이브 `pages[pageId].title`(현재 워크스페이스 로드분) → ② 서버 교정된 `favoritePageMetaById` 캐시 → ③ in-memory 워크스페이스 스냅샷.
+- `favoritePageMetaById` 는 즐겨찾기 등록 시점 1회 스냅샷이라 **이름 변경 전 제목이 고착**될 수 있다. 특히 페이지가 현재 워크스페이스에 로드 안 된 상태(다른 워크스페이스 진입)에서 이 캐시가 그대로 노출돼 워크스페이스마다 제목이 달라 보였다.
+- 교정 경로(3중, 모두 `updateFavoritePageMeta` `same` 가드로 중복 쓰기 없음):
+  - `renamePage`(pageStore) 가 즐겨찾기면 캐시 제목 즉시 갱신.
+  - effect(1): 현재 워크스페이스에 로드된 페이지의 라이브 제목으로 캐시 갱신(`pages` 의존, 경량 동기).
+  - effect(2): **로드 안 된 즐겨찾기는 서버 `fetchPageByIdOnly` 로 권위 제목을 세션 1회 조회해 캐시 교정**(pageId 당 1회, `pages` 미의존 → 타이핑마다 조회 안 함).
+- ⚠️ in-memory/persist 워크스페이스 스냅샷은 stale 할 수 있어 **제목 교정 소스로 신뢰 금지** — 스냅샷 기반 교정은 옛 제목을 되살리는 회귀를 냈다. 권위 소스는 라이브 pageStore 또는 서버.
+- ⚠️ 배포 후에도 사용자 화면에서 계속 옛 제목이면 **stale SW precache**(옛 번들)를 의심한다 → [pwa/overview.md](../pwa/overview.md). 새 브라우저(무 SW)로 라이브 검증하면 코드/캐시 문제를 구분할 수 있다.
+
+## 목차·댓글·검색 스크롤 (`editorNavigationBridge.ts`)
+
+우측 목차 클릭 이동은 `scrollToOutlineHeadingIndex` → **`scrollToBlockPosition`(DOM 직접 스크롤)** 을 쓴다. PM/TipTap 의 `.scrollIntoView()` 는 에디터 `handleScrollToSelection`(`useEditorProps.ts`)이 전면 `true` 를 반환해(타이핑 자동스크롤·복원 보호) **무력화**되므로, 선택만 설정하고 실제 뷰포트 이동은 DOM 스크롤로 한다. 댓글·검색·블록 링크 이동과 동일 경로다. (회귀 주의: 목차가 커서만 잡히고 스크롤이 안 되면 `.scrollIntoView()` 직접 호출을 의심.)
+
+---
+
 ## 핵심 파일
 
 | 파일 | 역할 |
 |------|------|
 | `src/lib/navigation/internalNavigation.ts` | `openPageInCurrentTab`/`openPageInNewTab`, `shouldOpenInternalLinkInNewTab`, `pushPageBrowserHistory` |
+| `src/components/layout/FavoritesList.tsx` | 즐겨찾기 목록·이동·제목 교정(서버 권위 조회) |
+| `src/lib/editor/editorNavigationBridge.ts` | 목차/댓글/검색/블록링크 스크롤(DOM 직접). PM `scrollIntoView` 무력화 우회 |
 | `src/lib/navigation/quicknoteLinks.ts` | `buildQuickNotePageUrl`/`parseQuickNoteLink`(딥링크 `?page&blockId`/`quicknote://`) |
 | `src/lib/crossWorkspaceSearch.ts` | 공개 워크스페이스 교차 페이지/DB 후보 로딩·선택 후보 메타 기억 |
 | `src/store/navigationHistoryStore.ts` | 인앱 백스택(`backStack`, `lastTargetPageId`, `pushBack`/`popBack`/`jumpTo`) |
