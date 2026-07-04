@@ -893,21 +893,24 @@ export function ScheduleRangeView({ mode }: { mode: 'week' | 'month' }) {
                 </div>
               ))}
             </div>
-            {/* 작업 추가 — 구성원 1명 탭 선택 시에만 표시 (통합탭 제외) */}
-            {selectedMemberId && (
+          </div>
+          {/* 작업 추가 — 배경/구분선 없이 텍스트만 (마일스톤/피처와 동일 스타일).
+              구성원 1명 탭 선택 시에만 표시 (통합탭 제외) */}
+          {selectedMemberId && (
+            <div className="sticky left-0 z-20" style={{ width: memberColumnWidth, height: 44 }}>
               <button
                 type="button"
                 onClick={handleAddTask}
                 title="작업 추가"
-                className={`flex h-11 w-full items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 ${
+                className={`flex h-full w-full items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 ${
                   collapsedMemberColumn ? 'justify-center' : 'justify-end pr-3'
                 }`}
               >
                 <Plus size={12} className="shrink-0" />
                 {!collapsedMemberColumn && '작업 추가'}
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           <div
             style={{
