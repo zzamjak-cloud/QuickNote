@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import {
   DynamoDBDocumentClient,
+  GetCommand,
   PutCommand,
   QueryCommand,
   UpdateCommand,
@@ -80,13 +81,31 @@ export async function upsertComment(args: {
     typeof input.mentionMemberIds === "string"
       ? input.mentionMemberIds
       : JSON.stringify(input.mentionMemberIds ?? []);
+  // 작성자 스푸핑 방지: 기본은 항상 호출자로 강제한다.
+  // 단, 가져오기(노션 등)로 원본 작성자를 보존하려는 경우(importedAuthorMemberId 지정)에 한해,
+  // 그 id 가 실제로 존재하는(removed 아님) 구성원일 때만 작성자로 허용한다. 존재하지 않으면 호출자 강제.
+  // (구성원 자격은 org 단위 Members 테이블 기준 — listMembers 와 동일한 권위 정의)
+  let authorMemberId = args.caller.memberId;
+  const requestedAuthor =
+    typeof input.importedAuthorMemberId === "string" ? input.importedAuthorMemberId : null;
+  if (requestedAuthor && requestedAuthor !== args.caller.memberId && args.tables.Members) {
+    const found = await args.doc.send(
+      new GetCommand({
+        TableName: args.tables.Members,
+        Key: { memberId: requestedAuthor },
+      }),
+    );
+    const status = (found.Item as { status?: string } | undefined)?.status;
+    if (found.Item && status !== "removed") {
+      authorMemberId = requestedAuthor;
+    }
+  }
   const item: Record<string, unknown> = {
     id: input.id,
     workspaceId,
     pageId: input.pageId,
     blockId: input.blockId,
-    // 작성자 스푸핑 방지: 클라이언트가 보낸 authorMemberId 를 신뢰하지 않고 항상 호출자로 강제한다.
-    authorMemberId: args.caller.memberId,
+    authorMemberId,
     bodyText: input.bodyText,
     mentionMemberIds,
     parentId: input.parentId ?? null,

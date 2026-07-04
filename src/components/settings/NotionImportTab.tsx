@@ -632,6 +632,9 @@ export function NotionImportTab() {
               pageId,
               blockId: mappedBlockId,
               authorMemberId,
+              // 서버가 스푸핑 방지로 작성자를 호출자로 강제하므로, 가져오기 원본 작성자를 별도로 전송해
+              // 유효 구성원일 때 서버가 보존하도록 한다(그 외엔 호출자 강제 = 기존 동작).
+              importedAuthorMemberId: authorMemberId,
               bodyText: `${authorPrefix}${comment.bodyText}`.trim(),
               mentionMemberIds: [],
               parentId: null,

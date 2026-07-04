@@ -421,6 +421,11 @@ input CommentInput {
   parentId: ID
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
+  """
+  가져오기(노션 등)에서 원본 작성자를 보존하려는 경우 지정. 유효한(존재하는·removed 아님) 구성원일 때만
+  작성자로 사용하고, 그 외에는 스푸핑 방지로 호출자를 강제한다. 일반 댓글 작성 시에는 전송하지 않는다.
+  """
+  importedAuthorMemberId: ID
 }
 
 input ImageUploadInput {

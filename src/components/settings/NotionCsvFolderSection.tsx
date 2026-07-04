@@ -1188,6 +1188,8 @@ export function NotionCsvFolderSection({ compact = false, sharedSource = null }:
                 pageId: targetPageId,
                 blockId: mappedBlockId,
                 authorMemberId,
+                // 서버 스푸핑 방지로 작성자가 호출자로 강제되므로 원본 작성자를 별도 전송(유효 구성원 시 보존)
+                importedAuthorMemberId: authorMemberId,
                 bodyText: `${authorPrefix}${comment.bodyText}`.trim(),
                 mentionMemberIds: [],
                 parentId: null,

@@ -54,6 +54,10 @@ function enqueueUpsertComment(msg: BlockCommentMsg): void {
     parentId: msg.parentId,
     createdAt: msToIso(msg.createdAt),
     updatedAt: msToIso(Date.now()),
+    // 가져오기 원본 작성자 보존 요청 — 지정된 경우에만 전송(일반 댓글은 미전송 → 서버가 호출자 강제).
+    ...(msg.importedAuthorMemberId
+      ? { importedAuthorMemberId: msg.importedAuthorMemberId }
+      : {}),
   });
 }
 
@@ -145,6 +149,9 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
           mentionMemberIds: normalizeMentionMemberIds(input.mentionMemberIds),
           parentId: input.parentId,
           createdAt: Date.now(),
+          ...(input.importedAuthorMemberId
+            ? { importedAuthorMemberId: input.importedAuthorMemberId }
+            : {}),
         };
         // 중복 방지
         if (get().messages.some((m) => m.id === msg.id)) return msg;
