@@ -64,18 +64,9 @@ export function scrollToOutlineHeadingIndex(index: number): boolean {
   const startPos = positions[index];
   if (startPos === undefined) return false;
 
-  const docSize = editor.state.doc.content.size;
-  const caret = Math.min(startPos + 1, docSize);
-  try {
-    editor.chain().focus().setTextSelection(caret).scrollIntoView().run();
-  } catch {
-    try {
-      editor.chain().focus().setNodeSelection(startPos).scrollIntoView().run();
-    } catch {
-      return false;
-    }
-  }
-  return true;
+  // PM 의 .scrollIntoView() 는 handleScrollToSelection 이 전면 true 를 반환해 무력화되므로
+  // (선택만 되고 뷰포트가 안 움직임) 댓글·검색과 동일하게 DOM 을 직접 스크롤하는 경로를 쓴다.
+  return scrollToBlockPosition(startPos);
 }
 
 /** 주어진 에디터의 doc 에서 attrs.id 가 blockId 인 블록의 시작 pos. */

@@ -482,6 +482,18 @@ export const usePageStore = create<PageStore>()(
             () => toPageSnapshot(after),
           );
           enqueueUpsertPage(after);
+          // 즐겨찾기 스냅샷 제목도 즉시 갱신 — 즐겨찾기 패널 미마운트/페이지 미로드 상태에서
+          // 표시 제목이 변경 이전으로 되돌아가는 것을 방지(스냅샷이 옛 제목으로 서버에 재전송되는 것도 차단).
+          const settings = useSettingsStore.getState();
+          if (settings.favoritePageIds.includes(id)) {
+            settings.updateFavoritePageMeta(id, {
+              pageId: id,
+              workspaceId: after.workspaceId ?? getCurrentWorkspaceId() ?? null,
+              workspaceName: settings.favoritePageMetaById[id]?.workspaceName ?? "",
+              pageTitle: after.title,
+              pageIcon: after.icon ?? null,
+            });
+          }
         }
         return true;
       },

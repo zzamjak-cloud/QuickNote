@@ -31,6 +31,12 @@ import {
 } from "../../lib/sync/workspaceSwitch";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { getRevokedFavoritePageIds } from "./favoritesAccess";
+import { openPageInCurrentTab } from "../../lib/navigation/internalNavigation";
+import { ensurePageContentLoaded } from "../../lib/sync/pageContentLoad";
+import {
+  requestCrossWorkspaceLanding,
+  clearCrossWorkspaceLanding,
+} from "../../lib/sync/workspaceLanding";
 
 const FAVORITE_NAV_TIMEOUT_MS = 6000;
 
@@ -79,8 +85,6 @@ function FavoriteRow({ pageId }: { pageId: string }) {
       return { title: p.title, icon: p.icon };
     }),
   );
-  const setActivePage = usePageStore((s) => s.setActivePage);
-  const setCurrentTabPage = useSettingsStore((s) => s.setCurrentTabPage);
   const removeFavoritePage = useSettingsStore((s) => s.removeFavoritePage);
   const updateFavoritePageMeta = useSettingsStore((s) => s.updateFavoritePageMeta);
   const favoriteMeta = useSettingsStore((s) => s.favoritePageMetaById[pageId]);
@@ -114,52 +118,58 @@ function FavoriteRow({ pageId }: { pageId: string }) {
         type="button"
         onClick={() => {
           void (async () => {
-            let targetMeta = snapshotMeta;
-            if (!targetMeta && !pageMeta) {
-              targetMeta = await resolveFavoritePageMeta(pageId, workspaces, currentWorkspaceId);
-              if (targetMeta) {
-                updateFavoritePageMeta(pageId, targetMeta);
-              }
-            }
-            const targetWorkspaceId = targetMeta?.workspaceId ?? null;
-            if (targetWorkspaceId) {
-              const workspace = workspaces.find(
-                (w) => w.workspaceId === targetWorkspaceId,
-              );
-              if (!workspace) {
-                if (workspaces.length === 0) {
-                  requestFavoriteNavigation({
-                    pageId,
-                    workspaceId: targetWorkspaceId,
-                  });
-                  return;
-                }
-                removeFavoritePage(pageId);
-                showToast(
-                  `${targetMeta?.workspaceName || "해당 워크스페이스"}에 대한 접근 권한이 없습니다.`,
-                  { kind: "error" },
-                );
-                return;
-              }
-              if (currentWorkspaceId !== targetWorkspaceId) {
-                setCurrentWorkspaceId(targetWorkspaceId);
-                requestFavoriteNavigation({
-                  pageId,
-                  workspaceId: targetWorkspaceId,
-                });
-                return;
-              }
-            }
-            if (!pageMeta) {
-              requestFavoriteNavigation({
-                pageId,
-                workspaceId: targetWorkspaceId,
-              });
+            closePeek();
+            // 1) 페이지 본문을 store 에 확보 — workspaceId 를 넘기지 않아 서버가 페이지의 실제
+            //    소속으로 해석(fetchPageByIdOnly)한다. 스냅샷의 workspaceId 가 틀려도 안전하다.
+            //    (스냅샷 workspaceId 로 fetchPageById 하면 값이 어긋날 때 null → 로드 실패했음)
+            const loaded = await ensurePageContentLoaded({
+              pageId,
+              source: "favorite-nav",
+            });
+            if (!loaded) {
+              showToast("페이지를 불러오지 못했습니다.", { kind: "error" });
               return;
             }
-            closePeek();
-            setCurrentTabPage(pageId);
-            setActivePage(pageId);
+            // 2) 로드된 페이지의 권위 있는 워크스페이스로 판정.
+            const loadedPage = usePageStore.getState().pages[pageId];
+            const targetWorkspaceId = loadedPage?.workspaceId ?? null;
+
+            // 3) 같은 워크스페이스(또는 미상): 현재 탭에서 연다.
+            if (!targetWorkspaceId || targetWorkspaceId === currentWorkspaceId) {
+              openPageInCurrentTab(pageId, { workspaceId: targetWorkspaceId });
+              return;
+            }
+
+            // 4) 다른 워크스페이스: 접근 확인 후 결정적 착지로 전환.
+            const workspace = workspaces.find(
+              (w) => w.workspaceId === targetWorkspaceId,
+            );
+            if (!workspace) {
+              // 워크스페이스 목록 미로드(부트스트랩 레이스): 로드 후 재시도 대기
+              if (workspaces.length === 0) {
+                requestFavoriteNavigation({ pageId, workspaceId: targetWorkspaceId });
+                return;
+              }
+              removeFavoritePage(pageId);
+              showToast(
+                `${snapshotMeta?.workspaceName || "해당 워크스페이스"}에 대한 접근 권한이 없습니다.`,
+                { kind: "error" },
+              );
+              return;
+            }
+            // 스냅샷 workspaceId 가 어긋나 있었을 수 있으니 실제 소속으로 교정(다음 클릭부터 정상).
+            updateFavoritePageMeta(pageId, {
+              pageId,
+              workspaceId: targetWorkspaceId,
+              workspaceName: workspace.name,
+              pageTitle: loadedPage?.title || snapshotMeta?.pageTitle || "제목 없음",
+              pageIcon: loadedPage?.icon ?? snapshotMeta?.pageIcon ?? null,
+            });
+            // 페이지 본문은 이미 store 에 있으므로 applyWorkspaceLanding 이 목표로 착지한다.
+            // 랜딩 목표는 전환 직전에 설정(다중 클릭 시 스테일 목표 최소화).
+            clearCrossWorkspaceLanding();
+            requestCrossWorkspaceLanding(targetWorkspaceId, pageId);
+            setCurrentWorkspaceId(targetWorkspaceId);
           })();
         }}
         className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm text-zinc-800 dark:text-zinc-100"
