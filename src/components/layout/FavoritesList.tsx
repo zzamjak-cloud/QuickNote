@@ -1,6 +1,6 @@
 // 개인 즐겨찾기 목록 — DnD 정렬
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   DndContext,
   type DragEndEvent,
@@ -20,15 +20,10 @@ import { StarOff } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useShallow } from "zustand/react/shallow";
 import { useSettingsStore } from "../../store/settingsStore";
-import type { FavoritePageMeta } from "../../store/settingsStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
-import type { WorkspaceSummary } from "../../store/workspaceStore";
 import { useUiStore } from "../../store/uiStore";
-import { fetchPagesByWorkspace } from "../../lib/sync";
-import {
-  getFavoritePageMetaFromLoadedWorkspaceSnapshots,
-  resolveFavoritePageMetaFromWorkspaceSnapshots,
-} from "../../lib/sync/workspaceSwitch";
+import { fetchPageByIdOnly } from "../../lib/sync/bootstrap";
+import { getFavoritePageMetaFromLoadedWorkspaceSnapshots } from "../../lib/sync/workspaceSwitch";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { getRevokedFavoritePageIds } from "./favoritesAccess";
 import { openPageInCurrentTab } from "../../lib/navigation/internalNavigation";
@@ -39,42 +34,6 @@ import {
 } from "../../lib/sync/workspaceLanding";
 
 const FAVORITE_NAV_TIMEOUT_MS = 6000;
-
-async function resolveFavoritePageMeta(
-  pageId: string,
-  workspaces: readonly WorkspaceSummary[],
-  preferWorkspaceId?: string | null,
-): Promise<FavoritePageMeta | null> {
-  const cached = await resolveFavoritePageMetaFromWorkspaceSnapshots(pageId, workspaces);
-  if (cached) return cached;
-
-  // 현재 워크스페이스를 먼저 조회해 흔한 경우를 1회 페치로 끝낸다(#4).
-  // (이전: 전 워크스페이스를 순서대로 풀페치 → 페이지가 마지막 워크스페이스에 있으면 전부 페치)
-  const ordered = preferWorkspaceId
-    ? [
-        ...workspaces.filter((w) => w.workspaceId === preferWorkspaceId),
-        ...workspaces.filter((w) => w.workspaceId !== preferWorkspaceId),
-      ]
-    : workspaces;
-
-  for (const workspace of ordered) {
-    try {
-      const pages = await fetchPagesByWorkspace(workspace.workspaceId);
-      const page = pages.find((candidate) => candidate.id === pageId && !candidate.deletedAt);
-      if (!page) continue;
-      return {
-        pageId,
-        workspaceId: workspace.workspaceId,
-        workspaceName: workspace.name,
-        pageTitle: page.title || "제목 없음",
-        pageIcon: page.icon ?? null,
-      };
-    } catch {
-      // 접근 권한이 없는 워크스페이스는 다음 후보를 확인한다.
-    }
-  }
-  return null;
-}
 
 function FavoriteRow({ pageId }: { pageId: string }) {
   // doc 필드 불필요 — title·icon·존재 여부만 구독해 텍스트 입력 시 리렌더 방지
@@ -94,12 +53,11 @@ function FavoriteRow({ pageId }: { pageId: string }) {
   const showToast = useUiStore((s) => s.showToast);
   const requestFavoriteNavigation = useUiStore((s) => s.requestFavoriteNavigation);
   const closePeek = useUiStore((s) => s.closePeek);
-  // 워크스페이스 스냅샷(방문 시 라이브 pageStore 로 갱신됨)이 favoriteMeta 캐시(즐겨찾기 시점 1회
-  // 기록)보다 신선하므로 우선한다. 캐시만 믿으면 다른 워크스페이스에서 변경 전 제목이 표시된다.
+  // favoriteMeta 캐시는 아래 effect 에서 서버(id 단독 조회)로 교정되므로 권위 소스로 우선한다.
+  // in-memory 워크스페이스 스냅샷은 stale 할 수 있어(예: 변경 전 제목) 폴백으로만 쓴다.
   const snapshotMeta =
-    getFavoritePageMetaFromLoadedWorkspaceSnapshots(pageId, workspaces) ??
     favoriteMeta ??
-    null;
+    getFavoritePageMetaFromLoadedWorkspaceSnapshots(pageId, workspaces);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: pageId });
@@ -209,6 +167,8 @@ export function FavoritesList() {
   const pendingFavoriteNavigation = useUiStore((s) => s.pendingFavoriteNavigation);
   const clearFavoriteNavigation = useUiStore((s) => s.clearFavoriteNavigation);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+  // 서버 제목 회복을 pageId 당 세션 1회만 수행(중복 네트워크 방지)
+  const serverTitleFetchedRef = useRef<Set<string>>(new Set());
 
   // (1) 현재 워크스페이스에 로드된 즐겨찾기 페이지의 라이브 제목으로 캐시 갱신.
   //     pages 변경(타이핑)마다 실행되므로 동기·경량으로만 처리한다.
@@ -231,33 +191,42 @@ export function FavoritesList() {
     }
   }, [currentWorkspaceId, favoritePageIds, pages, updateFavoritePageMeta, workspaces]);
 
-  // (2) 다른 워크스페이스 즐겨찾기의 스테일 제목(변경 전 이름) 교정.
-  //     persist 스냅샷까지 읽으므로 해당 워크스페이스를 이번 세션에 방문하지 않았어도 최신 제목을
-  //     회복한다(in-memory 전용이면 미방문 워크스페이스에서 변경 전 제목이 계속 남았음).
-  //     pages 변경(타이핑)에 반응하지 않도록 별도 effect 로 분리 — 워크스페이스/즐겨찾기 변경 시에만 실행.
+  // (2) 다른 워크스페이스(현재 store 에 미로드) 즐겨찾기의 제목을 서버에서 직접(id 단독 조회) 회복.
+  //     로컬 스냅샷/캐시가 어떤 이유로든 옛 제목("노션 가져오기")을 들고 있어도 서버 권위값으로 교정한다.
+  //     (로컬 스냅샷 기반 교정은 스냅샷 자체가 stale 하면 옛 제목을 그대로 써서 실패했음)
+  //     pageId 당 세션 1회만 조회하고, pages 변경(타이핑)엔 반응하지 않도록 분리한다.
   useEffect(() => {
     if (favoritePageIds.length === 0 || workspaces.length === 0) return;
     let cancelled = false;
     void (async () => {
       for (const pageId of favoritePageIds) {
         if (cancelled) return;
-        // 현재 워크스페이스에 로드된 페이지는 effect (1) 이 처리
+        // 현재 워크스페이스에 로드된 페이지는 effect (1)/라이브가 처리
         if (usePageStore.getState().pages[pageId]) continue;
-        const meta = await resolveFavoritePageMetaFromWorkspaceSnapshots(pageId, workspaces);
-        if (meta) {
-          if (!cancelled) updateFavoritePageMeta(pageId, meta);
-          continue;
+        if (serverTitleFetchedRef.current.has(pageId)) continue;
+        serverTitleFetchedRef.current.add(pageId);
+        try {
+          const gp = await fetchPageByIdOnly(pageId);
+          if (cancelled || !gp || gp.deletedAt) continue;
+          const wsId = gp.workspaceId ?? null;
+          updateFavoritePageMeta(pageId, {
+            pageId,
+            workspaceId: wsId,
+            workspaceName:
+              workspaces.find((w) => w.workspaceId === wsId)?.name ?? "",
+            pageTitle: gp.title || "제목 없음",
+            pageIcon: gp.icon ?? null,
+          });
+        } catch {
+          // 접근 권한 없음/일시 오류 → 다음 기회에 재시도할 수 있도록 마킹 해제
+          serverTitleFetchedRef.current.delete(pageId);
         }
-        // 스냅샷에도 없고 워크스페이스 미상이면 네트워크 해석(기존 동작)
-        if (useSettingsStore.getState().favoritePageMetaById[pageId]?.workspaceId) continue;
-        const net = await resolveFavoritePageMeta(pageId, workspaces, currentWorkspaceId);
-        if (!cancelled && net) updateFavoritePageMeta(pageId, net);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [currentWorkspaceId, favoritePageIds, updateFavoritePageMeta, workspaces]);
+  }, [favoritePageIds, updateFavoritePageMeta, workspaces]);
 
   const validIds = favoritePageIds;
 
