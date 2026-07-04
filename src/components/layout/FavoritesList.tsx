@@ -94,9 +94,12 @@ function FavoriteRow({ pageId }: { pageId: string }) {
   const showToast = useUiStore((s) => s.showToast);
   const requestFavoriteNavigation = useUiStore((s) => s.requestFavoriteNavigation);
   const closePeek = useUiStore((s) => s.closePeek);
+  // 워크스페이스 스냅샷(방문 시 라이브 pageStore 로 갱신됨)이 favoriteMeta 캐시(즐겨찾기 시점 1회
+  // 기록)보다 신선하므로 우선한다. 캐시만 믿으면 다른 워크스페이스에서 변경 전 제목이 표시된다.
   const snapshotMeta =
+    getFavoritePageMetaFromLoadedWorkspaceSnapshots(pageId, workspaces) ??
     favoriteMeta ??
-    getFavoritePageMetaFromLoadedWorkspaceSnapshots(pageId, workspaces);
+    null;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: pageId });
@@ -214,7 +217,10 @@ export function FavoritesList() {
       for (const pageId of favoritePageIds) {
         if (cancelled) return;
         const page = pages[pageId];
-        if (page) {
+        // 현재 워크스페이스에 로드된 페이지 → 라이브 제목으로 캐시 갱신.
+        // (peek 등으로 적재된 타 워크스페이스 페이지는 제외 — 아래 스냅샷 경로에서 정확히 처리)
+        const pageWsId = page?.workspaceId ?? null;
+        if (page && (pageWsId === null || pageWsId === currentWorkspaceId)) {
           const workspace =
             workspaces.find((w) => w.workspaceId === currentWorkspaceId) ??
             null;
@@ -225,6 +231,17 @@ export function FavoritesList() {
             pageTitle: page.title || "제목 없음",
             pageIcon: page.icon ?? null,
           });
+          continue;
+        }
+        // 다른 워크스페이스: 워크스페이스 스냅샷에서 실제 제목을 찾아 스테일 캐시(변경 전 제목)를 교정.
+        // 캐시에 workspaceId 가 이미 있어도 제목/아이콘이 다르면 갱신한다(예전엔 여기서 건너뛰어
+        // 변경 전 제목이 계속 표시됐음). updateFavoritePageMeta 의 same 가드로 중복 쓰기는 없다.
+        const fromSnapshot = getFavoritePageMetaFromLoadedWorkspaceSnapshots(
+          pageId,
+          workspaces,
+        );
+        if (fromSnapshot) {
+          updateFavoritePageMeta(pageId, fromSnapshot);
           continue;
         }
         if (favoritePageMetaById[pageId]?.workspaceId) continue;
