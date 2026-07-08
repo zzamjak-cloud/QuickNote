@@ -22,6 +22,11 @@ import {
 } from "../../store/pageStore";
 import { useShallow } from "zustand/react/shallow";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useSidebarSelectionStore } from "../../store/sidebarSelectionStore";
+import {
+  filterTopLevelPageIds,
+  orderPageIdsByVisibleOrder,
+} from "../../lib/sidebarVisiblePages";
 import { PageListGroup } from "./PageListGroup";
 import { PageMoveDialog } from "./PageMoveDialog";
 import { SidebarHeader } from "../sidebar/SidebarHeader";
@@ -45,7 +50,14 @@ function isLCSchedulerModalOpen(): boolean {
   return Boolean(document.querySelector("[data-lc-scheduler-modal='true']"));
 }
 
-function SidebarDragPreview({ pageId }: { pageId: string }) {
+function SidebarDragPreview({
+  pageId,
+  extraCount = 0,
+}: {
+  pageId: string;
+  /** 함께 드래그 중인 추가 페이지 수(멀티 선택 드래그) */
+  extraCount?: number;
+}) {
   const { title, icon } = usePageStore(
     useShallow((s) => ({
       title: s.pages[pageId]?.title ?? "",
@@ -61,6 +73,11 @@ function SidebarDragPreview({ pageId }: { pageId: string }) {
       <span className="truncate font-medium text-zinc-900 dark:text-zinc-100">
         {title || "제목 없음"}
       </span>
+      {extraCount > 0 && (
+        <span className="shrink-0 rounded-full bg-blue-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+          +{extraCount}
+        </span>
+      )}
     </div>
   );
 }
@@ -84,6 +101,9 @@ export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dropTarget, setDropTarget] = useState<DropTarget>(null);
   const [dragOverlayId, setDragOverlayId] = useState<string | null>(null);
+  const [dragOverlayExtraCount, setDragOverlayExtraCount] = useState(0);
+  // 이번 드래그 세션에서 함께 이동할 페이지 id 목록(가시 순서, 최상위만)
+  const dragIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -96,7 +116,7 @@ export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" 
   const sidebarTreeSelector = useMemo(() => createFilterPageTreeSelector(""), []);
   const tree = usePageStore(sidebarTreeSelector);
   const createPage = usePageStore((s) => s.createPage);
-  const movePage = usePageStore((s) => s.movePage);
+  const movePages = usePageStore((s) => s.movePages);
   const movePageRelative = usePageStore((s) => s.movePageRelative);
   const dndEnabled = true;
 
@@ -122,6 +142,12 @@ export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" 
         activeEl?.classList.contains("ProseMirror") ||
         activeEl?.closest(".ProseMirror") !== null;
       if (isInput || isEditorFocused) return;
+
+      // Escape: 사이드바 멀티 선택 해제
+      if (e.key === "Escape") {
+        useSidebarSelectionStore.getState().clear();
+        return;
+      }
 
       // 페이지 복제는 메뉴(UI)로만 — Ctrl/Cmd+D 는 블럭 그립 메뉴(열림 시) 전용.
 
@@ -222,10 +248,23 @@ export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" 
     resetDropIndicator();
     stopEdgeScroll();
     setDragOverlayId(null);
+    setDragOverlayExtraCount(0);
   };
 
   const onDragStart = (event: DragStartEvent) => {
-    setDragOverlayId(String(event.active.id));
+    const activeId = String(event.active.id);
+    // 멀티 선택된 행을 잡으면 선택 전체(가시 순서·최상위만)를 함께 이동한다.
+    const selection = useSidebarSelectionStore.getState().selectedIds;
+    if (selection.has(activeId) && selection.size > 1) {
+      dragIdsRef.current = orderPageIdsByVisibleOrder(
+        filterTopLevelPageIds(Array.from(selection)),
+      );
+    } else {
+      dragIdsRef.current = [activeId];
+      useSidebarSelectionStore.getState().clear();
+    }
+    setDragOverlayId(activeId);
+    setDragOverlayExtraCount(Math.max(0, dragIdsRef.current.length - 1));
     isDraggingRef.current = true;
     if (scrollRafRef.current == null) {
       scrollRafRef.current = requestAnimationFrame(edgeScrollLoop);
@@ -244,8 +283,14 @@ export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" 
     const expandedIds = useSettingsStore.getState().expandedIds;
     const pagesMap = usePageStore.getState().pages;
     const isExpanded = (id: string) => expandedIds.includes(id);
+    // 멀티 드래그: 함께 이동 중인 어떤 페이지의 자손(또는 자신)도 드롭 불가.
+    const dragIds =
+      dragIdsRef.current.length > 0 ? dragIdsRef.current : [activeId];
     const isBlocked = (candidate: string) =>
-      isDescendant(pagesMap, activeId, candidate);
+      dragIds.some(
+        (dragId) =>
+          dragId === candidate || isDescendant(pagesMap, dragId, candidate),
+      );
 
     const hint = resolveSidebarDrop({
       overId,
@@ -315,32 +360,37 @@ export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" 
   const onDragEnd = (event: DragEndEvent) => {
     const { active } = event;
     const last = nestHintRef.current;
+    const dragIds =
+      dragIdsRef.current.length > 0
+        ? dragIdsRef.current
+        : [String(active.id)];
+    dragIdsRef.current = [];
     endDragSession();
     if (!last || last.mode === "disabled") return;
-    const activeId = String(active.id);
     const pagesMap = usePageStore.getState().pages;
     const overPage = pagesMap[last.overId];
-    const activePage = pagesMap[activeId];
-    if (!activePage || !overPage) return;
-    if (last.overId === activeId) return;
+    if (!overPage) return;
+    if (dragIds.includes(last.overId)) return;
+    if (!dragIds.some((id) => pagesMap[id])) return;
 
     if (last.mode === "child-first") {
-      movePage(activeId, last.overId, 0);
+      movePages(dragIds, last.overId, 0);
       return;
     }
     if (last.mode === "child-last") {
-      movePage(activeId, last.overId, Number.MAX_SAFE_INTEGER);
+      movePages(dragIds, last.overId, Number.MAX_SAFE_INTEGER);
       return;
     }
     // before / after
     const targetParent = overPage.parentId;
+    const dragIdSet = new Set(dragIds);
     const siblings = Object.values(pagesMap)
-      .filter((p) => p.parentId === targetParent && p.id !== activeId)
+      .filter((p) => p.parentId === targetParent && !dragIdSet.has(p.id))
       .sort((a, b) => a.order - b.order);
     const overIndex = siblings.findIndex((p) => p.id === last.overId);
     if (overIndex === -1) return;
-    movePage(
-      activeId,
+    movePages(
+      dragIds,
       targetParent,
       last.mode === "before" ? overIndex : overIndex + 1,
     );
@@ -386,7 +436,10 @@ export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" 
             />
             <DragOverlay dropAnimation={null} style={{ zIndex: 60 }}>
               {dragOverlayId ? (
-                <SidebarDragPreview pageId={dragOverlayId} />
+                <SidebarDragPreview
+                  pageId={dragOverlayId}
+                  extraCount={dragOverlayExtraCount}
+                />
               ) : null}
             </DragOverlay>
           </DndContext>

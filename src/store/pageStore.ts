@@ -232,6 +232,8 @@ type PageStoreActions = {
     opts?: CreatePageOptions,
   ) => string;
   deletePage: (id: string) => void;
+  /** 여러 페이지(각자 자손 포함)를 한꺼번에 삭제. 삭제 배치는 하나로 묶여 undo 한 번에 복원. */
+  deletePages: (ids: string[]) => void;
   /** 마지막으로 삭제한 페이지 배치를 복원. 복원되면 true 반환. */
   undoLastDelete: () => boolean;
   renamePage: (id: string, title: string) => boolean;
@@ -259,6 +261,8 @@ type PageStoreActions = {
   markFullPageDatabaseHome: (pageId: string, databaseId: string) => void;
   // 페이지를 다른 부모/위치로 이동. parentId=null 이면 루트.
   movePage: (id: string, parentId: string | null, index: number) => void;
+  // 여러 페이지를 같은 부모/위치로 일괄 이동(사이드바 멀티 선택 드래그). ids 순서 유지.
+  movePages: (ids: string[], parentId: string | null, index: number) => void;
   // 키보드 단축키용 상대 이동 (같은 부모 내 위/아래, 들여쓰기/내어쓰기)
   movePageRelative: (
     id: string,
@@ -421,6 +425,33 @@ export const usePageStore = create<PageStore>()(
             get().activePageId,
           );
         }
+      },
+
+      deletePages: (ids) => {
+        const pages = get().pages;
+        const idSet = new Set(ids);
+        // 조상이 함께 선택된 자손은 deletePage 가 서브트리로 함께 지우므로 최상위만 남긴다.
+        const topIds = Array.from(idSet).filter((id) => {
+          if (!pages[id]) return false;
+          let cur = pages[id]?.parentId ?? null;
+          while (cur) {
+            if (idSet.has(cur)) return false;
+            cur = pages[cur]?.parentId ?? null;
+          }
+          return true;
+        });
+        if (topIds.length === 0) return;
+        const activePageBefore = get().activePageId;
+        const mergedPages: Page[] = [];
+        for (const id of topIds) {
+          get().deletePage(id);
+          const batch = get().lastDeletedBatch;
+          if (batch) mergedPages.push(...batch.pages);
+        }
+        // Ctrl+Z 한 번으로 전체 선택 삭제가 복원되도록 배치를 하나로 합친다.
+        set({
+          lastDeletedBatch: { pages: mergedPages, activePageBefore },
+        });
       },
 
       undoLastDelete: () => {

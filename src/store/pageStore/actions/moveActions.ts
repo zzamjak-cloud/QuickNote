@@ -13,7 +13,7 @@ type PageStoreGet = StoreApi<PageStore>["getState"];
 
 type MoveActions = Pick<
   PageStore,
-  "reorderPages" | "movePage" | "movePageRelative"
+  "reorderPages" | "movePage" | "movePages" | "movePageRelative"
 >;
 
 export function createMoveActions(
@@ -98,6 +98,89 @@ export function createMoveActions(
               enqueueUpsertPage(p, { metaOnly: true });
             }
           }
+        }
+      }
+    },
+
+    movePages: (ids, parentId, index) => {
+      const beforePages = get().pages;
+      // 유효성·순환·중복 필터: 없는 페이지, 자기 자신/자손 아래로의 이동,
+      // 조상이 함께 이동하는 자손(서브트리로 따라가므로)을 제외한다.
+      const uniqueIds = Array.from(new Set(ids));
+      const idSet = new Set(uniqueIds);
+      const moveIds = uniqueIds.filter((id) => {
+        const page = beforePages[id];
+        if (!page) return false;
+        if (parentId !== null) {
+          if (parentId === id) return false;
+          if (isDescendant(beforePages, id, parentId)) return false;
+        }
+        let cur = page.parentId;
+        while (cur) {
+          if (idSet.has(cur)) return false;
+          cur = beforePages[cur]?.parentId ?? null;
+        }
+        return true;
+      });
+      if (moveIds.length === 0) return;
+
+      set((state) => {
+        const moving = new Set(moveIds);
+        const next: PageMap = { ...state.pages };
+        // 동일 타임스탬프로 묶어 LWW·upsertPage 가 형제 순서 전체를 한 번에 인지하도록 함
+        const ts = Date.now();
+        const oldParents = new Set(
+          moveIds.map((id) => state.pages[id]?.parentId ?? null),
+        );
+        // 1) 새 부모의 형제 목록(이동 대상 제외)에 ids 순서 그대로 연속 삽입
+        const newSiblings = Object.values(next)
+          .filter((p) => p.parentId === parentId && !moving.has(p.id))
+          .sort((a, b) => a.order - b.order);
+        const clampedIndex = Math.max(0, Math.min(index, newSiblings.length));
+        newSiblings.splice(
+          clampedIndex,
+          0,
+          ...moveIds.flatMap((id) => {
+            const page = next[id];
+            return page ? [{ ...page, parentId }] : [];
+          }),
+        );
+        newSiblings.forEach((p, i) => {
+          next[p.id] = { ...p, order: i, updatedAt: ts };
+        });
+        // 2) 비워진 기존 부모들의 형제 order 재조정 (이동 대상은 이미 새 부모 소속이라 제외됨)
+        for (const oldParent of oldParents) {
+          if (oldParent === parentId) continue;
+          Object.values(next)
+            .filter((p) => p.parentId === oldParent && !moving.has(p.id))
+            .sort((a, b) => a.order - b.order)
+            .forEach((p, i) => {
+              next[p.id] = { ...p, order: i, updatedAt: ts };
+            });
+        }
+        return { pages: next };
+      });
+
+      const afterPages = get().pages;
+      for (const id of moveIds) {
+        const before = beforePages[id];
+        const after = afterPages[id];
+        if (!before || !after) continue;
+        if (before.parentId !== after.parentId || before.order !== after.order) {
+          recordPageMutation(
+            id,
+            "page.move",
+            { id, parentId: after.parentId, order: after.order },
+            () => toPageSnapshot(after),
+          );
+        }
+      }
+      // 이동된 본인 + order 재조정으로 영향받은 모든 형제를 enqueue.
+      for (const [pid, p] of Object.entries(afterPages)) {
+        const prev = beforePages[pid];
+        if (!prev) continue;
+        if (prev.parentId !== p.parentId || prev.order !== p.order) {
+          enqueueUpsertPage(p, { metaOnly: true });
         }
       }
     },

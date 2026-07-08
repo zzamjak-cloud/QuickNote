@@ -47,6 +47,17 @@ localStorage 키: `quicknote.pages.v1`
 
 - `src/components/layout/PageCopyToWorkspaceDialog.tsx` — WS 간 복제 UI(async, 복제 중 disabled)
 
+## 사이드바 멀티 선택 (Shift+클릭)
+
+상태는 `src/store/sidebarSelectionStore.ts`(비영속) — `selectedIds` + `anchorId`.
+
+- **Shift+클릭**: 앵커(마지막 일반 클릭 행, 없으면 활성 페이지)~대상 사이를 **가시 순서**(펼침 상태 반영)로 범위 선택. 페이지 이동은 하지 않는다.
+- 가시 순서·최상위 필터 헬퍼는 `src/lib/sidebarVisiblePages.ts` — 범위 선택과 멀티 드래그가 같은 순서 기준을 공유한다.
+- **일괄 드래그 이동**: 선택된 행을 잡으면 선택 전체가 함께 이동(`DragOverlay` 에 `+N` 배지). `Sidebar.onDragEnd` → `pageStore.movePages(ids, parentId, index)` — 단일 `set()` 으로 ids 순서 그대로 연속 삽입. 조상이 함께 선택된 자손은 서브트리로 따라가므로 제외, 순환 차단. 드롭 차단(isBlocked)은 드래그 중인 모든 id 의 자손을 검사한다.
+- **우클릭 "전체 삭제 (N개)"**: 선택 행 위에서 우클릭 시 메뉴에 노출(`PageListItem`) → `pageStore.deletePages(ids)` — 최상위만 `deletePage` 반복 후 `lastDeletedBatch` 를 하나로 합쳐 **Ctrl+Z 한 번으로 전체 복원**된다.
+- 일반 클릭·Escape 로 선택 해제. 선택 행은 파란 배경(`bg-blue-100/80`)으로 active(회색)와 구분.
+- 회귀 테스트: `src/store/__tests__/movePagesDeletePages.test.ts`, `src/store/__tests__/sidebarSelectionStore.test.ts`
+
 ## 페이지 제목 중복 방지
 
 ### 생성 (`createPage`)

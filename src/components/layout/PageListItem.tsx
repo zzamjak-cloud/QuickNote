@@ -22,6 +22,7 @@ import {
   shouldOpenInternalLinkInNewTab,
 } from "../../lib/navigation/internalNavigation";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useSidebarSelectionStore } from "../../store/sidebarSelectionStore";
 import { PageListGroup } from "./PageListGroup";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
@@ -130,6 +131,7 @@ const PageListItemInner = function PageListItem({
   const setActivePage = usePageStore((s) => s.setActivePage);
   const renamePage = usePageStore((s) => s.renamePage);
   const deletePage = usePageStore((s) => s.deletePage);
+  const deletePages = usePageStore((s) => s.deletePages);
   const createPage = usePageStore((s) => s.createPage);
   const duplicatePage = usePageStore((s) => s.duplicatePage);
   const movePage = usePageStore((s) => s.movePage);
@@ -148,6 +150,15 @@ const PageListItemInner = function PageListItem({
   const [menuPosition, setMenuPosition] = useState<ContextMenuPosition | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+
+  // 멀티 선택: 이 행이 선택돼 있으면 선택 개수, 아니면 0 — 단일 셀렉터로 스타일·메뉴 노출 결정.
+  const selectedCount = useSidebarSelectionStore((s) =>
+    s.selectedIds.has(node.id) ? s.selectedIds.size : 0,
+  );
+  const selected = selectedCount > 0;
+  const beginSelectionAt = useSidebarSelectionStore((s) => s.beginAt);
+  const shiftSelectTo = useSidebarSelectionStore((s) => s.shiftSelectTo);
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuOpen = menuPosition !== null;
@@ -237,9 +248,11 @@ const PageListItemInner = function PageListItem({
         className={[
           "group relative flex items-center gap-0.5 rounded-md py-1 pr-1 text-sm transition-transform duration-100",
           rowDragEnabled ? `${POINTER_PRESS_FEEDBACK_CLASS} touch-none` : "",
-          active
-            ? "bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
-            : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
+          selected
+            ? "bg-blue-100/80 text-zinc-900 dark:bg-blue-900/40 dark:text-zinc-100"
+            : active
+              ? "bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+              : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
           isChild
             ? "ring-2 ring-inset ring-blue-500 dark:ring-blue-400"
             : "",
@@ -299,12 +312,19 @@ const PageListItemInner = function PageListItem({
             className="flex-1 truncate text-left"
             style={{ cursor: "inherit" }}
             onClick={(e) => {
+              // Shift+클릭 → 앵커~이 행까지 범위 멀티 선택(이동하지 않음)
+              if (e.shiftKey) {
+                e.preventDefault();
+                shiftSelectTo(node.id);
+                return;
+              }
               // Ctrl/Cmd(또는 가운데 클릭) → 신규 탭에서 열기
               if (shouldOpenInternalLinkInNewTab(e)) {
                 e.preventDefault();
                 openPageInNewTab(node.id);
                 return;
               }
+              beginSelectionAt(node.id);
               setCurrentTabPage(node.id);
               setActivePage(node.id);
             }}
@@ -485,6 +505,22 @@ const PageListItemInner = function PageListItem({
             >
               <Trash2 size={12} /> <span>삭제</span>
             </button>
+            {selectedCount > 1 && (
+              <button
+                type="button"
+                role="menuitem"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMenuPosition(null);
+                  setBulkDeleteConfirmOpen(true);
+                }}
+                className="flex w-full items-center gap-2 px-2 py-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+              >
+                <Trash2 size={12} /> <span>전체 삭제 ({selectedCount}개)</span>
+              </button>
+            )}
           </div>,
           document.body,
         ) : null}
@@ -502,6 +538,21 @@ const PageListItemInner = function PageListItem({
         onConfirm={() => {
           setDeleteConfirmOpen(false);
           deletePage(node.id);
+        }}
+      />
+      <SimpleConfirmDialog
+        open={bulkDeleteConfirmOpen}
+        title="선택한 페이지 전체 삭제"
+        message={`선택한 ${selectedCount}개 페이지를 모두 삭제하시겠습니까? 하위 페이지도 함께 삭제됩니다.`}
+        confirmLabel="전체 삭제"
+        cancelLabel="취소"
+        danger
+        onCancel={() => setBulkDeleteConfirmOpen(false)}
+        onConfirm={() => {
+          setBulkDeleteConfirmOpen(false);
+          const selection = useSidebarSelectionStore.getState();
+          deletePages(Array.from(selection.selectedIds));
+          selection.clear();
         }}
       />
       <PageCopyToWorkspaceDialog
