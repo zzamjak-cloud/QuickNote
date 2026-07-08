@@ -52,5 +52,10 @@ export async function unpublishPageApi(pageId: string): Promise<PagePublishStatu
 
 /** 공개 뷰어 URL — 웹 도메인 기준(/p/<token>). */
 export function buildPublicPageUrl(token: string): string {
-  return `${window.location.origin}/p/${token}`;
+  // /p/<token> 는 공개 페이지이므로, 현재 origin(데스크톱/로컬/privated preview) 이
+  // 아니라 웹 공개 도메인을 기준으로 URL 을 만들어야 한다.
+  const origin =
+    (import.meta.env.VITE_WEB_APP_ORIGIN as string | undefined)?.replace(/\/+$/, "") ??
+    "https://quick-note-khaki.vercel.app";
+  return `${origin}/p/${token}`;
 }
