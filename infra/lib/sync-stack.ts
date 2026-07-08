@@ -969,6 +969,7 @@ export function response(ctx) {
         PUBLISHED_PAGES_TABLE: publishedPagesTable.tableName,
         PAGES_TABLE: this.pageTable.table.tableName,
         IMAGE_ASSET_TABLE: this.imageAssetTable.table.tableName,
+        ASSET_USAGE_TABLE: assetUsageTable.tableName,
         IMAGES_BUCKET: imagesBucket.bucketName,
       },
       bundling: {
@@ -981,6 +982,7 @@ export function response(ctx) {
     publishedPagesTable.grantReadData(publicViewFn);
     this.pageTable.table.grantReadData(publicViewFn);
     this.imageAssetTable.table.grantReadData(publicViewFn);
+    assetUsageTable.grantReadData(publicViewFn);
     imagesBucket.grantRead(publicViewFn);
     const publicViewUrl = publicViewFn.addFunctionUrl({
       authType: lambda.FunctionUrlAuthType.NONE,

@@ -49,5 +49,18 @@
 
 1. CDK(dev→live) 배포 후 `PublicViewUrl` output 확보
 2. `.env`(dev)·Vercel env(prod)에 `VITE_PUBLIC_VIEW_URL` 설정
-3. `vercel.json` `connect-src` 에 Function URL 호스트 추가(dev/prod 2개)
-4. curl 검증: 유효/무효 토큰, 형제 pageId 거부, revoked 404
+3. **`vercel.json` `connect-src` 에 Function URL 호스트 추가(dev/prod 2개 모두)** —
+   dev/live 스택의 public-view Function URL 은 서로 다르다. **prod 호스트를 빠뜨리면
+   `quick-note-khaki.vercel.app/p/<token>` 에서 fetch 가 CSP 에 막혀 뷰어가 항상
+   "페이지를 찾을 수 없습니다" 로 죽는다.** live 배포 시 반드시 prod Function URL 을 추가할 것.
+4. curl 검증: 유효/무효 토큰, 형제 pageId 거부, revoked 404, **타 워크스페이스 자산 404**
+
+## 알려진 한계·후속
+
+- **공개 링크 도메인**: `buildPublicPageUrl` 은 `VITE_WEB_APP_ORIGIN`(미설정 시
+  `quick-note-khaki.vercel.app`) 기준. Vercel Preview 는 SSO 로 `/p` 가 막히므로 공개 도메인
+  고정이 의도된 동작. 단 **dev 앱에서 복사한 링크의 토큰은 dev 테이블에만 있어 prod 도메인에서
+  404** 다(dev 링크는 dev 검증용으로만). 실제 공유는 prod 게시 링크를 쓸 것.
+- **op=asset 효율**: 이미지 많은 공개 페이지는 자산마다 왕복(토큰·페이지·AssetUsage·asset)이 발생.
+  `reservedConcurrentExecutions=10` 이라 동시 열람이 많으면 스로틀될 수 있다. 필요 시
+  (token,pageId)별 자산 화이트리스트 단기 메모 또는 op=page 응답에 presign 동봉으로 개선.

@@ -5,6 +5,7 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 process.env.PUBLISHED_PAGES_TABLE = "PP";
 process.env.PAGES_TABLE = "P";
 process.env.IMAGE_ASSET_TABLE = "IA";
+process.env.ASSET_USAGE_TABLE = "AU";
 process.env.IMAGES_BUCKET = "bucket";
 
 const sendMock = vi.fn();
@@ -135,11 +136,12 @@ describe("public-view handler", () => {
     expect(body).not.toHaveProperty("workspaceId");
   });
 
-  it("op=asset — doc 에 참조된 자산만 presign 302", async () => {
+  it("op=asset — doc 참조 + 게시 워크스페이스 사용(AssetUsage) 확인 후 presign 302", async () => {
     sendMock
-      .mockResolvedValueOnce({ Item: publishRecord })
-      .mockResolvedValueOnce({ Item: rootPage })
-      .mockResolvedValueOnce({ Item: rootPage })
+      .mockResolvedValueOnce({ Item: publishRecord }) // 토큰
+      .mockResolvedValueOnce({ Item: rootPage }) // 루트 servable 메타
+      .mockResolvedValueOnce({ Item: rootPage }) // 대상 페이지 full
+      .mockResolvedValueOnce({ Items: [{ workspaceId: "ws-1" }] }) // AssetUsage(같은 ws)
       .mockResolvedValueOnce({ Item: { id: "asset-1", status: "READY", key: "k/asset-1" } });
     const r = await handler(
       getEvent({ op: "asset", token: TOKEN, pageId: "root-1", assetId: "asset-1" }),
@@ -148,7 +150,20 @@ describe("public-view handler", () => {
     expect(r.headers.location).toBe("https://s3.example/presigned");
   });
 
-  it("op=asset — doc 에 없는 assetId 는 404 (presign 시도조차 없음)", async () => {
+  it("op=asset — doc 에 있어도 타 워크스페이스 자산이면 404 (교차 워크스페이스 유출 차단)", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Item: publishRecord })
+      .mockResolvedValueOnce({ Item: rootPage })
+      .mockResolvedValueOnce({ Item: rootPage })
+      .mockResolvedValueOnce({ Items: [{ workspaceId: "ws-victim" }] }); // 다른 ws 에서만 사용
+    const r = await handler(
+      getEvent({ op: "asset", token: TOKEN, pageId: "root-1", assetId: "asset-1" }),
+    );
+    expect(r.statusCode).toBe(404);
+    expect(sendMock).toHaveBeenCalledTimes(4); // 자산 GetItem·presign 도달 전 차단
+  });
+
+  it("op=asset — doc 에 없는 assetId 는 404 (AssetUsage·presign 시도조차 없음)", async () => {
     sendMock
       .mockResolvedValueOnce({ Item: publishRecord })
       .mockResolvedValueOnce({ Item: rootPage })
@@ -157,7 +172,13 @@ describe("public-view handler", () => {
       getEvent({ op: "asset", token: TOKEN, pageId: "root-1", assetId: "asset-other" }),
     );
     expect(r.statusCode).toBe(404);
-    expect(sendMock).toHaveBeenCalledTimes(3); // 자산 테이블 조회 없음
+    expect(sendMock).toHaveBeenCalledTimes(3); // 참조 화이트리스트에서 이미 차단
+  });
+
+  it("404 응답은 no-store, 성공은 max-age=60 캐시", async () => {
+    sendMock.mockResolvedValueOnce({ Item: undefined });
+    const r404 = await handler(getEvent({ op: "site", token: TOKEN }));
+    expect(r404.headers["cache-control"]).toBe("no-store");
   });
 
   it("GET 이외 메서드 → 405", async () => {

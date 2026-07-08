@@ -73,6 +73,13 @@ describe("publishPage", () => {
     ).rejects.toThrow(/페이지 없음/);
   });
 
+  it("DB 행 페이지는 게시 불가(서빙 불가 유령 토큰 방지)", async () => {
+    const doc = mockDoc({ Item: { ...pageRow, databaseId: "db-1" } });
+    await expect(
+      publishPage({ doc, tables, caller: ownerCaller, pageId: "page-1" }),
+    ).rejects.toThrow(/데이터베이스 행/);
+  });
+
   it("view 권한 멤버는 게시 거부", async () => {
     const doc = mockDoc(
       { Item: pageRow }, // Pages GetItem

@@ -65,6 +65,13 @@ export async function loadPublishablePageMetas(
     exclusiveStartKey = r.LastEvaluatedKey as Record<string, unknown> | undefined;
     queryCount += 1;
   } while (exclusiveStartKey && queryCount < TREE_QUERY_MAX);
+  // 메타 전용 projection 이라 40 쿼리면 수만~수십만 페이지를 덮지만, 그 이상 규모에서
+  // 잘리면 깊은 자손이 트리에서 누락될 수 있으므로 조용히 넘기지 않고 경고를 남긴다.
+  if (exclusiveStartKey) {
+    console.warn(
+      `public-view tree truncated at TREE_QUERY_MAX=${TREE_QUERY_MAX} for workspace ${workspaceId} (loaded ${out.size} metas)`,
+    );
+  }
   return out;
 }
 

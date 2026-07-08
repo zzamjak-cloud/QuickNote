@@ -47,24 +47,27 @@ function requirePublishTable(tables: Tables): string {
   return tables.PublishedPages;
 }
 
+type PageGateRow = {
+  id: string;
+  workspaceId: string;
+  deletedAt?: string | null;
+  databaseId?: string | null;
+};
+
 async function getPageRow(
   doc: DynamoDBDocumentClient,
   tables: Tables,
   pageId: string,
-): Promise<{ id: string; workspaceId: string; deletedAt?: string | null } | null> {
+): Promise<PageGateRow | null> {
   if (!tables.Pages) badRequest("Pages table 미설정");
   const r = await doc.send(
     new GetCommand({
       TableName: tables.Pages,
       Key: { id: pageId },
-      ProjectionExpression: "id, workspaceId, deletedAt",
+      ProjectionExpression: "id, workspaceId, deletedAt, databaseId",
     }),
   );
-  return (
-    (r.Item as
-      | { id: string; workspaceId: string; deletedAt?: string | null }
-      | undefined) ?? null
-  );
+  return (r.Item as PageGateRow | undefined) ?? null;
 }
 
 /** pageId 의 active(미해제) 게시 레코드 목록 — publishedAt 최신순. */
@@ -104,6 +107,11 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
   const tableName = requirePublishTable(args.tables);
   const page = await getPageRow(args.doc, args.tables, args.pageId);
   if (!page || page.deletedAt) notFound("페이지 없음");
+  // DB 행 페이지는 공개 뷰어(public-view)가 서빙하지 않으므로 게시 자체를 거부한다
+  // (게시 성공했으나 항상 404 인 유령 토큰 방지).
+  if (page.databaseId != null && page.databaseId !== "") {
+    badRequest("데이터베이스 행 페이지는 웹에 게시할 수 없습니다");
+  }
   // 인자를 신뢰하지 않고 페이지의 실제 workspaceId 로 권한 검사(IDOR 가드).
   await requireWorkspaceAccess({
     doc: args.doc,
