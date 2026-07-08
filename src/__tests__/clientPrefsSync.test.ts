@@ -116,6 +116,60 @@ describe("applyRemoteClientPrefs", () => {
   });
 });
 
+describe("applyRemoteClientPrefs 전체너비(pageFullWidthById) union 병합", () => {
+  beforeEach(() => {
+    useSettingsStore.setState({
+      favoritePageIds: [],
+      favoritePageMetaById: {},
+      favoritePageIdsUpdatedAt: 0,
+      fullWidth: false,
+      pageFullWidthById: { local: true, shared: true },
+      fullWidthUpdatedAt: 100,
+    });
+  });
+
+  it("원격이 더 새면 union 병합 — 로컬에만 있는 항목 보존, 충돌은 원격 우선", () => {
+    applyRemoteClientPrefs(
+      JSON.stringify({
+        v: 1,
+        favoritePageIds: [],
+        favoritePageIdsUpdatedAt: 0,
+        fullWidth: false,
+        pageFullWidthById: { remote: true, shared: false },
+        fullWidthUpdatedAt: 200,
+      }),
+    );
+    const s = useSettingsStore.getState();
+    expect(s.pageFullWidthById).toEqual({
+      local: true,
+      remote: true,
+      shared: false,
+    });
+    expect(s.fullWidthUpdatedAt).toBe(200);
+  });
+
+  it("원격이 더 오래돼도 로컬에 없는 항목은 채워넣는다(로컬 값 우선)", () => {
+    applyRemoteClientPrefs(
+      JSON.stringify({
+        v: 1,
+        favoritePageIds: [],
+        favoritePageIdsUpdatedAt: 0,
+        fullWidth: false,
+        pageFullWidthById: { older: true, shared: false },
+        fullWidthUpdatedAt: 50,
+      }),
+    );
+    const s = useSettingsStore.getState();
+    expect(s.pageFullWidthById).toEqual({
+      local: true,
+      shared: true,
+      older: true,
+    });
+    // 타임스탬프는 로컬 유지
+    expect(s.fullWidthUpdatedAt).toBe(100);
+  });
+});
+
 describe("ensureSettingsPersistHydrated", () => {
   afterEach(() => {
     vi.restoreAllMocks();

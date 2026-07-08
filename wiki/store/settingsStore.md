@@ -13,7 +13,13 @@ UI 전역 설정(다크모드, 사이드바, 탭, 즐겨찾기, 전체너비 등
 | `darkMode` | `boolean` | 다크 모드 활성 여부 |
 | `fullWidth` | `boolean` | 전역 전체 너비 설정 |
 | `pageFullWidthById` | `Record<string, boolean>` | 페이지별 전체 너비 오버라이드 |
-| `fullWidthUpdatedAt` | `number` | 전체 너비 LWW 타임스탬프 (epoch ms) |
+| `fullWidthUpdatedAt` | `number` | 전체 너비 LWW 타임스탬프 (epoch ms) — **맵 전체에 단 하나** |
+
+> **`pageFullWidthById` 병합 규칙(유실 방지)**: 타임스탬프가 맵 전체에 하나뿐이라 통째 교체하면
+> 다른 기기가 다른 페이지를 토글한 항목이 유실된다(전체너비가 다시 좁아지는 버그).
+> 클라이언트(`clientPrefsSync.ts` `applyRemoteClientPrefs`)와 서버(`infra/.../handlers/member.ts`
+> `updateMyClientPrefs`) **양쪽 모두 union 병합**(충돌 키는 최신 쪽 우선, 없는 키는 보존)한다.
+> 테스트: `src/__tests__/clientPrefsSync.test.ts`, `member.test.ts`. 통째 교체로 되돌리지 말 것.
 | `dbPropertyPanelOpen` | `boolean` | DB 속성 패널 열림 여부 (기본값: true) |
 | `entityIcons` | `Record<string, string \| null>` | 엔티티 ID → 아이콘 문자열 |
 | `entityDescriptions` | `Record<string, string>` | 엔티티 ID → 설명 문자열 |

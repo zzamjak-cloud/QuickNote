@@ -586,8 +586,32 @@ export async function updateMyClientPrefs(args: {
   ) {
     if (incoming.fullWidthUpdatedAt != null) merged.fullWidthUpdatedAt = incoming.fullWidthUpdatedAt;
     if (incoming.fullWidth != null) merged.fullWidth = incoming.fullWidth;
-    if (incoming.pageFullWidthById) merged.pageFullWidthById = incoming.pageFullWidthById;
+    // 통째 교체 금지 — 페이지별 전체너비 맵은 단일 타임스탬프 LWW 라서, 다른 기기가
+    // 먼저 저장한 다른 페이지 항목이 incoming 맵에 없을 수 있다. union 병합(충돌 시
+    // 최신=incoming 우선)으로 유실을 막는다.
+    if (incoming.pageFullWidthById) {
+      merged.pageFullWidthById = {
+        ...(existing?.pageFullWidthById ?? {}),
+        ...incoming.pageFullWidthById,
+      };
+    }
     changed = true;
+  } else if (
+    incoming.pageFullWidthById &&
+    Object.keys(incoming.pageFullWidthById).length > 0
+  ) {
+    // 더 오래된 push(오프라인 복귀 등)라도 기존에 없던 페이지 항목은 보존한다(기존 값 우선).
+    const union = {
+      ...incoming.pageFullWidthById,
+      ...(existing?.pageFullWidthById ?? {}),
+    };
+    if (
+      Object.keys(union).length !==
+      Object.keys(existing?.pageFullWidthById ?? {}).length
+    ) {
+      merged.pageFullWidthById = union;
+      changed = true;
+    }
   }
   if (
     incoming.schedulerMemberOrderUpdatedAt != null &&

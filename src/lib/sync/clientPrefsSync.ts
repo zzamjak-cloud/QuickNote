@@ -137,8 +137,22 @@ export function applyRemoteClientPrefs(raw: unknown): void {
 
     if (remoteFullWidthNewer) {
       if (typeof parsed.fullWidth === "boolean") next.fullWidth = parsed.fullWidth;
-      next.pageFullWidthById = { ...(parsed.pageFullWidthById ?? {}) };
+      // 통째 교체 금지 — 페이지별 전체너비 맵은 단일 타임스탬프 LWW 라서, 다른 기기가
+      // 다른 페이지를 토글한 항목이 원격 맵에 없을 수 있다. union 병합(충돌 시 최신=원격 우선)
+      // 으로 로컬에만 있는 항목을 보존한다. (전체너비가 다시 좁아지는 유실 버그 방지)
+      next.pageFullWidthById = {
+        ...s.pageFullWidthById,
+        ...(parsed.pageFullWidthById ?? {}),
+      };
       next.fullWidthUpdatedAt = parsed.fullWidthUpdatedAt ?? 0;
+    } else if (parsed.pageFullWidthById) {
+      // 원격이 더 오래됐어도 로컬에 없는 페이지 항목은 받아들인다(기존 로컬 값 우선).
+      const union = { ...parsed.pageFullWidthById, ...s.pageFullWidthById };
+      if (
+        Object.keys(union).length !== Object.keys(s.pageFullWidthById).length
+      ) {
+        next.pageFullWidthById = union;
+      }
     }
 
     if (!remoteNewer) {

@@ -320,6 +320,86 @@ describe("updateMyClientPrefs", () => {
     expect(saved.favoritePageIds).toEqual(["keep"]);
     expect(saved.schedulerMemberOrder).toEqual(["m2", "m1"]);
   });
+
+  it("pageFullWidthById 는 통째 교체가 아니라 union 병합(incoming 우선)", async () => {
+    const existingJson = JSON.stringify({
+      v: 1,
+      favoritePageIds: [],
+      favoritePageIdsUpdatedAt: 0,
+      fullWidth: false,
+      pageFullWidthById: { pageX: true, shared: true },
+      fullWidthUpdatedAt: 100,
+    });
+    const incomingJson = JSON.stringify({
+      v: 1,
+      favoritePageIds: [],
+      favoritePageIdsUpdatedAt: 0,
+      fullWidth: false,
+      pageFullWidthById: { pageY: true, shared: false },
+      fullWidthUpdatedAt: 200,
+    });
+    const row = { ...selfCaller, memberId: "self-m", clientPrefs: existingJson };
+    const doc = mockDoc({ Item: row }, { Attributes: { ...row } });
+
+    await updateMyClientPrefs({
+      doc,
+      tables,
+      caller: selfCaller,
+      input: { clientPrefs: incomingJson },
+    });
+
+    const updateCommand = vi.mocked(doc.send).mock.calls[1]?.[0] as {
+      input?: { ExpressionAttributeValues?: Record<string, string> };
+    };
+    const saved = JSON.parse(
+      updateCommand.input?.ExpressionAttributeValues?.[":cp"] ?? "{}",
+    ) as Record<string, unknown>;
+    // 다른 기기가 저장한 pageX 유지 + 새 pageY 추가 + 충돌 키는 최신(incoming) 우선
+    expect(saved.pageFullWidthById).toEqual({
+      pageX: true,
+      pageY: true,
+      shared: false,
+    });
+    expect(saved.fullWidthUpdatedAt).toBe(200);
+  });
+
+  it("더 오래된 push 라도 기존에 없던 pageFullWidthById 항목은 보존(기존 값 우선)", async () => {
+    const existingJson = JSON.stringify({
+      v: 1,
+      favoritePageIds: [],
+      favoritePageIdsUpdatedAt: 0,
+      fullWidth: false,
+      pageFullWidthById: { pageX: true },
+      fullWidthUpdatedAt: 200,
+    });
+    const incomingJson = JSON.stringify({
+      v: 1,
+      favoritePageIds: [],
+      favoritePageIdsUpdatedAt: 0,
+      fullWidth: false,
+      pageFullWidthById: { pageX: false, pageZ: true },
+      fullWidthUpdatedAt: 100,
+    });
+    const row = { ...selfCaller, memberId: "self-m", clientPrefs: existingJson };
+    const doc = mockDoc({ Item: row }, { Attributes: { ...row } });
+
+    await updateMyClientPrefs({
+      doc,
+      tables,
+      caller: selfCaller,
+      input: { clientPrefs: incomingJson },
+    });
+
+    const updateCommand = vi.mocked(doc.send).mock.calls[1]?.[0] as {
+      input?: { ExpressionAttributeValues?: Record<string, string> };
+    };
+    const saved = JSON.parse(
+      updateCommand.input?.ExpressionAttributeValues?.[":cp"] ?? "{}",
+    ) as Record<string, unknown>;
+    // 새 항목 pageZ 만 추가되고, 충돌 키 pageX 는 기존(더 새로운) 값 유지
+    expect(saved.pageFullWidthById).toEqual({ pageX: true, pageZ: true });
+    expect(saved.fullWidthUpdatedAt).toBe(200);
+  });
 });
 
 // ─── promoteToManager ─────────────────────────────────────────────────────────
