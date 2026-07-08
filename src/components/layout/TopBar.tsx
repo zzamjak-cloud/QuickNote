@@ -13,6 +13,7 @@ import {
   FolderInput,
   History,
   FolderTree,
+  Globe,
   Menu,
   X,
 } from "lucide-react";
@@ -61,6 +62,7 @@ import { PageHistoryPreviewDialog } from "../history/PageHistoryPreviewDialog";
 import { PageIconDisplay } from "../common/PageIconDisplay";
 import { PageMoveDialog } from "./PageMoveDialog";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
+import { PublishDialog } from "./PublishDialog";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 
 export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
@@ -90,6 +92,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
   const subpagePopover = useAnchoredPopover(280);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
   const [copyToWorkspaceOpen, setCopyToWorkspaceOpen] = useState(false);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   // 페이지 삭제 확인 (히스토리 삭제와 별개) — 즉시 삭제 방지.
   const [pageDeleteConfirmOpen, setPageDeleteConfirmOpen] = useState(false);
@@ -516,6 +519,17 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPublishDialogOpen(true);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  <Globe className={MENU_ITEM_ICON} aria-hidden />
+                  <span className="min-w-0 flex-1">웹에 게시</span>
+                </button>
+                <button
+                  type="button"
                   onClick={copyPageContent}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
@@ -624,6 +638,10 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
       <PageCopyToWorkspaceDialog
         pageId={copyToWorkspaceOpen ? activeId : null}
         onClose={() => setCopyToWorkspaceOpen(false)}
+      />
+      <PublishDialog
+        pageId={publishDialogOpen ? activeId : null}
+        onClose={() => setPublishDialogOpen(false)}
       />
       <PageMoveDialog
         pageId={moveDialogOpen ? activeId : null}

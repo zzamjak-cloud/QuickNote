@@ -132,6 +132,11 @@ import {
   deleteCustomIcon,
 } from "./handlers/customIcon";
 import { getWorkspaceMeta } from "./handlers/workspaceMeta";
+import {
+  publishPage,
+  unpublishPage,
+  getPagePublishStatus,
+} from "./handlers/publishedPage";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -158,6 +163,7 @@ const tables: Tables = {
   MmEntries: process.env.MM_ENTRIES_TABLE_NAME,
   ImageAssets: process.env.IMAGE_ASSETS_TABLE_NAME,
   AssetUsage: process.env.ASSET_USAGE_TABLE_NAME,
+  PublishedPages: process.env.PUBLISHED_PAGES_TABLE_NAME,
   ImagesBucketName: process.env.IMAGES_BUCKET_NAME,
   CustomIcons: process.env.CUSTOM_ICONS_TABLE_NAME,
   PageHistory: process.env.PAGE_HISTORY_TABLE_NAME,
@@ -910,6 +916,22 @@ const RESOLVERS: Record<
       ...base,
       id: event.arguments.id as string,
       workspaceId: event.arguments.workspaceId as string,
+    }),
+  // ── 페이지 웹 게시(publish to web) ─────────────────────────────────
+  publishPage: async (event, base) =>
+    await publishPage({
+      ...base,
+      pageId: event.arguments.pageId as string,
+    }),
+  unpublishPage: async (event, base) =>
+    await unpublishPage({
+      ...base,
+      pageId: event.arguments.pageId as string,
+    }),
+  getPagePublishStatus: async (event, base) =>
+    await getPagePublishStatus({
+      ...base,
+      pageId: event.arguments.pageId as string,
     }),
   onCustomIconChanged: async (event, base) =>
     await validateWorkspaceSubscription({

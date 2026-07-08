@@ -47,6 +47,7 @@
 | Ghost 페이지(풀페이지 DB 사이드바 중복)·진입 시 재생성 | `wiki/pages/ghost-page-prevention.md` |
 | 영구삭제 페이지가 다른 PC 에 잔존(유령·WS 거절)·자기치유·좀비 대사 | `wiki/sync/page-content-load.md`, `wiki/sync/incremental-sync.md` |
 | 워크스페이스 진입 화면/첫 인덱스 리셋 | `wiki/workspace/overview.md` |
+| 웹 퍼블리싱(공개 페이지 /p/토큰) | `wiki/pages/web-publish.md` |
 | 버전 히스토리(페이지/DB·복원·삭제) | `wiki/history/overview.md` |
 | Zustand persist 버전 bump·워크스페이스 스냅샷 키 | `wiki/store/schema-versioning.md` |
 | 배포 절차 | `wiki/infra/deploy.md` |

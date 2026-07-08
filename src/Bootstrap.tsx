@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import App from "./App";
 import { AuthCallback } from "./components/auth/AuthCallback";
 import { useAuthStore } from "./store/authStore";
@@ -631,8 +631,8 @@ function useSyncBootstrap(): void {
   }, [authStatus, authSub, currentWorkspaceId]);
 }
 
-// 웹 환경에서 /auth/callback 으로 리다이렉트되면 code 교환을 처리한 뒤 / 로 전환한다.
-export function Bootstrap() {
+// 로그인 앱 트리 — useSyncBootstrap(인증·동기화 부트스트랩)은 여기서만 돈다.
+function AuthedBootstrap() {
   const [path, setPath] = useState(window.location.pathname);
   useSyncBootstrap();
   // onDone 을 useCallback 으로 안정화. 인라인 함수면 매 렌더마다 새 참조가 되어
@@ -643,4 +643,24 @@ export function Bootstrap() {
     return <AuthCallback onDone={goHome} />;
   }
   return <App />;
+}
+
+const PublicPageViewer = lazy(() =>
+  import("./components/public/PublicPageViewer").then((m) => ({
+    default: m.PublicPageViewer,
+  })),
+);
+
+// 웹 환경 진입 분기. /p/<token> 공개 뷰어는 인증·동기화 부트스트랩(훅) 자체를 타면 안 되므로
+// useSyncBootstrap 을 호출하는 AuthedBootstrap 과 컴포넌트 레벨에서 분리한다(훅 규칙).
+export function Bootstrap() {
+  const pathname = window.location.pathname;
+  if (pathname.startsWith("/p/")) {
+    return (
+      <Suspense fallback={null}>
+        <PublicPageViewer />
+      </Suspense>
+    );
+  }
+  return <AuthedBootstrap />;
 }

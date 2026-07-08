@@ -510,6 +510,15 @@ input MemberFilter {
 }
 
 # ========== Query ==========
+"""페이지 웹 게시 상태 — published 이면 token 으로 공개 URL(/p/<token>)을 구성한다."""
+type PagePublishStatus {
+  pageId: ID!
+  workspaceId: ID!
+  published: Boolean!
+  token: String
+  publishedAt: AWSDateTime
+}
+
 type Query {
   me: Member!
 
@@ -549,6 +558,8 @@ type Query {
   listDatabases(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): DatabaseConnection!
 
   getImageDownloadUrl(imageId: ID!): String!
+  """페이지 웹 게시 상태 조회 — 워크스페이스 view 권한 필요."""
+  getPagePublishStatus(pageId: ID!): PagePublishStatus!
   listMyNotifications: [Notification!]!
 
   listSchedules(
@@ -614,6 +625,10 @@ type Mutation {
   softDeleteComment(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Comment!
 
   upsertPage(input: PageInput!): Page!
+  """페이지(+자손)를 웹에 게시 — 추측 불가 토큰 발급(이미 게시면 기존 토큰 반환, 멱등). edit 권한 필요."""
+  publishPage(pageId: ID!): PagePublishStatus!
+  """웹 게시 해제 — 토큰 무효화(재게시 시 새 토큰). edit 권한 필요."""
+  unpublishPage(pageId: ID!): PagePublishStatus!
   publishPageChanged(input: PageInput!): Page! @aws_iam
   softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Page!
   """휴지통 페이지 복원(deletedAt 제거)"""

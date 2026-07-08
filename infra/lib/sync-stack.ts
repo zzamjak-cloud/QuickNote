@@ -936,6 +936,61 @@ export function response(ctx) {
       value: templateAutomationRunnerFn.functionName,
     });
 
+    // 페이지 웹 게시 토큰 테이블 — token(추측 불가 capability)이 PK, byPageId 로 상태 조회.
+    const publishedPagesTable = new dynamodb.Table(this, "PublishedPagesTable", {
+      tableName: `${envPrefix}quicknote-published-pages`,
+      partitionKey: { name: "token", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    publishedPagesTable.addGlobalSecondaryIndex({
+      indexName: "byPageId",
+      partitionKey: { name: "pageId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "publishedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    new cdk.CfnOutput(this, "PublishedPagesTableName", {
+      value: publishedPagesTable.tableName,
+    });
+
+    // 공개 웹 게시 조회 Lambda — 인증 없는 Function URL. 실패는 균일 404,
+    // reservedConcurrentExecutions 로 남용 시 폭발 반경을 제한한다(읽기 전용 권한만 부여).
+    const publicViewFn = new lambdaNode.NodejsFunction(this, "PublicViewFn", {
+      entry: path.join(__dirname, "..", "lambda", "public-view", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: "handler",
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(10),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      reservedConcurrentExecutions: 10,
+      environment: {
+        PUBLISHED_PAGES_TABLE: publishedPagesTable.tableName,
+        PAGES_TABLE: this.pageTable.table.tableName,
+        IMAGE_ASSET_TABLE: this.imageAssetTable.table.tableName,
+        IMAGES_BUCKET: imagesBucket.bucketName,
+      },
+      bundling: {
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+      },
+    });
+    publishedPagesTable.grantReadData(publicViewFn);
+    this.pageTable.table.grantReadData(publicViewFn);
+    this.imageAssetTable.table.grantReadData(publicViewFn);
+    imagesBucket.grantRead(publicViewFn);
+    const publicViewUrl = publicViewFn.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+      cors: {
+        allowedOrigins: ["*"],
+        allowedMethods: [lambda.HttpMethod.GET],
+      },
+    });
+    new cdk.CfnOutput(this, "PublicViewUrl", { value: publicViewUrl.url });
+
     const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -963,6 +1018,7 @@ export function response(ctx) {
         MM_ENTRIES_TABLE_NAME: mmEntriesTable.tableName,
         IMAGE_ASSETS_TABLE_NAME: this.imageAssetTable.table.tableName,
         ASSET_USAGE_TABLE_NAME: assetUsageTable.tableName,
+        PUBLISHED_PAGES_TABLE_NAME: publishedPagesTable.tableName,
         PAGE_HISTORY_TABLE_NAME: pageHistoryTable.tableName,
         DATABASE_HISTORY_TABLE_NAME: databaseHistoryTable.tableName,
         DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
@@ -1003,6 +1059,7 @@ export function response(ctx) {
     pageHistoryTable.grantReadWriteData(v5ResolversFn);
     databaseHistoryTable.grantReadWriteData(v5ResolversFn);
     databaseRowMembersTable.grantReadWriteData(v5ResolversFn);
+    publishedPagesTable.grantReadWriteData(v5ResolversFn);
     imagesBucket.grantReadWrite(v5ResolversFn);
     customIconsTable.grantReadWriteData(v5ResolversFn);
     v5ResolversFn.addToRolePolicy(
@@ -1045,6 +1102,19 @@ export function response(ctx) {
     v5Ds.createResolver("UpdateMyClientPrefsMutation", {
       typeName: "Mutation",
       fieldName: "updateMyClientPrefs",
+    });
+    // 페이지 웹 게시(publish to web)
+    v5Ds.createResolver("PublishPageMutation", {
+      typeName: "Mutation",
+      fieldName: "publishPage",
+    });
+    v5Ds.createResolver("UnpublishPageMutation", {
+      typeName: "Mutation",
+      fieldName: "unpublishPage",
+    });
+    v5Ds.createResolver("GetPagePublishStatusQuery", {
+      typeName: "Query",
+      fieldName: "getPagePublishStatus",
     });
     v5Ds.createResolver("PromoteToManagerMutation", { typeName: "Mutation", fieldName: "promoteToManager" });
     v5Ds.createResolver("DemoteToMemberMutation", { typeName: "Mutation", fieldName: "demoteToMember" });
