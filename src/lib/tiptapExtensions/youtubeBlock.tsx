@@ -15,6 +15,8 @@ import {
 } from "@tiptap/react";
 import { mergeAttributes } from "@tiptap/core";
 import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
+import { isTauri } from "../auth/config";
+import { toDesktopYoutubeEmbedUrl } from "./desktopYoutubeEmbed";
 
 function embedInputFromAttrs(
   attrs: { src?: unknown; start?: unknown },
@@ -88,7 +90,11 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
     if (!activation.active) return null;
     const input = embedInputFromAttrs({ src, start }, opts);
     if (!input) return null;
-    return getEmbedUrlFromYoutubeUrl(input);
+    const direct = getEmbedUrlFromYoutubeUrl(input);
+    if (!direct) return null;
+    // Tauri 문서(tauri://)는 Referer 가 전송되지 않아 유튜브가 오류 153 으로 거부한다.
+    // https 래퍼 페이지를 경유해 Referer 를 확보한다. (desktopYoutubeEmbed.ts 참고)
+    return isTauri ? toDesktopYoutubeEmbedUrl(direct) : direct;
   }, [activation.active, src, start, opts]);
 
   const w = typeof width === "number" && width > 0 ? width : opts.width;

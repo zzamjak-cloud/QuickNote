@@ -30,7 +30,7 @@ async function fetchDownloadBlob(assetId: string | null, rawSrc: string): Promis
     return await resp.blob();
   } catch (err) {
     if (!assetId) throw err;
-    imageUrlCache.invalidate(assetId);
+    await imageUrlCache.invalidate(assetId);
     const resp = await fetch(await resolveHref());
     if (!resp.ok) throw new Error(`download failed: ${resp.status}`);
     return await resp.blob();

@@ -86,6 +86,14 @@ TipTap 확장 기반 블록 타입 설명. 각 항목은 `src/lib/tiptapExtensio
 
 **렌더 방식**: `ReactNodeViewRenderer(YoutubeEmbedView)`. iframe을 React memo로 래핑해 같은 속성에서 재마운트(동영상 깜빡임) 방지. `getEmbedUrlFromYoutubeUrl`로 embed URL 생성.
 
+**데스크톱(Tauri) 오류 153 회피**: `tauri://localhost` 문서는 Referer 를 전송하지 않아 유튜브가
+임베드를 "오류 153(동영상 플레이어 구성 오류)"으로 거부한다. Tauri 런타임에서는 embed URL 을
+웹 도메인 래퍼(`public/yt-embed.html` + `yt-embed.js`, `toDesktopYoutubeEmbedUrl`)로 감싸
+https Referer 를 확보한다(`src/lib/tiptapExtensions/desktopYoutubeEmbed.ts`). 관련 화이트리스트:
+- `vercel.json` — `/yt-embed.html` 전용 헤더(`frame-ancestors tauri://localhost …`, 나머지 경로는 기존 `frame-ancestors 'none'` 유지)
+- `src-tauri/tauri.conf.json` — `frame-src` 에 웹 도메인 포함
+- 도메인 변경 시 세 곳(래퍼 상수·vercel.json·tauri.conf.json)을 함께 갱신할 것. 웹 배포가 데스크톱 릴리스보다 먼저여야 한다(래퍼 부재 시 데스크톱 유튜브 전면 불능).
+
 ---
 
 ## bookmarkBlock (bookmarkBlock.tsx)

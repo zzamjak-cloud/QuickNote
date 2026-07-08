@@ -100,7 +100,7 @@
 | 이름 | 설명 |
 |------|------|
 | `useImageUrl(srcOrRef)` | `quicknote-image://` ref 또는 일반 URL → 표시 가능한 URL 반환 |
-| `UseImageUrlResult` | `{ url: string \| null; error: string \| null }` |
+| `UseImageUrlResult` | `{ url: string \| null; error: string \| null; reportLoadError: () => void }` |
 
 ### 동작 흐름 (useImageUrl)
 1. `decodeImageRef(src)` 또는 `decodeFileRef(src)` — 가상 스킴 파싱
@@ -111,6 +111,14 @@
 6. `fetchMediaBlob(downloadUrl)` — CORS 허용 시 blob 다운로드
 7. blob 성공 → `rememberMediaObjectUrl` + `writeMediaBlob` (인메모리 + IndexedDB 저장)
 8. blob 실패(CORS 차단) → PreSignedURL 직접 `<img src>` 사용
+
+### 로드 실패 자가 치유 (reportLoadError)
+`<img onError>` 에서 `reportLoadError()` 를 호출하면 해당 자산의 캐시를 전부 버리고 재해석한다
+(`forgetMediaObjectUrl` → `imageUrlCache.invalidate`(영속 포함) → `deleteMediaBlob` → 새 PreSignedURL).
+- 배경: 데스크톱(Tauri) 앱처럼 오래 살아있는 클라이언트는 만료된 PreSignedURL(webStorage 영속 캐시)이나
+  손상 blob 이 남아 깨진 이미지 아이콘이 지속될 수 있다 — 웹은 정상인데 데스크톱만 깨지는 패턴.
+- 상한 `MAX_LOAD_ERROR_HEALS`(2회) 초과 또는 일반 URL(재발급 불가) 실패 시 `[image error]` 로 전환.
+- 회귀 테스트: `src/lib/images/__tests__/useImageUrlHeal.test.tsx`
 
 ### 주의사항
 - `initialImageUrl`로 초기 state를 동기 설정 — 재진입 시 로딩 플래시 제거

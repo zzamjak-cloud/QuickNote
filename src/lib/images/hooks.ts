@@ -1,6 +1,6 @@
 // React 훅: TipTap 노드 src(quicknote-image:// 또는 일반 URL)를 표시 가능한 URL 로 풀어준다.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { imageUrlCache } from "./registry";
 import { decodeImageRef } from "../sync/imageScheme";
 import { decodeFileRef } from "../files/scheme";
@@ -10,13 +10,25 @@ import {
   getMediaObjectUrl,
   peekMediaObjectUrl,
   rememberMediaObjectUrl,
+  forgetMediaObjectUrl,
+  deleteMediaBlob,
   IMAGE_CACHE_MAX_BYTES,
 } from "../media/mediaBlobCache";
 
 export type UseImageUrlResult = {
   url: string | null;
   error: string | null;
+  /**
+   * <img> onError 에서 호출 — 만료된 PreSignedURL·손상 blob 등 로드에 실패한 캐시를
+   * 모두 버리고 새 PreSignedURL 로 다시 해석해 자가 치유한다.
+   */
+  reportLoadError: () => void;
 };
+
+// <img> 로드 실패 자가 치유 재시도 상한(초과 시 에러 표시로 전환).
+const MAX_LOAD_ERROR_HEALS = 2;
+
+const LOAD_FAIL_MESSAGE = "이미지를 불러오지 못했습니다.";
 
 function mapImageErrorMessage(error: unknown): string {
   const msg = error instanceof Error ? error.message : String(error);
@@ -55,6 +67,18 @@ export function useImageUrl(
     initialImageUrl(srcOrRef),
   );
   const [error, setError] = useState<string | null>(null);
+  // src 별 자가 치유 횟수. src 가 바뀌면 카운트는 자연히 0 으로 되돌아간다.
+  const [heal, setHeal] = useState<{ src: string | null; count: number }>({
+    src: null,
+    count: 0,
+  });
+  const healCount = heal.src === (srcOrRef ?? null) ? heal.count : 0;
+
+  const reportLoadError = useCallback(() => {
+    const key = srcOrRef ?? null;
+    if (!key) return;
+    setHeal((h) => ({ src: key, count: h.src === key ? h.count + 1 : 1 }));
+  }, [srcOrRef]);
 
   useEffect(() => {
     let canceled = false;
@@ -66,19 +90,32 @@ export function useImageUrl(
     }
     const id = decodeImageRef(srcOrRef) ?? decodeFileRef(srcOrRef);
     if (!id) {
-      // 일반 URL(또는 data:)은 그대로 사용.
+      // 일반 URL(또는 data:)은 그대로 사용. 로드 실패 시엔 재발급으로 치유할 수 없으므로
+      // 깨진 아이콘 대신 에러 표시로 전환한다.
+      if (healCount > 0) {
+        setUrl(null);
+        setError(LOAD_FAIL_MESSAGE);
+        return;
+      }
       setUrl(srcOrRef);
       setError(null);
       return;
     }
     setError(null);
-    // 동기 인메모리 캐시 적중이면 추가 작업 없이 즉시 표시.
-    const memUrl = peekMediaObjectUrl(id);
-    if (memUrl) {
-      setUrl(memUrl);
-      return () => {
-        canceled = true;
-      };
+    if (healCount > MAX_LOAD_ERROR_HEALS) {
+      setUrl(null);
+      setError(LOAD_FAIL_MESSAGE);
+      return;
+    }
+    // 동기 인메모리 캐시 적중이면 추가 작업 없이 즉시 표시(치유 중에는 캐시를 신뢰하지 않음).
+    if (healCount === 0) {
+      const memUrl = peekMediaObjectUrl(id);
+      if (memUrl) {
+        setUrl(memUrl);
+        return () => {
+          canceled = true;
+        };
+      }
     }
     // PreSignedURL 다운로드(+blob 캐싱). 실패 시 전파 레이스로 보고 백오프 재시도.
     const resolveFromNetwork = async (attempt: number): Promise<void> => {
@@ -108,6 +145,15 @@ export function useImageUrl(
       }
     };
     void (async () => {
+      if (healCount > 0) {
+        // 자가 치유: 로드에 실패한 object URL·blob·PreSignedURL 캐시를 모두 버리고
+        // 새 PreSignedURL 로 처음부터 다시 해석한다.
+        forgetMediaObjectUrl(id);
+        await Promise.all([imageUrlCache.invalidate(id), deleteMediaBlob(id)]);
+        if (canceled) return;
+        await resolveFromNetwork(0);
+        return;
+      }
       // 1) 로컬 blob 캐시(인메모리→IndexedDB) — 네트워크 없이 object URL 표시.
       const cachedUrl = await getMediaObjectUrl(id);
       if (canceled) return;
@@ -123,7 +169,7 @@ export function useImageUrl(
       canceled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [srcOrRef]);
+  }, [srcOrRef, healCount]);
 
-  return { url, error };
+  return { url, error, reportLoadError };
 }

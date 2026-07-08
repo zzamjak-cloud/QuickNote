@@ -17,7 +17,28 @@
       ]
     },
     {
-      "source": "/(.*)",
+      "source": "/yt-embed.html",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'none'; base-uri 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src https://www.youtube.com https://www.youtube-nocookie.com; frame-ancestors 'self' tauri://localhost http://tauri.localhost https://tauri.localhost"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    },
+    {
+      "source": "/((?!yt-embed\\.html$).*)",
       "headers": [
         {
           "key": "Content-Security-Policy",

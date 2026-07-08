@@ -64,7 +64,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
     forceActive: previewOpen,
     initialActive: hasCachedUrl,
   });
-  const { url, error } = useImageUrl(
+  const { url, error, reportLoadError } = useImageUrl(
     activation.active ? attrs.src ?? null : null,
   );
 
@@ -95,6 +95,8 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               : { maxWidth: "100%" }
           }
           draggable={false}
+          // 만료된 PreSignedURL·손상 blob 캐시 자가 치유 — 캐시 폐기 후 재해석.
+          onError={reportLoadError}
           onDoubleClick={(e) => {
             e.preventDefault();
             e.stopPropagation();

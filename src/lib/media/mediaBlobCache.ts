@@ -79,6 +79,29 @@ export function rememberMediaObjectUrl(id: string, blob: Blob): string {
   return url;
 }
 
+/** 인메모리 object URL 을 revoke 하고 제거한다(손상 blob·만료 URL 자가 치유용). */
+export function forgetMediaObjectUrl(id: string): void {
+  const url = objectUrlMem.get(id);
+  if (!url) return;
+  objectUrlMem.delete(id);
+  URL.revokeObjectURL(url);
+}
+
+/** IndexedDB 캐시에서 항목을 삭제한다(자가 치유용). */
+export async function deleteMediaBlob(id: string): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  try {
+    await new Promise<void>((resolve) => {
+      const req = db.transaction(STORE, "readwrite").objectStore(STORE).delete(id);
+      req.onsuccess = () => resolve();
+      req.onerror = () => resolve();
+    });
+  } catch {
+    // 삭제 실패는 무시 — 다음 heal 시도에서 다시 지운다.
+  }
+}
+
 /** 표시용 object URL 을 얻는다: 인메모리 → IndexedDB 순. 없으면 null. */
 export async function getMediaObjectUrl(id: string): Promise<string | null> {
   const mem = peekMediaObjectUrl(id);

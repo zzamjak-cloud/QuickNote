@@ -38,9 +38,10 @@ export class ImageUrlCache {
     return url;
   }
 
-  invalidate(imageId: string): void {
+  /** 메모리·영속 캐시를 모두 무효화한다. 영속 삭제 완료까지 기다리려면 await 할 것. */
+  invalidate(imageId: string): Promise<void> {
     this.cache.delete(imageId);
-    void this.onInvalidate?.(imageId);
+    return Promise.resolve(this.onInvalidate?.(imageId));
   }
 
   clear(): void {

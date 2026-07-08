@@ -203,7 +203,7 @@ export function AdminAssetsTab(props: { onClose?: () => void }) {
       try {
         const deleted = await deleteMyAssetsApi(chunk);
         totalDeleted += deleted.length;
-        for (const id of deleted) imageUrlCache.invalidate(id);
+        for (const id of deleted) void imageUrlCache.invalidate(id);
         removeManyFromCache(deleted);
         setSelected((prev) => {
           const next = new Set(prev);
