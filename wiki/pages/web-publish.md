@@ -34,6 +34,12 @@
 - `Bootstrap.tsx`: `/p/` 분기는 `useSyncBootstrap()` 을 호출하는 `AuthedBootstrap` **바깥**에서
   일어난다(훅 규칙). 공개 뷰어에 인증/스토어 부트스트랩을 붙이지 말 것.
 - 렌더는 `BlockDiffView` 의 read-only TipTap 레시피 재사용(`useEditorExtensions` 전부 null).
+- **좌측 트리 사이드바를 두지 않는다** — 공개 웹은 본문만 표시. 자손 이동은 본문
+  `pageLink`(공개 라우트 링크) 클릭으로만 한다.
+- 페이지 아이콘: `PageIconDisplay`/`useImageUrl`(Cognito) 대신 공개용 `PublicPageIcon` —
+  Lucide·이모지·`op=asset` 이미지 URL. 인증 훅을 공개 뷰어에 붙이지 말 것.
+- 본문 `pageLink` 클릭: TipTap `Link.openOnClick:false` 이므로 `ReadOnlyDocView` 의
+  `handleDOMEvents.click` 에서 `/p/<token>?page=` 만 `navigateTo` 로 연결한다.
 - doc 변환: 자산 스킴 → `op=asset` URL(이미지 블록 무수정), `databaseBlock`/`flowchartBlock`
   → placeholder, `pageLink` → 트리 안=공개 라우트 링크 텍스트 / 밖=순수 텍스트(id 비노출).
 - `VITE_PUBLIC_VIEW_URL` (Function URL) — 미설정이면 뷰어는 404 화면. CSP `connect-src` 에

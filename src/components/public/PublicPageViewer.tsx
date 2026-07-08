@@ -4,7 +4,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
-import { ChevronRight } from "lucide-react";
+import * as LucideIcons from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useEditorExtensions } from "../editor/useEditorExtensions";
 import { EditorErrorBoundary } from "../editor/EditorErrorBoundary";
 import {
@@ -12,13 +13,17 @@ import {
   fetchPublicSite,
   isPublicViewConfigured,
   type PublicPage,
-  type PublicPageMeta,
   type PublicSite,
 } from "../../lib/publicView/api";
 import {
   transformPublicDoc,
   toPublicAssetUrl,
+  type PublicDocContext,
 } from "../../lib/publicView/transformPublicDoc";
+import {
+  decodeLucidePageIcon,
+  isImageLikePageIcon,
+} from "../../lib/pageIcon";
 
 /** /p/<token> 에서 토큰 추출(쿼리·해시 제외) */
 function parseTokenFromPath(pathname: string): string | null {
@@ -31,13 +36,58 @@ function parsePageIdFromSearch(search: string): string | null {
   return id && id.length > 0 ? id : null;
 }
 
-/** 커스텀 이미지 아이콘(quicknote-image://)은 공개 뷰어에서 생략하고 이모지만 표시 */
-function EmojiIcon({ icon }: { icon: string | null }) {
-  if (!icon || icon.startsWith("quicknote-")) return null;
-  return <span className="mr-1.5">{icon}</span>;
+/** 공개 뷰어용 페이지 아이콘 — 인증 없는 public asset URL 로 Lucide/이미지/이모지 표시 */
+function PublicPageIcon({
+  icon,
+  ctx,
+  size = 22,
+  className = "mr-1.5",
+}: {
+  icon: string | null;
+  ctx: PublicDocContext;
+  size?: number;
+  className?: string;
+}) {
+  const lucide = decodeLucidePageIcon(icon);
+  if (lucide) {
+    const Icon =
+      (LucideIcons as unknown as Record<string, LucideIcon>)[lucide.name] ??
+      LucideIcons.FileText;
+    return (
+      <span
+        className={`inline-flex shrink-0 items-center justify-center ${className}`}
+        style={{ width: size, height: size }}
+      >
+        <Icon size={size} strokeWidth={1.9} color={lucide.color} />
+      </span>
+    );
+  }
+  if (isImageLikePageIcon(icon)) {
+    const src = toPublicAssetUrl(icon, ctx);
+    if (src) {
+      return (
+        <img
+          src={src}
+          alt=""
+          className={`inline-block shrink-0 rounded object-cover ${className}`}
+          style={{ width: size, height: size }}
+          draggable={false}
+        />
+      );
+    }
+    return null;
+  }
+  if (!icon) return null;
+  return <span className={className}>{icon}</span>;
 }
 
-function ReadOnlyDocView({ doc }: { doc: JSONContent }) {
+function ReadOnlyDocView({
+  doc,
+  onNavigatePublicPage,
+}: {
+  doc: JSONContent;
+  onNavigatePublicPage: (pageId: string) => void;
+}) {
   const extensions = useEditorExtensions({
     lowlightApi: null,
     isFullPageDatabase: false,
@@ -46,67 +96,34 @@ function ReadOnlyDocView({ doc }: { doc: JSONContent }) {
     collabDoc: null,
     collabAwareness: null,
   });
-  const editor = useEditor({ extensions, content: doc, editable: false }, [doc]);
+  const editor = useEditor(
+    {
+      extensions,
+      content: doc,
+      editable: false,
+      // TipTap Link 는 openOnClick:false 라 기본 네비게이션이 막힌다.
+      // 공개 라우트(/p/<token>?page=) 클릭만 SPA navigate 로 연결한다.
+      editorProps: {
+        handleDOMEvents: {
+          click: (_view, event) => {
+            const target = event.target as HTMLElement | null;
+            const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+            if (!anchor) return false;
+            const href = anchor.getAttribute("href") ?? "";
+            const m = /^\/p\/[^/?#]+\?page=([^&]+)/.exec(href);
+            if (!m?.[1]) return false;
+            event.preventDefault();
+            event.stopPropagation();
+            onNavigatePublicPage(decodeURIComponent(m[1]));
+            return true;
+          },
+        },
+      },
+    },
+    [doc, onNavigatePublicPage],
+  );
   if (!editor) return null;
   return <EditorContent editor={editor} />;
-}
-
-type TreeNode = PublicPageMeta & { children: TreeNode[] };
-
-function buildTree(pages: PublicPageMeta[], rootId: string): TreeNode | null {
-  const byId = new Map<string, TreeNode>(
-    pages.map((p) => [p.id, { ...p, children: [] }]),
-  );
-  for (const node of byId.values()) {
-    if (!node.parentId || node.id === rootId) continue;
-    byId.get(node.parentId)?.children.push(node);
-  }
-  for (const node of byId.values()) {
-    node.children.sort((a, b) => a.order - b.order);
-  }
-  return byId.get(rootId) ?? null;
-}
-
-function TreeList({
-  nodes,
-  depth,
-  currentId,
-  onNavigate,
-}: {
-  nodes: TreeNode[];
-  depth: number;
-  currentId: string;
-  onNavigate: (id: string) => void;
-}) {
-  if (nodes.length === 0) return null;
-  return (
-    <ul>
-      {nodes.map((node) => (
-        <li key={node.id}>
-          <button
-            type="button"
-            onClick={() => onNavigate(node.id)}
-            className={[
-              "flex w-full items-center truncate rounded-md px-2 py-1 text-left text-sm",
-              node.id === currentId
-                ? "bg-zinc-200/80 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
-                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800/60",
-            ].join(" ")}
-            style={{ paddingLeft: 8 + depth * 14 }}
-          >
-            <EmojiIcon icon={node.icon} />
-            <span className="truncate">{node.title || "제목 없음"}</span>
-          </button>
-          <TreeList
-            nodes={node.children}
-            depth={depth + 1}
-            currentId={currentId}
-            onNavigate={onNavigate}
-          />
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 function CenteredNotice({ title, detail }: { title: string; detail?: string }) {
@@ -194,16 +211,17 @@ export function PublicPageViewer() {
     [token, site],
   );
 
+  const publicDocCtx = useMemo((): PublicDocContext | null => {
+    if (!token || !effectivePageId) return null;
+    return { token, pageId: effectivePageId, publishedPageIds };
+  }, [token, effectivePageId, publishedPageIds]);
+
   const transformedDoc = useMemo(() => {
-    if (!page || !token || !effectivePageId) return null;
+    if (!page || !publicDocCtx) return null;
     const rawDoc = page.doc as JSONContent | null;
     if (!rawDoc || typeof rawDoc !== "object") return null;
-    return transformPublicDoc(rawDoc, {
-      token,
-      pageId: effectivePageId,
-      publishedPageIds,
-    });
-  }, [page, token, effectivePageId, publishedPageIds]);
+    return transformPublicDoc(rawDoc, publicDocCtx);
+  }, [page, publicDocCtx]);
 
   if (!token) {
     return <CenteredNotice title="잘못된 링크입니다." />;
@@ -220,81 +238,52 @@ export function PublicPageViewer() {
     );
   }
 
-  const tree = buildTree(site.pages, site.rootId);
   const coverSrc =
-    page && token && effectivePageId
-      ? toPublicAssetUrl(page.coverImage, {
-          token,
-          pageId: effectivePageId,
-          publishedPageIds,
-        })
+    page && publicDocCtx
+      ? toPublicAssetUrl(page.coverImage, publicDocCtx)
       : null;
-  const hasChildren = (tree?.children.length ?? 0) > 0;
 
   return (
-    <div className="flex h-screen bg-white dark:bg-zinc-950">
-      {hasChildren && (
-        <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-zinc-200 px-2 py-4 md:block dark:border-zinc-800">
-          {tree && (
-            <TreeList
-              nodes={[tree]}
-              depth={0}
-              currentId={effectivePageId ?? site.rootId}
-              onNavigate={navigateTo}
-            />
-          )}
-        </aside>
+    <div className="min-h-screen overflow-y-auto bg-white dark:bg-zinc-950">
+      {coverSrc && (
+        <img
+          src={coverSrc}
+          alt=""
+          className="h-48 w-full object-cover"
+          draggable={false}
+        />
       )}
-      <main className="min-w-0 flex-1 overflow-y-auto">
-        {coverSrc && (
-          <img
-            src={coverSrc}
-            alt=""
-            className="h-48 w-full object-cover"
-            draggable={false}
-          />
+      <div className="mx-auto w-full max-w-3xl px-6 py-10">
+        {page === undefined ? (
+          <p className="text-sm text-zinc-400">불러오는 중…</p>
+        ) : page === null ? (
+          <p className="text-sm text-zinc-500">이 페이지는 더 이상 공개되지 않습니다.</p>
+        ) : (
+          <>
+            <h1
+              className="mb-6 flex items-center gap-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100"
+              style={page.titleColor ? { color: page.titleColor } : undefined}
+            >
+              {publicDocCtx ? (
+                <PublicPageIcon icon={page.icon} ctx={publicDocCtx} size={32} className="" />
+              ) : null}
+              <span>{page.title || "제목 없음"}</span>
+            </h1>
+            {transformedDoc ? (
+              <EditorErrorBoundary>
+                <div className="qn-public-doc">
+                  <ReadOnlyDocView
+                    doc={transformedDoc}
+                    onNavigatePublicPage={navigateTo}
+                  />
+                </div>
+              </EditorErrorBoundary>
+            ) : (
+              <p className="text-sm text-zinc-400">내용이 없습니다.</p>
+            )}
+          </>
         )}
-        <div className="mx-auto w-full max-w-3xl px-6 py-10">
-          {/* 모바일: 트리 대신 상단 breadcrumb 유사 내비 */}
-          {hasChildren && (
-            <nav className="mb-4 flex items-center gap-1 text-xs text-zinc-500 md:hidden">
-              <button type="button" onClick={() => navigateTo(site.rootId)}>
-                {tree?.title || "홈"}
-              </button>
-              {effectivePageId !== site.rootId && (
-                <>
-                  <ChevronRight size={12} />
-                  <span className="truncate">{page?.title ?? ""}</span>
-                </>
-              )}
-            </nav>
-          )}
-          {page === undefined ? (
-            <p className="text-sm text-zinc-400">불러오는 중…</p>
-          ) : page === null ? (
-            <p className="text-sm text-zinc-500">이 페이지는 더 이상 공개되지 않습니다.</p>
-          ) : (
-            <>
-              <h1
-                className="mb-6 text-3xl font-bold text-zinc-900 dark:text-zinc-100"
-                style={page.titleColor ? { color: page.titleColor } : undefined}
-              >
-                <EmojiIcon icon={page.icon} />
-                {page.title || "제목 없음"}
-              </h1>
-              {transformedDoc ? (
-                <EditorErrorBoundary>
-                  <div className="qn-public-doc">
-                    <ReadOnlyDocView doc={transformedDoc} />
-                  </div>
-                </EditorErrorBoundary>
-              ) : (
-                <p className="text-sm text-zinc-400">내용이 없습니다.</p>
-              )}
-            </>
-          )}
-        </div>
-      </main>
+      </div>
     </div>
   );
 }

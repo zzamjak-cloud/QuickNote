@@ -106,7 +106,14 @@ function MediaCaptionInput({
   onRemoveEmpty: () => void;
 }) {
   return (
-    <div className="mt-1 flex w-full items-center gap-1" style={{ maxWidth: widthPx ? `${widthPx}px` : "100%" }}>
+    <div
+      className="mt-1 flex w-full items-center gap-1"
+      // 정렬 버튼 + 캡션 텍스트가 하나의 단위로 좌/중앙/우로 함께 이동. gap-1 유지.
+      style={{
+        maxWidth: widthPx ? `${widthPx}px` : "100%",
+        justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start",
+      }}
+    >
       <button
         type="button"
         className="h-3 w-3 shrink-0 rounded-[2px] bg-zinc-300 hover:bg-zinc-400 dark:bg-zinc-600 dark:hover:bg-zinc-500"
@@ -123,6 +130,8 @@ function MediaCaptionInput({
         type="text"
         value={caption}
         placeholder="캡션 입력…"
+        // 텍스트 폭에 맞춰 단위를 잡고, textAlign 은 쓰지 않아 버튼-텍스트 gap 을 유지한다.
+        size={Math.max(6, caption.length || "캡션 입력…".length)}
         onChange={(e) => onChange(e.target.value)}
         onBlur={(e) => {
           if (e.currentTarget.value.trim() === "") onRemoveEmpty();
@@ -134,8 +143,7 @@ function MediaCaptionInput({
           }
           e.stopPropagation();
         }}
-        className="min-w-0 flex-1 border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
-        style={{ textAlign: captionAlign }}
+        className="min-w-0 max-w-full border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
       />
     </div>
   );

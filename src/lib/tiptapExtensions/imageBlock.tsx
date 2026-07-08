@@ -147,6 +147,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
             value={attrs.caption ?? ""}
             placeholder="캡션 입력…"
             // 텍스트 길이에 맞춰 폭을 잡아(정렬 단위가 텍스트를 따라감) maxWidth 로 이미지 폭까지만 확장.
+            // textAlign 은 쓰지 않는다 — 넓은 input 안에서 텍스트만 밀리면 버튼-텍스트 gap 이 깨진다.
             size={Math.max(6, (attrs.caption ?? "").length || "캡션 입력…".length)}
             // 캡션은 노드 attrs.caption 에 저장 (plain text). 본문 doc 흐름과 분리.
             onChange={(e) => props.updateAttributes({ caption: e.target.value })}
@@ -165,7 +166,6 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               e.stopPropagation();
             }}
             className="min-w-0 max-w-full border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
-            style={{ textAlign: captionAlign }}
           />
         </div>
       ) : null}
