@@ -1,7 +1,7 @@
 {
   "name": "quicknote",
   "private": true,
-  "version": "5.6.18",
+  "version": "5.6.19",
   "type": "module",
   "engines": {
     "node": ">=20 <25"
