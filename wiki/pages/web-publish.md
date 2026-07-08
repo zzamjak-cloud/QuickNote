@@ -63,10 +63,12 @@
 
 ## 알려진 한계·후속
 
-- **공개 링크 도메인**: `buildPublicPageUrl` 은 `VITE_WEB_APP_ORIGIN`(미설정 시
-  `quick-note-khaki.vercel.app`) 기준. Vercel Preview 는 SSO 로 `/p` 가 막히므로 공개 도메인
-  고정이 의도된 동작. 단 **dev 앱에서 복사한 링크의 토큰은 dev 테이블에만 있어 prod 도메인에서
-  404** 다(dev 링크는 dev 검증용으로만). 실제 공유는 prod 게시 링크를 쓸 것.
+- **공개 링크 도메인**: `buildPublicPageUrl` 은 웹 배포에서는 **현재 origin**, 로컬·데스크톱만
+  `VITE_WEB_APP_ORIGIN`(미설정 시 khaki). develop 게시를 khaki 로 강제하면 토큰(dev DB)과
+  Lambda(prod) 가 어긋나 "페이지를 찾을 수 없습니다" 가 난다.
+- **Vercel Deployment Protection(SSO)**: Preview(`/quick-note-git-develop-…`) 는 익명
+  `/p` 접근이 로그인으로 막힐 수 있다. **시크릿 창 검증·외부 공유는 라이브(khaki)에서
+  게시한 링크**를 쓸 것. Preview 는 로그인된 개발자 확인용.
 - **op=asset 효율**: 이미지 많은 공개 페이지는 자산마다 왕복(토큰·페이지·AssetUsage·asset)이 발생.
   `reservedConcurrentExecutions=10` 이라 동시 열람이 많으면 스로틀될 수 있다. 필요 시
   (token,pageId)별 자산 화이트리스트 단기 메모 또는 op=page 응답에 presign 동봉으로 개선.

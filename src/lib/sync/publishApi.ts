@@ -50,12 +50,35 @@ export async function unpublishPageApi(pageId: string): Promise<PagePublishStatu
   return callPublishField(UNPUBLISH_PAGE, "unpublishPage", pageId);
 }
 
-/** 공개 뷰어 URL — 웹 도메인 기준(/p/<token>). */
+const DEFAULT_PUBLIC_WEB_ORIGIN = "https://quick-note-khaki.vercel.app";
+
+/**
+ * 공개 뷰어 URL — /p/<token>.
+ * 웹 배포(preview/production)에서는 **현재 origin** 을 쓴다.
+ * 게시 토큰은 현재 AppSync/DDB 환경에만 있으므로 khaki 로 강제하면
+ * develop 게시 → prod Lambda 조회 404 가 난다.
+ * 로컬·데스크톱만 VITE_WEB_APP_ORIGIN(또는 khaki) 폴백.
+ */
 export function buildPublicPageUrl(token: string): string {
-  // /p/<token> 는 공개 페이지이므로, 현재 origin(데스크톱/로컬/privated preview) 이
-  // 아니라 웹 공개 도메인을 기준으로 URL 을 만들어야 한다.
-  const origin =
-    (import.meta.env.VITE_WEB_APP_ORIGIN as string | undefined)?.replace(/\/+$/, "") ??
-    "https://quick-note-khaki.vercel.app";
+  const configured = (
+    import.meta.env.VITE_WEB_APP_ORIGIN as string | undefined
+  )?.replace(/\/+$/, "");
+  let origin = configured || DEFAULT_PUBLIC_WEB_ORIGIN;
+  if (typeof window !== "undefined") {
+    const loc = window.location.origin;
+    const host = window.location.hostname;
+    const isLocal = host === "localhost" || host === "127.0.0.1";
+    const isTauri =
+      loc.startsWith("tauri:") ||
+      host === "tauri.localhost" ||
+      host.endsWith(".tauri.localhost");
+    if (
+      !isLocal &&
+      !isTauri &&
+      (loc.startsWith("http://") || loc.startsWith("https://"))
+    ) {
+      origin = loc;
+    }
+  }
   return `${origin}/p/${token}`;
 }

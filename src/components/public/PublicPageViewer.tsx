@@ -230,10 +230,15 @@ export function PublicPageViewer() {
     return <CenteredNotice title="불러오는 중…" />;
   }
   if (site === null) {
+    const misconfigured = !isPublicViewConfigured();
     return (
       <CenteredNotice
         title="페이지를 찾을 수 없습니다."
-        detail="게시가 해제되었거나 존재하지 않는 페이지입니다."
+        detail={
+          misconfigured
+            ? "공개 뷰어 설정(VITE_PUBLIC_VIEW_URL)이 없습니다. 배포 env를 확인하세요."
+            : "게시가 해제되었거나, 다른 환경(dev/live)에서 발급된 링크일 수 있습니다."
+        }
       />
     );
   }
