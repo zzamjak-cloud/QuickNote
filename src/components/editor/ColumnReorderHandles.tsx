@@ -291,7 +291,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
       if (!editor || editor.isDestroyed) return false;
       const layout = editor.state.doc.nodeAt(layoutStart);
       if (!layout || layout.type.name !== "columnLayout") return false;
-      if (layout.childCount >= 4) return true;
+      if (layout.childCount >= 6) return true;
       const columnType = editor.schema.nodes.column;
       const paragraphType = editor.schema.nodes.paragraph;
       if (!columnType || !paragraphType) return false;
@@ -755,7 +755,7 @@ export function ColumnReorderHandles({ editor, boxSelectedStarts = [] }: Props) 
           </button>
         </div>
       )) : null}
-      {activeHandles && activeHandles.items.length < 4 && addButtonItem ? (
+      {activeHandles && activeHandles.items.length < 6 && addButtonItem ? (
         <button
           type="button"
           onClick={() => addColumn(activeHandles.layoutStart)}

@@ -63,7 +63,7 @@ function normalizeLegacyColumnLayout(node: JSONContent): JSONContent | null {
     typeof attrs.columns !== "number" ||
     !Array.isArray(content) ||
     content.length < 2 ||
-    content.length > 4 ||
+    content.length > 6 ||
     !content.every((child) => child.type === "column")
   ) {
     return null;

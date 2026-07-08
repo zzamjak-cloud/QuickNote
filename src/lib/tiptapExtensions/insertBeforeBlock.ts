@@ -1,5 +1,20 @@
 import { Extension, type Editor } from "@tiptap/core";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import type { ResolvedPos } from "@tiptap/pm/model";
+
+/**
+ * Alt+Enter 삽입 기준 위치. 컬럼 안에 있으면 "컬럼 내부의 현재 최상위 블럭" 앞,
+ * 아니면 doc 최상위 블럭 앞. (컬럼 내부 이미지에서 Alt+Enter 시 컬럼 전체 바깥이 아니라
+ * 컬럼 안 이미지 앞에 빈 문단이 생기도록 — before(1) 은 항상 columnLayout 밖을 가리킴)
+ */
+function insertBeforePos($pos: ResolvedPos): number {
+  for (let depth = $pos.depth; depth > 0; depth -= 1) {
+    if ($pos.node(depth).type.name === "column") {
+      return $pos.posAtIndex($pos.index(depth), depth);
+    }
+  }
+  return $pos.before(1);
+}
 
 export function syncInsertBeforeBlockSelection(
   editor: Editor,
@@ -43,11 +58,9 @@ export const InsertBeforeBlock = Extension.create({
             let blockStart: number;
             if (boxSelectedStarts.length > 0) {
               const minPos = Math.min(...boxSelectedStarts);
-              const $pos = state.doc.resolve(minPos);
-              blockStart = $pos.before(1);
+              blockStart = insertBeforePos(state.doc.resolve(minPos));
             } else {
-              const { $from } = state.selection;
-              blockStart = $from.before(1);
+              blockStart = insertBeforePos(state.selection.$from);
             }
 
             const paragraphType = state.schema.nodes.paragraph;

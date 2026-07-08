@@ -698,7 +698,7 @@ function togglesFromToggleList(
 }
 
 // Notion 컬럼 레이아웃(div.column-list > div.column …) → 퀵노트 columnLayout 변환.
-// 퀵노트 스키마는 column{2,4} 라 2~4 개일 때만 columnLayout, 그 외엔 자식 블록 평탄화.
+// 퀵노트 스키마는 column{2,6} 라 2~6 개일 때만 columnLayout, 그 외엔 자식 블록 평탄화.
 // top-level 순회와 토글/콜아웃 등 컨테이너 내부(blocksFromContainerChildren) 양쪽에서 재사용한다.
 function columnLayoutBlocksFromColumnList(
   el: HTMLElement,
@@ -718,7 +718,7 @@ function columnLayoutBlocksFromColumnList(
       (c): c is HTMLElement => c instanceof HTMLElement && c.tagName.toLowerCase() === "div",
     );
   }
-  const inColumnRange = columnEls.length >= 2 && columnEls.length <= 4;
+  const inColumnRange = columnEls.length >= 2 && columnEls.length <= 6;
   const childNodesPerColumn = columnEls.map((columnEl) => {
     // 각 컬럼의 innerHTML 을 한 article.page 로 감싸 재귀 변환 → 내부 블록 JSON 추출.
     const wrapped = `<article class="page">${columnEl.innerHTML}</article>`;

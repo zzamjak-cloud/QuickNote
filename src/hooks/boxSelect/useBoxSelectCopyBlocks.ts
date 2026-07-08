@@ -1,27 +1,6 @@
 import { type RefObject, useEffect } from "react";
 import type { Editor } from "@tiptap/react";
-import { DOMSerializer } from "@tiptap/pm/model";
-
-async function writeClipboard(html: string, text: string): Promise<void> {
-  try {
-    if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "text/html": new Blob([html], { type: "text/html" }),
-          "text/plain": new Blob([text], { type: "text/plain" }),
-        }),
-      ]);
-      return;
-    }
-  } catch {
-    /* ClipboardItem 미지원/거부 — 텍스트 폴백 */
-  }
-  try {
-    await navigator.clipboard?.writeText(text);
-  } catch {
-    /* 클립보드 권한 거부 — 조용히 무시 */
-  }
-}
+import { writeBlocksToClipboard } from "./clipboardBlocks";
 
 /**
  * 박스 선택된 블록 일괄 복사(Ctrl/Cmd+C).
@@ -51,16 +30,7 @@ export function useBoxSelectCopyBlocks(
       if (nodes.length === 0) return;
       e.preventDefault();
       e.stopPropagation();
-
-      const serializer = DOMSerializer.fromSchema(schema);
-      const container = document.createElement("div");
-      for (const node of nodes) {
-        container.appendChild(serializer.serializeNode(node));
-      }
-      const text = nodes
-        .map((node) => node.textBetween(0, node.content.size, "\n"))
-        .join("\n");
-      void writeClipboard(container.innerHTML, text);
+      writeBlocksToClipboard(nodes, schema);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);

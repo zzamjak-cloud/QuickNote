@@ -12,7 +12,7 @@ import {
   Strikethrough,
   Code,
   Highlighter,
-  Palette,
+  Baseline,
   Link as LinkIcon,
   MessageSquarePlus,
   AlignHorizontalDistributeCenter,
@@ -486,7 +486,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
                 }}
                 title="텍스트 색"
               >
-                <Palette size={14} />
+                <Baseline size={14} />
               </ToolbarBtn>
               {colorOpen && (
                 <ColorPalette

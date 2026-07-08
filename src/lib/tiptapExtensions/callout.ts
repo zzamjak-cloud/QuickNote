@@ -2,6 +2,7 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import {
   Plugin,
   NodeSelection,
+  TextSelection,
   type EditorState,
   type Transaction,
 } from "@tiptap/pm/state";
@@ -160,6 +161,56 @@ export const Callout = Node.create({
         0,
       ],
     ];
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      // 콜아웃 내부 "마지막 빈 문단"에서 Enter → 콜아웃을 벗어나 바로 뒤에 빈 문단 생성.
+      // (콜아웃끼리 붙어 있을 때 사이 여백을 만들 수 있도록 탈출 경로 제공)
+      // 빈 문단이 아니거나 마지막이 아니면 기본 동작(콜아웃 내부 새 문단).
+      Enter: ({ editor }) => {
+        const { state } = editor;
+        const { selection } = state;
+        if (!selection.empty) return false;
+        const { $from } = selection;
+        // 커서가 문단(빈) 안에 있어야 한다.
+        if ($from.parent.type.name !== "paragraph") return false;
+        if ($from.parent.content.size !== 0) return false;
+
+        // 가장 가까운 조상 callout 을 찾는다.
+        let calloutDepth = -1;
+        for (let depth = $from.depth - 1; depth > 0; depth -= 1) {
+          if ($from.node(depth).type.name === this.name) {
+            calloutDepth = depth;
+            break;
+          }
+        }
+        if (calloutDepth === -1) return false;
+
+        const calloutNode = $from.node(calloutDepth);
+        // 이 빈 문단이 콜아웃(또는 그 최하위 컨테이너)의 마지막 자식이어야 한다.
+        // 콜아웃 content 는 block+ 이므로 문단이 직접 자식이다.
+        const paragraphDepth = $from.depth;
+        if (paragraphDepth !== calloutDepth + 1) return false;
+        const indexInCallout = $from.index(calloutDepth);
+        if (indexInCallout !== calloutNode.childCount - 1) return false;
+        // 콜아웃에 문단이 하나뿐이면 탈출 시 콜아웃이 비어 스키마 위반 → 유지.
+        if (calloutNode.childCount <= 1) return false;
+
+        const calloutAfter = $from.before(calloutDepth) + calloutNode.nodeSize;
+        const paragraphType = state.schema.nodes.paragraph;
+        if (!paragraphType) return false;
+
+        // 마지막 빈 문단 제거 → 콜아웃 뒤(매핑된 위치)에 빈 문단 삽입 후 커서 이동.
+        const tr = state.tr;
+        tr.delete($from.before(paragraphDepth), $from.after(paragraphDepth));
+        const insertPos = tr.mapping.map(calloutAfter);
+        tr.insert(insertPos, paragraphType.create());
+        tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+        editor.view.dispatch(tr.scrollIntoView());
+        return true;
+      },
+    };
   },
 
   addProseMirrorPlugins() {

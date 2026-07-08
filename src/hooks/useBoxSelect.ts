@@ -8,6 +8,7 @@ import {
 } from "./boxSelect/overlayDom";
 import { useBoxSelectCommittedOverlay } from "./boxSelect/useBoxSelectCommittedOverlay";
 import { useBoxSelectCopyBlocks } from "./boxSelect/useBoxSelectCopyBlocks";
+import { useBoxSelectCutBlocks } from "./boxSelect/useBoxSelectCutBlocks";
 import { useBoxSelectDeleteBlocks } from "./boxSelect/useBoxSelectDeleteBlocks";
 import { useBoxSelectDuplicateBlocks } from "./boxSelect/useBoxSelectDuplicateBlocks";
 import { useBoxSelectEscape } from "./boxSelect/useBoxSelectEscape";
@@ -82,6 +83,7 @@ export function useBoxSelect(editor: Editor | null) {
   useBoxSelectDeleteBlocks(editor, selectedStartsRef, clearSelection);
   useBoxSelectDuplicateBlocks(editor, selectedStartsRef);
   useBoxSelectCopyBlocks(editor, selectedStartsRef);
+  useBoxSelectCutBlocks(editor, selectedStartsRef, clearSelection);
 
   return { selectedStarts, clearSelection };
 }

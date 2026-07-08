@@ -15,6 +15,11 @@ import { decodeImageRef } from "../../lib/sync/imageScheme";
 import { decodeFileRef } from "../../lib/files/scheme";
 import { imageUrlCache } from "../../lib/images/registry";
 
+// 캡션 토글 단축키 표시(플랫폼별). 바인딩은 imageBlock.tsx addKeyboardShortcuts.
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac|iP(hone|ad|od)/.test(navigator.platform);
+const CAPTION_SHORTCUT_LABEL = IS_MAC ? "⌘⌥M" : "Ctrl+Alt+M";
+
 type Props = {
   editor: Editor;
   pageId: string | null;
@@ -139,7 +144,11 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
         <AlignRight size={14} />
       </AlignBtn>
       <span className="mx-0.5 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
-      <AlignBtn active={hasCaption} title="캡션" onClick={toggleCaption}>
+      <AlignBtn
+        active={hasCaption}
+        title={`캡션 (${CAPTION_SHORTCUT_LABEL})`}
+        onClick={toggleCaption}
+      >
         <Captions size={14} />
       </AlignBtn>
       <AlignBtn active={false} title="다운로드" onClick={() => void downloadMedia()}>

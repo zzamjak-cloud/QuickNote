@@ -41,6 +41,24 @@ const ALIGN_TO_FLEX: Record<string, string> = {
   right: "flex-end",
 };
 
+/** 캡션 입력에서 Enter — 이미지 블럭 바로 다음에 빈 문단을 만들고 커서를 옮긴다. */
+function insertParagraphAfterImage(props: NodeViewProps): void {
+  const { editor } = props;
+  const pos = props.getPos();
+  if (typeof pos !== "number") return;
+  const node = editor.state.doc.nodeAt(pos);
+  if (!node) return;
+  const after = pos + node.nodeSize;
+  const paragraphType = editor.state.schema.nodes.paragraph;
+  if (!paragraphType) return;
+  editor
+    .chain()
+    .focus()
+    .insertContentAt(after, { type: "paragraph" })
+    .setTextSelection(after + 1)
+    .run();
+}
+
 const ImageView = memo(function ImageView(props: NodeViewProps) {
   const attrs = props.node.attrs as {
     src?: string | null;
@@ -107,7 +125,11 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
         <span className="inline-block w-12 h-12 bg-neutral-100 dark:bg-neutral-800 animate-pulse align-middle" />
       )}
       {hasCaption ? (
-        <div className="mt-1 flex w-full items-center gap-1" style={{ maxWidth: captionMaxWidth }}>
+        <div
+          className="mt-1 flex w-full items-center gap-1"
+          // 정렬 버튼 + 캡션 텍스트가 하나의 단위로 좌/중앙/우로 함께 이동.
+          style={{ maxWidth: captionMaxWidth, justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start" }}
+        >
           <button
             type="button"
             className="h-3 w-3 shrink-0 rounded-[2px] bg-zinc-300 hover:bg-zinc-400 dark:bg-zinc-600 dark:hover:bg-zinc-500"
@@ -124,20 +146,25 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
             type="text"
             value={attrs.caption ?? ""}
             placeholder="캡션 입력…"
+            // 텍스트 길이에 맞춰 폭을 잡아(정렬 단위가 텍스트를 따라감) maxWidth 로 이미지 폭까지만 확장.
+            size={Math.max(6, (attrs.caption ?? "").length || "캡션 입력…".length)}
             // 캡션은 노드 attrs.caption 에 저장 (plain text). 본문 doc 흐름과 분리.
             onChange={(e) => props.updateAttributes({ caption: e.target.value })}
             onBlur={(e) => {
               if (e.currentTarget.value.trim() === "") props.updateAttributes({ caption: null });
             }}
             onKeyDown={(e) => {
-              // Enter/Backspace(빈 캡션) 가 에디터 본문으로 전파돼 노드 삭제·블록 분할되는 것 차단.
+              // Enter: 캡션 편집 종료 후 이미지 블럭 다음 라인에 빈 문단을 만들고 커서 이동.
               if (e.key === "Enter") {
                 e.preventDefault();
+                e.stopPropagation();
                 e.currentTarget.blur();
+                insertParagraphAfterImage(props);
+                return;
               }
               e.stopPropagation();
             }}
-            className="min-w-0 flex-1 border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+            className="min-w-0 max-w-full border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
             style={{ textAlign: captionAlign }}
           />
         </div>
@@ -234,11 +261,12 @@ export const ImageBlock = Image.extend({
   },
 
   addKeyboardShortcuts() {
+    // 캡션 토글 — Ctrl/Cmd + Alt + M
     return {
-      "Mod-Shift-c": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
-      "Mod-Shift-C": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
-      "Ctrl-Shift-c": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
-      "Ctrl-Shift-C": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
+      "Mod-Alt-m": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
+      "Mod-Alt-M": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
+      "Ctrl-Alt-m": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
+      "Ctrl-Alt-M": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
     };
   },
 

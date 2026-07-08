@@ -47,11 +47,11 @@ export const Column = Node.create({
   },
 });
 
-/** 2~4열: 가로 flex 그리드 */
+/** 2~6열: 가로 flex 그리드 */
 export const ColumnLayout = Node.create({
   name: "columnLayout",
   group: "block",
-  content: "column{2,4}",
+  content: "column{2,6}",
   isolating: true,
   defining: true,
   addAttributes() {
@@ -75,7 +75,7 @@ export const ColumnLayout = Node.create({
   },
   renderHTML({ HTMLAttributes, node }) {
     const n = (node.attrs.columns as number) || 2;
-    const count = Math.min(4, Math.max(2, n));
+    const count = Math.min(6, Math.max(2, n));
     const presetId = (node.attrs.preset as CalloutPresetId) ?? "empty";
     const preset = CALLOUT_PRESET_MAP[presetId] ?? CALLOUT_PRESET_MAP.empty;
     // empty=연한 아웃라인만 유지, none=아웃라인까지 숨김(CSS [data-preset="none"]).
@@ -104,7 +104,7 @@ export const ColumnLayout = Node.create({
   addCommands() {
     return {
       setColumnLayout:
-        (cols: 2 | 3 | 4) =>
+        (cols: 2 | 3 | 4 | 5 | 6) =>
         ({ commands }) => {
           const count = cols;
           const columns = Array.from({ length: count }, () => ({
@@ -146,7 +146,7 @@ export const ColumnLayout = Node.create({
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     columnLayout: {
-      setColumnLayout: (cols: 2 | 3 | 4) => ReturnType;
+      setColumnLayout: (cols: 2 | 3 | 4 | 5 | 6) => ReturnType;
       updateColumnLayoutPreset: (preset: CalloutPresetId) => ReturnType;
     };
   }
