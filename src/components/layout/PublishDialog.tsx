@@ -46,6 +46,14 @@ export function PublishDialog({ pageId, onClose }: Props) {
   }, [pageId, showToast]);
 
   const publicUrl = status?.token ? buildPublicPageUrl(status.token) : null;
+  // Preview/로컬 게시는 해당 환경 DB 토큰이라 khaki·시크릿 창에서 404 난다.
+  const isNonLiveWebHost =
+    typeof window !== "undefined" &&
+    window.location.protocol.startsWith("http") &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1" &&
+    window.location.hostname !== "quick-note-khaki.vercel.app" &&
+    !window.location.hostname.endsWith(".tauri.localhost");
 
   const runPublishToggle = () => {
     if (!pageId || working) return;
@@ -118,6 +126,15 @@ export function PublishDialog({ pageId, onClose }: Props) {
               게시를 해제하면 링크가 즉시 무효화되며, 다시 게시하면 새 링크가
               발급됩니다.
             </p>
+            {isNonLiveWebHost ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                지금 앱은 개발(Preview) 환경입니다. 이 링크는 시크릿 창·라이브
+                도메인(
+                <span className="font-mono">quick-note-khaki.vercel.app</span>
+                )에서 열리지 않습니다. 외부 공유·시크릿 검증은 라이브에서 다시
+                게시하세요.
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -128,6 +145,14 @@ export function PublishDialog({ pageId, onClose }: Props) {
             <p className="text-xs text-amber-600 dark:text-amber-400">
               본문에 언급(@)된 멤버 이름도 함께 공개되니 주의하세요.
             </p>
+            {isNonLiveWebHost ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                시크릿 창에서 확인하려면{" "}
+                <span className="font-mono">quick-note-khaki.vercel.app</span>{" "}
+                (라이브)에서 게시한 링크를 쓰세요. Preview 링크는 Vercel 로그인
+                보호로 막히거나, 라이브와 DB가 달라 404가 납니다.
+              </p>
+            ) : null}
           </div>
         )}
       </DialogBase.Body>
