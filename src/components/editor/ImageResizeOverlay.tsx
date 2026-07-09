@@ -66,6 +66,30 @@ function cursorFor(h: HandleId): string {
   return m[h];
 }
 
+/** 리사이즈 대상 미디어 노드 판별 — 이미지·유튜브·미디어(이미지/동영상) fileBlock(GIF 포함). */
+function isResizableMediaNode(node: {
+  type: { name: string };
+  attrs: Record<string, unknown>;
+}): boolean {
+  const name = node.type.name;
+  if (name === "image" || name === "youtube") return true;
+  if (name !== "fileBlock") return false;
+  const attrs = node.attrs;
+  let mime =
+    (typeof attrs.mime === "string" && attrs.mime) ||
+    (typeof attrs.mimeType === "string" && attrs.mimeType) ||
+    (typeof attrs.contentType === "string" && attrs.contentType) ||
+    "";
+  // mime 이 비어 있거나 일반(octet-stream)이면 파일명 확장자로 보강 — fileBlock 렌더 로직과 동일.
+  if (!mime || mime === "application/octet-stream") {
+    const nm = (typeof attrs.name === "string" ? attrs.name : "").toLowerCase();
+    if (/\.gif$/.test(nm)) mime = "image/gif";
+    else if (/\.(png|jpe?g|webp|avif)$/.test(nm)) mime = "image/png";
+    else if (/\.(mp4|m4v|mov|webm)$/.test(nm)) mime = "video/mp4";
+  }
+  return mime.startsWith("image/") || mime.startsWith("video/");
+}
+
 /** 이미지/동영상/유튜브 노드 선택 시 테두리에 비율 유지 리사이즈 핸들 */
 export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
   const [box, setBox] = useState<{
@@ -86,12 +110,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       setBox((prev) => (prev === null ? prev : null));
       return;
     }
-    const nodeName = sel.node.type.name;
-    const isVideoFileBlock =
-      nodeName === "fileBlock" &&
-      typeof sel.node.attrs.mime === "string" &&
-      (sel.node.attrs.mime as string).startsWith("video/");
-    if (nodeName !== "image" && nodeName !== "youtube" && !isVideoFileBlock) {
+    if (!isResizableMediaNode(sel.node)) {
       setBox((prev) => (prev === null ? prev : null));
       return;
     }
@@ -140,11 +159,7 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       const sel = editor.state.selection;
       if (!(sel instanceof NodeSelection)) return;
       const nodeName = sel.node.type.name;
-      const isVideo =
-        nodeName === "fileBlock" &&
-        typeof sel.node.attrs.mime === "string" &&
-        (sel.node.attrs.mime as string).startsWith("video/");
-      if (nodeName !== "image" && nodeName !== "youtube" && !isVideo) return;
+      if (!isResizableMediaNode(sel.node)) return;
       const node = sel.node;
       const attrs = node.attrs as {
         width?: number | null;

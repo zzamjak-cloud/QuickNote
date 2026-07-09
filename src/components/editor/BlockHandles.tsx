@@ -38,9 +38,15 @@ import {
   BLOCK_TEXT_PRESETS,
   type BlockTextColor,
 } from "../../lib/tiptapExtensions/blockBackground";
+import {
+  getRecentBlockColors,
+  setRecentBgColor,
+  setRecentTextColor,
+} from "../../lib/editor/recentBlockColors";
 import { decodeFileRef } from "../../lib/files/scheme";
 import { imageUrlCache } from "../../lib/images/registry";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
+import { startBlockDragAutoScroll } from "../../lib/editor/blockDragAutoScroll";
 import {
   applyHeaderColToggle,
   applyHeaderRowToggle,
@@ -130,9 +136,13 @@ export function BlockHandles({
   const openCommentThread = useUiStore((s) => s.openCommentThread);
   const [isDownloading, setIsDownloading] = useState(false);
   const [boxSelecting, setBoxSelecting] = useState(false);
+  // 최근 사용한 블록 텍스트/배경 컬러 — 텍스트 블록 메뉴 상단에 빠른 재적용용.
+  const [recentColors, setRecentColors] = useState(getRecentBlockColors);
   const dragCommittedRef = useRef(false);
   const clickTimerRef = useRef<number | null>(null);
   const pointerDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  // 드래그 중 상/하단 자동 스크롤 정리 함수
+  const autoScrollStopRef = useRef<null | (() => void)>(null);
 
   const computeHover = useCallback(
     (e: MouseEvent) => {
@@ -620,6 +630,12 @@ export function BlockHandles({
     e.stopPropagation();
     document.body.classList.add("quicknote-block-dragging");
 
+    // 드래그 이동 중 커서가 화면 상/하단에 닿으면 자동 스크롤.
+    const scroller =
+      (containerRef.current?.closest(".overflow-y-auto") as HTMLElement | null) ?? null;
+    autoScrollStopRef.current?.();
+    autoScrollStopRef.current = startBlockDragAutoScroll(scroller);
+
     // 다중 이동 입력 결정 우선순위:
     //   1) 박스 드래그로 잡힌 블록(boxSelectedStarts) 이 hover 를 포함 → 그대로 사용
     //   2) Shift+화살표 등으로 PM 텍스트 선택이 다수의 doc 직속 블록을 가로지르고 있고 hover 가 그중 하나 → 그 블록 시작 좌표 사용
@@ -650,6 +666,8 @@ export function BlockHandles({
 
   const onGripDragEnd = () => {
     document.body.classList.remove("quicknote-block-dragging");
+    autoScrollStopRef.current?.();
+    autoScrollStopRef.current = null;
     onClearBoxSelection?.();
   };
 
@@ -795,6 +813,10 @@ export function BlockHandles({
       .setNodeSelection(hover.blockStart)
       .updateAttributes(hover.node.type.name, { backgroundColor: color })
       .run();
+    if (color) {
+      setRecentBgColor(color);
+      setRecentColors(getRecentBlockColors());
+    }
     setMenuOpen(false);
   };
 
@@ -806,6 +828,10 @@ export function BlockHandles({
       .setNodeSelection(hover.blockStart)
       .updateAttributes(hover.node.type.name, { blockTextColor: color })
       .run();
+    if (color) {
+      setRecentTextColor(color);
+      setRecentColors(getRecentBlockColors());
+    }
     setMenuOpen(false);
   };
 
@@ -836,6 +862,13 @@ export function BlockHandles({
       : null;
   const menuFlipLeft =
     menuAnchor != null && menuAnchor.x + 8 + 192 > window.innerWidth - 8;
+
+  const recentTextPreset = recentColors.text
+    ? BLOCK_TEXT_PRESETS.find((p) => p.id === recentColors.text) ?? null
+    : null;
+  const recentBgPreset = recentColors.bg
+    ? BLOCK_BG_PRESETS.find((p) => p.id === recentColors.bg) ?? null
+    : null;
 
   const downloadAttachment = async () => {
     if (!editor || !hover || isDownloading) return;
@@ -1010,6 +1043,47 @@ export function BlockHandles({
                 }
               >
                 <HoverMenuGroup>
+                {/* 최근 사용한 컬러 — 텍스트 블록 메뉴 상단 빠른 재적용 */}
+                {isTextBlock && (recentTextPreset || recentBgPreset) ? (
+                  <div className="border-b border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                    <div className="mb-1.5 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      최근 사용한 컬러
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {recentTextPreset ? (
+                        <button
+                          type="button"
+                          title={`텍스트 컬러: ${recentTextPreset.label}`}
+                          onClick={() => applyBlockTextColor(recentColors.text)}
+                          className="flex items-center gap-1 rounded border border-zinc-200 px-1.5 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                        >
+                          <span
+                            className="inline-flex h-4 w-4 items-center justify-center rounded-sm text-[11px] font-bold"
+                            style={{ color: recentTextPreset.dot }}
+                          >
+                            A
+                          </span>
+                          <span className="text-zinc-700 dark:text-zinc-300">텍스트</span>
+                        </button>
+                      ) : null}
+                      {recentBgPreset ? (
+                        <button
+                          type="button"
+                          title={`배경 컬러: ${recentBgPreset.label}`}
+                          onClick={() => applyBlockBackground(recentColors.bg)}
+                          className="flex items-center gap-1 rounded border border-zinc-200 px-1.5 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                        >
+                          <span
+                            className="inline-block h-4 w-4 rounded-sm border border-zinc-200 dark:border-zinc-700"
+                            style={{ backgroundColor: recentBgPreset.dot }}
+                          />
+                          <span className="text-zinc-700 dark:text-zinc-300">배경</span>
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
                 {hover && canBlockHaveComment(hover.node.type.name) ? (
                   <button
                     type="button"
@@ -1151,8 +1225,8 @@ export function BlockHandles({
                 {/* 콜아웃 프리셋 (콜아웃 블럭일 때만) */}
                 {isCallout && (
                   <HoverMenuRow icon={<LayoutTemplate size={14} />} label="프리셋" panelWidth="w-56">
-                    {/* 전체 프리셋 목록 — 아이콘+라벨 행 */}
-                    {CALLOUT_PRESETS.map((p) => (
+                    {/* 전체 프리셋 목록 — 아이콘+라벨 행 (회색은 컬러칩과 중복이라 제외) */}
+                    {CALLOUT_PRESETS.filter((p) => p.id !== "gray").map((p) => (
                       <button
                         key={p.id}
                         type="button"

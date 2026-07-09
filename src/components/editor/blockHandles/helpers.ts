@@ -532,6 +532,58 @@ function considerContainerHandleFromStack(
   }
 }
 
+/**
+ * 컬럼 레이아웃 좌상단 진입 구역(좌측 거터 + 상단 밴드)에서 컨테이너 핸들을 등록한다.
+ * considerContainerHandleFromStack 은 커서가 컨테이너 DOM 위에 있어야 동작하므로, preset="none"
+ * 처럼 여백이 전혀 없는 컬럼은 좌상단 12×12 만 유효해 호버가 어렵다. 여기서는 DOM 을 직접 훑어
+ * 거터/상단 여백에 커서가 있어도 좌상단 모서리 근처면 핸들이 잡히게 한다.
+ */
+function considerColumnCornerFromDom(
+  editor: Editor,
+  byStart: Map<number, HoverInfo>,
+  clientX: number,
+  clientY: number,
+) {
+  const view = editor.view;
+  const containers = view.dom.querySelectorAll("[data-column-layout]");
+  containers.forEach((container) => {
+    if (!(container instanceof HTMLElement)) return;
+    const rect = container.getBoundingClientRect();
+    // 좌측 거터(GUTTER_LEFT_PX)부터 컨텐츠 시작 직후(+16)까지, 세로는 상단 밴드([top-10, top+24]).
+    const inCornerZone =
+      clientX >= rect.left - GUTTER_LEFT_PX &&
+      clientX <= rect.left + 16 &&
+      clientY >= rect.top - 10 &&
+      clientY <= rect.top + 24;
+    if (!inCornerZone) return;
+    let pos: number | null = null;
+    try {
+      pos = view.posAtDOM(container, 0);
+    } catch {
+      try {
+        pos = view.posAtDOM(container, 1);
+      } catch {
+        pos = null;
+      }
+    }
+    if (pos == null) return;
+    const $pos = editor.state.doc.resolve(
+      Math.min(Math.max(0, pos), editor.state.doc.content.size),
+    );
+    for (let d = $pos.depth; d > 0; d--) {
+      const node = $pos.node(d);
+      if (node.type.name !== "columnLayout") continue;
+      const start = $pos.before(d);
+      // 좌상단 진입 구역이므로 내부 블럭보다 우선(컨테이너 강조). considerContainerHandleFromStack 의
+      // nearTopLeft 와 동일한 우선순위(d+10)로 맞춘다.
+      const candidate: HoverInfo = { rect, blockStart: start, depth: d + 10, node };
+      const prev = byStart.get(start);
+      if (!prev || candidate.depth > prev.depth) byStart.set(start, candidate);
+      break;
+    }
+  });
+}
+
 function considerTableHandleFromStack(
   editor: Editor,
   stack: Element[],
@@ -660,6 +712,7 @@ export function blockAtPoint(
   considerDatabaseBlockFromStack(editor, stack, considerPosition);
   considerTableHandleFromStack(editor, stack, byStart);
   considerContainerHandleFromStack(editor, stack, byStart, clientX, clientY);
+  considerColumnCornerFromDom(editor, byStart, clientX, clientY);
   considerListItemHandleFromStack(
     editor,
     stack,

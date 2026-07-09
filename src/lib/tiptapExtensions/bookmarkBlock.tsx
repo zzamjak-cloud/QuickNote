@@ -16,7 +16,11 @@ type BookmarkBlockAttrs = {
   siteName: string;
   imageUrl: string;
   status: "loading" | "ready";
+  width: number | null;
 };
+
+// 북마크 최소 가로폭 (px).
+const BOOKMARK_MIN_WIDTH = 240;
 
 function openBookmarkUrl(href: string) {
   if (!href) return;
@@ -34,6 +38,37 @@ function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) 
   const description = attrs.description || fallback.description;
   const siteName = attrs.siteName || fallback.siteName;
   const metadataLoading = attrs.status === "loading" && activation.active;
+
+  // 우측 끝 핸들 드래그로 가로폭 조절 — 이미지 리사이즈와 동일한 UX.
+  const startResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const wrapper = activation.ref.current;
+    const parent = wrapper?.parentElement ?? null;
+    const maxW = parent ? parent.getBoundingClientRect().width : Number.POSITIVE_INFINITY;
+    const startW = wrapper
+      ? wrapper.getBoundingClientRect().width
+      : attrs.width ?? BOOKMARK_MIN_WIDTH;
+    const startX = e.clientX;
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* noop */
+    }
+    const onMove = (ev: PointerEvent) => {
+      let w = startW + (ev.clientX - startX);
+      w = Math.max(BOOKMARK_MIN_WIDTH, Math.min(w, maxW));
+      updateAttributes({ width: Math.round(w) });
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
 
   useEffect(() => {
     if (attrs.status !== "loading" || !attrs.href || !activation.active) return;
@@ -57,7 +92,8 @@ function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) 
       as="div"
       ref={activation.ref}
       data-bookmark-block=""
-      className="qn-bookmark-shell my-1.5"
+      className="qn-bookmark-shell group/bm relative my-1.5"
+      style={{ width: attrs.width ? `${attrs.width}px` : undefined, maxWidth: "100%" }}
       onPointerDown={activation.activate}
       onFocusCapture={activation.activate}
     >
@@ -96,6 +132,16 @@ function BookmarkBlockView({ node, updateAttributes, selected }: NodeViewProps) 
           </span>
         ) : null}
       </button>
+      <div
+        contentEditable={false}
+        role="presentation"
+        onPointerDown={startResize}
+        title="가로폭 조절"
+        className={[
+          "absolute right-1 top-1/2 z-10 h-10 w-1.5 -translate-y-1/2 cursor-ew-resize rounded-full bg-zinc-400/80 transition-opacity dark:bg-zinc-500/80",
+          selected ? "opacity-100" : "opacity-0 group-hover/bm:opacity-100",
+        ].join(" ")}
+      />
     </NodeViewWrapper>
   );
 }
@@ -113,6 +159,13 @@ export const BookmarkBlock = TiptapNode.create({
       siteName: { default: "" },
       imageUrl: { default: "" },
       status: { default: "ready" },
+      width: {
+        default: null,
+        parseHTML: (el) => {
+          const n = parseInt(el.getAttribute("data-width") || "", 10);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        },
+      },
     };
   },
 
@@ -127,6 +180,7 @@ export const BookmarkBlock = TiptapNode.create({
         "data-bookmark-block": "",
         "data-href": node.attrs.href,
         "data-title": node.attrs.title,
+        ...(node.attrs.width ? { "data-width": String(node.attrs.width) } : {}),
       }),
     ];
   },

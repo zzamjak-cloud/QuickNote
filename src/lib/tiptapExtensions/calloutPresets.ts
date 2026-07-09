@@ -2,6 +2,7 @@
 export type CalloutPresetId =
   | "none"
   | "empty"
+  | "dashed"
   | "info"
   | "warning"
   | "danger"
@@ -39,6 +40,15 @@ export const CALLOUT_PRESETS: CalloutPresetDef[] = [
     color: null,
     frameClass:
       "border border-zinc-300 bg-transparent shadow-none ring-0 dark:border-zinc-600",
+  },
+  {
+    id: "dashed",
+    label: "점선",
+    hint: "회색 점선 테두리",
+    emoji: "",
+    color: null,
+    frameClass:
+      "border border-dashed border-zinc-300 bg-transparent shadow-none ring-0 dark:border-zinc-600",
   },
   {
     id: "info",

@@ -99,6 +99,12 @@ export function useBoxSelectMarquee({
     document.body.appendChild(dragRectOverlay);
     let lockedScroll: { left: number; top: number } | null = null;
 
+    // 마퀴 드래그가 스크롤 컨테이너 상/하단 가장자리에 닿으면 자동 스크롤한다.
+    const AUTO_SCROLL_EDGE_PX = 72;
+    const AUTO_SCROLL_MAX_SPEED = 22;
+    let autoScrollRaf: number | null = null;
+    let lastMouse: { x: number; y: number } | null = null;
+
     const showDragOverlay = (r: Rect) => {
       if (Math.max(r.w, r.h) < 1) {
         dragRectOverlay.style.display = "none";
@@ -139,9 +145,68 @@ export function useBoxSelectMarquee({
       }
     };
 
+    const rectFromPoints = (
+      m: { x: number; y: number },
+      s: { x: number; y: number },
+    ): Rect => ({
+      x: Math.min(m.x, s.x),
+      y: Math.min(m.y, s.y),
+      w: Math.abs(m.x - s.x),
+      h: Math.abs(m.y - s.y),
+    });
+
+    const stopAutoScroll = () => {
+      if (autoScrollRaf != null) {
+        cancelAnimationFrame(autoScrollRaf);
+        autoScrollRaf = null;
+      }
+    };
+
+    const autoScrollTick = () => {
+      autoScrollRaf = null;
+      const start = startRef.current;
+      if (!start || !activeRef.current || !lastMouse) return;
+      const hostRect = editorHost.getBoundingClientRect();
+      let vy = 0;
+      if (lastMouse.y < hostRect.top + AUTO_SCROLL_EDGE_PX) {
+        const ratio = Math.min(
+          1,
+          (hostRect.top + AUTO_SCROLL_EDGE_PX - lastMouse.y) / AUTO_SCROLL_EDGE_PX,
+        );
+        vy = -AUTO_SCROLL_MAX_SPEED * ratio;
+      } else if (lastMouse.y > hostRect.bottom - AUTO_SCROLL_EDGE_PX) {
+        const ratio = Math.min(
+          1,
+          (lastMouse.y - (hostRect.bottom - AUTO_SCROLL_EDGE_PX)) / AUTO_SCROLL_EDGE_PX,
+        );
+        vy = AUTO_SCROLL_MAX_SPEED * ratio;
+      }
+      if (vy !== 0) {
+        const before = editorHost.scrollTop;
+        editorHost.scrollTop = before + vy;
+        const applied = editorHost.scrollTop - before;
+        if (applied !== 0) {
+          // 시작 앵커를 컨텐츠에 고정 — 스크롤한 만큼 시작점 viewport Y 를 보정하고
+          // scroll-lock 기준값도 함께 갱신해 restoreLockedScroll 이 되돌리지 않게 한다.
+          start.y -= applied;
+          if (lockedScroll) lockedScroll.top += applied;
+          const rect = rectFromPoints(lastMouse, start);
+          dragRectRef.current = rect;
+          showDragOverlay(rect);
+          updateSelectionDom(rect);
+        }
+      }
+      autoScrollRaf = requestAnimationFrame(autoScrollTick);
+    };
+
+    const ensureAutoScroll = () => {
+      if (autoScrollRaf == null) autoScrollRaf = requestAnimationFrame(autoScrollTick);
+    };
+
     const endMarqueeChrome = () => {
       document.body.classList.remove("qn-box-select-dragging");
       document.body.classList.remove("qn-box-select-tracking");
+      stopAutoScroll();
       lockedScroll = null;
     };
 
@@ -242,6 +307,7 @@ export function useBoxSelectMarquee({
       if (!startRef.current) return;
       e.preventDefault();
       restoreLockedScroll();
+      lastMouse = { x: e.clientX, y: e.clientY };
       const dx = e.clientX - startRef.current.x;
       const dy = e.clientY - startRef.current.y;
 
@@ -256,6 +322,7 @@ export function useBoxSelectMarquee({
         document.body.classList.add("qn-box-select-dragging");
         getSelection()?.removeAllRanges();
         collapsePmSelectionIfNeeded();
+        ensureAutoScroll();
       } else if (editor.state.selection instanceof CellSelection) {
         // 마퀴가 테이블 위를 지나는 동안 PM이 CellSelection을 재생성하는 것을 막음
         collapsePmSelectionIfNeeded();
@@ -371,6 +438,7 @@ export function useBoxSelectMarquee({
     window.addEventListener("resize", onScrollOrResize, { passive: true });
 
     return () => {
+      stopAutoScroll();
       editor.off("update", clearSelectionAfterDocChange);
       window.removeEventListener("mousedown", onMouseDown, true);
       window.removeEventListener("mousemove", onMouseMove);

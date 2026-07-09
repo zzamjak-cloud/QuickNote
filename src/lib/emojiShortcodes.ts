@@ -23,6 +23,7 @@ export const EMOJI_SHORTCODE_ENTRIES: EmojiShortcodeEntry[] = [
   { keyword: "금지", emoji: "🚫" },
   { keyword: "질문", emoji: "❓" },
   { keyword: "느낌표", emoji: "❗" },
+  { keyword: "!", emoji: "❗" },
   { keyword: "시계", emoji: "🕐" },
   { keyword: "달력", emoji: "📅" },
   { keyword: "책", emoji: "📚" },

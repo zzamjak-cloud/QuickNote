@@ -1,7 +1,7 @@
 // v4 단순화: 이미지 노드는 src/alt/width/height 만 보유.
 // src 가 quicknote-image:// 스킴이면 React NodeView 가 PreSignedURL 로 비동기 해석.
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import Image from "@tiptap/extension-image";
 import {
   ReactNodeViewRenderer,
@@ -31,6 +31,9 @@ function shallowImageAttrsEqual(
     a.align === b.align &&
     a.caption === b.caption &&
     a.captionAlign === b.captionAlign &&
+    a.outlineWidth === b.outlineWidth &&
+    a.outlineColor === b.outlineColor &&
+    a.borderRadius === b.borderRadius &&
     a.id === b.id
   );
 }
@@ -68,12 +71,33 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
     align?: string | null;
     caption?: string | null;
     captionAlign?: CaptionAlign | null;
+    outlineWidth?: number | null;
+    outlineColor?: string | null;
+    borderRadius?: number | null;
   };
   const align = attrs.align ?? "left";
   const hasCaption = typeof attrs.caption === "string";
   const captionAlign = attrs.captionAlign ?? "left";
   const captionMaxWidth = attrs.width ? `${attrs.width}px` : "100%";
+  // 아웃라인·모서리 라운드 — 툴바에서 지정. outline 은 레이아웃에 영향 없이 rect 를 감싸며 border-radius 를 따른다.
+  const outlineWidth = typeof attrs.outlineWidth === "number" ? attrs.outlineWidth : 0;
+  const outlineColor = attrs.outlineColor ?? "#4b5563";
+  const borderRadius = typeof attrs.borderRadius === "number" ? attrs.borderRadius : 0;
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  // 미리보기 오버레이 — ESC 로 닫기.
+  useEffect(() => {
+    if (!previewOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setPreviewOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [previewOpen]);
   // 이미지 URL 이 이미 캐시돼 있으면(예: 협업 바인딩으로 에디터가 리마운트된 경우) 지연 활성화를
   // 건너뛰고 즉시 active 로 시작한다 — placeholder pulse 플래시(깜빡임) 제거. 미캐시는 기존대로 lazy.
   const hasCachedUrl = initialImageUrl(attrs.src ?? null) != null;
@@ -107,11 +131,15 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
           width={attrs.width ?? undefined}
           height={attrs.height ?? undefined}
           className="block h-auto"
-          style={
-            attrs.width
+          style={{
+            ...(attrs.width
               ? { width: `${attrs.width}px`, maxWidth: "100%" }
-              : { maxWidth: "100%" }
-          }
+              : { maxWidth: "100%" }),
+            ...(outlineWidth > 0
+              ? { outline: `${outlineWidth}px solid ${outlineColor}`, outlineOffset: 0 }
+              : {}),
+            ...(borderRadius > 0 ? { borderRadius: `${borderRadius}px` } : {}),
+          }}
           draggable={false}
           // 만료된 PreSignedURL·손상 blob 캐시 자가 치유 — 캐시 폐기 후 재해석.
           onError={reportLoadError}
@@ -126,9 +154,14 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
       )}
       {hasCaption ? (
         <div
-          className="mt-1 flex w-full items-center gap-1"
+          className="mt-1 flex items-center gap-1"
           // 정렬 버튼 + 캡션 텍스트가 하나의 단위로 좌/중앙/우로 함께 이동.
-          style={{ maxWidth: captionMaxWidth, justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start" }}
+          // 이미지 폭(minWidth)을 기준으로 정렬하되, 텍스트가 길면 내용 폭(max-content)까지 늘어나 클리핑되지 않는다.
+          style={{
+            minWidth: captionMaxWidth,
+            width: "max-content",
+            justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start",
+          }}
         >
           <button
             type="button"
@@ -165,7 +198,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               }
               e.stopPropagation();
             }}
-            className="min-w-0 max-w-full border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+            className="border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
           />
         </div>
       ) : null}
@@ -256,6 +289,30 @@ export const ImageBlock = Image.extend({
           attrs.captionAlign && attrs.captionAlign !== "left"
             ? { "data-caption-align": String(attrs.captionAlign) }
             : {},
+      },
+      outlineWidth: {
+        default: 0,
+        parseHTML: (el) => {
+          const n = parseInt(el.getAttribute("data-outline-width") || "", 10);
+          return Number.isFinite(n) && n > 0 ? n : 0;
+        },
+        renderHTML: (attrs) =>
+          attrs.outlineWidth ? { "data-outline-width": String(attrs.outlineWidth) } : {},
+      },
+      outlineColor: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-outline-color"),
+        renderHTML: (attrs) =>
+          attrs.outlineColor ? { "data-outline-color": String(attrs.outlineColor) } : {},
+      },
+      borderRadius: {
+        default: 0,
+        parseHTML: (el) => {
+          const n = parseInt(el.getAttribute("data-border-radius") || "", 10);
+          return Number.isFinite(n) && n > 0 ? n : 0;
+        },
+        renderHTML: (attrs) =>
+          attrs.borderRadius ? { "data-border-radius": String(attrs.borderRadius) } : {},
       },
     };
   },

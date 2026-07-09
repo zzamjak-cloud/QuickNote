@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
 import {
@@ -7,6 +8,7 @@ import {
   Captions,
   Download,
   MessageSquarePlus,
+  SquarePen,
 } from "lucide-react";
 import { useUiStore } from "../../store/uiStore";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
@@ -26,6 +28,23 @@ type Props = {
 };
 
 type Align = "left" | "center" | "right";
+
+// 아웃라인 두께·모서리 라운드 프리셋과 컬러 팔레트.
+const OUTLINE_WIDTHS = [0, 1, 2, 3, 4] as const;
+const BORDER_RADII = [0, 4, 8, 12, 16, 24] as const;
+const OUTLINE_COLORS = [
+  "#000000",
+  "#4b5563",
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#0891b2",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+  "#ffffff",
+] as const;
 
 async function fetchDownloadBlob(assetId: string | null, rawSrc: string): Promise<Blob> {
   const resolveHref = async () => (assetId ? await imageUrlCache.get(assetId) : rawSrc);
@@ -47,6 +66,7 @@ async function fetchDownloadBlob(assetId: string | null, rawSrc: string): Promis
 export function ImageBubbleToolbar({ editor, pageId }: Props) {
   const openCommentThread = useUiStore((s) => s.openCommentThread);
   const showToast = useUiStore((s) => s.showToast);
+  const [outlineOpen, setOutlineOpen] = useState(false);
 
   const sel = editor.state.selection;
   if (
@@ -62,11 +82,30 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
     src?: string | null;
     name?: string | null;
     alt?: string | null;
+    outlineWidth?: number | null;
+    outlineColor?: string | null;
+    borderRadius?: number | null;
   };
   const align = (attrs.align as Align) ?? "left";
   const hasCaption = typeof attrs.caption === "string";
   const nodeType = sel.node.type.name;
   const blockStart = sel.from;
+  const isImage = nodeType === "image";
+  const outlineWidth = typeof attrs.outlineWidth === "number" ? attrs.outlineWidth : 0;
+  const outlineColor = attrs.outlineColor ?? "#4b5563";
+  const borderRadius = typeof attrs.borderRadius === "number" ? attrs.borderRadius : 0;
+
+  const setOutline = (patch: {
+    outlineWidth?: number;
+    outlineColor?: string;
+    borderRadius?: number;
+  }) => {
+    editor
+      .chain()
+      .setNodeSelection(blockStart)
+      .updateAttributes("image", patch)
+      .run();
+  };
 
   const setAlign = (next: Align) => {
     editor
@@ -151,6 +190,83 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
       >
         <Captions size={14} />
       </AlignBtn>
+      {isImage ? (
+        <div className="relative">
+          <AlignBtn
+            active={outlineOpen || outlineWidth > 0 || borderRadius > 0}
+            title="아웃라인 · 모서리"
+            onClick={() => setOutlineOpen((v) => !v)}
+          >
+            <SquarePen size={14} />
+          </AlignBtn>
+          {outlineOpen ? (
+            <div className="absolute right-0 top-9 z-50 w-52 rounded-md border border-zinc-200 bg-white p-2.5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="mb-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                아웃라인 두께
+              </div>
+              <div className="mb-2.5 flex gap-1">
+                {OUTLINE_WIDTHS.map((w) => (
+                  <PresetBtn
+                    key={w}
+                    active={outlineWidth === w}
+                    label={w === 0 ? "없음" : String(w)}
+                    onClick={() =>
+                      setOutline({
+                        outlineWidth: w,
+                        // 두께를 처음 켤 때 색이 없으면 기본색 지정.
+                        ...(w > 0 && !attrs.outlineColor ? { outlineColor } : {}),
+                      })
+                    }
+                  />
+                ))}
+              </div>
+              <div className="mb-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                아웃라인 색
+              </div>
+              <div className="mb-2.5 flex flex-wrap gap-1">
+                {OUTLINE_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    title={c}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setOutline({
+                        outlineColor: c,
+                        ...(outlineWidth === 0 ? { outlineWidth: 2 } : {}),
+                      });
+                    }}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    className={`h-5 w-5 shrink-0 rounded border ${
+                      outlineColor.toLowerCase() === c.toLowerCase()
+                        ? "ring-2 ring-blue-400 ring-offset-1 dark:ring-offset-zinc-900"
+                        : "border-zinc-200 dark:border-zinc-700"
+                    }`}
+                    style={{ background: c }}
+                  />
+                ))}
+              </div>
+              <div className="mb-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                모서리 라운드
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {BORDER_RADII.map((r) => (
+                  <PresetBtn
+                    key={r}
+                    active={borderRadius === r}
+                    label={r === 0 ? "없음" : String(r)}
+                    onClick={() => setOutline({ borderRadius: r })}
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <AlignBtn active={false} title="다운로드" onClick={() => void downloadMedia()}>
         <Download size={14} />
       </AlignBtn>
@@ -158,6 +274,39 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
         <MessageSquarePlus size={14} />
       </AlignBtn>
     </div>
+  );
+}
+
+// 아웃라인 두께·라운드 프리셋 버튼 (팝오버 내부).
+function PresetBtn({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      className={`flex h-6 min-w-6 items-center justify-center rounded px-1 text-[11px] ${
+        active
+          ? "bg-blue-500 text-white"
+          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

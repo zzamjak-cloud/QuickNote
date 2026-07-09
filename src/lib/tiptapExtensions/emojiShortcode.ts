@@ -11,7 +11,8 @@ type EmojiShortcodeMatch = {
   shortcodeLength: number;
 };
 
-const SHORTCODE_PATTERN = /(^|\s):([a-zA-Z가-힣]+)$/;
+// 기호 별칭(예: :! → ❗)도 지원하기 위해 문자 클래스에 ! 를 포함.
+const SHORTCODE_PATTERN = /(^|\s):([a-zA-Z가-힣!]+)$/;
 
 export function findEmojiShortcode(textBeforeCursor: string): EmojiShortcodeMatch | null {
   const match = textBeforeCursor.match(SHORTCODE_PATTERN);
