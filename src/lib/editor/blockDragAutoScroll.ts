@@ -5,7 +5,9 @@ const EDGE_PX = 72; // 가장자리 감지 영역 두께
 const MAX_SPEED_PX = 22; // 프레임당 최대 스크롤 픽셀
 
 /**
- * 드래그 자동 스크롤을 시작한다. 반환된 함수를 dragend/drop 에서 호출해 정리한다.
+ * 드래그 자동 스크롤을 시작한다. 반환된 함수를 호출해 정리할 수 있으나,
+ * dragend/drop/pointerup 에서 스스로도 종료한다(그립 버튼이 드래그 중 언마운트되어
+ * 호출부의 onDragEnd 가 발화하지 않아도 무한 스크롤이 남지 않도록).
  * scroller 가 null 이면 문서(window) 스크롤을 사용한다.
  */
 export function startBlockDragAutoScroll(
@@ -19,8 +21,10 @@ export function startBlockDragAutoScroll(
 
   let velocity = 0;
   let rafId: number | null = null;
+  let stopped = false;
 
   const step = () => {
+    if (stopped) return;
     if (velocity !== 0) {
       if (useWindow) window.scrollBy(0, velocity);
       else if (scroller) scroller.scrollTop += velocity;
@@ -45,11 +49,24 @@ export function startBlockDragAutoScroll(
     }
   };
 
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    velocity = 0;
+    document.removeEventListener("dragover", onDragOver, true);
+    document.removeEventListener("dragend", stop, true);
+    document.removeEventListener("drop", stop, true);
+    window.removeEventListener("pointerup", stop, true);
+    if (rafId != null) window.cancelAnimationFrame(rafId);
+    rafId = null;
+  };
+
   document.addEventListener("dragover", onDragOver, true);
+  // 드래그 종료를 스스로 감지해 정리(호출부 onDragEnd 누락 대비 이중 안전장치).
+  document.addEventListener("dragend", stop, true);
+  document.addEventListener("drop", stop, true);
+  window.addEventListener("pointerup", stop, true);
   rafId = window.requestAnimationFrame(step);
 
-  return () => {
-    document.removeEventListener("dragover", onDragOver, true);
-    if (rafId != null) window.cancelAnimationFrame(rafId);
-  };
+  return stop;
 }

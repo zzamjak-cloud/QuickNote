@@ -636,6 +636,19 @@ export function BlockHandles({
     autoScrollStopRef.current?.();
     autoScrollStopRef.current = startBlockDragAutoScroll(scroller);
 
+    // 그립 버튼이 드래그 중 언마운트되면 React onDragEnd 가 발화하지 않아 body 클래스(주먹쥔 커서)와
+    // 자동 스크롤이 남는다. document 레벨 dragend/drop 으로 반드시 정리한다(이중 안전장치).
+    const cleanupDrag = () => {
+      document.body.classList.remove("quicknote-block-dragging");
+      autoScrollStopRef.current?.();
+      autoScrollStopRef.current = null;
+      onClearBoxSelection?.();
+      document.removeEventListener("dragend", cleanupDrag, true);
+      document.removeEventListener("drop", cleanupDrag, true);
+    };
+    document.addEventListener("dragend", cleanupDrag, true);
+    document.addEventListener("drop", cleanupDrag, true);
+
     // 다중 이동 입력 결정 우선순위:
     //   1) 박스 드래그로 잡힌 블록(boxSelectedStarts) 이 hover 를 포함 → 그대로 사용
     //   2) Shift+화살표 등으로 PM 텍스트 선택이 다수의 doc 직속 블록을 가로지르고 있고 hover 가 그중 하나 → 그 블록 시작 좌표 사용
