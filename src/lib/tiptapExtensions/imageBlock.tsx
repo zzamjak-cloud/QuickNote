@@ -8,6 +8,7 @@ import {
   NodeViewWrapper,
   type NodeViewProps,
 } from "@tiptap/react";
+import { Plugin, NodeSelection } from "@tiptap/pm/state";
 import { useImageUrl, initialImageUrl } from "../images/hooks";
 import {
   nextCaptionAlign,
@@ -337,5 +338,44 @@ export const ImageBlock = Image.extend({
   addNodeView() {
     // 정렬·캡션 지원을 위해 블록 컨테이너(div) 로 렌더. selectednode 시각은 CSS 에서 이미지에만 적용.
     return ReactNodeViewRenderer(ImageView, { as: "div" });
+  },
+
+  addProseMirrorPlugins() {
+    // 미디어(이미지·GIF/동영상 fileBlock·유튜브) 단일 클릭 선택 유지.
+    // mousedown 에서 만들어진 NodeSelection 을 직후 click 기본 처리가 캐럿(TextSelection)으로
+    // 접어버려 "한 번 클릭하면 툴바가 떴다가 선택이 풀리는(=2번 클릭)" 현상이 생긴다.
+    // handleClickOn 에서 NodeSelection 을 확정하고 true 를 반환해 기본 붕괴만 막는다.
+    // preventDefault 는 하지 않으므로 동영상 네이티브 컨트롤(재생 등)은 그대로 동작한다.
+    const MEDIA_TYPES = new Set(["image", "fileBlock", "youtube"]);
+    const parentPlugins = this.parent?.() ?? [];
+    return [
+      ...parentPlugins,
+      new Plugin({
+        props: {
+          handleClickOn: (view, _pos, node, nodePos, event, direct) => {
+            if (!direct) return false;
+            if (!MEDIA_TYPES.has(node.type.name)) return false;
+            const target = event.target as HTMLElement | null;
+            // 캡션 입력·폼/링크 요소 클릭은 그대로 둔다(포커스 유지·이동).
+            if (
+              target?.closest(
+                "input, textarea, select, button, a[href], [data-qn-caption-input]",
+              )
+            ) {
+              return false;
+            }
+            const sel = view.state.selection;
+            if (sel instanceof NodeSelection && sel.from === nodePos) {
+              // 이미 이 노드가 선택됨 — 기본 click 붕괴만 차단.
+              return true;
+            }
+            view.dispatch(
+              view.state.tr.setSelection(NodeSelection.create(view.state.doc, nodePos)),
+            );
+            return true;
+          },
+        },
+      }),
+    ];
   },
 });
