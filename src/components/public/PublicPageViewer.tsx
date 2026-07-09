@@ -285,16 +285,18 @@ export function PublicPageViewer() {
         ) : page === null ? (
           <p className="text-sm text-zinc-500">이 페이지는 더 이상 공개되지 않습니다.</p>
         ) : (
-          <div className="md:px-12">
-            <h1
-              className="mb-6 flex items-center gap-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100"
-              style={page.titleColor ? { color: page.titleColor } : undefined}
-            >
-              {publicDocCtx ? (
-                <PublicPageIcon icon={page.icon} ctx={publicDocCtx} size={32} className="" />
-              ) : null}
-              <span>{page.title || "제목 없음"}</span>
-            </h1>
+          <>
+            <div className="md:px-12">
+              <h1
+                className="mb-6 flex items-center gap-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100"
+                style={page.titleColor ? { color: page.titleColor } : undefined}
+              >
+                {publicDocCtx ? (
+                  <PublicPageIcon icon={page.icon} ctx={publicDocCtx} size={32} className="" />
+                ) : null}
+                <span>{page.title || "제목 없음"}</span>
+              </h1>
+            </div>
             {transformedDoc ? (
               <EditorErrorBoundary>
                 <div className="qn-public-doc">
@@ -305,9 +307,9 @@ export function PublicPageViewer() {
                 </div>
               </EditorErrorBoundary>
             ) : (
-              <p className="text-sm text-zinc-400">내용이 없습니다.</p>
+              <p className="px-4 text-sm text-zinc-400 md:px-12">내용이 없습니다.</p>
             )}
-          </div>
+          </>
         )}
       </div>
     </div>
