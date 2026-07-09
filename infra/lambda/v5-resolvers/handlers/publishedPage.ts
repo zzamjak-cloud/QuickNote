@@ -25,8 +25,12 @@ export type PublishRecord = {
   publishedByMemberId: string;
   publishedAt: string;
   revokedAt?: string | null;
-  /** 게시 시점 게시자의 페이지 전체너비 스냅샷(공개 뷰어 레이아웃). */
+  /** 게시 시점 루트 페이지 전체너비 스냅샷(레거시 호환·폴백용). */
   fullWidth?: boolean;
+  /** 게시 시점 게시자 전역 전체너비 기본값. */
+  fullWidthDefault?: boolean;
+  /** 게시 시점 페이지별 전체너비 오버라이드 스냅샷(pageId → bool). */
+  fullWidthById?: Record<string, boolean>;
 };
 
 export type PagePublishStatusGql = {
@@ -104,21 +108,35 @@ function toStatus(
   };
 }
 
-/** 게시자 clientPrefs 에서 해당 페이지 전체너비 여부를 스냅샷한다. */
-function resolvePageFullWidth(caller: Member, pageId: string): boolean {
+/**
+ * 게시자 clientPrefs 에서 전체너비 레이아웃 스냅샷을 파싱한다.
+ * 페이지별 오버라이드 맵(pageFullWidthById)과 전역 기본값(fullWidth)을 모두 담아,
+ * 게시 트리 내 각 페이지가 자기 너비 설정으로 공개 뷰어에 렌더되도록 한다.
+ */
+function parseLayoutPrefs(caller: Member): {
+  fullWidthDefault: boolean;
+  fullWidthById: Record<string, boolean>;
+} {
   const raw = caller.clientPrefs;
-  if (raw == null || raw === "") return false;
+  if (raw == null || raw === "") return { fullWidthDefault: false, fullWidthById: {} };
   try {
     const str = typeof raw === "string" ? raw : JSON.stringify(raw);
     const o = JSON.parse(str) as {
       fullWidth?: unknown;
       pageFullWidthById?: Record<string, unknown>;
     };
-    const byPage = o.pageFullWidthById?.[pageId];
-    if (typeof byPage === "boolean") return byPage;
-    return o.fullWidth === true;
+    const fullWidthById: Record<string, boolean> = {};
+    if (o.pageFullWidthById && typeof o.pageFullWidthById === "object") {
+      let n = 0;
+      for (const [k, v] of Object.entries(o.pageFullWidthById)) {
+        if (typeof v !== "boolean") continue;
+        fullWidthById[k] = v;
+        if (++n >= 10000) break; // DDB 아이템 크기 방어
+      }
+    }
+    return { fullWidthDefault: o.fullWidth === true, fullWidthById };
   } catch {
-    return false;
+    return { fullWidthDefault: false, fullWidthById: {} };
   }
 }
 
@@ -145,6 +163,7 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
   const existing = actives[0];
   if (existing) return toStatus(args.pageId, page.workspaceId, existing);
 
+  const layout = parseLayoutPrefs(args.caller);
   const record: PublishRecord = {
     // 128bit 무작위 토큰 — URL 이 곧 capability.
     token: randomBytes(16).toString("base64url"),
@@ -152,7 +171,11 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
     workspaceId: page.workspaceId,
     publishedByMemberId: args.caller.memberId,
     publishedAt: new Date().toISOString(),
-    fullWidth: resolvePageFullWidth(args.caller, args.pageId),
+    // 레거시 호환: 루트 페이지의 확정 너비.
+    fullWidth: layout.fullWidthById[args.pageId] ?? layout.fullWidthDefault,
+    // 자손 포함 각 페이지가 자기 너비로 렌더되도록 맵·전역 기본값을 함께 스냅샷.
+    fullWidthDefault: layout.fullWidthDefault,
+    fullWidthById: layout.fullWidthById,
   };
   await args.doc.send(
     new PutCommand({

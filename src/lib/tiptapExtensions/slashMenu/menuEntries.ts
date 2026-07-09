@@ -27,6 +27,7 @@ import { usePageStore } from "../../../store/pageStore";
 import { useUiStore } from "../../../store/uiStore";
 import { isTrustedYoutubeInput } from "../../safeUrl";
 import { MENTION_PAGE_PREFIX } from "../mentionKind";
+import { getRecentCalloutPreset } from "../../editor/recentCalloutPreset";
 import { clearSlashRange, runSlashCommand } from "./commandHelpers";
 import { dbSlashChildren } from "./dbCommands";
 import { slashLeaf } from "./entryBuilders";
@@ -307,7 +308,8 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     description: "💡 강조 박스",
     icon: Lightbulb,
     keywords: ["callout", "info", "tip", "강조", "콜아웃"],
-    command: (ctx) => runSlashCommand(ctx, (chain) => chain.setCallout("idea")),
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) => chain.setCallout(getRecentCalloutPreset())),
   }),
   slashLeaf({
     id: "toggle",

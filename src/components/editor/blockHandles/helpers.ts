@@ -17,6 +17,7 @@ import {
   Quote,
 } from "lucide-react";
 import { reportNonFatal } from "../../../lib/reportNonFatal";
+import { getRecentCalloutPreset } from "../../../lib/editor/recentCalloutPreset";
 import {
   shouldFlattenWrapperBeforeTypeChange,
   shouldSuppressBlockHandle,
@@ -799,7 +800,7 @@ export const TYPE_MENU_ITEMS = [
   { label: "인용", icon: Quote, cmd: (e: Editor) => e.chain().focus().toggleBlockquote().run() },
   { label: "코드 블록", icon: Code2, cmd: (e: Editor) => e.chain().focus().toggleCodeBlock().run() },
   { label: "토글", icon: ChevronRight, cmd: (e: Editor) => e.chain().focus().setToggle().run() },
-  { label: "콜아웃", icon: Lightbulb, cmd: (e: Editor) => e.chain().focus().setCallout("idea").run() },
+  { label: "콜아웃", icon: Lightbulb, cmd: (e: Editor) => e.chain().focus().setCallout(getRecentCalloutPreset()).run() },
 ];
 
 // 에디터 뷰의 DOM 루트 — 파괴된 에디터/접근 실패 시 null.

@@ -43,6 +43,7 @@ import {
   setRecentBgColor,
   setRecentTextColor,
 } from "../../lib/editor/recentBlockColors";
+import { setRecentCalloutPreset } from "../../lib/editor/recentCalloutPreset";
 import { decodeFileRef } from "../../lib/files/scheme";
 import { imageUrlCache } from "../../lib/images/registry";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
@@ -782,6 +783,8 @@ export function BlockHandles({
       .setNodeSelection(hover.blockStart)
       .updateCalloutPreset(preset)
       .run();
+    // 다음 콜아웃 생성 시 이 프리셋을 기본값으로 사용.
+    setRecentCalloutPreset(preset);
     setMenuOpen(false);
   };
 

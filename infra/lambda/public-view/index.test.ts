@@ -211,6 +211,28 @@ describe("public-view handler", () => {
     expect(JSON.parse(r.body).fullWidth).toBe(true);
   });
 
+  it("op=page — 페이지별 너비 오버라이드가 전역 기본값보다 우선한다", async () => {
+    sendMock
+      .mockResolvedValueOnce({
+        Item: { ...publishRecord, fullWidthDefault: true, fullWidthById: { "root-1": false } },
+      })
+      .mockResolvedValueOnce({ Item: rootPage })
+      .mockResolvedValueOnce({ Item: rootPage });
+    const r = await handler(getEvent({ op: "page", token: TOKEN, pageId: "root-1" }));
+    expect(JSON.parse(r.body).fullWidth).toBe(false);
+  });
+
+  it("op=page — 페이지별 오버라이드가 없으면 전역 기본값을 사용한다", async () => {
+    sendMock
+      .mockResolvedValueOnce({
+        Item: { ...publishRecord, fullWidthDefault: true, fullWidthById: {} },
+      })
+      .mockResolvedValueOnce({ Item: rootPage })
+      .mockResolvedValueOnce({ Item: rootPage });
+    const r = await handler(getEvent({ op: "page", token: TOKEN, pageId: "root-1" }));
+    expect(JSON.parse(r.body).fullWidth).toBe(true);
+  });
+
   it("404 응답은 no-store, 성공은 max-age=60 캐시", async () => {
     sendMock.mockResolvedValueOnce({ Item: undefined });
     const r404 = await handler(getEvent({ op: "site", token: TOKEN }));

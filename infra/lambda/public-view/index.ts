@@ -53,8 +53,12 @@ type PublishRecord = {
   pageId: string;
   workspaceId: string;
   revokedAt?: string | null;
-  /** 게시 시점 전체너비 스냅샷(없으면 false). */
+  /** 게시 시점 루트 페이지 전체너비 스냅샷(레거시 호환·폴백용). */
   fullWidth?: boolean;
+  /** 게시 시점 게시자 전역 전체너비 기본값. */
+  fullWidthDefault?: boolean;
+  /** 게시 시점 페이지별 전체너비 오버라이드 스냅샷(pageId → bool). */
+  fullWidthById?: Record<string, boolean>;
 };
 
 type PageRow = {
@@ -212,6 +216,13 @@ async function handlePage(
   }
   const page = await getPageRow(pageId);
   if (!isServablePage(page, publish)) return notFound();
+  // 게시 레코드에 스냅샷된 레이아웃만 사용(Pages/clientPrefs 공개 조회 금지).
+  // 각 페이지 고유 너비(fullWidthById) → 전역 기본값(fullWidthDefault) → 레거시 단일값(fullWidth) 순 폴백.
+  // 레거시 토큰(신규 필드 없음)은 재게시 전까지 기존 동작(루트 값)을 유지한다.
+  const fullWidth =
+    publish.fullWidthById?.[page.id] ??
+    publish.fullWidthDefault ??
+    publish.fullWidth === true;
   return json(200, {
     id: page.id,
     title: page.title ?? "",
@@ -220,8 +231,7 @@ async function handlePage(
     coverImage: page.coverImage ?? null,
     parentId: page.parentId ?? null,
     updatedAt: page.updatedAt ?? null,
-    // 게시 레코드에 스냅샷된 레이아웃 — Pages/clientPrefs 를 공개 조회하지 않는다.
-    fullWidth: publish.fullWidth === true,
+    fullWidth,
     doc: parseDocField(page.doc),
   });
 }
