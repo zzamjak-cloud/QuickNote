@@ -54,10 +54,11 @@ describe("transformPublicDoc", () => {
       ],
     };
     const out = transformPublicDoc(doc, ctx);
-    const link = out.content?.[0]?.content?.[0];
-    expect(link?.type).toBe("text");
-    expect(link?.text).toBe("자식 페이지");
-    expect(link?.marks?.[0]?.attrs?.href).toBe(
+    const inline = out.content?.[0]?.content ?? [];
+    expect(inline).toHaveLength(1);
+    expect(inline[0]?.type).toBe("text");
+    expect(inline[0]?.text).toBe("자식 페이지");
+    expect(inline[0]?.marks?.[0]?.attrs?.href).toBe(
       `/p/${ctx.token}?page=child-1`,
     );
   });
@@ -79,7 +80,7 @@ describe("transformPublicDoc", () => {
     expect(JSON.stringify(out)).not.toContain("secret-1");
   });
 
-  it("게시 트리 안 페이지 멘션은 공개 라우트 링크로 변환한다", () => {
+  it("게시 트리 안 페이지 멘션은 이모지 아이콘 + 공개 라우트 링크로 변환한다", () => {
     const doc: JSONContent = {
       type: "doc",
       content: [
@@ -98,10 +99,64 @@ describe("transformPublicDoc", () => {
       ...ctx,
       pageIcons: new Map([["child-1", "📌"]]),
     });
-    const link = out.content?.[0]?.content?.[0];
-    expect(link?.type).toBe("text");
-    expect(link?.text).toBe("📌 자식");
-    expect(link?.marks?.[0]?.attrs?.href).toBe(`/p/${ctx.token}?page=child-1`);
+    const inline = out.content?.[0]?.content ?? [];
+    expect(inline).toHaveLength(2);
+    expect(inline[0]?.type).toBe("text");
+    expect(inline[0]?.text).toBe("📌 ");
+    expect(inline[1]?.type).toBe("text");
+    expect(inline[1]?.text).toBe("자식");
+    expect(inline[1]?.marks?.[0]?.attrs?.href).toBe(`/p/${ctx.token}?page=child-1`);
+  });
+
+  it("페이지 멘션 Lucide 아이콘은 lucideInlineIcon 노드로 변환한다", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "mention",
+              attrs: { id: "p:child-1", mentionKind: "page", label: "자식" },
+            },
+          ],
+        },
+      ],
+    };
+    const out = transformPublicDoc(doc, {
+      ...ctx,
+      pageIcons: new Map([["child-1", "quicknote-lucide:Star:ff0000"]]),
+    });
+    const inline = out.content?.[0]?.content ?? [];
+    expect(inline[0]?.type).toBe("lucideInlineIcon");
+    expect(inline[0]?.attrs?.name).toBe("Star");
+    expect(inline[1]?.marks?.[0]?.attrs?.href).toBe(`/p/${ctx.token}?page=child-1`);
+  });
+
+  it("페이지 멘션 이미지 아이콘은 imageInlineIcon + 대상 pageId asset URL 로 변환한다", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "mention",
+              attrs: { id: "p:child-1", mentionKind: "page", label: "자식" },
+            },
+          ],
+        },
+      ],
+    };
+    const out = transformPublicDoc(doc, {
+      ...ctx,
+      pageIcons: new Map([["child-1", "quicknote-image://ico-1"]]),
+    });
+    const inline = out.content?.[0]?.content ?? [];
+    expect(inline[0]?.type).toBe("imageInlineIcon");
+    const src = inline[0]?.attrs?.src as string;
+    expect(src).toContain("assetId=ico-1");
+    expect(src).toContain("pageId=child-1");
   });
 
   it("callout emoji·tab icon 의 quicknote-image:// 를 공개 URL 로 치환한다", () => {

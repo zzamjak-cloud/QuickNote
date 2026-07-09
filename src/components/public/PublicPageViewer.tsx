@@ -105,6 +105,10 @@ function ReadOnlyDocView({
       // TipTap Link 는 openOnClick:false 라 기본 네비게이션이 막힌다.
       // 공개 라우트(/p/<token>?page=) 클릭만 SPA navigate 로 연결한다.
       editorProps: {
+        attributes: {
+          class:
+            "prose prose-zinc dark:prose-invert max-w-none focus:outline-none md:px-12 py-4 qn-prose-marquee-host",
+        },
         handleDOMEvents: {
           click: (_view, event) => {
             const target = event.target as HTMLElement | null;
@@ -281,7 +285,7 @@ export function PublicPageViewer() {
         ) : page === null ? (
           <p className="text-sm text-zinc-500">이 페이지는 더 이상 공개되지 않습니다.</p>
         ) : (
-          <>
+          <div className="md:px-12">
             <h1
               className="mb-6 flex items-center gap-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100"
               style={page.titleColor ? { color: page.titleColor } : undefined}
@@ -303,7 +307,7 @@ export function PublicPageViewer() {
             ) : (
               <p className="text-sm text-zinc-400">내용이 없습니다.</p>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>

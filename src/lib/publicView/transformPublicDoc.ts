@@ -48,28 +48,54 @@ function publicPageHref(token: string, pageId: string): string {
   return `/p/${token}?page=${pageId}`;
 }
 
-/** 유니코드 이모지만 라벨 앞에 붙인다(Lucide/이미지 ref 는 텍스트에 넣지 않음). */
-function emojiPrefix(icon: string | null | undefined): string {
-  if (!icon) return "";
-  if (isImageLikePageIcon(icon) || decodeLucidePageIcon(icon)) return "";
-  return `${icon} `;
+/** 대상 페이지 소유 자산(icon)용 공개 URL — op=asset 화이트리스트는 owner pageId 기준. */
+function toPublicPageIconAssetUrl(
+  icon: string,
+  token: string,
+  ownerPageId: string,
+): string | null {
+  const assetId = decodeImageRef(icon) ?? decodeFileRef(icon);
+  if (!assetId) return null;
+  return buildPublicAssetUrl(token, ownerPageId, assetId);
 }
 
-function toPublicPageLinkText(
+/** 게시 트리 안 페이지 링크/멘션 → 아이콘(이모지·Lucide·이미지) + 링크 텍스트 인라인 노드. */
+function toPublicPageLinkInline(
   targetId: string,
   label: string,
   ctx: PublicDocContext,
-): JSONContent {
+): JSONContent[] {
   if (!ctx.publishedPageIds.has(targetId)) {
-    return { type: "text", text: label || "페이지" };
+    return [{ type: "text", text: label || "페이지" }];
   }
   const icon = ctx.pageIcons?.get(targetId) ?? null;
-  const text = `${emojiPrefix(icon)}${label || "페이지"}`;
-  return {
+  const href = publicPageHref(ctx.token, targetId);
+  const linkMark = { type: "link", attrs: { href } };
+  const nodes: JSONContent[] = [];
+
+  const lucide = decodeLucidePageIcon(icon);
+  if (lucide) {
+    nodes.push({
+      type: "lucideInlineIcon",
+      attrs: { name: lucide.name, color: lucide.color },
+    });
+  } else if (icon && isImageLikePageIcon(icon)) {
+    const src =
+      toPublicPageIconAssetUrl(icon, ctx.token, targetId) ??
+      (icon.startsWith("http://") || icon.startsWith("https://") ? icon : null);
+    if (src) {
+      nodes.push({ type: "imageInlineIcon", attrs: { src } });
+    }
+  } else if (icon) {
+    nodes.push({ type: "text", text: `${icon} ` });
+  }
+
+  nodes.push({
     type: "text",
-    text,
-    marks: [{ type: "link", attrs: { href: publicPageHref(ctx.token, targetId) } }],
-  };
+    text: label || "페이지",
+    marks: [linkMark],
+  });
+  return nodes;
 }
 
 function rewriteAssetAttrs(
@@ -88,7 +114,18 @@ function rewriteAssetAttrs(
   return changed ? next : null;
 }
 
-function transformNode(node: JSONContent, ctx: PublicDocContext): JSONContent {
+function flattenTransformedNodes(
+  node: JSONContent,
+  ctx: PublicDocContext,
+): JSONContent[] {
+  const out = transformNode(node, ctx);
+  return Array.isArray(out) ? out : [out];
+}
+
+function transformNode(
+  node: JSONContent,
+  ctx: PublicDocContext,
+): JSONContent | JSONContent[] {
   // 1차 미지원 블록 — 플레이스홀더로 치환
   if (node.type === "databaseBlock") {
     return placeholderParagraph("📊 인라인 데이터베이스 (공개 페이지에서는 표시되지 않습니다)");
@@ -101,7 +138,7 @@ function transformNode(node: JSONContent, ctx: PublicDocContext): JSONContent {
     const targetId = typeof node.attrs?.id === "string" ? node.attrs.id : null;
     const label = typeof node.attrs?.label === "string" ? node.attrs.label : "페이지";
     if (!targetId) return { type: "text", text: label || "페이지" };
-    return toPublicPageLinkText(targetId, label, ctx);
+    return toPublicPageLinkInline(targetId, label, ctx);
   }
   // 페이지 멘션 — 동일하게 공개 라우트 링크로 강등(클릭·아이콘 Cognito 경로 차단).
   if (node.type === "mention") {
@@ -109,7 +146,7 @@ function transformNode(node: JSONContent, ctx: PublicDocContext): JSONContent {
     const kind = typeof node.attrs?.mentionKind === "string" ? node.attrs.mentionKind : null;
     const label = typeof node.attrs?.label === "string" ? node.attrs.label : "페이지";
     if (isPageMention(rawId, kind)) {
-      return toPublicPageLinkText(stripPagePrefix(rawId), label, ctx);
+      return toPublicPageLinkInline(stripPagePrefix(rawId), label, ctx);
     }
     // 멤버/DB 멘션은 텍스트만(클릭·프로필 팝업 비활성).
     return { type: "text", text: label ? `@${label}` : "@" };
@@ -125,7 +162,10 @@ function transformNode(node: JSONContent, ctx: PublicDocContext): JSONContent {
   }
   // tabBlock 등 자식 패널의 icon 도 재귀 처리
   if (!next.content?.length) return next;
-  return { ...next, content: next.content.map((child) => transformNode(child, ctx)) };
+  return {
+    ...next,
+    content: next.content.flatMap((child) => flattenTransformedNodes(child, ctx)),
+  };
 }
 
 /**
@@ -135,5 +175,7 @@ export function transformPublicDoc(
   doc: JSONContent,
   ctx: PublicDocContext,
 ): JSONContent {
-  return transformNode(doc, ctx);
+  const out = transformNode(doc, ctx);
+  // 루트 doc 노드는 항상 단일 객체로 반환된다.
+  return Array.isArray(out) ? { type: "doc", content: out } : out;
 }
