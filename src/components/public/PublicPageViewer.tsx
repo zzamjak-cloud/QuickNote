@@ -24,6 +24,7 @@ import {
   decodeLucidePageIcon,
   isImageLikePageIcon,
 } from "../../lib/pageIcon";
+import { getEditorColumnClass } from "../../lib/editorLayout";
 
 /** /p/<token> 에서 토큰 추출(쿼리·해시 제외) */
 function parseTokenFromPath(pathname: string): string | null {
@@ -211,10 +212,21 @@ export function PublicPageViewer() {
     [token, site],
   );
 
+  const pageIcons = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const p of site?.pages ?? []) map.set(p.id, p.icon);
+    return map;
+  }, [site]);
+
   const publicDocCtx = useMemo((): PublicDocContext | null => {
     if (!token || !effectivePageId) return null;
-    return { token, pageId: effectivePageId, publishedPageIds };
-  }, [token, effectivePageId, publishedPageIds]);
+    return {
+      token,
+      pageId: effectivePageId,
+      publishedPageIds,
+      pageIcons,
+    };
+  }, [token, effectivePageId, publishedPageIds, pageIcons]);
 
   const transformedDoc = useMemo(() => {
     if (!page || !publicDocCtx) return null;
@@ -222,6 +234,11 @@ export function PublicPageViewer() {
     if (!rawDoc || typeof rawDoc !== "object") return null;
     return transformPublicDoc(rawDoc, publicDocCtx);
   }, [page, publicDocCtx]);
+
+  const columnClass = getEditorColumnClass({
+    fullWidth: page?.fullWidth === true,
+    hasPageComments: false,
+  });
 
   if (!token) {
     return <CenteredNotice title="잘못된 링크입니다." />;
@@ -258,7 +275,7 @@ export function PublicPageViewer() {
           draggable={false}
         />
       )}
-      <div className="mx-auto w-full max-w-3xl px-6 py-10">
+      <div className={`mx-auto w-full py-10 ${columnClass}`}>
         {page === undefined ? (
           <p className="text-sm text-zinc-400">불러오는 중…</p>
         ) : page === null ? (

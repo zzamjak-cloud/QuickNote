@@ -25,6 +25,8 @@ export type PublishRecord = {
   publishedByMemberId: string;
   publishedAt: string;
   revokedAt?: string | null;
+  /** 게시 시점 게시자의 페이지 전체너비 스냅샷(공개 뷰어 레이아웃). */
+  fullWidth?: boolean;
 };
 
 export type PagePublishStatusGql = {
@@ -102,6 +104,24 @@ function toStatus(
   };
 }
 
+/** 게시자 clientPrefs 에서 해당 페이지 전체너비 여부를 스냅샷한다. */
+function resolvePageFullWidth(caller: Member, pageId: string): boolean {
+  const raw = caller.clientPrefs;
+  if (raw == null || raw === "") return false;
+  try {
+    const str = typeof raw === "string" ? raw : JSON.stringify(raw);
+    const o = JSON.parse(str) as {
+      fullWidth?: unknown;
+      pageFullWidthById?: Record<string, unknown>;
+    };
+    const byPage = o.pageFullWidthById?.[pageId];
+    if (typeof byPage === "boolean") return byPage;
+    return o.fullWidth === true;
+  } catch {
+    return false;
+  }
+}
+
 /** 페이지(+자손) 웹 게시. 이미 게시돼 있으면 기존 토큰 반환(멱등). */
 export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql> {
   const tableName = requirePublishTable(args.tables);
@@ -132,6 +152,7 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
     workspaceId: page.workspaceId,
     publishedByMemberId: args.caller.memberId,
     publishedAt: new Date().toISOString(),
+    fullWidth: resolvePageFullWidth(args.caller, args.pageId),
   };
   await args.doc.send(
     new PutCommand({

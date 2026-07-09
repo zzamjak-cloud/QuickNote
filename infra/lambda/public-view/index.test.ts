@@ -175,6 +175,42 @@ describe("public-view handler", () => {
     expect(sendMock).toHaveBeenCalledTimes(3); // 참조 화이트리스트에서 이미 차단
   });
 
+  it("op=asset — 페이지 icon chrome 은 AssetUsage 없이 presign 한다", async () => {
+    const pageWithIcon = {
+      ...rootPage,
+      icon: "quicknote-image://icon-chrome",
+      doc: { type: "doc", content: [] },
+    };
+    sendMock
+      .mockResolvedValueOnce({ Item: publishRecord })
+      .mockResolvedValueOnce({ Item: pageWithIcon })
+      .mockResolvedValueOnce({ Item: pageWithIcon })
+      .mockResolvedValueOnce({
+        Item: { id: "icon-chrome", status: "READY", key: "k/icon-chrome" },
+      });
+    const r = await handler(
+      getEvent({
+        op: "asset",
+        token: TOKEN,
+        pageId: "root-1",
+        assetId: "icon-chrome",
+      }),
+    );
+    expect(r.statusCode).toBe(302);
+    // AssetUsage Query 없이 GetItem+presign 만
+    expect(sendMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("op=page — fullWidth 스냅샷을 응답에 포함한다", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Item: { ...publishRecord, fullWidth: true } })
+      .mockResolvedValueOnce({ Item: rootPage })
+      .mockResolvedValueOnce({ Item: rootPage });
+    const r = await handler(getEvent({ op: "page", token: TOKEN, pageId: "root-1" }));
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.body).fullWidth).toBe(true);
+  });
+
   it("404 응답은 no-store, 성공은 max-age=60 캐시", async () => {
     sendMock.mockResolvedValueOnce({ Item: undefined });
     const r404 = await handler(getEvent({ op: "site", token: TOKEN }));

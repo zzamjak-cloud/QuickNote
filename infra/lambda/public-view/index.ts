@@ -53,6 +53,8 @@ type PublishRecord = {
   pageId: string;
   workspaceId: string;
   revokedAt?: string | null;
+  /** 게시 시점 전체너비 스냅샷(없으면 false). */
+  fullWidth?: boolean;
 };
 
 type PageRow = {
@@ -218,6 +220,8 @@ async function handlePage(
     coverImage: page.coverImage ?? null,
     parentId: page.parentId ?? null,
     updatedAt: page.updatedAt ?? null,
+    // 게시 레코드에 스냅샷된 레이아웃 — Pages/clientPrefs 를 공개 조회하지 않는다.
+    fullWidth: publish.fullWidth === true,
     doc: parseDocField(page.doc),
   });
 }
@@ -258,11 +262,19 @@ async function handleAsset(
     page.coverImage,
   ]);
   if (!refs.has(assetId)) return notFound();
-  // 2차 방어(교차 워크스페이스 유출 차단): doc attrs 는 클라이언트가 임의로 쓸 수 있으므로
-  // "doc 에 있음"만으로는 부족하다. 인증 경로(image-presign)와 동일하게, 이 자산이 실제로
-  // 게시 워크스페이스에서 사용(AssetUsage)되고 있는지 확인한 자산만 presign 한다.
-  const belongsToWorkspace = await assetUsedInWorkspace(assetId, publish.workspaceId);
-  if (!belongsToWorkspace) return notFound();
+  // 페이지 chrome(icon/cover) 은 Pages 행에 직접 붙어 있으므로 AssetUsage 누락이어도
+  // 게시 워크스페이스 소속 페이지만 통과하면 허용한다(제목 아이콘 401/깨짐 방지).
+  const chromeIds = collectDocAssetIds(null, [page.icon, page.coverImage]);
+  const isPageChrome = chromeIds.has(assetId);
+  if (!isPageChrome) {
+    // 2차 방어(교차 워크스페이스 유출 차단): doc attrs 는 클라이언트가 임의로 쓸 수 있으므로
+    // AssetUsage 로 게시 워크스페이스 소속을 확인한다.
+    const belongsToWorkspace = await assetUsedInWorkspace(
+      assetId,
+      publish.workspaceId,
+    );
+    if (!belongsToWorkspace) return notFound();
+  }
   const assetRow = await ddb.send(
     new GetCommand({ TableName: ASSET_TABLE, Key: { id: assetId } }),
   );

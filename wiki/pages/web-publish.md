@@ -35,13 +35,18 @@
   일어난다(훅 규칙). 공개 뷰어에 인증/스토어 부트스트랩을 붙이지 말 것.
 - 렌더는 `BlockDiffView` 의 read-only TipTap 레시피 재사용(`useEditorExtensions` 전부 null).
 - **좌측 트리 사이드바를 두지 않는다** — 공개 웹은 본문만 표시. 자손 이동은 본문
-  `pageLink`(공개 라우트 링크) 클릭으로만 한다.
-- 페이지 아이콘: `PageIconDisplay`/`useImageUrl`(Cognito) 대신 공개용 `PublicPageIcon` —
-  Lucide·이모지·`op=asset` 이미지 URL. 인증 훅을 공개 뷰어에 붙이지 말 것.
-- 본문 `pageLink` 클릭: TipTap `Link.openOnClick:false` 이므로 `ReadOnlyDocView` 의
+  `pageLink`/페이지 멘션(공개 라우트 링크) 클릭으로만 한다.
+- 페이지 아이콘: 제목은 `PublicPageIcon`(op=asset). 본문 callout/tab 등은
+  `transformPublicDoc` 이 `icon`/`emoji`/`src` 의 `quicknote-image://` 를 공개 URL 로
+  치환해 `useImageUrl` Cognito 경로를 우회한다. 인증 훅을 공개 뷰어에 붙이지 말 것.
+- 본문 클릭: TipTap `Link.openOnClick:false` 이므로 `ReadOnlyDocView` 의
   `handleDOMEvents.click` 에서 `/p/<token>?page=` 만 `navigateTo` 로 연결한다.
-- doc 변환: 자산 스킴 → `op=asset` URL(이미지 블록 무수정), `databaseBlock`/`flowchartBlock`
-  → placeholder, `pageLink` → 트리 안=공개 라우트 링크 텍스트 / 밖=순수 텍스트(id 비노출).
+  페이지 멘션·pageLink 는 변환 단계에서 동일 link mark 로 강등한다.
+- **전체너비**: 게시 시 게시자 `clientPrefs` 의 `pageFullWidthById[pageId] ?? fullWidth` 를
+  published-pages 에 스냅샷 → `op=page.fullWidth`. 뷰어는 `getEditorColumnClass` 적용.
+  **이미 발급된 토큰은 fullWidth 없음(false)** — 재게시 필요.
+- doc 변환: 자산 스킴 → `op=asset` URL, `databaseBlock`/`flowchartBlock` → placeholder,
+  `pageLink`/페이지 멘션 → 트리 안=공개 라우트 링크 / 밖=순수 텍스트(id 비노출).
 - `VITE_PUBLIC_VIEW_URL` (Function URL) — 미설정이면 뷰어는 404 화면. CSP `connect-src` 에
   해당 호스트 핀 고정 필요(`vercel.json`). 도메인 변경 시 env·CSP 동시 갱신.
 

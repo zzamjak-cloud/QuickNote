@@ -24,6 +24,8 @@ export type PublicPage = {
   coverImage: string | null;
   parentId: string | null;
   updatedAt: string | null;
+  /** 게시 시점 전체너비 스냅샷(구 토큰은 undefined → false). */
+  fullWidth?: boolean;
   doc: unknown;
 };
 

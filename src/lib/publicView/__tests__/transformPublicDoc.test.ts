@@ -78,4 +78,45 @@ describe("transformPublicDoc", () => {
     expect(text?.marks).toBeUndefined();
     expect(JSON.stringify(out)).not.toContain("secret-1");
   });
+
+  it("게시 트리 안 페이지 멘션은 공개 라우트 링크로 변환한다", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "mention",
+              attrs: { id: "p:child-1", mentionKind: "page", label: "자식" },
+            },
+          ],
+        },
+      ],
+    };
+    const out = transformPublicDoc(doc, {
+      ...ctx,
+      pageIcons: new Map([["child-1", "📌"]]),
+    });
+    const link = out.content?.[0]?.content?.[0];
+    expect(link?.type).toBe("text");
+    expect(link?.text).toBe("📌 자식");
+    expect(link?.marks?.[0]?.attrs?.href).toBe(`/p/${ctx.token}?page=child-1`);
+  });
+
+  it("callout emoji·tab icon 의 quicknote-image:// 를 공개 URL 로 치환한다", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        { type: "callout", attrs: { emoji: "quicknote-image://ico-1" }, content: [] },
+        {
+          type: "tabBlock",
+          content: [{ type: "tabPanel", attrs: { icon: "quicknote-image://ico-2" } }],
+        },
+      ],
+    };
+    const out = transformPublicDoc(doc, ctx);
+    expect(String(out.content?.[0]?.attrs?.emoji)).toContain("assetId=ico-1");
+    expect(String(out.content?.[1]?.content?.[0]?.attrs?.icon)).toContain("assetId=ico-2");
+  });
 });
