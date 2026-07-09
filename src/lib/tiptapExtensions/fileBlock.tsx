@@ -107,10 +107,12 @@ function MediaCaptionInput({
 }) {
   return (
     <div
-      className="mt-1 flex w-full items-center gap-1"
+      className="mt-1 flex items-center gap-1"
       // 정렬 버튼 + 캡션 텍스트가 하나의 단위로 좌/중앙/우로 함께 이동. gap-1 유지.
+      // 미디어 폭(minWidth)을 기준으로 정렬하되, 텍스트가 길면 내용 폭(max-content)까지 늘어나 클리핑되지 않는다.
       style={{
-        maxWidth: widthPx ? `${widthPx}px` : "100%",
+        minWidth: widthPx ? `${widthPx}px` : "100%",
+        width: "max-content",
         justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start",
       }}
     >
@@ -125,26 +127,34 @@ function MediaCaptionInput({
           onCaptionAlignChange(nextCaptionAlign(captionAlign));
         }}
       />
-      <input
-        data-qn-caption-input="true"
-        type="text"
-        value={caption}
-        placeholder="캡션 입력…"
-        // 텍스트 폭에 맞춰 단위를 잡고, textAlign 은 쓰지 않아 버튼-텍스트 gap 을 유지한다.
-        size={Math.max(6, caption.length || "캡션 입력…".length)}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={(e) => {
-          if (e.currentTarget.value.trim() === "") onRemoveEmpty();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            e.currentTarget.blur();
-          }
-          e.stopPropagation();
-        }}
-        className="min-w-0 max-w-full border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
-      />
+      {/* input 폭을 실제 텍스트 폭에 맞춘다(inline-grid 미러). size 속성은 CJK/비례폭에서
+          부정확해 끝부분이 잘리므로 사용하지 않는다. */}
+      <span className="inline-grid items-center">
+        <span
+          aria-hidden
+          className="col-start-1 row-start-1 invisible whitespace-pre px-0.5 text-xs"
+        >
+          {caption || "캡션 입력…"}{" "}
+        </span>
+        <input
+          data-qn-caption-input="true"
+          type="text"
+          value={caption}
+          placeholder="캡션 입력…"
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={(e) => {
+            if (e.currentTarget.value.trim() === "") onRemoveEmpty();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+            e.stopPropagation();
+          }}
+          className="col-start-1 row-start-1 w-full min-w-0 border-none bg-transparent px-0.5 text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+        />
+      </span>
     </div>
   );
 }

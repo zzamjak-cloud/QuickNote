@@ -174,32 +174,39 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               props.updateAttributes({ captionAlign: nextCaptionAlign(captionAlign) });
             }}
           />
-          <input
-            data-qn-caption-input="true"
-            type="text"
-            value={attrs.caption ?? ""}
-            placeholder="캡션 입력…"
-            // 텍스트 길이에 맞춰 폭을 잡아(정렬 단위가 텍스트를 따라감) maxWidth 로 이미지 폭까지만 확장.
-            // textAlign 은 쓰지 않는다 — 넓은 input 안에서 텍스트만 밀리면 버튼-텍스트 gap 이 깨진다.
-            size={Math.max(6, (attrs.caption ?? "").length || "캡션 입력…".length)}
-            // 캡션은 노드 attrs.caption 에 저장 (plain text). 본문 doc 흐름과 분리.
-            onChange={(e) => props.updateAttributes({ caption: e.target.value })}
-            onBlur={(e) => {
-              if (e.currentTarget.value.trim() === "") props.updateAttributes({ caption: null });
-            }}
-            onKeyDown={(e) => {
-              // Enter: 캡션 편집 종료 후 이미지 블럭 다음 라인에 빈 문단을 만들고 커서 이동.
-              if (e.key === "Enter") {
-                e.preventDefault();
+          {/* input 폭을 실제 텍스트 폭에 맞춘다(inline-grid 미러). size 속성은 CJK/비례폭에서
+              부정확해 끝부분이 잘리므로 사용하지 않는다. 미러 span 이 셀 폭을 결정하고 input 은 채운다. */}
+          <span className="inline-grid items-center">
+            <span
+              aria-hidden
+              className="col-start-1 row-start-1 invisible whitespace-pre px-0.5 text-xs"
+            >
+              {(attrs.caption ?? "") || "캡션 입력…"}{" "}
+            </span>
+            <input
+              data-qn-caption-input="true"
+              type="text"
+              value={attrs.caption ?? ""}
+              placeholder="캡션 입력…"
+              // 캡션은 노드 attrs.caption 에 저장 (plain text). 본문 doc 흐름과 분리.
+              onChange={(e) => props.updateAttributes({ caption: e.target.value })}
+              onBlur={(e) => {
+                if (e.currentTarget.value.trim() === "") props.updateAttributes({ caption: null });
+              }}
+              onKeyDown={(e) => {
+                // Enter: 캡션 편집 종료 후 이미지 블럭 다음 라인에 빈 문단을 만들고 커서 이동.
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.currentTarget.blur();
+                  insertParagraphAfterImage(props);
+                  return;
+                }
                 e.stopPropagation();
-                e.currentTarget.blur();
-                insertParagraphAfterImage(props);
-                return;
-              }
-              e.stopPropagation();
-            }}
-            className="border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
-          />
+              }}
+              className="col-start-1 row-start-1 w-full min-w-0 border-none bg-transparent px-0.5 text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+            />
+          </span>
         </div>
       ) : null}
       {previewOpen && url ? (
