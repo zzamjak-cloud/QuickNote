@@ -389,6 +389,9 @@ export function BubbleToolbar({ editor, pageId }: Props) {
   return createPortal(
     <div
       ref={toolbarRef}
+      // body 포털이라 박스 선택 마퀴가 "에디터 밖 클릭"으로 오인해 NodeSelection 을 붕괴시키지
+      // 않도록 에디터 크롬으로 표시한다(툴바 클릭 시 이미지/미디어 선택이 풀리는 문제 방지).
+      data-qn-editor-chrome="bubble-toolbar"
       className="fixed z-[760] rounded-md border border-zinc-200 bg-white px-1 py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       style={{ top: pos.top, left: pos.left }}
       onPointerDownCapture={(e) => {

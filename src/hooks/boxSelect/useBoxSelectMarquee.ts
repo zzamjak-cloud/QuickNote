@@ -274,6 +274,16 @@ export function useBoxSelectMarquee({
       // 에디터/컬럼 범위 외부 — 선택 해제 후 종료
       // (피커뷰/전체너비 좌우 여백은 컬럼 범위 안으로 보고 박스 드래그를 허용해야 한다)
       if (!marqueeScopeHost?.contains(target)) {
+        // 부유 툴바·리사이즈 오버레이·블록 핸들 메뉴·댓글·팝업 등 에디터 크롬은 body 포털이라
+        // scope 밖이지만 편집 UI 다. 이를 클릭할 때 PM 선택(이미지/미디어 NodeSelection)을 붕괴시키면
+        // 툴바가 즉시 사라져 버튼을 누를 수 없다 → 선택을 유지하고 종료.
+        if (
+          target.closest(
+            "[data-qn-editor-chrome], [role='menu'], [role='listbox'], [role='dialog'], .tippy-box, [data-qn-page-comment]",
+          )
+        ) {
+          return;
+        }
         collapsePmSelectionIfNeeded();
         clearSelection();
         return;
