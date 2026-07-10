@@ -435,6 +435,11 @@ function EditorInner({
   // 협업 게이팅 입력 — union 타입 안전 접근(비활성 시 false). 변수로 추출해 effect deps 정적 검사 통과.
   const collabEnabled = collab.enabled;
   const collabSynced = collab.enabled && collab.synced;
+  // degraded 편집 폴백 — 재연결 소진(syncFailed) 시 IDB 로 로드된 로컬 doc 으로 바인딩을
+  // 허용해 영구 read-only 잠금을 푼다(오프라인 편집과 동일한 데이터 안전성: CRDT 가 복구
+  // 시 병합). idbLoaded 전에는 열지 않는다 — 빈 doc 선바인딩(빈 문단 주입) 방지.
+  const collabDegraded =
+    collab.enabled && !collab.synced && collab.syncFailed && collab.idbLoaded;
   // 시드 완료 후에만 에디터에 바인딩되는 Y.Doc. 빈 fragment 에 ySyncPlugin 이 먼저 붙으면
   // 빈 문단을 주입해 seedCollabDocIfEmpty 가 "콘텐츠 있음"으로 오판 → 본문 시드가 영구
   // 차단된다(2026-06-11 dev 전 페이지 빈 화면 사고). 시드 → 바인딩 순서를 강제하는 게이트.
@@ -643,7 +648,9 @@ function EditorInner({
     if (!editor || editor.isDestroyed) return;
     // 준비 전(세션 없음·서버 sync 전)에는 바인딩을 풀어 둔다 —
     // 빈 Y.Doc 에 ySyncPlugin 이 붙어 빈 문단을 주입하는 경로 자체를 차단.
-    if (!collabEnabled || !collabSynced || !collabDoc || !effectivePageId) {
+    // degraded(재연결 소진)면 서버 sync 없이도 진행한다 — 아래 시드 로직이 "비어있지 않고
+    // 렌더 가능한" 로컬 doc 만 바인딩하고 서버 시드는 건너뛴다.
+    if (!collabEnabled || !(collabSynced || collabDegraded) || !collabDoc || !effectivePageId) {
       setCollabBoundDoc(null);
       return;
     }
@@ -696,6 +703,13 @@ function EditorInner({
         ) {
           seedState.status = "done";
           if (!cancelled) bindCollabDoc();
+          return;
+        }
+        // degraded(서버 sync 실패) 폴백에서는 여기까지 — 룸 상태를 모른 채 서버 본문으로
+        // 결정적 시드를 하면 피어 시드와 같은 (clientID, clock) 에 다른 내용이 생겨 CRDT 가
+        // 갈라진다(원칙 1). 빈/렌더불가 doc 은 read-only 로 두고, sync 복구 후 정상 시드한다.
+        if (!collabSynced) {
+          seedState.status = "idle";
           return;
         }
         // 시드 소스는 서버 fresh 본문으로 일원화 — 클라이언트마다 다른 로컬 본문으로 결정적
@@ -766,6 +780,7 @@ function EditorInner({
     editor,
     collabEnabled,
     collabSynced,
+    collabDegraded,
     collabDoc,
     effectivePageId,
     page?.workspaceId,

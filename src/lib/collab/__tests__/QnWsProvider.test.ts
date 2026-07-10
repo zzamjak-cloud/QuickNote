@@ -55,9 +55,17 @@ describe("QnWsProvider", () => {
   it("keepalive 타이머는 hello 가 아닌 경량 ping 을 전송한다", () => {
     vi.useFakeTimers();
     try {
-      const { socket, provider } = makeProvider();
+      const { socket, provider, doc } = makeProvider();
       provider.connect();
       socket.open();
+      // 먼저 sync 를 수신해 synced 상태로 — 미수신 연결은 sync 타임아웃이 닫아버린다.
+      const server = new Y.Doc();
+      server.getXmlFragment("prosemirror");
+      socket.receive(JSON.stringify({
+        t: "sync",
+        update: encodeBytes(Y.encodeStateAsUpdate(server, Y.encodeStateVector(doc))),
+        sv: encodeBytes(Y.encodeStateVector(server)),
+      }));
       socket.sent.length = 0;
       vi.advanceTimersByTime(240_000);
       const msgs = socket.sent.map((s) => JSON.parse(s));
@@ -125,6 +133,31 @@ describe("QnWsProvider", () => {
 
     const replies = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "sv-reply");
     expect(replies.length).toBe(0);
+  });
+
+  it("synced 후에도 서버가 모르는 로컬 delta 가 있으면 sync 응답에 sv-reply 로 재조정한다(update 유실 자기치유)", () => {
+    const { socket, provider, doc } = makeProvider();
+    provider.connect();
+    socket.open();
+
+    const server = new Y.Doc();
+    server.getXmlFragment("prosemirror");
+    const update = Y.encodeStateAsUpdate(server, Y.encodeStateVector(doc));
+    const sv = Y.encodeStateVector(server);
+    const syncFrame = JSON.stringify({ t: "sync", update: encodeBytes(update), sv: encodeBytes(sv) });
+
+    socket.receive(syncFrame); // 첫 sync → synced
+    // 로컬 편집 발생 — update 전송이 서버에서 유실됐다고 가정(서버 sv 는 그대로).
+    doc.getText("t").insert(0, "lost-edit");
+    socket.sent.length = 0;
+    // hello 재동기화(탭 전면 복귀 등)의 sync 응답 — 서버가 모르는 delta 를 재전송해야 한다.
+    socket.receive(syncFrame);
+
+    const replies = socket.sent.map((s) => JSON.parse(s)).filter((m) => m.t === "sv-reply");
+    expect(replies.length).toBe(1);
+    const applied = new Y.Doc();
+    Y.applyUpdate(applied, decodeBytes(replies[0].update));
+    expect(applied.getText("t").toString()).toBe("lost-edit");
   });
 
   it("로컬 doc 변경 시 update{update} 를 전송한다", () => {
@@ -343,7 +376,41 @@ describe("QnWsProvider", () => {
     expect(reply).toBeTruthy();
   });
 
-  it("재연결은 maxReconnectAttempts 회까지만 시도하고 이후 중단한다(무한 루프 방지)", () => {
+  it("재연결은 maxReconnectAttempts 회까지만 즉시 시도하고 소진 시 'failed' 를 emit 한다", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new Y.Doc();
+      const sockets: FakeSocket[] = [];
+      const statuses: unknown[] = [];
+      const provider = new QnWsProvider({
+        doc,
+        url: "wss://x/dev?token=t&pageId=p",
+        socketFactory: () => {
+          const s = new FakeSocket();
+          sockets.push(s);
+          return s as unknown as WebSocket;
+        },
+        maxReconnectAttempts: 3,
+        failedRetryIntervalMs: 0, // 저빈도 자기치유 재시도 없이 즉시 중단만 검증
+      });
+      provider.on("status", (s) => statuses.push(s));
+      provider.connect(); // 초기 소켓 #1 (CONNECTING)
+      // 연결 실패(close) 반복 — 캡에 도달하면 더는 재연결 타이머를 걸지 않아야 한다.
+      for (let i = 0; i < 10; i += 1) {
+        sockets[sockets.length - 1].close(); // onclose → 재연결 스케줄 or 중단
+        vi.runOnlyPendingTimers(); // 스케줄됐다면 reconnect 실행(새 소켓)
+      }
+      // 초기 1회 + 재연결 3회 = 총 4개 소켓에서 멈춰야 한다.
+      expect(sockets.length).toBe(4);
+      // 소진 시 degraded 편집 폴백을 열 수 있게 "failed" 를 알린다.
+      expect(statuses).toContain("failed");
+      provider.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("재연결 소진 후 failedRetryIntervalMs 간격으로 자기치유 재시도한다", () => {
     vi.useFakeTimers();
     try {
       const doc = new Y.Doc();
@@ -357,15 +424,18 @@ describe("QnWsProvider", () => {
           return s as unknown as WebSocket;
         },
         maxReconnectAttempts: 3,
+        failedRetryIntervalMs: 60_000,
       });
-      provider.connect(); // 초기 소켓 #1 (CONNECTING)
-      // 연결 실패(close) 반복 — 캡에 도달하면 더는 재연결 타이머를 걸지 않아야 한다.
-      for (let i = 0; i < 10; i += 1) {
-        sockets[sockets.length - 1].close(); // onclose → 재연결 스케줄 or 중단
-        vi.runOnlyPendingTimers(); // 스케줄됐다면 reconnect 실행(새 소켓)
+      provider.connect();
+      // 캡(초기 1 + 재연결 3 = 4)까지 즉시 재시도 소진.
+      for (let i = 0; i < 4; i += 1) {
+        sockets[sockets.length - 1].close();
+        if (sockets.length < 4) vi.runOnlyPendingTimers();
       }
-      // 초기 1회 + 재연결 3회 = 총 4개 소켓에서 멈춰야 한다.
       expect(sockets.length).toBe(4);
+      // 60초 경과 → 자기치유 재시도(새 소켓).
+      vi.advanceTimersByTime(60_000);
+      expect(sockets.length).toBe(5);
       provider.destroy();
     } finally {
       vi.useRealTimers();
@@ -386,6 +456,7 @@ describe("QnWsProvider", () => {
           return s as unknown as WebSocket;
         },
         maxReconnectAttempts: 3,
+        failedRetryIntervalMs: 0,
       });
       provider.connect();
       for (let i = 0; i < 10; i += 1) {
@@ -397,6 +468,32 @@ describe("QnWsProvider", () => {
       window.dispatchEvent(new Event("offline"));
       window.dispatchEvent(new Event("online"));
       expect(sockets.length).toBe(5);
+      provider.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("연결 후 syncTimeoutMs 내 sync 미수신이면 연결을 닫고 재시도한다", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new Y.Doc();
+      const sockets: FakeSocket[] = [];
+      const provider = new QnWsProvider({
+        doc,
+        url: "wss://x/dev?token=t&pageId=p",
+        socketFactory: () => {
+          const s = new FakeSocket();
+          sockets.push(s);
+          return s as unknown as WebSocket;
+        },
+        syncTimeoutMs: 15_000,
+      });
+      provider.connect();
+      sockets[0].open(); // 연결은 됐지만 서버 sync 가 오지 않는 상황(부분 전송 등)
+      vi.advanceTimersByTime(15_000); // 타임아웃 → 강제 close → 재연결 스케줄
+      vi.runOnlyPendingTimers();
+      expect(sockets.length).toBe(2);
       provider.destroy();
     } finally {
       vi.useRealTimers();

@@ -40,6 +40,9 @@ export async function collectChunk(
       TableName: TABLE,
       KeyConditionExpression: "bufKey = :b",
       ExpressionAttributeValues: { ":b": bufKey },
+      // 강한 일관성 필수 — eventual read 는 방금 Put 한 앞 청크를 못 세어(undercount)
+      // 마지막 청크 도착 시 재조립이 영구 미완성(대용량 update 드롭)이 될 수 있다.
+      ConsistentRead: true,
     }),
   );
   const items = res.Items ?? [];

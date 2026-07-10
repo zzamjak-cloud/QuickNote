@@ -25,6 +25,18 @@ import { useMemberStore } from "../../store/memberStore";
 import { useCollabConnectionStore } from "../../store/collabConnectionStore";
 import { toBadgeStatus, type ProviderStatus } from "./collabConnectionStatus";
 
+// doc JSON 안의 자산 ref(이미지/파일 가상 스킴) 전수 추출 — 새 자산 삽입 감지용.
+// id 는 sha256 기반 `asset-<hex>` 형태지만 레거시 호환을 위해 문자 클래스는 느슨하게 잡는다.
+const ASSET_REF_RE = /quicknote-(?:image|file):\/\/[A-Za-z0-9._-]+/g;
+function extractAssetRefs(docJson: unknown): string[] {
+  if (docJson == null) return [];
+  try {
+    return JSON.stringify(docJson).match(ASSET_REF_RE) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 const MATERIALIZE_DEBOUNCE_MS = 1800;
 // 로컬 편집분의 서버 Pages.doc 영속 주기. updateDoc(deferSync) 는 sync enqueue 를 생략하므로
 // (DB 협업의 skipCollab 서버 영속과 동일한 역할을) 이 주기 업서트가 담당한다.
@@ -39,6 +51,8 @@ export type CollabSession =
       awareness: Awareness;
       /** 서버 초기 sync 완료 여부. true 가 되기 전에는 에디터를 read-only 로 둔다. */
       synced: boolean;
+      /** 재연결 소진 등으로 서버 sync 가 불가한 상태(degraded 편집 폴백 게이팅용). */
+      syncFailed: boolean;
       /** 로컬 IndexedDB 로드 완료 여부. */
       idbLoaded: boolean;
       /** 로컬 로드 시점 doc 에 콘텐츠가 있었는지(빈 doc 오편집 방지 게이팅용). */
@@ -59,6 +73,7 @@ export function useCollabSession(
   // workspaceId 가 없는(미로드/레거시) 페이지는 기존대로 현재 워크스페이스로 취급한다.
   const enabled = flagEnabled && (!pageWorkspaceId || pageWorkspaceId === currentWorkspaceId);
   const [synced, setSynced] = useState(false);
+  const [syncFailed, setSyncFailed] = useState(false);
   const [idbLoaded, setIdbLoaded] = useState(false);
   const [docNotEmpty, setDocNotEmpty] = useState(false);
   const docRef = useRef<Y.Doc | null>(null);
@@ -98,6 +113,7 @@ export function useCollabSession(
     // 덮지 않도록 활성 페이지로 등록한다(cleanup 에서 해제).
     registerPageCollab(pageId);
     setSynced(false);
+    setSyncFailed(false);
     setIdbLoaded(false);
     setDocNotEmpty(false);
     setConnStatus("reconnecting");
@@ -106,6 +122,8 @@ export function useCollabSession(
     let provider: QnWsProvider | null = null;
     let materializeTimer: number | null = null;
     let serverSynced = false;
+    // 재연결 소진("failed") 상태 — degraded 편집 폴백 중인지(materialize 게이트에 사용).
+    let syncFailedLocal = false;
     // 이 클라이언트에서 발생한 Y 편집이 있는지(원격 수신·IDB 로드 적용분 제외).
     // 편집한 클라이언트만 서버 Pages.doc 업서트를 책임진다(view-only 는 업서트 안 함).
     let localEdited = false;
@@ -117,13 +135,28 @@ export function useCollabSession(
       if (serverDocSyncTimer !== null) return;
       serverDocSyncTimer = window.setTimeout(() => {
         serverDocSyncTimer = null;
-        if (cancelled || !localEdited) return;
-        const latest = usePageStore.getState().pages[pageId];
-        if (!latest) return;
-        localEdited = false;
-        enqueuePageUpsertForSync(latest);
+        flushServerDocSyncNow();
       }, SERVER_DOC_SYNC_INTERVAL_MS);
     };
+    const flushServerDocSyncNow = () => {
+      if (cancelled || !localEdited) return;
+      if (serverDocSyncTimer !== null) {
+        window.clearTimeout(serverDocSyncTimer);
+        serverDocSyncTimer = null;
+      }
+      const latest = usePageStore.getState().pages[pageId];
+      if (!latest) return;
+      localEdited = false;
+      enqueuePageUpsertForSync(latest);
+    };
+
+    // 본문에 등장한 자산 ref 추적 — 새 이미지/파일 삽입 감지용. 비-업로더의 다운로드 인가는
+    // 서버 AssetUsage(페이지 업서트가 기록)에 의존하므로, 새 자산이 Y 로 피어에게 전파된 뒤
+    // 주기 업서트(8s)까지 기다리면 피어의 presign 재시도 예산을 넘겨 이미지가 깨진다.
+    // 새 자산 감지 시 업서트를 즉시 flush 해 인가 전파 지연을 줄인다.
+    const knownAssetRefs = new Set<string>(
+      extractAssetRefs(usePageStore.getState().pages[pageId]?.doc),
+    );
 
     // Y.Doc 변경 → 디바운스 materialize → Pages.doc(JSON)
     const scheduleMaterialize = () => {
@@ -132,7 +165,10 @@ export function useCollabSession(
         materializeTimer = null;
         // 서버 sync 전(IndexedDB 단독 로드 등)의 로컬 Y 상태는 stale 일 수 있다 —
         // 서버 룸과 병합되기 전에 materialize 하면 최신 본문을 과거로 되돌린다. sync 후에만 저장.
-        if (!serverSynced) return;
+        // 예외: degraded 편집 폴백(재연결 소진) 중 사용자가 실제로 편집했다면 materialize 를
+        // 허용한다 — 차단하면 store 가 stale 인 채 이탈 시 업서트돼 오히려 본문이 회귀하고,
+        // 오프라인 편집(연결 유지 세션의 WS 단절)과 동일한 동작이 유지되어야 하기 때문.
+        if (!serverSynced && !(syncFailedLocal && localEdited)) return;
         // 시드·sync 전 빈 Y.Doc 을 page.doc 으로 materialize 하면 기존 본문을 덮어쓴다(데이터 유실).
         // 미시드(빈 본문)면 저장 생략. 의도적 비우기는 빈 문단(length≥1)이라 통과한다.
         if (isCollabDocBodyEmpty(doc)) return;
@@ -148,7 +184,22 @@ export function useCollabSession(
           // 단방향(Y→JSON) store 반영. deferSync 는 sync enqueue 를 생략하므로
           // 서버 영속은 아래 scheduleServerDocSync(주기 업서트)가 담당한다.
           usePageStore.getState().updateDoc(pageId, json, { deferSync: true });
-          scheduleServerDocSync();
+          // 새 자산 ref 가 나타났으면(이미지 삽입 등) 즉시 업서트 — AssetUsage 조기 기록으로
+          // 피어의 presign 403(인가 전파 지연) 창을 최소화한다. 원격 수신분(localEdited=false)은
+          // flush 가 no-op 이고, ref 는 known 에 적재만 된다(업서트 책임은 업로더/편집자).
+          const refs = extractAssetRefs(json);
+          let hasNewAsset = false;
+          for (const ref of refs) {
+            if (!knownAssetRefs.has(ref)) {
+              knownAssetRefs.add(ref);
+              hasNewAsset = true;
+            }
+          }
+          if (hasNewAsset) {
+            flushServerDocSyncNow();
+          } else {
+            scheduleServerDocSync();
+          }
         } catch {
           /* 변환 실패 시 다음 변경에서 재시도 */
         }
@@ -206,6 +257,11 @@ export function useCollabSession(
       provider.on("status", (s) => {
         if (cancelled) return;
         setConnStatus(toBadgeStatus(s as ProviderStatus, provider!.isSynced));
+        if (s === "failed") {
+          // 재연결 소진 — 에디터가 degraded 편집 폴백(로컬 doc 바인딩)을 열 수 있게 알린다.
+          syncFailedLocal = true;
+          setSyncFailed(true);
+        }
         if (s === "disconnected" && !missingCheckStarted) {
           missingCheckStarted = true;
           void verifyPageStillExists();
@@ -214,7 +270,9 @@ export function useCollabSession(
       provider.on("synced", () => {
         if (!cancelled) {
           serverSynced = true;
+          syncFailedLocal = false;
           setSynced(true);
+          setSyncFailed(false);
           setConnStatus(toBadgeStatus("connected", true));
         }
       });
@@ -250,6 +308,7 @@ export function useCollabSession(
     doc: docRef.current,
     awareness: awarenessRef.current,
     synced,
+    syncFailed,
     idbLoaded,
     docNotEmpty,
   };

@@ -18,7 +18,7 @@ import {
 } from "./wsProtocol";
 
 type ProviderEvent = "synced" | "status";
-type StatusValue = "connecting" | "connected" | "disconnected" | "offline";
+type StatusValue = "connecting" | "connected" | "disconnected" | "offline" | "failed";
 
 export type QnWsProviderOptions = {
   doc: Y.Doc;
@@ -31,6 +31,10 @@ export type QnWsProviderOptions = {
   maxBackoffMs?: number;
   /** 연속 재연결 시도 최대 횟수(초과 시 중단). 기본 3. 0 이면 재연결 안 함. */
   maxReconnectAttempts?: number;
+  /** 연결 후 이 시간 안에 첫 sync 가 안 오면 연결을 끊고 재시도(ms). 기본 15초. */
+  syncTimeoutMs?: number;
+  /** 재연결 소진("failed") 후 저빈도 자기치유 재시도 간격(ms). 기본 60초. 0 이면 안 함. */
+  failedRetryIntervalMs?: number;
   /** 프레즌스용 awareness(없으면 Phase 1 동작 그대로). */
   awareness?: Awareness;
 };
@@ -38,6 +42,9 @@ export type QnWsProviderOptions = {
 // 수신 update 적용 시 사용하는 origin — 로컬 echo 전송 방지 + 로컬 편집 판별(useCollabSession)에 사용.
 export const QN_WS_REMOTE_ORIGIN = Symbol("qn-ws-remote");
 const REMOTE_ORIGIN = QN_WS_REMOTE_ORIGIN;
+
+// 상태 차이가 없을 때 Y.encodeStateAsUpdate 가 반환하는 빈 update 의 바이트 길이([0,0]).
+const EMPTY_UPDATE_BYTE_LENGTH = 2;
 
 export class QnWsProvider {
   private doc: Y.Doc;
@@ -55,6 +62,9 @@ export class QnWsProvider {
   private retries = 0;
   private pingTimer: number | null = null;
   private reconnectTimer: number | null = null;
+  private syncTimeoutMs: number;
+  private failedRetryIntervalMs: number;
+  private syncTimeoutTimer: number | null = null;
   private offline = false;
   private listeners: Record<ProviderEvent, Set<(arg?: unknown) => void>> = {
     synced: new Set(),
@@ -69,6 +79,8 @@ export class QnWsProvider {
     this.pingIntervalMs = opts.pingIntervalMs ?? 240_000;
     this.maxBackoffMs = opts.maxBackoffMs ?? 15_000;
     this.maxReconnectAttempts = opts.maxReconnectAttempts ?? 3;
+    this.syncTimeoutMs = opts.syncTimeoutMs ?? 15_000;
+    this.failedRetryIntervalMs = opts.failedRetryIntervalMs ?? 60_000;
     this.doc.on("update", this.handleLocalUpdate);
     this.awareness = opts.awareness ?? null;
     if (this.awareness) {
@@ -113,6 +125,9 @@ export class QnWsProvider {
       this.retries = 0;
       this.emit("status", "connected" as StatusValue);
       this.sendMsg({ t: "hello", sv: Y.encodeStateVector(this.doc) });
+      // 연결은 됐지만 첫 sync 가 오지 않는 상태(대용량 응답 부분 전송 등)를 감지 —
+      // 방치하면 synced 영구 false 로 에디터가 read-only 에 잠긴다. 끊고 재시도한다.
+      this.startSyncTimeout();
       this.startPing();
       // 새/재연결 시 로컬 awareness 를 즉시 피어에 알린다.
       if (this.awareness) {
@@ -209,16 +224,23 @@ export class QnWsProvider {
     if (!msg) return;
     if (msg.t === "sync") {
       Y.applyUpdate(this.doc, msg.update, REMOTE_ORIGIN);
-      // sv-reply(서버가 모르는 로컬 delta 업로드)는 연결당 첫 sync 에서만 보낸다.
-      // 첫 sync 이후의 편집은 doc update → "update" 메시지로 전송되므로 매번 보낼 필요가 없다.
-      // hello 재동기화(탭 전면 복귀 등)의 sync 응답마다 보내면 stale IDB 잔재가 서버 룸에 반복
-      // append 되어 권위 본문을 옛 내용으로 오염시킨다(H3). 재연결 시 synced=false 로 리셋되므로,
-      // 끊긴 동안의 편집분은 다음 첫 sync 의 sv-reply 로 정상 업로드된다(오프라인 편집 복구 유지).
+      // sv-reply(서버가 모르는 로컬 delta 업로드): 연결당 첫 sync 에서는 무조건 보낸다.
+      // 첫 sync 이후(탭 전면 복귀 등 hello 재동기화)의 sync 응답에는 **서버가 실제로 모르는
+      // delta 가 있을 때만** 보낸다 — update 전송은 fire-and-forget(ACK 없음)이라 서버 append
+      // 실패·전송 드롭 시 그 편집이 룸 권위에서 영구 이탈하는데, 이 조건부 재조정이 유일한
+      // 자기치유 경로다(8인 동시 편집 폭주에서 일부 인원 작성분 전소 사고의 직접 원인).
+      // 과거 "매 sync 마다 무조건 재전송"은 동일 diff 반복 append 로 룸 로그를 오염시켰으므로
+      // (H3), 빈 diff 는 반드시 건너뛴다 — 서버가 delta 를 반영하면 다음 diff 는 비게 되어
+      // 반복 전송이 자연 종료된다.
+      const diff = Y.encodeStateAsUpdate(this.doc, msg.sv);
+      const diffHasContent = diff.byteLength > EMPTY_UPDATE_BYTE_LENGTH;
       if (!this.synced) {
-        const diff = Y.encodeStateAsUpdate(this.doc, msg.sv);
+        this.stopSyncTimeout();
         this.sendMsg({ t: "sv-reply", update: diff });
         this.synced = true;
         this.emit("synced");
+      } else if (diffHasContent) {
+        this.sendMsg({ t: "sv-reply", update: diff });
       }
       return;
     }
@@ -368,8 +390,27 @@ export class QnWsProvider {
     }
   }
 
+  private startSyncTimeout(): void {
+    this.stopSyncTimeout();
+    if (this.syncTimeoutMs <= 0) return;
+    this.syncTimeoutTimer = window.setTimeout(() => {
+      this.syncTimeoutTimer = null;
+      if (this.destroyed || this.synced) return;
+      // 소켓을 정리하고 handleClose 경로로 재시도한다(detachSocket 은 onclose 를 떼므로 직접 호출).
+      this.detachSocket();
+      this.handleClose();
+    }, this.syncTimeoutMs);
+  }
+  private stopSyncTimeout(): void {
+    if (this.syncTimeoutTimer !== null) {
+      window.clearTimeout(this.syncTimeoutTimer);
+      this.syncTimeoutTimer = null;
+    }
+  }
+
   private handleClose(): void {
     this.stopPing();
+    this.stopSyncTimeout();
     // 끊긴 동안의 배칭 버퍼는 폐기 — 재연결 첫 sync 의 sv-reply 가 doc 전체 diff 로 복구한다.
     this.discardPendingUpdates();
     this.ws = null;
@@ -379,10 +420,20 @@ export class QnWsProvider {
     if (this.offline) return; // offline 상태는 handleOffline 이 status 를 관리 — 덮어쓰지 않음
     this.emit("status", "disconnected" as StatusValue);
     if (this.destroyed) return;
-    // 무한 재연결 방지: 연속 실패가 한도(기본 3회)에 도달하면 재연결을 중단한다.
-    // (깨진/없는 룸 등 영구 실패 시 1초 주기 무한 루프·콘솔 스팸을 막음. 콘솔 에러 자체는 허용.)
-    // 네트워크 복귀(handleOnline)나 페이지 재진입(새 provider)에서는 retries 가 리셋돼 다시 시도한다.
-    if (this.retries >= this.maxReconnectAttempts) return;
+    // 무한 재연결 방지: 연속 실패가 한도(기본 3회)에 도달하면 즉시 재연결을 멈추고 "failed" 를
+    // 알린다(세션은 이를 받아 degraded 편집 폴백을 연다 — 영구 read-only 잠금 방지).
+    // 이후에는 저빈도(기본 60초) 자기치유 재시도만 남긴다 — 과거 1초 주기 무한 루프 사고와 달리
+    // 서버 비용·콘솔 스팸이 무시 가능한 수준이고, 서버가 복구되면 사용자 개입 없이 재동기화된다.
+    if (this.retries >= this.maxReconnectAttempts) {
+      this.emit("status", "failed" as StatusValue);
+      if (this.failedRetryIntervalMs > 0) {
+        this.reconnectTimer = window.setTimeout(() => {
+          this.retries = 0;
+          this.connect();
+        }, this.failedRetryIntervalMs);
+      }
+      return;
+    }
     const delay = Math.min(this.maxBackoffMs, 500 * 2 ** this.retries);
     this.retries += 1;
     this.reconnectTimer = window.setTimeout(() => this.connect(), delay);
@@ -409,6 +460,7 @@ export class QnWsProvider {
     this.destroyed = true;
     this.doc.off("update", this.handleLocalUpdate);
     this.stopPing();
+    this.stopSyncTimeout();
     this.discardPendingUpdates();
     if (this.awarenessSendTimer !== null) {
       window.clearTimeout(this.awarenessSendTimer);

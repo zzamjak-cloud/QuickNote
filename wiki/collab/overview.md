@@ -142,7 +142,7 @@ stale SW = stale epoch — 배포 정합은 [collab-live-deploy-checklist §1.8]
 | `src/lib/collab/useCollabSession.ts` | 페이지 세션(Y.Doc·IDB·materialize·synced 게이트) |
 | `src/lib/collab/useDatabaseCollabSession.ts` | DB 구조 세션 |
 | `src/lib/collab/yjsDoc.ts` | 시드(buildSeedUpdate)·빈/placeholder 판정·JSON↔Y 변환 |
-| `src/lib/collab/QnWsProvider.ts` | WS 프로토콜(hello/ping/sync/update/awareness) + 송신 청킹·수신 재조립·CONNECTING 소켓 cleanup. keepalive 는 경량 ping(4분)·hello 는 연결/재연결/탭 전면 복귀 시만(서버 상태 로드 비용). update·awareness 송신은 leading+쿨다운 배칭(250/300ms) — flush 는 destroy/beforeunload, 단절 시 버퍼 폐기(sv-reply 복구) |
+| `src/lib/collab/QnWsProvider.ts` | WS 프로토콜(hello/ping/sync/update/awareness) + 송신 청킹·수신 재조립·CONNECTING 소켓 cleanup. keepalive 는 경량 ping(4분)·hello 는 연결/재연결/탭 전면 복귀 시만(서버 상태 로드 비용). update·awareness 송신은 leading+쿨다운 배칭(250/300ms) — flush 는 destroy/beforeunload, 단절 시 버퍼 폐기(sv-reply 복구). sync 타임아웃(15s)·재연결 소진 시 "failed" emit + 60s 자기치유 재시도. synced 후 sync 응답에도 서버가 모르는 delta 는 sv-reply 재조정(빈 diff 는 전송 금지 — 반복 append 오염 방지) |
 | `src/lib/collab/wsProtocol.ts` | 직렬화(base64+JSON) + `chunk` 분할/재조립(`CHUNK_THRESHOLD=28KB`) |
 | `infra/lambda/realtime/protocol.ts` | 서버 직렬화 + 청킹(클라와 바이트 계약 일치) |
 | `infra/lambda/realtime/chunks.ts` | 서버 수신 chunk 재조립 버퍼(rt-chunks, TTL 60s) |
@@ -163,6 +163,19 @@ stale SW = stale epoch — 배포 정합은 [collab-live-deploy-checklist §1.8]
    collab 으로 열면 sync 가 단일 WS 메시지로 API GW 한도를 넘어 연결이 끊기고 1초 주기 무한 재연결.
    본문이 서버 룸에 한 번도 저장되지 못해 매 재연결마다 전체 본문을 sv-reply 로 재전송 → 영구 루프.
    상세·교훈은 아래 **"WS 메시지 청킹"** 절. (epoch v4→v5 격리)
+7. **8인 동시 편집 3증상(본문 유실·이미지 403·새로고침 후 입력 차단)** — 2026-07-10, DB 항목 페이지.
+   (a) 서버 compactPage 가 머지 후 로그를 **재조회해 전부 삭제** → 그 사이 append 된 update 를
+   머지 없이 삭제(영구 유실). + 스냅샷 무조건 Put(동시 compaction last-writer-wins) + Query 1MB
+   미페이지네이션. → 머지 포함 항목만 삭제 + version 조건부 Put + 페이지네이션(yjsStore.ts).
+   (b) update 는 fire-and-forget 인데 sv-reply 가 "연결당 첫 sync"에만 걸려 있어 서버 append
+   실패·드롭된 편집이 룸에서 영구 이탈 → synced 후에도 비어있지 않은 diff 는 sv-reply 재조정.
+   append 1회 재시도 + 팬아웃 프레임 재시도(sync.ts) + 청크 완료판정 ConsistentRead(chunks.ts).
+   (c) sync 미완결(부분 전송 등) 시 synced 영구 false + 재연결 3회 소진 후 영구 중단 → 에디터
+   영구 read-only. → sync 타임아웃(15s)·failed emit·60s 자기치유 + **degraded 편집 폴백**
+   (IDB 로드된 비어있지 않고 렌더 가능한 doc 만 바인딩, 빈 doc 은 서버 시드 금지 유지 — 원칙 1).
+   (d) 이미지: 비-업로더 인가가 AssetUsage(업로더 8s 주기 업서트로 기록)에 의존하는데 클라
+   재시도 예산(~5s)이 짧아 403 고착 → 새 자산 ref 감지 시 업서트 즉시 flush(useCollabSession)
+   + 재시도 예산 ~12.9s 연장(images/hooks.ts). 프로토콜 비변경 — epoch bump 불필요.
 
 각 사고의 상세 메커니즘·검증 절차는 [`infra/collab-live-deploy-checklist.md`](../infra/collab-live-deploy-checklist.md) §0·§1.5·§1.6.
 

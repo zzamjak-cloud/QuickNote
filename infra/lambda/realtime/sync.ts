@@ -63,21 +63,29 @@ export const handler: APIGatewayProxyHandler = async (event) => {
   /**
    * 특정 커넥션에 메시지를 전송한다. 28KB 초과 메시지는 chunk 로 분할한다.
    * GoneException(끊긴 연결) 발생 시 룸에서 제거하고 APIGW 연결도 삭제한다.
+   * 일시 오류(throttle 등)는 짧은 백오프로 재시도한다 — 다중 프레임 메시지가 중간에
+   * 끊기면 수신측 재조립이 영구 미완성이 되어 sync 자체가 불발되기 때문(입력 차단 사고).
    */
   const post = async (target: string, data: string) => {
     const frames = splitMessage(data, newMsgId());
     for (const f of frames) {
-      try {
-        await api.send(
-          new PostToConnectionCommand({ ConnectionId: target, Data: Buffer.from(f) }),
-        );
-      } catch (e: unknown) {
-        if ((e as { name?: string }).name === "GoneException") {
-          // 스테일 커넥션 정리: DynamoDB 레코드 삭제 + APIGW 연결 해제
-          await leaveRoom(target);
-          await api.send(new DeleteConnectionCommand({ ConnectionId: target })).catch(() => {});
+      let sent = false;
+      for (let attempt = 0; attempt < 3 && !sent; attempt++) {
+        try {
+          await api.send(
+            new PostToConnectionCommand({ ConnectionId: target, Data: Buffer.from(f) }),
+          );
+          sent = true;
+        } catch (e: unknown) {
+          if ((e as { name?: string }).name === "GoneException") {
+            // 스테일 커넥션 정리: DynamoDB 레코드 삭제 + APIGW 연결 해제
+            await leaveRoom(target);
+            await api.send(new DeleteConnectionCommand({ ConnectionId: target })).catch(() => {});
+            return; // 끊긴 연결 — 남은 프레임 전송 무의미.
+          }
+          if (attempt === 2) return; // 재시도 소진 — 부분 전송은 수신측 재연결 시 폐기된다.
+          await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
         }
-        break; // 이 연결에는 더 이상 전송하지 않는다.
       }
     }
   };
@@ -118,8 +126,16 @@ export const handler: APIGatewayProxyHandler = async (event) => {
     return { statusCode: 200, body: "awareness" };
   }
 
-  // update 메시지: DynamoDB 에 append 후 동일 룸의 다른 커넥션에 브로드캐스트
-  await appendPageUpdate(pageId, msg.update);
+  // update 메시지: DynamoDB 에 append 후 동일 룸의 다른 커넥션에 브로드캐스트.
+  // append 실패는 그 편집이 룸 권위에서 이탈하는 것(클라는 fire-and-forget 이라 인지 못함)
+  // — 일시 오류(throttle 등)는 1회 재시도로 흡수한다. 최종 실패는 클라의 다음 hello 재조정
+  // (sv-reply 조건부 재전송)이 복구한다.
+  try {
+    await appendPageUpdate(pageId, msg.update);
+  } catch {
+    await new Promise((r) => setTimeout(r, 150));
+    await appendPageUpdate(pageId, msg.update);
+  }
   const targets = (await roomConnections(pageId)).filter((id) => id !== connectionId);
   const broadcast = serializeServerMessage({ t: "update", update: msg.update });
   await Promise.all(targets.map((id) => post(id, broadcast)));

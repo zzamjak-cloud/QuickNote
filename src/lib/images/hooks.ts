@@ -57,8 +57,11 @@ export function initialImageUrl(srcOrRef: string | null | undefined): string | n
 
 // 협업 수신 직후 자산 confirm/AssetUsage 전파 전이라 presign 이 일시적으로 실패(403 등)할 수 있다.
 // 새로고침 없이 자가 치유하도록 백오프로 몇 회 재시도한다. (초기 시도 포함 총 시도 횟수)
-const IMAGE_RESOLVE_MAX_ATTEMPTS = 4;
+// 비-업로더의 다운로드 인가는 AssetUsage 기록(업로더 materialize 1.8s + 주기 업서트 최대 8s)에
+// 의존하므로, 재시도 창이 그 전파 지연(~10s)보다 길어야 한다 — 총 ~12.9s(0.7+1.4+2.8+4+4).
+const IMAGE_RESOLVE_MAX_ATTEMPTS = 6;
 const IMAGE_RESOLVE_BASE_DELAY_MS = 700;
+const IMAGE_RESOLVE_MAX_DELAY_MS = 4000;
 
 export function useImageUrl(
   srcOrRef: string | null | undefined,
@@ -138,7 +141,7 @@ export function useImageUrl(
         if (attempt < IMAGE_RESOLVE_MAX_ATTEMPTS - 1) {
           retryTimer = setTimeout(() => {
             if (!canceled) void resolveFromNetwork(attempt + 1);
-          }, IMAGE_RESOLVE_BASE_DELAY_MS * 2 ** attempt);
+          }, Math.min(IMAGE_RESOLVE_MAX_DELAY_MS, IMAGE_RESOLVE_BASE_DELAY_MS * 2 ** attempt));
           return;
         }
         setError(mapImageErrorMessage(e));
