@@ -235,6 +235,31 @@ export async function syncPageAssetUsage(args: {
     });
   }
   await batchWriteChunks(args.doc, tableName, items);
+  // 실사용 row 가 기록된 자산의 provisional row(confirmImage 선제 등록)는 역할이 끝났으므로
+  // 같은 워크스페이스 것만 정리한다. 실패해도 인가에는 무해(과잉 허용 아님 — 동일 워크스페이스).
+  const assetIds = Array.from(new Set(items.map((it) => it.assetId as string)));
+  const provisionalDeletes = assetIds.map((assetId) => ({
+    assetId,
+    sk: `WS#${args.workspaceId}#PROVISIONAL`,
+  }));
+  await deleteUsageKeysIgnoreMissing(args.doc, tableName, provisionalDeletes).catch(() => {});
+}
+
+/** 존재하지 않는 키가 섞여 있어도 무시하고 삭제한다(BatchWrite 는 미존재 키 삭제가 no-op). */
+async function deleteUsageKeysIgnoreMissing(
+  doc: DynamoDBDocumentClient,
+  tableName: string,
+  keys: Array<{ assetId: string; sk: string }>,
+): Promise<void> {
+  for (let i = 0; i < keys.length; i += 25) {
+    await doc.send(
+      new BatchWriteCommand({
+        RequestItems: {
+          [tableName]: keys.slice(i, i + 25).map((k) => ({ DeleteRequest: { Key: k } })),
+        },
+      }),
+    );
+  }
 }
 
 /** permanentlyDeletePage / emptyTrash 시 — 해당 페이지의 모든 AssetUsage row 제거. */

@@ -80,8 +80,8 @@ export const GET_IMAGE_UPLOAD_URL = `
   }
 `;
 export const CONFIRM_IMAGE = `
-  mutation ConfirmImage($imageId: ID!) {
-    confirmImage(imageId: $imageId) { ${IMAGE_ASSET_FIELDS} }
+  mutation ConfirmImage($imageId: ID!, $workspaceId: ID) {
+    confirmImage(imageId: $imageId, workspaceId: $workspaceId) { ${IMAGE_ASSET_FIELDS} }
   }
 `;
 

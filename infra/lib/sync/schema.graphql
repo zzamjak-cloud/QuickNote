@@ -654,7 +654,7 @@ type Mutation {
   permanentlyDeleteDatabase(id: ID!, workspaceId: ID!): Boolean!
 
   getImageUploadUrl(input: ImageUploadInput!): ImageUploadResult!
-  confirmImage(imageId: ID!): ImageAsset!
+  confirmImage(imageId: ID!, workspaceId: ID): ImageAsset!
 
   markNotificationRead(notificationId: ID!): Notification!
   deleteMyNotification(notificationId: ID!): Boolean!

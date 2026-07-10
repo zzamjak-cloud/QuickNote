@@ -7,6 +7,7 @@ import {
   CONFIRM_IMAGE,
 } from "../sync/graphql/operations";
 import { encodeImageRef } from "../sync/imageScheme";
+import { useWorkspaceStore } from "../../store/workspaceStore";
 
 const ALLOWED_MIME = new Set([
   "image/png",
@@ -62,12 +63,16 @@ export async function uploadImage(
     if (!putRes.ok) {
       throw new Error(`upload failed: ${putRes.status}`);
     }
-
-    await appsyncClient().graphql({
-      query: CONFIRM_IMAGE,
-      variables: { imageId },
-    });
   }
+
+  // alreadyUploaded(중복 재사용)여도 confirm 을 호출한다 — 서버가 현재 워크스페이스에
+  // provisional AssetUsage 를 선제 등록해, 페이지 doc 영속 전에도 멤버 다운로드 인가가 성립한다
+  // (잘라내기→붙여넣기 등으로 doc 이 늦게/안 실리면 전원 403 고착되던 사고의 근본 수정).
+  const workspaceId = useWorkspaceStore.getState().currentWorkspaceId ?? undefined;
+  await appsyncClient().graphql({
+    query: CONFIRM_IMAGE,
+    variables: { imageId, workspaceId },
+  });
 
   return encodeImageRef(imageId);
 }

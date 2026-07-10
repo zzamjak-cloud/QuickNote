@@ -158,11 +158,8 @@ export function useCollabSession(
       extractAssetRefs(usePageStore.getState().pages[pageId]?.doc),
     );
 
-    // Y.Doc 변경 → 디바운스 materialize → Pages.doc(JSON)
-    const scheduleMaterialize = () => {
-      if (materializeTimer !== null) window.clearTimeout(materializeTimer);
-      materializeTimer = window.setTimeout(() => {
-        materializeTimer = null;
+    // Y.Doc → Pages.doc(JSON) materialize 본문. 디바운스 타이머와 이탈 flush 가 공유한다.
+    const materializeNow = () => {
         // 서버 sync 전(IndexedDB 단독 로드 등)의 로컬 Y 상태는 stale 일 수 있다 —
         // 서버 룸과 병합되기 전에 materialize 하면 최신 본문을 과거로 되돌린다. sync 후에만 저장.
         // 예외: degraded 편집 폴백(재연결 소진) 중 사용자가 실제로 편집했다면 materialize 를
@@ -203,6 +200,13 @@ export function useCollabSession(
         } catch {
           /* 변환 실패 시 다음 변경에서 재시도 */
         }
+    };
+    // Y.Doc 변경 → 디바운스 materialize → Pages.doc(JSON)
+    const scheduleMaterialize = () => {
+      if (materializeTimer !== null) window.clearTimeout(materializeTimer);
+      materializeTimer = window.setTimeout(() => {
+        materializeTimer = null;
+        materializeNow();
       }, MATERIALIZE_DEBOUNCE_MS);
     };
     const onDocUpdate = (_update: Uint8Array, origin: unknown) => {
@@ -280,6 +284,14 @@ export function useCollabSession(
     })();
 
     return () => {
+      // 이탈 직전 pending materialize 를 동기 반영(cancelled 세팅 전에 실행해야 내부
+      // flush 가드에 걸리지 않는다) — 마지막 1.8s 내 편집(붙여넣은 이미지 ref 등)이
+      // 아래 이탈 업서트에서 빠져 Pages.doc/AssetUsage 에 영영 안 실리는 사고 방지(2026-07-11).
+      if (materializeTimer !== null) {
+        window.clearTimeout(materializeTimer);
+        materializeTimer = null;
+        materializeNow();
+      }
       cancelled = true;
       unregisterPageCollab(pageId);
       doc.off("update", onDocUpdate);

@@ -83,7 +83,11 @@ export async function handler(event: AppSyncEvent) {
     case "getImageUploadUrl":
       return getUploadUrl(sub, event.arguments.input as UploadInput);
     case "confirmImage":
-      return confirmImage(sub, event.arguments.imageId as string);
+      return confirmImage(
+        sub,
+        event.arguments.imageId as string,
+        event.arguments.workspaceId as string | undefined,
+      );
     case "getImageDownloadUrl":
       return getDownloadUrl(sub, event.arguments.imageId as string);
     default:
@@ -220,7 +224,7 @@ async function createPendingAsset(
   }
 }
 
-async function confirmImage(ownerId: string, imageId: string) {
+async function confirmImage(ownerId: string, imageId: string, workspaceId?: string) {
   const found = await ddb.send(
     new GetCommand({ TableName: TABLE, Key: { id: imageId } }),
   );
@@ -245,10 +249,55 @@ async function confirmImage(ownerId: string, imageId: string) {
     }),
   );
 
+  // 선제(provisional) AssetUsage 등록 — 비-소유자 다운로드 인가는 AssetUsage 에 의존하는데,
+  // 실사용 row 는 페이지 업서트가 기록하므로 협업(Y 룸 권위) 페이지에서는 doc 이 서버에
+  // 늦게/영영 안 실리는 창이 생긴다(붙여넣기 직후 이탈 등 → 전원 403 고착 사고, 2026-07-11).
+  // 업로더가 실제 멤버인 워크스페이스에 한해 확정 시점에 인가 근거를 미리 깔아 그 창을 없앤다.
+  // 실사용 row 가 기록되면 syncPageAssetUsage 가 provisional 을 정리한다.
+  if (workspaceId) {
+    await registerProvisionalUsage(ownerId, imageId, workspaceId).catch((e) => {
+      // 등록 실패가 업로드 자체를 깨면 안 된다 — 인가는 실사용 row 로도 결국 복구 가능.
+      console.error("confirmImage: provisional usage 등록 실패", imageId, e);
+    });
+  }
+
   const updated = await ddb.send(
     new GetCommand({ TableName: TABLE, Key: { id: imageId } }),
   );
   return updated.Item;
+}
+
+/** 업로더가 view 권한을 가진 워크스페이스인지 검증 후 provisional usage row 를 기록한다. */
+async function registerProvisionalUsage(
+  ownerId: string,
+  imageId: string,
+  workspaceId: string,
+): Promise<void> {
+  const caller = await getCallerMember(ddb, MEMBERS_TABLE, ownerId).catch(() => null);
+  if (!caller) return;
+  const allowed = await hasWorkspaceViewAccess({
+    doc: ddb,
+    memberTeamsTableName: MEMBER_TEAMS_TABLE,
+    workspaceAccessTableName: WORKSPACE_ACCESS_TABLE,
+    caller,
+    workspaceId,
+  });
+  if (!allowed) return; // 소속 아닌 워크스페이스로의 등록 시도는 조용히 무시(IDOR 방지)
+  await ddb.send(
+    new PutCommand({
+      TableName: ASSET_USAGE_TABLE,
+      Item: {
+        assetId: imageId,
+        sk: `WS#${workspaceId}#PROVISIONAL`,
+        ownerId,
+        workspaceId,
+        provisional: true,
+        updatedAt: new Date().toISOString(),
+        // pageId 없음 — byPage GSI(페이지 재구성 삭제) 대상에서 제외되어
+        // 실사용 row 가 생기기 전까지 인가 근거로 유지된다.
+      },
+    }),
+  );
 }
 
 async function getDownloadUrl(callerSub: string, imageId: string) {
