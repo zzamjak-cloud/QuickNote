@@ -3,7 +3,13 @@ import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap
 import type { NodeViewProps } from "@tiptap/react";
 import { InputRule, Node, mergeAttributes, type Editor, type JSONContent } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
-import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
+import {
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  TextSelection,
+  type Transaction,
+} from "@tiptap/pm/state";
 import { isToggleContentEmpty } from "./toggleContentEmpty";
 import { getToggleNodeViewRenderKey } from "./toggleNodeViewKey";
 
@@ -58,6 +64,20 @@ function toggleTitleContentFromSelection(editor: Editor): JSONContent[] {
 
   const fallbackText = sourceNode.textContent.trim();
   return fallbackText ? [{ type: "text", text: fallbackText }] : [];
+}
+
+/** 트랜잭션의 현재 선택을 감싸는 토글의 제목(헤더) 안으로 커서를 옮긴다. */
+function focusEnclosingToggleHeader(tr: Transaction): boolean {
+  const $pos = tr.selection.$from;
+  for (let depth = $pos.depth; depth >= 0; depth -= 1) {
+    if ($pos.node(depth).type.name === "toggle") {
+      // 토글 시작 + 1(toggle 진입) + 1(toggleHeader 진입) = 헤더 인라인 콘텐츠 시작.
+      const headerInside = Math.min($pos.before(depth) + 2, tr.doc.content.size);
+      tr.setSelection(TextSelection.near(tr.doc.resolve(headerInside), 1));
+      return true;
+    }
+  }
+  return false;
 }
 
 function createToggleJson(editor: Editor): JSONContent {
@@ -242,6 +262,12 @@ export const Toggle = Node.create({
                 },
               ],
             })
+            .command(({ tr, dispatch }) => {
+              // 커서를 제목(헤더)으로 이동.
+              focusEnclosingToggleHeader(tr);
+              dispatch?.(tr);
+              return true;
+            })
             .run();
         },
       }),
@@ -362,7 +388,7 @@ export const Toggle = Node.create({
     return {
       setToggle:
         () =>
-        ({ editor, commands, tr, dispatch }) => {
+        ({ editor, chain, tr, dispatch }) => {
           const toggleJson = createToggleJson(editor);
           const replaceRange = findToggleReplaceRange(editor);
           if (replaceRange) {
@@ -371,28 +397,46 @@ export const Toggle = Node.create({
               replaceRange.to,
               editor.schema.nodeFromJSON(toggleJson),
             );
-            dispatch?.(tr);
+            // 생성 직후 커서를 제목(헤더)으로 — 토글 시작 + 2.
+            const headerInside = Math.min(replaceRange.from + 2, tr.doc.content.size);
+            tr.setSelection(TextSelection.near(tr.doc.resolve(headerInside), 1));
+            dispatch?.(tr.scrollIntoView());
             return true;
           }
-          return commands.insertContent(toggleJson);
+          return chain()
+            .insertContent(toggleJson)
+            .command(({ tr: t, dispatch: d }) => {
+              // insertContent 는 커서를 본문(자식)에 두므로 제목으로 되돌린다.
+              focusEnclosingToggleHeader(t);
+              d?.(t.scrollIntoView());
+              return true;
+            })
+            .run();
         },
       setHeadingToggle:
         (level: 1 | 2 | 3) =>
-        ({ commands }) =>
-          commands.insertContent({
-            type: this.name,
-            content: [
-              {
-                type: "toggleHeader",
-                attrs: { titleLevel: String(level) },
-                content: [],
-              },
-              {
-                type: "toggleContent",
-                content: [{ type: "paragraph" }],
-              },
-            ],
-          }),
+        ({ chain }) =>
+          chain()
+            .insertContent({
+              type: this.name,
+              content: [
+                {
+                  type: "toggleHeader",
+                  attrs: { titleLevel: String(level) },
+                  content: [],
+                },
+                {
+                  type: "toggleContent",
+                  content: [{ type: "paragraph" }],
+                },
+              ],
+            })
+            .command(({ tr, dispatch }) => {
+              focusEnclosingToggleHeader(tr);
+              dispatch?.(tr.scrollIntoView());
+              return true;
+            })
+            .run(),
     };
   },
 });

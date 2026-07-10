@@ -181,23 +181,15 @@ body,
 .toggle-block[data-open="false"] [data-toggle-content] {
   display: none;
 }
-/* 토글 제목이 비었을 때 placeholder 만 표시 */
-.ProseMirror summary.toggle-header[data-title-empty="true"]::after {
+/* 토글 제목 placeholder — 제목·본문이 모두 비었을 때만 표시.
+   래퍼(.toggle-block)의 라이브 속성(ToggleView 렌더키로 갱신)을 사용한다.
+   summary 의 data-title-empty 는 renderHTML 에서 1회 계산돼 타이핑 시 갱신되지 않으므로 쓰지 않는다. */
+.ProseMirror .toggle-block[data-title-empty="true"][data-content-empty="true"] summary.toggle-header::after {
   content: "토글 제목";
   color: rgb(161 161 170);
   pointer-events: none;
 }
-html.dark .ProseMirror summary.toggle-header[data-title-empty="true"]::after {
-  color: rgb(113 113 122);
-}
-.ProseMirror .toggle-block:not([data-text-color]) summary.toggle-header[data-title-empty="true"]:not([data-text-color]),
-.ProseMirror .toggle-block:not([data-text-color]) summary.toggle-header[data-title-empty="true"][data-text-color="default"],
-.ProseMirror .toggle-block[data-text-color="default"] summary.toggle-header[data-title-empty="true"]:not([data-text-color]) {
-  color: rgb(161 161 170);
-}
-html.dark .ProseMirror .toggle-block:not([data-text-color]) summary.toggle-header[data-title-empty="true"]:not([data-text-color]),
-html.dark .ProseMirror .toggle-block:not([data-text-color]) summary.toggle-header[data-title-empty="true"][data-text-color="default"],
-html.dark .ProseMirror .toggle-block[data-text-color="default"] summary.toggle-header[data-title-empty="true"]:not([data-text-color]) {
+html.dark .ProseMirror .toggle-block[data-title-empty="true"][data-content-empty="true"] summary.toggle-header::after {
   color: rgb(113 113 122);
 }
 /* 토글 본문이 비었을 때(빈 문단만 있어도) 회색 표시 */

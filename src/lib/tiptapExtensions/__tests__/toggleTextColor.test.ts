@@ -67,10 +67,16 @@ describe("toggle text color", () => {
     }
   });
 
-  it("토글 블록 색상이 빈 제목 회색 규칙에 가려지지 않는다", () => {
+  it("토글 제목 placeholder 는 제목·본문이 모두 빈 경우에만 표시된다(래퍼 라이브 속성)", () => {
     const css = readFileSync(join(process.cwd(), "src/index.css"), "utf8");
 
+    // 제목·본문이 모두 비었을 때만 placeholder 표시. summary 의 stale 속성이 아니라
+    // 래퍼(.toggle-block)의 라이브 data-title-empty/data-content-empty 를 사용한다.
     expect(css).toContain(
+      '.toggle-block[data-title-empty="true"][data-content-empty="true"] summary.toggle-header::after',
+    );
+    // 타이핑 시 갱신되지 않는 summary 자체의 data-title-empty 플레이스홀더 규칙은 없어야 한다.
+    expect(css).not.toContain(
       'summary.toggle-header[data-title-empty="true"]::after',
     );
   });
