@@ -204,9 +204,9 @@ export function BubbleToolbar({ editor, pageId }: Props) {
             nextAnchor = { top: r.top, right: r.right, bottom: r.bottom, left: r.left };
             nextPos = placeToolbar(nextAnchor, nextMode);
           } else {
-            nextMode = "hidden";
-            nextPos = null;
-            nextAnchor = null;
+            // 이미지 NodeView 가 리렌더(지연 로드·URL 해석) 중이라 nodeDOM 이 일시적으로 없을 수 있다.
+            // 이때 숨기면 툴바로 마우스를 옮기는 도중 사라진다 → 현 상태를 유지(early return).
+            return;
           }
         } else if (sel instanceof NodeSelection) {
           // 인라인 DB·HR 등 원자 블록의 NodeSelection — 텍스트 포매팅 툴바 숨김

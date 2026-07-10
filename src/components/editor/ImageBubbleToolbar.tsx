@@ -11,6 +11,7 @@ import {
   SquarePen,
 } from "lucide-react";
 import { useUiStore } from "../../store/uiStore";
+import { useImageMultiSelectStore } from "../../store/imageMultiSelectStore";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
 import { focusCaptionInput } from "../../lib/tiptapExtensions/mediaCaption";
 import { decodeImageRef } from "../../lib/sync/imageScheme";
@@ -67,6 +68,8 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
   const openCommentThread = useUiStore((s) => s.openCommentThread);
   const showToast = useUiStore((s) => s.showToast);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  // 다중 선택 이미지 개수(Ctrl/Cmd+클릭). 아웃라인·라운드를 한꺼번에 적용하기 위해 사용.
+  const multiCount = useImageMultiSelectStore((s) => s.positions.length);
 
   const sel = editor.state.selection;
   if (
@@ -100,11 +103,21 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
     outlineColor?: string;
     borderRadius?: number;
   }) => {
-    editor
-      .chain()
-      .setNodeSelection(blockStart)
-      .updateAttributes("image", patch)
-      .run();
+    // 다중 선택이 있으면 모든 이미지에, 없으면 현재 이미지에 적용.
+    // attrs 만 바뀌어 nodeSize 가 그대로이므로 위치가 체인 도중에도 유효하다.
+    const positions = useImageMultiSelectStore.getState().positions;
+    const doc = editor.state.doc;
+    // 위치가 여전히 image 노드를 가리키는지 검증(구조 편집으로 stale 된 위치 제외).
+    const targets = (positions.length > 0 ? positions : [blockStart]).filter(
+      (p) => doc.nodeAt(p)?.type.name === "image",
+    );
+    if (targets.length === 0) return;
+    let chain = editor.chain();
+    for (const pos of targets) {
+      chain = chain.setNodeSelection(pos).updateAttributes("image", patch);
+    }
+    // 앵커 이미지로 선택 복원(툴바 유지).
+    chain.setNodeSelection(blockStart).run();
   };
 
   const setAlign = (next: Align) => {
@@ -201,6 +214,11 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
           </AlignBtn>
           {outlineOpen ? (
             <div className="absolute right-0 top-9 z-50 w-52 rounded-md border border-zinc-200 bg-white p-2.5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              {multiCount > 1 ? (
+                <div className="mb-2 rounded bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300">
+                  선택한 {multiCount}개 이미지에 일괄 적용
+                </div>
+              ) : null}
               <div className="mb-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
                 아웃라인 두께
               </div>

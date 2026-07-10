@@ -1003,6 +1003,14 @@ export function BlockHandles({
     };
   }, [isMobile, editor]);
 
+  // 컨테이너(컬럼·콜아웃·탭·표) 핸들은 내부 블록 핸들과 구분되도록 색을 다르게 표시한다.
+  const isContainerHandle =
+    !!hover &&
+    (hover.node.type.name === "columnLayout" ||
+      hover.node.type.name === "callout" ||
+      hover.node.type.name === "tabBlock" ||
+      hover.node.type.name === "table");
+
   // 박스 드래그(마퀴) 중에는 그립·호버 UI만 숨긴다 — 고정 댓글 배지는 계속 보이게 함
   return (
     <HandleLayerBase
@@ -1025,9 +1033,19 @@ export function BlockHandles({
               onDragStart={isMobile ? undefined : onGripDragStart}
               onDragEnd={isMobile ? undefined : onGripDragEnd}
               onClick={onGripClick}
-              aria-label="블록 메뉴"
-              title={isMobile ? "블록 메뉴" : "클릭: 메뉴 | 드래그: 블록 이동"}
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-white/90 text-zinc-500 shadow-sm ring-1 ring-zinc-200/80 hover:bg-zinc-50 hover:text-zinc-800 dark:bg-zinc-900/90 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${POINTER_PRESS_FEEDBACK_CLASS}`}
+              aria-label={isContainerHandle ? "컨테이너 블록 메뉴" : "블록 메뉴"}
+              title={
+                isMobile
+                  ? "블록 메뉴"
+                  : isContainerHandle
+                    ? "컨테이너 블록 · 클릭: 메뉴 | 드래그: 이동"
+                    : "클릭: 메뉴 | 드래그: 블록 이동"
+              }
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md border shadow-sm ring-1 ${POINTER_PRESS_FEEDBACK_CLASS} ${
+                isContainerHandle
+                  ? "border-transparent bg-indigo-50 text-indigo-500 ring-indigo-300/70 hover:bg-indigo-100 hover:text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300 dark:ring-indigo-500/50 dark:hover:bg-indigo-900/60"
+                  : "border-transparent bg-white/90 text-zinc-500 ring-zinc-200/80 hover:bg-zinc-50 hover:text-zinc-800 dark:bg-zinc-900/90 dark:ring-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              }`}
             >
               {isMobile ? <MoreHorizontal size={15} /> : <GripVertical size={15} />}
             </button>

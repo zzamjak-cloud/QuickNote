@@ -550,12 +550,13 @@ function considerColumnCornerFromDom(
   containers.forEach((container) => {
     if (!(container instanceof HTMLElement)) return;
     const rect = container.getBoundingClientRect();
-    // 좌측 거터(GUTTER_LEFT_PX)부터 컨텐츠 시작 직후(+16)까지, 세로는 상단 밴드([top-10, top+24]).
+    // 좌측 거터(GUTTER_LEFT_PX)부터 컨텐츠 시작 직후(+16)까지, 세로는 상단 얇은 밴드([top-26, top+4]).
+    // 밴드를 얇게 유지해 컬럼 첫 블록의 행(top+4 아래)은 그 블록의 드래그 핸들이 잡히도록 한다.
     const inCornerZone =
       clientX >= rect.left - GUTTER_LEFT_PX &&
       clientX <= rect.left + 16 &&
-      clientY >= rect.top - 10 &&
-      clientY <= rect.top + 24;
+      clientY >= rect.top - 26 &&
+      clientY <= rect.top + 4;
     if (!inCornerZone) return;
     let pos: number | null = null;
     try {
@@ -656,9 +657,9 @@ function considerWrapperHandlesFromPos(
     if (!el) continue;
     const rectEl = visualElementForBlockNode(n.type.name, el);
     const rect = rectEl.getBoundingClientRect();
-    // 아래 CONTAINER_TOP_HANDLE_TYPES 게이트와 동일한 상단 밴드 — 본문 영역에선 등록하지 않아
-    // 내부 블록(문단·이미지 등)의 핸들을 가로채지 않는다.
-    const triggerH = 40;
+    // 상단 얇은 밴드에서만 wrapper(콜아웃·토글·인용) 핸들을 등록한다. 밴드가 넓으면 첫 블록
+    // 위까지 침범해 첫 블록의 드래그 핸들을 가로챈다 → 얇게(top-8 ~ top+14) 유지.
+    const triggerH = 14;
     if (clientY < rect.top - 8 || clientY > rect.top + triggerH) continue;
     // 가로 범위 밖(거터/우측 여백 제외) 이면 무시 — 다른 컬럼/형제로의 오인 방지
     if (clientX < rect.left - GUTTER_LEFT_PX || clientX > rect.right + RECT_PAD_X) continue;

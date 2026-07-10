@@ -10,6 +10,7 @@ import {
 } from "@tiptap/react";
 import { Plugin, NodeSelection } from "@tiptap/pm/state";
 import { useImageUrl, initialImageUrl } from "../images/hooks";
+import { useImageMultiSelectStore } from "../../store/imageMultiSelectStore";
 import {
   nextCaptionAlign,
   toggleSelectedMediaCaption,
@@ -84,6 +85,11 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
   const outlineWidth = typeof attrs.outlineWidth === "number" ? attrs.outlineWidth : 0;
   const outlineColor = attrs.outlineColor ?? "#4b5563";
   const borderRadius = typeof attrs.borderRadius === "number" ? attrs.borderRadius : 0;
+  // 다중 선택(Ctrl/Cmd+클릭) 표시 — 스토어 구독. 위치가 세트에 있으면 인디고 링.
+  const selfPos = typeof props.getPos === "function" ? props.getPos() : null;
+  const multiSelected = useImageMultiSelectStore(
+    (s) => selfPos != null && s.positions.includes(selfPos),
+  );
   const [previewOpen, setPreviewOpen] = useState(false);
 
   // 미리보기 오버레이 — ESC 로 닫기.
@@ -140,6 +146,10 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               ? { outline: `${outlineWidth}px solid ${outlineColor}`, outlineOffset: 0 }
               : {}),
             ...(borderRadius > 0 ? { borderRadius: `${borderRadius}px` } : {}),
+            // 다중 선택 링 — 아웃라인(outline)과 겹치지 않게 box-shadow 로 표시.
+            ...(multiSelected
+              ? { boxShadow: "0 0 0 3px rgb(99 102 241), 0 0 0 5px rgb(255 255 255)" }
+              : {}),
           }}
           draggable={false}
           // 만료된 PreSignedURL·손상 blob 캐시 자가 치유 — 캐시 폐기 후 재해석.
@@ -332,6 +342,20 @@ export const ImageBlock = Image.extend({
       "Mod-Alt-M": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
       "Ctrl-Alt-m": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
       "Ctrl-Alt-M": ({ editor }) => toggleSelectedMediaCaption(editor, ["image"]),
+      // 이미지 선택 상태에서 Enter — 이미지 바로 다음에 빈 문단을 만들고 커서를 옮긴다.
+      Enter: ({ editor }) => {
+        const { selection } = editor.state;
+        if (!(selection instanceof NodeSelection) || selection.node.type.name !== "image") {
+          return false;
+        }
+        const after = selection.from + selection.node.nodeSize;
+        return editor
+          .chain()
+          .insertContentAt(after, { type: "paragraph" })
+          .setTextSelection(after + 1)
+          .focus()
+          .run();
+      },
     };
   },
 
@@ -364,6 +388,29 @@ export const ImageBlock = Image.extend({
             ) {
               return false;
             }
+            const multiStore = useImageMultiSelectStore.getState();
+            // Ctrl/Cmd + 클릭: 이미지 다중 선택(아웃라인·라운드 일괄 적용용). 이미지 노드에만.
+            if ((event.metaKey || event.ctrlKey) && node.type.name === "image") {
+              const sel = view.state.selection;
+              // 세트가 비어 있으면 현재 선택 이미지를 기준으로 포함.
+              const base =
+                multiStore.positions.length > 0
+                  ? multiStore.positions
+                  : sel instanceof NodeSelection && sel.node.type.name === "image"
+                    ? [sel.from]
+                    : [];
+              const next = new Set(base);
+              if (next.has(nodePos)) next.delete(nodePos);
+              else next.add(nodePos);
+              multiStore.setPositions([...next]);
+              // 툴바 앵커 유지를 위해 PM 선택은 마지막 클릭 이미지로.
+              view.dispatch(
+                view.state.tr.setSelection(NodeSelection.create(view.state.doc, nodePos)),
+              );
+              return true;
+            }
+            // 일반 클릭 — 다중 선택 해제 후 단일 선택.
+            multiStore.clear();
             const sel = view.state.selection;
             if (sel instanceof NodeSelection && sel.from === nodePos) {
               // 이미 이 노드가 선택됨 — 기본 click 붕괴만 차단.

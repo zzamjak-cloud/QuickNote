@@ -8,6 +8,7 @@ import {
 import { createPortal } from "react-dom";
 import type { Editor } from "@tiptap/react";
 import { NodeSelection } from "@tiptap/pm/state";
+import { useImageMultiSelectStore } from "../../store/imageMultiSelectStore";
 
 const MIN_PX = 48;
 /** selectionUpdate 마다 소수 픽셀만 달라도 리렌더 → 화면 깜빡임 방지 */
@@ -149,6 +150,22 @@ export function ImageResizeOverlay({ editor }: { editor: Editor | null }) {
       window.removeEventListener("resize", measure);
     };
   }, [editor, measure]);
+
+  // 이미지 다중 선택(Ctrl/Cmd+클릭) 정리 — 선택이 이미지 NodeSelection 을 벗어나면 세트를 비운다.
+  // (아웃라인 일괄 적용은 attrs 만 바꿔 위치가 유지되고 앵커도 이미지라 이때는 비우지 않는다.)
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    const onSel = () => {
+      const sel = editor.state.selection;
+      const isImageNode =
+        sel instanceof NodeSelection && sel.node.type.name === "image";
+      if (!isImageNode) useImageMultiSelectStore.getState().clear();
+    };
+    editor.on("selectionUpdate", onSel);
+    return () => {
+      editor.off("selectionUpdate", onSel);
+    };
+  }, [editor]);
 
   const onPointerDown = useCallback(
     (handle: HandleId, e: React.PointerEvent) => {
