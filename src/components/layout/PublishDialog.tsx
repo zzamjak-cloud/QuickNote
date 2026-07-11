@@ -32,7 +32,18 @@ export function PublishDialog({ pageId, onClose }: Props) {
     setLoading(true);
     getPagePublishStatusApi(pageId)
       .then((s) => {
-        if (!canceled) setStatus(s);
+        if (canceled) return;
+        setStatus(s);
+        // 이미 게시된 페이지면, 현재 레이아웃(전체너비) 설정을 게시 스냅샷에 재반영한다
+        // (토큰·링크 유지). 게시 후 자식 페이지 너비를 바꿔도 공유 링크만 다시 열면 반영됨.
+        // 편집 권한이 없으면(뷰어) 조용히 무시 — 링크 복사 흐름은 방해하지 않는다.
+        if (s.published) {
+          publishPageApi(pageId)
+            .then((refreshed) => {
+              if (!canceled) setStatus(refreshed);
+            })
+            .catch(() => {});
+        }
       })
       .catch(() => {
         if (!canceled) showToast("게시 상태를 불러오지 못했습니다.", { kind: "error" });

@@ -53,17 +53,32 @@ describe("publishPage", () => {
     expect(vi.mocked(doc.send)).toHaveBeenCalledTimes(3);
   });
 
-  it("이미 게시돼 있으면 기존 토큰 반환(멱등, Put 없음)", async () => {
+  it("이미 게시돼 있으면 기존 토큰 유지 + 레이아웃 스냅샷 갱신(멱등, 새 토큰 없음)", async () => {
     const existing = {
       token: "existing-token-1234567890",
       pageId: "page-1",
       workspaceId: "ws-1",
       publishedAt: "2026-07-01T00:00:00Z",
     };
-    const doc = mockDoc({ Item: pageRow }, { Items: [existing] });
-    const r = await publishPage({ doc, tables, caller: ownerCaller, pageId: "page-1" });
+    const doc = mockDoc(
+      { Item: pageRow }, // Pages GetItem
+      { Items: [existing] }, // byPageId Query
+      {}, // 레이아웃 스냅샷 UpdateItem
+    );
+    const caller: Member = {
+      ...ownerCaller,
+      clientPrefs: JSON.stringify({ fullWidth: false, pageFullWidthById: { "child-1": true } }),
+    };
+    const r = await publishPage({ doc, tables, caller, pageId: "page-1" });
+    // 토큰은 그대로(공유 링크 유지)
     expect(r.token).toBe("existing-token-1234567890");
-    expect(vi.mocked(doc.send)).toHaveBeenCalledTimes(2);
+    // Get + Query + Update 3회 — 새 Put(새 토큰) 은 없어야 한다
+    expect(vi.mocked(doc.send)).toHaveBeenCalledTimes(3);
+    const updateCall = vi.mocked(doc.send).mock.calls[2][0] as {
+      input: { UpdateExpression?: string; ExpressionAttributeValues?: Record<string, unknown> };
+    };
+    expect(updateCall.input.UpdateExpression).toContain("fullWidthById");
+    expect(updateCall.input.ExpressionAttributeValues?.[":fwm"]).toEqual({ "child-1": true });
   });
 
   it("삭제된 페이지는 게시 불가", async () => {

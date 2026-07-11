@@ -2,7 +2,7 @@
 // AuthGate·useSyncBootstrap·zustand 부트스트랩을 전혀 타지 않는다(Bootstrap 에서 분기).
 // 렌더는 BlockDiffView 의 ReadOnlyBlocksPane 레시피(store 비의존 read-only TipTap)를 재사용한다.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import * as LucideIcons from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -108,7 +108,7 @@ function ReadOnlyDocView({
       editorProps: {
         attributes: {
           class:
-            "prose prose-zinc dark:prose-invert max-w-none focus:outline-none md:px-12 py-4 qn-prose-marquee-host",
+            "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-4 md:px-12 py-4 qn-prose-marquee-host",
         },
         handleDOMEvents: {
           click: (_view, event) => {
@@ -147,7 +147,10 @@ export function PublicPageViewer() {
   const [currentPageId, setCurrentPageId] = useState<string | null>(() =>
     parsePageIdFromSearch(window.location.search),
   );
-  const [page, setPage] = useState<PublicPage | null | undefined>(undefined);
+  // 방문한 페이지 캐시(pageId → 결과). undefined=미로드, null=404, 객체=본문.
+  // 루트↔자식 왕복 시 재요청·화면 비움(undefined 플래시)을 없애 아이콘 재연결 출렁임을 막는다.
+  const pageCacheRef = useRef<Map<string, PublicPage | null>>(new Map());
+  const [pageCacheVersion, setPageCacheVersion] = useState(0);
 
   // 검색엔진 비노출 — noindex meta 주입(서버 X-Robots-Tag 와 이중 방어).
   useEffect(() => {
@@ -196,22 +199,31 @@ export function PublicPageViewer() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // 페이지 본문 로드
+  // 페이지 본문 로드 — 캐시에 있으면 재요청하지 않는다(왕복 시 아이콘 재연결·깜빡임 방지).
   useEffect(() => {
     if (!token || !site || !effectivePageId) return;
+    if (pageCacheRef.current.has(effectivePageId)) return;
     let canceled = false;
-    setPage(undefined);
     void fetchPublicPage(token, effectivePageId)
       .then((p) => {
-        if (!canceled) setPage(p);
+        if (canceled) return;
+        pageCacheRef.current.set(effectivePageId, p);
+        setPageCacheVersion((v) => v + 1);
       })
       .catch(() => {
-        if (!canceled) setPage(null);
+        if (canceled) return;
+        // 실패는 캐시에 넣지 않는다 — 다음 진입에서 재시도되도록.
+        setPageCacheVersion((v) => v + 1);
       });
     return () => {
       canceled = true;
     };
   }, [token, site, effectivePageId]);
+
+  // 렌더용 현재 페이지 — 캐시에서 파생(effectivePageId 없거나 미로드면 undefined).
+  const page = effectivePageId ? pageCacheRef.current.get(effectivePageId) : undefined;
+  // pageCacheVersion 은 캐시 갱신 시 재렌더 트리거(파생 page 를 최신화)하는 용도.
+  void pageCacheVersion;
 
   const navigateTo = useCallback(
     (id: string) => {
@@ -240,12 +252,23 @@ export function PublicPageViewer() {
     };
   }, [token, effectivePageId, publishedPageIds, pageIcons]);
 
+  // 변환 결과를 pageId 로 캐시해 **동일 객체 참조**를 유지한다 — 루트로 돌아왔을 때
+  // 새 doc 객체가 만들어지면 read-only 에디터가 재생성되며 인라인 아이콘이 재마운트(재연결)된다.
+  const docCacheRef = useRef<Map<string, JSONContent | null>>(new Map());
   const transformedDoc = useMemo(() => {
-    if (!page || !publicDocCtx) return null;
+    if (!effectivePageId || !publicDocCtx) return null;
+    const cached = docCacheRef.current.get(effectivePageId);
+    if (cached !== undefined) return cached;
+    // 아직 이 페이지 본문이 로드되지 않았으면(파생 page 가 다른 페이지) 계산을 보류.
+    if (!page || page.id !== effectivePageId) return null;
     const rawDoc = page.doc as JSONContent | null;
-    if (!rawDoc || typeof rawDoc !== "object") return null;
-    return transformPublicDoc(rawDoc, publicDocCtx);
-  }, [page, publicDocCtx]);
+    const result =
+      rawDoc && typeof rawDoc === "object"
+        ? transformPublicDoc(rawDoc, publicDocCtx)
+        : null;
+    docCacheRef.current.set(effectivePageId, result);
+    return result;
+  }, [effectivePageId, page, publicDocCtx]);
 
   const columnClass = getEditorColumnClass({
     fullWidth: page?.fullWidth === true,
@@ -315,7 +338,7 @@ export function PublicPageViewer() {
           <p className="text-sm text-zinc-500">이 페이지는 더 이상 공개되지 않습니다.</p>
         ) : (
           <>
-            <div className="md:px-12">
+            <div className="px-4 md:px-12">
               <h1
                 className="mb-6 flex items-center gap-2 text-3xl font-bold text-zinc-900 dark:text-zinc-100"
                 style={page.titleColor ? { color: page.titleColor } : undefined}

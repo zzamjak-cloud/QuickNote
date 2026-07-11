@@ -159,11 +159,32 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
     workspaceId: page.workspaceId,
     required: "edit",
   });
+  const layout = parseLayoutPrefs(args.caller);
   const actives = await getActivePublishRecords(args.doc, tableName, args.pageId);
   const existing = actives[0];
-  if (existing) return toStatus(args.pageId, page.workspaceId, existing);
+  if (existing) {
+    // 멱등 재게시: 토큰·게시 시각은 유지하되 레이아웃(전체너비) 스냅샷만 현재 게시자
+    // 설정으로 갱신한다. 게시 후 자식 페이지 너비를 바꾸거나 새 자식을 추가해도 공개
+    // 뷰어가 최신 너비로 렌더되도록 하는 유일한 경로(재게시=새 토큰을 피하며 링크 유지).
+    await args.doc.send(
+      new UpdateCommand({
+        TableName: tableName,
+        Key: { token: existing.token },
+        UpdateExpression:
+          "SET fullWidth = :fw, fullWidthDefault = :fwd, fullWidthById = :fwm",
+        // 교차 페이지 변조 방지(unpublish 와 동일 가드).
+        ConditionExpression: "pageId = :p",
+        ExpressionAttributeValues: {
+          ":fw": layout.fullWidthById[args.pageId] ?? layout.fullWidthDefault,
+          ":fwd": layout.fullWidthDefault,
+          ":fwm": layout.fullWidthById,
+          ":p": args.pageId,
+        },
+      }),
+    );
+    return toStatus(args.pageId, page.workspaceId, existing);
+  }
 
-  const layout = parseLayoutPrefs(args.caller);
   const record: PublishRecord = {
     // 128bit 무작위 토큰 — URL 이 곧 capability.
     token: randomBytes(16).toString("base64url"),

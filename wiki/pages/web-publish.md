@@ -25,7 +25,11 @@
   assetId 만 presign(`docAssets.ts`). 임의 assetId presign 금지. TTL 300s.
 - **필드 화이트리스트**: Pages 조회는 ProjectionExpression — `dbCells`·`blockComments`·
   `lastEditedBy*` 는 공개 응답에 절대 포함하지 않는다.
-- 재게시는 항상 **새 토큰**. publish 는 멱등(active 있으면 그대로 반환).
+- 재게시는 항상 **새 토큰**. publish 는 멱등(active 있으면 토큰 유지) — 단 멱등 분기에서
+  **레이아웃(전체너비) 스냅샷은 현재 게시자 설정으로 in-place 갱신**한다(2026-07-11). 게시 후
+  자식 페이지 너비 변경·자식 추가가 공개 뷰어에 반영되는 유일한 경로. PublishDialog 은 이미
+  게시된 페이지를 열 때 publishPage 를 silent 호출해 스냅샷을 자동 재동기화한다(토큰·링크 불변,
+  편집 권한 없으면 무시). fullWidth 필드만 갱신하며 publishedAt·token 은 보존.
 - 삭제·트리 밖 이동은 요청 시점 BFS 에서 자동 반영(라이브). 캐시 `max-age=60` 만큼 지연 허용.
 - mention attrs 의 멤버 이름은 구조적으로 공개됨 — PublishDialog 에 경고 문구 존재.
 
@@ -48,7 +52,12 @@
   페이지 멘션·pageLink 는 변환 단계에서 동일 link mark 로 강등한다.
 - **전체너비**: 게시 시 게시자 `clientPrefs` 의 `pageFullWidthById[pageId] ?? fullWidth` 를
   published-pages 에 스냅샷 → `op=page.fullWidth`. 뷰어는 `getEditorColumnClass` 적용.
-  **이미 발급된 토큰은 fullWidth 없음(false)** — 재게시 필요.
+  스냅샷은 멱등 재게시(PublishDialog 열기)로 in-place 갱신되므로 재게시(새 토큰) 불필요.
+- **모바일 여백**: 공개 뷰어 본문·제목은 `px-4 md:px-12` — md 미만에서 좌우 16px 여백 필수
+  (`md:px-12` 만 두면 모바일에서 여백 0 으로 답답, 2026-07-11 수정).
+- **페이지 캐시(출렁임 방지)**: `PublicPageViewer` 는 방문한 페이지·변환 doc 를 pageId 로 캐시한다.
+  루트↔자식 왕복 시 재요청·`undefined` 화면 비움을 없애 인라인 아이콘 재마운트(재연결) 출렁임을
+  막는다. 변환 doc 는 동일 참조를 유지해 read-only 에디터 재생성을 줄인다.
 - doc 변환: 자산 스킴 → `op=asset` URL, `databaseBlock`/`flowchartBlock` → placeholder,
   `pageLink`/페이지 멘션 → 트리 안=공개 라우트 링크 / 밖=순수 텍스트(id 비노출).
 - `VITE_PUBLIC_VIEW_URL` (Function URL) — 미설정이면 뷰어는 404 화면. CSP `connect-src` 에
