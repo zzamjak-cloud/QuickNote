@@ -35,7 +35,11 @@
   일어난다(훅 규칙). 공개 뷰어에 인증/스토어 부트스트랩을 붙이지 말 것.
 - 렌더는 `BlockDiffView` 의 read-only TipTap 레시피 재사용(`useEditorExtensions` 전부 null).
 - **좌측 트리 사이드바를 두지 않는다** — 공개 웹은 본문만 표시. 자손 이동은 본문
-  `pageLink`/페이지 멘션(공개 라우트 링크) 클릭으로만 한다.
+  `pageLink`/페이지 멘션(공개 라우트 링크) 클릭 + 상단 브레드크럼(`PublicBreadcrumbBar`,
+  2026-07-11)으로 한다. 브레드크럼은 op=site 메타의 parentId 체인을 클라이언트에서 걷는다
+  (순환 가드·깊이 상한, 5뎁스 초과 시 가운데 접힘). 뒤로가기 버튼은 뷰어 내 탐색 깊이가
+  0 이면 비활성(사이트 밖 이탈 방지). crumb 아이콘 asset 은 **각 crumb 자신의 pageId
+  컨텍스트**로 presign 해야 한다(op=asset 은 해당 페이지 참조 자산만 허용).
 - 페이지 아이콘: 제목은 `PublicPageIcon`(op=asset). 본문 callout/tab 등은
   `transformPublicDoc` 이 `icon`/`emoji`/`src` 의 `quicknote-image://` 를 공개 URL 로
   치환해 `useImageUrl` Cognito 경로를 우회한다. 인증 훅을 공개 뷰어에 붙이지 말 것.

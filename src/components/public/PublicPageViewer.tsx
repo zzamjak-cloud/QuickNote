@@ -15,6 +15,7 @@ import {
   type PublicPage,
   type PublicSite,
 } from "../../lib/publicView/api";
+import { PublicBreadcrumbBar } from "./PublicBreadcrumbBar";
 import {
   transformPublicDoc,
   toPublicAssetUrl,
@@ -182,9 +183,15 @@ export function PublicPageViewer() {
     [site],
   );
 
+  // 뷰어 내 탐색 깊이 — 0 이면 브라우저 뒤로가기가 사이트 밖으로 나가므로 버튼을 비활성한다.
+  const [backDepth, setBackDepth] = useState(0);
+
   // 브라우저 뒤로가기 대응
   useEffect(() => {
-    const onPop = () => setCurrentPageId(parsePageIdFromSearch(window.location.search));
+    const onPop = () => {
+      setCurrentPageId(parsePageIdFromSearch(window.location.search));
+      setBackDepth((d) => Math.max(0, d - 1));
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -212,6 +219,7 @@ export function PublicPageViewer() {
       const url = id === site?.rootId ? `/p/${token}` : `/p/${token}?page=${id}`;
       window.history.pushState(null, "", url);
       setCurrentPageId(id === site?.rootId ? null : id);
+      setBackDepth((d) => d + 1);
     },
     [token, site],
   );
@@ -271,6 +279,27 @@ export function PublicPageViewer() {
 
   return (
     <div className="min-h-screen overflow-y-auto bg-white dark:bg-zinc-950">
+      {effectivePageId ? (
+        <PublicBreadcrumbBar
+          site={site}
+          currentPageId={effectivePageId}
+          canGoBack={backDepth > 0}
+          onBack={() => window.history.back()}
+          onNavigate={navigateTo}
+          renderIcon={(meta, ctx) =>
+            token ? (
+              <PublicPageIcon
+                icon={meta.icon}
+                // 아이콘 asset presign 은 "그 페이지에 참조된 자산"만 허용되므로
+                // 각 crumb 자신의 pageId 컨텍스트로 요청해야 한다(현재 페이지 ctx 재사용 금지).
+                ctx={{ token, pageId: ctx.pageId, publishedPageIds, pageIcons }}
+                size={16}
+                className=""
+              />
+            ) : null
+          }
+        />
+      ) : null}
       {coverSrc && (
         <img
           src={coverSrc}
