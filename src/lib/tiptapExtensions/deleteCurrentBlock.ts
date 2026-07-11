@@ -10,8 +10,10 @@ type DeleteTarget = {
 };
 
 const LIST_ITEM_TYPES = new Set(["listItem", "taskItem"]);
-/** 이 부모 안의 블록만 Mod+삭제 로 제거(tabPanel/callout 포함 — 없으면 바깥 wrapper 까지 삭제됨) */
-const DIRECT_PARENT_TYPES = new Set(["doc", "column", "tabPanel", "callout"]);
+/** 이 부모 안의 블록만 Mod+삭제 로 제거(tabPanel/callout/toggleContent 포함 — 없으면 바깥 wrapper 까지 삭제됨).
+ *  toggleContent 를 포함해야 토글 **본문** 에서 Ctrl+삭제 시 해당 라인만 지우고 토글 전체가 사라지지 않는다.
+ *  (헤더/제목에서 누르면 기존대로 토글 전체 제거 — toggle 은 여기 넣지 않는다.) */
+const DIRECT_PARENT_TYPES = new Set(["doc", "column", "tabPanel", "callout", "toggleContent"]);
 const PROTECTED_TYPES = new Set(["columnLayout", "column"]);
 
 export const DeleteCurrentBlock = Extension.create({

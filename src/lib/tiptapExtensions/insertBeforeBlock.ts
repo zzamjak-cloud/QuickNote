@@ -3,14 +3,21 @@ import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
 import type { ResolvedPos } from "@tiptap/pm/model";
 
 /**
- * Alt+Enter 삽입 기준 위치. 컬럼 안에 있으면 "컬럼 내부의 현재 최상위 블럭" 앞,
- * 아니면 doc 최상위 블럭 앞. (컬럼 내부 이미지에서 Alt+Enter 시 컬럼 전체 바깥이 아니라
- * 컬럼 안 이미지 앞에 빈 문단이 생기도록 — before(1) 은 항상 columnLayout 밖을 가리킴)
+ * Alt+Enter 삽입 기준 위치. 가장 안쪽 컨테이너를 우선한다(deepest-first):
+ *  - 컬럼(column) / 토글 본문(toggleContent) 안: 그 컨테이너 안에서 커서가 속한 최상위 블럭 앞
+ *    (컨테이너 밖으로 나가지 않고 내부 이전 라인에 빈 문단 생성).
+ *  - 토글 제목(toggleHeader)에 커서: 토글 블럭 **자체의 앞**(= 토글 외부 이전 라인).
+ *  - 그 외: doc(또는 현재) 최상위 블럭 앞.
  */
 function insertBeforePos($pos: ResolvedPos): number {
   for (let depth = $pos.depth; depth > 0; depth -= 1) {
-    if ($pos.node(depth).type.name === "column") {
+    const name = $pos.node(depth).type.name;
+    if (name === "column" || name === "toggleContent") {
       return $pos.posAtIndex($pos.index(depth), depth);
+    }
+    if (name === "toggleHeader") {
+      // toggleHeader 의 부모(depth-1)가 toggle — 그 토글 노드 앞에 삽입한다.
+      return $pos.before(depth - 1);
     }
   }
   return $pos.before(1);

@@ -65,6 +65,28 @@ function insertParagraphAfterImage(props: NodeViewProps): void {
     .run();
 }
 
+/** 현재 선택이 이미지 NodeSelection 인지. */
+function isImageNodeSelected(editor: { state: { selection: unknown } }): boolean {
+  const s = editor.state.selection;
+  return s instanceof NodeSelection && s.node.type.name === "image";
+}
+
+/** 이미지 노드가 선택돼 있으면 삭제한다(그 외 선택이면 false 로 기본 동작에 위임). */
+function deleteSelectedImage(editor: {
+  state: { selection: unknown; tr: import("@tiptap/pm/state").Transaction };
+  view: { dispatch: (tr: import("@tiptap/pm/state").Transaction) => void; focus: () => void };
+}): boolean {
+  const selection = editor.state.selection;
+  if (!(selection instanceof NodeSelection) || selection.node.type.name !== "image") {
+    return false;
+  }
+  const from = selection.from;
+  const tr = editor.state.tr.delete(from, from + selection.node.nodeSize);
+  editor.view.dispatch(tr);
+  editor.view.focus();
+  return true;
+}
+
 const ImageView = memo(function ImageView(props: NodeViewProps) {
   const attrs = props.node.attrs as {
     src?: string | null;
@@ -378,6 +400,13 @@ export const ImageBlock = Image.extend({
           .focus()
           .run();
       },
+      // 이미지 선택 상태에서 Backspace(Mac)/Delete(Windows) — 이미지 삭제.
+      // 클릭 선택(NodeSelection) 후 뷰 포커스가 없을 수 있어 기본 삭제가 안 먹는 경우를 명시 처리.
+      Backspace: ({ editor }) => deleteSelectedImage(editor),
+      Delete: ({ editor }) => deleteSelectedImage(editor),
+      // 이미지 선택 상태에서 Space — 기본 동작은 선택 노드를 공백으로 대체(=이미지 삭제)라 소비만 한다.
+      Space: ({ editor }) => isImageNodeSelected(editor),
+      " ": ({ editor }) => isImageNodeSelected(editor),
     };
   },
 
@@ -398,6 +427,12 @@ export const ImageBlock = Image.extend({
       ...parentPlugins,
       new Plugin({
         props: {
+          // 이미지 선택 상태에서 문자 입력 시 기본 동작이 선택 노드를 그 문자로 대체(=이미지 삭제).
+          // 스페이스 등 어떤 입력도 이미지를 지우지 않도록 차단한다(Space 키맵과 이중 안전장치).
+          handleTextInput: (view) => {
+            const sel = view.state.selection;
+            return sel instanceof NodeSelection && sel.node.type.name === "image";
+          },
           handleClickOn: (view, _pos, node, nodePos, event, direct) => {
             if (!direct) return false;
             if (!MEDIA_TYPES.has(node.type.name)) return false;

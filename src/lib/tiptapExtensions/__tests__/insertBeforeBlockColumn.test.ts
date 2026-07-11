@@ -3,12 +3,49 @@ import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it } from "vitest";
 import { Column, ColumnLayout } from "../columns";
 import { InsertBeforeBlock } from "../insertBeforeBlock";
+import { Toggle, ToggleContent, ToggleHeader } from "../toggle";
 
 function createEditor(content: JSONContent): Editor {
   return new Editor({
-    extensions: [StarterKit, Column, ColumnLayout, InsertBeforeBlock],
+    extensions: [
+      StarterKit,
+      Column,
+      ColumnLayout,
+      InsertBeforeBlock,
+      Toggle,
+      ToggleHeader,
+      ToggleContent,
+    ],
     content,
   });
+}
+
+function toggleDoc(): JSONContent {
+  return {
+    type: "doc",
+    content: [
+      { type: "paragraph", content: [{ type: "text", text: "앞" }] },
+      {
+        type: "toggle",
+        attrs: { open: true },
+        content: [
+          { type: "toggleHeader", content: [{ type: "text", text: "제목" }] },
+          {
+            type: "toggleContent",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "본문" }] }],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function posOfText(editor: Editor, text: string): number {
+  let pos = -1;
+  editor.state.doc.descendants((node, p) => {
+    if (node.isText && node.text === text) pos = p;
+  });
+  return pos;
 }
 
 function runAltEnter(editor: Editor): boolean {
@@ -76,6 +113,41 @@ describe("insertBeforeBlock — 컬럼 내부 Alt+Enter", () => {
       // "본문" 앞에 빈 문단이 최상위로 삽입됨.
       expect(json.content?.[0]?.content ?? []).toEqual([]);
       expect(json.content?.[1]?.content?.[0]?.text).toBe("본문");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("토글 본문에서 Alt+Enter 는 토글 내부 현재 라인 앞에 빈 문단을 만든다(토글 유지)", () => {
+    const editor = createEditor(toggleDoc());
+    try {
+      editor.commands.setTextSelection(posOfText(editor, "본문") + 1);
+      expect(runAltEnter(editor)).toBe(true);
+      const json = editor.getJSON();
+      // 토글은 여전히 두 번째 최상위 노드(밖으로 안 나감).
+      const toggle = json.content?.[1];
+      expect(toggle?.type).toBe("toggle");
+      const body = toggle?.content?.[1];
+      expect(body?.type).toBe("toggleContent");
+      // 본문 안에 "본문" 앞으로 빈 문단이 추가됨.
+      expect(body?.content?.length).toBe(2);
+      expect(body?.content?.[0]?.content ?? []).toEqual([]);
+      expect(body?.content?.[1]?.content?.[0]?.text).toBe("본문");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("토글 제목(헤더)에서 Alt+Enter 는 토글 블럭 바깥 앞에 빈 문단을 만든다", () => {
+    const editor = createEditor(toggleDoc());
+    try {
+      editor.commands.setTextSelection(posOfText(editor, "제목") + 1);
+      expect(runAltEnter(editor)).toBe(true);
+      const json = editor.getJSON();
+      // 앞 문단 / 새 빈 문단 / 토글 순서 — 토글 자체 앞(외부)에 삽입됨.
+      expect(json.content?.[0]?.content?.[0]?.text).toBe("앞");
+      expect(json.content?.[1]?.content ?? []).toEqual([]);
+      expect(json.content?.[2]?.type).toBe("toggle");
     } finally {
       editor.destroy();
     }

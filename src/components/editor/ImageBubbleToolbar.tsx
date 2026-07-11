@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Editor } from "@tiptap/react";
+import { useEditorState, type Editor } from "@tiptap/react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip";
 import { NodeSelection } from "@tiptap/pm/state";
 import {
@@ -75,6 +75,27 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
   // 다중 선택 이미지 개수(Ctrl/Cmd+클릭). 아웃라인·라운드를 한꺼번에 적용하기 위해 사용.
   const multiCount = useImageMultiSelectStore((s) => s.positions.length);
 
+  // 선택 노드의 시각 속성을 구독 — 에디터는 shouldRerenderOnTransaction:false + memo 라
+  // 버튼 클릭(setOutline/setAlign 등)이 attrs 만 바꾸고 selection 위치는 그대로라
+  // selectionUpdate 가 안 떠 툴바가 리렌더되지 않는다(버튼 active 표시가 지연). 이 구독으로 즉시 갱신.
+  const live = useEditorState({
+    editor,
+    selector: ({ editor: ed }) => {
+      const s = ed.state.selection;
+      if (!(s instanceof NodeSelection)) return null;
+      const name = s.node.type.name;
+      if (name !== "image" && name !== "fileBlock") return null;
+      const a = s.node.attrs as Record<string, unknown>;
+      return {
+        align: (typeof a.align === "string" ? a.align : "left") as Align,
+        hasCaption: typeof a.caption === "string",
+        outlineWidth: typeof a.outlineWidth === "number" ? a.outlineWidth : 0,
+        outlineColor: (a.outlineColor as string) ?? "#4b5563",
+        borderRadius: typeof a.borderRadius === "number" ? a.borderRadius : 0,
+      };
+    },
+  });
+
   const sel = editor.state.selection;
   if (
     !(sel instanceof NodeSelection) ||
@@ -93,14 +114,17 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
     outlineColor?: string | null;
     borderRadius?: number | null;
   };
-  const align = (attrs.align as Align) ?? "left";
-  const hasCaption = typeof attrs.caption === "string";
+  // 활성 표시는 live(구독) 우선, 최초 프레임 폴백은 attrs. 핸들러는 editor.state 를 직접 읽어 무관.
+  const align = (live?.align ?? (attrs.align as Align) ?? "left") as Align;
+  const hasCaption = live?.hasCaption ?? typeof attrs.caption === "string";
   const nodeType = sel.node.type.name;
   const blockStart = sel.from;
   const isImage = nodeType === "image";
-  const outlineWidth = typeof attrs.outlineWidth === "number" ? attrs.outlineWidth : 0;
-  const outlineColor = attrs.outlineColor ?? "#4b5563";
-  const borderRadius = typeof attrs.borderRadius === "number" ? attrs.borderRadius : 0;
+  const outlineWidth =
+    live?.outlineWidth ?? (typeof attrs.outlineWidth === "number" ? attrs.outlineWidth : 0);
+  const outlineColor = live?.outlineColor ?? attrs.outlineColor ?? "#4b5563";
+  const borderRadius =
+    live?.borderRadius ?? (typeof attrs.borderRadius === "number" ? attrs.borderRadius : 0);
 
   const setOutline = (patch: {
     outlineWidth?: number;
