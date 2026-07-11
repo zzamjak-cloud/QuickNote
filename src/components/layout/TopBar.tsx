@@ -181,6 +181,9 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
       if (isLCSchedulerModalOpen()) return;
       const mod = e.metaKey || e.ctrlKey;
       if (!mod || !activeId) return;
+      // Shift/Alt 조합 제외 — Ctrl+Shift+L(텍스트 왼쪽 정렬) 등과 충돌 방지.
+      // 순수 Ctrl/Cmd+L 만 페이지 링크 복사로 처리한다.
+      if (e.shiftKey || e.altKey) return;
       if (e.key === "l" || e.key === "L") {
         e.preventDefault();
         setMenuOpen(false);

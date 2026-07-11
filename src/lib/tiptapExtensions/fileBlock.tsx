@@ -111,9 +111,11 @@ function MediaCaptionInput({
       className="mt-1 flex items-center gap-1"
       // 정렬 버튼 + 캡션 텍스트가 하나의 단위로 좌/중앙/우로 함께 이동. gap-1 유지.
       // 미디어 폭(minWidth)을 기준으로 정렬하되, 텍스트가 길면 내용 폭(max-content)까지 늘어나 클리핑되지 않는다.
+      // 컬럼 등 좁은 컨테이너에서 미디어가 100% 로 축소되면 캡션도 표시 폭을 넘지 않게 min() 으로 캡.
       style={{
-        minWidth: widthPx ? `${widthPx}px` : "100%",
+        minWidth: widthPx ? `min(${widthPx}px, 100%)` : "100%",
         width: "max-content",
+        maxWidth: "100%",
         justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start",
       }}
     >

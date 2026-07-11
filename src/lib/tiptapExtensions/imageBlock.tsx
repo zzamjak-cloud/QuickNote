@@ -81,7 +81,9 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
   const align = attrs.align ?? "left";
   const hasCaption = typeof attrs.caption === "string";
   const captionAlign = attrs.captionAlign ?? "left";
-  const captionMaxWidth = attrs.width ? `${attrs.width}px` : "100%";
+  // 캡션 기준폭 = 저장된 이미지 폭이되, 컬럼 등 좁은 컨테이너에서 이미지가 100% 로 축소되면
+  // 캡션도 표시 폭(100%)을 넘지 않게 min() 으로 캡한다 — 넘치면 중앙/우측 정렬 기준이 어긋난다.
+  const captionMinWidth = attrs.width ? `min(${attrs.width}px, 100%)` : "100%";
   // 아웃라인·모서리 라운드 — 툴바에서 지정. outline 은 레이아웃에 영향 없이 rect 를 감싸며 border-radius 를 따른다.
   const outlineWidth = typeof attrs.outlineWidth === "number" ? attrs.outlineWidth : 0;
   const outlineColor = attrs.outlineColor ?? "#4b5563";
@@ -175,8 +177,9 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
           // 정렬 버튼 + 캡션 텍스트가 하나의 단위로 좌/중앙/우로 함께 이동.
           // 이미지 폭(minWidth)을 기준으로 정렬하되, 텍스트가 길면 내용 폭(max-content)까지 늘어나 클리핑되지 않는다.
           style={{
-            minWidth: captionMaxWidth,
+            minWidth: captionMinWidth,
             width: "max-content",
+            maxWidth: "100%",
             justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start",
           }}
         >

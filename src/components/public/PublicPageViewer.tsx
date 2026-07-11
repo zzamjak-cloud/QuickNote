@@ -98,36 +98,51 @@ function ReadOnlyDocView({
     collabDoc: null,
     collabAwareness: null,
   });
-  const editor = useEditor(
-    {
-      extensions,
-      content: doc,
-      editable: false,
-      // TipTap Link 는 openOnClick:false 라 기본 네비게이션이 막힌다.
-      // 공개 라우트(/p/<token>?page=) 클릭만 SPA navigate 로 연결한다.
-      editorProps: {
-        attributes: {
-          class:
-            "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-4 md:px-12 py-4 qn-prose-marquee-host",
-        },
-        handleDOMEvents: {
-          click: (_view, event) => {
-            const target = event.target as HTMLElement | null;
-            const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
-            if (!anchor) return false;
-            const href = anchor.getAttribute("href") ?? "";
-            const m = /^\/p\/[^/?#]+\?page=([^&]+)/.exec(href);
-            if (!m?.[1]) return false;
-            event.preventDefault();
-            event.stopPropagation();
-            onNavigatePublicPage(decodeURIComponent(m[1]));
-            return true;
-          },
+  // 네비게이션 콜백을 ref 로 참조해 editor 를 doc 변경 시 재생성하지 않는다.
+  // (deps 에 doc/콜백을 넣으면 페이지 이동마다 에디터가 언마운트→마운트되며 높이가 한 프레임
+  //  붕괴해 멘션 리스트가 출렁이고 인라인 아이콘이 재연결된다.)
+  const onNavRef = useRef(onNavigatePublicPage);
+  onNavRef.current = onNavigatePublicPage;
+  // 최초 생성 시 content:doc 로 이미 반영되므로 초기값을 doc 으로 둬 중복 setContent 를 막는다.
+  const lastDocRef = useRef<JSONContent | null>(doc);
+  const editor = useEditor({
+    extensions,
+    content: doc,
+    editable: false,
+    // TipTap Link 는 openOnClick:false 라 기본 네비게이션이 막힌다.
+    // 공개 라우트(/p/<token>?page=) 클릭만 SPA navigate 로 연결한다.
+    editorProps: {
+      attributes: {
+        class:
+          "prose prose-zinc dark:prose-invert max-w-none focus:outline-none px-4 md:px-12 py-4 qn-prose-marquee-host",
+      },
+      handleDOMEvents: {
+        click: (_view, event) => {
+          const target = event.target as HTMLElement | null;
+          const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
+          if (!anchor) return false;
+          const href = anchor.getAttribute("href") ?? "";
+          const m = /^\/p\/[^/?#]+\?page=([^&]+)/.exec(href);
+          if (!m?.[1]) return false;
+          event.preventDefault();
+          event.stopPropagation();
+          onNavRef.current(decodeURIComponent(m[1]));
+          return true;
         },
       },
     },
-    [doc, onNavigatePublicPage],
-  );
+  });
+
+  // 페이지 이동 시 에디터를 재생성하지 않고 내용만 교체(read-only 라 커서/선택 무관) —
+  // 전체 언마운트로 인한 컨테이너 높이 붕괴(리스트 출렁임)를 없앤다.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    // 동일 doc 재적용 방지 — 참조가 같으면(캐시 히트) 건너뛴다.
+    if (lastDocRef.current === doc) return;
+    lastDocRef.current = doc;
+    editor.commands.setContent(doc, { emitUpdate: false });
+  }, [editor, doc]);
+
   if (!editor) return null;
   return <EditorContent editor={editor} />;
 }
