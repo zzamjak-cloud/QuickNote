@@ -18,9 +18,11 @@ import {
   AlignHorizontalDistributeCenter,
 } from "lucide-react";
 import { ImageBubbleToolbar } from "./ImageBubbleToolbar";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip";
 import { sanitizeWebLinkHref } from "../../lib/safeUrl";
 import { parseQuickNoteLink } from "../../lib/navigation/quicknoteLinks";
 import { useUiStore } from "../../store/uiStore";
+import { useMediaPreviewStore } from "../../store/mediaPreviewStore";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
 import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
 import {
@@ -162,6 +164,13 @@ export function BubbleToolbar({ editor, pageId }: Props) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [colorOpen, setColorOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
+  // 미디어 확대 미리보기가 열려 있으면 부유 툴바를 숨긴다(오버레이 위 겹침 방지).
+  const mediaPreviewOpen = useMediaPreviewStore((s) => s.open);
+  // 색상·형광펜 팔레트가 하단에서 잘리면 위로 뒤집는다(≈220px).
+  const { triggerRef: colorTriggerRef, dropUp: colorDropUp } =
+    usePopoverFlip<HTMLDivElement>(colorOpen, 220);
+  const { triggerRef: hlTriggerRef, dropUp: hlDropUp } =
+    usePopoverFlip<HTMLDivElement>(hlOpen, 220);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const anchorRef = useRef<ToolbarAnchor | null>(null);
   const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
@@ -325,6 +334,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
   }, [mode, pos]);
 
   if (!editor || !pos || mode === "hidden") return null;
+  if (mediaPreviewOpen) return null;
 
   const saveSelection = () => {
     const { from, to } = editor.state.selection;
@@ -479,7 +489,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
             >
               <LinkIcon size={14} />
             </ToolbarBtn>
-            <div className="relative">
+            <div className="relative" ref={colorTriggerRef}>
               <ToolbarBtn
                 active={colorOpen}
                 onClick={() => {
@@ -494,6 +504,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
               {colorOpen && (
                 <ColorPalette
                   items={COLORS}
+                  dropUp={colorDropUp}
                   onPick={(c) => {
                     applyTextColor(c);
                     setColorOpen(false);
@@ -501,7 +512,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
                 />
               )}
             </div>
-            <div className="relative">
+            <div className="relative" ref={hlTriggerRef}>
               <ToolbarBtn
                 active={hlOpen}
                 onClick={() => {
@@ -516,6 +527,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
               {hlOpen && (
                 <ColorPalette
                   items={HIGHLIGHTS}
+                  dropUp={hlDropUp}
                   onPick={(c) => {
                     applyHighlightColor(c);
                     setHlOpen(false);
@@ -624,12 +636,18 @@ function ToolbarBtn({
 function ColorPalette({
   items,
   onPick,
+  dropUp = false,
 }: {
   items: { label: string; value: string | null }[];
   onPick: (v: string | null) => void;
+  dropUp?: boolean;
 }) {
   return (
-    <div className="absolute left-0 top-9 z-50 flex max-h-52 w-56 flex-wrap gap-1 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+    <div
+      className={`absolute left-0 z-50 flex max-h-52 w-56 flex-wrap gap-1 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 ${
+        dropUp ? "bottom-9" : "top-9"
+      }`}
+    >
       {items.map((it) => (
         <button
           key={it.label}

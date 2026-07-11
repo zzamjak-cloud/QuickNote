@@ -11,6 +11,7 @@ import {
 import { Plugin, NodeSelection } from "@tiptap/pm/state";
 import { useImageUrl, initialImageUrl } from "../images/hooks";
 import { useImageMultiSelectStore } from "../../store/imageMultiSelectStore";
+import { useMediaPreviewStore } from "../../store/mediaPreviewStore";
 import {
   nextCaptionAlign,
   toggleSelectedMediaCaption,
@@ -92,9 +93,11 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
   );
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  // 미리보기 오버레이 — ESC 로 닫기.
+  // 미리보기 오버레이 — ESC 로 닫기 + 열려 있는 동안 부유 툴바 숨김(전역 신호).
   useEffect(() => {
     if (!previewOpen) return;
+    const setPreview = useMediaPreviewStore.getState().setOpen;
+    setPreview(true);
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -103,7 +106,10 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      setPreview(false);
+    };
   }, [previewOpen]);
   // 이미지 URL 이 이미 캐시돼 있으면(예: 협업 바인딩으로 에디터가 리마운트된 경우) 지연 활성화를
   // 건너뛰고 즉시 active 로 시작한다 — placeholder pulse 플래시(깜빡임) 제거. 미캐시는 기존대로 lazy.
@@ -186,19 +192,30 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
             }}
           />
           {/* input 폭을 실제 텍스트 폭에 맞춘다(inline-grid 미러). size 속성은 CJK/비례폭에서
-              부정확해 끝부분이 잘리므로 사용하지 않는다. 미러 span 이 셀 폭을 결정하고 input 은 채운다. */}
+              부정확해 끝부분이 잘리므로 사용하지 않는다. 미러 span 이 셀 폭을 결정하고 input 은 채운다.
+              우측 정렬일 때는 후행 공백·우측 패딩을 제거해 텍스트가 우측 끝에 완전히 밀착한다. */}
           <span className="inline-grid items-center">
             <span
               aria-hidden
-              className="col-start-1 row-start-1 invisible whitespace-pre px-0.5 text-xs"
+              className="col-start-1 row-start-1 invisible whitespace-pre text-xs"
+              style={{
+                paddingLeft: 2,
+                paddingRight: captionAlign === "right" ? 0 : 2,
+              }}
             >
-              {(attrs.caption ?? "") || "캡션 입력…"}{" "}
+              {(attrs.caption ?? "") || "캡션 입력…"}
+              {captionAlign === "right" ? "" : " "}
             </span>
             <input
               data-qn-caption-input="true"
               type="text"
               value={attrs.caption ?? ""}
               placeholder="캡션 입력…"
+              style={{
+                textAlign: captionAlign,
+                paddingLeft: 2,
+                paddingRight: captionAlign === "right" ? 0 : 2,
+              }}
               // 캡션은 노드 attrs.caption 에 저장 (plain text). 본문 doc 흐름과 분리.
               onChange={(e) => props.updateAttributes({ caption: e.target.value })}
               onBlur={(e) => {
@@ -215,7 +232,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
                 }
                 e.stopPropagation();
               }}
-              className="col-start-1 row-start-1 w-full min-w-0 border-none bg-transparent px-0.5 text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+              className="col-start-1 row-start-1 w-full min-w-0 border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
             />
           </span>
         </div>

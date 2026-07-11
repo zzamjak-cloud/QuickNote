@@ -17,6 +17,7 @@ import {
   type CaptionAlign,
 } from "./mediaCaption";
 import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
+import { useMediaPreviewStore } from "../../store/mediaPreviewStore";
 
 type FileAttrs = {
   id?: string | null;
@@ -128,19 +129,27 @@ function MediaCaptionInput({
         }}
       />
       {/* input 폭을 실제 텍스트 폭에 맞춘다(inline-grid 미러). size 속성은 CJK/비례폭에서
-          부정확해 끝부분이 잘리므로 사용하지 않는다. */}
+          부정확해 끝부분이 잘리므로 사용하지 않는다.
+          우측 정렬일 때는 후행 공백·우측 패딩 제거로 텍스트를 우측 끝에 밀착시킨다. */}
       <span className="inline-grid items-center">
         <span
           aria-hidden
-          className="col-start-1 row-start-1 invisible whitespace-pre px-0.5 text-xs"
+          className="col-start-1 row-start-1 invisible whitespace-pre text-xs"
+          style={{ paddingLeft: 2, paddingRight: captionAlign === "right" ? 0 : 2 }}
         >
-          {caption || "캡션 입력…"}{" "}
+          {caption || "캡션 입력…"}
+          {captionAlign === "right" ? "" : " "}
         </span>
         <input
           data-qn-caption-input="true"
           type="text"
           value={caption}
           placeholder="캡션 입력…"
+          style={{
+            textAlign: captionAlign,
+            paddingLeft: 2,
+            paddingRight: captionAlign === "right" ? 0 : 2,
+          }}
           onChange={(e) => onChange(e.target.value)}
           onBlur={(e) => {
             if (e.currentTarget.value.trim() === "") onRemoveEmpty();
@@ -152,7 +161,7 @@ function MediaCaptionInput({
             }
             e.stopPropagation();
           }}
-          className="col-start-1 row-start-1 w-full min-w-0 border-none bg-transparent px-0.5 text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+          className="col-start-1 row-start-1 w-full min-w-0 border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
         />
       </span>
     </div>
@@ -189,6 +198,25 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     sizeBytes: typeof attrs.size === "number" ? attrs.size : undefined,
     mime,
   });
+
+  // 확대 미리보기(zoom) — ESC 로 닫기 + 열려 있는 동안 부유 툴바 숨김(전역 신호).
+  useEffect(() => {
+    if (!zoom) return;
+    const setPreview = useMediaPreviewStore.getState().setOpen;
+    setPreview(true);
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setZoom(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      setPreview(false);
+    };
+  }, [zoom]);
 
   useEffect(() => {
     const videoEl = inlineVideoRef.current;
@@ -365,7 +393,7 @@ const FileView = memo(function FileView(props: NodeViewProps) {
         ) : null}
         {zoom && url && (
           <div
-            className="fixed inset-0 z-[400] flex items-center justify-center bg-black/85 p-6"
+            className="fixed inset-0 z-[780] flex items-center justify-center bg-black/85 p-6"
             role="dialog"
             aria-modal="true"
             onClick={() => setZoom(false)}

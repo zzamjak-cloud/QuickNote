@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Editor } from "@tiptap/react";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip";
 import { NodeSelection } from "@tiptap/pm/state";
 import {
   AlignLeft,
@@ -13,7 +14,7 @@ import {
 import { useUiStore } from "../../store/uiStore";
 import { useImageMultiSelectStore } from "../../store/imageMultiSelectStore";
 import { ensureBlockId } from "../../lib/comments/ensureBlockId";
-import { focusCaptionInput } from "../../lib/tiptapExtensions/mediaCaption";
+import { applyCaptionToggle } from "../../lib/tiptapExtensions/mediaCaption";
 import { decodeImageRef } from "../../lib/sync/imageScheme";
 import { decodeFileRef } from "../../lib/files/scheme";
 import { imageUrlCache } from "../../lib/images/registry";
@@ -68,6 +69,9 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
   const openCommentThread = useUiStore((s) => s.openCommentThread);
   const showToast = useUiStore((s) => s.showToast);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  // 아웃라인 팝오버가 하단에서 잘리면 위로 뒤집는다(≈230px 높이).
+  const { triggerRef: outlineTriggerRef, dropUp: outlineDropUp } =
+    usePopoverFlip<HTMLDivElement>(outlineOpen, 230);
   // 다중 선택 이미지 개수(Ctrl/Cmd+클릭). 아웃라인·라운드를 한꺼번에 적용하기 위해 사용.
   const multiCount = useImageMultiSelectStore((s) => s.positions.length);
 
@@ -129,15 +133,11 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
   };
 
   const toggleCaption = () => {
-    editor
-      .chain()
-      .setNodeSelection(blockStart)
-      .updateAttributes(nodeType, {
-        caption: hasCaption ? null : "",
-        ...(hasCaption ? {} : { captionAlign: attrs.captionAlign ?? "left" }),
-      })
-      .run();
-    if (!hasCaption) focusCaptionInput(editor, blockStart);
+    // 내용 있는 캡션은 버튼 재클릭으로 지워지지 않는다(포커스만) — mediaCaption 3단계 로직 공유.
+    applyCaptionToggle(editor, nodeType, blockStart, {
+      caption: attrs.caption ?? null,
+      captionAlign: attrs.captionAlign ?? null,
+    });
   };
 
   const addComment = () => {
@@ -204,7 +204,7 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
         <Captions size={14} />
       </AlignBtn>
       {isImage ? (
-        <div className="relative">
+        <div className="relative" ref={outlineTriggerRef}>
           <AlignBtn
             active={outlineOpen || outlineWidth > 0 || borderRadius > 0}
             title="아웃라인 · 모서리"
@@ -213,7 +213,11 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
             <SquarePen size={14} />
           </AlignBtn>
           {outlineOpen ? (
-            <div className="absolute right-0 top-9 z-50 w-52 rounded-md border border-zinc-200 bg-white p-2.5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <div
+              className={`absolute right-0 z-50 w-52 rounded-md border border-zinc-200 bg-white p-2.5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 ${
+                outlineDropUp ? "bottom-9" : "top-9"
+              }`}
+            >
               {multiCount > 1 ? (
                 <div className="mb-2 rounded bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-300">
                   선택한 {multiCount}개 이미지에 일괄 적용

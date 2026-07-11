@@ -96,6 +96,20 @@ import {
 } from "../../lib/editor/linkBlockConvert";
 import { isTrustedYoutubeInput } from "../../lib/safeUrl";
 import { unbindFlowchartSync } from "../../lib/flowchart/unbindSync";
+import {
+  DIVIDER_COLORS,
+  DIVIDER_LINE_STYLES,
+  DIVIDER_THICKNESSES,
+  type DividerLineStyle,
+} from "../../lib/tiptapExtensions/dividerRule";
+
+// 구분선 라인 스타일 프리셋의 한국어 라벨.
+const DIVIDER_STYLE_LABELS: Record<DividerLineStyle, string> = {
+  solid: "실선",
+  dashed: "대시",
+  dotted: "점선",
+  double: "이중선",
+};
 
 
 type Props = {
@@ -851,6 +865,24 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
+  // 구분선(horizontalRule) 라인 스타일/색/두께 적용.
+  // attr 변경은 nodeSize 를 바꾸지 않으므로 blockStart 위치가 유효하다.
+  // 위치가 여전히 horizontalRule 을 가리키는지 검증(구조 편집으로 stale 방지).
+  const applyDivider = (patch: {
+    lineStyle?: DividerLineStyle;
+    color?: string | null;
+    thickness?: number;
+  }) => {
+    if (!editor || !hover) return;
+    const pos = hover.blockStart;
+    if (editor.state.doc.nodeAt(pos)?.type.name !== "horizontalRule") return;
+    editor
+      .chain()
+      .setNodeSelection(pos)
+      .updateAttributes("horizontalRule", patch)
+      .run();
+  };
+
   const {
     isDatabaseFullPage,
     buttonBlockDbId,
@@ -869,6 +901,17 @@ export function BlockHandles({
     linkBlockHref,
     shouldShowTypeChange,
   } = computeBlockTypeFlags(hover, editor);
+  // 구분선 라인 스타일 편집 — hover 가 horizontalRule 일 때만 섹션 노출.
+  const isHorizontalRule = hover?.node.type.name === "horizontalRule";
+  const dividerAttrs = (hover?.node.attrs ?? {}) as {
+    lineStyle?: DividerLineStyle;
+    color?: string | null;
+    thickness?: number;
+  };
+  const dividerLineStyle: DividerLineStyle = dividerAttrs.lineStyle ?? "solid";
+  const dividerColor = dividerAttrs.color ?? null;
+  const dividerThickness =
+    typeof dividerAttrs.thickness === "number" ? dividerAttrs.thickness : 1;
   const menuAnchor =
     hover && bar && wrapperRect
       ? {
@@ -1481,6 +1524,104 @@ export function BlockHandles({
                         </button>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* 구분선 라인 스타일 (horizontalRule 일 때만) */}
+                {isHorizontalRule && (
+                  <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                    <div className="mb-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      라인 스타일
+                    </div>
+                    <div className="mb-2 grid grid-cols-2 gap-1">
+                      {DIVIDER_LINE_STYLES.map((style) => {
+                        const label = DIVIDER_STYLE_LABELS[style];
+                        const active = dividerLineStyle === style;
+                        return (
+                          <button
+                            key={style}
+                            type="button"
+                            title={label}
+                            aria-label={label}
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              applyDivider({ lineStyle: style });
+                            }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            className={`flex h-7 items-center justify-center rounded border px-2 ${
+                              active
+                                ? "border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/40"
+                                : "border-zinc-200 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                            }`}
+                          >
+                            {/* 실제 스타일로 그려진 미리보기 선 */}
+                            <span
+                              className="block w-full text-zinc-500 dark:text-zinc-400"
+                              style={{
+                                borderTopStyle: style,
+                                borderTopWidth: 3,
+                                borderTopColor: dividerColor ?? "currentColor",
+                              }}
+                            />
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mb-1 text-[10px] text-zinc-500 dark:text-zinc-400">색</div>
+                    <div className="mb-2 flex flex-wrap gap-1">
+                      {DIVIDER_COLORS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          title={c}
+                          aria-label={c}
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            applyDivider({ color: c });
+                          }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          className={`h-5 w-5 shrink-0 rounded border ${
+                            dividerColor?.toLowerCase() === c.toLowerCase()
+                              ? "ring-2 ring-blue-400 ring-offset-1 dark:ring-offset-zinc-900"
+                              : "border-zinc-200 dark:border-zinc-700"
+                          }`}
+                          style={{ background: c }}
+                        />
+                      ))}
+                    </div>
+                    <div className="mb-1 text-[10px] text-zinc-500 dark:text-zinc-400">두께</div>
+                    <div className="flex gap-1">
+                      {DIVIDER_THICKNESSES.map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onPointerDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            applyDivider({ thickness: t });
+                          }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          className={`flex h-6 min-w-6 flex-1 items-center justify-center rounded px-1 text-[11px] ${
+                            dividerThickness === t
+                              ? "bg-blue-500 text-white"
+                              : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 

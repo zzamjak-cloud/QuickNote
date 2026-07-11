@@ -6,7 +6,7 @@ import Link from "@tiptap/extension-link";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import { ImageBlock } from "../../lib/tiptapExtensions/imageBlock";
-import HorizontalRule from "@tiptap/extension-horizontal-rule";
+import { DividerRule } from "../../lib/tiptapExtensions/dividerRule";
 import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -162,7 +162,7 @@ export function useEditorExtensions({
       ImageBlock.configure({ allowBase64: false }),
       // 동영상·PDF·zip 등 모든 파일은 fileBlock 으로 통합. mimeType 에 따라 NodeView 가 분기.
       FileBlock,
-      HorizontalRule,
+      DividerRule,
       MoveBlock,
       DeleteCurrentBlock,
       Table.configure({ resizable: true }),

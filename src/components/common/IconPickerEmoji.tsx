@@ -1,64 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import * as LucideIcons from "lucide-react";
-import rawEmojiData from "emoji-picker-react/dist/data/emojis.json";
+import {
+  ALL_EMOJIS,
+  EMOJI_CATEGORIES,
+  EMOJI_MAP,
+  type EmojiCategoryId,
+  type EmojiItem,
+} from "./emojiData";
 
 type Props = {
   onPick: (emoji: string) => void;
 };
 
-type RawEmoji = { n: string[]; u: string; a: string };
-type EmojiItem = { emoji: string; label: string; searchKey: string };
+type CategoryFilter = EmojiCategoryId | "all";
 
-const CATEGORIES = [
-  { id: "smileys_people", label: "표정" },
-  { id: "animals_nature", label: "동물" },
-  { id: "food_drink",     label: "음식" },
-  { id: "activities",     label: "활동" },
-  { id: "travel_places",  label: "여행" },
-  { id: "objects",        label: "사물" },
-  { id: "symbols",        label: "기호" },
-  { id: "flags",          label: "국기" },
-] as const;
-
-type CategoryId = (typeof CATEGORIES)[number]["id"] | "all";
-
-function toEmoji(unified: string): string {
-  try {
-    return String.fromCodePoint(...unified.split("-").map((h) => parseInt(h, 16)));
-  } catch {
-    return "";
-  }
-}
-
-// 모듈 레벨에서 한 번만 파싱
-function buildEmojiMap(): Record<string, EmojiItem[]> {
-  const raw = (rawEmojiData as { emojis: Record<string, RawEmoji[]> }).emojis;
-
-  return Object.fromEntries(
-    CATEGORIES.map((cat) => [
-      cat.id,
-      (raw[cat.id] ?? [])
-        .map((e) => ({
-          emoji: toEmoji(e.u),
-          label: e.n.at(-1) ?? e.u,
-          searchKey: e.n.join(" "),
-        }))
-        .filter((e) => e.emoji),
-    ]),
-  );
-}
-
-const EMOJI_MAP = buildEmojiMap();
-const ALL_EMOJIS = CATEGORIES.flatMap((cat) => EMOJI_MAP[cat.id] ?? []);
-
-// "전체" 카테고리는 ~1800개라 한 번에 렌더하면 패널 마운트마다 프리즈(로딩처럼 보임)가 난다.
+// "전체" 카테고리는 ~1900개라 한 번에 렌더하면 패널 마운트마다 프리즈(로딩처럼 보임)가 난다.
 // 초기엔 한 배치만 그리고 스크롤 시 점진 확장한다(데이터는 이미 모듈 캐시).
 const GRID_BATCH = 180;
 
 /** 사이드바 아이콘 피커 본체 — 커스텀 이모지 그리드 */
 export function IconPickerEmoji({ onPick }: Props) {
   const [query, setQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<CategoryId>("all");
+  const [activeCategory, setActiveCategory] = useState<CategoryFilter>("all");
 
   const [limit, setLimit] = useState(GRID_BATCH);
 
@@ -78,7 +41,7 @@ export function IconPickerEmoji({ onPick }: Props) {
 
   const shownEmojis = visibleEmojis.slice(0, limit);
 
-  const handleCategoryClick = (cat: CategoryId) => {
+  const handleCategoryClick = (cat: CategoryFilter) => {
     setActiveCategory(cat);
     setQuery("");
   };
@@ -111,15 +74,15 @@ export function IconPickerEmoji({ onPick }: Props) {
       {/* 카테고리 탭 — 검색 중엔 숨김 */}
       {!query ? (
         <div className="mb-2 flex gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {([{ id: "all" as const, label: "전체" }] as { id: CategoryId; label: string }[])
-            .concat(CATEGORIES)
+          {([{ id: "all" as const, label: "전체" }] as { id: CategoryFilter; label: string }[])
+            .concat(EMOJI_CATEGORIES.map((c) => ({ id: c.id, label: c.label })))
             .map((cat) => (
               <button
                 key={cat.id}
                 type="button"
                 onClick={() => handleCategoryClick(cat.id)}
                 className={[
-                  "shrink-0 rounded px-2 py-1 text-xs",
+                  "shrink-0 rounded px-2 py-1 text-xs whitespace-nowrap",
                   activeCategory === cat.id
                     ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                     : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700",
