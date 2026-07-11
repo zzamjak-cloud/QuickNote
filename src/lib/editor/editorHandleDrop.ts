@@ -199,6 +199,11 @@ function listItemInsertionPosFromDrop(
 
   for (let d = $pos.depth; d >= 1; d--) {
     const node = $pos.node(d);
+    // 드롭 지점이 콜아웃 내부(그 콜아웃을 감싼 listItem 보다 깊은 위치)면, 형제 리스트 항목으로
+    // 붙이지 않고 null 을 반환해 호출부의 topLevelInsertionPosFromDrop(콜아웃 내부 삽입)로 넘긴다.
+    // (콜아웃이 글머리 항목 안에 있을 때 하위 항목을 콜아웃으로 못 넣던 문제. 콜아웃은 항상
+    //  listItem 보다 깊게 만나므로 이 지점에서 조기 반환하면 콜아웃 안 리스트 재정렬은 영향 없다.)
+    if (node.type.name === "callout") return null;
     if (node.type.name !== shape.listItemNode.type.name) continue;
     const parent = $pos.node(d - 1);
     if (parent.type.name !== shape.sourceListTypeName) continue;
