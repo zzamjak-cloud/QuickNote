@@ -211,8 +211,10 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               type="text"
               value={attrs.caption ?? ""}
               placeholder="캡션 입력…"
+              // textAlign 은 주지 않는다 — 셀이 텍스트보다 넓을 때 우측 정렬이 텍스트를
+              // 셀 오른쪽으로 밀어 아이콘과 텍스트 사이가 벌어진다. 정렬 위치는 바깥 flex
+              // justify-end 가, 우측 끝 밀착은 후행 공백·우측 패딩 제거가 담당한다.
               style={{
-                textAlign: captionAlign,
                 paddingLeft: 2,
                 paddingRight: captionAlign === "right" ? 0 : 2,
               }}

@@ -145,8 +145,9 @@ function MediaCaptionInput({
           type="text"
           value={caption}
           placeholder="캡션 입력…"
+          // textAlign 미지정 — 우측 정렬이 텍스트를 셀 오른쪽으로 밀어 아이콘과 벌어지는 문제.
+          // 정렬은 바깥 flex justify-end, 우측 밀착은 후행 공백·패딩 제거가 담당.
           style={{
-            textAlign: captionAlign,
             paddingLeft: 2,
             paddingRight: captionAlign === "right" ? 0 : 2,
           }}
