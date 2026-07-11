@@ -36,7 +36,11 @@ type CrumbEntry = PublicPageMeta | { id: "__ellipsis__" };
 function collapseCrumbs(path: PublicPageMeta[]): CrumbEntry[] {
   if (path.length <= BREADCRUMB_COLLAPSE_AT) return path;
   // 루트 / … / 부모 / 현재 — 깊은 계층에서도 바가 한 줄을 유지한다.
-  return [path[0], { id: "__ellipsis__" }, path[path.length - 2], path[path.length - 1]];
+  const first = path[0];
+  const parent = path[path.length - 2];
+  const last = path[path.length - 1];
+  if (!first || !parent || !last) return path;
+  return [first, { id: "__ellipsis__" }, parent, last];
 }
 
 export function PublicBreadcrumbBar({
