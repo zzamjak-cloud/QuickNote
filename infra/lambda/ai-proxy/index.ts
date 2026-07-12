@@ -24,6 +24,7 @@ import {
 } from "../v5-resolvers/handlers/aiConfig";
 import { streamGeminiChat, ProviderError } from "./gemini";
 import { streamAnthropicChat } from "./anthropic";
+import { streamOpenAiChat } from "./openai";
 import {
   buildSystemPromptParts,
   AI_ACTIONS,
@@ -523,29 +524,21 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
 
       try {
         const onToolCall = (call: AiToolCall) => sseWrite(stream, { tool_call: call });
+        const common = {
+          apiKey,
+          model,
+          messages: valid.messages,
+          enableTools: valid.enableTools,
+          signal: upstreamAbort.signal,
+          onDelta: (text: string) => sseWrite(stream, { delta: text }),
+          onToolCall,
+        };
         const result =
           provider === "anthropic"
-            ? await streamAnthropicChat({
-                apiKey,
-                model,
-                instructions,
-                contextBlock,
-                messages: valid.messages,
-                enableTools: valid.enableTools,
-                signal: upstreamAbort.signal,
-                onDelta: (text: string) => sseWrite(stream, { delta: text }),
-                onToolCall,
-              })
-            : await streamGeminiChat({
-                apiKey,
-                model,
-                systemPrompt,
-                messages: valid.messages,
-                enableTools: valid.enableTools,
-                signal: upstreamAbort.signal,
-                onDelta: (text: string) => sseWrite(stream, { delta: text }),
-                onToolCall,
-              });
+            ? await streamAnthropicChat({ ...common, instructions, contextBlock })
+            : provider === "openai"
+              ? await streamOpenAiChat({ ...common, systemPrompt })
+              : await streamGeminiChat({ ...common, systemPrompt });
         sseWrite(stream, {
           done: true,
           finishReason: result.finishReason,

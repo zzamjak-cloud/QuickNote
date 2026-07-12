@@ -18,17 +18,19 @@ import type { Tables } from "./member";
 const kms = new KMSClient({});
 
 /** 서버가 허용하는 AI 제공사·모델 화이트리스트. 클라이언트 src/lib/ai/models.ts 와 동기 유지. */
-export const AI_PROVIDERS = ["gemini", "anthropic"] as const;
+export const AI_PROVIDERS = ["gemini", "anthropic", "openai"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 export const AI_MODELS_BY_PROVIDER: Record<AiProvider, readonly string[]> = {
   gemini: ["gemini-2.5-flash", "gemini-2.5-pro"],
   anthropic: ["claude-haiku-4-5", "claude-sonnet-5"],
+  openai: ["gpt-5-mini", "gpt-5.1"],
 };
 
 export const AI_DEFAULT_MODEL_BY_PROVIDER: Record<AiProvider, string> = {
   gemini: "gemini-2.5-flash",
   anthropic: "claude-haiku-4-5",
+  openai: "gpt-5-mini",
 };
 
 export function isAiProvider(v: string): v is AiProvider {
