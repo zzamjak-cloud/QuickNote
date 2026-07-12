@@ -49,9 +49,18 @@ export function editorViewAvailable(editor: Editor | null): editor is Editor {
   return Boolean(editor && !editor.isDestroyed);
 }
 
-/** 박스 선택 오버레이를 붙일 호스트 — transform 컨텍스트(피크 패널) 오프셋 회피를 위해 항상 body 사용 */
+/**
+ * 박스 선택 오버레이를 붙일 호스트.
+ * 에디터 스크롤 컨테이너(.overflow-y-auto)에 absolute 로 붙여 콘텐츠와 "함께" 움직이게 한다 —
+ * fixed+scroll 리페인트 방식은 macOS 러버밴드(오버스크롤 텐션) 동안 scroll 이벤트가 없어
+ * 파란 선택 영역만 제자리에 남는 어긋남이 생긴다(2026-07-12). 스크롤 호스트가 없으면 body(fixed) 폴백.
+ * transform 컨텍스트(피크 패널)도 absolute 기준에서는 문제없다.
+ */
 export function getEditorMarqueeHost(editor: Editor): HTMLElement {
-  void editor;
+  if (editorViewAvailable(editor)) {
+    const scrollHost = editor.view.dom.closest<HTMLElement>(".overflow-y-auto");
+    if (scrollHost) return scrollHost;
+  }
   return document.body;
 }
 
@@ -119,12 +128,17 @@ export function ensureGroupOverlay(editor: Editor): HTMLDivElement {
   }
   let ov = host.querySelector<HTMLDivElement>(`#${GROUP_OVERLAY_ID}`);
   if (ov) return ov;
+  const isBodyHost = host === document.body;
+  // absolute 자식의 기준이 되도록 스크롤 호스트에 containing block 보장
+  if (!isBodyHost && getComputedStyle(host).position === "static") {
+    host.style.position = "relative";
+  }
   ov = document.createElement("div");
   ov.id = GROUP_OVERLAY_ID;
   // 노션처럼 시각 표시만 — pointer-events: none 으로 클릭 통과, 이동은 그립 핸들러 전용
   ov.style.cssText =
     [
-      "position: fixed",
+      `position: ${isBodyHost ? "fixed" : "absolute"}`,
       "pointer-events: none",
       `z-index: ${BOX_SELECTION_Z_INDEX.selectedOverlay}`,
       "border-radius: 8px",
@@ -168,9 +182,18 @@ export function showGroupOverlayForRects(editor: Editor, rects: DOMRect[]): void
     if (r.bottom > maxBottom) maxBottom = r.bottom;
   });
   const PAD = 4;
+  // 스크롤 호스트에 absolute 로 붙은 경우 뷰포트 좌표 → 호스트 콘텐츠 좌표 변환
+  let offsetX = 0;
+  let offsetY = 0;
+  const host = ov.parentElement;
+  if (host && host !== document.body) {
+    const hostRect = host.getBoundingClientRect();
+    offsetX = host.scrollLeft - hostRect.left;
+    offsetY = host.scrollTop - hostRect.top;
+  }
   ov.style.display = "block";
-  ov.style.left = `${minLeft - PAD}px`;
-  ov.style.top = `${minTop - PAD}px`;
+  ov.style.left = `${minLeft - PAD + offsetX}px`;
+  ov.style.top = `${minTop - PAD + offsetY}px`;
   ov.style.width = `${maxRight - minLeft + PAD * 2}px`;
   ov.style.height = `${maxBottom - minTop + PAD * 2}px`;
 }

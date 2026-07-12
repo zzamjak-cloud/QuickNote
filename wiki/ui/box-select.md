@@ -34,6 +34,11 @@ const dbg = (reason: string) => console.log("[QN-DEBUG] marquee:mousedown", reas
 ```
 
 ## 변경 시 주의
+- **선택 하이라이트는 스크롤 호스트에 absolute**(`overlayDom.ts getEditorMarqueeHost`) — body fixed
+  + scroll 리페인트로 되돌리면 macOS 러버밴드(오버스크롤 텐션) 동안 scroll 이벤트가 없어 파란
+  영역만 제자리에 남는다(2026-07-12). 마퀴 드래그 사각형만 body fixed 유지.
+- **박스 선택 활성 중 그립 유지**: BlockHandles 는 선택 활성 동안 mousemove hover 갱신을 차단하므로
+  `onLeave` 에서 hover 를 지우면 그립이 사라진 뒤 복구 경로가 없다 — 선택 해제 시까지 앵커 그립 유지.
 - **z-index 규칙**: 마퀴(310)·선택 하이라이트(300)는 fixed 오버레이라 앱 크롬보다 낮아야 한다
   (TopBar/TabBar `z-[350]` · AI 패널 `z-[400]` · 설정 모달 500). 높이면 스크롤 시 상단 바/사이드
   패널 위로 파란 영역이 떠오르는 회귀(2026-07-12 수정). 값은 `src/lib/boxSelectionVisual.ts`

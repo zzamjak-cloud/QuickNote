@@ -330,6 +330,9 @@ export function BlockHandles({
     };
     const onLeave = (e: MouseEvent) => {
       if (menuOpenRef.current) return;
+      // 박스 선택 활성 중엔 hover 를 지우지 않는다 — 활성 동안 mousemove 갱신이 차단되므로
+      // 여기서 지우면 그립이 사라진 뒤 복구 경로가 없다(앵커 그립은 선택 해제 시까지 유지).
+      if (boxSelectionActiveRef.current) return;
       pending = null;
       if (rafId != null) {
         cancelAnimationFrame(rafId);
