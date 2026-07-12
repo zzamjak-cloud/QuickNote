@@ -23,6 +23,7 @@ import {
   MessageSquarePlus,
   PaintBucket,
   Pilcrow,
+  Sparkles,
   Trash2,
   Unlink,
 } from "lucide-react";
@@ -53,6 +54,9 @@ import {
   applyHeaderRowToggle,
 } from "../../lib/editor/tableHeaders";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
+import { useAiStore } from "../../store/aiStore";
+import { isAiProxyConfigured } from "../../lib/ai/aiClient";
+import { getBlocksAiPayload } from "../../lib/ai/selection";
 import { reportNonFatal } from "../../lib/reportNonFatal";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
@@ -146,6 +150,16 @@ export function BlockHandles({
   const [menuOpen, setMenuOpen] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState<DownloadNotice>(null);
   const globalActivePageId = usePageStore((s) => s.activePageId);
+  // AI 게이팅 — 빌드 env + 워크스페이스 설정(enabled·키)이 모두 충족돼야 노출
+  const aiWorkspaceId = usePageStore((s) => {
+    const pid = pageId ?? s.activePageId;
+    return pid ? s.pages[pid]?.workspaceId ?? null : null;
+  });
+  const aiConfig = useAiStore((s) =>
+    aiWorkspaceId ? s.configByWorkspace[aiWorkspaceId] : undefined,
+  );
+  const aiAvailable =
+    isAiProxyConfigured() && aiConfig?.enabled === true && aiConfig?.hasKey === true;
   // pageId prop 우선 — 피크 뷰처럼 활성 페이지와 다른 페이지를 편집할 때 정확한 페이지 ID 사용
   const activePageId = pageId ?? globalActivePageId;
   const openCommentThread = useUiStore((s) => s.openCommentThread);
@@ -714,6 +728,47 @@ export function BlockHandles({
     const tr = editor.state.tr.insert(insertAt, node.copy(node.content));
     editor.view.dispatch(tr.scrollIntoView());
     editor.view.focus();
+    setMenuOpen(false);
+  };
+
+  // AI에게 요청 — 드래그 이동(onGripDragStart)과 동일한 우선순위로 다중 블록을 해석한다:
+  //   1) 박스 선택(boxSelectedStarts)이 hover 블록 포함 → 선택 블록 전체
+  //   2) PM 텍스트 선택이 여러 최상위 블록을 가로지르고 hover 가 그중 하나 → 그 블록들
+  //   3) 둘 다 아니면 hover 블록 하나
+  const openAiOnBlocks = () => {
+    if (!editor || !hover || !activePageId || !aiWorkspaceId) return;
+    let starts: readonly number[] = [hover.blockStart];
+    if (boxSelectedStarts?.length && boxSelectedStarts.includes(hover.blockStart)) {
+      starts = boxSelectedStarts;
+    } else {
+      const sel = editor.state.selection;
+      const pmStarts = topLevelBlockStartsInSelectionRange(
+        editor.state.doc,
+        sel.from,
+        sel.to,
+      );
+      if (pmStarts.length > 1 && pmStarts.includes(hover.blockStart)) {
+        starts = pmStarts;
+      }
+    }
+    const payload = getBlocksAiPayload(editor, starts);
+    if (!payload) return;
+    useAiStore.getState().openPanel(
+      {
+        label: starts.length > 1 ? `선택한 블록 ${starts.length}개` : "선택한 블록",
+        markdown: payload.markdown,
+        pageId: activePageId,
+        databaseId: null,
+        truncated: payload.truncated,
+      },
+      {
+        selectionRange: {
+          pageId: activePageId,
+          from: payload.range.from,
+          to: payload.range.to,
+        },
+      },
+    );
     setMenuOpen(false);
   };
 
@@ -1626,6 +1681,18 @@ export function BlockHandles({
                 )}
 
                 <hr className="my-1 border-zinc-200 dark:border-zinc-700" />
+
+                {/* AI에게 요청 — 박스/다중 블록 선택 시 선택 전체를 컨텍스트로 */}
+                {aiAvailable && (
+                  <button
+                    type="button"
+                    onClick={openAiOnBlocks}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <Sparkles size={14} className="text-violet-600 dark:text-violet-400" />
+                    AI에게 요청
+                  </button>
+                )}
 
                 <button
                   type="button"
