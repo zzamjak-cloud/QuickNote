@@ -44,6 +44,7 @@ export function AiSettingsTab() {
   const [keyInputs, setKeyInputs] = useState<Record<AiProvider, string>>({
     gemini: "",
     anthropic: "",
+    openai: "",
   });
   const [quotaDraft, setQuotaDraft] = useState("0");
   const [busy, setBusy] = useState(false);
