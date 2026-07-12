@@ -1,11 +1,28 @@
 // AI 채팅 사이드 패널 — 페이지 컨텍스트 기반 대화(Phase 1).
 import { useEffect, useRef, useState } from "react";
-import { CircleStop, Eraser, FileText, Send, Sparkles, X } from "lucide-react";
+import {
+  Check,
+  CircleStop,
+  Copy,
+  Eraser,
+  FileText,
+  Replace,
+  Send,
+  Sparkles,
+  TextCursorInput,
+  X,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useAiStore } from "../../store/aiStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { usePageStore } from "../../store/pageStore";
+import { useUiStore } from "../../store/uiStore";
 import { AI_DEFAULT_MODEL, AI_MODELS } from "../../lib/ai/models";
+import {
+  insertMarkdownAtCursor,
+  replaceRangeWithMarkdown,
+} from "../../lib/ai/insertToEditor";
 
 export function AiChatPanel() {
   const panelOpen = useAiStore((s) => s.panelOpen);
@@ -19,9 +36,13 @@ export function AiChatPanel() {
   const setModel = useAiStore((s) => s.setModel);
   const send = useAiStore((s) => s.send);
   const stop = useAiStore((s) => s.stop);
+  const selectionRange = useAiStore((s) => s.selectionRange);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
+  const activePageId = usePageStore((s) => s.activePageId);
+  const showToast = useUiStore((s) => s.showToast);
 
   const [input, setInput] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -48,6 +69,33 @@ export function AiChatPanel() {
     void send(workspaceId, input);
     setInput("");
   };
+
+  // 응답을 문서로 — 삽입 대상은 선택 원본 페이지 > 컨텍스트 페이지 > 활성 페이지 순
+  const insertTargetPageId = selectionRange?.pageId ?? context?.pageId ?? activePageId;
+  const handleInsert = (content: string) => {
+    if (!insertTargetPageId) {
+      showToast("삽입할 페이지가 없습니다");
+      return;
+    }
+    const ok = insertMarkdownAtCursor(insertTargetPageId, content);
+    showToast(ok ? "문서에 삽입했습니다" : "삽입할 위치를 찾지 못했습니다");
+  };
+  const handleReplace = (content: string) => {
+    if (!selectionRange) return;
+    const ok = replaceRangeWithMarkdown(selectionRange.pageId, selectionRange, content);
+    showToast(ok ? "선택 영역을 교체했습니다" : "문서가 변경되어 교체할 수 없습니다");
+    // 같은 범위 중복 교체(범위 어긋남) 방지 — 성공 시 원본 범위를 비운다
+    if (ok) useAiStore.setState({ selectionRange: null });
+  };
+  const handleCopy = (id: string, content: string) => {
+    void navigator.clipboard.writeText(content).then(() => {
+      setCopiedId(id);
+      window.setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1500);
+    });
+  };
+
+  const bubbleActionClass =
+    "inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
   return (
     <aside
@@ -108,9 +156,50 @@ export function AiChatPanel() {
           ) : (
             <div key={m.id} className="flex flex-col gap-1">
               {m.content ? (
-                <div className="prose prose-sm max-w-none rounded-lg bg-zinc-100 px-3 py-2 dark:prose-invert dark:bg-zinc-900">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                </div>
+                <>
+                  <div className="prose prose-sm max-w-none rounded-lg bg-zinc-100 px-3 py-2 dark:prose-invert dark:bg-zinc-900">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  </div>
+                  {!isStreaming && (
+                    <div className="flex items-center gap-1">
+                      {insertTargetPageId && (
+                        <button
+                          type="button"
+                          onClick={() => handleInsert(m.content)}
+                          className={bubbleActionClass}
+                          title="현재 커서 위치에 삽입"
+                        >
+                          <TextCursorInput size={12} aria-hidden />
+                          문서에 삽입
+                        </button>
+                      )}
+                      {selectionRange && (
+                        <button
+                          type="button"
+                          onClick={() => handleReplace(m.content)}
+                          className={bubbleActionClass}
+                          title="원본 선택 영역을 이 내용으로 교체"
+                        >
+                          <Replace size={12} aria-hidden />
+                          선택 교체
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(m.id, m.content)}
+                        className={bubbleActionClass}
+                        title="복사"
+                      >
+                        {copiedId === m.id ? (
+                          <Check size={12} aria-hidden />
+                        ) : (
+                          <Copy size={12} aria-hidden />
+                        )}
+                        복사
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 !m.error &&
                 isStreaming && (

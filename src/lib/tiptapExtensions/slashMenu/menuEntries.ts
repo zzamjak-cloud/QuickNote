@@ -19,12 +19,16 @@ import {
   Quote,
   Smile,
   Link,
+  Sparkles,
   Table as TableIcon,
   Workflow,
   Youtube as YoutubeIcon,
 } from "lucide-react";
 import { usePageStore } from "../../../store/pageStore";
 import { useUiStore } from "../../../store/uiStore";
+import { useAiStore } from "../../../store/aiStore";
+import { isAiProxyConfigured } from "../../ai/aiClient";
+import { buildPageAiContext } from "../../ai/contextBuilder";
 import { isTrustedYoutubeInput } from "../../safeUrl";
 import { MENTION_PAGE_PREFIX } from "../mentionKind";
 import { getRecentCalloutPreset } from "../../editor/recentCalloutPreset";
@@ -136,6 +140,27 @@ export const slashMenuEntries: SlashMenuEntry[] = [
           .insertContent(" ")
           .run();
       }, 0);
+    },
+  }),
+  slashLeaf({
+    title: "AI에게 요청",
+    description: "현재 페이지 내용을 기반으로 AI와 대화",
+    icon: Sparkles,
+    keywords: ["ai", "에이아이", "인공지능", "chat", "질문"],
+    command: (ctx) => {
+      clearSlashRange(ctx);
+      const store = usePageStore.getState();
+      const pageCtx = ctx.editor.storage.pageContext as { pageId?: string | null } | undefined;
+      const pageId = pageCtx?.pageId ?? store.activePageId;
+      const workspaceId = pageId ? store.pages[pageId]?.workspaceId ?? null : null;
+      const cfg = workspaceId
+        ? useAiStore.getState().configByWorkspace[workspaceId]
+        : undefined;
+      if (!isAiProxyConfigured() || !cfg?.enabled || !cfg?.hasKey) {
+        useUiStore.getState().showToast("AI 기능이 비활성화되어 있습니다");
+        return;
+      }
+      useAiStore.getState().openPanel(pageId ? buildPageAiContext(pageId) : null);
     },
   }),
   slashLeaf({

@@ -14,7 +14,13 @@ import {
 } from "../v5-resolvers/handlers/_auth";
 import { AI_ALLOWED_MODELS, AI_DEFAULT_MODEL } from "../v5-resolvers/handlers/aiConfig";
 import { streamGeminiChat, ProviderError, type AiChatMessage } from "./gemini";
-import { buildSystemPrompt, AI_ACTIONS, type AiAction } from "./prompts";
+import {
+  buildSystemPrompt,
+  AI_ACTIONS,
+  AI_TONES,
+  type AiAction,
+  type AiActionOptions,
+} from "./prompts";
 import type { ResponseStream } from "./awslambda";
 
 const doc = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -58,6 +64,7 @@ type AiChatRequest = {
   model?: string;
   messages?: Array<{ role?: string; content?: string }>;
   context?: { label?: string; markdown?: string };
+  options?: { targetLanguage?: string; tone?: string };
 };
 
 /** 스트림 시작 전 실패 — 상태코드 + JSON 본문으로 즉시 종료. */
@@ -193,11 +200,23 @@ async function authorize(event: FnUrlEvent, req: AiChatRequest): Promise<
 }
 
 function validateRequest(req: AiChatRequest):
-  | { ok: true; action: AiAction; messages: AiChatMessage[] }
+  | { ok: true; action: AiAction; messages: AiChatMessage[]; options: AiActionOptions }
   | { ok: false; error: string } {
   const action = (req.action ?? "chat") as AiAction;
   if (!(AI_ACTIONS as readonly string[]).includes(action)) {
     return { ok: false, error: `지원하지 않는 action: ${req.action}` };
+  }
+  const options: AiActionOptions = {};
+  if (req.options?.targetLanguage != null) {
+    const lang = String(req.options.targetLanguage).replace(/[\n\r"<>]/g, "").trim();
+    if (!lang || lang.length > 40) return { ok: false, error: "잘못된 targetLanguage" };
+    options.targetLanguage = lang;
+  }
+  if (req.options?.tone != null) {
+    if (!(AI_TONES as readonly string[]).includes(req.options.tone)) {
+      return { ok: false, error: `지원하지 않는 tone: ${req.options.tone}` };
+    }
+    options.tone = req.options.tone;
   }
   const raw = Array.isArray(req.messages) ? req.messages : [];
   if (raw.length === 0) return { ok: false, error: "messages 필요" };
@@ -213,7 +232,7 @@ function validateRequest(req: AiChatRequest):
   if ((req.context?.markdown?.length ?? 0) > MAX_CONTEXT_CHARS) {
     return { ok: false, error: "컨텍스트가 너무 큽니다" };
   }
-  return { ok: true, action, messages };
+  return { ok: true, action, messages, options };
 }
 
 export const handler = awslambda.streamifyResponse<FnUrlEvent>(
@@ -273,7 +292,7 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         const result = await streamGeminiChat({
           apiKey: auth.apiKey,
           model,
-          systemPrompt: buildSystemPrompt(valid.action, req.context),
+          systemPrompt: buildSystemPrompt(valid.action, req.context, valid.options),
           messages: valid.messages,
           onDelta: (text) => sseWrite(stream, { delta: text }),
         });

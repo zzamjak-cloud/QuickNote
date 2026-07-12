@@ -43,9 +43,15 @@ type SseEvent = {
   retryAfterSec?: number | null;
 };
 
+export type AiAction = "chat" | "summarize" | "continue" | "translate" | "tone" | "actionItems";
+
+export type AiActionOptions = { targetLanguage?: string; tone?: string };
+
 export async function streamAiChat(args: {
   workspaceId: string;
   pageId?: string | null;
+  action?: AiAction;
+  options?: AiActionOptions;
   model?: string | null;
   messages: AiChatMessage[];
   context?: { label: string; markdown: string } | null;
@@ -68,7 +74,8 @@ export async function streamAiChat(args: {
     body: JSON.stringify({
       workspaceId: args.workspaceId,
       pageId: args.pageId ?? undefined,
-      action: "chat",
+      action: args.action ?? "chat",
+      options: args.options ?? undefined,
       model: args.model ?? undefined,
       messages: args.messages,
       context: args.context ?? undefined,

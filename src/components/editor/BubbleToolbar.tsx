@@ -16,6 +16,7 @@ import {
   Link as LinkIcon,
   MessageSquarePlus,
   AlignHorizontalDistributeCenter,
+  Sparkles,
 } from "lucide-react";
 import { ImageBubbleToolbar } from "./ImageBubbleToolbar";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip";
@@ -29,6 +30,26 @@ import {
   distributeSelectedColumnsEvenly,
   getSelectedColumnCount,
 } from "../../lib/editor/tableColumnWidths";
+import { usePageStore } from "../../store/pageStore";
+import { useAiStore } from "../../store/aiStore";
+import { isAiProxyConfigured, type AiAction, type AiActionOptions } from "../../lib/ai/aiClient";
+import { getSelectionAiPayload } from "../../lib/ai/selection";
+
+/** 선택 영역 AI 액션 메뉴 — action 없으면 채팅만 연다. */
+const AI_SELECTION_ACTIONS: Array<{
+  label: string;
+  action?: AiAction;
+  options?: AiActionOptions;
+}> = [
+  { label: "AI에게 요청" },
+  { label: "요약", action: "summarize" },
+  { label: "이어쓰기", action: "continue" },
+  { label: "할 일 추출", action: "actionItems" },
+  { label: "영어로 번역", action: "translate", options: { targetLanguage: "영어" } },
+  { label: "한국어로 번역", action: "translate", options: { targetLanguage: "한국어" } },
+  { label: "전문적인 톤으로", action: "tone", options: { tone: "professional" } },
+  { label: "캐주얼한 톤으로", action: "tone", options: { tone: "casual" } },
+];
 
 const COLORS = [
   { label: "기본", value: null },
@@ -164,6 +185,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [colorOpen, setColorOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   // 미디어 확대 미리보기가 열려 있으면 부유 툴바를 숨긴다(오버레이 위 겹침 방지).
   const mediaPreviewOpen = useMediaPreviewStore((s) => s.open);
   // 색상·형광펜 팔레트가 하단에서 잘리면 위로 뒤집는다(≈220px).
@@ -171,6 +193,17 @@ export function BubbleToolbar({ editor, pageId }: Props) {
     usePopoverFlip<HTMLDivElement>(colorOpen, 220);
   const { triggerRef: hlTriggerRef, dropUp: hlDropUp } =
     usePopoverFlip<HTMLDivElement>(hlOpen, 220);
+  const { triggerRef: aiTriggerRef, dropUp: aiDropUp } =
+    usePopoverFlip<HTMLDivElement>(aiOpen, 300);
+  // AI 게이팅 — 빌드 env + 워크스페이스 설정(enabled·키)이 모두 충족돼야 노출
+  const aiWorkspaceId = usePageStore((s) =>
+    pageId ? s.pages[pageId]?.workspaceId ?? null : null,
+  );
+  const aiConfig = useAiStore((s) =>
+    aiWorkspaceId ? s.configByWorkspace[aiWorkspaceId] : undefined,
+  );
+  const aiAvailable =
+    isAiProxyConfigured() && aiConfig?.enabled === true && aiConfig?.hasKey === true;
   const toolbarRef = useRef<HTMLDivElement | null>(null);
   const anchorRef = useRef<ToolbarAnchor | null>(null);
   const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
@@ -391,6 +424,34 @@ export function BubbleToolbar({ editor, pageId }: Props) {
     setPos(null);
   };
 
+  /** 선택 영역을 AI 패널 컨텍스트로 열고, action 이 있으면 즉시 실행. */
+  const runAiOnSelection = (item: (typeof AI_SELECTION_ACTIONS)[number]) => {
+    if (!pageId || !aiWorkspaceId) return;
+    const payload = getSelectionAiPayload(editor);
+    if (!payload) return;
+    const ai = useAiStore.getState();
+    ai.openPanel(
+      {
+        label: "선택 영역",
+        markdown: payload.markdown,
+        pageId,
+        databaseId: null,
+        truncated: payload.truncated,
+      },
+      { selectionRange: { pageId, from: payload.range.from, to: payload.range.to } },
+    );
+    if (item.action) {
+      void ai.runAction(aiWorkspaceId, {
+        action: item.action,
+        title: item.label,
+        options: item.options,
+      });
+    }
+    setAiOpen(false);
+    setMode("hidden");
+    setPos(null);
+  };
+
   const showCellAlign = mode === "text" && isInTableCell(editor);
   const cellAlign = showCellAlign ? getTableCellAlign(editor) : null;
   // 연속된 여러 열을 CellSelection 으로 선택한 경우에만 "균등 너비" 버튼 노출.
@@ -418,6 +479,49 @@ export function BubbleToolbar({ editor, pageId }: Props) {
           <ImageBubbleToolbar editor={editor} pageId={pageId} />
         ) : (
           <>
+            {aiAvailable && (
+              <>
+                <div className="relative" ref={aiTriggerRef}>
+                  <ToolbarBtn
+                    active={aiOpen}
+                    onClick={() => {
+                      setAiOpen((v) => !v);
+                      setColorOpen(false);
+                      setHlOpen(false);
+                    }}
+                    title="AI"
+                  >
+                    <span className="flex items-center gap-1 px-0.5 text-violet-600 dark:text-violet-400">
+                      <Sparkles size={14} />
+                      <span className="text-xs font-medium">AI</span>
+                    </span>
+                  </ToolbarBtn>
+                  {aiOpen && (
+                    <div
+                      className={[
+                        "absolute left-0 z-10 w-44 rounded-md border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900",
+                        aiDropUp ? "bottom-full mb-1" : "top-full mt-1",
+                      ].join(" ")}
+                    >
+                      {AI_SELECTION_ACTIONS.map((item) => (
+                        <button
+                          key={item.label}
+                          type="button"
+                          onClick={() => runAiOnSelection(item)}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div
+                  className="mx-0.5 h-5 w-px shrink-0 bg-zinc-200 dark:bg-zinc-600"
+                  aria-hidden
+                />
+              </>
+            )}
             <ToolbarBtn
               active={editor.isActive("bold")}
               onClick={() => editor.chain().focus().toggleBold().run()}
