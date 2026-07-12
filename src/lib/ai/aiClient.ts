@@ -27,6 +27,44 @@ export class AiRequestError extends Error {
   }
 }
 
+/** abort 시 AbortError 로 중단되는 대기 — 429 백오프용. */
+export function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** 재시도 가치가 있는 사용량 제한 오류인지 — HTTP 429 또는 제공사 SSE 429 중계. */
+export function isRetryableRateLimit(e: unknown): e is AiRequestError {
+  return e instanceof AiRequestError && (e.status === 429 || e.retryAfterSec != null);
+}
+
+/** 429 시 Retry-After 만큼 대기 후 재시도(최대 retries회). 그 외 오류는 즉시 전파. */
+export async function withRateLimitRetry<T>(
+  run: () => Promise<T>,
+  args: { signal: AbortSignal; retries?: number; onWait?: (sec: number) => void },
+): Promise<T> {
+  const retries = args.retries ?? 2;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (e) {
+      if (attempt >= retries || !isRetryableRateLimit(e) || args.signal.aborted) throw e;
+      const waitSec = Math.min(Math.max(e.retryAfterSec ?? 2 * (attempt + 1), 1), 60);
+      args.onWait?.(waitSec);
+      await sleepWithAbort(waitSec * 1000, args.signal);
+    }
+  }
+}
+
 /** 테스트의 vi.stubEnv 대응을 위해 매 호출 시 조회(모듈 로드 시점 고정 회피). */
 function aiProxyUrl(): string {
   return ((import.meta.env.VITE_AI_URL as string | undefined) ?? "").trim();

@@ -45,6 +45,9 @@ export function AiChatPanel() {
   const setModel = useAiStore((s) => s.setModel);
   const send = useAiStore((s) => s.send);
   const stop = useAiStore((s) => s.stop);
+  const deepAnalysis = useAiStore((s) => s.deepAnalysis);
+  const confirmDeepAnalysis = useAiStore((s) => s.confirmDeepAnalysis);
+  const declineDeepAnalysis = useAiStore((s) => s.declineDeepAnalysis);
   const selectionRange = useAiStore((s) => s.selectionRange);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const activePageId = usePageStore((s) => s.activePageId);
@@ -374,6 +377,36 @@ export function AiChatPanel() {
       </div>
 
       <footer className="shrink-0 border-t border-zinc-200 p-3 dark:border-zinc-800">
+        {/* 전수 분석 확인 — 본문이 단일 요청 예산을 넘을 때 요청 수 고지 */}
+        {deepAnalysis && !isStreaming && (
+          <div className="mb-2 space-y-2 rounded-md border border-violet-200 bg-violet-50 p-2.5 text-xs dark:border-violet-800 dark:bg-violet-950/30">
+            <p className="text-zinc-700 dark:text-zinc-200">
+              본문 분량이 많아 한 번에 담을 수 없습니다.{" "}
+              <strong>{deepAnalysis.plan.analyzedRows}행</strong>의 본문 전체를{" "}
+              배치 {deepAnalysis.plan.batches.length}개로 나눠 분석할 수 있습니다
+              (AI 요청 약 {deepAnalysis.plan.batches.length + 1}건, 시간이 다소
+              걸립니다).
+              {deepAnalysis.plan.skippedRows > 0 &&
+                ` ${deepAnalysis.plan.skippedRows}행은 상한 초과로 제외됩니다.`}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void confirmDeepAnalysis(workspaceId)}
+                className="rounded-md bg-violet-600 px-2.5 py-1.5 text-white hover:bg-violet-500"
+              >
+                전체 본문 분석
+              </button>
+              <button
+                type="button"
+                onClick={() => void declineDeepAnalysis(workspaceId)}
+                className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                포함된 범위로만 답변
+              </button>
+            </div>
+          </div>
+        )}
         <div className="mb-2">
           <label className="sr-only" htmlFor="ai-model-select">
             AI 모델

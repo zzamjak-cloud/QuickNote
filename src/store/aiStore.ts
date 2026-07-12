@@ -10,6 +10,8 @@ import {
 import {
   streamAiChat,
   AiRequestError,
+  isRetryableRateLimit,
+  sleepWithAbort,
   type AiAction,
   type AiActionOptions,
   type AiChatMessage,
@@ -30,6 +32,11 @@ import {
   type AiContextOptions,
 } from "../lib/ai/contextBuilder";
 import { loadPageBodies } from "../lib/ai/loadRowBodies";
+import {
+  planDeepDbAnalysis,
+  runDeepDbAnalysis,
+  type DeepAnalysisPlan,
+} from "../lib/ai/deepAnalysis";
 import {
   AI_TOOL_ROUND_LIMIT,
   executeAiTool,
@@ -57,26 +64,6 @@ const CHAT_HISTORY_LIMIT = 8;
 
 let abortController: AbortController | null = null;
 let bubbleSeq = 0;
-
-/** abort 시 AbortError 로 중단되는 대기 — 429 백오프용. */
-function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-/** 재시도 가치가 있는 사용량 제한 오류인지 — HTTP 429 또는 제공사 SSE 429 중계. */
-function isRetryableRateLimit(e: unknown): e is AiRequestError {
-  return e instanceof AiRequestError && (e.status === 429 || e.retryAfterSec != null);
-}
 function nextBubbleId(): string {
   bubbleSeq += 1;
   return `ai-${Date.now()}-${bubbleSeq}`;
@@ -99,6 +86,8 @@ type AiState = {
   /** null 이면 워크스페이스 기본 모델 사용 */
   model: string | null;
   configByWorkspace: Record<string, WorkspaceAiConfig>;
+  /** 전수 분석 확인 대기 — 본문이 단일 요청 예산을 넘을 때 요청 수 고지 후 사용자 선택. */
+  deepAnalysis: { plan: DeepAnalysisPlan; question: string } | null;
 };
 
 type AiActions = {
@@ -120,6 +109,10 @@ type AiActions = {
     workspaceId: string,
     args: { action: AiAction; title: string; options?: AiActionOptions },
   ) => Promise<void>;
+  /** 전수 분석 확인 응답 — 실행(map-reduce) */
+  confirmDeepAnalysis: (workspaceId: string) => Promise<void>;
+  /** 전수 분석 확인 응답 — 예산 내 컨텍스트로 일반 응답 */
+  declineDeepAnalysis: (workspaceId: string) => Promise<void>;
   stop: () => void;
 };
 
@@ -319,6 +312,20 @@ export const useAiStore = create<AiState & AiActions>()(
         }
       };
 
+      /** 일반 단일 요청 전송 — 최근 N개 히스토리 포함. */
+      const sendNormal = async (workspaceId: string, trimmed: string): Promise<void> => {
+        // 에러 말풍선·빈 응답 제외, 최근 N개만 전송
+        const history = [...get().messages, { role: "user" as const, content: trimmed, error: null }]
+          .filter((m) => !m.error && m.content)
+          .slice(-CHAT_HISTORY_LIMIT)
+          .map((m) => ({ role: m.role, content: m.content }));
+        await runStream(workspaceId, {
+          action: "chat",
+          userBubbleText: trimmed,
+          payloadMessages: history,
+        });
+      };
+
       return {
         panelOpen: false,
         context: null,
@@ -328,6 +335,7 @@ export const useAiStore = create<AiState & AiActions>()(
         toolStatus: null,
         model: null,
         configByWorkspace: {},
+        deepAnalysis: null,
 
         openPanel: (context, opts) =>
           set((s) => ({
@@ -343,9 +351,9 @@ export const useAiStore = create<AiState & AiActions>()(
         closePanel: () => {
           // 패널을 닫으면 진행 중 스트림도 중단 — 백그라운드 토큰 소모 방지
           abortController?.abort();
-          set({ panelOpen: false });
+          set({ panelOpen: false, deepAnalysis: null });
         },
-        clearChat: () => set({ messages: [] }),
+        clearChat: () => set({ messages: [], deepAnalysis: null }),
         setModel: (model) => set({ model }),
 
         ensureConfig: async (workspaceId) => {
@@ -384,17 +392,81 @@ export const useAiStore = create<AiState & AiActions>()(
 
         send: async (workspaceId, text) => {
           const trimmed = text.trim();
-          if (!trimmed) return;
-          // 에러 말풍선·빈 응답 제외, 최근 N개만 전송
-          const history = [...get().messages, { role: "user" as const, content: trimmed, error: null }]
-            .filter((m) => !m.error && m.content)
-            .slice(-CHAT_HISTORY_LIMIT)
-            .map((m) => ({ role: m.role, content: m.content }));
-          await runStream(workspaceId, {
-            action: "chat",
-            userBubbleText: trimmed,
-            payloadMessages: history,
-          });
+          if (!trimmed || get().isStreaming) return;
+
+          // DB 채팅 + 본문 포함이면 전수 분석 필요 여부 판단 —
+          // 본문이 단일 요청 예산을 넘으면(배치 2개 이상) 요청 수를 고지하고 확인을 받는다.
+          const context = get().context;
+          if (context?.databaseId && context.options?.includeRowBodies && context.panelState) {
+            set({ toolStatus: "본문 분량 확인 중…" });
+            const plan = await planDeepDbAnalysis(context, (note) =>
+              set({ toolStatus: note }),
+            ).catch(() => null);
+            set({ toolStatus: null });
+            if (plan && plan.batches.length > 1) {
+              set({ deepAnalysis: { plan, question: trimmed } });
+              return;
+            }
+          }
+          await sendNormal(workspaceId, trimmed);
+        },
+
+        confirmDeepAnalysis: async (workspaceId) => {
+          const pending = get().deepAnalysis;
+          if (!pending || get().isStreaming) return;
+          set({ deepAnalysis: null });
+          const model = resolveModel(workspaceId);
+
+          const assistantId = nextBubbleId();
+          set((s) => ({
+            messages: [
+              ...s.messages,
+              { id: nextBubbleId(), role: "user", content: pending.question },
+              { id: assistantId, role: "assistant", content: "" },
+            ],
+            isStreaming: true,
+          }));
+          abortController = new AbortController();
+          const signal = abortController.signal;
+          const patchAssistant = (patch: Partial<AiChatBubble>) =>
+            set((s) => ({
+              messages: s.messages.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)),
+            }));
+          try {
+            await runDeepDbAnalysis({
+              workspaceId,
+              model,
+              question: pending.question,
+              plan: pending.plan,
+              signal,
+              onProgress: (status) => set({ toolStatus: status }),
+              onReduceDelta: (delta) =>
+                set((s) => ({
+                  messages: s.messages.map((m) =>
+                    m.id === assistantId ? { ...m, content: m.content + delta } : m,
+                  ),
+                })),
+            });
+          } catch (e) {
+            if (e instanceof DOMException && e.name === "AbortError") {
+              patchAssistant({ error: null });
+            } else if (e instanceof AiRequestError) {
+              patchAssistant({ error: e.message });
+            } else {
+              console.error("AI 전수 분석 실패", e);
+              patchAssistant({ error: "AI 분석 중 오류가 발생했습니다" });
+            }
+          } finally {
+            abortController = null;
+            set({ isStreaming: false, toolStatus: null });
+          }
+        },
+
+        declineDeepAnalysis: async (workspaceId) => {
+          const pending = get().deepAnalysis;
+          if (!pending || get().isStreaming) return;
+          set({ deepAnalysis: null });
+          await sendNormal(workspaceId, pending.question);
         },
 
         runAction: async (workspaceId, args) => {

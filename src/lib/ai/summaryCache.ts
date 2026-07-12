@@ -2,7 +2,8 @@
 // key: workspace + 대상 id + contentHash + model
 
 const STORAGE_KEY = "quicknote.ai.summaryCache.v1";
-const MAX_ENTRIES = 20;
+// 전수 분석(deepAnalysis)이 배치당 1엔트리를 쓰므로 배치 상한(24)보다 넉넉하게.
+const MAX_ENTRIES = 80;
 
 export type SummaryCacheEntry = {
   markdown: string;

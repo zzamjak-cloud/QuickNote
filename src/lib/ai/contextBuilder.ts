@@ -235,16 +235,23 @@ type DbViewSerialization = {
   missingBodyPageIds: string[];
 };
 
+export type DbViewRows = {
+  label: string;
+  columns: ColumnDef[];
+  /** 현재 뷰 필터·정렬·검색 적용 후 행 전체. */
+  rows: DatabaseRowView[];
+  filterRules: ReturnType<typeof resolveActiveFilterRules>;
+  sortRules: Array<{ columnId: string; dir?: string }>;
+};
+
 /**
- * DB 현재 뷰 직렬화 코어 — useProcessedRows 와 동일한 규칙(파생 컬럼 계산 → filterable 보정 →
- * 필터·정렬·검색)을 1회 순수 계산한다. 행/셀 상한 적용(총량 상한은 호출부에서).
- * DB 채팅 컨텍스트와 페이지 컨텍스트의 인라인 DB 임베드가 공유한다.
+ * DB 현재 뷰 행 계산 코어 — useProcessedRows 와 동일한 규칙(파생 컬럼 계산 → filterable 보정 →
+ * 필터·정렬·검색)을 1회 순수 계산한다. 컨텍스트 직렬화와 전수 분석(deepAnalysis)이 공유한다.
  */
-function serializeDatabaseView(
+export function computeDbViewRows(
   databaseId: string,
   panelState: DatabasePanelState,
-  options: AiContextOptions = {},
-): DbViewSerialization | null {
+): DbViewRows | null {
   const databases = useDatabaseStore.getState().databases;
   const bundle = databases[databaseId];
   if (!bundle || !Array.isArray(bundle.columns) || !Array.isArray(bundle.rowPageOrder)) {
@@ -322,6 +329,29 @@ function serializeDatabaseView(
     sortRules,
   );
 
+  return {
+    label: bundle.meta?.title?.trim() || "데이터베이스",
+    columns,
+    rows,
+    filterRules,
+    sortRules,
+  };
+}
+
+/**
+ * DB 현재 뷰 직렬화 — 행/셀 상한 적용(총량 상한은 호출부에서).
+ * DB 채팅 컨텍스트와 페이지 컨텍스트의 인라인 DB 임베드가 공유한다.
+ */
+function serializeDatabaseView(
+  databaseId: string,
+  panelState: DatabasePanelState,
+  options: AiContextOptions = {},
+): DbViewSerialization | null {
+  const view = computeDbViewRows(databaseId, panelState);
+  if (!view) return null;
+  const { label, columns, rows, filterRules, sortRules } = view;
+  const pages = usePageStore.getState().pages;
+
   const maxRows = defaultMaxRows(options);
   const visibleColumns = columns.filter((c) => !isInternalHiddenColumnId(c.id));
   if (visibleColumns.length === 0) return null;
@@ -338,8 +368,6 @@ function serializeDatabaseView(
     });
     return `| ${cells.join(" | ")} |`;
   });
-
-  const label = bundle.meta?.title?.trim() || "데이터베이스";
 
   // 어떤 필터·정렬이 적용됐는지 모델에 명시 — "지금 보고 있는 뷰"와 대화하는 멘탈 모델(계획 §6)
   const colName = (id: string) => columns.find((c) => c.id === id)?.name || id;
