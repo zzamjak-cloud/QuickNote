@@ -21,15 +21,20 @@ import {
   resolveKeysMap,
   type AiProvider,
 } from "../v5-resolvers/handlers/aiConfig";
-import { streamGeminiChat, ProviderError, type AiChatMessage } from "./gemini";
+import { streamGeminiChat, ProviderError } from "./gemini";
 import { streamAnthropicChat } from "./anthropic";
 import {
-  buildSystemPrompt,
+  buildSystemPromptParts,
   AI_ACTIONS,
   AI_TONES,
   type AiAction,
   type AiActionOptions,
 } from "./prompts";
+import {
+  TOOLS_SYSTEM_HINT,
+  type AiToolCall,
+  type AiWireMessage,
+} from "./tools";
 import type { ResponseStream } from "./awslambda";
 
 const doc = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -44,9 +49,11 @@ const AI_USAGE_TABLE = process.env.AI_USAGE_TABLE!;
 const RATE_LIMIT_RPM = Number(process.env.AI_RATE_LIMIT_RPM ?? "10");
 
 // 요청 크기 상한 — 컨텍스트 예산(§6)의 서버측 최종 방어선
-const MAX_MESSAGES = 20;
+// tool 왕복(assistant_tools + tool) 포함해 여유를 둔다
+const MAX_MESSAGES = 40;
 const MAX_MESSAGE_CHARS = 32_000;
 const MAX_CONTEXT_CHARS = 120_000;
+const MAX_TOOL_RESULT_CHARS = 24_000;
 
 // realtime/auth.ts 와 동일한 검증기 구성(웹·데스크톱 클라이언트 콤마 허용)
 const allowedClientIds = [process.env.USER_POOL_CLIENT_ID, process.env.USER_POOL_DESKTOP_CLIENT_ID]
@@ -71,9 +78,17 @@ type AiChatRequest = {
   pageId?: string;
   action?: string;
   model?: string;
-  messages?: Array<{ role?: string; content?: string }>;
+  messages?: Array<{
+    role?: string;
+    content?: string;
+    toolCalls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
+    toolCallId?: string;
+    name?: string;
+  }>;
   context?: { label?: string; markdown?: string };
   options?: { targetLanguage?: string; tone?: string };
+  /** chat 전용 — 클라이언트가 로컬 스토어로 해석할 tool schema 활성화 */
+  enableTools?: boolean;
 };
 
 /** 스트림 시작 전 실패 — 상태코드 + JSON 본문으로 즉시 종료. */
@@ -283,7 +298,13 @@ async function authorize(
 }
 
 function validateRequest(req: AiChatRequest):
-  | { ok: true; action: AiAction; messages: AiChatMessage[]; options: AiActionOptions }
+  | {
+      ok: true;
+      action: AiAction;
+      messages: AiWireMessage[];
+      options: AiActionOptions;
+      enableTools: boolean;
+    }
   | { ok: false; error: string } {
   const action = (req.action ?? "chat") as AiAction;
   if (!(AI_ACTIONS as readonly string[]).includes(action)) {
@@ -301,21 +322,61 @@ function validateRequest(req: AiChatRequest):
     }
     options.tone = req.options.tone;
   }
+  const enableTools = Boolean(req.enableTools) && action === "chat";
   const raw = Array.isArray(req.messages) ? req.messages : [];
   if (raw.length === 0) return { ok: false, error: "messages 필요" };
   if (raw.length > MAX_MESSAGES) return { ok: false, error: "대화가 너무 깁니다" };
-  const messages: AiChatMessage[] = [];
+  const messages: AiWireMessage[] = [];
   for (const m of raw) {
-    if ((m.role !== "user" && m.role !== "assistant") || typeof m.content !== "string") {
-      return { ok: false, error: "잘못된 메시지 형식" };
+    if (m.role === "user" || m.role === "assistant") {
+      if (typeof m.content !== "string") return { ok: false, error: "잘못된 메시지 형식" };
+      if (m.content.length > MAX_MESSAGE_CHARS) return { ok: false, error: "메시지가 너무 깁니다" };
+      messages.push({ role: m.role, content: m.content });
+      continue;
     }
-    if (m.content.length > MAX_MESSAGE_CHARS) return { ok: false, error: "메시지가 너무 깁니다" };
-    messages.push({ role: m.role, content: m.content });
+    if (m.role === "assistant_tools") {
+      if (!enableTools) return { ok: false, error: "도구 메시지는 enableTools 필요" };
+      const toolCalls: AiToolCall[] = [];
+      for (const tc of m.toolCalls ?? []) {
+        if (!tc?.id || !tc?.name || typeof tc.name !== "string") {
+          return { ok: false, error: "잘못된 toolCalls" };
+        }
+        toolCalls.push({
+          id: String(tc.id).slice(0, 128),
+          name: String(tc.name).slice(0, 64),
+          args: tc.args && typeof tc.args === "object" ? tc.args : {},
+        });
+      }
+      if (toolCalls.length === 0) return { ok: false, error: "toolCalls 필요" };
+      messages.push({ role: "assistant_tools", toolCalls });
+      continue;
+    }
+    if (m.role === "tool") {
+      if (!enableTools) return { ok: false, error: "도구 메시지는 enableTools 필요" };
+      if (
+        typeof m.toolCallId !== "string" ||
+        typeof m.name !== "string" ||
+        typeof m.content !== "string"
+      ) {
+        return { ok: false, error: "잘못된 tool 결과" };
+      }
+      if (m.content.length > MAX_TOOL_RESULT_CHARS) {
+        return { ok: false, error: "tool 결과가 너무 깁니다" };
+      }
+      messages.push({
+        role: "tool",
+        toolCallId: m.toolCallId.slice(0, 128),
+        name: m.name.slice(0, 64),
+        content: m.content,
+      });
+      continue;
+    }
+    return { ok: false, error: "잘못된 메시지 형식" };
   }
   if ((req.context?.markdown?.length ?? 0) > MAX_CONTEXT_CHARS) {
     return { ok: false, error: "컨텍스트가 너무 큽니다" };
   }
-  return { ok: true, action, messages, options };
+  return { ok: true, action, messages, options, enableTools };
 }
 
 export const handler = awslambda.streamifyResponse<FnUrlEvent>(
@@ -378,6 +439,20 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
       }
       const apiKey = await decryptApiKey(auth.keys[provider]!.enc);
 
+      const { instructions: baseInstructions, contextBlock } = buildSystemPromptParts(
+        valid.action,
+        req.context,
+        valid.options,
+      );
+      const instructions = valid.enableTools
+        ? `${baseInstructions}\n\n${TOOLS_SYSTEM_HINT}`
+        : baseInstructions;
+      // Gemini 는 단일 systemInstruction 문자열(지침+컨텍스트 고정 프리픽스) —
+      // Anthropic 은 contextBlock 에 ephemeral cache_control
+      const systemPrompt = contextBlock
+        ? `${instructions}\n\n${contextBlock}`
+        : instructions;
+
       const stream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 200,
         headers: {
@@ -387,23 +462,34 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         },
       });
 
-      const streamArgs = {
-        apiKey,
-        model,
-        systemPrompt: buildSystemPrompt(valid.action, req.context, valid.options),
-        messages: valid.messages,
-        onDelta: (text: string) => sseWrite(stream, { delta: text }),
-      };
-
       try {
+        const onToolCall = (call: AiToolCall) => sseWrite(stream, { tool_call: call });
         const result =
           provider === "anthropic"
-            ? await streamAnthropicChat(streamArgs)
-            : await streamGeminiChat(streamArgs);
+            ? await streamAnthropicChat({
+                apiKey,
+                model,
+                instructions,
+                contextBlock,
+                messages: valid.messages,
+                enableTools: valid.enableTools,
+                onDelta: (text: string) => sseWrite(stream, { delta: text }),
+                onToolCall,
+              })
+            : await streamGeminiChat({
+                apiKey,
+                model,
+                systemPrompt,
+                messages: valid.messages,
+                enableTools: valid.enableTools,
+                onDelta: (text: string) => sseWrite(stream, { delta: text }),
+                onToolCall,
+              });
         sseWrite(stream, {
           done: true,
           finishReason: result.finishReason,
           usage: { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
+          toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
         });
         await logUsage(
           req.workspaceId!,

@@ -437,6 +437,15 @@ export function BubbleToolbar({ editor, pageId }: Props) {
         pageId,
         databaseId: null,
         truncated: payload.truncated,
+        parts: [
+          {
+            kind: "selection",
+            title: "선택 영역",
+            chars: payload.markdown.length,
+          },
+        ],
+        options: {},
+        panelState: null,
       },
       { selectionRange: { pageId, from: payload.range.from, to: payload.range.to } },
     );

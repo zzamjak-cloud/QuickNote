@@ -76,23 +76,37 @@ ${COMMON_RULES}
       return `당신은 할 일 추출 도우미입니다. <context> 의 텍스트에서 실행해야 할 항목을 추출하세요.
 
 ${COMMON_RULES}
-- 결과는 GFM 체크리스트("- [ ] 항목") 형식만 출력합니다.
-- 담당자·기한이 명시돼 있으면 항목 끝에 괄호로 붙입니다.
-- 실행 항목이 없으면 "실행 항목이 없습니다." 한 줄만 출력합니다.`;
+- 응답 본문은 GFM 체크리스트("- [ ] 항목") 줄만 출력합니다. 서문·후문·설명·코드펜스를 절대 붙이지 마세요.
+- 담당자·기한이 명시돼 있으면 항목 끝에 괄호로 붙입니다. 예: "- [ ] 초안 작성 (담당: 김씨, 기한: 금요일)"
+- 실행 항목이 없으면 체크리스트 없이 "실행 항목이 없습니다." 한 줄만 출력합니다.`;
     case "chat":
       return CHAT_PROMPT;
   }
 }
 
-/** 시스템 프롬프트 조립. 컨텍스트는 항상 시스템 프롬프트 뒤(고정 프리픽스)에 배치. */
+/** 시스템 프롬프트 조립.
+ *  반환: 고정 지침(instructions) + 선택적 컨텍스트 블록.
+ *  컨텍스트는 항상 지침 뒤 고정 프리픽스에 두어 제공사 프롬프트 캐싱이 적중하도록 한다.
+ *  (user 메시지에 컨텍스트를 섞으면 캐시가 깨지므로 금지) */
+export function buildSystemPromptParts(
+  action: AiAction,
+  context?: { label?: string | null; markdown?: string | null },
+  options: AiActionOptions = {},
+): { instructions: string; contextBlock: string | null } {
+  const instructions = actionPrompt(action, options);
+  const md = context?.markdown?.trim();
+  if (!md) return { instructions, contextBlock: null };
+  const label = context?.label?.trim();
+  const contextBlock = `<context${label ? ` label="${label}"` : ""}>\n${md}\n</context>`;
+  return { instructions, contextBlock };
+}
+
+/** 하위 호환 — 지침+컨텍스트를 한 문자열로. */
 export function buildSystemPrompt(
   action: AiAction,
   context?: { label?: string | null; markdown?: string | null },
   options: AiActionOptions = {},
 ): string {
-  const base = actionPrompt(action, options);
-  const md = context?.markdown?.trim();
-  if (!md) return base;
-  const label = context?.label?.trim();
-  return `${base}\n\n<context${label ? ` label="${label}"` : ""}>\n${md}\n</context>`;
+  const { instructions, contextBlock } = buildSystemPromptParts(action, context, options);
+  return contextBlock ? `${instructions}\n\n${contextBlock}` : instructions;
 }

@@ -18,7 +18,23 @@ import {
   availableModels,
   defaultModelForProvider,
 } from "../lib/ai/models";
-import type { AiContext } from "../lib/ai/contextBuilder";
+import {
+  buildSummaryCacheKey,
+  getSummaryCache,
+  hashAiContextMarkdown,
+  setSummaryCache,
+} from "../lib/ai/summaryCache";
+import {
+  rebuildAiContext,
+  type AiContext,
+  type AiContextOptions,
+} from "../lib/ai/contextBuilder";
+import {
+  AI_TOOL_ROUND_LIMIT,
+  executeAiTool,
+  toolStatusLabel,
+  type AiWireMessage,
+} from "../lib/ai/tools";
 
 export type AiChatBubble = {
   id: string;
@@ -26,6 +42,10 @@ export type AiChatBubble = {
   content: string;
   /** 스트리밍 실패 시 말풍선에 표시할 에러 (assistant 전용) */
   error?: string | null;
+  /** 선택 영역 액션 출처 — 체크리스트 삽입 UX 등에 사용 */
+  sourceAction?: AiAction | null;
+  /** 요약 캐시 히트 표시 */
+  fromCache?: boolean;
 };
 
 /** 선택 영역 교체용 원본 범위 — 문서가 바뀌면 무효일 수 있어 교체 시 재검증한다. */
@@ -53,6 +73,8 @@ type AiState = {
   selectionRange: AiSelectionRange | null;
   messages: AiChatBubble[];
   isStreaming: boolean;
+  /** tool 실행 중 UX 칩 문구 */
+  toolStatus: string | null;
   /** null 이면 워크스페이스 기본 모델 사용 */
   model: string | null;
   configByWorkspace: Record<string, WorkspaceAiConfig>;
@@ -69,6 +91,8 @@ type AiActions = {
   /** 워크스페이스 AI 설정을 1회 로드해 캐시 (UI 게이팅용). 실패는 조용히 무시. */
   ensureConfig: (workspaceId: string) => Promise<void>;
   applyConfig: (config: WorkspaceAiConfig) => void;
+  /** 컨텍스트 옵션(행 수·본문 포함) 갱신 — 대화는 유지. */
+  updateContextOptions: (patch: AiContextOptions) => void;
   send: (workspaceId: string, text: string) => Promise<void>;
   /** 선택 영역 액션(요약·번역 등) — 현재 컨텍스트를 대상으로 서버 템플릿 실행. */
   runAction: (
@@ -82,6 +106,20 @@ export const useAiStore = create<AiState & AiActions>()(
   persist(
     (set, get) => {
       /** 공통 스트리밍 실행 — user 말풍선/assistant 스트림/에러 처리. */
+      const resolveModel = (workspaceId: string): string => {
+        const wsConfig = get().configByWorkspace[workspaceId];
+        const keyed =
+          wsConfig?.providers?.filter((p) => p.hasKey).map((p) => p.provider) ??
+          (wsConfig?.hasKey && wsConfig.provider ? [wsConfig.provider] : []);
+        const allowed = availableModels(keyed);
+        const selected = get().model;
+        return selected && allowed.some((m) => m.id === selected)
+          ? selected
+          : wsConfig?.defaultModel && allowed.some((m) => m.id === wsConfig.defaultModel)
+            ? wsConfig.defaultModel
+            : (allowed[0]?.id ?? defaultModelForProvider(wsConfig?.provider));
+      };
+
       const runStream = async (
         workspaceId: string,
         args: {
@@ -92,6 +130,42 @@ export const useAiStore = create<AiState & AiActions>()(
         },
       ): Promise<void> => {
         if (get().isStreaming) return;
+
+        let pendingSummaryKey: string | null = null;
+        const model = resolveModel(workspaceId);
+
+        // 요약 캐시 — 동일 문서·모델이면 네트워크 스킵
+        if (args.action === "summarize") {
+          const context = get().context;
+          if (context?.markdown) {
+            const cacheKey = buildSummaryCacheKey({
+              workspaceId,
+              pageId: context.pageId,
+              databaseId: context.databaseId,
+              contentHash: hashAiContextMarkdown(context.markdown),
+              model,
+            });
+            const hit = getSummaryCache(cacheKey);
+            if (hit) {
+              set((s) => ({
+                messages: [
+                  ...s.messages,
+                  { id: nextBubbleId(), role: "user", content: args.userBubbleText },
+                  {
+                    id: nextBubbleId(),
+                    role: "assistant",
+                    content: hit.markdown,
+                    sourceAction: "summarize",
+                    fromCache: true,
+                  },
+                ],
+              }));
+              return;
+            }
+            pendingSummaryKey = cacheKey;
+          }
+        }
+
         const userBubble: AiChatBubble = {
           id: nextBubbleId(),
           role: "user",
@@ -99,7 +173,16 @@ export const useAiStore = create<AiState & AiActions>()(
         };
         const assistantId = nextBubbleId();
         set((s) => ({
-          messages: [...s.messages, userBubble, { id: assistantId, role: "assistant", content: "" }],
+          messages: [
+            ...s.messages,
+            userBubble,
+            {
+              id: assistantId,
+              role: "assistant",
+              content: "",
+              sourceAction: args.action === "chat" ? null : args.action,
+            },
+          ],
           isStreaming: true,
         }));
 
@@ -111,38 +194,69 @@ export const useAiStore = create<AiState & AiActions>()(
         abortController = new AbortController();
         try {
           const context = get().context;
-          const wsConfig = get().configByWorkspace[workspaceId];
-          const keyed =
-            wsConfig?.providers?.filter((p) => p.hasKey).map((p) => p.provider) ??
-            (wsConfig?.hasKey && wsConfig.provider ? [wsConfig.provider] : []);
-          const allowed = availableModels(keyed);
-          const selected = get().model;
-          // 키 없는 제공사 모델이 persist 되어 있으면 기본 모델로 폴백
-          const model =
-            selected && allowed.some((m) => m.id === selected)
-              ? selected
-              : wsConfig?.defaultModel && allowed.some((m) => m.id === wsConfig.defaultModel)
-                ? wsConfig.defaultModel
-                : (allowed[0]?.id ?? defaultModelForProvider(wsConfig?.provider));
-          await streamAiChat({
-            workspaceId,
-            pageId: context?.pageId ?? null,
-            action: args.action,
-            options: args.options,
-            model,
-            messages: args.payloadMessages,
-            context: context ? { label: context.label, markdown: context.markdown } : null,
-            signal: abortController.signal,
-            onDelta: (delta) =>
-              set((s) => ({
-                messages: s.messages.map((m) =>
-                  m.id === assistantId ? { ...m, content: m.content + delta } : m,
-                ),
-              })),
-          });
+          const enableTools = args.action === "chat";
+          let wireMessages: AiWireMessage[] = args.payloadMessages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          }));
+
+          for (let round = 0; round < AI_TOOL_ROUND_LIMIT; round += 1) {
+            set({ toolStatus: null });
+            const result = await streamAiChat({
+              workspaceId,
+              pageId: context?.pageId ?? null,
+              action: args.action,
+              options: args.options,
+              model,
+              messages: wireMessages,
+              context: context
+                ? { label: context.label, markdown: context.markdown }
+                : null,
+              enableTools,
+              signal: abortController.signal,
+              onDelta: (delta) =>
+                set((s) => ({
+                  messages: s.messages.map((m) =>
+                    m.id === assistantId ? { ...m, content: m.content + delta } : m,
+                  ),
+                })),
+              onToolCall: (call) => set({ toolStatus: toolStatusLabel(call.name) }),
+            });
+
+            if (!enableTools || result.toolCalls.length === 0) break;
+
+            // 도구 호출 턴 — 로컬 해석 후 후속 요청
+            wireMessages = [
+              ...wireMessages,
+              { role: "assistant_tools", toolCalls: result.toolCalls },
+            ];
+            for (const call of result.toolCalls) {
+              set({ toolStatus: toolStatusLabel(call.name) });
+              const content = executeAiTool(call);
+              wireMessages.push({
+                role: "tool",
+                toolCallId: call.id,
+                name: call.name,
+                content,
+              });
+            }
+            // 다음 라운드 텍스트는 이어서 붙인다(도구만 호출한 턴의 빈 텍스트 유지)
+          }
+          set({ toolStatus: null });
+
+          if (pendingSummaryKey) {
+            const content = get().messages.find((m) => m.id === assistantId)?.content ?? "";
+            if (content) {
+              setSummaryCache(pendingSummaryKey, {
+                markdown: content,
+                model,
+                createdAt: Date.now(),
+              });
+            }
+          }
         } catch (e) {
           if (e instanceof DOMException && e.name === "AbortError") {
-            patchAssistant({ error: null }); // 사용자 중단 — 지금까지 내용 유지
+            patchAssistant({ error: null });
           } else if (e instanceof AiRequestError) {
             patchAssistant({ error: e.message });
           } else {
@@ -151,7 +265,7 @@ export const useAiStore = create<AiState & AiActions>()(
           }
         } finally {
           abortController = null;
-          set({ isStreaming: false });
+          set({ isStreaming: false, toolStatus: null });
         }
       };
 
@@ -161,6 +275,7 @@ export const useAiStore = create<AiState & AiActions>()(
         selectionRange: null,
         messages: [],
         isStreaming: false,
+        toolStatus: null,
         model: null,
         configByWorkspace: {},
 
@@ -194,6 +309,13 @@ export const useAiStore = create<AiState & AiActions>()(
           set((s) => ({
             configByWorkspace: { ...s.configByWorkspace, [config.workspaceId]: config },
           })),
+
+        updateContextOptions: (patch) => {
+          const current = get().context;
+          if (!current) return;
+          const next = rebuildAiContext(current, patch);
+          if (next) set({ context: next });
+        },
 
         send: async (workspaceId, text) => {
           const trimmed = text.trim();

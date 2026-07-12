@@ -3,6 +3,7 @@
 
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import { createSseJsonDecoder } from "./sse";
+import type { AiToolCall, AiWireMessage } from "./tools";
 
 export type AiChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -11,6 +12,7 @@ export type AiStreamUsage = { inputTokens: number; outputTokens: number };
 export type AiStreamResult = {
   finishReason: string | null;
   usage: AiStreamUsage | null;
+  toolCalls: AiToolCall[];
 };
 
 export class AiRequestError extends Error {
@@ -41,6 +43,8 @@ type SseEvent = {
   usage?: AiStreamUsage;
   error?: string;
   retryAfterSec?: number | null;
+  tool_call?: AiToolCall;
+  toolCalls?: AiToolCall[];
 };
 
 export type AiAction = "chat" | "summarize" | "continue" | "translate" | "tone" | "actionItems";
@@ -53,10 +57,12 @@ export async function streamAiChat(args: {
   action?: AiAction;
   options?: AiActionOptions;
   model?: string | null;
-  messages: AiChatMessage[];
+  messages: AiWireMessage[];
   context?: { label: string; markdown: string } | null;
+  enableTools?: boolean;
   signal?: AbortSignal;
   onDelta: (text: string) => void;
+  onToolCall?: (call: AiToolCall) => void;
 }): Promise<AiStreamResult> {
   const url = aiProxyUrl();
   if (!url) throw new AiRequestError("AI 서버가 설정되지 않았습니다 (VITE_AI_URL)");
@@ -79,6 +85,7 @@ export async function streamAiChat(args: {
       model: args.model ?? undefined,
       messages: args.messages,
       context: args.context ?? undefined,
+      enableTools: args.enableTools ?? false,
     }),
   });
 
@@ -96,15 +103,25 @@ export async function streamAiChat(args: {
   }
   if (!res.body) throw new AiRequestError("스트리밍 응답 없음");
 
-  const result: AiStreamResult = { finishReason: null, usage: null };
+  const result: AiStreamResult = { finishReason: null, usage: null, toolCalls: [] };
   let streamError: AiRequestError | null = null;
+  const seenToolIds = new Set<string>();
+
+  const pushTool = (call: AiToolCall) => {
+    if (!call?.id || seenToolIds.has(call.id)) return;
+    seenToolIds.add(call.id);
+    result.toolCalls.push(call);
+    args.onToolCall?.(call);
+  };
 
   const decoder = createSseJsonDecoder((raw) => {
     const event = raw as SseEvent;
     if (typeof event.delta === "string" && event.delta) args.onDelta(event.delta);
+    if (event.tool_call) pushTool(event.tool_call);
     if (event.done) {
       result.finishReason = event.finishReason ?? null;
       result.usage = event.usage ?? null;
+      for (const tc of event.toolCalls ?? []) pushTool(tc);
     }
     if (event.error) {
       streamError = new AiRequestError(event.error, null, event.retryAfterSec ?? null);

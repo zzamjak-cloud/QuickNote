@@ -6,6 +6,7 @@ import {
   Copy,
   Eraser,
   FileText,
+  ListTodo,
   Replace,
   Send,
   Sparkles,
@@ -26,12 +27,17 @@ import {
   insertMarkdownAtCursor,
   replaceRangeWithMarkdown,
 } from "../../lib/ai/insertToEditor";
+import {
+  checklistMarkdownForInsert,
+  looksLikeChecklist,
+} from "../../lib/ai/extractChecklist";
 
 export function AiChatPanel() {
   const panelOpen = useAiStore((s) => s.panelOpen);
   const context = useAiStore((s) => s.context);
   const messages = useAiStore((s) => s.messages);
   const isStreaming = useAiStore((s) => s.isStreaming);
+  const toolStatus = useAiStore((s) => s.toolStatus);
   const model = useAiStore((s) => s.model);
   const configByWorkspace = useAiStore((s) => s.configByWorkspace);
   const closePanel = useAiStore((s) => s.closePanel);
@@ -44,6 +50,8 @@ export function AiChatPanel() {
   const activePageId = usePageStore((s) => s.activePageId);
   const showToast = useUiStore((s) => s.showToast);
 
+  const updateContextOptions = useAiStore((s) => s.updateContextOptions);
+  const [chipOpen, setChipOpen] = useState(false);
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -91,6 +99,15 @@ export function AiChatPanel() {
     const ok = insertMarkdownAtCursor(insertTargetPageId, content);
     showToast(ok ? "문서에 삽입했습니다" : "삽입할 위치를 찾지 못했습니다");
   };
+  const handleInsertChecklist = (content: string) => {
+    if (!insertTargetPageId) {
+      showToast("삽입할 페이지가 없습니다");
+      return;
+    }
+    const md = checklistMarkdownForInsert(content);
+    const ok = insertMarkdownAtCursor(insertTargetPageId, md);
+    showToast(ok ? "체크리스트로 삽입했습니다" : "삽입할 위치를 찾지 못했습니다");
+  };
   const handleReplace = (content: string) => {
     if (!selectionRange) return;
     const ok = replaceRangeWithMarkdown(selectionRange.pageId, selectionRange, content);
@@ -136,15 +153,79 @@ export function AiChatPanel() {
         </button>
       </header>
 
-      {/* 컨텍스트 칩 — 무엇이 AI 에 전달되는지 항상 가시화 */}
+      {/* 컨텍스트 칩 — 포함 범위 가시화·조절 */}
       {context && (
-        <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-100 px-3 py-1.5 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-          <FileText size={12} className="shrink-0" aria-hidden />
-          <span className="min-w-0 truncate">{context.label}</span>
-          {context.truncated && (
-            <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-              내용이 많아 일부만 전달됨
-            </span>
+        <div className="shrink-0 space-y-1.5 border-b border-zinc-100 px-3 py-1.5 dark:border-zinc-800">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+            {(context.parts?.length ? context.parts : [{ kind: "body" as const, title: context.label, chars: context.markdown.length }]).map(
+              (part) => {
+                const chipLabel =
+                  part.kind === "database" && part.totalRows != null
+                    ? `${part.title}(${part.includedRows ?? 0}/${part.totalRows}행)`
+                    : part.title;
+                return (
+                  <button
+                    key={`${part.kind}-${part.id ?? part.title}`}
+                    type="button"
+                    onClick={() => setChipOpen((o) => !o)}
+                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] hover:border-violet-300 hover:bg-violet-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-violet-700 dark:hover:bg-violet-950/40"
+                    title="컨텍스트 범위 조절"
+                  >
+                    <FileText size={11} className="shrink-0" aria-hidden />
+                    <span className="truncate">{chipLabel}</span>
+                  </button>
+                );
+              },
+            )}
+            {context.truncated && (
+              <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                내용이 많아 일부만 전달됨
+              </span>
+            )}
+            {toolStatus && (
+              <span className="shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                {toolStatus}
+              </span>
+            )}
+          </div>
+          {chipOpen && context.databaseId && (
+            <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-2 text-xs dark:border-zinc-700 dark:bg-zinc-950">
+              <label className="flex items-center justify-between gap-2">
+                <span>포함 행 수</span>
+                <select
+                  value={String(context.options?.maxRows ?? 200)}
+                  disabled={isStreaming}
+                  onChange={(e) =>
+                    updateContextOptions({ maxRows: Number(e.target.value) })
+                  }
+                  className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  {[30, 50, 100, 200].map((n) => (
+                    <option key={n} value={n}>
+                      {n}행
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center justify-between gap-2">
+                <span>행 본문 포함</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(context.options?.includeRowBodies)}
+                  disabled={isStreaming}
+                  onChange={(e) =>
+                    updateContextOptions({
+                      includeRowBodies: e.target.checked,
+                      maxRows: e.target.checked ? 30 : context.options?.maxRows ?? 200,
+                    })
+                  }
+                />
+              </label>
+              <p className="text-[10px] text-zinc-400">
+                본문 포함 시 행 상한이 자동으로 줄어듭니다. 변경은 이후 메시지에
+                반영됩니다.
+              </p>
+            </div>
           )}
         </div>
       )}
@@ -168,11 +249,26 @@ export function AiChatPanel() {
             <div key={m.id} className="flex flex-col gap-1">
               {m.content ? (
                 <>
+                  {m.fromCache && (
+                    <p className="px-1 text-[10px] text-zinc-400">캐시된 요약</p>
+                  )}
                   <div className="prose prose-sm max-w-none rounded-lg bg-zinc-100 px-3 py-2 dark:prose-invert dark:bg-zinc-900">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                   </div>
                   {!isStreaming && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex flex-wrap items-center gap-1">
+                      {insertTargetPageId &&
+                        (m.sourceAction === "actionItems" || looksLikeChecklist(m.content)) && (
+                          <button
+                            type="button"
+                            onClick={() => handleInsertChecklist(m.content)}
+                            className={`${bubbleActionClass} font-medium text-violet-600 dark:text-violet-400`}
+                            title="체크리스트 블록으로 삽입"
+                          >
+                            <ListTodo size={12} aria-hidden />
+                            체크리스트로 삽입
+                          </button>
+                        )}
                       {insertTargetPageId && (
                         <button
                           type="button"

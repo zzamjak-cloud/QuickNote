@@ -763,6 +763,15 @@ export function BlockHandles({
         pageId: activePageId,
         databaseId: null,
         truncated: payload.truncated,
+        parts: [
+          {
+            kind: "selection",
+            title: starts.length > 1 ? `선택한 블록 ${starts.length}개` : "선택한 블록",
+            chars: payload.markdown.length,
+          },
+        ],
+        options: {},
+        panelState: null,
       },
       {
         selectionRange: {
