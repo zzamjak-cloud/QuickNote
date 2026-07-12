@@ -90,6 +90,14 @@ type AiState = {
   configByWorkspace: Record<string, WorkspaceAiConfig>;
   /** 전수 분석 확인 대기 — 본문이 단일 요청 예산을 넘을 때 요청 수 고지 후 사용자 선택. */
   deepAnalysis: { plan: DeepAnalysisPlan; question: string } | null;
+  /**
+   * 전수 분석 이후 후속 질문 처리 방식 — 같은 DB 컨텍스트에서 확인 카드를 반복 띄우지 않는다.
+   * extracts: 분석 추출 결과를 컨텍스트로 사용 / normal: 예산 내 컨텍스트로 일반 응답.
+   */
+  deepFollowUp:
+    | { databaseId: string; mode: "extracts"; question: string; extractsMarkdown: string }
+    | { databaseId: string; mode: "normal" }
+    | null;
 };
 
 type AiActions = {
@@ -115,6 +123,8 @@ type AiActions = {
   confirmDeepAnalysis: (workspaceId: string) => Promise<void>;
   /** 전수 분석 확인 응답 — 예산 내 컨텍스트로 일반 응답 */
   declineDeepAnalysis: (workspaceId: string) => Promise<void>;
+  /** 후속 질문 자동 처리 해제 — 다음 질문에서 본문 분석을 다시 확인한다. */
+  clearDeepFollowUp: () => void;
   stop: () => void;
 };
 
@@ -143,6 +153,8 @@ export const useAiStore = create<AiState & AiActions>()(
           options?: AiActionOptions;
           userBubbleText: string;
           payloadMessages: AiChatMessage[];
+          /** 지정 시 store 컨텍스트 대신 사용 — 전수 분석 추출 결과 후속 질문 등. */
+          contextOverride?: AiContext;
         },
       ): Promise<void> => {
         if (get().isStreaming) return;
@@ -211,8 +223,9 @@ export const useAiStore = create<AiState & AiActions>()(
         const signal = abortController.signal;
         try {
           // 본문 포함 대상인데 아직 안 불러온 행이 있으면 전송 전에 로드 후 재조립
-          let context = get().context;
-          if (context?.pendingBodyPageIds?.length) {
+          // (contextOverride 는 이미 완성된 컨텍스트이므로 프리페치 대상 아님)
+          let context = args.contextOverride ?? get().context;
+          if (!args.contextOverride && context?.pendingBodyPageIds?.length) {
             set({
               toolStatus: `행 본문 ${context.pendingBodyPageIds.length}건 불러오는 중…`,
             });
@@ -315,7 +328,11 @@ export const useAiStore = create<AiState & AiActions>()(
       };
 
       /** 일반 단일 요청 전송 — 최근 N개 히스토리 포함. */
-      const sendNormal = async (workspaceId: string, trimmed: string): Promise<void> => {
+      const sendNormal = async (
+        workspaceId: string,
+        trimmed: string,
+        contextOverride?: AiContext,
+      ): Promise<void> => {
         // 에러 말풍선·빈 응답 제외, 최근 N개만 전송
         const history = [...get().messages, { role: "user" as const, content: trimmed, error: null }]
           .filter((m) => !m.error && m.content)
@@ -325,6 +342,7 @@ export const useAiStore = create<AiState & AiActions>()(
           action: "chat",
           userBubbleText: trimmed,
           payloadMessages: history,
+          contextOverride,
         });
       };
 
@@ -339,24 +357,27 @@ export const useAiStore = create<AiState & AiActions>()(
         model: null,
         configByWorkspace: {},
         deepAnalysis: null,
+        deepFollowUp: null,
 
         openPanel: (context, opts) =>
-          set((s) => ({
-            panelOpen: true,
-            context,
-            selectionRange: opts?.selectionRange ?? null,
-            // 선택 영역으로 열거나 다른 페이지/DB 컨텍스트로 열면 이전 대화를 비운다
-            messages:
-              opts?.selectionRange || contextKey(context) !== contextKey(s.context)
-                ? []
-                : s.messages,
-          })),
+          set((s) => {
+            const contextChanged =
+              Boolean(opts?.selectionRange) || contextKey(context) !== contextKey(s.context);
+            return {
+              panelOpen: true,
+              context,
+              selectionRange: opts?.selectionRange ?? null,
+              // 선택 영역으로 열거나 다른 페이지/DB 컨텍스트로 열면 이전 대화를 비운다
+              messages: contextChanged ? [] : s.messages,
+              deepFollowUp: contextChanged ? null : s.deepFollowUp,
+            };
+          }),
         closePanel: () => {
           // 패널을 닫으면 진행 중 스트림도 중단 — 백그라운드 토큰 소모 방지
           abortController?.abort();
           set({ panelOpen: false, deepAnalysis: null });
         },
-        clearChat: () => set({ messages: [], deepAnalysis: null }),
+        clearChat: () => set({ messages: [], deepAnalysis: null, deepFollowUp: null }),
         setModel: (model) => set({ model }),
 
         ensureConfig: async (workspaceId) => {
@@ -401,6 +422,28 @@ export const useAiStore = create<AiState & AiActions>()(
           // 본문이 단일 요청 예산을 넘으면(배치 2개 이상) 요청 수를 고지하고 확인을 받는다.
           const context = get().context;
           if (context?.databaseId && context.options?.includeRowBodies && context.panelState) {
+            // 이 컨텍스트에서 이미 선택한 처리 방식이 있으면 확인 카드를 반복 띄우지 않는다
+            const followUp = get().deepFollowUp;
+            if (followUp?.databaseId === context.databaseId) {
+              if (followUp.mode === "extracts") {
+                const followUpContext: AiContext = {
+                  ...context,
+                  label: `${context.label} — 전수 분석 추출 결과`,
+                  markdown: [
+                    `아래는 이 데이터베이스 본문 전수 분석에서 "${followUp.question}" 질문으로 추출된 행별 정보다.`,
+                    "후속 질문에는 이 추출 결과와 대화 이력을 근거로 답하라.",
+                    "추출에 없는 정보가 필요한 질문이면 추측하지 말고, 본문 재분석이 필요하다고 밝혀라.",
+                    "",
+                    followUp.extractsMarkdown,
+                  ].join("\n"),
+                  pendingBodyPageIds: undefined,
+                };
+                await sendNormal(workspaceId, trimmed, followUpContext);
+                return;
+              }
+              await sendNormal(workspaceId, trimmed);
+              return;
+            }
             set({ preparing: true, toolStatus: "본문 분량 확인 중…" });
             try {
               const plan = await planDeepDbAnalysis(context, (note) =>
@@ -439,7 +482,7 @@ export const useAiStore = create<AiState & AiActions>()(
               messages: s.messages.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)),
             }));
           try {
-            await runDeepDbAnalysis({
+            const { extractsMarkdown } = await runDeepDbAnalysis({
               workspaceId,
               model,
               question: pending.question,
@@ -452,6 +495,15 @@ export const useAiStore = create<AiState & AiActions>()(
                     m.id === assistantId ? { ...m, content: m.content + delta } : m,
                   ),
                 })),
+            });
+            // 후속 질문은 확인 카드 없이 추출 결과 기반으로 이어서 답한다
+            set({
+              deepFollowUp: {
+                databaseId: pending.plan.databaseId,
+                mode: "extracts",
+                question: pending.question,
+                extractsMarkdown,
+              },
             });
           } catch (e) {
             if (e instanceof DOMException && e.name === "AbortError") {
@@ -471,9 +523,15 @@ export const useAiStore = create<AiState & AiActions>()(
         declineDeepAnalysis: async (workspaceId) => {
           const pending = get().deepAnalysis;
           if (!pending || get().isStreaming) return;
-          set({ deepAnalysis: null });
+          // 같은 컨텍스트의 후속 질문에서도 카드 없이 일반 응답을 유지한다
+          set({
+            deepAnalysis: null,
+            deepFollowUp: { databaseId: pending.plan.databaseId, mode: "normal" },
+          });
           await sendNormal(workspaceId, pending.question);
         },
+
+        clearDeepFollowUp: () => set({ deepFollowUp: null }),
 
         runAction: async (workspaceId, args) => {
           await runStream(workspaceId, {

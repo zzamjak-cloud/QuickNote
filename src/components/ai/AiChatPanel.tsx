@@ -50,6 +50,8 @@ export function AiChatPanel() {
   const deepAnalysis = useAiStore((s) => s.deepAnalysis);
   const confirmDeepAnalysis = useAiStore((s) => s.confirmDeepAnalysis);
   const declineDeepAnalysis = useAiStore((s) => s.declineDeepAnalysis);
+  const deepFollowUp = useAiStore((s) => s.deepFollowUp);
+  const clearDeepFollowUp = useAiStore((s) => s.clearDeepFollowUp);
   const selectionRange = useAiStore((s) => s.selectionRange);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const activePageId = usePageStore((s) => s.activePageId);
@@ -245,6 +247,17 @@ export function AiChatPanel() {
                 본문은 예산 내에서 포함되며, 넘치는 행은 AI 가 필요할 때 도구로
                 조회합니다. 변경은 이후 메시지에 반영됩니다.
               </p>
+              {deepFollowUp?.databaseId === context.databaseId && (
+                <button
+                  type="button"
+                  disabled={isStreaming}
+                  onClick={() => clearDeepFollowUp()}
+                  className="w-full rounded border border-violet-200 px-2 py-1 text-[11px] text-violet-600 hover:bg-violet-50 disabled:opacity-40 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-950/40"
+                  title="다음 질문에서 본문 전수 분석 여부를 다시 확인합니다"
+                >
+                  다음 질문에서 본문 분석 다시 진행
+                </button>
+              )}
             </div>
           )}
           {/* 페이지 컨텍스트 — 인라인 DB 포함/제외 토글 */}

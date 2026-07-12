@@ -162,7 +162,8 @@ function mapPrompt(question: string, label: string, index: number, total: number
 
 /**
  * map-reduce 실행. map 결과는 세션 캐시로 재사용(같은 질문·같은 내용 재분석 무료).
- * reduce 는 onReduceDelta 로 스트리밍된다.
+ * reduce 는 onReduceDelta 로 스트리밍되고, 행별 추출 결과 마크다운을 반환한다
+ * (후속 질문 컨텍스트로 재사용 — 카드 재확인 없이 이어서 대화).
  */
 export async function runDeepDbAnalysis(args: {
   workspaceId: string;
@@ -172,7 +173,7 @@ export async function runDeepDbAnalysis(args: {
   signal: AbortSignal;
   onProgress: (status: string) => void;
   onReduceDelta: (delta: string) => void;
-}): Promise<void> {
+}): Promise<{ extractsMarkdown: string }> {
   const { plan, question, workspaceId, model, signal } = args;
   const total = plan.batches.length;
   const questionHash = hashAiContextMarkdown(question);
@@ -275,4 +276,6 @@ export async function runDeepDbAnalysis(args: {
       plan.skippedRows > 0 ? ` · ${plan.skippedRows}행 상한 초과 미분석` : ""
     })`,
   );
+
+  return { extractsMarkdown: reduceMarkdown };
 }
