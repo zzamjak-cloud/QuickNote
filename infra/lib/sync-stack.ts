@@ -12,6 +12,7 @@ import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as kms from "aws-cdk-lib/aws-kms";
 import * as eventScheduler from "aws-cdk-lib/aws-scheduler";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
@@ -53,6 +54,10 @@ export interface SyncStackProps extends cdk.StackProps {
   // CognitoStack 의 출력값을 cross-stack reference 로 받는다.
   userPoolId: string;
   userPoolArn: string;
+  /** ai-proxy Lambda 의 ID 토큰 검증용 클라이언트 ID (웹). */
+  userPoolWebClientId: string;
+  /** ai-proxy Lambda 의 ID 토큰 검증용 클라이언트 ID (데스크톱). */
+  userPoolDesktopClientId?: string;
   imagesBucketName: string;
   membersTableName?: string;
   teamsTableName?: string;
@@ -993,6 +998,81 @@ export function response(ctx) {
     });
     new cdk.CfnOutput(this, "PublicViewUrl", { value: publicViewUrl.url });
 
+    // ========== AI (워크스페이스 설정 + 스트리밍 프록시) ==========
+    // API 키는 DDB 저장 전 KMS 로 봉투 암호화 — 테이블 덤프만으로는 원문을 얻을 수 없다.
+    const aiKmsKey = new kms.Key(this, "AiKmsKey", {
+      alias: `${envPrefix}quicknote-ai`,
+      description: "QuickNote 워크스페이스 AI API 키 암호화",
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    const workspaceAiConfigTable = new dynamodb.Table(this, "WorkspaceAiConfigTable", {
+      tableName: `${envPrefix}quicknote-workspace-ai-config`,
+      partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // 사용량 집계(usage#) + 분당 호출 제한 카운터(rl#, TTL 자동 정리) 겸용 테이블
+    const aiUsageTable = new dynamodb.Table(this, "AiUsageTable", {
+      tableName: `${envPrefix}quicknote-ai-usage`,
+      partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "expiresAt",
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // 스트리밍 프록시 — 인증은 Lambda 내부 Cognito JWT 검증(Function URL 은 NONE).
+    const aiProxyFn = new lambdaNode.NodejsFunction(this, "AiProxyFn", {
+      entry: path.join(__dirname, "..", "lambda", "ai-proxy", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: "handler",
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(120),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      // 남용 시 폭발 반경 제한 (동시 스트림 상한)
+      reservedConcurrentExecutions: 20,
+      environment: {
+        MEMBERS_TABLE: this.membersTable.tableName,
+        MEMBER_TEAMS_TABLE: this.memberTeamsTable.tableName,
+        WORKSPACE_ACCESS_TABLE: this.workspaceAccessTable.tableName,
+        PAGES_TABLE: this.pageTable.table.tableName,
+        AI_CONFIG_TABLE: workspaceAiConfigTable.tableName,
+        AI_USAGE_TABLE: aiUsageTable.tableName,
+        USER_POOL_ID: props.userPoolId,
+        USER_POOL_CLIENT_ID: props.userPoolWebClientId,
+        USER_POOL_DESKTOP_CLIENT_ID: props.userPoolDesktopClientId ?? "",
+        AI_RATE_LIMIT_RPM: "10",
+      },
+      bundling: {
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+      },
+    });
+    this.membersTable.grantReadData(aiProxyFn);
+    this.memberTeamsTable.grantReadData(aiProxyFn);
+    this.workspaceAccessTable.grantReadData(aiProxyFn);
+    this.pageTable.table.grantReadData(aiProxyFn);
+    workspaceAiConfigTable.grantReadData(aiProxyFn);
+    aiUsageTable.grantReadWriteData(aiProxyFn);
+    aiKmsKey.grantDecrypt(aiProxyFn);
+    const aiProxyUrl = aiProxyFn.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+      invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
+      cors: {
+        allowedOrigins: ["*"],
+        allowedMethods: [lambda.HttpMethod.POST],
+        allowedHeaders: ["content-type", "authorization"],
+      },
+    });
+    new cdk.CfnOutput(this, "AiProxyUrl", { value: aiProxyUrl.url });
+
     const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -1026,6 +1106,8 @@ export function response(ctx) {
         DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
         IMAGES_BUCKET_NAME: imagesBucket.bucketName,
         CUSTOM_ICONS_TABLE_NAME: customIconsTable.tableName,
+        WORKSPACE_AI_CONFIG_TABLE_NAME: workspaceAiConfigTable.tableName,
+        AI_KMS_KEY_ARN: aiKmsKey.keyArn,
         TEMPLATE_AUTOMATION_SCHEDULE_GROUP_NAME: templateAutomationScheduleGroupName,
         TEMPLATE_AUTOMATION_RUNNER_ARN: templateAutomationRunnerFn.functionArn,
         TEMPLATE_AUTOMATION_SCHEDULER_ROLE_ARN: templateAutomationSchedulerRole.roleArn,
@@ -1064,6 +1146,8 @@ export function response(ctx) {
     publishedPagesTable.grantReadWriteData(v5ResolversFn);
     imagesBucket.grantReadWrite(v5ResolversFn);
     customIconsTable.grantReadWriteData(v5ResolversFn);
+    workspaceAiConfigTable.grantReadWriteData(v5ResolversFn);
+    aiKmsKey.grantEncrypt(v5ResolversFn); // 키 등록(암호화)만 — 복호화는 ai-proxy 전용
     v5ResolversFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
@@ -1406,6 +1490,11 @@ export function response(ctx) {
     v5Ds.createResolver("MutationrenameAsset", { typeName: "Mutation", fieldName: "renameAsset" });
     v5Ds.createResolver("MutationreplaceAssetRef", { typeName: "Mutation", fieldName: "replaceAssetRef" });
     v5Ds.createResolver("MutationmigrateAssetUsage", { typeName: "Mutation", fieldName: "migrateAssetUsage" });
+    // AI 설정
+    v5Ds.createResolver("QuerygetWorkspaceAiConfig", { typeName: "Query", fieldName: "getWorkspaceAiConfig" });
+    v5Ds.createResolver("MutationsetWorkspaceAiKey", { typeName: "Mutation", fieldName: "setWorkspaceAiKey" });
+    v5Ds.createResolver("MutationclearWorkspaceAiKey", { typeName: "Mutation", fieldName: "clearWorkspaceAiKey" });
+    v5Ds.createResolver("MutationupdateWorkspaceAiSettings", { typeName: "Mutation", fieldName: "updateWorkspaceAiSettings" });
 
     // v5 데이터 마이그레이션 Lambda (v4 ownerId -> v5 workspace/member 필드 보강)
     const v5MigrationFn = new lambdaNode.NodejsFunction(this, "V5MigrationFn", {

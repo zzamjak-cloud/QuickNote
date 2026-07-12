@@ -583,6 +583,23 @@ type Query {
   listMyAssets(input: ListMyAssetsInput): AssetConnection!
   """특정 자산의 사용 위치 (페이지·블록) 목록"""
   getAssetUsages(assetId: ID!): [AssetUsage!]!
+
+  """워크스페이스 AI 설정 조회 — view 권한 필요. 키는 마스킹만 반환."""
+  getWorkspaceAiConfig(workspaceId: ID!): WorkspaceAiConfig!
+}
+
+# ========== AI ==========
+"""워크스페이스 AI 설정 — API 키 원문은 절대 반환하지 않는다(마스킹만)."""
+type WorkspaceAiConfig {
+  workspaceId: ID!
+  enabled: Boolean!
+  provider: String!
+  """키 등록 여부. 원문 대신 이 플래그로 UI 게이팅."""
+  hasKey: Boolean!
+  """마스킹된 키 표시값 (예: ****abcd). 미등록 시 null."""
+  apiKeyMasked: String
+  defaultModel: String!
+  updatedAt: AWSDateTime
 }
 
 # ========== Mutation ==========
@@ -690,6 +707,13 @@ type Mutation {
   """기존 페이지 데이터를 스캔해 AssetUsage 인덱스를 재구성.
   Lambda 타임아웃을 피해 시간-박스 방식으로 동작 — hasMore=true 면 cursor 로 재호출."""
   migrateAssetUsage(cursor: String, incremental: Boolean): MigrateAssetUsageResult!
+
+  """AI 제공사 API 키 등록 (KMS 암호화 저장). developer 전용."""
+  setWorkspaceAiKey(workspaceId: ID!, provider: String!, apiKey: String!): WorkspaceAiConfig!
+  """AI API 키 삭제. developer 전용."""
+  clearWorkspaceAiKey(workspaceId: ID!): WorkspaceAiConfig!
+  """AI 활성화 토글·기본 모델 변경. developer 전용."""
+  updateWorkspaceAiSettings(workspaceId: ID!, enabled: Boolean, defaultModel: String): WorkspaceAiConfig!
 }
 
 # ========== Subscription ==========

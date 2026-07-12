@@ -15,6 +15,7 @@ import {
   FolderTree,
   Globe,
   Menu,
+  Sparkles,
   X,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
@@ -64,6 +65,9 @@ import { PageMoveDialog } from "./PageMoveDialog";
 import { PageCopyToWorkspaceDialog } from "./PageCopyToWorkspaceDialog";
 import { PublishDialog } from "./PublishDialog";
 import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
+import { useAiStore } from "../../store/aiStore";
+import { isAiProxyConfigured } from "../../lib/ai/aiClient";
+import { buildPageAiContext } from "../../lib/ai/contextBuilder";
 
 export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
   const isMobile = useIsMobile();
@@ -98,6 +102,18 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
   const [pageDeleteConfirmOpen, setPageDeleteConfirmOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const activeWorkspaceId = activeId ? pages[activeId]?.workspaceId ?? null : null;
+
+  // AI 게이팅 — 워크스페이스 설정(enabled + 키 등록)과 빌드 env 가 모두 충족돼야 노출
+  const aiConfig = useAiStore((s) =>
+    activeWorkspaceId ? s.configByWorkspace[activeWorkspaceId] : undefined,
+  );
+  const ensureAiConfig = useAiStore((s) => s.ensureConfig);
+  const openAiPanel = useAiStore((s) => s.openPanel);
+  useEffect(() => {
+    if (activeWorkspaceId && isAiProxyConfigured()) void ensureAiConfig(activeWorkspaceId);
+  }, [activeWorkspaceId, ensureAiConfig]);
+  const aiAvailable =
+    isAiProxyConfigured() && aiConfig?.enabled === true && aiConfig?.hasKey === true;
 
   type BreadcrumbNode = { id: string; title: string; icon: string | null; noNav?: boolean; dbId?: string };
   const breadcrumb: BreadcrumbNode[] = [];
@@ -520,6 +536,19 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
                   <span className="min-w-0 flex-1">링크 복사</span>
                   <span className="shrink-0 text-xs text-zinc-400">⌘L</span>
                 </button>
+                {aiAvailable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (activeId) openAiPanel(buildPageAiContext(activeId));
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <Sparkles className={MENU_ITEM_ICON} aria-hidden />
+                    <span className="min-w-0 flex-1">AI와 대화하기</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {

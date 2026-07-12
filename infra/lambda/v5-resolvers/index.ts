@@ -133,6 +133,12 @@ import {
 } from "./handlers/customIcon";
 import { getWorkspaceMeta } from "./handlers/workspaceMeta";
 import {
+  getWorkspaceAiConfig,
+  setWorkspaceAiKey,
+  clearWorkspaceAiKey,
+  updateWorkspaceAiSettings,
+} from "./handlers/aiConfig";
+import {
   publishPage,
   unpublishPage,
   getPagePublishStatus,
@@ -169,6 +175,7 @@ const tables: Tables = {
   PageHistory: process.env.PAGE_HISTORY_TABLE_NAME,
   DatabaseHistory: process.env.DATABASE_HISTORY_TABLE_NAME,
   DatabaseRowMembers: process.env.DATABASE_ROW_MEMBERS_TABLE_NAME,
+  WorkspaceAiConfig: process.env.WORKSPACE_AI_CONFIG_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -942,6 +949,25 @@ const RESOLVERS: Record<
     await validateWorkspaceSubscription({
       ...base,
       workspaceId: event.arguments.workspaceId as string,
+    }),
+  // ---------- AI 설정 ----------
+  getWorkspaceAiConfig: async (event, base) =>
+    await getWorkspaceAiConfig({ ...base, workspaceId: event.arguments.workspaceId as string }),
+  setWorkspaceAiKey: async (event, base) =>
+    await setWorkspaceAiKey({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      provider: event.arguments.provider as string,
+      apiKey: event.arguments.apiKey as string,
+    }),
+  clearWorkspaceAiKey: async (event, base) =>
+    await clearWorkspaceAiKey({ ...base, workspaceId: event.arguments.workspaceId as string }),
+  updateWorkspaceAiSettings: async (event, base) =>
+    await updateWorkspaceAiSettings({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      enabled: event.arguments.enabled as boolean | null | undefined,
+      defaultModel: event.arguments.defaultModel as string | null | undefined,
     }),
 };
 

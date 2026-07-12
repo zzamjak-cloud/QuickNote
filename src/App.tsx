@@ -22,6 +22,7 @@ import {
   isProtectedDatabaseBlockPage,
 } from "./store/pageStore";
 import { useDatabaseStore } from "./store/databaseStore";
+import { useAiStore } from "./store/aiStore";
 import { usePageMetaRemoteStore } from "./store/pageMetaRemoteStore";
 import { useUiStore } from "./store/uiStore";
 import { useWorkspaceStore } from "./store/workspaceStore";
@@ -66,6 +67,12 @@ const AutoUpdateDialog = lazy(() =>
     default: m.AutoUpdateDialog,
   })),
 );
+// AI 채팅 패널 — 열 때만 청크 로드
+const AiChatPanel = lazy(() =>
+  import("./components/ai/AiChatPanel").then((m) => ({
+    default: m.AiChatPanel,
+  })),
+);
 
 function isLCSchedulerModalOpen(): boolean {
   return Boolean(document.querySelector("[data-lc-scheduler-modal='true']"));
@@ -74,6 +81,7 @@ function isLCSchedulerModalOpen(): boolean {
 function App() {
   const darkMode = useSettingsStore((s) => s.darkMode);
   const toggleDarkMode = useSettingsStore((s) => s.toggleDarkMode);
+  const aiPanelOpen = useAiStore((s) => s.panelOpen);
   const [searchOpen, setSearchOpen] = useState(false);
   // 컴팩트(<lg) 화면에서 사이드바를 오버레이 드로어로 띄울지.
   const isCompact = useIsCompact();
@@ -623,6 +631,7 @@ function App() {
         <Suspense fallback={null}>
           <DatabaseRowPeek />
           <BlockCommentThreadPanel editor={null} />
+          {aiPanelOpen && <AiChatPanel />}
         </Suspense>
         <SearchCommandPalette
           open={searchOpen}

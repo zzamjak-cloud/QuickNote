@@ -63,6 +63,8 @@ const syncStack = new QuicknoteSyncStack(app, `${stackPrefix}QuicknoteSyncStack`
   description: `QuickNote [${deployEnv}] 동기화 스택 (AppSync + DDB + S3 + Lambda)`,
   userPoolId: cognitoStack.userPoolId,
   userPoolArn: cognitoStack.userPoolArn,
+  userPoolWebClientId: cognitoStack.webClientId,
+  userPoolDesktopClientId: cognitoStack.desktopClientId,
   imagesBucketName,
   membersTableName,
   teamsTableName: isDev

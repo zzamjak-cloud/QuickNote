@@ -64,6 +64,8 @@ export type Tables = {
   DatabaseHistory?: string;
   /** 작업 DB row 의 구성원(assignee)별 색인 테이블 (PK=pk, SK=pageId) */
   DatabaseRowMembers?: string;
+  /** 워크스페이스 AI 설정 테이블 (ai-proxy Lambda 와 공용, PK=workspaceId) */
+  WorkspaceAiConfig?: string;
 };
 
 export type CreateMemberInput = {

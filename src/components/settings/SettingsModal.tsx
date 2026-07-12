@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Building, Building2, Download, Folder, HardDrive, User, Users, UsersRound, X } from "lucide-react";
+import { Building, Building2, Download, Folder, HardDrive, Sparkles, User, Users, UsersRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import pkg from "../../../package.json";
 import { useAuthStore } from "../../store/authStore";
@@ -25,12 +25,17 @@ const AdminAssetsTab = lazy(() =>
   import("./AdminAssetsTab").then((m) => ({ default: m.AdminAssetsTab })),
 );
 
+// AI 설정 탭 — developer 전용이라 lazy.
+const AiSettingsTab = lazy(() =>
+  import("./AiSettingsTab").then((m) => ({ default: m.AiSettingsTab })),
+);
+
 type Props = {
   open: boolean;
   onClose: () => void;
 };
 
-type TabId = "profile" | "notionImport" | "members" | "projects" | "teams" | "organizations" | "workspaces" | "assets";
+type TabId = "profile" | "notionImport" | "members" | "projects" | "teams" | "organizations" | "workspaces" | "assets" | "ai";
 
 type TabDef = { id: TabId; label: string; title: string; icon: LucideIcon };
 
@@ -59,6 +64,10 @@ export function SettingsModal({ open, onClose }: Props) {
     // developer/owner 로 제한.
     if (role === "developer" || role === "owner") {
       list.push({ id: "assets", label: "자산", title: "자산 관리", icon: HardDrive });
+    }
+    // AI 설정(API 키·활성화) — 키 관리 권한이라 developer 전용
+    if (role === "developer") {
+      list.push({ id: "ai", label: "AI", title: "AI 설정", icon: Sparkles });
     }
     // Notion 가져오기는 일회성·일부 사용자 전용 — 가장 하단 배치
     list.push({ id: "notionImport", label: "Notion 가져오기", title: "Notion 가져오기", icon: Download });
@@ -207,6 +216,7 @@ export function SettingsModal({ open, onClose }: Props) {
               {tab === "assets" && (role === "developer" || role === "owner") && (
                 <AdminAssetsTab onClose={onClose} />
               )}
+              {tab === "ai" && role === "developer" && <AiSettingsTab />}
             </Suspense>
           </div>
         </section>
