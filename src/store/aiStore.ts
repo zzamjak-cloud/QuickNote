@@ -56,6 +56,26 @@ const CHAT_HISTORY_LIMIT = 8;
 
 let abortController: AbortController | null = null;
 let bubbleSeq = 0;
+
+/** abort 시 AbortError 로 중단되는 대기 — 429 백오프용. */
+function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** 재시도 가치가 있는 사용량 제한 오류인지 — HTTP 429 또는 제공사 SSE 429 중계. */
+function isRetryableRateLimit(e: unknown): e is AiRequestError {
+  return e instanceof AiRequestError && (e.status === 429 || e.retryAfterSec != null);
+}
 function nextBubbleId(): string {
   bubbleSeq += 1;
   return `ai-${Date.now()}-${bubbleSeq}`;
@@ -192,55 +212,71 @@ export const useAiStore = create<AiState & AiActions>()(
           }));
 
         abortController = new AbortController();
+        const signal = abortController.signal;
         try {
           const context = get().context;
           const enableTools = args.action === "chat";
-          let wireMessages: AiWireMessage[] = args.payloadMessages.map((m) => ({
+          const baseMessages: AiWireMessage[] = args.payloadMessages.map((m) => ({
             role: m.role,
             content: m.content,
           }));
 
-          for (let round = 0; round < AI_TOOL_ROUND_LIMIT; round += 1) {
-            set({ toolStatus: null });
-            const result = await streamAiChat({
-              workspaceId,
-              pageId: context?.pageId ?? null,
-              action: args.action,
-              options: args.options,
-              model,
-              messages: wireMessages,
-              context: context
-                ? { label: context.label, markdown: context.markdown }
-                : null,
-              enableTools,
-              signal: abortController.signal,
-              onDelta: (delta) =>
-                set((s) => ({
-                  messages: s.messages.map((m) =>
-                    m.id === assistantId ? { ...m, content: m.content + delta } : m,
-                  ),
-                })),
-              onToolCall: (call) => set({ toolStatus: toolStatusLabel(call.name) }),
-            });
-
-            if (!enableTools || result.toolCalls.length === 0) break;
-
-            // 도구 호출 턴 — 로컬 해석 후 후속 요청
-            wireMessages = [
-              ...wireMessages,
-              { role: "assistant_tools", toolCalls: result.toolCalls },
-            ];
-            for (const call of result.toolCalls) {
-              set({ toolStatus: toolStatusLabel(call.name) });
-              const content = executeAiTool(call);
-              wireMessages.push({
-                role: "tool",
-                toolCallId: call.id,
-                name: call.name,
-                content,
+          const streamRounds = async (): Promise<void> => {
+            let wireMessages = baseMessages;
+            for (let round = 0; round < AI_TOOL_ROUND_LIMIT; round += 1) {
+              set({ toolStatus: null });
+              const result = await streamAiChat({
+                workspaceId,
+                pageId: context?.pageId ?? null,
+                action: args.action,
+                options: args.options,
+                model,
+                messages: wireMessages,
+                context: context
+                  ? { label: context.label, markdown: context.markdown }
+                  : null,
+                enableTools,
+                signal,
+                onDelta: (delta) =>
+                  set((s) => ({
+                    messages: s.messages.map((m) =>
+                      m.id === assistantId ? { ...m, content: m.content + delta } : m,
+                    ),
+                  })),
+                onToolCall: (call) => set({ toolStatus: toolStatusLabel(call.name) }),
               });
+
+              if (!enableTools || result.toolCalls.length === 0) break;
+
+              // 도구 호출 턴 — 로컬 해석 후 후속 요청
+              wireMessages = [
+                ...wireMessages,
+                { role: "assistant_tools", toolCalls: result.toolCalls },
+              ];
+              for (const call of result.toolCalls) {
+                set({ toolStatus: toolStatusLabel(call.name) });
+                const content = executeAiTool(call);
+                wireMessages.push({
+                  role: "tool",
+                  toolCallId: call.id,
+                  name: call.name,
+                  content,
+                });
+              }
+              // 다음 라운드 텍스트는 이어서 붙인다(도구만 호출한 턴의 빈 텍스트 유지)
             }
-            // 다음 라운드 텍스트는 이어서 붙인다(도구만 호출한 턴의 빈 텍스트 유지)
+          };
+
+          // 사용량 제한(429)은 Retry-After 만큼 대기 후 1회 자동 재시도 (GamePlanner 백오프 이식)
+          try {
+            await streamRounds();
+          } catch (e) {
+            if (!isRetryableRateLimit(e) || signal.aborted) throw e;
+            const waitSec = Math.min(Math.max(e.retryAfterSec ?? 2, 1), 30);
+            patchAssistant({ content: "" }); // 부분 출력 리셋 후 재시도
+            set({ toolStatus: `사용량 제한 — ${waitSec}초 후 재시도` });
+            await sleepWithAbort(waitSec * 1000, signal);
+            await streamRounds();
           }
           set({ toolStatus: null });
 
@@ -290,7 +326,11 @@ export const useAiStore = create<AiState & AiActions>()(
                 ? []
                 : s.messages,
           })),
-        closePanel: () => set({ panelOpen: false }),
+        closePanel: () => {
+          // 패널을 닫으면 진행 중 스트림도 중단 — 백그라운드 토큰 소모 방지
+          abortController?.abort();
+          set({ panelOpen: false });
+        },
         clearChat: () => set({ messages: [] }),
         setModel: (model) => set({ model }),
 

@@ -22,6 +22,7 @@ import {
 import { createLocalDeletionFilter } from "../sync/localDeleteGuards";
 import { formatPlainDisplay } from "../../components/database/databaseCellDisplayUtils";
 import {
+  emptyPanelState,
   isInternalHiddenColumnId,
   type CellValue,
   type ColumnDef,
@@ -33,6 +34,8 @@ import {
 export const AI_CONTEXT_MAX_CHARS = 100_000;
 /** DB 직렬화 행 상한 — 계획 §6 방어 1. */
 export const AI_DB_MAX_ROWS = 200;
+/** 페이지 컨텍스트에 임베드되는 인라인 DB 행 상한 — 계획 §6 방어 1. */
+export const AI_INLINE_DB_MAX_ROWS = 50;
 /** 행 본문 포함 시 자동 축소 상한. */
 export const AI_DB_MAX_ROWS_WITH_BODIES = 30;
 /** 행 본문 앞부분 상한(문자). */
@@ -75,6 +78,27 @@ export function defaultMaxRows(options: AiContextOptions): number {
   return options.includeRowBodies ? AI_DB_MAX_ROWS_WITH_BODIES : AI_DB_MAX_ROWS;
 }
 
+/** databaseBlock attrs 의 panelState(JSON 문자열) 파싱 — 손상 시 기본 뷰. */
+function parseDbPanelState(raw: string | undefined): DatabasePanelState {
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as DatabasePanelState;
+      if (parsed && typeof parsed === "object") return { ...emptyPanelState(), ...parsed };
+    } catch {
+      // 손상된 panelState 는 기본 뷰로 직렬화
+    }
+  }
+  return emptyPanelState();
+}
+
+/** 중첩/미포함 DB 대체 마커 — 모델이 존재는 알되 내용은 온디맨드로 유도. */
+function databaseMarker(databaseId: string, note: string): string {
+  const bundle = useDatabaseStore.getState().databases[databaseId];
+  const name = bundle?.meta?.title?.trim() || "데이터베이스";
+  const total = bundle?.rowPageOrder?.length ?? 0;
+  return `[${note}: ${name}, 총 ${total}행 — 필요 시 해당 DB에서 대화하거나 list_rows 도구로 조회]`;
+}
+
 export function buildPageAiContext(
   pageId: string,
   options: AiContextOptions = {},
@@ -83,14 +107,55 @@ export function buildPageAiContext(
   if (!page) return null;
 
   const title = page.title?.trim() || "제목 없음";
-  let markdown = `# ${title}\n\n${pageDocToMarkdown(page.doc)}`;
-  let truncated = false;
+  const excluded = new Set(options.excludedDbIds ?? []);
+  const seenDbIds = new Set<string>();
+  const dbParts: AiContextPart[] = [];
+  let dbTruncated = false;
+
+  // 인라인 DB 는 스키마+현재 뷰 기준 상한 50행으로 임베드(계획 §6 방어 1).
+  // 행의 항목 본문·중첩 DB 는 포함하지 않아 기하급수 확장을 구조적으로 차단한다.
+  const body = pageDocToMarkdown(page.doc, {
+    renderDatabaseBlock: ({ databaseId, panelState }) => {
+      if (excluded.has(databaseId)) {
+        const bundle = useDatabaseStore.getState().databases[databaseId];
+        dbParts.push({
+          kind: "database",
+          id: databaseId,
+          title: bundle?.meta?.title?.trim() || "데이터베이스",
+          includedRows: 0,
+          totalRows: bundle?.rowPageOrder?.length ?? 0,
+          chars: 0,
+        });
+        return databaseMarker(databaseId, "제외된 DB");
+      }
+      if (seenDbIds.has(databaseId)) return ""; // 동일 DB 재참조 블록은 1회만 직렬화
+      seenDbIds.add(databaseId);
+      const s = serializeDatabaseView(databaseId, parseDbPanelState(panelState), {
+        maxRows: AI_INLINE_DB_MAX_ROWS,
+      });
+      if (!s) return "";
+      if (s.truncated) dbTruncated = true;
+      dbParts.push({
+        kind: "database",
+        id: databaseId,
+        title: s.label,
+        includedRows: s.includedRows,
+        totalRows: s.totalRows,
+        chars: s.markdown.length,
+      });
+      return `\n## [인라인 DB] ${s.label}\n\n${s.markdown}\n`;
+    },
+  });
+
+  let markdown = `# ${title}\n\n${body}`;
+  let truncated = dbTruncated;
   if (markdown.length > AI_CONTEXT_MAX_CHARS) {
     markdown = `${markdown.slice(0, AI_CONTEXT_MAX_CHARS)}\n\n…(내용이 길어 이후 생략됨)`;
     truncated = true;
   }
   const parts: AiContextPart[] = [
-    { kind: "body", title: "본문", chars: markdown.length },
+    { kind: "body", title: "본문", chars: markdown.length - dbParts.reduce((n, p) => n + p.chars, 0) },
+    ...dbParts,
   ];
   return {
     label: title,
@@ -133,15 +198,25 @@ function tableCellText(raw: string): { text: string; truncated: boolean } {
   return { text: flat, truncated: false };
 }
 
+type DbViewSerialization = {
+  label: string;
+  /** 제목 헤딩 없는 headNote+표(+행 본문) 마크다운. */
+  markdown: string;
+  includedRows: number;
+  totalRows: number;
+  truncated: boolean;
+};
+
 /**
- * DB 현재 뷰 컨텍스트 — useProcessedRows 와 동일한 규칙(파생 컬럼 계산 → filterable 보정 →
- * 필터·정렬·검색)을 클릭 시 1회 순수 계산한다. 행/셀/총량 3중 상한 적용.
+ * DB 현재 뷰 직렬화 코어 — useProcessedRows 와 동일한 규칙(파생 컬럼 계산 → filterable 보정 →
+ * 필터·정렬·검색)을 1회 순수 계산한다. 행/셀 상한 적용(총량 상한은 호출부에서).
+ * DB 채팅 컨텍스트와 페이지 컨텍스트의 인라인 DB 임베드가 공유한다.
  */
-export function buildDatabaseAiContext(
+function serializeDatabaseView(
   databaseId: string,
   panelState: DatabasePanelState,
   options: AiContextOptions = {},
-): AiContext | null {
+): DbViewSerialization | null {
   const databases = useDatabaseStore.getState().databases;
   const bundle = databases[databaseId];
   if (!bundle || !Array.isArray(bundle.columns) || !Array.isArray(bundle.rowPageOrder)) {
@@ -237,10 +312,27 @@ export function buildDatabaseAiContext(
   });
 
   const label = bundle.meta?.title?.trim() || "데이터베이스";
-  const filterActive =
-    filterRules.length > 0 || Boolean(panelState.searchQuery?.trim());
+
+  // 어떤 필터·정렬이 적용됐는지 모델에 명시 — "지금 보고 있는 뷰"와 대화하는 멘탈 모델(계획 §6)
+  const colName = (id: string) => columns.find((c) => c.id === id)?.name || id;
+  const viewDescParts = [
+    filterRules.length > 0
+      ? `필터(${filterRules
+          .map((r) => colName((r as { columnId?: string }).columnId ?? ""))
+          .filter(Boolean)
+          .join(", ")})`
+      : null,
+    sortRules.length > 0
+      ? `정렬(${sortRules
+          .map((r) => `${colName(r.columnId)} ${r.dir === "desc" ? "내림차순" : "오름차순"}`)
+          .join(", ")})`
+      : null,
+    panelState.searchQuery?.trim() ? `검색("${panelState.searchQuery.trim()}")` : null,
+  ].filter(Boolean);
   const headNote = [
-    `총 ${rows.length}행 중 ${shownRows.length}행 표시${filterActive ? " (현재 뷰의 필터·검색 적용됨)" : ""}.`,
+    `총 ${rows.length}행 중 ${shownRows.length}행 표시${
+      viewDescParts.length > 0 ? ` — 현재 뷰의 ${viewDescParts.join(" · ")} 적용됨` : ""
+    }.`,
     rows.length > shownRows.length ? `…외 ${rows.length - shownRows.length}행 생략.` : null,
     options.includeRowBodies
       ? "선택한 행의 항목 페이지 본문 앞부분을 포함한다."
@@ -249,14 +341,17 @@ export function buildDatabaseAiContext(
     .filter(Boolean)
     .join(" ");
 
-  let markdown = `# ${label}\n\n${headNote}\n\n${[header, divider, ...bodyLines].join("\n")}`;
+  let markdown = `${headNote}\n\n${[header, divider, ...bodyLines].join("\n")}`;
 
   if (options.includeRowBodies) {
     const bodySections: string[] = [];
     for (const row of shownRows) {
       const page = pages[row.pageId];
       if (!page?.doc) continue;
-      let body = pageDocToMarkdown(page.doc).trim();
+      // 행 본문 속 중첩 인라인 DB 는 마커로 대체 — 재귀 확장 차단(계획 §6)
+      let body = pageDocToMarkdown(page.doc, {
+        renderDatabaseBlock: ({ databaseId: nestedId }) => databaseMarker(nestedId, "하위 DB"),
+      }).trim();
       if (!body) continue;
       if (body.length > AI_ROW_BODY_MAX_CHARS) {
         body = `${body.slice(0, AI_ROW_BODY_MAX_CHARS)}…`;
@@ -270,7 +365,26 @@ export function buildDatabaseAiContext(
     }
   }
 
-  let truncated = rows.length > shownRows.length || cellTruncated;
+  return {
+    label,
+    markdown,
+    includedRows: shownRows.length,
+    totalRows: rows.length,
+    truncated: rows.length > shownRows.length || cellTruncated,
+  };
+}
+
+/** DB 채팅 컨텍스트 — 직렬화 코어 + 총량 상한 + 칩 메타. */
+export function buildDatabaseAiContext(
+  databaseId: string,
+  panelState: DatabasePanelState,
+  options: AiContextOptions = {},
+): AiContext | null {
+  const s = serializeDatabaseView(databaseId, panelState, options);
+  if (!s) return null;
+
+  let markdown = `# ${s.label}\n\n${s.markdown}`;
+  let truncated = s.truncated;
   if (markdown.length > AI_CONTEXT_MAX_CHARS) {
     markdown = `${markdown.slice(0, AI_CONTEXT_MAX_CHARS)}\n\n…(내용이 길어 이후 생략됨)`;
     truncated = true;
@@ -280,21 +394,21 @@ export function buildDatabaseAiContext(
     {
       kind: "database",
       id: databaseId,
-      title: label,
-      includedRows: shownRows.length,
-      totalRows: rows.length,
+      title: s.label,
+      includedRows: s.includedRows,
+      totalRows: s.totalRows,
       chars: markdown.length,
     },
   ];
 
   return {
-    label,
+    label: s.label,
     markdown,
     pageId: null,
     databaseId,
     truncated,
     parts,
-    options: { ...options, maxRows },
+    options: { ...options, maxRows: defaultMaxRows(options) },
     panelState,
   };
 }

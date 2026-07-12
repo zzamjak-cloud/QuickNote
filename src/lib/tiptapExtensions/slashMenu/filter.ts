@@ -52,17 +52,16 @@ export function filterSlashMenuEntries(query: string, editor?: Editor): SlashMen
   const allEntries = getSlashMenuEntries();
   const blocked = editor ? getBlockedIds(editor) : new Set<string>();
 
-  const isLeafBlocked = (item: SlashLeafItem) =>
-    item.id !== undefined && blocked.has(item.id);
+  // 조상 노드 차단 + 기능 게이팅(available) 동시 적용
+  const isLeafHidden = (item: SlashLeafItem) =>
+    (item.id !== undefined && blocked.has(item.id)) ||
+    item.available?.(editor) === false;
 
-  // 컨텍스트 필터 적용
-  const contextFiltered: SlashMenuEntry[] = blocked.size === 0
-    ? allEntries
-    : allEntries.flatMap<SlashMenuEntry>((e) => {
-        if (e.kind === "leaf") return isLeafBlocked(e) ? [] : [e];
-        const children = e.children.filter((c) => !isLeafBlocked(c));
-        return children.length > 0 ? [{ ...e, children }] : [];
-      });
+  const contextFiltered: SlashMenuEntry[] = allEntries.flatMap<SlashMenuEntry>((e) => {
+    if (e.kind === "leaf") return isLeafHidden(e) ? [] : [e];
+    const children = e.children.filter((c) => !isLeafHidden(c));
+    return children.length > 0 ? [{ ...e, children }] : [];
+  });
 
   const q = query.trim().toLowerCase();
   if (!q) return contextFiltered;

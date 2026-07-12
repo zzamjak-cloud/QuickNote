@@ -78,7 +78,7 @@ export type WorkspaceAiConfigGql = {
 
 /** 레거시 apiKeyEnc 를 keys 맵에 병합(응답·검증용, DDB 쓰기는 별도). */
 export function resolveKeysMap(
-  item: AiConfigItem | undefined,
+  item: Pick<AiConfigItem, "keys" | "apiKeyEnc" | "apiKeyLast4" | "provider"> | undefined,
 ): Partial<Record<AiProvider, StoredKey>> {
   const out: Partial<Record<AiProvider, StoredKey>> = { ...(item?.keys ?? {}) };
   if (item?.apiKeyEnc) {
@@ -102,7 +102,7 @@ function allowedModelsForKeys(keys: Partial<Record<AiProvider, StoredKey>>): str
 }
 
 function pickDefaultModel(
-  item: AiConfigItem | undefined,
+  item: { defaultModel?: string } | undefined,
   keys: Partial<Record<AiProvider, StoredKey>>,
 ): string {
   const allowed = allowedModelsForKeys(keys);
@@ -211,26 +211,28 @@ export async function setWorkspaceAiKey(
     last4: apiKey.slice(-4),
   };
 
-  // 해당 제공사 슬롯만 upsert. 레거시 단일 키 필드는 제거해 이중 소스 방지.
+  // keys 맵 전체를 병합 후 통째로 SET — 중첩 경로 SET 은 부모 맵이 없으면(신규 아이템·
+  // 레거시 아이템) ValidationException 이 나고, 레거시 apiKeyEnc 만 REMOVE 하면 타 제공사
+  // 레거시 키가 마이그레이션 없이 유실되므로 resolveKeysMap 병합 결과를 그대로 쓴다.
+  const nextKeys = { ...prevKeys, [provider]: slot };
   // 키가 처음 등록되면 defaultModel 을 그 제공사 기본값으로 맞춤(기존 기본이 없으면).
   const needDefault =
     wasEmpty ||
-    !(prev?.defaultModel && allowedModelsForKeys({ ...prevKeys, [provider]: slot }).includes(prev.defaultModel));
+    !(prev?.defaultModel && allowedModelsForKeys(nextKeys).includes(prev.defaultModel));
 
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: table,
       Key: { workspaceId: args.workspaceId },
       UpdateExpression: needDefault
-        ? "SET #keys.#p = :slot, defaultModel = :m, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider"
-        : "SET #keys.#p = :slot, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider",
+        ? "SET #keys = :keys, defaultModel = :m, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider"
+        : "SET #keys = :keys, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider",
       ExpressionAttributeNames: {
         "#keys": "keys",
-        "#p": provider,
         "#legacyProvider": "provider",
       },
       ExpressionAttributeValues: {
-        ":slot": slot,
+        ":keys": nextKeys,
         ":t": new Date().toISOString(),
         ...(needDefault ? { ":m": AI_DEFAULT_MODEL_BY_PROVIDER[provider] } : {}),
       },
@@ -260,20 +262,22 @@ export async function clearWorkspaceAiKey(
       ? pickDefaultModel({ ...prev, defaultModel: prev?.defaultModel }, keys)
       : AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
 
+  // keys 맵을 삭제 반영본으로 통째로 SET(setWorkspaceAiKey 와 동일한 이유 — 중첩 REMOVE
+  // 는 부모 맵 부재 시 실패하고, 레거시 필드 REMOVE 만으로는 타 제공사 레거시 키가 유실됨).
   // 레거시 필드도 함께 정리. 키가 하나도 없으면 enabled=false.
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: table,
       Key: { workspaceId: args.workspaceId },
       UpdateExpression: remaining.length
-        ? "REMOVE #keys.#p, apiKeyEnc, apiKeyLast4, #legacyProvider SET defaultModel = :m, updatedAt = :t"
-        : "REMOVE #keys.#p, apiKeyEnc, apiKeyLast4, #legacyProvider SET enabled = :f, defaultModel = :m, updatedAt = :t",
+        ? "SET #keys = :keys, defaultModel = :m, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider"
+        : "SET #keys = :keys, enabled = :f, defaultModel = :m, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider",
       ExpressionAttributeNames: {
         "#keys": "keys",
-        "#p": provider,
         "#legacyProvider": "provider",
       },
       ExpressionAttributeValues: {
+        ":keys": keys,
         ":m": nextDefault,
         ":t": new Date().toISOString(),
         ...(remaining.length ? {} : { ":f": false }),

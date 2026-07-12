@@ -79,6 +79,8 @@ export async function streamAnthropicChat(args: {
   systemPrompt?: string;
   messages: AiWireMessage[];
   enableTools?: boolean;
+  /** 클라이언트 끊김 시 upstream 도 중단해 토큰 소모를 멈춘다 */
+  signal?: AbortSignal;
   onDelta: (text: string) => void;
   onToolCall?: (call: AiToolCall) => void;
 }): Promise<GeminiStreamResult> {
@@ -116,6 +118,7 @@ export async function streamAnthropicChat(args: {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
+    signal: args.signal,
   });
 
   if (!res.ok || !res.body) {
@@ -194,15 +197,20 @@ export async function streamAnthropicChat(args: {
     }
   };
 
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf("\n")) >= 0) {
-      consumeLine(buffer.slice(0, idx).trimEnd());
-      buffer = buffer.slice(idx + 1);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        consumeLine(buffer.slice(0, idx).trimEnd());
+        buffer = buffer.slice(idx + 1);
+      }
     }
+  } finally {
+    // 오류·중단 경로에서도 upstream 연결 해제(토큰 소모 중지)
+    reader.cancel().catch(() => {});
   }
   consumeLine(buffer.trimEnd());
   for (const index of [...pending.keys()]) flushTool(index);

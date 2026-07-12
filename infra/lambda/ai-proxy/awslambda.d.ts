@@ -3,6 +3,9 @@ export type ResponseStream = {
   write(chunk: string | Uint8Array): void;
   end(): void;
   setContentType?(type: string): void;
+  /** 런타임 실체는 Node Writable — 클라이언트 끊김 감지용 */
+  destroyed?: boolean;
+  on?(event: "close" | "error", cb: () => void): void;
 };
 
 declare global {

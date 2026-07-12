@@ -1,5 +1,13 @@
 import type { JSONContent } from "@tiptap/react";
 
+export type PageDocToMarkdownOptions = {
+  /** databaseBlock(인라인 DB) 직렬화 콜백 — AI 컨텍스트에서 표/마커 삽입용. 미지정 시 기존대로 생략. */
+  renderDatabaseBlock?: (attrs: { databaseId: string; panelState?: string }) => string;
+};
+
+// 재귀 전체에 옵션을 스레딩하지 않기 위한 호출 스코프 상태 (동기 실행 전제, 중첩 호출은 복원)
+let activeOptions: PageDocToMarkdownOptions = {};
+
 /** GFM 표 셀: 파이프·줄바꿈 이스케이프 */
 function escapeTableCell(text: string): string {
   return text.replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
@@ -105,6 +113,15 @@ function nodeToMd(node: JSONContent, depth = 0): string {
       return "---\n";
     case "image":
       return `![${node.attrs?.alt ?? ""}](${node.attrs?.src ?? ""})\n`;
+    case "databaseBlock": {
+      const databaseId = (node.attrs?.databaseId as string) ?? "";
+      if (!databaseId || !activeOptions.renderDatabaseBlock) return "";
+      const rendered = activeOptions.renderDatabaseBlock({
+        databaseId,
+        panelState: node.attrs?.panelState as string | undefined,
+      });
+      return rendered ? rendered + "\n" : "";
+    }
     default:
       return (node.content ?? []).map((n) => nodeToMd(n, depth)).join("");
   }
@@ -128,7 +145,16 @@ function inlineToMd(node: JSONContent): string {
 }
 
 // TipTap JSONContent 문서를 마크다운 문자열로 변환
-export function pageDocToMarkdown(doc: JSONContent | null | undefined): string {
+export function pageDocToMarkdown(
+  doc: JSONContent | null | undefined,
+  options?: PageDocToMarkdownOptions,
+): string {
   if (!doc) return "";
-  return nodeToMd(doc);
+  const prev = activeOptions;
+  activeOptions = options ?? {};
+  try {
+    return nodeToMd(doc);
+  } finally {
+    activeOptions = prev;
+  }
 }

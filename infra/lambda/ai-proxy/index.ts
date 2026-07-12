@@ -52,6 +52,7 @@ const RATE_LIMIT_RPM = Number(process.env.AI_RATE_LIMIT_RPM ?? "10");
 // tool 왕복(assistant_tools + tool) 포함해 여유를 둔다
 const MAX_MESSAGES = 40;
 const MAX_MESSAGE_CHARS = 32_000;
+const MAX_TOTAL_MESSAGE_CHARS = 200_000;
 const MAX_CONTEXT_CHARS = 120_000;
 const MAX_TOOL_RESULT_CHARS = 24_000;
 
@@ -373,8 +374,20 @@ function validateRequest(req: AiChatRequest):
     }
     return { ok: false, error: "잘못된 메시지 형식" };
   }
+  // 메시지 합산 상한 — 개별 상한만으로는 40개 × 32K ≈ 1.3MB 까지 가능하므로 총량도 막는다
+  const totalChars = messages.reduce(
+    (sum, m) => sum + ("content" in m && typeof m.content === "string" ? m.content.length : 0),
+    0,
+  );
+  if (totalChars > MAX_TOTAL_MESSAGE_CHARS) {
+    return { ok: false, error: "대화 내용이 너무 큽니다" };
+  }
   if ((req.context?.markdown?.length ?? 0) > MAX_CONTEXT_CHARS) {
     return { ok: false, error: "컨텍스트가 너무 큽니다" };
+  }
+  // context.label 은 프롬프트의 <context label="…"> 속성으로 삽입되므로 정제 필수
+  if (req.context?.label != null) {
+    req.context.label = String(req.context.label).replace(/[\n\r"<>]/g, "").slice(0, 120);
   }
   return { ok: true, action, messages, options, enableTools };
 }
@@ -462,6 +475,11 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         },
       });
 
+      // 클라이언트가 끊으면 제공사 스트림도 중단 — 유령 토큰 소모 방지
+      const upstreamAbort = new AbortController();
+      responseStream.on?.("close", () => upstreamAbort.abort());
+      responseStream.on?.("error", () => upstreamAbort.abort());
+
       try {
         const onToolCall = (call: AiToolCall) => sseWrite(stream, { tool_call: call });
         const result =
@@ -473,6 +491,7 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
                 contextBlock,
                 messages: valid.messages,
                 enableTools: valid.enableTools,
+                signal: upstreamAbort.signal,
                 onDelta: (text: string) => sseWrite(stream, { delta: text }),
                 onToolCall,
               })
@@ -482,6 +501,7 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
                 systemPrompt,
                 messages: valid.messages,
                 enableTools: valid.enableTools,
+                signal: upstreamAbort.signal,
                 onDelta: (text: string) => sseWrite(stream, { delta: text }),
                 onToolCall,
               });
@@ -498,6 +518,10 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
           result.outputTokens,
         );
       } catch (e) {
+        // 클라이언트가 끊어서 중단된 경우 — 쓸 곳이 없으므로 조용히 종료
+        if (upstreamAbort.signal.aborted) {
+          return;
+        }
         // 스트림이 이미 열렸으므로 에러도 SSE 이벤트로 전달
         if (e instanceof ProviderError) {
           sseWrite(stream, {
@@ -509,7 +533,11 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
           sseWrite(stream, { error: "AI 응답 중 오류가 발생했습니다" });
         }
       } finally {
-        stream.end();
+        try {
+          stream.end();
+        } catch {
+          // 이미 끊긴 스트림 — 무시
+        }
       }
     } catch (e) {
       console.error("ai-proxy 처리 실패", e);

@@ -31,17 +31,18 @@ function writeStore(store: StoreShape): void {
   }
 }
 
-/** 컨텍스트 내용 지문 — 본문 길이 + 양끝 샘플로 변경 감지. */
+/**
+ * 컨텍스트 내용 지문 — 전체 본문 FNV-1a 해시.
+ * 양끝 샘플만 해시하면 총 길이가 같은 중간 편집을 놓쳐 stale 요약을 돌려주므로 전량 해시.
+ * (~100KB 상한 문자열이라 비용 무시 가능)
+ */
 export function hashAiContextMarkdown(markdown: string): string {
-  const n = markdown.length;
-  const head = markdown.slice(0, 64);
-  const tail = n > 64 ? markdown.slice(-64) : "";
-  let h = n >>> 0;
-  const sample = head + tail;
-  for (let i = 0; i < sample.length; i += 1) {
-    h = (Math.imul(31, h) + sample.charCodeAt(i)) >>> 0;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < markdown.length; i += 1) {
+    h ^= markdown.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
   }
-  return `${n.toString(16)}-${h.toString(16)}`;
+  return `${markdown.length.toString(16)}-${h.toString(16)}`;
 }
 
 export function buildSummaryCacheKey(args: {

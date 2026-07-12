@@ -91,11 +91,12 @@ export async function streamAiChat(args: {
 
   if (!res.ok) {
     let message = `AI 요청 실패 (${res.status})`;
-    let retryAfterSec: number | null = null;
+    // 표준 Retry-After 헤더 우선 — 비-JSON 에러 본문(게이트웨이 429 등)에서도 값 확보
+    let retryAfterSec: number | null = Number(res.headers.get("retry-after")) || null;
     try {
       const body = (await res.json()) as { error?: string; retryAfterSec?: number };
       if (body.error) message = body.error;
-      retryAfterSec = body.retryAfterSec ?? null;
+      retryAfterSec = body.retryAfterSec ?? retryAfterSec;
     } catch {
       // JSON 아닌 에러 본문은 상태코드 메시지 유지
     }

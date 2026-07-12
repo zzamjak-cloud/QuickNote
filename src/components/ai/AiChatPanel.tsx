@@ -163,12 +163,30 @@ export function AiChatPanel() {
                   part.kind === "database" && part.totalRows != null
                     ? `${part.title}(${part.includedRows ?? 0}/${part.totalRows}행)`
                     : part.title;
+                // 조절할 것이 있는 컨텍스트(DB 채팅·인라인 DB 포함 페이지)만 클릭 가능
+                const adjustable =
+                  Boolean(context.databaseId) ||
+                  (context.parts ?? []).some((p) => p.kind === "database");
+                const chipClass =
+                  "inline-flex max-w-full items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] dark:border-zinc-700 dark:bg-zinc-900";
+                if (!adjustable) {
+                  return (
+                    <span
+                      key={`${part.kind}-${part.id ?? part.title}`}
+                      className={chipClass}
+                      title="컨텍스트에 포함됨"
+                    >
+                      <FileText size={11} className="shrink-0" aria-hidden />
+                      <span className="truncate">{chipLabel}</span>
+                    </span>
+                  );
+                }
                 return (
                   <button
                     key={`${part.kind}-${part.id ?? part.title}`}
                     type="button"
                     onClick={() => setChipOpen((o) => !o)}
-                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] hover:border-violet-300 hover:bg-violet-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-violet-700 dark:hover:bg-violet-950/40"
+                    className={`${chipClass} hover:border-violet-300 hover:bg-violet-50 dark:hover:border-violet-700 dark:hover:bg-violet-950/40`}
                     title="컨텍스트 범위 조절"
                   >
                     <FileText size={11} className="shrink-0" aria-hidden />
@@ -223,6 +241,39 @@ export function AiChatPanel() {
               </label>
               <p className="text-[10px] text-zinc-400">
                 본문 포함 시 행 상한이 자동으로 줄어듭니다. 변경은 이후 메시지에
+                반영됩니다.
+              </p>
+            </div>
+          )}
+          {/* 페이지 컨텍스트 — 인라인 DB 포함/제외 토글 */}
+          {chipOpen && !context.databaseId && (
+            <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-2 text-xs dark:border-zinc-700 dark:bg-zinc-950">
+              {(context.parts ?? [])
+                .filter((p) => p.kind === "database" && p.id)
+                .map((part) => {
+                  const excluded = new Set(context.options?.excludedDbIds ?? []);
+                  return (
+                    <label
+                      key={part.id}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <span className="truncate">{part.title}</span>
+                      <input
+                        type="checkbox"
+                        checked={!excluded.has(part.id!)}
+                        disabled={isStreaming}
+                        onChange={(e) => {
+                          const next = new Set(context.options?.excludedDbIds ?? []);
+                          if (e.target.checked) next.delete(part.id!);
+                          else next.add(part.id!);
+                          updateContextOptions({ excludedDbIds: [...next] });
+                        }}
+                      />
+                    </label>
+                  );
+                })}
+              <p className="text-[10px] text-zinc-400">
+                체크를 해제한 DB 는 컨텍스트에서 제외됩니다. 변경은 이후 메시지에
                 반영됩니다.
               </p>
             </div>

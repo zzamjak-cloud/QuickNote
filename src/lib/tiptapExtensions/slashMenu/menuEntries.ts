@@ -36,6 +36,20 @@ import { clearSlashRange, runSlashCommand } from "./commandHelpers";
 import { dbSlashChildren } from "./dbCommands";
 import { slashLeaf } from "./entryBuilders";
 import type { SlashCommandContext, SlashMenuEntry } from "./types";
+import type { Editor } from "@tiptap/react";
+
+/** AI 진입점 게이팅 — enabled + 키 등록 + 프록시 URL 설정 시에만 노출. */
+function aiChatAvailable(editor?: Editor): boolean {
+  if (!isAiProxyConfigured()) return false;
+  const store = usePageStore.getState();
+  const pageCtx = editor?.storage.pageContext as { pageId?: string | null } | undefined;
+  const pageId = pageCtx?.pageId ?? store.activePageId;
+  const workspaceId = pageId ? store.pages[pageId]?.workspaceId ?? null : null;
+  const cfg = workspaceId
+    ? useAiStore.getState().configByWorkspace[workspaceId]
+    : undefined;
+  return Boolean(cfg?.enabled && cfg?.hasKey);
+}
 
 function countProtectedMediaBlocks(node: unknown): number {
   if (!node || typeof node !== "object") return 0;
@@ -147,19 +161,18 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     description: "현재 페이지 내용을 기반으로 AI와 대화",
     icon: Sparkles,
     keywords: ["ai", "에이아이", "인공지능", "chat", "질문"],
+    // 다른 진입점(BubbleToolbar·TopBar 등)과 동일하게 미가용 시 메뉴에서 숨김
+    available: (editor) => aiChatAvailable(editor),
     command: (ctx) => {
       clearSlashRange(ctx);
-      const store = usePageStore.getState();
-      const pageCtx = ctx.editor.storage.pageContext as { pageId?: string | null } | undefined;
-      const pageId = pageCtx?.pageId ?? store.activePageId;
-      const workspaceId = pageId ? store.pages[pageId]?.workspaceId ?? null : null;
-      const cfg = workspaceId
-        ? useAiStore.getState().configByWorkspace[workspaceId]
-        : undefined;
-      if (!isAiProxyConfigured() || !cfg?.enabled || !cfg?.hasKey) {
+      // available 필터의 백스톱 — 설정이 메뉴 오픈 후 바뀐 경우
+      if (!aiChatAvailable(ctx.editor)) {
         useUiStore.getState().showToast("AI 기능이 비활성화되어 있습니다");
         return;
       }
+      const store = usePageStore.getState();
+      const pageCtx = ctx.editor.storage.pageContext as { pageId?: string | null } | undefined;
+      const pageId = pageCtx?.pageId ?? store.activePageId;
       useAiStore.getState().openPanel(pageId ? buildPageAiContext(pageId) : null);
     },
   }),
