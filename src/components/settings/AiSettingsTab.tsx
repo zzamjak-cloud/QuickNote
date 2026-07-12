@@ -122,12 +122,19 @@ export function AiSettingsTab() {
     return <p className="text-sm text-zinc-400">AI 설정을 불러오는 중…</p>;
   }
 
-  const provider = (config?.provider && isAiProvider(config.provider)
-    ? config.provider
-    : "gemini") as AiProvider;
-  const models = modelsForProvider(provider);
+  // 등록된 제공사(서버) vs 드롭다운 선택(draft) — UI 목록은 draft 기준
+  const savedProvider: AiProvider =
+    config?.provider && isAiProvider(config.provider) ? config.provider : "gemini";
+  const providerChanged = providerDraft !== savedProvider;
+  const models = modelsForProvider(providerDraft);
+  const modelSelectValue =
+    config?.defaultModel && models.some((m) => m.id === config.defaultModel)
+      ? config.defaultModel
+      : defaultModelForProvider(providerDraft);
   const usedTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
   const limit = config?.monthlyTokenLimit ?? 0;
+  const providerLabel = (p: AiProvider) =>
+    AI_PROVIDERS.find((x) => x.id === p)?.label ?? p;
 
   return (
     <div className="max-w-xl space-y-8">
@@ -159,12 +166,18 @@ export function AiSettingsTab() {
             </option>
           ))}
         </select>
+        {providerChanged && (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+            현재 등록된 키는 {providerLabel(savedProvider)} 입니다.{" "}
+            {providerLabel(providerDraft)} 로 바꾸려면 해당 API 키를 아래에 입력해
+            저장하세요.
+          </p>
+        )}
         {config?.hasKey && (
           <div className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700">
             <KeyRound size={14} className="shrink-0 text-emerald-600" aria-hidden />
             <span className="flex-1 font-mono text-zinc-600 dark:text-zinc-300">
-              {AI_PROVIDERS.find((p) => p.id === provider)?.label ?? provider} ·{" "}
-              {config.apiKeyMasked}
+              {providerLabel(savedProvider)} · {config.apiKeyMasked}
             </span>
             <button
               type="button"
@@ -184,10 +197,12 @@ export function AiSettingsTab() {
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
             placeholder={
-              config?.hasKey
-                ? "새 키 입력 시 교체됩니다"
-                : providerDraft === "anthropic"
-                  ? "sk-ant-…"
+              providerDraft === "anthropic"
+                ? config?.hasKey && !providerChanged
+                  ? "새 키 입력 시 교체됩니다 (sk-ant-…)"
+                  : "sk-ant-…"
+                : config?.hasKey && !providerChanged
+                  ? "새 키 입력 시 교체됩니다 (AIza…)"
                   : "AIza…"
             }
             autoComplete="off"
@@ -238,19 +253,19 @@ export function AiSettingsTab() {
         </button>
       </section>
 
-      {/* 기본 모델 */}
+      {/* 기본 모델 — 목록은 드롭다운 제공사 기준. 제공사 전환 중에는 키 저장 전 변경 불가 */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold">기본 모델</h3>
         <select
-          value={config?.defaultModel ?? defaultModelForProvider(provider)}
-          disabled={busy}
+          value={modelSelectValue}
+          disabled={busy || providerChanged}
           onChange={(e) =>
             void run(
               () => updateWorkspaceAiSettingsApi(workspaceId, { defaultModel: e.target.value }),
               "기본 모델을 변경했습니다",
             )
           }
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 disabled:opacity-50"
         >
           {models.map((m) => (
             <option key={m.id} value={m.id}>
@@ -258,6 +273,12 @@ export function AiSettingsTab() {
             </option>
           ))}
         </select>
+        {providerChanged && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            제공사 키가 저장되면 기본 모델이 {providerLabel(providerDraft)} 기본값으로
+            맞춰집니다.
+          </p>
+        )}
       </section>
 
       {/* 월 토큰 한도 */}
