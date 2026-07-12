@@ -5,7 +5,6 @@
 import { streamAiChat, withRateLimitRetry } from "./aiClient";
 import {
   computeDbViewRows,
-  defaultMaxRows,
   AI_CONTEXT_MAX_CHARS,
   AI_DB_CELL_MAX_CHARS,
   type AiContext,
@@ -23,11 +22,13 @@ import { formatPlainDisplay } from "../../components/database/databaseCellDispla
 import { isInternalHiddenColumnId } from "../../types/database";
 
 /** 전수 분석 시 행당 본문 상한 — 배치가 예산을 관리하므로 컨텍스트 임베드(2K)보다 크게. */
-export const DEEP_ROW_BODY_MAX_CHARS = 4_000;
+export const DEEP_ROW_BODY_MAX_CHARS = 8_000;
 /** 배치당 문자 예산 — 서버 MAX_CONTEXT_CHARS(120K) 이내 여유. */
 const BATCH_CHAR_BUDGET = 80_000;
 /** 배치 수 상한 — 폭주 방지. 초과분은 최종 종합에 미분석으로 고지. */
 const MAX_BATCHES = 24;
+/** 전수 분석 행 수 상한 — 표시용 행 상한(200)과 무관하게 현재 뷰 전체를 다룬다. */
+const DEEP_MAX_ROWS = 1_000;
 
 export type DeepAnalysisBatch = { markdown: string; rowCount: number };
 
@@ -55,8 +56,9 @@ export async function planDeepDbAnalysis(
   const view = computeDbViewRows(context.databaseId, context.panelState);
   if (!view) return null;
 
-  const maxRows = defaultMaxRows(context.options ?? {});
-  const targetRows = view.rows.slice(0, maxRows);
+  // 전수 분석은 표시용 행 상한(칩의 "포함 행 수")과 무관하게 현재 뷰 전체가 대상 —
+  // "주어진 조건(필터·정렬)의 본문 전체" 라는 사용자 멘탈 모델에 맞춘다.
+  const targetRows = view.rows.slice(0, DEEP_MAX_ROWS);
 
   // 본문 프리페치 (lazy 로딩분)
   const pages = usePageStore.getState().pages;
@@ -148,10 +150,12 @@ function mapPrompt(question: string, label: string, index: number, total: number
     `아래 컨텍스트는 데이터베이스 "${label}" 의 행 본문 배치 ${index + 1}/${total} 이다.`,
     `사용자 질문: "${question}"`,
     "",
-    "각 행(### 제목 단위)에서 질문과 관련된 정보를 추출해, 행 제목을 붙여 불릿으로 정리하라.",
-    "- 관련 정보가 없는 행은 출력하지 말고 생략하라.",
+    "각 행(### 제목 단위)에서 질문과 관련된 정보를 **빠짐없이** 추출해, 행 제목을 붙여 불릿으로 정리하라.",
+    "- 이 단계는 수집이다. 요약·집계·중복 제거·타당성 판단을 하지 말고 발견한 항목을 전부 기록하라.",
+    "- 같은 내용이 여러 행에서 반복 언급돼도 각 행마다 기록하라(취합은 다음 단계에서 한다).",
     "- 원문에 없는 내용을 추측하거나 지어내지 마라.",
-    "- 날짜·이름·수치는 원문 표기 그대로 보존하라.",
+    "- 날짜·이름·수치·상태 표기(예정/확정 등)는 원문 표기 그대로 보존하라.",
+    "- 관련 정보가 없는 행은 출력하지 말고 생략하라.",
     "- 관련 행이 하나도 없으면 \"관련 정보 없음\" 한 줄만 출력하라.",
   ].join("\n");
 }
@@ -247,7 +251,10 @@ export async function runDeepDbAnalysis(args: {
             content: [
               `질문: ${question}`,
               "",
-              "컨텍스트의 행별 추출 결과를 근거로 답하라. 추출에 없는 내용은 추측하지 말고, 근거가 된 행 제목을 함께 표기하라.",
+              "컨텍스트의 행별 추출 결과를 근거로 답하라.",
+              "- 답변 서두에 분석 범위(분석한 행 수, 확인된 기간 범위)를 한 줄로 명시하라.",
+              "- 추출된 항목을 임의로 제외하지 마라. 같은 인물·같은 날짜의 동일 건이 여러 행에서 반복 언급된 경우만 1건으로 합치고, '예정'·미확정 표기가 있는 항목은 제외하지 말고 별도로 구분해 표기하라.",
+              "- 추출에 없는 내용은 추측하지 말고, 집계는 근거가 된 행 제목을 함께 표기하라.",
             ].join("\n"),
           },
         ],
@@ -260,5 +267,12 @@ export async function runDeepDbAnalysis(args: {
       signal,
       onWait: (sec) => args.onProgress(`사용량 제한 — ${sec}초 대기 후 종합`),
     },
+  );
+
+  // 커버리지 푸터 — 모델과 무관하게 실제 분석 범위를 결정적으로 표기
+  args.onReduceDelta(
+    `\n\n---\n\n> 📊 분석 범위: 현재 뷰 ${plan.totalRows}행 중 ${plan.analyzedRows}행 본문 분석 (배치 ${total}개${
+      plan.skippedRows > 0 ? ` · ${plan.skippedRows}행 상한 초과 미분석` : ""
+    })`,
   );
 }

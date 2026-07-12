@@ -37,8 +37,6 @@ export const AI_CONTEXT_MAX_CHARS = 100_000;
 export const AI_DB_MAX_ROWS = 200;
 /** 페이지 컨텍스트에 임베드되는 인라인 DB 행 상한 — 계획 §6 방어 1. */
 export const AI_INLINE_DB_MAX_ROWS = 50;
-/** 행 본문 포함 시 자동 축소 상한. */
-export const AI_DB_MAX_ROWS_WITH_BODIES = 30;
 /** 행 본문 앞부분 상한(문자). */
 export const AI_ROW_BODY_MAX_CHARS = 2_000;
 /** DB 셀 표시 문자 상한. */
@@ -80,8 +78,10 @@ export type AiContext = {
 };
 
 export function defaultMaxRows(options: AiContextOptions): number {
+  // 본문 포함 여부와 무관하게 200행 — 본문 분량은 예산 기반 포함(+명시 고지)이 관리하고,
+  // 예산을 넘는 전수 분석은 deepAnalysis(map-reduce)가 담당한다.
   if (typeof options.maxRows === "number" && options.maxRows > 0) return options.maxRows;
-  return options.includeRowBodies ? AI_DB_MAX_ROWS_WITH_BODIES : AI_DB_MAX_ROWS;
+  return AI_DB_MAX_ROWS;
 }
 
 /** databaseBlock attrs 의 panelState(JSON 문자열) 파싱 — 손상 시 기본 뷰. */
