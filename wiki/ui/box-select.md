@@ -34,6 +34,10 @@ const dbg = (reason: string) => console.log("[QN-DEBUG] marquee:mousedown", reas
 ```
 
 ## 변경 시 주의
+- **z-index 규칙**: 마퀴(310)·선택 하이라이트(300)는 fixed 오버레이라 앱 크롬보다 낮아야 한다
+  (TopBar/TabBar `z-[350]` · AI 패널 `z-[400]` · 설정 모달 500). 높이면 스크롤 시 상단 바/사이드
+  패널 위로 파란 영역이 떠오르는 회귀(2026-07-12 수정). 값은 `src/lib/boxSelectionVisual.ts`
+  `BOX_SELECTION_Z_INDEX` 와 `src/index.css` `.qn-box-select-rect` 두 곳 동기 유지.
 - 에디터 컬럼 레이아웃 변경 시 `editor.view.dom.closest()` 가 올바른 host 잡는지 확인
 - 새 `absolute/fixed` 엘리먼트 추가 시 marquee overlay 를 가리지 않는지 확인
 - 새 mousedown capture listener 가 `stopImmediatePropagation` 하지 않는지 확인
