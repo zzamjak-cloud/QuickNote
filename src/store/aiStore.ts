@@ -62,6 +62,18 @@ export type AiSelectionRange = { pageId: string; from: number; to: number };
 /** 대화 이력 전송 상한 — 토큰/비용 통제 (GamePlanner CHAT_HISTORY_LIMIT 패턴) */
 const CHAT_HISTORY_LIMIT = 8;
 
+/** 출력 토큰 상한으로 잘린 응답의 자동 이어쓰기 상한. */
+const MAX_CONTINUATIONS = 3;
+const CONTINUE_PROMPT =
+  "출력이 중간에 끊겼다. 끊긴 지점부터 이어서 계속 작성하라. 이미 출력한 내용은 반복하지 마라.";
+
+/** 제공사별 출력 길이 초과 finishReason — Gemini: MAX_TOKENS, Anthropic: max_tokens. */
+function isLengthCutFinish(finishReason: string | null): boolean {
+  return (
+    finishReason === "MAX_TOKENS" || finishReason === "max_tokens" || finishReason === "length"
+  );
+}
+
 let abortController: AbortController | null = null;
 let bubbleSeq = 0;
 function nextBubbleId(): string {
@@ -245,8 +257,13 @@ export const useAiStore = create<AiState & AiActions>()(
 
           const streamRounds = async (): Promise<void> => {
             let wireMessages = baseMessages;
-            for (let round = 0; round < AI_TOOL_ROUND_LIMIT; round += 1) {
+            let toolRounds = 0;
+            let continuations = 0;
+            // 이번 턴에서 조립한 assistant 전체 텍스트 — 길이 초과 이어쓰기의 프리픽스
+            let assistantText = "";
+            for (;;) {
               set({ toolStatus: null });
+              let segment = "";
               const result = await streamAiChat({
                 workspaceId,
                 pageId: context?.pageId ?? null,
@@ -259,33 +276,52 @@ export const useAiStore = create<AiState & AiActions>()(
                   : null,
                 enableTools,
                 signal,
-                onDelta: (delta) =>
+                onDelta: (delta) => {
+                  segment += delta;
                   set((s) => ({
                     messages: s.messages.map((m) =>
                       m.id === assistantId ? { ...m, content: m.content + delta } : m,
                     ),
-                  })),
+                  }));
+                },
                 onToolCall: (call) => set({ toolStatus: toolStatusLabel(call.name) }),
               });
+              assistantText += segment;
 
-              if (!enableTools || result.toolCalls.length === 0) break;
-
-              // 도구 호출 턴 — 로컬 해석 후 후속 요청
-              wireMessages = [
-                ...wireMessages,
-                { role: "assistant_tools", toolCalls: result.toolCalls },
-              ];
-              for (const call of result.toolCalls) {
-                set({ toolStatus: toolStatusLabel(call.name) });
-                const content = await executeAiTool(call);
-                wireMessages.push({
-                  role: "tool",
-                  toolCallId: call.id,
-                  name: call.name,
-                  content,
-                });
+              if (enableTools && result.toolCalls.length > 0) {
+                toolRounds += 1;
+                if (toolRounds >= AI_TOOL_ROUND_LIMIT) break;
+                // 도구 호출 턴 — 로컬 해석 후 후속 요청
+                wireMessages = [
+                  ...wireMessages,
+                  { role: "assistant_tools", toolCalls: result.toolCalls },
+                ];
+                for (const call of result.toolCalls) {
+                  set({ toolStatus: toolStatusLabel(call.name) });
+                  const content = await executeAiTool(call);
+                  wireMessages.push({
+                    role: "tool",
+                    toolCallId: call.id,
+                    name: call.name,
+                    content,
+                  });
+                }
+                // 다음 라운드 텍스트는 이어서 붙인다(도구만 호출한 턴의 빈 텍스트 유지)
+                continue;
               }
-              // 다음 라운드 텍스트는 이어서 붙인다(도구만 호출한 턴의 빈 텍스트 유지)
+
+              // 출력 토큰 상한으로 잘린 응답은 끊긴 지점부터 자동 이어쓰기
+              if (isLengthCutFinish(result.finishReason) && continuations < MAX_CONTINUATIONS) {
+                continuations += 1;
+                wireMessages = [
+                  ...wireMessages,
+                  { role: "assistant", content: assistantText },
+                  { role: "user", content: CONTINUE_PROMPT },
+                ];
+                set({ toolStatus: "응답이 길어 이어서 생성 중…" });
+                continue;
+              }
+              break;
             }
           };
 

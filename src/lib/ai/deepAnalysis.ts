@@ -3,6 +3,7 @@
 // → ② 추출 결과를 모아 최종 종합(reduce). 배치 결과는 세션 캐시(내용+질문+모델 키).
 
 import { streamAiChat, withRateLimitRetry } from "./aiClient";
+import type { AiWireMessage } from "./tools";
 import {
   computeDbViewRows,
   AI_CONTEXT_MAX_CHARS,
@@ -160,6 +161,66 @@ function mapPrompt(question: string, label: string, index: number, total: number
   ].join("\n");
 }
 
+/** 출력 토큰 상한으로 잘린 응답의 자동 이어쓰기 상한. */
+const MAX_CONTINUATIONS = 3;
+const CONTINUE_PROMPT =
+  "출력이 중간에 끊겼다. 끊긴 지점부터 이어서 계속 작성하라. 이미 출력한 내용은 반복하지 마라.";
+
+function isLengthCutFinish(finishReason: string | null): boolean {
+  return (
+    finishReason === "MAX_TOKENS" || finishReason === "max_tokens" || finishReason === "length"
+  );
+}
+
+/**
+ * 단일 프롬프트 스트리밍 + 길이 초과 자동 이어쓰기 + 429 재시도.
+ * 전체 텍스트를 반환한다 (onDelta 에는 이어쓰기 구간도 그대로 흘림).
+ */
+async function streamWithContinuation(args: {
+  workspaceId: string;
+  model: string;
+  userContent: string;
+  context: { label: string; markdown: string };
+  signal: AbortSignal;
+  onDelta?: (delta: string) => void;
+  onProgress: (status: string) => void;
+}): Promise<string> {
+  let full = "";
+  let messages: AiWireMessage[] = [{ role: "user", content: args.userContent }];
+  for (let cont = 0; ; cont += 1) {
+    let segment = "";
+    const result = await withRateLimitRetry(
+      () =>
+        streamAiChat({
+          workspaceId: args.workspaceId,
+          action: "chat",
+          model: args.model,
+          messages,
+          context: args.context,
+          enableTools: false,
+          signal: args.signal,
+          onDelta: (d) => {
+            segment += d;
+            args.onDelta?.(d);
+          },
+        }),
+      {
+        signal: args.signal,
+        onWait: (sec) => args.onProgress(`사용량 제한 — ${sec}초 대기 후 계속`),
+      },
+    );
+    full += segment;
+    if (!isLengthCutFinish(result.finishReason) || cont >= MAX_CONTINUATIONS) break;
+    messages = [
+      ...messages,
+      { role: "assistant", content: full },
+      { role: "user", content: CONTINUE_PROMPT },
+    ];
+    args.onProgress("응답이 길어 이어서 생성 중…");
+  }
+  return full;
+}
+
 /**
  * map-reduce 실행. map 결과는 세션 캐시로 재사용(같은 질문·같은 내용 재분석 무료).
  * reduce 는 onReduceDelta 로 스트리밍되고, 행별 추출 결과 마크다운을 반환한다
@@ -192,30 +253,17 @@ export async function runDeepDbAnalysis(args: {
       continue;
     }
 
-    let out = "";
-    await withRateLimitRetry(
-      () =>
-        streamAiChat({
-          workspaceId,
-          action: "chat",
-          model,
-          messages: [{ role: "user", content: mapPrompt(question, plan.label, i, total) }],
-          context: {
-            label: `${plan.label} 본문 배치 ${i + 1}/${total}`,
-            markdown: batch.markdown,
-          },
-          enableTools: false,
-          signal,
-          onDelta: (d) => {
-            out += d;
-          },
-        }),
-      {
-        signal,
-        onWait: (sec) =>
-          args.onProgress(`사용량 제한 — ${sec}초 대기 후 계속 (${i + 1}/${total})`),
+    const out = await streamWithContinuation({
+      workspaceId,
+      model,
+      userContent: mapPrompt(question, plan.label, i, total),
+      context: {
+        label: `${plan.label} 본문 배치 ${i + 1}/${total}`,
+        markdown: batch.markdown,
       },
-    );
+      signal,
+      onProgress: (status) => args.onProgress(`${status} (${i + 1}/${total})`),
+    });
     const cleaned = out.trim();
     extracts.push(cleaned);
     if (cleaned) {
@@ -240,35 +288,22 @@ export async function runDeepDbAnalysis(args: {
     reduceMarkdown = `${reduceMarkdown.slice(0, AI_CONTEXT_MAX_CHARS)}\n\n…(추출 결과가 길어 이후 생략됨)`;
   }
 
-  await withRateLimitRetry(
-    () =>
-      streamAiChat({
-        workspaceId,
-        action: "chat",
-        model,
-        messages: [
-          {
-            role: "user",
-            content: [
-              `질문: ${question}`,
-              "",
-              "컨텍스트의 행별 추출 결과를 근거로 답하라.",
-              "- 답변 서두에 분석 범위(분석한 행 수, 확인된 기간 범위)를 한 줄로 명시하라.",
-              "- 추출된 항목을 임의로 제외하지 마라. 같은 인물·같은 날짜의 동일 건이 여러 행에서 반복 언급된 경우만 1건으로 합치고, '예정'·미확정 표기가 있는 항목은 제외하지 말고 별도로 구분해 표기하라.",
-              "- 추출에 없는 내용은 추측하지 말고, 집계는 근거가 된 행 제목을 함께 표기하라.",
-            ].join("\n"),
-          },
-        ],
-        context: { label: `${plan.label} — 행별 추출 결과`, markdown: reduceMarkdown },
-        enableTools: false,
-        signal,
-        onDelta: args.onReduceDelta,
-      }),
-    {
-      signal,
-      onWait: (sec) => args.onProgress(`사용량 제한 — ${sec}초 대기 후 종합`),
-    },
-  );
+  await streamWithContinuation({
+    workspaceId,
+    model,
+    userContent: [
+      `질문: ${question}`,
+      "",
+      "컨텍스트의 행별 추출 결과를 근거로 답하라.",
+      "- 답변 서두에 분석 범위(분석한 행 수, 확인된 기간 범위)를 한 줄로 명시하라.",
+      "- 추출된 항목을 임의로 제외하지 마라. 같은 인물·같은 날짜의 동일 건이 여러 행에서 반복 언급된 경우만 1건으로 합치고, '예정'·미확정 표기가 있는 항목은 제외하지 말고 별도로 구분해 표기하라.",
+      "- 추출에 없는 내용은 추측하지 말고, 집계는 근거가 된 행 제목을 함께 표기하라.",
+    ].join("\n"),
+    context: { label: `${plan.label} — 행별 추출 결과`, markdown: reduceMarkdown },
+    signal,
+    onDelta: args.onReduceDelta,
+    onProgress: args.onProgress,
+  });
 
   // 커버리지 푸터 — 모델과 무관하게 실제 분석 범위를 결정적으로 표기
   args.onReduceDelta(

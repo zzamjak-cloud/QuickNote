@@ -95,7 +95,9 @@ export async function streamGeminiChat(args: {
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: args.systemPrompt }] },
     contents: toGeminiContents(args.messages),
-    generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+    // 취합·표 생성 등 긴 출력 대응 — Gemini 2.5 는 최대 65K 출력 지원.
+    // 클라이언트에 MAX_TOKENS 자동 이어쓰기도 있으나 왕복을 줄이는 게 우선.
+    generationConfig: { temperature: 0.7, maxOutputTokens: 32_768 },
   };
   if (args.enableTools) {
     body.tools = [{ functionDeclarations: geminiFunctionDeclarations() }];
