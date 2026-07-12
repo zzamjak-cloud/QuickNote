@@ -78,6 +78,9 @@ export function AiChatPanel() {
     Array<{ pageId: string; title: string }>
   >([]);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  // 드래그앤드롭 — enter/leave 중첩을 카운터로 추적해 오버레이 표시
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragDepthRef = useRef(0);
 
   const workspaceId = currentWorkspaceId ?? "";
   const wsConfig = workspaceId ? configByWorkspace[workspaceId] : undefined;
@@ -231,11 +234,50 @@ export function AiChatPanel() {
   const bubbleActionClass =
     "inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
+  const hasDraggedFiles = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
   return (
     <aside
       className="fixed inset-y-0 right-0 z-[400] flex w-full flex-col border-l border-zinc-200 bg-white shadow-xl sm:w-[400px] dark:border-zinc-700 dark:bg-zinc-950"
       aria-label="AI 채팅 패널"
+      onDragEnter={(e) => {
+        if (!hasDraggedFiles(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragDepthRef.current += 1;
+        setIsDragOver(true);
+      }}
+      onDragOver={(e) => {
+        if (!hasDraggedFiles(e)) return;
+        // 에디터 등 뒤쪽 드롭 핸들러로 전파되지 않게 패널이 소비
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDragLeave={(e) => {
+        if (!hasDraggedFiles(e)) return;
+        e.stopPropagation();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setIsDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (!hasDraggedFiles(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragDepthRef.current = 0;
+        setIsDragOver(false);
+        const files = Array.from(e.dataTransfer.files ?? []);
+        if (files.length > 0) void addFiles(files);
+      }}
     >
+      {/* 드래그 중 드롭 안내 오버레이 */}
+      {isDragOver && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-violet-50/80 dark:bg-violet-950/60">
+          <div className="rounded-lg border-2 border-dashed border-violet-400 px-6 py-4 text-sm font-medium text-violet-700 dark:border-violet-500 dark:text-violet-300">
+            여기에 놓아 첨부 (이미지·텍스트 문서)
+          </div>
+        </div>
+      )}
       <header className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
         <Sparkles size={16} className="shrink-0 text-violet-500" aria-hidden />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">AI와 대화</h2>
