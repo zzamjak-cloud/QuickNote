@@ -6,8 +6,12 @@ export type AiToolCall = {
   args: Record<string, unknown>;
 };
 
+/** user 메시지에 첨부되는 이미지 — base64 인라인(제공사 멀티모달 입력으로 전달). */
+export type AiImageAttachment = { mimeType: string; dataBase64: string };
+
 export type AiWireMessage =
-  | { role: "user" | "assistant"; content: string }
+  | { role: "user"; content: string; images?: AiImageAttachment[] }
+  | { role: "assistant"; content: string }
   | { role: "assistant_tools"; toolCalls: AiToolCall[] }
   | { role: "tool"; toolCallId: string; name: string; content: string };
 

@@ -1,6 +1,7 @@
-// AI 채팅 사이드 패널 — 페이지 컨텍스트 기반 대화(Phase 1).
-import { useEffect, useRef, useState } from "react";
+// AI 채팅 사이드 패널 — 페이지 컨텍스트 기반 대화 + @페이지 멘션·문서/이미지 첨부.
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AtSign,
   Check,
   CircleStop,
   Copy,
@@ -8,6 +9,7 @@ import {
   FileText,
   ListTodo,
   Loader2,
+  Paperclip,
   Replace,
   Send,
   Sparkles,
@@ -32,6 +34,16 @@ import {
   checklistMarkdownForInsert,
   looksLikeChecklist,
 } from "../../lib/ai/extractChecklist";
+import {
+  isSupportedImageFile,
+  isSupportedTextFile,
+  prepareImageAttachment,
+  prepareTextAttachment,
+  MAX_ATTACHED_IMAGES,
+  MAX_MENTION_PAGES,
+  type PendingAttachment,
+} from "../../lib/ai/attachments";
+import { koreanMatchScore } from "../../lib/koreanSearch";
 
 export function AiChatPanel() {
   const panelOpen = useAiStore((s) => s.panelOpen);
@@ -57,6 +69,15 @@ export function AiChatPanel() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // @페이지 멘션 — 캐럿 앞 "@질의" 감지 → 팝업. null 이면 닫힘.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [pendingMentions, setPendingMentions] = useState<
+    Array<{ pageId: string; title: string }>
+  >([]);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
 
   const workspaceId = currentWorkspaceId ?? "";
   const wsConfig = workspaceId ? configByWorkspace[workspaceId] : undefined;
@@ -97,12 +118,81 @@ export function AiChatPanel() {
     if (panelOpen) inputRef.current?.focus();
   }, [panelOpen]);
 
+  // 멘션 후보 — 현재 워크스페이스 페이지 제목을 한글 검색으로 매칭 (팝업 열릴 때만 계산)
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null || !workspaceId) return [];
+    const q = mentionQuery.trim().toLowerCase();
+    const pages = usePageStore.getState().pages;
+    const list = Object.values(pages).filter(
+      (p) => p.workspaceId === workspaceId && (p.title ?? "").trim(),
+    );
+    const scored = q
+      ? list
+          .map((p) => ({ p, s: koreanMatchScore(p.title.toLowerCase(), q) }))
+          .filter((x) => x.s > 0)
+          .sort((a, b) => b.s - a.s)
+      : [...list].map((p) => ({ p, s: 0 })).sort((a, b) => b.p.updatedAt - a.p.updatedAt);
+    return scored.slice(0, 8).map((x) => x.p);
+  }, [mentionQuery, workspaceId]);
+
   if (!panelOpen) return null;
 
+  const detectMentionQuery = (value: string, caret: number) => {
+    const before = value.slice(0, caret);
+    const m = /(^|\s)@([^\s@]*)$/.exec(before);
+    setMentionQuery(m ? m[2]! : null);
+    setMentionIndex(0);
+  };
+
+  const applyMention = (page: { id: string; title: string }) => {
+    const el = inputRef.current;
+    const caret = el?.selectionStart ?? input.length;
+    // 입력에서 "@질의" 부분 제거 후 칩으로 전환
+    const before = input.slice(0, caret).replace(/(^|\s)@[^\s@]*$/, "$1");
+    setInput(before + input.slice(caret));
+    setPendingMentions((prev) =>
+      prev.some((m) => m.pageId === page.id) || prev.length >= MAX_MENTION_PAGES
+        ? prev
+        : [...prev, { pageId: page.id, title: page.title?.trim() || "제목 없음" }],
+    );
+    setMentionQuery(null);
+    requestAnimationFrame(() => el?.focus());
+  };
+
+  const addFiles = async (files: Iterable<File>) => {
+    for (const file of files) {
+      try {
+        if (isSupportedImageFile(file)) {
+          const imageCount = pendingAttachments.filter((a) => a.kind === "image").length;
+          if (imageCount >= MAX_ATTACHED_IMAGES) {
+            showToast(`이미지는 최대 ${MAX_ATTACHED_IMAGES}장까지 첨부할 수 있습니다`);
+            continue;
+          }
+          const att = await prepareImageAttachment(file);
+          setPendingAttachments((prev) => [...prev, att]);
+        } else if (isSupportedTextFile(file)) {
+          const att = await prepareTextAttachment(file);
+          setPendingAttachments((prev) => [...prev, att]);
+        } else {
+          showToast(`지원하지 않는 형식: ${file.name} (이미지·텍스트 문서만)`);
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "첨부 처리에 실패했습니다");
+      }
+    }
+  };
+
   const handleSend = () => {
-    if (!workspaceId || !input.trim() || isStreaming) return;
-    void send(workspaceId, input);
+    const hasExtras = pendingMentions.length > 0 || pendingAttachments.length > 0;
+    if (!workspaceId || (!input.trim() && !hasExtras) || isStreaming) return;
+    void send(workspaceId, input, {
+      mentions: pendingMentions,
+      attachments: pendingAttachments,
+    });
     setInput("");
+    setPendingMentions([]);
+    setPendingAttachments([]);
+    setMentionQuery(null);
   };
 
   // 응답을 문서로 — 삽입 대상은 선택 원본 페이지 > 컨텍스트 페이지 > 활성 페이지 순
@@ -268,10 +358,37 @@ export function AiChatPanel() {
         )}
         {messages.map((m) =>
           m.role === "user" ? (
-            <div key={m.id} className="flex justify-end">
+            <div key={m.id} className="flex flex-col items-end gap-1">
               <div className="max-w-[85%] whitespace-pre-wrap rounded-lg bg-violet-600 px-3 py-2 text-sm text-white">
                 {m.content}
               </div>
+              {m.attachments && m.attachments.length > 0 && (
+                <div className="flex max-w-[85%] flex-wrap justify-end gap-1">
+                  {m.attachments.map((a, i) =>
+                    a.kind === "image" && a.previewUrl ? (
+                      <img
+                        key={`${m.id}-att-${i}`}
+                        src={a.previewUrl}
+                        alt={a.label}
+                        title={a.label}
+                        className="h-16 w-16 rounded-md border border-zinc-200 object-cover dark:border-zinc-700"
+                      />
+                    ) : (
+                      <span
+                        key={`${m.id}-att-${i}`}
+                        className="inline-flex max-w-[160px] items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400"
+                      >
+                        {a.kind === "page" ? (
+                          <AtSign size={9} aria-hidden />
+                        ) : (
+                          <Paperclip size={9} aria-hidden />
+                        )}
+                        <span className="truncate">{a.label}</span>
+                      </span>
+                    ),
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div key={m.id} className="flex flex-col gap-1">
@@ -373,19 +490,151 @@ export function AiChatPanel() {
             ))}
           </select>
         </div>
-        <div className="flex items-end gap-2">
+        {/* 멘션·첨부 대기 칩 */}
+        {(pendingMentions.length > 0 || pendingAttachments.length > 0) && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {pendingMentions.map((m) => (
+              <span
+                key={m.pageId}
+                className="inline-flex max-w-[180px] items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300"
+              >
+                <AtSign size={10} className="shrink-0" aria-hidden />
+                <span className="truncate">{m.title}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPendingMentions((prev) => prev.filter((x) => x.pageId !== m.pageId))
+                  }
+                  aria-label={`멘션 제거: ${m.title}`}
+                  className="shrink-0 hover:text-violet-900 dark:hover:text-violet-100"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+            {pendingAttachments.map((a, i) => (
+              <span
+                key={`${a.name}-${i}`}
+                className="inline-flex max-w-[180px] items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+              >
+                {a.kind === "image" ? (
+                  <img
+                    src={a.previewUrl}
+                    alt=""
+                    className="h-4 w-4 shrink-0 rounded-sm object-cover"
+                  />
+                ) : (
+                  <Paperclip size={10} className="shrink-0" aria-hidden />
+                )}
+                <span className="truncate">{a.name}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPendingAttachments((prev) => prev.filter((_, idx) => idx !== i))
+                  }
+                  aria-label={`첨부 제거: ${a.name}`}
+                  className="shrink-0 hover:text-zinc-900 dark:hover:text-zinc-100"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="relative flex items-end gap-2">
+          {/* @멘션 페이지 검색 팝업 */}
+          {mentionQuery !== null && mentionCandidates.length > 0 && (
+            <div className="absolute bottom-full left-0 z-10 mb-1 max-h-56 w-full overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              {mentionCandidates.map((p, i) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    applyMention(p);
+                  }}
+                  className={[
+                    "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
+                    i === mentionIndex
+                      ? "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                      : "hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                  ].join(" ")}
+                >
+                  <FileText size={13} className="shrink-0 text-zinc-400" aria-hidden />
+                  <span className="truncate">{p.title || "제목 없음"}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isStreaming}
+            className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 disabled:opacity-40 dark:hover:bg-zinc-800"
+            aria-label="문서·이미지 첨부"
+            title="문서·이미지 첨부 (이미지 최대 4장)"
+          >
+            <Paperclip size={16} />
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/jpeg,image/png,image/webp,image/gif,.txt,.md,.markdown,.csv,.json,.log,.xml,.yml,.yaml,.html,text/*"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) void addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              detectMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            }}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (files.length > 0) {
+                e.preventDefault();
+                void addFiles(files);
+              }
+            }}
             onKeyDown={(e) => {
+              // 멘션 팝업 내비게이션이 우선
+              if (mentionQuery !== null && mentionCandidates.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setMentionIndex((i) => (i + 1) % mentionCandidates.length);
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setMentionIndex(
+                    (i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length,
+                  );
+                  return;
+                }
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  const picked = mentionCandidates[mentionIndex];
+                  if (picked) applyMention(picked);
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setMentionQuery(null);
+                  return;
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 handleSend();
               }
             }}
             rows={2}
-            placeholder="메시지 입력… (Enter 전송 · Shift+Enter 줄바꿈)"
+            placeholder="메시지 입력… (@페이지 멘션 · Enter 전송 · Shift+Enter 줄바꿈)"
             className="min-h-[3rem] flex-1 resize-none rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-violet-400 dark:border-zinc-700 dark:bg-zinc-900"
           />
           {isStreaming ? (
@@ -402,7 +651,12 @@ export function AiChatPanel() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={!input.trim() || !workspaceId}
+              disabled={
+                (!input.trim() &&
+                  pendingMentions.length === 0 &&
+                  pendingAttachments.length === 0) ||
+                !workspaceId
+              }
               className="rounded-md bg-violet-600 p-2 text-white hover:bg-violet-500 disabled:opacity-40"
               aria-label="전송"
               title="전송"

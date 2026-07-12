@@ -33,6 +33,7 @@ import {
 } from "./prompts";
 import {
   TOOLS_SYSTEM_HINT,
+  type AiImageAttachment,
   type AiToolCall,
   type AiWireMessage,
 } from "./tools";
@@ -56,6 +57,16 @@ const MAX_MESSAGE_CHARS = 32_000;
 const MAX_TOTAL_MESSAGE_CHARS = 200_000;
 const MAX_CONTEXT_CHARS = 120_000;
 const MAX_TOOL_RESULT_CHARS = 24_000;
+// 이미지 첨부 — Lambda 요청 페이로드 6MB 제한 내 여유
+const IMAGE_MIME_WHITELIST = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+const MAX_IMAGES_PER_MESSAGE = 4;
+const MAX_IMAGE_B64_CHARS = 3_000_000; // ≈ 2.2MB 원본
+const MAX_TOTAL_IMAGE_B64_CHARS = 5_000_000;
 
 // realtime/auth.ts 와 동일한 검증기 구성(웹·데스크톱 클라이언트 콤마 허용)
 const allowedClientIds = [process.env.USER_POOL_CLIENT_ID, process.env.USER_POOL_DESKTOP_CLIENT_ID]
@@ -83,6 +94,7 @@ type AiChatRequest = {
   messages?: Array<{
     role?: string;
     content?: string;
+    images?: Array<{ mimeType?: string; dataBase64?: string }>;
     toolCalls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
     toolCallId?: string;
     name?: string;
@@ -329,10 +341,38 @@ function validateRequest(req: AiChatRequest):
   if (raw.length === 0) return { ok: false, error: "messages 필요" };
   if (raw.length > MAX_MESSAGES) return { ok: false, error: "대화가 너무 깁니다" };
   const messages: AiWireMessage[] = [];
+  let totalImageChars = 0;
   for (const m of raw) {
     if (m.role === "user" || m.role === "assistant") {
       if (typeof m.content !== "string") return { ok: false, error: "잘못된 메시지 형식" };
       if (m.content.length > MAX_MESSAGE_CHARS) return { ok: false, error: "메시지가 너무 깁니다" };
+      // 이미지 첨부 검증 — user 메시지만, 형식·개수·크기 상한
+      if (m.role === "user" && Array.isArray(m.images) && m.images.length > 0) {
+        if (m.images.length > MAX_IMAGES_PER_MESSAGE) {
+          return { ok: false, error: `이미지는 메시지당 최대 ${MAX_IMAGES_PER_MESSAGE}장` };
+        }
+        const images: AiImageAttachment[] = [];
+        for (const img of m.images) {
+          if (
+            typeof img?.mimeType !== "string" ||
+            !IMAGE_MIME_WHITELIST.has(img.mimeType) ||
+            typeof img?.dataBase64 !== "string" ||
+            img.dataBase64.length === 0
+          ) {
+            return { ok: false, error: "지원하지 않는 이미지 형식" };
+          }
+          if (img.dataBase64.length > MAX_IMAGE_B64_CHARS) {
+            return { ok: false, error: "이미지가 너무 큽니다" };
+          }
+          totalImageChars += img.dataBase64.length;
+          if (totalImageChars > MAX_TOTAL_IMAGE_B64_CHARS) {
+            return { ok: false, error: "이미지 첨부 총량이 너무 큽니다" };
+          }
+          images.push({ mimeType: img.mimeType, dataBase64: img.dataBase64 });
+        }
+        messages.push({ role: "user", content: m.content, images });
+        continue;
+      }
       messages.push({ role: m.role, content: m.content });
       continue;
     }

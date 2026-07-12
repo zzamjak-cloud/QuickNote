@@ -29,6 +29,10 @@ type AnthropicSseEvent = {
 
 type AnthropicContent =
   | { type: "text"; text: string }
+  | {
+      type: "image";
+      source: { type: "base64"; media_type: string; data: string };
+    }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
   | { type: "tool_result"; tool_use_id: string; content: string };
 
@@ -38,6 +42,24 @@ function toAnthropicMessages(
   const out: Array<{ role: "user" | "assistant"; content: string | AnthropicContent[] }> = [];
   for (const m of messages) {
     if (m.role === "user") {
+      if (m.images && m.images.length > 0) {
+        // 이미지 첨부는 텍스트 앞에 배치 (제공사 권장 순서)
+        out.push({
+          role: "user",
+          content: [
+            ...m.images.map((img) => ({
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: img.mimeType,
+                data: img.dataBase64,
+              },
+            })),
+            { type: "text" as const, text: m.content },
+          ],
+        });
+        continue;
+      }
       out.push({ role: "user", content: m.content });
     } else if (m.role === "assistant") {
       out.push({ role: "assistant", content: m.content });

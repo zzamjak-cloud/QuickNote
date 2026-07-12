@@ -29,6 +29,7 @@ export class ProviderError extends Error {
 
 type GeminiPart = {
   text?: string;
+  inlineData?: { mimeType: string; data: string };
   functionCall?: { name?: string; args?: Record<string, unknown> };
   functionResponse?: {
     name?: string;
@@ -51,7 +52,14 @@ function toGeminiContents(messages: AiWireMessage[]): Array<{
   const contents: Array<{ role: string; parts: GeminiPart[] }> = [];
   for (const m of messages) {
     if (m.role === "user") {
-      contents.push({ role: "user", parts: [{ text: m.content }] });
+      // 이미지 첨부는 텍스트 앞에 배치 (제공사 권장 순서)
+      const parts: GeminiPart[] = [
+        ...(m.images ?? []).map((img) => ({
+          inlineData: { mimeType: img.mimeType, data: img.dataBase64 },
+        })),
+        { text: m.content },
+      ];
+      contents.push({ role: "user", parts });
     } else if (m.role === "assistant") {
       contents.push({ role: "model", parts: [{ text: m.content }] });
     } else if (m.role === "assistant_tools") {

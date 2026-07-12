@@ -14,7 +14,6 @@ import {
   sleepWithAbort,
   type AiAction,
   type AiActionOptions,
-  type AiChatMessage,
 } from "../lib/ai/aiClient";
 import {
   availableModels,
@@ -36,8 +35,20 @@ import {
   AI_TOOL_ROUND_LIMIT,
   executeAiTool,
   toolStatusLabel,
+  type AiImageAttachment,
   type AiWireMessage,
 } from "../lib/ai/tools";
+import {
+  assembleUserMessage,
+  type PendingAttachment,
+} from "../lib/ai/attachments";
+
+export type AiBubbleAttachment = {
+  kind: "page" | "image" | "file";
+  label: string;
+  /** 이미지 썸네일 data URL (이미지 첨부만) */
+  previewUrl?: string;
+};
 
 export type AiChatBubble = {
   id: string;
@@ -49,6 +60,14 @@ export type AiChatBubble = {
   sourceAction?: AiAction | null;
   /** 요약 캐시 히트 표시 */
   fromCache?: boolean;
+  /** 멘션 페이지·첨부 표시용 메타 (user 전용) */
+  attachments?: AiBubbleAttachment[];
+};
+
+/** send() 에 실어 보내는 멘션·첨부. */
+export type AiSendExtras = {
+  mentions?: Array<{ pageId: string; title: string }>;
+  attachments?: PendingAttachment[];
 };
 
 /** 선택 영역 교체용 원본 범위 — 문서가 바뀌면 무효일 수 있어 교체 시 재검증한다. */
@@ -108,7 +127,7 @@ type AiActions = {
   applyConfig: (config: WorkspaceAiConfig) => void;
   /** 컨텍스트 옵션(행 수·본문 포함) 갱신 — 대화는 유지. */
   updateContextOptions: (patch: AiContextOptions) => void;
-  send: (workspaceId: string, text: string) => Promise<void>;
+  send: (workspaceId: string, text: string, extras?: AiSendExtras) => Promise<void>;
   /** 선택 영역 액션(요약·번역 등) — 현재 컨텍스트를 대상으로 서버 템플릿 실행. */
   runAction: (
     workspaceId: string,
@@ -141,9 +160,10 @@ export const useAiStore = create<AiState & AiActions>()(
           action: AiAction;
           options?: AiActionOptions;
           userBubbleText: string;
-          payloadMessages: AiChatMessage[];
-          /** 지정 시 store 컨텍스트 대신 사용 — 전수 분석 추출 결과 후속 질문 등. */
-          contextOverride?: AiContext;
+          /** 전송용 메시지 — 마지막 user 메시지에 이미지 첨부 가능. */
+          payloadMessages: AiWireMessage[];
+          /** user 말풍선에 표시할 멘션·첨부 메타. */
+          userBubbleAttachments?: AiBubbleAttachment[];
         },
       ): Promise<void> => {
         if (get().isStreaming) return;
@@ -187,6 +207,7 @@ export const useAiStore = create<AiState & AiActions>()(
           id: nextBubbleId(),
           role: "user",
           content: args.userBubbleText,
+          attachments: args.userBubbleAttachments,
         };
         const assistantId = nextBubbleId();
         set((s) => ({
@@ -212,9 +233,8 @@ export const useAiStore = create<AiState & AiActions>()(
         const signal = abortController.signal;
         try {
           // 본문 포함 대상인데 아직 안 불러온 행이 있으면 전송 전에 로드 후 재조립
-          // (contextOverride 는 이미 완성된 컨텍스트이므로 프리페치 대상 아님)
-          let context = args.contextOverride ?? get().context;
-          if (!args.contextOverride && context?.pendingBodyPageIds?.length) {
+          let context = get().context;
+          if (context?.pendingBodyPageIds?.length) {
             set({
               toolStatus: `행 본문 ${context.pendingBodyPageIds.length}건 불러오는 중…`,
             });
@@ -227,10 +247,7 @@ export const useAiStore = create<AiState & AiActions>()(
             set({ toolStatus: null });
           }
           const enableTools = args.action === "chat";
-          const baseMessages: AiWireMessage[] = args.payloadMessages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          }));
+          const baseMessages: AiWireMessage[] = args.payloadMessages;
 
           const streamRounds = async (): Promise<void> => {
             let wireMessages = baseMessages;
@@ -340,25 +357,6 @@ export const useAiStore = create<AiState & AiActions>()(
         }
       };
 
-      /** 일반 단일 요청 전송 — 최근 N개 히스토리 포함. */
-      const sendNormal = async (
-        workspaceId: string,
-        trimmed: string,
-        contextOverride?: AiContext,
-      ): Promise<void> => {
-        // 에러 말풍선·빈 응답 제외, 최근 N개만 전송
-        const history = [...get().messages, { role: "user" as const, content: trimmed, error: null }]
-          .filter((m) => !m.error && m.content)
-          .slice(-CHAT_HISTORY_LIMIT)
-          .map((m) => ({ role: m.role, content: m.content }));
-        await runStream(workspaceId, {
-          action: "chat",
-          userBubbleText: trimmed,
-          payloadMessages: history,
-          contextOverride,
-        });
-      };
-
       return {
         panelOpen: false,
         context: null,
@@ -422,10 +420,60 @@ export const useAiStore = create<AiState & AiActions>()(
           }
         },
 
-        send: async (workspaceId, text) => {
+        send: async (workspaceId, text, extras) => {
           const trimmed = text.trim();
-          if (!trimmed || get().isStreaming) return;
-          await sendNormal(workspaceId, trimmed);
+          const mentions = extras?.mentions ?? [];
+          const attachments = extras?.attachments ?? [];
+          const hasExtras = mentions.length > 0 || attachments.length > 0;
+          if ((!trimmed && !hasExtras) || get().isStreaming) return;
+
+          // 전송용 본문 조립 — 멘션 페이지·텍스트 문서는 메시지에 인라인, 이미지는 wire 첨부
+          const baseText = trimmed || "첨부한 자료를 참고해줘.";
+          let wireContent = baseText;
+          let bubbleAttachments: AiBubbleAttachment[] | undefined;
+          let images: AiImageAttachment[] | undefined;
+          if (hasExtras) {
+            const textAttachments = attachments.filter((a) => a.kind === "text");
+            const imageAttachments = attachments.filter((a) => a.kind === "image");
+            if (mentions.length > 0) set({ toolStatus: "참고 페이지 불러오는 중…" });
+            try {
+              wireContent = await assembleUserMessage({
+                text: baseText,
+                mentions,
+                textAttachments,
+              });
+            } finally {
+              set({ toolStatus: null });
+            }
+            images =
+              imageAttachments.length > 0
+                ? imageAttachments.map((a) => ({
+                    mimeType: a.mimeType,
+                    dataBase64: a.dataBase64,
+                  }))
+                : undefined;
+            bubbleAttachments = [
+              ...mentions.map((m) => ({ kind: "page" as const, label: m.title })),
+              ...attachments.map((a) =>
+                a.kind === "image"
+                  ? { kind: "image" as const, label: a.name, previewUrl: a.previewUrl }
+                  : { kind: "file" as const, label: a.name },
+              ),
+            ];
+          }
+
+          // 에러 말풍선·빈 응답 제외, 최근 N-1개 히스토리(말풍선의 가벼운 본문) + 조립된 현재 메시지.
+          // 이미지·첨부 원문은 현재 턴에만 전송한다(히스토리 재전송 비용 방지).
+          const history: AiWireMessage[] = get()
+            .messages.filter((m) => !m.error && m.content)
+            .slice(-(CHAT_HISTORY_LIMIT - 1))
+            .map((m) => ({ role: m.role, content: m.content }));
+          await runStream(workspaceId, {
+            action: "chat",
+            userBubbleText: trimmed || "(첨부 전송)",
+            payloadMessages: [...history, { role: "user", content: wireContent, images }],
+            userBubbleAttachments: bubbleAttachments,
+          });
         },
 
         runAction: async (workspaceId, args) => {
