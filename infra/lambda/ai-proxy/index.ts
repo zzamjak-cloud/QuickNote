@@ -16,6 +16,7 @@ import {
 import {
   AI_DEFAULT_MODEL_BY_PROVIDER,
   AI_MODELS_BY_PROVIDER,
+  GLOBAL_AI_CONFIG_ID,
   providerForModel,
   providersWithKeys,
   resolveKeysMap,
@@ -135,20 +136,17 @@ async function checkRateLimit(memberId: string): Promise<number | null> {
 }
 
 /**
- * 월 토큰 쿼터 사전 검사. limit=0 이면 무제한.
+ * 월 토큰 쿼터 사전 검사 — 전역 설정이므로 전역 누적(usage#__global__) 기준. limit=0 이면 무제한.
  * 초과 시 true(차단). 조회 실패는 통과(가용성 우선 — 기록은 별도 경로).
  */
-async function isMonthlyQuotaExceeded(
-  workspaceId: string,
-  monthlyTokenLimit: number,
-): Promise<boolean> {
+async function isMonthlyQuotaExceeded(monthlyTokenLimit: number): Promise<boolean> {
   if (!monthlyTokenLimit || monthlyTokenLimit <= 0) return false;
   try {
     const yyyymm = currentYyyymm();
     const r = await doc.send(
       new GetCommand({
         TableName: AI_USAGE_TABLE,
-        Key: { pk: `usage#${workspaceId}`, sk: `${yyyymm}#__total` },
+        Key: { pk: `usage#${GLOBAL_AI_CONFIG_ID}`, sk: `${yyyymm}#__total` },
         ProjectionExpression: "inputTokens, outputTokens",
       }),
     );
@@ -161,7 +159,7 @@ async function isMonthlyQuotaExceeded(
   }
 }
 
-/** 월별·사용자별 + 워크스페이스 총합(__total) 사용량 누적. 실패해도 응답에 영향 없음. */
+/** 월별·사용자별 + 워크스페이스 총합(__total) + 전역 총합 사용량 누적. 실패해도 응답에 영향 없음. */
 async function logUsage(
   workspaceId: string,
   memberId: string,
@@ -171,24 +169,21 @@ async function logUsage(
   const yyyymm = currentYyyymm();
   const values = { ":one": 1, ":i": inputTokens, ":o": outputTokens };
   const expr = "ADD requestCount :one, inputTokens :i, outputTokens :o";
+  const upsert = (pk: string, sk: string) =>
+    doc.send(
+      new UpdateCommand({
+        TableName: AI_USAGE_TABLE,
+        Key: { pk, sk },
+        UpdateExpression: expr,
+        ExpressionAttributeValues: values,
+      }),
+    );
   try {
     await Promise.all([
-      doc.send(
-        new UpdateCommand({
-          TableName: AI_USAGE_TABLE,
-          Key: { pk: `usage#${workspaceId}`, sk: `${yyyymm}#${memberId}` },
-          UpdateExpression: expr,
-          ExpressionAttributeValues: values,
-        }),
-      ),
-      doc.send(
-        new UpdateCommand({
-          TableName: AI_USAGE_TABLE,
-          Key: { pk: `usage#${workspaceId}`, sk: `${yyyymm}#__total` },
-          UpdateExpression: expr,
-          ExpressionAttributeValues: values,
-        }),
-      ),
+      upsert(`usage#${workspaceId}`, `${yyyymm}#${memberId}`),
+      upsert(`usage#${workspaceId}`, `${yyyymm}#__total`),
+      // 전역 총합 — 월 쿼터(monthlyTokenLimit)가 전역 설정이므로 전역 기준으로 집계
+      upsert(`usage#${GLOBAL_AI_CONFIG_ID}`, `${yyyymm}#__total`),
     ]);
   } catch (e) {
     console.error("ai usage 기록 실패", e);
@@ -262,9 +257,15 @@ async function authorize(
     }
   }
 
-  const cfg = await doc.send(
-    new GetCommand({ TableName: AI_CONFIG_TABLE, Key: { workspaceId } }),
+  // AI 설정은 전역 공유 — 전역 아이템 우선, 없으면 레거시(워크스페이스별) 폴백
+  let cfg = await doc.send(
+    new GetCommand({ TableName: AI_CONFIG_TABLE, Key: { workspaceId: GLOBAL_AI_CONFIG_ID } }),
   );
+  if (!cfg.Item) {
+    cfg = await doc.send(
+      new GetCommand({ TableName: AI_CONFIG_TABLE, Key: { workspaceId } }),
+    );
+  }
   const item = cfg.Item as
     | {
         enabled?: boolean;
@@ -431,7 +432,7 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         return;
       }
 
-      if (await isMonthlyQuotaExceeded(req.workspaceId!, auth.monthlyTokenLimit)) {
+      if (await isMonthlyQuotaExceeded(auth.monthlyTokenLimit)) {
         respondJson(responseStream, 429, {
           error: "이번 달 AI 토큰 한도에 도달했습니다. 설정에서 한도를 확인하세요.",
         });

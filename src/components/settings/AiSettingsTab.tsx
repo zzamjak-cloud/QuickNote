@@ -141,7 +141,8 @@ export function AiSettingsTab() {
           <h3 className="text-sm font-semibold">API 키</h3>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             제공사별 키를 각각 등록해 두면, 채팅에서 모델을 자유롭게 바꿔 쓸 수 있습니다.
-            키는 서버에 암호화 저장되며 다시 조회할 수 없습니다.
+            키는 서버에 암호화 저장되며 다시 조회할 수 없습니다.{" "}
+            <strong>키·활성화 설정은 QuickNote 전체(모든 워크스페이스)에서 공유됩니다.</strong>
           </p>
         </div>
         {AI_PROVIDERS.map((p) => {

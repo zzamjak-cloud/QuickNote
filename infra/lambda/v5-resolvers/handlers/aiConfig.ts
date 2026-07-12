@@ -1,6 +1,11 @@
 // 워크스페이스 AI 설정 리졸버 — 제공사별 API 키를 keys 맵에 KMS 암호화 저장.
 // 조회는 원문을 반환하지 않는다(providers[].hasKey / apiKeyMasked 만).
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { KMSClient, EncryptCommand } from "@aws-sdk/client-kms";
 import {
   badRequest,
@@ -155,6 +160,12 @@ export function requireDeveloper(caller: Member): void {
   if (caller.workspaceRole !== "developer") forbidden("developer 만 가능");
 }
 
+/**
+ * 전역 설정 아이템 PK — API 키·활성화·기본 모델은 QuickNote 전체 워크스페이스가 공유한다.
+ * (스키마의 workspaceId 인자는 접근 검증용으로 유지 — 응답에는 호출한 workspaceId 를 에코)
+ */
+export const GLOBAL_AI_CONFIG_ID = "__global__";
+
 async function getAiConfigItem(
   doc: DynamoDBDocumentClient,
   table: string,
@@ -162,6 +173,45 @@ async function getAiConfigItem(
 ): Promise<AiConfigItem | undefined> {
   const r = await doc.send(new GetCommand({ TableName: table, Key: { workspaceId } }));
   return r.Item as AiConfigItem | undefined;
+}
+
+/** 전역 아이템 우선, 없으면 레거시(워크스페이스별) 아이템 폴백 — 자연 마이그레이션 경로(읽기). */
+async function getGlobalAiConfigItem(
+  doc: DynamoDBDocumentClient,
+  table: string,
+  legacyWorkspaceId: string,
+): Promise<AiConfigItem | undefined> {
+  const global = await getAiConfigItem(doc, table, GLOBAL_AI_CONFIG_ID);
+  if (global) return global;
+  return getAiConfigItem(doc, table, legacyWorkspaceId);
+}
+
+/**
+ * 뮤테이션 전 전역 아이템 확보 — 전역이 없고 레거시(호출 워크스페이스) 아이템이 있으면
+ * enabled·키 등 전체를 전역으로 1회 복사한다(부분 필드만 전역에 쓰이면 레거시 폴백이
+ * 끊겨 enabled/키가 초기화된 것처럼 보이는 문제 방지).
+ */
+async function ensureGlobalAiConfigItem(
+  doc: DynamoDBDocumentClient,
+  table: string,
+  legacyWorkspaceId: string,
+): Promise<AiConfigItem | undefined> {
+  const global = await getAiConfigItem(doc, table, GLOBAL_AI_CONFIG_ID);
+  if (global) return global;
+  const legacy = await getAiConfigItem(doc, table, legacyWorkspaceId);
+  if (!legacy) return undefined;
+  try {
+    await doc.send(
+      new PutCommand({
+        TableName: table,
+        Item: { ...legacy, workspaceId: GLOBAL_AI_CONFIG_ID },
+        ConditionExpression: "attribute_not_exists(workspaceId)",
+      }),
+    );
+  } catch {
+    // 동시 마이그레이션 경합 — 이미 전역 아이템이 생성됨
+  }
+  return getAiConfigItem(doc, table, GLOBAL_AI_CONFIG_ID);
 }
 
 type BaseArgs = { doc: DynamoDBDocumentClient; tables: Tables; caller: Member };
@@ -178,7 +228,11 @@ export async function getWorkspaceAiConfig(
     workspaceId: args.workspaceId,
     required: "view",
   });
-  const item = await getAiConfigItem(args.doc, requireAiConfigTable(args.tables), args.workspaceId);
+  const item = await getGlobalAiConfigItem(
+    args.doc,
+    requireAiConfigTable(args.tables),
+    args.workspaceId,
+  );
   return aiConfigToGql(args.workspaceId, item);
 }
 
@@ -202,7 +256,7 @@ export async function setWorkspaceAiKey(
   if (!enc.CiphertextBlob) throw new Error("KMS 암호화 실패");
 
   const table = requireAiConfigTable(args.tables);
-  const prev = await getAiConfigItem(args.doc, table, args.workspaceId);
+  const prev = await ensureGlobalAiConfigItem(args.doc, table, args.workspaceId);
   const prevKeys = resolveKeysMap(prev);
   const wasEmpty = providersWithKeys(prevKeys).length === 0;
 
@@ -223,7 +277,7 @@ export async function setWorkspaceAiKey(
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: table,
-      Key: { workspaceId: args.workspaceId },
+      Key: { workspaceId: GLOBAL_AI_CONFIG_ID },
       UpdateExpression: needDefault
         ? "SET #keys = :keys, defaultModel = :m, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider"
         : "SET #keys = :keys, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider",
@@ -252,7 +306,7 @@ export async function clearWorkspaceAiKey(
   }
   const provider = args.provider as AiProvider;
   const table = requireAiConfigTable(args.tables);
-  const prev = await getAiConfigItem(args.doc, table, args.workspaceId);
+  const prev = await ensureGlobalAiConfigItem(args.doc, table, args.workspaceId);
   const keys = { ...resolveKeysMap(prev) };
   delete keys[provider];
 
@@ -268,7 +322,7 @@ export async function clearWorkspaceAiKey(
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: table,
-      Key: { workspaceId: args.workspaceId },
+      Key: { workspaceId: GLOBAL_AI_CONFIG_ID },
       UpdateExpression: remaining.length
         ? "SET #keys = :keys, defaultModel = :m, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider"
         : "SET #keys = :keys, enabled = :f, defaultModel = :m, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider",
@@ -299,7 +353,7 @@ export async function updateWorkspaceAiSettings(
   requireDeveloper(args.caller);
   if (!args.workspaceId) badRequest("workspaceId 필요");
 
-  const item = await getAiConfigItem(
+  const item = await ensureGlobalAiConfigItem(
     args.doc,
     requireAiConfigTable(args.tables),
     args.workspaceId,
@@ -338,7 +392,7 @@ export async function updateWorkspaceAiSettings(
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: requireAiConfigTable(args.tables),
-      Key: { workspaceId: args.workspaceId },
+      Key: { workspaceId: GLOBAL_AI_CONFIG_ID },
       UpdateExpression: `SET ${sets.join(", ")}`,
       ExpressionAttributeValues: values,
       ReturnValues: "ALL_NEW",
