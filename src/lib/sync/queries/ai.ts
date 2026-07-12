@@ -2,6 +2,7 @@
 
 const AI_CONFIG_FIELDS = `
   workspaceId enabled provider hasKey apiKeyMasked defaultModel monthlyTokenLimit updatedAt
+  providers { provider hasKey apiKeyMasked }
 `;
 
 export const GET_WORKSPACE_AI_CONFIG = `
@@ -26,8 +27,8 @@ export const SET_WORKSPACE_AI_KEY = `
 `;
 
 export const CLEAR_WORKSPACE_AI_KEY = `
-  mutation ClearWorkspaceAiKey($workspaceId: ID!) {
-    clearWorkspaceAiKey(workspaceId: $workspaceId) { ${AI_CONFIG_FIELDS} }
+  mutation ClearWorkspaceAiKey($workspaceId: ID!, $provider: String!) {
+    clearWorkspaceAiKey(workspaceId: $workspaceId, provider: $provider) { ${AI_CONFIG_FIELDS} }
   }
 `;
 

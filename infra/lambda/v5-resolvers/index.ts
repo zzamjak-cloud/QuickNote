@@ -963,7 +963,11 @@ const RESOLVERS: Record<
       apiKey: event.arguments.apiKey as string,
     }),
   clearWorkspaceAiKey: async (event, base) =>
-    await clearWorkspaceAiKey({ ...base, workspaceId: event.arguments.workspaceId as string }),
+    await clearWorkspaceAiKey({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      provider: event.arguments.provider as string,
+    }),
   updateWorkspaceAiSettings: async (event, base) =>
     await updateWorkspaceAiSettings({
       ...base,

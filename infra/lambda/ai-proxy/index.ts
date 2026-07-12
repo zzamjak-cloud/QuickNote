@@ -16,7 +16,9 @@ import {
 import {
   AI_DEFAULT_MODEL_BY_PROVIDER,
   AI_MODELS_BY_PROVIDER,
-  isAiProvider,
+  providerForModel,
+  providersWithKeys,
+  resolveKeysMap,
   type AiProvider,
 } from "../v5-resolvers/handlers/aiConfig";
 import { streamGeminiChat, ProviderError, type AiChatMessage } from "./gemini";
@@ -188,13 +190,13 @@ async function decryptApiKey(apiKeyEnc: string): Promise<string> {
 type AuthOk = {
   ok: true;
   caller: Member;
-  apiKey: string;
-  provider: AiProvider;
+  /** 제공사별 암호문(복호화는 모델 확정 후). */
+  keys: ReturnType<typeof resolveKeysMap>;
   defaultModel: string;
   monthlyTokenLimit: number;
 };
 
-/** 인증·인가·설정 로드. 실패 시 { status, error } 반환(원문 키는 성공 시에만). */
+/** 인증·인가·설정 로드. 키 복호화는 모델 확정 후 수행. */
 async function authorize(
   event: FnUrlEvent,
   req: AiChatRequest,
@@ -251,28 +253,30 @@ async function authorize(
     | {
         enabled?: boolean;
         apiKeyEnc?: string;
-        defaultModel?: string;
+        apiKeyLast4?: string;
         provider?: string;
+        keys?: Partial<Record<AiProvider, { enc: string; last4: string }>>;
+        defaultModel?: string;
         monthlyTokenLimit?: number;
       }
     | undefined;
-  if (!item?.enabled || !item.apiKeyEnc) {
+
+  const keys = resolveKeysMap(item);
+  const withKey = providersWithKeys(keys);
+  if (!item?.enabled || withKey.length === 0) {
     return { ok: false, status: 403, error: "이 워크스페이스에서 AI 가 비활성화되어 있습니다" };
   }
 
-  const provider: AiProvider =
-    item.provider && isAiProvider(item.provider) ? item.provider : "gemini";
+  const allowedModels = withKey.flatMap((p) => [...AI_MODELS_BY_PROVIDER[p]]);
   const defaultModel =
-    item.defaultModel && AI_MODELS_BY_PROVIDER[provider].includes(item.defaultModel)
+    item.defaultModel && allowedModels.includes(item.defaultModel)
       ? item.defaultModel
-      : AI_DEFAULT_MODEL_BY_PROVIDER[provider];
+      : AI_DEFAULT_MODEL_BY_PROVIDER[withKey[0] ?? "gemini"];
 
-  const apiKey = await decryptApiKey(item.apiKeyEnc);
   return {
     ok: true,
     caller,
-    apiKey,
-    provider,
+    keys,
     defaultModel,
     monthlyTokenLimit: item.monthlyTokenLimit ?? 0,
   };
@@ -360,9 +364,19 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         return;
       }
 
-      const allowedModels = AI_MODELS_BY_PROVIDER[auth.provider];
+      // 요청 모델 → 제공사 → 해당 키. 키가 있는 제공사 모델만 허용.
+      const keyedProviders = providersWithKeys(auth.keys);
+      const allowedModels = keyedProviders.flatMap((p) => [...AI_MODELS_BY_PROVIDER[p]]);
       const model =
         req.model && allowedModels.includes(req.model) ? req.model : auth.defaultModel;
+      const provider = providerForModel(model);
+      if (!provider || !auth.keys[provider]?.enc) {
+        respondJson(responseStream, 403, {
+          error: "선택한 모델용 API 키가 등록되어 있지 않습니다",
+        });
+        return;
+      }
+      const apiKey = await decryptApiKey(auth.keys[provider]!.enc);
 
       const stream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 200,
@@ -374,7 +388,7 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
       });
 
       const streamArgs = {
-        apiKey: auth.apiKey,
+        apiKey,
         model,
         systemPrompt: buildSystemPrompt(valid.action, req.context, valid.options),
         messages: valid.messages,
@@ -383,7 +397,7 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
 
       try {
         const result =
-          auth.provider === "anthropic"
+          provider === "anthropic"
             ? await streamAnthropicChat(streamArgs)
             : await streamGeminiChat(streamArgs);
         sseWrite(stream, {

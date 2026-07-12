@@ -1,4 +1,4 @@
-// 설정 > AI 탭 (developer 전용) — API 키·제공사, 활성화, 기본 모델, 월 한도·사용량.
+// 설정 > AI 탭 (developer 전용) — 제공사별 API 키 동시 등록, 활성화, 기본 모델, 월 한도·사용량.
 // 키 원문은 저장 직후에도 다시 볼 수 없다(마스킹만 표시).
 import { useEffect, useState } from "react";
 import { KeyRound, Trash2 } from "lucide-react";
@@ -16,9 +16,7 @@ import {
 } from "../../lib/sync/aiConfigApi";
 import {
   AI_PROVIDERS,
-  defaultModelForProvider,
-  isAiProvider,
-  modelsForProvider,
+  availableModels,
   type AiProvider,
 } from "../../lib/ai/models";
 import { isAiProxyConfigured } from "../../lib/ai/aiClient";
@@ -43,11 +41,13 @@ export function AiSettingsTab() {
   const [config, setConfig] = useState<WorkspaceAiConfig | null>(null);
   const [usage, setUsage] = useState<WorkspaceAiUsage | null>(null);
   const [loading, setLoading] = useState(true);
-  const [keyInput, setKeyInput] = useState("");
-  const [providerDraft, setProviderDraft] = useState<AiProvider>("gemini");
+  const [keyInputs, setKeyInputs] = useState<Record<AiProvider, string>>({
+    gemini: "",
+    anthropic: "",
+  });
   const [quotaDraft, setQuotaDraft] = useState("0");
   const [busy, setBusy] = useState(false);
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [clearTarget, setClearTarget] = useState<AiProvider | null>(null);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -60,7 +60,6 @@ export function AiSettingsTab() {
       .then(([c, u]) => {
         if (cancelled) return;
         setConfig(c);
-        setProviderDraft(isAiProvider(c.provider) ? c.provider : "gemini");
         setQuotaDraft(String(c.monthlyTokenLimit ?? 0));
         setUsage(u);
       })
@@ -80,9 +79,8 @@ export function AiSettingsTab() {
 
   const update = (next: WorkspaceAiConfig) => {
     setConfig(next);
-    setProviderDraft(isAiProvider(next.provider) ? next.provider : "gemini");
     setQuotaDraft(String(next.monthlyTokenLimit ?? 0));
-    applyConfig(next); // TopBar 등 AI UI 게이팅 즉시 반영
+    applyConfig(next);
   };
 
   const run = async (fn: () => Promise<WorkspaceAiConfig>, successMessage: string) => {
@@ -97,13 +95,13 @@ export function AiSettingsTab() {
     }
   };
 
-  const handleSaveKey = () => {
-    const key = keyInput.trim();
+  const handleSaveKey = (provider: AiProvider) => {
+    const key = keyInputs[provider].trim();
     if (!key) return;
     void run(
-      () => setWorkspaceAiKeyApi(workspaceId, providerDraft, key),
-      "API 키를 저장했습니다",
-    ).then(() => setKeyInput(""));
+      () => setWorkspaceAiKeyApi(workspaceId, provider, key),
+      `${AI_PROVIDERS.find((p) => p.id === provider)?.label ?? provider} 키를 저장했습니다`,
+    ).then(() => setKeyInputs((s) => ({ ...s, [provider]: "" })));
   };
 
   const handleSaveQuota = () => {
@@ -122,19 +120,11 @@ export function AiSettingsTab() {
     return <p className="text-sm text-zinc-400">AI 설정을 불러오는 중…</p>;
   }
 
-  // 등록된 제공사(서버) vs 드롭다운 선택(draft) — UI 목록은 draft 기준
-  const savedProvider: AiProvider =
-    config?.provider && isAiProvider(config.provider) ? config.provider : "gemini";
-  const providerChanged = providerDraft !== savedProvider;
-  const models = modelsForProvider(providerDraft);
-  const modelSelectValue =
-    config?.defaultModel && models.some((m) => m.id === config.defaultModel)
-      ? config.defaultModel
-      : defaultModelForProvider(providerDraft);
+  const keyedProviders =
+    config?.providers?.filter((p) => p.hasKey).map((p) => p.provider) ?? [];
+  const models = availableModels(keyedProviders);
   const usedTokens = (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
   const limit = config?.monthlyTokenLimit ?? 0;
-  const providerLabel = (p: AiProvider) =>
-    AI_PROVIDERS.find((x) => x.id === p)?.label ?? p;
 
   return (
     <div className="max-w-xl space-y-8">
@@ -145,78 +135,70 @@ export function AiSettingsTab() {
         </p>
       )}
 
-      {/* 제공사 · API 키 */}
-      <section className="space-y-3">
+      {/* 제공사별 API 키 — 동시에 등록 가능, 채팅에서 모델만 선택 */}
+      <section className="space-y-4">
         <div>
-          <h3 className="text-sm font-semibold">제공사 · API 키</h3>
+          <h3 className="text-sm font-semibold">API 키</h3>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            키는 서버에 암호화 저장되며 다시 조회할 수 없습니다. 제공사를 바꾸면 해당
-            제공사의 키를 다시 등록해야 합니다.
+            제공사별 키를 각각 등록해 두면, 채팅에서 모델을 자유롭게 바꿔 쓸 수 있습니다.
+            키는 서버에 암호화 저장되며 다시 조회할 수 없습니다.
           </p>
         </div>
-        <select
-          value={providerDraft}
-          disabled={busy}
-          onChange={(e) => setProviderDraft(e.target.value as AiProvider)}
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-        >
-          {AI_PROVIDERS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-        {providerChanged && (
-          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-            현재 등록된 키는 {providerLabel(savedProvider)} 입니다.{" "}
-            {providerLabel(providerDraft)} 로 바꾸려면 해당 API 키를 아래에 입력해
-            저장하세요.
-          </p>
-        )}
-        {config?.hasKey && (
-          <div className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700">
-            <KeyRound size={14} className="shrink-0 text-emerald-600" aria-hidden />
-            <span className="flex-1 font-mono text-zinc-600 dark:text-zinc-300">
-              {providerLabel(savedProvider)} · {config.apiKeyMasked}
-            </span>
-            <button
-              type="button"
-              onClick={() => setClearConfirmOpen(true)}
-              disabled={busy}
-              className="rounded p-1 text-red-500 hover:bg-red-50 disabled:opacity-40 dark:hover:bg-red-950/40"
-              aria-label="API 키 삭제"
-              title="API 키 삭제"
+        {AI_PROVIDERS.map((p) => {
+          const status = config?.providers?.find((x) => x.provider === p.id);
+          return (
+            <div
+              key={p.id}
+              className="space-y-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-700"
             >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        )}
-        <div className="flex gap-2">
-          <input
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            placeholder={
-              providerDraft === "anthropic"
-                ? config?.hasKey && !providerChanged
-                  ? "새 키 입력 시 교체됩니다 (sk-ant-…)"
-                  : "sk-ant-…"
-                : config?.hasKey && !providerChanged
-                  ? "새 키 입력 시 교체됩니다 (AIza…)"
-                  : "AIza…"
-            }
-            autoComplete="off"
-            className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400 dark:border-zinc-700 dark:bg-zinc-900"
-          />
-          <button
-            type="button"
-            onClick={handleSaveKey}
-            disabled={busy || !keyInput.trim()}
-            className="rounded-md bg-violet-600 px-3 py-2 text-sm text-white hover:bg-violet-500 disabled:opacity-40"
-          >
-            저장
-          </button>
-        </div>
+              <h4 className="text-sm font-medium">{p.label}</h4>
+              {status?.hasKey && (
+                <div className="flex items-center gap-2 rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900/50">
+                  <KeyRound size={14} className="shrink-0 text-emerald-600" aria-hidden />
+                  <span className="flex-1 font-mono text-zinc-600 dark:text-zinc-300">
+                    {status.apiKeyMasked}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setClearTarget(p.id)}
+                    disabled={busy}
+                    className="rounded p-1 text-red-500 hover:bg-red-50 disabled:opacity-40 dark:hover:bg-red-950/40"
+                    aria-label={`${p.label} API 키 삭제`}
+                    title="API 키 삭제"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={keyInputs[p.id]}
+                  onChange={(e) =>
+                    setKeyInputs((s) => ({ ...s, [p.id]: e.target.value }))
+                  }
+                  placeholder={
+                    status?.hasKey
+                      ? "새 키 입력 시 교체"
+                      : p.id === "anthropic"
+                        ? "sk-ant-…"
+                        : "AIza…"
+                  }
+                  autoComplete="off"
+                  className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400 dark:border-zinc-700 dark:bg-zinc-900"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleSaveKey(p.id)}
+                  disabled={busy || !keyInputs[p.id].trim()}
+                  className="rounded-md bg-violet-600 px-3 py-2 text-sm text-white hover:bg-violet-500 disabled:opacity-40"
+                >
+                  저장
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </section>
 
       {/* 활성화 토글 */}
@@ -253,31 +235,33 @@ export function AiSettingsTab() {
         </button>
       </section>
 
-      {/* 기본 모델 — 목록은 드롭다운 제공사 기준. 제공사 전환 중에는 키 저장 전 변경 불가 */}
+      {/* 기본 모델 — 키가 있는 제공사 모델만 */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold">기본 모델</h3>
-        <select
-          value={modelSelectValue}
-          disabled={busy || providerChanged}
-          onChange={(e) =>
-            void run(
-              () => updateWorkspaceAiSettingsApi(workspaceId, { defaultModel: e.target.value }),
-              "기본 모델을 변경했습니다",
-            )
-          }
-          className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 disabled:opacity-50"
-        >
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        {providerChanged && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            제공사 키가 저장되면 기본 모델이 {providerLabel(providerDraft)} 기본값으로
-            맞춰집니다.
-          </p>
+        {models.length === 0 ? (
+          <p className="text-xs text-zinc-500">API 키를 먼저 등록하세요.</p>
+        ) : (
+          <select
+            value={
+              config?.defaultModel && models.some((m) => m.id === config.defaultModel)
+                ? config.defaultModel
+                : models[0]!.id
+            }
+            disabled={busy}
+            onChange={(e) =>
+              void run(
+                () => updateWorkspaceAiSettingsApi(workspaceId, { defaultModel: e.target.value }),
+                "기본 모델을 변경했습니다",
+              )
+            }
+            className="w-full rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
         )}
       </section>
 
@@ -356,15 +340,24 @@ export function AiSettingsTab() {
       </section>
 
       <SimpleConfirmDialog
-        open={clearConfirmOpen}
+        open={clearTarget != null}
         title="API 키 삭제"
-        message="키를 삭제하면 이 워크스페이스의 AI 기능이 비활성화됩니다. 계속할까요?"
+        message={
+          clearTarget
+            ? `${AI_PROVIDERS.find((p) => p.id === clearTarget)?.label ?? clearTarget} 키를 삭제합니다. 해당 제공사 모델은 더 이상 사용할 수 없습니다.`
+            : ""
+        }
         confirmLabel="삭제"
         danger
-        onCancel={() => setClearConfirmOpen(false)}
+        onCancel={() => setClearTarget(null)}
         onConfirm={() => {
-          setClearConfirmOpen(false);
-          void run(() => clearWorkspaceAiKeyApi(workspaceId), "API 키를 삭제했습니다");
+          const p = clearTarget;
+          setClearTarget(null);
+          if (!p) return;
+          void run(
+            () => clearWorkspaceAiKeyApi(workspaceId, p),
+            "API 키를 삭제했습니다",
+          );
         }}
       />
     </div>

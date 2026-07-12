@@ -9,12 +9,19 @@ import {
   UPDATE_WORKSPACE_AI_SETTINGS,
 } from "./queries/ai";
 
+export type WorkspaceAiProviderKey = {
+  provider: string;
+  hasKey: boolean;
+  apiKeyMasked: string | null;
+};
+
 export type WorkspaceAiConfig = {
   workspaceId: string;
   enabled: boolean;
   provider: string;
   hasKey: boolean;
   apiKeyMasked: string | null;
+  providers: WorkspaceAiProviderKey[];
   defaultModel: string;
   /** 월 토큰 한도(입력+출력 합산). 0 = 무제한. */
   monthlyTokenLimit: number;
@@ -81,8 +88,14 @@ export async function setWorkspaceAiKeyApi(
   });
 }
 
-export async function clearWorkspaceAiKeyApi(workspaceId: string): Promise<WorkspaceAiConfig> {
-  return callField(CLEAR_WORKSPACE_AI_KEY, "clearWorkspaceAiKey", { workspaceId });
+export async function clearWorkspaceAiKeyApi(
+  workspaceId: string,
+  provider: string,
+): Promise<WorkspaceAiConfig> {
+  return callField(CLEAR_WORKSPACE_AI_KEY, "clearWorkspaceAiKey", {
+    workspaceId,
+    provider,
+  });
 }
 
 export async function updateWorkspaceAiSettingsApi(

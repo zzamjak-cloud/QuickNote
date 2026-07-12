@@ -15,8 +15,8 @@ import {
   type AiChatMessage,
 } from "../lib/ai/aiClient";
 import {
+  availableModels,
   defaultModelForProvider,
-  modelsForProvider,
 } from "../lib/ai/models";
 import type { AiContext } from "../lib/ai/contextBuilder";
 
@@ -112,13 +112,18 @@ export const useAiStore = create<AiState & AiActions>()(
         try {
           const context = get().context;
           const wsConfig = get().configByWorkspace[workspaceId];
-          const allowed = modelsForProvider(wsConfig?.provider);
+          const keyed =
+            wsConfig?.providers?.filter((p) => p.hasKey).map((p) => p.provider) ??
+            (wsConfig?.hasKey && wsConfig.provider ? [wsConfig.provider] : []);
+          const allowed = availableModels(keyed);
           const selected = get().model;
-          // 제공사 변경 후 persist 된 구 모델이 남아 있으면 기본 모델로 폴백
+          // 키 없는 제공사 모델이 persist 되어 있으면 기본 모델로 폴백
           const model =
             selected && allowed.some((m) => m.id === selected)
               ? selected
-              : (wsConfig?.defaultModel ?? defaultModelForProvider(wsConfig?.provider));
+              : wsConfig?.defaultModel && allowed.some((m) => m.id === wsConfig.defaultModel)
+                ? wsConfig.defaultModel
+                : (allowed[0]?.id ?? defaultModelForProvider(wsConfig?.provider));
           await streamAiChat({
             workspaceId,
             pageId: context?.pageId ?? null,

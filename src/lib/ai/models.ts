@@ -2,7 +2,7 @@
 
 export type AiProvider = "gemini" | "anthropic";
 
-export type AiModelOption = { id: string; label: string };
+export type AiModelOption = { id: string; label: string; provider: AiProvider };
 
 export const AI_PROVIDERS: Array<{ id: AiProvider; label: string }> = [
   { id: "gemini", label: "Google Gemini" },
@@ -11,12 +11,16 @@ export const AI_PROVIDERS: Array<{ id: AiProvider; label: string }> = [
 
 export const AI_MODELS_BY_PROVIDER: Record<AiProvider, AiModelOption[]> = {
   gemini: [
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash — 빠름·저비용 (권장)" },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro — 고품질" },
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash — 빠름·저비용 (권장)", provider: "gemini" },
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro — 고품질", provider: "gemini" },
   ],
   anthropic: [
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5 — 빠름·저비용 (권장)" },
-    { id: "claude-sonnet-5", label: "Claude Sonnet 5 — 고품질" },
+    {
+      id: "claude-haiku-4-5",
+      label: "Claude Haiku 4.5 — 빠름·저비용 (권장)",
+      provider: "anthropic",
+    },
+    { id: "claude-sonnet-5", label: "Claude Sonnet 5 — 고품질", provider: "anthropic" },
   ],
 };
 
@@ -25,14 +29,21 @@ export const AI_DEFAULT_MODEL_BY_PROVIDER: Record<AiProvider, string> = {
   anthropic: "claude-haiku-4-5",
 };
 
-/** @deprecated 제공사별 기본값 사용 — 하위 호환용 */
+/** @deprecated 하위 호환 */
 export const AI_DEFAULT_MODEL = AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
 
-/** 채팅 패널 등에서 제공사 모를 때 전체 목록(Gemini 기본). */
+/** @deprecated 하위 호환 — Gemini 목록만 */
 export const AI_MODELS: AiModelOption[] = AI_MODELS_BY_PROVIDER.gemini;
 
 export function isAiProvider(v: string): v is AiProvider {
   return v === "gemini" || v === "anthropic";
+}
+
+export function providerForModel(model: string): AiProvider | null {
+  for (const p of Object.keys(AI_MODELS_BY_PROVIDER) as AiProvider[]) {
+    if (AI_MODELS_BY_PROVIDER[p].some((m) => m.id === model)) return p;
+  }
+  return null;
 }
 
 export function modelsForProvider(provider: string | undefined | null): AiModelOption[] {
@@ -45,4 +56,14 @@ export function defaultModelForProvider(provider: string | undefined | null): st
   return isAiProvider(provider ?? "")
     ? AI_DEFAULT_MODEL_BY_PROVIDER[provider as AiProvider]
     : AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
+}
+
+/** 키가 등록된 제공사들의 모델 합집합(채팅 셀렉터용). */
+export function availableModels(providersWithKeys: Iterable<string>): AiModelOption[] {
+  const set = new Set(
+    [...providersWithKeys].filter((p): p is AiProvider => isAiProvider(p)),
+  );
+  return (Object.keys(AI_MODELS_BY_PROVIDER) as AiProvider[])
+    .filter((p) => set.has(p))
+    .flatMap((p) => AI_MODELS_BY_PROVIDER[p]);
 }

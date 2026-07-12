@@ -19,8 +19,8 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
 import {
+  availableModels,
   defaultModelForProvider,
-  modelsForProvider,
 } from "../../lib/ai/models";
 import {
   insertMarkdownAtCursor,
@@ -51,10 +51,15 @@ export function AiChatPanel() {
 
   const workspaceId = currentWorkspaceId ?? "";
   const wsConfig = workspaceId ? configByWorkspace[workspaceId] : undefined;
-  const modelOptions = modelsForProvider(wsConfig?.provider);
+  const keyedProviders =
+    wsConfig?.providers?.filter((p) => p.hasKey).map((p) => p.provider) ??
+    (wsConfig?.hasKey && wsConfig.provider ? [wsConfig.provider] : []);
+  const modelOptions = availableModels(keyedProviders);
   const defaultModel =
-    wsConfig?.defaultModel ?? defaultModelForProvider(wsConfig?.provider);
-  // 제공사 변경 후 이전 모델이 남아 있으면 기본 모델로 폴백
+    wsConfig?.defaultModel && modelOptions.some((m) => m.id === wsConfig.defaultModel)
+      ? wsConfig.defaultModel
+      : (modelOptions[0]?.id ?? defaultModelForProvider(wsConfig?.provider));
+  // 키 없는 제공사 모델이 persist 되어 있으면 기본 모델로 폴백
   const effectiveModel =
     model && modelOptions.some((m) => m.id === model) ? model : defaultModel;
 

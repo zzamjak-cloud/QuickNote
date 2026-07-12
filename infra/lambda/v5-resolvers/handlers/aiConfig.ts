@@ -1,5 +1,5 @@
-// 워크스페이스 AI 설정 리졸버 — API 키는 KMS 로 암호화해 저장하고,
-// 조회는 어떤 경로로도 원문을 반환하지 않는다(마스킹·hasKey 만).
+// 워크스페이스 AI 설정 리졸버 — 제공사별 API 키를 keys 맵에 KMS 암호화 저장.
+// 조회는 원문을 반환하지 않는다(providers[].hasKey / apiKeyMasked 만).
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { KMSClient, EncryptCommand } from "@aws-sdk/client-kms";
 import {
@@ -12,8 +12,7 @@ import type { Tables } from "./member";
 
 const kms = new KMSClient({});
 
-/** 서버가 허용하는 AI 제공사·모델 화이트리스트. 클라이언트 임의 값을 받지 않는다.
- *  클라이언트 src/lib/ai/models.ts 와 동기 유지. */
+/** 서버가 허용하는 AI 제공사·모델 화이트리스트. 클라이언트 src/lib/ai/models.ts 와 동기 유지. */
 export const AI_PROVIDERS = ["gemini", "anthropic"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
@@ -31,50 +30,114 @@ export function isAiProvider(v: string): v is AiProvider {
   return (AI_PROVIDERS as readonly string[]).includes(v);
 }
 
+/** 모델 ID → 제공사. 화이트리스트에 없으면 null. */
+export function providerForModel(model: string): AiProvider | null {
+  for (const p of AI_PROVIDERS) {
+    if (AI_MODELS_BY_PROVIDER[p].includes(model)) return p;
+  }
+  return null;
+}
+
 /** 월 토큰 한도 상한(입력+출력 합산). 0 = 무제한. */
 const MAX_MONTHLY_TOKEN_LIMIT = 2_000_000_000;
+
+type StoredKey = { enc: string; last4: string };
 
 type AiConfigItem = {
   workspaceId: string;
   enabled?: boolean;
+  /** 레거시 단일 제공사 필드 — 읽기 시 keys 로 승격. */
   provider?: string;
-  /** KMS 암호문(base64). 클라이언트 응답에 절대 포함 금지. */
   apiKeyEnc?: string;
   apiKeyLast4?: string;
+  /** 제공사별 암호화 키. 클라이언트 응답에 절대 포함 금지. */
+  keys?: Partial<Record<AiProvider, StoredKey>>;
   defaultModel?: string;
-  /** 월 토큰 한도(입력+출력 합산). 0/미설정 = 무제한. */
   monthlyTokenLimit?: number;
   updatedAt?: string;
+};
+
+export type WorkspaceAiProviderKeyGql = {
+  provider: string;
+  hasKey: boolean;
+  apiKeyMasked: string | null;
 };
 
 export type WorkspaceAiConfigGql = {
   workspaceId: string;
   enabled: boolean;
+  /** 하위호환 — defaultModel 제공사 또는 키가 있는 첫 제공사. */
   provider: string;
   hasKey: boolean;
   apiKeyMasked: string | null;
+  providers: WorkspaceAiProviderKeyGql[];
   defaultModel: string;
   monthlyTokenLimit: number;
   updatedAt: string | null;
 };
+
+/** 레거시 apiKeyEnc 를 keys 맵에 병합(응답·검증용, DDB 쓰기는 별도). */
+export function resolveKeysMap(
+  item: AiConfigItem | undefined,
+): Partial<Record<AiProvider, StoredKey>> {
+  const out: Partial<Record<AiProvider, StoredKey>> = { ...(item?.keys ?? {}) };
+  if (item?.apiKeyEnc) {
+    const p: AiProvider =
+      item.provider && isAiProvider(item.provider) ? item.provider : "gemini";
+    if (!out[p]?.enc) {
+      out[p] = { enc: item.apiKeyEnc, last4: item.apiKeyLast4 ?? "" };
+    }
+  }
+  return out;
+}
+
+export function providersWithKeys(
+  keys: Partial<Record<AiProvider, StoredKey>>,
+): AiProvider[] {
+  return AI_PROVIDERS.filter((p) => Boolean(keys[p]?.enc));
+}
+
+function allowedModelsForKeys(keys: Partial<Record<AiProvider, StoredKey>>): string[] {
+  return providersWithKeys(keys).flatMap((p) => [...AI_MODELS_BY_PROVIDER[p]]);
+}
+
+function pickDefaultModel(
+  item: AiConfigItem | undefined,
+  keys: Partial<Record<AiProvider, StoredKey>>,
+): string {
+  const allowed = allowedModelsForKeys(keys);
+  if (item?.defaultModel && allowed.includes(item.defaultModel)) return item.defaultModel;
+  const first = providersWithKeys(keys)[0];
+  return first ? AI_DEFAULT_MODEL_BY_PROVIDER[first] : AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
+}
 
 /** DDB 아이템 → GraphQL 응답. 키 원문/암호문은 여기서 걸러진다. */
 export function aiConfigToGql(
   workspaceId: string,
   item: AiConfigItem | undefined,
 ): WorkspaceAiConfigGql {
-  const provider: AiProvider =
-    item?.provider && isAiProvider(item.provider) ? item.provider : "gemini";
-  const defaultModel =
-    item?.defaultModel && AI_MODELS_BY_PROVIDER[provider].includes(item.defaultModel)
-      ? item.defaultModel
-      : AI_DEFAULT_MODEL_BY_PROVIDER[provider];
+  const keys = resolveKeysMap(item);
+  const providers: WorkspaceAiProviderKeyGql[] = AI_PROVIDERS.map((p) => {
+    const slot = keys[p];
+    return {
+      provider: p,
+      hasKey: Boolean(slot?.enc),
+      apiKeyMasked: slot?.enc ? `****${slot.last4}` : null,
+    };
+  });
+  const withKey = providersWithKeys(keys);
+  const defaultModel = pickDefaultModel(item, keys);
+  const compatProvider =
+    providerForModel(defaultModel) ?? withKey[0] ?? ("gemini" as AiProvider);
+  const compatMasked = providers.find((p) => p.provider === compatProvider)?.apiKeyMasked ?? null;
+
   return {
     workspaceId,
     enabled: item?.enabled === true,
-    provider,
-    hasKey: Boolean(item?.apiKeyEnc),
-    apiKeyMasked: item?.apiKeyEnc ? `****${item.apiKeyLast4 ?? ""}` : null,
+    provider: compatProvider,
+    hasKey: withKey.length > 0,
+    apiKeyMasked: compatMasked,
+    providers,
     defaultModel,
     monthlyTokenLimit: item?.monthlyTokenLimit ?? 0,
     updatedAt: item?.updatedAt ?? null,
@@ -139,23 +202,37 @@ export async function setWorkspaceAiKey(
   if (!enc.CiphertextBlob) throw new Error("KMS 암호화 실패");
 
   const table = requireAiConfigTable(args.tables);
-  // 제공사 변경 시 기존 defaultModel 이 새 제공사와 안 맞으므로 제공사 기본값으로 재설정
   const prev = await getAiConfigItem(args.doc, table, args.workspaceId);
-  const providerChanged = prev?.provider !== provider;
+  const prevKeys = resolveKeysMap(prev);
+  const wasEmpty = providersWithKeys(prevKeys).length === 0;
+
+  const slot: StoredKey = {
+    enc: Buffer.from(enc.CiphertextBlob).toString("base64"),
+    last4: apiKey.slice(-4),
+  };
+
+  // 해당 제공사 슬롯만 upsert. 레거시 단일 키 필드는 제거해 이중 소스 방지.
+  // 키가 처음 등록되면 defaultModel 을 그 제공사 기본값으로 맞춤(기존 기본이 없으면).
+  const needDefault =
+    wasEmpty ||
+    !(prev?.defaultModel && allowedModelsForKeys({ ...prevKeys, [provider]: slot }).includes(prev.defaultModel));
 
   const r = await args.doc.send(
     new UpdateCommand({
       TableName: table,
       Key: { workspaceId: args.workspaceId },
-      UpdateExpression: providerChanged
-        ? "SET provider = :p, apiKeyEnc = :e, apiKeyLast4 = :l, defaultModel = :m, updatedAt = :t"
-        : "SET provider = :p, apiKeyEnc = :e, apiKeyLast4 = :l, updatedAt = :t",
+      UpdateExpression: needDefault
+        ? "SET #keys.#p = :slot, defaultModel = :m, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider"
+        : "SET #keys.#p = :slot, updatedAt = :t REMOVE apiKeyEnc, apiKeyLast4, #legacyProvider",
+      ExpressionAttributeNames: {
+        "#keys": "keys",
+        "#p": provider,
+        "#legacyProvider": "provider",
+      },
       ExpressionAttributeValues: {
-        ":p": provider,
-        ":e": Buffer.from(enc.CiphertextBlob).toString("base64"),
-        ":l": apiKey.slice(-4),
-        ...(providerChanged ? { ":m": AI_DEFAULT_MODEL_BY_PROVIDER[provider] } : {}),
+        ":slot": slot,
         ":t": new Date().toISOString(),
+        ...(needDefault ? { ":m": AI_DEFAULT_MODEL_BY_PROVIDER[provider] } : {}),
       },
       ReturnValues: "ALL_NEW",
     }),
@@ -164,17 +241,43 @@ export async function setWorkspaceAiKey(
 }
 
 export async function clearWorkspaceAiKey(
-  args: BaseArgs & { workspaceId: string },
+  args: BaseArgs & { workspaceId: string; provider: string },
 ): Promise<WorkspaceAiConfigGql> {
   requireDeveloper(args.caller);
   if (!args.workspaceId) badRequest("workspaceId 필요");
+  if (!isAiProvider(args.provider)) {
+    badRequest(`지원하지 않는 provider: ${args.provider}`);
+  }
+  const provider = args.provider as AiProvider;
+  const table = requireAiConfigTable(args.tables);
+  const prev = await getAiConfigItem(args.doc, table, args.workspaceId);
+  const keys = { ...resolveKeysMap(prev) };
+  delete keys[provider];
+
+  const remaining = providersWithKeys(keys);
+  const nextDefault =
+    remaining.length > 0
+      ? pickDefaultModel({ ...prev, defaultModel: prev?.defaultModel }, keys)
+      : AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
+
+  // 레거시 필드도 함께 정리. 키가 하나도 없으면 enabled=false.
   const r = await args.doc.send(
     new UpdateCommand({
-      TableName: requireAiConfigTable(args.tables),
+      TableName: table,
       Key: { workspaceId: args.workspaceId },
-      // 키 제거 시 AI 도 함께 비활성화 — 키 없는 enabled 상태를 남기지 않는다.
-      UpdateExpression: "REMOVE apiKeyEnc, apiKeyLast4 SET enabled = :f, updatedAt = :t",
-      ExpressionAttributeValues: { ":f": false, ":t": new Date().toISOString() },
+      UpdateExpression: remaining.length
+        ? "REMOVE #keys.#p, apiKeyEnc, apiKeyLast4, #legacyProvider SET defaultModel = :m, updatedAt = :t"
+        : "REMOVE #keys.#p, apiKeyEnc, apiKeyLast4, #legacyProvider SET enabled = :f, defaultModel = :m, updatedAt = :t",
+      ExpressionAttributeNames: {
+        "#keys": "keys",
+        "#p": provider,
+        "#legacyProvider": "provider",
+      },
+      ExpressionAttributeValues: {
+        ":m": nextDefault,
+        ":t": new Date().toISOString(),
+        ...(remaining.length ? {} : { ":f": false }),
+      },
       ReturnValues: "ALL_NEW",
     }),
   );
@@ -192,26 +295,26 @@ export async function updateWorkspaceAiSettings(
   requireDeveloper(args.caller);
   if (!args.workspaceId) badRequest("workspaceId 필요");
 
-  // enabled 켜기·모델 검증 모두 현재 아이템(키 유무·제공사)이 필요
   const item = await getAiConfigItem(
     args.doc,
     requireAiConfigTable(args.tables),
     args.workspaceId,
   );
+  const keys = resolveKeysMap(item);
 
   const sets: string[] = ["updatedAt = :t"];
   const values: Record<string, unknown> = { ":t": new Date().toISOString() };
   if (typeof args.enabled === "boolean") {
-    // 키가 없는데 enabled 로 켜는 것을 거부 — UI 게이팅과 서버 상태 일치 보장.
-    if (args.enabled && !item?.apiKeyEnc) badRequest("API 키를 먼저 등록해야 합니다");
+    if (args.enabled && providersWithKeys(keys).length === 0) {
+      badRequest("API 키를 먼저 등록해야 합니다");
+    }
     sets.push("enabled = :e");
     values[":e"] = args.enabled;
   }
   if (typeof args.defaultModel === "string") {
-    const provider: AiProvider =
-      item?.provider && isAiProvider(item.provider) ? item.provider : "gemini";
-    if (!AI_MODELS_BY_PROVIDER[provider].includes(args.defaultModel)) {
-      badRequest(`지원하지 않는 모델: ${args.defaultModel}`);
+    const allowed = allowedModelsForKeys(keys);
+    if (!allowed.includes(args.defaultModel)) {
+      badRequest(`지원하지 않는 모델(또는 키 미등록 제공사): ${args.defaultModel}`);
     }
     sets.push("defaultModel = :m");
     values[":m"] = args.defaultModel;
