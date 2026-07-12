@@ -7,6 +7,7 @@ import {
   Eraser,
   FileText,
   ListTodo,
+  Loader2,
   Replace,
   Send,
   Sparkles,
@@ -37,6 +38,7 @@ export function AiChatPanel() {
   const context = useAiStore((s) => s.context);
   const messages = useAiStore((s) => s.messages);
   const isStreaming = useAiStore((s) => s.isStreaming);
+  const preparing = useAiStore((s) => s.preparing);
   const toolStatus = useAiStore((s) => s.toolStatus);
   const model = useAiStore((s) => s.model);
   const configByWorkspace = useAiStore((s) => s.configByWorkspace);
@@ -87,7 +89,7 @@ export function AiChatPanel() {
   if (!panelOpen) return null;
 
   const handleSend = () => {
-    if (!workspaceId || !input.trim() || isStreaming) return;
+    if (!workspaceId || !input.trim() || isStreaming || preparing) return;
     void send(workspaceId, input);
     setInput("");
   };
@@ -361,8 +363,9 @@ export function AiChatPanel() {
               ) : (
                 !m.error &&
                 isStreaming && (
-                  <div className="rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-400 dark:bg-zinc-900 dark:text-zinc-500">
-                    응답 생성 중…
+                  <div className="flex items-center gap-2 rounded-lg bg-zinc-100 px-3 py-2 text-sm text-zinc-400 dark:bg-zinc-900 dark:text-zinc-500">
+                    <Loader2 size={14} className="shrink-0 animate-spin" aria-hidden />
+                    <span>{toolStatus ?? "응답 생성 중…"}</span>
                   </div>
                 )
               )}
@@ -377,9 +380,19 @@ export function AiChatPanel() {
       </div>
 
       <footer className="shrink-0 border-t border-zinc-200 p-3 dark:border-zinc-800">
+        {/* 준비 단계(행 본문 로딩·분량 확인) 진행 표시 */}
+        {preparing && (
+          <div className="mb-2 flex items-center gap-1.5 rounded-md bg-zinc-100 px-2.5 py-1.5 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+            <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden />
+            <span>{toolStatus ?? "준비 중…"}</span>
+          </div>
+        )}
         {/* 전수 분석 확인 — 본문이 단일 요청 예산을 넘을 때 요청 수 고지 */}
         {deepAnalysis && !isStreaming && (
           <div className="mb-2 space-y-2 rounded-md border border-violet-200 bg-violet-50 p-2.5 text-xs dark:border-violet-800 dark:bg-violet-950/30">
+            <p className="truncate font-medium text-zinc-800 dark:text-zinc-100">
+              “{deepAnalysis.question}”
+            </p>
             <p className="text-zinc-700 dark:text-zinc-200">
               본문 분량이 많아 한 번에 담을 수 없습니다.{" "}
               <strong>{deepAnalysis.plan.analyzedRows}행</strong>의 본문 전체를{" "}
@@ -454,7 +467,7 @@ export function AiChatPanel() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={!input.trim() || !workspaceId}
+              disabled={!input.trim() || !workspaceId || preparing}
               className="rounded-md bg-violet-600 p-2 text-white hover:bg-violet-500 disabled:opacity-40"
               aria-label="전송"
               title="전송"

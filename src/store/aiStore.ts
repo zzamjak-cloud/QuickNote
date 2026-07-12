@@ -81,6 +81,8 @@ type AiState = {
   selectionRange: AiSelectionRange | null;
   messages: AiChatBubble[];
   isStreaming: boolean;
+  /** 전송 전 준비 단계(본문 로딩·분량 확인) 진행 중 — 입력 잠금 + 상태 표시용. */
+  preparing: boolean;
   /** tool 실행 중 UX 칩 문구 */
   toolStatus: string | null;
   /** null 이면 워크스페이스 기본 모델 사용 */
@@ -332,6 +334,7 @@ export const useAiStore = create<AiState & AiActions>()(
         selectionRange: null,
         messages: [],
         isStreaming: false,
+        preparing: false,
         toolStatus: null,
         model: null,
         configByWorkspace: {},
@@ -392,20 +395,23 @@ export const useAiStore = create<AiState & AiActions>()(
 
         send: async (workspaceId, text) => {
           const trimmed = text.trim();
-          if (!trimmed || get().isStreaming) return;
+          if (!trimmed || get().isStreaming || get().preparing) return;
 
           // DB 채팅 + 본문 포함이면 전수 분석 필요 여부 판단 —
           // 본문이 단일 요청 예산을 넘으면(배치 2개 이상) 요청 수를 고지하고 확인을 받는다.
           const context = get().context;
           if (context?.databaseId && context.options?.includeRowBodies && context.panelState) {
-            set({ toolStatus: "본문 분량 확인 중…" });
-            const plan = await planDeepDbAnalysis(context, (note) =>
-              set({ toolStatus: note }),
-            ).catch(() => null);
-            set({ toolStatus: null });
-            if (plan && plan.batches.length > 1) {
-              set({ deepAnalysis: { plan, question: trimmed } });
-              return;
+            set({ preparing: true, toolStatus: "본문 분량 확인 중…" });
+            try {
+              const plan = await planDeepDbAnalysis(context, (note) =>
+                set({ toolStatus: note }),
+              ).catch(() => null);
+              if (plan && plan.batches.length > 1) {
+                set({ deepAnalysis: { plan, question: trimmed } });
+                return;
+              }
+            } finally {
+              set({ preparing: false, toolStatus: null });
             }
           }
           await sendNormal(workspaceId, trimmed);
