@@ -84,6 +84,21 @@ export function AiChatPanel() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  // 패널을 연 뒤 다른 페이지로 이동하면 닫는다 — 컨텍스트가 화면과 어긋난 채 남는 것 방지.
+  // (피크뷰 진입은 컨텍스트 페이지 ≠ 활성 페이지일 수 있어, "연 시점 이후의 변경"만 감지)
+  const panelOpenedAtPageRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!panelOpen) {
+      panelOpenedAtPageRef.current = null;
+      return;
+    }
+    if (panelOpenedAtPageRef.current === null) {
+      panelOpenedAtPageRef.current = activePageId ?? "";
+      return;
+    }
+    if ((activePageId ?? "") !== panelOpenedAtPageRef.current) closePanel();
+  }, [panelOpen, activePageId, closePanel]);
+
   useEffect(() => {
     if (panelOpen) inputRef.current?.focus();
   }, [panelOpen]);
