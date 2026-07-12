@@ -12,10 +12,27 @@ import type { Tables } from "./member";
 
 const kms = new KMSClient({});
 
-/** 서버가 허용하는 AI 제공사·모델 화이트리스트. 클라이언트 임의 값을 받지 않는다. */
-export const AI_PROVIDERS = ["gemini"] as const;
-export const AI_DEFAULT_MODEL = "gemini-2.5-flash";
-export const AI_ALLOWED_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro"] as const;
+/** 서버가 허용하는 AI 제공사·모델 화이트리스트. 클라이언트 임의 값을 받지 않는다.
+ *  클라이언트 src/lib/ai/models.ts 와 동기 유지. */
+export const AI_PROVIDERS = ["gemini", "anthropic"] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
+
+export const AI_MODELS_BY_PROVIDER: Record<AiProvider, readonly string[]> = {
+  gemini: ["gemini-2.5-flash", "gemini-2.5-pro"],
+  anthropic: ["claude-haiku-4-5", "claude-sonnet-5"],
+};
+
+export const AI_DEFAULT_MODEL_BY_PROVIDER: Record<AiProvider, string> = {
+  gemini: "gemini-2.5-flash",
+  anthropic: "claude-haiku-4-5",
+};
+
+export function isAiProvider(v: string): v is AiProvider {
+  return (AI_PROVIDERS as readonly string[]).includes(v);
+}
+
+/** 월 토큰 한도 상한(입력+출력 합산). 0 = 무제한. */
+const MAX_MONTHLY_TOKEN_LIMIT = 2_000_000_000;
 
 type AiConfigItem = {
   workspaceId: string;
@@ -25,6 +42,8 @@ type AiConfigItem = {
   apiKeyEnc?: string;
   apiKeyLast4?: string;
   defaultModel?: string;
+  /** 월 토큰 한도(입력+출력 합산). 0/미설정 = 무제한. */
+  monthlyTokenLimit?: number;
   updatedAt?: string;
 };
 
@@ -35,6 +54,7 @@ export type WorkspaceAiConfigGql = {
   hasKey: boolean;
   apiKeyMasked: string | null;
   defaultModel: string;
+  monthlyTokenLimit: number;
   updatedAt: string | null;
 };
 
@@ -43,13 +63,20 @@ export function aiConfigToGql(
   workspaceId: string,
   item: AiConfigItem | undefined,
 ): WorkspaceAiConfigGql {
+  const provider: AiProvider =
+    item?.provider && isAiProvider(item.provider) ? item.provider : "gemini";
+  const defaultModel =
+    item?.defaultModel && AI_MODELS_BY_PROVIDER[provider].includes(item.defaultModel)
+      ? item.defaultModel
+      : AI_DEFAULT_MODEL_BY_PROVIDER[provider];
   return {
     workspaceId,
     enabled: item?.enabled === true,
-    provider: item?.provider ?? AI_PROVIDERS[0],
+    provider,
     hasKey: Boolean(item?.apiKeyEnc),
     apiKeyMasked: item?.apiKeyEnc ? `****${item.apiKeyLast4 ?? ""}` : null,
-    defaultModel: item?.defaultModel ?? AI_DEFAULT_MODEL,
+    defaultModel,
+    monthlyTokenLimit: item?.monthlyTokenLimit ?? 0,
     updatedAt: item?.updatedAt ?? null,
   };
 }
@@ -60,8 +87,8 @@ function requireAiConfigTable(tables: Tables): string {
   return t;
 }
 
-/** 설정 mutation 은 developer 전용 — 설정 탭 노출 정책과 동일 기준. */
-function requireDeveloper(caller: Member): void {
+/** 설정 mutation·사용량 조회는 developer 전용 — 설정 탭 노출 정책과 동일 기준. */
+export function requireDeveloper(caller: Member): void {
   if (caller.workspaceRole !== "developer") forbidden("developer 만 가능");
 }
 
@@ -97,9 +124,10 @@ export async function setWorkspaceAiKey(
 ): Promise<WorkspaceAiConfigGql> {
   requireDeveloper(args.caller);
   if (!args.workspaceId) badRequest("workspaceId 필요");
-  if (!(AI_PROVIDERS as readonly string[]).includes(args.provider)) {
+  if (!isAiProvider(args.provider)) {
     badRequest(`지원하지 않는 provider: ${args.provider}`);
   }
+  const provider = args.provider as AiProvider;
   const apiKey = args.apiKey.trim();
   if (apiKey.length < 10 || apiKey.length > 300) badRequest("API 키 형식이 올바르지 않습니다");
 
@@ -110,16 +138,23 @@ export async function setWorkspaceAiKey(
   );
   if (!enc.CiphertextBlob) throw new Error("KMS 암호화 실패");
 
+  const table = requireAiConfigTable(args.tables);
+  // 제공사 변경 시 기존 defaultModel 이 새 제공사와 안 맞으므로 제공사 기본값으로 재설정
+  const prev = await getAiConfigItem(args.doc, table, args.workspaceId);
+  const providerChanged = prev?.provider !== provider;
+
   const r = await args.doc.send(
     new UpdateCommand({
-      TableName: requireAiConfigTable(args.tables),
+      TableName: table,
       Key: { workspaceId: args.workspaceId },
-      UpdateExpression:
-        "SET provider = :p, apiKeyEnc = :e, apiKeyLast4 = :l, updatedAt = :t",
+      UpdateExpression: providerChanged
+        ? "SET provider = :p, apiKeyEnc = :e, apiKeyLast4 = :l, defaultModel = :m, updatedAt = :t"
+        : "SET provider = :p, apiKeyEnc = :e, apiKeyLast4 = :l, updatedAt = :t",
       ExpressionAttributeValues: {
-        ":p": args.provider,
+        ":p": provider,
         ":e": Buffer.from(enc.CiphertextBlob).toString("base64"),
         ":l": apiKey.slice(-4),
+        ...(providerChanged ? { ":m": AI_DEFAULT_MODEL_BY_PROVIDER[provider] } : {}),
         ":t": new Date().toISOString(),
       },
       ReturnValues: "ALL_NEW",
@@ -147,32 +182,50 @@ export async function clearWorkspaceAiKey(
 }
 
 export async function updateWorkspaceAiSettings(
-  args: BaseArgs & { workspaceId: string; enabled?: boolean | null; defaultModel?: string | null },
+  args: BaseArgs & {
+    workspaceId: string;
+    enabled?: boolean | null;
+    defaultModel?: string | null;
+    monthlyTokenLimit?: number | null;
+  },
 ): Promise<WorkspaceAiConfigGql> {
   requireDeveloper(args.caller);
   if (!args.workspaceId) badRequest("workspaceId 필요");
 
+  // enabled 켜기·모델 검증 모두 현재 아이템(키 유무·제공사)이 필요
+  const item = await getAiConfigItem(
+    args.doc,
+    requireAiConfigTable(args.tables),
+    args.workspaceId,
+  );
+
   const sets: string[] = ["updatedAt = :t"];
   const values: Record<string, unknown> = { ":t": new Date().toISOString() };
   if (typeof args.enabled === "boolean") {
-    if (args.enabled) {
-      // 키가 없는데 enabled 로 켜는 것을 거부 — UI 게이팅과 서버 상태 일치 보장.
-      const item = await getAiConfigItem(
-        args.doc,
-        requireAiConfigTable(args.tables),
-        args.workspaceId,
-      );
-      if (!item?.apiKeyEnc) badRequest("API 키를 먼저 등록해야 합니다");
-    }
+    // 키가 없는데 enabled 로 켜는 것을 거부 — UI 게이팅과 서버 상태 일치 보장.
+    if (args.enabled && !item?.apiKeyEnc) badRequest("API 키를 먼저 등록해야 합니다");
     sets.push("enabled = :e");
     values[":e"] = args.enabled;
   }
   if (typeof args.defaultModel === "string") {
-    if (!(AI_ALLOWED_MODELS as readonly string[]).includes(args.defaultModel)) {
+    const provider: AiProvider =
+      item?.provider && isAiProvider(item.provider) ? item.provider : "gemini";
+    if (!AI_MODELS_BY_PROVIDER[provider].includes(args.defaultModel)) {
       badRequest(`지원하지 않는 모델: ${args.defaultModel}`);
     }
     sets.push("defaultModel = :m");
     values[":m"] = args.defaultModel;
+  }
+  if (typeof args.monthlyTokenLimit === "number") {
+    if (
+      !Number.isInteger(args.monthlyTokenLimit) ||
+      args.monthlyTokenLimit < 0 ||
+      args.monthlyTokenLimit > MAX_MONTHLY_TOKEN_LIMIT
+    ) {
+      badRequest("잘못된 월 토큰 한도");
+    }
+    sets.push("monthlyTokenLimit = :q");
+    values[":q"] = args.monthlyTokenLimit;
   }
 
   const r = await args.doc.send(

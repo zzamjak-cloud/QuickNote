@@ -1,6 +1,7 @@
-// AI 프록시 Lambda — Function URL(RESPONSE_STREAM) 로 Gemini 응답을 SSE 로 중계한다.
+// AI 프록시 Lambda — Function URL(RESPONSE_STREAM) 로 제공사 응답을 SSE 로 중계한다.
 // 흐름: ① Cognito ID 토큰 검증 → ② 워크스페이스 멤버십(view)·pageId 귀속 확인 →
-// ③ per-user 분당 호출 제한 → ④ 워크스페이스 AI 설정·KMS 키 복호화 → ⑤ 스트리밍 → ⑥ 사용량 기록.
+// ③ per-user 분당 호출 제한 → ④ 월 토큰 쿼터 → ⑤ 워크스페이스 AI 설정·KMS 키 복호화 →
+// ⑥ 제공사별 스트리밍 → ⑦ 사용량 기록(멤버 + __total).
 // API 키 원문은 이 Lambda 메모리에서만 존재하며 로그·응답에 절대 남기지 않는다.
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
@@ -12,8 +13,14 @@ import {
   ResolverError,
   type Member,
 } from "../v5-resolvers/handlers/_auth";
-import { AI_ALLOWED_MODELS, AI_DEFAULT_MODEL } from "../v5-resolvers/handlers/aiConfig";
+import {
+  AI_DEFAULT_MODEL_BY_PROVIDER,
+  AI_MODELS_BY_PROVIDER,
+  isAiProvider,
+  type AiProvider,
+} from "../v5-resolvers/handlers/aiConfig";
 import { streamGeminiChat, ProviderError, type AiChatMessage } from "./gemini";
+import { streamAnthropicChat } from "./anthropic";
 import {
   buildSystemPrompt,
   AI_ACTIONS,
@@ -85,6 +92,10 @@ function sseWrite(stream: ResponseStream, payload: Record<string, unknown>): voi
   stream.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function currentYyyymm(): string {
+  return new Date().toISOString().slice(0, 7).replace("-", "");
+}
+
 /** per-user 분당 호출 제한 — DDB 카운터. 초과 시 다음 분까지 남은 초를 반환. */
 async function checkRateLimit(memberId: string): Promise<number | null> {
   const minute = Math.floor(Date.now() / 60_000);
@@ -105,23 +116,62 @@ async function checkRateLimit(memberId: string): Promise<number | null> {
   return 60 - Math.floor((Date.now() % 60_000) / 1000);
 }
 
-/** 월별·사용자별 사용량 누적 (Phase 3 쿼터/정산의 데이터 소스). 실패해도 응답에 영향 없음. */
+/**
+ * 월 토큰 쿼터 사전 검사. limit=0 이면 무제한.
+ * 초과 시 true(차단). 조회 실패는 통과(가용성 우선 — 기록은 별도 경로).
+ */
+async function isMonthlyQuotaExceeded(
+  workspaceId: string,
+  monthlyTokenLimit: number,
+): Promise<boolean> {
+  if (!monthlyTokenLimit || monthlyTokenLimit <= 0) return false;
+  try {
+    const yyyymm = currentYyyymm();
+    const r = await doc.send(
+      new GetCommand({
+        TableName: AI_USAGE_TABLE,
+        Key: { pk: `usage#${workspaceId}`, sk: `${yyyymm}#__total` },
+        ProjectionExpression: "inputTokens, outputTokens",
+      }),
+    );
+    const used =
+      Number(r.Item?.inputTokens ?? 0) + Number(r.Item?.outputTokens ?? 0);
+    return used >= monthlyTokenLimit;
+  } catch (e) {
+    console.error("ai monthly quota 조회 실패", e);
+    return false;
+  }
+}
+
+/** 월별·사용자별 + 워크스페이스 총합(__total) 사용량 누적. 실패해도 응답에 영향 없음. */
 async function logUsage(
   workspaceId: string,
   memberId: string,
   inputTokens: number,
   outputTokens: number,
 ): Promise<void> {
-  const yyyymm = new Date().toISOString().slice(0, 7).replace("-", "");
+  const yyyymm = currentYyyymm();
+  const values = { ":one": 1, ":i": inputTokens, ":o": outputTokens };
+  const expr = "ADD requestCount :one, inputTokens :i, outputTokens :o";
   try {
-    await doc.send(
-      new UpdateCommand({
-        TableName: AI_USAGE_TABLE,
-        Key: { pk: `usage#${workspaceId}`, sk: `${yyyymm}#${memberId}` },
-        UpdateExpression: "ADD requestCount :one, inputTokens :i, outputTokens :o",
-        ExpressionAttributeValues: { ":one": 1, ":i": inputTokens, ":o": outputTokens },
-      }),
-    );
+    await Promise.all([
+      doc.send(
+        new UpdateCommand({
+          TableName: AI_USAGE_TABLE,
+          Key: { pk: `usage#${workspaceId}`, sk: `${yyyymm}#${memberId}` },
+          UpdateExpression: expr,
+          ExpressionAttributeValues: values,
+        }),
+      ),
+      doc.send(
+        new UpdateCommand({
+          TableName: AI_USAGE_TABLE,
+          Key: { pk: `usage#${workspaceId}`, sk: `${yyyymm}#__total` },
+          UpdateExpression: expr,
+          ExpressionAttributeValues: values,
+        }),
+      ),
+    ]);
   } catch (e) {
     console.error("ai usage 기록 실패", e);
   }
@@ -135,11 +185,20 @@ async function decryptApiKey(apiKeyEnc: string): Promise<string> {
   return Buffer.from(r.Plaintext).toString("utf-8");
 }
 
+type AuthOk = {
+  ok: true;
+  caller: Member;
+  apiKey: string;
+  provider: AiProvider;
+  defaultModel: string;
+  monthlyTokenLimit: number;
+};
+
 /** 인증·인가·설정 로드. 실패 시 { status, error } 반환(원문 키는 성공 시에만). */
-async function authorize(event: FnUrlEvent, req: AiChatRequest): Promise<
-  | { ok: true; caller: Member; apiKey: string; defaultModel: string }
-  | { ok: false; status: number; error: string }
-> {
+async function authorize(
+  event: FnUrlEvent,
+  req: AiChatRequest,
+): Promise<AuthOk | { ok: false; status: number; error: string }> {
   const authHeader = event.headers?.authorization ?? event.headers?.Authorization ?? "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   if (!token) return { ok: false, status: 401, error: "인증 토큰 없음" };
@@ -189,14 +248,34 @@ async function authorize(event: FnUrlEvent, req: AiChatRequest): Promise<
     new GetCommand({ TableName: AI_CONFIG_TABLE, Key: { workspaceId } }),
   );
   const item = cfg.Item as
-    | { enabled?: boolean; apiKeyEnc?: string; defaultModel?: string }
+    | {
+        enabled?: boolean;
+        apiKeyEnc?: string;
+        defaultModel?: string;
+        provider?: string;
+        monthlyTokenLimit?: number;
+      }
     | undefined;
   if (!item?.enabled || !item.apiKeyEnc) {
     return { ok: false, status: 403, error: "이 워크스페이스에서 AI 가 비활성화되어 있습니다" };
   }
 
+  const provider: AiProvider =
+    item.provider && isAiProvider(item.provider) ? item.provider : "gemini";
+  const defaultModel =
+    item.defaultModel && AI_MODELS_BY_PROVIDER[provider].includes(item.defaultModel)
+      ? item.defaultModel
+      : AI_DEFAULT_MODEL_BY_PROVIDER[provider];
+
   const apiKey = await decryptApiKey(item.apiKeyEnc);
-  return { ok: true, caller, apiKey, defaultModel: item.defaultModel ?? AI_DEFAULT_MODEL };
+  return {
+    ok: true,
+    caller,
+    apiKey,
+    provider,
+    defaultModel,
+    monthlyTokenLimit: item.monthlyTokenLimit ?? 0,
+  };
 }
 
 function validateRequest(req: AiChatRequest):
@@ -274,10 +353,16 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         return;
       }
 
+      if (await isMonthlyQuotaExceeded(req.workspaceId!, auth.monthlyTokenLimit)) {
+        respondJson(responseStream, 429, {
+          error: "이번 달 AI 토큰 한도에 도달했습니다. 설정에서 한도를 확인하세요.",
+        });
+        return;
+      }
+
+      const allowedModels = AI_MODELS_BY_PROVIDER[auth.provider];
       const model =
-        req.model && (AI_ALLOWED_MODELS as readonly string[]).includes(req.model)
-          ? req.model
-          : auth.defaultModel;
+        req.model && allowedModels.includes(req.model) ? req.model : auth.defaultModel;
 
       const stream = awslambda.HttpResponseStream.from(responseStream, {
         statusCode: 200,
@@ -288,14 +373,19 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         },
       });
 
+      const streamArgs = {
+        apiKey: auth.apiKey,
+        model,
+        systemPrompt: buildSystemPrompt(valid.action, req.context, valid.options),
+        messages: valid.messages,
+        onDelta: (text: string) => sseWrite(stream, { delta: text }),
+      };
+
       try {
-        const result = await streamGeminiChat({
-          apiKey: auth.apiKey,
-          model,
-          systemPrompt: buildSystemPrompt(valid.action, req.context, valid.options),
-          messages: valid.messages,
-          onDelta: (text) => sseWrite(stream, { delta: text }),
-        });
+        const result =
+          auth.provider === "anthropic"
+            ? await streamAnthropicChat(streamArgs)
+            : await streamGeminiChat(streamArgs);
         sseWrite(stream, {
           done: true,
           finishReason: result.finishReason,

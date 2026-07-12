@@ -66,6 +66,8 @@ export type Tables = {
   DatabaseRowMembers?: string;
   /** 워크스페이스 AI 설정 테이블 (ai-proxy Lambda 와 공용, PK=workspaceId) */
   WorkspaceAiConfig?: string;
+  /** AI 사용량 집계·rate limit 테이블 (ai-proxy 가 기록, PK=pk SK=sk) */
+  AiUsage?: string;
 };
 
 export type CreateMemberInput = {

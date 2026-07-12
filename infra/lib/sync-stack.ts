@@ -1107,6 +1107,7 @@ export function response(ctx) {
         IMAGES_BUCKET_NAME: imagesBucket.bucketName,
         CUSTOM_ICONS_TABLE_NAME: customIconsTable.tableName,
         WORKSPACE_AI_CONFIG_TABLE_NAME: workspaceAiConfigTable.tableName,
+        AI_USAGE_TABLE_NAME: aiUsageTable.tableName,
         AI_KMS_KEY_ARN: aiKmsKey.keyArn,
         TEMPLATE_AUTOMATION_SCHEDULE_GROUP_NAME: templateAutomationScheduleGroupName,
         TEMPLATE_AUTOMATION_RUNNER_ARN: templateAutomationRunnerFn.functionArn,
@@ -1147,6 +1148,7 @@ export function response(ctx) {
     imagesBucket.grantReadWrite(v5ResolversFn);
     customIconsTable.grantReadWriteData(v5ResolversFn);
     workspaceAiConfigTable.grantReadWriteData(v5ResolversFn);
+    aiUsageTable.grantReadData(v5ResolversFn); // 사용량 조회(읽기 전용 — 기록은 ai-proxy)
     aiKmsKey.grantEncrypt(v5ResolversFn); // 키 등록(암호화)만 — 복호화는 ai-proxy 전용
     v5ResolversFn.addToRolePolicy(
       new iam.PolicyStatement({
@@ -1495,6 +1497,7 @@ export function response(ctx) {
     v5Ds.createResolver("MutationsetWorkspaceAiKey", { typeName: "Mutation", fieldName: "setWorkspaceAiKey" });
     v5Ds.createResolver("MutationclearWorkspaceAiKey", { typeName: "Mutation", fieldName: "clearWorkspaceAiKey" });
     v5Ds.createResolver("MutationupdateWorkspaceAiSettings", { typeName: "Mutation", fieldName: "updateWorkspaceAiSettings" });
+    v5Ds.createResolver("QuerygetWorkspaceAiUsage", { typeName: "Query", fieldName: "getWorkspaceAiUsage" });
 
     // v5 데이터 마이그레이션 Lambda (v4 ownerId -> v5 workspace/member 필드 보강)
     const v5MigrationFn = new lambdaNode.NodejsFunction(this, "V5MigrationFn", {

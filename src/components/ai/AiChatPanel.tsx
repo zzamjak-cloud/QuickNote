@@ -18,7 +18,10 @@ import { useAiStore } from "../../store/aiStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
-import { AI_DEFAULT_MODEL, AI_MODELS } from "../../lib/ai/models";
+import {
+  defaultModelForProvider,
+  modelsForProvider,
+} from "../../lib/ai/models";
 import {
   insertMarkdownAtCursor,
   replaceRangeWithMarkdown,
@@ -47,10 +50,13 @@ export function AiChatPanel() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const workspaceId = currentWorkspaceId ?? "";
-  const defaultModel = workspaceId
-    ? configByWorkspace[workspaceId]?.defaultModel ?? AI_DEFAULT_MODEL
-    : AI_DEFAULT_MODEL;
-  const effectiveModel = model ?? defaultModel;
+  const wsConfig = workspaceId ? configByWorkspace[workspaceId] : undefined;
+  const modelOptions = modelsForProvider(wsConfig?.provider);
+  const defaultModel =
+    wsConfig?.defaultModel ?? defaultModelForProvider(wsConfig?.provider);
+  // 제공사 변경 후 이전 모델이 남아 있으면 기본 모델로 폴백
+  const effectiveModel =
+    model && modelOptions.some((m) => m.id === model) ? model : defaultModel;
 
   // 새 메시지·스트리밍 델타마다 하단 고정
   useEffect(() => {
@@ -230,7 +236,7 @@ export function AiChatPanel() {
             disabled={isStreaming}
             className="w-full rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
           >
-            {AI_MODELS.map((m) => (
+            {modelOptions.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.label}
               </option>

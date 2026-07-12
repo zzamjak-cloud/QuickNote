@@ -14,6 +14,10 @@ import {
   type AiActionOptions,
   type AiChatMessage,
 } from "../lib/ai/aiClient";
+import {
+  defaultModelForProvider,
+  modelsForProvider,
+} from "../lib/ai/models";
 import type { AiContext } from "../lib/ai/contextBuilder";
 
 export type AiChatBubble = {
@@ -107,12 +111,20 @@ export const useAiStore = create<AiState & AiActions>()(
         abortController = new AbortController();
         try {
           const context = get().context;
+          const wsConfig = get().configByWorkspace[workspaceId];
+          const allowed = modelsForProvider(wsConfig?.provider);
+          const selected = get().model;
+          // 제공사 변경 후 persist 된 구 모델이 남아 있으면 기본 모델로 폴백
+          const model =
+            selected && allowed.some((m) => m.id === selected)
+              ? selected
+              : (wsConfig?.defaultModel ?? defaultModelForProvider(wsConfig?.provider));
           await streamAiChat({
             workspaceId,
             pageId: context?.pageId ?? null,
             action: args.action,
             options: args.options,
-            model: get().model,
+            model,
             messages: args.payloadMessages,
             context: context ? { label: context.label, markdown: context.markdown } : null,
             signal: abortController.signal,

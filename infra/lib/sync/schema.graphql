@@ -586,6 +586,8 @@ type Query {
 
   """워크스페이스 AI 설정 조회 — view 권한 필요. 키는 마스킹만 반환."""
   getWorkspaceAiConfig(workspaceId: ID!): WorkspaceAiConfig!
+  """월별 AI 사용량 조회 (month 미지정 시 이번 달). developer 전용."""
+  getWorkspaceAiUsage(workspaceId: ID!, month: String): WorkspaceAiUsage!
 }
 
 # ========== AI ==========
@@ -599,7 +601,27 @@ type WorkspaceAiConfig {
   """마스킹된 키 표시값 (예: ****abcd). 미등록 시 null."""
   apiKeyMasked: String
   defaultModel: String!
+  """월 토큰 한도(입력+출력 합산). 0 = 무제한."""
+  monthlyTokenLimit: Int!
   updatedAt: AWSDateTime
+}
+
+type AiUsageMemberEntry {
+  memberId: ID!
+  inputTokens: Int!
+  outputTokens: Int!
+  requestCount: Int!
+}
+
+"""월별 AI 사용량 집계 — developer 전용 조회."""
+type WorkspaceAiUsage {
+  workspaceId: ID!
+  """YYYYMM"""
+  month: String!
+  inputTokens: Int!
+  outputTokens: Int!
+  requestCount: Int!
+  members: [AiUsageMemberEntry!]!
 }
 
 # ========== Mutation ==========
@@ -712,8 +734,8 @@ type Mutation {
   setWorkspaceAiKey(workspaceId: ID!, provider: String!, apiKey: String!): WorkspaceAiConfig!
   """AI API 키 삭제. developer 전용."""
   clearWorkspaceAiKey(workspaceId: ID!): WorkspaceAiConfig!
-  """AI 활성화 토글·기본 모델 변경. developer 전용."""
-  updateWorkspaceAiSettings(workspaceId: ID!, enabled: Boolean, defaultModel: String): WorkspaceAiConfig!
+  """AI 활성화 토글·기본 모델·월 토큰 한도 변경. developer 전용."""
+  updateWorkspaceAiSettings(workspaceId: ID!, enabled: Boolean, defaultModel: String, monthlyTokenLimit: Int): WorkspaceAiConfig!
 }
 
 # ========== Subscription ==========

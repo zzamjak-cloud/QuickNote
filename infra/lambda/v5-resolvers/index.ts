@@ -138,6 +138,7 @@ import {
   clearWorkspaceAiKey,
   updateWorkspaceAiSettings,
 } from "./handlers/aiConfig";
+import { getWorkspaceAiUsage } from "./handlers/aiUsage";
 import {
   publishPage,
   unpublishPage,
@@ -176,6 +177,7 @@ const tables: Tables = {
   DatabaseHistory: process.env.DATABASE_HISTORY_TABLE_NAME,
   DatabaseRowMembers: process.env.DATABASE_ROW_MEMBERS_TABLE_NAME,
   WorkspaceAiConfig: process.env.WORKSPACE_AI_CONFIG_TABLE_NAME,
+  AiUsage: process.env.AI_USAGE_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -968,6 +970,13 @@ const RESOLVERS: Record<
       workspaceId: event.arguments.workspaceId as string,
       enabled: event.arguments.enabled as boolean | null | undefined,
       defaultModel: event.arguments.defaultModel as string | null | undefined,
+      monthlyTokenLimit: event.arguments.monthlyTokenLimit as number | null | undefined,
+    }),
+  getWorkspaceAiUsage: async (event, base) =>
+    await getWorkspaceAiUsage({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      month: event.arguments.month as string | null | undefined,
     }),
 };
 
