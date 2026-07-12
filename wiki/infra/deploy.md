@@ -52,10 +52,24 @@ git commit -m "chore: 버전 X.Y.Z bump"
 ```
 
 ## STEP 3 — CDK 배포 (infra/ 변경 시만)
+
+**⚠️ dev/live 스택 구분 — `DEPLOY_ENV` 미지정은 live 배포다** (2026-07-12 실제 발생):
+
 ```bash
-cd infra && npx cdk deploy --all
+# dev 스택 (Dev 프리픽스 스택 + dev- 프리픽스 테이블) — develop 검증은 반드시 이걸로
+cd infra && DEPLOY_ENV=dev npx cdk deploy DevQuicknoteSyncStack
+
+# live 스택 — 사용자 명시 승인 후에만
+cd infra && npx cdk deploy QuicknoteSyncStack
 ```
+
+- `infra/bin/quicknote.ts`: `DEPLOY_ENV=dev` → `Dev*` 스택·`dev-` 테이블. **미지정 = live**.
+- `npx cdk deploy QuicknoteSyncStack`(플래그 없음)은 live Lambda/스키마를 갱신한다. dev 검증 목적이었다면 잘못 나간 것.
+- 증상: dev 웹에서 백엔드 수정이 반영 안 됨 + live Lambda 만 갱신됨.
+
 CDK 완료 전 프론트 push 하면 AppSync 뮤테이션 실패 → 데이터 손실 위험
+
+**AI 설정(WorkspaceAiConfig)은 워크스페이스별**이다. "키가 사라졌다" 신고가 오면 코드/서버 의심 전에 **현재 워크스페이스가 키를 등록한 워크스페이스인지부터 확인**할 것 (2026-07-12 소동: 다른 워크스페이스 진입이 원인, 데이터 정상).
 
 ## STEP 3.5 — 웹/데스크톱 빌드 env 확인
 
