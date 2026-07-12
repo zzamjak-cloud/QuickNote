@@ -38,7 +38,6 @@ export function AiChatPanel() {
   const context = useAiStore((s) => s.context);
   const messages = useAiStore((s) => s.messages);
   const isStreaming = useAiStore((s) => s.isStreaming);
-  const preparing = useAiStore((s) => s.preparing);
   const toolStatus = useAiStore((s) => s.toolStatus);
   const model = useAiStore((s) => s.model);
   const configByWorkspace = useAiStore((s) => s.configByWorkspace);
@@ -47,11 +46,6 @@ export function AiChatPanel() {
   const setModel = useAiStore((s) => s.setModel);
   const send = useAiStore((s) => s.send);
   const stop = useAiStore((s) => s.stop);
-  const deepAnalysis = useAiStore((s) => s.deepAnalysis);
-  const confirmDeepAnalysis = useAiStore((s) => s.confirmDeepAnalysis);
-  const declineDeepAnalysis = useAiStore((s) => s.declineDeepAnalysis);
-  const deepFollowUp = useAiStore((s) => s.deepFollowUp);
-  const clearDeepFollowUp = useAiStore((s) => s.clearDeepFollowUp);
   const selectionRange = useAiStore((s) => s.selectionRange);
   const currentWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const activePageId = usePageStore((s) => s.activePageId);
@@ -106,7 +100,7 @@ export function AiChatPanel() {
   if (!panelOpen) return null;
 
   const handleSend = () => {
-    if (!workspaceId || !input.trim() || isStreaming || preparing) return;
+    if (!workspaceId || !input.trim() || isStreaming) return;
     void send(workspaceId, input);
     setInput("");
   };
@@ -228,53 +222,6 @@ export function AiChatPanel() {
               </span>
             )}
           </div>
-          {chipOpen && context.databaseId && (
-            <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-2 text-xs dark:border-zinc-700 dark:bg-zinc-950">
-              <label className="flex items-center justify-between gap-2">
-                <span>포함 행 수</span>
-                <select
-                  value={String(context.options?.maxRows ?? 200)}
-                  disabled={isStreaming}
-                  onChange={(e) =>
-                    updateContextOptions({ maxRows: Number(e.target.value) })
-                  }
-                  className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 dark:border-zinc-700 dark:bg-zinc-900"
-                >
-                  {[30, 50, 100, 200].map((n) => (
-                    <option key={n} value={n}>
-                      {n}행
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex items-center justify-between gap-2">
-                <span>행 본문 포함</span>
-                <input
-                  type="checkbox"
-                  checked={Boolean(context.options?.includeRowBodies)}
-                  disabled={isStreaming}
-                  onChange={(e) =>
-                    updateContextOptions({ includeRowBodies: e.target.checked })
-                  }
-                />
-              </label>
-              <p className="text-[10px] text-zinc-400">
-                본문은 예산 내에서 포함되며, 넘치는 행은 AI 가 필요할 때 도구로
-                조회합니다. 변경은 이후 메시지에 반영됩니다.
-              </p>
-              {deepFollowUp?.databaseId === context.databaseId && (
-                <button
-                  type="button"
-                  disabled={isStreaming}
-                  onClick={() => clearDeepFollowUp()}
-                  className="w-full rounded border border-violet-200 px-2 py-1 text-[11px] text-violet-600 hover:bg-violet-50 disabled:opacity-40 dark:border-violet-800 dark:text-violet-300 dark:hover:bg-violet-950/40"
-                  title="다음 질문에서 본문 전수 분석 여부를 다시 확인합니다"
-                >
-                  다음 질문에서 본문 분석 다시 진행
-                </button>
-              )}
-            </div>
-          )}
           {/* 페이지 컨텍스트 — 인라인 DB 포함/제외 토글 */}
           {chipOpen && !context.databaseId && (
             <div className="space-y-2 rounded-md border border-zinc-200 bg-white p-2 text-xs dark:border-zinc-700 dark:bg-zinc-950">
@@ -408,46 +355,6 @@ export function AiChatPanel() {
       </div>
 
       <footer className="shrink-0 border-t border-zinc-200 p-3 dark:border-zinc-800">
-        {/* 준비 단계(행 본문 로딩·분량 확인) 진행 표시 */}
-        {preparing && (
-          <div className="mb-2 flex items-center gap-1.5 rounded-md bg-zinc-100 px-2.5 py-1.5 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-            <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden />
-            <span>{toolStatus ?? "준비 중…"}</span>
-          </div>
-        )}
-        {/* 전수 분석 확인 — 본문이 단일 요청 예산을 넘을 때 요청 수 고지 */}
-        {deepAnalysis && !isStreaming && (
-          <div className="mb-2 space-y-2 rounded-md border border-violet-200 bg-violet-50 p-2.5 text-xs dark:border-violet-800 dark:bg-violet-950/30">
-            <p className="truncate font-medium text-zinc-800 dark:text-zinc-100">
-              “{deepAnalysis.question}”
-            </p>
-            <p className="text-zinc-700 dark:text-zinc-200">
-              본문 분량이 많아 한 번에 담을 수 없습니다.{" "}
-              <strong>{deepAnalysis.plan.analyzedRows}행</strong>의 본문 전체를{" "}
-              배치 {deepAnalysis.plan.batches.length}개로 나눠 분석할 수 있습니다
-              (AI 요청 약 {deepAnalysis.plan.batches.length + 1}건, 시간이 다소
-              걸립니다).
-              {deepAnalysis.plan.skippedRows > 0 &&
-                ` ${deepAnalysis.plan.skippedRows}행은 상한 초과로 제외됩니다.`}
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => void confirmDeepAnalysis(workspaceId)}
-                className="rounded-md bg-violet-600 px-2.5 py-1.5 text-white hover:bg-violet-500"
-              >
-                전체 본문 분석
-              </button>
-              <button
-                type="button"
-                onClick={() => void declineDeepAnalysis(workspaceId)}
-                className="rounded-md border border-zinc-300 px-2.5 py-1.5 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                포함된 범위로만 답변
-              </button>
-            </div>
-          </div>
-        )}
         <div className="mb-2">
           <label className="sr-only" htmlFor="ai-model-select">
             AI 모델
@@ -495,7 +402,7 @@ export function AiChatPanel() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={!input.trim() || !workspaceId || preparing}
+              disabled={!input.trim() || !workspaceId}
               className="rounded-md bg-violet-600 p-2 text-white hover:bg-violet-500 disabled:opacity-40"
               aria-label="전송"
               title="전송"

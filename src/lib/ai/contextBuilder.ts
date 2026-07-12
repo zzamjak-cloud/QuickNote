@@ -78,8 +78,7 @@ export type AiContext = {
 };
 
 export function defaultMaxRows(options: AiContextOptions): number {
-  // 본문 포함 여부와 무관하게 200행 — 본문 분량은 예산 기반 포함(+명시 고지)이 관리하고,
-  // 예산을 넘는 전수 분석은 deepAnalysis(map-reduce)가 담당한다.
+  // 본문 포함 여부와 무관하게 200행 — 본문 분량은 예산 기반 포함(+명시 고지)이 관리한다.
   if (typeof options.maxRows === "number" && options.maxRows > 0) return options.maxRows;
   return AI_DB_MAX_ROWS;
 }
@@ -246,7 +245,7 @@ export type DbViewRows = {
 
 /**
  * DB 현재 뷰 행 계산 코어 — useProcessedRows 와 동일한 규칙(파생 컬럼 계산 → filterable 보정 →
- * 필터·정렬·검색)을 1회 순수 계산한다. 컨텍스트 직렬화와 전수 분석(deepAnalysis)이 공유한다.
+ * 필터·정렬·검색)을 1회 순수 계산한다.
  */
 export function computeDbViewRows(
   databaseId: string,

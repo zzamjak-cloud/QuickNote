@@ -22,7 +22,6 @@ import {
   ArrowUpDown,
   Funnel,
   Plus,
-  Sparkles,
 } from "lucide-react";
 import { newId } from "../../lib/id";
 import { FILTER_OPERATORS, cellToSearchString } from "../../lib/databaseQuery";
@@ -59,11 +58,6 @@ import { AppSelect } from "../common/AppSelect";
 import { VIEW_ICONS, VIEW_LABELS, getUnavailableViewKinds } from "./databaseBlockViewConstants";
 import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
 import { useIsMobile } from "../../hooks/useViewport";
-import { useWorkspaceStore } from "../../store/workspaceStore";
-import { useAiStore } from "../../store/aiStore";
-import { useUiStore } from "../../store/uiStore";
-import { isAiProxyConfigured } from "../../lib/ai/aiClient";
-import { buildDatabaseAiContext } from "../../lib/ai/contextBuilder";
 
 type Props = {
   databaseId: string;
@@ -186,13 +180,6 @@ export function DatabaseToolbarControls({
   const teams = useTeamStore((s) => s.teams);
   const projects = useSchedulerProjectsStore((s) => s.projects);
   const members = useMemberStore((s) => s.members);
-  // AI 게이팅 — 빌드 env + 워크스페이스 설정(enabled·키)이 모두 충족돼야 노출
-  const aiWorkspaceId = useWorkspaceStore((s) => s.currentWorkspaceId);
-  const aiConfig = useAiStore((s) =>
-    aiWorkspaceId ? s.configByWorkspace[aiWorkspaceId] : undefined,
-  );
-  const aiAvailable =
-    isAiProxyConfigured() && aiConfig?.enabled === true && aiConfig?.hasKey === true;
   const [rulesExpanded, setRulesExpanded] = useState(false);
   // panelState.searchQuery 는 타입상 string 이지만 부분 panelState(서버/collab DbStructure)에서
   // undefined 가 흘러들 수 있다. 가드 없이 .trim() 하면 RootErrorBoundary 로 전파돼 앱 전체가
@@ -860,27 +847,6 @@ export function DatabaseToolbarControls({
               ) : null}
             </button>
           </div>
-
-          {/* AI 에게 질문 — 현재 뷰(필터·정렬 적용) 기준으로 직렬화해 패널 오픈 */}
-          {aiAvailable && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                const context = buildDatabaseAiContext(databaseId, panelState);
-                if (!context) {
-                  useUiStore.getState().showToast("DB 내용을 불러오지 못했습니다");
-                  return;
-                }
-                useAiStore.getState().openPanel(context);
-              }}
-              title="AI에게 질문"
-              aria-label="AI에게 질문"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-violet-600 hover:bg-zinc-100 dark:text-violet-400 dark:hover:bg-zinc-800"
-            >
-              <Sparkles size={13} />
-            </button>
-          )}
 
           {/* 표시 설정 버튼 */}
           <DatabaseColumnSettingsButton
