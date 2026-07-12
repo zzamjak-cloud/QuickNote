@@ -20,6 +20,7 @@ import {
   withFilterDisplayOptions,
 } from "../database/filterValueLabels";
 import { createLocalDeletionFilter } from "../sync/localDeleteGuards";
+import { shouldLoadPageContent } from "../sync/pageContentLoad";
 import { formatPlainDisplay } from "../../components/database/databaseCellDisplayUtils";
 import {
   emptyPanelState,
@@ -39,7 +40,7 @@ export const AI_INLINE_DB_MAX_ROWS = 50;
 /** 행 본문 포함 시 자동 축소 상한. */
 export const AI_DB_MAX_ROWS_WITH_BODIES = 30;
 /** 행 본문 앞부분 상한(문자). */
-export const AI_ROW_BODY_MAX_CHARS = 1_000;
+export const AI_ROW_BODY_MAX_CHARS = 2_000;
 /** DB 셀 표시 문자 상한. */
 export const AI_DB_CELL_MAX_CHARS = 200;
 
@@ -71,6 +72,11 @@ export type AiContext = {
   options: AiContextOptions;
   /** DB 컨텍스트 재조립용 — 현재 뷰 스냅샷. */
   panelState?: DatabasePanelState | null;
+  /**
+   * 본문 포함 대상인데 아직 서버에서 로드되지 않은 행 페이지 id.
+   * 전송 전 ensurePageContentLoaded 로 채운 뒤 재조립해야 한다(행 본문은 lazy 로딩).
+   */
+  pendingBodyPageIds?: string[];
 };
 
 export function defaultMaxRows(options: AiContextOptions): number {
@@ -147,7 +153,27 @@ export function buildPageAiContext(
     },
   });
 
-  let markdown = `# ${title}\n\n${body}`;
+  // DB 항목 페이지면 셀 값(속성)도 포함 — 계획 §6 "항목 페이지 채팅 = 셀 값 + 본문"
+  let cellsSection = "";
+  if (page.databaseId) {
+    const bundle = useDatabaseStore.getState().databases[page.databaseId];
+    const columns = ((bundle?.columns as ColumnDef[]) ?? []).filter(
+      (c) => !isInternalHiddenColumnId(c.id) && c.type !== "title",
+    );
+    const lines = columns
+      .map((c) => {
+        const raw = (page.dbCells?.[c.id] ?? null) as CellValue;
+        const text = (formatPlainDisplay(raw, c) ?? "").replace(/\r?\n/g, " ").trim();
+        if (!text) return null;
+        return `- ${c.name || c.type}: ${
+          text.length > AI_DB_CELL_MAX_CHARS ? `${text.slice(0, AI_DB_CELL_MAX_CHARS)}…` : text
+        }`;
+      })
+      .filter(Boolean);
+    if (lines.length > 0) cellsSection = `## 속성\n\n${lines.join("\n")}\n\n`;
+  }
+
+  let markdown = `# ${title}\n\n${cellsSection}${body}`;
   let truncated = dbTruncated;
   if (markdown.length > AI_CONTEXT_MAX_CHARS) {
     markdown = `${markdown.slice(0, AI_CONTEXT_MAX_CHARS)}\n\n…(내용이 길어 이후 생략됨)`;
@@ -205,6 +231,8 @@ type DbViewSerialization = {
   includedRows: number;
   totalRows: number;
   truncated: boolean;
+  /** 본문 포함 대상인데 아직 로드되지 않은 행 페이지 id (본문 포함 옵션일 때만). */
+  missingBodyPageIds: string[];
 };
 
 /**
@@ -343,25 +371,54 @@ function serializeDatabaseView(
 
   let markdown = `${headNote}\n\n${[header, divider, ...bodyLines].join("\n")}`;
 
+  const missingBodyPageIds: string[] = [];
   if (options.includeRowBodies) {
     const bodySections: string[] = [];
+    // 총량 상한 내에서 최대한 포함하고, 넘치는 행은 명시적으로 고지(맹목 절단 방지)
+    let bodyBudget = AI_CONTEXT_MAX_CHARS - markdown.length - 2_000;
+    let skippedForBudget = 0;
     for (const row of shownRows) {
       const page = pages[row.pageId];
-      if (!page?.doc) continue;
+      if (!page) continue;
+      // 행 본문은 lazy 로딩 — 아직 안 불러온 행은 수집해 호출부가 프리페치 후 재조립한다.
+      // (기존엔 조용히 건너뛰어 "본문 포함"인데 대부분의 행 본문이 빠지는 버그였음)
+      if (shouldLoadPageContent(page, false)) {
+        missingBodyPageIds.push(row.pageId);
+        continue;
+      }
+      if (!page.doc) continue;
       // 행 본문 속 중첩 인라인 DB 는 마커로 대체 — 재귀 확장 차단(계획 §6)
       let body = pageDocToMarkdown(page.doc, {
         renderDatabaseBlock: ({ databaseId: nestedId }) => databaseMarker(nestedId, "하위 DB"),
       }).trim();
       if (!body) continue;
       if (body.length > AI_ROW_BODY_MAX_CHARS) {
-        body = `${body.slice(0, AI_ROW_BODY_MAX_CHARS)}…`;
+        body = `${body.slice(0, AI_ROW_BODY_MAX_CHARS)}…(행 본문 일부 생략)`;
         cellTruncated = true;
       }
       const rowTitle = (row.title || "제목 없음").trim();
-      bodySections.push(`### 행 본문: ${rowTitle}\n\n${body}`);
+      const section = `### 행 본문: ${rowTitle}\n\n${body}`;
+      if (section.length > bodyBudget) {
+        skippedForBudget += 1;
+        continue;
+      }
+      bodyBudget -= section.length;
+      bodySections.push(section);
     }
     if (bodySections.length > 0) {
       markdown += `\n\n## 항목 본문\n\n${bodySections.join("\n\n")}`;
+    }
+    const bodyNotes = [
+      skippedForBudget > 0
+        ? `예산 초과로 ${skippedForBudget}행의 본문이 미포함 — 필요한 행은 get_page_content 도구로 조회하라.`
+        : null,
+      missingBodyPageIds.length > 0
+        ? `${missingBodyPageIds.length}행의 본문을 아직 불러오지 못함 — 해당 행은 get_page_content 도구로 조회하라.`
+        : null,
+    ].filter(Boolean);
+    if (bodyNotes.length > 0) {
+      markdown += `\n\n${bodyNotes.join(" ")}`;
+      cellTruncated = true;
     }
   }
 
@@ -371,6 +428,7 @@ function serializeDatabaseView(
     includedRows: shownRows.length,
     totalRows: rows.length,
     truncated: rows.length > shownRows.length || cellTruncated,
+    missingBodyPageIds,
   };
 }
 
@@ -410,6 +468,7 @@ export function buildDatabaseAiContext(
     parts,
     options: { ...options, maxRows: defaultMaxRows(options) },
     panelState,
+    pendingBodyPageIds: s.missingBodyPageIds.length > 0 ? s.missingBodyPageIds : undefined,
   };
 }
 
@@ -418,10 +477,9 @@ export function rebuildAiContext(
   current: AiContext,
   patch: Partial<AiContextOptions>,
 ): AiContext | null {
+  // 사용자가 고른 행 수를 조용히 축소하지 않는다 — 본문 포함 초과분은
+  // serializeDatabaseView 가 예산 내 포함 + 명시 고지로 처리한다.
   const options: AiContextOptions = { ...current.options, ...patch };
-  if (options.includeRowBodies && patch.includeRowBodies === true && patch.maxRows == null) {
-    options.maxRows = AI_DB_MAX_ROWS_WITH_BODIES;
-  }
   if (current.databaseId && current.panelState) {
     return buildDatabaseAiContext(current.databaseId, current.panelState, options);
   }

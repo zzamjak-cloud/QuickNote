@@ -2,6 +2,7 @@
 
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { ensurePageContentLoaded } from "../sync/pageContentLoad";
 import { pageDocToMarkdown } from "../export/pageToMarkdown";
 import { formatPlainDisplay } from "../../components/database/databaseCellDisplayUtils";
 import {
@@ -99,9 +100,11 @@ function listRows(args: Record<string, unknown>): string {
   return clampText(lines.join("\n"));
 }
 
-function getRow(args: Record<string, unknown>): string {
+async function getRow(args: Record<string, unknown>): Promise<string> {
   const rowId = String(args.rowId ?? "").trim();
   if (!rowId) return "오류: rowId 필요";
+  // 행 본문은 lazy 로딩 — 캐시에 없으면 서버에서 불러온 뒤 직렬화
+  await ensurePageContentLoaded({ pageId: rowId, source: "ai-tool" }).catch(() => false);
   const page = usePageStore.getState().pages[rowId];
   if (!page) return `오류: 행을 찾을 수 없음 (${rowId})`;
   const databaseId = page.databaseId;
@@ -136,9 +139,11 @@ function getRow(args: Record<string, unknown>): string {
   return clampText(lines.join("\n"));
 }
 
-function getPageContent(args: Record<string, unknown>): string {
+async function getPageContent(args: Record<string, unknown>): Promise<string> {
   const pageId = String(args.pageId ?? "").trim();
   if (!pageId) return "오류: pageId 필요";
+  // 본문은 lazy 로딩 — 캐시에 없으면 서버에서 불러온 뒤 직렬화
+  await ensurePageContentLoaded({ pageId, source: "ai-tool" }).catch(() => false);
   const page = usePageStore.getState().pages[pageId];
   if (!page) return `오류: 페이지를 찾을 수 없음 (${pageId})`;
   const title = page.title || "(제목 없음)";
@@ -162,16 +167,16 @@ export function toolStatusLabel(name: string): string {
   }
 }
 
-/** 로컬 스토어에서 tool 호출을 해석해 문자열 결과를 반환. */
-export function executeAiTool(call: AiToolCall): string {
+/** 로컬 스토어에서 tool 호출을 해석해 문자열 결과를 반환. 본문류는 필요 시 서버 로드. */
+export async function executeAiTool(call: AiToolCall): Promise<string> {
   try {
     switch (call.name) {
       case "list_rows":
         return listRows(call.args);
       case "get_row":
-        return getRow(call.args);
+        return await getRow(call.args);
       case "get_page_content":
-        return getPageContent(call.args);
+        return await getPageContent(call.args);
       default:
         return `오류: 알 수 없는 도구 (${call.name})`;
     }

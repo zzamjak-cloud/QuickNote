@@ -232,16 +232,13 @@ export function AiChatPanel() {
                   checked={Boolean(context.options?.includeRowBodies)}
                   disabled={isStreaming}
                   onChange={(e) =>
-                    updateContextOptions({
-                      includeRowBodies: e.target.checked,
-                      maxRows: e.target.checked ? 30 : context.options?.maxRows ?? 200,
-                    })
+                    updateContextOptions({ includeRowBodies: e.target.checked })
                   }
                 />
               </label>
               <p className="text-[10px] text-zinc-400">
-                본문 포함 시 행 상한이 자동으로 줄어듭니다. 변경은 이후 메시지에
-                반영됩니다.
+                본문은 예산 내에서 포함되며, 넘치는 행은 AI 가 필요할 때 도구로
+                조회합니다. 변경은 이후 메시지에 반영됩니다.
               </p>
             </div>
           )}

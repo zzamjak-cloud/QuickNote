@@ -16,6 +16,7 @@ import {
   LogIn,
   MoreHorizontal,
   Printer,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -45,6 +46,9 @@ import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageSubpageTree } from "../page/PageSubpageTree";
 import { countPageDescendants } from "../page/pageSubpageTreeUtils";
 import { ScrollToTopButton } from "../common/ScrollToTopButton";
+import { useAiStore } from "../../store/aiStore";
+import { isAiProxyConfigured } from "../../lib/ai/aiClient";
+import { buildPageAiContext } from "../../lib/ai/contextBuilder";
 import { CLEAR_BOX_SELECTION_EVENT } from "../../hooks/boxSelect/constants";
 import {
   bindPageScrollMemory,
@@ -184,6 +188,19 @@ export function DatabaseRowPeek() {
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
   const showToast = useUiStore((s) => s.showToast);
+
+  // AI 게이팅 — TopBar 와 동일 기준 (워크스페이스 enabled + 키 등록 + 빌드 env)
+  const peekWorkspaceId = page?.workspaceId ?? null;
+  const aiConfig = useAiStore((s) =>
+    peekWorkspaceId ? s.configByWorkspace[peekWorkspaceId] : undefined,
+  );
+  const ensureAiConfig = useAiStore((s) => s.ensureConfig);
+  const openAiPanel = useAiStore((s) => s.openPanel);
+  useEffect(() => {
+    if (peekWorkspaceId && isAiProxyConfigured()) void ensureAiConfig(peekWorkspaceId);
+  }, [peekWorkspaceId, ensureAiConfig]);
+  const aiAvailable =
+    isAiProxyConfigured() && aiConfig?.enabled === true && aiConfig?.hasKey === true;
 
   const [titleDraft, setTitleDraft] = useState(page?.title ?? "");
   const titleDraftRef = useRef(titleDraft);
@@ -552,6 +569,22 @@ export function DatabaseRowPeek() {
                   <span className="min-w-0 flex-1">링크 복사</span>
                   <span className="shrink-0 text-xs text-zinc-400">⌘L</span>
                 </button>
+                {aiAvailable && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (!peekPageId) return;
+                      // AI 패널과 피크가 둘 다 우측 패널이라 겹침 — 피크를 닫고 항목 컨텍스트로 대화
+                      closePeek();
+                      openAiPanel(buildPageAiContext(peekPageId));
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <Sparkles className={MENU_ITEM_ICON} aria-hidden />
+                    <span className="min-w-0 flex-1">AI와 대화하기</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={copyPageContent}

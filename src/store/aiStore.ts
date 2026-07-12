@@ -29,6 +29,7 @@ import {
   type AiContext,
   type AiContextOptions,
 } from "../lib/ai/contextBuilder";
+import { loadPageBodies } from "../lib/ai/loadRowBodies";
 import {
   AI_TOOL_ROUND_LIMIT,
   executeAiTool,
@@ -214,7 +215,20 @@ export const useAiStore = create<AiState & AiActions>()(
         abortController = new AbortController();
         const signal = abortController.signal;
         try {
-          const context = get().context;
+          // 본문 포함 대상인데 아직 안 불러온 행이 있으면 전송 전에 로드 후 재조립
+          let context = get().context;
+          if (context?.pendingBodyPageIds?.length) {
+            set({
+              toolStatus: `행 본문 ${context.pendingBodyPageIds.length}건 불러오는 중…`,
+            });
+            await loadPageBodies(context.pendingBodyPageIds);
+            const rebuilt = rebuildAiContext(context, {});
+            if (rebuilt) {
+              set({ context: rebuilt });
+              context = rebuilt;
+            }
+            set({ toolStatus: null });
+          }
           const enableTools = args.action === "chat";
           const baseMessages: AiWireMessage[] = args.payloadMessages.map((m) => ({
             role: m.role,
@@ -255,7 +269,7 @@ export const useAiStore = create<AiState & AiActions>()(
               ];
               for (const call of result.toolCalls) {
                 set({ toolStatus: toolStatusLabel(call.name) });
-                const content = executeAiTool(call);
+                const content = await executeAiTool(call);
                 wireMessages.push({
                   role: "tool",
                   toolCallId: call.id,
@@ -354,7 +368,18 @@ export const useAiStore = create<AiState & AiActions>()(
           const current = get().context;
           if (!current) return;
           const next = rebuildAiContext(current, patch);
-          if (next) set({ context: next });
+          if (!next) return;
+          set({ context: next });
+          // 본문 포함 대상 중 미로드 행이 있으면 백그라운드로 불러와 재조립
+          // (전송 시점에도 한 번 더 보정하므로 실패해도 안전)
+          const pending = next.pendingBodyPageIds;
+          if (pending?.length) {
+            void loadPageBodies(pending).then(() => {
+              if (get().context !== next) return; // 그 사이 컨텍스트가 바뀌면 무시
+              const rebuilt = rebuildAiContext(next, {});
+              if (rebuilt) set({ context: rebuilt });
+            });
+          }
         },
 
         send: async (workspaceId, text) => {
