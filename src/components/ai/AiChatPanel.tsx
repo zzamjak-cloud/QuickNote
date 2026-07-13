@@ -7,6 +7,7 @@ import {
   Copy,
   Eraser,
   FileText,
+  ChevronDown,
   FileStack,
   Languages,
   ListTodo,
@@ -50,6 +51,26 @@ import {
 } from "../../lib/ai/attachments";
 import { koreanMatchScore } from "../../lib/koreanSearch";
 
+// 페이지 번역 대상 언어. name 은 프롬프트에 넘기는 한국어 언어명(모델이 이해), label 은 표시용.
+const TRANSLATE_LANGUAGES: Array<{ name: string; label: string }> = [
+  { name: "영어", label: "영어 (English)" },
+  { name: "한국어", label: "한국어" },
+  { name: "일본어", label: "일본어 (日本語)" },
+  { name: "중국어 간체", label: "중국어 간체 (简体中文)" },
+  { name: "중국어 번체", label: "중국어 번체 (繁體中文)" },
+  { name: "스페인어", label: "스페인어 (Español)" },
+  { name: "프랑스어", label: "프랑스어 (Français)" },
+  { name: "독일어", label: "독일어 (Deutsch)" },
+  { name: "러시아어", label: "러시아어 (Русский)" },
+  { name: "포르투갈어", label: "포르투갈어 (Português)" },
+  { name: "이탈리아어", label: "이탈리아어 (Italiano)" },
+  { name: "베트남어", label: "베트남어 (Tiếng Việt)" },
+  { name: "태국어", label: "태국어 (ไทย)" },
+  { name: "인도네시아어", label: "인도네시아어 (Bahasa Indonesia)" },
+  { name: "아랍어", label: "아랍어 (العربية)" },
+  { name: "힌디어", label: "힌디어 (हिन्दी)" },
+];
+
 // AI 결과를 페이지에 반영하는 방식. 모두 미리보기 → 승인(적용) 단계를 거친다.
 type ApplyMode = "insert" | "checklist" | "replaceSelection" | "replacePage";
 const APPLY_LABELS: Record<ApplyMode, string> = {
@@ -85,6 +106,8 @@ export function AiChatPanel() {
   const [preview, setPreview] = useState<{ mode: ApplyMode; content: string } | null>(null);
   // 제자리 페이지 번역 진행 상태(대상 언어 라벨). null 이면 비활성.
   const [translating, setTranslating] = useState<string | null>(null);
+  // 번역 언어 드롭다운 열림 여부.
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -387,22 +410,47 @@ export function AiChatPanel() {
             <Languages size={12} aria-hidden />
             페이지 번역
           </span>
-          <button
-            type="button"
-            onClick={() => void handleTranslatePage("영어", "영어로")}
-            disabled={!!translating}
-            className="rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            영어로
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleTranslatePage("한국어", "한국어로")}
-            disabled={!!translating}
-            className="rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            한국어로
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setLangMenuOpen((v) => !v)}
+              disabled={!!translating}
+              className="flex items-center gap-1 rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              aria-haspopup="menu"
+              aria-expanded={langMenuOpen}
+            >
+              언어 선택
+              <ChevronDown size={11} aria-hidden />
+            </button>
+            {langMenuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-[9]"
+                  onClick={() => setLangMenuOpen(false)}
+                  aria-hidden
+                />
+                <div
+                  role="menu"
+                  className="absolute left-0 top-full z-10 mt-1 max-h-64 w-44 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  {TRANSLATE_LANGUAGES.map((l) => (
+                    <button
+                      key={l.name}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setLangMenuOpen(false);
+                        void handleTranslatePage(l.name, l.name);
+                      }}
+                      className="block w-full px-2.5 py-1 text-left text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                    >
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           {translating && (
             <span className="flex items-center gap-1 text-[11px] text-violet-500">
               <Loader2 size={12} className="animate-spin" aria-hidden />
