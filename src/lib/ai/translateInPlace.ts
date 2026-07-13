@@ -7,7 +7,14 @@ import { streamAiChat, withRateLimitRetry } from "./aiClient";
 
 // 배치 동시 실행 수 — 순차 처리 대비 다중 배치 페이지의 번역 시간을 크게 줄인다.
 // 너무 높이면 제공사 rate limit(429)에 걸리므로 보수적으로.
-const BATCH_CONCURRENCY = 4;
+const BATCH_CONCURRENCY = 6;
+
+// 배치 하나의 문자 예산 범위. 실제 예산은 콘텐츠 전체 길이를 동시 실행 수로 나눠
+// 동적으로 정한다(작은/중간 페이지도 여러 배치로 쪼개져 병렬 효과를 얻도록).
+// - 너무 작으면 호출 오버헤드(TTFT·네트워크)가 지배 → 하한.
+// - 너무 크면 단일 호출이 느려지고 출력 잘림 위험 → 상한.
+const MIN_BATCH_CHARS = 700;
+const MAX_BATCH_CHARS = 6_000;
 
 // 번역 대상 한 조각. text=인라인 텍스트 노드, caption=이미지/파일 블럭의 caption attr.
 type Target =
@@ -17,10 +24,6 @@ type Target =
 function posOf(t: Target): number {
   return t.kind === "text" ? t.from : t.pos;
 }
-
-// 메시지당 32k자 상한(서버)보다 여유 있게. 입력 배치 하나의 대략적 문자 예산.
-// 출력 토큰 상한에 걸려 응답이 잘리면 파싱이 깨지므로 보수적으로 잡는다.
-const BATCH_CHAR_BUDGET = 8_000;
 
 /** doc 순회로 번역 대상 수집. codeBlock 내부 텍스트는 코드이므로 제외. */
 function collectTargets(editor: Editor): Target[] {
@@ -49,14 +52,22 @@ function collectTargets(editor: Editor): Target[] {
   return targets;
 }
 
+/** 콘텐츠 전체 길이를 동시 실행 수로 나눠 배치당 문자 예산을 정한다(하한·상한 클램프).
+ *  작은/중간 페이지도 여러 배치로 쪼개져 병렬 실행되도록 하기 위함. */
+function computeBatchBudget(targets: Target[]): number {
+  const total = targets.reduce((s, t) => s + t.text.length + 8, 0);
+  const even = Math.ceil(total / BATCH_CONCURRENCY);
+  return Math.max(MIN_BATCH_CHARS, Math.min(MAX_BATCH_CHARS, even));
+}
+
 /** 문자 예산 기준으로 대상을 배치로 나눈다(각 배치를 한 번의 AI 요청으로 번역). */
-function chunkTargets(targets: Target[]): Target[][] {
+function chunkTargets(targets: Target[], budget: number): Target[][] {
   const batches: Target[][] = [];
   let cur: Target[] = [];
   let curChars = 0;
   for (const t of targets) {
-    const len = t.text.length + 8; // JSON 오버헤드 여유
-    if (cur.length > 0 && curChars + len > BATCH_CHAR_BUDGET) {
+    const len = t.text.length + 8; // 마커/오버헤드 여유
+    if (cur.length > 0 && curChars + len > budget) {
       batches.push(cur);
       cur = [];
       curChars = 0;
@@ -178,7 +189,7 @@ export async function translatePageInPlace(args: {
 
   // 전체를 여러 배치로 쪼개 병렬로 번역·병합한다. 한 배치가 실패해도 나머지는 반영(부분 성공),
   // 실패 배치는 원문 유지. 429 는 백오프 재시도, 파싱 실패(null)는 1회 더 시도.
-  const batches = chunkTargets(targets);
+  const batches = chunkTargets(targets, computeBatchBudget(targets));
   const batchArgs = {
     workspaceId: args.workspaceId,
     pageId: args.pageId,
