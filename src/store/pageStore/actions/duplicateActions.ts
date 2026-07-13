@@ -32,21 +32,9 @@ export function createDuplicateActions(
       const source = state.pages[id];
       if (!source) return "";
 
+      // 페이지 복제는 "선택한 페이지 자기 자신만" 복제한다. 자식(하위) 페이지는 복제하지 않는다.
       const cloneMap = new Map<string, string>();
-
-      const cloneSubtree = (pageId: string): void => {
-        const page = state.pages[pageId];
-        if (!page) return;
-        const clonedId = newId();
-        cloneMap.set(pageId, clonedId);
-        const children = Object.values(state.pages).filter(
-          (p) => p.parentId === pageId
-        );
-        for (const child of children) {
-          cloneSubtree(child.id);
-        }
-      };
-      cloneSubtree(id);
+      cloneMap.set(id, newId());
 
       const now = Date.now();
       const newPages: PageMap = {};
@@ -91,7 +79,7 @@ export function createDuplicateActions(
         return { pages: merged };
       });
 
-      // 복제된 모든 페이지(자손 포함)와 정렬 재조정으로 영향받은 형제까지 enqueue.
+      // 복제된 페이지와 정렬 재조정으로 영향받은 형제까지 enqueue.
       const afterPages = get().pages;
       const clonedIds = new Set(cloneMap.values());
       for (const [pid, p] of Object.entries(afterPages)) {

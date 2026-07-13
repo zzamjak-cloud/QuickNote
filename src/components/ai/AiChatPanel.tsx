@@ -7,6 +7,7 @@ import {
   Copy,
   Eraser,
   FileText,
+  FileStack,
   ListTodo,
   Loader2,
   Paperclip,
@@ -29,6 +30,7 @@ import {
 import {
   insertMarkdownAtCursor,
   replaceRangeWithMarkdown,
+  replacePageWithMarkdown,
 } from "../../lib/ai/insertToEditor";
 import {
   checklistMarkdownForInsert,
@@ -44,6 +46,15 @@ import {
   type PendingAttachment,
 } from "../../lib/ai/attachments";
 import { koreanMatchScore } from "../../lib/koreanSearch";
+
+// AI 결과를 페이지에 반영하는 방식. 모두 미리보기 → 승인(적용) 단계를 거친다.
+type ApplyMode = "insert" | "checklist" | "replaceSelection" | "replacePage";
+const APPLY_LABELS: Record<ApplyMode, string> = {
+  insert: "현재 커서 위치에 삽입",
+  checklist: "체크리스트로 삽입",
+  replaceSelection: "선택 영역 교체",
+  replacePage: "페이지 전체 교체",
+};
 
 export function AiChatPanel() {
   const panelOpen = useAiStore((s) => s.panelOpen);
@@ -67,6 +78,8 @@ export function AiChatPanel() {
   const [chipOpen, setChipOpen] = useState(false);
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // 적용 전 미리보기(제안 → 미리보기 → 승인 적용). null 이면 미리보기 닫힘.
+  const [preview, setPreview] = useState<{ mode: ApplyMode; content: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -200,29 +213,36 @@ export function AiChatPanel() {
 
   // 응답을 문서로 — 삽입 대상은 선택 원본 페이지 > 컨텍스트 페이지 > 활성 페이지 순
   const insertTargetPageId = selectionRange?.pageId ?? context?.pageId ?? activePageId;
-  const handleInsert = (content: string) => {
-    if (!insertTargetPageId) {
-      showToast("삽입할 페이지가 없습니다");
-      return;
+  // 미리보기에 렌더할 최종 마크다운(체크리스트는 변환 후 형태로 보여준다).
+  const previewMarkdown = preview
+    ? preview.mode === "checklist"
+      ? checklistMarkdownForInsert(preview.content)
+      : preview.content
+    : "";
+  // 승인 시 실제 반영. 모드별로 삽입/교체 함수를 호출한다.
+  const confirmApply = () => {
+    if (!preview) return;
+    const { mode, content } = preview;
+    if (mode === "replaceSelection") {
+      if (selectionRange) {
+        const ok = replaceRangeWithMarkdown(selectionRange.pageId, selectionRange, content);
+        showToast(ok ? "선택 영역을 교체했습니다" : "문서가 변경되어 교체할 수 없습니다");
+        // 같은 범위 중복 교체(범위 어긋남) 방지 — 성공 시 원본 범위를 비운다
+        if (ok) useAiStore.setState({ selectionRange: null });
+      }
+    } else if (!insertTargetPageId) {
+      showToast("적용할 페이지가 없습니다");
+    } else if (mode === "insert") {
+      const ok = insertMarkdownAtCursor(insertTargetPageId, content);
+      showToast(ok ? "문서에 삽입했습니다" : "삽입할 위치를 찾지 못했습니다");
+    } else if (mode === "checklist") {
+      const ok = insertMarkdownAtCursor(insertTargetPageId, checklistMarkdownForInsert(content));
+      showToast(ok ? "체크리스트로 삽입했습니다" : "삽입할 위치를 찾지 못했습니다");
+    } else if (mode === "replacePage") {
+      const ok = replacePageWithMarkdown(insertTargetPageId, content);
+      showToast(ok ? "페이지 전체를 교체했습니다" : "페이지를 교체할 수 없습니다");
     }
-    const ok = insertMarkdownAtCursor(insertTargetPageId, content);
-    showToast(ok ? "문서에 삽입했습니다" : "삽입할 위치를 찾지 못했습니다");
-  };
-  const handleInsertChecklist = (content: string) => {
-    if (!insertTargetPageId) {
-      showToast("삽입할 페이지가 없습니다");
-      return;
-    }
-    const md = checklistMarkdownForInsert(content);
-    const ok = insertMarkdownAtCursor(insertTargetPageId, md);
-    showToast(ok ? "체크리스트로 삽입했습니다" : "삽입할 위치를 찾지 못했습니다");
-  };
-  const handleReplace = (content: string) => {
-    if (!selectionRange) return;
-    const ok = replaceRangeWithMarkdown(selectionRange.pageId, selectionRange, content);
-    showToast(ok ? "선택 영역을 교체했습니다" : "문서가 변경되어 교체할 수 없습니다");
-    // 같은 범위 중복 교체(범위 어긋남) 방지 — 성공 시 원본 범위를 비운다
-    if (ok) useAiStore.setState({ selectionRange: null });
+    setPreview(null);
   };
   const handleCopy = (id: string, content: string) => {
     void navigator.clipboard.writeText(content).then(() => {
@@ -448,9 +468,9 @@ export function AiChatPanel() {
                         (m.sourceAction === "actionItems" || looksLikeChecklist(m.content)) && (
                           <button
                             type="button"
-                            onClick={() => handleInsertChecklist(m.content)}
+                            onClick={() => setPreview({ mode: "checklist", content: m.content })}
                             className={`${bubbleActionClass} font-medium text-violet-600 dark:text-violet-400`}
-                            title="체크리스트 블록으로 삽입"
+                            title="체크리스트 블록으로 삽입 (미리보기 후 적용)"
                           >
                             <ListTodo size={12} aria-hidden />
                             체크리스트로 삽입
@@ -459,20 +479,31 @@ export function AiChatPanel() {
                       {insertTargetPageId && (
                         <button
                           type="button"
-                          onClick={() => handleInsert(m.content)}
+                          onClick={() => setPreview({ mode: "insert", content: m.content })}
                           className={bubbleActionClass}
-                          title="현재 커서 위치에 삽입"
+                          title="현재 커서 위치에 삽입 (미리보기 후 적용)"
                         >
                           <TextCursorInput size={12} aria-hidden />
                           문서에 삽입
                         </button>
                       )}
+                      {insertTargetPageId && (
+                        <button
+                          type="button"
+                          onClick={() => setPreview({ mode: "replacePage", content: m.content })}
+                          className={bubbleActionClass}
+                          title="페이지 본문 전체를 이 내용으로 교체 (미리보기 후 적용)"
+                        >
+                          <FileStack size={12} aria-hidden />
+                          페이지 전체 교체
+                        </button>
+                      )}
                       {selectionRange && (
                         <button
                           type="button"
-                          onClick={() => handleReplace(m.content)}
+                          onClick={() => setPreview({ mode: "replaceSelection", content: m.content })}
                           className={bubbleActionClass}
-                          title="원본 선택 영역을 이 내용으로 교체"
+                          title="원본 선택 영역을 이 내용으로 교체 (미리보기 후 적용)"
                         >
                           <Replace size={12} aria-hidden />
                           선택 교체
@@ -708,6 +739,60 @@ export function AiChatPanel() {
           )}
         </div>
       </footer>
+
+      {/* 적용 전 미리보기 — 제안 내용을 확인하고 승인(적용)해야 페이지에 반영된다. */}
+      {preview && (
+        <div
+          className="absolute inset-0 z-30 flex flex-col bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="AI 적용 미리보기"
+          onClick={() => setPreview(null)}
+        >
+          <div
+            className="m-auto flex max-h-full w-full flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-800">
+              <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">
+                미리보기 — {APPLY_LABELS[preview.mode]}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                aria-label="미리보기 닫기"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            {preview.mode === "replacePage" && (
+              <p className="shrink-0 border-b border-amber-100 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300">
+                페이지 본문 전체가 아래 내용으로 교체됩니다. 적용 후 Ctrl+Z 로 되돌릴 수 있습니다.
+              </p>
+            )}
+            <div className="prose prose-sm max-w-none overflow-y-auto px-3 py-2 dark:prose-invert">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{previewMarkdown}</ReactMarkdown>
+            </div>
+            <div className="flex shrink-0 justify-end gap-2 border-t border-zinc-100 px-3 py-2 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setPreview(null)}
+                className="rounded-md px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={confirmApply}
+                className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500"
+              >
+                적용
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

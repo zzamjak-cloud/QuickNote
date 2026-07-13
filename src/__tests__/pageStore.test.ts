@@ -94,13 +94,16 @@ describe("pageStore - duplicatePage", () => {
     expect(copy?.parentId).toBe(null);
   });
 
-  it("자식 페이지도 함께 복제된다", () => {
+  it("자식 페이지는 함께 복제되지 않는다 (자기 자신만 복제)", () => {
     const store = usePageStore.getState();
     const parentId = store.createPage("부모");
     usePageStore.getState().createPage("자식", parentId);
-    usePageStore.getState().duplicatePage(parentId);
+    const copyId = usePageStore.getState().duplicatePage(parentId);
     const pages = Object.values(usePageStore.getState().pages);
-    expect(pages).toHaveLength(4);
+    // 부모 + 자식 + 부모 사본 = 3 (자식 사본은 생성되지 않는다)
+    expect(pages).toHaveLength(3);
+    // 사본에는 자식이 붙지 않는다
+    expect(pages.filter((p) => p.parentId === copyId)).toHaveLength(0);
   });
 
   it("복제 후 원본 doc 변경이 사본 doc와 분리된다", () => {

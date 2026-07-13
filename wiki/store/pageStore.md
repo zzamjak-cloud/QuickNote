@@ -63,7 +63,7 @@ export function createXxxActions(set: PageStoreSet, get: PageStoreGet): Pick<Pag
 | `setCoverImage` | `id, coverImage \| null` | 커버 이미지 설정 |
 | `movePage` | `id, parentId \| null, index` | 다른 부모/위치로 이동 |
 | `movePageRelative` | `id, direction` | 키보드 단축키용 상대 이동 (up/down/indent/outdent) |
-| `duplicatePage` | `id` | 같은 워크스페이스에서 페이지와 자손을 복제하여 바로 다음에 삽입. 루트 제목은 `{title} (Copy)`. 복제된 루트 ID 반환 |
+| `duplicatePage` | `id` | 같은 워크스페이스에서 **선택한 페이지 자기 자신만** 복제하여 바로 다음에 삽입(자식 페이지는 복제하지 않음). 제목은 `{title} (Copy)`. 복제된 ID 반환 |
 | `duplicatePageToWorkspace` | `id, targetWorkspaceId` | **async** — 다른 워크스페이스로 복제. 대상 WS 의 로컬 페이지 + `fetchPageMetasByWorkspace` 메타로 제목 충돌 검사 후 **루트·자손 각각 `allocateUniquePageTitle`**(`(1)` 형식, `(Copy)` 접미사 없음). 복제된 페이지 수 반환 |
 | `setPageDbCell` | `pageId, columnId, value` | DB 행 페이지의 셀 값 업데이트 (title 제외) |
 | `restorePageFromLatestHistory` | `pageId` | 최신 히스토리로 페이지 복원 |

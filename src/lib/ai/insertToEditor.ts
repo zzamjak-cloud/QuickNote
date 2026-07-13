@@ -37,3 +37,23 @@ export function replaceRangeWithMarkdown(
     return false;
   }
 }
+
+/** 페이지 본문 전체를 AI 결과로 교체. 성공 여부 반환.
+ *  문서 전체 범위를 한 트랜잭션으로 교체하므로(협업 Y.Doc 안전) setContent 대신 insertContentAt 사용. */
+export function replacePageWithMarkdown(pageId: string, markdown: string): boolean {
+  const editor = getEditorForPage(pageId);
+  if (!editor || !editor.isEditable) return false;
+  const blocks = markdownToBlocks(markdown);
+  if (blocks.length === 0) return false;
+  try {
+    const docSize = editor.state.doc.content.size;
+    return editor
+      .chain()
+      .focus()
+      .insertContentAt({ from: 0, to: docSize }, blocks)
+      .run();
+  } catch (error) {
+    console.error("[ai] 페이지 전체 교체 실패", error);
+    return false;
+  }
+}
