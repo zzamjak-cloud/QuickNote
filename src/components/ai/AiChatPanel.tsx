@@ -8,6 +8,7 @@ import {
   Eraser,
   FileText,
   FileStack,
+  Languages,
   ListTodo,
   Loader2,
   Paperclip,
@@ -32,6 +33,7 @@ import {
   replaceRangeWithMarkdown,
   replacePageWithMarkdown,
 } from "../../lib/ai/insertToEditor";
+import { translatePageInPlace } from "../../lib/ai/translateInPlace";
 import {
   checklistMarkdownForInsert,
   looksLikeChecklist,
@@ -80,6 +82,8 @@ export function AiChatPanel() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   // 적용 전 미리보기(제안 → 미리보기 → 승인 적용). null 이면 미리보기 닫힘.
   const [preview, setPreview] = useState<{ mode: ApplyMode; content: string } | null>(null);
+  // 제자리 페이지 번역 진행 상태(대상 언어 라벨). null 이면 비활성.
+  const [translating, setTranslating] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -251,6 +255,50 @@ export function AiChatPanel() {
     });
   };
 
+  // 페이지 제자리 번역 — 블럭 구조·이미지 유지, 텍스트와 캡션만 번역문으로 치환.
+  const translateTargetPageId = context?.pageId ?? activePageId;
+  const handleTranslatePage = async (targetLanguage: string, label: string) => {
+    if (translating) return;
+    if (!translateTargetPageId) {
+      showToast("번역할 페이지가 없습니다");
+      return;
+    }
+    if (!workspaceId) {
+      showToast("워크스페이스를 찾을 수 없습니다");
+      return;
+    }
+    setTranslating(label);
+    try {
+      const res = await translatePageInPlace({
+        pageId: translateTargetPageId,
+        workspaceId,
+        model: effectiveModel,
+        targetLanguage,
+      });
+      if (res.ok) {
+        showToast(
+          res.applied > 0
+            ? `${label} 번역 완료 (${res.applied}곳)`
+            : "번역할 텍스트가 없습니다",
+        );
+      } else {
+        const msg: Record<string, string> = {
+          "no-editor": "페이지 편집기를 찾지 못했습니다",
+          "not-editable": "편집할 수 없는 페이지입니다",
+          empty: "번역할 텍스트가 없습니다",
+          failed: "번역에 실패했습니다. 다시 시도해 주세요",
+          aborted: "번역을 취소했습니다",
+        };
+        showToast(msg[res.reason] ?? "번역에 실패했습니다");
+      }
+    } catch (e) {
+      console.error("[ai] 페이지 번역 실패", e);
+      showToast("번역 중 오류가 발생했습니다");
+    } finally {
+      setTranslating(null);
+    }
+  };
+
   const bubbleActionClass =
     "inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
 
@@ -320,6 +368,38 @@ export function AiChatPanel() {
           <X size={14} />
         </button>
       </header>
+
+      {/* 페이지 제자리 번역 — 블럭 구조·이미지 유지, 텍스트·캡션만 번역. */}
+      {translateTargetPageId && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-100 px-3 py-1.5 dark:border-zinc-800">
+          <span className="flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+            <Languages size={12} aria-hidden />
+            페이지 번역
+          </span>
+          <button
+            type="button"
+            onClick={() => void handleTranslatePage("영어", "영어로")}
+            disabled={!!translating}
+            className="rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            영어로
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleTranslatePage("한국어", "한국어로")}
+            disabled={!!translating}
+            className="rounded border border-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            한국어로
+          </button>
+          {translating && (
+            <span className="flex items-center gap-1 text-[11px] text-violet-500">
+              <Loader2 size={12} className="animate-spin" aria-hidden />
+              {translating} 번역 중…
+            </span>
+          )}
+        </div>
+      )}
 
       {/* 컨텍스트 칩 — 포함 범위 가시화·조절 */}
       {context && (

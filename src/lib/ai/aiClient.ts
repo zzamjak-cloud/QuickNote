@@ -85,7 +85,14 @@ type SseEvent = {
   toolCalls?: AiToolCall[];
 };
 
-export type AiAction = "chat" | "summarize" | "continue" | "translate" | "tone" | "actionItems";
+export type AiAction =
+  | "chat"
+  | "summarize"
+  | "continue"
+  | "translate"
+  | "translateSegments"
+  | "tone"
+  | "actionItems";
 
 export type AiActionOptions = { targetLanguage?: string; tone?: string };
 
