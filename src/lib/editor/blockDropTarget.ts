@@ -331,11 +331,63 @@ export function insertionContainersAt(
   }
 }
 
+/**
+ * 드롭 좌표가 글머리 항목(listItem/taskItem) 내부에 있으면 그 항목의 첫 문단 뒤
+ * (= 중첩 블록 자리) 위치를 반환한다. 그렇지 않으면 null.
+ *
+ * containerChildInsertionPosFromPoint 는 컨테이너(토글·콜아웃·컬럼)의 직속 자식만 순회하므로
+ * 리스트 전체를 한 단위로만 보고 항목 안으로 하강하지 못한다. 그 결과 항목 위로 드롭해도
+ * "리스트 이전 블록"에 삽입되는 버그가 있었다. 위치 계산 맨 앞에서 이 함수를 먼저 시도해
+ * 토글·콜아웃·컬럼·doc 어디에 있든 이미지·파일 등을 글머리 항목의 자식으로 넣는다.
+ */
+function listItemInteriorInsertionPos(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const coords = view.posAtCoords({ left: clientX, top: clientY });
+  if (!coords) return null;
+  let $pos;
+  try {
+    $pos = view.state.doc.resolve(coords.pos);
+  } catch {
+    return null;
+  }
+  for (let d = $pos.depth; d >= 1; d--) {
+    const node = $pos.node(d);
+    if (node.type.name !== "listItem" && node.type.name !== "taskItem") continue;
+    const itemStart = $pos.start(d);
+    let offsetInItem = 0;
+    let firstParagraphEnd: number | null = null;
+    node.content.forEach((child) => {
+      if (firstParagraphEnd != null) return;
+      if (child.type.name === "paragraph") {
+        firstParagraphEnd = itemStart + offsetInItem + child.nodeSize;
+      }
+      offsetInItem += child.nodeSize;
+    });
+    // 첫 문단이 있으면 그 뒤(중첩 리스트 앞), 없으면 항목 내부 끝으로.
+    return firstParagraphEnd ?? itemStart + node.content.size;
+  }
+  return null;
+}
+
 export function topLevelInsertionPosFromDrop(
   view: EditorView,
   clientX: number,
   clientY: number,
+  draggedNodes?: readonly PMNode[],
 ): number {
+  // 글머리 항목 재정렬(listItem 자체 드래그)은 형제 위치 계산이 담당하므로, 그 경우엔
+  // 항목 내부 삽입을 건너뛴다. 그 외(이미지·파일·콜아웃 등)는 항목 위로 드롭하면 자식으로 넣는다.
+  const draggingListItem = draggedNodes?.some(
+    (n) => n.type.name === "listItem" || n.type.name === "taskItem",
+  );
+  if (!draggingListItem) {
+    const listItemPos = listItemInteriorInsertionPos(view, clientX, clientY);
+    if (listItemPos != null) return listItemPos;
+  }
+
   // 중첩 컨테이너는 바깥(컬럼·탭)보다 안쪽(콜아웃·토글)을 먼저 해석한다.
   const calloutPos = calloutInsertionPosFromPoint(view, clientX, clientY);
   if (calloutPos != null) return calloutPos;
@@ -417,7 +469,7 @@ export function resolveBlockDropTarget(
   clientY: number,
   nodes: readonly PMNode[],
 ): BlockDropTarget {
-  const insertAt = topLevelInsertionPosFromDrop(view, clientX, clientY);
+  const insertAt = topLevelInsertionPosFromDrop(view, clientX, clientY, nodes);
   const containers = insertionContainersAt(view, insertAt);
   const allowed = nodes.every((node) =>
     canDropNodeTypeInContainers(node.type.name, containers),

@@ -2,6 +2,7 @@
 // src 가 quicknote-image:// 스킴이면 React NodeView 가 PreSignedURL 로 비동기 해석.
 
 import { memo, useEffect, useState } from "react";
+import type { DragEvent as ReactDragEvent } from "react";
 import Image from "@tiptap/extension-image";
 import {
   ReactNodeViewRenderer,
@@ -18,6 +19,8 @@ import {
   type CaptionAlign,
 } from "./mediaCaption";
 import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
+import { startBlockNativeDrag } from "../startBlockNativeDrag";
+import { startBlockDragAutoScroll } from "../editor/blockDragAutoScroll";
 
 function shallowImageAttrsEqual(
   prev: NodeViewProps,
@@ -63,6 +66,31 @@ function insertParagraphAfterImage(props: NodeViewProps): void {
     .insertContentAt(after, { type: "paragraph" })
     .setTextSelection(after + 1)
     .run();
+}
+
+/**
+ * 이미지 자체를 드래그해 블록 이동 — 그립 핸들과 동일한 네이티브 블록 드래그를 시작한다.
+ * (그립 onGripDragStart 와 동일하게 드래그 커서 클래스·자동 스크롤을 켜고 dragend/drop 에서 정리)
+ */
+function startImageBlockDrag(props: NodeViewProps, e: ReactDragEvent): void {
+  const { editor } = props;
+  if (!editor.isEditable) return;
+  const pos = typeof props.getPos === "function" ? props.getPos() : null;
+  if (typeof pos !== "number") return;
+  e.stopPropagation();
+  document.body.classList.add("quicknote-block-dragging");
+  const scroller =
+    (e.currentTarget.closest(".overflow-y-auto") as HTMLElement | null) ?? null;
+  const stopAutoScroll = startBlockDragAutoScroll(scroller);
+  const cleanup = () => {
+    document.body.classList.remove("quicknote-block-dragging");
+    stopAutoScroll();
+    document.removeEventListener("dragend", cleanup, true);
+    document.removeEventListener("drop", cleanup, true);
+  };
+  document.addEventListener("dragend", cleanup, true);
+  document.addEventListener("drop", cleanup, true);
+  startBlockNativeDrag(editor, e.nativeEvent, pos, props.node);
 }
 
 /** 현재 선택이 이미지 NodeSelection 인지. */
@@ -181,7 +209,9 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               ? { boxShadow: "0 0 0 3px rgb(99 102 241), 0 0 0 5px rgb(255 255 255)" }
               : {}),
           }}
-          draggable={false}
+          // 이미지 자체를 드래그해 블록 이동(그립 핸들 외 추가 경로). 편집 가능할 때만.
+          draggable={props.editor.isEditable}
+          onDragStart={(e) => startImageBlockDrag(props, e)}
           // 만료된 PreSignedURL·손상 blob 캐시 자가 치유 — 캐시 폐기 후 재해석.
           onError={reportLoadError}
           onDoubleClick={(e) => {
@@ -197,10 +227,13 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
         <div
           className="mt-1 flex items-center gap-1"
           // 정렬 버튼 + 캡션 텍스트가 하나의 단위로 좌/중앙/우로 함께 이동.
-          // 이미지 폭(minWidth)을 기준으로 정렬하되, 텍스트가 길면 내용 폭(max-content)까지 늘어나 클리핑되지 않는다.
+          // 캡션 박스 폭 = 이미지 표시 폭(min())에 고정한다. max-content 로 두면 텍스트가
+          // 이미지보다 넓을 때(컬럼 등 좁은 컨테이너) 박스가 내용에 꼭 맞게 커져 justify-content
+          // 슬랙이 사라져 중앙/우측 정렬이 이동하지 않는다. 고정 폭이면 짧은 텍스트는 박스 안에서
+          // 정렬되고, 긴 텍스트는 이미지 가장자리(좌/중앙/우) 기준으로 넘쳐 정렬된다.
           style={{
             minWidth: captionMinWidth,
-            width: "max-content",
+            width: captionMinWidth,
             maxWidth: "100%",
             justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start",
           }}
@@ -216,13 +249,14 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
               props.updateAttributes({ captionAlign: nextCaptionAlign(captionAlign) });
             }}
           />
-          {/* input 폭을 실제 텍스트 폭에 맞춘다(inline-grid 미러). size 속성은 CJK/비례폭에서
-              부정확해 끝부분이 잘리므로 사용하지 않는다. 미러 span 이 셀 폭을 결정하고 input 은 채운다.
-              우측 정렬일 때는 후행 공백·우측 패딩을 제거해 텍스트가 우측 끝에 완전히 밀착한다. */}
-          <span className="inline-grid items-center">
+          {/* input 폭을 실제 텍스트 폭에 맞춘다(미러 span). size 속성은 CJK/비례폭에서
+              부정확해 끝부분이 잘리므로 사용하지 않는다. 미러 span 이 폭을 결정하고 input 은
+              absolute 로 그 위를 채운다(shrink-0 로 캡션 박스보다 좁으면 축소되지 않고 넘쳐
+              이미지 가장자리 기준으로 정렬된다). 우측 정렬 시 후행 공백·우측 패딩 제거로 밀착. */}
+          <span className="relative inline-block shrink-0">
             <span
               aria-hidden
-              className="col-start-1 row-start-1 invisible whitespace-pre text-xs"
+              className="invisible whitespace-pre text-xs"
               style={{
                 paddingLeft: 2,
                 paddingRight: captionAlign === "right" ? 0 : 2,
@@ -259,7 +293,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
                 }
                 e.stopPropagation();
               }}
-              className="col-start-1 row-start-1 w-full min-w-0 border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+              className="absolute inset-0 w-full border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
             />
           </span>
         </div>

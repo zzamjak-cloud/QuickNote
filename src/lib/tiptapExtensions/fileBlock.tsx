@@ -110,11 +110,12 @@ function MediaCaptionInput({
     <div
       className="mt-1 flex items-center gap-1"
       // 정렬 버튼 + 캡션 텍스트가 하나의 단위로 좌/중앙/우로 함께 이동. gap-1 유지.
-      // 미디어 폭(minWidth)을 기준으로 정렬하되, 텍스트가 길면 내용 폭(max-content)까지 늘어나 클리핑되지 않는다.
-      // 컬럼 등 좁은 컨테이너에서 미디어가 100% 로 축소되면 캡션도 표시 폭을 넘지 않게 min() 으로 캡.
+      // 캡션 박스 폭 = 미디어 표시 폭(min())에 고정. max-content 로 두면 텍스트가 미디어보다
+      // 넓을 때(컬럼 등 좁은 컨테이너) 박스가 내용에 꼭 맞게 커져 justify-content 슬랙이 사라져
+      // 중앙/우측 정렬이 이동하지 않는다. 고정 폭이면 긴 텍스트는 미디어 가장자리 기준으로 넘쳐 정렬.
       style={{
         minWidth: widthPx ? `min(${widthPx}px, 100%)` : "100%",
-        width: "max-content",
+        width: widthPx ? `min(${widthPx}px, 100%)` : "100%",
         maxWidth: "100%",
         justifyContent: ALIGN_TO_FLEX[captionAlign] ?? "flex-start",
       }}
@@ -130,13 +131,14 @@ function MediaCaptionInput({
           onCaptionAlignChange(nextCaptionAlign(captionAlign));
         }}
       />
-      {/* input 폭을 실제 텍스트 폭에 맞춘다(inline-grid 미러). size 속성은 CJK/비례폭에서
-          부정확해 끝부분이 잘리므로 사용하지 않는다.
+      {/* input 폭을 실제 텍스트 폭에 맞춘다(미러 span). size 속성은 CJK/비례폭에서 부정확해
+          끝부분이 잘리므로 사용하지 않는다. 미러 span 이 폭을 결정하고 input 은 absolute 로 그 위를
+          채운다(shrink-0 로 캡션 박스보다 좁으면 축소되지 않고 넘쳐 정렬 기준을 유지).
           우측 정렬일 때는 후행 공백·우측 패딩 제거로 텍스트를 우측 끝에 밀착시킨다. */}
-      <span className="inline-grid items-center">
+      <span className="relative inline-block shrink-0">
         <span
           aria-hidden
-          className="col-start-1 row-start-1 invisible whitespace-pre text-xs"
+          className="invisible whitespace-pre text-xs"
           style={{ paddingLeft: 2, paddingRight: captionAlign === "right" ? 0 : 2 }}
         >
           {caption || "캡션 입력…"}
@@ -164,7 +166,7 @@ function MediaCaptionInput({
             }
             e.stopPropagation();
           }}
-          className="col-start-1 row-start-1 w-full min-w-0 border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
+          className="absolute inset-0 w-full border-none bg-transparent text-xs text-zinc-500 outline-none placeholder:text-zinc-400 dark:text-zinc-400"
         />
       </span>
     </div>

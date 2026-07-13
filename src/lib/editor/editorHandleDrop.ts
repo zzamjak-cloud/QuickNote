@@ -353,6 +353,7 @@ function moveSingleQuickNoteBlockFromDrop(
       view,
       event.clientX,
       event.clientY,
+      [node],
     );
   const insertNode =
     listInsertAt != null && shape.listItemNode
@@ -465,6 +466,7 @@ function moveQuickNoteBlocksFromDrop(
     view,
     event.clientX,
     event.clientY,
+    blocks.map((b) => b.node),
   );
   if (
     blocks.some(

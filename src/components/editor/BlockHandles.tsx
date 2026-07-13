@@ -902,14 +902,28 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
-  const applyBlockBackground = (color: BlockBgColor) => {
+  // 배경/텍스트색은 호버한 단일 블럭에만 적용한다. updateAttributes(typeName) 는 NodeSelection
+  // 범위에 포함된 같은 타입의 조상 노드까지 갱신하므로, 중첩 토글의 자식에 색을 주면 부모 토글까지
+  // 번진다(콜아웃·컬럼이 setNodeMarkup 으로 우회하는 것과 동일 함정). setNodeMarkup 으로 hover 노드
+  // 한 곳만 갱신해 전파를 막는다.
+  const applyBlockAttr = (attr: "backgroundColor" | "blockTextColor", color: unknown) => {
     if (!editor || !hover) return;
-    editor
-      .chain()
-      .focus()
-      .setNodeSelection(hover.blockStart)
-      .updateAttributes(hover.node.type.name, { backgroundColor: color })
-      .run();
+    try {
+      const { state } = editor.view;
+      const pos = hover.blockStart;
+      const node = state.doc.nodeAt(pos);
+      if (!node) return;
+      const tr = state.tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        [attr]: color,
+      });
+      editor.view.dispatch(tr);
+      editor.view.focus();
+    } catch { /* noop */ }
+  };
+
+  const applyBlockBackground = (color: BlockBgColor) => {
+    applyBlockAttr("backgroundColor", color);
     if (color) {
       setRecentBgColor(color);
       setRecentColors(getRecentBlockColors());
@@ -918,13 +932,7 @@ export function BlockHandles({
   };
 
   const applyBlockTextColor = (color: BlockTextColor) => {
-    if (!editor || !hover) return;
-    editor
-      .chain()
-      .focus()
-      .setNodeSelection(hover.blockStart)
-      .updateAttributes(hover.node.type.name, { blockTextColor: color })
-      .run();
+    applyBlockAttr("blockTextColor", color);
     if (color) {
       setRecentTextColor(color);
       setRecentColors(getRecentBlockColors());
