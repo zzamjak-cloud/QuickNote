@@ -3,7 +3,11 @@
 import type { Editor } from "@tiptap/core";
 import type { Mark } from "@tiptap/pm/model";
 import { getEditorForPage } from "../editor/editorByPageRegistry";
-import { streamAiChat } from "./aiClient";
+import { streamAiChat, withRateLimitRetry } from "./aiClient";
+
+// 배치 동시 실행 수 — 순차 처리 대비 다중 배치 페이지의 번역 시간을 크게 줄인다.
+// 너무 높이면 제공사 rate limit(429)에 걸리므로 보수적으로.
+const BATCH_CONCURRENCY = 4;
 
 // 번역 대상 한 조각. text=인라인 텍스트 노드, caption=이미지/파일 블럭의 caption attr.
 type Target =
@@ -172,12 +176,9 @@ export async function translatePageInPlace(args: {
   const targets = collectTargets(editor);
   if (targets.length === 0) return { ok: false, reason: "empty" };
 
-  // 전체를 여러 배치로 쪼개 각각 독립적으로 번역·병합한다. 한 배치가 실패해도
-  // 나머지는 그대로 반영하고(부분 성공), 실패 배치는 1회 재시도 후 원문을 유지한다.
+  // 전체를 여러 배치로 쪼개 병렬로 번역·병합한다. 한 배치가 실패해도 나머지는 반영(부분 성공),
+  // 실패 배치는 원문 유지. 429 는 백오프 재시도, 파싱 실패(null)는 1회 더 시도.
   const batches = chunkTargets(targets);
-  const translations: string[] = [];
-  let done = 0;
-  let failedSegments = 0;
   const batchArgs = {
     workspaceId: args.workspaceId,
     pageId: args.pageId,
@@ -185,25 +186,44 @@ export async function translatePageInPlace(args: {
     targetLanguage: args.targetLanguage,
     signal: args.signal,
   };
-  try {
-    for (const batch of batches) {
-      const texts = batch.map((t) => t.text);
-      let out = await translateBatch(texts, batchArgs);
-      if (!out) out = await translateBatch(texts, batchArgs); // 1회 재시도
-      if (!out) {
-        // 이 배치는 실패 — 원문 유지하고 계속(통째 실패 방지).
-        translations.push(...texts);
-        failedSegments += batch.length;
+  const signal = args.signal ?? new AbortController().signal;
+  const runBatch = async (texts: string[]): Promise<string[] | null> => {
+    const attempt = () => translateBatch(texts, batchArgs);
+    let out = await withRateLimitRetry(attempt, { signal, retries: 3 });
+    if (!out) out = await withRateLimitRetry(attempt, { signal, retries: 1 });
+    return out;
+  };
+
+  let done = 0;
+  let failedSegments = 0;
+  // 배치별 결과(순서 보존). 동시 실행 수 제한으로 rate limit 회피.
+  const batchResults: string[][] = new Array(batches.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= batches.length) return;
+      const texts = batches[i]!.map((t) => t.text);
+      const out = await runBatch(texts);
+      if (out) {
+        batchResults[i] = out;
       } else {
-        translations.push(...out);
+        batchResults[i] = texts; // 실패 배치는 원문 유지
+        failedSegments += texts.length;
       }
-      done += batch.length;
+      done += texts.length;
       args.onProgress?.(done, targets.length);
     }
+  };
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(BATCH_CONCURRENCY, batches.length) }, worker),
+    );
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") return { ok: false, reason: "aborted" };
     throw e;
   }
+  const translations: string[] = batchResults.flat();
 
   // 모든 배치가 실패했으면 번역 결과가 전부 원문 → 실패로 보고.
   if (failedSegments >= targets.length) return { ok: false, reason: "failed" };
