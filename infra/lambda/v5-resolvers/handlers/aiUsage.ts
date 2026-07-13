@@ -1,8 +1,8 @@
-// 워크스페이스 AI 사용량 조회 — ai-proxy 가 기록한 월별·사용자별 토큰 집계를 반환.
-// 개인별 사용 내역이 포함되므로 developer 전용(설정 AI 탭과 동일 기준).
-import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+// AI 사용량 조회 — 총계는 전역(모든 워크스페이스 합산, 월 한도와 동일 기준),
+// members 내역은 호출한 워크스페이스 기준. 개인별 내역 포함이라 developer 전용.
+import { DynamoDBDocumentClient, GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { badRequest, type Member } from "./_auth";
-import { requireDeveloper } from "./aiConfig";
+import { GLOBAL_AI_CONFIG_ID, requireDeveloper } from "./aiConfig";
 import type { Tables } from "./member";
 
 export type AiUsageMemberEntryGql = {
@@ -39,40 +39,46 @@ export async function getWorkspaceAiUsage(args: {
   const month = (args.month ?? "").trim() || new Date().toISOString().slice(0, 7).replace("-", "");
   if (!/^\d{6}$/.test(month)) badRequest("month 는 YYYYMM 형식");
 
-  const r = await args.doc.send(
-    new QueryCommand({
-      TableName: requireAiUsageTable(args.tables),
-      KeyConditionExpression: "pk = :p AND begins_with(sk, :m)",
-      ExpressionAttributeValues: {
-        ":p": `usage#${args.workspaceId}`,
-        ":m": `${month}#`,
-      },
-    }),
-  );
+  const table = requireAiUsageTable(args.tables);
+  // 총계는 전역 누적(usage#__global__) — 월 토큰 한도(전역 설정)와 같은 기준.
+  // 전역 누적은 전역 설정 전환(2026-07) 이후부터 쌓이므로 그 이전 사용분은 미포함.
+  const [globalTotal, r] = await Promise.all([
+    args.doc.send(
+      new GetCommand({
+        TableName: table,
+        Key: { pk: `usage#${GLOBAL_AI_CONFIG_ID}`, sk: `${month}#__total` },
+      }),
+    ),
+    args.doc.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "pk = :p AND begins_with(sk, :m)",
+        ExpressionAttributeValues: {
+          ":p": `usage#${args.workspaceId}`,
+          ":m": `${month}#`,
+        },
+      }),
+    ),
+  ]);
 
   const result: WorkspaceAiUsageGql = {
     workspaceId: args.workspaceId,
     month,
-    inputTokens: 0,
-    outputTokens: 0,
-    requestCount: 0,
+    inputTokens: Number(globalTotal.Item?.["inputTokens"] ?? 0),
+    outputTokens: Number(globalTotal.Item?.["outputTokens"] ?? 0),
+    requestCount: Number(globalTotal.Item?.["requestCount"] ?? 0),
     members: [],
   };
   for (const item of r.Items ?? []) {
     const sk = item["sk"] as string;
     const memberId = sk.slice(month.length + 1);
-    const entry = {
+    if (memberId === "__total") continue; // 워크스페이스 총계는 미사용(총계는 전역 기준)
+    result.members.push({
+      memberId,
       inputTokens: Number(item["inputTokens"] ?? 0),
       outputTokens: Number(item["outputTokens"] ?? 0),
       requestCount: Number(item["requestCount"] ?? 0),
-    };
-    if (memberId === "__total") {
-      result.inputTokens = entry.inputTokens;
-      result.outputTokens = entry.outputTokens;
-      result.requestCount = entry.requestCount;
-    } else {
-      result.members.push({ memberId, ...entry });
-    }
+    });
   }
   result.members.sort((a, b) => b.inputTokens + b.outputTokens - (a.inputTokens + a.outputTokens));
   return result;

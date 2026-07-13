@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https: asset: http://asset.localhost https://asset.localhost quicknote-image:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' ipc: http://ipc.localhost https://*.amazonaws.com https://*.amazoncognito.com wss://*.amazonaws.com; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://quick-note-khaki.vercel.app blob:; media-src 'self' data: blob: https: asset: http://asset.localhost"
+      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https: asset: http://asset.localhost https://asset.localhost quicknote-image:; font-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' ipc: http://ipc.localhost https://*.amazonaws.com https://*.amazoncognito.com wss://*.amazonaws.com https://*.lambda-url.ap-northeast-2.on.aws; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://quick-note-khaki.vercel.app blob:; media-src 'self' data: blob: https: asset: http://asset.localhost"
     }
   },
   "bundle": {

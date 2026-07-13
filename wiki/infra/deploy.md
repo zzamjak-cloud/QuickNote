@@ -53,10 +53,14 @@ git commit -m "chore: 버전 X.Y.Z bump"
 
 ## STEP 3 — CDK 배포 (infra/ 변경 시만)
 
+**infra 변경은 develop push 시 dev 스택으로 자동 배포된다** (2026-07-13 확인). 수동
+`cdk deploy` 를 병행하면 changeset 충돌(`CREATE_IN_PROGRESS`)이 나므로 **자동 배포에
+맡기는 것이 기본**. 반영 확인은 Lambda `LastModified` 또는 번들 grep 으로.
+
 **⚠️ dev/live 스택 구분 — `DEPLOY_ENV` 미지정은 live 배포다** (2026-07-12 실제 발생):
 
 ```bash
-# dev 스택 (Dev 프리픽스 스택 + dev- 프리픽스 테이블) — develop 검증은 반드시 이걸로
+# dev 스택 수동 배포가 꼭 필요할 때만 (자동 배포와 충돌 주의)
 cd infra && DEPLOY_ENV=dev npx cdk deploy DevQuicknoteSyncStack
 
 # live 스택 — 사용자 명시 승인 후에만

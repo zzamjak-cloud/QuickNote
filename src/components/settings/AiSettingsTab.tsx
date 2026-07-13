@@ -299,9 +299,10 @@ export function AiSettingsTab() {
       {/* 사용량 */}
       <section className="space-y-3">
         <div>
-          <h3 className="text-sm font-semibold">이번 달 사용량</h3>
+          <h3 className="text-sm font-semibold">이번 달 사용량 (전체 워크스페이스 합산)</h3>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            {usage ? monthLabel(usage.month) : "—"} · 요청 {usage?.requestCount ?? 0}회
+            {usage ? monthLabel(usage.month) : "—"} · 요청 {usage?.requestCount ?? 0}회 · 월
+            한도와 같은 기준
           </p>
         </div>
         <div className="rounded-md border border-zinc-200 px-3 py-3 text-sm dark:border-zinc-700">
@@ -327,6 +328,9 @@ export function AiSettingsTab() {
             </div>
           )}
         </div>
+        {usage && usage.members.length > 0 && (
+          <p className="text-[11px] text-zinc-400">현재 워크스페이스 멤버별 내역</p>
+        )}
         {usage && usage.members.length > 0 && (
           <ul className="divide-y divide-zinc-100 rounded-md border border-zinc-200 text-xs dark:divide-zinc-800 dark:border-zinc-700">
             {usage.members.slice(0, 10).map((m) => (
