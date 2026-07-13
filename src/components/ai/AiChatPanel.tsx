@@ -276,11 +276,13 @@ export function AiChatPanel() {
         targetLanguage,
       });
       if (res.ok) {
-        showToast(
-          res.applied > 0
-            ? `${label} 번역 완료 (${res.applied}곳)`
-            : "번역할 텍스트가 없습니다",
-        );
+        if (res.applied === 0) {
+          showToast("번역할 텍스트가 없습니다");
+        } else if (res.failedSegments > 0) {
+          showToast(`${label} 번역 완료 (${res.applied}곳, ${res.failedSegments}곳 실패)`);
+        } else {
+          showToast(`${label} 번역 완료 (${res.applied}곳)`);
+        }
       } else {
         const msg: Record<string, string> = {
           "no-editor": "페이지 편집기를 찾지 못했습니다",

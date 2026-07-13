@@ -149,7 +149,7 @@ function applyTranslations(editor: Editor, targets: Target[], translations: stri
 }
 
 export type TranslatePageResult =
-  | { ok: true; applied: number; total: number }
+  | { ok: true; applied: number; total: number; failedSegments: number }
   | { ok: false; reason: "no-editor" | "not-editable" | "empty" | "failed" | "aborted" };
 
 /**
@@ -172,23 +172,31 @@ export async function translatePageInPlace(args: {
   const targets = collectTargets(editor);
   if (targets.length === 0) return { ok: false, reason: "empty" };
 
+  // 전체를 여러 배치로 쪼개 각각 독립적으로 번역·병합한다. 한 배치가 실패해도
+  // 나머지는 그대로 반영하고(부분 성공), 실패 배치는 1회 재시도 후 원문을 유지한다.
   const batches = chunkTargets(targets);
   const translations: string[] = [];
   let done = 0;
+  let failedSegments = 0;
+  const batchArgs = {
+    workspaceId: args.workspaceId,
+    pageId: args.pageId,
+    model: args.model,
+    targetLanguage: args.targetLanguage,
+    signal: args.signal,
+  };
   try {
     for (const batch of batches) {
-      const out = await translateBatch(
-        batch.map((t) => t.text),
-        {
-          workspaceId: args.workspaceId,
-          pageId: args.pageId,
-          model: args.model,
-          targetLanguage: args.targetLanguage,
-          signal: args.signal,
-        },
-      );
-      if (!out) return { ok: false, reason: "failed" };
-      translations.push(...out);
+      const texts = batch.map((t) => t.text);
+      let out = await translateBatch(texts, batchArgs);
+      if (!out) out = await translateBatch(texts, batchArgs); // 1회 재시도
+      if (!out) {
+        // 이 배치는 실패 — 원문 유지하고 계속(통째 실패 방지).
+        translations.push(...texts);
+        failedSegments += batch.length;
+      } else {
+        translations.push(...out);
+      }
       done += batch.length;
       args.onProgress?.(done, targets.length);
     }
@@ -197,9 +205,12 @@ export async function translatePageInPlace(args: {
     throw e;
   }
 
+  // 모든 배치가 실패했으면 번역 결과가 전부 원문 → 실패로 보고.
+  if (failedSegments >= targets.length) return { ok: false, reason: "failed" };
+
   // 번역 도중 문서가 바뀌었을 수 있으므로, 적용 직전 최신 에디터를 다시 조회한다.
   const liveEditor = getEditorForPage(args.pageId);
   if (!liveEditor || !liveEditor.isEditable) return { ok: false, reason: "no-editor" };
   const applied = applyTranslations(liveEditor, targets, translations);
-  return { ok: true, applied, total: targets.length };
+  return { ok: true, applied, total: targets.length, failedSegments };
 }
