@@ -15,7 +15,8 @@ function posOf(t: Target): number {
 }
 
 // 메시지당 32k자 상한(서버)보다 여유 있게. 입력 배치 하나의 대략적 문자 예산.
-const BATCH_CHAR_BUDGET = 12_000;
+// 출력 토큰 상한에 걸려 응답이 잘리면 파싱이 깨지므로 보수적으로 잡는다.
+const BATCH_CHAR_BUDGET = 8_000;
 
 /** doc 순회로 번역 대상 수집. codeBlock 내부 텍스트는 코드이므로 제외. */
 function collectTargets(editor: Editor): Target[] {
@@ -63,22 +64,31 @@ function chunkTargets(targets: Target[]): Target[][] {
   return batches;
 }
 
-/** AI 응답 텍스트에서 JSON 배열을 관대하게 파싱(코드펜스·앞뒤 잡텍스트 허용). */
-function parseJsonStringArray(raw: string): string[] | null {
-  let s = raw.trim();
-  // ```json ... ``` 펜스 제거
-  const fence = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(s);
-  if (fence) s = fence[1]!.trim();
-  const start = s.indexOf("[");
-  const end = s.lastIndexOf("]");
-  if (start < 0 || end < 0 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(s.slice(start, end + 1));
-    if (!Array.isArray(parsed)) return null;
-    return parsed.map((v) => (typeof v === "string" ? v : String(v)));
-  } catch {
-    return null;
+// 줄 단위 번호 마커 프로토콜 — 엄격한 JSON 배열보다 견고하다.
+// 텍스트 노드/캡션 문자열은 (코드블럭 제외 시) 개행을 포함하지 않으므로 한 줄 = 한 조각이 성립한다.
+// 입력:  「0」원문  / 출력: 「0」번역문  (번호로 매핑, 누락분은 원문 유지 → 부분 성공 허용)
+const MARK_OPEN = "「"; // 「
+const MARK_CLOSE = "」"; // 」
+
+function buildMarkedInput(texts: string[]): string {
+  // 원문에 개행이 있어도 한 줄로 눌러(공백화) 프로토콜을 안정화한다.
+  return texts
+    .map((t, i) => `${MARK_OPEN}${i}${MARK_CLOSE}${t.replace(/[\r\n]+/g, " ")}`)
+    .join("\n");
+}
+
+/** AI 응답에서 「n」번역문 줄들을 파싱해 인덱스→번역 맵을 만든다. */
+function parseMarkedOutput(raw: string): Map<number, string> {
+  // 모델이 실수로 붙이는 코드펜스 제거(``` 또는 ```lang).
+  const cleaned = raw.replace(/```[a-zA-Z]*\n?/g, "");
+  const map = new Map<number, string>();
+  const re = /「(\d+)」([\s\S]*?)(?=「\d+」|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(cleaned)) !== null) {
+    const idx = Number(m[1]);
+    if (Number.isInteger(idx)) map.set(idx, m[2]!.replace(/^[ \t]+|[ \t\r\n]+$/g, ""));
   }
+  return map;
 }
 
 async function translateBatch(
@@ -98,16 +108,20 @@ async function translateBatch(
     action: "translateSegments",
     options: { targetLanguage: args.targetLanguage },
     model: args.model,
-    messages: [{ role: "user", content: JSON.stringify(texts) }],
+    messages: [{ role: "user", content: buildMarkedInput(texts) }],
     signal: args.signal,
     onDelta: (t) => {
       acc += t;
     },
   });
-  const parsed = parseJsonStringArray(acc);
-  // 길이가 어긋나면 매핑이 깨지므로 이 배치는 실패로 처리(문서 훼손 방지).
-  if (!parsed || parsed.length !== texts.length) return null;
-  return parsed;
+  const map = parseMarkedOutput(acc);
+  // 마커가 하나도 안 잡히면 완전 실패로 본다(문서 훼손 방지).
+  if (map.size === 0) return null;
+  // 번호로 매핑, 누락된 조각은 원문 유지(부분 성공). 길이는 항상 입력과 동일.
+  return texts.map((orig, i) => {
+    const t = map.get(i);
+    return typeof t === "string" && t !== "" ? t : orig;
+  });
 }
 
 /** 번역 결과를 한 트랜잭션으로 제자리 반영. 위치가 높은 것부터 적용해 앞선 위치를 유효하게 유지. */
