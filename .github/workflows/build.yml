@@ -76,6 +76,8 @@ jobs:
           # 협업 WS URL 이 비면 데스크톱 빌드는 협업 OFF 가 되어, 웹(협업 ON)과 다른 권위(REST page.doc)를
           # 보게 되고 desktop↔web 동기화가 끊긴다. 라이브 협업이 켜진 동안에는 필수 시크릿로 강제한다.
           VITE_COLLAB_WS_URL: ${{ secrets.VITE_COLLAB_WS_URL }}
+          # AI 프록시 URL — 비면 데스크톱에서 AI 기능 전체가 비노출된다(웹과 기능 차이 발생).
+          VITE_AI_URL: ${{ secrets.VITE_AI_URL }}
         run: |
           set -euo pipefail
           missing=()
@@ -88,6 +90,7 @@ jobs:
           [ -z "${VITE_S3_REGION:-}" ] && missing+=(VITE_S3_REGION)
           [ -z "${VITE_S3_BUCKET_NAME:-}" ] && missing+=(VITE_S3_BUCKET_NAME)
           [ -z "${VITE_COLLAB_WS_URL:-}" ] && missing+=(VITE_COLLAB_WS_URL)
+          [ -z "${VITE_AI_URL:-}" ] && missing+=(VITE_AI_URL)
           if [ "${#missing[@]}" -ne 0 ]; then
             echo "::error::데스크톱 릴리스에 필요한 Repository secrets 가 비어 있습니다: ${missing[*]} (CONTRIBUTING 참고)."
             exit 1
@@ -115,6 +118,8 @@ jobs:
           VITE_COLLAB_ENABLED_PAGE_IDS: ${{ secrets.VITE_COLLAB_ENABLED_PAGE_IDS }}
           VITE_COLLAB_ENABLED_DB_IDS: ${{ secrets.VITE_COLLAB_ENABLED_DB_IDS }}
           VITE_COLLAB_ROOM_EPOCH: ${{ secrets.VITE_COLLAB_ROOM_EPOCH }}
+          # AI 프록시(라이브 Function URL) — 웹(Vercel VITE_AI_URL)과 동일 값.
+          VITE_AI_URL: ${{ secrets.VITE_AI_URL }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "QuickNote v__VERSION__"
