@@ -375,10 +375,31 @@ export const usePageStore = create<PageStore>()(
           }
           let nextActive = state.activePageId;
           if (state.activePageId && toRemove.has(state.activePageId)) {
-            const remaining = Object.values(rest).sort(
-              (a, b) => a.order - b.order,
-            );
-            nextActive = remaining[0]?.id ?? null;
+            // 삭제 루트 기준 부모 → 이전 형제 → 다음 형제 순으로 다음 활성 페이지를 정한다.
+            // (전체 order 최솟값 폴백은 무관한 옛 페이지로 튀던 원인 — 최후 수단으로만 유지)
+            const deletedRoot = state.pages[id];
+            const parentId = deletedRoot?.parentId ?? null;
+            if (parentId && rest[parentId]) {
+              nextActive = parentId;
+            } else {
+              const siblings = Object.values(rest)
+                .filter(
+                  (p) =>
+                    (p.parentId ?? null) === parentId &&
+                    (p.workspaceId ?? null) === (deletedRoot?.workspaceId ?? null),
+                )
+                .sort((a, b) => a.order - b.order);
+              const deletedOrder = deletedRoot?.order ?? 0;
+              const prevSibling = [...siblings]
+                .reverse()
+                .find((p) => p.order <= deletedOrder);
+              const nextSibling = siblings.find((p) => p.order > deletedOrder);
+              nextActive =
+                prevSibling?.id ??
+                nextSibling?.id ??
+                Object.values(rest).sort((a, b) => a.order - b.order)[0]?.id ??
+                null;
+            }
           }
           removedIds.push(...toRemove);
           return {
