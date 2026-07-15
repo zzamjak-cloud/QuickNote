@@ -732,6 +732,23 @@ function EditorInner({
           // 대신 로컬 캐시를 자기치유로 정리한다. 신생/outbox 대기 페이지라 prune 이 보류되면
           // 기존처럼 잠시 후 재시도한다(업로드 완료 대기).
           const pruned = await pruneServerMissingPageFromCache(effectivePageId, workspaceId);
+          if (!pruned) {
+            // 신생(서버 업로드 대기) 빈 페이지: 서버 시드 소스 자체가 없고 룸도 비어 있으므로,
+            // "서버 본문 placeholder = 진짜 빈 페이지 → 시드 없이 바인딩" 경로와 동일하게 즉시
+            // 바인딩해 생성 직후 입력을 허용한다(업로드 완료까지 read-only 로 묶이는 문제 방지).
+            // 로컬에 실본문이 있는 페이지(복제 등)는 빈 룸 바인딩이 본문을 가리므로 기존 재시도 유지.
+            const localDoc =
+              usePageStore.getState().pages[effectivePageId]?.doc ?? safePageDoc;
+            if (
+              isCollabDocBodyEmpty(collabDoc) &&
+              (!localDoc || isPlaceholderBodyJson(localDoc)) &&
+              isCollabDocRenderableForEditor(collabDoc, editor.schema)
+            ) {
+              seedState.status = "done";
+              if (!cancelled) bindCollabDoc();
+              return;
+            }
+          }
           seedState.status = "idle";
           if (!pruned && !cancelled) {
             window.setTimeout(() => {
