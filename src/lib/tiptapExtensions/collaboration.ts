@@ -4,9 +4,10 @@
 // - yCursorPlugin: awareness 기반 원격 커서·선택 영역 렌더링.
 // 사용 시 StarterKit 의 history/undoRedo 를 반드시 꺼야 한다.
 import { Extension } from "@tiptap/core";
-import { Plugin, Selection, TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, Selection, TextSelection } from "@tiptap/pm/state";
 import {
   ySyncPlugin,
+  ySyncPluginKey,
   yUndoPlugin,
   yCursorPlugin,
   undo,
@@ -76,6 +77,33 @@ export const Collaboration = Extension.create<CollaborationOptions>({
             1,
           );
           return near.eq(sel) ? null : state.tr.setSelection(near);
+        },
+      }),
+    );
+    // NodeSelection 복원 가드: y-prosemirror 는 원격 update 후 selection 을 relative position
+    // 기반 TextSelection 으로만 복원한다. 이미지/파일 블록을 선택 중일 때 원격 편집이 도착하면
+    // NodeSelection 이 붕괴 → 버블 툴바(와 그 안의 아웃라인 팝업)가 닫히는 간헐 증상의 원인.
+    // 원격(ySync) 트랜잭션으로만 selection 이 붕괴했고 매핑 위치에 같은 타입 노드가 살아있으면 되살린다.
+    plugins.push(
+      new Plugin({
+        appendTransaction: (trs, oldState, state) => {
+          const oldSel = oldState.selection;
+          if (!(oldSel instanceof NodeSelection)) return null;
+          const typeName = oldSel.node.type.name;
+          if (typeName !== "image" && typeName !== "fileBlock") return null;
+          if (state.selection instanceof NodeSelection) return null;
+          // 원격 ySync 트랜잭션이 포함된 경우만 복원 — 로컬 클릭/입력의 의도적 변경은 존중.
+          if (!trs.some((tr) => tr.getMeta(ySyncPluginKey))) return null;
+          if (trs.some((tr) => tr.selectionSet && !tr.getMeta(ySyncPluginKey))) {
+            return null;
+          }
+          let pos = oldSel.from;
+          for (const tr of trs) pos = tr.mapping.map(pos);
+          if (pos < 0 || pos >= state.doc.content.size) return null;
+          const node = state.doc.nodeAt(pos);
+          // 원격에서 해당 노드가 삭제/변형됐으면 복원하지 않는다.
+          if (!node || node.type.name !== typeName) return null;
+          return state.tr.setSelection(NodeSelection.create(state.doc, pos));
         },
       }),
     );
