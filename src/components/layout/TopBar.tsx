@@ -360,7 +360,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
             {backStack.map((pageId, idx) => {
               const p = pages[pageId];
               return (
-                <span key={pageId} className="flex items-center gap-1">
+                <span key={`${pageId}-${idx}`} className="flex items-center gap-1">
                   {idx > 0 && <ChevronRight size={10} className="shrink-0 text-zinc-300" />}
                   <button
                     type="button"

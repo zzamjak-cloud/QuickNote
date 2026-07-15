@@ -23,10 +23,17 @@ export const useNavigationHistoryStore = create<State>((set, get) => ({
   lastTargetPageId: null,
 
   pushBack: (pageId, targetPageId = null) =>
-    set((s) => ({
-      backStack: [...s.backStack, pageId],
-      lastTargetPageId: targetPageId,
-    })),
+    set((s) => {
+      // 도착 페이지가 이미 스택에 있으면 그 지점까지 잘라낸다 — 링크로 A↔B 왕복 시
+      // 경로 트레일에 A>B>A>B 로 같은 페이지가 중복 누적되는 것을 방지(jumpTo 절단과 동일 의미).
+      const targetIdx =
+        targetPageId != null ? s.backStack.indexOf(targetPageId) : -1;
+      const base = targetIdx >= 0 ? s.backStack.slice(0, targetIdx) : s.backStack;
+      // 스택 끝과 같은 페이지의 연속 push 는 무시(연속 중복 방지).
+      const backStack =
+        base[base.length - 1] === pageId ? base : [...base, pageId];
+      return { backStack, lastTargetPageId: targetPageId };
+    }),
 
   popBack: () => {
     const stack = get().backStack;
