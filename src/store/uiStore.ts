@@ -64,6 +64,8 @@ type UiStoreState = {
   notificationCenterOpen: boolean;
   /** 블록 댓글 스레드 패널 */
   commentThread: CommentThreadPayload | null;
+  /** 댓글 재앵커 픽 모드 — 활성 시 본문 블록 클릭으로 스레드를 이동한다 */
+  commentReanchor: { pageId: string; blockId: string } | null;
   peekPageId: string | null;
   peekHistory: string[];
   openColumnMenuId: string | null;
@@ -93,6 +95,9 @@ type UiStoreActions = {
   closeNotificationCenter: () => void;
   openCommentThread: (payload: CommentThreadPayload) => void;
   closeCommentThread: () => void;
+  /** 댓글 재앵커 픽 모드 시작 — 스레드 패널을 닫고 대상 블록 클릭을 기다린다 */
+  startCommentReanchor: (payload: { pageId: string; blockId: string }) => void;
+  clearCommentReanchor: () => void;
   /** 하위 호환: 즐겨찾기 패널만 토글 */
   toggleFavoritesPanel: () => void;
   openFavoritesPanel: () => void;
@@ -136,6 +141,7 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
   rightPanelTab: "favorites",
   notificationCenterOpen: false,
   commentThread: null,
+  commentReanchor: null,
   peekPageId: null,
   peekHistory: [],
   openColumnMenuId: null,
@@ -171,6 +177,9 @@ export const useUiStore = create<UiStoreState & UiStoreActions>()(
     });
   },
   closeCommentThread: () => set({ commentThread: null }),
+  startCommentReanchor: (payload) =>
+    set({ commentReanchor: payload, commentThread: null }),
+  clearCommentReanchor: () => set({ commentReanchor: null }),
 
   toggleFavoritesPanel: () => get().toggleRightPanel("favorites"),
   openFavoritesPanel: () => get().openRightPanel("favorites"),

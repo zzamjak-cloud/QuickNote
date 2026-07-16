@@ -124,6 +124,8 @@ type BlockCommentActions = {
     blockId: string,
     myMemberId: string | undefined,
   ) => boolean;
+  /** 스레드(블록 단위) 전체를 다른 블록으로 재앵커 — 어긋난 기존 댓글 복구용. 이동한 메시지 수 반환 */
+  moveThread: (pageId: string, fromBlockId: string, toBlockId: string) => number;
   /** 원격에서 수신한 메시지를 스토어에 upsert (storeApply 에서 호출) */
   applyRemoteMessage: (msg: BlockCommentMsg) => void;
   /** 원격에서 softDelete 된 메시지 제거 (storeApply 에서 호출) */
@@ -225,6 +227,39 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
             m.authorMemberId !== myMemberId &&
             m.createdAt > visited,
         );
+      },
+
+      moveThread: (pageId, fromBlockId, toBlockId) => {
+        if (!toBlockId || fromBlockId === toBlockId) return 0;
+        const targets = get().messages.filter(
+          (m) =>
+            messageBelongsToCurrentWorkspace(m) &&
+            m.pageId === pageId &&
+            m.blockId === fromBlockId,
+        );
+        if (targets.length === 0) return 0;
+        const targetIds = new Set(targets.map((m) => m.id));
+        set((s) => {
+          // 확인 시각은 새 스레드 키로 승계 — 이동 직후 전부 미확인으로 보이는 것 방지
+          const fromKey = threadKey(pageId, fromBlockId);
+          const toKey = threadKey(pageId, toBlockId);
+          const visited = s.threadVisitedAt[fromKey];
+          const nextVisited = { ...s.threadVisitedAt };
+          if (visited != null) {
+            nextVisited[toKey] = Math.max(visited, nextVisited[toKey] ?? 0);
+            delete nextVisited[fromKey];
+          }
+          return {
+            messages: s.messages.map((m) =>
+              targetIds.has(m.id) ? { ...m, blockId: toBlockId } : m,
+            ),
+            threadVisitedAt: nextVisited,
+          };
+        });
+        for (const m of targets) {
+          enqueueUpsertComment({ ...m, blockId: toBlockId });
+        }
+        return targets.length;
       },
 
       applyRemoteMessage: (msg) => {

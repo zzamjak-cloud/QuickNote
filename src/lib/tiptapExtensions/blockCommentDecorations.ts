@@ -40,7 +40,8 @@ export function createBlockCommentDecorations(
 
               // 메시지 목록 해시 + 페이지/멤버 식별자로 캐시 키 계산.
               // doc 변경은 state.doc reference 비교로 감지.
-              const msgHash = messages.map((m) => m.id).join("|");
+              // blockId 포함 — 재앵커(moveThread)는 doc 을 바꾸지 않으므로 키로 갱신을 감지해야 한다.
+              const msgHash = messages.map((m) => `${m.id}:${m.blockId}`).join("|");
               const cacheKey = `${currentPageId}|${msgHash}|${currentMemberId ?? ""}`;
               if (cacheKey === cachedKey && cachedDoc === state.doc && cachedSet) {
                 return cachedSet;

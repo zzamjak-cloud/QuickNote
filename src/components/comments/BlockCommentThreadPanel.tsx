@@ -12,7 +12,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/react";
 import type { Transaction as PMTransaction } from "@tiptap/pm/state";
-import { Pencil, Trash2, X } from "lucide-react";
+import { Crosshair, Pencil, Trash2, X } from "lucide-react";
 import { useUiStore, type CommentThreadPayload } from "../../store/uiStore";
 import { usePageStore } from "../../store/pageStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -47,6 +47,7 @@ function memberName(members: { memberId: string; name: string }[], id: string): 
 export function BlockCommentThreadPanel({ editor }: Props) {
   const payload = useUiStore((s) => s.commentThread);
   const closeCommentThread = useUiStore((s) => s.closeCommentThread);
+  const startCommentReanchor = useUiStore((s) => s.startCommentReanchor);
   /** 표시 이름만 구독 — 멤버 객체 기타 필드 변경 시 패널 전체 리렌더 완화 */
   const members = useMemberStore(
     useShallow((s) =>
@@ -267,14 +268,32 @@ export function BlockCommentThreadPanel({ editor }: Props) {
           >
             댓글 {messages.length > 0 ? `(${messages.length})` : ""}
           </h2>
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            aria-label="닫기"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            {messages.length > 0 ? (
+              <button
+                type="button"
+                onClick={() =>
+                  startCommentReanchor({
+                    pageId: payload.pageId,
+                    blockId: payload.blockId,
+                  })
+                }
+                className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                aria-label="댓글을 다른 블럭으로 이동"
+                title="댓글을 다른 블럭으로 이동 — 앵커가 어긋났을 때 클릭 후 대상 블럭 선택"
+              >
+                <Crosshair size={16} />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleClose}
+              className="rounded-md p-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              aria-label="닫기"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-2">

@@ -62,6 +62,11 @@ const BlockCommentThreadPanel = lazy(() =>
     default: m.BlockCommentThreadPanel,
   })),
 );
+const CommentReanchorMode = lazy(() =>
+  import("./components/comments/CommentReanchorMode").then((m) => ({
+    default: m.CommentReanchorMode,
+  })),
+);
 const AutoUpdateDialog = lazy(() =>
   import("./components/ui/AutoUpdateDialog").then((m) => ({
     default: m.AutoUpdateDialog,
@@ -631,6 +636,7 @@ function App() {
         <Suspense fallback={null}>
           <DatabaseRowPeek />
           <BlockCommentThreadPanel editor={null} />
+          <CommentReanchorMode />
           {aiPanelOpen && <AiChatPanel />}
         </Suspense>
         <SearchCommandPalette
