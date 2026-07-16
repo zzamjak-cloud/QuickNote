@@ -484,6 +484,27 @@ async function reconcileSchedulerWorkspaceFromServer(workspaceId: string): Promi
   await schedulerRemoteReconcileInFlight;
 }
 
+// 동일 키(워크스페이스+범위+스코프)의 서버 재검증 중복 실행 방지
+let schedulerRevalidationKey: string | null = null;
+let schedulerRevalidationInFlight: Promise<void> | null = null;
+
+function runSchedulerRevalidation(
+  key: string,
+  revalidate: () => Promise<void>,
+): Promise<void> {
+  if (schedulerRevalidationInFlight && schedulerRevalidationKey === key) {
+    return schedulerRevalidationInFlight;
+  }
+  schedulerRevalidationKey = key;
+  schedulerRevalidationInFlight = revalidate().finally(() => {
+    if (schedulerRevalidationKey === key) {
+      schedulerRevalidationKey = null;
+      schedulerRevalidationInFlight = null;
+    }
+  });
+  return schedulerRevalidationInFlight;
+}
+
 export const useSchedulerStore = create<SchedulerStore>()(
   persist(
     (set, get) => ({
@@ -501,6 +522,67 @@ export const useSchedulerStore = create<SchedulerStore>()(
         const assigneeId = selectedMemberId ?? null;
         const cacheScopeKey = makeSchedulerRangeCacheKey(scopeKey, assigneeId, selectedJobTitle ?? null);
         const current = get();
+
+        // 서버 권위 데이터로 캐시를 갱신하는 본체. cache-hit 시에도 백그라운드로 실행된다(SWR).
+        const revalidate = async () => {
+          try {
+            await reconcileSchedulerWorkspaceFromServer(workspaceId);
+          } catch (error) {
+            console.warn("[scheduler] 서버 스냅샷 대조 실패", error);
+          }
+          // LC 워크스페이스 진입 시 보호 DB 3종(작업·마일스톤·피처) 모두 보장
+          await Promise.all([
+            ensureLCSchedulerDatabase(workspaceId),
+            ensureLCMilestoneDatabase(workspaceId),
+            ensureLCFeatureDatabase(workspaceId),
+          ]);
+          const localProjected = projectSchedulesForStore(workspaceId, from, to);
+          let remoteProjected: Schedule[] | null = null;
+          if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
+            try {
+              const rangeSchedules = await fetchSchedulerRangeForCurrentScope({
+                workspaceId,
+                from,
+                to,
+                scopeKey,
+                assigneeId,
+                selectedJobTitle: selectedJobTitle ?? null,
+              });
+              const sourcePages = extractScheduleRangeSourcePages(rangeSchedules);
+              applyRemotePagesToStore(sourcePages);
+              remoteProjected = rangeSchedules.map(gqlScheduleToSchedule);
+            } catch (error) {
+              console.warn("[scheduler] 범위 일정 조회 실패", error);
+            }
+          }
+          const pendingPageIds = await getPendingLCSchedulerPageIds();
+          const pendingSchedules = pendingPageIds.size > 0
+            ? localProjected.filter((schedule) => {
+                const pageId = parseScheduleInstanceId(schedule.id)?.pageId;
+                return Boolean(pageId && pendingPageIds.has(pageId));
+              })
+            : [];
+          const schedules =
+            remoteProjected && (remoteProjected.length > 0 || localProjected.length === 0)
+              ? mergeSchedulesById(remoteProjected, pendingSchedules)
+              : localProjected;
+          set({
+            schedules,
+            cachedWorkspaceId: workspaceId,
+            visibleRangeFrom: from,
+            visibleRangeTo: to,
+            cachedScopeKey: cacheScopeKey,
+            loading: false,
+          });
+          logSchedulerPerf("fetchSchedules:project-visible-range", startedAt, {
+            workspaceId,
+            from,
+            to,
+            count: get().schedules.length,
+          });
+        };
+        const revalidationKey = `${workspaceId}|${from}|${to}|${cacheScopeKey}`;
+
         const hasSameVisibleCache =
           current.cachedWorkspaceId === workspaceId &&
           current.visibleRangeFrom === from &&
@@ -517,6 +599,9 @@ export const useSchedulerStore = create<SchedulerStore>()(
             to,
             count: current.schedules.length,
           });
+          // persist 된 stale 캐시가 다른 PC 의 새 일정을 영구 차단하지 않도록,
+          // 캐시로 즉시 그린 뒤 백그라운드에서 서버 재검증으로 캐시를 갱신한다(SWR).
+          void runSchedulerRevalidation(revalidationKey, revalidate);
           return;
         }
         // 워크스페이스가 다르면 캐시를 비우고 시작 (다른 워크스페이스 데이터 노출 방지)
@@ -524,61 +609,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
           set({ schedules: [], cachedWorkspaceId: workspaceId });
         }
         // loading을 true로 올리지 않음 — 기존 캐시로 화면이 이미 그려진 상태 유지
-        try {
-          await reconcileSchedulerWorkspaceFromServer(workspaceId);
-        } catch (error) {
-          console.warn("[scheduler] 서버 스냅샷 대조 실패", error);
-        }
-        // LC 워크스페이스 진입 시 보호 DB 3종(작업·마일스톤·피처) 모두 보장
-        await Promise.all([
-          ensureLCSchedulerDatabase(workspaceId),
-          ensureLCMilestoneDatabase(workspaceId),
-          ensureLCFeatureDatabase(workspaceId),
-        ]);
-        const localProjected = projectSchedulesForStore(workspaceId, from, to);
-        let remoteProjected: Schedule[] | null = null;
-        if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
-          try {
-            const rangeSchedules = await fetchSchedulerRangeForCurrentScope({
-              workspaceId,
-              from,
-              to,
-              scopeKey,
-              assigneeId,
-              selectedJobTitle: selectedJobTitle ?? null,
-            });
-            const sourcePages = extractScheduleRangeSourcePages(rangeSchedules);
-            applyRemotePagesToStore(sourcePages);
-            remoteProjected = rangeSchedules.map(gqlScheduleToSchedule);
-          } catch (error) {
-            console.warn("[scheduler] 범위 일정 조회 실패", error);
-          }
-        }
-        const pendingPageIds = await getPendingLCSchedulerPageIds();
-        const pendingSchedules = pendingPageIds.size > 0
-          ? localProjected.filter((schedule) => {
-              const pageId = parseScheduleInstanceId(schedule.id)?.pageId;
-              return Boolean(pageId && pendingPageIds.has(pageId));
-            })
-          : [];
-        const schedules =
-          remoteProjected && (remoteProjected.length > 0 || localProjected.length === 0)
-            ? mergeSchedulesById(remoteProjected, pendingSchedules)
-            : localProjected;
-        set({
-          schedules,
-          cachedWorkspaceId: workspaceId,
-          visibleRangeFrom: from,
-          visibleRangeTo: to,
-          cachedScopeKey: cacheScopeKey,
-          loading: false,
-        });
-        logSchedulerPerf("fetchSchedules:project-visible-range", startedAt, {
-          workspaceId,
-          from,
-          to,
-          count: get().schedules.length,
-        });
+        await runSchedulerRevalidation(revalidationKey, revalidate);
       },
 
       createSchedule: async (input) => {
