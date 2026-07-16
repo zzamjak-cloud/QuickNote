@@ -5,7 +5,8 @@ import { useShallow } from "zustand/react/shallow";
 import { useDatabaseStore } from "../../store/databaseStore";
 import { Editor } from "../editor/Editor";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
-import { PageCommentBar } from "../comments/PageCommentBar";
+import { PageCommentBar, PAGE_COMMENT_SENTINEL } from "../comments/PageCommentBar";
+import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { computeEditorTailSpacerPx } from "../editor/editorHelpers";
 import { PageTitleBar } from "../page/PageTitleBar";
 import { DbPropertySection } from "../page/DbPropertySection";
@@ -33,6 +34,13 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
   const pageFullWidthById = useSettingsStore((s) => s.pageFullWidthById);
   const fullWidth = pageId ? (pageFullWidthById[pageId] ?? globalFullWidth) : globalFullWidth;
   const isMobile = useIsMobile();
+  // 본문 Editor 와 동일 기준 — 블록 댓글이 있으면 우측 거터(pr-256)를 예약하므로
+  // 헤더 컬럼(제목·속성 패널·댓글바)도 같은 폭으로 전환해야 본문과 정렬이 맞는다.
+  const hasPageComments = useBlockCommentStore((s) =>
+    s.messages.some(
+      (m) => m.pageId === pageId && m.blockId !== PAGE_COMMENT_SENTINEL,
+    ),
+  );
   // 부트스트랩 하이드레이션 중인지 판별 — 스토어가 아직 비어 있으면 "없음"이 아니라 "로딩 중"이다.
   const pagesEmpty = usePageStore((s) => Object.keys(s.pages).length === 0);
   const databasesEmpty = useDatabaseStore((s) => Object.keys(s.databases).length === 0);
@@ -95,7 +103,7 @@ export function DatabaseRowPage({ pageId }: { pageId: string }) {
       <div
         className={`relative mx-auto w-full ${getEditorColumnClass({
           fullWidth,
-          hasPageComments: false,
+          hasPageComments,
           isMobile,
         })}`}
         data-qn-row-page-header-column
