@@ -18,6 +18,7 @@ import {
 } from "./mediaCaption";
 import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 import { useMediaPreviewStore } from "../../store/mediaPreviewStore";
+import { useMeasuredElementWidth } from "../../hooks/useMeasuredElementWidth";
 
 type FileAttrs = {
   id?: string | null;
@@ -203,6 +204,9 @@ const FileView = memo(function FileView(props: NodeViewProps) {
     sizeBytes: typeof attrs.size === "number" ? attrs.size : undefined,
     mime,
   });
+  // width attr 미지정(원본 크기) 미디어의 캡션 정렬 기준폭 — 실측 표시 폭 사용
+  const { ref: mediaMeasureRef, width: measuredMediaWidth } = useMeasuredElementWidth();
+  const captionWidthPx = attrs.width ?? measuredMediaWidth;
 
   // 확대 미리보기(zoom) — ESC 로 닫기 + 열려 있는 동안 부유 툴바 숨김(전역 신호).
   useEffect(() => {
@@ -304,7 +308,10 @@ const FileView = memo(function FileView(props: NodeViewProps) {
         {url ? (
           <video
             src={url}
-            ref={inlineVideoRef}
+            ref={(el) => {
+              inlineVideoRef.current = el;
+              mediaMeasureRef(el);
+            }}
             controls
             controlsList="nofullscreen noremoteplayback"
             disablePictureInPicture
@@ -327,7 +334,7 @@ const FileView = memo(function FileView(props: NodeViewProps) {
           <MediaCaptionInput
             caption={caption ?? ""}
             captionAlign={captionAlign}
-            widthPx={attrs.width}
+            widthPx={captionWidthPx}
             onChange={(v) => props.updateAttributes({ caption: v })}
             onCaptionAlignChange={(v) => props.updateAttributes({ captionAlign: v })}
             onRemoveEmpty={() => props.updateAttributes({ caption: null })}
@@ -372,6 +379,7 @@ const FileView = memo(function FileView(props: NodeViewProps) {
         {url ? (
           <img
             src={url}
+            ref={mediaMeasureRef}
             alt={attrs.name ?? ""}
             className="block h-auto rounded-lg border border-zinc-200 dark:border-zinc-700"
             onDoubleClick={(e) => {
@@ -390,7 +398,7 @@ const FileView = memo(function FileView(props: NodeViewProps) {
           <MediaCaptionInput
             caption={caption ?? ""}
             captionAlign={captionAlign}
-            widthPx={attrs.width}
+            widthPx={captionWidthPx}
             onChange={(v) => props.updateAttributes({ caption: v })}
             onCaptionAlignChange={(v) => props.updateAttributes({ captionAlign: v })}
             onRemoveEmpty={() => props.updateAttributes({ caption: null })}

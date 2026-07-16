@@ -19,6 +19,7 @@ import {
   type CaptionAlign,
 } from "./mediaCaption";
 import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
+import { useMeasuredElementWidth } from "../../hooks/useMeasuredElementWidth";
 import { startBlockNativeDrag } from "../startBlockNativeDrag";
 import { startBlockDragAutoScroll } from "../editor/blockDragAutoScroll";
 
@@ -131,9 +132,13 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
   const align = attrs.align ?? "left";
   const hasCaption = typeof attrs.caption === "string";
   const captionAlign = attrs.captionAlign ?? "left";
+  // width attr 미지정(원본 크기) 이미지는 실측 표시 폭을 캡션 기준폭으로 쓴다 —
+  // 100% 로 두면 중앙/우측 정렬이 이미지가 아닌 블록 폭 기준으로 어긋난다.
+  const { ref: imageMeasureRef, width: measuredImageWidth } = useMeasuredElementWidth();
+  const captionBasisWidth = attrs.width ?? measuredImageWidth;
   // 캡션 기준폭 = 저장된 이미지 폭이되, 컬럼 등 좁은 컨테이너에서 이미지가 100% 로 축소되면
   // 캡션도 표시 폭(100%)을 넘지 않게 min() 으로 캡한다 — 넘치면 중앙/우측 정렬 기준이 어긋난다.
-  const captionMinWidth = attrs.width ? `min(${attrs.width}px, 100%)` : "100%";
+  const captionMinWidth = captionBasisWidth ? `min(${captionBasisWidth}px, 100%)` : "100%";
   // 아웃라인·모서리 라운드 — 툴바에서 지정. outline 은 레이아웃에 영향 없이 rect 를 감싸며 border-radius 를 따른다.
   const outlineWidth = typeof attrs.outlineWidth === "number" ? attrs.outlineWidth : 0;
   const outlineColor = attrs.outlineColor ?? "#4b5563";
@@ -191,6 +196,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
       ) : url ? (
         <img
           src={url}
+          ref={imageMeasureRef}
           alt={attrs.alt ?? ""}
           loading="lazy"
           width={attrs.width ?? undefined}
