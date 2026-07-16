@@ -484,6 +484,11 @@ async function reconcileSchedulerWorkspaceFromServer(workspaceId: string): Promi
   await schedulerRemoteReconcileInFlight;
 }
 
+// 생성 직후 아직 페이지/서버에 반영되지 않은 낙관적 카드 id —
+// 백그라운드 재검증(SWR)의 set 이 이 카드를 지우지 않도록 보존한다.
+// (Ctrl+드래그 생성 → 새 일정 피커 열림 구간에서 카드가 사라지던 회귀 방지)
+const inFlightOptimisticScheduleIds = new Set<string>();
+
 // 동일 키(워크스페이스+범위+스코프)의 서버 재검증 중복 실행 방지
 let schedulerRevalidationKey: string | null = null;
 let schedulerRevalidationInFlight: Promise<void> | null = null;
@@ -562,10 +567,18 @@ export const useSchedulerStore = create<SchedulerStore>()(
                 return Boolean(pageId && pendingPageIds.has(pageId));
               })
             : [];
-          const schedules =
+          const merged =
             remoteProjected && (remoteProjected.length > 0 || localProjected.length === 0)
               ? mergeSchedulesById(remoteProjected, pendingSchedules)
               : localProjected;
+          // 생성 진행 중(서버 미반영) 낙관적 카드는 재검증 결과에 없어도 유지한다.
+          const preservedOptimistic = get().schedules.filter(
+            (schedule) =>
+              inFlightOptimisticScheduleIds.has(schedule.id) &&
+              !merged.some((s) => s.id === schedule.id),
+          );
+          const schedules =
+            preservedOptimistic.length > 0 ? [...merged, ...preservedOptimistic] : merged;
           set({
             schedules,
             cachedWorkspaceId: workspaceId,
@@ -625,6 +638,7 @@ export const useSchedulerStore = create<SchedulerStore>()(
             ],
             cachedWorkspaceId: input.workspaceId,
           }));
+          inFlightOptimisticScheduleIds.add(optimistic.id);
         }
         try {
           const s = await createLCSchedulerSchedule({
@@ -658,6 +672,8 @@ export const useSchedulerStore = create<SchedulerStore>()(
             schedules: st.schedules.filter((schedule) => schedule.id !== optimistic.id),
           }));
           throw error;
+        } finally {
+          inFlightOptimisticScheduleIds.delete(optimistic.id);
         }
       },
 
