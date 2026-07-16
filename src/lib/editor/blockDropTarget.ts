@@ -48,16 +48,6 @@ function resolveTabPanelElementFromPoint(
   return panels[idx] ?? null;
 }
 
-function tabPanelInsertionPosFromPoint(
-  view: EditorView,
-  clientX: number,
-  clientY: number,
-): number | null {
-  const panelEl = resolveTabPanelElementFromPoint(view, clientX, clientY);
-  if (!panelEl) return null;
-  return containerChildInsertionPosFromPoint(view, clientY, panelEl, "tabPanel");
-}
-
 /** 컬럼·탭 패널·콜아웃·토글 본문 등 block+ 컨테이너 내부 삽입 위치 (공통) */
 function containerChildInsertionPosFromPoint(
   view: EditorView,
@@ -147,20 +137,6 @@ function resolveCalloutBodyElementFromPoint(
   return body instanceof HTMLElement ? body : root;
 }
 
-function columnInsertionPosFromPoint(
-  view: EditorView,
-  clientX: number,
-  clientY: number,
-): number | null {
-  const hit = document.elementFromPoint(clientX, clientY);
-  const direct = hit?.closest?.("[data-column]");
-  const colEl = direct instanceof HTMLElement
-    ? direct
-    : nearestColumnElementFromLayoutHit(view, hit, clientX);
-  if (!(colEl instanceof HTMLElement) || !view.dom.contains(colEl)) return null;
-  return containerChildInsertionPosFromPoint(view, clientY, colEl, "column");
-}
-
 function nearestColumnElementFromLayoutHit(
   view: EditorView,
   hit: Element | null,
@@ -188,34 +164,6 @@ function nearestColumnElementFromLayoutHit(
           : 0;
     return distance < bestDistance ? column : best;
   }, null);
-}
-
-function calloutInsertionPosFromPoint(
-  view: EditorView,
-  clientX: number,
-  clientY: number,
-): number | null {
-  const bodyEl = resolveCalloutBodyElementFromPoint(view, clientX, clientY);
-  if (!bodyEl) return null;
-  return containerChildInsertionPosFromPoint(view, clientY, bodyEl, "callout");
-}
-
-function toggleContentInsertionPosFromPoint(
-  view: EditorView,
-  clientX: number,
-  clientY: number,
-): number | null {
-  const hit = document.elementFromPoint(clientX, clientY);
-  const toggleContentEl = hit?.closest?.("[data-toggle-content]");
-  if (!(toggleContentEl instanceof HTMLElement) || !view.dom.contains(toggleContentEl)) {
-    return null;
-  }
-  return containerChildInsertionPosFromPoint(
-    view,
-    clientY,
-    toggleContentEl,
-    "toggleContent",
-  );
 }
 
 function toggleBlockInsertionPosFromPoint(
@@ -372,6 +320,94 @@ function listItemInteriorInsertionPos(
   return null;
 }
 
+/**
+ * 드롭 지점에 겹치는 중첩 컨테이너(콜아웃 본문·토글 본문·토글 헤더·탭 패널·컬럼) 후보를
+ * 모두 수집한 뒤, DOM 상 가장 깊은(안쪽) 컨테이너부터 삽입 위치를 해석한다.
+ *
+ * 고정 타입 순서(콜아웃→토글→탭→컬럼)로 해석하면 "토글 안 컬럼" 같은 역방향 중첩에서
+ * 바깥 토글 본문이 먼저 매칭되어 안쪽 컬럼에 드롭할 수 없는 버그가 있었다.
+ */
+function nestedContainerInsertionPosFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+
+  type Candidate = { el: HTMLElement; resolve: () => number | null };
+  const candidates: Candidate[] = [];
+
+  const calloutBody = resolveCalloutBodyElementFromPoint(view, clientX, clientY);
+  if (calloutBody) {
+    candidates.push({
+      el: calloutBody,
+      resolve: () =>
+        containerChildInsertionPosFromPoint(view, clientY, calloutBody, "callout"),
+    });
+  }
+
+  const toggleContentEl = hit?.closest?.("[data-toggle-content]");
+  if (toggleContentEl instanceof HTMLElement && view.dom.contains(toggleContentEl)) {
+    candidates.push({
+      el: toggleContentEl,
+      resolve: () =>
+        containerChildInsertionPosFromPoint(
+          view,
+          clientY,
+          toggleContentEl,
+          "toggleContent",
+        ),
+    });
+  }
+
+  // 토글 헤더 등 본문 밖 히트 대비: .toggle-block 자체도 후보로 두되,
+  // 본문([data-toggle-content]) 후보가 있으면 그쪽이 더 깊어 먼저 해석된다.
+  const toggleEl = hit?.closest?.(".toggle-block");
+  if (toggleEl instanceof HTMLElement && view.dom.contains(toggleEl)) {
+    candidates.push({
+      el: toggleEl,
+      resolve: () => toggleBlockInsertionPosFromPoint(view, clientX, clientY),
+    });
+  }
+
+  const tabPanelEl = resolveTabPanelElementFromPoint(view, clientX, clientY);
+  if (tabPanelEl) {
+    candidates.push({
+      el: tabPanelEl,
+      resolve: () =>
+        containerChildInsertionPosFromPoint(view, clientY, tabPanelEl, "tabPanel"),
+    });
+  }
+
+  const columnDirect = hit?.closest?.("[data-column]");
+  const columnEl =
+    columnDirect instanceof HTMLElement
+      ? columnDirect
+      : nearestColumnElementFromLayoutHit(view, hit ?? null, clientX);
+  if (columnEl instanceof HTMLElement && view.dom.contains(columnEl)) {
+    candidates.push({
+      el: columnEl,
+      resolve: () =>
+        containerChildInsertionPosFromPoint(view, clientY, columnEl, "column"),
+    });
+  }
+
+  if (candidates.length === 0) return null;
+
+  const domDepth = (el: Element): number => {
+    let depth = 0;
+    for (let n = el.parentElement; n; n = n.parentElement) depth += 1;
+    return depth;
+  };
+  // 깊은(안쪽) 컨테이너 우선. 동률이면 수집 순서(기존 우선순위) 유지.
+  candidates.sort((a, b) => domDepth(b.el) - domDepth(a.el));
+  for (const candidate of candidates) {
+    const pos = candidate.resolve();
+    if (pos != null) return pos;
+  }
+  return null;
+}
+
 export function topLevelInsertionPosFromDrop(
   view: EditorView,
   clientX: number,
@@ -388,21 +424,9 @@ export function topLevelInsertionPosFromDrop(
     if (listItemPos != null) return listItemPos;
   }
 
-  // 중첩 컨테이너는 바깥(컬럼·탭)보다 안쪽(콜아웃·토글)을 먼저 해석한다.
-  const calloutPos = calloutInsertionPosFromPoint(view, clientX, clientY);
-  if (calloutPos != null) return calloutPos;
-
-  const toggleContentPos = toggleContentInsertionPosFromPoint(view, clientX, clientY);
-  if (toggleContentPos != null) return toggleContentPos;
-
-  const toggleBlockPos = toggleBlockInsertionPosFromPoint(view, clientX, clientY);
-  if (toggleBlockPos != null) return toggleBlockPos;
-
-  const tabPanelPos = tabPanelInsertionPosFromPoint(view, clientX, clientY);
-  if (tabPanelPos != null) return tabPanelPos;
-
-  const columnPos = columnInsertionPosFromPoint(view, clientX, clientY);
-  if (columnPos != null) return columnPos;
+  // 중첩 컨테이너는 고정 타입 순서가 아니라 드롭 지점 기준 가장 안쪽 컨테이너부터 해석한다.
+  const containerPos = nestedContainerInsertionPosFromPoint(view, clientX, clientY);
+  if (containerPos != null) return containerPos;
 
   const coords = view.posAtCoords({ left: clientX, top: clientY });
   if (!coords) return nearestTopLevelInsertionByY(view, clientY);
@@ -484,21 +508,24 @@ function indicatorContainerElement(
   clientY: number,
 ): HTMLElement {
   const hit = document.elementFromPoint(clientX, clientY);
-  if (target.containers.includes("column")) {
-    const column = hit?.closest?.("[data-column]");
-    if (column instanceof HTMLElement && view.dom.contains(column)) return column;
-  }
-  if (target.containers.includes("tabPanel")) {
-    const panel = hit?.closest?.("[data-tab-panel]");
-    if (panel instanceof HTMLElement && view.dom.contains(panel)) return panel;
-  }
-  if (target.containers.includes("toggleContent")) {
-    const content = hit?.closest?.("[data-toggle-content]");
-    if (content instanceof HTMLElement && view.dom.contains(content)) return content;
-  }
-  if (target.containers.includes("callout")) {
-    const body = resolveCalloutBodyElementFromPoint(view, clientX, clientY);
-    if (body) return body;
+  // containers 는 안쪽 컨테이너부터 정렬되어 있으므로 그 순서대로 매칭한다.
+  for (const container of target.containers) {
+    if (container === "column") {
+      const column = hit?.closest?.("[data-column]");
+      if (column instanceof HTMLElement && view.dom.contains(column)) return column;
+    }
+    if (container === "tabPanel") {
+      const panel = hit?.closest?.("[data-tab-panel]");
+      if (panel instanceof HTMLElement && view.dom.contains(panel)) return panel;
+    }
+    if (container === "toggleContent") {
+      const content = hit?.closest?.("[data-toggle-content]");
+      if (content instanceof HTMLElement && view.dom.contains(content)) return content;
+    }
+    if (container === "callout") {
+      const body = resolveCalloutBodyElementFromPoint(view, clientX, clientY);
+      if (body) return body;
+    }
   }
   return view.dom;
 }
