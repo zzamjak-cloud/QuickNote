@@ -434,26 +434,6 @@ function isOptimisticScheduleId(id: string): boolean {
 
 let schedulerRemoteReconcileInFlight: Promise<void> | null = null;
 
-async function getPendingLCSchedulerPageIds(): Promise<Set<string>> {
-  const engine = await getSyncEngine();
-  const snapshot = (await engine.debugSnapshot()) as Array<{
-    workspaceId?: string | null;
-    entityType?: string | null;
-    entityId?: string | null;
-  }>;
-  return new Set(
-    snapshot
-      .filter(
-        (entry) =>
-          entry.workspaceId === LC_SCHEDULER_WORKSPACE_ID &&
-          entry.entityType === "page" &&
-          typeof entry.entityId === "string" &&
-          entry.entityId.length > 0,
-      )
-      .map((entry) => entry.entityId as string),
-  );
-}
-
 async function reconcileSchedulerWorkspaceFromServer(workspaceId: string): Promise<void> {
   if (workspaceId !== LC_SCHEDULER_WORKSPACE_ID) return;
   if (!schedulerRemoteReconcileInFlight) {
@@ -489,24 +469,61 @@ async function reconcileSchedulerWorkspaceFromServer(workspaceId: string): Promi
 // (Ctrl+드래그 생성 → 새 일정 피커 열림 구간에서 카드가 사라지던 회귀 방지)
 const inFlightOptimisticScheduleIds = new Set<string>();
 
-// 최근 로컬에서 생성/편집된 일정 페이지 — 재검증 merge 는 서버(listSchedules)를 권위로 삼아
-// local-only 일정을 드롭하는데, outbox flush 직후 서버 GSI 반영 지연 창에서는 방금 만든
-// 일정이 remote 에도 outbox 에도 없어 사라진다. TTL 유예 동안 로컬 투영을 보존해 흡수한다.
-const RECENT_SCHEDULE_MUTATION_TTL_MS = 5 * 60 * 1000;
-const recentlyMutatedSchedulePages = new Map<string, number>();
+/**
+ * 현재 뷰 스코프(프로젝트/팀/조직 탭·선택 구성원·직군)에 맞는 일정만 남긴다 — 클라 유효값 기준.
+ *
+ * 서버 scoped listSchedules 는 인덱스 기록 시점의 raw 셀만 필터하므로, 파생/상속
+ * (columnSource 자동화·pageLink 미러)으로만 스코프가 정해진 행을 영구 누락한다.
+ * 따라서 범위 조회는 항상 unscoped 로 받고, 스코프 판정은 유효값을 가진 투영 결과에
+ * 이 필터를 적용해 수행한다. 의미론은 기존 서버 요청 구성과 동일:
+ * "스코프 일치 일정 ∪ (스코프의) 보이는 구성원에게 배정된 일정".
+ */
+function filterSchedulesForCurrentScope(
+  schedules: Schedule[],
+  args: {
+    scopeKey: string | null;
+    assigneeId: string | null;
+    selectedJobTitle: string | null;
+  },
+): Schedule[] {
+  const { scopeKey, assigneeId, selectedJobTitle } = args;
+  if (!scopeKey && !assigneeId) return schedules;
 
-function markSchedulePageMutated(pageId: string | null | undefined): void {
-  if (pageId) recentlyMutatedSchedulePages.set(pageId, Date.now());
-}
+  const scope = parseSchedulerScopeKey(scopeKey);
+  const matchesScope = (schedule: Schedule): boolean =>
+    Boolean(
+      (scope.organizationId && schedule.organizationId === scope.organizationId) ||
+      (scope.teamId && schedule.teamId === scope.teamId) ||
+      (scope.projectId && schedule.projectId === scope.projectId),
+    );
 
-function recentlyMutatedSchedulePageIds(): Set<string> {
-  const now = Date.now();
-  const ids = new Set<string>();
-  for (const [pageId, mutatedAt] of recentlyMutatedSchedulePages) {
-    if (now - mutatedAt <= RECENT_SCHEDULE_MUTATION_TTL_MS) ids.add(pageId);
-    else recentlyMutatedSchedulePages.delete(pageId);
+  // 구성원 선택 뷰 — 해당 구성원 배정분 + (스코프 선택 시) 스코프 일치 일정
+  if (assigneeId) {
+    return schedules.filter(
+      (schedule) => schedule.assigneeId === assigneeId || matchesScope(schedule),
+    );
   }
-  return ids;
+
+  const memberState = useMemberStore.getState();
+  const visibleMemberIds = new Set(
+    resolveVisibleSchedulerMembers({
+      members: memberState.members,
+      memberCacheWorkspaceId: memberState.cacheWorkspaceId,
+      organizations: useOrganizationStore.getState().organizations,
+      organizationCacheWorkspaceId: useOrganizationStore.getState().cacheWorkspaceId,
+      teams: useTeamStore.getState().teams,
+      teamCacheWorkspaceId: useTeamStore.getState().cacheWorkspaceId,
+      projects: useSchedulerProjectsStore.getState().projects,
+      projectCacheWorkspaceId: useSchedulerProjectsStore.getState().workspaceId,
+      selectedScopeKey: scopeKey,
+      selectedJobTitle,
+    }).map((member) => member.memberId),
+  );
+  return schedules.filter(
+    (schedule) =>
+      matchesScope(schedule) ||
+      Boolean(schedule.assigneeId && visibleMemberIds.has(schedule.assigneeId)),
+  );
 }
 
 // 동일 키(워크스페이스+범위+스코프)의 서버 재검증 중복 실행 방지
@@ -564,13 +581,15 @@ export const useSchedulerStore = create<SchedulerStore>()(
           let remoteProjected: Schedule[] | null = null;
           if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
             try {
+              // 서버 scoped 쿼리는 raw 셀 기준이라 파생(상속) 스코프 행을 놓친다 —
+              // 항상 범위 전체(unscoped)를 받고 스코프 판정은 아래 클라 유효값 필터가 수행.
               const rangeSchedules = await fetchSchedulerRangeForCurrentScope({
                 workspaceId,
                 from,
                 to,
-                scopeKey,
-                assigneeId,
-                selectedJobTitle: selectedJobTitle ?? null,
+                scopeKey: null,
+                assigneeId: null,
+                selectedJobTitle: null,
               });
               const sourcePages = extractScheduleRangeSourcePages(rangeSchedules);
               applyRemotePagesToStore(sourcePages);
@@ -579,33 +598,27 @@ export const useSchedulerStore = create<SchedulerStore>()(
               console.warn("[scheduler] 범위 일정 조회 실패", error);
             }
           }
-          const pendingPageIds = await getPendingLCSchedulerPageIds();
           // 모든 await 이후(마지막 순간)에 로컬을 투영한다 — 재검증이 도는 동안
           // 생성/편집된 행이 이른 시점 투영에서 누락되는 레이스 방지.
+          // 로컬 투영이 유효값(파생 스코프 포함)을 가지므로 우선하고, 로컬 store 에
+          // 아직 없는 원격 레코드만 보충한다. local-only 일정은 절대 드롭되지 않는다.
           const localProjected = projectSchedulesForStore(workspaceId, from, to);
-          // 서버 권위 merge 에서 보존할 로컬 일정: outbox 미전송 + 최근 로컬 생성/편집(TTL 유예)
-          const protectedPageIds = new Set<string>([
-            ...pendingPageIds,
-            ...recentlyMutatedSchedulePageIds(),
-          ]);
-          const protectedLocalSchedules = protectedPageIds.size > 0
-            ? localProjected.filter((schedule) => {
-                const pageId = parseScheduleInstanceId(schedule.id)?.pageId;
-                return Boolean(pageId && protectedPageIds.has(pageId));
-              })
-            : [];
-          const merged =
-            remoteProjected && (remoteProjected.length > 0 || localProjected.length === 0)
-              ? mergeSchedulesById(remoteProjected, protectedLocalSchedules)
-              : localProjected;
+          const combined = remoteProjected
+            ? mergeSchedulesById(localProjected, remoteProjected)
+            : localProjected;
+          const scoped = filterSchedulesForCurrentScope(combined, {
+            scopeKey,
+            assigneeId,
+            selectedJobTitle: selectedJobTitle ?? null,
+          });
           // 생성 진행 중(서버 미반영) 낙관적 카드는 재검증 결과에 없어도 유지한다.
           const preservedOptimistic = get().schedules.filter(
             (schedule) =>
               inFlightOptimisticScheduleIds.has(schedule.id) &&
-              !merged.some((s) => s.id === schedule.id),
+              !scoped.some((s) => s.id === schedule.id),
           );
           const schedules =
-            preservedOptimistic.length > 0 ? [...merged, ...preservedOptimistic] : merged;
+            preservedOptimistic.length > 0 ? [...scoped, ...preservedOptimistic] : scoped;
           set({
             schedules,
             cachedWorkspaceId: workspaceId,
@@ -673,7 +686,6 @@ export const useSchedulerStore = create<SchedulerStore>()(
             selectedScopeKey: input.selectedScopeKey ?? useSchedulerViewStore.getState().selectedProjectId,
           });
           const pageId = parseScheduleInstanceId(s.id)?.pageId;
-          markSchedulePageMutated(pageId);
           if (pageId) {
             const nextForPage = projectSchedulesForPage(input.workspaceId, pageId, rangeFrom, rangeTo);
             set((state) => {
@@ -720,7 +732,6 @@ export const useSchedulerStore = create<SchedulerStore>()(
         try {
           const s = await updateLCSchedulerSchedule(input);
           const pageId = parseScheduleInstanceId(input.id)?.pageId ?? parseScheduleInstanceId(s.id)?.pageId;
-          markSchedulePageMutated(pageId);
           if (pageId) {
             const nextForPage = projectSchedulesForPage(input.workspaceId, pageId, rangeFrom, rangeTo);
             set((state) => {
@@ -807,8 +818,6 @@ export const useSchedulerStore = create<SchedulerStore>()(
         if (!targetWorkspaceId) return;
         const rangeFrom = get().visibleRangeFrom ?? undefined;
         const rangeTo = get().visibleRangeTo ?? undefined;
-        // 로컬 셀 편집/생성 직후의 재검증 드롭 방지 — TTL 유예 보존 대상으로 마킹
-        for (const pageId of uniquePageIds) markSchedulePageMutated(pageId);
         const nextForPages = Array.from(uniquePageIds).flatMap((pageId) =>
           projectSchedulesForPage(targetWorkspaceId, pageId, rangeFrom, rangeTo),
         );

@@ -221,39 +221,35 @@ describe("schedulerStore scope range fetch", () => {
       selectedProjectId: "proj:project-1",
       selectedMemberId: null,
     });
-    fetchScheduleRangeMock.mockImplementation(async (request) => {
-      if (request.assigneeId === "member-1") {
-        return [
-          gqlSchedule({
-            pageId: "task-member-1-other-project",
-            assigneeId: "member-1",
-            projectId: "project-2",
-            title: "Alice other project",
-          }),
-        ];
-      }
-      if (request.assigneeId === "member-2") {
-        return [
-          gqlSchedule({
-            pageId: "task-member-2-other-project",
-            assigneeId: "member-2",
-            projectId: "project-3",
-            title: "Bob other project",
-          }),
-        ];
-      }
-      if (request.projectId === "project-1" && !request.assigneeId) {
-        return [
-          gqlSchedule({
-            pageId: "global-project-1",
-            assigneeId: null,
-            projectId: "project-1",
-            title: "Project global",
-          }),
-        ];
-      }
-      return [];
-    });
+    // 서버 scoped 쿼리는 raw 셀만 필터해 파생(상속) 스코프 행을 놓치므로,
+    // 범위 조회는 항상 unscoped 1건이고 스코프 판정은 클라 필터가 수행한다.
+    fetchScheduleRangeMock.mockImplementation(async () => [
+      gqlSchedule({
+        pageId: "task-member-1-other-project",
+        assigneeId: "member-1",
+        projectId: "project-2",
+        title: "Alice other project",
+      }),
+      gqlSchedule({
+        pageId: "task-member-2-other-project",
+        assigneeId: "member-2",
+        projectId: "project-3",
+        title: "Bob other project",
+      }),
+      gqlSchedule({
+        pageId: "global-project-1",
+        assigneeId: null,
+        projectId: "project-1",
+        title: "Project global",
+      }),
+      // 스코프 밖(비멤버 배정 + 타 프로젝트) — 클라 필터가 제외해야 함
+      gqlSchedule({
+        pageId: "task-member-3-other-project",
+        assigneeId: "member-3",
+        projectId: "project-4",
+        title: "Charlie unrelated",
+      }),
+    ]);
 
     await useSchedulerStore.getState().fetchSchedules(
       LC_SCHEDULER_WORKSPACE_ID,
@@ -261,29 +257,14 @@ describe("schedulerStore scope range fetch", () => {
       range.to,
     );
 
-    expect(requests()).toEqual(expect.arrayContaining([
+    expect(requests()).toEqual([
       expect.objectContaining({
-        projectId: "project-1",
+        projectId: null,
         teamId: null,
         organizationId: null,
         assigneeId: null,
       }),
-      expect.objectContaining({
-        projectId: null,
-        teamId: null,
-        organizationId: null,
-        assigneeId: "member-1",
-      }),
-      expect.objectContaining({
-        projectId: null,
-        teamId: null,
-        organizationId: null,
-        assigneeId: "member-2",
-      }),
-    ]));
-    expect(requests()).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ assigneeId: "member-3" }),
-    ]));
+    ]);
     expect(useSchedulerStore.getState().schedules.map((schedule) => schedule.title).sort()).toEqual([
       "Alice other project",
       "Bob other project",
@@ -319,29 +300,27 @@ describe("schedulerStore scope range fetch", () => {
       selectedProjectId: "proj:project-1",
       selectedMemberId: "member-2",
     });
-    fetchScheduleRangeMock.mockImplementation(async (request) => {
-      if (request.assigneeId === "member-2") {
-        return [
-          gqlSchedule({
-            pageId: "task-member-2-other-project",
-            assigneeId: "member-2",
-            projectId: "project-9",
-            title: "Bob outside selected project",
-          }),
-        ];
-      }
-      if (request.projectId === "project-1" && !request.assigneeId) {
-        return [
-          gqlSchedule({
-            pageId: "global-project-1",
-            assigneeId: null,
-            projectId: "project-1",
-            title: "Project global",
-          }),
-        ];
-      }
-      return [];
-    });
+    fetchScheduleRangeMock.mockImplementation(async () => [
+      gqlSchedule({
+        pageId: "task-member-2-other-project",
+        assigneeId: "member-2",
+        projectId: "project-9",
+        title: "Bob outside selected project",
+      }),
+      gqlSchedule({
+        pageId: "global-project-1",
+        assigneeId: null,
+        projectId: "project-1",
+        title: "Project global",
+      }),
+      // 선택 구성원도 아니고 스코프 일치도 아님 — 제외 대상
+      gqlSchedule({
+        pageId: "task-member-1-other-project",
+        assigneeId: "member-1",
+        projectId: "project-9",
+        title: "Alice outside selected project",
+      }),
+    ]);
 
     await useSchedulerStore.getState().fetchSchedules(
       LC_SCHEDULER_WORKSPACE_ID,
@@ -349,21 +328,14 @@ describe("schedulerStore scope range fetch", () => {
       range.to,
     );
 
-    expect(requests()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        projectId: "project-1",
-        assigneeId: null,
-      }),
+    expect(requests()).toEqual([
       expect.objectContaining({
         projectId: null,
         teamId: null,
         organizationId: null,
-        assigneeId: "member-2",
+        assigneeId: null,
       }),
-    ]));
-    expect(requests()).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ assigneeId: "member-1" }),
-    ]));
+    ]);
     expect(useSchedulerStore.getState().schedules.map((schedule) => schedule.title).sort()).toEqual([
       "Bob outside selected project",
       "Project global",
@@ -397,25 +369,20 @@ describe("schedulerStore scope range fetch", () => {
       selectedProjectId: "proj:project-1",
       selectedMemberId: null,
     });
-    fetchScheduleRangeMock.mockImplementation(async (request) => {
-      if (request.assigneeId === "member-1") {
-        return [
-          standaloneSchedule({
-            id: "sch_ghost_1",
-            assigneeId: "member-1",
-            projectId: "project-1",
-            title: "테스트 2",
-          }),
-          gqlSchedule({
-            pageId: "task-member-1",
-            assigneeId: "member-1",
-            projectId: "project-1",
-            title: "Real task",
-          }),
-        ];
-      }
-      return [];
-    });
+    fetchScheduleRangeMock.mockImplementation(async () => [
+      standaloneSchedule({
+        id: "sch_ghost_1",
+        assigneeId: "member-1",
+        projectId: "project-1",
+        title: "테스트 2",
+      }),
+      gqlSchedule({
+        pageId: "task-member-1",
+        assigneeId: "member-1",
+        projectId: "project-1",
+        title: "Real task",
+      }),
+    ]);
 
     await useSchedulerStore.getState().fetchSchedules(
       LC_SCHEDULER_WORKSPACE_ID,
@@ -478,19 +445,14 @@ describe("schedulerStore scope range fetch", () => {
         selectedJobTitle: null,
       }),
     });
-    fetchScheduleRangeMock.mockImplementation(async (request) => {
-      if (request.assigneeId === "member-1") {
-        return [
-          gqlSchedule({
-            pageId: "task-member-1",
-            assigneeId: "member-1",
-            projectId: "project-1",
-            title: "Real task",
-          }),
-        ];
-      }
-      return [];
-    });
+    fetchScheduleRangeMock.mockImplementation(async () => [
+      gqlSchedule({
+        pageId: "task-member-1",
+        assigneeId: "member-1",
+        projectId: "project-1",
+        title: "Real task",
+      }),
+    ]);
 
     await useSchedulerStore.getState().fetchSchedules(
       LC_SCHEDULER_WORKSPACE_ID,
@@ -498,9 +460,12 @@ describe("schedulerStore scope range fetch", () => {
       range.to,
     );
 
-    expect(fetchScheduleRangeMock).toHaveBeenCalled();
-    expect(useSchedulerStore.getState().schedules.map((schedule) => schedule.title)).toEqual([
-      "Real task",
-    ]);
+    // cache-hit 경로는 백그라운드 재검증(void)이라 완료를 기다려 단언한다
+    await vi.waitFor(() => {
+      expect(fetchScheduleRangeMock).toHaveBeenCalled();
+      expect(useSchedulerStore.getState().schedules.map((schedule) => schedule.title)).toEqual([
+        "Real task",
+      ]);
+    });
   });
 });
