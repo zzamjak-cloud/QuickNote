@@ -26,6 +26,7 @@
 - `Workspace.access`/`myEffectiveLevel` 은 서버가 소문자(`everyone`/`edit`)로 내려도 클라이언트 `normalizeAccessEntry`(`workspaceApi.ts`)가 흡수한다(대소문자 무관).
 
 **멘션 검색 (`MentionSearchModal` → `mentionItems.ts`)**
+- 검색 UI 는 **단일 통합 입력** — 페이지·구성원을 한 필드에서 함께 검색한다(과거 페이지/구성원 입력 분리는 불편해서 통합, 결과 순서는 `loadMergedMentionItems` 반환 순서 그대로: 멤버 → 페이지).
 - 멤버 + 페이지(로컬·교차)만. **DB(데이터베이스 자체)는 멘션 후보 아님** — DB 연결은 DB Link/Page Link/컬럼 소스 UI에서만.
 - 각 페이지 항목 subtitle 에 소속 **워크스페이스 이름**을 표시(동명 페이지 구분).
 

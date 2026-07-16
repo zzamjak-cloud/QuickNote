@@ -1,5 +1,6 @@
 import { useMemberStore } from "../../store/memberStore";
 import type { MemberMini } from "../../store/memberStore";
+import { koreanIncludes } from "../koreanSearch";
 
 /** 워크스페이스 멤버 목록에서 이름·이메일 부분일치(대소문자 무시) */
 export function filterWorkspaceMembersForMention(
@@ -24,8 +25,9 @@ export function filterWorkspaceMembersForMention(
   return members
     .filter(
       (m) =>
-        (m.name ?? "").toLowerCase().includes(q) ||
-        (m.email ?? "").toLowerCase().includes(q),
+        // plain includes 는 NFD 저장 이름의 한글 부분일치에 실패한다 — 전역 검색과 동일한 NFC 매처 사용
+        koreanIncludes((m.name ?? "").toLowerCase(), q) ||
+        koreanIncludes((m.email ?? "").toLowerCase(), q),
     )
     .slice(0, limit)
     .map(toMini);

@@ -1,9 +1,8 @@
-// @ 입력 시 인라인 제안 대신 검색 모달로 멘션 대상 선택 — 페이지/구성원 검색 필드 분리
+// @ 입력 시 인라인 제안 대신 검색 모달로 멘션 대상 선택 — 페이지·구성원 통합 검색
 
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -28,13 +27,8 @@ type Props = {
   range: Range | null;
 };
 
-/** 한 종류(page/member)의 멘션 후보를 독립 검색하는 훅. */
-function useMentionKindSearch(
-  open: boolean,
-  query: string,
-  kind: MentionListItem["mentionKind"],
-  includeRemoteMembers: boolean,
-) {
+/** 페이지·구성원 통합 멘션 후보를 검색하는 훅. */
+function useMentionSearch(open: boolean, query: string) {
   const [items, setItems] = useState<MentionListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [resolvedQuery, setResolvedQuery] = useState("");
@@ -59,7 +53,7 @@ function useMentionKindSearch(
     }, 180);
     const apply = (rows: MentionListItem[]) => {
       if (cancelled) return;
-      setItems(rows.filter((r) => r.mentionKind === kind));
+      setItems(rows);
       setResolvedQuery(q);
     };
     void loadMergedMentionItems(query, 24, { includeRemoteMembers: false }).then((rows) => {
@@ -67,49 +61,39 @@ function useMentionKindSearch(
       apply(rows);
       if (!cancelled) setLoading(false);
     });
-    let remoteTimer = 0;
-    if (includeRemoteMembers) {
-      remoteTimer = window.setTimeout(() => {
-        void loadMergedMentionItems(query, 24, { includeRemoteMembers: true }).then(apply);
-      }, 120);
-    }
+    // 멤버 캐시가 stale 하면 원격 멤버 검색까지 포함해 결과를 갱신한다(120ms 디바운스).
+    const remoteTimer = window.setTimeout(() => {
+      void loadMergedMentionItems(query, 24, { includeRemoteMembers: true }).then(apply);
+    }, 120);
     return () => {
       cancelled = true;
       window.clearTimeout(loadingTimer);
-      if (remoteTimer) window.clearTimeout(remoteTimer);
+      window.clearTimeout(remoteTimer);
     };
-  }, [open, query, kind, includeRemoteMembers]);
+  }, [open, query]);
 
   return { items, loading, resolvedQuery };
 }
 
 export function MentionSearchModal({ open, onClose, editor, range }: Props) {
-  const pageInputRef = useRef<HTMLInputElement>(null);
-  const [pageQuery, setPageQuery] = useState("");
-  const [memberQuery, setMemberQuery] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
 
-  const pageSearch = useMentionKindSearch(open, pageQuery, "page", false);
-  const memberSearch = useMentionKindSearch(open, memberQuery, "member", true);
-
-  // 키보드 네비게이션/삽입 대상은 페이지+구성원 결합 리스트(페이지 먼저).
-  const combined = useMemo<MentionListItem[]>(
-    () => [...pageSearch.items, ...memberSearch.items],
-    [pageSearch.items, memberSearch.items],
-  );
+  const search = useMentionSearch(open, query);
+  const combined = search.items;
 
   useEffect(() => {
     if (!open) return;
-    setPageQuery("");
-    setMemberQuery("");
+    setQuery("");
     setSelected(0);
-    const t = window.setTimeout(() => pageInputRef.current?.focus(), 0);
+    const t = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(t);
   }, [open]);
 
   useEffect(() => {
     setSelected(0);
-  }, [pageQuery, memberQuery]);
+  }, [query]);
 
   const insert = useCallback(
     (item: MentionListItem) => {
@@ -195,11 +179,9 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
   const inputClass =
     "w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-emerald-500/30 placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-emerald-400";
 
-  const anyQuery = !!pageQuery.trim() || !!memberQuery.trim();
-  const anyLoading = pageSearch.loading || memberSearch.loading;
-  const pageSettled = !pageQuery.trim() || pageSearch.resolvedQuery === pageQuery.trim();
-  const memberSettled = !memberQuery.trim() || memberSearch.resolvedQuery === memberQuery.trim();
-  const settled = pageSettled && memberSettled;
+  const anyQuery = !!query.trim();
+  const anyLoading = search.loading;
+  const settled = !query.trim() || search.resolvedQuery === query.trim();
 
   return (
     <div
@@ -218,25 +200,15 @@ export function MentionSearchModal({ open, onClose, editor, range }: Props) {
         <h2 id="qn-mention-search-title" className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
           멘션할 대상 검색
         </h2>
-        <div className="flex gap-2">
-          <input
-            ref={pageInputRef}
-            type="text"
-            value={pageQuery}
-            onChange={(e) => setPageQuery(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="페이지 검색"
-            className={inputClass}
-          />
-          <input
-            type="text"
-            value={memberQuery}
-            onChange={(e) => setMemberQuery(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="구성원 검색"
-            className={inputClass}
-          />
-        </div>
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="페이지 또는 구성원 검색"
+          className={inputClass}
+        />
         <div className="h-80 overflow-y-auto rounded-lg border border-zinc-100 dark:border-zinc-700">
           {!anyQuery ? (
             <div className="px-3 py-6 text-center text-xs text-zinc-400">검색어를 입력하세요.</div>
