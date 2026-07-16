@@ -45,3 +45,11 @@
 회귀 주의:
 - 댓글 `messages` 를 다시 persist 하지 않는 한, 댓글 페치에 `updatedAfter` 를 넣으면 즉시 재발한다.
 - 진단 팁: 브라우저 동적 `import('/src/...')` 는 Vite 에서 앱 번들과 별개 모듈 그래프라 store 직접 읽기가 불가하다(확장자 유무로도 인스턴스가 갈림). `main.tsx` 의 `registerDevTools`(부트 이전 실행)에 계측을 넣어야 앱 인스턴스에 접근할 수 있다.
+
+## 블록 앵커링·댓글 위치 틀어짐 회귀
+
+앵커는 블록 노드의 `attrs.id`(UniqueID 관리) 단일 값이고, 해석(`findBlockStartById`, `blockCommentDecorations`)은 전부 **문서 순서상 첫 매칭**이다. 따라서:
+
+- **복제는 반드시 id 를 벗겨야 한다** — `node.copy()` 로 통째 복제하면 동일 id 블록이 영구 공존하고, 복제본이 원본보다 앞에 오면 댓글이 복제본에 붙는다. 블록 복제(`BlockHandles.duplicateBlock`)·박스선택 Ctrl+D(`useBoxSelectDuplicateBlocks`)는 `cloneWithoutBlockIds`(`src/lib/pm/cloneWithoutBlockIds.ts`) 를 쓴다. 새 복제/삽입 경로를 추가하면 같은 유틸 필수. (paste 는 UniqueID 확장이 `transformPasted` 로 자체 처리, 드래그 **이동**은 id 유지가 올바름 — 댓글이 블록을 따라간다.)
+- **스레드 패널은 blockId 해석 우선** — `BlockCommentThreadPanel` 은 open 시점에 캡처한 절대 `payload.blockStart` 가 아니라 `findBlockStartById` 를 우선한다(절대 position 은 원격 편집으로 밀림). 문서 트랜잭션(`docChanged`) 마다 재앵커하며, 이때는 고정 viewport 앵커보다 블록 실좌표를 우선한다.
+- Enter 분할 시 id 는 UniqueID 확장이 "내용 블록이 원래 id 유지, 빈 블록에 새 id" 로 처리(빈 앞블록+동일 id 뒷블록 특례 포함) — 원격(y-sync) 트랜잭션에는 appendTransaction 을 돌리지 않으므로 편집한 클라이언트의 배정이 그대로 전파된다.

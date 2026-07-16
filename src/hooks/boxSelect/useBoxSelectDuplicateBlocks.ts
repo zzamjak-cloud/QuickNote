@@ -1,5 +1,6 @@
 import { type RefObject, useEffect } from "react";
 import type { Editor } from "@tiptap/react";
+import { cloneWithoutBlockIds } from "../../lib/pm/cloneWithoutBlockIds";
 
 /** 박스 선택된 블록 일괄 복제 — Ctrl/Cmd+D 가 브라우저 북마크로 가지 않도록 capture 에서 차단 */
 export function useBoxSelectDuplicateBlocks(
@@ -23,7 +24,8 @@ export function useBoxSelectDuplicateBlocks(
         const node = doc0.nodeAt(pos);
         if (!node) continue;
         const mappedPos = tr.mapping.map(pos);
-        tr.insert(mappedPos + node.nodeSize, node.copy(node.content));
+        // id 를 벗겨 복제 — 동일 id 공존 시 댓글 앵커가 복제본에 오바인딩되는 문제 방지
+        tr.insert(mappedPos + node.nodeSize, cloneWithoutBlockIds(node));
       }
 
       if (tr.docChanged) {

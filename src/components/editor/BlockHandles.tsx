@@ -54,6 +54,7 @@ import {
   applyHeaderRowToggle,
 } from "../../lib/editor/tableHeaders";
 import { topLevelBlockStartsInSelectionRange } from "../../lib/pm/topLevelBlocks";
+import { cloneWithoutBlockIds } from "../../lib/pm/cloneWithoutBlockIds";
 import { useAiStore } from "../../store/aiStore";
 import { isAiProxyConfigured } from "../../lib/ai/aiClient";
 import { getBlocksAiPayload } from "../../lib/ai/selection";
@@ -728,7 +729,8 @@ export function BlockHandles({
     if (!editor || !hover) return;
     const { blockStart, node } = hover;
     const insertAt = blockStart + node.nodeSize;
-    const tr = editor.state.tr.insert(insertAt, node.copy(node.content));
+    // id 를 벗겨 복제 — 동일 id 공존 시 댓글 앵커가 복제본에 오바인딩되는 문제 방지
+    const tr = editor.state.tr.insert(insertAt, cloneWithoutBlockIds(node));
     editor.view.dispatch(tr.scrollIntoView());
     editor.view.focus();
     setMenuOpen(false);

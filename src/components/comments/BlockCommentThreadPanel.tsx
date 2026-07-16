@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import type { Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/react";
+import type { Transaction as PMTransaction } from "@tiptap/pm/state";
 import { Pencil, Trash2, X } from "lucide-react";
 import { useUiStore, type CommentThreadPayload } from "../../store/uiStore";
 import { usePageStore } from "../../store/pageStore";
@@ -122,65 +123,78 @@ export function BlockCommentThreadPanel({ editor }: Props) {
     }
   }, [payload, markThreadVisited]);
 
-  const updateAnchorPosition = useCallback((): void => {
-    if (!payload) {
-      setAnchor(null);
-      return;
-    }
-    const ph = estimatedPanelHeight();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+  const updateAnchorPosition = useCallback(
+    (opts?: { preferBlockAnchor?: boolean }): void => {
+      if (!payload) {
+        setAnchor(null);
+        return;
+      }
+      const ph = estimatedPanelHeight();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const applyRect = (rect: {
+        top: number;
+        left: number;
+        right: number;
+        bottom: number;
+      }) => {
+        const { top, left } = computeFloatingPanelPosition({
+          anchor: rect,
+          panelWidth: PANEL_W,
+          panelHeight: ph,
+          vw,
+          vh,
+        });
+        setAnchor({ top, left });
+      };
+      const blockRect = (): DOMRect | null => {
+        if (!liveEditor || liveEditor.isDestroyed) return null;
+        // open 시점에 캡처한 절대 blockStart 는 원격 편집으로 position 이 밀리면
+        // 다른 블록을 가리킨다 — blockId 해석을 우선하고 blockStart 는 폴백으로만 쓴다.
+        const start =
+          findBlockStartById(liveEditor, payload.blockId) ??
+          (payload.blockStart > 0 ? payload.blockStart : null);
+        if (start === null) return null;
+        const dom = liveEditor.view.nodeDOM(start);
+        const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
+        return el ? el.getBoundingClientRect() : null;
+      };
 
-    if (payload.anchorViewport) {
-      const { top, left } = computeFloatingPanelPosition({
-        anchor: payload.anchorViewport,
-        panelWidth: PANEL_W,
-        panelHeight: ph,
-        vw,
-        vh,
-      });
-      setAnchor({ top, left });
-      return;
-    }
-
-    if (!liveEditor || liveEditor.isDestroyed) {
+      // 원격 편집 재앵커(preferBlockAnchor) 시에는 고정 viewport 앵커보다 블록 실좌표 우선
+      if (payload.anchorViewport && !opts?.preferBlockAnchor) {
+        applyRect(payload.anchorViewport);
+        return;
+      }
+      const r = blockRect();
+      if (r) {
+        applyRect({ top: r.top, left: r.left, right: r.right, bottom: r.bottom });
+        return;
+      }
+      if (payload.anchorViewport) {
+        applyRect(payload.anchorViewport);
+        return;
+      }
       setAnchor(null);
-      return;
-    }
-    const start =
-      payload.blockStart > 0
-        ? payload.blockStart
-        : findBlockStartById(liveEditor, payload.blockId);
-    if (start === null) {
-      setAnchor(null);
-      return;
-    }
-    const dom = liveEditor.view.nodeDOM(start);
-    const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
-    if (!el) {
-      setAnchor(null);
-      return;
-    }
-    const r = el.getBoundingClientRect();
-    const anchorRect = {
-      top: r.top,
-      left: r.left,
-      right: r.right,
-      bottom: r.bottom,
-    };
-    const { top, left } = computeFloatingPanelPosition({
-      anchor: anchorRect,
-      panelWidth: PANEL_W,
-      panelHeight: ph,
-      vw,
-      vh,
-    });
-    setAnchor({ top, left });
-  }, [payload, liveEditor]);
+    },
+    [payload, liveEditor],
+  );
 
   useLayoutEffect(() => {
     updateAnchorPosition();
   }, [updateAnchorPosition, messages.length]);
+
+  // 협업 원격 update 등으로 문서가 바뀌면 블록 position 이 밀린다 — blockId 기준으로 재앵커
+  useEffect(() => {
+    if (!payload || !liveEditor || liveEditor.isDestroyed) return;
+    const onTransaction = ({ transaction }: { transaction: PMTransaction }) => {
+      if (!transaction.docChanged) return;
+      updateAnchorPosition({ preferBlockAnchor: true });
+    };
+    liveEditor.on("transaction", onTransaction);
+    return () => {
+      liveEditor.off("transaction", onTransaction);
+    };
+  }, [payload, liveEditor, updateAnchorPosition]);
 
   useEffect(() => {
     if (!payload) return;
