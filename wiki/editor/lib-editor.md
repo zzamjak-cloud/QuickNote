@@ -19,7 +19,7 @@
 | 파일 | 주요 export | 설명 |
 |------|------------|------|
 | `blockDropTarget.ts` | `BlockDropIndicatorRect`, 관련 유틸 | 블록 드래그 중 드롭 위치 rect 계산. 파일/이미지 drop도 같은 위치 계산을 사용하므로 컬럼 gap·토글 NodeView wrapper(`div.toggle-block`) hit를 내부 삽입 위치로 해석해야 한다 |
-| `editorHandleDrop.ts` | `BlockDropIndicatorRect`, `ColumnDropState`, 드롭 핸들러 | 블록·컬럼 드롭 이벤트 처리 로직 |
+| `editorHandleDrop.ts` | `BlockDropIndicatorRect`, `ColumnDropState`, 드롭 핸들러 | 블록·컬럼·파일 드롭 이벤트 처리 로직 |
 | `tableReorderDrag.ts` | — | 테이블 행/열 드래그 재정렬 로직 |
 | `tableHeaders.ts` | `isHeaderRowActive`, `isHeaderColActive`, `applyHeaderRowToggle`, `applyHeaderColToggle` | 표 헤더행/헤더열 판별·토글. TipTap toggleHeader 명령 신뢰성 문제로 PM 트랜잭션 직접 처리. `TableBlockControls`(행/열 그립 메뉴)와 `BlockHandles`(표 블록 좌상단 핸들 메뉴)가 공유 |
 | `tableColumnWidths.ts` | `getSelectedColumnCount`, `distributeSelectedColumnsEvenly` | CellSelection 으로 연속 다중 열 선택 시, 선택 열 전체 너비를 열 개수로 균등 분배(colwidth 갱신). `BubbleToolbar` 의 "균등 너비" 버튼에서 호출 |
@@ -62,3 +62,4 @@
 - **`editorByPageRegistry`**: 피크 뷰처럼 여러 에디터 인스턴스가 동시에 존재할 수 있으므로, `pageId`를 키로 정확한 인스턴스를 조회해야 한다.
 - **`insertImageFromFile`**: `Editor.tsx`에서 `onSizeExceeded` 콜백으로 `setSimpleAlert`를 연결해 사용자에게 5MB 초과 경고를 표시한다. 새 진입점에서 이 함수를 사용할 때도 콜백을 반드시 처리해야 한다.
 - **`blockDropTarget` / `editorHandleDrop`**: `BlockDropIndicatorRect`와 `ColumnDropState` 타입은 `Editor.tsx`의 state 타입으로도 사용된다. 타입 변경 시 Editor 컴포넌트의 state 선언도 함께 확인한다.
+- **파일/이미지 드롭 위치**: 외부 파일 드래그오버도 `resolveBlockDropTarget`/`resolveBlockDropIndicatorRect` 를 사용해 표시선을 그린다. 실제 drop 은 `topLevelInsertionPosFromDrop` 으로 같은 삽입점을 계산한다. 특히 토글은 `div.toggle-block` 래퍼에 히트해도 내부 `[data-toggle-content]` 자식 위치로 내려가야 하며, 실패 시 토글 본문 끝에만 들어가는 회귀가 난다.

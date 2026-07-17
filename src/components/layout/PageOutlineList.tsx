@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Hash } from "lucide-react";
+import { ChevronRight, Hash } from "lucide-react";
 import { usePageStore } from "../../store/pageStore";
 import { useUiStore } from "../../store/uiStore";
 import { extractOutlineFromDocJson } from "../../lib/pageOutline";
@@ -26,7 +26,7 @@ export function PageOutlineList() {
   if (outline.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-zinc-300 p-3 text-xs text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-        이 페이지에는 목차가 없습니다. `#` ~ `####` 헤더를 추가해 보세요.
+        이 페이지에는 목차가 없습니다. `#` ~ `####` 헤더나 제목 토글을 추가해 보세요.
       </div>
     );
   }
@@ -51,10 +51,17 @@ export function PageOutlineList() {
           style={{ paddingLeft: `${item.level * 10}px` }}
           title={item.text}
         >
-          <Hash
-            size={13}
-            className="shrink-0 text-zinc-400 group-hover:text-violet-500 dark:group-hover:text-violet-300"
-          />
+          {item.kind === "toggle" ? (
+            <ChevronRight
+              size={13}
+              className="shrink-0 text-zinc-400 group-hover:text-violet-500 dark:group-hover:text-violet-300"
+            />
+          ) : (
+            <Hash
+              size={13}
+              className="shrink-0 text-zinc-400 group-hover:text-violet-500 dark:group-hover:text-violet-300"
+            />
+          )}
           <span className="truncate">{item.text}</span>
         </button>
       ))}

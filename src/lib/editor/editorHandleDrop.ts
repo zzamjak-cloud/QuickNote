@@ -424,6 +424,35 @@ function parseQuickNoteBlockDragStarts(dt: DataTransfer | null): number[] | null
   }
 }
 
+function isExternalFileDrag(dt: DataTransfer | null): boolean {
+  if (!dt) return false;
+  if (dt.files && dt.files.length > 0) return true;
+  return Array.from(dt.types ?? []).includes("Files");
+}
+
+function fileDropPreviewNode(view: EditorView): PMNode | null {
+  const imageType = view.state.schema.nodes.image;
+  if (imageType) {
+    try {
+      return imageType.create({ src: "" });
+    } catch {
+      /* fallback below */
+    }
+  }
+  const fileBlockType = view.state.schema.nodes.fileBlock;
+  if (!fileBlockType) return null;
+  try {
+    return fileBlockType.create({
+      name: "drop",
+      size: 0,
+      mime: null,
+      uploading: true,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function moveQuickNoteBlocksFromDrop(
   view: EditorView,
   event: DragEvent,
@@ -671,7 +700,44 @@ export function createEditorHandleDragOver(options: {
       return false;
     }
     const starts = parseQuickNoteBlockDragStarts(event.dataTransfer);
-    if (!starts) return false;
+    if (!starts) {
+      if (!isExternalFileDrag(event.dataTransfer)) {
+        clearBlockDropIndicator();
+        return false;
+      }
+      const previewNode = fileDropPreviewNode(view);
+      if (!previewNode) {
+        clearBlockDropIndicator();
+        return false;
+      }
+      const target = resolveBlockDropTarget(
+        view,
+        event.clientX,
+        event.clientY,
+        [previewNode],
+      );
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = target.allowed ? "copy" : "none";
+      }
+      if (target.allowed) {
+        const rect = resolveBlockDropIndicatorRect(
+          view,
+          target,
+          event.clientX,
+          event.clientY,
+        );
+        if (rect) {
+          showBlockDropIndicator(rect);
+        } else {
+          clearBlockDropIndicator();
+        }
+        event.preventDefault();
+        return true;
+      }
+      clearBlockDropIndicator();
+      event.preventDefault();
+      return true;
+    }
     const nodes = starts
       .map((start) => view.state.doc.nodeAt(start))
       .filter((node): node is PMNode => Boolean(node));

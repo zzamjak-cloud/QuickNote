@@ -199,6 +199,8 @@ function armTextSelectionScrollDampener(
     document.removeEventListener("mouseup", cleanup, true);
     window.removeEventListener("blur", cleanup, true);
     scrollHost.removeEventListener("scroll", onScroll);
+    scrollHost.removeEventListener("wheel", cleanup);
+    scrollHost.removeEventListener("touchmove", cleanup);
     if (restoreRaf != null) window.cancelAnimationFrame(restoreRaf);
   };
 
@@ -206,6 +208,9 @@ function armTextSelectionScrollDampener(
   document.addEventListener("mouseup", cleanup, true);
   window.addEventListener("blur", cleanup, true);
   scrollHost.addEventListener("scroll", onScroll, { passive: true });
+  // 텍스트 drag 중이라도 wheel/trackpad/touch 입력은 사용자의 명시적 스크롤 의도다.
+  scrollHost.addEventListener("wheel", cleanup, { passive: true });
+  scrollHost.addEventListener("touchmove", cleanup, { passive: true });
 }
 
 /**

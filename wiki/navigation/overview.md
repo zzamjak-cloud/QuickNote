@@ -158,6 +158,8 @@ TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 
 
 우측 목차 클릭 이동은 `scrollToOutlineHeadingIndex` → **`scrollToBlockPosition`(DOM 직접 스크롤)** 을 쓴다. PM/TipTap 의 `.scrollIntoView()` 는 에디터 `handleScrollToSelection`(`useEditorProps.ts`)이 전면 `true` 를 반환해(타이핑 자동스크롤·복원 보호) **무력화**되므로, 선택만 설정하고 실제 뷰포트 이동은 DOM 스크롤로 한다. 댓글·검색·블록 링크 이동과 동일 경로다. (회귀 주의: 목차가 커서만 잡히고 스크롤이 안 되면 `.scrollIntoView()` 직접 호출을 의심.)
 
+목차 항목 추출(`pageOutline.ts`)은 일반 heading(`#`~`####`)과 `toggleHeader.attrs.titleLevel` 이 있는 **제목 토글**을 같은 깊이 우선 순서로 포함한다. 클릭 이동도 라이브 PM 문서에서 heading + 제목 토글 위치를 같은 순서로 다시 수집해야 한다. JSON 목차에 제목 토글을 추가하고 이동 쪽이 heading 만 세면 클릭 대상이 한 칸씩 밀린다.
+
 ---
 
 ## 핵심 파일

@@ -220,3 +220,9 @@ appendTransaction: (_trs, _oldState, state) => {
 크래시는 TextSelection 복원에서만 발생하므로 `TextSelection` 한정으로 방지 효과는 유지된다.
 진단: live 에서 `@tiptap/pm/tables` 의 `CellSelection` 을 직접 dispatch → appendTransaction 통과 후에도
 살아있는지로 가드 영향을 판정(Playwright 합성 마우스 드래그는 prosemirror-tables 드래그 추적을 구동 못 함).
+
+## 원격 변경의 viewport 앵커
+
+`collaboration.ts` 는 원격 ySync 문서 트랜잭션 직전에 현재 선택 블록(선택 블록이 보이지 않으면 첫 visible block)의 `data-id`와 viewport offset을 캡처한다. 원격 사용자가 현재 viewport 위쪽에 블록이나 이미지를 추가해도 트랜잭션 적용 뒤 같은 블록의 offset 차이만큼 `scrollTop`을 보정해, 이 사용자가 편집 중인 위치가 밀리지 않게 한다.
+
+이미지 NodeView는 lazy placeholder에서 실제 이미지 높이로 뒤늦게 바뀔 수 있으므로 editor root의 `ResizeObserver`로 최대 3초 동안 같은 앵커를 안정화한다. 로컬 문서 편집·선택 이동·wheel/touch·네이티브 scrollbar 입력이 시작되면 즉시 종료해 사용자의 스크롤 의도를 우선한다. 이미지에 `width`/`height`가 있으면 cold URL placeholder도 같은 aspect ratio 공간을 미리 확보해 두 번째 layout shift를 줄인다.

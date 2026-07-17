@@ -322,14 +322,14 @@ function EditorInner({
   const editorScrollHostRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
-    if (bodyOnly || peek) return undefined;
+    if (bodyOnly || peek || pageContentMissing) return undefined;
     return restorePageScrollPosition(effectivePageId, editorScrollHostRef.current, "main");
-  }, [bodyOnly, effectivePageId, peek]);
+  }, [bodyOnly, effectivePageId, pageContentMissing, peek]);
 
   useEffect(() => {
-    if (bodyOnly || peek) return undefined;
+    if (bodyOnly || peek || pageContentMissing) return undefined;
     return bindPageScrollMemory(effectivePageId, editorScrollHostRef.current, "main");
-  }, [bodyOnly, effectivePageId, peek]);
+  }, [bodyOnly, effectivePageId, pageContentMissing, peek]);
 
   useEffect(() => {
     if (!effectivePageId || !pageContentMissing) return;

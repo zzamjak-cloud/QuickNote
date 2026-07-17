@@ -18,7 +18,6 @@ let lastUserScrollInputAt = 0;
 const USER_SCROLL_INPUT_WINDOW_MS = 900;
 const SCROLLBAR_HIT_SLOP_PX = 48;
 const RESTORE_SCROLL_EPSILON_PX = 2;
-const RESTORE_LAYOUT_CHANGE_GRACE_MS = 120;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(value, max));
@@ -247,11 +246,8 @@ export function restorePageScrollPosition(
   let finished = false;
   let lastAppliedTop: number | null = null;
   let lastAppliedLeft: number | null = null;
-  let layoutChangeGraceUntil = 0;
-
-  // RAF 강제 적용은 초반 일정 시간만 한다. (스크롤바 드래그 같은
-  // wheel/touch/key 로 감지되지 않는 사용자 조작을 오래 방해하지 않기 위함.)
-  const RAF_FORCE_WINDOW_MS = Math.min(1500, timeoutMs);
+  const initialTop = scroller.scrollTop;
+  const initialLeft = scroller.scrollLeft;
 
   const finish = () => {
     if (finished) return;
@@ -268,6 +264,7 @@ export function restorePageScrollPosition(
   const userTookOver = (): boolean => lastUserScrollInputAt > startedAt;
 
   const apply = () => {
+    frameId = null;
     if (cancelled || finished) return;
     if (userTookOver() || isScrollRestoreSuppressedFor(scroller)) {
       finish();
@@ -281,6 +278,10 @@ export function restorePageScrollPosition(
     lastAppliedLeft = targetLeft;
     scroller.scrollTop = targetTop;
     scroller.scrollLeft = targetLeft;
+    const targetIsReachable =
+      saved.top <= maxTop + RESTORE_SCROLL_EPSILON_PX &&
+      saved.left <= maxLeft + RESTORE_SCROLL_EPSILON_PX;
+    if (targetIsReachable) finish();
   };
 
   const onRestoringScroll = () => {
@@ -289,8 +290,16 @@ export function restorePageScrollPosition(
       finish();
       return;
     }
-    if (lastAppliedTop == null || lastAppliedLeft == null) return;
-    if (window.performance.now() < layoutChangeGraceUntil) return;
+    if (lastAppliedTop == null || lastAppliedLeft == null) {
+      const movedBeforeFirstRestore =
+        Math.abs(scroller.scrollTop - initialTop) > RESTORE_SCROLL_EPSILON_PX ||
+        Math.abs(scroller.scrollLeft - initialLeft) > RESTORE_SCROLL_EPSILON_PX;
+      if (!movedBeforeFirstRestore) return;
+      markUserScrollInput();
+      suppressScrollRestoreFor(scroller);
+      finish();
+      return;
+    }
     const movedAwayFromRestoreTarget =
       Math.abs(scroller.scrollTop - lastAppliedTop) > RESTORE_SCROLL_EPSILON_PX ||
       Math.abs(scroller.scrollLeft - lastAppliedLeft) > RESTORE_SCROLL_EPSILON_PX;
@@ -300,35 +309,29 @@ export function restorePageScrollPosition(
     finish();
   };
 
-  // 초반 RAF 루프: 비동기 콘텐츠 로드로 높이가 늘어나기 전까지 목표 위치를 계속 적용.
-  // 목표에 도달해도 즉시 종료하지 않는다. (페이지 전환 시 이전 콘텐츠가 남아있어
-  // 곧바로 도달 판정 → 옵저버 해제 → 직후 비동기 콘텐츠 교체로 스크롤이 초기화되던 회귀 방지.)
-  const rafTick = () => {
-    if (cancelled || finished) return;
-    apply();
-    if (finished) return;
-    if (window.performance.now() - startedAt < RAF_FORCE_WINDOW_MS) {
-      frameId = window.requestAnimationFrame(rafTick);
-    } else {
-      frameId = null;
-    }
+  const scheduleApply = () => {
+    if (cancelled || finished || frameId != null) return;
+    frameId = window.requestAnimationFrame(apply);
   };
 
-  // 콘텐츠 교체/높이 변화는 MutationObserver 로 끝까지 감시하며 재적용한다.
-  // 메인 에디터의 본문 교체(replaceWith)가 RAF 종료 후에 일어나도 여기서 다시 복원된다.
+  // 첫 layout frame까지 기다려 page 변경 직후 남아 있는 이전 DOM이 아니라 새 본문을 기준으로 복원한다.
+  // 아직 목표 위치까지 높이가 모자란 경우에만 후속 콘텐츠 변경을 감시하고, 도달 즉시 종료한다.
   const applyAfterLayoutChange = () => {
-    layoutChangeGraceUntil = window.performance.now() + RESTORE_LAYOUT_CHANGE_GRACE_MS;
-    apply();
+    scroller.querySelectorAll<HTMLElement>(":scope > *").forEach((child) => {
+      resizeObserver?.observe(child);
+    });
+    scheduleApply();
   };
 
   scroller.addEventListener("scroll", onRestoringScroll, { passive: true });
   resizeObserver = new ResizeObserver(applyAfterLayoutChange);
-  resizeObserver.observe(scroller);
+  scroller.querySelectorAll<HTMLElement>(":scope > *").forEach((child) => {
+    resizeObserver?.observe(child);
+  });
   mutationObserver = new MutationObserver(applyAfterLayoutChange);
   mutationObserver.observe(scroller, { childList: true, subtree: true });
   timeoutId = window.setTimeout(() => finish(), timeoutMs);
-  apply();
-  frameId = window.requestAnimationFrame(rafTick);
+  scheduleApply();
 
   return () => {
     cancelled = true;

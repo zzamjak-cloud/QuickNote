@@ -16,6 +16,12 @@ import {
 import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { YJS_XML_FRAGMENT } from "../collab/yjsDoc";
+import {
+  captureCollaborationViewportAnchor,
+  findEditorScrollHost,
+  stabilizeCollaborationViewportAnchor,
+  type CollaborationViewportAnchor,
+} from "../editor/collabViewportAnchor";
 
 export type CollaborationOptions = {
   doc: Y.Doc | null;
@@ -104,6 +110,59 @@ export const Collaboration = Extension.create<CollaborationOptions>({
           // 원격에서 해당 노드가 삭제/변형됐으면 복원하지 않는다.
           if (!node || node.type.name !== typeName) return null;
           return state.tr.setSelection(NodeSelection.create(state.doc, pos));
+        },
+      }),
+    );
+    // 원격에서 현재 viewport 위쪽에 블록/이미지를 추가해도, 이 사용자가 편집 중인 블록은
+    // 화면에서 같은 위치에 남긴다. lazy 이미지의 실제 높이가 뒤늦게 확정되는 경우도 짧게 추적한다.
+    let editorView: import("@tiptap/pm/view").EditorView | null = null;
+    let pendingAnchor: CollaborationViewportAnchor | null = null;
+    let stopStabilizing: (() => void) | null = null;
+    plugins.push(
+      new Plugin({
+        filterTransaction: (tr) => {
+          if (!tr.docChanged) return true;
+          const syncMeta = tr.getMeta(ySyncPluginKey) as
+            | { isChangeOrigin?: boolean }
+            | undefined;
+          if (syncMeta?.isChangeOrigin && editorView) {
+            const scroller = findEditorScrollHost(editorView.dom);
+            pendingAnchor = scroller
+              ? captureCollaborationViewportAnchor(editorView, scroller)
+              : null;
+          } else if (!pendingAnchor) {
+            pendingAnchor = null;
+            stopStabilizing?.();
+            stopStabilizing = null;
+          }
+          return true;
+        },
+        view: (view) => {
+          editorView = view;
+          return {
+            update: (updatedView, previousState) => {
+              if (pendingAnchor && !previousState.doc.eq(updatedView.state.doc)) {
+                const anchor = pendingAnchor;
+                pendingAnchor = null;
+                const scroller = findEditorScrollHost(updatedView.dom);
+                stopStabilizing?.();
+                stopStabilizing = scroller
+                  ? stabilizeCollaborationViewportAnchor(updatedView, scroller, anchor)
+                  : null;
+                return;
+              }
+              if (!previousState.selection.eq(updatedView.state.selection)) {
+                stopStabilizing?.();
+                stopStabilizing = null;
+              }
+            },
+            destroy: () => {
+              pendingAnchor = null;
+              stopStabilizing?.();
+              stopStabilizing = null;
+              editorView = null;
+            },
+          };
         },
       }),
     );

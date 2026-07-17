@@ -41,26 +41,37 @@ export function unregisterEditorNavigation(editor: Editor): void {
   if (activeEditor === editor) activeEditor = null;
 }
 
-/** 문서에서 레벨 1~maxLevel 헤딩의 시작 위치만 순서대로 수집 */
-function collectHeadingPositions(maxLevel: number): number[] {
+/** 문서에서 목차 대상(헤딩 + 제목 토글)의 시작 위치를 JSON 추출 순서와 맞춰 수집 */
+function collectOutlinePositions(maxLevel: number): number[] {
   const editor = activeEditor;
   if (!editor || editor.isDestroyed) return [];
   const positions: number[] = [];
   editor.state.doc.descendants((node, pos) => {
-    if (node.type.name !== "heading") return;
-    const level = node.attrs.level as number;
-    if (level >= 1 && level <= maxLevel) positions.push(pos);
+    if (node.type.name === "heading") {
+      const level = node.attrs.level as number;
+      if (level >= 1 && level <= maxLevel) positions.push(pos);
+      return;
+    }
+    if (node.type.name === "toggleHeader") {
+      const rawAttr = node.attrs.titleLevel;
+      if (rawAttr !== null && rawAttr !== undefined && rawAttr !== "") {
+        const level = Math.floor(Number(rawAttr));
+        if (Number.isFinite(level) && level >= 1 && level <= maxLevel) {
+          positions.push(pos);
+        }
+      }
+    }
   });
   return positions;
 }
 
 /**
- * 목차 JSON 추출 순서와 동일하게, N번째(0-based) 헤딩(레벨 1~4)으로 이동
+ * 목차 JSON 추출 순서와 동일하게, N번째(0-based) 목차 대상(레벨 1~4)으로 이동
  */
 export function scrollToOutlineHeadingIndex(index: number): boolean {
   const editor = activeEditor;
   if (!editor || editor.isDestroyed) return false;
-  const positions = collectHeadingPositions(4);
+  const positions = collectOutlinePositions(4);
   const startPos = positions[index];
   if (startPos === undefined) return false;
 

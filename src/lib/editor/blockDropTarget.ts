@@ -27,6 +27,69 @@ function rectForBlockDom(view: EditorView, blockStart: number): DOMRect | null {
   return (rectEl instanceof HTMLElement ? rectEl : el)?.getBoundingClientRect() ?? null;
 }
 
+function elementFromNodeDom(dom: Node | null): HTMLElement | null {
+  if (dom instanceof HTMLElement) return dom;
+  return dom?.parentElement ?? null;
+}
+
+function resolveContainerNodeFromElement(
+  view: EditorView,
+  containerEl: HTMLElement,
+  containerTypeName: string,
+): { start: number; node: PMNode } | null {
+  const docSize = view.state.doc.content.size;
+
+  const fromRawPos = (rawPos: number | null): { start: number; node: PMNode } | null => {
+    if (rawPos == null) return null;
+    try {
+      const $raw = view.state.doc.resolve(Math.max(0, Math.min(rawPos, docSize)));
+      for (let d = $raw.depth; d >= 1; d--) {
+        const node = $raw.node(d);
+        if (node.type.name !== containerTypeName) continue;
+        return { start: $raw.before(d), node };
+      }
+      const maybeNode = view.state.doc.nodeAt(rawPos);
+      if (maybeNode?.type.name === containerTypeName) {
+        return { start: rawPos, node: maybeNode };
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
+  for (const offset of [0, 1]) {
+    try {
+      const found = fromRawPos(view.posAtDOM(containerEl, offset));
+      if (found) return found;
+    } catch {
+      /* fallback below */
+    }
+  }
+
+  let found: { start: number; node: PMNode } | null = null;
+  view.state.doc.descendants((node, pos) => {
+    if (found || node.type.name !== containerTypeName) return !found;
+    let nodeEl: HTMLElement | null = null;
+    try {
+      nodeEl = elementFromNodeDom(view.nodeDOM(pos));
+    } catch {
+      nodeEl = null;
+    }
+    if (
+      nodeEl &&
+      (nodeEl === containerEl ||
+        nodeEl.contains(containerEl) ||
+        containerEl.contains(nodeEl))
+    ) {
+      found = { start: pos, node };
+      return false;
+    }
+    return true;
+  });
+  return found;
+}
+
 /** 빈 패널 영역 드롭 시 활성 탭의 패널 DOM 을 택한다 */
 function resolveTabPanelElementFromPoint(
   view: EditorView,
@@ -55,47 +118,13 @@ function containerChildInsertionPosFromPoint(
   containerEl: HTMLElement,
   containerTypeName: string,
 ): number | null {
-  let containerStart: number | null = null;
-  let containerNode: PMNode | null = null;
-  try {
-    let rawPos: number | null = null;
-    try {
-      rawPos = view.posAtDOM(containerEl, 0);
-    } catch {
-      try {
-        rawPos = view.posAtDOM(containerEl, 1);
-      } catch {
-        rawPos = null;
-      }
-    }
-    if (rawPos == null) return null;
-    const $raw = view.state.doc.resolve(
-      Math.max(0, Math.min(rawPos, view.state.doc.content.size)),
-    );
-    for (let d = $raw.depth; d >= 1; d--) {
-      if ($raw.node(d).type.name !== containerTypeName) continue;
-      containerStart = $raw.before(d);
-      containerNode = $raw.node(d);
-      break;
-    }
-    if (containerStart == null) {
-      const maybeNode = view.state.doc.nodeAt(rawPos);
-      if (maybeNode?.type.name === containerTypeName) {
-        containerStart = rawPos;
-        containerNode = maybeNode;
-      }
-    }
-  } catch {
-    containerStart = null;
-    containerNode = null;
-  }
-  if (
-    containerStart == null ||
-    !containerNode ||
-    containerNode.type.name !== containerTypeName
-  ) {
-    return null;
-  }
+  const resolved = resolveContainerNodeFromElement(
+    view,
+    containerEl,
+    containerTypeName,
+  );
+  if (!resolved) return null;
+  const { start: containerStart, node: containerNode } = resolved;
 
   let fallback = containerStart + containerNode.nodeSize - 1;
   let bestPos: number | null = null;
@@ -166,6 +195,21 @@ function nearestColumnElementFromLayoutHit(
   }, null);
 }
 
+function resolveToggleContentElementFromPoint(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): HTMLElement | null {
+  const hit = document.elementFromPoint(clientX, clientY);
+  if (!hit || !view.dom.contains(hit)) return null;
+  const direct = hit.closest("[data-toggle-content]");
+  if (direct instanceof HTMLElement && view.dom.contains(direct)) return direct;
+  const toggleEl = hit.closest(".toggle-block");
+  if (!(toggleEl instanceof HTMLElement) || !view.dom.contains(toggleEl)) return null;
+  const content = toggleEl.querySelector("[data-toggle-content]");
+  return content instanceof HTMLElement ? content : null;
+}
+
 function toggleBlockInsertionPosFromPoint(
   view: EditorView,
   clientX: number,
@@ -175,6 +219,17 @@ function toggleBlockInsertionPosFromPoint(
   const toggleEl = hit?.closest?.(".toggle-block");
   if (!(toggleEl instanceof HTMLElement) || !view.dom.contains(toggleEl)) {
     return null;
+  }
+
+  const contentEl = resolveToggleContentElementFromPoint(view, clientX, clientY);
+  if (contentEl) {
+    const contentPos = containerChildInsertionPosFromPoint(
+      view,
+      clientY,
+      contentEl,
+      "toggleContent",
+    );
+    if (contentPos != null) return contentPos;
   }
 
   let toggleStart: number | null = null;
@@ -346,8 +401,8 @@ function nestedContainerInsertionPosFromPoint(
     });
   }
 
-  const toggleContentEl = hit?.closest?.("[data-toggle-content]");
-  if (toggleContentEl instanceof HTMLElement && view.dom.contains(toggleContentEl)) {
+  const toggleContentEl = resolveToggleContentElementFromPoint(view, clientX, clientY);
+  if (toggleContentEl) {
     candidates.push({
       el: toggleContentEl,
       resolve: () =>
@@ -521,6 +576,8 @@ function indicatorContainerElement(
     if (container === "toggleContent") {
       const content = hit?.closest?.("[data-toggle-content]");
       if (content instanceof HTMLElement && view.dom.contains(content)) return content;
+      const resolved = resolveToggleContentElementFromPoint(view, clientX, clientY);
+      if (resolved) return resolved;
     }
     if (container === "callout") {
       const body = resolveCalloutBodyElementFromPoint(view, clientX, clientY);

@@ -136,6 +136,13 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
   // 100% 로 두면 중앙/우측 정렬이 이미지가 아닌 블록 폭 기준으로 어긋난다.
   const { ref: imageMeasureRef, width: measuredImageWidth } = useMeasuredElementWidth();
   const captionBasisWidth = attrs.width ?? measuredImageWidth;
+  const intrinsicWidth = Number(attrs.width);
+  const intrinsicHeight = Number(attrs.height);
+  const hasIntrinsicSize =
+    Number.isFinite(intrinsicWidth) &&
+    intrinsicWidth > 0 &&
+    Number.isFinite(intrinsicHeight) &&
+    intrinsicHeight > 0;
   // 캡션 기준폭 = 저장된 이미지 폭이되, 컬럼 등 좁은 컨테이너에서 이미지가 100% 로 축소되면
   // 캡션도 표시 폭(100%)을 넘지 않게 min() 으로 캡한다 — 넘치면 중앙/우측 정렬 기준이 어긋난다.
   const captionMinWidth = captionBasisWidth ? `min(${captionBasisWidth}px, 100%)` : "100%";
@@ -227,7 +234,17 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
           }}
         />
       ) : (
-        <span className="inline-block w-12 h-12 bg-neutral-100 dark:bg-neutral-800 animate-pulse align-middle" />
+        <span
+          className="inline-block max-w-full bg-neutral-100 dark:bg-neutral-800 animate-pulse align-middle"
+          style={
+            hasIntrinsicSize
+              ? {
+                  width: `${intrinsicWidth}px`,
+                  aspectRatio: `${intrinsicWidth} / ${intrinsicHeight}`,
+                }
+              : { width: 48, height: 48 }
+          }
+        />
       )}
       {hasCaption ? (
         <div

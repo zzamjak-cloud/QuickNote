@@ -9,8 +9,18 @@ import {
 const originalResizeObserver = globalThis.ResizeObserver;
 
 class TestResizeObserver {
+  static latest: TestResizeObserver | null = null;
+
+  constructor(private readonly callback: ResizeObserverCallback) {
+    TestResizeObserver.latest = this;
+  }
+
   observe(): void {}
   disconnect(): void {}
+
+  trigger(): void {
+    this.callback([], this as unknown as ResizeObserver);
+  }
 }
 
 function rect(top: number, height: number, left = 20, width = 300): DOMRect {
@@ -51,6 +61,7 @@ afterEach(() => {
   document.body.replaceChildren();
   sessionStorage.clear();
   globalThis.ResizeObserver = originalResizeObserver;
+  TestResizeObserver.latest = null;
 });
 
 describe("page scroll memory", () => {
@@ -70,6 +81,7 @@ describe("page scroll memory", () => {
     scroller.scrollTop = 0;
     const cleanupRestore = restorePageScrollPosition("page-scroll-test", scroller, "main", 1000);
 
+    await nextFrame();
     expect(scroller.scrollTop).toBe(320);
 
     scroller.scrollTop = 700;
@@ -81,5 +93,69 @@ describe("page scroll memory", () => {
 
     cleanupRestore?.();
     uninstall?.();
+  });
+
+  it("stops restoring after the saved position becomes reachable", async () => {
+    globalThis.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
+    const scroller = makeScroller();
+    scroller.scrollTop = 320;
+    savePageScrollPosition("page-scroll-test", scroller, "main", { force: true });
+    scroller.scrollTop = 0;
+    const cleanupRestore = restorePageScrollPosition("page-scroll-test", scroller, "main", 1000);
+
+    await nextFrame();
+    expect(scroller.scrollTop).toBe(320);
+
+    scroller.scrollTop = 640;
+    scroller.appendChild(document.createElement("div"));
+    await nextFrame();
+    await nextFrame();
+
+    expect(scroller.scrollTop).toBe(640);
+    cleanupRestore?.();
+  });
+
+  it("yields when the user scrolls before the first restore frame", async () => {
+    globalThis.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
+    const scroller = makeScroller();
+    scroller.scrollTop = 320;
+    savePageScrollPosition("page-scroll-test", scroller, "main", { force: true });
+    scroller.scrollTop = 0;
+    const cleanupRestore = restorePageScrollPosition("page-scroll-test", scroller, "main", 1000);
+
+    scroller.scrollTop = 500;
+    scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+    await nextFrame();
+
+    expect(scroller.scrollTop).toBe(500);
+    cleanupRestore?.();
+  });
+
+  it("waits only while the saved position is unreachable, then restores once", async () => {
+    globalThis.ResizeObserver = TestResizeObserver as unknown as typeof ResizeObserver;
+    const scroller = makeScroller();
+    let scrollHeight = 500;
+    Object.defineProperty(scroller, "scrollHeight", {
+      configurable: true,
+      get: () => scrollHeight,
+    });
+    scroller.scrollTop = 600;
+    savePageScrollPosition("page-scroll-test", scroller, "main", { force: true });
+    scroller.scrollTop = 0;
+    const cleanupRestore = restorePageScrollPosition("page-scroll-test", scroller, "main", 1000);
+
+    await nextFrame();
+    expect(scroller.scrollTop).toBe(0);
+
+    scrollHeight = 1400;
+    TestResizeObserver.latest?.trigger();
+    await nextFrame();
+    expect(scroller.scrollTop).toBe(600);
+
+    scroller.scrollTop = 700;
+    TestResizeObserver.latest?.trigger();
+    await nextFrame();
+    expect(scroller.scrollTop).toBe(700);
+    cleanupRestore?.();
   });
 });
