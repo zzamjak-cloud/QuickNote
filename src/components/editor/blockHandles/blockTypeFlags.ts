@@ -61,6 +61,7 @@ export function computeBlockTypeFlags(hover: HoverInfo | null, editor: Editor | 
   const isTwoColumnLayout = isColumnLayout && hover?.node.childCount === 2;
   const isToggleBlock = hover?.node.type.name === "toggle";
   const isFlowchartBlock = hover?.node.type.name === "flowchartBlock";
+  const isDropdownMenuBlock = hover?.node.type.name === "dropdownMenuBlock";
   const isTable = hover?.node.type.name === "table";
   // 표 헤더 상태는 토글 직후 hover.node 가 갱신되기 전일 수 있어 live doc 에서 조회.
   const liveTableNode =
@@ -116,6 +117,7 @@ export function computeBlockTypeFlags(hover: HoverInfo | null, editor: Editor | 
     isTwoColumnLayout,
     isToggleBlock,
     isFlowchartBlock,
+    isDropdownMenuBlock,
     isTable,
     tableHeaderRowActive,
     tableHeaderColActive,

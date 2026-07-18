@@ -2,6 +2,11 @@ export const SHARED_BLOCK_SCHEMA_VERSION = 1;
 export const DEFAULT_GALLERY_INTERVAL_MS = 5_000;
 
 export type SharedBlockKind = "dropdown-menu" | "gallery";
+export type SharedBlockAlign = "left" | "center" | "right";
+
+export function normalizeSharedBlockAlign(value: unknown): SharedBlockAlign {
+  return value === "center" || value === "right" ? value : "left";
+}
 
 export type DropdownMenuItem = {
   id: string;

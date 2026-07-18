@@ -345,7 +345,7 @@ export const slashMenuEntries: SlashMenuEntry[] = [
   slashLeaf({
     id: "dropdownMenu",
     title: "드롭다운 메뉴",
-    description: "언어별 페이지를 연결하는 공유 메뉴",
+    description: "페이지를 연결하는 공유 메뉴",
     icon: Languages,
     keywords: ["dropdown", "language", "드롭다운", "메뉴", "언어", "번역"],
     command: (ctx) =>

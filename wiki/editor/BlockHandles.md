@@ -1,7 +1,7 @@
 # BlockHandles
 
 ## 역할
-에디터 좌측 거터 영역에 오버레이되는 블록 핸들 레이어. 마우스가 블록 위에 올라가면 드래그 핸들(⠿)과 댓글 추가 버튼을 표시하고, 핸들 클릭 시 블록 타입 변경·배경색·텍스트 색상·복사·삭제·링크 복사 등 컨텍스트 메뉴를 제공한다. 드래그로 블록 순서를 변경하거나 박스 선택된 블록들을 일괄 이동할 수 있다. `columnLayout` 블록에서는 컬러 변경과 **너비 비율 프리셋(정확히 2컬럼일 때만)** 을 제공한다.
+에디터 좌측 거터 영역에 오버레이되는 블록 핸들 레이어. 마우스가 블록 위에 올라가면 드래그 핸들(⠿)과 댓글 추가 버튼을 표시하고, 핸들 클릭 시 블록 타입 변경·정렬·배경색·텍스트 색상·복사·삭제·링크 복사 등 컨텍스트 메뉴를 제공한다. 드래그로 블록 순서를 변경하거나 박스 선택된 블록들을 일괄 이동할 수 있다. `columnLayout` 블록에서는 컬러 변경과 **너비 비율 프리셋(정확히 2컬럼일 때만)** 을 제공한다.
 
 ## 위치
 `src/components/editor/BlockHandles.tsx`
@@ -35,6 +35,7 @@
 | `flushHover` | rAF 기반 hover 갱신. 그립 존·댓글 버튼 존·리스트 보존 존 등 hysteresis 로직 포함 |
 | `onPointerDown` (핸들) | 드래그 vs 클릭 판별. `MARQUEE_ACTIVATE_PX` 이상 이동 시 드래그 커밋 |
 | `applyColumnRatio` | 2컬럼 레이아웃의 각 `column` 노드 `width`(flex-grow) attr 을 PM 트랜잭션으로 설정. `hover.blockStart`로 `columnLayout` 노드를 찾아 자식 컬럼 순서대로 비율 적용 |
+| `applySharedBlockAlign` | 드롭다운 메뉴 블럭의 `align` attr을 `left | center | right`로 바꾸고 현재 행 안에서 정렬 |
 | `resolveHandleTop` | 렌더와 그립 hit-zone 이 같은 Y 좌표식을 공유. `horizontalRule`은 라인 중앙에 28px 핸들을 세로 중앙 정렬 |
 
 ## 컬럼 너비 비율 프리셋

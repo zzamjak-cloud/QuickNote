@@ -107,6 +107,10 @@ import {
   DIVIDER_THICKNESSES,
   type DividerLineStyle,
 } from "../../lib/tiptapExtensions/dividerRule";
+import {
+  normalizeSharedBlockAlign,
+  type SharedBlockAlign,
+} from "../../types/sharedBlock";
 
 // 구분선 라인 스타일 프리셋의 한국어 라벨.
 const DIVIDER_STYLE_LABELS: Record<DividerLineStyle, string> = {
@@ -904,11 +908,14 @@ export function BlockHandles({
     setMenuOpen(false);
   };
 
-  // 배경/텍스트색은 호버한 단일 블럭에만 적용한다. updateAttributes(typeName) 는 NodeSelection
+  // 배경/텍스트색/정렬은 호버한 단일 블럭에만 적용한다. updateAttributes(typeName) 는 NodeSelection
   // 범위에 포함된 같은 타입의 조상 노드까지 갱신하므로, 중첩 토글의 자식에 색을 주면 부모 토글까지
   // 번진다(콜아웃·컬럼이 setNodeMarkup 으로 우회하는 것과 동일 함정). setNodeMarkup 으로 hover 노드
   // 한 곳만 갱신해 전파를 막는다.
-  const applyBlockAttr = (attr: "backgroundColor" | "blockTextColor", color: unknown) => {
+  const applyBlockAttr = (
+    attr: "backgroundColor" | "blockTextColor" | "align",
+    value: unknown,
+  ) => {
     if (!editor || !hover) return;
     try {
       const { state } = editor.view;
@@ -917,11 +924,16 @@ export function BlockHandles({
       if (!node) return;
       const tr = state.tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,
-        [attr]: color,
+        [attr]: value,
       });
       editor.view.dispatch(tr);
       editor.view.focus();
     } catch { /* noop */ }
+  };
+
+  const applySharedBlockAlign = (align: SharedBlockAlign) => {
+    applyBlockAttr("align", align);
+    setMenuOpen(false);
   };
 
   const applyBlockBackground = (color: BlockBgColor) => {
@@ -970,6 +982,7 @@ export function BlockHandles({
     isTwoColumnLayout,
     isToggleBlock,
     isFlowchartBlock,
+    isDropdownMenuBlock,
     isTable,
     tableHeaderRowActive,
     tableHeaderColActive,
@@ -1474,8 +1487,8 @@ export function BlockHandles({
                   </div>
                 )}
 
-                {/* 텍스트 블록 정렬 */}
-                {isTextBlock && (
+                {/* 텍스트·드롭다운 메뉴 블럭 정렬 */}
+                {(isTextBlock || isDropdownMenuBlock) && (
                   <div className="border-t border-zinc-200 px-3 py-2 dark:border-zinc-700">
                     <div className="mb-1 text-[10px] text-zinc-500 dark:text-zinc-400">정렬</div>
                     <div className="flex gap-1">
@@ -1488,8 +1501,13 @@ export function BlockHandles({
                           key={align}
                           type="button"
                           title={label}
+                          aria-label={`${label} 정렬`}
                           onClick={() => {
                             if (!editor || !hover) return;
+                            if (isDropdownMenuBlock) {
+                              applySharedBlockAlign(align);
+                              return;
+                            }
                             editor
                               .chain()
                               .focus()
@@ -1498,7 +1516,16 @@ export function BlockHandles({
                               .run();
                             setMenuOpen(false);
                           }}
-                          className="flex flex-1 items-center justify-center rounded py-1 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                          aria-pressed={
+                            isDropdownMenuBlock
+                              ? normalizeSharedBlockAlign(hover?.node.attrs.align) === align
+                              : undefined
+                          }
+                          className={`flex flex-1 items-center justify-center rounded py-1 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 ${
+                            isDropdownMenuBlock && normalizeSharedBlockAlign(hover?.node.attrs.align) === align
+                              ? "bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                              : ""
+                          }`}
                         >
                           <Icon size={14} />
                         </button>

@@ -9,7 +9,9 @@ import {
   SHARED_BLOCK_SCHEMA_VERSION,
   emptyDropdownMenu,
   emptyGallery,
+  normalizeSharedBlockAlign,
   serializeSharedBlockData,
+  type SharedBlockAlign,
 } from "../../types/sharedBlock";
 
 export type SharedBlockAttrs = {
@@ -20,6 +22,8 @@ export type SharedBlockAttrs = {
   publicMode: boolean;
   /** 새 갤러리 삽입 직후 편집 팝업을 한 번 자동으로 연다. */
   autoOpenEditor: boolean;
+  /** 블럭이 차지하는 행 안에서 콘텐츠를 배치할 방향. */
+  align: SharedBlockAlign;
 };
 
 declare module "@tiptap/core" {
@@ -47,6 +51,14 @@ export const DropdownMenuBlock = Node.create({
       version: { default: SHARED_BLOCK_SCHEMA_VERSION },
       publicMode: { default: false },
       autoOpenEditor: { default: false },
+      align: {
+        default: "left",
+        parseHTML: (element: HTMLElement) =>
+          normalizeSharedBlockAlign(element.getAttribute("data-align")),
+        renderHTML: (attributes: Record<string, unknown>) => ({
+          "data-align": normalizeSharedBlockAlign(attributes.align),
+        }),
+      },
     };
   },
 
@@ -96,6 +108,14 @@ export const GalleryBlock = Node.create({
       version: { default: SHARED_BLOCK_SCHEMA_VERSION },
       publicMode: { default: false },
       autoOpenEditor: { default: false },
+      align: {
+        default: "left",
+        parseHTML: (element: HTMLElement) =>
+          normalizeSharedBlockAlign(element.getAttribute("data-align")),
+        renderHTML: (attributes: Record<string, unknown>) => ({
+          "data-align": normalizeSharedBlockAlign(attributes.align),
+        }),
+      },
     };
   },
 

@@ -4,7 +4,7 @@
 
 ## 데이터 권위와 동기화
 
-- TipTap attrs: `sharedBlockId`, `data`, `version`, `publicMode`, `autoOpenEditor`.
+- TipTap attrs: `sharedBlockId`, `data`, `version`, `publicMode`, `autoOpenEditor`, `align`.
 - 권위 데이터: 서버 `SharedBlock` 레코드와 이를 반영한 `sharedBlockStore`의 `SharedBlockRecord`.
 - 인라인 `data`: 오프라인·서버 미배포 fallback 및 최초 시드.
 - store key는 `[workspaceId, sharedBlockId]` 복합 키다. 같은 id가 다른 워크스페이스 캐시와 섞이지 않는다.
@@ -12,6 +12,7 @@
 - 마운트 시 `fetchSharedBlockApi`, 저장 시 `pushSharedBlockApi`, 원격 병합은 `updatedAt` LWW다. upsert 응답의 서버 승자를 다시 store에 반영해 동시 편집도 수렴시킨다.
 - 복사/붙여넣기와 페이지 복제는 `sharedBlockId`를 유지한다. `attrs.id`만 제거하는 기존 블록 복사 규칙을 바꾸지 않는다.
 - 편집 팝업은 로컬 draft를 사용하고 `변경사항 저장` 시에만 공유 레코드를 원자적으로 갱신한다. 서버 저장 실패 시 팝업을 닫거나 복제본을 먼저 갱신하지 않고 재시도 오류를 표시한다.
+- `align`은 각 페이지의 배치 속성으로 `left | center | right`를 사용한다. 공유 메뉴 내용과 분리해 드래그 핸들 메뉴에서 현재 블럭만 정렬한다.
 
 ## 드롭다운 메뉴
 
@@ -20,6 +21,8 @@
 - 편집 팝업에서 메뉴 추가·삭제·위/아래 순서 변경·페이지 멘션 연결을 제공한다.
 - 빈 이름·미연결 항목·같은 페이지 중복 연결은 저장할 수 없다.
 - 현재 페이지 항목을 트리거 라벨과 체크 상태로 표시한다.
+- 현재 페이지 항목도 클릭을 막지 않고 연결된 페이지를 다시 연다.
+- 메뉴 본체는 행 전체가 아니라 현재 메뉴 텍스트와 편집 버튼 너비에 맞게 표시한다.
 - 팝업은 `useAnchoredPopover` + body Portal을 사용해 편집기 overflow와 화면 가장자리에서 잘리지 않게 한다.
 
 ## 갤러리

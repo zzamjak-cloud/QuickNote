@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_GALLERY_INTERVAL_MS,
   emptyDropdownMenu,
+  normalizeSharedBlockAlign,
   parseDropdownMenuData,
   parseGalleryData,
   serializeSharedBlockData,
@@ -13,6 +14,13 @@ import {
 } from "../store/sharedBlockStore";
 
 describe("공유 블록 데이터", () => {
+  it("정렬 값은 좌측을 기본으로 하고 지원하는 값만 유지한다", () => {
+    expect(normalizeSharedBlockAlign(undefined)).toBe("left");
+    expect(normalizeSharedBlockAlign("center")).toBe("center");
+    expect(normalizeSharedBlockAlign("right")).toBe("right");
+    expect(normalizeSharedBlockAlign("justify")).toBe("left");
+  });
+
   it("드롭다운 메뉴를 직렬화하고 복원한다", () => {
     const data = {
       kind: "dropdown-menu" as const,

@@ -31,6 +31,7 @@ import {
 import { newId } from "../../lib/id";
 import { useWorkspaceStore } from "../../store/workspaceStore";
 import { usePageStore } from "../../store/pageStore";
+import { flushSharedBlockHostPageDoc } from "./sharedBlockHostPageFlush";
 import {
   sharedBlockRecordKey,
   useSharedBlockStore,
@@ -52,6 +53,7 @@ import type { SharedBlockAttrs } from "../../lib/tiptapExtensions/sharedBlocks";
 import {
   emptyDropdownMenu,
   emptyGallery,
+  normalizeSharedBlockAlign,
   parseDropdownMenuData,
   parseGalleryData,
   serializeSharedBlockData,
@@ -581,7 +583,7 @@ function DropdownMenuView({
   };
 
   return (
-    <div className={`relative my-2 flex w-full items-center gap-1.5 rounded-xl ${selected ? "ring-2 ring-violet-400 ring-offset-2 dark:ring-offset-zinc-950" : ""}`}>
+    <div className={`relative my-2 inline-flex w-fit max-w-full items-center gap-1.5 rounded-xl ${selected ? "ring-2 ring-violet-400 ring-offset-2 dark:ring-offset-zinc-950" : ""}`}>
       <button
         ref={popover.buttonRef}
         type="button"
@@ -595,10 +597,10 @@ function DropdownMenuView({
             focusOption(event.key === "ArrowDown" ? "first" : "last");
           }
         }}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50/60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-violet-700 dark:hover:bg-violet-950/25"
+        className="flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50/60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-violet-700 dark:hover:bg-violet-950/25"
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-300"><Languages className="h-4 w-4" /></span>
-        <span className={`min-w-0 flex-1 truncate ${active ? "" : "text-zinc-400"}`}>{active?.label || "메뉴를 설정하세요"}</span>
+        <span className={`min-w-0 max-w-96 truncate ${active ? "" : "text-zinc-400"}`}>{active?.label || "메뉴를 설정하세요"}</span>
         <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform ${popover.open ? "rotate-180" : ""}`} />
       </button>
       {editable ? (
@@ -636,9 +638,9 @@ function DropdownMenuView({
               const className = "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-violet-50 hover:text-violet-800 dark:text-zinc-200 dark:hover:bg-violet-950/40 dark:hover:text-violet-200";
               const content = <><span className="min-w-0 flex-1 truncate">{item.label || "이름 없는 메뉴"}</span>{isActive ? <Check className="h-4 w-4 shrink-0 text-violet-600" /> : null}</>;
               return item.href ? (
-                <a key={item.id} role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} href={item.href} onClick={(event) => { if (isActive) event.preventDefault(); popover.close(); }} className={className}>{content}</a>
+                <a key={item.id} role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} href={item.href} onClick={popover.close} className={className}>{content}</a>
               ) : (
-                <button key={item.id} type="button" role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} disabled={!item.pageId} onClick={() => { if (item.pageId && !isActive) openPageInCurrentTab(item.pageId); popover.close(); }} className={`${className} min-h-11 disabled:cursor-not-allowed disabled:opacity-40`}>{content}</button>
+                <button key={item.id} type="button" role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} disabled={!item.pageId} onClick={() => { if (item.pageId) openPageInCurrentTab(item.pageId); popover.close(); }} className={`${className} min-h-11 disabled:cursor-not-allowed disabled:opacity-40`}>{content}</button>
               );
             })
           )}
@@ -767,6 +769,7 @@ function SharedBlockView({
   const attrs = node.attrs as SharedBlockAttrs;
   const sharedBlockId = typeof attrs.sharedBlockId === "string" ? attrs.sharedBlockId : "";
   const publicMode = attrs.publicMode === true;
+  const align = normalizeSharedBlockAlign(attrs.align);
   const workspaceId = useWorkspaceStore((state) => state.currentWorkspaceId ?? null);
   const inlineData = useMemo<SharedBlockData>(() =>
     expectedKind === "gallery" ? parseGalleryData(attrs.data) : parseDropdownMenuData(attrs.data),
@@ -796,6 +799,10 @@ function SharedBlockView({
     setEditing(false);
   }, [saving]);
 
+  const flushHostPageDoc = useCallback(() => {
+    flushSharedBlockHostPageDoc(editor);
+  }, [editor]);
+
   useEffect(() => {
     if (
       expectedKind !== "gallery" ||
@@ -805,7 +812,8 @@ function SharedBlockView({
     ) return;
     openEditor();
     updateAttributes({ autoOpenEditor: false });
-  }, [attrs.autoOpenEditor, editor.isEditable, expectedKind, openEditor, publicMode, updateAttributes]);
+    flushHostPageDoc();
+  }, [attrs.autoOpenEditor, editor.isEditable, expectedKind, flushHostPageDoc, openEditor, publicMode, updateAttributes]);
 
   useEffect(() => {
     if (publicMode || !sharedBlockId) return;
@@ -825,10 +833,11 @@ function SharedBlockView({
       const id = newId();
       seedIfAbsent({ id, workspaceId, kind: expectedKind, data: inlineData });
       updateAttributes({ sharedBlockId: id });
+      flushHostPageDoc();
       return;
     }
     seedIfAbsent({ id: sharedBlockId, workspaceId, kind: expectedKind, data: inlineData });
-  }, [editor.isEditable, expectedKind, inlineData, publicMode, seedIfAbsent, sharedBlockId, updateAttributes, workspaceId]);
+  }, [editor.isEditable, expectedKind, flushHostPageDoc, inlineData, publicMode, seedIfAbsent, sharedBlockId, updateAttributes, workspaceId]);
 
   const persist = useCallback(async (next: SharedBlockData) => {
     if (!sharedBlockId || !workspaceId || next.kind !== expectedKind) {
@@ -855,13 +864,19 @@ function SharedBlockView({
     }
     if (applyRemote(remote)) {
       updateAttributes({ data: serializeSharedBlockData(remote.data) });
+      flushHostPageDoc();
     }
     setSaving(false);
     setEditing(false);
-  }, [applyRemote, expectedKind, sharedBlockId, updateAttributes, workspaceId]);
+  }, [applyRemote, expectedKind, flushHostPageDoc, sharedBlockId, updateAttributes, workspaceId]);
 
   return (
-    <NodeViewWrapper className="not-prose" contentEditable={false} data-shared-block-kind={expectedKind}>
+    <NodeViewWrapper
+      className={`not-prose ${expectedKind === "dropdown-menu" ? `flex w-full ${align === "center" ? "justify-center" : align === "right" ? "justify-end" : "justify-start"}` : ""}`}
+      contentEditable={false}
+      data-shared-block-kind={expectedKind}
+      data-align={align}
+    >
       {expectedKind === "dropdown-menu" ? (
         <DropdownMenuView data={data.kind === "dropdown-menu" ? data : emptyDropdownMenu()} editable={editor.isEditable && !publicMode} selected={selected} publicMode={publicMode} onEdit={openEditor} />
       ) : (
