@@ -1,7 +1,7 @@
 // 공개 뷰어 상단 네비게이션 바 — 이전 화면 가기 + 게시 루트부터의 경로(브레드크럼).
 // 공개 웹은 좌측 트리가 없어 하위 페이지로 들어가면 루트로 돌아갈 수단이
 // 브라우저 뒤로가기뿐이므로, 경로 각 단계를 클릭 이동 가능하게 노출한다.
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import type { PublicPageMeta, PublicSite } from "../../lib/publicView/api";
 import type { PublicDocContext } from "../../lib/publicView/transformPublicDoc";
@@ -50,6 +50,7 @@ export function PublicBreadcrumbBar({
   onBack,
   onNavigate,
   renderIcon,
+  actions,
 }: {
   site: PublicSite;
   currentPageId: string;
@@ -58,7 +59,9 @@ export function PublicBreadcrumbBar({
   onBack: () => void;
   onNavigate: (pageId: string) => void;
   /** 아이콘은 페이지별 공개 asset URL 컨텍스트가 필요해 뷰어가 렌더러를 주입한다. */
-  renderIcon: (meta: PublicPageMeta, ctx: Pick<PublicDocContext, "pageId">) => React.ReactNode;
+  renderIcon: (meta: PublicPageMeta, ctx: Pick<PublicDocContext, "pageId">) => ReactNode;
+  /** 우측 상단 액션 영역. 공개 뷰어 목차 버튼처럼 브레드크럼 오른쪽에 붙인다. */
+  actions?: ReactNode;
 }) {
   const crumbs = useMemo(
     () => collapseCrumbs(buildPublicBreadcrumb(site, currentPageId)),
@@ -82,7 +85,7 @@ export function PublicBreadcrumbBar({
         >
           <ArrowLeft size={16} />
         </button>
-        <ol className="flex min-w-0 items-center gap-1 text-sm">
+        <ol className="flex min-w-0 flex-1 items-center gap-1 text-sm">
           {crumbs.map((crumb, i) => {
             const isLast = i === crumbs.length - 1;
             if (!("title" in crumb)) {
@@ -120,6 +123,7 @@ export function PublicBreadcrumbBar({
             );
           })}
         </ol>
+        {actions ? <div className="ml-auto flex shrink-0 items-center">{actions}</div> : null}
       </div>
     </nav>
   );

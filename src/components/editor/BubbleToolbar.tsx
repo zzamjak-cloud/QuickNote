@@ -186,6 +186,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
   const [colorOpen, setColorOpen] = useState(false);
   const [hlOpen, setHlOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const textPromptOpen = useUiStore((s) => s.textPrompt !== null);
   // 미디어 확대 미리보기가 열려 있으면 부유 툴바를 숨긴다(오버레이 위 겹침 방지).
   const mediaPreviewOpen = useMediaPreviewStore((s) => s.open);
   // 색상·형광펜 팔레트가 하단에서 잘리면 위로 뒤집는다(≈220px).
@@ -367,12 +368,23 @@ export function BubbleToolbar({ editor, pageId }: Props) {
   }, [mode, pos]);
 
   if (!editor || !pos || mode === "hidden") return null;
+  if (textPromptOpen) return null;
   if (mediaPreviewOpen) return null;
 
   const saveSelection = () => {
     const { from, to } = editor.state.selection;
     if (from === to) return;
     savedSelectionRef.current = { from, to };
+  };
+
+  const hideToolbar = () => {
+    lastToolbarSigRef.current = "hidden";
+    anchorRef.current = null;
+    setColorOpen(false);
+    setHlOpen(false);
+    setAiOpen(false);
+    setMode("hidden");
+    setPos(null);
   };
 
   const applyTextColor = (color: string | null) => {
@@ -574,6 +586,8 @@ export function BubbleToolbar({ editor, pageId }: Props) {
                 // 기존 링크 편집 시 현재 href 를 입력창에 미리 채운다.
                 const currentHref =
                   (editor.getAttributes("link").href as string | undefined) ?? "";
+                // 링크 입력 모달이 뜬 뒤에도 선택 툴바가 남아 입력창을 덮지 않도록 즉시 숨긴다.
+                hideToolbar();
                 void (async () => {
                   const url = await useUiStore
                     .getState()

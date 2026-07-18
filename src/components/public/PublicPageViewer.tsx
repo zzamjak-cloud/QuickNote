@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import * as LucideIcons from "lucide-react";
+import { ChevronRight, Hash, ListTree, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEditorExtensions } from "../editor/useEditorExtensions";
 import { EditorErrorBoundary } from "../editor/EditorErrorBoundary";
@@ -26,6 +27,8 @@ import {
   isImageLikePageIcon,
 } from "../../lib/pageIcon";
 import { getEditorColumnClass } from "../../lib/editorLayout";
+import { extractOutlineFromDocJson, type OutlineItem } from "../../lib/pageOutline";
+import { scrollPublicOutlineTargetIntoView } from "../../lib/publicView/publicOutline";
 
 /** /p/<token> 에서 토큰 추출(쿼리·해시 제외) */
 function parseTokenFromPath(pathname: string): string | null {
@@ -156,6 +159,89 @@ function CenteredNotice({ title, detail }: { title: string; detail?: string }) {
   );
 }
 
+function PublicOutlineSidebar({
+  open,
+  outline,
+  onClose,
+  onJump,
+}: {
+  open: boolean;
+  outline: OutlineItem[];
+  onClose: () => void;
+  onJump: (index: number) => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="목차 닫기"
+        className="fixed inset-0 z-20 bg-black/20 md:hidden"
+        onClick={onClose}
+      />
+      <aside
+        aria-label="공개 페이지 목차"
+        className="fixed right-0 top-0 z-30 flex h-dvh w-[min(20rem,calc(100vw-2rem))] flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
+      >
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-200 px-4 dark:border-zinc-800">
+          <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            <ListTree size={16} />
+            목차
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="목차 닫기"
+            title="목차 닫기"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          {outline.length === 0 ? (
+            <div className="rounded-md border border-dashed border-zinc-300 p-3 text-xs leading-relaxed text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+              이 페이지에는 목차가 없습니다. `#` ~ `####` 헤더나 제목 토글이 있으면
+              이곳에 표시됩니다.
+            </div>
+          ) : (
+            <nav aria-label="페이지 목차" className="space-y-1">
+              {outline.map((item, idx) => (
+                <button
+                  key={`${idx}-${item.kind}-${item.level}-${item.text}`}
+                  type="button"
+                  onClick={() => onJump(idx)}
+                  className={[
+                    "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                    "text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900",
+                    "dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+                  ].join(" ")}
+                  style={{ paddingLeft: `${item.level * 10}px` }}
+                  title={item.text}
+                >
+                  {item.kind === "toggle" ? (
+                    <ChevronRight
+                      size={13}
+                      className="shrink-0 text-zinc-400 group-hover:text-violet-500 dark:group-hover:text-violet-300"
+                    />
+                  ) : (
+                    <Hash
+                      size={13}
+                      className="shrink-0 text-zinc-400 group-hover:text-violet-500 dark:group-hover:text-violet-300"
+                    />
+                  )}
+                  <span className="truncate">{item.text}</span>
+                </button>
+              ))}
+            </nav>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
 export function PublicPageViewer() {
   const token = useMemo(() => parseTokenFromPath(window.location.pathname), []);
   const [site, setSite] = useState<PublicSite | null | undefined>(undefined);
@@ -166,6 +252,7 @@ export function PublicPageViewer() {
   // 루트↔자식 왕복 시 재요청·화면 비움(undefined 플래시)을 없애 아이콘 재연결 출렁임을 막는다.
   const pageCacheRef = useRef<Map<string, PublicPage | null>>(new Map());
   const [pageCacheVersion, setPageCacheVersion] = useState(0);
+  const [outlineOpen, setOutlineOpen] = useState(false);
 
   // 검색엔진 비노출 — noindex meta 주입(서버 X-Robots-Tag 와 이중 방어).
   useEffect(() => {
@@ -285,6 +372,31 @@ export function PublicPageViewer() {
     return result;
   }, [effectivePageId, page, publicDocCtx]);
 
+  const outline = useMemo(
+    () => extractOutlineFromDocJson(transformedDoc ?? undefined),
+    [transformedDoc],
+  );
+
+  useEffect(() => {
+    if (!outlineOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOutlineOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [outlineOpen]);
+
+  const jumpToOutline = useCallback((index: number) => {
+    const prefersReducedMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const ok = scrollPublicOutlineTargetIntoView(index, {
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
+    if (ok && (window.matchMedia?.("(max-width: 767px)").matches ?? false)) {
+      setOutlineOpen(false);
+    }
+  }, []);
+
   const columnClass = getEditorColumnClass({
     fullWidth: page?.fullWidth === true,
     hasPageComments: false,
@@ -336,8 +448,32 @@ export function PublicPageViewer() {
               />
             ) : null
           }
+          actions={
+            <button
+              type="button"
+              onClick={() => setOutlineOpen((v) => !v)}
+              aria-label="목차 보기"
+              title="목차 보기"
+              aria-pressed={outlineOpen}
+              className={[
+                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-sm font-medium transition-colors",
+                outlineOpen
+                  ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
+              ].join(" ")}
+            >
+              <ListTree size={16} />
+              <span className="hidden sm:inline">목차</span>
+            </button>
+          }
         />
       ) : null}
+      <PublicOutlineSidebar
+        open={outlineOpen}
+        outline={outline}
+        onClose={() => setOutlineOpen(false)}
+        onJump={jumpToOutline}
+      />
       {coverSrc && (
         <img
           src={coverSrc}

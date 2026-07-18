@@ -26,6 +26,8 @@ export function TextPromptDialog() {
       open
       onClose={cancel}
       widthClassName="max-w-md"
+      // 텍스트 선택 BubbleToolbar(z-[760]) 위에 떠야 링크 입력창이 가려지지 않는다.
+      zClassName="z-[900]"
     >
       <DialogBase.Header>{textPrompt.title}</DialogBase.Header>
       <DialogBase.Body>

@@ -50,6 +50,11 @@
 - 본문 클릭: TipTap `Link.openOnClick:false` 이므로 `ReadOnlyDocView` 의
   `handleDOMEvents.click` 에서 `/p/<token>?page=` 만 `navigateTo` 로 연결한다.
   페이지 멘션·pageLink 는 변환 단계에서 동일 link mark 로 강등한다.
+- **목차 사이드바**: 공개 뷰어 상단 우측 "목차" 버튼은 public viewer 로컬 state 로만
+  제어한다(인증 앱의 `useUiStore.rightPanelOpen` 재사용 금지). 항목 추출은
+  `extractOutlineFromDocJson` 을 재사용해 일반 heading + 제목 토글 순서를 맞추고,
+  이동은 `publicOutline.ts` 가 `.qn-public-doc .ProseMirror` 의 실제 heading/제목 토글 DOM 을
+  같은 순서로 찾아 직접 스크롤한다.
 - **전체너비**: 게시 시 게시자 `clientPrefs` 의 `pageFullWidthById[pageId] ?? fullWidth` 를
   published-pages 에 스냅샷 → `op=page.fullWidth`. 뷰어는 `getEditorColumnClass` 적용.
   스냅샷은 멱등 재게시(PublishDialog 열기)로 in-place 갱신되므로 재게시(새 토큰) 불필요.
