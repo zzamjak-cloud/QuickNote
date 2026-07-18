@@ -43,6 +43,15 @@ function collapseCrumbs(path: PublicPageMeta[]): CrumbEntry[] {
   return [first, { id: "__ellipsis__" }, parent, last];
 }
 
+function publicBreadcrumbInnerClassName(
+  contentClassName = "max-w-5xl px-3 md:px-6",
+): string {
+  return [
+    "mx-auto flex h-11 w-full items-center gap-1 border-b border-zinc-200 dark:border-zinc-800",
+    contentClassName,
+  ].join(" ");
+}
+
 export function PublicBreadcrumbBar({
   site,
   currentPageId,
@@ -51,6 +60,7 @@ export function PublicBreadcrumbBar({
   onNavigate,
   renderIcon,
   actions,
+  contentClassName,
 }: {
   site: PublicSite;
   currentPageId: string;
@@ -62,6 +72,8 @@ export function PublicBreadcrumbBar({
   renderIcon: (meta: PublicPageMeta, ctx: Pick<PublicDocContext, "pageId">) => ReactNode;
   /** 우측 상단 액션 영역. 공개 뷰어 목차 버튼처럼 브레드크럼 오른쪽에 붙인다. */
   actions?: ReactNode;
+  /** 본문 페이지 폭 상태와 상단 헤더 폭을 맞추기 위한 컨테이너 폭 클래스. */
+  contentClassName?: string;
 }) {
   const crumbs = useMemo(
     () => collapseCrumbs(buildPublicBreadcrumb(site, currentPageId)),
@@ -72,9 +84,9 @@ export function PublicBreadcrumbBar({
   return (
     <nav
       aria-label="페이지 경로"
-      className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90"
+      className="sticky top-0 z-10 bg-white/90 backdrop-blur dark:bg-zinc-950/90"
     >
-      <div className="mx-auto flex h-11 max-w-5xl items-center gap-1 px-3 md:px-6">
+      <div className={publicBreadcrumbInnerClassName(contentClassName)}>
         <button
           type="button"
           onClick={onBack}

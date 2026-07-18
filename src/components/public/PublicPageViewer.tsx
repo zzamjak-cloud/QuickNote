@@ -28,7 +28,12 @@ import {
 } from "../../lib/pageIcon";
 import { getEditorColumnClass } from "../../lib/editorLayout";
 import { extractOutlineFromDocJson, type OutlineItem } from "../../lib/pageOutline";
+import { resolvePublicViewerLinkAction } from "../../lib/publicView/publicLinks";
 import { scrollPublicOutlineTargetIntoView } from "../../lib/publicView/publicOutline";
+import {
+  PUBLIC_OUTLINE_SIDEBAR_WIDTH_CLASS,
+  getPublicViewerShellClassName,
+} from "../../lib/publicView/publicViewerLayout";
 
 /** /p/<token> 에서 토큰 추출(쿼리·해시 제외) */
 function parseTokenFromPath(pathname: string): string | null {
@@ -88,9 +93,11 @@ function PublicPageIcon({
 
 function ReadOnlyDocView({
   doc,
+  publishedPageIds,
   onNavigatePublicPage,
 }: {
   doc: JSONContent;
+  publishedPageIds: ReadonlySet<string>;
   onNavigatePublicPage: (pageId: string) => void;
 }) {
   const extensions = useEditorExtensions({
@@ -122,14 +129,38 @@ function ReadOnlyDocView({
       handleDOMEvents: {
         click: (_view, event) => {
           const target = event.target as HTMLElement | null;
+          const button = target?.closest?.("[data-qn-button-block]") as HTMLElement | null;
+          if (button?.closest(".ProseMirror")) {
+            const action = resolvePublicViewerLinkAction(
+              button.getAttribute("data-href") ?? "",
+              publishedPageIds,
+              { currentOrigin: window.location.origin },
+            );
+            if (!action) return false;
+            event.preventDefault();
+            event.stopPropagation();
+            if (action.kind === "navigate") {
+              onNavRef.current(action.pageId);
+            } else {
+              window.open(action.href, "_blank", "noopener,noreferrer");
+            }
+            return true;
+          }
+
           const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
           if (!anchor) return false;
           const href = anchor.getAttribute("href") ?? "";
-          const m = /^\/p\/[^/?#]+\?page=([^&]+)/.exec(href);
-          if (!m?.[1]) return false;
+          const action = resolvePublicViewerLinkAction(href, publishedPageIds, {
+            currentOrigin: window.location.origin,
+          });
+          if (!action) return false;
           event.preventDefault();
           event.stopPropagation();
-          onNavRef.current(decodeURIComponent(m[1]));
+          if (action.kind === "navigate") {
+            onNavRef.current(action.pageId);
+          } else {
+            window.open(action.href, "_blank", "noopener,noreferrer");
+          }
           return true;
         },
       },
@@ -182,7 +213,10 @@ function PublicOutlineSidebar({
       />
       <aside
         aria-label="공개 페이지 목차"
-        className="fixed right-0 top-0 z-30 flex h-dvh w-[min(20rem,calc(100vw-2rem))] flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950"
+        className={[
+          "fixed right-0 top-0 z-30 flex h-dvh flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950",
+          PUBLIC_OUTLINE_SIDEBAR_WIDTH_CLASS,
+        ].join(" ")}
       >
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-200 px-4 dark:border-zinc-800">
           <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -391,6 +425,7 @@ export function PublicPageViewer() {
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const ok = scrollPublicOutlineTargetIntoView(index, {
       behavior: prefersReducedMotion ? "auto" : "smooth",
+      flash: true,
     });
     if (ok && (window.matchMedia?.("(max-width: 767px)").matches ?? false)) {
       setOutlineOpen(false);
@@ -428,7 +463,7 @@ export function PublicPageViewer() {
       : null;
 
   return (
-    <div className="min-h-screen overflow-y-auto bg-white dark:bg-zinc-950">
+    <div className={getPublicViewerShellClassName(outlineOpen)}>
       {effectivePageId ? (
         <PublicBreadcrumbBar
           site={site}
@@ -436,6 +471,7 @@ export function PublicPageViewer() {
           canGoBack={backDepth > 0}
           onBack={() => window.history.back()}
           onNavigate={navigateTo}
+          contentClassName={columnClass}
           renderIcon={(meta, ctx) =>
             token ? (
               <PublicPageIcon
@@ -505,6 +541,7 @@ export function PublicPageViewer() {
                 <div className="qn-public-doc">
                   <ReadOnlyDocView
                     doc={transformedDoc}
+                    publishedPageIds={publishedPageIds}
                     onNavigatePublicPage={navigateTo}
                   />
                 </div>

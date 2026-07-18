@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  PUBLIC_OUTLINE_FOCUS_CLASS,
   findPublicOutlineTargets,
   scrollPublicOutlineTargetIntoView,
 } from "../publicOutline";
@@ -7,6 +8,7 @@ import {
 describe("publicOutline", () => {
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -64,5 +66,35 @@ describe("publicOutline", () => {
       }),
     ).toBe(true);
     expect(scrollTo).toHaveBeenCalledWith({ top: 260, behavior: "auto" });
+  });
+
+  it("목차 이동 대상에 일시적인 포커스 피드백 클래스를 부여한다", () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `
+      <div class="qn-public-doc">
+        <div class="ProseMirror">
+          <h2>강조 대상</h2>
+        </div>
+      </div>
+    `;
+    const target = document.querySelector("h2") as HTMLElement;
+    vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+
+    expect(scrollPublicOutlineTargetIntoView(0, { behavior: "auto", flash: true })).toBe(true);
+    expect(target.classList.contains(PUBLIC_OUTLINE_FOCUS_CLASS)).toBe(true);
+
+    vi.advanceTimersByTime(1600);
+    expect(target.classList.contains(PUBLIC_OUTLINE_FOCUS_CLASS)).toBe(false);
   });
 });

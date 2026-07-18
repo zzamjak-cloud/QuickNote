@@ -1,5 +1,7 @@
+import { createElement } from "react";
+import { render } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { buildPublicBreadcrumb } from "../PublicBreadcrumbBar";
+import { PublicBreadcrumbBar, buildPublicBreadcrumb } from "../PublicBreadcrumbBar";
 import type { PublicSite, PublicPageMeta } from "../../../lib/publicView/api";
 
 function meta(id: string, parentId: string | null, title = id): PublicPageMeta {
@@ -36,5 +38,29 @@ describe("buildPublicBreadcrumb", () => {
   it("트리 메타에 없는 페이지는 도달 구간까지만 반환한다", () => {
     const s = site("root", [meta("root", null), meta("a", "missing")]);
     expect(buildPublicBreadcrumb(s, "a").map((m) => m.id)).toEqual(["a"]);
+  });
+
+  it("상단 헤더 내부 폭은 주입된 본문 폭 클래스를 사용한다", () => {
+    const s = site("root", [meta("root", null)]);
+    const renderBar = (contentClassName: string) =>
+      createElement(PublicBreadcrumbBar, {
+        site: s,
+        currentPageId: "root",
+        canGoBack: false,
+        onBack: () => undefined,
+        onNavigate: () => undefined,
+        renderIcon: () => null,
+        contentClassName,
+      });
+
+    const { container, rerender } = render(renderBar("max-w-none px-4"));
+    expect(container.querySelector("nav > div")?.className).toContain(
+      "max-w-none px-4",
+    );
+
+    rerender(renderBar("max-w-[784px]"));
+    expect(container.querySelector("nav > div")?.className).toContain(
+      "max-w-[784px]",
+    );
   });
 });

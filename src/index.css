@@ -311,6 +311,36 @@ body.quicknote-block-dragging .ProseMirror {
   opacity: 0.7;
 }
 
+/* 공개 뷰어 목차 이동 피드백 — 스크롤 후 도착한 블럭을 짧게 강조한다. */
+.qn-public-doc .ProseMirror .qn-public-outline-focus {
+  border-radius: 0.5rem;
+  outline: 2px solid rgba(139, 92, 246, 0.55);
+  outline-offset: 4px;
+  background-color: rgba(139, 92, 246, 0.12);
+  box-shadow: 0 0 0 6px rgba(139, 92, 246, 0.08);
+  animation: qn-public-outline-focus-fade 1.6s ease-out;
+}
+
+@keyframes qn-public-outline-focus-fade {
+  0%,
+  35% {
+    outline-color: rgba(139, 92, 246, 0.55);
+    background-color: rgba(139, 92, 246, 0.12);
+    box-shadow: 0 0 0 6px rgba(139, 92, 246, 0.08);
+  }
+  100% {
+    outline-color: transparent;
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qn-public-doc .ProseMirror .qn-public-outline-focus {
+    animation: none;
+  }
+}
+
 /* 본문 하단 입력 여유 — 스페이서 높이·scroll-padding-bottom 은 Editor.tsx 에서 픽셀 동기화 */
 .qn-editor-body-scroll {
   overscroll-behavior-y: contain;

@@ -48,15 +48,21 @@
   `transformPublicDoc` 이 `icon`/`emoji`/`src` 의 `quicknote-image://` 를 공개 URL 로
   치환해 `useImageUrl` Cognito 경로를 우회한다. 인증 훅을 공개 뷰어에 붙이지 말 것.
 - 본문 클릭: TipTap `Link.openOnClick:false` 이므로 `ReadOnlyDocView` 의
-  `handleDOMEvents.click` 에서 `/p/<token>?page=` 만 `navigateTo` 로 연결한다.
-  페이지 멘션·pageLink 는 변환 단계에서 동일 link mark 로 강등한다.
+  `handleDOMEvents.click` 에서 공개 라우트 링크와 `buttonBlock` 의 `data-href` 를 직접
+  처리한다. 페이지 멘션·pageLink 는 변환 단계에서 동일 link mark 로 강등하고,
+  버튼 블럭의 QuickNote 내부 링크는 게시 트리 안 페이지일 때만 public viewer 내부 이동으로
+  처리한다. 외부 웹 링크는 안전한 URL 만 새 탭으로 연다.
 - **목차 사이드바**: 공개 뷰어 상단 우측 "목차" 버튼은 public viewer 로컬 state 로만
   제어한다(인증 앱의 `useUiStore.rightPanelOpen` 재사용 금지). 항목 추출은
   `extractOutlineFromDocJson` 을 재사용해 일반 heading + 제목 토글 순서를 맞추고,
   이동은 `publicOutline.ts` 가 `.qn-public-doc .ProseMirror` 의 실제 heading/제목 토글 DOM 을
-  같은 순서로 찾아 직접 스크롤한다.
+  같은 순서로 찾아 직접 스크롤한다. 목차 항목 클릭 후 대상 블럭에는
+  `qn-public-outline-focus` 를 짧게 부여해 도착 위치를 시각적으로 표시한다. 데스크톱에서는
+  목차가 열린 동안 공개 뷰어 shell 에 `md:pr-80` 을 적용해 본문과 상단 헤더가 사이드바 폭만큼
+  줄어들며, 모바일은 기존처럼 오버레이로 표시한다.
 - **전체너비**: 게시 시 게시자 `clientPrefs` 의 `pageFullWidthById[pageId] ?? fullWidth` 를
   published-pages 에 스냅샷 → `op=page.fullWidth`. 뷰어는 `getEditorColumnClass` 적용.
+  상단 브레드크럼/목차 버튼 헤더도 같은 폭 클래스를 받아 본문 폭 상태와 함께 늘어나고 줄어든다.
   스냅샷은 멱등 재게시(PublishDialog 열기)로 in-place 갱신되므로 재게시(새 토큰) 불필요.
 - **모바일 여백**: 공개 뷰어 본문·제목은 `px-4 md:px-12` — md 미만에서 좌우 16px 여백 필수
   (`md:px-12` 만 두면 모바일에서 여백 0 으로 답답, 2026-07-11 수정).
