@@ -32,6 +32,8 @@ export type Tables = {
   Databases?: string;
   /** 플로우차트 공유 자원 테이블 */
   Flowcharts?: string;
+  /** 드롭다운 메뉴·갤러리 공유 블록 자원 테이블 */
+  SharedBlocks?: string;
   /** 플로우차트 버전 히스토리 테이블 */
   FlowchartHistory?: string;
   Comments?: string;

@@ -92,7 +92,16 @@ export function computeBlockTypeFlags(hover: HoverInfo | null, editor: Editor | 
   const linkBlockHref = hover ? getConvertibleLinkHref(hover.node) : null;
   const shouldShowTypeChange =
     hover != null &&
-    !["columnLayout", "column", "tabBlock", "tabPanel", "table", "flowchartBlock"].includes(
+    ![
+      "columnLayout",
+      "column",
+      "tabBlock",
+      "tabPanel",
+      "table",
+      "flowchartBlock",
+      "dropdownMenuBlock",
+      "galleryBlock",
+    ].includes(
       hover.node.type.name,
     );
 

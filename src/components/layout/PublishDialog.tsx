@@ -4,6 +4,10 @@ import { Globe, Copy, Loader2 } from "lucide-react";
 import { DialogBase } from "../../lib/ui-primitives";
 import { useUiStore } from "../../store/uiStore";
 import {
+  getPagePublishStatusRevision,
+  usePagePublishStatusStore,
+} from "../../store/pagePublishStatusStore";
+import {
   buildPublicPageUrl,
   getPagePublishStatusApi,
   publishPageApi,
@@ -18,6 +22,10 @@ type Props = {
 
 export function PublishDialog({ pageId, onClose }: Props) {
   const showToast = useUiStore((s) => s.showToast);
+  const setPublished = usePagePublishStatusStore((s) => s.setPublished);
+  const applyFetchedStatus = usePagePublishStatusStore(
+    (s) => s.applyFetchedStatus,
+  );
   const [status, setStatus] = useState<PagePublishStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
@@ -29,24 +37,33 @@ export function PublishDialog({ pageId, onClose }: Props) {
       return;
     }
     let canceled = false;
+    const expectedRevision = getPagePublishStatusRevision(pageId);
+    setStatus(null);
     setLoading(true);
     getPagePublishStatusApi(pageId)
       .then((s) => {
         if (canceled) return;
         setStatus(s);
+        applyFetchedStatus(pageId, s.published, expectedRevision);
         // 이미 게시된 페이지면, 현재 레이아웃(전체너비) 설정을 게시 스냅샷에 재반영한다
         // (토큰·링크 유지). 게시 후 자식 페이지 너비를 바꿔도 공유 링크만 다시 열면 반영됨.
         // 편집 권한이 없으면(뷰어) 조용히 무시 — 링크 복사 흐름은 방해하지 않는다.
         if (s.published) {
           publishPageApi(pageId)
             .then((refreshed) => {
-              if (!canceled) setStatus(refreshed);
+              if (!canceled) {
+                setStatus(refreshed);
+                setPublished(pageId, refreshed.published);
+              }
             })
             .catch(() => {});
         }
       })
       .catch(() => {
-        if (!canceled) showToast("게시 상태를 불러오지 못했습니다.", { kind: "error" });
+        if (!canceled) {
+          applyFetchedStatus(pageId, false, expectedRevision);
+          showToast("게시 상태를 불러오지 못했습니다.", { kind: "error" });
+        }
       })
       .finally(() => {
         if (!canceled) setLoading(false);
@@ -54,7 +71,7 @@ export function PublishDialog({ pageId, onClose }: Props) {
     return () => {
       canceled = true;
     };
-  }, [pageId, showToast]);
+  }, [applyFetchedStatus, pageId, setPublished, showToast]);
 
   const publicUrl = status?.token ? buildPublicPageUrl(status.token) : null;
   // Preview/로컬 게시는 해당 환경 DB 토큰이라 khaki·시크릿 창에서 404 난다.
@@ -73,6 +90,7 @@ export function PublishDialog({ pageId, onClose }: Props) {
     action(pageId)
       .then((next) => {
         setStatus(next);
+        setPublished(pageId, next.published);
         showToast(
           next.published ? "웹에 게시되었습니다." : "게시가 해제되었습니다.",
           { kind: "success" },

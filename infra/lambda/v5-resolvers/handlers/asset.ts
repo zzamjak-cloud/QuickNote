@@ -47,7 +47,7 @@ async function filterLivePageUsages(
 ): Promise<AssetUsageRow[]> {
   if (!pagesTable || usages.length === 0) return usages;
   // 커스텀 아이콘 라이브러리 등 페이지에 종속되지 않은 사용 row 는 그대로 보존한다.
-  const passthroughBlockTypes = new Set(["customIcon"]);
+  const passthroughBlockTypes = new Set(["customIcon", "sharedGallery"]);
   const passthrough: AssetUsageRow[] = [];
   const pageBound: AssetUsageRow[] = [];
   for (const u of usages) {
@@ -139,6 +139,32 @@ function walk(node: unknown, out: AssetRef[], parentBlockType: string | null): v
     if (assetId) {
       const blockId = typeof attrs.id === "string" ? attrs.id : typeof attrs.blockId === "string" ? attrs.blockId : undefined;
       out.push({ assetId, blockId, blockType: type ?? undefined });
+    }
+    if (type === "galleryBlock") {
+      let galleryData: unknown = attrs.data;
+      for (let i = 0; i < 2 && typeof galleryData === "string"; i += 1) {
+        galleryData = safeJsonParse(galleryData);
+      }
+      if (galleryData && typeof galleryData === "object" && !Array.isArray(galleryData)) {
+        const images = (galleryData as Record<string, unknown>).images;
+        const blockId =
+          typeof attrs.sharedBlockId === "string"
+            ? attrs.sharedBlockId
+            : typeof attrs.id === "string"
+              ? attrs.id
+              : undefined;
+        if (Array.isArray(images)) {
+          for (const image of images) {
+            if (!image || typeof image !== "object" || Array.isArray(image)) continue;
+            const imageSrc = (image as Record<string, unknown>).src;
+            const imageAssetId =
+              typeof imageSrc === "string" ? assetIdFromRef(imageSrc) : null;
+            if (imageAssetId) {
+              out.push({ assetId: imageAssetId, blockId, blockType: "galleryBlock" });
+            }
+          }
+        }
+      }
     }
   }
   if (Array.isArray(obj.content)) walk(obj.content, out, type);
@@ -289,7 +315,7 @@ async function deletePageAssetUsageRows(
         IndexName: "byPage",
         KeyConditionExpression: "pageId = :p",
         ExpressionAttributeValues: { ":p": pageId },
-        ProjectionExpression: "assetId, sk",
+        ProjectionExpression: "assetId, sk, blockType",
         ExclusiveStartKey: exclusiveStartKey,
       }),
     );
@@ -297,7 +323,9 @@ async function deletePageAssetUsageRows(
     for (const it of items) {
       const aid = it.assetId as string | undefined;
       const sk = it.sk as string | undefined;
-      if (aid && sk) keysToDelete.push({ assetId: aid, sk });
+      // 공유 갤러리 사용처는 페이지 수명과 독립적이다. 합성 pageId가 우연히 실제 pageId와
+      // 같더라도 페이지 삭제가 공유 블록 사용처를 지우지 않도록 blockType으로 분리한다.
+      if (aid && sk && it.blockType !== "sharedGallery") keysToDelete.push({ assetId: aid, sk });
     }
     exclusiveStartKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
   } while (exclusiveStartKey);
@@ -398,7 +426,7 @@ export async function listMyAssets(args: {
           IndexName: "byOwner",
           KeyConditionExpression: "ownerId = :o",
           ExpressionAttributeValues: { ":o": ownerId },
-          ProjectionExpression: "assetId, pageId",
+          ProjectionExpression: "assetId, pageId, blockType",
           ExclusiveStartKey: usageStartKey,
         }),
       );

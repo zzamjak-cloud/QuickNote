@@ -14,6 +14,9 @@
 | `file` | 파일 | media | (없음 — 드래그 업로드만) |
 | `pageMention` | 페이지 링크 | text | 새 페이지, 페이지 링크 |
 | `database` | DB | database | DB - 전체 페이지, DB - 인라인 |
+| `flowchart` | 플로우차트 | media | 플로우차트 |
+| `dropdownMenu` | 드롭다운 메뉴 | interactive | 드롭다운 메뉴 |
+| `gallery` | 갤러리 | media | 갤러리 |
 | `table` | 표 | database | 표 |
 | `button` | 버튼 | interactive | 버튼 |
 | `bookmark` | 북마크 | embed | (없음 — URL 붙여넣기로 생성) |
@@ -41,6 +44,8 @@ src/lib/tiptapExtensions/
   bookmarkBlock.tsx  ← Node.create (URL 북마크 atom)
   buttonBlock.tsx    ← Node.create (인라인 버튼 atom)
   databaseBlock.ts   ← Node.create (DB 임베드 atom)
+  flowchartBlock.tsx ← Node.create (공유 플로우차트 atom)
+  sharedBlocks.tsx   ← Node.create (공유 드롭다운 메뉴·갤러리 atom)
   blockBackground.ts ← Extension.create (GlobalAttributes — 배경/텍스트 색)
   moveBlock.ts       ← Extension.create (키보드 블록 이동)
   deleteCurrentBlock.ts ← Extension.create (Mod+Backspace/Delete)

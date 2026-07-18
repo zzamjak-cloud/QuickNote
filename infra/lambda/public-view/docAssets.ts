@@ -15,6 +15,20 @@ function decodeAssetRef(value: unknown): string | null {
   return null;
 }
 
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+  let parsed = value;
+  for (let i = 0; i < 2 && typeof parsed === "string"; i += 1) {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
+}
+
 /**
  * doc 트리 전체(attrs·marks 포함)를 순회하며 자산 ref id 집합을 반환한다.
  * extraValues 로 doc 밖 필드(icon, coverImage)도 함께 검사할 수 있다.
@@ -37,9 +51,20 @@ export function collectDocAssetIds(
     const rec = node as Record<string, unknown>;
     const attrs = rec.attrs;
     if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
-      for (const value of Object.values(attrs as Record<string, unknown>)) {
+      const attrsRecord = attrs as Record<string, unknown>;
+      for (const value of Object.values(attrsRecord)) {
         const id = decodeAssetRef(value);
         if (id) out.add(id);
+      }
+      // 공유 갤러리 data 는 attrs.data JSON 안쪽 images[].src 에 자산 ref 를 보관한다.
+      if (rec.type === "galleryBlock") {
+        const gallery = parseJsonObject(attrsRecord.data);
+        const images = Array.isArray(gallery?.images) ? gallery.images : [];
+        for (const image of images) {
+          const row = parseJsonObject(image);
+          const id = decodeAssetRef(row?.src);
+          if (id) out.add(id);
+        }
       }
     }
     if (Array.isArray(rec.content)) walk(rec.content, depth + 1);

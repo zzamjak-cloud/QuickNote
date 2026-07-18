@@ -174,4 +174,63 @@ describe("transformPublicDoc", () => {
     expect(String(out.content?.[0]?.attrs?.emoji)).toContain("assetId=ico-1");
     expect(String(out.content?.[1]?.content?.[0]?.attrs?.icon)).toContain("assetId=ico-2");
   });
+
+  it("드롭다운 메뉴는 게시 트리 항목만 공개 링크로 변환한다", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "dropdownMenuBlock",
+          attrs: {
+            sharedBlockId: "shared-1",
+            data: JSON.stringify({
+              kind: "dropdown-menu",
+              items: [
+                { id: "ko", label: "한국어", pageId: "page-1" },
+                { id: "en", label: "English", pageId: "child-1" },
+                { id: "secret", label: "비공개", pageId: "secret-1" },
+              ],
+            }),
+          },
+        },
+      ],
+    };
+    const out = transformPublicDoc(doc, ctx);
+    const block = out.content?.[0];
+    const data = JSON.parse(String(block?.attrs?.data)) as {
+      items: Array<{ pageId: string; href: string; active?: boolean }>;
+    };
+    expect(block?.attrs?.publicMode).toBe(true);
+    expect(data.items).toHaveLength(2);
+    expect(data.items[0]?.active).toBe(true);
+    expect(data.items[1]?.href).toBe(`/p/${ctx.token}?page=child-1`);
+    expect(JSON.stringify(block)).not.toContain("secret-1");
+  });
+
+  it("갤러리 이미지 ref 를 공개 asset URL 로 변환한다", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "galleryBlock",
+          attrs: {
+            sharedBlockId: "shared-2",
+            data: {
+              kind: "gallery",
+              intervalMs: 5000,
+              images: [{ id: "hero", src: "quicknote-image://banner-1", alt: "배너" }],
+            },
+          },
+        },
+      ],
+    };
+    const out = transformPublicDoc(doc, ctx);
+    const block = out.content?.[0];
+    const data = JSON.parse(String(block?.attrs?.data)) as {
+      images: Array<{ src: string }>;
+    };
+    expect(block?.attrs?.publicMode).toBe(true);
+    expect(data.images[0]?.src).toContain("op=asset");
+    expect(data.images[0]?.src).toContain("assetId=banner-1");
+  });
 });

@@ -212,6 +212,7 @@ function PublicOutlineSidebar({
         onClick={onClose}
       />
       <aside
+        id="qn-public-outline-sidebar"
         aria-label="공개 페이지 목차"
         className={[
           "fixed right-0 top-0 z-30 flex h-dvh flex-col border-l border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950",
@@ -488,18 +489,19 @@ export function PublicPageViewer() {
             <button
               type="button"
               onClick={() => setOutlineOpen((v) => !v)}
-              aria-label="목차 보기"
-              title="목차 보기"
+              aria-label={outlineOpen ? "목차 닫기" : "목차 열기"}
+              title={outlineOpen ? "목차 닫기" : "목차 열기"}
+              aria-controls="qn-public-outline-sidebar"
+              aria-expanded={outlineOpen}
               aria-pressed={outlineOpen}
               className={[
-                "inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-sm font-medium transition-colors",
+                "inline-flex h-8 w-8 items-center justify-center rounded-md border p-0 text-sm font-medium transition-colors",
                 outlineOpen
                   ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200"
                   : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
               ].join(" ")}
             >
               <ListTree size={16} />
-              <span className="hidden sm:inline">목차</span>
             </button>
           }
         />

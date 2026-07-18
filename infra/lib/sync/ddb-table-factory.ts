@@ -7,6 +7,7 @@ export type SyncModelName =
   | "Page"
   | "Database"
   | "Flowchart"
+  | "SharedBlock"
   | "Contact"
   | "ImageAsset"
   | "Comment";

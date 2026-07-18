@@ -9,7 +9,9 @@ import {
   Heading2,
   Heading3,
   Image as ImageIcon,
+  Images,
   LayoutGrid,
+  Languages,
   PanelTop,
   Lightbulb,
   List,
@@ -339,6 +341,24 @@ export const slashMenuEntries: SlashMenuEntry[] = [
     keywords: ["flowchart", "diagram", "플로우차트", "다이어그램", "흐름도", "도형"],
     command: (ctx) =>
       runSlashCommand(ctx, (chain) => chain.insertFlowchartBlock()),
+  }),
+  slashLeaf({
+    id: "dropdownMenu",
+    title: "드롭다운 메뉴",
+    description: "언어별 페이지를 연결하는 공유 메뉴",
+    icon: Languages,
+    keywords: ["dropdown", "language", "드롭다운", "메뉴", "언어", "번역"],
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) => chain.insertDropdownMenuBlock()),
+  }),
+  slashLeaf({
+    id: "gallery",
+    title: "갤러리",
+    description: "이미지가 자동 전환되는 공유 배너",
+    icon: Images,
+    keywords: ["gallery", "banner", "carousel", "갤러리", "배너", "롤링", "이미지"],
+    command: (ctx) =>
+      runSlashCommand(ctx, (chain) => chain.insertGalleryBlock()),
   }),
   slashLeaf({
     id: "callout",

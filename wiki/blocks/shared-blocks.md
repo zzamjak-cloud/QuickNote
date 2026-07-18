@@ -1,0 +1,75 @@
+# 공유 드롭다운 메뉴·갤러리 블록
+
+`dropdownMenuBlock`과 `galleryBlock`은 여러 페이지에 복사한 뒤에도 같은 내용을 유지하는 공유 블록이다. 플로우차트와 같은 `공유 id + 인라인 스냅샷` 계약을 사용하며, 블록의 페이지 내 위치는 동기화하지 않는다.
+
+## 데이터 권위와 동기화
+
+- TipTap attrs: `sharedBlockId`, `data`, `version`, `publicMode`, `autoOpenEditor`.
+- 권위 데이터: 서버 `SharedBlock` 레코드와 이를 반영한 `sharedBlockStore`의 `SharedBlockRecord`.
+- 인라인 `data`: 오프라인·서버 미배포 fallback 및 최초 시드.
+- store key는 `[workspaceId, sharedBlockId]` 복합 키다. 같은 id가 다른 워크스페이스 캐시와 섞이지 않는다.
+- 같은 `sharedBlockId`를 가진 마운트된 복제본은 Zustand 레코드를 함께 구독하므로 서버 저장 성공 직후 모두 다시 렌더된다.
+- 마운트 시 `fetchSharedBlockApi`, 저장 시 `pushSharedBlockApi`, 원격 병합은 `updatedAt` LWW다. upsert 응답의 서버 승자를 다시 store에 반영해 동시 편집도 수렴시킨다.
+- 복사/붙여넣기와 페이지 복제는 `sharedBlockId`를 유지한다. `attrs.id`만 제거하는 기존 블록 복사 규칙을 바꾸지 않는다.
+- 편집 팝업은 로컬 draft를 사용하고 `변경사항 저장` 시에만 공유 레코드를 원자적으로 갱신한다. 서버 저장 실패 시 팝업을 닫거나 복제본을 먼저 갱신하지 않고 재시도 오류를 표시한다.
+
+## 드롭다운 메뉴
+
+- 각 항목은 `label`, `pageId`, 편집 표시용 `pageLabel`을 가진다.
+- 편집 버튼은 블록 우측에 고정하고 공개 페이지에서는 숨긴다.
+- 편집 팝업에서 메뉴 추가·삭제·위/아래 순서 변경·페이지 멘션 연결을 제공한다.
+- 빈 이름·미연결 항목·같은 페이지 중복 연결은 저장할 수 없다.
+- 현재 페이지 항목을 트리거 라벨과 체크 상태로 표시한다.
+- 팝업은 `useAnchoredPopover` + body Portal을 사용해 편집기 overflow와 화면 가장자리에서 잘리지 않게 한다.
+
+## 갤러리
+
+- 새 블록 삽입 직후 편집 팝업을 한 번 자동으로 연다.
+- PNG/JPEG/WebP 다중 추가, 대체 텍스트, 삭제, 위/아래 순서 변경, 3/5/8/10초 전환 간격을 지원한다.
+- 배너는 오른쪽의 다음 이미지가 들어오며 현재 이미지가 왼쪽으로 나가는 슬라이드 방식이다.
+- 이미지가 한 장이면 자동 전환과 인디케이터를 만들지 않는다.
+- hover, 수동 일시정지, 문서 탭 비활성, 이미지 미리보기 중에는 자동 전환을 멈춘다. 미리보기를 닫으면 기존 수동 일시정지 상태가 아닌 경우 재개한다.
+- 마지막 이미지 뒤에는 첫 이미지 clone을 한 번 더 배치하고, 전환 완료 뒤 transition 없이 원점으로 되돌려 마지막→첫 이미지도 항상 우측에서 좌측 방향으로 이동한다.
+- `prefers-reduced-motion: reduce`에서는 자동 전환과 슬라이드 transition을 끈다.
+- 이미지 클릭 시 포커스 트랩·Escape·닫기·이전/다음 조작이 있는 미리보기 dialog를 연다.
+
+## 공개 페이지
+
+- public-view Lambda가 페이지 doc의 `sharedBlockId`를 서버 최신 레코드로 hydrate한다. 다른 복제본의 오래된 인라인 스냅샷을 그대로 공개하지 않는다.
+- 드롭다운은 현재 게시 루트의 자손 집합에 포함된 `pageId`만 남긴다. 트리 밖 메뉴 이름과 id는 응답하지 않는다.
+- 문서 순회 깊이 상한을 넘은 서브트리는 원본 attrs를 반환하지 않고 제거한다. 깊은 stale 메뉴의 비공개 label/pageId도 Function URL 원문에 남지 않는다.
+- `transformPublicDoc`은 드롭다운 대상에 `/p/<token>?page=<id>` 링크를 만들고 `publicMode`를 켠다.
+- 갤러리 `quicknote-image://` ref는 `op=asset` URL로 변환한다. public asset 허용 목록도 hydrate된 갤러리 payload를 검사해야 한다.
+- 공유 갤러리 자산은 `sharedGallery` 합성 AssetUsage를 SharedBlock 버전과 함께 유지한다. 한 복제본 페이지가 삭제되어도 남은 복제본의 최신 공유 자산 권한이 사라지지 않는다.
+- 자산 관리의 사용 위치에서는 `sharedGallery` 합성 사용처를 `공유 갤러리`로 표시하고, 합성 pageId를 실제 페이지처럼 열지 않는다.
+- 공개 모드에서는 편집 버튼과 인증 API/store fetch를 사용하지 않는다.
+
+## 관련 파일
+
+### 클라이언트
+
+- `src/types/sharedBlock.ts`
+- `src/store/sharedBlockStore.ts`
+- `src/lib/sync/queries/sharedBlock.ts`
+- `src/lib/sync/sharedBlockApi.ts`
+- `src/lib/tiptapExtensions/sharedBlocks.tsx`
+- `src/components/sharedBlocks/SharedBlockView.tsx`
+- `src/lib/publicView/transformPublicDoc.ts`
+
+### 서버
+
+- `infra/lib/sync/schema.graphql`
+- `infra/lambda/v5-resolvers/handlers/sharedBlock.ts`
+- `infra/lambda/public-view/index.ts`
+- `infra/lambda/public-view/docAssets.ts`
+- `infra/lib/sync-stack.ts`
+
+## 회귀 검증
+
+1. 같은 블록을 두 페이지에 복사하고 한쪽 저장 직후 다른 쪽이 같은 순서·내용으로 갱신되는지 확인.
+2. 새로고침 후 서버 최신본이 복원되는지 확인.
+3. 공개 드롭다운에서 게시 트리 밖 항목이 보이지 않고, 트리 안 항목이 같은 공개 뷰어에서 이동하는지 확인.
+4. 공개 갤러리 이미지가 302 presign 되고, 미리보기 중 자동 전환이 멈추는지 확인.
+5. 375px 화면, 키보드만 사용, reduced motion 설정에서 팝업·롤링·미리보기를 확인.
+6. 동시 저장에서 서버 LWW 승자가 모든 마운트 복제본에 반영되고, 서버 실패 시 편집 팝업이 열린 채 오류를 표시하는지 확인.
+7. 같은 `sharedBlockId`를 가진 서로 다른 워크스페이스 캐시가 분리되는지 확인.

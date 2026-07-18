@@ -52,6 +52,10 @@ import {
 } from "../../lib/tiptapExtensions/slashItems";
 import { DatabaseBlock } from "../../lib/tiptapExtensions/databaseBlock";
 import { FlowchartBlock } from "../../lib/tiptapExtensions/flowchartBlock";
+import {
+  DropdownMenuBlock,
+  GalleryBlock,
+} from "../../lib/tiptapExtensions/sharedBlocks";
 import { PageLink } from "../../lib/tiptapExtensions/pageLink";
 import { ButtonBlock } from "../../lib/tiptapExtensions/buttonBlock";
 import { BookmarkBlock } from "../../lib/tiptapExtensions/bookmarkBlock";
@@ -186,6 +190,8 @@ export function useEditorExtensions({
       EmojiShortcode,
       DatabaseBlock,
       FlowchartBlock,
+      DropdownMenuBlock,
+      GalleryBlock,
       PageLink,
       ButtonBlock,
       BookmarkBlock,

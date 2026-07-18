@@ -48,6 +48,7 @@ import { ServerImagePicker } from "./ServerImagePicker";
 import { useCustomIconUpload } from "../common/useCustomIconUpload";
 import { FileText, Database, Loader2, ImagePlus } from "lucide-react";
 import { PageTitleBar } from "../page/PageTitleBar";
+import { PublishDialog } from "../layout/PublishDialog";
 import { getEditorColumnClass } from "../../lib/editorLayout";
 import { useIsMobile } from "../../hooks/useViewport";
 import {
@@ -283,6 +284,9 @@ function EditorInner({
   const [titleDraft, setTitleDraft] = useState("");
   // 제목 표시줄 "댓글 추가" 버튼 → PageCommentBar 입력창 열기 신호
   const [addCommentSignal, setAddCommentSignal] = useState(0);
+  const [publishDialogPageId, setPublishDialogPageId] = useState<string | null>(
+    null,
+  );
   const titleDraftRef = useRef("");
   const setTitleDraftValue = useCallback((next: string) => {
     titleDraftRef.current = next;
@@ -1473,6 +1477,11 @@ function EditorInner({
                 onTitleColorChange={(color) => setTitleColor(effectivePageId, color)}
                 onIconUploadMessage={(msg) => setSimpleAlert(msg)}
                 onAddComment={() => setAddCommentSignal((n) => n + 1)}
+                onOpenPublishSettings={
+                  !isFullPageDatabase && !peek
+                    ? () => setPublishDialogPageId(effectivePageId)
+                    : undefined
+                }
                 defaultIcon={
                   isFullPageDatabase
                     ? <Database size={56} className="text-zinc-400" />
@@ -1688,6 +1697,10 @@ function EditorInner({
         open={simpleAlert !== null}
         message={simpleAlert ?? ""}
         onClose={() => setSimpleAlert(null)}
+      />
+      <PublishDialog
+        pageId={publishDialogPageId}
+        onClose={() => setPublishDialogPageId(null)}
       />
       <MentionSearchModal
         open={mentionRange !== null}

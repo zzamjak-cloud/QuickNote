@@ -318,6 +318,27 @@ input FlowchartInput {
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
 }
+
+# 여러 페이지의 드롭다운 메뉴·갤러리 블록이 sharedBlockId 로 공유하는 동기화 자원.
+# kind 는 클라이언트 계약의 "dropdown-menu" | "gallery" 문자열만 허용한다.
+type SharedBlock {
+  id: ID!
+  workspaceId: ID!
+  kind: String!
+  data: AWSJSON!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  deletedAt: AWSDateTime
+}
+input SharedBlockInput {
+  id: ID!
+  workspaceId: ID!
+  kind: String!
+  data: AWSJSON!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+  deletedAt: AWSDateTime
+}
 type FlowchartHistoryEntry {
   flowchartId: ID!
   historyId: ID!
@@ -539,6 +560,7 @@ type Query {
   getPageById(id: ID!): Page
   getDatabase(id: ID!, workspaceId: ID!): Database
   getFlowchart(id: ID!, workspaceId: ID!): Flowchart
+  getSharedBlock(id: ID!, workspaceId: ID!): SharedBlock
   listFlowcharts(workspaceId: ID!, updatedAfter: AWSDateTime, limit: Int, nextToken: String): FlowchartConnection!
   listFlowchartHistory(flowchartId: ID!, workspaceId: ID!, limit: Int): [FlowchartHistoryEntry!]!
   """사이드바/탭 기준선용 페이지 메타. doc/dbCells/blockComments 는 내려받지 않는다."""
@@ -693,6 +715,7 @@ type Mutation {
   upsertDatabase(input: DatabaseInput!): Database!
   softDeleteDatabase(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Database!
   upsertFlowchart(input: FlowchartInput!): Flowchart!
+  upsertSharedBlock(input: SharedBlockInput!): SharedBlock!
   softDeleteFlowchart(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Flowchart!
   saveFlowchartVersion(flowchartId: ID!, workspaceId: ID!, title: String!, data: AWSJSON!): FlowchartHistoryEntry!
   restoreDatabase(id: ID!, workspaceId: ID!): Database!

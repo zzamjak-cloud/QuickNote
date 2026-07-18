@@ -64,6 +64,9 @@
 | `file` | fileBlock | media | leaf | media | excludeFromUniqueId |
 | `pageMention` | mention, pageLink | text | leaf | text | — |
 | `database` | databaseBlock | database | leaf | database | — |
+| `flowchart` | flowchartBlock | media | leaf | none | excludeFromUniqueId |
+| `dropdownMenu` | dropdownMenuBlock | interactive | leaf | none | excludeFromUniqueId |
+| `gallery` | galleryBlock | media | leaf | none | excludeFromUniqueId |
 | `table` | table, tableRow, tableHeader, tableCell | database | container | container | — |
 | `button` | buttonBlock | interactive | leaf | text | — |
 | `bookmark` | bookmarkBlock | embed | leaf | media | — |

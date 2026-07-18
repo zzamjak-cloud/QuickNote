@@ -19,12 +19,17 @@ import {
   loadPublishablePageMetas,
   type PublicPageMeta,
 } from "./tree";
+import {
+  hasSharedBlockNodes,
+  hydratePublicSharedBlocks,
+} from "./sharedBlocks";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
 
 const PUBLISHED_TABLE = process.env.PUBLISHED_PAGES_TABLE!;
 const PAGES_TABLE = process.env.PAGES_TABLE!;
+const SHARED_BLOCKS_TABLE = process.env.SHARED_BLOCKS_TABLE!;
 const ASSET_TABLE = process.env.IMAGE_ASSET_TABLE!;
 const ASSET_USAGE_TABLE = process.env.ASSET_USAGE_TABLE!;
 const BUCKET = process.env.IMAGES_BUCKET!;
@@ -223,6 +228,17 @@ async function handlePage(
     publish.fullWidthById?.[page.id] ??
     publish.fullWidthDefault ??
     publish.fullWidth === true;
+  let pageDoc = parseDocField(page.doc);
+  if (hasSharedBlockNodes(pageDoc)) {
+    const { ids } = await getPublishedTree(publish);
+    pageDoc = await hydratePublicSharedBlocks({
+      docClient: ddb,
+      tableName: SHARED_BLOCKS_TABLE,
+      workspaceId: publish.workspaceId,
+      publishedPageIds: ids,
+      pageDoc,
+    });
+  }
   return json(200, {
     id: page.id,
     title: page.title ?? "",
@@ -232,7 +248,7 @@ async function handlePage(
     parentId: page.parentId ?? null,
     updatedAt: page.updatedAt ?? null,
     fullWidth,
-    doc: parseDocField(page.doc),
+    doc: pageDoc,
   });
 }
 
@@ -266,8 +282,19 @@ async function handleAsset(
   }
   const page = await getPageRow(pageId);
   if (!isServablePage(page, publish)) return notFound();
+  let pageDoc = parseDocField(page.doc);
+  if (hasSharedBlockNodes(pageDoc)) {
+    const { ids } = await getPublishedTree(publish);
+    pageDoc = await hydratePublicSharedBlocks({
+      docClient: ddb,
+      tableName: SHARED_BLOCKS_TABLE,
+      workspaceId: publish.workspaceId,
+      publishedPageIds: ids,
+      pageDoc,
+    });
+  }
   // 1차 방어: 페이지에 실제 참조된 자산만(임의 assetId presign 금지).
-  const refs = collectDocAssetIds(parseDocField(page.doc), [
+  const refs = collectDocAssetIds(pageDoc, [
     page.icon,
     page.coverImage,
   ]);

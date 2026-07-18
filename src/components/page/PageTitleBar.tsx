@@ -3,6 +3,7 @@ import { MessageSquarePlus, Star } from "lucide-react";
 import { IconPicker } from "../common/IconPicker";
 import { useSettingsStore } from "../../store/settingsStore";
 import { PageTitleColorToolbar } from "./PageTitleColorToolbar";
+import { PublishedPageButton } from "./PublishedPageButton";
 
 interface PageTitleBarProps {
   pageId: string;
@@ -22,6 +23,8 @@ interface PageTitleBarProps {
   defaultIcon?: React.ReactNode;
   /** 제공 시 즐겨찾기 아이콘 왼쪽에 "댓글 추가" 버튼을 표시한다. */
   onAddComment?: () => void;
+  /** 제공 시 게시 상태를 확인하고 댓글 아이콘 오른쪽에 웹 게시 버튼을 표시한다. */
+  onOpenPublishSettings?: () => void;
 }
 
 export function PageTitleBar({
@@ -41,6 +44,7 @@ export function PageTitleBar({
   onIconUploadMessage,
   defaultIcon,
   onAddComment,
+  onOpenPublishSettings,
 }: PageTitleBarProps) {
   const [titleToolbarOpen, setTitleToolbarOpen] = useState(false);
   const internalTitleRef = React.useRef<HTMLInputElement | null>(null);
@@ -115,6 +119,9 @@ export function PageTitleBar({
           <MessageSquarePlus size={22} strokeWidth={1.75} />
         </button>
       )}
+      {onOpenPublishSettings ? (
+        <PublishedPageButton pageId={pageId} onOpen={onOpenPublishSettings} />
+      ) : null}
       <button
         type="button"
         onClick={() => toggleFavoritePage(pageId)}

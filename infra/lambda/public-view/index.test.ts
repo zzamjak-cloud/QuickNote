@@ -1,12 +1,15 @@
 // public-view Lambda — 균일 404·트리 소속 검증·자산 인가·필드 화이트리스트 검증.
 import { beforeEach, describe, it, expect, vi } from "vitest";
 
-// 환경변수는 모듈 로드 전에 설정돼야 한다.
-process.env.PUBLISHED_PAGES_TABLE = "PP";
-process.env.PAGES_TABLE = "P";
-process.env.IMAGE_ASSET_TABLE = "IA";
-process.env.ASSET_USAGE_TABLE = "AU";
-process.env.IMAGES_BUCKET = "bucket";
+// 정적 import 보다 먼저 실행되어 Lambda 모듈 상수에 테스트 테이블명이 들어가게 한다.
+vi.hoisted(() => {
+  process.env.PUBLISHED_PAGES_TABLE = "PP";
+  process.env.PAGES_TABLE = "P";
+  process.env.SHARED_BLOCKS_TABLE = "SB";
+  process.env.IMAGE_ASSET_TABLE = "IA";
+  process.env.ASSET_USAGE_TABLE = "AU";
+  process.env.IMAGES_BUCKET = "bucket";
+});
 
 const sendMock = vi.fn();
 vi.mock("@aws-sdk/lib-dynamodb", async (importOriginal) => {
@@ -25,6 +28,8 @@ vi.mock("@aws-sdk/s3-request-presigner", () => ({
 import { handler } from "./index";
 
 const TOKEN = "abcdefghijklmnop1234";
+const SHARED_TOKEN = "sharedtoken1234567890";
+const GALLERY_TOKEN = "gallerytoken123456789";
 
 function getEvent(qs: Record<string, string>) {
   return {
@@ -136,6 +141,102 @@ describe("public-view handler", () => {
     expect(body).not.toHaveProperty("workspaceId");
   });
 
+  it("op=page — sharedBlockId 최신 메뉴 data 를 hydrate하고 게시 트리 밖 항목은 통째로 제거", async () => {
+    const pageWithMenu = {
+      ...rootPage,
+      doc: JSON.stringify({
+        type: "doc",
+        content: [{
+          type: "dropdownMenuBlock",
+          attrs: {
+            sharedBlockId: "shared-menu-1",
+            data: JSON.stringify({
+              kind: "dropdown-menu",
+              items: [{ id: "stale", label: "오래된 메뉴", pageId: "root-1" }],
+            }),
+          },
+        }],
+      }),
+    };
+    sendMock
+      .mockResolvedValueOnce({ Item: { ...publishRecord, token: SHARED_TOKEN } })
+      .mockResolvedValueOnce({ Item: pageWithMenu })
+      .mockResolvedValueOnce({ Item: pageWithMenu })
+      .mockResolvedValueOnce(workspaceMetas)
+      .mockResolvedValueOnce({
+        Responses: {
+          SB: [{
+            id: "shared-menu-1",
+            workspaceId: "ws-1",
+            kind: "dropdown-menu",
+            data: JSON.stringify({
+              kind: "dropdown-menu",
+              items: [
+                { id: "child-menu", label: "English", pageId: "child-1" },
+                { id: "private-menu", label: "비공개 이름", pageId: "other-1" },
+              ],
+            }),
+            deletedAt: null,
+          }],
+        },
+      });
+    const result = await handler(getEvent({
+      op: "page",
+      token: SHARED_TOKEN,
+      pageId: "root-1",
+    }));
+    expect(result.statusCode).toBe(200);
+    const body = JSON.parse(result.body) as {
+      doc: { content: Array<{ attrs: { data: string; publicMode: boolean } }> };
+    };
+    const data = JSON.parse(body.doc.content[0]!.attrs.data) as {
+      items: Array<{ id: string; label: string; pageId: string }>;
+    };
+    expect(data.items).toEqual([
+      { id: "child-menu", label: "English", pageId: "child-1" },
+    ]);
+    expect(body.doc.content[0]!.attrs.publicMode).toBe(true);
+    expect(result.body).not.toContain("비공개 이름");
+    expect(result.body).not.toContain("other-1");
+    expect(result.body).not.toContain("오래된 메뉴");
+  });
+
+  it("op=page — 201-depth 상한 밖 공유 메뉴의 raw label/pageId를 fail-closed로 제거", async () => {
+    let nested: Record<string, unknown> = {
+      type: "dropdownMenuBlock",
+      attrs: {
+        sharedBlockId: "deep-secret-menu",
+        data: JSON.stringify({
+          kind: "dropdown-menu",
+          items: [{ id: "secret", label: "비공개 201단계 메뉴", pageId: "secret-page-201" }],
+        }),
+      },
+    };
+    for (let i = 0; i < 201; i += 1) {
+      nested = { type: "blockquote", content: [nested] };
+    }
+    const deepPage = {
+      ...rootPage,
+      doc: JSON.stringify({ type: "doc", content: [nested] }),
+    };
+    sendMock
+      .mockResolvedValueOnce({ Item: publishRecord })
+      .mockResolvedValueOnce({ Item: deepPage })
+      .mockResolvedValueOnce({ Item: deepPage })
+      .mockResolvedValueOnce(workspaceMetas);
+
+    const result = await handler(getEvent({
+      op: "page",
+      token: TOKEN,
+      pageId: "root-1",
+    }));
+
+    expect(result.statusCode).toBe(200);
+    expect(result.body).not.toContain("비공개 201단계 메뉴");
+    expect(result.body).not.toContain("secret-page-201");
+    expect(result.body).not.toContain("deep-secret-menu");
+  });
+
   it("op=asset — doc 참조 + 게시 워크스페이스 사용(AssetUsage) 확인 후 presign 302", async () => {
     sendMock
       .mockResolvedValueOnce({ Item: publishRecord }) // 토큰
@@ -148,6 +249,62 @@ describe("public-view handler", () => {
     );
     expect(r.statusCode).toBe(302);
     expect(r.headers.location).toBe("https://s3.example/presigned");
+  });
+
+  it("op=asset — A 페이지 삭제 뒤에도 B의 stale inline 대신 최신 공유 갤러리 자산을 302", async () => {
+    const pageWithGallery = {
+      ...rootPage,
+      doc: JSON.stringify({
+        type: "doc",
+        content: [{
+          type: "galleryBlock",
+          attrs: {
+            sharedBlockId: "shared-gallery-1",
+            data: JSON.stringify({ kind: "gallery", images: [], intervalMs: 5_000 }),
+          },
+        }],
+      }),
+    };
+    sendMock
+      .mockResolvedValueOnce({ Item: { ...publishRecord, token: GALLERY_TOKEN } })
+      .mockResolvedValueOnce({ Item: pageWithGallery })
+      .mockResolvedValueOnce({ Item: pageWithGallery })
+      .mockResolvedValueOnce(workspaceMetas)
+      .mockResolvedValueOnce({
+        Responses: {
+          SB: [{
+            id: "shared-gallery-1",
+            workspaceId: "ws-1",
+            kind: "gallery",
+            data: JSON.stringify({
+              kind: "gallery",
+              images: [{ id: "image-1", src: "quicknote-image://gallery-asset-1", alt: "상품" }],
+              intervalMs: 5_000,
+            }),
+            deletedAt: null,
+          }],
+        },
+      })
+      // 페이지 A의 PAGE# usage가 아니라 SharedBlock upsert가 유지한 합성 usage이다.
+      .mockResolvedValueOnce({
+        Items: [{
+          workspaceId: "ws-1",
+          blockType: "sharedGallery",
+          pageId: "__sharedBlock__:ws-1:shared-gallery-1",
+          sharedBlockId: "shared-gallery-1",
+        }],
+      })
+      .mockResolvedValueOnce({
+        Item: { id: "gallery-asset-1", status: "READY", key: "k/gallery-asset-1" },
+      });
+    const result = await handler(getEvent({
+      op: "asset",
+      token: GALLERY_TOKEN,
+      pageId: "root-1",
+      assetId: "gallery-asset-1",
+    }));
+    expect(result.statusCode).toBe(302);
+    expect(result.headers.location).toBe("https://s3.example/presigned");
   });
 
   it("op=asset — doc 에 있어도 타 워크스페이스 자산이면 404 (교차 워크스페이스 유출 차단)", async () => {
@@ -280,5 +437,27 @@ describe("tree/docAssets 순환·상한", () => {
     };
     const refs = collectDocAssetIds(doc, ["quicknote-image://icon-1", null]);
     expect(refs).toEqual(new Set(["file-9", "img-1", "icon-1"]));
+  });
+
+  it("docAssets — galleryBlock JSON data 의 images[].src 도 수집", async () => {
+    const { collectDocAssetIds } = await import("./docAssets");
+    const doc = {
+      type: "doc",
+      content: [{
+        type: "galleryBlock",
+        attrs: {
+          data: JSON.stringify({
+            kind: "gallery",
+            images: [
+              { id: "a", src: "quicknote-image://gallery-image" },
+              { id: "b", src: "quicknote-file://gallery-file" },
+            ],
+          }),
+        },
+      }],
+    };
+    expect(collectDocAssetIds(doc)).toEqual(
+      new Set(["gallery-image", "gallery-file"]),
+    );
   });
 });

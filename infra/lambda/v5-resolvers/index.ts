@@ -57,6 +57,10 @@ import {
   listFlowchartHistory,
 } from "./handlers/flowchart";
 import {
+  getSharedBlock,
+  upsertSharedBlock,
+} from "./handlers/sharedBlock";
+import {
   emptyTrash,
   deleteDatabaseHistoryEvents,
   deletePageHistoryEvents,
@@ -158,6 +162,7 @@ const tables: Tables = {
   Pages: process.env.PAGES_TABLE_NAME,
   Databases: process.env.DATABASES_TABLE_NAME,
   Flowcharts: process.env.FLOWCHARTS_TABLE_NAME,
+  SharedBlocks: process.env.SHARED_BLOCKS_TABLE_NAME,
   FlowchartHistory: process.env.FLOWCHART_HISTORY_TABLE_NAME,
   Comments: process.env.COMMENTS_TABLE_NAME,
   Notifications: process.env.NOTIFICATIONS_TABLE_NAME,
@@ -538,6 +543,12 @@ const RESOLVERS: Record<
       id: event.arguments.id as string,
       workspaceId: event.arguments.workspaceId as string,
     }),
+  getSharedBlock: async (event, base) =>
+    await getSharedBlock({
+      ...base,
+      id: event.arguments.id as string,
+      workspaceId: event.arguments.workspaceId as string,
+    }),
   listFlowcharts: async (event, base) =>
     await listFlowcharts({
       ...base,
@@ -643,6 +654,8 @@ const RESOLVERS: Record<
     await upsertDatabase({ ...base, input: event.arguments.input as Record<string, unknown> }),
   upsertFlowchart: async (event, base) =>
     await upsertFlowchart({ ...base, input: event.arguments.input as Record<string, unknown> }),
+  upsertSharedBlock: async (event, base) =>
+    await upsertSharedBlock({ ...base, input: event.arguments.input as Record<string, unknown> }),
   saveFlowchartVersion: async (event, base) =>
     await saveFlowchartVersion({
       ...base,

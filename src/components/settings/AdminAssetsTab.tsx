@@ -18,6 +18,7 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useCustomIconStore } from "../../store/customIconStore";
 import { useAssetCacheStore } from "../../store/assetCacheStore";
 import { collectCustomIconAssetIds } from "../../lib/assets/customIconAssetProtection";
+import { describeAssetUsage } from "../../lib/assets/assetUsageDisplay";
 import { imageUrlCache } from "../../lib/images/registry";
 
 type SortKey = "SIZE_DESC" | "SIZE_ASC" | "CREATED_AT_DESC";
@@ -787,45 +788,40 @@ function UsageDialog(props: {
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {props.rows.map((r) => {
-                const isCustomIconUsage =
-                  r.blockType === "customIcon" ||
-                  r.pageId.startsWith("__customIcon__:");
                 const page = props.pages[r.pageId];
-                const title = isCustomIconUsage
-                  ? "커스텀 아이콘 라이브러리"
-                  : page?.title || r.pageTitle || "(제목 없음)";
+                const display = describeAssetUsage(r, page?.title);
                 return (
                   <li key={`${r.assetId}-${r.pageId}-${r.blockId ?? ""}`}>
                     <button
                       type="button"
                       onClick={() => {
-                        if (!isCustomIconUsage) props.onNavigate(r.pageId, r.workspaceId);
+                        if (display.navigable) props.onNavigate(r.pageId, r.workspaceId);
                       }}
-                      disabled={isCustomIconUsage}
+                      disabled={!display.navigable}
                       className={[
                         "group flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm",
-                        isCustomIconUsage
+                        !display.navigable
                           ? "cursor-default"
                           : "hover:bg-blue-50 dark:hover:bg-blue-950/30",
                       ].join(" ")}
-                      title={isCustomIconUsage ? "커스텀 아이콘 등록 자산" : "이 페이지로 바로가기"}
+                      title={display.hint}
                     >
                       <span
                         className={[
                           "min-w-0 flex-1 truncate text-zinc-800 dark:text-zinc-200",
-                          isCustomIconUsage
+                          !display.navigable
                             ? ""
                             : "group-hover:text-blue-700 dark:group-hover:text-blue-300",
                         ].join(" ")}
                       >
-                        {title}
+                        {display.title}
                       </span>
                       <span className="shrink-0 text-xs text-zinc-400">
                         {r.blockType ?? ""}
                       </span>
-                      {isCustomIconUsage ? null : (
+                      {display.navigable ? (
                         <ExternalLink size={12} className="shrink-0 text-zinc-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
-                      )}
+                      ) : null}
                     </button>
                   </li>
                 );

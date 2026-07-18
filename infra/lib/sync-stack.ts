@@ -74,6 +74,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
   public readonly pageTable: ModelTable;
   public readonly databaseTable: ModelTable;
   public readonly flowchartTable: ModelTable;
+  public readonly sharedBlockTable: ModelTable;
   public readonly imageAssetTable: ModelTable;
   public readonly commentTable: ModelTable;
   public readonly imagesBucket: s3.Bucket;
@@ -107,6 +108,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
     this.databaseTable = createSyncTable(this, "DatabaseTable", "Database", { envPrefix });
     this.flowchartTable = createSyncTable(this, "FlowchartTable", "Flowchart", { envPrefix });
+    this.sharedBlockTable = createSyncTable(this, "SharedBlockTable", "SharedBlock", { envPrefix });
     this.commentTable = createSyncTable(this, "CommentTable", "Comment", { envPrefix });
     this.imageAssetTable = createSyncTable(this, "ImageAssetTable", "ImageAsset", {
       ttlAttribute: "expireAt", // pending 1일 자동 삭제용
@@ -232,6 +234,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     new cdk.CfnOutput(this, "PageTableName", { value: this.pageTable.table.tableName });
     new cdk.CfnOutput(this, "DatabaseTableName", { value: this.databaseTable.table.tableName });
     new cdk.CfnOutput(this, "FlowchartTableName", { value: this.flowchartTable.table.tableName });
+    new cdk.CfnOutput(this, "SharedBlockTableName", { value: this.sharedBlockTable.table.tableName });
     new cdk.CfnOutput(this, "CommentTableName", { value: this.commentTable.table.tableName });
     new cdk.CfnOutput(this, "ImageAssetTableName", {
       value: this.imageAssetTable.table.tableName,
@@ -973,6 +976,7 @@ export function response(ctx) {
       environment: {
         PUBLISHED_PAGES_TABLE: publishedPagesTable.tableName,
         PAGES_TABLE: this.pageTable.table.tableName,
+        SHARED_BLOCKS_TABLE: this.sharedBlockTable.table.tableName,
         IMAGE_ASSET_TABLE: this.imageAssetTable.table.tableName,
         ASSET_USAGE_TABLE: assetUsageTable.tableName,
         IMAGES_BUCKET: imagesBucket.bucketName,
@@ -986,6 +990,7 @@ export function response(ctx) {
     });
     publishedPagesTable.grantReadData(publicViewFn);
     this.pageTable.table.grantReadData(publicViewFn);
+    this.sharedBlockTable.table.grantReadData(publicViewFn);
     this.imageAssetTable.table.grantReadData(publicViewFn);
     assetUsageTable.grantReadData(publicViewFn);
     imagesBucket.grantRead(publicViewFn);
@@ -1089,6 +1094,7 @@ export function response(ctx) {
         PAGES_TABLE_NAME: this.pageTable.table.tableName,
         DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
         FLOWCHARTS_TABLE_NAME: this.flowchartTable.table.tableName,
+        SHARED_BLOCKS_TABLE_NAME: this.sharedBlockTable.table.tableName,
         FLOWCHART_HISTORY_TABLE_NAME: flowchartHistoryTable.tableName,
         COMMENTS_TABLE_NAME: this.commentTable.table.tableName,
         NOTIFICATIONS_TABLE_NAME: notificationTable.tableName,
@@ -1130,6 +1136,7 @@ export function response(ctx) {
     this.pageTable.table.grantReadWriteData(v5ResolversFn);
     this.databaseTable.table.grantReadWriteData(v5ResolversFn);
     this.flowchartTable.table.grantReadWriteData(v5ResolversFn);
+    this.sharedBlockTable.table.grantReadWriteData(v5ResolversFn);
     flowchartHistoryTable.grantReadWriteData(v5ResolversFn);
     this.commentTable.table.grantReadWriteData(v5ResolversFn);
     notificationTable.grantReadWriteData(v5ResolversFn);
@@ -1294,6 +1301,10 @@ export function response(ctx) {
       typeName: "Query",
       fieldName: "getFlowchart",
     });
+    v5Ds.createResolver("QuerygetSharedBlock", {
+      typeName: "Query",
+      fieldName: "getSharedBlock",
+    });
     v5Ds.createResolver("QuerylistFlowcharts", {
       typeName: "Query",
       fieldName: "listFlowcharts",
@@ -1418,6 +1429,10 @@ export function response(ctx) {
     v5Ds.createResolver("MutationupsertFlowchart", {
       typeName: "Mutation",
       fieldName: "upsertFlowchart",
+    });
+    v5Ds.createResolver("MutationupsertSharedBlock", {
+      typeName: "Mutation",
+      fieldName: "upsertSharedBlock",
     });
     v5Ds.createResolver("MutationsaveFlowchartVersion", {
       typeName: "Mutation",

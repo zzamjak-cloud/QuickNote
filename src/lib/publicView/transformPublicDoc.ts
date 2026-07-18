@@ -16,6 +16,11 @@ import {
   decodeLucidePageIcon,
   isImageLikePageIcon,
 } from "../pageIcon";
+import {
+  parseDropdownMenuData,
+  parseGalleryData,
+  serializeSharedBlockData,
+} from "../../types/sharedBlock";
 
 export type PublicDocContext = {
   token: string;
@@ -46,6 +51,48 @@ export function toPublicAssetUrl(
 
 function publicPageHref(token: string, pageId: string): string {
   return `/p/${token}?page=${pageId}`;
+}
+
+function transformSharedBlockNode(
+  node: JSONContent,
+  ctx: PublicDocContext,
+): JSONContent | null {
+  const attrs = node.attrs && typeof node.attrs === "object" ? node.attrs : {};
+  if (node.type === "dropdownMenuBlock") {
+    const data = parseDropdownMenuData(attrs.data);
+    const items = data.items.flatMap((item) => {
+      if (!item.pageId || !ctx.publishedPageIds.has(item.pageId)) return [];
+      return [{
+        ...item,
+        href: publicPageHref(ctx.token, item.pageId),
+        active: item.pageId === ctx.pageId,
+      }];
+    });
+    return {
+      ...node,
+      attrs: {
+        ...attrs,
+        publicMode: true,
+        data: serializeSharedBlockData({ kind: "dropdown-menu", items }),
+      },
+    };
+  }
+  if (node.type === "galleryBlock") {
+    const data = parseGalleryData(attrs.data);
+    const images = data.images.flatMap((image) => {
+      const src = toPublicAssetUrl(image.src, ctx);
+      return src ? [{ ...image, src }] : [];
+    });
+    return {
+      ...node,
+      attrs: {
+        ...attrs,
+        publicMode: true,
+        data: serializeSharedBlockData({ ...data, images }),
+      },
+    };
+  }
+  return null;
 }
 
 /** 대상 페이지 소유 자산(icon)용 공개 URL — op=asset 화이트리스트는 owner pageId 기준. */
@@ -126,6 +173,8 @@ function transformNode(
   node: JSONContent,
   ctx: PublicDocContext,
 ): JSONContent | JSONContent[] {
+  const sharedBlock = transformSharedBlockNode(node, ctx);
+  if (sharedBlock) return sharedBlock;
   // 1차 미지원 블록 — 플레이스홀더로 치환
   if (node.type === "databaseBlock") {
     return placeholderParagraph("📊 인라인 데이터베이스 (공개 페이지에서는 표시되지 않습니다)");

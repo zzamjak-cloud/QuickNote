@@ -12,7 +12,7 @@
 | 공개 조회 Lambda | `infra/lambda/public-view/` — **Function URL(authType NONE)**, `op=site`/`op=page`/`op=asset` |
 | 공개 뷰어 | `/p/<token>` → `src/components/public/PublicPageViewer.tsx` (Bootstrap 에서 분기) |
 | doc 변환 | `src/lib/publicView/transformPublicDoc.ts` |
-| 게시 UI | TopBar "..." 메뉴 → `src/components/layout/PublishDialog.tsx` |
+| 게시 UI | TopBar "..." 메뉴 또는 게시된 일반 페이지 제목줄의 지구본 버튼 → `src/components/layout/PublishDialog.tsx` |
 
 ## 보안 규칙 (회귀 주의)
 
@@ -34,6 +34,12 @@
 - mention attrs 의 멤버 이름은 구조적으로 공개됨 — PublishDialog 에 경고 문구 존재.
 
 ## 프론트 규칙
+
+- **제목줄 빠른 진입**: 웹에 게시된 일반 페이지는 제목의 댓글 추가 아이콘 바로 오른쪽에
+  지구본 버튼을 표시하고, 클릭 즉시 해당 페이지의 `PublishDialog`를 연다. 풀페이지 DB와
+  DB row/peek에는 표시하지 않는다. `PublishDialog`의 조회·게시·해제 결과는 세션 전용
+  `pagePublishStatusStore`에 반영해 TopBar에서 상태를 바꿔도 제목 버튼을 즉시 갱신한다.
+  게시 상태 조회에 실패하면 지구본 버튼은 숨긴다.
 
 - `Bootstrap.tsx`: `/p/` 분기는 `useSyncBootstrap()` 을 호출하는 `AuthedBootstrap` **바깥**에서
   일어난다(훅 규칙). 공개 뷰어에 인증/스토어 부트스트랩을 붙이지 말 것.
@@ -70,7 +76,12 @@
   루트↔자식 왕복 시 재요청·`undefined` 화면 비움을 없애 인라인 아이콘 재마운트(재연결) 출렁임을
   막는다. 변환 doc 는 동일 참조를 유지해 read-only 에디터 재생성을 줄인다.
 - doc 변환: 자산 스킴 → `op=asset` URL, `databaseBlock`/`flowchartBlock` → placeholder,
+  `dropdownMenuBlock`/`galleryBlock` → 서버 최신 공유 레코드 hydrate 후 공개 NodeView,
   `pageLink`/페이지 멘션 → 트리 안=공개 라우트 링크 / 밖=순수 텍스트(id 비노출).
+- **공유 블록**: public-view Lambda는 페이지 doc의 `sharedBlockId`를 같은 workspace의
+  `SharedBlock` 최신 데이터로 치환한다. 드롭다운은 게시 트리의 `pageId`만 남기고, 갤러리
+  payload의 이미지 ref도 `op=asset` 허용 목록에 포함한다. 상세는
+  [공유 드롭다운 메뉴·갤러리](../blocks/shared-blocks.md)를 따른다.
 - `VITE_PUBLIC_VIEW_URL` (Function URL) — 미설정이면 뷰어는 404 화면. CSP `connect-src` 에
   해당 호스트 핀 고정 필요(`vercel.json`). 도메인 변경 시 env·CSP 동시 갱신.
 
