@@ -70,6 +70,8 @@
   published-pages 에 스냅샷 → `op=page.fullWidth`. 뷰어는 `getEditorColumnClass` 적용.
   상단 브레드크럼/목차 버튼 헤더도 같은 폭 클래스를 받아 본문 폭 상태와 함께 늘어나고 줄어든다.
   스냅샷은 멱등 재게시(PublishDialog 열기)로 in-place 갱신되므로 재게시(새 토큰) 불필요.
+  편집 화면에서 이미 게시된 페이지의 전체너비를 토글하면 `clientPrefs` 를 즉시 저장한 뒤
+  `publishPage` 를 멱등 재호출해 최초 접근 루트 페이지의 레이아웃 스냅샷도 갱신한다.
 - **모바일 여백**: 공개 뷰어 본문·제목은 `px-4 md:px-12` — md 미만에서 좌우 16px 여백 필수
   (`md:px-12` 만 두면 모바일에서 여백 0 으로 답답, 2026-07-11 수정).
 - **페이지 캐시(출렁임 방지)**: `PublicPageViewer` 는 방문한 페이지·변환 doc 를 pageId 로 캐시한다.

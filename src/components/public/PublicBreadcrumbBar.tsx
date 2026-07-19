@@ -84,7 +84,7 @@ export function PublicBreadcrumbBar({
   return (
     <nav
       aria-label="페이지 경로"
-      className="sticky top-0 z-10 bg-white/90 backdrop-blur dark:bg-zinc-950/90"
+      className="sticky top-0 z-20 bg-white/90 backdrop-blur dark:bg-zinc-950/90"
     >
       <div className={publicBreadcrumbInnerClassName(contentClassName)}>
         <button

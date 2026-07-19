@@ -1,4 +1,5 @@
 const PUBLIC_OUTLINE_CONTAINER_SELECTOR = ".qn-public-doc .ProseMirror";
+const PUBLIC_SCROLL_HOST_SELECTOR = "[data-qn-public-scroll-host='true']";
 const PUBLIC_OUTLINE_TARGET_SELECTOR =
   "h1,h2,h3,h4,summary.toggle-header[data-title-level]";
 export const PUBLIC_OUTLINE_FOCUS_CLASS = "qn-public-outline-focus";
@@ -48,6 +49,32 @@ function flashPublicOutlineTarget(target: HTMLElement): void {
   }, PUBLIC_OUTLINE_FOCUS_MS);
 }
 
+function scrollTargetIntoPublicHost(
+  target: HTMLElement,
+  opts: { behavior: ScrollBehavior; topOffset: number },
+): void {
+  const host = target.closest<HTMLElement>(PUBLIC_SCROLL_HOST_SELECTOR);
+  const rect = target.getBoundingClientRect();
+  if (host) {
+    const hostRect = host.getBoundingClientRect();
+    host.scrollTo({
+      top: Math.max(0, host.scrollTop + rect.top - hostRect.top - opts.topOffset),
+      behavior: opts.behavior,
+    });
+    return;
+  }
+
+  const currentTop =
+    window.scrollY ||
+    (document.scrollingElement as HTMLElement | null)?.scrollTop ||
+    document.documentElement.scrollTop ||
+    0;
+  window.scrollTo({
+    top: Math.max(0, currentTop + rect.top - opts.topOffset),
+    behavior: opts.behavior,
+  });
+}
+
 export function scrollPublicOutlineTargetIntoView(
   index: number,
   opts: {
@@ -62,15 +89,9 @@ export function scrollPublicOutlineTargetIntoView(
   if (!target) return false;
 
   const topOffset = opts.topOffset ?? 72;
-  const rect = target.getBoundingClientRect();
-  const currentTop =
-    window.scrollY ||
-    (document.scrollingElement as HTMLElement | null)?.scrollTop ||
-    document.documentElement.scrollTop ||
-    0;
-  window.scrollTo({
-    top: Math.max(0, currentTop + rect.top - topOffset),
+  scrollTargetIntoPublicHost(target, {
     behavior: opts.behavior ?? "smooth",
+    topOffset,
   });
   if (opts.flash) {
     flashPublicOutlineTarget(target);

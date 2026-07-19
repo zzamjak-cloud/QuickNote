@@ -526,6 +526,19 @@ body.quicknote-block-dragging .ProseMirror {
   box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.12);
 }
 
+/* 드롭다운 메뉴 블록은 버튼 조작이 주 동작이라 atom 선택의 행 전체 배경을 숨긴다. */
+.react-renderer.ProseMirror-selectednode:has(.qn-dropdown-menu-block),
+.ProseMirror-selectednode:has([data-node-view-wrapper].qn-dropdown-menu-block),
+.ProseMirror-selectednode:has(.qn-dropdown-menu-block),
+.qn-dropdown-menu-block.ProseMirror-selectednode,
+.dark .react-renderer.ProseMirror-selectednode:has(.qn-dropdown-menu-block),
+.dark .ProseMirror-selectednode:has([data-node-view-wrapper].qn-dropdown-menu-block),
+.dark .ProseMirror-selectednode:has(.qn-dropdown-menu-block),
+.dark .qn-dropdown-menu-block.ProseMirror-selectednode {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
 /* DB 블록은 자체 UI에 컨트롤이 많아 atom 선택 시 파란 배경이 거슬림 — 비활성화
    React 노드뷰: ProseMirror-selectednode 는 포털 루트(.react-renderer)에 붙고,
    qn-database-block 은 자식 NodeViewWrapper 에 있어서 동일 요소 조합이 안 됨 → :has 로 상위에서 제거 */
@@ -560,6 +573,7 @@ body.quicknote-block-dragging .ProseMirror {
   background-color: transparent !important;
   box-shadow: none !important;
 }
+
 /* 선택 시 실제 이미지에만 파란 링 표시 */
 .ProseMirror-selectednode .qn-image-shell > img,
 .ProseMirror-selectednode.qn-image-shell > img,

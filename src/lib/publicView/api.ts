@@ -48,7 +48,9 @@ function endpoint(params: Record<string, string>): string {
 
 /** 404(미게시/해제)를 null 로 돌려준다. 그 외 실패는 throw. */
 async function fetchJson<T>(url: string): Promise<T | null> {
-  const resp = await fetch(url, { method: "GET" });
+  // 공개 페이지는 재게시·레이아웃 변경 직후에도 최신 스냅샷을 봐야 하므로
+  // 브라우저 fetch 캐시를 우회한다. 서버의 짧은 캐시는 외부 직접 호출 보호용으로 유지한다.
+  const resp = await fetch(url, { method: "GET", cache: "no-store" });
   if (resp.status === 404) return null;
   if (!resp.ok) throw new Error(`public-view 요청 실패: ${resp.status}`);
   return (await resp.json()) as T;

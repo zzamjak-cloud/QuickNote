@@ -3,7 +3,7 @@ export const PUBLIC_OUTLINE_SIDEBAR_WIDTH_CLASS =
 
 export function getPublicViewerShellClassName(outlineOpen: boolean): string {
   return [
-    "min-h-screen overflow-y-auto bg-white transition-[padding-right] duration-200 ease-out dark:bg-zinc-950",
+    "h-dvh overflow-y-auto bg-white transition-[padding-right] duration-200 ease-out dark:bg-zinc-950",
     outlineOpen ? "md:pr-80" : "md:pr-0",
   ].join(" ");
 }

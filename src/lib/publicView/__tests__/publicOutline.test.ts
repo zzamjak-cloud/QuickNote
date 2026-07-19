@@ -68,6 +68,59 @@ describe("publicOutline", () => {
     expect(scrollTo).toHaveBeenCalledWith({ top: 260, behavior: "auto" });
   });
 
+  it("공개 뷰어 스크롤 컨테이너 안에서는 window 대신 컨테이너를 스크롤한다", () => {
+    document.body.innerHTML = `
+      <div data-qn-public-scroll-host="true">
+        <div class="qn-public-doc">
+          <div class="ProseMirror">
+            <h1>첫 제목</h1>
+            <summary class="toggle-header" data-title-level="2">제목 토글</summary>
+          </div>
+        </div>
+      </div>
+    `;
+    const host = document.querySelector(
+      "[data-qn-public-scroll-host='true']",
+    ) as HTMLElement;
+    const target = document.querySelector("summary") as HTMLElement;
+    host.scrollTop = 120;
+    host.scrollTo = vi.fn();
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue({
+      top: 40,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      x: 0,
+      y: 40,
+      toJSON: () => ({}),
+    });
+    vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
+      top: 360,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
+      x: 0,
+      y: 360,
+      toJSON: () => ({}),
+    });
+    const windowScrollTo = vi
+      .spyOn(window, "scrollTo")
+      .mockImplementation(() => undefined);
+
+    expect(
+      scrollPublicOutlineTargetIntoView(1, {
+        behavior: "auto",
+        topOffset: 80,
+      }),
+    ).toBe(true);
+    expect(host.scrollTo).toHaveBeenCalledWith({ top: 360, behavior: "auto" });
+    expect(windowScrollTo).not.toHaveBeenCalled();
+  });
+
   it("목차 이동 대상에 일시적인 포커스 피드백 클래스를 부여한다", () => {
     vi.useFakeTimers();
     document.body.innerHTML = `

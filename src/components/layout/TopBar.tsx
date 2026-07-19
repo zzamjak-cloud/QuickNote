@@ -68,6 +68,7 @@ import { useNavigationHistoryStore } from "../../store/navigationHistoryStore";
 import { useAiStore } from "../../store/aiStore";
 import { isAiProxyConfigured } from "../../lib/ai/aiClient";
 import { buildPageAiContext } from "../../lib/ai/contextBuilder";
+import { refreshPublishedLayoutSnapshot } from "../../lib/sync/publishedLayoutRefresh";
 
 export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
   const isMobile = useIsMobile();
@@ -169,6 +170,14 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
   const fullWidth = activeId
     ? (pageFullWidthById[activeId] ?? globalFullWidth)
     : globalFullWidth;
+  const toggleCurrentPageFullWidth = () => {
+    const pageId = activeId;
+    toggleFullWidthForPage(pageId);
+    if (!pageId) return;
+    void refreshPublishedLayoutSnapshot(pageId).catch((err) => {
+      console.warn("[publish] 공개 페이지 레이아웃 스냅샷 갱신 실패", err);
+    });
+  };
   // 페이지 트리 버튼 표시 조건 — 풀페이지 DB(그리드) 페이지가 아니면 표시(DB 항목 페이지 포함).
   const descendantCount = activeId ? countPageDescendants(activeId, pages) : 0;
   const showSubpageTree = Boolean(
@@ -460,7 +469,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
           )}
           <button
             type="button"
-            onClick={() => toggleFullWidthForPage(activeId)}
+            onClick={toggleCurrentPageFullWidth}
             className={[
               "rounded-md p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800",
               fullWidth
@@ -511,7 +520,7 @@ export function TopBar({ onOpenNav }: { onOpenNav?: () => void } = {}) {
                       : "전체 너비 보기 켜기"
                   }
                   onClick={() => {
-                    toggleFullWidthForPage(activeId);
+                    toggleCurrentPageFullWidth();
                     setMenuOpen(false);
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"

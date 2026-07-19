@@ -63,4 +63,20 @@ describe("buildPublicBreadcrumb", () => {
       "max-w-[784px]",
     );
   });
+
+  it("공개 경로 헤더는 스크롤 중에도 상단에 고정된다", () => {
+    const s = site("root", [meta("root", null)]);
+    const { container } = render(
+      createElement(PublicBreadcrumbBar, {
+        site: s,
+        currentPageId: "root",
+        canGoBack: false,
+        onBack: () => undefined,
+        onNavigate: () => undefined,
+        renderIcon: () => null,
+      }),
+    );
+
+    expect(container.querySelector("nav")?.className).toContain("sticky top-0");
+  });
 });

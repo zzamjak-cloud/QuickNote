@@ -34,6 +34,7 @@ import {
   PUBLIC_OUTLINE_SIDEBAR_WIDTH_CLASS,
   getPublicViewerShellClassName,
 } from "../../lib/publicView/publicViewerLayout";
+import { ScrollToTopButton } from "../common/ScrollToTopButton";
 
 /** /p/<token> 에서 토큰 추출(쿼리·해시 제외) */
 function parseTokenFromPath(pathname: string): string | null {
@@ -290,8 +291,12 @@ export function PublicPageViewer() {
   // 방문한 페이지 캐시(pageId → 결과). undefined=미로드, null=404, 객체=본문.
   // 루트↔자식 왕복 시 재요청·화면 비움(undefined 플래시)을 없애 아이콘 재연결 출렁임을 막는다.
   const pageCacheRef = useRef<Map<string, PublicPage | null>>(new Map());
+  const docCacheRef = useRef<
+    Map<string, { source: PublicPage; doc: JSONContent | null }>
+  >(new Map());
   const [pageCacheVersion, setPageCacheVersion] = useState(0);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  const scrollHostRef = useRef<HTMLDivElement | null>(null);
 
   // 검색엔진 비노출 — noindex meta 주입(서버 X-Robots-Tag 와 이중 방어).
   useEffect(() => {
@@ -340,10 +345,11 @@ export function PublicPageViewer() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // 페이지 본문 로드 — 캐시에 있으면 재요청하지 않는다(왕복 시 아이콘 재연결·깜빡임 방지).
+  // 페이지 본문 로드 — 캐시가 있으면 기존 화면을 유지하되, 진입 때마다 백그라운드 재검증한다.
+  // 공개 스냅샷(fullWidth/shared block 등)은 편집 화면에서 재게시 없이 갱신될 수 있으므로
+  // 루트↔자식 왕복 시에도 최초 접근 루트 페이지가 오래된 너비를 계속 들고 있지 않게 한다.
   useEffect(() => {
     if (!token || !site || !effectivePageId) return;
-    if (pageCacheRef.current.has(effectivePageId)) return;
     let canceled = false;
     void fetchPublicPage(token, effectivePageId)
       .then((p) => {
@@ -393,21 +399,20 @@ export function PublicPageViewer() {
     };
   }, [token, effectivePageId, publishedPageIds, pageIcons]);
 
-  // 변환 결과를 pageId 로 캐시해 **동일 객체 참조**를 유지한다 — 루트로 돌아왔을 때
-  // 새 doc 객체가 만들어지면 read-only 에디터가 재생성되며 인라인 아이콘이 재마운트(재연결)된다.
-  const docCacheRef = useRef<Map<string, JSONContent | null>>(new Map());
+  // 변환 결과를 page 객체 참조와 함께 캐시해 **동일 객체 참조**를 유지한다.
+  // 같은 공개 페이지를 재검증해 새 스냅샷이 오면 변환 캐시도 자연스럽게 갱신한다.
   const transformedDoc = useMemo(() => {
     if (!effectivePageId || !publicDocCtx) return null;
     const cached = docCacheRef.current.get(effectivePageId);
-    if (cached !== undefined) return cached;
     // 아직 이 페이지 본문이 로드되지 않았으면(파생 page 가 다른 페이지) 계산을 보류.
     if (!page || page.id !== effectivePageId) return null;
+    if (cached?.source === page) return cached.doc;
     const rawDoc = page.doc as JSONContent | null;
     const result =
       rawDoc && typeof rawDoc === "object"
         ? transformPublicDoc(rawDoc, publicDocCtx)
         : null;
-    docCacheRef.current.set(effectivePageId, result);
+    docCacheRef.current.set(effectivePageId, { source: page, doc: result });
     return result;
   }, [effectivePageId, page, publicDocCtx]);
 
@@ -425,17 +430,20 @@ export function PublicPageViewer() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [outlineOpen]);
 
-  const jumpToOutline = useCallback((index: number) => {
-    const prefersReducedMotion =
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    const ok = scrollPublicOutlineTargetIntoView(index, {
-      behavior: prefersReducedMotion ? "auto" : "smooth",
-      flash: true,
-    });
-    if (ok && (window.matchMedia?.("(max-width: 767px)").matches ?? false)) {
-      setOutlineOpen(false);
-    }
-  }, []);
+  const jumpToOutline = useCallback(
+    (index: number) => {
+      const prefersReducedMotion =
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      const ok = scrollPublicOutlineTargetIntoView(index, {
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+        flash: true,
+      });
+      if (ok && (window.matchMedia?.("(max-width: 767px)").matches ?? false)) {
+        setOutlineOpen(false);
+      }
+    },
+    [setOutlineOpen],
+  );
 
   const columnClass = getEditorColumnClass({
     fullWidth: page?.fullWidth === true,
@@ -468,7 +476,11 @@ export function PublicPageViewer() {
       : null;
 
   return (
-    <div className={getPublicViewerShellClassName(outlineOpen)}>
+    <div
+      ref={scrollHostRef}
+      data-qn-public-scroll-host="true"
+      className={getPublicViewerShellClassName(outlineOpen)}
+    >
       {effectivePageId ? (
         <PublicBreadcrumbBar
           site={site}
@@ -558,6 +570,7 @@ export function PublicPageViewer() {
           </>
         )}
       </div>
+      <ScrollToTopButton scrollRef={scrollHostRef} position="fixed" label="Top으로 이동" />
     </div>
   );
 }

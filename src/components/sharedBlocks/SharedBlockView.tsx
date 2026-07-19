@@ -13,7 +13,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  Check,
   ChevronDown,
   FileText,
   GripVertical,
@@ -601,14 +600,19 @@ function DropdownMenuView({
       target?.focus();
     }, 0);
   };
+  const handleEditClick = () => {
+    popover.close();
+    onEdit();
+  };
 
   return (
-    <div className={`relative my-2 inline-flex w-fit max-w-full items-center gap-1.5 rounded-xl ${selected ? "ring-2 ring-violet-400 ring-offset-2 dark:ring-offset-zinc-950" : ""}`}>
+    <div className={`qn-dropdown-menu-block relative my-1.5 inline-flex w-fit max-w-full items-center gap-1 rounded-lg ${selected ? "ring-2 ring-violet-400 ring-offset-2 dark:ring-offset-zinc-950" : ""}`}>
       <button
         ref={popover.buttonRef}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={popover.open}
+        onMouseDown={(event) => event.stopPropagation()}
         onClick={() => popover.toggle(menuWidth())}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -617,19 +621,14 @@ function DropdownMenuView({
             focusOption(event.key === "ArrowDown" ? "first" : "last");
           }
         }}
-        className="flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-violet-300 hover:bg-violet-50/60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-violet-700 dark:hover:bg-violet-950/25"
+        className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-left text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-zinc-600 dark:hover:bg-zinc-800"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-300"><Languages className="h-4 w-4" /></span>
         <span className={`min-w-0 max-w-96 truncate ${active ? "" : "text-zinc-400"}`}>{active?.label || "메뉴를 설정하세요"}</span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform ${popover.open ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-zinc-400 transition-transform ${popover.open ? "rotate-180" : ""}`} />
       </button>
-      {editable ? (
-        <button type="button" onClick={onEdit} aria-label="드롭다운 메뉴 편집" title="드롭다운 메뉴 편집" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500 shadow-sm hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-violet-700 dark:hover:bg-violet-950/30 dark:hover:text-violet-300"><Pencil className="h-4 w-4" /></button>
-      ) : null}
       {popover.open && popover.coords ? createPortal(
         <div
           ref={popover.popoverRef}
-          role="listbox"
           style={{ position: "fixed", top: popover.coords.top, left: popover.coords.left, width: Math.min(320, window.innerWidth - 16) }}
           className="z-[500] max-h-[min(22rem,calc(100dvh-1rem))] overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1.5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
           onKeyDown={(event) => {
@@ -650,20 +649,35 @@ function DropdownMenuView({
             options[next]?.focus();
           }}
         >
-          {data.items.length === 0 ? (
-            <div className="px-3 py-4 text-center text-xs text-zinc-400">연결된 메뉴가 없습니다.</div>
-          ) : (
-            data.items.map((item) => {
-              const isActive = item.active || (!publicMode && item.pageId === activePageId);
-              const className = "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-violet-50 hover:text-violet-800 dark:text-zinc-200 dark:hover:bg-violet-950/40 dark:hover:text-violet-200";
-              const content = <><span className="min-w-0 flex-1 truncate">{item.label || "이름 없는 메뉴"}</span>{isActive ? <Check className="h-4 w-4 shrink-0 text-violet-600" /> : null}</>;
-              return publicMode && item.href ? (
-                <a key={item.id} role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} href={item.href} onClick={popover.close} className={className}>{content}</a>
-              ) : (
-                <button key={item.id} type="button" role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} disabled={!item.pageId} onClick={() => { if (item.pageId) openPageInCurrentTab(item.pageId); popover.close(); }} className={`${className} min-h-11 disabled:cursor-not-allowed disabled:opacity-40`}>{content}</button>
-              );
-            })
-          )}
+          {editable ? (
+            <div className="sticky top-0 z-10 mb-1 flex justify-end border-b border-zinc-100 bg-white/95 px-1 pb-1 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95">
+              <button
+                type="button"
+                title="드롭다운 메뉴 편집"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={handleEditClick}
+                className="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              >
+                편집
+              </button>
+            </div>
+          ) : null}
+          <div role="listbox">
+            {data.items.length === 0 ? (
+              <div className="px-3 py-4 text-center text-xs text-zinc-400">연결된 메뉴가 없습니다.</div>
+            ) : (
+              data.items.map((item) => {
+                const isActive = item.active || (!publicMode && item.pageId === activePageId);
+                const className = "flex w-full items-center rounded-md px-2.5 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:hover:text-zinc-100";
+                const content = <span className="min-w-0 flex-1 truncate">{item.label || "이름 없는 메뉴"}</span>;
+                return publicMode && item.href ? (
+                  <a key={item.id} role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} href={item.href} onClick={popover.close} className={className}>{content}</a>
+                ) : (
+                  <button key={item.id} type="button" role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} disabled={!item.pageId} onClick={() => { if (item.pageId) openPageInCurrentTab(item.pageId); popover.close(); }} className={`${className} disabled:cursor-not-allowed disabled:opacity-40`}>{content}</button>
+                );
+              })
+            )}
+          </div>
         </div>
       , document.body) : null}
     </div>
@@ -912,9 +926,9 @@ function SharedBlockView({
       data-align={align}
     >
       {expectedKind === "dropdown-menu" ? (
-        <DropdownMenuView data={data.kind === "dropdown-menu" ? data : emptyDropdownMenu()} editable={editor.isEditable && !publicMode} selected={selected} publicMode={publicMode} onEdit={openEditor} />
+        <DropdownMenuView data={data.kind === "dropdown-menu" ? data : emptyDropdownMenu()} editable={editor.isEditable && !publicMode} selected={selected && !publicMode} publicMode={publicMode} onEdit={openEditor} />
       ) : (
-        <GalleryView data={data.kind === "gallery" ? data : emptyGallery()} editable={editor.isEditable && !publicMode} selected={selected} onEdit={openEditor} />
+        <GalleryView data={data.kind === "gallery" ? data : emptyGallery()} editable={editor.isEditable && !publicMode} selected={selected && !publicMode} onEdit={openEditor} />
       )}
       {editing && expectedKind === "dropdown-menu" ? (
         <DropdownMenuEditorDialog initial={data.kind === "dropdown-menu" ? data : emptyDropdownMenu()} onSave={persist} onClose={closeEditor} saving={saving} saveError={saveError} />

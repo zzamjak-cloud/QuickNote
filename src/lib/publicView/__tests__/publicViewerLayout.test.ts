@@ -10,6 +10,12 @@ describe("publicViewerLayout", () => {
     expect(getPublicViewerShellClassName(true)).toContain("md:pr-80");
   });
 
+  it("공개 뷰어 shell 은 sticky 헤더와 Top 버튼 기준이 되는 스크롤 컨테이너다", () => {
+    const className = getPublicViewerShellClassName(false);
+    expect(className).toContain("h-dvh");
+    expect(className).toContain("overflow-y-auto");
+  });
+
   it("목차가 닫히면 본문 축소 여백을 제거한다", () => {
     const className = getPublicViewerShellClassName(false);
     expect(className).toContain("md:pr-0");

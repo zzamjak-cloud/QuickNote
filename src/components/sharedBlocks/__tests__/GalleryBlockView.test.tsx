@@ -1,10 +1,16 @@
 import React, { type ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { GalleryBlockView } from "../SharedBlockView";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DropdownMenuBlockView, GalleryBlockView } from "../SharedBlockView";
 import { useSharedBlockStore, sharedBlockRecordKey } from "../../../store/sharedBlockStore";
 import { useWorkspaceStore } from "../../../store/workspaceStore";
-import { emptyGallery, serializeSharedBlockData, type GalleryData, type SharedBlockRecord } from "../../../types/sharedBlock";
+import {
+  emptyGallery,
+  serializeSharedBlockData,
+  type DropdownMenuData,
+  type GalleryData,
+  type SharedBlockRecord,
+} from "../../../types/sharedBlock";
 
 const mocks = vi.hoisted(() => ({
   fetchSharedBlockApi: vi.fn(),
@@ -48,6 +54,20 @@ function galleryData(src: string, alt = "배너"): GalleryData {
     images: [{ id: "image-1", src, alt }],
     intervalMs: 5000,
     heightPx: 320,
+  };
+}
+
+function dropdownData(): DropdownMenuData {
+  return {
+    kind: "dropdown-menu",
+    items: [
+      {
+        id: "item-1",
+        label: "한국어",
+        pageId: "page-1",
+        pageLabel: "제품 소개",
+      },
+    ],
   };
 }
 
@@ -97,9 +117,63 @@ function renderGallery(attrs?: Record<string, unknown>) {
   return { nodeAttrs, updateAttributes, editor };
 }
 
+function renderDropdown(attrs?: Record<string, unknown>) {
+  const Component = DropdownMenuBlockView as unknown as React.ComponentType<{
+    node: { attrs: Record<string, unknown> };
+    selected: boolean;
+    updateAttributes: (attrs: Record<string, unknown>) => void;
+    editor: {
+      isEditable: boolean;
+      isDestroyed: boolean;
+      storage: { pageContext: { pageId: string } };
+      getJSON: () => unknown;
+    };
+  }>;
+  const nodeAttrs = {
+    sharedBlockId: "shared-dropdown-1",
+    data: serializeSharedBlockData(dropdownData()),
+    version: 1,
+    publicMode: false,
+    autoOpenEditor: false,
+    align: "right",
+    ...attrs,
+  };
+  const updateAttributes = vi.fn((next: Record<string, unknown>) => {
+    Object.assign(nodeAttrs, next);
+  });
+  const editor = {
+    isEditable: true,
+    isDestroyed: false,
+    storage: { pageContext: { pageId: "page-1" } },
+    getJSON: vi.fn(() => ({
+      type: "doc",
+      content: [{ type: "dropdownMenuBlock", attrs: nodeAttrs }],
+    })),
+  };
+
+  render(
+    <Component
+      node={{ attrs: nodeAttrs }}
+      selected={false}
+      updateAttributes={updateAttributes}
+      editor={editor}
+    />,
+  );
+
+  return { nodeAttrs, updateAttributes, editor };
+}
+
 describe("GalleryBlockView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserver {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     useWorkspaceStore.setState({ currentWorkspaceId: "workspace-1", workspaces: [] });
     useSharedBlockStore.setState({ records: {} });
     mocks.fetchSharedBlockApi.mockResolvedValue(null);
@@ -109,6 +183,10 @@ describe("GalleryBlockView", () => {
       error: null,
       reportLoadError: vi.fn(),
     }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("페이지 JSON inline data 를 오래된 빈 seed 로 가리지 않는다", () => {
@@ -180,5 +258,21 @@ describe("GalleryBlockView", () => {
       data: expect.stringContaining("quicknote-image://uploaded-asset"),
     }));
     expect(mocks.flushSharedBlockHostPageDoc).toHaveBeenCalled();
+  });
+
+  it("드롭다운 편집 버튼은 블록 우측이 아니라 열린 목록 상단에 표시한다", async () => {
+    renderDropdown();
+
+    expect(screen.queryByRole("button", { name: "편집" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("드롭다운 메뉴 편집")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /한국어/ }));
+
+    const editButton = await screen.findByRole("button", { name: "편집" });
+    expect(editButton).toHaveAttribute("title", "드롭다운 메뉴 편집");
+
+    fireEvent.click(editButton);
+
+    expect(await screen.findByRole("dialog", { name: "드롭다운 메뉴 편집" })).toBeInTheDocument();
   });
 });
