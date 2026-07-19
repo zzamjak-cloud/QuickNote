@@ -5,6 +5,38 @@
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+const PUBLIC_PAGE_PATH_RE = /^\/p(?:\/|$)/;
+const PUBLIC_SW_RELOAD_KEY = "quicknote.public.swReloaded";
+
+function isPublicPageRoute(): boolean {
+  return typeof window !== "undefined" && PUBLIC_PAGE_PATH_RE.test(window.location.pathname);
+}
+
+async function disableServiceWorkerForPublicRoute(): Promise<void> {
+  if (
+    isTauri ||
+    typeof window === "undefined" ||
+    !("serviceWorker" in navigator)
+  ) return;
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((reg) => reg.unregister()));
+    // unregister 는 현재 document 의 controller 를 즉시 떼지 못한다.
+    // 공개 페이지는 stale shell 이 치명적이므로 1회만 네트워크 HTML 로 다시 진입한다.
+    if (navigator.serviceWorker.controller) {
+      const alreadyReloaded = sessionStorage.getItem(PUBLIC_SW_RELOAD_KEY) === "1";
+      if (!alreadyReloaded) {
+        sessionStorage.setItem(PUBLIC_SW_RELOAD_KEY, "1");
+        window.location.reload();
+        return;
+      }
+    }
+    sessionStorage.removeItem(PUBLIC_SW_RELOAD_KEY);
+  } catch {
+    // 공개 페이지 표시 자체를 막지 않는다. 다음 네트워크 진입에서 재시도된다.
+  }
+}
+
 // 모바일/설치 PWA 는 새 버전을 자동 적용한다(사용자 수동 업데이트 불필요).
 // 데스크톱 웹은 배너로 확인 후 적용(편집 손실 방지).
 function shouldAutoApplyUpdate(): boolean {
@@ -53,6 +85,10 @@ function setState(next: Partial<typeof snapshot>) {
 // 부팅 1회 등록. 멱등(중복 호출 무시).
 export function initPwa() {
   if (initialized || isTauri || typeof window === "undefined") return;
+  if (isPublicPageRoute()) {
+    void disableServiceWorkerForPublicRoute();
+    return;
+  }
   initialized = true;
   // virtual:pwa-register 는 PWA 플러그인이 있을 때만 존재(Tauri 는 스텁 alias).
   import("virtual:pwa-register")

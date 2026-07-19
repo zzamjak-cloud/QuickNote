@@ -255,5 +255,6 @@ describe("transformPublicDoc", () => {
     expect(data.heightPx).toBe(520);
     expect(data.images[0]?.src).toContain("op=asset");
     expect(data.images[0]?.src).toContain("assetId=banner-1");
+    expect(data.images[0]?.src).toContain(`v=${ctx.snapshotVersion}`);
   });
 });

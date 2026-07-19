@@ -39,9 +39,13 @@ const pwaPlugin = VitePWA({
     globPatterns: ["**/*.{js,css,html,svg,png,ico,woff,woff2}"],
     cleanupOutdatedCaches: true,
     clientsClaim: true,
-    skipWaiting: false, // 새 SW 는 waiting; 적용 시점은 swController 가 기기별로 제어
+    // 공개 페이지는 stale app shell 이 곧 잘못된 공개 뷰어 코드 실행으로 이어진다.
+    // 새 SW 는 즉시 활성화해 이전 공개 뷰어 캐시가 남아 이미지 CDN cache-busting 을 우회하지 않게 한다.
+    skipWaiting: true,
     navigateFallback: "/index.html",
-    navigateFallbackDenylist: [/^\/api\//, /^\/auth\//],
+    // 공개 페이지는 Vercel network HTML 을 직접 받는다. SW navigation fallback 이 /p 를
+    // 가로채면 이전 JS 청크가 계속 실행되어 공개 이미지 URL 의 snapshotVersion 이 빠질 수 있다.
+    navigateFallbackDenylist: [/^\/api\//, /^\/auth\//, /^\/p(?:\/|$)/],
   },
   // dev 에서는 SW 비활성(기본) — 인증/HMR 간섭 방지. preview/prod 빌드에서만 동작.
   devOptions: { enabled: false },
