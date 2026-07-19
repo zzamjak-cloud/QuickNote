@@ -207,6 +207,8 @@ describe("GalleryBlockView", () => {
 
     renderGallery({ data: serializeSharedBlockData(inline) });
 
+    expect(screen.getByRole("region", { name: "롤링 갤러리" })).toHaveClass("qn-shared-gallery");
+    expect(screen.getByAltText("Hero")).toHaveClass("qn-shared-gallery-image");
     expect(screen.getByLabelText("Hero 미리보기")).toBeInTheDocument();
     expect(screen.queryByText("편집 버튼에서 배너 이미지를 추가하세요.")).not.toBeInTheDocument();
   });

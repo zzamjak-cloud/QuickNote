@@ -495,6 +495,17 @@ body.quicknote-block-dragging .ProseMirror {
   vertical-align: middle;
 }
 
+/* 공유 갤러리 이미지는 ProseMirror 본문 이미지 기본값(height:auto/margin)의 영향을 받으면
+   롤링 트랙 안에서 실제 이미지가 보이지 않거나 위쪽으로 밀릴 수 있다. */
+.ProseMirror .qn-shared-gallery img.qn-shared-gallery-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  object-fit: contain;
+}
+
 /* 동영상: Tailwind prose 가 기본으로 추가하는 video margin (2em) 을 제거.
    컬럼 블록에서 옆 이미지 블록과 시작 위치가 어긋나거나, 상단 텍스트와 큰 간격이 생기는 회귀를 차단. */
 .ProseMirror video,

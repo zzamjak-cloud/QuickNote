@@ -98,7 +98,7 @@ function ResolvedImage({
       draggable={false}
       onError={reportLoadError}
       onClick={onClick}
-      className={className}
+      className={`${className} qn-shared-gallery-image`}
     />
   );
 }
@@ -753,7 +753,7 @@ function GalleryView({
   if (!editable && images.length === 0) return null;
 
   return (
-    <div role="region" aria-label="롤링 갤러리" aria-roledescription="carousel" className={`group relative my-3 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 ${selected ? "ring-2 ring-violet-400 ring-offset-2 dark:ring-offset-zinc-950" : ""}`} style={{ height: heightPx }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div role="region" aria-label="롤링 갤러리" aria-roledescription="carousel" className={`qn-shared-gallery group relative my-3 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 ${selected ? "ring-2 ring-violet-400 ring-offset-2 dark:ring-offset-zinc-950" : ""}`} style={{ height: heightPx }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       {editable ? (
         <button type="button" onClick={onEdit} aria-label="갤러리 편집" title="갤러리 편집" className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/70 bg-black/45 text-white shadow-lg backdrop-blur transition-colors hover:bg-black/70"><Pencil className="h-4 w-4" /></button>
       ) : null}
