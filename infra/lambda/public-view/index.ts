@@ -149,7 +149,9 @@ async function resolvePublishedRootHrefs(
             IndexName: "byPageId",
             KeyConditionExpression: "pageId = :p",
             ExpressionAttributeValues: { ":p": pageId },
-            ProjectionExpression: "token, pageId, workspaceId, revokedAt, publishedAt",
+            // token은 DynamoDB 예약어이므로 반드시 별칭을 사용한다.
+            ProjectionExpression: "#token, pageId, workspaceId, revokedAt, publishedAt",
+            ExpressionAttributeNames: { "#token": "token" },
             ScanIndexForward: false,
           }),
         );
@@ -162,7 +164,11 @@ async function resolvePublishedRootHrefs(
             TOKEN_RE.test(item.token)
           );
         return record ? ([pageId, `/p/${record.token}`] as const) : null;
-      } catch {
+      } catch (error) {
+        console.warn("[public-view] 독립 게시 페이지 링크 조회 실패", {
+          pageId,
+          message: error instanceof Error ? error.message : String(error),
+        });
         // 한 대상의 상태 조회 실패가 공개 페이지 전체를 깨지 않도록 fail-closed로 숨긴다.
         return null;
       }

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.6.82] - 2026-07-19
+
+### Fixed
+
+- 공개 드롭다운에서 독립 게시 페이지 링크 조회 시 DynamoDB 예약어 `token`을 alias 처리해, 웹 게시 화면에서 현재 페이지 항목만 표시되던 문제 수정.
+
 ## [5.6.81] - 2026-07-19
 
 ### Changed

@@ -357,6 +357,27 @@ describe("public-view handler", () => {
     expect(result.body).not.toContain("삭제됨");
     expect(result.body).not.toContain("DB 행");
     expect(result.body).not.toContain("미게시");
+
+    // DynamoDB 예약어 token을 그대로 ProjectionExpression에 넣으면 live Query가 실패한다.
+    const publishLinkQueries = sendMock.mock.calls
+      .map(([command]) => command as {
+        constructor?: { name?: string };
+        input?: {
+          IndexName?: string;
+          ProjectionExpression?: string;
+          ExpressionAttributeNames?: Record<string, string>;
+        };
+      })
+      .filter((command) =>
+        command.constructor?.name === "QueryCommand" &&
+        command.input?.IndexName === "byPageId"
+      );
+    expect(publishLinkQueries).toHaveLength(3);
+    for (const query of publishLinkQueries) {
+      expect(query.input?.ProjectionExpression).toContain("#token");
+      expect(query.input?.ProjectionExpression).not.toMatch(/(^|,\s*)token(?:\s*,|$)/);
+      expect(query.input?.ExpressionAttributeNames).toMatchObject({ "#token": "token" });
+    }
   });
 
   it("op=page — 201-depth 상한 밖 공유 메뉴의 raw label/pageId를 fail-closed로 제거", async () => {

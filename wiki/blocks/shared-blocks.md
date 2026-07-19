@@ -44,6 +44,7 @@
 - public-view Lambda가 페이지 doc의 `sharedBlockId`를 서버 최신 레코드로 hydrate한다. 다른 복제본의 오래된 인라인 스냅샷을 그대로 공개하지 않는다.
 - 드롭다운은 현재 게시 루트의 자손 집합에 포함된 항목과, 같은 워크스페이스에서 대상 페이지 자체가 별도 게시 중인 항목만 남긴다.
 - 현재 트리 항목은 `/p/<현재 token>?page=<id>`로 SPA 이동한다. 독립 게시 항목은 public-view Lambda가 `published-pages.byPageId`의 active token과 공개 가능한 페이지 메타를 검증해 만든 `/p/<대상 token>`으로 같은 탭 전체 이동한다.
+- `published-pages.byPageId` 조회의 `ProjectionExpression`에서는 DynamoDB 예약어인 `token`을 반드시 `#token`으로 별칭 처리한다. 조회 실패는 메뉴 항목을 fail-closed로 숨기므로 별칭 회귀가 곧 "자기 자신만 표시" 증상으로 이어진다.
 - 미게시·게시 해제·삭제·DB 행·타 워크스페이스 항목은 메뉴 이름과 id까지 응답하지 않는다. SharedBlock 저장 data에 들어 있는 `href`는 신뢰하지 않고 서버 파생 링크만 허용한다.
 - 문서 순회 깊이 상한을 넘은 서브트리는 원본 attrs를 반환하지 않고 제거한다. 깊은 stale 메뉴의 비공개 label/pageId도 Function URL 원문에 남지 않는다.
 - `transformPublicDoc`은 서버 검증 링크만 보존하고 `publicMode`를 켠다. 편집 화면은 `href` 대신 기존 `pageId` 기반 QuickNote 내부 이동을 계속 사용한다.
