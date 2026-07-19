@@ -5,6 +5,7 @@ import { newId } from "../../../lib/id";
 import { fetchPageMetasByWorkspace } from "../../../lib/sync/bootstrap";
 import { enqueueAsync } from "../../../lib/sync/runtime";
 import { toUpsertPageInput } from "../../../lib/sync/mappers/upsertPageInput";
+import { isFullPageDatabaseHomePage } from "../selectors";
 import {
   allocateUniquePageTitle,
   collectWorkspacePages,
@@ -21,6 +22,15 @@ type DuplicateActions = Pick<
   PageStore,
   "duplicatePage" | "duplicatePageToWorkspace"
 >;
+
+function isSameDuplicateOrderScope(page: Page, source: Page): boolean {
+  return (
+    (page.parentId ?? null) === (source.parentId ?? null) &&
+    (page.workspaceId ?? null) === (source.workspaceId ?? null) &&
+    (page.databaseId ?? null) === (source.databaseId ?? null) &&
+    isFullPageDatabaseHomePage(page) === isFullPageDatabaseHomePage(source)
+  );
+}
 
 export function createDuplicateActions(
   set: PageStoreSet,
@@ -71,7 +81,9 @@ export function createDuplicateActions(
       set((s) => {
         const merged = { ...s.pages, ...newPages };
         const siblings = Object.values(merged)
-          .filter((p) => p.parentId === source.parentId)
+          // 루트 페이지의 parentId 는 DB 행·타 워크스페이스 페이지와 모두 null 이다.
+          // parentId 만으로 재정렬하면 숨은 레코드까지 저장되어 workspace 충돌을 일으킬 수 있다.
+          .filter((p) => isSameDuplicateOrderScope(p, source))
           .sort((a, b) => a.order - b.order);
         siblings.forEach((p, i) => {
           merged[p.id] = { ...merged[p.id]!, order: i };
@@ -86,7 +98,7 @@ export function createDuplicateActions(
         if (clonedIds.has(pid)) {
           enqueueUpsertPage(p);
         } else if (
-          p.parentId === source.parentId &&
+          isSameDuplicateOrderScope(p, source) &&
           state.pages[pid] &&
           state.pages[pid]!.order !== p.order
         ) {

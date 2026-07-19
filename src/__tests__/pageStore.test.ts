@@ -125,6 +125,102 @@ describe("pageStore - duplicatePage", () => {
     expect(JSON.stringify(origDoc)).toContain("B");
     expect(JSON.stringify(copyDoc)).toContain("A");
   });
+
+  it("루트 페이지 복제 시 숨은 DB 행·DB 홈·타 워크스페이스 순서를 건드리지 않는다", () => {
+    const sourceId = usePageStore.getState().createPage("게시 페이지");
+    const siblingId = usePageStore.getState().createPage("같은 워크스페이스 형제");
+    const rowId = usePageStore.getState().createPage("항목 22");
+    const fullPageHomeId = usePageStore.getState().createPage("DB 홈");
+    const otherWorkspaceId = usePageStore.getState().createPage("다른 워크스페이스");
+
+    usePageStore.setState((s) => ({
+      pages: {
+        ...s.pages,
+        [sourceId]: { ...s.pages[sourceId]!, workspaceId: "ws-a", order: 0 },
+        [siblingId]: { ...s.pages[siblingId]!, workspaceId: "ws-a", order: 10 },
+        [rowId]: {
+          ...s.pages[rowId]!,
+          workspaceId: "ws-a",
+          databaseId: "lc-scheduler-db:lc-scheduler-global",
+          dbCells: {},
+          order: 575,
+        },
+        [fullPageHomeId]: {
+          ...s.pages[fullPageHomeId]!,
+          workspaceId: "ws-a",
+          fullPageDatabaseId: "db-home",
+          order: 30,
+        },
+        [otherWorkspaceId]: {
+          ...s.pages[otherWorkspaceId]!,
+          workspaceId: "ws-b",
+          order: 20,
+        },
+      },
+    }));
+
+    const copyId = usePageStore.getState().duplicatePage(sourceId);
+    const pages = usePageStore.getState().pages;
+
+    expect(pages[rowId]!.order).toBe(575);
+    expect(pages[fullPageHomeId]!.order).toBe(30);
+    expect(pages[otherWorkspaceId]!.order).toBe(20);
+    expect(
+      [sourceId, copyId, siblingId]
+        .map((id) => pages[id]!)
+        .sort((a, b) => a.order - b.order)
+        .map((page) => page.id),
+    ).toEqual([sourceId, copyId, siblingId]);
+  });
+
+  it("DB 행 복제 시 같은 DB의 행만 재정렬한다", () => {
+    const ordinaryId = usePageStore.getState().createPage("일반 페이지");
+    const rowId = usePageStore.getState().createPage("행 1");
+    const siblingRowId = usePageStore.getState().createPage("행 2");
+    const otherDbRowId = usePageStore.getState().createPage("다른 DB 행");
+
+    usePageStore.setState((s) => ({
+      pages: {
+        ...s.pages,
+        [ordinaryId]: { ...s.pages[ordinaryId]!, workspaceId: "ws-a", order: 40 },
+        [rowId]: {
+          ...s.pages[rowId]!,
+          workspaceId: "ws-a",
+          databaseId: "db-a",
+          dbCells: {},
+          order: 10,
+        },
+        [siblingRowId]: {
+          ...s.pages[siblingRowId]!,
+          workspaceId: "ws-a",
+          databaseId: "db-a",
+          dbCells: {},
+          order: 20,
+        },
+        [otherDbRowId]: {
+          ...s.pages[otherDbRowId]!,
+          workspaceId: "ws-a",
+          databaseId: "db-b",
+          dbCells: {},
+          order: 15,
+        },
+      },
+    }));
+
+    const copyId = usePageStore.getState().duplicatePage(rowId);
+    const pages = usePageStore.getState().pages;
+
+    expect(pages[ordinaryId]!.order).toBe(40);
+    expect(pages[otherDbRowId]!.order).toBe(15);
+    expect(pages[copyId]!.databaseId).toBe("db-a");
+    expect(pages[copyId]!.workspaceId).toBe("ws-a");
+    expect(
+      [rowId, copyId, siblingRowId]
+        .map((id) => pages[id]!)
+        .sort((a, b) => a.order - b.order)
+        .map((page) => page.id),
+    ).toEqual([rowId, copyId, siblingRowId]);
+  });
 });
 
 describe("pageStore — DB 행 페이지 가시성", () => {

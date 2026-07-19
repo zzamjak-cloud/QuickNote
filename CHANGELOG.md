@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.6.80] - 2026-07-19
+
+### Fixed
+
+- 보호 DB를 참조하는 일반 워크스페이스 페이지를 저장·수신할 때 서버의 실제 `workspaceId`를 보존해 갤러리·드롭다운 변경이 워크스페이스 충돌로 거부되던 문제 수정.
+- 루트 페이지 복제 시 숨은 DB 행·DB 홈·다른 워크스페이스 페이지까지 형제로 재정렬하고 저장하던 문제를 수정하고, DB 행 복제는 같은 DB 범위에서만 처리하도록 제한.
+
 ## [5.6.79] - 2026-07-19
 
 ### Fixed
