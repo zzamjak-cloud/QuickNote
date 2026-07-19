@@ -505,7 +505,8 @@ describe("public-view handler", () => {
     expect(r.statusCode).toBe(200);
     expect(r.isBase64Encoded).toBe(true);
     expect(r.headers["content-type"]).toBe("image/png");
-    expect(r.headers["access-control-allow-origin"]).toBe("*");
+    // CloudFront가 CORS 헤더를 붙이므로 Lambda 응답에는 중복 헤더가 없어야 한다.
+    expect(r.headers["access-control-allow-origin"]).toBeUndefined();
     expect(r.headers["cache-control"]).toContain("s-maxage=3600");
     expect(Buffer.from(r.body, "base64")).toEqual(Buffer.from([137, 80, 78, 71]));
     expect(s3SendMock).toHaveBeenCalledTimes(1);

@@ -114,7 +114,8 @@ const PAGE_PROJECTION =
 function baseHeaders(cacheControl: string): Record<string, string> {
   return {
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": "*",
+    // CORS는 Function URL과 CloudFront 응답 헤더 정책에서 처리한다.
+    // 여기서 다시 추가하면 브라우저가 중복 ACAO 헤더를 거부한다.
     "cache-control": cacheControl,
     "x-robots-tag": "noindex, nofollow",
   };
