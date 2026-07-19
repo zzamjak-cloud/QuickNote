@@ -114,6 +114,7 @@ const PAGE_PROJECTION =
 function baseHeaders(cacheControl: string): Record<string, string> {
   return {
     "content-type": "application/json; charset=utf-8",
+    "access-control-allow-origin": "*",
     "cache-control": cacheControl,
     "x-robots-tag": "noindex, nofollow",
   };

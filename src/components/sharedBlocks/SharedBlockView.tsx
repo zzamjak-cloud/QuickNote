@@ -45,6 +45,7 @@ import { stripPagePrefix } from "../../lib/tiptapExtensions/mentionKind";
 import { uploadImage } from "../../lib/images/upload";
 import { prepareImageFileForUpload } from "../../lib/images/compressImage";
 import { useImageUrl } from "../../lib/images/hooks";
+import { publicAssetImageCrossOrigin } from "../../lib/publicView/publicAssetImage";
 import { useAnchoredPopover } from "../../hooks/useAnchoredPopover";
 import { DialogBase } from "../../lib/ui-primitives/DialogBase";
 import type { MentionListItem } from "../../lib/comments/mentionItems";
@@ -93,6 +94,7 @@ function ResolvedImage({
   }
   return (
     <img
+      crossOrigin={publicAssetImageCrossOrigin(url)}
       src={url}
       alt={image.alt}
       draggable={false}

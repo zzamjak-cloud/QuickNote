@@ -213,6 +213,25 @@ describe("GalleryBlockView", () => {
     expect(screen.queryByText("편집 버튼에서 배너 이미지를 추가하세요.")).not.toBeInTheDocument();
   });
 
+  it("공개 asset URL 갤러리 이미지는 CORS 이미지 요청으로 렌더한다", () => {
+    const src =
+      "https://cdn.example/?op=asset&token=token-1&pageId=page-1&assetId=asset-1&v=snap-1";
+    renderGallery({
+      publicMode: true,
+      data: serializeSharedBlockData(galleryData(src, "공개 배너")),
+    });
+
+    expect(screen.getByAltText("공개 배너")).toHaveAttribute("crossorigin", "anonymous");
+  });
+
+  it("일반 갤러리 이미지에는 CORS 속성을 붙이지 않는다", () => {
+    renderGallery({
+      data: serializeSharedBlockData(galleryData("quicknote-image://asset-1", "로컬 배너")),
+    });
+
+    expect(screen.getByAltText("로컬 배너")).not.toHaveAttribute("crossorigin");
+  });
+
   it("편집한 블록 높이를 공유 데이터에 저장하고 렌더링에 적용한다", async () => {
     const inline = { ...galleryData("quicknote-image://height-asset", "높이 배너"), heightPx: 420 };
     mocks.pushSharedBlockApi.mockImplementation(async (record: SharedBlockRecord) => record);

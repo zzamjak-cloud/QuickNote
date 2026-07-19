@@ -122,6 +122,8 @@ export function buildPublicAssetUrl(
     token,
     pageId,
     assetId,
+    // 과거 no-cors 이미지 요청으로 저장된 CDN 캐시와 분리해 CORS 이미지 응답을 새로 받는다.
+    cors: "1",
     ...(snapshotVersion ? { v: snapshotVersion } : {}),
   });
 }

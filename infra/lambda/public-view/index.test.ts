@@ -505,6 +505,7 @@ describe("public-view handler", () => {
     expect(r.statusCode).toBe(200);
     expect(r.isBase64Encoded).toBe(true);
     expect(r.headers["content-type"]).toBe("image/png");
+    expect(r.headers["access-control-allow-origin"]).toBe("*");
     expect(r.headers["cache-control"]).toContain("s-maxage=3600");
     expect(Buffer.from(r.body, "base64")).toEqual(Buffer.from([137, 80, 78, 71]));
     expect(s3SendMock).toHaveBeenCalledTimes(1);

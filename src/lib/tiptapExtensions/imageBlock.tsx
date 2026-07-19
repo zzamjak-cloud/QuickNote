@@ -22,6 +22,7 @@ import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 import { useMeasuredElementWidth } from "../../hooks/useMeasuredElementWidth";
 import { startBlockNativeDrag } from "../startBlockNativeDrag";
 import { startBlockDragAutoScroll } from "../editor/blockDragAutoScroll";
+import { publicAssetImageCrossOrigin } from "../publicView/publicAssetImage";
 
 function shallowImageAttrsEqual(
   prev: NodeViewProps,
@@ -202,6 +203,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
         <span className="text-xs text-red-500">[image error]</span>
       ) : url ? (
         <img
+          crossOrigin={publicAssetImageCrossOrigin(url)}
           src={url}
           ref={imageMeasureRef}
           alt={attrs.alt ?? ""}
@@ -329,6 +331,7 @@ const ImageView = memo(function ImageView(props: NodeViewProps) {
           onClick={() => setPreviewOpen(false)}
         >
           <img
+            crossOrigin={publicAssetImageCrossOrigin(url)}
             src={url}
             alt={attrs.alt ?? ""}
             className="block h-auto w-auto max-h-full max-w-full object-contain"
@@ -358,7 +361,15 @@ export const ImageBlock = Image.extend({
           if (raw.startsWith("quicknote-image://") || raw.startsWith("quicknote-file://")) {
             return { src: "", "data-qn-src": raw };
           }
-          return raw ? { src: raw } : {};
+          const crossOrigin = publicAssetImageCrossOrigin(raw);
+          // 공개 asset URL 은 React NodeView 가 crossOrigin 을 먼저 적용한 뒤 lazy 로 로드한다.
+          // 정적 DOM 단계에서 src 를 두면 본문 이미지가 한꺼번에 no-cors 로 요청돼 ORB/429가 날 수 있다.
+          if (crossOrigin) {
+            return { crossorigin: crossOrigin, src: "", "data-qn-src": raw };
+          }
+          return raw
+            ? { src: raw }
+            : {};
         },
       },
       width: {

@@ -2,6 +2,7 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { useImageUrl } from "../images/hooks";
+import { publicAssetImageCrossOrigin } from "../publicView/publicAssetImage";
 
 function ImageInlineIconView({ node, selected }: NodeViewProps) {
   const src = typeof node.attrs.src === "string" ? node.attrs.src : "";
@@ -21,6 +22,7 @@ function ImageInlineIconView({ node, selected }: NodeViewProps) {
     >
       {url && !error ? (
         <img
+          crossOrigin={publicAssetImageCrossOrigin(url)}
           src={url}
           alt=""
           className="h-full w-full object-cover"

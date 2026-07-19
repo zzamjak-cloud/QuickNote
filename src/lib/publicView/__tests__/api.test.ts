@@ -67,6 +67,7 @@ describe("publicView api", () => {
     expect(url.searchParams.get("token")).toBe("token-1");
     expect(url.searchParams.get("pageId")).toBe("page-1");
     expect(url.searchParams.get("assetId")).toBe("asset-1");
+    expect(url.searchParams.get("cors")).toBe("1");
     expect(url.searchParams.get("v")).toBe("snap-1");
   });
 });

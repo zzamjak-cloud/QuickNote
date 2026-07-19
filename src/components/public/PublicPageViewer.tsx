@@ -24,6 +24,7 @@ import {
   toPublicAssetUrl,
   type PublicDocContext,
 } from "../../lib/publicView/transformPublicDoc";
+import { publicAssetImageCrossOrigin } from "../../lib/publicView/publicAssetImage";
 import {
   decodeLucidePageIcon,
   isImageLikePageIcon,
@@ -123,6 +124,7 @@ function PublicPageIcon({
     if (src) {
       return (
         <img
+          crossOrigin={publicAssetImageCrossOrigin(src)}
           src={src}
           alt=""
           className={`inline-block shrink-0 rounded object-cover ${className}`}
@@ -674,6 +676,7 @@ export function PublicPageViewer() {
       />
       {coverSrc && (
         <img
+          crossOrigin={publicAssetImageCrossOrigin(coverSrc)}
           src={coverSrc}
           alt=""
           className="h-48 w-full object-cover"
