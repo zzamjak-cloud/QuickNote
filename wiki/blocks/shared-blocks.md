@@ -59,6 +59,7 @@
 - 공개 링크의 `token`은 capability 이므로 한번 발급된 뒤 유지한다. 게시 후 수정/레이아웃 변경은 같은 token의 `snapshotVersion`/S3 key만 교체해 반영한다.
 - `published-pages` 레코드에 `snapshotVersion`, `snapshotSiteKey`, `snapshotPageKeyPrefix`, `snapshotCreatedAt`, `snapshotPageCount`를 저장한다. public-view Lambda는 이 스냅샷을 우선 반환하고, 없거나 읽기 실패하면 기존 Pages/SharedBlock 조립 경로로 fallback 한다.
 - 게시 다이얼로그의 `스냅샷 업데이트`는 새 링크를 만들지 않고 `publishPage(pageId, layout)`을 다시 호출해 현재 본문·공유블록·레이아웃의 공개 스냅샷만 갱신한다.
+- 공개 뷰어는 `op=manifest`를 `no-store`로 확인한 뒤 `op=site/page`에 `v=<snapshotVersion>`을 붙인다. CDN은 이 query string을 캐시 키로 쓰므로 스냅샷 업데이트 직후 링크는 그대로 두고도 다음 공개 화면 로드·새로고침·페이지 이동에서 새 캐시를 즉시 사용한다.
 - 공개 레이아웃 스냅샷 갱신은 `publishPage(pageId, layout)`에 현재 `fullWidth/fullWidthDefault/fullWidthById`를 함께 전달한다. 서버가 방금 저장한 member `clientPrefs`를 stale read 하면 특정 게시 페이지가 계속 전체 너비로 남을 수 있으므로, payload 없는 레거시 호출만 `clientPrefs` 폴백을 사용한다.
 
 ## 관련 파일

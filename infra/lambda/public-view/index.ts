@@ -82,6 +82,14 @@ type PublishRecord = {
   snapshotPageCount?: number | null;
 };
 
+type PublicManifest = {
+  token: string;
+  rootId: string;
+  snapshotVersion: string | null;
+  snapshotCreatedAt: string | null;
+  snapshotPageCount: number | null;
+};
+
 type PageRow = {
   id: string;
   workspaceId: string;
@@ -117,6 +125,12 @@ function json(statusCode: number, body: unknown): FnUrlResult {
 
 function snapshotJson(body: unknown): FnUrlResult {
   return { statusCode: 200, headers: baseHeaders(CACHE_CONTROL), body: JSON.stringify(body) };
+}
+
+function manifestJson(body: PublicManifest): FnUrlResult {
+  // CDN cache-busting 의 기준점이다. CloudFront·브라우저 모두 저장하지 않아야
+  // 스냅샷 업데이트 직후 새 snapshotVersion 을 즉시 확인할 수 있다.
+  return { statusCode: 200, headers: baseHeaders("no-store"), body: JSON.stringify(body) };
 }
 
 function notFound(): FnUrlResult {
@@ -323,6 +337,16 @@ async function handleSite(publish: PublishRecord): Promise<FnUrlResult> {
   return json(200, { rootId: publish.pageId, pages });
 }
 
+function handleManifest(publish: PublishRecord): FnUrlResult {
+  return manifestJson({
+    token: publish.token,
+    rootId: publish.pageId,
+    snapshotVersion: publish.snapshotVersion ?? null,
+    snapshotCreatedAt: publish.snapshotCreatedAt ?? null,
+    snapshotPageCount: publish.snapshotPageCount ?? null,
+  });
+}
+
 async function handlePage(
   publish: PublishRecord,
   pageId: string,
@@ -472,6 +496,7 @@ export async function handler(event: FnUrlEvent): Promise<FnUrlResult> {
     const rootMeta = await getPageServableMeta(publish.pageId);
     if (!isServablePage(rootMeta, publish)) return notFound();
 
+    if (op === "manifest") return handleManifest(publish);
     if (op === "site") return await handleSite(publish);
     if (op === "page") {
       const pageId = qs.pageId ?? "";

@@ -1,6 +1,6 @@
 // 공개 뷰어 API 래퍼 — 공개 페이지 데이터 캐시 정책 검증.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchPublicPage, fetchPublicSite } from "../api";
+import { fetchPublicManifest, fetchPublicPage, fetchPublicSite } from "../api";
 
 describe("publicView api", () => {
   beforeEach(() => {
@@ -26,6 +26,31 @@ describe("publicView api", () => {
 
     const calls = vi.mocked(fetch).mock.calls;
     expect(calls).toHaveLength(2);
+    expect(calls[0]?.[1]).toEqual({ method: "GET" });
+    expect(calls[1]?.[1]).toEqual({ method: "GET" });
+  });
+
+  it("manifest 요청은 CDN cache-busting 기준점이라 브라우저 캐시를 우회한다", async () => {
+    await fetchPublicManifest("token-1");
+
+    const calls = vi.mocked(fetch).mock.calls;
+    expect(calls).toHaveLength(1);
+    const url = new URL(String(calls[0]?.[0]));
+    expect(url.searchParams.get("op")).toBe("manifest");
+    expect(url.searchParams.get("token")).toBe("token-1");
+    expect(calls[0]?.[1]).toEqual({ method: "GET", cache: "no-store" });
+  });
+
+  it("snapshotVersion이 있으면 site/page 요청에 v query를 붙여 CDN 캐시 키를 교체한다", async () => {
+    await fetchPublicSite("token-1", "snap-1");
+    await fetchPublicPage("token-1", "page-1", "snap-1");
+
+    const calls = vi.mocked(fetch).mock.calls;
+    expect(calls).toHaveLength(2);
+    const siteUrl = new URL(String(calls[0]?.[0]));
+    const pageUrl = new URL(String(calls[1]?.[0]));
+    expect(siteUrl.searchParams.get("v")).toBe("snap-1");
+    expect(pageUrl.searchParams.get("v")).toBe("snap-1");
     expect(calls[0]?.[1]).toEqual({ method: "GET" });
     expect(calls[1]?.[1]).toEqual({ method: "GET" });
   });

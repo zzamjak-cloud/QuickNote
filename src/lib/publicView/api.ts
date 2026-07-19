@@ -16,6 +16,14 @@ export type PublicSite = {
   pages: PublicPageMeta[];
 };
 
+export type PublicManifest = {
+  token: string;
+  rootId: string;
+  snapshotVersion: string | null;
+  snapshotCreatedAt: string | null;
+  snapshotPageCount: number | null;
+};
+
 export type PublicPage = {
   id: string;
   title: string;
@@ -46,25 +54,60 @@ function endpoint(params: Record<string, string>): string {
   return url.toString();
 }
 
+type FetchJsonOptions = {
+  /** manifest 는 CDN cache-busting 기준점이므로 브라우저 캐시도 우회한다. */
+  cache?: RequestCache;
+};
+
 /** 404(미게시/해제)를 null 로 돌려준다. 그 외 실패는 throw. */
-async function fetchJson<T>(url: string): Promise<T | null> {
+async function fetchJson<T>(
+  url: string,
+  options: FetchJsonOptions = {},
+): Promise<T | null> {
   // 공개 페이지는 token 고정 + snapshot version 교체 구조를 사용한다.
   // 브라우저가 서버 Cache-Control(max-age/stale-while-revalidate)을 활용할 수 있게 둔다.
-  const resp = await fetch(url, { method: "GET" });
+  const init: RequestInit = { method: "GET" };
+  if (options.cache) init.cache = options.cache;
+  const resp = await fetch(url, init);
   if (resp.status === 404) return null;
   if (!resp.ok) throw new Error(`public-view 요청 실패: ${resp.status}`);
   return (await resp.json()) as T;
 }
 
-export async function fetchPublicSite(token: string): Promise<PublicSite | null> {
-  return fetchJson<PublicSite>(endpoint({ op: "site", token }));
+export async function fetchPublicManifest(
+  token: string,
+): Promise<PublicManifest | null> {
+  return fetchJson<PublicManifest>(endpoint({ op: "manifest", token }), {
+    cache: "no-store",
+  });
+}
+
+export async function fetchPublicSite(
+  token: string,
+  snapshotVersion?: string | null,
+): Promise<PublicSite | null> {
+  return fetchJson<PublicSite>(
+    endpoint({
+      op: "site",
+      token,
+      ...(snapshotVersion ? { v: snapshotVersion } : {}),
+    }),
+  );
 }
 
 export async function fetchPublicPage(
   token: string,
   pageId: string,
+  snapshotVersion?: string | null,
 ): Promise<PublicPage | null> {
-  return fetchJson<PublicPage>(endpoint({ op: "page", token, pageId }));
+  return fetchJson<PublicPage>(
+    endpoint({
+      op: "page",
+      token,
+      pageId,
+      ...(snapshotVersion ? { v: snapshotVersion } : {}),
+    }),
+  );
 }
 
 /** 자산(이미지·파일)의 공개 URL — Lambda 가 검증 후 S3 presign 으로 302 리다이렉트한다. */

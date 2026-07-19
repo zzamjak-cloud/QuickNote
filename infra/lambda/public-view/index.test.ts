@@ -95,6 +95,32 @@ beforeEach(() => {
 });
 
 describe("public-view handler", () => {
+  it("op=manifest — 최신 snapshotVersion을 no-store로 반환한다", async () => {
+    sendMock.mockResolvedValueOnce({
+      Item: {
+        ...publishRecord,
+        snapshotVersion: "snap-1",
+        snapshotCreatedAt: "2026-07-19T10:00:00.000Z",
+        snapshotPageCount: 3,
+      },
+    });
+    sendMock.mockResolvedValueOnce({ Item: rootPage });
+
+    const r = await handler(getEvent({ op: "manifest", token: TOKEN }));
+
+    expect(r.statusCode).toBe(200);
+    expect(r.headers["cache-control"]).toBe("no-store");
+    expect(JSON.parse(r.body)).toEqual({
+      token: TOKEN,
+      rootId: "root-1",
+      snapshotVersion: "snap-1",
+      snapshotCreatedAt: "2026-07-19T10:00:00.000Z",
+      snapshotPageCount: 3,
+    });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(s3SendMock).not.toHaveBeenCalled();
+  });
+
   it("게시 스냅샷이 있으면 S3 snapshot payload를 우선 반환한다", async () => {
     sendMock.mockResolvedValueOnce({
       Item: {

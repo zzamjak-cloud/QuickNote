@@ -9,6 +9,8 @@ import * as lambdaNode from "aws-cdk-lib/aws-lambda-nodejs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -1002,6 +1004,44 @@ export function response(ctx) {
       },
     });
     new cdk.CfnOutput(this, "PublicViewUrl", { value: publicViewUrl.url });
+    const publicViewCdnCachePolicy = new cloudfront.CachePolicy(
+      this,
+      "PublicViewCdnCachePolicy",
+      {
+        cachePolicyName: `${envPrefix}quicknote-public-view-cache`,
+        comment: "QuickNote public-view snapshot cache",
+        minTtl: cdk.Duration.seconds(0),
+        defaultTtl: cdk.Duration.minutes(5),
+        maxTtl: cdk.Duration.days(30),
+        cookieBehavior: cloudfront.CacheCookieBehavior.none(),
+        headerBehavior: cloudfront.CacheHeaderBehavior.none(),
+        queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
+        enableAcceptEncodingBrotli: true,
+        enableAcceptEncodingGzip: true,
+      },
+    );
+    const publicViewCdn = new cloudfront.Distribution(this, "PublicViewCdn", {
+      comment: `${envPrefix}QuickNote public-view CDN`,
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_200,
+      httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
+      minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
+      defaultBehavior: {
+        origin: new origins.FunctionUrlOrigin(publicViewUrl, {
+          readTimeout: cdk.Duration.seconds(10),
+          keepaliveTimeout: cdk.Duration.seconds(5),
+        }),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
+        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD,
+        cachePolicy: publicViewCdnCachePolicy,
+        responseHeadersPolicy:
+          cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS_AND_SECURITY_HEADERS,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        compress: true,
+      },
+    });
+    new cdk.CfnOutput(this, "PublicViewCdnUrl", {
+      value: `https://${publicViewCdn.distributionDomainName}/`,
+    });
 
     // ========== AI (워크스페이스 설정 + 스트리밍 프록시) ==========
     // API 키는 DDB 저장 전 KMS 로 봉투 암호화 — 테이블 덤프만으로는 원문을 얻을 수 없다.

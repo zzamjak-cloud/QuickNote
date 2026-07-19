@@ -10,9 +10,11 @@ import type { LucideIcon } from "lucide-react";
 import { useEditorExtensions } from "../editor/useEditorExtensions";
 import { EditorErrorBoundary } from "../editor/EditorErrorBoundary";
 import {
+  fetchPublicManifest,
   fetchPublicPage,
   fetchPublicSite,
   isPublicViewConfigured,
+  type PublicManifest,
   type PublicPage,
   type PublicSite,
 } from "../../lib/publicView/api";
@@ -48,6 +50,7 @@ function parsePageIdFromSearch(search: string): string | null {
 }
 
 const PUBLIC_PAGE_REVALIDATE_MS = 60_000;
+const PUBLIC_LIVE_VERSION_KEY = "live";
 
 function parsePublicRouteFromLocation(): {
   token: string | null;
@@ -74,8 +77,19 @@ function parsePublicRouteFromHref(href: string): {
   }
 }
 
-function publicPageCacheKey(token: string, pageId: string): string {
-  return `${token}:${pageId}`;
+function publicSnapshotCacheKey(
+  token: string,
+  snapshotVersion: string | null | undefined,
+): string {
+  return `${token}:${snapshotVersion || PUBLIC_LIVE_VERSION_KEY}`;
+}
+
+function publicPageCacheKey(
+  token: string,
+  pageId: string,
+  snapshotVersion: string | null | undefined,
+): string {
+  return `${publicSnapshotCacheKey(token, snapshotVersion)}:${pageId}`;
 }
 
 /** 공개 뷰어용 페이지 아이콘 — 인증 없는 public asset URL 로 Lucide/이미지/이모지 표시 */
@@ -321,13 +335,17 @@ export function PublicPageViewer() {
   const [token, setToken] = useState<string | null>(() =>
     parsePublicRouteFromLocation().token,
   );
+  const [manifest, setManifest] = useState<PublicManifest | null | undefined>(
+    undefined,
+  );
   const [site, setSite] = useState<PublicSite | null | undefined>(undefined);
   const [currentPageId, setCurrentPageId] = useState<string | null>(() =>
     parsePublicRouteFromLocation().pageId,
   );
+  const manifestTokenRef = useRef<string | null>(null);
   const siteCacheRef = useRef<Map<string, PublicSite | null>>(new Map());
   const siteFetchedAtRef = useRef<Map<string, number>>(new Map());
-  // 방문한 페이지 캐시(token:pageId → 결과). undefined=미로드, null=404, 객체=본문.
+  // 방문한 페이지 캐시(token:snapshotVersion:pageId → 결과). undefined=미로드, null=404, 객체=본문.
   // 루트↔자식 왕복 시 재요청·화면 비움(undefined 플래시)을 없애 아이콘 재연결 출렁임을 막는다.
   const pageCacheRef = useRef<Map<string, PublicPage | null>>(new Map());
   const pageFetchedAtRef = useRef<Map<string, number>>(new Map());
@@ -347,25 +365,61 @@ export function PublicPageViewer() {
     return () => meta.remove();
   }, []);
 
-  // 사이트(트리) 로드
+  // 최신 스냅샷 manifest 로드 — CDN cache-busting 기준이므로 캐시하지 않는다.
   useEffect(() => {
     if (!token || !isPublicViewConfigured()) {
+      manifestTokenRef.current = null;
+      setManifest(null);
       setSite(null);
       return;
     }
-    const cached = siteCacheRef.current.get(token);
-    const lastFetchedAt = siteFetchedAtRef.current.get(token) ?? 0;
+    let canceled = false;
+    if (manifestTokenRef.current !== token) {
+      manifestTokenRef.current = token;
+      setManifest(undefined);
+      setSite(undefined);
+    }
+    void fetchPublicManifest(token)
+      .then((m) => {
+        if (canceled) return;
+        setManifest(m);
+        if (!m) setSite(null);
+      })
+      .catch(() => {
+        if (canceled) return;
+        setManifest(null);
+        setSite(null);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [token, currentPageId]);
+
+  // 사이트(트리) 로드
+  useEffect(() => {
+    if (!token || !isPublicViewConfigured() || manifest === undefined) {
+      if (!token || !isPublicViewConfigured()) setSite(null);
+      return;
+    }
+    if (!manifest) {
+      setSite(null);
+      return;
+    }
+    const snapshotVersion = manifest.snapshotVersion;
+    const cacheKey = publicSnapshotCacheKey(token, snapshotVersion);
+    const cached = siteCacheRef.current.get(cacheKey);
+    const lastFetchedAt = siteFetchedAtRef.current.get(cacheKey) ?? 0;
     if (cached !== undefined) setSite(cached);
     else setSite(undefined);
     if (cached !== undefined && Date.now() - lastFetchedAt < PUBLIC_PAGE_REVALIDATE_MS) {
       return;
     }
     let canceled = false;
-    void fetchPublicSite(token)
+    void fetchPublicSite(token, snapshotVersion)
       .then((s) => {
         if (canceled) return;
-        siteCacheRef.current.set(token, s);
-        siteFetchedAtRef.current.set(token, Date.now());
+        siteCacheRef.current.set(cacheKey, s);
+        siteFetchedAtRef.current.set(cacheKey, Date.now());
         setSite(s);
       })
       .catch(() => {
@@ -374,7 +428,7 @@ export function PublicPageViewer() {
     return () => {
       canceled = true;
     };
-  }, [token]);
+  }, [token, manifest]);
 
   const effectivePageId = currentPageId ?? site?.rootId ?? null;
   const publishedPageIds = useMemo(
@@ -401,15 +455,16 @@ export function PublicPageViewer() {
   // 공개 스냅샷(fullWidth/shared block 등)은 편집 화면에서 재게시 없이 갱신될 수 있으므로
   // 루트↔자식 왕복 시에도 최초 접근 루트 페이지가 오래된 너비를 계속 들고 있지 않게 한다.
   useEffect(() => {
-    if (!token || !site || !effectivePageId) return;
-    const cacheKey = publicPageCacheKey(token, effectivePageId);
+    if (!token || !site || !effectivePageId || !manifest) return;
+    const snapshotVersion = manifest.snapshotVersion;
+    const cacheKey = publicPageCacheKey(token, effectivePageId, snapshotVersion);
     const cached = pageCacheRef.current.get(cacheKey);
     const lastFetchedAt = pageFetchedAtRef.current.get(cacheKey) ?? 0;
     if (cached !== undefined && Date.now() - lastFetchedAt < PUBLIC_PAGE_REVALIDATE_MS) {
       return;
     }
     let canceled = false;
-    void fetchPublicPage(token, effectivePageId)
+    void fetchPublicPage(token, effectivePageId, snapshotVersion)
       .then((p) => {
         if (canceled) return;
         pageCacheRef.current.set(cacheKey, p);
@@ -424,11 +479,13 @@ export function PublicPageViewer() {
     return () => {
       canceled = true;
     };
-  }, [token, site, effectivePageId]);
+  }, [token, site, effectivePageId, manifest]);
 
   // 렌더용 현재 페이지 — 캐시에서 파생(effectivePageId 없거나 미로드면 undefined).
   const effectiveCacheKey =
-    token && effectivePageId ? publicPageCacheKey(token, effectivePageId) : null;
+    token && effectivePageId && manifest
+      ? publicPageCacheKey(token, effectivePageId, manifest.snapshotVersion)
+      : null;
   const page = effectiveCacheKey ? pageCacheRef.current.get(effectiveCacheKey) : undefined;
   // pageCacheVersion 은 캐시 갱신 시 재렌더 트리거(파생 page 를 최신화)하는 용도.
   void pageCacheVersion;

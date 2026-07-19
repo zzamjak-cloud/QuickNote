@@ -9,7 +9,8 @@
 |------|------|
 | 게시 토큰 테이블 | DDB `published-pages` (PK `token`, GSI `byPageId`) — `sync-stack.ts` |
 | 게시/해제/상태 API (Cognito) | `infra/lambda/v5-resolvers/handlers/publishedPage.ts` — `publishPage`/`unpublishPage`(edit)·`getPagePublishStatus`(view) |
-| 공개 조회 Lambda | `infra/lambda/public-view/` — **Function URL(authType NONE)**, `op=site`/`op=page`/`op=asset` |
+| 공개 조회 Lambda | `infra/lambda/public-view/` — **Function URL(authType NONE)**, `op=manifest`/`op=site`/`op=page`/`op=asset` |
+| 공개 조회 CDN | CloudFront `PublicViewCdn` — Function URL 앞단 캐시. `op=site`/`op=page`는 query string 전체(`token`/`pageId`/`v`)를 캐시 키로 사용 |
 | 공개 뷰어 | `/p/<token>` → `src/components/public/PublicPageViewer.tsx` (Bootstrap 에서 분기) |
 | doc 변환 | `src/lib/publicView/transformPublicDoc.ts` |
 | 게시 UI | TopBar "..." 메뉴 또는 게시된 일반 페이지 제목줄의 지구본 버튼 → `src/components/layout/PublishDialog.tsx` |
@@ -30,7 +31,7 @@
   자식 페이지 너비 변경·자식 추가가 공개 뷰어에 반영되는 유일한 경로. PublishDialog 은 이미
   게시된 페이지를 열 때 publishPage 를 silent 호출해 스냅샷을 자동 재동기화한다(토큰·링크 불변,
   편집 권한 없으면 무시). fullWidth 필드만 갱신하며 publishedAt·token 은 보존.
-- 삭제·트리 밖 이동은 요청 시점 BFS 에서 자동 반영(라이브). 캐시 `max-age=60` 만큼 지연 허용.
+- 삭제·트리 밖 이동은 요청 시점 BFS 에서 자동 반영(라이브). 캐시 `max-age=30`/CDN `s-maxage=300` 만큼 지연 허용.
 - mention attrs 의 멤버 이름은 구조적으로 공개됨 — PublishDialog 에 경고 문구 존재.
 
 ## 프론트 규칙
@@ -74,9 +75,13 @@
   `publishPage` 를 멱등 재호출해 최초 접근 루트 페이지의 레이아웃 스냅샷도 갱신한다.
 - **모바일 여백**: 공개 뷰어 본문·제목은 `px-4 md:px-12` — md 미만에서 좌우 16px 여백 필수
   (`md:px-12` 만 두면 모바일에서 여백 0 으로 답답, 2026-07-11 수정).
-- **페이지 캐시(출렁임 방지)**: `PublicPageViewer` 는 방문한 페이지·변환 doc 를 pageId 로 캐시한다.
+- **페이지 캐시(출렁임 방지)**: `PublicPageViewer` 는 방문한 페이지·변환 doc 를 `token:snapshotVersion:pageId` 로 캐시한다.
   루트↔자식 왕복 시 재요청·`undefined` 화면 비움을 없애 인라인 아이콘 재마운트(재연결) 출렁임을
   막는다. 변환 doc 는 동일 참조를 유지해 read-only 에디터 재생성을 줄인다.
+- **CDN cache-busting**: 공개 뷰어는 먼저 `op=manifest` 를 `cache: "no-store"` 로 호출해 최신
+  `snapshotVersion` 을 얻는다. 이후 `op=site`/`op=page` 에 `v=<snapshotVersion>` 을 붙인다.
+  스냅샷 업데이트는 토큰/링크를 바꾸지 않고 `snapshotVersion` 만 교체하므로, CloudFront invalidation
+  없이 다음 공개 화면 로드·새로고침·페이지 이동에서 새 캐시 키로 즉시 최신 스냅샷을 읽는다.
 - doc 변환: 자산 스킴 → `op=asset` URL, `databaseBlock`/`flowchartBlock` → placeholder,
   `dropdownMenuBlock`/`galleryBlock` → 서버 최신 공유 레코드 hydrate 후 공개 NodeView,
   `pageLink`/페이지 멘션 → 트리 안=공개 라우트 링크 / 밖=순수 텍스트(id 비노출).
@@ -88,8 +93,9 @@
   저장 data의 임의 `href`는 label/pageId까지 응답에서 제거한다. 갤러리 payload의 이미지 ref도
   `op=asset` 허용 목록에 포함한다. 상세는
   [공유 드롭다운 메뉴·갤러리](../blocks/shared-blocks.md)를 따른다.
-- `VITE_PUBLIC_VIEW_URL` (Function URL) — 미설정이면 뷰어는 404 화면. CSP `connect-src` 에
-  해당 호스트 핀 고정 필요(`vercel.json`). 도메인 변경 시 env·CSP 동시 갱신.
+- `VITE_PUBLIC_VIEW_URL` (우선 CloudFront CDN URL, fallback Function URL) — 미설정이면 뷰어는
+  404 화면. CSP `connect-src` 에 해당 호스트 허용 필요(`vercel.json`). CloudFront 배포 후에는
+  Vercel env 를 `PublicViewCdnUrl` 로 교체한다.
 
 ## 테스트
 
@@ -100,13 +106,14 @@
 
 ## 배포 체크리스트
 
-1. CDK(dev→live) 배포 후 `PublicViewUrl` output 확보
-2. `.env`(dev)·Vercel env(prod)에 `VITE_PUBLIC_VIEW_URL` 설정
-3. **`vercel.json` `connect-src` 에 Function URL 호스트 추가(dev/prod 2개 모두)** —
-   dev/live 스택의 public-view Function URL 은 서로 다르다. **prod 호스트를 빠뜨리면
+1. CDK(dev→live) 배포 후 `PublicViewCdnUrl` output 확보
+2. `.env`(dev)·Vercel env(prod)에 `VITE_PUBLIC_VIEW_URL=PublicViewCdnUrl` 설정
+3. **`vercel.json` `connect-src` 에 CDN/Function URL 호스트 추가(dev/prod 2개 모두)** —
+   CDN 전환 전 Function URL, 전환 후 CloudFront 도메인이 서로 다르다. **prod 호스트를 빠뜨리면
    `quick-note-khaki.vercel.app/p/<token>` 에서 fetch 가 CSP 에 막혀 뷰어가 항상
-   "페이지를 찾을 수 없습니다" 로 죽는다.** live 배포 시 반드시 prod Function URL 을 추가할 것.
-4. curl 검증: 유효/무효 토큰, 형제 pageId 거부, revoked 404, **타 워크스페이스 자산 404**
+   "페이지를 찾을 수 없습니다" 로 죽는다.** live 배포 시 반드시 prod CDN URL 을 허용할 것.
+4. curl 검증: `op=manifest` no-store, `op=site/page&v=<snapshotVersion>` CDN hit, 유효/무효 토큰,
+   형제 pageId 거부, revoked 404, **타 워크스페이스 자산 404**
 
 ## 알려진 한계·후속
 
