@@ -37,6 +37,7 @@ export function getCurrentWorkspaceId(): string {
 }
 
 function resolvePageWorkspaceId(p: Page): string {
+  if (p.workspaceId) return p.workspaceId;
   const dbId = p.databaseId;
   if (isLCSchedulerDatabaseId(dbId) || isLCMilestoneDatabaseId(dbId) || isLCFeatureDatabaseId(dbId)) {
     return LC_SCHEDULER_WORKSPACE_ID;

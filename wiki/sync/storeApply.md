@@ -105,7 +105,7 @@ reconcileWorkspaceDatabasesFullSnapshot({ workspaceId, remoteDatabaseIds, pendin
 ## 동작 흐름
 
 ### applyRemotePageToStore
-1. `normalizeLCSchedulerPageWorkspace` — 구 스케줄러 databaseId면 soft-delete 처리
+1. `normalizeLCSchedulerPageWorkspace` — 구 스케줄러 databaseId면 soft-delete 처리. 단, 서버가 이미 일반 워크스페이스 `workspaceId`로 반환한 canonical 보호 DB 행은 그 `workspaceId`가 권위이므로 LC 워크스페이스로 재작성하지 않는다.
 2. `shouldApplyRemoteSnapshot` — 현재 워크스페이스와 다른 데이터면 무시
 3. `shouldIgnoreRemoteAfterLocalDelete` — 로컬에서 이미 삭제한 페이지면 무시 (localDeleteGuards)
 4. `deletedAt != null` — tombstone이면 pageStore에서 해당 id 제거, activePageId 초기화
@@ -140,7 +140,7 @@ reconcileWorkspaceDatabasesFullSnapshot({ workspaceId, remoteDatabaseIds, pendin
 - `repairDbHistoryBaselineIfNeeded` (historyStore 베이스라인 보정)
 
 ## 주의사항
-- `LC_SCHEDULER_WORKSPACE_ID`는 현재 선택 워크스페이스와 무관하게 항상 적용 (`shouldApplyRemoteSnapshot` 예외 처리)
+- `LC_SCHEDULER_WORKSPACE_ID`는 현재 선택 워크스페이스와 무관하게 적용할 수 있지만(`shouldApplyRemoteSnapshot` 예외 처리), `databaseId`만 보고 서버 레코드의 `workspaceId`를 덮어쓰면 안 된다. 일반 워크스페이스 소유 페이지가 보호 DB `databaseId`를 가질 수 있으므로 `page.workspaceId`가 있으면 그 값을 저장/적용 기준으로 우선한다.
 - 구독 레이스로 다른 워크스페이스 스냅샷이 내려올 경우 로컬 캐시 오염 방지를 위해 workspaceId 검증 필수
 - `_qn_isTemplate` 마커가 있는 페이지는 DB rowPageOrder 집계에서 제외
 - `rowPageOrder`는 AppSync Database 모델에 없으므로 pageStore에서 역추산(`collectRowPageIdsForDatabase`)

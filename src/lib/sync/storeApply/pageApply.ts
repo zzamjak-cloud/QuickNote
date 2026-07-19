@@ -57,6 +57,9 @@ function normalizeLCSchedulerPageWorkspace(p: GqlPage): GqlPage {
       deletedAt: p.deletedAt ?? new Date().toISOString(),
     };
   }
+  if (p.workspaceId !== LC_SCHEDULER_WORKSPACE_ID) {
+    return p;
+  }
   const nextDatabaseId = isLCSchedulerDatabaseId(p.databaseId)
     ? LC_SCHEDULER_DATABASE_ID
     : p.databaseId;

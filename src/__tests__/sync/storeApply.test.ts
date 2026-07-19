@@ -484,6 +484,19 @@ describe("storeApply 워크스페이스 가드", () => {
     expect(useDatabaseStore.getState().databases[dbId]?.rowPageOrder).toEqual(["unchanged-row"]);
   });
 
+  it("일반 워크스페이스 소유의 보호 DB 행은 LC 워크스페이스로 재작성하지 않는다", async () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "cat-workspace" });
+    const dbId = makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
+    const remote = gqlPage("cat-workspace", "cat-row");
+    remote.databaseId = dbId;
+
+    applyRemotePageToStore(remote);
+    await Promise.resolve();
+
+    expect(usePageStore.getState().pages["cat-row"]?.workspaceId).toBe("cat-workspace");
+    expect(usePageStore.getState().pages["cat-row"]?.databaseId).toBe(dbId);
+  });
+
   it("증분 스냅샷의 deletedAt 행은 로컬에서 제거한다(삭제 전파)", () => {
     const dbId = makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
     const old = Date.now() - 300_000;

@@ -34,6 +34,22 @@ describe("pageStore helpers", () => {
     expect(payload.workspaceId).toBe(LC_SCHEDULER_WORKSPACE_ID);
   });
 
+  it("서버 소유 workspaceId 가 있는 보호 DB 행 페이지는 해당 워크스페이스로 전송한다", () => {
+    useWorkspaceStore.setState({ currentWorkspaceId: "personal-ws", workspaces: [] });
+
+    const payload = toGqlPage(
+      page({
+        workspaceId: "cat-workspace",
+        databaseId: makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID),
+        dbCells: {},
+      }),
+      "member-1",
+    );
+
+    expect(payload.workspaceId).toBe("cat-workspace");
+    expect(payload.databaseId).toBe(makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID));
+  });
+
   it("레거시 LC 스케줄러 DB ID도 전송 시 글로벌 스코프로 정규화한다", () => {
     useWorkspaceStore.setState({ currentWorkspaceId: "personal-ws", workspaces: [] });
 
