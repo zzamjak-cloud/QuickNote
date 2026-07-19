@@ -1,4 +1,4 @@
-// 공개 뷰어 API 래퍼 — 공개 페이지 데이터 캐시 우회 검증.
+// 공개 뷰어 API 래퍼 — 공개 페이지 데이터 캐시 정책 검증.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchPublicPage, fetchPublicSite } from "../api";
 
@@ -20,13 +20,13 @@ describe("publicView api", () => {
     vi.unstubAllGlobals();
   });
 
-  it("site/page 요청은 브라우저 fetch 캐시를 우회한다", async () => {
+  it("site/page 요청은 서버 Cache-Control을 활용하도록 브라우저 기본 캐시 정책을 사용한다", async () => {
     await fetchPublicSite("token-1");
     await fetchPublicPage("token-1", "page-1");
 
     const calls = vi.mocked(fetch).mock.calls;
     expect(calls).toHaveLength(2);
-    expect(calls[0]?.[1]).toMatchObject({ method: "GET", cache: "no-store" });
-    expect(calls[1]?.[1]).toMatchObject({ method: "GET", cache: "no-store" });
+    expect(calls[0]?.[1]).toEqual({ method: "GET" });
+    expect(calls[1]?.[1]).toEqual({ method: "GET" });
   });
 });

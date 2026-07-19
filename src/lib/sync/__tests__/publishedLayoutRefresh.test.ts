@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePagePublishStatusStore } from "../../../store/pagePublishStatusStore";
+import { useSettingsStore } from "../../../store/settingsStore";
 import { flushClientPrefsToServerNow } from "../clientPrefsSync";
 import { getPagePublishStatusApi, publishPageApi } from "../publishApi";
 import { refreshPublishedLayoutSnapshot } from "../publishedLayoutRefresh";
@@ -31,6 +32,10 @@ describe("refreshPublishedLayoutSnapshot", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     usePagePublishStatusStore.setState({ statusByPageId: {} });
+    useSettingsStore.setState({
+      fullWidth: true,
+      pageFullWidthById: { "page-1": false, "child-1": true },
+    });
     getStatusMock.mockResolvedValue(makeStatus(true));
     publishMock.mockResolvedValue(makeStatus(true));
   });
@@ -42,7 +47,11 @@ describe("refreshPublishedLayoutSnapshot", () => {
 
     expect(getStatusMock).not.toHaveBeenCalled();
     expect(flushMock).toHaveBeenCalledTimes(1);
-    expect(publishMock).toHaveBeenCalledWith("page-1");
+    expect(publishMock).toHaveBeenCalledWith("page-1", {
+      fullWidth: false,
+      fullWidthDefault: true,
+      fullWidthById: { "page-1": false, "child-1": true },
+    });
   });
 
   it("게시 상태 캐시가 없으면 상태를 먼저 조회한 뒤 게시된 페이지만 갱신한다", async () => {
@@ -50,7 +59,11 @@ describe("refreshPublishedLayoutSnapshot", () => {
 
     expect(getStatusMock).toHaveBeenCalledWith("page-1");
     expect(flushMock).toHaveBeenCalledTimes(1);
-    expect(publishMock).toHaveBeenCalledWith("page-1");
+    expect(publishMock).toHaveBeenCalledWith("page-1", {
+      fullWidth: false,
+      fullWidthDefault: true,
+      fullWidthById: { "page-1": false, "child-1": true },
+    });
   });
 
   it("미게시 페이지는 clientPrefs 저장과 publishPage를 건너뛴다", async () => {

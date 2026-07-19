@@ -19,13 +19,16 @@ vi.mock("../../common/IconPicker", () => ({
 
 const settingsState = vi.hoisted(() => ({
   favoritePageIds: [] as string[],
+  fullWidth: false,
+  pageFullWidthById: {} as Record<string, boolean>,
   toggleFavoritePage: vi.fn(),
 }));
 
 vi.mock("../../../store/settingsStore", () => ({
-  useSettingsStore: (
-    selector: (state: typeof settingsState) => unknown,
-  ) => selector(settingsState),
+  useSettingsStore: Object.assign(
+    (selector: (state: typeof settingsState) => unknown) => selector(settingsState),
+    { getState: () => settingsState },
+  ),
 }));
 
 const getStatusMock = vi.mocked(getPagePublishStatusApi);

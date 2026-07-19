@@ -944,6 +944,7 @@ const RESOLVERS: Record<
     await publishPage({
       ...base,
       pageId: event.arguments.pageId as string,
+      layout: event.arguments.layout,
     }),
   unpublishPage: async (event, base) =>
     await unpublishPage({

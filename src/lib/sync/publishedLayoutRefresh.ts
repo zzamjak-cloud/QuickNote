@@ -1,7 +1,25 @@
 // 이미 게시된 페이지의 공개 레이아웃 스냅샷을 현재 clientPrefs 기준으로 갱신한다.
 import { usePagePublishStatusStore } from "../../store/pagePublishStatusStore";
+import { useSettingsStore } from "../../store/settingsStore";
 import { flushClientPrefsToServerNow } from "./clientPrefsSync";
-import { getPagePublishStatusApi, publishPageApi } from "./publishApi";
+import {
+  getPagePublishStatusApi,
+  publishPageApi,
+  type PublishPageLayoutSnapshot,
+} from "./publishApi";
+
+export function buildCurrentLayoutSnapshot(pageId: string): PublishPageLayoutSnapshot {
+  const { fullWidth, pageFullWidthById } = useSettingsStore.getState();
+  const resolvedFullWidth = pageFullWidthById[pageId] ?? fullWidth;
+  return {
+    fullWidth: resolvedFullWidth,
+    fullWidthDefault: fullWidth,
+    fullWidthById: {
+      ...pageFullWidthById,
+      [pageId]: resolvedFullWidth,
+    },
+  };
+}
 
 export async function refreshPublishedLayoutSnapshot(
   pageId: string | null,
@@ -20,7 +38,10 @@ export async function refreshPublishedLayoutSnapshot(
   if (!published) return false;
 
   await flushClientPrefsToServerNow();
-  const refreshed = await publishPageApi(pageId);
+  const refreshed = await publishPageApi(
+    pageId,
+    buildCurrentLayoutSnapshot(pageId),
+  );
   usePagePublishStatusStore
     .getState()
     .setPublished(pageId, refreshed.published);

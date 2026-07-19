@@ -10,6 +10,7 @@ import {
   QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import {
   badRequest,
   notFound,
@@ -17,6 +18,17 @@ import {
   type Member,
 } from "./_auth";
 import type { Tables } from "./member";
+import {
+  buildPublishedTreeSnapshot,
+  buildPublicPageSnapshot,
+  buildPublicSiteSnapshot,
+  publicSnapshotPageKey,
+  publicSnapshotPageKeyPrefix,
+  publicSnapshotSiteKey,
+} from "../../public-view/snapshot";
+
+const s3 = new S3Client({});
+const MAX_SNAPSHOT_PAGES_PER_PUBLISH = 200;
 
 export type PublishRecord = {
   token: string;
@@ -31,6 +43,16 @@ export type PublishRecord = {
   fullWidthDefault?: boolean;
   /** 게시 시점 페이지별 전체너비 오버라이드 스냅샷(pageId → bool). */
   fullWidthById?: Record<string, boolean>;
+  /** 공개 스냅샷 version. token은 유지하고 version만 교체한다. */
+  snapshotVersion?: string | null;
+  /** site.json S3 key. */
+  snapshotSiteKey?: string | null;
+  /** pages/{pageId}.json S3 key prefix. */
+  snapshotPageKeyPrefix?: string | null;
+  /** 스냅샷 생성 시각. */
+  snapshotCreatedAt?: string | null;
+  /** 스냅샷에 포함한 페이지 수. */
+  snapshotPageCount?: number | null;
 };
 
 export type PagePublishStatusGql = {
@@ -46,11 +68,34 @@ type BaseArgs = {
   tables: Tables;
   caller: Member;
   pageId: string;
+  layout?: unknown;
 };
 
 function requirePublishTable(tables: Tables): string {
   if (!tables.PublishedPages) badRequest("PublishedPages table 미설정");
   return tables.PublishedPages;
+}
+
+function resolveSnapshotTables(tables: Tables): {
+  bucket: string;
+  pagesTable: string;
+  publishedPagesTable: string;
+  sharedBlocksTable: string;
+} | null {
+  if (
+    !tables.ImagesBucketName ||
+    !tables.Pages ||
+    !tables.PublishedPages ||
+    !tables.SharedBlocks
+  ) {
+    return null;
+  }
+  return {
+    bucket: tables.ImagesBucketName,
+    pagesTable: tables.Pages,
+    publishedPagesTable: tables.PublishedPages,
+    sharedBlocksTable: tables.SharedBlocks,
+  };
 }
 
 type PageGateRow = {
@@ -113,30 +158,187 @@ function toStatus(
  * 페이지별 오버라이드 맵(pageFullWidthById)과 전역 기본값(fullWidth)을 모두 담아,
  * 게시 트리 내 각 페이지가 자기 너비 설정으로 공개 뷰어에 렌더되도록 한다.
  */
-function parseLayoutPrefs(caller: Member): {
+type PublishLayoutSnapshot = {
+  fullWidth: boolean;
   fullWidthDefault: boolean;
   fullWidthById: Record<string, boolean>;
-} {
+};
+
+function sanitizeFullWidthById(raw: unknown): Record<string, boolean> {
+  const fullWidthById: Record<string, boolean> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fullWidthById;
+  let n = 0;
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v !== "boolean") continue;
+    fullWidthById[k] = v;
+    if (++n >= 10000) break; // DDB 아이템 크기 방어
+  }
+  return fullWidthById;
+}
+
+function withRootWidth(
+  layout: PublishLayoutSnapshot,
+  pageId: string,
+): PublishLayoutSnapshot {
+  return {
+    ...layout,
+    fullWidthById: {
+      ...layout.fullWidthById,
+      [pageId]: layout.fullWidth,
+    },
+  };
+}
+
+function parseLayoutPrefs(caller: Member, pageId: string): PublishLayoutSnapshot {
   const raw = caller.clientPrefs;
-  if (raw == null || raw === "") return { fullWidthDefault: false, fullWidthById: {} };
+  if (raw == null || raw === "") {
+    return withRootWidth(
+      { fullWidth: false, fullWidthDefault: false, fullWidthById: {} },
+      pageId,
+    );
+  }
   try {
     const str = typeof raw === "string" ? raw : JSON.stringify(raw);
     const o = JSON.parse(str) as {
       fullWidth?: unknown;
       pageFullWidthById?: Record<string, unknown>;
     };
-    const fullWidthById: Record<string, boolean> = {};
-    if (o.pageFullWidthById && typeof o.pageFullWidthById === "object") {
-      let n = 0;
-      for (const [k, v] of Object.entries(o.pageFullWidthById)) {
-        if (typeof v !== "boolean") continue;
-        fullWidthById[k] = v;
-        if (++n >= 10000) break; // DDB 아이템 크기 방어
-      }
-    }
-    return { fullWidthDefault: o.fullWidth === true, fullWidthById };
+    const fullWidthDefault = o.fullWidth === true;
+    const fullWidthById = sanitizeFullWidthById(o.pageFullWidthById);
+    return withRootWidth(
+      {
+        fullWidth: fullWidthById[pageId] ?? fullWidthDefault,
+        fullWidthDefault,
+        fullWidthById,
+      },
+      pageId,
+    );
   } catch {
-    return { fullWidthDefault: false, fullWidthById: {} };
+    return withRootWidth(
+      { fullWidth: false, fullWidthDefault: false, fullWidthById: {} },
+      pageId,
+    );
+  }
+}
+
+function parseLayoutOverride(raw: unknown, pageId: string): PublishLayoutSnapshot | null {
+  if (raw == null || raw === "") return null;
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      badRequest("publish layout 형식이 올바르지 않습니다");
+    }
+    const o = parsed as {
+      fullWidth?: unknown;
+      fullWidthDefault?: unknown;
+      fullWidthById?: unknown;
+    };
+    if (typeof o.fullWidth !== "boolean") {
+      badRequest("publish layout.fullWidth 값이 필요합니다");
+    }
+    const fullWidthDefault =
+      typeof o.fullWidthDefault === "boolean" ? o.fullWidthDefault : o.fullWidth;
+    return withRootWidth(
+      {
+        fullWidth: o.fullWidth,
+        fullWidthDefault,
+        fullWidthById: sanitizeFullWidthById(o.fullWidthById),
+      },
+      pageId,
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === "ResolverError") throw err;
+    const msg = err instanceof Error ? err.message : String(err);
+    badRequest(`publish layout 파싱 실패 — ${msg}`);
+  }
+}
+
+function makeSnapshotVersion(): string {
+  return `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomBytes(6).toString("hex")}`;
+}
+
+async function putSnapshotJson(args: {
+  bucket: string;
+  key: string;
+  body: unknown;
+}): Promise<void> {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: args.bucket,
+      Key: args.key,
+      Body: JSON.stringify(args.body),
+      ContentType: "application/json; charset=utf-8",
+      CacheControl: "public, max-age=31536000, immutable",
+    }),
+  );
+}
+
+async function refreshPublishedSnapshot(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  publish: PublishRecord;
+}): Promise<void> {
+  const snapshotTables = resolveSnapshotTables(args.tables);
+  if (!snapshotTables) return;
+
+  try {
+    const version = makeSnapshotVersion();
+    const tree = await buildPublishedTreeSnapshot({
+      docClient: args.doc,
+      tables: snapshotTables,
+      publish: args.publish,
+    });
+    const site = buildPublicSiteSnapshot({ publish: args.publish, tree });
+    const siteKey = publicSnapshotSiteKey(args.publish.token, version);
+    const pageKeyPrefix = publicSnapshotPageKeyPrefix(args.publish.token, version);
+    const snapshotPageIds = site.pages
+      .map((page) => page.id)
+      .slice(0, MAX_SNAPSHOT_PAGES_PER_PUBLISH);
+
+    for (const pageId of snapshotPageIds) {
+      const page = await buildPublicPageSnapshot({
+        docClient: args.doc,
+        tables: snapshotTables,
+        publish: args.publish,
+        tree,
+        pageId,
+      });
+      if (!page) continue;
+      await putSnapshotJson({
+        bucket: snapshotTables.bucket,
+        key: publicSnapshotPageKey(args.publish.token, version, pageId),
+        body: page,
+      });
+    }
+    await putSnapshotJson({
+      bucket: snapshotTables.bucket,
+      key: siteKey,
+      body: site,
+    });
+
+    await args.doc.send(
+      new UpdateCommand({
+        TableName: snapshotTables.publishedPagesTable,
+        Key: { token: args.publish.token },
+        UpdateExpression:
+          "SET snapshotVersion = :v, snapshotSiteKey = :sk, snapshotPageKeyPrefix = :pkp, snapshotCreatedAt = :ca, snapshotPageCount = :pc",
+        ConditionExpression: "pageId = :p",
+        ExpressionAttributeValues: {
+          ":v": version,
+          ":sk": siteKey,
+          ":pkp": pageKeyPrefix,
+          ":ca": new Date().toISOString(),
+          ":pc": snapshotPageIds.length,
+          ":p": args.publish.pageId,
+        },
+      }),
+    );
+  } catch (error) {
+    console.warn("[publish] 공개 스냅샷 생성 실패, live fallback 유지", {
+      pageId: args.publish.pageId,
+      token: args.publish.token,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -159,7 +361,7 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
     workspaceId: page.workspaceId,
     required: "edit",
   });
-  const layout = parseLayoutPrefs(args.caller);
+  const layout = parseLayoutOverride(args.layout, args.pageId) ?? parseLayoutPrefs(args.caller, args.pageId);
   const actives = await getActivePublishRecords(args.doc, tableName, args.pageId);
   const existing = actives[0];
   if (existing) {
@@ -175,13 +377,23 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
         // 교차 페이지 변조 방지(unpublish 와 동일 가드).
         ConditionExpression: "pageId = :p",
         ExpressionAttributeValues: {
-          ":fw": layout.fullWidthById[args.pageId] ?? layout.fullWidthDefault,
+          ":fw": layout.fullWidth,
           ":fwd": layout.fullWidthDefault,
           ":fwm": layout.fullWidthById,
           ":p": args.pageId,
         },
       }),
     );
+    await refreshPublishedSnapshot({
+      doc: args.doc,
+      tables: args.tables,
+      publish: {
+        ...existing,
+        fullWidth: layout.fullWidth,
+        fullWidthDefault: layout.fullWidthDefault,
+        fullWidthById: layout.fullWidthById,
+      },
+    });
     return toStatus(args.pageId, page.workspaceId, existing);
   }
 
@@ -193,7 +405,7 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
     publishedByMemberId: args.caller.memberId,
     publishedAt: new Date().toISOString(),
     // 레거시 호환: 루트 페이지의 확정 너비.
-    fullWidth: layout.fullWidthById[args.pageId] ?? layout.fullWidthDefault,
+    fullWidth: layout.fullWidth,
     // 자손 포함 각 페이지가 자기 너비로 렌더되도록 맵·전역 기본값을 함께 스냅샷.
     fullWidthDefault: layout.fullWidthDefault,
     fullWidthById: layout.fullWidthById,
@@ -206,6 +418,7 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
       ExpressionAttributeNames: { "#t": "token" },
     }),
   );
+  await refreshPublishedSnapshot({ doc: args.doc, tables: args.tables, publish: record });
   return toStatus(args.pageId, page.workspaceId, record);
 }
 

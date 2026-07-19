@@ -55,7 +55,11 @@
 - 자산 관리의 사용 위치에서는 `sharedGallery` 합성 사용처를 `공유 갤러리`로 표시하고, 합성 pageId를 실제 페이지처럼 열지 않는다.
 - 공개 모드에서는 편집 버튼과 인증 API/store fetch를 사용하지 않는다.
 - 공개 뷰어 shell은 `h-dvh overflow-y-auto` 스크롤 컨테이너다. 경로/목차 헤더는 이 컨테이너 안에서 sticky 되고, 목차 이동과 Top 버튼도 같은 컨테이너를 스크롤한다.
-- 공개 페이지 데이터 fetch는 브라우저 캐시를 우회한다. 또한 이미 게시된 페이지의 전체너비 토글은 clientPrefs를 즉시 저장한 뒤 같은 토큰의 게시 레이아웃 스냅샷을 갱신해야 한다.
+- 공개 페이지 데이터 fetch는 서버 `Cache-Control`을 활용한다. 클라이언트에서 `cache: "no-store"`를 강제하지 않는다. 기본 응답은 브라우저 30초, 공유 캐시/CDN 300초(`s-maxage`)와 `stale-while-revalidate`를 사용한다.
+- 공개 링크의 `token`은 capability 이므로 한번 발급된 뒤 유지한다. 게시 후 수정/레이아웃 변경은 같은 token의 `snapshotVersion`/S3 key만 교체해 반영한다.
+- `published-pages` 레코드에 `snapshotVersion`, `snapshotSiteKey`, `snapshotPageKeyPrefix`, `snapshotCreatedAt`, `snapshotPageCount`를 저장한다. public-view Lambda는 이 스냅샷을 우선 반환하고, 없거나 읽기 실패하면 기존 Pages/SharedBlock 조립 경로로 fallback 한다.
+- 게시 다이얼로그의 `스냅샷 업데이트`는 새 링크를 만들지 않고 `publishPage(pageId, layout)`을 다시 호출해 현재 본문·공유블록·레이아웃의 공개 스냅샷만 갱신한다.
+- 공개 레이아웃 스냅샷 갱신은 `publishPage(pageId, layout)`에 현재 `fullWidth/fullWidthDefault/fullWidthById`를 함께 전달한다. 서버가 방금 저장한 member `clientPrefs`를 stale read 하면 특정 게시 페이지가 계속 전체 너비로 남을 수 있으므로, payload 없는 레거시 호출만 `clientPrefs` 폴백을 사용한다.
 
 ## 관련 파일
 

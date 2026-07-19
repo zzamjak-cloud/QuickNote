@@ -12,12 +12,24 @@ vi.hoisted(() => {
 });
 
 const sendMock = vi.fn();
+const s3SendMock = vi.fn();
 vi.mock("@aws-sdk/lib-dynamodb", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@aws-sdk/lib-dynamodb")>();
   return {
     ...actual,
     DynamoDBDocumentClient: {
       from: () => ({ send: (...args: unknown[]) => sendMock(...args) }),
+    },
+  };
+});
+vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@aws-sdk/client-s3")>();
+  return {
+    ...actual,
+    S3Client: class {
+      send(...args: unknown[]) {
+        return s3SendMock(...args);
+      }
     },
   };
 });
@@ -79,9 +91,37 @@ const workspaceMetas = {
 
 beforeEach(() => {
   sendMock.mockReset();
+  s3SendMock.mockReset();
 });
 
 describe("public-view handler", () => {
+  it("게시 스냅샷이 있으면 S3 snapshot payload를 우선 반환한다", async () => {
+    sendMock.mockResolvedValueOnce({
+      Item: {
+        ...publishRecord,
+        snapshotVersion: "v1",
+        snapshotSiteKey: "public-snapshots/token/v1/site.json",
+      },
+    });
+    sendMock.mockResolvedValueOnce({ Item: rootPage });
+    s3SendMock.mockResolvedValueOnce({
+      Body: {
+        transformToString: async () =>
+          JSON.stringify({
+            rootId: "root-1",
+            pages: [{ id: "root-1", title: "스냅샷", parentId: null, order: 0 }],
+          }),
+      },
+    });
+
+    const r = await handler(getEvent({ op: "site", token: TOKEN }));
+
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.body)).toMatchObject({ rootId: "root-1" });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(s3SendMock).toHaveBeenCalledTimes(1);
+  });
+
   it("무효 토큰 형식 → 404", async () => {
     const r = await handler(getEvent({ op: "site", token: "short" }));
     expect(r.statusCode).toBe(404);
@@ -569,7 +609,7 @@ describe("public-view handler", () => {
     expect(JSON.parse(r.body).fullWidth).toBe(true);
   });
 
-  it("404 응답은 no-store, 성공은 max-age=60 캐시", async () => {
+  it("404 응답은 no-store, 성공은 짧은 stale-while-revalidate 캐시", async () => {
     sendMock.mockResolvedValueOnce({ Item: undefined });
     const r404 = await handler(getEvent({ op: "site", token: TOKEN }));
     expect(r404.headers["cache-control"]).toBe("no-store");

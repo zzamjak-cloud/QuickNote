@@ -697,7 +697,7 @@ type Mutation {
 
   upsertPage(input: PageInput!): Page!
   """페이지(+자손)를 웹에 게시 — 추측 불가 토큰 발급(이미 게시면 기존 토큰 반환, 멱등). edit 권한 필요."""
-  publishPage(pageId: ID!): PagePublishStatus!
+  publishPage(pageId: ID!, layout: AWSJSON): PagePublishStatus!
   """웹 게시 해제 — 토큰 무효화(재게시 시 새 토큰). edit 권한 필요."""
   unpublishPage(pageId: ID!): PagePublishStatus!
   publishPageChanged(input: PageInput!): Page! @aws_iam

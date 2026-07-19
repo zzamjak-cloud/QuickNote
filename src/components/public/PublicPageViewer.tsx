@@ -47,6 +47,37 @@ function parsePageIdFromSearch(search: string): string | null {
   return id && id.length > 0 ? id : null;
 }
 
+const PUBLIC_PAGE_REVALIDATE_MS = 60_000;
+
+function parsePublicRouteFromLocation(): {
+  token: string | null;
+  pageId: string | null;
+} {
+  return {
+    token: parseTokenFromPath(window.location.pathname),
+    pageId: parsePageIdFromSearch(window.location.search),
+  };
+}
+
+function parsePublicRouteFromHref(href: string): {
+  token: string;
+  pageId: string | null;
+} | null {
+  try {
+    const url = new URL(href, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    const token = parseTokenFromPath(url.pathname);
+    if (!token) return null;
+    return { token, pageId: parsePageIdFromSearch(url.search) };
+  } catch {
+    return null;
+  }
+}
+
+function publicPageCacheKey(token: string, pageId: string): string {
+  return `${token}:${pageId}`;
+}
+
 /** 공개 뷰어용 페이지 아이콘 — 인증 없는 public asset URL 로 Lucide/이미지/이모지 표시 */
 function PublicPageIcon({
   icon,
@@ -96,10 +127,12 @@ function ReadOnlyDocView({
   doc,
   publishedPageIds,
   onNavigatePublicPage,
+  onNavigatePublicHref,
 }: {
   doc: JSONContent;
   publishedPageIds: ReadonlySet<string>;
   onNavigatePublicPage: (pageId: string) => void;
+  onNavigatePublicHref: (href: string) => void;
 }) {
   const extensions = useEditorExtensions({
     lowlightApi: null,
@@ -114,6 +147,8 @@ function ReadOnlyDocView({
   //  붕괴해 멘션 리스트가 출렁이고 인라인 아이콘이 재연결된다.)
   const onNavRef = useRef(onNavigatePublicPage);
   onNavRef.current = onNavigatePublicPage;
+  const onPublicHrefRef = useRef(onNavigatePublicHref);
+  onPublicHrefRef.current = onNavigatePublicHref;
   // 최초 생성 시 content:doc 로 이미 반영되므로 초기값을 doc 으로 둬 중복 setContent 를 막는다.
   const lastDocRef = useRef<JSONContent | null>(doc);
   const editor = useEditor({
@@ -143,7 +178,7 @@ function ReadOnlyDocView({
             if (action.kind === "navigate") {
               onNavRef.current(action.pageId);
             } else if (action.kind === "navigatePublic") {
-              window.location.assign(action.href);
+              onPublicHrefRef.current(action.href);
             } else {
               window.open(action.href, "_blank", "noopener,noreferrer");
             }
@@ -162,7 +197,7 @@ function ReadOnlyDocView({
           if (action.kind === "navigate") {
             onNavRef.current(action.pageId);
           } else if (action.kind === "navigatePublic") {
-            window.location.assign(action.href);
+            onPublicHrefRef.current(action.href);
           } else {
             window.open(action.href, "_blank", "noopener,noreferrer");
           }
@@ -283,14 +318,19 @@ function PublicOutlineSidebar({
 }
 
 export function PublicPageViewer() {
-  const token = useMemo(() => parseTokenFromPath(window.location.pathname), []);
+  const [token, setToken] = useState<string | null>(() =>
+    parsePublicRouteFromLocation().token,
+  );
   const [site, setSite] = useState<PublicSite | null | undefined>(undefined);
   const [currentPageId, setCurrentPageId] = useState<string | null>(() =>
-    parsePageIdFromSearch(window.location.search),
+    parsePublicRouteFromLocation().pageId,
   );
-  // 방문한 페이지 캐시(pageId → 결과). undefined=미로드, null=404, 객체=본문.
+  const siteCacheRef = useRef<Map<string, PublicSite | null>>(new Map());
+  const siteFetchedAtRef = useRef<Map<string, number>>(new Map());
+  // 방문한 페이지 캐시(token:pageId → 결과). undefined=미로드, null=404, 객체=본문.
   // 루트↔자식 왕복 시 재요청·화면 비움(undefined 플래시)을 없애 아이콘 재연결 출렁임을 막는다.
   const pageCacheRef = useRef<Map<string, PublicPage | null>>(new Map());
+  const pageFetchedAtRef = useRef<Map<string, number>>(new Map());
   const docCacheRef = useRef<
     Map<string, { source: PublicPage; doc: JSONContent | null }>
   >(new Map());
@@ -313,10 +353,20 @@ export function PublicPageViewer() {
       setSite(null);
       return;
     }
+    const cached = siteCacheRef.current.get(token);
+    const lastFetchedAt = siteFetchedAtRef.current.get(token) ?? 0;
+    if (cached !== undefined) setSite(cached);
+    else setSite(undefined);
+    if (cached !== undefined && Date.now() - lastFetchedAt < PUBLIC_PAGE_REVALIDATE_MS) {
+      return;
+    }
     let canceled = false;
     void fetchPublicSite(token)
       .then((s) => {
-        if (!canceled) setSite(s);
+        if (canceled) return;
+        siteCacheRef.current.set(token, s);
+        siteFetchedAtRef.current.set(token, Date.now());
+        setSite(s);
       })
       .catch(() => {
         if (!canceled) setSite(null);
@@ -338,7 +388,9 @@ export function PublicPageViewer() {
   // 브라우저 뒤로가기 대응
   useEffect(() => {
     const onPop = () => {
-      setCurrentPageId(parsePageIdFromSearch(window.location.search));
+      const route = parsePublicRouteFromLocation();
+      setToken(route.token);
+      setCurrentPageId(route.pageId);
       setBackDepth((d) => Math.max(0, d - 1));
     };
     window.addEventListener("popstate", onPop);
@@ -350,11 +402,18 @@ export function PublicPageViewer() {
   // 루트↔자식 왕복 시에도 최초 접근 루트 페이지가 오래된 너비를 계속 들고 있지 않게 한다.
   useEffect(() => {
     if (!token || !site || !effectivePageId) return;
+    const cacheKey = publicPageCacheKey(token, effectivePageId);
+    const cached = pageCacheRef.current.get(cacheKey);
+    const lastFetchedAt = pageFetchedAtRef.current.get(cacheKey) ?? 0;
+    if (cached !== undefined && Date.now() - lastFetchedAt < PUBLIC_PAGE_REVALIDATE_MS) {
+      return;
+    }
     let canceled = false;
     void fetchPublicPage(token, effectivePageId)
       .then((p) => {
         if (canceled) return;
-        pageCacheRef.current.set(effectivePageId, p);
+        pageCacheRef.current.set(cacheKey, p);
+        pageFetchedAtRef.current.set(cacheKey, Date.now());
         setPageCacheVersion((v) => v + 1);
       })
       .catch(() => {
@@ -368,7 +427,9 @@ export function PublicPageViewer() {
   }, [token, site, effectivePageId]);
 
   // 렌더용 현재 페이지 — 캐시에서 파생(effectivePageId 없거나 미로드면 undefined).
-  const page = effectivePageId ? pageCacheRef.current.get(effectivePageId) : undefined;
+  const effectiveCacheKey =
+    token && effectivePageId ? publicPageCacheKey(token, effectivePageId) : null;
+  const page = effectiveCacheKey ? pageCacheRef.current.get(effectiveCacheKey) : undefined;
   // pageCacheVersion 은 캐시 갱신 시 재렌더 트리거(파생 page 를 최신화)하는 용도.
   void pageCacheVersion;
 
@@ -381,6 +442,25 @@ export function PublicPageViewer() {
       setBackDepth((d) => d + 1);
     },
     [token, site],
+  );
+
+  const navigateToPublicHref = useCallback(
+    (href: string) => {
+      const route = parsePublicRouteFromHref(href);
+      if (!route) {
+        window.location.assign(href);
+        return;
+      }
+      const url = route.pageId
+        ? `/p/${route.token}?page=${encodeURIComponent(route.pageId)}`
+        : `/p/${route.token}`;
+      window.history.pushState(null, "", url);
+      setToken(route.token);
+      setCurrentPageId(route.pageId);
+      setBackDepth((d) => d + 1);
+      setOutlineOpen(false);
+    },
+    [setOutlineOpen],
   );
 
   const pageIcons = useMemo(() => {
@@ -402,8 +482,8 @@ export function PublicPageViewer() {
   // 변환 결과를 page 객체 참조와 함께 캐시해 **동일 객체 참조**를 유지한다.
   // 같은 공개 페이지를 재검증해 새 스냅샷이 오면 변환 캐시도 자연스럽게 갱신한다.
   const transformedDoc = useMemo(() => {
-    if (!effectivePageId || !publicDocCtx) return null;
-    const cached = docCacheRef.current.get(effectivePageId);
+    if (!effectivePageId || !publicDocCtx || !effectiveCacheKey) return null;
+    const cached = docCacheRef.current.get(effectiveCacheKey);
     // 아직 이 페이지 본문이 로드되지 않았으면(파생 page 가 다른 페이지) 계산을 보류.
     if (!page || page.id !== effectivePageId) return null;
     if (cached?.source === page) return cached.doc;
@@ -412,9 +492,9 @@ export function PublicPageViewer() {
       rawDoc && typeof rawDoc === "object"
         ? transformPublicDoc(rawDoc, publicDocCtx)
         : null;
-    docCacheRef.current.set(effectivePageId, { source: page, doc: result });
+    docCacheRef.current.set(effectiveCacheKey, { source: page, doc: result });
     return result;
-  }, [effectivePageId, page, publicDocCtx]);
+  }, [effectivePageId, effectiveCacheKey, page, publicDocCtx]);
 
   const outline = useMemo(
     () => extractOutlineFromDocJson(transformedDoc ?? undefined),
@@ -561,6 +641,7 @@ export function PublicPageViewer() {
                     doc={transformedDoc}
                     publishedPageIds={publishedPageIds}
                     onNavigatePublicPage={navigateTo}
+                    onNavigatePublicHref={navigateToPublicHref}
                   />
                 </div>
               </EditorErrorBoundary>

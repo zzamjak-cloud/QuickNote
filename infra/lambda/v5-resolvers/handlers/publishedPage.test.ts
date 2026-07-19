@@ -1,11 +1,25 @@
 // 페이지 웹 게시 핸들러 — 멱등 발행/권한/해제/상태 조회 검증.
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import {
   publishPage,
   unpublishPage,
   getPagePublishStatus,
 } from "./publishedPage";
 import type { Member, Tables } from "./member";
+
+const s3SendMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@aws-sdk/client-s3")>();
+  return {
+    ...actual,
+    S3Client: class {
+      send(...args: unknown[]) {
+        return s3SendMock(...args);
+      }
+    },
+  };
+});
 
 const tables: Tables = {
   Members: "M",
@@ -15,6 +29,12 @@ const tables: Tables = {
   WorkspaceAccess: "WA",
   Pages: "P",
   PublishedPages: "PP",
+};
+
+const snapshotTables: Tables = {
+  ...tables,
+  SharedBlocks: "SB",
+  ImagesBucketName: "bucket",
 };
 
 const ownerCaller: Member = {
@@ -40,6 +60,10 @@ function mockDoc(...returns: unknown[]) {
 const pageRow = { id: "page-1", workspaceId: "ws-1" };
 
 describe("publishPage", () => {
+  beforeEach(() => {
+    s3SendMock.mockReset();
+  });
+
   it("정상 발행 — base64url 토큰 생성 + Put", async () => {
     const doc = mockDoc(
       { Item: pageRow }, // Pages GetItem
@@ -51,6 +75,38 @@ describe("publishPage", () => {
     expect(r.token).toMatch(/^[A-Za-z0-9_-]{20,24}$/);
     expect(r.workspaceId).toBe("ws-1");
     expect(vi.mocked(doc.send)).toHaveBeenCalledTimes(3);
+  });
+
+  it("신규 게시 후 같은 token 아래 공개 스냅샷 version/key만 갱신한다", async () => {
+    s3SendMock.mockResolvedValue({});
+    const pageDoc = { type: "doc", content: [{ type: "paragraph" }] };
+    const doc = mockDoc(
+      { Item: { ...pageRow, title: "루트", doc: JSON.stringify(pageDoc) } }, // Pages GetItem
+      { Items: [] }, // byPageId Query
+      {}, // Put
+      { Items: [{ id: "page-1", title: "루트", parentId: null, order: 0 }] }, // tree Query
+      { Item: { ...pageRow, title: "루트", doc: JSON.stringify(pageDoc) } }, // page snapshot Get
+      {}, // snapshot metadata Update
+    );
+
+    const r = await publishPage({
+      doc,
+      tables: snapshotTables,
+      caller: ownerCaller,
+      pageId: "page-1",
+    });
+
+    expect(r.published).toBe(true);
+    expect(s3SendMock).toHaveBeenCalledTimes(2);
+    const pagePut = s3SendMock.mock.calls[0]?.[0] as { input?: { Key?: string } };
+    const sitePut = s3SendMock.mock.calls[1]?.[0] as { input?: { Key?: string } };
+    expect(pagePut.input?.Key).toMatch(new RegExp(`^public-snapshots/${r.token}/.+/pages/page-1\\.json$`));
+    expect(sitePut.input?.Key).toMatch(new RegExp(`^public-snapshots/${r.token}/.+/site\\.json$`));
+    const updateCall = vi.mocked(doc.send).mock.calls[5]?.[0] as {
+      input?: { UpdateExpression?: string; ExpressionAttributeValues?: Record<string, unknown> };
+    };
+    expect(updateCall.input?.UpdateExpression).toContain("snapshotVersion");
+    expect(updateCall.input?.ExpressionAttributeValues?.[":p"]).toBe("page-1");
   });
 
   it("이미 게시돼 있으면 기존 토큰 유지 + 레이아웃 스냅샷 갱신(멱등, 새 토큰 없음)", async () => {
@@ -78,7 +134,54 @@ describe("publishPage", () => {
       input: { UpdateExpression?: string; ExpressionAttributeValues?: Record<string, unknown> };
     };
     expect(updateCall.input.UpdateExpression).toContain("fullWidthById");
-    expect(updateCall.input.ExpressionAttributeValues?.[":fwm"]).toEqual({ "child-1": true });
+    expect(updateCall.input.ExpressionAttributeValues?.[":fw"]).toBe(false);
+    expect(updateCall.input.ExpressionAttributeValues?.[":fwm"]).toEqual({
+      "child-1": true,
+      "page-1": false,
+    });
+  });
+
+  it("layout 인자가 있으면 caller clientPrefs 대신 현재 클라이언트 레이아웃을 우선 반영한다", async () => {
+    const existing = {
+      token: "existing-token-1234567890",
+      pageId: "page-1",
+      workspaceId: "ws-1",
+      publishedAt: "2026-07-01T00:00:00Z",
+    };
+    const doc = mockDoc(
+      { Item: pageRow }, // Pages GetItem
+      { Items: [existing] }, // byPageId Query
+      {}, // 레이아웃 스냅샷 UpdateItem
+    );
+    const caller: Member = {
+      ...ownerCaller,
+      clientPrefs: JSON.stringify({
+        fullWidth: false,
+        pageFullWidthById: { "page-1": true },
+      }),
+    };
+
+    await publishPage({
+      doc,
+      tables,
+      caller,
+      pageId: "page-1",
+      layout: JSON.stringify({
+        fullWidth: false,
+        fullWidthDefault: true,
+        fullWidthById: { "page-1": true, "child-1": true },
+      }),
+    });
+
+    const updateCall = vi.mocked(doc.send).mock.calls[2][0] as {
+      input: { ExpressionAttributeValues?: Record<string, unknown> };
+    };
+    expect(updateCall.input.ExpressionAttributeValues?.[":fw"]).toBe(false);
+    expect(updateCall.input.ExpressionAttributeValues?.[":fwd"]).toBe(true);
+    expect(updateCall.input.ExpressionAttributeValues?.[":fwm"]).toEqual({
+      "page-1": false,
+      "child-1": true,
+    });
   });
 
   it("삭제된 페이지는 게시 불가", async () => {

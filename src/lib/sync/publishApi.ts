@@ -15,6 +15,12 @@ export type PagePublishStatus = {
   publishedAt: string | null;
 };
 
+export type PublishPageLayoutSnapshot = {
+  fullWidth: boolean;
+  fullWidthDefault: boolean;
+  fullWidthById: Record<string, boolean>;
+};
+
 type GqlEnvelope = {
   data?: Record<string, PagePublishStatus | undefined>;
   errors?: Array<{ message?: string }>;
@@ -23,11 +29,11 @@ type GqlEnvelope = {
 async function callPublishField(
   query: string,
   fieldName: string,
-  pageId: string,
+  variables: { pageId: string; layout?: string },
 ): Promise<PagePublishStatus> {
   const result = (await appsyncClient().graphql({
     query,
-    variables: { pageId },
+    variables,
   })) as GqlEnvelope;
   const message = result.errors?.[0]?.message;
   if (message) throw new Error(message);
@@ -39,15 +45,23 @@ async function callPublishField(
 export async function getPagePublishStatusApi(
   pageId: string,
 ): Promise<PagePublishStatus> {
-  return callPublishField(GET_PAGE_PUBLISH_STATUS, "getPagePublishStatus", pageId);
+  return callPublishField(GET_PAGE_PUBLISH_STATUS, "getPagePublishStatus", {
+    pageId,
+  });
 }
 
-export async function publishPageApi(pageId: string): Promise<PagePublishStatus> {
-  return callPublishField(PUBLISH_PAGE, "publishPage", pageId);
+export async function publishPageApi(
+  pageId: string,
+  layout?: PublishPageLayoutSnapshot,
+): Promise<PagePublishStatus> {
+  return callPublishField(PUBLISH_PAGE, "publishPage", {
+    pageId,
+    ...(layout ? { layout: JSON.stringify(layout) } : {}),
+  });
 }
 
 export async function unpublishPageApi(pageId: string): Promise<PagePublishStatus> {
-  return callPublishField(UNPUBLISH_PAGE, "unpublishPage", pageId);
+  return callPublishField(UNPUBLISH_PAGE, "unpublishPage", { pageId });
 }
 
 const DEFAULT_PUBLIC_WEB_ORIGIN = "https://quick-note-khaki.vercel.app";

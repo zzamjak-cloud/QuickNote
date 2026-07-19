@@ -14,6 +14,7 @@ import {
   unpublishPageApi,
   type PagePublishStatus,
 } from "../../lib/sync/publishApi";
+import { buildCurrentLayoutSnapshot } from "../../lib/sync/publishedLayoutRefresh";
 
 type Props = {
   pageId: string | null;
@@ -49,7 +50,7 @@ export function PublishDialog({ pageId, onClose }: Props) {
         // (토큰·링크 유지). 게시 후 자식 페이지 너비를 바꿔도 공유 링크만 다시 열면 반영됨.
         // 편집 권한이 없으면(뷰어) 조용히 무시 — 링크 복사 흐름은 방해하지 않는다.
         if (s.published) {
-          publishPageApi(pageId)
+          publishPageApi(pageId, buildCurrentLayoutSnapshot(pageId))
             .then((refreshed) => {
               if (!canceled) {
                 setStatus(refreshed);
@@ -86,8 +87,10 @@ export function PublishDialog({ pageId, onClose }: Props) {
   const runPublishToggle = () => {
     if (!pageId || working) return;
     setWorking(true);
-    const action = status?.published ? unpublishPageApi : publishPageApi;
-    action(pageId)
+    const promise = status?.published
+      ? unpublishPageApi(pageId)
+      : publishPageApi(pageId, buildCurrentLayoutSnapshot(pageId));
+    promise
       .then((next) => {
         setStatus(next);
         setPublished(pageId, next.published);
@@ -101,6 +104,21 @@ export function PublishDialog({ pageId, onClose }: Props) {
           status?.published ? "게시 해제에 실패했습니다." : "게시에 실패했습니다.",
           { kind: "error" },
         ),
+      )
+      .finally(() => setWorking(false));
+  };
+
+  const refreshSnapshot = () => {
+    if (!pageId || working || !status?.published) return;
+    setWorking(true);
+    publishPageApi(pageId, buildCurrentLayoutSnapshot(pageId))
+      .then((next) => {
+        setStatus(next);
+        setPublished(pageId, next.published);
+        showToast("공개 스냅샷이 업데이트되었습니다.", { kind: "success" });
+      })
+      .catch(() =>
+        showToast("공개 스냅샷 업데이트에 실패했습니다.", { kind: "error" }),
       )
       .finally(() => setWorking(false));
   };
@@ -152,8 +170,9 @@ export function PublishDialog({ pageId, onClose }: Props) {
               </button>
             </div>
             <p className="text-xs text-zinc-400">
-              게시를 해제하면 링크가 즉시 무효화되며, 다시 게시하면 새 링크가
-              발급됩니다.
+              본문을 수정한 뒤 스냅샷을 업데이트하면 공개 링크는 그대로 유지되고,
+              방문자는 최신 공개 스냅샷을 보게 됩니다. 게시를 해제하면 링크가 즉시
+              무효화되며, 다시 게시하면 새 링크가 발급됩니다.
             </p>
             {isNonLiveWebHost ? (
               <p className="text-xs text-amber-600 dark:text-amber-400">
@@ -193,6 +212,17 @@ export function PublishDialog({ pageId, onClose }: Props) {
         >
           닫기
         </button>
+        {status?.published ? (
+          <button
+            type="button"
+            disabled={loading || working}
+            onClick={refreshSnapshot}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {working ? <Loader2 size={14} className="animate-spin" /> : null}
+            스냅샷 업데이트
+          </button>
+        ) : null}
         <button
           type="button"
           disabled={loading || working}

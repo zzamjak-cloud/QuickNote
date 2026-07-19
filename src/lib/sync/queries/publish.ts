@@ -11,8 +11,8 @@ export const GET_PAGE_PUBLISH_STATUS = `
 `;
 
 export const PUBLISH_PAGE = `
-  mutation PublishPage($pageId: ID!) {
-    publishPage(pageId: $pageId) { ${PUBLISH_STATUS_FIELDS} }
+  mutation PublishPage($pageId: ID!, $layout: AWSJSON) {
+    publishPage(pageId: $pageId, layout: $layout) { ${PUBLISH_STATUS_FIELDS} }
   }
 `;
 

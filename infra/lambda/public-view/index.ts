@@ -23,6 +23,11 @@ import {
   hasSharedBlockNodes,
   hydratePublicSharedBlocks,
 } from "./sharedBlocks";
+import {
+  publicSnapshotPageKey,
+  type PublicPageSnapshot,
+  type PublicSiteSnapshot,
+} from "./snapshot";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const s3 = new S3Client({});
@@ -38,7 +43,7 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const ID_RE = /^[A-Za-z0-9:._-]{1,128}$/;
 const ASSET_PRESIGN_TTL_SECONDS = 300;
 // 짧은 CDN/브라우저 캐시 — 게시 해제 반영이 최대 이 시간만큼 지연되는 트레이드오프.
-const CACHE_CONTROL = "public, max-age=60";
+const CACHE_CONTROL = "public, max-age=30, s-maxage=300, stale-while-revalidate=300";
 // 워크스페이스 트리 계산 결과 컨테이너 내 메모(요청 폭주 완충).
 const TREE_MEMO_TTL_MS = 30_000;
 const PUBLISH_LINK_QUERY_CONCURRENCY = 8;
@@ -65,6 +70,16 @@ type PublishRecord = {
   fullWidthDefault?: boolean;
   /** 게시 시점 페이지별 전체너비 오버라이드 스냅샷(pageId → bool). */
   fullWidthById?: Record<string, boolean>;
+  /** 공개 스냅샷 version. token은 유지하고 version만 교체한다. */
+  snapshotVersion?: string | null;
+  /** site.json S3 key. */
+  snapshotSiteKey?: string | null;
+  /** pages/{pageId}.json S3 key prefix. */
+  snapshotPageKeyPrefix?: string | null;
+  /** 스냅샷 생성 시각. */
+  snapshotCreatedAt?: string | null;
+  /** 스냅샷에 포함한 페이지 수. */
+  snapshotPageCount?: number | null;
 };
 
 type PageRow = {
@@ -100,8 +115,48 @@ function json(statusCode: number, body: unknown): FnUrlResult {
   return { statusCode, headers: baseHeaders(cache), body: JSON.stringify(body) };
 }
 
+function snapshotJson(body: unknown): FnUrlResult {
+  return { statusCode: 200, headers: baseHeaders(CACHE_CONTROL), body: JSON.stringify(body) };
+}
+
 function notFound(): FnUrlResult {
   return json(404, { error: "not_found" });
+}
+
+async function bodyToString(body: unknown): Promise<string | null> {
+  if (!body) return null;
+  const maybe = body as { transformToString?: () => Promise<string> };
+  if (typeof maybe.transformToString === "function") {
+    return await maybe.transformToString();
+  }
+  return null;
+}
+
+async function readSnapshotJson<T>(key: string | null | undefined): Promise<T | null> {
+  if (!key) return null;
+  try {
+    const result = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    const text = await bodyToString(result.Body);
+    if (!text) return null;
+    return JSON.parse(text) as T;
+  } catch (error) {
+    console.warn("[public-view] 공개 스냅샷 읽기 실패, live fallback 사용", {
+      key,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function getSnapshotPageKey(
+  publish: PublishRecord,
+  pageId: string,
+): string | null {
+  if (!publish.snapshotVersion) return null;
+  if (publish.snapshotPageKeyPrefix) {
+    return `${publish.snapshotPageKeyPrefix}${pageId}.json`;
+  }
+  return publicSnapshotPageKey(publish.token, publish.snapshotVersion, pageId);
 }
 
 /** AWSJSON 이중 인코딩 가드 — 문자열이면 최대 2회 파싱한다. */
@@ -259,6 +314,8 @@ async function getPublishedTree(publish: PublishRecord): Promise<{
 }
 
 async function handleSite(publish: PublishRecord): Promise<FnUrlResult> {
+  const snapshot = await readSnapshotJson<PublicSiteSnapshot>(publish.snapshotSiteKey);
+  if (snapshot) return snapshotJson(snapshot);
   const { metas, ids } = await getPublishedTree(publish);
   const pages = Array.from(ids)
     .map((id) => metas.get(id))
@@ -270,6 +327,10 @@ async function handlePage(
   publish: PublishRecord,
   pageId: string,
 ): Promise<FnUrlResult> {
+  const snapshot = await readSnapshotJson<PublicPageSnapshot>(
+    getSnapshotPageKey(publish, pageId),
+  );
+  if (snapshot) return snapshotJson(snapshot);
   if (pageId !== publish.pageId) {
     const { ids } = await getPublishedTree(publish);
     if (!ids.has(pageId)) return notFound();
