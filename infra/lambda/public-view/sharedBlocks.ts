@@ -8,7 +8,13 @@ import {
 const MAX_DEPTH = 200;
 const MAX_SHARED_BLOCKS_PER_PAGE = 200;
 const MAX_ITEMS = 50;
+const MAX_EXTERNAL_PUBLISH_LOOKUPS = 100;
+const DEFAULT_GALLERY_HEIGHT_PX = 320;
+const MIN_GALLERY_HEIGHT_PX = 180;
+const MAX_GALLERY_HEIGHT_PX = 800;
 const SHARED_BLOCK_ID_RE = /^[A-Za-z0-9:._-]{1,128}$/;
+const PAGE_ID_RE = /^[A-Za-z0-9:._-]{1,128}$/;
+const PUBLIC_ROOT_HREF_RE = /^\/p\/[A-Za-z0-9_-]{16,64}$/;
 
 type SharedBlockRow = {
   id?: string;
@@ -39,6 +45,7 @@ function text(value: unknown, max: number): string {
 function sanitizeDropdownData(
   raw: unknown,
   publishedPageIds: ReadonlySet<string>,
+  independentlyPublishedHrefs: ReadonlyMap<string, string>,
 ): Record<string, unknown> {
   const value = objectValue(raw);
   const rows = Array.isArray(value?.items) ? value.items.slice(0, MAX_ITEMS) : [];
@@ -46,15 +53,75 @@ function sanitizeDropdownData(
     const item = objectValue(row);
     if (!item) return [];
     const pageId = text(item.pageId, 128);
-    // 트리 밖 항목은 label·menu item id 도 함께 제거해 비공개 페이지의 존재를 숨긴다.
-    if (!pageId || !publishedPageIds.has(pageId)) return [];
+    if (!pageId) return [];
+    const rawHref = independentlyPublishedHrefs.get(pageId);
+    const href = rawHref && PUBLIC_ROOT_HREF_RE.test(rawHref) ? rawHref : null;
+    // 현재 게시 트리 밖 항목은 같은 워크스페이스에서 별도 게시 중인 페이지로
+    // 서버가 검증한 경우에만 공개한다. 저장 data의 href는 절대 신뢰하지 않는다.
+    if (!publishedPageIds.has(pageId) && !href) return [];
     return [{
       id: text(item.id, 200) || `menu-${index}`,
       label: text(item.label, 100),
       pageId,
+      ...(href ? { href } : {}),
     }];
   });
   return { kind: "dropdown-menu", items };
+}
+
+function collectDropdownTargetPageIds(
+  raw: unknown,
+  publishedPageIds: ReadonlySet<string>,
+  out: Set<string>,
+): void {
+  const value = objectValue(raw);
+  const rows = Array.isArray(value?.items) ? value.items.slice(0, MAX_ITEMS) : [];
+  for (const row of rows) {
+    if (out.size >= MAX_EXTERNAL_PUBLISH_LOOKUPS) return;
+    const item = objectValue(row);
+    const pageId = text(item?.pageId, 128);
+    if (PAGE_ID_RE.test(pageId) && !publishedPageIds.has(pageId)) out.add(pageId);
+  }
+}
+
+function collectIndependentDropdownTargets(args: {
+  pageDoc: unknown;
+  rows: ReadonlyMap<string, SharedBlockRow>;
+  publishedPageIds: ReadonlySet<string>;
+}): string[] {
+  const targets = new Set<string>();
+  for (const row of args.rows.values()) {
+    if (row.kind !== "dropdown-menu") continue;
+    collectDropdownTargetPageIds(row.data, args.publishedPageIds, targets);
+    if (targets.size >= MAX_EXTERNAL_PUBLISH_LOOKUPS) return Array.from(targets);
+  }
+
+  // sharedBlockId가 없는 레거시 인라인 블록만 attrs.data를 신뢰한다.
+  // id가 있는 블록은 서버 SharedBlock 레코드만 권위 데이터로 사용한다.
+  const walk = (node: unknown, depth: number): void => {
+    if (
+      targets.size >= MAX_EXTERNAL_PUBLISH_LOOKUPS ||
+      !node ||
+      typeof node !== "object" ||
+      depth > MAX_DEPTH
+    ) return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child, depth + 1);
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    const attrs = objectValue(record.attrs);
+    if (
+      record.type === "dropdownMenuBlock" &&
+      attrs &&
+      !text(attrs.sharedBlockId, 128)
+    ) {
+      collectDropdownTargetPageIds(attrs.data, args.publishedPageIds, targets);
+    }
+    if (Array.isArray(record.content)) walk(record.content, depth + 1);
+  };
+  walk(args.pageDoc, 0);
+  return Array.from(targets);
 }
 
 function sanitizeGalleryData(raw: unknown): Record<string, unknown> {
@@ -75,7 +142,11 @@ function sanitizeGalleryData(raw: unknown): Record<string, unknown> {
   const intervalMs = Number.isFinite(intervalRaw)
     ? Math.min(15_000, Math.max(3_000, Math.round(intervalRaw)))
     : 5_000;
-  return { kind: "gallery", images, intervalMs };
+  const heightRaw = Number(value?.heightPx);
+  const heightPx = Number.isFinite(heightRaw)
+    ? Math.min(MAX_GALLERY_HEIGHT_PX, Math.max(MIN_GALLERY_HEIGHT_PX, Math.round(heightRaw)))
+    : DEFAULT_GALLERY_HEIGHT_PX;
+  return { kind: "gallery", images, intervalMs, heightPx };
 }
 
 function collectSharedBlockIds(doc: unknown): Set<string> {
@@ -169,6 +240,9 @@ export async function hydratePublicSharedBlocks(args: {
   workspaceId: string;
   publishedPageIds: ReadonlySet<string>;
   pageDoc: unknown;
+  resolvePublishedPageHrefs?: (
+    pageIds: readonly string[],
+  ) => Promise<ReadonlyMap<string, string>>;
 }): Promise<unknown> {
   const ids = collectSharedBlockIds(args.pageDoc);
   const rows = await loadSharedBlocks({
@@ -177,6 +251,20 @@ export async function hydratePublicSharedBlocks(args: {
     ids,
     workspaceId: args.workspaceId,
   });
+  const externalTargets = collectIndependentDropdownTargets({
+    pageDoc: args.pageDoc,
+    rows,
+    publishedPageIds: args.publishedPageIds,
+  });
+  let independentlyPublishedHrefs: ReadonlyMap<string, string> = new Map();
+  if (externalTargets.length > 0 && args.resolvePublishedPageHrefs) {
+    try {
+      independentlyPublishedHrefs = await args.resolvePublishedPageHrefs(externalTargets);
+    } catch {
+      // 독립 게시 상태 조회 실패는 공개 범위를 넓히지 않고 해당 항목만 숨긴다.
+      independentlyPublishedHrefs = new Map();
+    }
+  }
 
   const walk = (node: unknown, depth: number): unknown => {
     if (!node || typeof node !== "object") return node;
@@ -202,7 +290,11 @@ export async function hydratePublicSharedBlocks(args: {
           : null
         : attrs.data;
       const data = expectedKind === "dropdown-menu"
-        ? sanitizeDropdownData(source, args.publishedPageIds)
+        ? sanitizeDropdownData(
+            source,
+            args.publishedPageIds,
+            independentlyPublishedHrefs,
+          )
         : sanitizeGalleryData(source);
       next = {
         ...record,

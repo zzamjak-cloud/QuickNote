@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DEFAULT_GALLERY_HEIGHT_PX,
   DEFAULT_GALLERY_INTERVAL_MS,
+  MAX_GALLERY_HEIGHT_PX,
+  MIN_GALLERY_HEIGHT_PX,
   emptyDropdownMenu,
   normalizeSharedBlockAlign,
   parseDropdownMenuData,
@@ -51,6 +54,7 @@ describe("공유 블록 데이터", () => {
         },
       ],
       intervalMs: 5_000,
+      heightPx: 440,
     };
 
     expect(
@@ -65,17 +69,21 @@ describe("공유 블록 데이터", () => {
     expect(parseDropdownMenuData("{broken")).toEqual(emptyDropdownMenu());
   });
 
-  it("갤러리의 깨진 항목을 버리고 전환 간격을 허용 범위로 보정한다", () => {
+  it("갤러리의 깨진 항목을 버리고 전환 간격과 높이를 허용 범위로 보정한다", () => {
     const parsed = parseGalleryData({
       images: [
         { id: "a", src: "quicknote-image://asset-a", alt: "A" },
         { id: "broken", src: "" },
       ],
       intervalMs: 999_999,
+      heightPx: 999_999,
     });
     expect(parsed.images).toHaveLength(1);
     expect(parsed.intervalMs).toBe(15_000);
+    expect(parsed.heightPx).toBe(MAX_GALLERY_HEIGHT_PX);
+    expect(parseGalleryData({ heightPx: -100 }).heightPx).toBe(MIN_GALLERY_HEIGHT_PX);
     expect(parseGalleryData(null).intervalMs).toBe(DEFAULT_GALLERY_INTERVAL_MS);
+    expect(parseGalleryData(null).heightPx).toBe(DEFAULT_GALLERY_HEIGHT_PX);
   });
 });
 
@@ -148,7 +156,7 @@ describe("공유 블록 LWW 저장소", () => {
       id: "seeded",
       workspaceId: "workspace-1",
       kind: "gallery",
-      data: { kind: "gallery", images: [], intervalMs: 5_000 },
+      data: { kind: "gallery", images: [], intervalMs: 5_000, heightPx: 320 },
     });
     const key = sharedBlockRecordKey("workspace-1", "seeded");
     expect(useSharedBlockStore.getState().records[key]?.updatedAt).toBe(0);
@@ -160,6 +168,7 @@ describe("공유 블록 LWW 저장소", () => {
         kind: "gallery",
         images: [{ id: "server", src: "quicknote-image://server", alt: "" }],
         intervalMs: 5_000,
+        heightPx: 480,
       },
       updatedAt: 1,
       deletedAt: null,

@@ -28,7 +28,7 @@
   frame.allowFullscreen = true;
   frame.setAttribute(
     "allow",
-    "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    "accelerometer; autoplay; clipboard-write; compute-pressure; encrypted-media; gyroscope; picture-in-picture; web-share"
   );
   document.body.appendChild(frame);
 })();

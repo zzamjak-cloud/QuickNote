@@ -17,6 +17,10 @@ import { mergeAttributes } from "@tiptap/core";
 import { useLazyNodeViewActivation } from "./useLazyNodeViewActivation";
 import { isTauri } from "../auth/config";
 import { toDesktopYoutubeEmbedUrl } from "./desktopYoutubeEmbed";
+import {
+  YOUTUBE_IFRAME_ALLOW,
+  YOUTUBE_IFRAME_ALLOW_WITH_AUTOPLAY,
+} from "./youtubePermissionsPolicy";
 
 function embedInputFromAttrs(
   attrs: { src?: unknown; start?: unknown },
@@ -130,11 +134,7 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
           allowFullScreen={opts.allowFullscreen !== false}
           // COEP credentialless 환경에서 cross-origin iframe이 차단되지 않도록
           {...({ credentialless: "" } as object)}
-          allow={
-            opts.autoplay
-              ? "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              : "accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          }
+          allow={opts.autoplay ? YOUTUBE_IFRAME_ALLOW_WITH_AUTOPLAY : YOUTUBE_IFRAME_ALLOW}
           className="max-w-full rounded-lg border border-zinc-200 dark:border-zinc-700"
         />
       ) : !activation.active ? (

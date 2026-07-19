@@ -51,8 +51,11 @@ import { DialogBase } from "../../lib/ui-primitives/DialogBase";
 import type { MentionListItem } from "../../lib/comments/mentionItems";
 import type { SharedBlockAttrs } from "../../lib/tiptapExtensions/sharedBlocks";
 import {
+  MAX_GALLERY_HEIGHT_PX,
+  MIN_GALLERY_HEIGHT_PX,
   emptyDropdownMenu,
   emptyGallery,
+  normalizeGalleryHeightPx,
   normalizeSharedBlockAlign,
   parseDropdownMenuData,
   parseGalleryData,
@@ -394,6 +397,7 @@ function GalleryEditorDialog({
 }) {
   const [images, setImages] = useState(initial.images);
   const [intervalMs, setIntervalMs] = useState(initial.intervalMs);
+  const [heightPx, setHeightPx] = useState(() => normalizeGalleryHeightPx(initial.heightPx));
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -437,13 +441,13 @@ function GalleryEditorDialog({
   return (
     <ModalFrame
       title="갤러리 편집"
-      description="배너 순서와 전환 간격을 설정합니다. 복제된 모든 갤러리에 같은 내용이 반영됩니다."
+      description="배너 순서, 블록 높이와 전환 간격을 설정합니다. 복제된 모든 갤러리에 같은 내용이 반영됩니다."
       onClose={onClose}
       wide
       footer={
         <>
           <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">취소</button>
-          <button type="button" disabled={saving || uploading} onClick={() => void onSave({ kind: "gallery", images, intervalMs })} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40">{saving ? "저장 중…" : "변경사항 저장"}</button>
+          <button type="button" disabled={saving || uploading} onClick={() => void onSave({ kind: "gallery", images, intervalMs, heightPx })} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40">{saving ? "저장 중…" : "변경사항 저장"}</button>
         </>
       }
     >
@@ -456,15 +460,31 @@ function GalleryEditorDialog({
         >
           <Upload className="h-4 w-4" /> {uploading ? "업로드 중…" : "이미지 추가"}
         </button>
-        <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
-          전환 간격
-          <select value={intervalMs} onChange={(event) => setIntervalMs(Number(event.target.value))} className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs outline-none dark:border-zinc-600 dark:bg-zinc-950">
-            <option value={3000}>3초</option>
-            <option value={5000}>5초</option>
-            <option value={8000}>8초</option>
-            <option value={10000}>10초</option>
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+            블록 높이
+            <input
+              type="range"
+              aria-label="갤러리 높이"
+              min={MIN_GALLERY_HEIGHT_PX}
+              max={MAX_GALLERY_HEIGHT_PX}
+              step={20}
+              value={heightPx}
+              onChange={(event) => setHeightPx(Number(event.target.value))}
+              className="w-28 accent-violet-600"
+            />
+            <output className="w-12 text-right tabular-nums">{heightPx}px</output>
+          </label>
+          <label className="flex items-center gap-2 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+            전환 간격
+            <select value={intervalMs} onChange={(event) => setIntervalMs(Number(event.target.value))} className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs outline-none dark:border-zinc-600 dark:bg-zinc-950">
+              <option value={3000}>3초</option>
+              <option value={5000}>5초</option>
+              <option value={8000}>8초</option>
+              <option value={10000}>10초</option>
+            </select>
+          </label>
+        </div>
         <input ref={inputRef} type="file" multiple accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; if (files.length) void uploadFiles(files); }} />
       </div>
       {error ? <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p> : null}
@@ -637,7 +657,7 @@ function DropdownMenuView({
               const isActive = item.active || (!publicMode && item.pageId === activePageId);
               const className = "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-zinc-700 hover:bg-violet-50 hover:text-violet-800 dark:text-zinc-200 dark:hover:bg-violet-950/40 dark:hover:text-violet-200";
               const content = <><span className="min-w-0 flex-1 truncate">{item.label || "이름 없는 메뉴"}</span>{isActive ? <Check className="h-4 w-4 shrink-0 text-violet-600" /> : null}</>;
-              return item.href ? (
+              return publicMode && item.href ? (
                 <a key={item.id} role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} href={item.href} onClick={popover.close} className={className}>{content}</a>
               ) : (
                 <button key={item.id} type="button" role="option" aria-selected={isActive} aria-current={isActive ? "page" : undefined} disabled={!item.pageId} onClick={() => { if (item.pageId) openPageInCurrentTab(item.pageId); popover.close(); }} className={`${className} min-h-11 disabled:cursor-not-allowed disabled:opacity-40`}>{content}</button>
@@ -668,6 +688,7 @@ function GalleryView({
   const [documentHidden, setDocumentHidden] = useState(document.visibilityState === "hidden");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const images = data.images;
+  const heightPx = normalizeGalleryHeightPx(data.heightPx);
   const visualIndex = images.length ? index % images.length : 0;
   const trackImages = images.length > 1 ? [...images, images[0]!] : images;
   const autoPaused = hovered || manuallyPaused || documentHidden || previewIndex != null;
@@ -718,24 +739,24 @@ function GalleryView({
   if (!editable && images.length === 0) return null;
 
   return (
-    <div role="region" aria-label="롤링 갤러리" aria-roledescription="carousel" className={`group relative my-3 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 ${selected ? "ring-2 ring-violet-400 ring-offset-2 dark:ring-offset-zinc-950" : ""}`} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+    <div role="region" aria-label="롤링 갤러리" aria-roledescription="carousel" className={`group relative my-3 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 ${selected ? "ring-2 ring-violet-400 ring-offset-2 dark:ring-offset-zinc-950" : ""}`} style={{ height: heightPx }} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       {editable ? (
         <button type="button" onClick={onEdit} aria-label="갤러리 편집" title="갤러리 편집" className="absolute right-3 top-3 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-white/70 bg-black/45 text-white shadow-lg backdrop-blur transition-colors hover:bg-black/70"><Pencil className="h-4 w-4" /></button>
       ) : null}
       {images.length === 0 ? (
-        <button type="button" disabled={!editable} onClick={onEdit} className="flex aspect-[16/6] w-full flex-col items-center justify-center gap-2 text-zinc-400 disabled:cursor-default">
+        <button type="button" disabled={!editable} onClick={onEdit} className="flex h-full w-full flex-col items-center justify-center gap-2 text-zinc-400 disabled:cursor-default">
           <Images className="h-9 w-9" />
           <span className="text-sm">{editable ? "편집 버튼에서 배너 이미지를 추가하세요." : "등록된 이미지가 없습니다."}</span>
         </button>
       ) : (
         <>
-          <div aria-live="off" onTransitionEnd={resetLoopIfNeeded} className={`flex ease-out motion-reduce:transition-none ${transitionEnabled ? "transition-transform duration-500" : "transition-none"}`} style={{ transform: `translateX(-${index * 100}%)` }}>
+          <div aria-live="off" onTransitionEnd={resetLoopIfNeeded} className={`flex h-full ease-out motion-reduce:transition-none ${transitionEnabled ? "transition-transform duration-500" : "transition-none"}`} style={{ transform: `translateX(-${index * 100}%)` }}>
             {trackImages.map((image, imageIndex) => {
               const sourceIndex = imageIndex % images.length;
               const isVisible = imageIndex === index;
               return (
-              <button key={`${image.id}-${imageIndex}`} type="button" tabIndex={isVisible ? 0 : -1} aria-hidden={!isVisible} onClick={() => setPreviewIndex(sourceIndex)} aria-label={`${image.alt || `갤러리 이미지 ${sourceIndex + 1}`} 미리보기`} className="aspect-[16/6] w-full shrink-0 overflow-hidden bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400 dark:bg-zinc-800">
-                <ResolvedImage image={image} className="h-full w-full cursor-zoom-in object-cover" />
+              <button key={`${image.id}-${imageIndex}`} type="button" tabIndex={isVisible ? 0 : -1} aria-hidden={!isVisible} onClick={() => setPreviewIndex(sourceIndex)} aria-label={`${image.alt || `갤러리 이미지 ${sourceIndex + 1}`} 미리보기`} className="h-full w-full shrink-0 overflow-hidden bg-zinc-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-400 dark:bg-zinc-800">
+                <ResolvedImage image={image} className="h-full w-full cursor-zoom-in object-contain" />
               </button>
               );
             })}

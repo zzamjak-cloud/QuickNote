@@ -41,6 +41,7 @@ const ASSET_PRESIGN_TTL_SECONDS = 300;
 const CACHE_CONTROL = "public, max-age=60";
 // 워크스페이스 트리 계산 결과 컨테이너 내 메모(요청 폭주 완충).
 const TREE_MEMO_TTL_MS = 30_000;
+const PUBLISH_LINK_QUERY_CONCURRENCY = 8;
 
 type FnUrlEvent = {
   requestContext?: { http?: { method?: string } };
@@ -123,6 +124,54 @@ async function getActivePublishRecord(token: string): Promise<PublishRecord | nu
   const rec = r.Item as PublishRecord | undefined;
   if (!rec || rec.revokedAt) return null;
   return rec;
+}
+
+/**
+ * 현재 트리 밖 드롭다운 대상 중 같은 워크스페이스에서 별도 게시 중인 루트의 href를 찾는다.
+ * 대상 페이지의 존재·삭제·DB 행 여부는 이미 workspace 메타 쿼리의 공개 가능 집합으로 검증한다.
+ */
+async function resolvePublishedRootHrefs(
+  pageIds: readonly string[],
+  workspaceId: string,
+  publishablePageIds: ReadonlySet<string>,
+): Promise<ReadonlyMap<string, string>> {
+  const ids = Array.from(new Set(pageIds)).filter(
+    (pageId) => ID_RE.test(pageId) && publishablePageIds.has(pageId),
+  );
+  const hrefs = new Map<string, string>();
+  for (let offset = 0; offset < ids.length; offset += PUBLISH_LINK_QUERY_CONCURRENCY) {
+    const chunk = ids.slice(offset, offset + PUBLISH_LINK_QUERY_CONCURRENCY);
+    const resolved = await Promise.all(chunk.map(async (pageId) => {
+      try {
+        const result = await ddb.send(
+          new QueryCommand({
+            TableName: PUBLISHED_TABLE,
+            IndexName: "byPageId",
+            KeyConditionExpression: "pageId = :p",
+            ExpressionAttributeValues: { ":p": pageId },
+            ProjectionExpression: "token, pageId, workspaceId, revokedAt, publishedAt",
+            ScanIndexForward: false,
+          }),
+        );
+        const record = (result.Items ?? [])
+          .map((item) => item as PublishRecord)
+          .find((item) =>
+            item.pageId === pageId &&
+            item.workspaceId === workspaceId &&
+            !item.revokedAt &&
+            TOKEN_RE.test(item.token)
+          );
+        return record ? ([pageId, `/p/${record.token}`] as const) : null;
+      } catch {
+        // 한 대상의 상태 조회 실패가 공개 페이지 전체를 깨지 않도록 fail-closed로 숨긴다.
+        return null;
+      }
+    }));
+    for (const entry of resolved) {
+      if (entry) hrefs.set(entry[0], entry[1]);
+    }
+  }
+  return hrefs;
 }
 
 /** 본문 포함 전체 행(op=page/op=asset 용). */
@@ -230,13 +279,20 @@ async function handlePage(
     publish.fullWidth === true;
   let pageDoc = parseDocField(page.doc);
   if (hasSharedBlockNodes(pageDoc)) {
-    const { ids } = await getPublishedTree(publish);
+    const { ids, metas } = await getPublishedTree(publish);
+    const publishablePageIds = new Set(metas.keys());
     pageDoc = await hydratePublicSharedBlocks({
       docClient: ddb,
       tableName: SHARED_BLOCKS_TABLE,
       workspaceId: publish.workspaceId,
       publishedPageIds: ids,
       pageDoc,
+      resolvePublishedPageHrefs: (pageIds) =>
+        resolvePublishedRootHrefs(
+          pageIds,
+          publish.workspaceId,
+          publishablePageIds,
+        ),
     });
   }
   return json(200, {

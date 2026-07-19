@@ -53,6 +53,12 @@ function publicPageHref(token: string, pageId: string): string {
   return `/p/${token}?page=${pageId}`;
 }
 
+function independentlyPublishedPageHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const href = value.trim();
+  return /^\/p\/[A-Za-z0-9_-]{16,64}$/.test(href) ? href : null;
+}
+
 function transformSharedBlockNode(
   node: JSONContent,
   ctx: PublicDocContext,
@@ -61,12 +67,18 @@ function transformSharedBlockNode(
   if (node.type === "dropdownMenuBlock") {
     const data = parseDropdownMenuData(attrs.data);
     const items = data.items.flatMap((item) => {
-      if (!item.pageId || !ctx.publishedPageIds.has(item.pageId)) return [];
-      return [{
-        ...item,
-        href: publicPageHref(ctx.token, item.pageId),
-        active: item.pageId === ctx.pageId,
-      }];
+      if (!item.pageId) return [];
+      if (ctx.publishedPageIds.has(item.pageId)) {
+        return [{
+          ...item,
+          href: publicPageHref(ctx.token, item.pageId),
+          active: item.pageId === ctx.pageId,
+        }];
+      }
+      // 트리 밖 항목은 public-view Lambda가 active publish token을 확인해
+      // 파생한 루트 href만 허용한다. 저장 data의 임의 외부 URL은 제거한다.
+      const href = independentlyPublishedPageHref(item.href);
+      return href ? [{ ...item, href, active: false }] : [];
     });
     return {
       ...node,

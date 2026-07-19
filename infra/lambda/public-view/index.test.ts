@@ -30,6 +30,9 @@ import { handler } from "./index";
 const TOKEN = "abcdefghijklmnop1234";
 const SHARED_TOKEN = "sharedtoken1234567890";
 const GALLERY_TOKEN = "gallerytoken123456789";
+const GALLERY_HEIGHT_TOKEN = "galleryheight123456789";
+const LINKED_MENU_TOKEN = "linkedmenu1234567890";
+const TARGET_TOKEN = "targetpage1234567890";
 
 function getEvent(qs: Record<string, string>) {
   return {
@@ -67,6 +70,8 @@ const workspaceMetas = {
     { id: "root-1", title: "루트", parentId: null, order: 0 },
     { id: "child-1", title: "자식", parentId: "root-1", order: 0 },
     { id: "other-1", title: "타 트리", parentId: null, order: 1 },
+    { id: "revoked-root", title: "게시 해제", parentId: null, order: 2 },
+    { id: "foreign-root", title: "타 워크스페이스", parentId: null, order: 3 },
     { id: "deleted-1", title: "삭제됨", parentId: "root-1", order: 1, deletedAt: "2026-07-01T00:00:00Z" },
     { id: "dbrow-1", title: "DB행", parentId: "root-1", order: 2, databaseId: "db-1" },
   ],
@@ -179,7 +184,8 @@ describe("public-view handler", () => {
             deletedAt: null,
           }],
         },
-      });
+      })
+      .mockResolvedValueOnce({ Items: [] }); // other-1은 별도 게시되지 않음
     const result = await handler(getEvent({
       op: "page",
       token: SHARED_TOKEN,
@@ -199,6 +205,158 @@ describe("public-view handler", () => {
     expect(result.body).not.toContain("비공개 이름");
     expect(result.body).not.toContain("other-1");
     expect(result.body).not.toContain("오래된 메뉴");
+  });
+
+  it("op=page — 공유 갤러리의 사용자 높이를 공개 응답에도 유지한다", async () => {
+    const pageWithGallery = {
+      ...rootPage,
+      doc: JSON.stringify({
+        type: "doc",
+        content: [{
+          type: "galleryBlock",
+          attrs: {
+            sharedBlockId: "shared-gallery-height",
+            data: JSON.stringify({ kind: "gallery", images: [], intervalMs: 5_000, heightPx: 200 }),
+          },
+        }],
+      }),
+    };
+    sendMock
+      .mockResolvedValueOnce({ Item: { ...publishRecord, token: GALLERY_HEIGHT_TOKEN } })
+      .mockResolvedValueOnce({ Item: pageWithGallery })
+      .mockResolvedValueOnce({ Item: pageWithGallery })
+      .mockResolvedValueOnce(workspaceMetas)
+      .mockResolvedValueOnce({
+        Responses: {
+          SB: [{
+            id: "shared-gallery-height",
+            workspaceId: "ws-1",
+            kind: "gallery",
+            data: JSON.stringify({
+              kind: "gallery",
+              images: [{ id: "image-1", src: "quicknote-image://gallery-height-asset", alt: "상품" }],
+              intervalMs: 5_000,
+              heightPx: 640,
+            }),
+            deletedAt: null,
+          }],
+        },
+      });
+
+    const result = await handler(getEvent({
+      op: "page",
+      token: GALLERY_HEIGHT_TOKEN,
+      pageId: "root-1",
+    }));
+
+    expect(result.statusCode).toBe(200);
+    const body = JSON.parse(result.body) as {
+      doc: { content: Array<{ attrs: { data: string; publicMode: boolean } }> };
+    };
+    const data = JSON.parse(body.doc.content[0]!.attrs.data) as {
+      heightPx: number;
+      images: Array<{ src: string }>;
+    };
+    expect(data.heightPx).toBe(640);
+    expect(data.images[0]?.src).toBe("quicknote-image://gallery-height-asset");
+    expect(body.doc.content[0]!.attrs.publicMode).toBe(true);
+  });
+
+  it("op=page — 같은 워크스페이스의 독립 게시 루트는 별도 token href로 공개한다", async () => {
+    const pageWithMenu = {
+      ...rootPage,
+      doc: JSON.stringify({
+        type: "doc",
+        content: [{
+          type: "dropdownMenuBlock",
+          attrs: {
+            sharedBlockId: "shared-menu-2",
+            data: JSON.stringify({ kind: "dropdown-menu", items: [] }),
+          },
+        }],
+      }),
+    };
+    sendMock
+      .mockResolvedValueOnce({ Item: { ...publishRecord, token: LINKED_MENU_TOKEN } })
+      .mockResolvedValueOnce({ Item: pageWithMenu })
+      .mockResolvedValueOnce({ Item: pageWithMenu })
+      .mockResolvedValueOnce(workspaceMetas)
+      .mockResolvedValueOnce({
+        Responses: {
+          SB: [{
+            id: "shared-menu-2",
+            workspaceId: "ws-1",
+            kind: "dropdown-menu",
+            data: JSON.stringify({
+              kind: "dropdown-menu",
+              items: [
+                { id: "child", label: "자식", pageId: "child-1" },
+                { id: "other", label: "독립 게시", pageId: "other-1", href: "https://evil.example" },
+                { id: "revoked", label: "게시 해제", pageId: "revoked-root" },
+                { id: "foreign", label: "타 워크스페이스", pageId: "foreign-root" },
+                { id: "deleted", label: "삭제됨", pageId: "deleted-1" },
+                { id: "dbrow", label: "DB 행", pageId: "dbrow-1" },
+                { id: "private", label: "미게시", pageId: "private-root" },
+              ],
+            }),
+            deletedAt: null,
+          }],
+        },
+      })
+      .mockResolvedValueOnce({
+        Items: [{
+          token: TARGET_TOKEN,
+          pageId: "other-1",
+          workspaceId: "ws-1",
+          publishedAt: "2026-07-02T00:00:00Z",
+        }],
+      })
+      .mockResolvedValueOnce({
+        Items: [{
+          token: "revokedpage12345678",
+          pageId: "revoked-root",
+          workspaceId: "ws-1",
+          publishedAt: "2026-07-02T00:00:00Z",
+          revokedAt: "2026-07-03T00:00:00Z",
+        }],
+      })
+      .mockResolvedValueOnce({
+        Items: [{
+          token: "foreignpage12345678",
+          pageId: "foreign-root",
+          workspaceId: "ws-2",
+          publishedAt: "2026-07-02T00:00:00Z",
+        }],
+      });
+
+    const result = await handler(getEvent({
+      op: "page",
+      token: LINKED_MENU_TOKEN,
+      pageId: "root-1",
+    }));
+
+    expect(result.statusCode).toBe(200);
+    const body = JSON.parse(result.body) as {
+      doc: { content: Array<{ attrs: { data: string } }> };
+    };
+    const data = JSON.parse(body.doc.content[0]!.attrs.data) as {
+      items: Array<{ id: string; label: string; pageId: string; href?: string }>;
+    };
+    expect(data.items).toEqual([
+      { id: "child", label: "자식", pageId: "child-1" },
+      {
+        id: "other",
+        label: "독립 게시",
+        pageId: "other-1",
+        href: `/p/${TARGET_TOKEN}`,
+      },
+    ]);
+    expect(result.body).not.toContain("https://evil.example");
+    expect(result.body).not.toContain("게시 해제");
+    expect(result.body).not.toContain("타 워크스페이스");
+    expect(result.body).not.toContain("삭제됨");
+    expect(result.body).not.toContain("DB 행");
+    expect(result.body).not.toContain("미게시");
   });
 
   it("op=page — 201-depth 상한 밖 공유 메뉴의 raw label/pageId를 fail-closed로 제거", async () => {

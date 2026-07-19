@@ -34,6 +34,42 @@ describe("publicLinks", () => {
     ).toBeNull();
   });
 
+  it("별도 token의 공개 루트 링크는 같은 탭 이동으로 해석한다", () => {
+    expect(
+      resolvePublicViewerLinkAction(
+        "/p/othertoken1234567890",
+        published,
+        { currentOrigin: "https://quick-note-khaki.vercel.app" },
+      ),
+    ).toEqual({
+      kind: "navigatePublic",
+      href: "/p/othertoken1234567890",
+    });
+  });
+
+  it("다른 origin의 공개 경로 모양 URL은 일반 외부 링크로 유지한다", () => {
+    expect(
+      resolvePublicViewerLinkAction(
+        "https://example.com/p/othertoken1234567890",
+        published,
+        { currentOrigin: "https://quick-note-khaki.vercel.app" },
+      ),
+    ).toEqual({
+      kind: "open",
+      href: "https://example.com/p/othertoken1234567890",
+    });
+  });
+
+  it("형식이 잘못된 상대 공개 경로는 이동하지 않는다", () => {
+    expect(
+      resolvePublicViewerLinkAction(
+        "/p/short",
+        published,
+        { currentOrigin: "https://quick-note-khaki.vercel.app" },
+      ),
+    ).toBeNull();
+  });
+
   it("외부 웹 링크는 새 탭 열기 대상으로 정규화한다", () => {
     expect(resolvePublicViewerLinkAction("example.com/path", published)).toEqual({
       kind: "open",

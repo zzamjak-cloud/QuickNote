@@ -30,6 +30,8 @@
 
 - 새 블록 삽입 직후 편집 팝업을 한 번 자동으로 연다.
 - PNG/JPEG/WebP 다중 추가, 대체 텍스트, 삭제, 위/아래 순서 변경, 3/5/8/10초 전환 간격을 지원한다.
+- 편집 팝업에서 블록 높이를 180~800px 범위(20px 단위)로 설정한다. 레거시 데이터는 기본 320px로 복원하며 높이도 이미지·순서와 같은 공유 데이터로 저장해 모든 복제본에 동기화한다.
+- 롤링 이미지는 설정 높이 안에서 `object-contain`으로 표시해 원본 비율과 전체 영역을 보존한다. 남는 영역은 갤러리 배경색으로 채운다.
 - 배너는 오른쪽의 다음 이미지가 들어오며 현재 이미지가 왼쪽으로 나가는 슬라이드 방식이다.
 - 이미지가 한 장이면 자동 전환과 인디케이터를 만들지 않는다.
 - hover, 수동 일시정지, 문서 탭 비활성, 이미지 미리보기 중에는 자동 전환을 멈춘다. 미리보기를 닫으면 기존 수동 일시정지 상태가 아닌 경우 재개한다.
@@ -40,10 +42,12 @@
 ## 공개 페이지
 
 - public-view Lambda가 페이지 doc의 `sharedBlockId`를 서버 최신 레코드로 hydrate한다. 다른 복제본의 오래된 인라인 스냅샷을 그대로 공개하지 않는다.
-- 드롭다운은 현재 게시 루트의 자손 집합에 포함된 `pageId`만 남긴다. 트리 밖 메뉴 이름과 id는 응답하지 않는다.
+- 드롭다운은 현재 게시 루트의 자손 집합에 포함된 항목과, 같은 워크스페이스에서 대상 페이지 자체가 별도 게시 중인 항목만 남긴다.
+- 현재 트리 항목은 `/p/<현재 token>?page=<id>`로 SPA 이동한다. 독립 게시 항목은 public-view Lambda가 `published-pages.byPageId`의 active token과 공개 가능한 페이지 메타를 검증해 만든 `/p/<대상 token>`으로 같은 탭 전체 이동한다.
+- 미게시·게시 해제·삭제·DB 행·타 워크스페이스 항목은 메뉴 이름과 id까지 응답하지 않는다. SharedBlock 저장 data에 들어 있는 `href`는 신뢰하지 않고 서버 파생 링크만 허용한다.
 - 문서 순회 깊이 상한을 넘은 서브트리는 원본 attrs를 반환하지 않고 제거한다. 깊은 stale 메뉴의 비공개 label/pageId도 Function URL 원문에 남지 않는다.
-- `transformPublicDoc`은 드롭다운 대상에 `/p/<token>?page=<id>` 링크를 만들고 `publicMode`를 켠다.
-- 갤러리 `quicknote-image://` ref는 `op=asset` URL로 변환한다. public asset 허용 목록도 hydrate된 갤러리 payload를 검사해야 한다.
+- `transformPublicDoc`은 서버 검증 링크만 보존하고 `publicMode`를 켠다. 편집 화면은 `href` 대신 기존 `pageId` 기반 QuickNote 내부 이동을 계속 사용한다.
+- 갤러리 `quicknote-image://` ref는 `op=asset` URL로 변환하고 서버에서 정규화한 사용자 높이를 유지한다. public asset 허용 목록도 hydrate된 갤러리 payload를 검사해야 한다.
 - 공유 갤러리 자산은 `sharedGallery` 합성 AssetUsage를 SharedBlock 버전과 함께 유지한다. 한 복제본 페이지가 삭제되어도 남은 복제본의 최신 공유 자산 권한이 사라지지 않는다.
 - 자산 관리의 사용 위치에서는 `sharedGallery` 합성 사용처를 `공유 갤러리`로 표시하고, 합성 pageId를 실제 페이지처럼 열지 않는다.
 - 공개 모드에서는 편집 버튼과 인증 API/store fetch를 사용하지 않는다.
@@ -59,12 +63,15 @@
 - `src/lib/tiptapExtensions/sharedBlocks.tsx`
 - `src/components/sharedBlocks/SharedBlockView.tsx`
 - `src/lib/publicView/transformPublicDoc.ts`
+- `src/lib/publicView/publicLinks.ts`
+- `src/components/public/PublicPageViewer.tsx`
 
 ### 서버
 
 - `infra/lib/sync/schema.graphql`
 - `infra/lambda/v5-resolvers/handlers/sharedBlock.ts`
 - `infra/lambda/public-view/index.ts`
+- `infra/lambda/public-view/sharedBlocks.ts`
 - `infra/lambda/public-view/docAssets.ts`
 - `infra/lib/sync-stack.ts`
 
@@ -72,8 +79,9 @@
 
 1. 같은 블록을 두 페이지에 복사하고 한쪽 저장 직후 다른 쪽이 같은 순서·내용으로 갱신되는지 확인.
 2. 새로고침 후 서버 최신본이 복원되는지 확인.
-3. 공개 드롭다운에서 게시 트리 밖 항목이 보이지 않고, 트리 안 항목이 같은 공개 뷰어에서 이동하는지 확인.
-4. 공개 갤러리 이미지가 302 presign 되고, 미리보기 중 자동 전환이 멈추는지 확인.
-5. 375px 화면, 키보드만 사용, reduced motion 설정에서 팝업·롤링·미리보기를 확인.
-6. 동시 저장에서 서버 LWW 승자가 모든 마운트 복제본에 반영되고, 서버 실패 시 편집 팝업이 열린 채 오류를 표시하는지 확인.
-7. 같은 `sharedBlockId`를 가진 서로 다른 워크스페이스 캐시가 분리되는지 확인.
+3. 공개 드롭다운에서 트리 안 항목은 현재 token SPA 이동, 같은 workspace의 독립 게시 루트는 대상 token 같은 탭 이동을 하는지 확인. 미게시·해제·삭제·DB 행·타 workspace 항목은 보이지 않아야 한다.
+4. 갤러리 높이 변경이 복제본·새로고침·공개 화면에서 동일하게 유지되고, 서로 다른 비율의 이미지가 잘리지 않는지 확인.
+5. 공개 갤러리 이미지가 302 presign 되고, 미리보기 중 자동 전환이 멈추는지 확인.
+6. 375px 화면, 키보드만 사용, reduced motion 설정에서 높이 조절·팝업·롤링·미리보기를 확인.
+7. 동시 저장에서 서버 LWW 승자가 모든 마운트 복제본에 반영되고, 서버 실패 시 편집 팝업이 열린 채 오류를 표시하는지 확인.
+8. 같은 `sharedBlockId`를 가진 서로 다른 워크스페이스 캐시가 분리되는지 확인.

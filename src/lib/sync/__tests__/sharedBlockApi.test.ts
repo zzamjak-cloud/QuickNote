@@ -57,7 +57,7 @@ describe("pushSharedBlockApi", () => {
       id: "shared-1",
       workspaceId: "workspace-1",
       kind: "gallery",
-      data: { kind: "gallery", images: [], intervalMs: 5_000 },
+      data: { kind: "gallery", images: [], intervalMs: 5_000, heightPx: 320 },
       updatedAt: Date.now(),
       deletedAt: null,
     })).resolves.toBeNull();
@@ -70,7 +70,7 @@ describe("pushSharedBlockApi", () => {
       id: "shared-gallery",
       workspaceId: "workspace-1",
       kind: "gallery",
-      data: { kind: "gallery", images: [], intervalMs: 5_000 },
+      data: { kind: "gallery", images: [], intervalMs: 5_000, heightPx: 320 },
       updatedAt: Date.parse("2026-07-18T00:00:00.000Z"),
       deletedAt: null,
     };
@@ -101,6 +101,6 @@ describe("pushSharedBlockApi", () => {
 
     const winner = await pushSharedBlockApi(local);
 
-    expect(winner?.data).toEqual(serverData);
+    expect(winner?.data).toEqual({ ...serverData, heightPx: 320 });
   });
 });

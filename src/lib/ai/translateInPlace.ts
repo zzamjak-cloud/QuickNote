@@ -1,5 +1,5 @@
 // 페이지 "제자리 번역" — 마크다운 왕복(이미지·블럭 소실) 대신 doc 트리를 순회하며
-// 텍스트 노드와 이미지/파일 캡션만 번역문으로 치환한다. 블럭 구조·이미지·attrs·marks 는 그대로 유지된다.
+// 텍스트 노드와 번역 가능한 블록 속성만 번역문으로 치환한다. 블럭 구조·이미지·링크·서식은 유지된다.
 import type { Editor } from "@tiptap/core";
 import type { Mark } from "@tiptap/pm/model";
 import { getEditorForPage } from "../editor/editorByPageRegistry";
@@ -16,18 +16,18 @@ const BATCH_CONCURRENCY = 6;
 const MIN_BATCH_CHARS = 700;
 const MAX_BATCH_CHARS = 6_000;
 
-// 번역 대상 한 조각. text=인라인 텍스트 노드, caption=이미지/파일 블럭의 caption attr.
-type Target =
+// 번역 대상 한 조각. text=인라인 텍스트 노드, attribute=블록의 표시 텍스트 attr.
+export type TranslationTarget =
   | { kind: "text"; from: number; to: number; text: string; marks: readonly Mark[] }
-  | { kind: "caption"; pos: number; text: string };
+  | { kind: "attribute"; pos: number; attribute: "caption" | "label"; text: string };
 
-function posOf(t: Target): number {
+function posOf(t: TranslationTarget): number {
   return t.kind === "text" ? t.from : t.pos;
 }
 
 /** doc 순회로 번역 대상 수집. codeBlock 내부 텍스트는 코드이므로 제외. */
-function collectTargets(editor: Editor): Target[] {
-  const targets: Target[] = [];
+export function collectTranslationTargets(editor: Editor): TranslationTarget[] {
+  const targets: TranslationTarget[] = [];
   editor.state.doc.descendants((node, pos, parent) => {
     // 코드 블럭 내부는 번역하지 않는다(자식 순회도 중단).
     if (node.type.name === "codeBlock") return false;
@@ -44,7 +44,20 @@ function collectTargets(editor: Editor): Target[] {
     if (node.type.name === "image" || node.type.name === "fileBlock") {
       const cap = node.attrs.caption;
       if (typeof cap === "string" && cap.trim()) {
-        targets.push({ kind: "caption", pos, text: cap });
+        targets.push({ kind: "attribute", pos, attribute: "caption", text: cap });
+      }
+    }
+    // 버튼은 inline atom이라 표시문이 자식 text가 아닌 label attr에 있다.
+    // DB 전용 버튼은 DB 제목에서 라벨을 다시 파생하므로 페이지 번역 대상에서 제외한다.
+    if (node.type.name === "buttonBlock") {
+      const label = node.attrs.label;
+      const databaseId = node.attrs.databaseId;
+      const href = node.attrs.href;
+      const isDatabaseButton = typeof databaseId === "string"
+        && databaseId.trim().length > 0
+        && !(typeof href === "string" && href.trim().length > 0);
+      if (!isDatabaseButton && typeof label === "string" && label.trim()) {
+        targets.push({ kind: "attribute", pos, attribute: "label", text: label });
       }
     }
     return true;
@@ -54,16 +67,16 @@ function collectTargets(editor: Editor): Target[] {
 
 /** 콘텐츠 전체 길이를 동시 실행 수로 나눠 배치당 문자 예산을 정한다(하한·상한 클램프).
  *  작은/중간 페이지도 여러 배치로 쪼개져 병렬 실행되도록 하기 위함. */
-function computeBatchBudget(targets: Target[]): number {
+function computeBatchBudget(targets: TranslationTarget[]): number {
   const total = targets.reduce((s, t) => s + t.text.length + 8, 0);
   const even = Math.ceil(total / BATCH_CONCURRENCY);
   return Math.max(MIN_BATCH_CHARS, Math.min(MAX_BATCH_CHARS, even));
 }
 
 /** 문자 예산 기준으로 대상을 배치로 나눈다(각 배치를 한 번의 AI 요청으로 번역). */
-function chunkTargets(targets: Target[], budget: number): Target[][] {
-  const batches: Target[][] = [];
-  let cur: Target[] = [];
+function chunkTargets(targets: TranslationTarget[], budget: number): TranslationTarget[][] {
+  const batches: TranslationTarget[][] = [];
+  let cur: TranslationTarget[] = [];
   let curChars = 0;
   for (const t of targets) {
     const len = t.text.length + 8; // 마커/오버헤드 여유
@@ -140,7 +153,11 @@ async function translateBatch(
 }
 
 /** 번역 결과를 한 트랜잭션으로 제자리 반영. 위치가 높은 것부터 적용해 앞선 위치를 유효하게 유지. */
-function applyTranslations(editor: Editor, targets: Target[], translations: string[]): number {
+export function applyTranslationTargets(
+  editor: Editor,
+  targets: TranslationTarget[],
+  translations: string[],
+): number {
   const items = targets
     .map((t, i) => ({ t, next: translations[i] }))
     .filter((x) => typeof x.next === "string" && x.next !== "" && x.next !== x.t.text)
@@ -155,7 +172,11 @@ function applyTranslations(editor: Editor, targets: Target[], translations: stri
     } else {
       const node = tr.doc.nodeAt(t.pos);
       if (!node) continue;
-      tr.setNodeMarkup(t.pos, undefined, { ...node.attrs, caption: next });
+      const matchesTarget = t.attribute === "caption"
+        ? node.type.name === "image" || node.type.name === "fileBlock"
+        : node.type.name === "buttonBlock";
+      if (!matchesTarget) continue;
+      tr.setNodeMarkup(t.pos, undefined, { ...node.attrs, [t.attribute]: next });
     }
     applied += 1;
   }
@@ -169,7 +190,7 @@ export type TranslatePageResult =
 
 /**
  * 페이지 본문을 구조 보존하며 제자리 번역한다.
- * 텍스트 노드 + 이미지/파일 캡션만 번역, 블럭 구조·이미지·서식은 유지.
+ * 텍스트 노드 + 이미지/파일 캡션 + 일반 버튼 라벨만 번역하고 구조·링크·서식은 유지한다.
  */
 export async function translatePageInPlace(args: {
   pageId: string;
@@ -184,7 +205,7 @@ export async function translatePageInPlace(args: {
   if (!editor.isEditable) return { ok: false, reason: "not-editable" };
 
   // 대상 수집은 번역 시작 시점의 doc 스냅샷 기준(위치 좌표 유효성).
-  const targets = collectTargets(editor);
+  const targets = collectTranslationTargets(editor);
   if (targets.length === 0) return { ok: false, reason: "empty" };
 
   // 전체를 여러 배치로 쪼개 병렬로 번역·병합한다. 한 배치가 실패해도 나머지는 반영(부분 성공),
@@ -242,6 +263,6 @@ export async function translatePageInPlace(args: {
   // 번역 도중 문서가 바뀌었을 수 있으므로, 적용 직전 최신 에디터를 다시 조회한다.
   const liveEditor = getEditorForPage(args.pageId);
   if (!liveEditor || !liveEditor.isEditable) return { ok: false, reason: "no-editor" };
-  const applied = applyTranslations(liveEditor, targets, translations);
+  const applied = applyTranslationTargets(liveEditor, targets, translations);
   return { ok: true, applied, total: targets.length, failedSegments };
 }

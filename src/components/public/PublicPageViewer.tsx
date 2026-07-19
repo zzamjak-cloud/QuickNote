@@ -141,6 +141,8 @@ function ReadOnlyDocView({
             event.stopPropagation();
             if (action.kind === "navigate") {
               onNavRef.current(action.pageId);
+            } else if (action.kind === "navigatePublic") {
+              window.location.assign(action.href);
             } else {
               window.open(action.href, "_blank", "noopener,noreferrer");
             }
@@ -158,6 +160,8 @@ function ReadOnlyDocView({
           event.stopPropagation();
           if (action.kind === "navigate") {
             onNavRef.current(action.pageId);
+          } else if (action.kind === "navigatePublic") {
+            window.location.assign(action.href);
           } else {
             window.open(action.href, "_blank", "noopener,noreferrer");
           }

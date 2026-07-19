@@ -47,6 +47,7 @@ function galleryData(src: string, alt = "배너"): GalleryData {
     kind: "gallery",
     images: [{ id: "image-1", src, alt }],
     intervalMs: 5000,
+    heightPx: 320,
   };
 }
 
@@ -130,6 +131,26 @@ describe("GalleryBlockView", () => {
 
     expect(screen.getByLabelText("Hero 미리보기")).toBeInTheDocument();
     expect(screen.queryByText("편집 버튼에서 배너 이미지를 추가하세요.")).not.toBeInTheDocument();
+  });
+
+  it("편집한 블록 높이를 공유 데이터에 저장하고 렌더링에 적용한다", async () => {
+    const inline = { ...galleryData("quicknote-image://height-asset", "높이 배너"), heightPx: 420 };
+    mocks.pushSharedBlockApi.mockImplementation(async (record: SharedBlockRecord) => record);
+    const { updateAttributes } = renderGallery({ data: serializeSharedBlockData(inline) });
+
+    expect(screen.getByRole("region", { name: "롤링 갤러리" })).toHaveStyle({ height: "420px" });
+    expect(screen.getByAltText("높이 배너")).toHaveClass("object-contain");
+    fireEvent.click(screen.getByLabelText("갤러리 편집"));
+    fireEvent.change(screen.getByLabelText("갤러리 높이"), { target: { value: "560" } });
+    expect(screen.getByText("560px")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "변경사항 저장" }));
+
+    await waitFor(() => expect(mocks.pushSharedBlockApi).toHaveBeenCalledTimes(1));
+    const saved = mocks.pushSharedBlockApi.mock.calls[0]?.[0] as SharedBlockRecord;
+    expect(saved.data).toMatchObject({ kind: "gallery", heightPx: 560 });
+    await waitFor(() => expect(updateAttributes).toHaveBeenCalledWith({
+      data: expect.stringContaining('"heightPx":560'),
+    }));
   });
 
   it("업로드한 이미지를 저장하면 SharedBlock 과 host page inline data 를 함께 갱신한다", async () => {

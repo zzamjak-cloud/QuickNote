@@ -79,8 +79,12 @@
   `dropdownMenuBlock`/`galleryBlock` → 서버 최신 공유 레코드 hydrate 후 공개 NodeView,
   `pageLink`/페이지 멘션 → 트리 안=공개 라우트 링크 / 밖=순수 텍스트(id 비노출).
 - **공유 블록**: public-view Lambda는 페이지 doc의 `sharedBlockId`를 같은 workspace의
-  `SharedBlock` 최신 데이터로 치환한다. 드롭다운은 게시 트리의 `pageId`만 남기고, 갤러리
-  payload의 이미지 ref도 `op=asset` 허용 목록에 포함한다. 상세는
+  `SharedBlock` 최신 데이터로 치환한다. 드롭다운은 현재 게시 트리 항목과, 같은 workspace에서
+  대상 페이지 자체가 별도 게시 중인 항목만 남긴다. 전자는 `/p/<현재 token>?page=<id>`로
+  SPA 이동하고 후자는 서버가 `published-pages.byPageId`에서 active token을 확인해 만든
+  `/p/<대상 token>`으로 같은 탭 전체 이동한다. 미게시·해제·삭제·DB 행·타 workspace 대상과
+  저장 data의 임의 `href`는 label/pageId까지 응답에서 제거한다. 갤러리 payload의 이미지 ref도
+  `op=asset` 허용 목록에 포함한다. 상세는
   [공유 드롭다운 메뉴·갤러리](../blocks/shared-blocks.md)를 따른다.
 - `VITE_PUBLIC_VIEW_URL` (Function URL) — 미설정이면 뷰어는 404 화면. CSP `connect-src` 에
   해당 호스트 핀 고정 필요(`vercel.json`). 도메인 변경 시 env·CSP 동시 갱신.
@@ -90,6 +94,7 @@
 - `infra/lambda/public-view/index.test.ts` — 균일 404·트리 소속·자산 인가·필드 미노출·순환 종료
 - `infra/lambda/v5-resolvers/handlers/publishedPage.test.ts` — 멱등·권한·해제
 - `src/lib/publicView/__tests__/transformPublicDoc.test.ts` — 치환·강등
+- `src/lib/publicView/__tests__/publicLinks.test.ts` — 트리 내부 SPA 이동·독립 게시 같은 탭 이동·외부 링크
 
 ## 배포 체크리스트
 

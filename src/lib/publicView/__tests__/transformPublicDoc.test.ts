@@ -175,7 +175,7 @@ describe("transformPublicDoc", () => {
     expect(String(out.content?.[1]?.content?.[0]?.attrs?.icon)).toContain("assetId=ico-2");
   });
 
-  it("드롭다운 메뉴는 게시 트리 항목만 공개 링크로 변환한다", () => {
+  it("드롭다운 메뉴는 현재 트리와 서버 검증된 독립 게시 링크만 유지한다", () => {
     const doc: JSONContent = {
       type: "doc",
       content: [
@@ -188,6 +188,18 @@ describe("transformPublicDoc", () => {
               items: [
                 { id: "ko", label: "한국어", pageId: "page-1" },
                 { id: "en", label: "English", pageId: "child-1" },
+                {
+                  id: "jp",
+                  label: "日本語",
+                  pageId: "other-root",
+                  href: "/p/othertoken1234567890",
+                },
+                {
+                  id: "evil",
+                  label: "조작 링크",
+                  pageId: "evil-root",
+                  href: "https://evil.example/p/token1234567890",
+                },
                 { id: "secret", label: "비공개", pageId: "secret-1" },
               ],
             }),
@@ -201,9 +213,15 @@ describe("transformPublicDoc", () => {
       items: Array<{ pageId: string; href: string; active?: boolean }>;
     };
     expect(block?.attrs?.publicMode).toBe(true);
-    expect(data.items).toHaveLength(2);
+    expect(data.items).toHaveLength(3);
     expect(data.items[0]?.active).toBe(true);
     expect(data.items[1]?.href).toBe(`/p/${ctx.token}?page=child-1`);
+    expect(data.items[2]).toMatchObject({
+      pageId: "other-root",
+      href: "/p/othertoken1234567890",
+      active: false,
+    });
+    expect(JSON.stringify(block)).not.toContain("evil-root");
     expect(JSON.stringify(block)).not.toContain("secret-1");
   });
 
@@ -218,6 +236,7 @@ describe("transformPublicDoc", () => {
             data: {
               kind: "gallery",
               intervalMs: 5000,
+              heightPx: 520,
               images: [{ id: "hero", src: "quicknote-image://banner-1", alt: "배너" }],
             },
           },
@@ -227,9 +246,11 @@ describe("transformPublicDoc", () => {
     const out = transformPublicDoc(doc, ctx);
     const block = out.content?.[0];
     const data = JSON.parse(String(block?.attrs?.data)) as {
+      heightPx: number;
       images: Array<{ src: string }>;
     };
     expect(block?.attrs?.publicMode).toBe(true);
+    expect(data.heightPx).toBe(520);
     expect(data.images[0]?.src).toContain("op=asset");
     expect(data.images[0]?.src).toContain("assetId=banner-1");
   });

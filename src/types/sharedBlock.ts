@@ -1,5 +1,8 @@
 export const SHARED_BLOCK_SCHEMA_VERSION = 1;
 export const DEFAULT_GALLERY_INTERVAL_MS = 5_000;
+export const DEFAULT_GALLERY_HEIGHT_PX = 320;
+export const MIN_GALLERY_HEIGHT_PX = 180;
+export const MAX_GALLERY_HEIGHT_PX = 800;
 
 export type SharedBlockKind = "dropdown-menu" | "gallery";
 export type SharedBlockAlign = "left" | "center" | "right";
@@ -8,13 +11,20 @@ export function normalizeSharedBlockAlign(value: unknown): SharedBlockAlign {
   return value === "center" || value === "right" ? value : "left";
 }
 
+export function normalizeGalleryHeightPx(value: unknown): number {
+  const height = Number(value);
+  return Number.isFinite(height)
+    ? Math.min(MAX_GALLERY_HEIGHT_PX, Math.max(MIN_GALLERY_HEIGHT_PX, Math.round(height)))
+    : DEFAULT_GALLERY_HEIGHT_PX;
+}
+
 export type DropdownMenuItem = {
   id: string;
   label: string;
   pageId: string;
   /** 편집 팝업에 표시할 연결 페이지 제목 스냅샷. */
   pageLabel?: string;
-  /** 공개 뷰 변환 단계에서만 채워지는 내부 라우트 링크. */
+  /** 공개 뷰에서만 채워지는 현재 게시 트리 또는 독립 게시 루트 링크. */
   href?: string;
   /** 현재 공개/편집 페이지와 연결된 항목인지 표시한다. */
   active?: boolean;
@@ -35,6 +45,7 @@ export type GalleryData = {
   kind: "gallery";
   images: GalleryImage[];
   intervalMs: number;
+  heightPx: number;
 };
 
 export type SharedBlockData = DropdownMenuData | GalleryData;
@@ -80,6 +91,7 @@ export function emptyGallery(): GalleryData {
     kind: "gallery",
     images: [],
     intervalMs: DEFAULT_GALLERY_INTERVAL_MS,
+    heightPx: DEFAULT_GALLERY_HEIGHT_PX,
   };
 }
 
@@ -116,6 +128,7 @@ export function parseGalleryData(raw: unknown): GalleryData {
   const intervalMs = Number.isFinite(intervalRaw)
     ? Math.min(15_000, Math.max(3_000, Math.round(intervalRaw)))
     : DEFAULT_GALLERY_INTERVAL_MS;
+  const heightPx = normalizeGalleryHeightPx(value?.heightPx);
   return {
     kind: "gallery",
     images: rows.flatMap((row, index) => {
@@ -132,6 +145,7 @@ export function parseGalleryData(raw: unknown): GalleryData {
       ];
     }),
     intervalMs,
+    heightPx,
   };
 }
 
